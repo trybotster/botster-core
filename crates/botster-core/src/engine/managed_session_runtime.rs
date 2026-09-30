@@ -1262,6 +1262,29 @@ where
         )?)
     }
 
+    /// Write bytes to a session's PTY for the host, with no client identity.
+    ///
+    /// The bytes go straight to the session runtime, behind whatever inputs
+    /// the session already has queued, so order is kept. No route, client
+    /// stream or edge counter is involved: a host write is never human input.
+    /// All or nothing: when the runtime cannot take the bytes (its control
+    /// queue is full, or it is sealed) nothing is written and the typed
+    /// runtime error is returned; the queued inputs stay queued.
+    pub fn write_host_bytes(
+        &mut self,
+        session_id: &SessionId,
+        data: Vec<u8>,
+    ) -> Result<(), ManagedSessionRuntimeError> {
+        self.flush_runtime_inputs_for_session(session_id)?;
+        self.engine
+            .session_runtime_mut()
+            .send_input(SessionRuntimeInput::PtyInput {
+                session_id: session_id.clone(),
+                data,
+            })?;
+        Ok(())
+    }
+
     /// Route one client ingress frame through the existing multiplexer path.
     pub fn handle_client_ingress(
         &mut self,

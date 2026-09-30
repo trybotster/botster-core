@@ -5240,6 +5240,136 @@ fn a_mode_change_advances_modes_epoch_with_its_flags() {
     let _ = fs::remove_dir_all(data_dir);
 }
 
+/// A host write reaches a session nobody is attached to, and it is not
+/// human input: `input_seq` and `composing` stay where they were.
+#[cfg(unix)]
+#[test]
+fn host_input_writes_to_an_unattached_session_and_moves_no_input_edge() {
+    use botster_core_daemon::{CoreCompletion, CoreOperation, ReadScreenRequest};
+    let data_dir = temp_data_dir("host-input");
+    let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+    let session_id = SessionId("host-input-session".to_string());
+    daemon.spawn(spawn_request(&session_id), 10).expect("spawn");
+    let before = daemon
+        .session_edges(&session_id)
+        .expect("read")
+        .expect("a record");
+
+    daemon
+        .host_input(session_id.clone(), b"hostping\n".to_vec(), 11)
+        .expect("a host write to an unattached session");
+
+    // The session echoes what its PTY received, so the echo on the screen
+    // shows that the bytes arrived.
+    wait_for(
+        "the host write's echo reached the screen",
+        REAL_WORKER_COMPLETION_TIMEOUT,
+        |remaining| {
+            // timer: deadline — wait_for's bound limits this wait
+            let batch = daemon.wait_wakes(remaining);
+            daemon.pump_woken(&batch, 12).expect("pump");
+            match complete_now(
+                &mut daemon,
+                CoreOperation::ReadScreen(ReadScreenRequest {
+                    request_id: RequestId("host-input-screen".into()),
+                    session_id: session_id.clone(),
+                    now_seconds: 13,
+                }),
+            ) {
+                CoreCompletion::ReadScreen {
+                    result: Ok(screen), ..
+                } if screen.text.contains("echo:hostping") => Some(()),
+                _ => None,
+            }
+        },
+    );
+    let after = daemon
+        .session_edges(&session_id)
+        .expect("read")
+        .expect("a record");
+    assert_eq!(
+        (after.input_seq, after.composing),
+        (before.input_seq, before.composing),
+        "a host write never counts as human input"
+    );
+    assert!(
+        after.output_seq > before.output_seq,
+        "the echo is output: {before:?} then {after:?}"
+    );
+    daemon.shutdown(Some(session_id), 20).ok();
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+/// A host write keeps the refusals of a client write: an unknown session and
+/// an ended one are refused, typed, and nothing is written.
+#[cfg(unix)]
+#[test]
+fn host_input_is_refused_for_an_unknown_or_an_ended_session() {
+    let data_dir = temp_data_dir("host-input-refused");
+    let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+    let unknown = SessionId("host-input-unknown".to_string());
+    assert!(matches!(
+        daemon.host_input(unknown.clone(), b"x".to_vec(), 10),
+        Err(CoreDaemonError::UnknownSession(id)) if id == unknown
+    ));
+
+    let ended = SessionId("host-input-ended".to_string());
+    spawn_until_exited(
+        &mut daemon,
+        &ended,
+        &ClientId("host-input-client".to_string()),
+        &SubscriptionId("host-input-route".to_string()),
+    );
+    assert!(matches!(
+        daemon.host_input(ended.clone(), b"x".to_vec(), 20),
+        Err(CoreDaemonError::SessionNotReadable(id)) if id == ended
+    ));
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+/// The size in the edges follows the session's last resize.
+#[cfg(unix)]
+#[test]
+fn session_edges_size_follows_a_resize() {
+    let data_dir = temp_data_dir("edges-size");
+    let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+    let session_id = SessionId("edges-size-session".to_string());
+    let client_id = ClientId("edges-size-client".to_string());
+    daemon.spawn(spawn_request(&session_id), 10).expect("spawn");
+    assert_eq!(
+        daemon
+            .session_edges(&session_id)
+            .expect("read")
+            .expect("a record")
+            .size,
+        ResizePayload { rows: 24, cols: 80 },
+        "the spawn's size"
+    );
+
+    daemon
+        .attach(
+            client_id.clone(),
+            session_id.clone(),
+            SubscriptionId("edges-size-route".to_string()),
+            11,
+        )
+        .expect("attach");
+    daemon
+        .resize(client_id, session_id.clone(), 31, 91, 12)
+        .expect("resize");
+    assert_eq!(
+        daemon
+            .session_edges(&session_id)
+            .expect("read")
+            .expect("a record")
+            .size,
+        ResizePayload { rows: 31, cols: 91 },
+        "the size follows the resize"
+    );
+    daemon.shutdown(Some(session_id), 20).ok();
+    let _ = fs::remove_dir_all(data_dir);
+}
+
 /// Release keeps an ended id's counters for a respawn; removing the id
 /// after that release still drops them, though the engine holds no session
 /// for it any more.
