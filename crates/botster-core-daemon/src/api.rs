@@ -589,6 +589,19 @@ pub struct ReadModeFlagsRequest {
     pub now_seconds: u64,
 }
 
+/// Host request to write bytes to a session with no client identity.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HostInputRequest {
+    /// Request correlation id.
+    pub request_id: RequestId,
+    /// Session to write to.
+    pub session_id: SessionId,
+    /// The exact bytes, written as one operation.
+    pub data: Vec<u8>,
+    /// Logical timestamp of the request.
+    pub now_seconds: u64,
+}
+
 /// Host request to read the cursor and its row, from one model state.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReadCursorRequest {

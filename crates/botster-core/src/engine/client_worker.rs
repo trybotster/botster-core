@@ -2686,6 +2686,14 @@ impl ClientWorker {
         Some(staged)
     }
 
+    /// Take the next worker operation key. Client and host operations draw
+    /// from this one counter, so a key names exactly one operation.
+    pub(crate) fn allocate_operation_key(&mut self) -> Option<u64> {
+        let key = self.next_operation_key;
+        self.next_operation_key = key.checked_add(1)?;
+        Some(key)
+    }
+
     /// Stage B across every live owner in rotated order.
     pub fn take_terminal_input(&mut self) -> Vec<StagedTerminalInput> {
         let keys = self.rotated_live_keys();

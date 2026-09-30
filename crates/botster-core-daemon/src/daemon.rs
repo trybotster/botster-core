@@ -40,10 +40,10 @@ use botster_terminal_protocol::HistoryUnavailableReason;
 use thiserror::Error;
 
 use crate::operation::{
-    CaptureId, CaptureOwner, CursorReadback, ModeFlagsReadback, ReservedSpawnResult,
-    RetainedTerminal, ScreenReadback, SnapshotCapture, SnapshotPage, CAPTURE_IDLE_TTL_SECONDS,
-    MAX_OPEN_CAPTURES_PER_CLIENT, MAX_PENDING_READBACKS_PER_SESSION, MAX_PENDING_SPAWNS,
-    SNAPSHOT_PAGE_BYTES,
+    CaptureId, CaptureOwner, CursorReadback, HostInputOutcome, ModeFlagsReadback,
+    ReservedSpawnResult, RetainedTerminal, ScreenReadback, SnapshotCapture, SnapshotPage,
+    CAPTURE_IDLE_TTL_SECONDS, MAX_OPEN_CAPTURES_PER_CLIENT, MAX_PENDING_READBACKS_PER_SESSION,
+    MAX_PENDING_SPAWNS, SNAPSHOT_PAGE_BYTES,
 };
 use crate::wake_pump::{WakePumpControl, WakePumpError, WakePumpState, WakePumpWait};
 
@@ -52,17 +52,18 @@ use crate::api::{
     AcknowledgeNotificationRequest, AcknowledgeRoutedEnvelopeRequest, AttachedSession,
     CaptureSnapshotRequest, DaemonHealth, DaemonSession, DaemonStatus, DrainNotificationsRequest,
     DrainNotificationsResult, DrainResult, DrainRoutedEnvelopesRequest, DrainRoutedEnvelopesResult,
-    GuardedWriteRequest, GuardedWriteResult, LifecycleBaselineBudget, LifecycleBaselineStop,
-    NotificationStatusResult, ObserveLifecycleBudget, ObserveLifecycleCursor,
-    ObserveLifecyclePassId, ObserveLifecycleSlice, ObserveLifecycleSliceError,
-    ObserveLifecycleStop, PostNotificationRequest, PostNotificationResult,
-    PublishRoutedEnvelopeRequest, PublishRoutedEnvelopeResult, PumpWokenOutcome, ReadCursorRequest,
-    ReadModeFlagsRequest, ReadScreenRequest, RoutedEnvelopeDeliveryStateResult,
-    SessionAdoptionReport, SessionAdoptionState, SessionLifecycleBaseline,
-    SessionLifecycleBaselinePage, SessionLifecycleChange, SessionLifecycleChangeKind,
-    SessionLifecycleChanges, SessionLifecycleCursor, SessionLifecycleLookup, SessionLifecyclePage,
-    SessionLifecyclePageError, SessionLifecycleRecord, SessionLifecycleResyncReason,
-    SessionLifecycleSourceId, SessionRegistryStateLookup, SpawnSessionRequest,
+    GuardedWriteRequest, GuardedWriteResult, HostInputRequest, LifecycleBaselineBudget,
+    LifecycleBaselineStop, NotificationStatusResult, ObserveLifecycleBudget,
+    ObserveLifecycleCursor, ObserveLifecyclePassId, ObserveLifecycleSlice,
+    ObserveLifecycleSliceError, ObserveLifecycleStop, PostNotificationRequest,
+    PostNotificationResult, PublishRoutedEnvelopeRequest, PublishRoutedEnvelopeResult,
+    PumpWokenOutcome, ReadCursorRequest, ReadModeFlagsRequest, ReadScreenRequest,
+    RoutedEnvelopeDeliveryStateResult, SessionAdoptionReport, SessionAdoptionState,
+    SessionLifecycleBaseline, SessionLifecycleBaselinePage, SessionLifecycleChange,
+    SessionLifecycleChangeKind, SessionLifecycleChanges, SessionLifecycleCursor,
+    SessionLifecycleLookup, SessionLifecyclePage, SessionLifecyclePageError,
+    SessionLifecycleRecord, SessionLifecycleResyncReason, SessionLifecycleSourceId,
+    SessionRegistryStateLookup, SpawnSessionRequest,
 };
 use crate::guarded_write::{decide_guarded_write, GuardedWriteDecision, GuardedWriteDeliveryState};
 use crate::registry::{
@@ -528,6 +529,8 @@ enum PendingKind {
         /// The output counter when the probe was issued.
         output_seq: u64,
     },
+    /// A host write in flight at the worker, by its worker key.
+    HostInput { session_id: SessionId, key: u64 },
     CaptureSnapshot {
         session_id: SessionId,
         owner: CaptureOwner,
@@ -1961,6 +1964,7 @@ impl CoreDaemon {
             CoreOperation::ReadScreen(request) => self.begin_read_screen(id, request)?,
             CoreOperation::ReadModeFlags(request) => self.begin_read_mode_flags(id, request)?,
             CoreOperation::ReadCursor(request) => self.begin_read_cursor(id, request)?,
+            CoreOperation::HostInput(request) => self.begin_host_input(id, request)?,
             CoreOperation::CaptureSnapshot { request, owner } => {
                 self.begin_capture_snapshot(id, request, owner)?;
             }
@@ -2021,6 +2025,28 @@ impl CoreDaemon {
                 return true;
             }
         }
+        if let Some(state) = self.pending.get_mut(&id) {
+            if let PendingKind::HostInput { session_id, key } = &state.kind {
+                // The write may be partly done, so the operation is not
+                // completed here: the worker is asked to stop, and its answer
+                // reports the bytes it actually wrote. Only a cancel frame the
+                // worker link admitted counts: when the control queue has no
+                // slot for it, or the write is no longer in flight, nothing was
+                // sent and the operation stays as it was, so the host can
+                // cancel again.
+                let (session_id, key) = (session_id.clone(), *key);
+                let sent = match &mut self.engine {
+                    DaemonEngine::Worker(engine) => {
+                        engine.cancel_host_input(&session_id, key).unwrap_or(false)
+                    }
+                    DaemonEngine::Local(_) => false,
+                };
+                if sent {
+                    state.cancelled = true;
+                }
+                return sent;
+            }
+        }
         let Some(state) = self.pending.remove(&id) else {
             return false;
         };
@@ -2042,6 +2068,11 @@ impl CoreDaemon {
                 result: Err(CoreDaemonError::Cancelled),
             },
             PendingKind::ReadCursor { .. } => CoreCompletion::ReadCursor {
+                id,
+                result: Err(CoreDaemonError::Cancelled),
+            },
+            // Handled above: a host write is cancelled at the worker.
+            PendingKind::HostInput { .. } => CoreCompletion::HostInput {
                 id,
                 result: Err(CoreDaemonError::Cancelled),
             },
@@ -2523,6 +2554,56 @@ impl CoreDaemon {
         }
     }
 
+    fn begin_host_input(
+        &mut self,
+        id: PendingOperationId,
+        request: HostInputRequest,
+    ) -> Result<(), CoreDaemonError> {
+        let session_id = request.session_id.clone();
+        // The refusals of a client write: an unknown session, an ended or
+        // stopping one, and a failed control plane.
+        self.ensure_session_mutable(&session_id)?;
+        if matches!(
+            self.engine.control_plane_state(&session_id),
+            botster_core::runtime::ControlPlaneState::Failed(_)
+        ) {
+            return Err(CoreDaemonError::ControlPlaneFailed(session_id));
+        }
+        match &mut self.engine {
+            DaemonEngine::Local(engine) => {
+                // The in-process runtime has no worker lane: the write is its
+                // own blocking write, complete when it returns.
+                let len = request.data.len() as u64;
+                engine.write_host_bytes(&session_id, request.data)?;
+                self.completions.push(CoreCompletion::HostInput {
+                    id,
+                    result: Ok(HostInputOutcome {
+                        outcome: botster_terminal_protocol::InputOutcome::Written,
+                        accepted_payload_bytes: Some(len),
+                        written_pty_bytes: Some(len),
+                        detail: String::new(),
+                    }),
+                });
+                Ok(())
+            }
+            DaemonEngine::Worker(engine) => {
+                let key = engine.submit_host_input(&session_id, &request.data)?;
+                // No deadline: a blocked PTY keeps the write pending at the
+                // worker, and expiring the operation would not stop it. The
+                // host cancels through `cancel`.
+                self.pending.insert(
+                    id,
+                    PendingState {
+                        kind: PendingKind::HostInput { session_id, key },
+                        deadline: None,
+                        cancelled: false,
+                    },
+                );
+                Ok(())
+            }
+        }
+    }
+
     fn begin_read_cursor(
         &mut self,
         id: PendingOperationId,
@@ -2747,6 +2828,14 @@ impl CoreDaemon {
             }
         }
         self.resolve_pending_readbacks(&mut screen_replies, &mut mode_replies);
+        // Host writes that ended, by worker key.
+        let mut host_results: HashMap<u64, botster_terminal_protocol::InputResultBody> =
+            match &mut self.engine {
+                DaemonEngine::Worker(engine) => {
+                    engine.take_host_input_results().into_iter().collect()
+                }
+                DaemonEngine::Local(_) => HashMap::new(),
+            };
         let ids: Vec<_> = self.pending.keys().copied().collect();
         for id in ids {
             let Some(state) = self.pending.get(&id) else {
@@ -2923,6 +3012,55 @@ impl CoreDaemon {
                             id,
                             result: Err(CoreDaemonError::DeadlineExpired),
                         },
+                        None => continue,
+                    }
+                }
+                PendingKind::HostInput { session_id, key } => {
+                    let DaemonEngine::Worker(engine) = &mut self.engine else {
+                        continue;
+                    };
+                    match host_results.remove(key) {
+                        Some(result) => CoreCompletion::HostInput {
+                            id,
+                            result: Ok(HostInputOutcome {
+                                outcome: result.outcome,
+                                accepted_payload_bytes: result.accepted_payload_bytes,
+                                written_pty_bytes: result.written_pty_bytes,
+                                detail: result.detail,
+                            }),
+                        },
+                        // A session that has ended answers its pending writes:
+                        // none of them can reach its PTY any more.
+                        None if engine.session(session_id).is_some_and(|session| {
+                            matches!(
+                                session.lifecycle,
+                                SessionLifecycleState::Exited { .. }
+                                    | SessionLifecycleState::Failed { .. }
+                            )
+                        }) =>
+                        {
+                            engine.abandon_host_input(*key);
+                            CoreCompletion::HostInput {
+                                id,
+                                result: Ok(HostInputOutcome {
+                                    outcome: botster_terminal_protocol::InputOutcome::SessionEnded,
+                                    accepted_payload_bytes: None,
+                                    written_pty_bytes: None,
+                                    detail: "session ended".to_string(),
+                                }),
+                            }
+                        }
+                        // A session that left the engine, or a link that
+                        // ended, fails the write as unknown.
+                        None if engine.session(session_id).is_none()
+                            || engine.worker_link_ended(session_id) =>
+                        {
+                            engine.abandon_host_input(*key);
+                            CoreCompletion::HostInput {
+                                id,
+                                result: Err(CoreDaemonError::WorkerLinkFailed(session_id.clone())),
+                            }
+                        }
                         None => continue,
                     }
                 }
