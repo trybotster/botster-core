@@ -6,7 +6,6 @@
 use std::io::{BufRead, BufReader, Read, Write};
 use std::os::unix::net::UnixStream;
 use std::process::{Child, Command, Stdio};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use botster_core::{encode_hello, PROTOCOL_VERSION};
 use botster_core_test_support::bounded_wait::HANG_GUARD;
@@ -25,10 +24,7 @@ struct WaitingWorker {
 impl WaitingWorker {
     fn start() -> Self {
         let binary = WorkerBinary::from_env().expect("the worker binary is verified");
-        let nanos = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("clock")
-            .as_nanos();
+        let nanos = botster_core_test_support::unique::stamp();
         let dir = std::env::temp_dir().join(format!("bw-{}-{nanos}", std::process::id()));
         let socket = dir.join("w.sock");
         // The launcher stands in as a process that lives until the test ends
@@ -53,10 +49,17 @@ impl WaitingWorker {
         BufReader::new(worker.stdout.as_mut().expect("worker stdout"))
             .read_line(&mut ready)
             .expect("read the readiness line");
-        assert!(
-            ready.starts_with("botster-session-worker-ready"),
-            "unexpected first line: {ready:?}"
-        );
+        if !ready.starts_with("botster-session-worker-ready") {
+            // The worker ended before it was ready: report how it ended.
+            let status = worker.wait().expect("reap the worker");
+            let mut stderr = String::new();
+            let _ = worker
+                .stderr
+                .take()
+                .expect("worker stderr")
+                .read_to_string(&mut stderr);
+            panic!("unexpected first line {ready:?}; worker status {status:?}; stderr {stderr:?}");
+        }
         Self {
             worker,
             launcher,
