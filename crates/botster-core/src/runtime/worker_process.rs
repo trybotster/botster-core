@@ -2972,9 +2972,8 @@ impl PendingWorker {
 /// read, so a descendant that keeps writing cannot extend it. Nothing is read
 /// when the descriptor cannot be made non-blocking or its size cannot be read.
 #[cfg(unix)]
-fn read_available(pipe: &mut std::process::ChildStderr, out: &mut String) {
-    use std::os::fd::AsRawFd;
-    let fd = pipe.as_raw_fd();
+fn read_available(pipe: &mut (impl Read + std::os::fd::AsRawFd), out: &mut String) {
+    let fd = std::os::fd::AsRawFd::as_raw_fd(pipe);
     // SAFETY: the descriptor is owned by `pipe`, which outlives these calls.
     let snapshot = unsafe {
         let flags = libc::fcntl(fd, libc::F_GETFL);
@@ -5081,5 +5080,70 @@ mod tests {
             reservation.execution_state(),
             SessionReservationState::CleanupUnconfirmed
         );
+    }
+
+    /// A source that stays readable: it is refilled after every read, as a
+    /// pipe is by a descendant that writes without end. A read that only
+    /// stops where the source would block never stops here.
+    struct RefillingPipe {
+        reader: std::io::PipeReader,
+        writer: std::io::PipeWriter,
+        reads: usize,
+    }
+
+    impl std::io::Read for RefillingPipe {
+        fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+            self.reads += 1;
+            assert!(
+                self.reads < 1000,
+                "the read of an unending source never stopped"
+            );
+            let count = std::io::Read::read(&mut self.reader, buffer)?;
+            std::io::Write::write_all(&mut self.writer, &[b'n'; 4096]).expect("refill the pipe");
+            Ok(count)
+        }
+    }
+
+    impl std::os::fd::AsRawFd for RefillingPipe {
+        fn as_raw_fd(&self) -> std::os::fd::RawFd {
+            self.reader.as_raw_fd()
+        }
+    }
+
+    #[test]
+    fn a_snapshot_read_of_a_pipe_that_keeps_filling_stops_at_the_snapshot() {
+        let (reader, mut writer) = std::io::pipe().expect("pipe");
+        std::io::Write::write_all(&mut writer, b"reason").expect("write the reason");
+        let mut source = RefillingPipe {
+            reader,
+            writer,
+            reads: 0,
+        };
+        let mut out = String::new();
+        super::read_available(&mut source, &mut out);
+        assert_eq!(out, "reason", "only what the pipe held when asked");
+        assert_eq!(source.reads, 1);
+    }
+
+    /// A descriptor that cannot be made non-blocking or sized is not read.
+    struct NoDescriptor;
+
+    impl std::io::Read for NoDescriptor {
+        fn read(&mut self, _buffer: &mut [u8]) -> std::io::Result<usize> {
+            panic!("nothing is read from an unusable descriptor");
+        }
+    }
+
+    impl std::os::fd::AsRawFd for NoDescriptor {
+        fn as_raw_fd(&self) -> std::os::fd::RawFd {
+            -1
+        }
+    }
+
+    #[test]
+    fn a_snapshot_read_of_an_unusable_descriptor_reads_nothing() {
+        let mut out = String::new();
+        super::read_available(&mut NoDescriptor, &mut out);
+        assert!(out.is_empty());
     }
 }
