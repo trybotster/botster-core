@@ -1199,6 +1199,19 @@ struct PendingWrite {
     written: usize,
 }
 
+/// Whether the keyless part of a PTY write queue is under the input-lane
+/// limits keyed operations already obey: the number of writes and the bytes
+/// not yet written. Keyed writes are accounted by their own counters.
+fn keyless_lane_has_room(writes: &VecDeque<PendingWrite>) -> bool {
+    let (count, bytes) = writes
+        .iter()
+        .filter(|write| write.key.is_none())
+        .fold((0_usize, 0_usize), |(count, bytes), write| {
+            (count + 1, bytes + (write.bytes.len() - write.written))
+        });
+    count < MAX_INPUT_OPERATIONS_PER_SESSION && bytes < MAX_RETAINED_INPUT_BYTES_PER_SESSION
+}
+
 struct WorkerState {
     session_id: SessionId,
     ghostty: GhosttyTerminal,
@@ -1266,6 +1279,17 @@ impl WorkerState {
     /// PTY writes therefore stay within the bound.
     fn control_has_room(&self) -> bool {
         self.egress.queued(EgressClass::Reply) + self.pending_ops < self.egress.capacity
+            && self.keyless_lane_has_room()
+    }
+
+    /// Keyless writes (`FRAME_PTY_INPUT`, and Ghostty query replies) wait in
+    /// the same PTY write queue as keyed operations, so they count against
+    /// the same input-lane limits. While the PTY does not drain and the lane
+    /// is full, the worker stops reading control frames, the parent's bounded
+    /// control queue fills, and the sender is refused at the queue: bytes are
+    /// not accepted faster than the PTY takes them, past one frame.
+    fn keyless_lane_has_room(&self) -> bool {
+        keyless_lane_has_room(&self.pending_writes)
     }
 
     fn reject(&mut self, key: u64, operation_id: u64, outcome: InputOutcome, detail: &str) {
@@ -3109,6 +3133,110 @@ mod tests {
     use super::{
         Egress, EgressClass, FrameDecoder, SnapshotGate, SnapshotRelease, WorkerLifecycle,
     };
+
+    fn write(key: Option<u64>, len: usize, written: usize) -> super::PendingWrite {
+        super::PendingWrite {
+            key,
+            operation_id: 0,
+            accepted_payload_bytes: len as u64,
+            bytes: vec![0; len],
+            written,
+        }
+    }
+
+    /// The keyless lane is full at the operation limit or at the byte limit
+    /// of the keyed lane, counts only what is still unwritten, and does not
+    /// count keyed writes.
+    #[test]
+    fn the_keyless_lane_is_full_at_the_input_lane_limits() {
+        use super::{
+            keyless_lane_has_room, MAX_INPUT_OPERATIONS_PER_SESSION,
+            MAX_RETAINED_INPUT_BYTES_PER_SESSION,
+        };
+        use std::collections::VecDeque;
+        let mut writes = VecDeque::new();
+        assert!(keyless_lane_has_room(&writes));
+
+        for _ in 0..MAX_INPUT_OPERATIONS_PER_SESSION - 1 {
+            writes.push_back(write(None, 1, 0));
+        }
+        assert!(keyless_lane_has_room(&writes), "one below the count limit");
+        writes.push_back(write(None, 1, 0));
+        assert!(!keyless_lane_has_room(&writes), "at the count limit");
+
+        // Keyed writes are not counted here.
+        let mut keyed = VecDeque::new();
+        for key in 0..2 * MAX_INPUT_OPERATIONS_PER_SESSION as u64 {
+            keyed.push_back(write(Some(key), MAX_RETAINED_INPUT_BYTES_PER_SESSION, 0));
+        }
+        assert!(
+            keyless_lane_has_room(&keyed),
+            "keyed writes have their own counters"
+        );
+
+        // One large keyless write: under the byte limit by one byte, then at it.
+        let mut large = VecDeque::new();
+        large.push_back(write(None, MAX_RETAINED_INPUT_BYTES_PER_SESSION - 1, 0));
+        assert!(
+            keyless_lane_has_room(&large),
+            "one byte under the byte limit"
+        );
+        large.push_back(write(None, 1, 0));
+        assert!(!keyless_lane_has_room(&large), "at the byte limit");
+
+        // Bytes already written to the PTY no longer count.
+        let mut drained = VecDeque::new();
+        drained.push_back(write(None, MAX_RETAINED_INPUT_BYTES_PER_SESSION, 10));
+        assert!(
+            keyless_lane_has_room(&drained),
+            "the written part is not retained"
+        );
+    }
+
+    /// The worker reads no more control frames while the keyless lane is
+    /// full (the poll set and the control loop both follow
+    /// `control_has_room`), and reads again once the PTY has taken writes.
+    #[test]
+    fn the_worker_stops_reading_control_frames_when_the_keyless_lane_is_full() {
+        use std::collections::VecDeque;
+        let mut state = super::WorkerState {
+            session_id: botster_core::SessionId("keyless-lane".to_string()),
+            ghostty: super::GhosttyTerminal::with_config(
+                super::TerminalScreenSize::new(24, 80),
+                super::GhosttyAdapterConfig::with_max_scrollback_bytes(1024),
+            )
+            .expect("create the worker's terminal"),
+            metadata_producer: super::TerminalMetadataProducer::new(),
+            metadata_shaper: super::TerminalMetadataLaneShaper::new(1, 4),
+            egress: Egress::new(8),
+            last_modes: super::ModesBody {
+                mode_bits: 0,
+                rows: 24,
+                cols: 80,
+            },
+            pending_writes: VecDeque::new(),
+            pending_ops: 0,
+            pending_bytes: 0,
+            exited: false,
+            deferring_exit: false,
+            deferred_exit: None,
+            pty_fds: None,
+            pty_reading: true,
+        };
+        assert!(state.control_has_room());
+        for _ in 0..super::MAX_INPUT_OPERATIONS_PER_SESSION {
+            state.queue_keyless_write(vec![b'x']);
+        }
+        assert!(
+            !state.control_has_room(),
+            "a full keyless lane holds the control reads"
+        );
+        state.pending_writes.pop_front();
+        assert!(
+            state.control_has_room(),
+            "the PTY took a write: the control reads resume"
+        );
+    }
 
     fn decode_frame_types(bytes: &[u8]) -> Vec<u8> {
         let mut cursor = std::io::Cursor::new(bytes);
