@@ -784,6 +784,17 @@ impl DefaultBotsterEngine {
         )
     }
 
+    /// Write bytes to a session for the host, with no client identity. The
+    /// in-process runtime has no worker lane: the write is its own blocking
+    /// write, and the bytes are taken when this returns.
+    pub fn write_host_bytes(
+        &mut self,
+        session_id: &SessionId,
+        data: Vec<u8>,
+    ) -> Result<(), DefaultBotsterEngineError> {
+        self.runtime.write_host_bytes(session_id, data)
+    }
+
     /// Write terminal bytes from a client into the local process runtime.
     pub fn write_bytes(
         &mut self,
@@ -2576,6 +2587,62 @@ impl WorkerBackedBotsterEngine {
             .shutdown_session(session_id, reason, now_seconds)
     }
 
+    /// Send bytes to a session for the host, with no client identity, through
+    /// the worker's keyed input lane. Returns the operation's worker key. The
+    /// worker answers exactly once, with `Written`, `RejectedLaneFull` or
+    /// another typed outcome; the answer comes back through
+    /// [`Self::take_host_input_results`] and never reaches a route or an
+    /// input edge.
+    pub fn submit_host_input(
+        &mut self,
+        session_id: &SessionId,
+        data: &[u8],
+    ) -> Result<u64, WorkerBackedBotsterEngineError> {
+        let key = self.runtime.begin_host_operation(session_id)?;
+        if let Err(error) = self.runtime.session_runtime_mut().submit_input_operation(
+            session_id,
+            key,
+            key,
+            crate::WorkerInputKind::RawBytes,
+            data,
+        ) {
+            self.runtime.abandon_host_operation(key);
+            return Err(error.into());
+        }
+        Ok(key)
+    }
+
+    /// Ask the worker to abandon the unwritten remainder of one host
+    /// operation. The worker still answers once, with `Cancelled` and the
+    /// bytes it already wrote, or with the outcome it had reached. Returns
+    /// `true` when the operation was still in flight and a cancel was sent.
+    pub fn cancel_host_input(
+        &mut self,
+        session_id: &SessionId,
+        key: u64,
+    ) -> Result<bool, WorkerBackedBotsterEngineError> {
+        if !self.runtime.host_operation_in_flight(key) {
+            return Ok(false);
+        }
+        self.runtime
+            .session_runtime_mut()
+            .cancel_input_operation(session_id, key)?;
+        Ok(true)
+    }
+
+    /// Forget a host input operation whose answer will not come from the
+    /// worker (its session ended or its link failed).
+    pub fn abandon_host_input(&mut self, key: u64) {
+        self.runtime.abandon_host_operation(key);
+    }
+
+    /// Take the results of host input operations that have ended, by key.
+    pub fn take_host_input_results(
+        &mut self,
+    ) -> Vec<(u64, botster_terminal_protocol::InputResultBody)> {
+        self.runtime.take_host_results()
+    }
+
     /// Cancel one in-flight client input operation at the worker.
     ///
     /// Returns `true` when the operation was still in flight and a cancel was
@@ -2604,7 +2671,7 @@ impl WorkerBackedBotsterEngine {
     /// Hosts call this when they observe a worker link failure outside the
     /// pump, for example during shutdown.
     pub fn fail_in_flight_input(&mut self, session_id: &SessionId) {
-        let _ = self.runtime.client_worker_mut().fail_in_flight_for_session(
+        self.runtime.fail_session_in_flight(
             session_id,
             InputOutcome::OutcomeUnknown,
             "worker link failed",
