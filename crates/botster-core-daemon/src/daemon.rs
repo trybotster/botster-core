@@ -1757,6 +1757,34 @@ impl CoreDaemon {
         Ok(())
     }
 
+    /// Write bytes to a session for the host, with no client identity: the
+    /// write to a session nobody is attached to.
+    ///
+    /// It keeps the refusals of [`Self::input`]: an unknown session, an
+    /// ended or stopping one ([`CoreDaemonError::SessionNotReadable`]) and a
+    /// failed control plane. It moves neither `input_seq` nor `composing`, a
+    /// host write is never human input, and it carries no readiness policy:
+    /// the host decides when to write. All or nothing: when the session's
+    /// control queue is full the typed runtime error is returned and nothing
+    /// is written.
+    pub fn host_input(
+        &mut self,
+        session_id: SessionId,
+        data: impl Into<Vec<u8>>,
+        _now_seconds: u64,
+    ) -> Result<(), CoreDaemonError> {
+        self.ensure_running()?;
+        self.ensure_session_mutable(&session_id)?;
+        if matches!(
+            self.engine.control_plane_state(&session_id),
+            botster_core::runtime::ControlPlaneState::Failed(_)
+        ) {
+            return Err(CoreDaemonError::ControlPlaneFailed(session_id));
+        }
+        self.engine.write_host_bytes(&session_id, data.into())?;
+        Ok(())
+    }
+
     /// Resize a session through the existing engine path and update registry metadata.
     pub fn resize(
         &mut self,
@@ -4236,9 +4264,9 @@ impl CoreDaemon {
         session_id: &SessionId,
     ) -> Result<Option<crate::api::SessionEdges>, CoreDaemonError> {
         self.ensure_running()?;
-        if self.registry.load(session_id)?.is_none() {
+        let Some(record) = self.registry.load(session_id)? else {
             return Ok(None);
-        }
+        };
         let counters = self
             .engine
             .session_edge_counters(session_id)
@@ -4252,6 +4280,11 @@ impl CoreDaemon {
             output_seq: counters.output_seq,
             input_seq: counters.input_seq,
             composing: counters.composing,
+            // The last size the registry recorded; a resize keeps it current.
+            size: ResizePayload {
+                rows: record.rows,
+                cols: record.cols,
+            },
         }))
     }
 
@@ -5599,6 +5632,17 @@ impl DaemonEngine {
                 engine.control_plane_state(session_id),
                 botster_core::runtime::ControlPlaneState::Failed(_)
             ),
+        }
+    }
+
+    fn write_host_bytes(
+        &mut self,
+        session_id: &SessionId,
+        data: Vec<u8>,
+    ) -> Result<(), DefaultBotsterEngineError> {
+        match self {
+            Self::Local(engine) => engine.write_host_bytes(session_id, data),
+            Self::Worker(engine) => engine.write_host_bytes(session_id, data),
         }
     }
 
