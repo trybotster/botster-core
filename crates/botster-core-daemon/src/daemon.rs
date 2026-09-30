@@ -4236,9 +4236,9 @@ impl CoreDaemon {
         session_id: &SessionId,
     ) -> Result<Option<crate::api::SessionEdges>, CoreDaemonError> {
         self.ensure_running()?;
-        if self.registry.load(session_id)?.is_none() {
+        let Some(record) = self.registry.load(session_id)? else {
             return Ok(None);
-        }
+        };
         let counters = self
             .engine
             .session_edge_counters(session_id)
@@ -4252,6 +4252,11 @@ impl CoreDaemon {
             output_seq: counters.output_seq,
             input_seq: counters.input_seq,
             composing: counters.composing,
+            // The last size the registry recorded; a resize keeps it current.
+            size: ResizePayload {
+                rows: record.rows,
+                cols: record.cols,
+            },
         }))
     }
 

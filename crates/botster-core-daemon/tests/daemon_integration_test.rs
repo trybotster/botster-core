@@ -5240,6 +5240,49 @@ fn a_mode_change_advances_modes_epoch_with_its_flags() {
     let _ = fs::remove_dir_all(data_dir);
 }
 
+/// The size in the edges follows the session's last resize.
+#[cfg(unix)]
+#[test]
+fn session_edges_size_follows_a_resize() {
+    let data_dir = temp_data_dir("edges-size");
+    let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+    let session_id = SessionId("edges-size-session".to_string());
+    let client_id = ClientId("edges-size-client".to_string());
+    daemon.spawn(spawn_request(&session_id), 10).expect("spawn");
+    assert_eq!(
+        daemon
+            .session_edges(&session_id)
+            .expect("read")
+            .expect("a record")
+            .size,
+        ResizePayload { rows: 24, cols: 80 },
+        "the spawn's size"
+    );
+
+    daemon
+        .attach(
+            client_id.clone(),
+            session_id.clone(),
+            SubscriptionId("edges-size-route".to_string()),
+            11,
+        )
+        .expect("attach");
+    daemon
+        .resize(client_id, session_id.clone(), 31, 91, 12)
+        .expect("resize");
+    assert_eq!(
+        daemon
+            .session_edges(&session_id)
+            .expect("read")
+            .expect("a record")
+            .size,
+        ResizePayload { rows: 31, cols: 91 },
+        "the size follows the resize"
+    );
+    daemon.shutdown(Some(session_id), 20).ok();
+    let _ = fs::remove_dir_all(data_dir);
+}
+
 /// Release keeps an ended id's counters for a respawn; removing the id
 /// after that release still drops them, though the engine holds no session
 /// for it any more.
