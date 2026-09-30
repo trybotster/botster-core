@@ -13,8 +13,8 @@ use botster_terminal_protocol::{HistoryUnavailableReason, RouteId};
 use serde::{Deserialize, Serialize};
 
 use crate::api::{
-    CaptureSnapshotRequest, ReadCursorRequest, ReadModeFlagsRequest, ReadScreenRequest,
-    SpawnSessionRequest,
+    CaptureSnapshotRequest, HostInputRequest, ReadCursorRequest, ReadModeFlagsRequest,
+    ReadScreenRequest, SpawnSessionRequest,
 };
 use crate::daemon::CoreDaemonError;
 
@@ -82,6 +82,9 @@ pub enum CoreOperation {
     ReadModeFlags(ReadModeFlagsRequest),
     /// Read the cursor and its row in one model read.
     ReadCursor(ReadCursorRequest),
+    /// Write bytes to a session for the host, with no client identity. Never
+    /// human input: it moves no input edge.
+    HostInput(HostInputRequest),
     /// Capture a GHOSTSNP snapshot for paging by `read_snapshot_page`.
     CaptureSnapshot {
         /// Capture request.
@@ -107,6 +110,26 @@ pub struct ScreenReadback {
     pub text: Arc<str>,
     /// Set when history is unavailable; `text` is then empty.
     pub unavailable: Option<HistoryUnavailableReason>,
+}
+
+/// How a host input write ended.
+///
+/// The worker answers once per operation. `outcome` is its typed answer:
+/// `Written`, `RejectedLaneFull` when its input lane was full (nothing was
+/// written), `Cancelled` after a cancel, or another refusal. A cancel or a
+/// failure after a partial write reports the bytes actually written in
+/// `written_pty_bytes`; a link failure leaves the counts unknown (`None`) and
+/// the outcome `OutcomeUnknown`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HostInputOutcome {
+    /// The worker's typed answer.
+    pub outcome: botster_terminal_protocol::InputOutcome,
+    /// Payload bytes the worker accepted, when it said.
+    pub accepted_payload_bytes: Option<u64>,
+    /// Bytes written to the PTY, when the worker said.
+    pub written_pty_bytes: Option<u64>,
+    /// Bounded diagnostic text.
+    pub detail: String,
 }
 
 /// Cursor readback: the cursor and its row from one Ghostty model read.
@@ -300,6 +323,13 @@ pub enum CoreCompletion {
         /// [`CoreDaemonError::SessionEnded`].
         result: Result<CursorReadback, CoreDaemonError>,
     },
+    /// `HostInput` finished.
+    HostInput {
+        /// Operation identity.
+        id: PendingOperationId,
+        /// The worker's answer, or the failure to get one.
+        result: Result<HostInputOutcome, CoreDaemonError>,
+    },
     /// `CaptureSnapshot` finished.
     CaptureSnapshot {
         /// Operation identity.
@@ -333,6 +363,7 @@ impl CoreCompletion {
             | Self::ReadScreen { id, .. }
             | Self::ReadModeFlags { id, .. }
             | Self::ReadCursor { id, .. }
+            | Self::HostInput { id, .. }
             | Self::CaptureSnapshot { id, .. }
             | Self::CancelInput { id, .. } => *id,
         }
