@@ -784,6 +784,16 @@ impl DefaultBotsterEngine {
         )
     }
 
+    /// Write bytes to a session for the host, with no client identity. See
+    /// [`ManagedSessionRuntime::write_host_bytes`].
+    pub fn write_host_bytes(
+        &mut self,
+        session_id: &SessionId,
+        data: Vec<u8>,
+    ) -> Result<(), DefaultBotsterEngineError> {
+        Ok(self.runtime.write_host_bytes(session_id, data)?)
+    }
+
     /// Write terminal bytes from a client into the local process runtime.
     pub fn write_bytes(
         &mut self,
@@ -1514,6 +1524,16 @@ impl WorkerBackedBotsterEngine {
         let _ = self.start_next_capture(&session_id);
         let _ = self.sync_worker_consumers(&session_id);
         output
+    }
+
+    /// Write bytes to a session for the host, with no client identity. See
+    /// [`ManagedSessionRuntime::write_host_bytes`].
+    pub fn write_host_bytes(
+        &mut self,
+        session_id: &SessionId,
+        data: Vec<u8>,
+    ) -> Result<(), WorkerBackedBotsterEngineError> {
+        Ok(self.runtime.write_host_bytes(session_id, data)?)
     }
 
     /// Write raw bytes from a host client into the worker-owned PTY.

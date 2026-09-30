@@ -57,6 +57,8 @@ pub struct SessionEdges {
     pub input_seq: u64,
     /// Client input sits in the line since its last submit.
     pub composing: bool,
+    /// The last known terminal size, as [`DaemonSession::size`] reports it.
+    pub size: ResizePayload,
 }
 
 /// Host request to spawn a daemon-owned session.
