@@ -5,7 +5,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{mpsc, Mutex, MutexGuard};
 use std::thread;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 
 use botster_core::{
     ClientId, CoreSessionMetadata, DefaultBotsterEngine, LocalProcessRuntime,
@@ -97,10 +97,7 @@ fn env_var(name: &str, value: impl Into<String>) -> SpawnEnvironmentVariable {
 }
 
 fn unique_temp_path(name: &str) -> PathBuf {
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("system time after unix epoch")
-        .as_nanos();
+    let nanos = botster_core_test_support::unique::stamp();
     std::env::temp_dir().join(format!("botster-core-{name}-{nanos}"))
 }
 

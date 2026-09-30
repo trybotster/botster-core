@@ -2,7 +2,7 @@
 #![allow(missing_docs)]
 
 use std::fs;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 
 use botster_core::{
     ClientId, CoreSessionMetadata, RequestId, ResizePayload, SessionId, SessionSpawnRequest,
@@ -405,10 +405,7 @@ fn observe_new_frames(
 }
 
 fn temp_data_dir(label: &str) -> std::path::PathBuf {
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("system clock after unix epoch")
-        .as_nanos();
+    let nanos = botster_core_test_support::unique::stamp();
     std::env::temp_dir().join(format!(
         "botster-core-harness-{label}-{}-{nanos}",
         std::process::id()

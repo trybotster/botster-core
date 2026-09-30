@@ -5,7 +5,7 @@
 //! progress for the reader deadline is ended and stops governing.
 
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 use botster_core::contract::terminal_adapter::{
     TerminalAdapter, TerminalAdapterPressure, TerminalAdapterWriteError, TerminalIngress,
@@ -195,10 +195,7 @@ impl Flood {
     /// the child then keeps the terminal open: a PTY discards output still
     /// queued when its last slave closes, which is outside this property.
     fn spawn(label: &str) -> Self {
-        let nanos = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("clock")
-            .as_nanos();
+        let nanos = botster_core_test_support::unique::stamp();
         let data_dir = std::env::temp_dir().join(format!("{label}-{}-{nanos}", std::process::id()));
         let worker = botster_core_test_support::real_worker::WorkerBinary::from_env()
             .unwrap_or_else(|failure| panic!("{failure}"))
