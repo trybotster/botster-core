@@ -177,6 +177,12 @@ where
     /// Worker operation keys torn-down routes left in flight. The worker
     /// path drains these into `FRAME_INPUT_CANCEL`.
     pending_worker_cancels: Vec<(SessionId, u64)>,
+    /// Host operations in flight at the worker, by worker key. Correlation
+    /// only: the worker's own lane limits bound them, and a result or a
+    /// session failure removes the entry.
+    host_operations: HashMap<u64, HostOperation>,
+    /// Results of host operations the host has not taken yet.
+    host_results: Vec<(u64, InputResultBody)>,
     pending_terminal_resizes: HashMap<SessionId, VecDeque<PendingTerminalResize>>,
     applied_terminal_resizes: HashMap<SessionId, (u16, u16, u64)>,
     pending_spawn_adapters: HashMap<SessionId, PendingSpawnAdapter<T>>,
@@ -185,6 +191,13 @@ where
     /// runtime, so the runtime's own bounded channel fills and its reader
     /// stops reading: the program blocks on write, as with a slow terminal.
     held_runtime_output: HashMap<SessionId, VecDeque<SessionRuntimeOutput>>,
+}
+
+/// One host operation in flight at the worker.
+struct HostOperation {
+    session_id: SessionId,
+    /// The bytes it holds, counted against the session's input-lane bytes.
+    retained_bytes: usize,
 }
 
 struct PendingSpawnAdapter<T: TerminalScreenRuntime> {
@@ -474,7 +487,7 @@ where
             {
                 Ok(results) => results,
                 Err(error) if error.kind == SessionRuntimeErrorKind::SessionNotFound => {
-                    teardowns.extend(self.client_worker.fail_in_flight_for_session(
+                    teardowns.extend(self.fail_in_flight(
                         session_id,
                         InputOutcome::OutcomeUnknown,
                         "worker session is gone",
@@ -484,6 +497,12 @@ where
                 Err(error) => return Err(error.into()),
             };
             for (key, result) in results {
+                // A host operation's result belongs to the host: it never
+                // reaches a route, and it moves no input edge.
+                if self.host_operations.remove(&key).is_some() {
+                    self.host_results.push((key, result));
+                    continue;
+                }
                 if let Some(teardown) = self.client_worker.complete_operation(key, result) {
                     teardowns.push(teardown);
                 }
@@ -493,7 +512,7 @@ where
                 .session_runtime_mut()
                 .session_reader_finished(session_id)?
             {
-                teardowns.extend(self.client_worker.fail_in_flight_for_session(
+                teardowns.extend(self.fail_in_flight(
                     session_id,
                     InputOutcome::OutcomeUnknown,
                     "worker link ended before the result",
@@ -546,7 +565,7 @@ where
                 self.engine
                     .session_runtime_mut()
                     .fail_control_plane(session_id, error);
-                teardowns.extend(self.client_worker.fail_in_flight_for_session(
+                teardowns.extend(self.fail_in_flight(
                     session_id,
                     InputOutcome::OutcomeUnknown,
                     "worker control plane failed",
@@ -873,6 +892,136 @@ where
     R: SessionRuntime,
     T: TerminalScreenRuntime + 'static,
 {
+    /// Fail every in-flight operation of a session as `outcome`: client
+    /// operations through the client worker, host operations into the host's
+    /// result list.
+    fn fail_in_flight(
+        &mut self,
+        session_id: &SessionId,
+        outcome: InputOutcome,
+        detail: &str,
+    ) -> Vec<ClientWorkerTeardown> {
+        let keys: Vec<u64> = self
+            .host_operations
+            .iter()
+            .filter(|(_, operation)| &operation.session_id == session_id)
+            .map(|(key, _)| *key)
+            .collect();
+        for key in keys {
+            self.host_operations.remove(&key);
+            self.host_results.push((
+                key,
+                InputResultBody {
+                    operation_id: key,
+                    outcome,
+                    accepted_payload_bytes: None,
+                    written_pty_bytes: None,
+                    mode_bits: 0,
+                    detail: detail.to_owned(),
+                },
+            ));
+        }
+        self.client_worker
+            .fail_in_flight_for_session(session_id, outcome, detail)
+    }
+
+    /// Write bytes to a session's PTY for the host, with no client identity,
+    /// and return once the runtime has taken them. For a runtime without a
+    /// worker lane (the in-process runtime): the write is the runtime's own
+    /// blocking write. No route, client stream or edge counter is involved.
+    pub fn write_host_bytes(
+        &mut self,
+        session_id: &SessionId,
+        data: Vec<u8>,
+    ) -> Result<(), ManagedSessionRuntimeError> {
+        self.flush_runtime_inputs_for_session(session_id)?;
+        self.engine
+            .session_runtime_mut()
+            .send_input(SessionRuntimeInput::PtyInput {
+                session_id: session_id.clone(),
+                data,
+            })?;
+        Ok(())
+    }
+
+    /// Fail every in-flight operation of a session, client and host, as
+    /// `outcome`. Hosts call this when they see a worker link failure outside
+    /// the pump.
+    pub fn fail_session_in_flight(
+        &mut self,
+        session_id: &SessionId,
+        outcome: InputOutcome,
+        detail: &str,
+    ) {
+        // The client teardowns are dropped, as the host's call always did.
+        let _ = self.fail_in_flight(session_id, outcome, detail);
+    }
+
+    /// Admit a host operation on `session_id` and take its worker key. The
+    /// session's input-lane bounds are the ones the worker applies to keyed
+    /// operations, the number of operations and the retained bytes,
+    /// counted here over the host operations still in flight, whose results
+    /// may wait for a pump. Nothing is recorded until
+    /// [`Self::record_host_operation`], after the send succeeded, so a failed
+    /// send leaves nothing behind.
+    pub fn admit_host_operation(
+        &mut self,
+        session_id: &SessionId,
+    ) -> Result<u64, ManagedSessionRuntimeError> {
+        let (count, retained) = self
+            .host_operations
+            .values()
+            .filter(|operation| &operation.session_id == session_id)
+            .fold((0_usize, 0_usize), |(count, retained), operation| {
+                (count + 1, retained + operation.retained_bytes)
+            });
+        if count >= botster_terminal_protocol::MAX_INPUT_OPERATIONS_PER_SESSION
+            || retained >= botster_terminal_protocol::MAX_RETAINED_INPUT_BYTES_PER_SESSION
+        {
+            return Err(SessionRuntimeError::new(
+                SessionRuntimeErrorKind::InputFailed,
+                "host input lane full",
+            )
+            .into());
+        }
+        let key = self.client_worker.allocate_operation_key().ok_or_else(|| {
+            SessionRuntimeError::new(
+                SessionRuntimeErrorKind::InputFailed,
+                "worker operation keys are exhausted",
+            )
+        })?;
+        Ok(key)
+    }
+
+    /// Record a host operation the worker link has taken. Results are
+    /// reconciled only on a pump, after this returns, so the entry is always
+    /// in place before its result arrives.
+    pub fn record_host_operation(&mut self, key: u64, session_id: &SessionId, bytes: usize) {
+        self.host_operations.insert(
+            key,
+            HostOperation {
+                session_id: session_id.clone(),
+                retained_bytes: bytes,
+            },
+        );
+    }
+
+    /// Forget a host operation whose send failed.
+    pub fn abandon_host_operation(&mut self, key: u64) {
+        self.host_operations.remove(&key);
+    }
+
+    /// Whether a host operation is still in flight at the worker.
+    #[must_use]
+    pub fn host_operation_in_flight(&self, key: u64) -> bool {
+        self.host_operations.contains_key(&key)
+    }
+
+    /// Take the results of host operations that have ended, in order.
+    pub fn take_host_results(&mut self) -> Vec<(u64, InputResultBody)> {
+        std::mem::take(&mut self.host_results)
+    }
+
     /// Build a managed runtime with a host-supplied terminal backend factory.
     ///
     /// The factory is called once per spawned session with that session's
@@ -896,6 +1045,8 @@ where
             pending_input_teardowns: Vec::new(),
             held_runtime_output: HashMap::new(),
             pending_worker_cancels: Vec::new(),
+            host_operations: HashMap::new(),
+            host_results: Vec::new(),
             pending_terminal_resizes: HashMap::new(),
             applied_terminal_resizes: HashMap::new(),
             pending_spawn_adapters: HashMap::new(),
@@ -1987,7 +2138,7 @@ where
                     // The worker is gone without an exit report: in-flight
                     // input has an unknown outcome, and every route ends with
                     // the typed worker-link close.
-                    teardowns.extend(self.client_worker.fail_in_flight_for_session(
+                    teardowns.extend(self.fail_in_flight(
                         &session_id,
                         InputOutcome::OutcomeUnknown,
                         "session worker lost",

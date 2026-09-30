@@ -720,6 +720,127 @@ fn interrupt_during_shutdown_preserves_final_output_and_exit() {
     );
 }
 
+/// Client input over an attached route and host writes share one session and
+/// one worker key counter. Each result reaches its own owner: the route sees
+/// exactly the client operations, the host sees exactly its writes, and only
+/// the client commands are human input.
+#[cfg(unix)]
+#[test]
+fn host_and_client_writes_interleave_without_result_crossover() {
+    use botster_core_daemon::{CoreCompletion, CoreOperation, HostInputRequest};
+    let data_dir = temp_data_dir("host-client-interleave");
+    let mut daemon =
+        CoreDaemon::new(CoreDaemonConfig::new(&data_dir).with_worker_path(worker_path()));
+    let session_id = SessionId("interleave-session".into());
+    let client_id = ClientId("interleave-client".into());
+    let subscription_id = SubscriptionId("interleave-sub".into());
+    daemon.spawn(spawn_request(&session_id), 1).expect("spawn");
+    daemon
+        .expect_terminal_adapter(
+            client_id.clone(),
+            session_id.clone(),
+            subscription_id.clone(),
+        )
+        .expect("declare adapter");
+    daemon
+        .attach(
+            client_id.clone(),
+            session_id.clone(),
+            subscription_id.clone(),
+            2,
+        )
+        .expect("attach");
+    let generation = daemon
+        .terminal_subscription_generation(&session_id, &subscription_id)
+        .expect("generation");
+    let adapter = SharedFakeTerminalAdapter::auto_complete();
+    daemon
+        .bind_waking_terminal_adapter(
+            client_id,
+            session_id.clone(),
+            subscription_id.clone(),
+            generation,
+            empty_caps(),
+            Box::new(adapter.clone()),
+        )
+        .expect("bind waking adapter");
+
+    let mut host_ids = Vec::new();
+    for operation in 1..=3_u64 {
+        pump_client_frame(
+            &mut daemon,
+            &adapter,
+            &session_id,
+            &subscription_id,
+            compact_input_frame(operation, format!("c{operation}\n").as_bytes()),
+        );
+        host_ids.push(
+            daemon
+                .begin(CoreOperation::HostInput(HostInputRequest {
+                    request_id: botster_core::RequestId(format!("host-{operation}")),
+                    session_id: session_id.clone(),
+                    data: format!("h{operation}\n").into_bytes(),
+                    now_seconds: 3,
+                }))
+                .expect("begin the host write"),
+        );
+    }
+
+    // Every host write is answered to its own caller, and every client
+    // operation is answered on the route.
+    let mut host_answers = Vec::new();
+    wait_for(
+        "every host write and client operation answered",
+        HANG_GUARD,
+        |remaining| {
+            // timer: deadline — wait_for's bound limits this wait
+            let batch = daemon.wait_wakes(remaining);
+            daemon.pump_woken(&batch, 4).expect("pump");
+            host_answers.extend(
+                daemon
+                    .take_completions()
+                    .into_iter()
+                    .filter(|completion| matches!(completion, CoreCompletion::HostInput { .. })),
+            );
+            (host_answers.len() == host_ids.len()
+                && delivered_written_input_results(&adapter, 1..=3).len() == 3)
+                .then_some(())
+        },
+    );
+    for id in &host_ids {
+        assert!(
+            host_answers.iter().any(|answer| answer.id() == *id
+                && matches!(
+                    answer,
+                    CoreCompletion::HostInput { result: Ok(outcome), .. }
+                        if outcome.outcome == InputOutcome::Written
+                )),
+            "host write {id:?} is answered Written: {host_answers:?}"
+        );
+    }
+    let mut route_operations: Vec<u64> = delivered_input_results(&adapter)
+        .into_iter()
+        .map(|(_, result)| result.operation_id)
+        .collect();
+    route_operations.sort_unstable();
+    assert_eq!(
+        route_operations,
+        vec![1, 2, 3],
+        "the route received exactly its own results, none of the host's"
+    );
+    assert_eq!(
+        daemon
+            .session_edges(&session_id)
+            .expect("read")
+            .expect("a record")
+            .input_seq,
+        3,
+        "only the three client commands are human input"
+    );
+    daemon.shutdown(Some(session_id), 20).ok();
+    let _ = fs::remove_dir_all(data_dir);
+}
+
 #[cfg(unix)]
 #[test]
 fn sustained_worker_and_adapter_producers_still_reach_shutdown_bound() {

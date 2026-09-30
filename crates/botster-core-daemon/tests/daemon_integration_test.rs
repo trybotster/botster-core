@@ -5283,6 +5283,420 @@ fn session_edges_size_follows_a_resize() {
     let _ = fs::remove_dir_all(data_dir);
 }
 
+/// Pump on wakes and collect completions until `done` is satisfied.
+#[cfg(unix)]
+fn pump_collecting(
+    daemon: &mut CoreDaemon,
+    what: &str,
+    acc: &mut Vec<botster_core_daemon::CoreCompletion>,
+    mut done: impl FnMut(&CoreDaemon, &[botster_core_daemon::CoreCompletion]) -> bool,
+) {
+    wait_for(what, REAL_WORKER_COMPLETION_TIMEOUT, |remaining| {
+        // timer: deadline — wait_for's bound limits this wait
+        let batch = daemon.wait_wakes(remaining);
+        daemon.pump_woken(&batch, 50).expect("pump");
+        acc.extend(daemon.take_completions());
+        done(daemon, acc).then_some(())
+    });
+}
+
+/// A worker-backed daemon with one session whose child blocks on a FIFO and
+/// never reads its terminal. The FIFO is held by the caller.
+#[cfg(unix)]
+fn blocked_worker_session(label: &str) -> (CoreDaemon, SessionId, Fifo, std::path::PathBuf) {
+    let data_dir = short_temp_data_dir(label);
+    let mut daemon =
+        CoreDaemon::new(CoreDaemonConfig::new(&data_dir).with_worker_path(worker_path()));
+    let session_id = SessionId(format!("{label}-session"));
+    let hold = Fifo::new(&format!("{label}-hold"));
+    let mut request = spawn_request(&session_id);
+    request.request.arguments = vec![
+        "-c".to_string(),
+        // Raw mode: a cooked terminal discards input nobody reads, so the
+        // master's write would never block. In raw mode the input queue fills
+        // and the write blocks, as with a program that stopped reading.
+        // The marker is printed once the terminal is raw: its output is the
+        // event that the child is in the state the test needs.
+        format!(
+            "stty raw -echo; printf raw-ready; exec /bin/cat '{}' >/dev/null",
+            hold.path().display()
+        ),
+    ];
+    daemon
+        .spawn(request, 10)
+        .expect("spawn the non-reading child");
+    let mut seen = Vec::new();
+    pump_collecting(
+        &mut daemon,
+        "the child is in raw mode",
+        &mut seen,
+        |d, _| {
+            d.session_edges(&session_id)
+                .expect("read")
+                .is_some_and(|edges| edges.output_seq > 0)
+        },
+    );
+    (daemon, session_id, hold, data_dir)
+}
+
+#[cfg(unix)]
+const HOST_CHUNK: usize = 16 * 1024;
+
+#[cfg(unix)]
+fn begin_host_input(
+    daemon: &mut CoreDaemon,
+    session_id: &SessionId,
+    data: Vec<u8>,
+) -> Result<botster_core_daemon::PendingOperationId, CoreDaemonError> {
+    daemon.begin(botster_core_daemon::CoreOperation::HostInput(
+        botster_core_daemon::HostInputRequest {
+            request_id: RequestId("host-input".into()),
+            session_id: session_id.clone(),
+            data,
+            now_seconds: 11,
+        },
+    ))
+}
+
+#[cfg(unix)]
+fn host_outcomes(
+    completions: &[botster_core_daemon::CoreCompletion],
+) -> Vec<botster_terminal_protocol::InputOutcome> {
+    completions
+        .iter()
+        .filter_map(|completion| match completion {
+            botster_core_daemon::CoreCompletion::HostInput {
+                result: Ok(outcome),
+                ..
+            } => Some(outcome.outcome),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Fill the session's retained-bytes input lane (twice the paste maximum)
+/// with writes the blocked PTY cannot take: two are accepted, the third is
+/// refused at begin. Returns the two accepted operations.
+#[cfg(unix)]
+fn saturate_the_lane(
+    daemon: &mut CoreDaemon,
+    session_id: &SessionId,
+) -> Vec<botster_core_daemon::PendingOperationId> {
+    let mut accepted = Vec::new();
+    for _ in 0..2 {
+        accepted.push(
+            begin_host_input(
+                daemon,
+                session_id,
+                vec![b'x'; botster_terminal_protocol::MAX_PASTE_BYTES],
+            )
+            .expect("the lane takes the write"),
+        );
+    }
+    let refusal = begin_host_input(
+        daemon,
+        session_id,
+        vec![b'x'; botster_terminal_protocol::MAX_PASTE_BYTES],
+    )
+    .expect_err("a full lane refuses the next write");
+    assert!(
+        refusal.to_string().contains("host input lane full"),
+        "the refusal is typed: {refusal}"
+    );
+    accepted
+}
+
+/// While the PTY does not drain, a session's host writes are bounded by the
+/// input lane's retained bytes: the writes past it are refused at begin, and
+/// the ones accepted stay pending.
+#[cfg(unix)]
+#[test]
+fn host_input_is_refused_at_begin_when_the_retained_bytes_reach_the_lane_limit() {
+    let (mut daemon, session_id, hold, data_dir) = blocked_worker_session("host-lane-bytes");
+    let accepted = saturate_the_lane(&mut daemon, &session_id);
+    assert_eq!(accepted.len(), 2);
+    assert!(
+        daemon.has_pending_operations(),
+        "the accepted writes stay pending on the blocked PTY"
+    );
+    hold.release(REAL_WORKER_COMPLETION_TIMEOUT);
+    daemon.shutdown(Some(session_id), 20).ok();
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+/// The host's ownership record is bounded by the lane's operation limit too,
+/// though the results of finished writes wait for a pump: the write after the
+/// limit is refused at begin even when every earlier one has finished.
+#[cfg(unix)]
+#[test]
+fn host_input_is_refused_at_begin_when_the_operation_limit_is_reached() {
+    let (mut daemon, session_id, hold, data_dir) = blocked_worker_session("host-lane-count");
+    for n in 0..botster_terminal_protocol::MAX_INPUT_OPERATIONS_PER_SESSION {
+        begin_host_input(&mut daemon, &session_id, vec![b'x'; 8])
+            .unwrap_or_else(|error| panic!("write {n} is taken: {error}"));
+    }
+    let refusal = begin_host_input(&mut daemon, &session_id, vec![b'x'; 8])
+        .expect_err("the write past the operation limit is refused");
+    assert!(
+        refusal.to_string().contains("host input lane full"),
+        "{refusal}"
+    );
+    hold.release(REAL_WORKER_COMPLETION_TIMEOUT);
+    daemon.shutdown(Some(session_id), 20).ok();
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+/// A finished write frees its place in the ownership record: after the first
+/// batch is answered, another full batch is taken.
+#[cfg(unix)]
+#[test]
+fn a_finished_host_write_frees_its_place_in_the_ownership_record() {
+    let (mut daemon, session_id, hold, data_dir) = blocked_worker_session("host-lane-cleanup");
+    let batch = botster_terminal_protocol::MAX_INPUT_OPERATIONS_PER_SESSION;
+    for _ in 0..batch {
+        begin_host_input(&mut daemon, &session_id, vec![b'x'; 8]).expect("first batch");
+    }
+    let mut seen = Vec::new();
+    pump_collecting(
+        &mut daemon,
+        "the first batch answered",
+        &mut seen,
+        |_, s| host_outcomes(s).len() == batch,
+    );
+    for n in 0..batch {
+        begin_host_input(&mut daemon, &session_id, vec![b'x'; 8])
+            .unwrap_or_else(|error| panic!("second batch write {n} is taken: {error}"));
+    }
+    hold.release(REAL_WORKER_COMPLETION_TIMEOUT);
+    daemon.shutdown(Some(session_id), 20).ok();
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+/// Shutdown is delivered and completes while the lane is full and the PTY
+/// stays blocked, and it ends the pending host writes.
+#[cfg(unix)]
+#[test]
+fn shutdown_completes_while_host_writes_fill_a_blocked_lane() {
+    let (mut daemon, session_id, hold, data_dir) = blocked_worker_session("host-lane-shutdown");
+    let _accepted = saturate_the_lane(&mut daemon, &session_id);
+    let mut seen = Vec::new();
+    // The FIFO stays held: the child never reads and never exits by itself.
+    let started = Instant::now();
+    daemon
+        .shutdown(Some(session_id.clone()), 20)
+        .expect("shutdown is delivered while the lane is full");
+    assert!(
+        started.elapsed() < Duration::from_secs(20),
+        "shutdown was delivered and ended the session, not held to its deadline: {:?}",
+        started.elapsed()
+    );
+    // Shutdown ended the pending host writes itself: their answers are ready
+    // when it returns, with no further wake owed.
+    seen.extend(daemon.take_completions());
+    assert!(
+        !daemon.has_pending_operations(),
+        "every host write ended with the session: {seen:?}"
+    );
+    assert!(
+        !host_outcomes(&seen).contains(&botster_terminal_protocol::InputOutcome::Written),
+        "nothing reached a PTY that never read"
+    );
+    drop(hold);
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+/// A cancel is delivered while the PTY is blocked, and the answer reports the
+/// bytes actually written, not zero by default.
+#[cfg(unix)]
+#[test]
+fn a_cancelled_host_write_reports_how_much_reached_the_pty() {
+    let (mut daemon, session_id, hold, data_dir) = blocked_worker_session("host-cancel");
+    let id = begin_host_input(&mut daemon, &session_id, vec![b'x'; HOST_CHUNK]).expect("begin");
+    assert!(daemon.cancel(id), "the cancel is accepted");
+    let mut seen = Vec::new();
+    pump_collecting(
+        &mut daemon,
+        "the cancelled write's answer",
+        &mut seen,
+        |_, s| s.iter().any(|c| c.id() == id),
+    );
+    let botster_core_daemon::CoreCompletion::HostInput {
+        result: Ok(outcome),
+        ..
+    } = seen.iter().find(|c| c.id() == id).expect("the answer")
+    else {
+        panic!("a cancelled write answers with the worker's outcome: {seen:?}");
+    };
+    assert_eq!(
+        outcome.outcome,
+        botster_terminal_protocol::InputOutcome::Cancelled
+    );
+    assert!(
+        outcome
+            .written_pty_bytes
+            .is_some_and(|n| n <= HOST_CHUNK as u64),
+        "the answer carries the bytes actually written: {outcome:?}"
+    );
+    hold.release(REAL_WORKER_COMPLETION_TIMEOUT);
+    daemon.shutdown(Some(session_id), 20).ok();
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+/// A cancel that the control queue cannot take is not claimed as sent:
+/// `cancel` returns `false` and the write is not marked cancelled. A shutdown
+/// that has begun seals the control queue, so the cancel frame is refused.
+#[cfg(unix)]
+#[test]
+fn a_cancel_the_control_queue_cannot_take_is_not_claimed_as_sent() {
+    use botster_core_daemon::{CoreCompletion, CoreOperation};
+    let (mut daemon, session_id, hold, data_dir) = blocked_worker_session("host-cancel-sealed");
+    let first = begin_host_input(&mut daemon, &session_id, vec![b'x'; HOST_CHUNK])
+        .expect("begin the write to cancel");
+    let shutdown = daemon
+        .begin(CoreOperation::ShutdownSession(session_id.clone()))
+        .expect("begin the shutdown: it seals the control queue");
+    assert!(
+        !daemon.cancel(first),
+        "a cancel the sealed queue refused is not claimed as sent"
+    );
+    assert!(
+        !daemon.cancel(first),
+        "and the write is not marked cancelled: it can be cancelled again"
+    );
+    // The shutdown still ends the session and the write with it.
+    let mut seen = Vec::new();
+    pump_collecting(
+        &mut daemon,
+        "the shutdown and the write ended",
+        &mut seen,
+        |d, s| {
+            s.iter()
+                .any(|c| c.id() == shutdown && matches!(c, CoreCompletion::ShutdownSession { .. }))
+                && !d.has_pending_operations()
+        },
+    );
+    drop(hold);
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+/// A worker lost with host writes pending ends every one of them, typed, and
+/// leaves nothing pending.
+#[cfg(unix)]
+#[test]
+fn a_lost_worker_ends_its_pending_host_writes() {
+    let (mut daemon, session_id, hold, data_dir) = blocked_worker_session("host-link-loss");
+    for _ in 0..3 {
+        begin_host_input(&mut daemon, &session_id, vec![b'x'; HOST_CHUNK]).expect("begin");
+    }
+    let (worker_pid, _, _) = worker_process_evidence(&daemon, &session_id);
+    signal_process(worker_pid, "KILL");
+    let mut seen = Vec::new();
+    pump_collecting(
+        &mut daemon,
+        "the lost worker's writes ended",
+        &mut seen,
+        |d, _| !d.has_pending_operations(),
+    );
+    let ended = seen
+        .iter()
+        .filter(|c| matches!(c, botster_core_daemon::CoreCompletion::HostInput { .. }))
+        .count();
+    assert_eq!(ended, 3, "each pending write ended: {seen:?}");
+    // The child died with its terminal: no reader remains for the FIFO.
+    drop(hold);
+    daemon.shutdown(None, 30).ok();
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+/// A host write reaches a session nobody is attached to, is answered
+/// `Written`, and moves no input edge.
+#[cfg(unix)]
+#[test]
+fn host_input_writes_to_an_unattached_worker_session_and_moves_no_input_edge() {
+    let data_dir = short_temp_data_dir("host-input-unattached");
+    let mut daemon =
+        CoreDaemon::new(CoreDaemonConfig::new(&data_dir).with_worker_path(worker_path()));
+    let session_id = SessionId("host-input-unattached-session".to_string());
+    daemon.spawn(spawn_request(&session_id), 10).expect("spawn");
+    let mut seen = Vec::new();
+    // The session prints "ready" and waits; its output is the first advance.
+    pump_collecting(
+        &mut daemon,
+        "the session's first output",
+        &mut seen,
+        |d, _| {
+            d.session_edges(&session_id)
+                .expect("read")
+                .is_some_and(|edges| edges.output_seq > 0)
+        },
+    );
+    let before = daemon
+        .session_edges(&session_id)
+        .expect("read")
+        .expect("a record");
+
+    let id = begin_host_input(&mut daemon, &session_id, b"hostping\n".to_vec()).expect("begin");
+    pump_collecting(
+        &mut daemon,
+        "the write's answer and its echo",
+        &mut seen,
+        |d, s| {
+            s.iter().any(|c| c.id() == id)
+                && d.session_edges(&session_id)
+                    .expect("read")
+                    .is_some_and(|edges| edges.output_seq > before.output_seq)
+        },
+    );
+    let botster_core_daemon::CoreCompletion::HostInput {
+        result: Ok(outcome),
+        ..
+    } = seen.iter().find(|c| c.id() == id).expect("the answer")
+    else {
+        panic!("the write is answered: {seen:?}");
+    };
+    assert_eq!(
+        outcome.outcome,
+        botster_terminal_protocol::InputOutcome::Written
+    );
+    assert_eq!(outcome.written_pty_bytes, Some(9));
+    let after = daemon
+        .session_edges(&session_id)
+        .expect("read")
+        .expect("a record");
+    assert_eq!(
+        (after.input_seq, after.composing),
+        (before.input_seq, before.composing),
+        "a host write never counts as human input"
+    );
+    daemon.shutdown(Some(session_id), 20).ok();
+    let _ = fs::remove_dir_all(data_dir);
+}
+
+/// A host write keeps the refusals of a client write.
+#[cfg(unix)]
+#[test]
+fn host_input_is_refused_at_begin_for_an_unknown_or_an_ended_session() {
+    let data_dir = temp_data_dir("host-input-refused");
+    let mut daemon = CoreDaemon::new(CoreDaemonConfig::new(&data_dir));
+    let unknown = SessionId("host-input-unknown".to_string());
+    assert!(matches!(
+        begin_host_input(&mut daemon, &unknown, b"x".to_vec()),
+        Err(CoreDaemonError::UnknownSession(id)) if id == unknown
+    ));
+    let ended = SessionId("host-input-ended".to_string());
+    spawn_until_exited(
+        &mut daemon,
+        &ended,
+        &ClientId("host-input-client".to_string()),
+        &SubscriptionId("host-input-route".to_string()),
+    );
+    assert!(matches!(
+        begin_host_input(&mut daemon, &ended, b"x".to_vec()),
+        Err(CoreDaemonError::SessionNotReadable(id)) if id == ended
+    ));
+    let _ = fs::remove_dir_all(data_dir);
+}
+
 /// Release keeps an ended id's counters for a respawn; removing the id
 /// after that release still drops them, though the engine holds no session
 /// for it any more.
