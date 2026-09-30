@@ -5300,6 +5300,70 @@ fn host_input_writes_to_an_unattached_session_and_moves_no_input_edge() {
     let _ = fs::remove_dir_all(data_dir);
 }
 
+/// While the PTY does not drain, host writes are refused at the sender
+/// instead of piling up in the worker. The child never reads its terminal
+/// (it blocks on a FIFO), so the kernel takes a few kilobytes at most; the
+/// worker then stops reading control frames once its input lane is full, the
+/// parent's bounded control queue fills, and `host_input` returns the typed
+/// queue-full error and writes nothing.
+#[cfg(unix)]
+#[test]
+fn host_input_is_refused_at_the_sender_when_the_pty_does_not_drain() {
+    let data_dir = short_temp_data_dir("host-input-blocked");
+    let mut daemon =
+        CoreDaemon::new(CoreDaemonConfig::new(&data_dir).with_worker_path(worker_path()));
+    let session_id = SessionId("host-input-blocked-session".to_string());
+    let hold = Fifo::new("host-input-blocked-hold");
+    let mut request = spawn_request(&session_id);
+    request.request.arguments = vec![
+        "-c".to_string(),
+        format!("exec /bin/cat '{}' >/dev/null", hold.path().display()),
+    ];
+    daemon
+        .spawn(request, 10)
+        .expect("spawn the non-reading child");
+
+    // 64 MiB in 16 KiB writes is far beyond what a bounded lane keeps; the
+    // sender must be refused long before it.
+    const CHUNK: usize = 16 * 1024;
+    const MOST_WRITES: usize = 4096;
+    let mut accepted = 0_usize;
+    let mut refusal = None;
+    for _ in 0..MOST_WRITES {
+        match daemon.host_input(session_id.clone(), vec![b'x'; CHUNK], 11) {
+            Ok(()) => accepted += CHUNK,
+            Err(error) => {
+                refusal = Some(error);
+                break;
+            }
+        }
+    }
+    let refusal = refusal.unwrap_or_else(|| {
+        panic!("{accepted} bytes were accepted for a PTY that takes none: no sender refusal")
+    });
+    assert!(
+        refusal.to_string().contains("control queue full"),
+        "the refusal is the typed queue-full error: {refusal}"
+    );
+    // Zero progress at full capacity: the refusal repeats, nothing is taken.
+    for _ in 0..3 {
+        let again = daemon
+            .host_input(session_id.clone(), vec![b'y'; CHUNK], 12)
+            .expect_err("a full lane keeps refusing");
+        assert!(again.to_string().contains("control queue full"), "{again}");
+    }
+    // A refused write is not human input either.
+    let edges = daemon
+        .session_edges(&session_id)
+        .expect("read")
+        .expect("a record");
+    assert_eq!((edges.input_seq, edges.composing), (0, false));
+
+    hold.release(REAL_WORKER_COMPLETION_TIMEOUT);
+    daemon.shutdown(Some(session_id), 20).ok();
+    let _ = fs::remove_dir_all(data_dir);
+}
+
 /// A host write keeps the refusals of a client write: an unknown session and
 /// an ended one are refused, typed, and nothing is written.
 #[cfg(unix)]
