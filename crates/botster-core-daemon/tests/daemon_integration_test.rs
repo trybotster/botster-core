@@ -8,7 +8,7 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 use std::process::Command;
 use std::sync::mpsc;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 
 use botster_core::contract::terminal_adapter::TerminalAdapterPressure;
 use botster_core::contract::terminal_wake::TerminalWakeBatch;
@@ -8463,10 +8463,7 @@ fn registry_fixture_path(data_dir: &std::path::Path, session_id: &SessionId) -> 
 }
 
 fn temp_data_dir(label: &str) -> std::path::PathBuf {
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("system clock should be after unix epoch")
-        .as_nanos();
+    let nanos = botster_core_test_support::unique::stamp();
     std::env::temp_dir().join(format!(
         "botster-core-daemon-{label}-{}-{nanos}",
         std::process::id()
@@ -8474,10 +8471,7 @@ fn temp_data_dir(label: &str) -> std::path::PathBuf {
 }
 
 fn short_temp_data_dir(label: &str) -> std::path::PathBuf {
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("system clock should be after unix epoch")
-        .as_nanos();
+    let nanos = botster_core_test_support::unique::stamp();
     std::path::PathBuf::from("/tmp").join(format!("bcd-{label}-{}-{nanos}", std::process::id()))
 }
 
