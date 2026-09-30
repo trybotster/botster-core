@@ -2540,6 +2540,25 @@ mod initial_accept {
         ParentExited,
     }
 
+    /// The wait's outcome when the launcher is already gone. A connection that
+    /// is already queued still wins: the launcher connected, then died, and
+    /// the handshake reports what it can.
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    fn launcher_gone(listener: &UnixListener) -> Ready {
+        let mut poll_fd = libc::pollfd {
+            fd: listener.as_raw_fd(),
+            events: libc::POLLIN,
+            revents: 0,
+        };
+        // SAFETY: one valid pollfd for the call; a timeout of 0 does not wait.
+        let count = unsafe { libc::poll(&mut poll_fd, 1, 0) };
+        if count > 0 && poll_fd.revents & libc::POLLIN != 0 {
+            Ready::Connection
+        } else {
+            Ready::ParentExited
+        }
+    }
+
     /// A connection that is already waiting wins over an exited parent: the
     /// launcher connected, then died, and the handshake reports what it can.
     #[cfg(target_os = "macos")]
@@ -2582,7 +2601,7 @@ mod initial_accept {
                 Ok(()) => {}
                 // The launcher is already gone.
                 Err(error) if error.raw_os_error() == Some(libc::ESRCH) => {
-                    return Ok(Ready::ParentExited);
+                    return Ok(launcher_gone(listener));
                 }
                 Err(error) => return Err(error),
             }
@@ -2626,10 +2645,13 @@ mod initial_accept {
             let fd = unsafe { libc::syscall(libc::SYS_pidfd_open, parent as libc::pid_t, 0) };
             if fd < 0 {
                 let error = io::Error::last_os_error();
-                if error.raw_os_error() == Some(libc::ESRCH) {
-                    return Ok(Ready::ParentExited);
+                match error.raw_os_error() {
+                    Some(libc::ESRCH) => return Ok(launcher_gone(listener)),
+                    // A kernel before 5.3 has no pidfd_open: the wait is the
+                    // plain accept, with no launcher watch.
+                    Some(libc::ENOSYS) => return Ok(Ready::Connection),
+                    _ => return Err(error),
                 }
-                return Err(error);
             }
             // SAFETY: fd was just returned by pidfd_open and nothing else owns it.
             pidfd = Some(unsafe { OwnedFd::from_raw_fd(fd as libc::c_int) });
@@ -3588,5 +3610,55 @@ mod tests {
             assert!(!path.exists());
             let _ = std::fs::remove_dir(root);
         }
+    }
+
+    /// A pid that names no process. No process is started to make one: on
+    /// macOS a socket is made close-on-exec in a second step, so a child
+    /// started while another test binds a socket can inherit that socket and
+    /// keep it connectable after its owner drops it.
+    #[cfg(unix)]
+    fn dead_pid() -> u32 {
+        (90_000_u32..99_999)
+            .rev()
+            .find(|pid| {
+                // SAFETY: signal 0 only observes whether the process exists.
+                let result = unsafe { libc::kill(*pid as libc::pid_t, 0) };
+                result == -1 && std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH)
+            })
+            .expect("a pid that names no process")
+    }
+
+    #[cfg(unix)]
+    fn bound_listener(label: &str) -> (std::os::unix::net::UnixListener, std::path::PathBuf) {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let path =
+            std::env::temp_dir().join(format!("iw-{label}-{}-{nanos}.sock", std::process::id()));
+        let listener = std::os::unix::net::UnixListener::bind(&path).expect("bind");
+        (listener, path)
+    }
+
+    /// The launcher connected, then died and was reaped, before the worker
+    /// started waiting: the queued connection wins over the exited launcher.
+    #[cfg(unix)]
+    #[test]
+    fn a_queued_connection_wins_over_a_launcher_that_is_already_gone() {
+        let (listener, path) = bound_listener("queued");
+        let _client = std::os::unix::net::UnixStream::connect(&path).expect("connect");
+        let ready = super::initial_accept::wait_ready(&listener, Some(dead_pid())).expect("wait");
+        assert!(matches!(ready, super::initial_accept::Ready::Connection));
+        let _ = std::fs::remove_file(path);
+    }
+
+    /// With no connection, a launcher that is already gone ends the wait.
+    #[cfg(unix)]
+    #[test]
+    fn without_a_connection_a_launcher_that_is_already_gone_ends_the_wait() {
+        let (listener, path) = bound_listener("none");
+        let ready = super::initial_accept::wait_ready(&listener, Some(dead_pid())).expect("wait");
+        assert!(matches!(ready, super::initial_accept::Ready::ParentExited));
+        let _ = std::fs::remove_file(path);
     }
 }
