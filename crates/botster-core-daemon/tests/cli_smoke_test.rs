@@ -1,7 +1,6 @@
 #![allow(missing_docs)]
 
 use std::process::Command;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use botster_core::{ProcessIdentity, ResizePayload, SessionId};
 use botster_core_daemon::{CoreDaemon, CoreDaemonConfig, RegistryRecord};
@@ -138,10 +137,7 @@ fn prepared_daemon_binary(data_dir: &std::path::Path) -> std::path::PathBuf {
 }
 
 fn temp_data_dir(label: &str) -> std::path::PathBuf {
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("system clock should be after unix epoch")
-        .as_nanos();
+    let nanos = botster_core_test_support::unique::stamp();
     std::env::temp_dir().join(format!(
         "botster-core-daemon-{label}-{}-{nanos}",
         std::process::id()

@@ -5,7 +5,7 @@ use std::io::Read;
 use std::process::{Command, Stdio};
 use std::sync::mpsc;
 use std::thread;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::net::UnixListener;
@@ -2112,10 +2112,7 @@ fn temp_control_dir(prefix: &str) -> std::path::PathBuf {
     std::path::PathBuf::from("/tmp").join(format!(
         "{prefix}-{}-{}",
         std::process::id(),
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("system clock should follow unix epoch")
-            .as_nanos()
+        botster_core_test_support::unique::stamp()
     ))
 }
 
@@ -2693,10 +2690,7 @@ fn an_exited_socket_worker_exits_when_its_parent_connection_closes() {
     let dir = std::env::temp_dir().join(format!(
         "bw-exit-{}-{}",
         std::process::id(),
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("clock")
-            .as_nanos()
+        botster_core_test_support::unique::stamp()
     ));
     std::fs::create_dir(&dir).expect("create the socket directory");
     std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700))

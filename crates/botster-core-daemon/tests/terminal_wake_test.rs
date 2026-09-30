@@ -2,7 +2,7 @@
 
 use std::fs;
 use std::sync::mpsc;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 
 use botster_core::engine::managed_session_runtime::PENDING_INGRESS_RESIZE_CAP;
 use botster_core::terminal_adapter::TerminalAdapterPressure;
@@ -28,10 +28,7 @@ use botster_terminal_protocol::{
 use botster_terminal_protocol_client::{encode_paste, encode_terminal_input, TerminalInputCommand};
 
 fn temp_data_dir(label: &str) -> std::path::PathBuf {
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("clock")
-        .as_nanos();
+    let nanos = botster_core_test_support::unique::stamp();
     std::env::temp_dir().join(format!(
         "botster-core-wake-{label}-{}-{nanos}",
         std::process::id()

@@ -17,3 +17,4 @@ pub mod fixtures;
 pub mod real_worker;
 pub mod route_observer;
 pub mod terminal_adapter;
+pub mod unique;
