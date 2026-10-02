@@ -948,3 +948,27 @@ It does not approve product code or establish Stage 1 acceptance.
 I ran no product tests.
 
 VERDICT: CLEAN
+
+## Round 20 — revision 20
+
+Plan: `27ffaa4006c3f979fdceb897cbde09de6c25c15e`, `docs/stage1-plan.md`.
+Pin: `stage1-plan.e4862c71.md`.
+Verified SHA-256: `e4862c712743e0a4119fbfe138d314eb242a9dfdab1c641bbee7c53035e55b3e`.
+Contracts tag: `contracts-v0.1.13`, commit `a8db5c9a0f43fc440564989fd38a55121fdda38b`, manifest final30.
+
+I reviewed the complete delta against the new contracts tag.
+The plan matches its pin. The A13 hash and manifest tag match their sources.
+The A13 summary preserves the event shape, atomic representations, clear operation, size bound, and worker-owned acknowledgement.
+It preserves the acknowledgement's contiguous admission path and the unchanged clipboard-read rules.
+R-28 is the only new Core ruling. Its summary matches the pinned text.
+BUILD.md is unchanged. The tooling change adopts full_moon for Lua, as section 0 states.
+The new Core frozen file is A13; the intervening manifest changes add no other Core file.
+The driver now checks the awaited condition again after pumping, before its idle check.
+The ownership generator reproduces every list with 652 unique active Core ids and P3 owning 156 ids.
+Two Core ids remain withdrawn; the third withdrawn entry belongs to another contract.
+F1 through F18 remain CLOSED. I found no new finding.
+This verdict covers the plan at the commit above.
+It does not approve product code or establish Stage 1 acceptance.
+I ran no product tests.
+
+VERDICT: CLEAN
