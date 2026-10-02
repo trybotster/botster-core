@@ -1,6 +1,6 @@
 # P0 skeleton review
 
-Reviewed head: `468d35b0c0641e83640ac756ada5c872706c77a5`.
+Reviewed head: `a8aba2c6de7433b0eb1c90d67b78e0b154b45552`.
 
 Previous reviewed head: `74f2e9afcd16af8483093f3f12765ca397c31b73`.
 
@@ -140,3 +140,6 @@ The final gate must run after the source review is CLEAN. Gate failures remain f
 Third review: Only `crates/botster-core-link/tests/props.rs` changed after `7d30cb47`. I checked the change and the corrected PR decision.
 All six source findings are closed. I ran no tests or heavy jobs. The implementer must run the final gate.
 The final mutation run must confirm closure of the six previously missed mutants. Every gate finding must close before landing.
+
+Fourth review: Head `a8aba2c6` changes one test assertion from `iter().any` to `contains`.
+The assertion has the same meaning. This closes the reported `manual_contains` clippy failure. Source remains CLEAN; final gate remains pending.
