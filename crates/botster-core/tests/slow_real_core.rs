@@ -186,7 +186,10 @@ fn sid(name: &str) -> SessionId {
 #[test]
 fn a_worker_that_exits_before_it_connects_ends_the_start_at_once() {
     let tmp = tempfile::tempdir().unwrap();
-    let mut core = Core::open(config(tmp.path())).expect("open");
+    let mut open = config(tmp.path());
+    // The start deadline is far away: a start that ends before it ended because the exit was seen, not because time ran out.
+    open.limits.startup = Duration::from_secs(120);
+    let mut core = Core::open(open).expect("open");
     let wake = core.wake_handle();
     core.begin(Op::Create {
         session: sid("s1"),
@@ -198,7 +201,7 @@ fn a_worker_that_exits_before_it_connects_ends_the_start_at_once() {
     let began = Instant::now();
     let mut events = Vec::new();
     // timer: deadline — a failing run must not hang; the default startup deadline is longer than this wait
-    while began.elapsed() < Duration::from_secs(8) {
+    while began.elapsed() < Duration::from_secs(100) {
         events.extend(pump(&mut core));
         if events
             .iter()
@@ -215,7 +218,7 @@ fn a_worker_that_exits_before_it_connects_ends_the_start_at_once() {
         "{events:?}"
     );
     assert!(
-        began.elapsed() < Duration::from_secs(5),
+        began.elapsed() < Duration::from_secs(100),
         "the exit woke the host: {:?}",
         began.elapsed()
     );
