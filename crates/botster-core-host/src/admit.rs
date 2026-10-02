@@ -869,32 +869,17 @@ impl HostEngine {
         session: SessionId,
         transport: RouteTransport,
         options: AttachOptions,
-    ) -> Result<AttachResult, CoreError> {
+    ) -> Result<AttachResult, AttachRefused> {
         let _ = &client;
-        self.require(
-            "attach",
-            &session,
-            &[Admit::Starting, Admit::Running, Admit::Exited],
-        )?;
-        let endpoint = match transport {
-            RouteTransport::Stream(endpoint) => endpoint,
-            _ => {
-                return Err(invalid(
-                    "attach takes a connected stream; a WebRTC route uses AttachWebRtc",
-                ))
-            }
+        // Every refusal is synchronous and hands the caller's transport back, untouched (DP-2, steward ruling R-19).
+        let limits = match self.check_attach(&session, &transport, &options) {
+            Ok(limits) => limits,
+            Err(error) => return Err(AttachRefused::new(error, transport)),
         };
-        let limits = self.applied_route_limits(&options)?;
+        let RouteTransport::Stream(endpoint) = transport else {
+            unreachable!("check_attach refused every other transport");
+        };
         let s = self.sessions.get(&session).expect("checked");
-        if s.routes.len() >= self.cfg.limits.routes_per_session as usize {
-            return Err(err(
-                ErrorCode::RouteLimit,
-                format!(
-                    "routes_per_session is {}",
-                    self.cfg.limits.routes_per_session
-                ),
-            ));
-        }
         let route = RouteId(self.next_route);
         self.next_route += 1;
         let instance = s.instance.clone();
@@ -914,6 +899,37 @@ impl HostEngine {
             self.flush_handoffs(&session);
         }
         Ok(AttachResult { route, limits })
+    }
+
+    /// The refusals of `attach` (A2-1, OU-1): they leave no effect, and the transport is not touched.
+    fn check_attach(
+        &self,
+        session: &SessionId,
+        transport: &RouteTransport,
+        options: &AttachOptions,
+    ) -> Result<AppliedRouteLimits, CoreError> {
+        self.require(
+            "attach",
+            session,
+            &[Admit::Starting, Admit::Running, Admit::Exited],
+        )?;
+        if !matches!(transport, RouteTransport::Stream(_)) {
+            return Err(invalid(
+                "attach takes a connected stream; a WebRTC route uses AttachWebRtc",
+            ));
+        }
+        let limits = self.applied_route_limits(options)?;
+        let s = self.sessions.get(session).expect("checked");
+        if s.routes.len() >= self.cfg.limits.routes_per_session as usize {
+            return Err(err(
+                ErrorCode::RouteLimit,
+                format!(
+                    "routes_per_session is {}",
+                    self.cfg.limits.routes_per_session
+                ),
+            ));
+        }
+        Ok(limits)
     }
 
     fn applied_route_limits(
