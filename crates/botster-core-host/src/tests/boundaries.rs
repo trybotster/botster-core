@@ -538,6 +538,18 @@ fn the_rows_of_the_unbuilt_operations_have_their_own_codes() {
         ErrorCode::WrongState,
         "a running session is not adoptable"
     );
+    let end_epoch = w
+        .engine
+        .begin(Op::EndEpoch {
+            service: ServiceId([0; 32]),
+        })
+        .unwrap_err();
+    assert!(matches!(end_epoch.code, ErrorCode::Unsupported { .. }));
+    assert!(
+        end_epoch.detail.contains("service package"),
+        "{}",
+        end_epoch.detail
+    );
     let service = w
         .engine
         .begin(Op::StopService {
@@ -1137,4 +1149,63 @@ fn a_completion_after_a_post_in_the_same_step_waits_for_its_own_step() {
         .poll_events(64)
         .iter()
         .any(|e| matches!(e, Event::Completed { .. })));
+}
+
+/// Core A8-1: the held bytes count each capture once: an unpolled capture counts `max_snapshot_bytes` and not its own size
+/// besides, and a polled one counts its size.
+#[test]
+fn held_capture_bytes_count_each_capture_once() {
+    let mut w = World::new(limits(|l| {
+        l.max_snapshot_bytes = 100;
+        l.snapshot_retained_bytes = 220;
+        l.open_captures_per_client = 8;
+    }));
+    w.autopilot = Autopilot::Silent;
+    w.running("s1");
+    let op = w
+        .engine
+        .begin(Op::CaptureSnapshot {
+            session: sid("s1"),
+            owner: ClientId("c".into()),
+        })
+        .unwrap();
+    w.pump();
+    let req = *w.engine.sessions[&sid("s1")]
+        .inflight
+        .keys()
+        .next()
+        .unwrap();
+    w.worker_says(
+        "s1",
+        WorkerMsg::Pages {
+            req,
+            pages: vec![Page {
+                index: 0,
+                last: true,
+                bytes: botster_route_codec::prelude::HexBytes(vec![0; 40]),
+            }],
+        },
+    );
+    w.worker_says(
+        "s1",
+        WorkerMsg::Done {
+            req,
+            result: OpResult::Ok(OpOutput::Capture(Capture {
+                capture: CaptureId(0),
+                page_count: 1,
+                total_bytes: 40,
+                model_rev: ModelRev(2),
+            })),
+        },
+    );
+    // Finished and not polled: 100 are held, not 140; one more capture (100) fits in 220.
+    assert!(w.engine.ops.contains_key(&op));
+    assert_eq!(w.engine.retained_bytes(), 100);
+    accepted(
+        &mut w,
+        Op::CaptureSnapshot {
+            session: sid("s1"),
+            owner: ClientId("c".into()),
+        },
+    );
 }

@@ -404,3 +404,185 @@ fn stop_all_waits_for_stopping_and_starting_targets() {
     );
     assert_eq!(w.complete(all), OpResult::Ok(OpOutput::Unit));
 }
+
+/// Core AM-1: each kind of setter of a `Created` session holds the start until it has run.
+#[test]
+fn every_kind_of_created_setter_holds_the_start() {
+    let setters = [
+        Op::SetColorProfile {
+            session: sid("s1"),
+            profile: ColorProfile {
+                palette: None,
+                foreground: Rgb { r: 1, g: 2, b: 3 },
+                background: Rgb { r: 4, g: 5, b: 6 },
+                cursor: None,
+            },
+        },
+        Op::SetSizePolicy {
+            session: sid("s1"),
+            policy: SizePolicy::Latest,
+        },
+        Op::SetNotificationPolicy {
+            session: sid("s1"),
+            policy: NotificationPolicy::None,
+        },
+    ];
+    for setter in setters {
+        let mut w = World::default();
+        w.ok(create("s1"));
+        let op = w.engine.begin(setter.clone()).unwrap();
+        w.engine.begin(Op::Start { id: sid("s1") }).unwrap();
+        assert!(
+            !w.engine.ready().contains(&Work::Session(sid("s1"))),
+            "{setter:?} holds the start"
+        );
+        w.feed(Input::Run(Work::Op(op)));
+        assert!(
+            w.engine.ready().contains(&Work::Session(sid("s1"))),
+            "{setter:?} released it"
+        );
+    }
+}
+
+/// Steward ruling R-20: which ops have a fixed timing: a `Resize` in `Created`, a `Resize` to the current size, and a `Stop`
+/// of an ended session; no other `Resize` and no other `Stop`.
+#[test]
+fn only_the_ops_of_the_ruling_have_a_fixed_timing() {
+    let mut w = World::default();
+    w.autopilot = Autopilot::Silent;
+    w.ok(create("c"));
+    let size = |rows| Size {
+        rows,
+        cols: 80,
+        cell_px: None,
+    };
+    let created = w
+        .engine
+        .begin(Op::Resize {
+            session: sid("c"),
+            size: size(30),
+        })
+        .unwrap();
+    assert!(w.engine.never_deferred(&Work::Op(created)));
+    w.running("s1");
+    let current = w.engine.get(&sid("s1")).unwrap().size;
+    let same = w
+        .engine
+        .begin(Op::Resize {
+            session: sid("s1"),
+            size: current,
+        })
+        .unwrap();
+    assert!(w.engine.never_deferred(&Work::Op(same)));
+    let other = w
+        .engine
+        .begin(Op::Resize {
+            session: sid("s1"),
+            size: size(current.rows + 1),
+        })
+        .unwrap();
+    assert!(
+        !w.engine.never_deferred(&Work::Op(other)),
+        "a new size goes to the worker"
+    );
+    let stop = w.engine.begin(Op::Stop { id: sid("s1") }).unwrap();
+    assert!(
+        !w.engine.never_deferred(&Work::Op(stop)),
+        "a stop of a running session"
+    );
+    assert!(!w.engine.never_deferred(&Work::Deadline));
+    w.worker_says(
+        "s1",
+        WorkerMsg::Exited {
+            code: Some(0),
+            signal: None,
+        },
+    );
+    w.pump();
+    let again = w.engine.begin(Op::Stop { id: sid("s1") }).unwrap();
+    assert!(
+        w.engine.never_deferred(&Work::Op(again)),
+        "LC-5: the payload exited"
+    );
+}
+
+/// Core LC-12, LC-5: a `Stop` that is admitted while the exit of the payload is being posted joins that exit: the end is the
+/// exit that the worker reported, and no stop is sent. A `Stop` admitted while the start finishes follows the start.
+#[test]
+fn a_stop_joins_an_exit_in_flight_and_follows_a_start_that_finishes() {
+    // The exit waits for room in the queue; the stop joins it.
+    let mut w = World::new(limits(|l| l.mandatory_events = 1));
+    w.autopilot = Autopilot::Silent;
+    w.running("s1");
+    w.ok(create("x"));
+    w.worker_says(
+        "s1",
+        WorkerMsg::Exited {
+            code: Some(7),
+            signal: None,
+        },
+    );
+    w.pump();
+    let stop = w.engine.begin(Op::Stop { id: sid("s1") }).unwrap();
+    w.engine.poll_events(64);
+    let mut end = None;
+    for _ in 0..10 {
+        w.pump();
+        for e in w.engine.poll_events(64) {
+            if let Event::Completed { op, result } = e {
+                if op == stop {
+                    end = Some(result);
+                }
+            }
+        }
+    }
+    match end {
+        Some(OpResult::Ok(OpOutput::End(SessionEnd::Exited(exit)))) => {
+            assert_eq!(exit.code, Some(7));
+            assert_eq!(
+                exit.cause,
+                ExitCause::Normal,
+                "the worker's exit, not a host stop"
+            );
+        }
+        other => panic!("{other:?}"),
+    }
+    assert!(!w.sent.iter().any(|(_, m)| matches!(m, HostMsg::Stop)));
+    // The start is in its last step when the stop comes: the start completes, then the stop is sent.
+    let mut w = World::default();
+    w.autopilot = Autopilot::Silent;
+    w.ok(create("s1"));
+    let start = silent_launch(&mut w, "s1");
+    let link = w.link_of("s1");
+    w.feed(Input::LinkMsg {
+        link,
+        msg: launched(),
+    });
+    for _ in 0..20 {
+        if matches!(&w.engine.sessions[&sid("s1")].flow, Flow::Start(f) if f.phase == crate::flow::StartPhase::Finish)
+        {
+            break;
+        }
+        if !w.step() {
+            break;
+        }
+    }
+    assert!(
+        matches!(&w.engine.sessions[&sid("s1")].flow, Flow::Start(_)),
+        "the start is finishing"
+    );
+    w.engine.begin(Op::Stop { id: sid("s1") }).unwrap();
+    assert!(
+        matches!(&w.engine.sessions[&sid("s1")].flow, Flow::Start(_)),
+        "the stop does not replace the start"
+    );
+    assert!(matches!(
+        w.complete(start),
+        OpResult::Ok(OpOutput::Record(_))
+    ));
+    w.pump();
+    assert!(
+        w.sent.iter().any(|(_, m)| matches!(m, HostMsg::Stop)),
+        "the stop follows the start"
+    );
+}

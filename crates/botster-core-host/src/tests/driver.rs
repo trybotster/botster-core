@@ -67,6 +67,8 @@ struct Mock {
     spawns: Vec<WorkerSpawn>,
     settled: u32,
     send_cap: Option<usize>,
+    /// The exits that the process edge reports, first first.
+    exits: Vec<(ProcessIdentity, ExitStatus)>,
 }
 
 type Shared = Arc<Mutex<Mock>>;
@@ -145,7 +147,12 @@ impl HostEdges for Edges {
     fn signal_group(&mut self, _identity: ProcessIdentity, _signal: GroupSignal) {}
 
     fn poll_process_exit(&mut self) -> Option<(ProcessIdentity, ExitStatus)> {
-        None
+        let mut mock = self.0.lock().unwrap();
+        if mock.exits.is_empty() {
+            None
+        } else {
+            Some(mock.exits.remove(0))
+        }
     }
 
     fn accept_link(&mut self) -> Option<LinkId> {
@@ -261,6 +268,7 @@ impl Rig {
             spawns: Vec::new(),
             settled: 0,
             send_cap: None,
+            exits: Vec::new(),
         }));
         #[allow(clippy::disallowed_methods)] // a test starts the injected clock at a real instant
         let now = Instant::now();

@@ -2,6 +2,8 @@
 
 use super::*;
 use botster_core_edges::scheduler::ChoicePoint;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 /// A session that runs, through the driver, with a small `pump_events`: it pumps until each step is through.
 fn run_session(rig: &mut Rig, name: &str, link: LinkId) {
@@ -417,4 +419,127 @@ fn a_pick_past_the_end_is_the_last_ready_work() {
             SessionState::Created
         );
     }
+}
+
+/// A scheduler that defers every operation while its switch is on, and varies nothing else.
+struct Switched(Production, Arc<AtomicBool>);
+
+impl Scheduler for Switched {
+    fn pick(&mut self, point: ChoicePoint, candidates: usize) -> usize {
+        match point {
+            ChoicePoint::OperationDeferral => usize::from(self.1.load(Ordering::SeqCst)),
+            _ => self.0.pick(point, candidates),
+        }
+    }
+
+    fn bound(&mut self, point: ChoicePoint, max: usize) -> usize {
+        self.0.bound(point, max)
+    }
+}
+
+/// Steward ruling R-20: while the scheduler defers every operation, the fixed-timing ops still complete in the next pump, and an
+/// operation that no clause fixes does not.
+#[test]
+fn r_20_fixed_ops_complete_while_the_scheduler_defers_everything_else() {
+    let on = Arc::new(AtomicBool::new(false));
+    let mut rig = Rig::with_scheduler(
+        CoreLimits::default(),
+        Box::new(Switched(Production::new(), Arc::clone(&on))),
+    );
+    run_session(&mut rig, "s1", LinkId(1));
+    rig.driver.begin(create("c")).unwrap();
+    for _ in 0..6 {
+        rig.pump();
+        rig.drain_events();
+    }
+    on.store(true, Ordering::SeqCst);
+    let created_resize = rig
+        .driver
+        .begin(Op::Resize {
+            session: sid("c"),
+            size: Size {
+                rows: 30,
+                cols: 100,
+                cell_px: None,
+            },
+        })
+        .unwrap();
+    let current = rig.driver.get(&sid("s1")).unwrap().size;
+    let same = rig
+        .driver
+        .begin(Op::Resize {
+            session: sid("s1"),
+            size: current,
+        })
+        .unwrap();
+    let read = rig
+        .driver
+        .begin(Op::ReadCursor { session: sid("s1") })
+        .unwrap();
+    rig.pump();
+    let events = rig.drain_events();
+    let done = |op: OpId| {
+        events
+            .iter()
+            .any(|e| matches!(e, Event::Completed { op: o, .. } if *o == op))
+    };
+    assert!(done(created_resize), "A2-1 Created Resize");
+    assert!(done(same), "SZ-2");
+    assert!(!done(read), "an operation that no clause fixes is deferred");
+}
+
+/// 9B, TM-6: `more` is true when only work remains, and when only input remains.
+#[test]
+fn more_is_true_for_remaining_work_and_for_remaining_input() {
+    // Only work: two creates with the budget of one event.
+    let mut rig = Rig::new(limits(|l| {
+        l.pump_events = 1;
+        l.max_sessions = 4;
+    }));
+    rig.driver.begin(create("a")).unwrap();
+    rig.driver.begin(create("b")).unwrap();
+    assert!(rig.pump().more, "work remains");
+    // Only input: the engine has nothing to run, and a link holds unread bytes beyond the allowance of one pump.
+    let mut rig = Rig::new(limits(|l| l.pump_bytes = 64));
+    run_session(&mut rig, "s1", LinkId(1));
+    for _ in 0..40 {
+        rig.worker_says(
+            LinkId(1),
+            WorkerMsg::Observed {
+                observation: Observation::Bell,
+            },
+        );
+    }
+    let report = rig.pump();
+    assert!(!rig.driver.engine().runnable(), "no engine work");
+    assert!(report.more, "input remains");
+}
+
+/// AD-2: an exit that the process edge reports ends the session `Lost(WorkerGone)`, and one exit per call of the edge is taken
+/// while the pump has budget.
+#[test]
+fn the_driver_takes_the_exits_of_the_process_edge() {
+    let mut rig = Rig::new(CoreLimits::default());
+    run_session(&mut rig, "s1", LinkId(1));
+    let worker = ProcessIdentity {
+        pid: 500,
+        start_time: 1,
+    };
+    rig.mock
+        .lock()
+        .unwrap()
+        .exits
+        .push((worker, ExitStatus::Code(0)));
+    for _ in 0..6 {
+        rig.pump();
+        rig.drain_events();
+    }
+    assert!(
+        rig.mock.lock().unwrap().exits.is_empty(),
+        "the exit was taken"
+    );
+    assert_eq!(
+        rig.driver.get(&sid("s1")).unwrap().state,
+        SessionState::Lost(LostReason::WorkerGone)
+    );
 }
