@@ -13,15 +13,16 @@ Evidence: `crates/botster-core-testkit/src/refusal.rs:605-618`.
 `attach` owns `RouteTransport` and returns `Err` when the script matches.
 For `RouteTransport::Stream`, that return drops `StreamEndpoint` and its owned stream.
 The method comment states this behavior. Plan 4.2a requires the descriptor to stay with the caller.
-DP-2 transfers ownership only from a successful attach return.
+DP-2 specifies ownership from a successful attach return. It does not define the refusal return shape.
 
 The comment's proposed harness precheck also has a counting error if the call proceeds through the current layer.
 For occurrence 2, the precheck decrements the entry to 1. The layer then refuses the first attach call.
 
 Required change: preserve the caller's stream on refusal. Count each attach call exactly once.
 Add proof with an owned stream endpoint, including a refusal at occurrence 2 and an unchanged successful delegation.
-The reviewer sent the lead a QUESTION about direct-layer versus harness ownership under the by-value contract trait.
-Do not change that trait without authority.
+The lead confirmed the counting defect. The lead sent the descriptor question to the steward.
+The descriptor part stays open pending that ruling. The pinned trait cannot return the endpoint with `Err`.
+Do not change that trait without authority. Other findings can close while this question remains open.
 
 ## S2-R2 — MEDIUM — The table omits two synchronous calls
 
