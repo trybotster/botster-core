@@ -34,6 +34,9 @@ pub use snapshot::{
     snapshot_format, terminal_identity, SnapshotError, TerminalIdentityParts, CONTINUATION_LIMIT,
 };
 
+/// The default bytes of undrained clipboard acknowledgements that `vt_write_until_query` accepts.
+pub const DEFAULT_ACK_BACKLOG_BYTES: usize = 1024 * 1024;
+
 /// The default limit of one clipboard write, in bytes of all representations (`CoreLimits.clipboard_bytes`).
 pub const DEFAULT_CLIPBOARD_BYTES: usize = MAX_BUFFERED_BYTES;
 
@@ -58,6 +61,8 @@ pub enum Error {
     OutOfMemory,
     /// An argument was out of range.
     InvalidValue,
+    /// Acknowledgements of clipboard writes are waiting past `Terminal::set_ack_backlog_limit`: drain them first.
+    AckBacklog,
     /// A buffer was too small, or an unexpected result code.
     Other(i32),
 }
@@ -85,6 +90,7 @@ pub struct Terminal {
     history: History,
     cell_px: Option<botster_core_contract::prelude::CellPx>,
     color_profile: Option<botster_core_contract::prelude::ColorProfile>,
+    ack_backlog_limit: usize,
     handle: NonNull<c_void>,
     /// The event buffer that the callbacks fill. It is a leaked `Box`, freed in `Drop` after the terminal.
     shared: NonNull<events::Shared>,
@@ -115,6 +121,7 @@ impl Terminal {
             history,
             cell_px: size.cell_px,
             color_profile: None,
+            ack_backlog_limit: DEFAULT_ACK_BACKLOG_BYTES,
             _not_sync: PhantomData,
         };
         terminal.set_clipboard_limit(DEFAULT_CLIPBOARD_BYTES);
@@ -263,6 +270,10 @@ impl Terminal {
     /// ST of an unfinished string sequence unconsumed; the caller offers it again with the next bytes.
     pub fn vt_write_until_query(&mut self, bytes: &[u8]) -> Result<QueryStep, Error> {
         // SAFETY: no callback runs now, so this is the only reference to the buffer.
+        if unsafe { self.shared.as_ref() }.ack_bytes > self.ack_backlog_limit {
+            return Err(Error::AckBacklog);
+        }
+        // SAFETY: no callback runs now, so this is the only reference to the buffer.
         unsafe { self.shared.as_mut() }.begin_write(true);
         let mut consumed: usize = 0;
         // SAFETY: the handle is live, the slice is valid for its length, and `consumed` is a valid out pointer.
@@ -286,6 +297,14 @@ impl Terminal {
             }),
             other => Err(Error::from_code(other)),
         }
+    }
+
+    /// Set the bytes of undrained clipboard acknowledgements (`Drained::clipboard_acks`) above which
+    /// `vt_write_until_query` refuses with `Error::AckBacklog` until the caller drains (admission backpressure,
+    /// A13-1b). One chunk of PTY output still adds its acknowledgements, and they are bounded by the chunk: each one
+    /// answers a write sequence in it.
+    pub fn set_ack_backlog_limit(&mut self, bytes: usize) {
+        self.ack_backlog_limit = bytes;
     }
 
     /// Set the largest clipboard write, in bytes of all representations, that the model is answered SUCCESS for

@@ -643,6 +643,7 @@ extern "C" {
 pub mod snapshot_opt {
     pub const MAX_CONTINUATION_BYTES: i32 = 0;
     pub const RETAIN_CONTINUATION: i32 = 1;
+    pub const KITTY_IMAGE_STORAGE_LIMIT: i32 = 3;
 }
 
 pub type SnapshotDecoder = *mut c_void;

@@ -16,7 +16,12 @@ pub enum SnapshotError {
     Library(Error),
 }
 
-/// The snapshot format that this binding writes (`Launched.formats`, ST-6). The name and the version are the envelope
+/// The snapshot format that this binding writes. **The snapshot holds no Kitty graphics state** (no image and no
+/// placement), and `snapshot_graphics` is absent from the worker's feature list. To keep that true after a restore, the
+/// model turns image storage off before any write, and a restore must set the decoder's
+/// `GHOSTTY_SNAPSHOT_DECODER_OPT_KITTY_IMAGE_STORAGE_LIMIT` to zero, so that the restored model ignores image sequences
+/// as the original did (ST-6b).
+/// (`Launched.formats`, ST-6). The name and the version are the envelope
 /// that the library writes at the start of every snapshot (an 8-byte magic and a little-endian `u16` version), read
 /// from a snapshot of a scratch terminal, so they are the library's own and never invented here.
 pub fn snapshot_format() -> botster_core_contract::prelude::SnapshotFormat {

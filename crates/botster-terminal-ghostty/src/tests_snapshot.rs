@@ -54,6 +54,16 @@ impl Restored {
                 ),
                 sys::SUCCESS
             );
+            // The session turned image storage off, so the restored model must ignore image sequences too.
+            let no_images: u64 = 0;
+            assert_eq!(
+                sys::ghostty_snapshot_decoder_set(
+                    decoder,
+                    sys::snapshot_opt::KITTY_IMAGE_STORAGE_LIMIT,
+                    (&no_images as *const u64).cast()
+                ),
+                sys::SUCCESS
+            );
             assert_eq!(
                 sys::ghostty_snapshot_decoder_decode(decoder, &mut restored),
                 sys::SUCCESS
@@ -61,6 +71,21 @@ impl Restored {
             sys::ghostty_snapshot_decoder_free(decoder);
         }
         Self(restored)
+    }
+
+    /// The Kitty image storage limit of the active screen of the restored terminal.
+    fn image_limit(&self) -> u64 {
+        let mut limit: u64 = u64::MAX;
+        // SAFETY: the handle is live, and the key writes a `uint64_t`.
+        let code = unsafe {
+            sys::ghostty_terminal_get(
+                self.0,
+                sys::data::KITTY_IMAGE_STORAGE_LIMIT,
+                (&mut limit as *mut u64).cast(),
+            )
+        };
+        assert_eq!(code, sys::SUCCESS);
+        limit
     }
 
     fn write(&mut self, bytes: &[u8]) {
@@ -199,6 +224,10 @@ fn corpus() -> Vec<Vec<u8>> {
         b"\x1b[3g\x1b[1;7H\x1bH\x1b[1;19H\x1bH\r\tA\tB\tC".to_vec(),
         // Margins: top and bottom, then left and right, then text and a scroll inside them.
         b"\x1b[2;8r\x1b[?69h\x1b[5;30s\x1b[2;5Hinside\nmargins\n\n\n\n\n\n\nscrolled".to_vec(),
+        // Kitty graphics input: a direct image in one command, then a chunked one, with text between. The session has
+        // image storage off, so neither leaves any state, before or after a restore.
+        b"top\x1b_Ga=T,f=24,s=1,v=1,i=1;AAAA\x1b\\mid\x1b_Ga=t,f=24,s=1,v=1,i=2,m=1;AAAA\x1b\\\x1b_Gm=0;\x1b\\end"
+            .to_vec(),
         // Character sets: DEC graphics in G0, shifted out to G1, and back.
         b"\x1b(0lqk\x1b)B\x0eabc\x0f\x1b(Bxyz".to_vec(),
     ]
@@ -249,13 +278,24 @@ fn a_restored_terminal_takes_the_rest_of_the_output_at_every_byte_offset_like_th
                 panic!("corpus {index}, offset {offset}: {e:?}");
             });
 
-            // The restored terminal, not the original, takes the suffix.
+            // The restored terminal, not the original, takes the suffix. Its image storage limit is the session's
+            // (zero) before and after the suffix, on both screens.
             let mut restored = Restored::from(&snapshot);
+            assert_eq!(restored.image_limit(), 0, "corpus {index}, offset {offset}");
             restored.write(&input[offset..]);
+            assert_eq!(restored.image_limit(), 0, "corpus {index}, offset {offset}");
             assert_eq!(
                 restored.snapshot(),
                 expected,
                 "corpus {index}, offset {offset}"
+            );
+            // The alternate screen of the restored terminal has the same limit. This comes after the comparison, because
+            // entering it changes the snapshot.
+            restored.write(b"\x1b[?1049h");
+            assert_eq!(
+                restored.image_limit(),
+                0,
+                "corpus {index}, offset {offset} on the alternate screen"
             );
         }
     }

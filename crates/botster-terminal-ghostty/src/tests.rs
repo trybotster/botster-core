@@ -170,11 +170,19 @@ fn osc_133_marks_and_the_exit_code() {
 
 /// The one clipboard write that `bytes` produces.
 fn clipboard_write_of(terminal: &mut Terminal, bytes: &[u8]) -> ClipboardWrite {
+    clipboard_write_and_acks(terminal, bytes).0
+}
+
+/// The one clipboard write that `bytes` produces, and the acknowledgements of the drain.
+fn clipboard_write_and_acks(
+    terminal: &mut Terminal,
+    bytes: &[u8],
+) -> (ClipboardWrite, Vec<Vec<u8>>) {
     terminal.vt_write(bytes);
-    let mut events = terminal.drain_events().events;
-    assert_eq!(events.len(), 1, "{events:?}");
-    match events.remove(0) {
-        TerminalEvent::ClipboardWrite(write) => write,
+    let mut drained = terminal.drain_events();
+    assert_eq!(drained.events.len(), 1, "{:?}", drained.events);
+    match drained.events.remove(0) {
+        TerminalEvent::ClipboardWrite(write) => (write, drained.clipboard_acks),
         other => panic!("expected a clipboard write, got {other:?}"),
     }
 }
@@ -207,7 +215,6 @@ fn osc_52_writes_report_the_selection_location_terminator_and_the_decoded_bytes(
             assert_eq!(write.terminator, expected);
             assert_eq!(write.contents, Some(vec![entry("text/plain", b"hi")]));
             assert_eq!((write.total_bytes, write.too_large), (2, false));
-            assert!(write.ack.is_empty());
         }
     }
     // A program that leaves the selection out gives none, and the location says where the write goes.
@@ -237,23 +244,33 @@ fn osc_1337_copy_is_a_clipboard_write_without_a_selection_or_an_acknowledgement(
     let write = clipboard_write_of(&mut terminal(), b"\x1b]1337;Copy=:aVRlcm0y\x1b\\");
     assert_eq!(write.selection, None);
     assert_eq!(write.contents, Some(vec![entry("text/plain", b"iTerm2")]));
-    assert!(write.ack.is_empty());
 }
 
-/// The transaction of an OSC 5522 write with two representations, one in two chunks.
-fn kitty_write(terminal: &mut Terminal) -> ClipboardWrite {
+/// The transaction of an OSC 5522 write with two representations, one in two chunks. It returns the write and the
+/// acknowledgements of the drain.
+fn kitty_write(terminal: &mut Terminal) -> (ClipboardWrite, Vec<Vec<u8>>) {
     terminal.vt_write(b"\x1b]5522;type=write:id=42\x1b\\");
     terminal.vt_write(b"\x1b]5522;type=wdata:mime=dGV4dC9wbGFpbg==;R2hvc3Q=\x1b\\");
     terminal.vt_write(b"\x1b]5522;type=wdata:mime=dGV4dC9wbGFpbg==;dHk=\x1b\\");
     terminal.vt_write(b"\x1b]5522;type=wdata:mime=dGV4dC9odG1s;PGI+aGk8L2I+\x1b\\");
-    clipboard_write_of(terminal, b"\x1b]5522;type=wdata\x1b\\")
+    clipboard_write_and_acks(terminal, b"\x1b]5522;type=wdata\x1b\\")
+}
+
+#[test]
+fn osc_52_and_osc_1337_writes_have_no_acknowledgement() {
+    let mut terminal = terminal();
+    terminal.vt_write(b"\x1b]52;c;aGk=\x07\x1b]1337;Copy=:aVRlcm0y\x1b\\");
+    let drained = terminal.drain_events();
+    assert_eq!(drained.events.len(), 2);
+    assert!(drained.clipboard_acks.is_empty());
+    assert!(drained.pty_writes.is_empty());
 }
 
 #[test]
 fn an_osc_5522_write_keeps_every_representation_in_order_and_returns_the_acknowledgement_as_a_value(
 ) {
     let mut terminal = terminal();
-    let write = kitty_write(&mut terminal);
+    let (write, acks) = kitty_write(&mut terminal);
     assert_eq!(write.selection, None);
     assert_eq!(write.location, ClipboardLocation::Standard);
     assert_eq!(
@@ -264,8 +281,9 @@ fn an_osc_5522_write_keeps_every_representation_in_order_and_returns_the_acknowl
         ])
     );
     assert_eq!((write.total_bytes, write.too_large), (16, false));
-    // The model wrote an acknowledgement while it handled the reply. It is in the event, and nothing went to the pty.
-    assert!(!write.ack.is_empty());
+    // The model wrote one acknowledgement while it handled the reply. It is its own item, and nothing went to the pty.
+    assert_eq!(acks.len(), 1);
+    assert!(!acks[0].is_empty());
     let drained = terminal.drain_events();
     assert!(drained.pty_writes.is_empty());
     assert_eq!(drained.unrouted_queries, 0);
@@ -274,23 +292,71 @@ fn an_osc_5522_write_keeps_every_representation_in_order_and_returns_the_acknowl
 #[test]
 fn a_write_over_the_limit_is_surfaced_without_its_bytes_and_the_model_gets_io_error() {
     let mut within = terminal();
-    let ok = kitty_write(&mut within);
+    let (_, ok) = kitty_write(&mut within);
 
     let mut terminal = terminal();
     // The limit counts the bytes of all representations: 7 + 9 = 16.
     terminal.set_clipboard_limit(15);
-    let over = kitty_write(&mut terminal);
+    let (over, over_acks) = kitty_write(&mut terminal);
     assert!(over.too_large);
     assert_eq!(over.contents, None);
     assert_eq!(over.total_bytes, 16);
     // The program is told a different status (IO_ERROR, not DONE), and the answer is still a value.
-    assert!(!over.ack.is_empty());
-    assert_ne!(over.ack, ok.ack);
+    assert_eq!(over_acks.len(), 1);
+    assert_ne!(over_acks, ok);
 
     // At the limit it is within.
     let mut at_limit = self::terminal();
     at_limit.set_clipboard_limit(16);
-    assert!(!kitty_write(&mut at_limit).too_large);
+    assert!(!kitty_write(&mut at_limit).0.too_large);
+}
+
+#[test]
+fn an_acknowledgement_survives_a_full_event_buffer_with_no_host() {
+    // The event buffer fills with bells in one model step, and the clipboard write that follows is dropped as an
+    // event (class D). Its acknowledgement is a separate item, and it is still delivered (A13-1b).
+    let mut terminal = terminal();
+    let mut input = vec![0x07u8; MAX_BUFFERED_EVENTS + 10];
+    input.extend_from_slice(b"\x1b]5522;type=write:id=7\x1b\\");
+    input.extend_from_slice(b"\x1b]5522;type=wdata:mime=dGV4dC9wbGFpbg==;aGk=\x1b\\");
+    input.extend_from_slice(b"\x1b]5522;type=wdata\x1b\\");
+    terminal.vt_write(&input);
+    let drained = terminal.drain_events();
+    assert_eq!(drained.events.len(), MAX_BUFFERED_EVENTS);
+    assert!(drained.dropped > 0);
+    assert!(drained.dropped_kinds.contains(&LostKind::ClipboardWrite));
+    assert!(!drained
+        .events
+        .iter()
+        .any(|e| matches!(e, TerminalEvent::ClipboardWrite(_))));
+    assert_eq!(drained.clipboard_acks.len(), 1);
+    assert!(!drained.clipboard_acks[0].is_empty());
+}
+
+#[test]
+fn acknowledgements_come_in_the_order_of_their_writes_and_a_backlog_stops_the_write() {
+    let mut terminal = terminal();
+    let commit = |id: u32| {
+        format!(
+            "\x1b]5522;type=write:id={id}\x1b\\\x1b]5522;type=wdata:mime=dGV4dC9wbGFpbg==;aGk=\x1b\\\x1b]5522;type=wdata\x1b\\"
+        )
+    };
+    let input = [commit(1), commit(2), commit(3)].concat();
+    terminal.vt_write(input.as_bytes());
+    let acks = terminal.drain_events().clipboard_acks;
+    assert_eq!(acks.len(), 3);
+    // Each acknowledgement echoes the id of its write.
+    for (ack, id) in acks.iter().zip(1..) {
+        let text = String::from_utf8_lossy(ack);
+        assert!(text.contains(&format!("id={id}")), "{text}");
+    }
+
+    // Past the backlog limit, the PTY write path refuses until the caller drains.
+    terminal.set_ack_backlog_limit(10);
+    terminal.vt_write(commit(4).as_bytes());
+    assert_eq!(terminal.vt_write_until_query(b"x"), Err(Error::AckBacklog));
+    assert_eq!(terminal.drain_events().clipboard_acks.len(), 1);
+    assert!(terminal.vt_write_until_query(b"x").is_ok());
 }
 
 // ---- modes (5.1A, Core erratum 2) ----
