@@ -1,6 +1,17 @@
 # P6 testkit review — Scope 2, step 2
 
-VERDICT: NOT CLEAN (1 open)
+VERDICT: CLEAN
+
+Reviewed head: `ed3c84d39ca76a98219c49e089bf572610f42f55`.
+Final delta base: `22f7e3c`.
+S5-R1 closes. The comment identifies XOR as equivalent and AND as a changed call.
+The reviewer accepts the function-scoped process glue exclusion, including the changed AND mutations.
+The reviewer does not require a claim that the slow tests kill every excluded mutant.
+All 37 mutation findings are closed by the new tests or the accepted exclusion reasons.
+The reviewer ran no tests or gate. The gate must confirm the result on this exact head after CLEAN.
+This verdict retains the Scope 2 limits of the earlier CLEAN. It does not approve full Scope 2 completion.
+
+## Mutation review history
 
 Exclusion delta reviewed: `22f7e3c7db8d1f6f377391dc060d43930eae3aed`, against `db6d1d6`.
 S5-R1 remains open only for one incorrect statement in the new reason.
