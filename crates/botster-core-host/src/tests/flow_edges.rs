@@ -265,3 +265,457 @@ fn adopt_all_takes_the_good_rows_and_leaves_the_others() {
     assert_eq!(again.engine.sessions[&sid("a")].admit, Admit::Created);
     assert_eq!(again.engine.sessions[&sid("b")].admit, Admit::Lost);
 }
+
+/// Core EV-5, A2-1: an observation of the worker that arrives while the start is not through waits until `Running` and the
+/// completion of `Start` are posted; the events of the model come after them, in the order of the observations.
+#[test]
+fn an_observation_during_the_start_follows_running_and_the_completion() {
+    let mut w = World::default();
+    w.autopilot = Autopilot::Silent;
+    w.ok(create("s1"));
+    let start = w.engine.begin(Op::Start { id: sid("s1") }).unwrap();
+    w.pump();
+    let link = w.link_of_after_hello("s1");
+    w.engine.poll_events(64);
+    w.feed(Input::LinkMsg {
+        link,
+        msg: WorkerMsg::Launched {
+            features: BTreeSet::new(),
+            terminal: terminal_state(),
+            formats: vec![],
+            payload: botster_core_link::msg::PayloadId {
+                pid: 900,
+                start_time: 3,
+            },
+        },
+    });
+    let mut modes = terminal_state().modes.clone();
+    modes.alt_screen = !modes.alt_screen;
+    w.feed(Input::LinkMsg {
+        link,
+        msg: observation(Observation::Modes {
+            flags: modes.clone(),
+            model_rev: ModelRev(9),
+        }),
+    });
+    w.feed(Input::LinkMsg {
+        link,
+        msg: observation(Observation::Title {
+            title: "t".into(),
+            model_rev: ModelRev(10),
+        }),
+    });
+    let mut events = Vec::new();
+    for _ in 0..10 {
+        w.pump();
+        events.extend(w.engine.poll_events(64));
+    }
+    let names: Vec<&str> = events
+        .iter()
+        .map(|e| match e {
+            Event::SessionState {
+                state: SessionState::Running,
+                ..
+            } => "running",
+            Event::Completed { op, .. } if *op == start => "completed",
+            Event::ModesChanged { .. } => "modes",
+            Event::TitleChanged { .. } => "title",
+            _ => "other",
+        })
+        .collect();
+    assert_eq!(
+        names,
+        ["running", "completed", "modes", "title"],
+        "{events:?}"
+    );
+    assert_eq!(
+        w.engine.terminal_state(&sid("s1")).unwrap().modes,
+        modes,
+        "the cache follows the observation after the start"
+    );
+}
+
+/// Core DP-7, EV-5(b): a failed handoff closes its route once, posts nothing for a route that is gone, and parks only a close
+/// that found no room.
+#[test]
+fn a_failed_handoff_closes_a_known_route_once_and_ignores_an_unknown_one() {
+    let attach = |w: &mut World| {
+        w.engine
+            .attach(
+                ClientId("c".into()),
+                sid("s1"),
+                RouteTransport::Stream(StreamEndpoint::new(())),
+                AttachOptions {
+                    file_directory: "/tmp".into(),
+                    file_permissions: None,
+                    route_features: vec![],
+                    terminal_formats: vec![],
+                    connect_deadline: None,
+                    owner: None,
+                    query_deadline: Some(Duration::from_secs(1)),
+                    route_tag: None,
+                    route_limits: None,
+                    history: None,
+                    stall_deadline: None,
+                    answers_queries: true,
+                    input: true,
+                },
+            )
+            .unwrap()
+            .route
+    };
+    let mut w = World::new(limits(|l| l.mandatory_events = 2));
+    w.autopilot = Autopilot::Silent;
+    w.running("s1");
+    let route = attach(&mut w);
+    w.engine.poll_events(64);
+    w.feed(Input::HandoffFailed { route });
+    let events = w.engine.poll_events(64);
+    assert!(
+        matches!(
+            &events[..],
+            [Event::RouteClosed {
+                reason: RouteCloseReason::HandoffFailed,
+                ..
+            }]
+        ),
+        "{events:?}"
+    );
+    assert!(!w.engine.parked_work(), "a close that posted is not parked");
+    w.feed(Input::HandoffFailed { route });
+    w.feed(Input::HandoffFailed { route: RouteId(99) });
+    assert!(
+        w.engine.poll_events(64).is_empty(),
+        "a route that is gone posts nothing"
+    );
+    assert!(!w.engine.parked_work());
+    // With no room the close is parked.
+    let route = attach(&mut w);
+    w.engine.begin(create("x1")).unwrap();
+    w.engine.begin(create("x2")).unwrap();
+    w.pump();
+    assert!(!w.engine.has_room());
+    w.feed(Input::HandoffFailed { route });
+    assert!(w.engine.parked_work(), "no room: parked");
+}
+
+/// Core LC-7, A6-3: a link that closes while the worker tears down leaves the uploads `OutcomeUnknown`.
+#[test]
+fn a_link_closing_during_the_remove_teardown_leaves_the_uploads_unknown() {
+    use crate::flow::{Flow, RemovePhase};
+    let mut w = World::default();
+    w.autopilot = Autopilot::Silent;
+    w.running("s1");
+    w.worker_says(
+        "s1",
+        WorkerMsg::Exited {
+            code: Some(0),
+            signal: None,
+        },
+    );
+    w.pump();
+    w.engine.poll_events(64);
+    let remove = w.engine.begin(Op::Remove { id: sid("s1") }).unwrap();
+    for _ in 0..10 {
+        if matches!(&w.engine.sessions[&sid("s1")].flow, Flow::Remove(f) if f.phase == RemovePhase::AwaitTeardown)
+        {
+            break;
+        }
+        w.step();
+    }
+    let link = w.link_of("s1");
+    w.feed(Input::LinkClosed { link });
+    w.exited("s1");
+    match w.complete(remove) {
+        OpResult::Ok(OpOutput::RemoveReport(report)) => {
+            assert_eq!(
+                report.uploads,
+                UploadsOutcome::NotDeleted(NotDeleted::OutcomeUnknown)
+            );
+        }
+        other => panic!("{other:?}"),
+    }
+}
+
+/// Core LC-4, AD-2: a link that closes while `Running` is still being posted does not fail the start, and a worker exit that
+/// comes after a failed start does not change how it failed.
+#[test]
+fn a_closed_link_after_the_launch_and_an_exit_after_a_failure_change_nothing() {
+    // The launch is through, `Running` waits for room, the link closes: the session is `Running`.
+    let mut w = World::new(limits(|l| l.mandatory_events = 2));
+    w.autopilot = Autopilot::Silent;
+    w.ok(create("s1"));
+    let start = w.engine.begin(Op::Start { id: sid("s1") }).unwrap();
+    w.pump();
+    let link = w.link_of_after_hello("s1");
+    w.engine.begin(create("x")).unwrap();
+    w.pump();
+    w.feed(Input::LinkMsg {
+        link,
+        msg: WorkerMsg::Launched {
+            features: BTreeSet::new(),
+            terminal: terminal_state(),
+            formats: vec![],
+            payload: botster_core_link::msg::PayloadId {
+                pid: 900,
+                start_time: 3,
+            },
+        },
+    });
+    w.pump();
+    assert!(!w.engine.has_room(), "Running waits");
+    w.feed(Input::LinkClosed { link });
+    for _ in 0..10 {
+        w.engine.poll_events(64);
+        w.pump();
+    }
+    assert_eq!(
+        w.engine.get(&sid("s1")).unwrap().state,
+        SessionState::Running
+    );
+    let _ = start;
+    // The link closes before the launch: the start fails `Exited`; a worker exit while that failure waits for room does not
+    // turn it into `Lost`.
+    let mut w = World::new(limits(|l| l.mandatory_events = 2));
+    w.autopilot = Autopilot::Silent;
+    w.ok(create("s1"));
+    w.engine.begin(Op::Start { id: sid("s1") }).unwrap();
+    w.pump();
+    let link = w.link_of_after_hello("s1");
+    w.engine.begin(create("x")).unwrap();
+    w.pump();
+    assert!(!w.engine.has_room());
+    w.feed(Input::LinkClosed { link });
+    w.pump();
+    w.exited("s1");
+    for _ in 0..10 {
+        w.engine.poll_events(64);
+        w.pump();
+    }
+    assert!(
+        matches!(
+            w.engine.get(&sid("s1")).unwrap().state,
+            SessionState::Exited(_)
+        ),
+        "{:?}",
+        w.engine.get(&sid("s1")).unwrap().state
+    );
+}
+
+/// Core LC-5: with the link alive, the kill after `stop_grace` goes to the worker as a message and the host signals nothing;
+/// the final state row is written when the session ends.
+#[test]
+fn the_grace_kill_goes_over_the_link_and_the_end_is_written_to_the_registry() {
+    let mut w = World::new(limits(|l| l.stop_grace = Duration::from_millis(100)));
+    w.autopilot = Autopilot::Silent;
+    w.running("s1");
+    w.engine.begin(Op::Stop { id: sid("s1") }).unwrap();
+    w.pump();
+    w.advance(Duration::from_millis(100));
+    w.pump();
+    assert!(
+        w.sent.iter().any(|(_, m)| matches!(m, HostMsg::Kill)),
+        "the kill is a message"
+    );
+    assert!(
+        w.signals.is_empty(),
+        "the host signals no process while the link is alive"
+    );
+    w.worker_says(
+        "s1",
+        WorkerMsg::Exited {
+            code: Some(0),
+            signal: None,
+        },
+    );
+    w.pump();
+    let row: serde_json::Value = serde_json::from_slice(&w.rows["session/s1"]).unwrap();
+    assert!(row["state"].get("Exited").is_some(), "{row}");
+}
+
+/// Core DP-7: a local `Detach` closes the route with the reason that was asked for.
+#[test]
+fn a_local_detach_closes_with_the_reason_asked_for() {
+    for (asked, expected) in [
+        (DetachReason::Detached, RouteCloseReason::Detached),
+        (DetachReason::Replaced, RouteCloseReason::Replaced),
+        (DetachReason::Revoked, RouteCloseReason::Revoked),
+    ] {
+        let mut w = World::default();
+        w.autopilot = Autopilot::Silent;
+        w.running("s1");
+        let route = w
+            .engine
+            .attach(
+                ClientId("c".into()),
+                sid("s1"),
+                RouteTransport::Stream(StreamEndpoint::new(())),
+                AttachOptions {
+                    file_directory: "/tmp".into(),
+                    file_permissions: None,
+                    route_features: vec![],
+                    terminal_formats: vec![],
+                    connect_deadline: None,
+                    owner: None,
+                    query_deadline: Some(Duration::from_secs(1)),
+                    route_tag: None,
+                    route_limits: None,
+                    history: None,
+                    stall_deadline: None,
+                    answers_queries: true,
+                    input: true,
+                },
+            )
+            .unwrap()
+            .route;
+        w.engine.poll_events(64);
+        let link = w.link_of("s1");
+        w.feed(Input::LinkClosed { link });
+        let detach = w
+            .engine
+            .begin(Op::Detach {
+                route,
+                reason: asked,
+            })
+            .unwrap();
+        let mut closed = None;
+        for _ in 0..6 {
+            w.pump();
+            for e in w.engine.poll_events(64) {
+                if let Event::RouteClosed { reason, .. } = e {
+                    closed = Some(reason);
+                }
+            }
+        }
+        let _ = detach;
+        assert_eq!(closed, Some(expected));
+    }
+}
+
+/// Core AM-3, A2-1: ops that are still pending when a session is removed end by their own row: a setter of a `Created` session
+/// that never ran ends `RegistryFailed` for a policy and `SessionEnded` for a size or a size policy.
+#[test]
+fn pending_setters_of_a_removed_created_session_end_by_their_own_row() {
+    use crate::flow::{Flow, RemovePhase};
+    let mut w = World::default();
+    w.ok(create("s1"));
+    let resize = w
+        .engine
+        .begin(Op::Resize {
+            session: sid("s1"),
+            size: Size {
+                rows: 9,
+                cols: 9,
+                cell_px: None,
+            },
+        })
+        .unwrap();
+    let policy = w
+        .engine
+        .begin(Op::SetNotificationPolicy {
+            session: sid("s1"),
+            policy: NotificationPolicy::None,
+        })
+        .unwrap();
+    let size_policy = w
+        .engine
+        .begin(Op::SetSizePolicy {
+            session: sid("s1"),
+            policy: SizePolicy::Latest,
+        })
+        .unwrap();
+    w.engine.begin(Op::Remove { id: sid("s1") }).unwrap();
+    // The flow of the remove runs before the setters do.
+    for _ in 0..10 {
+        if !matches!(&w.engine.sessions.get(&sid("s1")).map(|s| s.flow.clone()), Some(Flow::Remove(f)) if f.phase != RemovePhase::PostReleased)
+        {
+            break;
+        }
+        w.feed(Input::Run(crate::io::Work::Session(sid("s1"))));
+    }
+    let mut done = BTreeMap::new();
+    for _ in 0..10 {
+        w.pump();
+        for e in w.engine.poll_events(64) {
+            if let Event::Completed { op, result } = e {
+                done.insert(op, result);
+            }
+        }
+    }
+    let code = |op: OpId| match done.get(&op) {
+        Some(OpResult::Err(e)) => Some(e.code.clone()),
+        _ => None,
+    };
+    assert_eq!(code(resize), Some(ErrorCode::SessionEnded), "{done:?}");
+    assert_eq!(code(size_policy), Some(ErrorCode::SessionEnded));
+    assert_eq!(
+        code(policy),
+        Some(ErrorCode::RegistryFailed { uncertain: false })
+    );
+}
+
+/// Core AD-7: a flow step that asks an edge for something waits for the answer: the session is not ready until the ticket is
+/// resolved.
+#[test]
+fn a_flow_waits_for_the_ticket_of_its_edge_request() {
+    let mut w = World::default();
+    w.ok(create("s1"));
+    w.engine.begin(Op::Start { id: sid("s1") }).unwrap();
+    // One step by hand: the engine asks for random bytes, and the world has not answered.
+    w.engine
+        .on_input(Input::Run(crate::io::Work::Session(sid("s1"))));
+    assert!(
+        w.engine.sessions[&sid("s1")].ticket.is_some(),
+        "the flow waits for its ticket"
+    );
+    assert!(
+        !w.engine
+            .ready()
+            .contains(&crate::io::Work::Session(sid("s1"))),
+        "a session with a ticket is not ready"
+    );
+}
+
+/// Core LC-12: a `StopAll` that finds the end of a payload in flight waits for it and does not send a stop.
+#[test]
+fn stop_all_joins_an_end_in_flight() {
+    let mut w = World::new(limits(|l| l.mandatory_events = 1));
+    w.autopilot = Autopilot::Silent;
+    w.running("s1");
+    w.engine.begin(create("x")).unwrap();
+    w.pump();
+    assert!(!w.engine.has_room());
+    w.worker_says(
+        "s1",
+        WorkerMsg::Exited {
+            code: Some(3),
+            signal: None,
+        },
+    );
+    w.pump();
+    let all = w.engine.begin(Op::StopAll).unwrap();
+    let mut result = None;
+    for _ in 0..12 {
+        w.engine.poll_events(64);
+        w.pump();
+        for e in w.engine.poll_events(64) {
+            if let Event::Completed { op, result: r } = e {
+                if op == all {
+                    result = Some(r);
+                }
+            }
+        }
+        if !w.engine.ops.contains_key(&all) {
+            break;
+        }
+    }
+    let _ = result;
+    assert!(
+        !w.sent.iter().any(|(_, m)| matches!(m, HostMsg::Stop)),
+        "no stop for a payload that ended"
+    );
+    assert!(matches!(
+        w.engine.get(&sid("s1")).unwrap().state,
+        SessionState::Exited(_)
+    ));
+}

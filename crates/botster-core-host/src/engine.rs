@@ -626,6 +626,7 @@ pub(crate) fn new_session(
         ops: Default::default(),
         pending_setters: 0,
         metadata_pending: false,
+        held_obs: Default::default(),
         payload: None,
         pending_end: None,
         pending_routes: Vec::new(),

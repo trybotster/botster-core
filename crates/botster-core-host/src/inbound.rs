@@ -365,12 +365,18 @@ impl HostEngine {
     }
 
     /// What a worker saw becomes an event, with the instance and the injected time (EV-7, EV-9, TM-1).
-    fn observe(&mut self, id: &SessionId, observation: Observation) {
+    pub(crate) fn observe(&mut self, id: &SessionId, observation: Observation) {
         let unix = self.unix;
         let mono = self.mono();
         let Some(s) = self.sessions.get_mut(id) else {
             return;
         };
+        // The events of the model belong to the running session: an observation that comes while the start is not through waits
+        // until `Running` and the completion of `Start` are posted.
+        if matches!(s.flow, Flow::Start(_)) {
+            s.held_obs.push_back(observation);
+            return;
+        }
         let (sid, instance) = (s.id.clone(), s.instance.clone());
         match observation {
             Observation::Output { model_rev } => {

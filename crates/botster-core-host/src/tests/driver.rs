@@ -69,6 +69,8 @@ struct Mock {
     send_cap: Option<usize>,
     /// The exits that the process edge reports, first first.
     exits: Vec<(ProcessIdentity, ExitStatus)>,
+    /// Bytes that arrive on a link when the pump settles the wake: the readiness that the poll reports late.
+    late: Vec<(LinkId, Vec<u8>)>,
 }
 
 type Shared = Arc<Mutex<Mock>>;
@@ -234,7 +236,14 @@ impl HostEdges for Edges {
     }
 
     fn settle_wake(&mut self) {
-        self.0.lock().unwrap().settled += 1;
+        let mut mock = self.0.lock().unwrap();
+        mock.settled += 1;
+        let late = std::mem::take(&mut mock.late);
+        for (link, bytes) in late {
+            if let Some(l) = mock.links.get_mut(&link) {
+                l.to_host.extend_from_slice(&bytes);
+            }
+        }
     }
 
     fn scheduler(&mut self) -> &mut dyn Scheduler {
@@ -269,6 +278,7 @@ impl Rig {
             settled: 0,
             send_cap: None,
             exits: Vec::new(),
+            late: Vec::new(),
         }));
         #[allow(clippy::disallowed_methods)] // a test starts the injected clock at a real instant
         let now = Instant::now();

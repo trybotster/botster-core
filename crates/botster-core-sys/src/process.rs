@@ -278,4 +278,24 @@ mod tests {
             GroupSignal::EndPayload,
         );
     }
+
+    /// The notifier is kept by `with_notify` and not by `new`.
+    #[test]
+    fn with_notify_keeps_its_notifier() {
+        assert!(Children::new().notify.is_none());
+        assert!(Children::with_notify(Arc::new(|| {})).notify.is_some());
+    }
+
+    /// An exit is a code or a signal.
+    #[test]
+    fn an_exit_is_a_code_or_a_signal() {
+        assert_eq!(
+            exit_status(std::process::ExitStatus::from_raw(3 << 8)),
+            ExitStatus::Code(3)
+        );
+        assert_eq!(
+            exit_status(std::process::ExitStatus::from_raw(9)),
+            ExitStatus::Signal(9)
+        );
+    }
 }
