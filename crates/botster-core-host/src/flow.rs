@@ -116,10 +116,12 @@ pub struct RemoveFlow {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RemovePhase {
-    /// Step 2 and the request of step 3. The effects come first (EV-5c); the events follow as room allows.
-    SendRemove,
-    /// Step 1: closes the routes that are still bound, one event per step.
+    /// Step 1 (R-15): closes the routes that are still bound, each with its `RouteClosed` event in one atomic step. It parks
+    /// while the queue is full, and steps 2 to 5 wait for it.
     CloseRoutes,
+    /// Steps 2 and 3 (R-15): release the captures, request the worker's teardown. With no route left they run under
+    /// mandatory pressure; only `SessionState{Released}` waits for room.
+    SendRemove,
     /// Step 3: the worker's complete result, and the end of the worker process.
     AwaitTeardown,
     /// Step 4.
