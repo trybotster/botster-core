@@ -15,7 +15,7 @@
 
 use botster_core_contract::prelude::*;
 use serde_json::Value;
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
 
@@ -313,6 +313,18 @@ pub const ROWS: &[Row] = &[
         source: "Core ST-4 (a sync read); 9.3 UnknownSession",
     },
     Row {
+        call: "snapshot_formats",
+        shape: Shape::Core,
+        codes: &["UnknownSession"],
+        source: "Core ST-6 (a sync read); 9.3 UnknownSession",
+    },
+    Row {
+        call: "tap_read",
+        shape: Shape::Core,
+        codes: &["UnknownSession"],
+        source: "Core TP-1 (a sync read); 9.3 UnknownSession",
+    },
+    Row {
         call: "read_page",
         shape: Shape::Core,
         codes: &["UnknownCapture", "PageOutOfRange"],
@@ -363,6 +375,8 @@ pub enum ScriptError {
     BadValue { call: String, why: String },
     /// An occurrence counts from 1.
     ZeroOccurrence,
+    /// Another entry already refuses this call (the `call_number`-th call of its kind since the script began).
+    Conflict { call: String, call_number: usize },
 }
 
 /// The name of a code: a bare name, or the key of a one-key object. A cancel refusal reads `Refused(Full)`.
@@ -383,14 +397,16 @@ pub fn code_name(value: &Value) -> Option<String> {
 #[derive(Debug)]
 struct Entry {
     call: String,
-    /// The calls of this kind that still pass before the entry fires; the entry fires on the call that finds 1.
-    remaining: usize,
+    /// The number of the call that this entry refuses, counted over all calls of its kind since the script began.
+    at: usize,
     result: Scripted,
 }
 
 /// The entries of a script.
 #[derive(Debug, Default)]
 pub struct RefusalScript {
+    /// How many calls of each kind the layer has counted.
+    counted: BTreeMap<String, usize>,
     entries: Vec<Entry>,
 }
 
@@ -400,6 +416,10 @@ impl RefusalScript {
     }
 
     /// Arms an entry: the `occurrence`-th call of `call` from now (1 is the next one) returns `error`.
+    ///
+    /// An entry fires on exactly that call, never on a later one. Two entries that name the same call are a conflict
+    /// ([`ScriptError::Conflict`]), whether they were armed together or at different times: the second would otherwise have to
+    /// move to another call.
     ///
     /// Clause: Core A5-3 (only a code in the call's sync column can be scripted).
     pub fn arm(&mut self, call: &str, occurrence: usize, error: &Value) -> Result<(), ScriptError> {
@@ -436,31 +456,31 @@ impl RefusalScript {
                 Scripted::Cancel(serde_json::from_value(error.clone()).map_err(parse)?)
             }
         };
+        let at = self.counted.get(call).copied().unwrap_or(0) + occurrence;
+        if self.entries.iter().any(|e| e.call == call && e.at == at) {
+            return Err(ScriptError::Conflict {
+                call: call.to_string(),
+                call_number: at,
+            });
+        }
         self.entries.push(Entry {
             call: call.to_string(),
-            remaining: occurrence,
+            at,
             result,
         });
         Ok(())
     }
 
-    /// Counts one call of `call` and returns the scripted result when an entry fires on it. Each entry counts the calls of its
-    /// own kind from the moment of arming.
+    /// Counts one call of `call` and returns the scripted result when an entry names this call.
     pub fn take(&mut self, call: &str) -> Option<Scripted> {
-        let mut fired = None;
-        let mut kept = Vec::with_capacity(self.entries.len());
-        for mut entry in std::mem::take(&mut self.entries) {
-            if entry.call == call {
-                if entry.remaining == 1 && fired.is_none() {
-                    fired = Some(entry.result);
-                    continue;
-                }
-                entry.remaining = entry.remaining.saturating_sub(1).max(1);
-            }
-            kept.push(entry);
-        }
-        self.entries = kept;
-        fired
+        let counted = self.counted.entry(call.to_string()).or_insert(0);
+        *counted += 1;
+        let this = *counted;
+        let index = self
+            .entries
+            .iter()
+            .position(|e| e.call == call && e.at == this)?;
+        Some(self.entries.remove(index).result)
     }
 
     /// True when no entry is armed.
@@ -596,15 +616,20 @@ impl CoreApi for RefusalLayer {
     }
 
     fn snapshot_formats(&self, session: &SessionId) -> Result<Vec<SnapshotFormat>, CoreError> {
-        self.inner.snapshot_formats(session)
+        match self.core("snapshot_formats") {
+            Some(error) => Err(error),
+            None => self.inner.snapshot_formats(session),
+        }
     }
 
     fn shadow_answerable_kinds(&self) -> Vec<botster_route_codec::prelude::QueryKind> {
         self.inner.shadow_answerable_kinds()
     }
 
-    /// A refused `attach` drops the transport that the call took by value. A harness that must keep the caller's end checks
-    /// [`RefusalHandle::take`] for `attach` before it builds the transport.
+    /// A refused `attach` currently drops the transport that the call took by value. Steward ruling R-19: on every
+    /// synchronous refusal the caller gets its transport back. The by-value `CoreApi::attach` of `contracts-v0.1.7` cannot give
+    /// it back, which is a defect of that crate; when the fixed tag lands, this method returns the transport on every refusal
+    /// path (scripted ones here, and the ones of the Core behind the layer).
     fn attach(
         &mut self,
         client: ClientId,
@@ -619,7 +644,10 @@ impl CoreApi for RefusalLayer {
     }
 
     fn tap_read(&mut self, session: &SessionId, max: usize) -> Result<TapChunk, CoreError> {
-        self.inner.tap_read(session, max)
+        match self.core("tap_read") {
+            Some(error) => Err(error),
+            None => self.inner.tap_read(session, max),
+        }
     }
 
     fn set_silence_threshold(
@@ -793,6 +821,8 @@ mod tests {
         row_get: "get", false;
         row_terminal_state: "terminal_state", false;
         row_read_page: "read_page", false;
+        row_snapshot_formats: "snapshot_formats", false;
+        row_tap_read: "tap_read", false;
         row_set_silence_threshold: "set_silence_threshold", false;
         row_service_report: "service_report", false;
         row_service_log_tail: "service_log_tail", false;
@@ -979,6 +1009,7 @@ mod tests {
         fn release(&mut self, _capture: CaptureId) {}
         fn release_owner(&mut self, _client: &ClientId) {}
         fn snapshot_formats(&self, _session: &SessionId) -> Result<Vec<SnapshotFormat>, CoreError> {
+            self.note("snapshot_formats");
             Ok(Vec::new())
         }
         fn shadow_answerable_kinds(&self) -> Vec<botster_route_codec::prelude::QueryKind> {
@@ -995,7 +1026,8 @@ mod tests {
             Err(CoreError::new(ErrorCode::UnknownSession, "behind"))
         }
         fn tap_read(&mut self, _session: &SessionId, _max: usize) -> Result<TapChunk, CoreError> {
-            unreachable!("not used")
+            self.note("tap_read");
+            Err(CoreError::new(ErrorCode::UnknownSession, "behind"))
         }
         fn set_silence_threshold(
             &mut self,
@@ -1208,5 +1240,121 @@ mod tests {
         // Only the unscripted second `terminal_state` reached the Core.
         assert_eq!(*reached.lock().unwrap(), ["terminal_state"]);
         assert!(handle.is_empty());
+    }
+
+    /// A refusal fires before delegation for `snapshot_formats` and `tap_read` too, and the next call reaches the Core.
+    #[test]
+    fn snapshot_formats_and_tap_read_are_refused_before_delegation() {
+        let (mut layer, handle, reached) = layer();
+        let session = SessionId("s".into());
+        handle
+            .arm("snapshot_formats", 1, &json!("UnknownSession"))
+            .unwrap();
+        handle.arm("tap_read", 1, &json!("UnknownSession")).unwrap();
+        let scripted = "refused by the testkit script (Core A5-3)";
+        assert_eq!(
+            layer.snapshot_formats(&session).unwrap_err().detail,
+            scripted
+        );
+        assert_eq!(layer.tap_read(&session, 1).unwrap_err().detail, scripted);
+        assert!(reached.lock().unwrap().is_empty(), "the Core saw nothing");
+        assert_eq!(layer.snapshot_formats(&session), Ok(Vec::new()));
+        assert_eq!(layer.tap_read(&session, 1).unwrap_err().detail, "behind");
+        assert_eq!(*reached.lock().unwrap(), ["snapshot_formats", "tap_read"]);
+    }
+
+    /// Each `attach` call is counted once: occurrence 2 refuses the second call, and the calls around it reach the Core. (The
+    /// transport that a refusal returns to the caller waits for the fixed `CoreApi::attach`, steward ruling R-19.)
+    #[test]
+    fn attach_counts_each_call_once() {
+        let (mut layer, handle, reached) = layer();
+        handle.arm("attach", 2, &json!("RouteLimit")).unwrap();
+        let attach = |layer: &mut RefusalLayer| {
+            let transport = RouteTransport::WebRtc {
+                offer: String::new(),
+                expected_fingerprint: String::new(),
+            };
+            let options: AttachOptions =
+                serde_json::from_value(json!({"file_directory": "/tmp"})).unwrap();
+            layer
+                .attach(
+                    ClientId("c".into()),
+                    SessionId("s".into()),
+                    transport,
+                    options,
+                )
+                .unwrap_err()
+        };
+        assert_eq!(
+            attach(&mut layer).detail,
+            "behind",
+            "the first call is delegated"
+        );
+        assert_eq!(
+            attach(&mut layer).code,
+            ErrorCode::RouteLimit,
+            "the second call is refused"
+        );
+        assert_eq!(
+            attach(&mut layer).detail,
+            "behind",
+            "the third call is delegated"
+        );
+        assert_eq!(*reached.lock().unwrap(), ["attach", "attach"]);
+        assert!(handle.is_empty());
+    }
+
+    /// Entries that name the same call conflict, armed together or at different times. No entry moves to another call.
+    #[test]
+    fn two_entries_for_one_call_are_a_conflict() {
+        let mut script = RefusalScript::new();
+        script.arm("Start", 1, &json!("WrongState")).unwrap();
+        assert_eq!(
+            script.arm("Start", 1, &json!("PendingLimit")),
+            Err(ScriptError::Conflict {
+                call: "Start".into(),
+                call_number: 1
+            })
+        );
+        // Entries armed at different times that converge on one call.
+        let mut script = RefusalScript::new();
+        script.arm("Start", 2, &json!("WrongState")).unwrap();
+        assert!(script.take("Start").is_none());
+        assert_eq!(
+            script.arm("Start", 1, &json!("PendingLimit")),
+            Err(ScriptError::Conflict {
+                call: "Start".into(),
+                call_number: 2
+            })
+        );
+        // The refused entry left no trace: the first entry fires on its own call, once, and the call after it passes.
+        assert!(matches!(
+            script.take("Start"),
+            Some(Scripted::Core(CoreError {
+                code: ErrorCode::WrongState,
+                ..
+            }))
+        ));
+        assert!(script.take("Start").is_none());
+        // Different calls, or different call numbers, do not conflict.
+        script.arm("Start", 1, &json!("WrongState")).unwrap();
+        script.arm("Stop", 1, &json!("WrongState")).unwrap();
+        script.arm("Start", 2, &json!("PendingLimit")).unwrap();
+    }
+
+    /// An entry fires on its own call and not on a later one, whatever other entries do.
+    #[test]
+    fn an_entry_never_moves_to_a_later_call() {
+        let mut script = RefusalScript::new();
+        script.arm("Start", 1, &json!("WrongState")).unwrap();
+        script.arm("Start", 3, &json!("PendingLimit")).unwrap();
+        let code = |s: Option<Scripted>| match s {
+            Some(Scripted::Core(e)) => Some(e.code),
+            _ => None,
+        };
+        assert_eq!(code(script.take("Start")), Some(ErrorCode::WrongState));
+        assert_eq!(code(script.take("Start")), None);
+        assert_eq!(code(script.take("Start")), Some(ErrorCode::PendingLimit));
+        assert_eq!(code(script.take("Start")), None);
     }
 }
