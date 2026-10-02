@@ -70,6 +70,9 @@ pub mod data {
     pub const PWD: i32 = 13;
     pub const MODE: i32 = 37;
     pub const MOUSE_EVENT: i32 = 43;
+    pub const MODIFY_OTHER_KEYS_2: i32 = 45;
+    pub const MOUSE_SHIFT_CAPTURE: i32 = 46;
+    pub const KITTY_IMAGE_STORAGE_LIMIT: i32 = 26;
     pub const MOUSE_FORMAT: i32 = 44;
 }
 
@@ -89,6 +92,7 @@ pub mod opt {
     pub const QUERY: i32 = 44;
     pub const QUERY_MAX_BYTES: i32 = 45;
     pub const CONTINUATION_MAX_BYTES: i32 = 31;
+    pub const KITTY_IMAGE_STORAGE_LIMIT: i32 = 15;
     pub const COLOR_FOREGROUND: i32 = 11;
     pub const COLOR_BACKGROUND: i32 = 12;
     pub const COLOR_CURSOR: i32 = 13;
@@ -132,6 +136,7 @@ pub mod semantic_prompt_kind {
 
 /// `GhosttyClipboardWriteResult`.
 pub const CLIPBOARD_WRITE_SUCCESS: i32 = 0;
+pub const CLIPBOARD_WRITE_IO_ERROR: i32 = 5;
 
 /// `GhosttyTerminalDesktopNotification`.
 #[repr(C)]

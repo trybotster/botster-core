@@ -111,8 +111,16 @@ fn an_unfinished_sequence_beyond_the_limit_gives_no_snapshot_and_a_terminated_on
 }
 
 #[test]
-fn the_format_names_the_limit() {
-    assert_eq!(SNAPSHOT_FORMAT.continuation_limit, CONTINUATION_LIMIT);
+fn the_format_is_the_envelope_of_a_snapshot() {
+    // The name and the version are the envelope of a real snapshot.
+    let format = snapshot_format();
+    let snapshot = terminal().snapshot().unwrap();
+    assert_eq!(format.name.as_bytes(), &snapshot[..8]);
+    assert_eq!(
+        format.version,
+        u32::from(u16::from_le_bytes([snapshot[8], snapshot[9]]))
+    );
+    assert!(!format.name.is_empty() && format.version > 0);
 }
 
 #[test]

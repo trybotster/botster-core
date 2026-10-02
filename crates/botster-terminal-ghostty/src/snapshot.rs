@@ -16,15 +16,28 @@ pub enum SnapshotError {
     Library(Error),
 }
 
-/// What the worker names in `ProtocolManifest` for the snapshot.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct SnapshotFormat {
-    pub continuation_limit: usize,
+/// The snapshot format that this binding writes (`Launched.formats`, ST-6). The name and the version are the envelope
+/// that the library writes at the start of every snapshot (an 8-byte magic and a little-endian `u16` version), read
+/// from a snapshot of a scratch terminal, so they are the library's own and never invented here.
+pub fn snapshot_format() -> botster_core_contract::prelude::SnapshotFormat {
+    let size = botster_core_contract::prelude::Size {
+        rows: 1,
+        cols: 1,
+        cell_px: None,
+    };
+    let snapshot = crate::Terminal::new(&size, crate::History::Off)
+        .ok()
+        .and_then(|terminal| terminal.snapshot().ok())
+        .unwrap_or_default();
+    let name = snapshot
+        .get(..8)
+        .map(|magic| String::from_utf8_lossy(magic).into_owned())
+        .unwrap_or_default();
+    let version = snapshot
+        .get(8..10)
+        .map_or(0, |v| u32::from(u16::from_le_bytes([v[0], v[1]])));
+    botster_core_contract::prelude::SnapshotFormat { name, version }
 }
-
-pub const SNAPSHOT_FORMAT: SnapshotFormat = SnapshotFormat {
-    continuation_limit: CONTINUATION_LIMIT,
-};
 
 impl Terminal {
     pub(crate) fn set_continuation_limit(&self) -> Result<(), Error> {

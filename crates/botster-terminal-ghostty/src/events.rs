@@ -37,13 +37,8 @@ pub enum TerminalEvent {
         mark: PromptMarkKind,
         exit_code: Option<i32>,
     },
-    /// A clipboard write: OSC 52, OSC 1337 Copy or OSC 5522 (Core erratum 5). `selection` is the OSC 52 selection as
-    /// the program wrote it. It is `None` when the library reports none: an OSC 52 write that left the selection out,
-    /// and every OSC 1337 or OSC 5522 write. The library does not tell these apart.
-    ClipboardWrite {
-        selection: Option<String>,
-        bytes: Vec<u8>,
-    },
+    /// A clipboard write that the model recognizes: OSC 52, OSC 1337 Copy or OSC 5522 (Core Amendment 13, A13-1).
+    ClipboardWrite(ClipboardWrite),
 }
 
 impl TerminalEvent {
@@ -52,7 +47,7 @@ impl TerminalEvent {
             TerminalEvent::Bell => Some(LostKind::Bell),
             TerminalEvent::PromptMark { .. } => Some(LostKind::PromptMark),
             TerminalEvent::Notification { .. } => Some(LostKind::Notification),
-            TerminalEvent::ClipboardWrite { .. } => Some(LostKind::ClipboardWrite),
+            TerminalEvent::ClipboardWrite(_) => Some(LostKind::ClipboardWrite),
             // Title and cwd are class K: the last value wins, so the model's own title and cwd reads stay exact.
             TerminalEvent::Title(_) | TerminalEvent::Cwd(_) => None,
         }
@@ -65,10 +60,59 @@ impl TerminalEvent {
             TerminalEvent::Notification { title, body, .. } => {
                 title.as_ref().map_or(0, String::len) + body.len()
             }
-            TerminalEvent::ClipboardWrite { selection, bytes } => {
-                selection.as_ref().map_or(0, String::len) + bytes.len()
-            }
+            TerminalEvent::ClipboardWrite(write) => write.size(),
         }
+    }
+}
+
+/// Where the model says a clipboard write goes (`GhosttyClipboardLocation`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ClipboardLocation {
+    /// The standard clipboard.
+    Standard,
+    /// The selection clipboard (OSC 52 `s`).
+    Selection,
+    /// The primary selection (OSC 52 `p`).
+    Primary,
+    /// A location that this binding does not know (a library newer than the binding).
+    Other(i32),
+}
+
+/// One representation of a clipboard value.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ClipboardEntry {
+    pub mime: String,
+    pub bytes: Vec<u8>,
+}
+
+/// A clipboard write as the callback reports it (A13-1). The binding answers the model inside the callback: SUCCESS
+/// when `total_bytes` is within the limit (`Terminal::set_clipboard_limit`), IO_ERROR when it is over (A13-1b).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ClipboardWrite {
+    pub location: ClipboardLocation,
+    /// The OSC 52 selection exactly as the program wrote it. `None` when it left it out and for the other protocols.
+    pub selection: Option<String>,
+    /// The terminator of the request (the other protocols report ST).
+    pub terminator: Terminator,
+    /// Every representation, in the model's order. `Some(vec![])` clears the destination, which is not the same as one
+    /// entry with empty bytes. `None` when `too_large`: the bytes are not kept.
+    pub contents: Option<Vec<ClipboardEntry>>,
+    /// The sum of the byte lengths of all representations.
+    pub total_bytes: u64,
+    /// `total_bytes` was over the limit, and the model got IO_ERROR.
+    pub too_large: bool,
+    /// The bytes that the model wrote to answer the program (the OSC 5522 acknowledgement). The binding writes them
+    /// nowhere: the worker writes them as one contiguous input transaction (A13-1b). Empty for OSC 52 and OSC 1337.
+    pub ack: Vec<u8>,
+}
+
+impl ClipboardWrite {
+    fn size(&self) -> usize {
+        self.selection.as_ref().map_or(0, String::len)
+            + self.ack.len()
+            + self.contents.as_ref().map_or(0, |entries| {
+                entries.iter().map(|e| e.mime.len() + e.bytes.len()).sum()
+            })
     }
 }
 
@@ -99,6 +143,10 @@ pub(crate) struct Shared {
     dropped_kinds: BTreeSet<LostKind>,
     pty_writes: Vec<u8>,
     unrouted_queries: u64,
+    /// The largest clipboard write, in bytes of all representations, that the callback answers with SUCCESS.
+    pub(crate) clipboard_limit: usize,
+    /// While the callback runs the model's reply, the bytes that the model writes to answer the program.
+    ack: Option<Vec<u8>>,
     /// True while `vt_write_until_query` runs: the query goes to `held` instead of the event buffer.
     pub(crate) capture: bool,
     pub(crate) held: Option<Query>,
@@ -253,29 +301,72 @@ pub(crate) unsafe extern "C" fn on_clipboard_write(
     write: *const sys::ClipboardWrite,
 ) {
     // SAFETY: the library passes a valid request for the duration of the callback; its contents and strings are
-    // borrowed for that time and copied here before the reply.
+    // borrowed for that time and copied here. The pointer is not kept after the callback.
     let request = unsafe { &*write };
     let selection = unsafe { request.selection.bytes() };
     let selection = (!selection.is_empty()).then(|| text(selection));
-    let bytes = if request.contents.is_null() || request.contents_len == 0 {
-        Vec::new()
-    } else {
-        // SAFETY: `contents` points at `contents_len` entries.
-        let contents =
-            unsafe { std::slice::from_raw_parts(request.contents, request.contents_len) };
-        unsafe { contents[0].data.bytes() }.to_vec()
+    let entries: &[sys::ClipboardContent] =
+        if request.contents.is_null() || request.contents_len == 0 {
+            &[]
+        } else {
+            // SAFETY: `contents` points at `contents_len` entries.
+            unsafe { std::slice::from_raw_parts(request.contents, request.contents_len) }
+        };
+    // SAFETY: each entry's strings are valid for the callback.
+    let total_bytes: u64 = entries
+        .iter()
+        .map(|e| unsafe { e.data.bytes() }.len() as u64)
+        .sum();
+    let limit = shared(userdata).clipboard_limit;
+    let too_large = total_bytes > limit as u64;
+    let contents = (!too_large).then(|| {
+        entries
+            .iter()
+            .map(|e| ClipboardEntry {
+                // SAFETY: as above.
+                mime: text(unsafe { e.mime.bytes() }),
+                bytes: unsafe { e.data.bytes() }.to_vec(),
+            })
+            .collect()
+    });
+    let location = match request.location {
+        0 => ClipboardLocation::Standard,
+        1 => ClipboardLocation::Selection,
+        2 => ClipboardLocation::Primary,
+        other => ClipboardLocation::Other(other),
     };
-    shared(userdata).push(TerminalEvent::ClipboardWrite { selection, bytes });
+    let terminator = if request.terminator == 1 {
+        Terminator::Bel
+    } else {
+        Terminator::St
+    };
 
-    // The reply must come before the callback returns, and a return without one denies the write. The write is an
-    // event for the host (EV-3), and OSC 52 discards the reply, so the answer is success.
+    // The reply must come before the callback returns, and a return without one denies the write. The binding decides
+    // here, by size alone (A13-1b): SUCCESS within the limit, IO_ERROR over it. It never answers DENIED, UNSUPPORTED or
+    // BUSY. The model writes the OSC 5522 acknowledgement while it handles the reply; it is captured, not written.
     let reply = sys::ClipboardWriteReply {
         size: std::mem::size_of::<sys::ClipboardWriteReply>(),
-        result: sys::CLIPBOARD_WRITE_SUCCESS,
+        result: if too_large {
+            sys::CLIPBOARD_WRITE_IO_ERROR
+        } else {
+            sys::CLIPBOARD_WRITE_SUCCESS
+        },
         remember: false,
     };
+    shared(userdata).ack = Some(Vec::new());
     // SAFETY: `request` and the reply are valid for the call, and this is the one reply of the callback.
     unsafe { (request.reply)(write, &reply) };
+    let ack = shared(userdata).ack.take().unwrap_or_default();
+
+    shared(userdata).push(TerminalEvent::ClipboardWrite(ClipboardWrite {
+        location,
+        selection,
+        terminator,
+        contents,
+        total_bytes,
+        too_large,
+        ack,
+    }));
 }
 
 pub(crate) unsafe extern "C" fn on_query(
@@ -338,6 +429,13 @@ pub(crate) unsafe extern "C" fn on_write_pty(
         unsafe { std::slice::from_raw_parts(data, len) }
     };
     let shared = shared(userdata);
+    if let Some(ack) = shared.ack.as_mut() {
+        // The acknowledgement of a clipboard write: kept for the event, bounded like the other replies.
+        if ack.len() + bytes.len() <= MAX_SHADOW_REPLY_BYTES {
+            ack.extend_from_slice(bytes);
+        }
+        return;
+    }
     if let Some(query) = shared.open_query() {
         // The shadow never answers a clipboard read.
         if matches!(
