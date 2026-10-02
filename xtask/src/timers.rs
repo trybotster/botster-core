@@ -249,6 +249,8 @@ mod tests {
             [4],
             "production code after a test `use`"
         );
+        // In an ordinary crate production code may wait: the sleep is not test code.
+        assert!(violations("crates/x/src/a.rs", text).is_empty());
     }
 
     #[test]
