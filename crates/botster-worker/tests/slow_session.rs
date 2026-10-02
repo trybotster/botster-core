@@ -1,26 +1,25 @@
 //! The real worker binary with real payloads on real PTYs. Slow tier (BUILD.md testing rule 2): the PTY, the process group,
-//! the exit watch and the worker-control signal are real operating-system conditions.
+//! the exit watch and the worker's signals are real operating-system conditions.
 //!
 //! The binary is the prebuilt one (`cargo xtask prebuild-worker` puts it in `target/candidate/`); a test never builds it.
-//! Every worker and payload that a test starts is ended on every exit path, panics included: a Core-started session is
-//! stopped and removed by [`Sessions`] on drop, with [`RowReaper`] as the fallback that does not depend on Core; a worker
-//! that a test starts itself is ended through its own `SIGTERM` handling by [`OwnedWorker`].
+//! Each test starts its worker itself and speaks the control link with the link's own codec, checking only what the worker
+//! sends. So every worker is an unreaped child of the test and of nothing else, and [`OwnedWorker`] ends it on every exit
+//! path, panics included: `SIGTERM` makes the worker end the payload group that it still holds, then itself. No test signals
+//! a payload id. (Real Core with real workers is the real-process harness's suite, plan 4.2.)
 //!
 //! Clause: Core EV-4, Core LC-5, Core LC-6, Core LC-7, Core AD-6, Core AD-7.
 #![cfg(feature = "slow")]
 
-use botster_core::prelude::*;
-use botster_core::Core;
-use botster_core_edges::edges::IdentityState;
+use botster_core_contract::prelude::*;
 use botster_core_link::frame::{encode_frame, FrameDecoder, FrameType};
 use botster_core_link::hello::Hello;
 use botster_core_link::launch::WorkerLaunch;
 use botster_core_link::msg::{HostMsg, LaunchSpec, WorkerMsg};
 use botster_core_link::proof::token_proof;
 use std::collections::BTreeMap;
-use std::io::{Read, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Child, Command};
 use std::time::{Duration, Instant};
 
@@ -50,79 +49,36 @@ fn temp_root() -> tempfile::TempDir {
         .expect("a temporary root")
 }
 
-fn request(script: &str) -> SpawnRequest {
-    SpawnRequest {
-        argv: vec!["/bin/sh".into(), "-c".into(), script.into()],
-        env: BTreeMap::from([("PATH".to_string(), "/usr/bin:/bin".to_string())]),
-        cwd: "/".into(),
-        size: Size {
-            rows: 24,
-            cols: 80,
-            cell_px: None,
-        },
-        labels: BTreeMap::new(),
-        color_profile: None,
-        notification_policy: None,
-        size_policy: None,
-    }
+/// A FIFO in `root` (external `mkfifo`; the vault's FIFO rule: external commands, never shell builtins, at a FIFO).
+fn fifo(root: &Path, name: &str) -> PathBuf {
+    let path = root.join(name);
+    let made = Command::new("/usr/bin/mkfifo").arg(&path).status().unwrap();
+    assert!(made.success());
+    path
 }
 
-/// The sessions of one real Core. On drop it stops and removes every session it created; then [`RowReaper`] ends every
-/// worker that Core's cleanup did not end, so no worker or payload outlives the test.
-struct Sessions {
-    core: Core,
-    ids: Vec<SessionId>,
-    events: Vec<Event>,
-    /// Declared after `core`: fields drop in order after `Drop for Sessions`, so Core (and its data-directory lock) is gone
-    /// when the reaper reads the rows.
-    _reaper: RowReaper,
+/// A worker that a test starts itself.
+struct OwnedWorker {
+    worker: Child,
 }
 
-/// The cleanup that does not depend on the Core under test: the registry rows name each worker by pid and start time (AD-6).
-/// A worker is a child of this test process (Core spawned it), and once Core is dropped nothing else reaps it, so a
-/// worker whose identity matches is proven and cannot be replaced before it is signalled.
-struct RowReaper {
-    data_dir: PathBuf,
-}
-
-impl Drop for RowReaper {
+impl Drop for OwnedWorker {
+    /// Through the worker, never a payload id (lead ruling on P1 F7): while the worker is our unreaped child, `SIGTERM`
+    /// makes it end the payload group that it still holds, then itself.
     fn drop(&mut self) {
-        use botster_core_edges::Storage;
-        let Ok(mut dir) = botster_core_sys::storage::DataDir::open(&self.data_dir) else {
-            return;
-        };
-        let storage = dir.storage();
-        let keys = storage.list_rows().unwrap_or_default();
-        for key in keys
-            .iter()
-            .filter(|k| k.starts_with(botster_core_host::session::ROW_PREFIX))
-        {
-            let row = storage.read_row(key).ok().flatten().and_then(|bytes| {
-                serde_json::from_slice::<botster_core_host::session::Row>(&bytes).ok()
-            });
-            let Some(worker) = row.and_then(|row| row.worker) else {
-                continue;
-            };
-            let identity = worker.identity();
-            let Some(pid) =
-                rustix::process::Pid::from_raw(i32::try_from(identity.pid).unwrap_or(0))
-            else {
-                continue;
-            };
-            // An id that does not match is unproven: it is never signalled and never waited for. (A zombie worker that the
-            // platform cannot identify ends with this test process: nextest runs each test in a process of its own.)
-            if botster_core_sys::process::identity_state(identity) == IdentityState::Matches {
+        if let Ok(None) = self.worker.try_wait() {
+            if let Some(pid) =
+                rustix::process::Pid::from_raw(i32::try_from(self.worker.id()).unwrap_or(0))
+            {
                 end_child_worker(pid);
             }
         }
     }
 }
 
-/// Ends a worker that is an unreaped child of this process: `SIGTERM`, which makes it end the payload group that it still
-/// holds (a reaped payload id is never signalled) and then end itself; `SIGKILL` if it has not ended by the deadline.
-///
-/// The child stays reserved until every signal decision is made: the waiter only observes the exit (`waitid` with
-/// `WNOWAIT`) and never reaps, so the pid cannot be reused before the last signal. The reap comes last, here.
+/// Ends a worker that is an unreaped child of this process and of nothing else: `SIGTERM`; `SIGKILL` if it has not ended by
+/// the deadline. The observer only observes the exit (`waitid` with `WNOWAIT`), and nothing else reaps the child, so the
+/// pid stays the worker's through the last signal; the reap comes last.
 fn end_child_worker(pid: rustix::process::Pid) {
     use rustix::process::{
         kill_process, waitid, waitpid, Signal, WaitId, WaitIdOptions, WaitOptions,
@@ -135,7 +91,6 @@ fn end_child_worker(pid: rustix::process::Pid) {
             WaitIdOptions::EXITED | WaitIdOptions::NOWAIT,
         ) {
             Err(rustix::io::Errno::INTR) | Ok(None) => continue,
-            // Exited and reapable, or not our child: either way the waiting ends.
             _ => {
                 let _ = tx.send(());
                 return;
@@ -144,232 +99,13 @@ fn end_child_worker(pid: rustix::process::Pid) {
     });
     // timer: deadline — the limit of a worker's own cleanup after SIGTERM; not a contract value.
     if rx.recv_timeout(Duration::from_secs(10)).is_err() {
-        // Nothing has reaped the child (the observer does not reap), so the pid is still the worker's.
         let _ = kill_process(pid, Signal::KILL);
     }
     let _ = observer.join();
     let _ = waitpid(Some(pid), WaitOptions::empty());
 }
 
-impl Sessions {
-    fn open(root: &std::path::Path, stop_grace: Duration) -> Sessions {
-        let limits = CoreLimits {
-            stop_grace,
-            ..CoreLimits::default()
-        };
-        let data_dir = root.join("d");
-        let core = Core::open(OpenConfig {
-            data_dir: data_dir.clone(),
-            worker_path: Some(worker_binary()),
-            limits,
-        })
-        .expect("open");
-        Sessions {
-            core,
-            ids: Vec::new(),
-            events: Vec::new(),
-            _reaper: RowReaper { data_dir },
-        }
-    }
-
-    fn now() -> Now {
-        Now {
-            monotonic: Instant::now(),
-            unix: 1_000_000,
-        }
-    }
-
-    /// Pumps until `wanted` matches an event, waiting on the wake handle between pumps (no sleep).
-    /// Pumps until an event matches `wanted`, waiting on the wake handle between pumps (no sleep). Polled events that no
-    /// wait has taken stay queued for the next wait, so an event that comes with an earlier one is never lost.
-    fn until(&mut self, what: &str, wanted: impl Fn(&Event) -> bool) -> Event {
-        // timer: deadline — the limit of a wait for a real worker; not a contract value.
-        let limit = Instant::now() + Duration::from_secs(20);
-        let wake = self.core.wake_handle();
-        loop {
-            if let Some(at) = self.events.iter().position(&wanted) {
-                return self.events.remove(at);
-            }
-            let report = self.core.pump(Sessions::now());
-            let polled = self.core.poll_events(64);
-            let new = !polled.is_empty();
-            self.events.extend(polled);
-            let now = Instant::now();
-            assert!(
-                now < limit,
-                "no {what}; unclaimed events: {:#?}",
-                self.events
-            );
-            if !report.more && !new {
-                let until = self
-                    .core
-                    .next_deadline()
-                    .map_or(limit, |d| d.min(limit))
-                    .max(now);
-                let _ = wake.wait(until - now);
-            }
-        }
-    }
-
-    fn completed(&mut self, op: OpId) -> OpResult {
-        match self.until(
-            "completion",
-            |e| matches!(e, Event::Completed { op: o, .. } if *o == op),
-        ) {
-            Event::Completed { result, .. } => result,
-            _ => unreachable!(),
-        }
-    }
-
-    fn start(&mut self, id: &str, script: &str) -> SessionId {
-        let session = SessionId(id.into());
-        let create = self
-            .core
-            .begin(Op::Create {
-                session: session.clone(),
-                request: request(script),
-            })
-            .expect("create");
-        self.ids.push(session.clone());
-        assert!(matches!(self.completed(create), OpResult::Ok(_)));
-        let start = self
-            .core
-            .begin(Op::Start {
-                id: session.clone(),
-            })
-            .expect("start");
-        let result = self.completed(start);
-        assert!(matches!(result, OpResult::Ok(_)), "{result:?}");
-        session
-    }
-
-    fn exit_of(&mut self, session: &SessionId) -> Exit {
-        let event = self.until("exit", |e| {
-            matches!(e, Event::SessionState { id, state: SessionState::Exited(_), .. } if id == session)
-        });
-        match event {
-            Event::SessionState {
-                state: SessionState::Exited(exit),
-                ..
-            } => exit,
-            _ => unreachable!(),
-        }
-    }
-}
-
-impl Sessions {
-    /// Waits for `op` and ignores its result: cleanup goes on whatever a step answers.
-    fn settle(&mut self, op: OpId) {
-        let wanted = move |e: &Event| matches!(e, Event::Completed { op: o, .. } if *o == op);
-        if std::thread::panicking() {
-            // Best effort: a second panic would abort the test binary before the next session is cleaned up.
-            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                self.until("cleanup", wanted)
-            }));
-        } else {
-            self.until("cleanup", wanted);
-        }
-    }
-}
-
-/// Every session ends on every exit path: `Stop` ends a payload that still runs (`Remove` is refused while a session runs),
-/// then `Remove` ends the worker (LC-5, LC-7). A step that Core refuses is skipped, and the next one is still tried.
-impl Drop for Sessions {
-    fn drop(&mut self) {
-        for id in std::mem::take(&mut self.ids) {
-            if let Ok(op) = self.core.begin(Op::Stop { id: id.clone() }) {
-                self.settle(op);
-            }
-            if let Ok(op) = self.core.begin(Op::Remove { id }) {
-                self.settle(op);
-            }
-        }
-    }
-}
-
-/// Core EV-4: a real payload that exits with a code is `Exited{code}` with no signal; one that dies by a signal is
-/// `Exited{signal}` with no code.
-#[test]
-fn ev_4_a_real_exit_carries_the_code_or_the_signal() {
-    let root = temp_root();
-    let mut s = Sessions::open(root.path(), Duration::from_secs(5));
-    let coded = s.start("s1", "echo out; exit 3");
-    let exit = s.exit_of(&coded);
-    assert_eq!((exit.code, exit.signal), (Some(3), None));
-    let signalled = s.start("s2", "kill -TERM $$");
-    let exit = s.exit_of(&signalled);
-    assert_eq!((exit.code, exit.signal), (None, Some(15)));
-}
-
-/// Core LC-5: `Stop` ends the payload with the graceful request; a payload that ignores it is killed at `stop_grace`; the
-/// worker lives on until `Remove` (LC-7), which then ends it.
-#[test]
-fn lc_5_stop_asks_then_kills_and_the_worker_survives() {
-    let root = temp_root();
-    let mut s = Sessions::open(root.path(), Duration::from_millis(300));
-    let polite = s.start("s1", "exec sleep 30");
-    let stop = s.core.begin(Op::Stop { id: polite.clone() }).unwrap();
-    s.completed(stop);
-    let exit = s.exit_of(&polite);
-    assert_eq!((exit.signal, exit.cause), (Some(15), ExitCause::HostStop));
-    let stubborn = s.start("s2", "trap '' TERM; exec sleep 30");
-    let stop = s
-        .core
-        .begin(Op::Stop {
-            id: stubborn.clone(),
-        })
-        .unwrap();
-    s.completed(stop);
-    let exit = s.exit_of(&stubborn);
-    assert_eq!((exit.signal, exit.cause), (Some(9), ExitCause::Killed));
-    let record = s
-        .core
-        .get(&stubborn)
-        .expect("the session stays until Remove");
-    assert!(matches!(record.state, SessionState::Exited(_)));
-}
-
-/// Core LC-6: `Signal` reaches the payload's group: a child that the payload started in its group dies with it, so the PTY
-/// output ends and the exit is reported.
-#[test]
-fn lc_6_signal_reaches_the_whole_group() {
-    let root = temp_root();
-    let mut s = Sessions::open(root.path(), Duration::from_secs(5));
-    let session = s.start("s1", "sleep 30 & wait");
-    let signal = s
-        .core
-        .begin(Op::Signal {
-            id: session.clone(),
-            sig: Signal::Int,
-        })
-        .unwrap();
-    // `sh -c` ignores nothing here: SIGINT ends the shell and its background `sleep`, both in the payload's group.
-    let result = s.completed(signal);
-    assert!(matches!(result, OpResult::Ok(_)), "{result:?}");
-    let exit = s.exit_of(&session);
-    assert_eq!(exit.signal, Some(2));
-}
-
-/// A worker that a test starts itself.
-struct OwnedWorker {
-    worker: Child,
-}
-
-impl Drop for OwnedWorker {
-    /// Through the worker, never a cached payload id (F7): while the worker is our unreaped child, `SIGTERM` makes it end
-    /// the payload group that it still holds, then itself.
-    fn drop(&mut self) {
-        if let Ok(None) = self.worker.try_wait() {
-            if let Some(pid) =
-                rustix::process::Pid::from_raw(i32::try_from(self.worker.id()).unwrap_or(0))
-            {
-                end_child_worker(pid);
-            }
-        }
-    }
-}
-
-/// The host side of one control link, written with the link's own codec. It checks only what the worker sends.
+/// The host end of one control link, written with the link's own codec. It checks only what the worker sends.
 struct Link {
     stream: UnixStream,
     decoder: FrameDecoder,
@@ -388,7 +124,7 @@ impl Link {
         self.send(FrameType::HOST_MSG, &payload);
     }
 
-    /// The next frame; the read times out at the socket (a marked deadline set by the caller).
+    /// The next frame; the read times out at the socket (a marked deadline set at the accept).
     fn frame(&mut self) -> (FrameType, Vec<u8>) {
         let mut buf = [0u8; 4096];
         loop {
@@ -418,87 +154,191 @@ impl Link {
     }
 }
 
-/// A worker that this test started and linked to its own host end, with its payload launched and ignoring `SIGTERM`.
-/// It returns once the payload has run `trap '' TERM` (it wrote to the FIFO), so a signal cannot race the trap.
-fn launched_worker(root: &std::path::Path) -> (OwnedWorker, Link) {
-    let socket = root.join("c");
-    let listener = UnixListener::bind(&socket).unwrap();
-    let fifo = root.join("f");
-    let made = Command::new("/usr/bin/mkfifo").arg(&fifo).status().unwrap();
-    assert!(made.success());
-    let launch = WorkerLaunch {
-        control: socket,
-        instance: InstanceId("1-1".into()),
-        host_epoch: 1,
-        token: [5; 32],
-    };
-    let mut command = Command::new(worker_binary());
-    command.args(launch.args()).env_clear().envs(launch.env());
-    let worker = OwnedWorker {
-        worker: command.spawn().unwrap(),
-    };
-    let (stream, _) = listener.accept().unwrap();
-    // timer: deadline — the limit of a wait for a real worker's frame; not a contract value.
-    stream
-        .set_read_timeout(Some(Duration::from_secs(20)))
-        .unwrap();
-    let mut link = Link {
-        stream,
-        decoder: FrameDecoder::new(1 << 20),
-    };
-    let (kind, payload) = link.frame();
-    assert_eq!(kind, FrameType::HELLO);
-    let hello = Hello::decode(&payload).unwrap();
-    let proof = token_proof(&launch.token, &launch.instance, launch.host_epoch);
-    assert_eq!(hello.proof, proof, "AD-6");
-    let mut reply = Vec::new();
-    Hello {
-        protocol: 1,
-        instance: launch.instance.clone(),
-        proof,
-        host_epoch: 1,
-    }
-    .encode(&mut reply)
-    .unwrap();
-    link.send(FrameType::HELLO, &reply);
-    link.msg(&HostMsg::Launch(Box::new(LaunchSpec {
-        argv: vec![
-            "/bin/sh".into(),
-            "-c".into(),
-            format!(
-                "trap '' TERM; /bin/echo up > {}; exec sleep 30",
-                fifo.display()
-            ),
-        ],
-        env: BTreeMap::new(),
-        cwd: "/".into(),
-        size: request("").size,
-        color_profile: None,
-        notification_policy: NotificationPolicy::All,
-        size_policy: SizePolicy::Latest,
-        link_frame_bound: 1 << 20,
-        stop_grace_ms: 200,
-    })));
-    let WorkerMsg::Launched { payload, .. } = link.report() else {
-        panic!("not launched");
-    };
-    assert!(payload.pid > 0);
-    // External `/bin/echo` and a blocking open: a signal cannot interrupt a shell builtin's FIFO open here.
-    let mut up = String::new();
-    std::fs::File::open(&fifo)
-        .unwrap()
-        .read_to_string(&mut up)
-        .unwrap();
-    assert_eq!(up, "up\n");
-    (worker, link)
+/// A started worker, linked to the test's host end, with its payload launched.
+struct Session {
+    worker: OwnedWorker,
+    link: Link,
 }
 
-fn signal_worker(worker: &OwnedWorker, signal: rustix::process::Signal) {
-    rustix::process::kill_process(
-        rustix::process::Pid::from_raw(i32::try_from(worker.worker.id()).unwrap()).unwrap(),
-        signal,
-    )
-    .unwrap();
+impl Session {
+    /// Starts a worker, proves the hello both ways (AD-6), and launches `sh -c script` (AD-7 step 4).
+    fn launch(root: &Path, script: &str, stop_grace_ms: u64) -> Session {
+        let socket = root.join("c");
+        let listener = UnixListener::bind(&socket).unwrap();
+        let launch = WorkerLaunch {
+            control: socket,
+            instance: InstanceId("1-1".into()),
+            host_epoch: 1,
+            token: [5; 32],
+        };
+        let mut command = Command::new(worker_binary());
+        command.args(launch.args()).env_clear().envs(launch.env());
+        let worker = OwnedWorker {
+            worker: command.spawn().unwrap(),
+        };
+        let (stream, _) = listener.accept().unwrap();
+        // timer: deadline — the limit of a wait for a real worker's frame; not a contract value.
+        stream
+            .set_read_timeout(Some(Duration::from_secs(20)))
+            .unwrap();
+        let mut link = Link {
+            stream,
+            decoder: FrameDecoder::new(1 << 20),
+        };
+        let (kind, payload) = link.frame();
+        assert_eq!(kind, FrameType::HELLO);
+        let hello = Hello::decode(&payload).unwrap();
+        let proof = token_proof(&launch.token, &launch.instance, launch.host_epoch);
+        assert_eq!(hello.proof, proof, "AD-6");
+        let mut reply = Vec::new();
+        Hello {
+            protocol: 1,
+            instance: launch.instance.clone(),
+            proof,
+            host_epoch: 1,
+        }
+        .encode(&mut reply)
+        .unwrap();
+        link.send(FrameType::HELLO, &reply);
+        link.msg(&HostMsg::Launch(Box::new(LaunchSpec {
+            argv: vec!["/bin/sh".into(), "-c".into(), script.into()],
+            env: BTreeMap::from([("PATH".to_string(), "/usr/bin:/bin".to_string())]),
+            cwd: "/".into(),
+            size: Size {
+                rows: 24,
+                cols: 80,
+                cell_px: None,
+            },
+            color_profile: None,
+            notification_policy: NotificationPolicy::All,
+            size_policy: SizePolicy::Latest,
+            link_frame_bound: 1 << 20,
+            stop_grace_ms,
+        })));
+        let WorkerMsg::Launched { payload, .. } = link.report() else {
+            panic!("not launched");
+        };
+        assert!(payload.pid > 0);
+        Session { worker, link }
+    }
+
+    fn signal_worker(&self, signal: rustix::process::Signal) {
+        rustix::process::kill_process(
+            rustix::process::Pid::from_raw(i32::try_from(self.worker.worker.id()).unwrap())
+                .unwrap(),
+            signal,
+        )
+        .unwrap();
+    }
+
+    /// LC-7: `Remove` gives the complete result, and then the worker ends with code 0.
+    fn remove(mut self) {
+        self.link.msg(&HostMsg::Remove);
+        assert!(matches!(self.link.report(), WorkerMsg::RemoveResult { .. }));
+        let status = self.worker.worker.wait().unwrap();
+        assert_eq!(
+            status.code(),
+            Some(0),
+            "LC-7: the worker ends after the result"
+        );
+    }
+}
+
+/// Reads the first line that the payload writes to `fifo` (the open blocks until the payload opens it for writing).
+fn first_line(fifo: &Path) -> (BufReader<std::fs::File>, String) {
+    let mut reader = BufReader::new(std::fs::File::open(fifo).unwrap());
+    let mut line = String::new();
+    reader.read_line(&mut line).unwrap();
+    (reader, line)
+}
+
+fn exited(code: Option<i32>, signal: Option<i32>) -> WorkerMsg {
+    WorkerMsg::Exited { code, signal }
+}
+
+/// Core EV-4: a real payload that exits with a code is `Exited{code}` with no signal; one that dies by a signal is
+/// `Exited{signal}` with no code.
+#[test]
+fn ev_4_a_real_exit_carries_the_code_or_the_signal() {
+    let root = temp_root();
+    let mut s = Session::launch(root.path(), "echo out; exit 3", 5000);
+    assert_eq!(s.link.report(), exited(Some(3), None));
+    s.remove();
+    let root = temp_root();
+    let mut s = Session::launch(root.path(), "kill -TERM $$", 5000);
+    assert_eq!(s.link.report(), exited(None, Some(15)));
+    s.remove();
+}
+
+/// Core LC-5: `Stop` is the graceful request to the payload group; a payload that ignores it is ended by `Kill`, the group
+/// kill of `stop_grace`; the worker lives on after the payload (it still answers `Remove`, LC-7).
+#[test]
+fn lc_5_stop_asks_then_kill_ends_and_the_worker_survives() {
+    let root = temp_root();
+    let mut s = Session::launch(root.path(), "exec sleep 30", 5000);
+    s.link.msg(&HostMsg::Stop);
+    assert_eq!(s.link.report(), exited(None, Some(15)));
+    s.remove();
+
+    let root = temp_root();
+    let ready = fifo(root.path(), "f");
+    let script = format!(
+        "trap '' TERM; /bin/echo up > {}; exec sleep 30",
+        ready.display()
+    );
+    let mut s = Session::launch(root.path(), &script, 5000);
+    // The payload ignores TERM once it has written to the FIFO, so the Stop cannot race the trap.
+    assert_eq!(first_line(&ready).1, "up\n");
+    s.link.msg(&HostMsg::Stop);
+    s.link.msg(&HostMsg::Kill);
+    assert_eq!(
+        s.link.report(),
+        exited(None, Some(9)),
+        "TERM is ignored, so only the kill ends it"
+    );
+    s.remove();
+}
+
+/// Core LC-6, A2-1: `Signal` reaches the payload's whole group and is confirmed by `Done`. A background child in the group
+/// holds the FIFO open, so the end of file of the FIFO proves that the child died too.
+#[test]
+fn lc_6_signal_reaches_the_whole_group() {
+    let root = temp_root();
+    let held = fifo(root.path(), "f");
+    let script = format!(
+        "exec 3> {}; sleep 30 & /bin/echo up >&3; wait",
+        held.display()
+    );
+    let mut s = Session::launch(root.path(), &script, 5000);
+    let (mut reader, line) = first_line(&held);
+    assert_eq!(line, "up\n");
+    s.link.msg(&HostMsg::Op {
+        req: 1,
+        op: Op::Signal {
+            id: SessionId("s".into()),
+            sig: Signal::Term,
+        },
+    });
+    let mut reports = vec![s.link.report(), s.link.report()];
+    reports.sort_by_key(|r| matches!(r, WorkerMsg::Exited { .. }));
+    assert_eq!(
+        reports,
+        [
+            WorkerMsg::Done {
+                req: 1,
+                result: OpResult::Ok(OpOutput::Unit)
+            },
+            exited(None, Some(15)),
+        ]
+    );
+    let started = Instant::now();
+    let mut rest = Vec::new();
+    reader.read_to_end(&mut rest).unwrap();
+    assert!(
+        started.elapsed() < Duration::from_secs(10),
+        "the background child held the FIFO: it outlived the group signal"
+    );
+    s.remove();
 }
 
 /// Core LC-5 and the P1 interface (F7): `SIGUSR1` on the worker ends its payload without a host request: the graceful
@@ -506,24 +346,20 @@ fn signal_worker(worker: &OwnedWorker, signal: rustix::process::Signal) {
 #[test]
 fn lc_5_the_worker_control_signal_ends_the_payload_and_the_worker_stays() {
     let root = temp_root();
-    let (mut worker, mut link) = launched_worker(root.path());
-    signal_worker(&worker, rustix::process::Signal::USR1);
+    let ready = fifo(root.path(), "f");
+    let script = format!(
+        "trap '' TERM; /bin/echo up > {}; exec sleep 30",
+        ready.display()
+    );
+    let mut s = Session::launch(root.path(), &script, 200);
+    assert_eq!(first_line(&ready).1, "up\n");
+    s.signal_worker(rustix::process::Signal::USR1);
     assert_eq!(
-        link.report(),
-        WorkerMsg::Exited {
-            code: None,
-            signal: Some(9)
-        },
+        s.link.report(),
+        exited(None, Some(9)),
         "TERM is ignored, so the kill of the grace ends it"
     );
-    link.msg(&HostMsg::Remove);
-    assert!(matches!(link.report(), WorkerMsg::RemoveResult { .. }));
-    let status = worker.worker.wait().unwrap();
-    assert_eq!(
-        status.code(),
-        Some(0),
-        "LC-7: the worker ends after the result"
-    );
+    s.remove();
 }
 
 /// Plan R12 (teardown is TERM, then KILL, then reap): `SIGTERM` on the worker kills the payload group that it holds at
@@ -531,15 +367,15 @@ fn lc_5_the_worker_control_signal_ends_the_payload_and_the_worker_stays() {
 #[test]
 fn sigterm_on_the_worker_ends_its_payload_group_then_the_worker() {
     let root = temp_root();
-    let (mut worker, mut link) = launched_worker(root.path());
-    signal_worker(&worker, rustix::process::Signal::TERM);
-    assert_eq!(
-        link.report(),
-        WorkerMsg::Exited {
-            code: None,
-            signal: Some(9)
-        }
+    let ready = fifo(root.path(), "f");
+    let script = format!(
+        "trap '' TERM; /bin/echo up > {}; exec sleep 30",
+        ready.display()
     );
-    let status = worker.worker.wait().unwrap();
+    let mut s = Session::launch(root.path(), &script, 5000);
+    assert_eq!(first_line(&ready).1, "up\n");
+    s.signal_worker(rustix::process::Signal::TERM);
+    assert_eq!(s.link.report(), exited(None, Some(9)));
+    let status = s.worker.worker.wait().unwrap();
     assert_eq!(status.code(), Some(0));
 }
