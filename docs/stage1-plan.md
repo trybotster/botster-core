@@ -104,15 +104,43 @@ An **edge** is a trait that a machine's driver calls for one kind of I/O. Each e
 | `RouteTransport` | worker | a connected stream descriptor (DP-2), or a UDP socket for a WebRTC route | an in-memory connected stream; an in-memory datagram pair for WebRTC | read and write size variation; peer close; write failure |
 | `ServiceLane` | host engine | a Unix listener per lane in a 0700 directory (SV-2) | in-memory lane endpoints | peer close, truncation, oversize (SV-2). Conditional on Q3. |
 | `Wake` | host engine | a pollable kqueue or epoll descriptor over all control links, plus a self-pipe for TM-6 runnable work | an in-memory level flag; under shuttle, built on shuttle primitives | a spurious wake (A5-1) |
-| `FileSink` (DP-5b) | worker | real files in the host-supplied `file_directory` | real files in the test's temporary root. Files are not sockets or processes, so the default tier allows them (BUILD.md testing rule 1). | a failed create or write (`write_failed`) |
+| `FileSink` (DP-5b) | worker | a request and completion interface; the operations run on one file-I/O thread per worker, outside the readiness loop (2.3b) | the same interface; the scheduler chooses when each completion is delivered; the effect is a real file in the test's temporary root (files are not sockets or processes, so the default tier allows them, BUILD.md testing rule 1) | a failed create or write (`write_failed`) |
 | `Scheduler` | every driver | the production policy: control first, then round-robin over sessions with `pump_bytes` and `pump_events` (9B) | a seeded ChaCha8 policy that chooses which ready input is handled next, how much work one `pump` does, and the batch size of `poll_events` (A5-2) | none |
+| `Entropy` (random values, 2.3a) | host engine, worker, guardian, the WebRTC stack | the OS CSPRNG (`getrandom`) | a ChaCha8 stream seeded from the test seed, separate from the scheduler's stream | none |
 
-**Edges are dependency injection, never test branches** (BUILD.md testing rule 8). No crate that contains a machine has a cargo feature or an environment variable that changes behavior for tests. P0 adds a `clippy.toml` `disallowed-methods` list to the machine crates: `std::time::Instant::now`, `std::time::SystemTime::now`, `std::thread::spawn`, `rand::*`, `std::env::var`. A machine that calls one fails CI. The drivers and the `sys` crate are exempt.
+### 2.3a Random values
+
+Every random value comes from the `Entropy` edge, and from nowhere else. Consumers:
+- the host engine: the per-worker token (AD-6), the service secret `CORE_SERVICE_SECRET` (SV-1), and the `InstanceId` of a session (ID-1) if P1 makes it random;
+- the WebRTC stack of the worker (P4c): DTLS certificates and keys, ICE credentials, SCTP and DTLS nonces. The P4c spike (R6) audits every random source of the chosen stack and wires it to `Entropy`. If a source of the stack cannot be injected, P4c reports BLOCKED with the list; the lead takes it to the orchestrator before the stack is adopted.
+
+Values that do not need to be random are **counters**, not random: `OpId`, `RouteId`, `CaptureId`, the worker's `query_id` (EV-8: "opaque, minted by the worker"), and the uniqueness suffix of an uploaded file name (DP-5b, A2-9).
+
+**Production keeps secrets unpredictable:** the real edge is the OS CSPRNG only. The seeded stream exists only in the testkit crate. No production crate can construct it, and the facade cannot select it.
+
+**Hidden randomness is banned in the machine crates.** `std::collections::HashMap` and `HashSet` with the default `RandomState` give a per-process iteration order. P0 adds them to `disallowed-types`. Machines use `BTreeMap`, `BTreeSet`, or an explicit fixed hasher.
+
+### 2.3b File input never blocks the worker loop (DP-5b)
+
+DP-5b: "file I/O never blocks the PTY reader or another route". A file system call can block. So the `Worker` machine never calls one. It emits a **file request** action and receives a **file completion** input.
+
+- **Requests:** `Create{file, dir, name}` (exclusive create, A2-9 name rules), `Write{file, bytes}`, `Close{file}`, `Delete{file}`.
+- **Completions:** `Created{file, path}`, `Written{file, n}`, `Closed{file}`, `Deleted{file}`, and `Failed{file, errno}`. Each one is an input to the same `Worker` machine.
+- **Real driver:** one file-I/O thread per worker process runs the requests in FIFO order. It wakes the `mio` loop through a `mio::Waker` when a completion is ready. The thread lives in the driver (`botster-core-sys`), not in the machine.
+- **Bound and backpressure:** the request queue is bounded per route by `max_chunk_bytes` worth of pending writes. When a route's file requests are at the bound, the worker stops reading **that route** (transport backpressure, as DP-5's input queue). Other routes and the PTY continue.
+- **Order:** the requests of one file run in order. Completions of different routes have no promised order. The path paste of a `file_commit` is admitted only after its file's `Closed` completion, at the commit's place in that route's receive order (DP-5b, AM-2). The route's later input waits behind it; other routes do not.
+- **Abort and route end before the commit:** the worker drops the queued writes of that file and requests `Delete` of the partial file. It sends no frame (DP-5b).
+- **Cleanup at `Remove`** (LC-7 step 3): the worker requests `Delete` for every file that its routes wrote, before it ends.
+- **Testkit:** the same request and completion interface. The scheduler chooses when each completion is delivered (a choice point of 2.4). The worker logic is the same in both runs.
+
+### 2.3c No test branches
+
+**Edges are dependency injection, never test branches** (BUILD.md testing rule 8). No crate that contains a machine has a cargo feature or an environment variable that changes behavior for tests. P0 adds a `clippy.toml` `disallowed-methods` list to the machine crates: `std::time::Instant::now`, `std::time::SystemTime::now`, `std::thread::spawn`, `rand::*`, `getrandom::*`, `std::env::var`, and every `std::fs` function (file I/O goes through `FileSink`, 2.3b); and `disallowed-types` bans the default-hashed `HashMap` and `HashSet` (2.3a). A machine that uses one fails CI. The drivers, the `sys` crate and the testkit are exempt.
 
 ### 2.4 The scheduler
 
 - **Production policy.** The real driver handles control-link input before route and PTY I/O (the old worker's "control first" turn, `botster-session-worker.rs` at the old SHA). The host engine visits sessions round-robin, with the `pump_bytes` and `pump_events` bounds of 9B.
-- **Seeded policy.** `with_seed(n)` (A5-2) seeds one ChaCha8 stream (the generator that botster-contracts already uses for its seeds). Each choice point draws from it. The choice points are exactly the A5-2 list:
+- **Seeded policy.** `with_seed(n)` (A5-2) seeds one ChaCha8 stream (the generator that botster-contracts already uses for its seeds). Each choice point draws from it. The choice points are the A5-2 list, plus one edge timing that A5-2 does not name and that varies only an order the contract leaves open: when a file completion is delivered (2.3b; DP-5b gives completions of different routes no order). The A5-2 list:
   - which ready work runs first in a `pump` (OR-3);
   - whether an operation's progress is deferred to a later `pump` (never zero pumps, OR-1);
   - how many pumps pass between `Start` and `Running`, and between `Stop` and `Exited` (the program and process edges);
@@ -127,7 +155,27 @@ An **edge** is a trait that a machine's driver calls for one kind of I/O. Each e
 
 ### 2.5 The real host loop needs no thread
 
-`Core` starts no thread. The `WakeHandle` descriptor is a kqueue (macOS) or epoll (Linux) descriptor in which every control link is registered level-triggered, plus a self-pipe for "runnable work exists" (TM-6). A kqueue or epoll descriptor is itself pollable, so `WakeHandle::fd()` (section 13 rule 5) works in the host's loop, and `wait(timeout)` from another thread (TH-2) only waits on it. `pump` drains every link non-blockingly. The `polling` crate gives this over both kernels (section 7). It is elegant because it adds no thread and no lock to the handle.
+`Core` starts no thread. The `WakeHandle` descriptor is a `polling::Poller` (kqueue on macOS, epoll on Linux) plus a self-pipe for "runnable work exists" (TM-6). A kqueue or epoll descriptor is itself pollable, so `WakeHandle::fd()` (section 13 rule 5) works in the host's loop, and `wait(timeout)` from another thread (TH-2) only waits on it. `Poller` is `Sync`, so the owner thread can change registrations while another thread waits. It is elegant because it adds no thread and no lock to the handle.
+
+**Every descriptor that can bring host work is registered, level-triggered, with an interest that follows its queue state:**
+
+| Descriptor | Read interest | Write interest | Clause |
+|---|---|---|---|
+| a worker or guardian control link | always, until the link ends | only while the link's outbound queue is not empty | TM-3, TM-6, IN-6 (`SessionWritable`) |
+| a service lane listener (`lane-<n>`) | always, while the service exists; a readable listener means a connection to accept | none | SV-2 |
+| an accepted lane connection before its preamble is complete | always, until the preamble is complete or the connection is closed | none | SV-2 |
+| an authenticated lane socket | **only while that lane's inbound queue has room for one more frame** (`inbound_queue_bytes`). When the queue is full, Core removes read interest and stops reading, and the kernel buffer back-pressures the service (SV-3: inbound is lossless) | only while that lane's outbound queue is not empty | SV-3, SV-6 |
+| the self-pipe | always | none | TM-6 |
+
+**Rules that keep progress without a wake loop:**
+1. `pump` reads only descriptors with read interest and writes only descriptors with write interest. It never spins on a descriptor that it cannot serve.
+2. `service_recv` that frees room in a full inbound queue restores the lane's read interest before it returns. If the kernel already holds bytes, the level-triggered `Poller` fires, so the next `wait` wakes and the next `pump` reads them. `service_send` that makes an outbound queue non-empty adds write interest, and signals the self-pipe (TM-6: a call that leaves work for `pump` signals before it returns).
+3. `ServiceReadable` is level per lane at the event level (SV-3): while frames are unread and none is outstanding, `pump` posts one. Polling the event does not clear the condition.
+4. `ServiceWritable` is posted when a lane's free outbound bytes reach the largest refused size since the last wake (SV-3). Write progress on the socket is what frees those bytes.
+5. **Lanes are independent:** each lane has its own registration, so a lane without read interest, or a lane whose service does not read, never blocks another lane or a control link.
+6. Work that is parked on mandatory-queue room (EV-5b) has no registration effect. It becomes runnable when `poll_events` frees room, which signals the self-pipe (TM-6).
+
+**In the testkit** the in-memory link and lane endpoints carry the same two flags (readable, writable) per endpoint, and the `Sim` treats an endpoint with a set flag and a matching interest as ready work. The in-memory lane edge depends on Q3; until Q3 closes, P7 builds the readiness rules against the real lanes and the interface that the in-memory edge will implement.
 
 ### 2.6 Workspace layout
 
@@ -149,7 +197,7 @@ botster-core (v1)
 │   ├── botster-worker/            P3, P7  the thin binary: roles `session` and `guardian`
 │   ├── botster-core-testkit/      P6  Sim, seeded scheduler, scripted edges, TestkitHarness, RealCoreHarness
 │   └── botster-mux-example/       P8  section 15
-└── tests/conformance.rs           the suite on the testkit (default tier) and on real processes (slow tier)
+└── tests/conformance.rs           harness = false (libtest-mimic, section 5): the suite on the testkit (default tier) and on real processes (slow tier)
 ```
 
 **Why separate crates.** Each package owns a crate or a module tree. So parallel pairs rarely edit the same file. The facade crate `botster-core` re-exports only `prelude` and `contract` (section 11, Versioning). `cargo public-api` snapshots it. The Hub's CI check confirms that the Hub imports only the facade.
@@ -190,9 +238,28 @@ The testkit is a small discrete-event simulation over the machines of section 2.
 | Core | real `HostEngine` in `TestkitCore` | real `Core::open` with real edges |
 | Workers and guardians | in-process `Worker` and `Guardian` in the `Sim` | real `botster-worker` processes, prebuilt (never built by a test) |
 | Program | the probe script, interpreted by the scripted program edge | the `botster-conformance-probe` binary from botster-contracts, with the probe script as its argument |
-| Controls (6.3) | built from the testkit edges | built from injected parts of the real `Core` (a failing `Storage` wrapper, a refusing `Process` wrapper) and from real OS acts on the test's own process groups (a kill of a verified worker pid). A control that only one harness can cause is `unsupported_control` on the other, and the id is listed in the real-only or testkit-only list with its reason. |
+| Controls (6.3) | built from the testkit edges, and the scripted synchronous refusal (4.2a) | built from injected parts of the real `Core` (a failing `Storage` wrapper, a refusing `Process` wrapper, the same scripted synchronous refusal of 4.2a over the real `Core`) and from real OS acts on the test's own process groups (a kill of a verified worker pid). |
 | `oracle_encode` and every terminal oracle | `botster-terminal-ghostty` (R-7) | the same |
 | `worker(Previous)` | a `Worker` that speaks protocol `T−1` (Q2) | a prebuilt worker binary of protocol `T−1` from a pinned tag (Q2) |
+
+### 4.2a Scripted synchronous refusals (A5-3 timing 1)
+
+A5-3 has two failure timings, and the testkit keeps them apart:
+1. **A synchronous refusal** is scripted per call. The harness wraps the subject's `CoreApi` in a `RefusalScript` layer (in `botster-core-testkit`; used by both harnesses). A script entry names a call (`begin` with an operation kind, `attach`, `cancel`, `service_send`, and the other sync calls), the occurrence (the n-th such call), and an error code. When the entry matches, the layer **returns the error from the call before the call reaches real Core**. Real Core sees nothing: no `OpId` is minted, no event is posted, no slot is reserved, no state changes, and no ownership is taken (for `attach`, the transport descriptor stays the caller's; for `service_send`, the frame stays the caller's).
+   - **Validation.** The layer refuses to load a script entry whose code is not in that call's synchronous column. The column comes from a table in the testkit that has one row per call and cites its source row: the A2-1 operation table (with the `PendingLimit` rule of A2-1), the sync `attach` paragraph of A2-1, ER-0 and the 9.3 Sync column, A2-5 `SendError`, and IN-6 `CancelResult`. P6 checks that table against `botster-core-contract`'s types with a unit test per row. An invalid entry is a harness error, never a run.
+   - This layer is not a variation decorator: it never reorders, delays or rewrites a result that real Core produced (A5-2). It only stands in front of a call that real Core never receives.
+2. **An asynchronous failure** is never scripted at the `CoreApi`. Only an edge produces it (`Storage`, `Process`, `Link`, `RouteTransport`, `FileSink`), and real Core completes the operation on its own completion path, with its real `OpId`, events, effect and slot release.
+
+**Owners.** P6 builds the `RefusalScript` layer, the sync-column table and the proof of `conf::a5_3_sync_refusal_has_no_op_event_slot_or_state` and `conf::a5_3_only_sync_column_codes_scripted`. P1 provides no hook: the layer uses only the `CoreApi` trait. Each package that owns an async error code wires the edge failure that produces it (`conf::a5_3_async_failure_only_through_edges_and_real_completion`, `conf::a5_3_every_code_reachable_or_listed_real_only`).
+
+### 4.2b Both harnesses prove every id, except the real-OS list
+
+A5-4: "Both run the same suite and both must pass." So:
+- **There is no testkit-only exemption.** Every control that a transcript uses is implemented by both harnesses. On the real harness, a control is built from injected parts of the real `Core` (DI at construction of the real edges, never a test branch) or from a real OS act on the test's own processes.
+- **The only ids that one harness may not run** are the ids whose proof is a real OS condition that A5-3 names or that the reviewed replacement map classifies `slow` (a real crash, fsync durability, descriptor handoff, `payload_dies_with_guardian`, the real file lock of LC-2, and the other `slow` rows of the map). On the testkit they are listed as real-only (A5-3), with the map row as the reason. **Each one must pass on the real harness or as a named real-process test** that cites its clause.
+- **Every other non-pass is an acceptance failure.** An `unsupported_control`, `inconclusive` or unexpected `not_applicable` on either harness keeps Stage 1 open (section 1). It goes to the owning package as a defect, or to the lead as a QUESTION if the control cannot be built on one harness; the lead takes it to the steward or the Foundation lead. It is never moved to a list.
+
+### 4.2c Seeds and tiers
 
 **Seeds.** The default tier runs every id under the CI seed set (foundation design 6.1: seeds 0 to 31). If the tier passes 60 s, P6 reduces the default set and adds an in-process `sweep` job with the full set. Fake runs never move to `slow`.
 
@@ -208,25 +275,31 @@ The testkit is a small discrete-event simulation over the machines of section 2.
 | The replacement map, reviewed (it assigns each id and fault to its proof: testkit, edge, perturb, slow, static) | `foundation/replacement-map` at `2701038`, last verdict REJECT | P6 (the real-only list), every package's slow tests |
 | The `CoreHarness` controls list, closed and documented (6.3) | partly in `driver.rs` | P6 |
 
-A package does not wait for all of Stage 0. It builds against the clauses and the transcripts that exist. An id without a transcript stays in `conformance/core-pending.txt` of this repo (section 8). That file may only shrink.
+A package does not wait for all of Stage 0. It builds against the clauses and the transcripts that exist. An id without a transcript is reported as "pending: no transcript" (section 5); an id whose code is not ready stays in `conformance/core-pending.txt`, which may only shrink.
 
 ## 5. How the Core suites run
 
-```rust
-// tests/conformance.rs (botster-core v1). One #[test] per id.
-botster_core_conformance::conformance_tests!(
-    |seed| Box::new(botster_core_testkit::TestkitHarness::new(seed)),
-    botster_core_conformance::CoreSchemas
-);
+The pinned runner's `conformance_tests!` macro generates one `#[test]` per transcript, and each test panics unless it passed (`botster-conformance` `run_one_test`). It has no way to mark an id as not yet expected, and it cannot see a ledger id that has no transcript. So the Core repo drives the suite through the runner's **public** functions with its own test harness, and needs no runner change:
 
-#[cfg(feature = "slow")] // the slow tier is a feature of the test crate only, never of a product crate
-mod real {
-    botster_core_conformance::conformance_tests!(
-        |_seed| Box::new(botster_core_testkit::RealCoreHarness::new()),
-        botster_core_conformance::CoreSchemas
-    );
-}
+```rust
+// tests/conformance.rs, `harness = false` (libtest-mimic). One trial per Core ledger id.
+// For each transcript in botster_core_conformance::CORE_TRANSCRIPTS (botster_conformance::load_dir):
+//   - an id listed in conformance/core-pending.txt becomes an ignored trial, reported as "pending";
+//   - every other id becomes a trial that calls botster_conformance::run_transcript with
+//     botster_core_conformance::driver_for(harness), the seed set and the selection from the
+//     runner's environment variables, and passes only on Outcome::Passed.
+// For each id of the pinned ledger that has no transcript: an ignored trial reported as
+// "pending: no transcript". The pinned ledger ids are checked in as conformance/core-ledger-ids.txt,
+// generated from the botster-contracts ledger at the pinned tag.
+// The harness is TestkitHarness (default tier). With the test crate's `slow` feature, a second
+// binary runs the same trials on RealCoreHarness.
 ```
+
+- **libtest-mimic** is a maintained crate for exactly this (custom trials inside `cargo test` and `cargo nextest`, with ignore and filter support). Hand-rolling a test-list format is not needed.
+- **The report** prints three counts: passed, failed, and pending (split into "pending" and "pending: no transcript"). A pending id is never counted as passed.
+- **`conformance/core-pending.txt` may only shrink.** `cargo xtask ci` fails if it gains an id that the `origin/v1` head did not list. Stage 1 is done only when it is empty (section 1).
+- **Owner and milestone:** P0 builds this harness and the two files at M0, with every id pending. Each package removes its ids from the file in the pull request that makes them pass on both harnesses.
+- If Stage 0 later adds pending-list support to `conformance_tests!`, P6 may switch to it; nothing waits for that.
 
 - `cargo xtask prebuild-worker` builds `botster-worker` and `botster-conformance-probe` into `target/candidate/` with a sha256 manifest (the old `script/prebuild-worker` idea; the old `real_worker.rs` manifest check is stolen for `RealCoreHarness`). A test never builds a binary. This also avoids the macOS first-launch stall inside a test (testing rule 7).
 - Every real-process test owns its process group and cleans it up on every exit path, panics included (testing rule 10). The xtask's leftover-process check fails the run on a survivor. No test kills by name or pattern.
@@ -240,7 +313,7 @@ Each Core id of the ledger has **exactly one** owning package. `docs/stage1-clau
 
 | # | Package | Owns (rule) | Ids | Crates | Depends on |
 |---|---|---|---|---|---|
-| P0 | **skeleton** | TH-1, E1-1 | 2 | workspace, xtask, `botster-core-edges`, `botster-core-link` (framing and hello), `botster-core-sys` (first module: flock), facade shell | none |
+| P0 | **skeleton** | TH-1, E1-1 | 2 | workspace, xtask (with the gate of section 8), `botster-core-edges` (including `Entropy`), `botster-core-link` (framing and hello, with its bolero harness), `botster-core-sys` (first module: flock), facade shell, the section 5 conformance harness with `core-pending.txt` and `core-ledger-ids.txt` | none |
 | P1 | **session registry and lifecycle** | every id that no other rule takes: LC-1 to LC-10, LC-12 (except the drop id), ID-1, AM-1, AM-3, AM-4, ER-0 and the 9.3 codes, OR-1, OR-2, OR-4, TM-1 to TM-6, EV-2, EV-5, EV-6, EV-9, ST-4, ST-6, TH-2, TI-1, 9B, A2-1, A2-6, A2-7 | 108 | `botster-core-host`, `botster-core`, `Storage` real edge | P0; P3 hello and payload milestone (M1 below) for `Start`, `Stop`, `Signal` |
 | P2 | **libghostty binding** | A2-8, ST-6b | 5 | `botster-terminal-ghostty` | P0 workspace only. It starts with P0. |
 | P3 | **session worker, PTY and terminal** | IN-1 to IN-10, 5.1A, SZ-1 to SZ-3, TP-1, AM-2, A2-2, A2-4, ST-1, ST-2, ST-3, ST-5, ST-7, EV-1, EV-3, EV-4, EV-7 | 137 | `botster-worker-core` (worker, input, model), `botster-worker` (role `session`), `Program` real edge (PTY) | P0, P2 |
@@ -248,7 +321,7 @@ Each Core id of the ledger has **exactly one** owning package. `docs/stage1-clau
 | P4b | **route data plane: queries and files** | EV-8, DP-5b, A2-9, and route ids that name a query or a file | 57 | `botster-worker-core/queries`, `files`, `FileSink` edge | P4a merge-ready |
 | P4c | **route data plane: WebRTC and performance** | DP-10, DP-11, and ids that name WebRTC, the DataChannel, T2 or `connect_deadline` | 15 | `botster-worker-core/webrtc`, UDP edge | P4a merge-ready |
 | P5 | **adoption and restart** | AD-1 to AD-7, DP-8, ID-2, LC-11, `lc_12_drop_leaves_workers_running`, and every id that names adoption, restart or survival | 47 | `botster-core-host/adopt`, the link's epoch and token proof | P1, P3; P4a for the route ids; P7 for the service ids |
-| P6 | **testkit** | A5-1 to A5-4, OR-3 | 15 | `botster-core-testkit`, `tests/conformance.rs` | P0. It grows with each package. |
+| P6 | **testkit** | A5-1 to A5-4, OR-3 | 15 | `botster-core-testkit`: the `Sim`, the seeded scheduler and `Entropy`, the scripted edges, the `RefusalScript` layer and its sync-column table (4.2a), both harnesses | P0. It grows with each package. |
 | P7 | **services and the guardian** | SV-1 to SV-10, A2-5, A4-1 (except adoption ids) | 57 | `botster-guardian-core`, `botster-worker` (role `guardian`), `ServiceLane` and `Process` real edges, `botster-core-host/services` | P1; Q3 for the in-memory lane edge |
 | P8 | **example consumer** | section 15 acceptance script (no ledger id) | — | `botster-mux-example` | P1, P4a, P5 |
 
@@ -317,6 +390,8 @@ The exact versions are fixed by the first package that adds each crate, in `[wor
 | `mio` | **ADOPT** (real worker and guardian drivers) | A maintained readiness loop over raw descriptors. The kqueue or pidfd exit watch registers as a raw descriptor. |
 | `polling` | **ADOPT** (the host `Wake` edge) | `Poller` is `Sync` and its descriptor is pollable (TH-2, section 13 rule 5). |
 | `rustix` | **ADOPT** (`botster-core-sys`) | PTY open, `flock`, fsync, `killpg`, socket ancillary data, with typed errors and less `unsafe` than raw `libc`. |
+| `getrandom` | **ADOPT** (the real `Entropy` edge, 2.3a) | The OS CSPRNG, nothing else, for tokens and secrets. |
+| `libtest-mimic` | **ADOPT** (`tests/conformance.rs`, section 5) | One trial per ledger id with pending ids ignored, using the runner's public functions; no runner change. |
 | `atomic-write-file` | **ADOPT** (`Storage`) | Atomic replace with fsync of the file and the directory (AD-7 durability). Hand-rolling this needs no reason to exist. |
 | `redb` | **REJECT for the registry** | Correct, but it adds a file format and its upgrades for at most `max_sessions` small rows. One file per row is inspectable, and AD-7's "uncertain" maps directly to a failed fsync. |
 | `tokio` in Core | **REJECT** | Core is sans-IO. A runtime inside Core would add threads and nondeterminism. |
@@ -324,7 +399,7 @@ The exact versions are fixed by the first package that adds each crate, in `[wor
 | shuttle and shuttle-tokio, proptest with test-strategy, bolero, cargo-mutants, cargo-nextest | **USE** (already adopted, `docs/tooling.md`) | shuttle for TH-2 and the Hub under A5-4; proptest for the codec-adjacent and limit code; bolero for the control-link decoder (one harness per decoder); cargo-mutants `--in-diff` at landing. |
 | loom | **REJECT unless** a hand-written lock-free primitive appears | tooling.md. |
 
-New tools (`str0m`, `mio`, `polling`, `rustix`, `atomic-write-file`) are proposed for `docs/tooling.md` of botster-contracts. The lead sends the list to the orchestrator at the first package that adds one.
+New tools (`str0m`, `mio`, `polling`, `rustix`, `getrandom`, `libtest-mimic`, `atomic-write-file`) are proposed for `docs/tooling.md` of botster-contracts. The lead sends the list to the orchestrator at the first package that adds one.
 
 ## 8. Gate, merge and the CI command
 
@@ -335,8 +410,12 @@ New tools (`str0m`, `mio`, `polling`, `rustix`, `atomic-write-file`) are propose
   4. `cargo public-api` against the checked-in snapshot of the facade;
   5. `xtask prebuild-worker`;
   6. the default tier through `xtask test-budget` (60 s total, 2 s per test, per-test times, leftover processes);
-  7. the slow tier (the real-process suite and the named real-process tests).
-- **`conformance/core-pending.txt`** in this repo lists the ids that are not yet expected to pass. The suite marks them ignored. The file may only shrink, and Stage 1 is done when it is empty.
+  7. the slow tier (the real-process suite and the named real-process tests);
+  8. **mutation tests** (BUILD.md adopted tools: "Mutation tests at landing: cargo-mutants `--in-diff` on the changed crates"): `git diff origin/v1...HEAD > target/landing.diff`, then `cargo mutants --in-diff target/landing.diff` over the crates that the diff changes, with the default-tier tests of those crates as the test command, a per-mutant timeout of 5 × the baseline test time, and a total `botsterq --deadline`. The result (`mutants.out/outcomes.json` summary: caught, missed, timeout, unviable) is recorded in the pull request;
+  9. **decoder fuzzing** (BUILD.md: bolero, "one harness per decoder; it runs as a property test on stable and as a fuzzer at landing"): every decoder of this repo has one bolero harness (the control-link frame and hello decoder, the service-lane preamble and frame decoder, and any other byte decoder that a package adds; the route codec's decoders are botster-contracts' and are fuzzed there). In the default tier each harness runs as a property test with capped cases and a pinned seed. At landing, each harness of a crate that the diff changes runs as a fuzzer for 60 s (`cargo bolero test … -T 60s`, as tooling.md states), and a crash input is committed as a regression case.
+
+  **How a result closes.** A missed mutant, a mutation timeout, or a fuzz crash is a review finding on that pull request (BUILD.md: "A surviving mutant is a review finding"). The implementer adds a test that kills the mutant or fixes the crash, or states why the mutant is equivalent (the code change cannot change behavior); the package reviewer accepts that statement or keeps the finding open. The lead merges only when every such finding is closed and the gate is green on the exact head. Steps 8 and 9 run inside the same `botsterq run --exclusive` gate as steps 1 to 7.
+- **`conformance/core-pending.txt`** in this repo lists the ids that are not yet expected to pass. The section 5 harness reports them as pending, never as passed. The file may only shrink, and Stage 1 is done when it is empty.
 - **Interim gate** (BUILD.md, while GitHub-hosted CI is blocked by billing): one run of `cargo xtask ci` on the exact head through `botsterq run --exclusive --deadline …`, one gate at a time on the Mac. The log goes in the pull request. Implementers run focused tests only, through `botsterq run`.
 - **Heavy work** goes through `botsterq` with a `--deadline`. `df -h /` runs before a full run; below 30 GB free, clean first. One `target/` per worktree, cleaned after landing.
 - **Zig and libghostty build cost.** Each worktree needs the `vendor/ghostty` submodule (`git submodule update --init`). The Zig caches go under `OUT_DIR` (vault). P2 measures the cold build. If it costs more than about 2 minutes per worktree, P2 adds a shared, content-addressed cache of `libghostty-vt.a` keyed by the Ghostty SHA, the Zig version and the build flags, written by atomic rename.
@@ -346,7 +425,7 @@ New tools (`str0m`, `mio`, `polling`, `rustix`, `atomic-write-file`) are propose
 
 | # | Question | To | Blocks |
 |---|---|---|---|
-| Q1 | **libghostty gaps.** If the P2 audit (R1) finds a Core clause that the pinned libghostty cannot serve without a parser outside libghostty, does the orchestrator approve a patch to the trybotster/ghostty fork and a new pinned SHA? A pin change also changes `terminfo_source` (A2-8: "a contract-tag change") and the non-normative shadow list. | orchestrator (through the lead) | P2's gap items; P3 EV-7 and A2-4; P4b EV-8 |
+| Q1 | **libghostty gaps.** If the P2 audit (R1) finds a Core clause that the pinned libghostty cannot serve without a parser outside libghostty, does the orchestrator approve a patch to the trybotster/ghostty fork and a new pinned SHA? After any pin change, P2 compares the terminfo entry of the new pin with the old one. A2-8: "A change of the pinned emulator that **changes the entry** changes `terminfo_source` and is a contract-tag change"; so only if the entry changed, `terminfo_source` and the contract tag change. The non-normative shadow list (EV-8) is re-checked in either case. | orchestrator (through the lead) | P2's gap items; P3 EV-7 and A2-4; P4b EV-8 |
 | Q2 | **AD-4 at the first release.** AD-4 requires adoption of a worker of protocol `T−1`, proven with "a pinned old worker binary". At the first v1 release no older v1 protocol exists. What proves `conf::ad_4_previous_worker_version_adopts` and its siblings: `not_applicable` until a second protocol exists, or a `T−1` build made for the test? | steward (spec meaning) | the ids that need an N−1 worker: at least `conf::ad_4_previous_worker_version_adopts`, `conf::ad_4_missing_worker_capability_is_unsupported`, and the per-worker feature ids that an N−1 worker proves (`focus_report`, DP-12; `CursorReadUnsupported` in the replacement map) |
 | Q3 | **The service-lane edge.** A5-1 lists no edge for service lanes. The steward recommends a small Core amendment (handoffs/steward.md). Without it, the SV ids move to the slow tier. | steward (already open) | in-memory runs of P7's lane ids |
 | Q4 | **The probe-script types.** They must move out of `botster-fake-core` before FakeCore is deleted, so the testkit and the probe binary keep one script format. | Foundation lead (through the orchestrator) | P6 scripted program edge |
@@ -360,7 +439,7 @@ New tools (`str0m`, `mio`, `polling`, `rustix`, `atomic-write-file`) are propose
 | R3 | **The in-process worker drifts from the real one.** | One machine, two drivers (2.1). The suite runs on both (A5-4). The `disallowed-methods` lint keeps clocks, threads and randomness out of the machines. A behavior that differs is a bug in an edge. |
 | R4 | **Default-tier budget.** 578 ids × 32 seeds × a real libghostty per worker, under 60 s. | P6 measures at M0b with the first 100 ids. If needed: a smaller default seed set plus an in-process `sweep` job; a libghostty terminal created lazily; `[profile.dev.package]` opt-level for the hot crates, measured. |
 | R5 | **Descriptor handoff on macOS.** No atomic close-on-exec for received descriptors; a fork race seen before. | One module owns the handoff (`botster-core-sys`). `FD_CLOEXEC` is set at once on receipt. The slow tier proves DP-2 with real processes under load. |
-| R6 | **WebRTC in every worker** (DP-11 states the costs). str0m is unproven here. | P4c starts with a spike: an in-process str0m pair carrying the TR-3 chunked framing through the testkit. If the spike fails, the lead brings webrtc-rs with a dedicated thread as the alternative to the orchestrator, with its determinism cost. |
+| R6 | **WebRTC in every worker** (DP-11 states the costs). str0m is unproven here. | P4c starts with a spike: an in-process str0m pair carrying the TR-3 chunked framing through the testkit, and an audit of every random source of the stack (2.3a). If the spike fails, the lead brings webrtc-rs with a dedicated thread as the alternative to the orchestrator, with its determinism cost. |
 | R7 | **The single admission point is a throughput limit** (AM-2). | DP-10's same-run baseline measures it. The perf numbers are "proposal, pending first measurement"; P4c records them, and the orchestrator sets the values (a QUESTION at that time). |
 | R8 | **Real-process tier cost on the Mac.** About 580 real-process runs plus about 45 named tests. | Prebuilt binaries; nextest parallelism; one `botsterq --exclusive` gate at a time; orphan checks. Self-hosted Linux runners, when the user approves them, take this tier off the Mac. |
 | R9 | **Contract defects found while building.** | No workaround (BUILD.md rule 6). The pair asks the lead; the lead asks the steward. The pair continues with other ids meanwhile. |
@@ -373,3 +452,10 @@ New tools (`str0m`, `mio`, `polling`, `rustix`, `atomic-write-file`) are propose
 1. Get this plan CLEAN from the Sol plan reviewer; pin each revision to `~/botster-sessions/pins/stage1-plan.<sha8>.md` (read-only, hash-verified).
 2. Report DONE (plan CLEAN) to the orchestrator with the pin path, and send Q1 to Q4 up at the same time.
 3. When the orchestrator starts Stage 1: staff P0 and P2 (wave 1), checking `uptime` before each spawn, and continue by section 6.3.
+
+## 12. Revisions
+
+| Revision | Change |
+|---|---|
+| 1 (`47630cb`) | First plan. |
+| 2 | Round 1 review (`stage1/plan-review` `9ba86b2`): F1 the `Entropy` edge and banned hidden randomness (2.3, 2.3a); F2 scripted synchronous refusals (4.2a); F3 host readiness for service listeners and lanes (2.5); F4 no testkit-only exemption (4.2b); F5 mutation and fuzz steps in the gate (section 8); F6 the consumer-side pending harness (section 5); F7 Q1 keeps A2-8's condition; F8 nonblocking file I/O (2.3b). |
