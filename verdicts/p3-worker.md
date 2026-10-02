@@ -1,8 +1,11 @@
 # P3 worker review
 
-VERDICT: NOT CLEAN (6 open)
+VERDICT: NOT CLEAN (3 open)
 
-Reviewed head: `f37c46b5caee34742b0e40f798ecb9a423706c42`.
+Reviewed head: `37c96f1ef6cbbae514829a260d1088296098b3fa`.
+Previous reviewed head: `f37c46b5caee34742b0e40f798ecb9a423706c42`.
+Round 2 delta: `f37c46b..37c96f1`. F1, F2, F3, and F5 are CLOSED. F4, F6, and new F7 are OPEN.
+The original evidence below refers to the previous head. The round 2 section gives the current open evidence.
 Base: `2016886`. Scope: M1, including the Worker machine, real driver, payload edge, and testkit driver.
 This verdict covers both review units in the implementer's message.
 
@@ -12,7 +15,8 @@ The implementer reported 276 default tests and 12 slow tests passing. That evide
 
 ## F1 — HIGH — The testkit can consume the exit before the spawn result
 
-Status: OPEN.
+Status: CLOSED at `37c96f1`.
+The binding gates payload inputs behind Spawned. The machine also retains an early exit and applies it after Launched.
 
 Evidence: `crates/botster-core-testkit/src/worker.rs:332-346,393` and `crates/botster-worker-core/src/worker.rs:489-494`.
 
@@ -35,7 +39,8 @@ Authority: EV-4, A5-1, A5-2, BUILD.md's one-code-path rule, and plan 2.1/4.1.
 
 ## F2 — HIGH — The worker loses a stop signal during spawn
 
-Status: OPEN.
+Status: CLOSED at `37c96f1`.
+The machine retains EndPayload, Stop, and Kill during spawn. It applies these requests on success and discards them on failure.
 
 Evidence: `crates/botster-worker-core/src/worker.rs:355-381,533-552` and `crates/botster-worker/src/main.rs:146-163,178-187,199-202`.
 
@@ -55,7 +60,9 @@ Authority: LC-5, the brief's worker-control signal requirement, and the lead's P
 
 ## F3 — HIGH — A continuous PTY stream can prevent control and timer progress
 
-Status: OPEN.
+Status: CLOSED at `37c96f1`.
+The real driver reads one chunk per descriptor per turn and settles inputs between batches.
+It retains readiness and uses a bounded exit drain. Continuous output no longer holds the read loop indefinitely.
 
 Evidence: `crates/botster-worker/src/main.rs:146-177,264-311`.
 
@@ -99,7 +106,8 @@ Authority: A5-1/A5-4, LC-5, LC-7, A6-3's complete cleanup result, and plan 2.5/3
 
 ## F5 — MEDIUM — A failure after child spawn bypasses payload cleanup
 
-Status: OPEN.
+Status: CLOSED at `37c96f1`.
+The edge sets nonblocking mode before it spawns the child. Payload owns the child immediately after successful spawn.
 
 Evidence: `crates/botster-core-sys/src/payload.rs:94-111`.
 
@@ -146,4 +154,77 @@ Authority: BUILD.md testing rule 10, pair-common.md's process ownership rule, an
 - The startup timeout and adoption remain later work as stated in the handoff. This verdict does not accept their contract ids.
 - The contracts pin move and P1's reported R-20 change remain outside this exact diff. A later head requires a delta review.
 
-All six findings must close before CLEAN. No LOW finding is exempt from closure.
+All open findings must close before CLEAN. No LOW finding is exempt from closure.
+
+## Round 2 — Current open findings
+
+This review inspected the complete delta at `37c96f1`. The reviewer ran no tests or gate.
+The implementer reported 281 default tests and 12 slow tests passing on macOS.
+
+### F4 — HIGH — A stale flush report can release a later unsent report
+
+Status: OPEN.
+
+Evidence: `crates/botster-worker/src/main.rs:198-206,212-215,380-382` and `crates/botster-worker-core/src/worker.rs:619-623`.
+
+The blocking close is removed, and the testkit now stages close correctly.
+The real driver still reports flush completion through a queued boolean with no association to the bytes it covers.
+Consider this order:
+
+1. The machine emits two reports and stages a close in one input, such as pending read replies followed by RemoveResult.
+2. The driver sends the first report completely and queues `LinkFlushed{drained: true}`.
+3. The driver processes the next LinkSend before it handles that queued flush input.
+4. The socket accepts no more bytes, so the later report remains in `outbound`.
+5. The machine handles the first flush input and clears `unflushed` for all reports.
+6. The machine emits LinkClose and Exit. The driver discards the later report in `drop_link()`.
+
+`settle()` performs every queued action before it handles the next input, so this order is permitted by the actual driver.
+The close protocol therefore still loses a report under backpressure.
+
+Required change: Make a flush completion identify the sends that it covers, or deliver the completion only for the current queue state.
+An earlier completion must not authorize closing over bytes queued after that completion.
+Check multiple sends in one machine step with the socket becoming full between those sends.
+
+Authority: LC-7, A6-3, A5-1/A5-4, and plan 2.5/3.
+
+### F6 — MEDIUM — Cleanup still depends entirely on successful Core progress
+
+Status: OPEN.
+
+Evidence: `crates/botster-worker/tests/slow_session.rs:180-207,358-413`.
+
+Stopping before Remove fixes the normal cleanup of a running session.
+The guard still skips refused operations and catches a cleanup timeout without a process-owner fallback.
+If Stop fails to complete, Remove can remain WrongState and the guard leaves the worker running.
+If Remove fails to complete, dropping Core preserves the worker by LC-12.
+These are precisely the failure paths that a lifecycle test must clean up.
+
+OwnedWorker also holds no payload identity until the test reads Launched.
+A failure after the child starts but before the test records that report leaves `payload: None`.
+The guard then kills only the worker, which does not guarantee cleanup of the separate payload group.
+
+Required change: Keep a cleanup path that does not depend only on the Core behavior under test.
+Cover a failed or timed-out Stop, a failed or timed-out Remove, and launch before the test records Launched.
+Use proven process ownership or a request to the owned worker. Do not signal a cached payload id without current proof.
+
+Authority: BUILD.md testing rule 10, pair-common.md's process ownership rule, and plan 5/10 R12.
+
+### F7 — HIGH — The new test guard can signal a reused payload group id
+
+Status: OPEN. New finding in `37c96f1`.
+
+Evidence: `crates/botster-worker/tests/slow_session.rs:279-290,418-435` and `crates/botster-worker-core/src/worker.rs:565-569`.
+
+OwnedWorker caches the payload pid from Launched.
+Its drop sends SIGKILL to that cached group whenever the worker process remains alive.
+Worker liveness does not prove that the payload leader remains unreaped.
+After the SIGUSR1 grace, the worker kills and reaps the payload leader while the worker itself continues running.
+The group id can then be reused.
+A panic after the exit report, or during the Remove exchange, makes the guard signal that potentially unrelated group.
+Even receiving the exit report is not a safe boundary because sending the report and reaping the leader can precede the test's read.
+
+Required change: Remove the assumption that a live worker reserves every payload id it ever reported.
+Request cleanup through the owned worker, which knows whether its leader remains unreaped, or use an ownership mechanism that prevents reuse.
+Do not retain the direct killpg path with only `worker.try_wait()` as proof.
+
+Authority: the lead's P1 F7 decision, the explicit rule against signalling an unproven id, and pair-common.md's process ownership rule.
