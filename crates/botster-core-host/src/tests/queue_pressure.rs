@@ -484,6 +484,7 @@ fn remove_releases_the_captures_of_the_session() {
             uploads: UploadsOutcome::Deleted,
         },
     );
+    w.exited("s1");
     w.complete(remove);
     assert_eq!(
         w.engine.read_page(cap.capture, 0).unwrap_err().code,
@@ -522,6 +523,7 @@ fn released_retires_the_instances_unpolled_events() {
             uploads: UploadsOutcome::Deleted,
         },
     );
+    w.exited("s1");
     let events = w.until(|e| matches!(e, Event::Completed { op, .. } if *op == remove));
     assert!(
         events
