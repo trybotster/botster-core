@@ -509,3 +509,44 @@ The plan keeps A6 changes out of acceptance until its ACK, manifest entry, and c
 A changed amendment candidate requires a plan revision and review.
 
 VERDICT: CLEAN
+
+## Round 7 — revision 7
+
+Plan: `3281c4e413c9709767c7de53b7c0e003ff3ffbae`, `docs/stage1-plan.md`.
+Pin: `stage1-plan.7f7f9262.md`.
+Verified SHA-256: `7f7f9262c1eeb33280b8da4d633d96ce4a53536b01b1b6d4927f9ab8500f77c5`.
+Contracts pin: `2f2996ef0f016a1fefc6879e74deaef033383b66`, manifest final13.
+
+I reviewed the delta against final13.
+The accepted A6 candidate 3 has the claimed hash and Amendment reviewer ACCEPT.
+The withheld-link design preserves `WorkerUnreachable` while the worker remains alive.
+All 591 Core ids have exactly one owner.
+The generator reproduces every list, including its pending fields.
+The ledger has 459 pending Core transcripts, as the plan states.
+F1 through F10 remain CLOSED.
+I ran no product tests.
+
+### F11 — MAJOR — The new BUILD pin requires local concurrency limits
+
+Status: OPEN.
+Plan sections: 0 and 8.
+
+Plan evidence, section 0:
+> "BUILD.md and the rulings are unchanged between the two."
+
+The statement about BUILD.md is false.
+Section 8 also gives no explicit concurrency limits for local gates or builds.
+
+Binding evidence, `docs/BUILD.md` at `2f2996ef0f016a1fefc6879e74deaef033383b66`, Resources:
+> "every gate and local build caps its parallelism, with `CARGO_BUILD_JOBS=4` and nextest `--test-threads 4` (or `NEXTEST_TEST_THREADS=4`)."
+
+The diff from the old contracts pin adds this requirement.
+An exclusive `botsterq` gate prevents competing gates. It does not limit concurrency inside the gate.
+
+Required change: correct the section 0 statement about BUILD.md.
+Apply `CARGO_BUILD_JOBS=4` to every interim local gate and local build.
+Apply the required four-thread limit to every nextest invocation in those gates.
+Make nested build and test commands inherit the limits, including mutation commands.
+Record these limits in section 8's CI and interim-gate rules.
+
+VERDICT: NOT CLEAN (1 open)
