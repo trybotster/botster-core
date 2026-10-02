@@ -2,6 +2,14 @@
 
 VERDICT: CLEAN
 
+Latest reviewed head: `744da574039d30d49047b6a661d6849887de53b9`.
+Delta base: `ed3c84d`.
+The reported `worker_protocol -> 1` mutant is closed.
+The test Core returns 3, and both delegation tests assert 3. Returning 1 fails those assertions.
+This delta changes tests only. No findings remain open.
+The reviewer ran no tests or gate. The gate must run on this exact head after CLEAN.
+The prior Scope 2 limits remain active.
+
 Reviewed head: `ed3c84d39ca76a98219c49e089bf572610f42f55`.
 Final delta base: `22f7e3c`.
 S5-R1 closes. The comment identifies XOR as equivalent and AND as a changed call.
