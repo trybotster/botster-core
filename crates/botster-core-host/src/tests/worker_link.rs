@@ -305,6 +305,10 @@ fn a_route_of_a_starting_session_is_handed_over_at_launch() {
             features: BTreeSet::new(),
             terminal: terminal_state(),
             formats: vec![],
+            payload: Some(botster_core_link::msg::PayloadId {
+                pid: 900,
+                start_time: 3,
+            }),
         },
     });
     w.pump();
@@ -359,6 +363,7 @@ fn remove_closes_the_bound_routes_with_session_removed() {
             uploads: UploadsOutcome::Deleted,
         },
     );
+    w.exited("s1");
     let events = w.until(|e| matches!(e, Event::Completed { op, .. } if *op == remove));
     assert!(events.iter().any(|e| matches!(e, Event::RouteClosed { route: r, reason: RouteCloseReason::SessionRemoved, .. } if *r == route)));
     assert_eq!(

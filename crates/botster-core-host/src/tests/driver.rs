@@ -47,6 +47,7 @@ struct MockLink {
     /// The most bytes that one `send` takes: a short write (plan 2.5: write interest while bytes wait).
     send_cap: Option<usize>,
     write_interest: bool,
+    read_interest: bool,
     peer_closed: bool,
 }
 
@@ -192,6 +193,12 @@ impl HostEdges for Edges {
         }
     }
 
+    fn set_read_interest(&mut self, link: LinkId, on: bool) {
+        if let Some(l) = self.0.lock().unwrap().links.get_mut(&link) {
+            l.read_interest = on;
+        }
+    }
+
     fn handoff_route(
         &mut self,
         _l: LinkId,
@@ -298,6 +305,10 @@ fn launched() -> WorkerMsg {
         features: BTreeSet::new(),
         terminal: terminal_state(),
         formats: vec![],
+        payload: Some(botster_core_link::msg::PayloadId {
+            pid: 900,
+            start_time: 3,
+        }),
     }
 }
 
@@ -513,4 +524,112 @@ fn a_pump_posts_at_most_pump_events() {
 fn the_driver_is_send() {
     fn is_send<T: Send>() {}
     is_send::<HostDriver<Edges>>();
+}
+
+fn start_session(rig: &mut Rig, name: &str, link: LinkId) {
+    rig.driver.begin(create(name)).unwrap();
+    rig.pump();
+    rig.driver.begin(Op::Start { id: sid(name) }).unwrap();
+    rig.pump();
+    rig.worker_says(link, launched());
+    rig.pump();
+}
+
+/// Core EV-5b, plan 2.5 rule 7 (F2): a route event that needs mandatory room stays unread on its link while the queue is full,
+/// the read interest goes off, a poll that frees room restores it and signals the wake, and the next pump delivers it.
+#[test]
+fn a_blocked_frame_stays_unread_and_the_poll_restores_the_link() {
+    let mut rig = Rig::new(limits(|l| {
+        l.mandatory_events = 3;
+        l.max_sessions = 4;
+    }));
+    start_session(&mut rig, "s1", LinkId(1));
+    // `Created`, `Starting`, `Running` fill the queue of three.
+    for _ in 0..5 {
+        rig.worker_says(LinkId(1), WorkerMsg::RouteStalled { route: RouteId(1) });
+    }
+    rig.pump();
+    {
+        let mock = rig.mock.lock().unwrap();
+        let link = &mock.links[&LinkId(1)];
+        assert!(
+            !link.read_interest,
+            "read interest is off while a frame is held"
+        );
+        drop(mock);
+        assert!(
+            rig.driver.engine().parked_events_len() == 0,
+            "no frame was consumed into an unbounded queue"
+        );
+    }
+    rig.drain_events();
+    assert!(
+        rig.wake_set(),
+        "the poll that freed room signalled the wake (EV-5d, TM-6)"
+    );
+    assert!(rig.mock.lock().unwrap().links[&LinkId(1)].read_interest);
+    rig.pump();
+    assert!(
+        rig.mock.lock().unwrap().links[&LinkId(1)]
+            .to_host
+            .is_empty(),
+        "the frames were consumed"
+    );
+}
+
+/// 9B (F3): link input counts against `pump_events`: a pump posts at most that many events, reports them, and leaves the rest
+/// unread with `more` set.
+#[test]
+fn link_input_counts_against_the_pump_bound() {
+    let mut rig = Rig::new(limits(|l| l.pump_events = 2));
+    start_session(&mut rig, "s1", LinkId(1));
+    rig.drain_events();
+    for _ in 0..6 {
+        rig.worker_says(
+            LinkId(1),
+            WorkerMsg::Observed {
+                observation: botster_core_link::msg::Observation::Bell,
+            },
+        );
+    }
+    let report = rig.pump();
+    assert_eq!(report.events_posted, 2);
+    assert!(report.more, "input remains unread");
+    let mut total = 2;
+    for _ in 0..10 {
+        let r = rig.pump();
+        assert!(r.events_posted <= 2);
+        total += r.events_posted;
+        if !r.more {
+            break;
+        }
+    }
+    assert_eq!(total, 6);
+}
+
+/// Plan 2.4 (F15): sessions are visited round-robin through the driver: with a small budget the first events are one state
+/// per session, not all the work of the first session.
+#[test]
+fn sessions_are_visited_round_robin() {
+    let mut rig = Rig::new(limits(|l| l.pump_events = 1));
+    for name in ["a", "b", "c"] {
+        rig.driver.begin(create(name)).unwrap();
+    }
+    let mut events = Vec::new();
+    for _ in 0..30 {
+        let r = rig.pump();
+        events.extend(rig.drain_events());
+        if !r.more {
+            break;
+        }
+    }
+    let first: Vec<&str> = events
+        .iter()
+        .take(3)
+        .filter_map(|e| match e {
+            Event::SessionState { id, .. } => Some(id.0.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(first, ["a", "b", "c"], "{events:?}");
 }

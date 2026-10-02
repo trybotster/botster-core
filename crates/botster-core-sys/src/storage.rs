@@ -1,9 +1,10 @@
 //! The registry on disk, and the data directory that owns it (plan 2.3, `Storage`; Core LC-2, AD-6, AD-7, DP-8).
 //!
 //! One file per row, written with `atomic-write-file` (a temporary file in the same directory, `fsync`, `rename`) and followed
-//! by an `fsync` of the directory, so that a row that `write_row` returned `Ok` for survives a crash (AD-7). A failure before
-//! the rename leaves the old row (`StorageError::Failed`); a failure of the directory `fsync` after the rename leaves a row
-//! whose durability is unknown (`StorageError::Uncertain`, which the host reports as `RegistryFailed{uncertain: true}`).
+//! by an `fsync` of the directory, so that a row that `write_row` returned `Ok` for survives a crash (AD-7). Opening or writing
+//! the temporary file fails with no effect (`StorageError::Failed`). The library's `commit` renames and syncs the directory and
+//! reports one error for both, so a commit error, and a failure of our own directory sync, leave a row whose effect is unknown
+//! (`StorageError::Uncertain`, which the host reports as `RegistryFailed{uncertain: true}`).
 //!
 //! A row file is named by the SHA-256 of its key, so any key is a valid file name, and holds `[u32 LE key length][key][value]`,
 //! so `list_rows` returns the keys. The directory is the host's alone: mode `0700`, owned by the host's uid (AD-6), and held
@@ -116,8 +117,11 @@ impl Storage for FileStorage {
         };
         let mut file = AtomicWriteFile::open(self.path(key)).map_err(failed)?;
         file.write_all(&encode(key, bytes)).map_err(failed)?;
-        // A failure here is before the rename: the old row is untouched.
-        file.commit().map_err(failed)?;
+        // `atomic-write-file` renames the temporary file and then syncs the directory inside `commit`, and its error does not say
+        // which step failed. So an error here may come after the replacement: the effect is unknown (AD-7).
+        file.commit().map_err(|error| StorageError::Uncertain {
+            errno: errno(&error),
+        })?;
         // The row is in place. If the directory entry is not durable, the effect is unknown (AD-7).
         sync_directory(&self.dir).map_err(|error| StorageError::Uncertain {
             errno: errno(&error),
@@ -430,6 +434,21 @@ mod tests {
         .path(EPOCH_KEY);
         fs::write(epoch, encode(EPOCH_KEY, b"not a number")).unwrap();
         assert!(matches!(DataDir::open(&path), Err(OpenError::CorruptEpoch)));
+    }
+
+    /// AD-7: a write that cannot even open its temporary file has no effect and says so (`Failed`), while a commit error is
+    /// `Uncertain`, because the library's `commit` renames and syncs the directory and does not say which step failed.
+    #[test]
+    fn a_write_that_cannot_start_is_failed_with_no_effect() {
+        let tmp = dir();
+        let mut storage = FileStorage {
+            dir: tmp.path().join("missing"),
+        };
+        assert!(matches!(
+            storage.write_row("k", b"v"),
+            Err(StorageError::Failed { errno }) if errno != 0
+        ));
+        assert_eq!(storage.read_row("k").unwrap(), None);
     }
 
     #[test]

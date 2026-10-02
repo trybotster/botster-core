@@ -77,14 +77,18 @@ pub enum StartPhase {
     Finish,
 }
 
-/// What a stop is waiting for.
+/// What a stop is waiting for. The request to the payload goes out before the state event is posted, so a full queue never
+/// delays the effect of a stop (EV-5c).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StopPhase {
     RowWrite,
-    PostStopping,
+    /// The graceful request, and the `stop_grace` deadline.
     SendStop,
+    /// `SessionState{Stopping}`. The payload may end while this event waits for room: `end` is then set.
+    PostStopping,
     AwaitExit,
     PostEnd,
+    /// Completes one waiter per step.
     Finish,
 }
 
@@ -102,17 +106,22 @@ pub struct StopFlow {
 pub struct RemoveFlow {
     pub op: OpId,
     pub phase: RemovePhase,
+    /// The authenticated worker's cleanup result, or `OutcomeUnknown` when none came (A6-3).
     pub uploads: Option<UploadsOutcome>,
+    /// The worker process ended (LC-7 step 3: the worker ends before the row is deleted).
+    pub worker_gone: bool,
+    /// The grace after which a worker that did not end is killed.
+    pub deadline: Option<Instant>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RemovePhase {
+    /// Step 2 and the request of step 3. The effects come first (EV-5c); the events follow as room allows.
+    SendRemove,
     /// Step 1: closes the routes that are still bound, one event per step.
     CloseRoutes,
-    /// Step 2 and the request of step 3.
-    SendRemove,
-    /// Step 3: the worker's complete result.
-    AwaitResult,
+    /// Step 3: the worker's complete result, and the end of the worker process.
+    AwaitTeardown,
     /// Step 4.
     DeleteRow,
     /// Step 5 and `SessionState{Released}`.

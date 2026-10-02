@@ -13,10 +13,6 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
-/// How many ops of removed instances `cancel` remembers, so that it answers `UnknownOp` for them (ID-1). A larger history
-/// would grow with every `Remove`; an op that was forgotten answers `TooLate`, which is also true of it.
-pub const RETIRED_OPS_KEPT: usize = 1 << 16;
-
 /// What the engine needs to know before its first input.
 ///
 /// Clause: Core LC-1, Core 9B, Core A2-6, Core DP-8, Core AD-4.
@@ -63,8 +59,9 @@ pub(crate) enum Next {
     Detach,
     /// `Detach` of a route whose worker is gone: the host closes it.
     DetachLocal,
-    /// Sends a signal to the payload's process group (LC-6) and completes.
-    Signal(Signal),
+    /// A setter of a `Created` session (`Resize`, `SetSizePolicy`, `SetColorProfile`): its effect is visible only when this
+    /// step runs, in a `pump` (OR-1).
+    Setter,
     /// `AdoptAll`: reads the rows.
     AdoptRead,
     /// `AdoptAll`: recovers the next row and posts its state.
@@ -138,7 +135,8 @@ pub struct HostEngine {
     pub(crate) queue: EventQueue,
     pub(crate) sessions: BTreeMap<SessionId, Session>,
     pub(crate) ops: BTreeMap<OpId, PendingOp>,
-    pub(crate) retired_ops: BTreeSet<OpId>,
+    /// The ops of removed instances, and of no session at all: `cancel` tells them apart exactly (ID-1, IN-6).
+    pub(crate) retired_ops: crate::session::IdRanges,
     pub(crate) captures: BTreeMap<CaptureId, CaptureEntry>,
     pub(crate) routes: BTreeMap<RouteId, RouteEntry>,
     pub(crate) links: BTreeMap<LinkId, SessionId>,
@@ -175,7 +173,7 @@ impl HostEngine {
             queue: EventQueue::new(bounds),
             sessions: BTreeMap::new(),
             ops: BTreeMap::new(),
-            retired_ops: BTreeSet::new(),
+            retired_ops: Default::default(),
             captures: BTreeMap::new(),
             routes: BTreeMap::new(),
             links: BTreeMap::new(),
@@ -221,6 +219,27 @@ impl HostEngine {
         self.actions.push_back(action);
     }
 
+    /// Whether the engine can take `input` now. A route event needs mandatory room (EV-5b); the driver keeps a frame that
+    /// cannot be taken unread on its link and removes the read interest (plan 2.5 rule 7).
+    pub fn can_accept(&self, input: &Input) -> bool {
+        use botster_core_link::msg::WorkerMsg;
+        match input {
+            Input::LinkMsg {
+                msg:
+                    WorkerMsg::RouteClosed { .. }
+                    | WorkerMsg::RouteStalled { .. }
+                    | WorkerMsg::RouteResumed { .. },
+                ..
+            } => self.has_room(),
+            _ => true,
+        }
+    }
+
+    /// How many route events wait for room inside the engine, for tests.
+    pub fn parked_events_len(&self) -> usize {
+        self.parked_events.len() + self.parked_closes.len()
+    }
+
     /// The monotonic time of the last input.
     pub fn last_now(&self) -> Instant {
         self.now.unwrap_or(self.epoch)
@@ -246,16 +265,13 @@ impl HostEngine {
                 return;
             }
             pending.step = Step::Done;
-            let held = std::mem::take(&mut pending.held_bytes);
-            let session = pending.session.clone();
-            if let (Some(session), Op::WriteInput { .. }) = (session, &pending.op) {
-                if let Some(s) = self.sessions.get_mut(&session) {
-                    s.input_ops = s.input_ops.saturating_sub(1);
-                    s.input_bytes = s.input_bytes.saturating_sub(held);
-                }
-            }
             self.queue.post_completed(op, result);
         }
+    }
+
+    /// Completes `op` in a step of its own: a step that completes several ops would post several events (9B `pump_events`).
+    pub(crate) fn complete_later(&mut self, op: OpId, result: OpResult) {
+        self.set_step(op, Step::Ready(Next::Complete(result)));
     }
 
     pub(crate) fn set_step(&mut self, op: OpId, step: Step) {
@@ -454,7 +470,21 @@ impl HostEngine {
         let polled = self.queue.poll(max);
         for event in &polled.events {
             if let Event::Completed { op, .. } = event {
-                self.ops.remove(op);
+                if let Some(done) = self.ops.remove(op) {
+                    // The lane of the session is free again when the host polls the completion (AM-4, EV-5a).
+                    if let (Some(session), Some(instance), Op::WriteInput { .. }) =
+                        (done.session, done.instance, &done.op)
+                    {
+                        if let Some(s) = self
+                            .sessions
+                            .get_mut(&session)
+                            .filter(|s| s.instance == instance)
+                        {
+                            s.input_ops = s.input_ops.saturating_sub(1);
+                            s.input_bytes = s.input_bytes.saturating_sub(done.held_bytes);
+                        }
+                    }
+                }
             }
         }
         polled.events
@@ -560,7 +590,9 @@ pub(crate) fn new_session(
         queue: VecDeque::new(),
         ticket: None,
         formats: Vec::new(),
-        ops_seen: Vec::new(),
+        ops: Default::default(),
+        pending_setters: 0,
+        payload: None,
         pending_end: None,
         pending_routes: Vec::new(),
     }

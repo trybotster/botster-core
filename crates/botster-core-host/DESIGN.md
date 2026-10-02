@@ -33,6 +33,16 @@ Package P1 (session registry and lifecycle) of Stage 1. Plan pin `555bc433`, con
 | A host `Key` or `Mouse` write is bounded at `begin` by 64 bytes per event (times `repeat` or `notches`). | IN-9 asks for the worst case over every mode. The encoders are the worker's (P3), which must never produce a longer sequence. |
 | `AdoptAll` keeps `Created` rows and posts every other row as `Lost(Other)`. | AD-1 recovery of a live worker is the adoption package's (P5). `Other` says that Core cannot tell. |
 | `AttachWebRtc`, `Adopt` and the service rows are refused with `Unsupported` or `UnknownService`. | They belong to P4c, P5 and P7. |
+| A stop sends its request and starts its grace before the state event is posted; `Remove` sends its teardown request before it closes routes. | EV-5c: the effects of Stop, StopAll and Remove continue while the mandatory queue is full; only the events wait. |
+| The worker reports the payload's identity at launch, and a stop without a link signals the payload's group, never the worker's. After the kill the session is `Lost(WorkerUnreachable)`. | LC-5 and LC-6: the payload group ends, the worker keeps its final model. Core cannot learn the exit of a payload whose worker it cannot reach, and the kill cannot be refused. |
+| `Signal` is a request to the worker and completes on its confirmation. | A2-1: `Ok` is "after the signal was sent"; a link that fails before the confirmation gives `WorkerLinkFailed`. |
+| `Remove` waits for the worker process to end (a worker that does not end within `stop_grace` after its teardown is killed) before it deletes the row and frees the id. | LC-7 step 3 before steps 4 and 5; A6-3: a stray worker is ended. |
+| Ops of an instance that is gone complete `SessionEnded` (a write: `NotWritten(SessionEnded)`); the ops admitted after a failed `Create` complete with its `RegistryFailed`. | AM-3: no op stays attached to a session that is gone; ID-1: no op reaches a later instance. |
+| A `StopAll` leaves a target whose stop row cannot be written and completes. | LC-12 and A2-1: `StopAll` has no async error; a target that cannot be stopped is left. |
+| Setters of a `Created` session are steps that run in a pump, and a start waits for the setters admitted before it. | OR-1: no progress in `begin`; AM-1: begin order. |
+| The input lane of a session is released when the host polls the write's `Completed`. | AM-4, EV-5a. |
+| `cancel` keeps the exact set of op ids of removed instances as ranges, for the life of the handle. | ID-1 and IN-6 give no window. |
+| A frame that needs mandatory room is held unread on its link with the read interest off; the pump bounds events and bytes per link, a due deadline runs first, and sessions are visited round-robin. | EV-5b, plan 2.4, 2.5 rule 7, 9B. |
 | `RemoveReport` is built through its JSON form. | The type is `#[non_exhaustive]` and `contracts-v0.1.2` gives it no constructor. A constructor in the next tag removes the workaround. |
 | The registry key of a session is `session/<id>`; the real `Storage` names the file by the SHA-256 of the key. | Any id is a valid key, and the file name stays short. |
 
@@ -43,8 +53,8 @@ Package P1 (session registry and lifecycle) of Stage 1. Plan pin `555bc433`, con
   and wakes on the link's EOF. The kqueue and pidfd watch stays P3's steal.
 - **Rejected:** `registry.rs` (no fsync, no lock, no token), `session_protocol.rs` (the old control frames). Lessons kept: one
   file per row; the length is checked before any allocation.
-- **Libraries added:** `atomic-write-file` (atomic replace with fsync of the file; the directory fsync is ours, because the crate
-  does not do it), `getrandom` (the OS CSPRNG), `mio` (the wake object; `polling`'s registration is `unsafe`), `libproc` (start
+- **Libraries added:** `atomic-write-file` (atomic replace: it syncs the file, renames it and syncs the directory in `commit`, and its error does not say which step
+  failed, so every commit error is `Uncertain`; our own directory sync follows for the case that the library skips it), `getrandom` (the OS CSPRNG), `mio` (the wake object; `polling`'s registration is `unsafe`), `libproc` (start
   time of a process on macOS), `sha2` (the token proof and the row file name).
 - **Hand-rolled, with reasons:** the event queue and the engine (they are the contract); the token proof (a bound hash; a
   keyed MAC would need a second round trip on a local socket that only the host's uid can reach).

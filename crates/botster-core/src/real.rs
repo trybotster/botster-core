@@ -109,6 +109,42 @@ fn socket_path(data_dir: &Path) -> PathBuf {
     data_dir.join("c")
 }
 
+/// One accepted control link and what is registered for it (plan 2.5: read interest follows what the engine can take, write
+/// interest follows the outbound buffer).
+struct LinkIo {
+    stream: UnixStream,
+    read: bool,
+    write: bool,
+    registered: bool,
+}
+
+impl LinkIo {
+    fn apply(&mut self, registry: &Registry, link: LinkId) {
+        let interest = match (self.read, self.write) {
+            (true, true) => Some(Interest::READABLE | Interest::WRITABLE),
+            (true, false) => Some(Interest::READABLE),
+            (false, true) => Some(Interest::WRITABLE),
+            (false, false) => None,
+        };
+        let token = Token(link.0 as usize);
+        match (interest, self.registered) {
+            (Some(i), true) => {
+                let _ = registry.reregister(&mut self.stream, token, i);
+            }
+            (Some(i), false) => {
+                if registry.register(&mut self.stream, token, i).is_ok() {
+                    self.registered = true;
+                }
+            }
+            (None, true) => {
+                let _ = registry.deregister(&mut self.stream);
+                self.registered = false;
+            }
+            (None, false) => {}
+        }
+    }
+}
+
 /// The real edges of one host.
 pub struct RealEdges {
     // The data directory holds the lock for as long as the edges live (LC-2).
@@ -118,7 +154,7 @@ pub struct RealEdges {
     children: Children,
     listener: UnixListener,
     socket: PathBuf,
-    streams: BTreeMap<LinkId, UnixStream>,
+    streams: BTreeMap<LinkId, LinkIo>,
     next_link: u64,
     wake: Arc<PollWake>,
     scheduler: Production,
@@ -224,7 +260,15 @@ impl HostEdges for RealEdges {
                         Interest::READABLE,
                     );
                     if registered.is_ok() {
-                        self.streams.insert(link, stream);
+                        self.streams.insert(
+                            link,
+                            LinkIo {
+                                stream,
+                                read: true,
+                                write: false,
+                                registered: true,
+                            },
+                        );
                         return Some(link);
                     }
                 }
@@ -236,35 +280,37 @@ impl HostEdges for RealEdges {
 
     fn link_recv(&mut self, link: LinkId, buf: &mut [u8]) -> io::Result<usize> {
         match self.streams.get_mut(&link) {
-            Some(stream) => stream.read(buf),
+            Some(io) => io.stream.read(buf),
             None => Ok(0),
         }
     }
 
     fn link_send(&mut self, link: LinkId, bytes: &[u8]) -> io::Result<usize> {
         match self.streams.get_mut(&link) {
-            Some(stream) => stream.write(bytes),
+            Some(io) => io.stream.write(bytes),
             None => Err(io::ErrorKind::BrokenPipe.into()),
         }
     }
 
     fn link_close(&mut self, link: LinkId) {
-        if let Some(mut stream) = self.streams.remove(&link) {
-            let _ = self.wake.registry.deregister(&mut stream);
+        if let Some(mut io) = self.streams.remove(&link) {
+            if io.registered {
+                let _ = self.wake.registry.deregister(&mut io.stream);
+            }
         }
     }
 
     fn set_write_interest(&mut self, link: LinkId, on: bool) {
-        if let Some(stream) = self.streams.get_mut(&link) {
-            let interest = if on {
-                Interest::READABLE | Interest::WRITABLE
-            } else {
-                Interest::READABLE
-            };
-            let _ = self
-                .wake
-                .registry
-                .reregister(stream, Token(link.0 as usize), interest);
+        if let Some(io) = self.streams.get_mut(&link) {
+            io.write = on;
+            io.apply(&self.wake.registry, link);
+        }
+    }
+
+    fn set_read_interest(&mut self, link: LinkId, on: bool) {
+        if let Some(io) = self.streams.get_mut(&link) {
+            io.read = on;
+            io.apply(&self.wake.registry, link);
         }
     }
 
