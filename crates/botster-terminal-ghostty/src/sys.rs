@@ -302,7 +302,165 @@ pub const FORMATTER_FORMAT_PLAIN: i32 = 0;
 /// `GhosttyFormatter`: an opaque handle.
 pub type Formatter = *mut c_void;
 
+/// `GhosttyMods` bits.
+pub mod mods {
+    pub const SHIFT: u16 = 1 << 0;
+    pub const CTRL: u16 = 1 << 1;
+    pub const ALT: u16 = 1 << 2;
+    pub const SUPER: u16 = 1 << 3;
+    pub const CAPS_LOCK: u16 = 1 << 4;
+    pub const NUM_LOCK: u16 = 1 << 5;
+    pub const HYPER: u16 = 1 << 10;
+    pub const META: u16 = 1 << 11;
+}
+
+/// `GhosttyKeyAction`.
+pub mod key_action {
+    pub const RELEASE: i32 = 0;
+    pub const PRESS: i32 = 1;
+    pub const REPEAT: i32 = 2;
+}
+
+/// `GhosttyKeyEncoderOption`.
+pub mod key_opt {
+    pub const CURSOR_KEY_APPLICATION: i32 = 0;
+    pub const KEYPAD_KEY_APPLICATION: i32 = 1;
+    pub const IGNORE_KEYPAD_WITH_NUMLOCK: i32 = 2;
+    pub const ALT_ESC_PREFIX: i32 = 3;
+    pub const MODIFY_OTHER_KEYS_STATE_2: i32 = 4;
+    pub const KITTY_FLAGS: i32 = 5;
+    pub const MACOS_OPTION_AS_ALT: i32 = 6;
+    pub const BACKARROW_KEY_MODE: i32 = 7;
+}
+
+/// `GhosttyMouseEncoderOption`.
+pub mod mouse_opt {
+    pub const EVENT: i32 = 0;
+    pub const FORMAT: i32 = 1;
+    pub const SIZE: i32 = 2;
+    pub const ANY_BUTTON_PRESSED: i32 = 3;
+}
+
+/// `GhosttyMouseAction`.
+pub mod mouse_action {
+    pub const PRESS: i32 = 0;
+    pub const RELEASE: i32 = 1;
+    pub const MOTION: i32 = 2;
+}
+
+/// `GhosttyMouseButton`.
+pub mod mouse_button {
+    pub const LEFT: i32 = 1;
+    pub const RIGHT: i32 = 2;
+    pub const MIDDLE: i32 = 3;
+    pub const FOUR: i32 = 4;
+    pub const FIVE: i32 = 5;
+    pub const SIX: i32 = 6;
+    pub const SEVEN: i32 = 7;
+    pub const EIGHT: i32 = 8;
+    pub const NINE: i32 = 9;
+}
+
+/// `GhosttyMouseEncoderSize`.
+#[repr(C)]
+pub struct MouseEncoderSize {
+    pub size: usize,
+    pub screen_width: u32,
+    pub screen_height: u32,
+    pub cell_width: u32,
+    pub cell_height: u32,
+    pub padding_top: u32,
+    pub padding_bottom: u32,
+    pub padding_right: u32,
+    pub padding_left: u32,
+}
+
+/// `GhosttyMousePosition`.
+#[repr(C)]
+pub struct MousePosition {
+    pub x: f32,
+    pub y: f32,
+}
+
+/// `GhosttyMouseCell`.
+#[repr(C)]
+pub struct MouseCell {
+    pub col: u32,
+    pub row: u32,
+}
+
+/// `GhosttyPasteFrame`.
+#[repr(C)]
+pub struct PasteFrame {
+    pub prefix: GString,
+    pub suffix: GString,
+}
+
+pub type KeyEncoder = *mut c_void;
+pub type KeyEvent = *mut c_void;
+pub type MouseEncoder = *mut c_void;
+pub type MouseEvent = *mut c_void;
+
+/// `GhosttyFocusEvent`.
+pub mod focus {
+    pub const GAINED: i32 = 0;
+    pub const LOST: i32 = 1;
+}
+
 extern "C" {
+    pub fn ghostty_key_encoder_new(allocator: *const c_void, encoder: *mut KeyEncoder) -> Result;
+    pub fn ghostty_key_encoder_free(encoder: KeyEncoder);
+    pub fn ghostty_key_encoder_setopt(encoder: KeyEncoder, option: i32, value: *const c_void);
+    pub fn ghostty_key_encoder_setopt_from_terminal(encoder: KeyEncoder, terminal: Terminal);
+    pub fn ghostty_key_encoder_encode(
+        encoder: KeyEncoder,
+        event: KeyEvent,
+        out_buf: *mut u8,
+        out_buf_size: usize,
+        out_len: *mut usize,
+    ) -> Result;
+    pub fn ghostty_key_event_new(allocator: *const c_void, event: *mut KeyEvent) -> Result;
+    pub fn ghostty_key_event_free(event: KeyEvent);
+    pub fn ghostty_key_event_set_action(event: KeyEvent, action: i32);
+    pub fn ghostty_key_event_set_key(event: KeyEvent, key: i32);
+    pub fn ghostty_key_event_set_mods(event: KeyEvent, mods: u16);
+    pub fn ghostty_key_event_set_consumed_mods(event: KeyEvent, mods: u16);
+    pub fn ghostty_key_event_set_utf8(event: KeyEvent, utf8: *const u8, len: usize);
+    pub fn ghostty_key_event_set_unshifted_codepoint(event: KeyEvent, codepoint: u32);
+    pub fn ghostty_key_event_set_shifted_key(event: KeyEvent, codepoint: u32);
+    pub fn ghostty_key_event_set_base_layout_key(event: KeyEvent, codepoint: u32);
+
+    pub fn ghostty_mouse_encoder_new(allocator: *const c_void, encoder: *mut MouseEncoder) -> Result;
+    pub fn ghostty_mouse_encoder_free(encoder: MouseEncoder);
+    pub fn ghostty_mouse_encoder_setopt(encoder: MouseEncoder, option: i32, value: *const c_void);
+    pub fn ghostty_mouse_encoder_setopt_from_terminal(encoder: MouseEncoder, terminal: Terminal);
+    pub fn ghostty_mouse_encoder_encode(
+        encoder: MouseEncoder,
+        event: MouseEvent,
+        out_buf: *mut u8,
+        out_buf_size: usize,
+        out_len: *mut usize,
+    ) -> Result;
+    pub fn ghostty_mouse_event_new(allocator: *const c_void, event: *mut MouseEvent) -> Result;
+    pub fn ghostty_mouse_event_free(event: MouseEvent);
+    pub fn ghostty_mouse_event_set_action(event: MouseEvent, action: i32);
+    pub fn ghostty_mouse_event_set_button(event: MouseEvent, button: i32);
+    pub fn ghostty_mouse_event_clear_button(event: MouseEvent);
+    pub fn ghostty_mouse_event_set_mods(event: MouseEvent, mods: u16);
+    pub fn ghostty_mouse_event_set_position(event: MouseEvent, position: MousePosition);
+    pub fn ghostty_mouse_event_set_cell(event: MouseEvent, cell: MouseCell);
+
+    pub fn ghostty_paste_encode(
+        data: *mut u8,
+        data_len: usize,
+        bracketed: bool,
+        out: *mut u8,
+        out_len: usize,
+        out_written: *mut usize,
+    ) -> Result;
+    pub fn ghostty_focus_encode(event: i32, buf: *mut u8, buf_len: usize, out_written: *mut usize) -> Result;
+    pub fn ghostty_paste_frame(bracketed: bool, out: *mut PasteFrame);
+
     pub fn ghostty_terminal_new(allocator: *const c_void, terminal: *mut Terminal, cols: u16, rows: u16) -> Result;
     pub fn ghostty_terminal_free(terminal: Terminal);
     pub fn ghostty_terminal_resize(

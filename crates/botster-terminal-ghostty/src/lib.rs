@@ -6,6 +6,7 @@
 //!
 //! `Terminal` is `Send` and not `Sync`: the worker machine owns it on one thread.
 
+mod encode;
 mod events;
 mod modes;
 mod reads;
@@ -17,7 +18,8 @@ use std::marker::PhantomData;
 use std::ptr::NonNull;
 
 pub use botster_route_codec::prelude::ModeFlags;
-pub use botster_core_contract::prelude::Size;
+pub use botster_core_contract::prelude::{KeyInput, MouseInput, Size};
+pub use encode::EncodeError;
 pub use events::{Drained, TerminalEvent, MAX_BUFFERED_BYTES, MAX_BUFFERED_EVENTS};
 pub use reads::{CursorCell, ScreenText};
 
@@ -64,6 +66,7 @@ fn check(code: sys::Result) -> Result<(), Error> {
 /// A terminal model.
 pub struct Terminal {
     history: History,
+    cell_px: Option<botster_core_contract::prelude::CellPx>,
     handle: NonNull<c_void>,
     /// The event buffer that the callbacks fill. It is a leaked `Box`, freed in `Drop` after the terminal.
     shared: NonNull<events::Shared>,
@@ -88,7 +91,7 @@ impl Terminal {
         let handle = NonNull::new(handle).ok_or(Error::InvalidValue)?;
 
         let shared = NonNull::from(Box::leak(Box::<events::Shared>::default()));
-        let terminal = Self { handle, shared, history, _not_sync: PhantomData };
+        let terminal = Self { handle, shared, history, cell_px: size.cell_px, _not_sync: PhantomData };
         terminal.register_callbacks()?;
         terminal.set_history_limit()?;
         if let Some(px) = size.cell_px {
@@ -164,7 +167,9 @@ impl Terminal {
     pub fn resize(&mut self, size: &Size) -> Result<(), Error> {
         let (cols, rows) = cell_dimensions(size)?;
         let (width, height) = size.cell_px.map_or((0, 0), |px| (px.width, px.height));
-        self.apply_size(cols, rows, width, height)
+        self.apply_size(cols, rows, width, height)?;
+        self.cell_px = size.cell_px;
+        Ok(())
     }
 
     fn apply_size(&self, cols: u16, rows: u16, cell_width_px: u32, cell_height_px: u32) -> Result<(), Error> {
@@ -194,6 +199,30 @@ impl Terminal {
     pub fn row_cells(&self, row: u32) -> Option<Vec<String>> {
         let row = u16::try_from(row).ok().filter(|row| *row < self.rows())?;
         (0..self.cols()).map(|x| reads::cell_text(self.handle.as_ptr(), x, row)).collect()
+    }
+
+    /// Encode one key event with the terminal's current modes (IN-9, 5.1A). `repeat` is the caller's: it writes the
+    /// result that many times.
+    pub fn encode_key(&self, input: &KeyInput) -> Result<Vec<u8>, EncodeError> {
+        encode::encode_key(encode::Source::Terminal(self.handle.as_ptr()), input)
+    }
+
+    /// Encode one mouse event with the terminal's current modes (IN-9, 5.1A). A wheel event with `notches` is that many
+    /// reports, one after the other.
+    pub fn encode_mouse(&self, input: &MouseInput) -> Result<Vec<u8>, EncodeError> {
+        let size = Size { rows: u32::from(self.rows()), cols: u32::from(self.cols()), cell_px: self.cell_px };
+        encode::encode_mouse(encode::Source::Terminal(self.handle.as_ptr()), &size, input)
+    }
+
+    /// The bytes of a focus event, or `None` when focus reporting is off (IN-9).
+    pub fn encode_focus(&self, focused: bool) -> Option<Vec<u8>> {
+        encode::encode_focus(self.modes().focus_reporting, focused)
+    }
+
+    /// The marker bytes to write around a paste, or `None` when bracketed paste is off (IN-8). The payload is written
+    /// between them exactly as it was sent.
+    pub fn paste_frame(&self) -> Option<(Vec<u8>, Vec<u8>)> {
+        encode::paste_frame(self.modes().bracketed_paste)
     }
 
     /// The number of columns.
@@ -239,6 +268,27 @@ fn cell_dimensions(size: &Size) -> Result<(u16, u16), Error> {
     Ok((cols, rows))
 }
 
+/// Encode a key with explicit modes, for an oracle that has no terminal. `ModeFlags` carries every state that the
+/// encoder needs except xterm modifyOtherKeys state 2 and the macOS option-as-alt setting; both are off here.
+pub fn encode_key_with_modes(modes: &ModeFlags, input: &KeyInput) -> Result<Vec<u8>, EncodeError> {
+    encode::encode_key(encode::Source::State(encode::EncoderState::from_mode_flags(modes)), input)
+}
+
+/// Encode a mouse event with explicit modes and size, for an oracle that has no terminal.
+pub fn encode_mouse_with_modes(modes: &ModeFlags, size: &Size, input: &MouseInput) -> Result<Vec<u8>, EncodeError> {
+    encode::encode_mouse(encode::Source::State(encode::EncoderState::from_mode_flags(modes)), size, input)
+}
+
+/// The bytes of a focus event with explicit modes, or `None` when focus reporting is off.
+pub fn encode_focus_with_modes(modes: &ModeFlags, focused: bool) -> Option<Vec<u8>> {
+    encode::encode_focus(modes.focus_reporting, focused)
+}
+
+/// The paste frame with explicit modes, or `None` when bracketed paste is off.
+pub fn paste_frame_with_modes(modes: &ModeFlags) -> Option<(Vec<u8>, Vec<u8>)> {
+    encode::paste_frame(modes.bracketed_paste)
+}
+
 impl Drop for Terminal {
     fn drop(&mut self) {
         // SAFETY: the handle is live and is freed exactly once. Freeing the terminal first means that no callback runs
@@ -252,3 +302,5 @@ impl Drop for Terminal {
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_encode;
