@@ -891,3 +891,146 @@ fn capture_capacity_is_exact() {
     );
     assert!(capture(&mut w, "b").is_ok(), "the bound is per owner");
 }
+
+/// Core EV-3, EV-6, EV-7, ST-4, IN-4, IN-10: each observation of a worker becomes its own event, and the cache of
+/// `terminal_state` follows the ones that change it.
+#[test]
+fn each_observation_becomes_its_event_and_updates_the_cache() {
+    let mut w = World::default();
+    w.autopilot = Autopilot::Silent;
+    w.running("s1");
+    w.unix = 5000;
+    w.feed(Input::Clock(5000));
+    w.engine.poll_events(64);
+    let state = |w: &World| w.engine.terminal_state(&sid("s1")).unwrap();
+    let say = |w: &mut World, o: Observation| {
+        w.worker_says("s1", observation(o));
+        w.engine.poll_events(64)
+    };
+    let mut modes = state(&w).modes.clone();
+    modes.alt_screen = !modes.alt_screen;
+    let events = say(
+        &mut w,
+        Observation::Modes {
+            flags: modes.clone(),
+            model_rev: ModelRev(11),
+        },
+    );
+    assert!(matches!(&events[..], [Event::ModesChanged { flags, .. }] if *flags == modes));
+    assert_eq!(state(&w).modes, modes);
+    assert_eq!(state(&w).model_rev, ModelRev(11));
+    let events = say(
+        &mut w,
+        Observation::Cwd {
+            cwd: "/x".into(),
+            model_rev: ModelRev(12),
+        },
+    );
+    assert!(matches!(&events[..], [Event::CwdChanged { cwd, .. }] if cwd == "/x"));
+    assert_eq!(state(&w).cwd.as_deref(), Some("/x"));
+    assert_eq!(state(&w).model_rev, ModelRev(12));
+    let size = with_size(40, 120, None);
+    let events = say(
+        &mut w,
+        Observation::Size {
+            size,
+            model_rev: ModelRev(13),
+        },
+    );
+    assert!(matches!(&events[..], [Event::SizeChanged { size: s, .. }] if *s == size));
+    assert_eq!(state(&w).size, size);
+    assert_eq!(w.engine.get(&sid("s1")).unwrap().size, size);
+    assert_eq!(state(&w).model_rev, ModelRev(13));
+    let events = say(
+        &mut w,
+        Observation::HostInput {
+            input_rev: InputRev(9),
+        },
+    );
+    assert!(events.is_empty(), "a host input revision posts no event");
+    assert_eq!(state(&w).input_rev.host, InputRev(9));
+    let events = say(
+        &mut w,
+        Observation::ClientInput {
+            route: RouteId(4),
+            input_rev: InputRev(8),
+        },
+    );
+    assert!(matches!(
+        &events[..],
+        [Event::Activity {
+            source: ActivitySource::Client(RouteId(4)),
+            at: 5000,
+            ..
+        }]
+    ));
+    assert_eq!(state(&w).input_rev.client, InputRev(8));
+    for (focus, expected) in [
+        (FocusState::Focused, Some(true)),
+        (FocusState::Unfocused, Some(false)),
+        (FocusState::Unknown, None),
+    ] {
+        let events = say(&mut w, Observation::Focus { focused: focus });
+        assert!(matches!(&events[..], [Event::FocusChanged { .. }]));
+        assert_eq!(state(&w).focused, expected, "{focus:?}");
+    }
+    let events = say(
+        &mut w,
+        Observation::PromptMark {
+            mark: PromptMarkKind::CommandFinished,
+            exit_code: Some(3),
+        },
+    );
+    assert!(matches!(
+        &events[..],
+        [Event::PromptMark {
+            mark: PromptMarkKind::CommandFinished,
+            exit_code: Some(3),
+            at: 5000,
+            ..
+        }]
+    ));
+    let events = say(
+        &mut w,
+        Observation::Notification {
+            source: NotificationSource::Osc777,
+            title: Some("t".into()),
+            body: "b".into(),
+            truncated: true,
+        },
+    );
+    assert!(matches!(
+        &events[..],
+        [Event::Notification { source: NotificationSource::Osc777, title: Some(t), body, truncated: true, at: 5000, .. }]
+            if t == "t" && body == "b"
+    ));
+    let events = say(
+        &mut w,
+        Observation::ClipboardWrite {
+            selection: "c".into(),
+            bytes: Some(vec![1, 2]),
+            total_bytes: 9,
+            reason: Some(ClipboardReason::TooLarge),
+        },
+    );
+    assert!(matches!(
+        &events[..],
+        [Event::ClipboardWrite { selection, bytes: Some(b), total_bytes: 9, reason: Some(ClipboardReason::TooLarge), .. }]
+            if selection == "c" && b.0 == vec![1, 2]
+    ));
+    let events = say(&mut w, Observation::Writable);
+    assert!(matches!(&events[..], [Event::SessionWritable { .. }]));
+    // A loss marker, with the dropped tap bytes.
+    let events = say(
+        &mut w,
+        Observation::Lost {
+            kind: LostKind::Tap,
+            tap_dropped_bytes: 77,
+        },
+    );
+    assert!(
+        matches!(&events[..], [Event::EventsLost { kinds, tap_dropped_bytes, .. }]
+            if kinds.contains(&LostKind::Tap) && *tap_dropped_bytes == Some(77)),
+        "{events:?}"
+    );
+}
