@@ -9,12 +9,24 @@ import collections, json, os, re, sys
 contracts = sys.argv[1]
 ids = json.load(open(os.path.join(contracts, "conformance/ledger.json")))["ids"]
 pending = set(open(os.path.join(contracts, "conformance/pending.txt")).read().split())
-core = [x for x in ids if x["contract"] == "core"]
+withdrawn_path = os.path.join(contracts, "conformance/withdrawn.txt")
+withdrawn = set()
+if os.path.exists(withdrawn_path):
+    for line in open(withdrawn_path):
+        if line.strip() and not line.startswith("#"):
+            withdrawn.add(line.split()[0])
+core = [x for x in ids if x["contract"] == "core" and x["id"] not in withdrawn]
 
 
 def owner(x):
     i, c = x["id"], x["clause"] or ""
     fam = c.split("-")[0]
+    if c.startswith("E3-"):
+        return "p1-lifecycle"
+    if c.startswith("A9-"):
+        return "p4a-routes"
+    if c.startswith("A10-"):
+        return "p5-adoption"
     if c == "A7-1":
         return "p4a-routes"
     if c == "A8-1":
@@ -67,4 +79,4 @@ for pkg, xs in sorted(out.items()):
         for x in sorted(xs, key=lambda x: x["id"]):
             f.write(f"{x['id']}\t{x['clause']}\t{'pending' if x['id'] in pending else 'transcript'}\n")
     print(f"{pkg}\t{len(xs)}\tpending {sum(x['id'] in pending for x in xs)}\tclauses {' '.join(sorted({x['clause'] for x in xs}))}")
-print("total", len(core))
+print("total", len(core), "withdrawn skipped", len(withdrawn))
