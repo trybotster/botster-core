@@ -1,6 +1,6 @@
 //! The flows of a session: create, start (AD-7), stop (LC-5) and remove (LC-7). See [`crate::flow`].
 
-use crate::engine::{HostEngine, Owner};
+use crate::engine::{HostEngine, Next, Owner, Step};
 use crate::flow::*;
 use crate::io::Action;
 use crate::run::registry_failed;
@@ -255,11 +255,10 @@ impl HostEngine {
             let end = self.session_end(id);
             let waiters = std::mem::take(&mut self.sessions.get_mut(id).expect("kept").waiters);
             for op in waiters {
-                self.complete(op, OpResult::Ok(OpOutput::End(end)));
+                self.complete_later(op, OpResult::Ok(OpOutput::End(end)));
             }
         }
         self.wake_launch_waiters(id);
-        self.check_stop_alls();
     }
 
     // ---- stop (LC-5) ----
@@ -285,7 +284,10 @@ impl HostEngine {
             Flow::Stop(f) => {
                 f.end = Some(end);
                 f.deadline = None;
-                f.phase = StopPhase::PostEnd;
+                // `Stopping` may still wait for room: the end follows it (OR-2).
+                if f.phase == StopPhase::AwaitExit {
+                    f.phase = StopPhase::PostEnd;
+                }
             }
             Flow::Start(_) => s.pending_end = Some(end),
             Flow::Idle => {
@@ -295,7 +297,7 @@ impl HostEngine {
                     end: Some(end),
                 });
             }
-            // A session that is being created or removed has no payload.
+            // A session that is being created or removed has no payload that Core still waits for.
             _ => {}
         }
     }
@@ -303,21 +305,12 @@ impl HostEngine {
     fn run_stop(&mut self, id: &SessionId, f: StopFlow) {
         match f.phase {
             StopPhase::RowWrite => self.write_session_row(id, SessionState::Stopping),
-            StopPhase::PostStopping => {
-                if self.post_state(id, SessionState::Stopping) {
-                    self.sessions
-                        .get_mut(id)
-                        .expect("a flow has a session")
-                        .shown = Some(SessionState::Stopping);
-                    if let Some(f) = self.stop_flow(id) {
-                        f.phase = StopPhase::SendStop;
-                    }
-                }
-            }
+            // The graceful request goes out before the state event, so that a full queue never delays the effect of a stop
+            // (EV-5c). Without a link the host asks the payload's group itself, never the worker's.
             StopPhase::SendStop => {
-                let identity = self.identity_of(id);
+                let payload = self.sessions.get(id).and_then(|s| s.payload);
                 if !self.send_msg(id, HostMsg::Stop) {
-                    if let Some(identity) = identity {
+                    if let Some(identity) = payload {
                         self.act(Action::SignalGroup {
                             identity,
                             signal: GroupSignal::Term,
@@ -327,7 +320,22 @@ impl HostEngine {
                 let deadline = self.mono().map(|now| now + self.cfg.limits.stop_grace);
                 if let Some(f) = self.stop_flow(id) {
                     f.deadline = deadline;
-                    f.phase = StopPhase::AwaitExit;
+                    f.phase = StopPhase::PostStopping;
+                }
+            }
+            StopPhase::PostStopping => {
+                if self.post_state(id, SessionState::Stopping) {
+                    self.sessions
+                        .get_mut(id)
+                        .expect("a flow has a session")
+                        .shown = Some(SessionState::Stopping);
+                    if let Some(f) = self.stop_flow(id) {
+                        f.phase = if f.end.is_some() {
+                            StopPhase::PostEnd
+                        } else {
+                            StopPhase::AwaitExit
+                        };
+                    }
                 }
             }
             StopPhase::PostEnd => {
@@ -353,15 +361,22 @@ impl HostEngine {
                     }
                 }
             }
+            // One waiter per step, so that a step posts at most one event (9B `pump_events`).
             StopPhase::Finish => {
                 let end = f.end.expect("Finish has its end");
-                self.flow_done(id);
-                let waiters = std::mem::take(&mut self.sessions.get_mut(id).expect("kept").waiters);
-                for op in waiters {
-                    self.complete(op, OpResult::Ok(OpOutput::End(end)));
+                let waiters = &mut self
+                    .sessions
+                    .get_mut(id)
+                    .expect("a flow has a session")
+                    .waiters;
+                let next = (!waiters.is_empty()).then(|| waiters.remove(0));
+                match next {
+                    Some(op) => self.complete(op, OpResult::Ok(OpOutput::End(end))),
+                    None => {
+                        self.flow_done(id);
+                        self.fail_inflight(id);
+                    }
                 }
-                self.fail_inflight(id);
-                self.check_stop_alls();
             }
             StopPhase::AwaitExit => {}
         }
@@ -444,40 +459,101 @@ impl HostEngine {
         }
     }
 
+    /// Completes every op of the instance that is still pending, except `keep` (AM-3, ID-1): the session is going, so no op
+    /// may stay attached to it. `error` is the result of an op that has no better one (a failed `Create` passes its own).
+    pub(crate) fn retire_session_ops(
+        &mut self,
+        id: &SessionId,
+        keep: Option<OpId>,
+        error: Option<CoreError>,
+    ) {
+        let Some(instance) = self.sessions.get(id).map(|s| s.instance.clone()) else {
+            return;
+        };
+        let doomed: Vec<OpId> = self
+            .ops
+            .iter()
+            .filter(|(op, p)| {
+                Some(**op) != keep
+                    && p.session.as_ref() == Some(id)
+                    && p.instance.as_ref() == Some(&instance)
+                    && !matches!(p.step, Step::Done)
+            })
+            .map(|(op, _)| *op)
+            .collect();
+        for op in doomed {
+            let result = match (&error, self.ops.get(&op).map(|p| &p.op)) {
+                (Some(e), Some(op)) if !matches!(op, Op::WriteInput { .. }) => {
+                    OpResult::Err(e.clone())
+                }
+                _ => self.ended_result(op),
+            };
+            self.complete(op, result);
+        }
+        if let Some(s) = self.sessions.get_mut(id) {
+            s.inflight.clear();
+            s.waiters.clear();
+            s.queue.clear();
+        }
+    }
+
     fn run_remove(&mut self, id: &SessionId, f: RemoveFlow) {
         match f.phase {
+            // The effects come first (EV-5c): the capture release, the teardown request, and the kill of a worker that
+            // cannot be asked.
+            RemovePhase::SendRemove => {
+                // Step 2: the open captures of the session are released, and no op stays attached to it.
+                let instance = self.sessions[id].instance.clone();
+                self.captures.retain(|_, c| c.instance != instance);
+                self.retire_session_ops(id, Some(f.op), None);
+                let (link, worker, gone) = {
+                    let s = &self.sessions[id];
+                    (s.worker.link.is_some(), s.worker.identity, s.worker.gone)
+                };
+                let deadline = self.mono().map(|now| now + self.cfg.limits.stop_grace);
+                let (uploads, worker_gone, deadline) = if link && self.send_msg(id, HostMsg::Remove)
+                {
+                    (None, false, deadline)
+                } else if let (Some(_), true) = (worker, gone) {
+                    // The worker ended already: its cleanup result cannot come (A6-3).
+                    (
+                        Some(UploadsOutcome::NotDeleted(NotDeleted::OutcomeUnknown)),
+                        true,
+                        None,
+                    )
+                } else if let Some(identity) = worker {
+                    // A worker that cannot be asked is a stray worker: it is ended (LC-7 step 3, A6-3).
+                    self.act(Action::SignalGroup {
+                        identity,
+                        signal: GroupSignal::Kill,
+                    });
+                    (
+                        Some(UploadsOutcome::NotDeleted(NotDeleted::OutcomeUnknown)),
+                        false,
+                        deadline,
+                    )
+                } else {
+                    // A session that never had a worker has no uploads.
+                    (Some(UploadsOutcome::Deleted), true, None)
+                };
+                if let Some(s) = self.sessions.get_mut(id) {
+                    if let Flow::Remove(f) = &mut s.flow {
+                        f.uploads = uploads;
+                        f.worker_gone = worker_gone;
+                        f.deadline = deadline;
+                        f.phase = RemovePhase::CloseRoutes;
+                    }
+                }
+            }
             RemovePhase::CloseRoutes => {
                 let next = self.sessions[id].routes.iter().next().copied();
                 match next {
                     Some(route) => {
                         let _ = self.close_route(route, RouteCloseReason::SessionRemoved);
                     }
-                    None => self.set_remove_phase(id, RemovePhase::SendRemove),
-                }
-            }
-            RemovePhase::SendRemove => {
-                // Step 2: the open captures of the session are released.
-                let instance = self.sessions[id].instance.clone();
-                self.captures.retain(|_, c| c.instance != instance);
-                let (has_link, ever_had_worker) = {
-                    let s = &self.sessions[id];
-                    (s.worker.link.is_some(), s.worker.identity.is_some())
-                };
-                if has_link && self.send_msg(id, HostMsg::Remove) {
-                    self.set_remove_phase(id, RemovePhase::AwaitResult);
-                } else {
-                    // No worker to ask. A session that never had one has no uploads; any other has an unknown outcome
-                    // (A6-3).
-                    let uploads = if ever_had_worker {
-                        UploadsOutcome::NotDeleted(NotDeleted::OutcomeUnknown)
-                    } else {
-                        UploadsOutcome::Deleted
-                    };
-                    if let Some(s) = self.sessions.get_mut(id) {
-                        if let Flow::Remove(f) = &mut s.flow {
-                            f.uploads = Some(uploads);
-                            f.phase = RemovePhase::DeleteRow;
-                        }
+                    None => {
+                        self.set_remove_phase(id, RemovePhase::AwaitTeardown);
+                        self.remove_progress(id);
                     }
                 }
             }
@@ -490,9 +566,41 @@ impl HostEngine {
                 self.await_ticket(id, ticket);
             }
             RemovePhase::PostReleased => self.release_session(id, f),
-            RemovePhase::AwaitResult => {}
-            RemovePhase::Finish => {}
+            RemovePhase::AwaitTeardown | RemovePhase::Finish => {}
         }
+    }
+
+    /// Advances to step 4 when the cleanup result is known and the worker process ended (LC-7 step 3 before steps 4 and 5).
+    pub(crate) fn remove_progress(&mut self, id: &SessionId) {
+        if let Some(s) = self.sessions.get_mut(id) {
+            if let Flow::Remove(f) = &mut s.flow {
+                if f.phase == RemovePhase::AwaitTeardown && f.uploads.is_some() && f.worker_gone {
+                    f.deadline = None;
+                    f.phase = RemovePhase::DeleteRow;
+                }
+            }
+        }
+    }
+
+    /// The worker did not end within `stop_grace` after its teardown: it is killed, and SIGKILL cannot be ignored.
+    pub(crate) fn remove_grace_expired(&mut self, id: &SessionId) {
+        let worker = self.identity_of(id);
+        if let Some(identity) = worker {
+            self.act(Action::SignalGroup {
+                identity,
+                signal: GroupSignal::Kill,
+            });
+        }
+        if let Some(s) = self.sessions.get_mut(id) {
+            if let Flow::Remove(f) = &mut s.flow {
+                f.worker_gone = true;
+                f.deadline = None;
+                if f.uploads.is_none() {
+                    f.uploads = Some(UploadsOutcome::NotDeleted(NotDeleted::OutcomeUnknown));
+                }
+            }
+        }
+        self.remove_progress(id);
     }
 
     /// Step 5 of LC-7 and `SessionState{Released}`, as one atomic step: the id is freed only when the event fits (EV-5b).
@@ -517,18 +625,17 @@ impl HostEngine {
             self.links.remove(&link);
             self.act(Action::CloseLink { link });
         }
-        self.retired_ops.extend(session.ops_seen.drain(..));
-        while self.retired_ops.len() > crate::engine::RETIRED_OPS_KEPT {
-            self.retired_ops.pop_first();
-        }
+        self.retired_ops.extend(&session.ops);
         let uploads = f
             .uploads
             .unwrap_or(UploadsOutcome::NotDeleted(NotDeleted::OutcomeUnknown));
-        self.complete(
+        // The completion is the next step: one event per step (9B `pump_events`).
+        self.set_step(
             f.op,
-            OpResult::Ok(OpOutput::RemoveReport(remove_report(uploads))),
+            Step::Ready(Next::Complete(OpResult::Ok(OpOutput::RemoveReport(
+                remove_report(uploads),
+            )))),
         );
-        self.check_stop_alls();
     }
 
     // ---- results of the edges for a flow ----
@@ -556,9 +663,14 @@ impl HostEngine {
                 });
             }
             (Flow::Create(f), Err(e)) => {
-                // The row was not written: the session never existed (LC-3).
-                self.sessions.remove(id);
-                self.complete(f.op, OpResult::Err(registry_failed(e)));
+                // The row was not written: the session never existed (LC-3). The ops that were admitted after the `Create`
+                // (AM-1) end with the same failure, so none stays attached to a session that is gone (AM-3).
+                let error = registry_failed(e);
+                self.retire_session_ops(id, Some(f.op), Some(error.clone()));
+                if let Some(session) = self.sessions.remove(id) {
+                    self.retired_ops.extend(&session.ops);
+                }
+                self.complete(f.op, OpResult::Err(error));
             }
             (Flow::Start(f), result) => match (f.phase, result) {
                 (StartPhase::RowStarting, Ok(())) => {
@@ -613,7 +725,7 @@ impl HostEngine {
             },
             (Flow::Stop(f), Ok(())) if f.phase == StopPhase::RowWrite => {
                 if let Some(flow) = self.stop_flow(id) {
-                    flow.phase = StopPhase::PostStopping;
+                    flow.phase = StopPhase::SendStop;
                 }
             }
             (Flow::Stop(f), Err(e)) if f.phase == StopPhase::RowWrite => {
@@ -625,8 +737,10 @@ impl HostEngine {
                 };
                 self.flow_done(id);
                 for op in waiters {
-                    self.complete(op, OpResult::Err(registry_failed(e)));
+                    self.complete_later(op, OpResult::Err(registry_failed(e)));
                 }
+                // A `StopAll` that named this target leaves it as it is (LC-12).
+                self.drop_stop_all_target(id);
             }
             (Flow::Remove(f), Ok(())) if f.phase == RemovePhase::DeleteRow => {
                 self.set_remove_phase(id, RemovePhase::PostReleased);
@@ -670,14 +784,28 @@ impl HostEngine {
         }
     }
 
+    /// The cleanup result of the worker (A6-3), or `OutcomeUnknown` when none can come. The first result stays.
     pub(crate) fn flow_remove_result(&mut self, id: &SessionId, uploads: UploadsOutcome) {
         if let Some(s) = self.sessions.get_mut(id) {
             if let Flow::Remove(f) = &mut s.flow {
-                if f.phase == RemovePhase::AwaitResult {
+                if f.uploads.is_none() {
                     f.uploads = Some(uploads);
-                    f.phase = RemovePhase::DeleteRow;
                 }
             }
         }
+        self.remove_progress(id);
+    }
+
+    /// The worker process ended while the session is removed.
+    pub(crate) fn flow_remove_worker_gone(&mut self, id: &SessionId) {
+        if let Some(s) = self.sessions.get_mut(id) {
+            if let Flow::Remove(f) = &mut s.flow {
+                f.worker_gone = true;
+                if f.uploads.is_none() {
+                    f.uploads = Some(UploadsOutcome::NotDeleted(NotDeleted::OutcomeUnknown));
+                }
+            }
+        }
+        self.remove_progress(id);
     }
 }
