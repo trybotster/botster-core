@@ -552,3 +552,41 @@ extern "C" {
     ) -> Result;
     pub fn ghostty_formatter_free(formatter: Formatter);
 }
+
+/// `GhosttyQueryReply`.
+#[repr(C)]
+pub struct QueryReply {
+    pub size: usize,
+    pub kind: i32,
+    pub width: u32,
+    pub height: u32,
+    pub rows: u32,
+    pub cols: u32,
+    pub x: u16,
+    pub y: u16,
+    pub iconified: bool,
+    pub text: GString,
+    pub selection: GString,
+    pub terminator: i32,
+}
+
+pub mod reply_kind {
+    pub const PIXELS_TEXT_AREA: i32 = 1;
+    pub const PIXELS_CELL: i32 = 2;
+    pub const PIXELS_SCREEN: i32 = 3;
+    pub const CHARS_SCREEN: i32 = 4;
+    pub const WINDOW_STATE: i32 = 5;
+    pub const WINDOW_POSITION: i32 = 6;
+    pub const WINDOW_TITLE: i32 = 7;
+    pub const ICON_LABEL: i32 = 8;
+    pub const CLIPBOARD: i32 = 9;
+}
+
+/// `GhosttyColorScheme`.
+pub const COLOR_SCHEME_LIGHT: i32 = 0;
+pub const COLOR_SCHEME_DARK: i32 = 1;
+
+extern "C" {
+    pub fn ghostty_query_reply_encode(reply: *const QueryReply, buf: *mut u8, buf_len: usize, out_written: *mut usize) -> Result;
+    pub fn ghostty_color_scheme_report_encode(scheme: i32, buf: *mut u8, buf_len: usize, out_written: *mut usize) -> Result;
+}
