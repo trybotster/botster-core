@@ -2,7 +2,8 @@
 
 VERDICT: CLEAN
 
-Reviewed head: `0ac2b84d38a8e3a3a1667eec172985cd0284dc90` on `stage1/p1-lifecycle`.
+Reviewed head: `2016886ffda434bee0e87242d85e36ecc43ec212` on `stage1/p1-lifecycle`.
+Round 7 head: `0ac2b84d38a8e3a3a1667eec172985cd0284dc90`.
 Round 6 head: `40117af8398c292e8763d04beca875466bd276ef`.
 Round 5 head: `154f0109e8809536a30340cda89198fa34259db5`.
 Round 4 head: `3936f014be834e24505354e99fa4932ed989be29`.
@@ -39,6 +40,18 @@ P3 supplies the EndPayload worker handler and the worker-dependent end-to-end pr
 F14 and the other unproved conformance ids remain pending with their owners and scope reasons.
 The implementer must run the gate once on this exact committed head before reporting DONE to the lead.
 A later commit requires a delta review.
+
+## Round 8: harness-count assertion delta
+
+I reviewed the complete delta from `0ac2b84` to `2016886`.
+It changes one assertion in `xtask/src/ci.rs` from one link harness to two.
+The HARNESSES table contains link_decoder and msg_decoder for botster-core-link.
+The new expected count therefore matches the existing selection logic.
+The unchanged assertion still rejects harness selection for botster-core-sys.
+This delta changes no runtime or gate selection logic and opens no finding.
+VERDICT: CLEAN remains valid on the exact head above.
+The implementer reports that the previous gate failed at this assertion.
+The new head needs its own gate result. I did not run tests or the gate.
 
 ## Round 7: public API snapshot delta
 
