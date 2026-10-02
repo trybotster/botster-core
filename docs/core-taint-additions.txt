@@ -1,0 +1,17 @@
+# Core's additions to the taint denylist of botster-contracts (plan section 8, step 3).
+# Whole-word match, one token per line. Old crate and mechanism names that must not appear in the v1 tree.
+# The contracts list is read from the pinned botster-contracts checkout; this file only adds to it.
+botster-core-daemon
+botster_core_daemon
+botster-terminal-protocol
+botster_terminal_protocol
+botster-terminal-client
+botster_terminal_client
+botster-core-test-support
+botster_core_test_support
+botster-session-worker
+TerminalMetadataProducer
+SessionRegistry
+SPH1
+portable-pty
+portable_pty

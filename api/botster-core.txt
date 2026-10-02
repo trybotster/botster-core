@@ -1,0 +1,12 @@
+pub mod botster_core
+pub use botster_core::contract
+pub mod botster_core::prelude
+pub use botster_core::prelude::<<botster_core_contract::prelude::*>>
+pub struct botster_core::Core
+impl core::marker::Freeze for botster_core::Core
+impl core::marker::Send for botster_core::Core
+impl !core::marker::Sync for botster_core::Core
+impl core::marker::Unpin for botster_core::Core
+impl core::marker::UnsafeUnpin for botster_core::Core
+impl !core::panic::unwind_safe::RefUnwindSafe for botster_core::Core
+impl core::panic::unwind_safe::UnwindSafe for botster_core::Core

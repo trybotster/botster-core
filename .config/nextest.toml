@@ -1,0 +1,45 @@
+# cargo-nextest settings. `cargo xtask test-budget` is the entry point (plan section 8).
+#
+# Default tier: a test over 2 s is terminated and fails; a test that leaves a child holding its
+# output pipes fails (leak-timeout). Every profile writes JUnit to target/nextest/<profile>/junit.xml,
+# which the xtask reads for the per-test times.
+
+nextest-version = "0.9.100"
+experimental = ["wrapper-scripts"]
+
+# Records each test pid for the leftover-process check (cargo xtask test-budget).
+[scripts.wrapper.record-pid]
+command = { command-line = ".config/test-wrapper.sh", relative-to = "workspace-root" }
+
+[[profile.default.scripts]]
+filter = "all()"
+run-wrapper = "record-pid"
+
+[[profile.slow.scripts]]
+filter = "all()"
+run-wrapper = "record-pid"
+
+[profile.default]
+slow-timeout = { period = "2s", terminate-after = 1 }
+leak-timeout = { period = "200ms", result = "fail" }
+fail-fast = false
+
+[profile.default.junit]
+path = "junit.xml"
+
+# CI: same budgets, retries are never allowed (BUILD.md Testing rule 9).
+[profile.ci]
+inherits = "default"
+retries = 0
+
+[profile.ci.junit]
+path = "junit.xml"
+
+# The slow tier: real-process tests. No 2 s limit; the xtask enforces the whole-tier deadline.
+[profile.slow]
+slow-timeout = { period = "60s" }
+leak-timeout = { period = "200ms", result = "fail" }
+fail-fast = false
+
+[profile.slow.junit]
+path = "junit.xml"
