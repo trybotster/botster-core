@@ -1,3 +1,5 @@
+conf::a12_1_held_report_released_proceeds_normally	A12-1a	pending
+conf::a12_1b_partial_cleanup_claims_no_paths	A12-1b	pending
 conf::a2_9_extension_too_long_to_keep_is_dropped_with_the_name_cut	A2-9	pending
 conf::a2_9_leading_dot_is_not_an_extension	A2-9	pending
 conf::a2_9_long_name_is_never_refused	A2-9	pending
