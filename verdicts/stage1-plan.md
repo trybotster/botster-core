@@ -844,3 +844,20 @@ Section 1, R4, and revision 16's history correctly state 641.
 Required change: change the section 6.1 total from 638 to 641.
 
 VERDICT: NOT CLEAN (1 open)
+
+## Round 17 — revision 17
+
+Plan: `c59757ed040e06cd84b79fd0a701dc6183182bba`, `docs/stage1-plan.md`.
+Pin: `stage1-plan.2b03dc1b.md`.
+Verified SHA-256: `2b03dc1b68fd3da521ba2bcc9f5d4ab18380d35e784774abcfddabd26d810946`.
+Contracts tag: `contracts-v0.1.8`, commit `f1e6a76330c4620785b19ba112c181d906bcc449`, manifest final22.
+
+I reviewed the complete delta and F16.
+The plan matches its pin. Section 6.1 now states 641 active ids.
+F16 is CLOSED. F1 through F15 remain CLOSED.
+All sixteen findings are closed. I found no new finding.
+This verdict covers the plan at the commit above.
+It does not approve product code or establish Stage 1 acceptance.
+I ran no product tests.
+
+VERDICT: CLEAN
