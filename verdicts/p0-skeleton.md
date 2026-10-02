@@ -1,10 +1,10 @@
 # P0 skeleton review
 
-Reviewed head: `7d30cb47bad7e1077d40488f3d04f7860168a5cc`.
+Reviewed head: `468d35b0c0641e83640ac756ada5c872706c77a5`.
 
 Previous reviewed head: `74f2e9afcd16af8483093f3f12765ca397c31b73`.
 
-VERDICT: NOT CLEAN (1 open: F6)
+VERDICT: CLEAN (source review; final gate pending)
 
 The second review checks logic against BUILD.md, contracts-v0.1.1 (`366bca41`, manifest final14), the P0 brief, and plan pin `stage1-plan.555bc433`.
 The first review used manifest final13 and plan pin `stage1-plan.a24efe7e`.
@@ -119,7 +119,10 @@ Every finding must close before CLEAN. Any new head requires a review of its cha
 
 ## F6 — MEDIUM — The JSON fuzz property requires byte identity
 
-Status: OPEN.
+Status: CLOSED at `468d35b0`.
+
+Closure: The property compares decoded values. The deterministic regression includes whitespace, reordered fields, and an unknown field.
+The PR now says xtask is mutation-tested with per-function glue exclusions.
 
 Evidence: `crates/botster-core-link/tests/props.rs`, the final assertion in `link_decoder`, still requires `again == bytes`.
 The hello decoder accepts field order, whitespace, and unknown fields. The encoder emits its fixed field order and removes unknown fields.
@@ -133,3 +136,7 @@ Update the PR decision that still says xtask is excluded from mutation. The late
 
 Second review: I ran no tests or heavy jobs. I checked the production changes, the property logic, the mutation exclusions, and PR #125.
 The final gate must run after the source review is CLEAN. Gate failures remain findings and require closure.
+
+Third review: Only `crates/botster-core-link/tests/props.rs` changed after `7d30cb47`. I checked the change and the corrected PR decision.
+All six source findings are closed. I ran no tests or heavy jobs. The implementer must run the final gate.
+The final mutation run must confirm closure of the six previously missed mutants. Every gate finding must close before landing.
