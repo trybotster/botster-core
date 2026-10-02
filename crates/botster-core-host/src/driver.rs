@@ -708,7 +708,7 @@ impl<E: HostEdges> CoreApi for HostDriver<E> {
         session: SessionId,
         transport: RouteTransport,
         options: AttachOptions,
-    ) -> Result<AttachResult, CoreError> {
+    ) -> Result<AttachResult, AttachRefused> {
         let result = self.engine.attach(client, session, transport, options)?;
         self.sync_wake();
         Ok(result)

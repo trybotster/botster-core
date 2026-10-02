@@ -7,7 +7,7 @@ impl botster_core::Core
 pub fn botster_core::Core::open(botster_core_contract::api::OpenConfig) -> core::result::Result<botster_core::Core, botster_core_contract::error::CoreError>
 impl botster_core_contract::api::CoreApi for botster_core::Core
 pub fn botster_core::Core::adoptable_worker_protocols(&self) -> alloc::collections::btree::set::BTreeSet<u8>
-pub fn botster_core::Core::attach(&mut self, botster_core_contract::ids::ClientId, botster_core_contract::ids::SessionId, botster_core_contract::route::RouteTransport, botster_core_contract::route::AttachOptions) -> core::result::Result<botster_core_contract::route::AttachResult, botster_core_contract::error::CoreError>
+pub fn botster_core::Core::attach(&mut self, botster_core_contract::ids::ClientId, botster_core_contract::ids::SessionId, botster_core_contract::route::RouteTransport, botster_core_contract::route::AttachOptions) -> core::result::Result<botster_core_contract::route::AttachResult, botster_core_contract::route::AttachRefused>
 pub fn botster_core::Core::begin(&mut self, botster_core_contract::op::Op) -> core::result::Result<botster_core_contract::ids::OpId, botster_core_contract::error::CoreError>
 pub fn botster_core::Core::cancel(&mut self, botster_core_contract::ids::OpId) -> botster_core_contract::input::CancelResult
 pub fn botster_core::Core::diagnostics(&self) -> serde_json::value::Value
