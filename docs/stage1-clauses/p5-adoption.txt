@@ -1,7 +1,7 @@
 conf::a10_1_wrong_instance_is_never_signalled	A10-1	transcript
 conf::a10_1_wrong_token_is_never_signalled	A10-1	transcript
 conf::a10_2_corrupted_row_is_lost_registry_corrupt	A10-2	transcript
-conf::a11_1_frames_after_a_failed_handshake_change_nothing	A11-1	pending
+conf::a11_1_frames_after_a_failed_handshake_change_nothing	A11-1	transcript
 conf::a2_1_adopt_completes_ok_with_the_state_it_reached	A2-1	transcript
 conf::a2_1_adoptall_twice_is_wrong_state	A2-1	transcript
 conf::a3_1_output_dropped_is_retained_and_survives_the_resync	A3-1	transcript
