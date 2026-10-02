@@ -1,10 +1,10 @@
 # P2 libghostty review
 
-Reviewed head: `18b06f972cb64360c09c1a1d605531d7e70d0c54`.
+Reviewed head: `f66bbcc740721db8dc017df5c4434caaa328c9a7`.
 Previous audit head: `fd1471eabca0adb344c6027b8995e1151aa8f8a8`.
 Scope: the written audit only. This verdict does not approve the binding or a Ghostty pin change.
 
-VERDICT: NOT CLEAN (4 open; F1–F8 closed for the written audit)
+VERDICT: NOT CLEAN (2 open; F1–F9 and F11 closed for the written audit)
 
 The review uses manifest final13, BUILD.md at `2f2996ef0f016a1fefc6879e74deaef033383b66`, and plan pin `stage1-plan.a24efe7e`.
 The plan hash matches its recorded SHA-256.
@@ -201,7 +201,7 @@ The reviewer ran no tests in this round.
 
 ## F9 — HIGH — The removed-fix mapping is incomplete and partly false
 
-Status: OPEN.
+Status: CLOSED in audit revision 3. Original finding follows for the record.
 Audit evidence: the Pin move section groups seven commits as page-pressure degradation and cites three upstream fixes.
 The lead requires a complete per-commit mapping before the nine commits can be dropped.
 
@@ -234,7 +234,7 @@ Keep the existing exact `translate_c` hash in the record.
 
 ## F11 — LOW — The UP clipboard-write callback does not return a result
 
-Status: OPEN.
+Status: CLOSED in audit revision 3. Original finding follows for the record.
 Audit evidence: the clipboard-write row says that the callback returns a result and the binding returns success.
 At UP, `terminal.h:816–870` requires `write->reply(write, &reply)` before the callback returns.
 `GhosttyTerminalClipboardWriteFn` returns `void`. Returning without a reply denies the write.
@@ -265,3 +265,35 @@ After the revision 2 verdict, the lead supplied plan revision 11:
 The reviewer verified SHA-256 `555bc4337fe72e9fad833fe330d43e8147a39569cb14291734f34847f56596d7`.
 The contracts pin is `contracts-v0.1.1` at `366bca41da0a6de69cc1ea13b17c773cdfdb75b6` (final14 plus R-13).
 This update does not change the four open findings. The next review uses these pins.
+
+
+## Revision 3 review
+
+Reviewed audit head: `f66bbcc740721db8dc017df5c4434caaa328c9a7`.
+The review uses plan `555bc433` and contracts-v0.1.1.
+The reviewer ran no tests.
+
+F9 closes for the written audit. The nine rows now identify each material change.
+The audit correctly states that PIN already contains `cfce1cd56` and that the retry-loop lifetime remains a separate defect.
+It proposes a root-cause repair and does not restore state-losing workarounds after a crash.
+This closure does not approve patch 0. Its code and test remain separate review work.
+
+F11 closes. The audit now requires the void callback to copy borrowed data and call `write->reply` before returning.
+
+F10 remains OPEN. The prefetch command, cache path, package hashes, and reported offline experiment improve the proposal.
+However, the audit calls the entire global Zig cache read-only and identifies file existence checks as the offline control.
+An existence check establishes a prerequisite. It does not itself prevent a later network request.
+Required change: distinguish immutable package inputs from writable compiler artifacts.
+State how the actual gate denies network access, or uses an equivalent enforced offline build mode.
+Do not describe a build that can fetch as a build with no fetch step.
+
+F12 remains OPEN. UP preflights continuation before emitting snapshot data (`c/snapshot.zig:565–567` and `:645–646`).
+The proposed ground-state path preserves the resume invariant when it reaches ground.
+Rule 4 adds `capture_ground_wait_bytes`, but assigns no permitted completion code when this byte bound expires.
+It instead postpones the decision to a future QUESTION.
+Section 9.3 permits `DeadlineExpired` for an actual operation deadline.
+It permits `SnapshotTooLarge` when snapshot bytes exceed `max_snapshot_bytes`.
+Neither sentence supplies a parser-byte-bound failure code.
+Required change: cite and use an existing permitted rule, or remove the unsupported byte-bound policy.
+If a contract decision is required, obtain it now rather than claiming COVERED and deferring the question.
+Also replace the incorrect UP line-50 quote citation with the actual continuation preflight evidence above.
