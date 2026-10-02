@@ -1,12 +1,12 @@
 # P2 libghostty review
 
-Reviewed head: `36d82ecb48316087e347e42c16a2bd9176439506`.
+Reviewed head: `89afa037b198cb26173ff520245adb926b6ca21e`.
 Previous audit head: `fd1471eabca0adb344c6027b8995e1151aa8f8a8`.
 Scope: the written audit and fork patches 0, 2, and 3 only. This verdict does not approve the full fork series, binding, or pin change.
 
 VERDICT: CLEAN (written audit and fork patches 0, 2, and 3 only).
 Reviewed fork head: `ea5a1e2975aa6c999051cb6fb30685ececf8be51`.
-Written audit: CLEAN at `36d82ecb48316087e347e42c16a2bd9176439506`; F1–F12 closed.
+Written audit: CLEAN at `89afa037b198cb26173ff520245adb926b6ca21e`; F1–F12 closed.
 
 The review uses manifest final13, BUILD.md at `2f2996ef0f016a1fefc6879e74deaef033383b66`, and plan pin `stage1-plan.a24efe7e`.
 The plan hash matches its recorded SHA-256.
@@ -485,3 +485,22 @@ VERDICT: CLEAN for patch 0 on this exact commit. No new finding.
 The existing CLEAN verdicts for patches 2–3 and the written audit remain unchanged.
 Patches 1 and 4–8 remain outside this verdict.
 The full fork series, binding code, and Ghostty pin change remain unapproved.
+
+
+## Revision 5b delta review — P2 owns the A8-2 resume invariant
+
+Reviewed audit head: `89afa037b198cb26173ff520245adb926b6ca21e`.
+The complete delta adds one entry to the ST-6b test list.
+The reviewer checked plan revision 12 and the regenerated P2 clause list.
+The plan hash is `00f63f578ceac79d952b72ccb17a8d263f297a09331d7fb6dcc911db1afce4d2`.
+The reviewer also read BUILD.md and ruling R-14 at `contracts-v0.1.3`.
+
+Plan section 6.1 assigns `conf::a8_2_offered_snapshots_still_satisfy_the_resume_invariant` to P2.
+The added audit entry records that assignment and the property fixed by A8-2.
+The adjacent corpus rule still checks exact restoration of each offered snapshot.
+The planned dependency move uses `contracts-v0.1.3` in a separate commit, as plan section 0 requires.
+This audit commit does not change the dependency pin.
+
+VERDICT: CLEAN for the written audit on this exact head. No new finding.
+The reviewer ran no tests. The fork verdicts remain unchanged.
+The full fork series and binding code remain unapproved.
