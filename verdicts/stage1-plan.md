@@ -812,3 +812,35 @@ It does not approve product code or establish Stage 1 acceptance.
 I ran no product tests.
 
 VERDICT: CLEAN
+
+## Round 16 — revision 16
+
+Plan: `0ba74bdd7767d53767d0baa33fc3b1a882c5f423`, `docs/stage1-plan.md`.
+Pin: `stage1-plan.a7c41bc1.md`.
+Verified SHA-256: `a7c41bc1cea55579526c0b4d5f7c5659c971155adba6352972d7331266dda655`.
+Contracts tag: `contracts-v0.1.8`, commit `f1e6a76330c4620785b19ba112c181d906bcc449`, manifest final22.
+
+I reviewed the complete delta against the new contracts tag.
+The plan matches its pin. The erratum hash and manifest tag match their sources.
+The E4-1 summary matches the client-frame and fallback-byte reservation rules.
+BUILD.md, the steward rulings, and tooling.md have no changes between the two contracts tags.
+The ownership generator reproduces all lists with 641 unique active ids and two withdrawn ids excluded.
+P4b owns 68 ids, including all three E4-1 ids.
+F1 through F15 remain CLOSED. I ran no product tests.
+
+### F16 — LOW — the section 6.1 total retains the previous count
+
+Status: OPEN.
+Plan section: 6.1, total after the package table.
+
+Plan evidence at the plan commit above:
+> "Total: 638 active ids at the pinned tag"
+
+Source evidence at the contracts commit above, `conformance/ledger.json` and `conformance/withdrawn.txt`:
+The ledger has 643 unique Core ids. A9-2 withdraws two, so 641 are active.
+The checked-in ownership lists also contain 641 unique active ids.
+Section 1, R4, and revision 16's history correctly state 641.
+
+Required change: change the section 6.1 total from 638 to 641.
+
+VERDICT: NOT CLEAN (1 open)
