@@ -290,4 +290,5 @@ The binding also exposes, from the lead's rulings: `set_color_profile`, `shadow_
 - **E2 ruling B:** `other_modes` is the set of modes that libghostty tracks and that have no normative `ModeFlags` field. An unrecognized mode number changes no field. There is no second parser.
 - **E2 ruling C:** after each `vt_write`, compare the final `ModeFlags` with the last posted `ModesChanged` value. Post one event with the final flags if they differ. Post nothing if they are equal. No mode-change patch.
 - **R-13:** SGR-pixels reports zero-based pixels with no +1; the 5.1A `+1` is for cells only.
+- **R-28 (contracts `bcbd03c`, in `contracts-v0.1.13`):** a legacy key release is `NotWritten(NotReported)` (5.1A rule 1, "not reported"). `release_event` stays a listed `what` value that no v1 stimulus produces. The binding returns `EncodeError::NotReported` for it.
 - **Lead decision:** paste is byte-exact (DP-5, IN-8).
