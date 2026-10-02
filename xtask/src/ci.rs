@@ -93,12 +93,23 @@ fn taint_job(root: &Path) -> Result<()> {
     timers::command(root, &[])
 }
 
-/// The lists check, then the report of the conformance harness (its four counts).
-fn lists_job(root: &Path) -> Result<()> {
-    lists::command(root, &[])?;
-    lists::ledger_ids_command(root, &[])?;
-    let mut report = cargo(root);
-    report.args([
+/// The passed count of a conformance report: the number after `passed ` in its `conformance:` line.
+fn passed_count(report: &str) -> Option<u64> {
+    let line = report
+        .lines()
+        .find(|l| l.starts_with("conformance: passed "))?;
+    line.strip_prefix("conformance: passed ")?
+        .split(',')
+        .next()?
+        .trim()
+        .parse()
+        .ok()
+}
+
+/// Runs the conformance binary and returns its report text.
+fn conformance_report(root: &Path, extra: &[&str]) -> Result<String> {
+    let mut cmd = cargo(root);
+    cmd.args([
         "test",
         "-p",
         "botster-core",
@@ -108,8 +119,33 @@ fn lists_job(root: &Path) -> Result<()> {
         "--",
         "--format",
         "terse",
-    ]);
-    run(report)
+    ])
+    .args(extra)
+    .envs(test_budget::tier_env(false));
+    let out = cmd.output().context("run the conformance binary")?;
+    let text = String::from_utf8_lossy(&out.stdout).into_owned();
+    print!("{text}");
+    if !out.status.success() {
+        bail!(
+            "the conformance binary failed: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+    Ok(text)
+}
+
+/// The lists check, then the report of the conformance harness (its four counts). A run that asks for the ignored trials too
+/// must not pass more ids: a pending or deferred id is never a pass (plan section 5).
+fn lists_job(root: &Path) -> Result<()> {
+    lists::command(root, &[])?;
+    lists::ledger_ids_command(root, &[])?;
+    let normal = conformance_report(root, &[])?;
+    let with_ignored = conformance_report(root, &["--include-ignored"])?;
+    let (a, b) = (passed_count(&normal), passed_count(&with_ignored));
+    if a.is_none() || a != b {
+        bail!("the conformance report counts {a:?} passed, and {b:?} passed when ignored trials are included");
+    }
+    Ok(())
 }
 
 fn public_api_job(root: &Path) -> Result<()> {
@@ -418,6 +454,15 @@ mod tests {
                 "fuzz"
             ]
         );
+    }
+
+    #[test]
+    fn the_passed_count_is_read_from_the_report_line() {
+        let report =
+            "x\nconformance: passed 12, failed 0, pending 3 (+ 4 with no transcript), deferred 2\n";
+        assert_eq!(passed_count(report), Some(12));
+        assert_eq!(passed_count("conformance: passed 0, failed 0"), Some(0));
+        assert_eq!(passed_count("no report"), None);
     }
 
     #[test]

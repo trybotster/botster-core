@@ -1,11 +1,11 @@
 //! Framing: `[u32 LE len][u8 type][payload]` (plan section 3).
 //!
 //! `len` counts the payload bytes only; the type byte is not in `len`. The decoder checks `len` against its bound as soon as
-//! the five header bytes are present, before it waits for or allocates the payload, so a hostile length costs nothing.
+//! the five header bytes are present, before it buffers any payload byte, so a hostile length costs nothing, and it never
+//! holds more than one frame (plan 2.5: one maximal link frame is the receive bound).
 //!
 //! Clause: Core AD-4, Core AD-6, Core DP-8 (the link carries the hello and the epoch).
 
-use std::collections::VecDeque;
 use std::fmt;
 
 /// The bytes before the payload: the length and the type.
@@ -74,10 +74,17 @@ pub fn encode_frame(
 }
 
 /// A sans-IO frame decoder. The driver gives it the bytes that it read, and takes frames.
+///
+/// The decoder never holds more than one frame: at most [`HEADER_LEN`] header bytes and `max_payload` payload bytes. The
+/// header is checked the moment its five bytes are present, and the payload buffer grows only with bytes that the peer
+/// really sent, never past the checked length. So [`FrameDecoder::push`] takes only part of its input when a frame is
+/// complete: the driver calls [`FrameDecoder::next_frame`], then pushes the rest.
 #[derive(Debug, Clone)]
 pub struct FrameDecoder {
     max_payload: u32,
-    buffer: VecDeque<u8>,
+    header: [u8; HEADER_LEN],
+    header_len: usize,
+    payload: Vec<u8>,
     failed: Option<FrameError>,
 }
 
@@ -86,21 +93,73 @@ impl FrameDecoder {
     pub fn new(max_payload: u32) -> FrameDecoder {
         FrameDecoder {
             max_payload,
-            buffer: VecDeque::new(),
+            header: [0; HEADER_LEN],
+            header_len: 0,
+            payload: Vec::new(),
             failed: None,
         }
     }
 
-    /// Adds bytes that the driver read. After a refusal the decoder keeps nothing.
-    pub fn push(&mut self, bytes: &[u8]) {
-        if self.failed.is_none() {
-            self.buffer.extend(bytes);
-        }
+    /// The payload length that the header announced, once the header is complete and accepted.
+    fn announced(&self) -> Option<usize> {
+        (self.header_len == HEADER_LEN && self.failed.is_none()).then(|| {
+            u32::from_le_bytes([
+                self.header[0],
+                self.header[1],
+                self.header[2],
+                self.header[3],
+            ]) as usize
+        })
     }
 
-    /// The bytes that wait for a complete frame.
+    /// Takes bytes that the driver read, and returns how many it took. It takes bytes up to the end of the current
+    /// frame and no further: it returns less than `bytes.len()` when a frame is complete and waits for
+    /// [`FrameDecoder::next_frame`]. After a refusal it takes and drops everything.
+    pub fn push(&mut self, bytes: &[u8]) -> usize {
+        if self.failed.is_some() {
+            return bytes.len();
+        }
+        let mut used = 0;
+        if self.header_len < HEADER_LEN {
+            let n = (HEADER_LEN - self.header_len).min(bytes.len());
+            self.header[self.header_len..self.header_len + n].copy_from_slice(&bytes[..n]);
+            self.header_len += n;
+            used += n;
+            if self.header_len == HEADER_LEN {
+                let len = u32::from_le_bytes([
+                    self.header[0],
+                    self.header[1],
+                    self.header[2],
+                    self.header[3],
+                ]);
+                if len > self.max_payload {
+                    // Refused from the header alone: no payload byte is kept, and the rest of the input is dropped.
+                    self.failed = Some(FrameError::TooLarge {
+                        len,
+                        max: self.max_payload,
+                    });
+                    self.header_len = 0;
+                    self.payload = Vec::new();
+                    return bytes.len();
+                }
+            }
+        }
+        if let Some(len) = self.announced() {
+            let n = (len - self.payload.len()).min(bytes.len() - used);
+            self.payload.extend_from_slice(&bytes[used..used + n]);
+            used += n;
+        }
+        used
+    }
+
+    /// The bytes that wait for a complete frame. It is at most `HEADER_LEN + max_payload`.
     pub fn buffered(&self) -> usize {
-        self.buffer.len()
+        self.header_len + self.payload.len()
+    }
+
+    /// The capacity that the payload buffer holds. It is zero when no payload is awaited.
+    pub fn retained_capacity(&self) -> usize {
+        self.payload.capacity()
     }
 
     /// The next complete frame, `None` when more bytes are needed, or the refusal. A refusal is final: the decoder returns it
@@ -109,34 +168,16 @@ impl FrameDecoder {
         if let Some(error) = self.failed {
             return Err(error);
         }
-        if self.buffer.len() < HEADER_LEN {
-            return Ok(None);
+        match self.announced() {
+            Some(len) if self.payload.len() == len => {
+                self.header_len = 0;
+                Ok(Some(Frame {
+                    kind: FrameType(self.header[4]),
+                    payload: std::mem::take(&mut self.payload),
+                }))
+            }
+            _ => Ok(None),
         }
-        let mut header = [0u8; HEADER_LEN];
-        for (slot, byte) in header.iter_mut().zip(self.buffer.iter()) {
-            *slot = *byte;
-        }
-        let len = u32::from_le_bytes([header[0], header[1], header[2], header[3]]);
-        if len > self.max_payload {
-            let error = FrameError::TooLarge {
-                len,
-                max: self.max_payload,
-            };
-            self.failed = Some(error);
-            self.buffer = VecDeque::new();
-            return Err(error);
-        }
-        // `len` is at most `max_payload`, so the size below is bounded by the configured bound.
-        let total = HEADER_LEN + len as usize;
-        if self.buffer.len() < total {
-            return Ok(None);
-        }
-        self.buffer.drain(..HEADER_LEN);
-        let payload: Vec<u8> = self.buffer.drain(..len as usize).collect();
-        Ok(Some(Frame {
-            kind: FrameType(header[4]),
-            payload,
-        }))
     }
 }
 
@@ -147,6 +188,29 @@ mod tests {
     fn encoded(kind: u8, payload: &[u8]) -> Vec<u8> {
         let mut out = Vec::new();
         encode_frame(FrameType(kind), payload, 64, &mut out).unwrap();
+        out
+    }
+
+    /// Pushes `bytes` the way a driver does: push, take frames, push the rest.
+    fn feed(decoder: &mut FrameDecoder, mut bytes: &[u8]) -> Vec<Result<Frame, FrameError>> {
+        let mut out = Vec::new();
+        while !bytes.is_empty() {
+            let took = decoder.push(bytes);
+            bytes = &bytes[took..];
+            match decoder.next_frame() {
+                Ok(Some(frame)) => out.push(Ok(frame)),
+                Ok(None) => {
+                    assert!(
+                        bytes.is_empty(),
+                        "the decoder took too little with no frame to give"
+                    );
+                }
+                Err(error) => {
+                    out.push(Err(error));
+                    break;
+                }
+            }
+        }
         out
     }
 
@@ -165,8 +229,10 @@ mod tests {
     fn buffered_counts_the_bytes_that_wait() {
         let mut decoder = FrameDecoder::new(64);
         assert_eq!(decoder.buffered(), 0);
-        decoder.push(&[3, 0, 0]);
+        assert_eq!(decoder.push(&[3, 0, 0]), 3);
         assert_eq!(decoder.buffered(), 3);
+        assert_eq!(decoder.push(&[0, 9, 1]), 3);
+        assert_eq!(decoder.buffered(), 6);
     }
 
     #[test]
@@ -178,10 +244,14 @@ mod tests {
     #[test]
     fn a_frame_in_one_piece_decodes() {
         let mut decoder = FrameDecoder::new(64);
-        decoder.push(&encoded(7, b"abc"));
-        let frame = decoder.next_frame().unwrap().unwrap();
-        assert_eq!(frame.kind, FrameType(7));
-        assert_eq!(frame.payload, b"abc");
+        let frames = feed(&mut decoder, &encoded(7, b"abc"));
+        assert_eq!(
+            frames,
+            [Ok(Frame {
+                kind: FrameType(7),
+                payload: b"abc".to_vec()
+            })]
+        );
         assert_eq!(decoder.next_frame(), Ok(None));
         assert_eq!(decoder.buffered(), 0);
     }
@@ -192,20 +262,40 @@ mod tests {
         let mut decoder = FrameDecoder::new(64);
         for (i, byte) in wire.iter().enumerate() {
             assert_eq!(decoder.next_frame(), Ok(None), "before byte {i}");
-            decoder.push(&[*byte]);
+            assert_eq!(decoder.push(&[*byte]), 1);
         }
         assert_eq!(decoder.next_frame().unwrap().unwrap().payload, b"hello");
     }
 
     #[test]
-    fn two_frames_decode_in_order() {
+    fn two_frames_in_one_chunk_decode_in_order() {
         let mut wire = encoded(1, b"x");
         wire.extend(encoded(2, b"yz"));
         let mut decoder = FrameDecoder::new(64);
-        decoder.push(&wire);
-        assert_eq!(decoder.next_frame().unwrap().unwrap().kind, FrameType(1));
-        assert_eq!(decoder.next_frame().unwrap().unwrap().kind, FrameType(2));
+        let kinds: Vec<u8> = feed(&mut decoder, &wire)
+            .into_iter()
+            .map(|f| f.unwrap().kind.0)
+            .collect();
+        assert_eq!(kinds, [1, 2]);
         assert_eq!(decoder.next_frame(), Ok(None));
+    }
+
+    /// The decoder stops at the end of a frame and leaves the rest of the chunk to the driver.
+    #[test]
+    fn push_takes_no_byte_past_a_complete_frame() {
+        let mut wire = encoded(1, b"x");
+        let first_len = wire.len();
+        wire.extend(encoded(2, b"yz"));
+        let mut decoder = FrameDecoder::new(64);
+        assert_eq!(decoder.push(&wire), first_len);
+        assert_eq!(
+            decoder.push(&wire[first_len..]),
+            0,
+            "a complete frame waits to be taken"
+        );
+        assert_eq!(decoder.buffered(), first_len);
+        decoder.next_frame().unwrap().unwrap();
+        assert_eq!(decoder.push(&wire[first_len..]), wire.len() - first_len);
     }
 
     /// The length is checked from the header alone: the refusal comes with no payload byte present.
@@ -218,6 +308,42 @@ mod tests {
             Err(FrameError::TooLarge { len: 17, max: 16 })
         );
         assert_eq!(decoder.buffered(), 0);
+    }
+
+    /// F1: an oversized header and its body arrive in one chunk. The body is dropped, never copied.
+    #[test]
+    fn an_oversized_header_with_a_large_body_in_one_chunk_keeps_nothing() {
+        let mut chunk = vec![17, 0, 0, 0, 5];
+        chunk.extend(vec![0xAB; 1 << 20]);
+        let mut decoder = FrameDecoder::new(16);
+        assert_eq!(
+            decoder.push(&chunk),
+            chunk.len(),
+            "the refused input is consumed"
+        );
+        assert_eq!(decoder.buffered(), 0);
+        assert_eq!(decoder.retained_capacity(), 0);
+        assert_eq!(
+            decoder.next_frame(),
+            Err(FrameError::TooLarge { len: 17, max: 16 })
+        );
+    }
+
+    /// F1: the buffer never exceeds one frame, whatever the driver pushes.
+    #[test]
+    fn the_buffer_is_bounded_by_one_maximal_frame() {
+        let mut decoder = FrameDecoder::new(16);
+        let mut chunk = vec![16, 0, 0, 0, 5];
+        chunk.extend(vec![1; 1000]);
+        let took = decoder.push(&chunk);
+        assert_eq!(took, HEADER_LEN + 16);
+        assert_eq!(decoder.buffered(), HEADER_LEN + 16);
+        assert!(
+            decoder.retained_capacity() <= 2 * 16,
+            "capacity {}",
+            decoder.retained_capacity()
+        );
+        assert_eq!(decoder.push(&chunk[took..]), 0);
     }
 
     #[test]
@@ -235,8 +361,21 @@ mod tests {
         let mut decoder = FrameDecoder::new(16);
         decoder.push(&[16, 0, 0, 0, 5]);
         assert_eq!(decoder.next_frame(), Ok(None));
-        decoder.push(&[0; 16]);
+        assert_eq!(decoder.push(&[0; 16]), 16);
         assert_eq!(decoder.next_frame().unwrap().unwrap().payload.len(), 16);
+    }
+
+    #[test]
+    fn an_empty_payload_frame_is_complete_at_its_header() {
+        let mut decoder = FrameDecoder::new(16);
+        assert_eq!(decoder.push(&[0, 0, 0, 0, 9, 1, 2]), 5);
+        assert_eq!(
+            decoder.next_frame().unwrap().unwrap(),
+            Frame {
+                kind: FrameType(9),
+                payload: vec![]
+            }
+        );
     }
 
     #[test]
@@ -244,7 +383,8 @@ mod tests {
         let mut decoder = FrameDecoder::new(4);
         decoder.push(&[5, 0, 0, 0, 1]);
         let error = decoder.next_frame().unwrap_err();
-        decoder.push(&encoded(1, b"ok"));
+        let later = encoded(1, b"ok");
+        assert_eq!(decoder.push(&later), later.len());
         assert_eq!(decoder.buffered(), 0);
         assert_eq!(decoder.next_frame(), Err(error));
     }

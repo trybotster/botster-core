@@ -290,6 +290,8 @@ version = "0.1.0"
 dependencies = [
  "bolero",
  "botster-core-contract",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

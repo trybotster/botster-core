@@ -12,16 +12,26 @@ const MAX_PAYLOAD: u32 = 64;
 /// Cases of the default tier. The seed is pinned by `cargo xtask` through `BOLERO_RANDOM_SEED` (bolero has no API for it).
 const CASES: usize = 256;
 
-/// Feeds `bytes` to a decoder in chunks of `step` bytes and returns every frame and the error, if any.
+/// Feeds `bytes` to a decoder in chunks of `step` bytes, the way a driver does (push, take frames, push the rest), and
+/// returns every frame and whether the decoder refused. The buffer never exceeds one maximal frame.
 fn decode_in_chunks(bytes: &[u8], step: usize) -> (Vec<(FrameType, Vec<u8>)>, bool) {
     let mut decoder = FrameDecoder::new(MAX_PAYLOAD);
     let mut frames = Vec::new();
     for chunk in bytes.chunks(step.max(1)) {
-        decoder.push(chunk);
-        loop {
+        let mut rest = chunk;
+        while !rest.is_empty() {
+            let took = decoder.push(rest);
+            rest = &rest[took..];
+            assert!(
+                decoder.buffered() <= HEADER_LEN + MAX_PAYLOAD as usize,
+                "the buffer is above one frame"
+            );
             match decoder.next_frame() {
                 Ok(Some(frame)) => frames.push((frame.kind, frame.payload)),
-                Ok(None) => break,
+                Ok(None) => assert!(
+                    rest.is_empty(),
+                    "the decoder took too little with no frame to give"
+                ),
                 Err(_) => return (frames, true),
             }
         }
@@ -30,7 +40,7 @@ fn decode_in_chunks(bytes: &[u8], step: usize) -> (Vec<(FrameType, Vec<u8>)>, bo
 }
 
 /// For arbitrary bytes: nothing panics; a frame is at most the bound; the frames re-encode to the bytes that were consumed;
-/// the chunk size never changes the result; a hello that decodes encodes back to the same bytes.
+/// the chunk size never changes the result; a hello that decodes survives an encode and decode.
 #[test]
 fn link_decoder() {
     bolero::check!()
