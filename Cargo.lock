@@ -318,6 +318,7 @@ dependencies = [
  "botster-core-contract",
  "botster-core-edges",
  "botster-probe-script",
+ "botster-route-codec",
  "rand_chacha",
  "rand_core",
  "serde_json",
