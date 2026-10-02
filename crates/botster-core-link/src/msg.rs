@@ -44,6 +44,10 @@ pub struct LaunchSpec {
     /// default of the Core limits table.
     #[serde(default = "default_stop_grace_ms")]
     pub stop_grace_ms: u64,
+    /// The Core limits that the worker applies itself: the clipboard and notification bound (EV-3, A2-4), the input records
+    /// (ST-7), the queries (EV-8) and the tap (TP-1). Absent: the defaults of the Core limits table.
+    #[serde(default)]
+    pub limits: CoreLimits,
 }
 
 fn default_stop_grace_ms() -> u64 {
@@ -267,6 +271,10 @@ mod tests {
             size_policy: SizePolicy::Latest,
             link_frame_bound: 1 << 20,
             stop_grace_ms: 250,
+            limits: CoreLimits {
+                clipboard_bytes: 77,
+                ..CoreLimits::default()
+            },
         }));
         let mut bytes = Vec::new();
         msg.encode(&mut bytes);
@@ -281,6 +289,11 @@ mod tests {
             panic!("a launch");
         };
         assert_eq!(spec.stop_grace_ms, 5000);
+        assert_eq!(
+            spec.limits,
+            CoreLimits::default(),
+            "an absent limits field is the table's defaults"
+        );
     }
 
     #[test]

@@ -36,6 +36,8 @@ fn spec() -> LaunchSpec {
         size_policy: SizePolicy::Latest,
         link_frame_bound: 1 << 16,
         stop_grace_ms: 250,
+
+        limits: CoreLimits::default(),
     }
 }
 
@@ -491,6 +493,8 @@ fn the_grace_comes_from_the_launch() {
     let mut w = World::linked();
     w.send(&HostMsg::Launch(Box::new(LaunchSpec {
         stop_grace_ms: 7000,
+
+        limits: CoreLimits::default(),
         ..spec()
     })));
     w.feed(Input::Spawned(Ok(PAYLOAD)));
