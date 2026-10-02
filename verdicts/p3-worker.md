@@ -1,11 +1,11 @@
 # P3 worker review
 
-VERDICT: NOT CLEAN (3 open)
+VERDICT: NOT CLEAN (1 open)
 
-Reviewed head: `37c96f1ef6cbbae514829a260d1088296098b3fa`.
-Previous reviewed head: `f37c46b5caee34742b0e40f798ecb9a423706c42`.
-Round 2 delta: `f37c46b..37c96f1`. F1, F2, F3, and F5 are CLOSED. F4, F6, and new F7 are OPEN.
-The original evidence below refers to the previous head. The round 2 section gives the current open evidence.
+Reviewed head: `ca45f66c7946f941eb8638c9b28bc0bb50ab5f25`.
+Previous reviewed head: `37c96f1ef6cbbae514829a260d1088296098b3fa`.
+Round 3 delta: `37c96f1..ca45f66`. F1 through F6 are CLOSED. F7 remains OPEN.
+The original evidence refers to `f37c46b`. The round 2 section records that review. Round 3 gives the current open evidence.
 Base: `2016886`. Scope: M1, including the Worker machine, real driver, payload edge, and testkit driver.
 This verdict covers both review units in the implementer's message.
 
@@ -81,7 +81,9 @@ Authority: LC-5, EV-5(c), BUILD.md's deterministic scheduler requirement, and pl
 
 ## F4 — HIGH — Closing a link either blocks the real worker or drops testkit reports
 
-Status: OPEN.
+Status: CLOSED at `ca45f66`.
+The drivers report cumulative bytes written. The machine compares those bytes with every queued send before it releases close.
+An earlier write report cannot release a close over later bytes. Both drivers preserve nonblocking report delivery.
 
 Evidence: `crates/botster-worker/src/main.rs:346-376` and `crates/botster-core-testkit/src/worker.rs:407-425`.
 
@@ -124,7 +126,9 @@ Authority: LC-4, the brief's F7 cleanup requirement, and BUILD.md testing rule 1
 
 ## F6 — MEDIUM — The slow tests do not clean up every failure path
 
-Status: OPEN.
+Status: CLOSED at `ca45f66`.
+The tests have a registry-based cleanup fallback after Core drops, and OwnedWorker requests cleanup through the worker.
+That request covers payload launch before the test reads Launched. F7 separately tracks the remaining identity race in the fallback.
 
 Evidence: `crates/botster-worker/tests/slow_session.rs:179-195,260-270`.
 
@@ -156,14 +160,14 @@ Authority: BUILD.md testing rule 10, pair-common.md's process ownership rule, an
 
 All open findings must close before CLEAN. No LOW finding is exempt from closure.
 
-## Round 2 — Current open findings
+## Round 2 — Review history
 
 This review inspected the complete delta at `37c96f1`. The reviewer ran no tests or gate.
 The implementer reported 281 default tests and 12 slow tests passing on macOS.
 
 ### F4 — HIGH — A stale flush report can release a later unsent report
 
-Status: OPEN.
+Round 2 status: OPEN. Closed in round 3, as recorded above.
 
 Evidence: `crates/botster-worker/src/main.rs:198-206,212-215,380-382` and `crates/botster-worker-core/src/worker.rs:619-623`.
 
@@ -189,7 +193,7 @@ Authority: LC-7, A6-3, A5-1/A5-4, and plan 2.5/3.
 
 ### F6 — MEDIUM — Cleanup still depends entirely on successful Core progress
 
-Status: OPEN.
+Round 2 status: OPEN. Closed in round 3, as recorded above.
 
 Evidence: `crates/botster-worker/tests/slow_session.rs:180-207,358-413`.
 
@@ -211,7 +215,7 @@ Authority: BUILD.md testing rule 10, pair-common.md's process ownership rule, an
 
 ### F7 — HIGH — The new test guard can signal a reused payload group id
 
-Status: OPEN. New finding in `37c96f1`.
+Round 2 status: OPEN. New finding in `37c96f1`. The direct payload signal is removed in round 3; F7 remains open below.
 
 Evidence: `crates/botster-worker/tests/slow_session.rs:279-290,418-435` and `crates/botster-worker-core/src/worker.rs:565-569`.
 
@@ -228,3 +232,37 @@ Request cleanup through the owned worker, which knows whether its leader remains
 Do not retain the direct killpg path with only `worker.try_wait()` as proof.
 
 Authority: the lead's P1 F7 decision, the explicit rule against signalling an unproven id, and pair-common.md's process ownership rule.
+
+## Round 3 — F7 remains OPEN
+
+This review inspected the complete delta at `ca45f66`. The reviewer ran no tests or gate.
+The implementer reported clean clippy checks, 284 default tests, and 13 slow tests passing on macOS.
+
+### F7 — HIGH — The cleanup waiter releases the id before the last possible signal
+
+Evidence: `crates/botster-worker/tests/slow_session.rs:112-116,125-138`.
+
+The direct signal to a cached payload group is removed.
+SIGTERM now asks the worker to kill only its held payload group, reap the leader, and end.
+That change fixes the original payload-id path.
+The shared `end_child_worker()` helper introduces the same reservation error for the worker id:
+
+1. The helper starts a thread that calls blocking `waitpid()`.
+2. The main thread's `recv_timeout()` reaches its deadline without receiving the thread's result.
+3. The worker exits and the waiter reaps it, releasing the worker id for reuse.
+4. The main thread sends SIGKILL to that id.
+
+Steps 2 through 4 can also occur when the waiter reaps before the deadline but pauses before it sends the channel result.
+A missing channel result does not prove that the child remains unreaped.
+The helper can therefore signal an unrelated process after the worker id is reused.
+
+RowReaper's non-matching-identity path also calls `waitpid(pid, NOHANG)` on that unproven id.
+Another test in the same test process can own a child that reuses that id.
+In that case waitpid can reap the other test's child; ECHILD is not guaranteed.
+
+Required change: Keep the worker unreaped until every possible signal has completed.
+Use an exit observation that retains the child, such as `waitid(WNOWAIT)`, and let the cleanup owner reap after the signal decision.
+Do not use receipt of a channel message as proof that the id remains reserved.
+Do not reap a non-matching id unless a separate child-ownership record proves it belongs to this cleanup owner.
+
+Authority: the explicit rule against signalling an unproven id, the lead's P1 F7 reservation principle, and BUILD.md testing rule 10.
