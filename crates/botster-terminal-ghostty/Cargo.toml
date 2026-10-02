@@ -1,0 +1,21 @@
+[package]
+name = "botster-terminal-ghostty"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+build = "build.rs"
+description = "The libghostty-vt binding of Botster Core: the terminal model, the encoders and the GHOSTSNP snapshot."
+
+# This crate calls the C ABI of libghostty-vt, so it is the one place of the workspace that needs `unsafe`.
+# Every use sits in `sys.rs` or in a safe wrapper that states the invariant it relies on.
+[lints.rust]
+unsafe_code = "allow"
+
+[dependencies]
+botster-core-contract.workspace = true
+botster-route-codec.workspace = true
+
+[dev-dependencies]
+static_assertions.workspace = true
