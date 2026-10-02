@@ -71,20 +71,24 @@ Prove UpdateMetadata and local Detach through HostDriver with `pump_events = 1`.
 Authority: 9B, A2-7, A5-2, LC-9, and DP-7.
 
 Deadline subcase: with two due silence deadlines and `pump_events = 1`, this head posts both Silent events in one pump.
-The lead supplied erratum 3 candidate 2 at contract commit `9f20fd5` in message `msg_plugin-w_1790930780_b494ef`.
-Candidate 2 supersedes candidate 1 (`5cdb45e`), which the Amendment reviewer rejected.
-The candidate is under Amendment review. The lead directs P1 to implement and review against it.
+The lead confirmed acceptance of erratum 3 candidate 3 in message `msg_plugin-w_1790931045_566b58`.
+It belongs to manifest final19, with publication pending at the time of that message.
+Candidate 3 supersedes rejected candidate 2 (`9f20fd5`) and rejected candidate 1 (`5cdb45e`).
+The lead directs P1 to implement and review against candidate 3.
 An event-less due effect runs in its due pump regardless of the event budget.
 An atomic effect-and-event step runs only with budget; otherwise the entire step carries to the next pump.
 Carried steps set more and signal the wake.
-They run before newer work in due-time order.
+Runnable carried steps run before newer work in due-time order.
 If a carried mandatory event has no queue room, its entire step parks with its state unchanged.
 Polling room makes that step runnable and signals the wake.
 The event budget and mandatory queue room are separate limits.
-Event-posting steps keep due order among themselves.
+Due order applies only among runnable steps.
+A parked step never blocks a later runnable step, including Silent.
+Among runnable steps, carried steps come first; each group keeps due order.
+When room returns, a parked step takes its place by due time among runnable steps.
 An event-less due effect can overtake an earlier carried or parked event step.
 Silent posts in the first pump with budget, with unchanged since, once per idle period.
-The six `e3_1` ids remain pending until the Amendment ACK:
+The seven `e3_1` ids require implementation and conformance proof:
 
 - `e3_1_due_effect_without_event_runs_in_its_pump_with_no_budget`
 - `e3_1_due_step_beyond_budget_is_carried_with_more`
@@ -92,6 +96,7 @@ The six `e3_1` ids remain pending until the Amendment ACK:
 - `e3_1_two_silences_due_together_with_budget_one`
 - `e3_1_carried_transition_into_a_full_mandatory_queue_is_parked_and_woken_on_room`
 - `e3_1_eventless_effect_overtakes_a_carried_or_parked_step`
+- `e3_1_runnable_silent_bypasses_a_transition_parked_on_queue_room`
 
 ### F7 remaining — HIGH: An absent leader does not prove the saved group identity
 
