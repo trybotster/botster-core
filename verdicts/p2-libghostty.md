@@ -4,9 +4,9 @@ Reviewed head: `89afa037b198cb26173ff520245adb926b6ca21e`.
 Previous audit head: `fd1471eabca0adb344c6027b8995e1151aa8f8a8`.
 Scope: the written audit and fork patches 0–3 only. This verdict does not approve the full fork series, binding, or pin change.
 
-VERDICT: CLEAN (written audit and fork patches 0–3 only).
-Reviewed fork head: `72902b1b738525d7fdf2c6ca828e2a40201f4f50`.
-Written audit: CLEAN at `89afa037b198cb26173ff520245adb926b6ca21e`; F1–F12 closed.
+VERDICT: NOT CLEAN (patch 4 and its audit coverage: 2 open findings, P18–P19).
+Reviewed fork head: `50569efc8806ba3e5411ca5e556a7168a1c82259`.
+Written audit: prior CLEAN at `89afa037b198cb26173ff520245adb926b6ca21e`; P19 now requires a legacy Shift GAP. F1–F12 remain closed.
 
 The review uses manifest final13, BUILD.md at `2f2996ef0f016a1fefc6879e74deaef033383b66`, and plan pin `stage1-plan.a24efe7e`.
 The plan hash matches its recorded SHA-256.
@@ -705,4 +705,59 @@ This verdict covers the initial patch and its reviewed deltas:
 
 The written audit and patches 0, 2, and 3 retain their CLEAN verdicts.
 Patches 4–8 remain outside this verdict.
+The full fork series, binding code, and Ghostty pin change remain unapproved.
+
+
+## Replacement fork review — patch 4 NOT CLEAN
+
+Reviewed commit: `50569efc8806ba3e5411ca5e556a7168a1c82259`.
+The reviewer read every changed file, relevant encoder logic, and Core 5.1A.
+All Ghostty reads used `git show`. The reviewer ran no tests.
+
+The new modifier bits preserve earlier C bit values. F26–F35 preserve earlier key enum values.
+The C event uses supplied alternate keys; the Zig default still derives alternate keys.
+The associated-text path requires flags 8 and 16 and omits text containing C0, DEL, or C1.
+The change keeps `utf8` available to the other encoder paths.
+Validation of `shifted_key` without Shift can remain in P3: it is input validation, not byte encoding.
+The legacy Shift rule cannot remain there for the reason below.
+
+## P18 — MEDIUM — New key tests hand-write expected terminal bytes
+
+Status: OPEN.
+Evidence: the new tests in `src/input/key_encode.zig` use literal expected kitty sequences.
+Examples include `kitty: hyper and meta modifiers`, `kitty: provided alternate keys are reported exactly and never derived`, and `kitty: function keys f26 to f35`.
+BUILD.md forbids hand-written expected terminal bytes. The user repeats that rule for this review.
+Existing upstream tests do not give new fork tests an exception.
+The implementer's message explicitly identifies this exception, but no authorized rule permits it.
+
+Required change: replace new literal byte expectations with comparisons against real native encoder paths or semantic property checks.
+For example, the existing native sequence encoder can encode a structured expected key sequence as an oracle.
+Keep checks for the supplied fields, modifier values, flag combinations, and whole-text omission.
+The test that claims legacy text remains available currently uses plain `a`, not one of the control-containing texts.
+Check preservation with the same text that triggers associated-text omission.
+Do not copy old expected-byte tests into new tests.
+
+## P19 — HIGH — Legacy Shift encoding is an unresolved library GAP
+
+Status: OPEN.
+Core 5.1A rule 1 defines Shift with no text: use supplied `shifted_key`, else uppercase an ASCII letter, else typed zero `produced_text`.
+The implementer proposes leaving this rule to P3 mapping.
+BUILD.md assigns terminal input encoding to libghostty and forbids encoding outside it.
+
+At this commit, `legacy` never reads the new supplied alternate fields.
+A printable event with `.key = .key_a`, unshifted `a`, Shift, supplied shifted `A`, and empty `utf8` produces zero bytes.
+It reaches the empty-text path, where `legacyAltPrefix` returns false without Alt.
+The same event without the supplied alternate also produces zero instead of the required ASCII uppercase fallback.
+The new API therefore does not supply the contractual legacy rule.
+The audit's legacy key row claims COVERED and does not record this GAP. A missed GAP is a finding.
+
+Required change: record this GAP in the written audit and its patch proposal.
+Implement the legacy Shift rule in libghostty, with a C path that carries the caller's supplied fields without synthetic terminal semantics in Rust.
+Preserve supplied text and the distinct kitty associated-text rules.
+Return zero for the unsupported no-layout-guess case so the binding can map the typed `produced_text` result.
+Add native tests for supplied Shift characters, ASCII fallback, and the unsupported non-ASCII case.
+Use native encoder oracles or semantic properties rather than literal expected terminal bytes.
+
+VERDICT: NOT CLEAN (2 open findings, P18–P19).
+Patches 0–3 retain their scoped CLEAN verdicts.
 The full fork series, binding code, and Ghostty pin change remain unapproved.
