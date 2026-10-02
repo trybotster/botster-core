@@ -15,6 +15,12 @@ core = [x for x in ids if x["contract"] == "core"]
 def owner(x):
     i, c = x["id"], x["clause"] or ""
     fam = c.split("-")[0]
+    if c == "A6-1":
+        return "p7-services"
+    if c == "A6-2":
+        return "p5-adoption"
+    if c == "A6-3":
+        return "p4b-queries-files"
     if re.search(r"adopt|restart|survive", i) or fam == "AD" or c in ("DP-8", "ID-2", "LC-11") \
             or i == "conf::lc_12_drop_leaves_workers_running":
         return "p5-adoption"
