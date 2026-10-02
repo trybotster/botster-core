@@ -176,7 +176,11 @@ impl RealEdges {
                 storage,
                 _lock: lock,
                 entropy: OsEntropy,
-                children: Children::new(),
+                // A reaper thread wakes the host when a worker ends (TM-6): the host sees the exit at once, not at a deadline.
+                children: Children::with_notify({
+                    let wake = Arc::clone(&wake);
+                    Arc::new(move || WakeEdge::signal(&*wake))
+                }),
                 listener,
                 socket,
                 streams: BTreeMap::new(),
