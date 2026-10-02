@@ -2,10 +2,10 @@
 
 Reviewed head: `d2cce61b19d724ddc657f17fa8dee26dff409997`.
 Previous audit head: `fd1471eabca0adb344c6027b8995e1151aa8f8a8`.
-Scope: the written audit and fork patches 0–5 only. This verdict does not approve the full fork series, binding, or pin change.
+Scope: the written audit and fork patches 0–6 only. This verdict does not approve the full fork series, binding, or pin change.
 
-VERDICT: CLEAN (written audit and fork patches 0–5 only).
-Reviewed fork head: `da42a8ac0d9f99ece0adf534b375991df5de489b`.
+VERDICT: CLEAN (written audit and fork patches 0–6 only).
+Reviewed fork head: `b59b1f47b9684319a3d20167c98c0f9976df4a00`.
 Written audit: CLEAN at `d2cce61b19d724ddc657f17fa8dee26dff409997`; G12 records the legacy Shift GAP. F1–F12 and P19 are closed.
 
 The review uses manifest final13, BUILD.md at `2f2996ef0f016a1fefc6879e74deaef033383b66`, and plan pin `stage1-plan.a24efe7e`.
@@ -837,3 +837,28 @@ VERDICT: CLEAN for patch 5 at this exact head.
 This verdict covers the native exports for TI-1 and A2-8. The binding must still verify installation with `tic`.
 The written audit and patches 0–4 retain their CLEAN verdicts.
 Patches 6–8, the binding code, and the Ghostty pin change remain outside this verdict.
+
+
+## Patch 6 review — supplied mouse cells and active enums
+
+Reviewed commit: `b59b1f47b9684319a3d20167c98c0f9976df4a00`.
+The reviewer read the complete delta, the full encoder path, and the C wrapper with `git show`.
+The review checked IN-9, section 5.1A, ST-4, and ruling R-13. The reviewer ran no tests.
+
+The cell API uses an external struct with two `u32` fields. The header, exports, and schema declaration agree.
+For cell formats, the native encoder uses the supplied cell without pixel conversion, viewport refusal, or clamping.
+The encoder keeps the existing tracking rules and button encoding.
+X10 rejects cells above 222. UTF-8 rejects cells above 2014 before it writes any bytes.
+SGR and URXVT add one in `u64`, so a maximum `u32` cell does not overflow.
+Motion deduplication uses the supplied cell. Columns beyond the stored coordinate range are not truncated for tracking.
+SGR-pixels ignores the supplied cell and retains the native pixel path without an added offset, as R-13 requires.
+The C wrapper retains its output-space recovery and restores motion state after a failed write.
+
+The two terminal getters read `t.flags.mouse_event` and `t.flags.mouse_format`, which the native encoder also reads.
+They do not derive the active enums from individual mode bits. Their header values and output types match the implementation.
+The new tests use the real pixel encoder as the output oracle. They also check limits, cell tracking, and active mode histories.
+The tests do not construct expected terminal bytes by hand.
+
+VERDICT: CLEAN for patch 6 at this exact head.
+The written audit and patches 0–5 retain their CLEAN verdicts.
+Patches 7–8, the binding code, and the Ghostty pin change remain outside this verdict.
