@@ -78,6 +78,8 @@ struct Driver {
     signals: Signals,
     payload: Option<Payload>,
     pty_registered: bool,
+    /// The PTY took no byte at the last write: write interest is on until it is writable again.
+    pty_wants_write: bool,
     /// The bytes still to read for a `DrainPty`; `None` when no drain is asked.
     drain_left: Option<usize>,
     waker: Arc<Waker>,
@@ -121,6 +123,7 @@ impl Driver {
             signals,
             payload: None,
             pty_registered: false,
+            pty_wants_write: false,
             drain_left: None,
             waker,
             exits: mpsc::channel(),
@@ -179,7 +182,13 @@ impl Driver {
                             event.is_readable() || event.is_read_closed() || event.is_error();
                         self.control_writable |= event.is_writable() || event.is_error();
                     }
-                    PTY => self.pty_readable = true,
+                    PTY => {
+                        self.pty_readable |= event.is_readable() || event.is_read_closed();
+                        if event.is_writable() && self.pty_wants_write {
+                            self.set_pty_write_interest(false);
+                            self.inputs.push_back(Input::PtyWritable);
+                        }
+                    }
                     SIGNALS => {
                         for signal in self.signals.pending() {
                             self.inputs.push_back(if signal == SIGTERM {
@@ -226,6 +235,24 @@ impl Driver {
             Action::SpawnPayload(spec) => {
                 let result = self.spawn(&spec);
                 self.inputs.push_back(Input::Spawned(result));
+            }
+            Action::PtyWrite(bytes) => {
+                let result = match self.payload.as_ref() {
+                    // No PTY any more: the write fails as a write to a closed PTY does.
+                    None => Err(5),
+                    Some(payload) => loop {
+                        match payload.write(&bytes) {
+                            Ok(n) => break Ok(n),
+                            Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
+                            Err(e) if e.kind() == io::ErrorKind::WouldBlock => break Ok(0),
+                            Err(e) => break Err(e.raw_os_error().unwrap_or(5)),
+                        }
+                    },
+                };
+                if result == Ok(0) && !bytes.is_empty() {
+                    self.set_pty_write_interest(true);
+                }
+                self.inputs.push_back(Input::PtyWritten(result));
             }
             Action::DrainPty => {
                 let left = self
@@ -294,12 +321,38 @@ impl Driver {
         })
     }
 
+    /// Write interest on the PTY follows a write that it did not take (plan 2.5). A PTY that left the loop takes none.
+    fn set_pty_write_interest(&mut self, on: bool) {
+        if !self.pty_registered || on == self.pty_wants_write {
+            self.pty_wants_write = on && self.pty_registered;
+            return;
+        }
+        let Some(payload) = self.payload.as_ref() else {
+            return;
+        };
+        let fd = payload.master().as_raw_fd();
+        let interest = if on {
+            Interest::READABLE | Interest::WRITABLE
+        } else {
+            Interest::READABLE
+        };
+        if self
+            .poll
+            .registry()
+            .reregister(&mut SourceFd(&fd), PTY, interest)
+            .is_ok()
+        {
+            self.pty_wants_write = on;
+        }
+    }
+
     fn deregister_pty(&mut self, payload: &Payload) {
         if self.pty_registered {
             let fd = payload.master().as_raw_fd();
             let _ = self.poll.registry().deregister(&mut SourceFd(&fd));
             self.pty_registered = false;
             self.pty_readable = false;
+            self.pty_wants_write = false;
         }
     }
 

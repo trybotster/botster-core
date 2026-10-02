@@ -13,9 +13,26 @@ use botster_core_conformance::{
     ControlError, CoreHarness, DataDirRef, OpenSpec, RouteClient, WorkerBuild, WorkerRef,
 };
 use botster_core_contract::prelude::*;
+use botster_route_codec::prelude::{hex_decode, HexBytes};
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
 use std::time::Instant;
+
+/// The controls of the program edge that the harness dispatches to a session's payload.
+const PROGRAM_CONTROLS: &[&str] = &[
+    "pty_input",
+    "pty_output",
+    "pty_output_unread",
+    "pty_blocked",
+    "pty_chunk",
+    "pty_accept",
+    "pty_fail_after",
+    "program_write_size",
+    "program_write_once",
+];
+
+/// The controls of the process edge that the harness dispatches to a session's worker.
+const WORKER_CONTROLS: &[&str] = &["process_end_worker", "lose_worker", "break_control"];
 
 /// The default-tier harness for one seed (foundation design 6.1: seeds 0 to 31).
 #[derive(Debug)]
@@ -83,6 +100,85 @@ impl TestkitHarness {
         }
     }
 
+    /// The program controls (`docs/core-testkit-controls.md` and FakeCore's list): they act on the program edge of the
+    /// session's payload, through its `ProgramControl` (Core A5-1, A5-2, A5-3).
+    fn program_control(
+        &mut self,
+        handle: &str,
+        op: &str,
+        args: &Value,
+    ) -> Result<Value, ControlError> {
+        let bad = |why: String| ControlError::Bad(why);
+        let session = args
+            .get("session")
+            .and_then(Value::as_str)
+            .map(|s| SessionId(s.to_string()))
+            .ok_or_else(|| bad(format!("{op} needs 'session'")))?;
+        let control = self
+            .workers
+            .program_control(handle, &session)
+            .ok_or_else(|| bad(format!("{op}: session {} has no payload", session.0)))?;
+        let count = |name: &str| {
+            args.get(name)
+                .and_then(Value::as_u64)
+                .and_then(|n| usize::try_from(n).ok())
+                .ok_or_else(|| bad(format!("{op} needs '{name}', a count")))
+        };
+        let hex = |name: &str| {
+            args.get(name)
+                .and_then(Value::as_str)
+                .and_then(|text| hex_decode(text).ok())
+                .ok_or_else(|| bad(format!("{op} needs '{name}', hex bytes")))
+        };
+        match op {
+            "pty_input" => {
+                return Ok(
+                    json!({ "bytes": { "$bytes_hex": HexBytes(control.input_log()).to_hex() } }),
+                )
+            }
+            "pty_output_unread" => return Ok(json!({ "bytes": control.output_unread() })),
+            // `scripted` holds facts for a fake that has no terminal; the real model derives them (R-7), so it is not read.
+            "pty_output" => control.write_plain(&hex("bytes_hex")?),
+            "program_write_once" => control.write_once(&hex("bytes_hex")?),
+            "pty_blocked" => {
+                control.set_blocked(args.get("on").and_then(Value::as_bool).unwrap_or(true))
+            }
+            "pty_chunk" => control.input_chunk(Some(count("bytes")?)),
+            "pty_accept" => control.accept_at_most(count("bytes")?),
+            "pty_fail_after" => control.fail_after(count("bytes")?),
+            "program_write_size" => control.write_size(Some(count("bytes")?)),
+            _ => return Err(ControlError::Unsupported),
+        }
+        Ok(Value::Null)
+    }
+
+    /// The process controls of a session's worker (Core A5-1, A5-3): `process_end_worker` and FakeCore's `lose_worker` end
+    /// the worker process at this point; `break_control` breaks its control link while it lives.
+    fn worker_control(
+        &mut self,
+        handle: &str,
+        op: &str,
+        args: &Value,
+    ) -> Result<Value, ControlError> {
+        let session = args
+            .get("session")
+            .and_then(Value::as_str)
+            .map(|s| SessionId(s.to_string()))
+            .ok_or_else(|| ControlError::Bad(format!("{op} needs 'session'")))?;
+        let done = match op {
+            "break_control" => self.workers.break_link(handle, &session),
+            _ => self.workers.end_worker(handle, &session),
+        };
+        if done {
+            Ok(Value::Null)
+        } else {
+            Err(ControlError::Bad(format!(
+                "{op}: session {} has no worker",
+                session.0
+            )))
+        }
+    }
+
     fn no_route(what: &str) -> CoreError {
         CoreError::new(
             ErrorCode::Unsupported { what: None },
@@ -127,6 +223,7 @@ impl CoreHarness for TestkitHarness {
             opened.driver,
             opened.wake,
             self.workers.clone(),
+            &spec.handle,
         ));
         Ok(self.with_refusals(&spec.handle, core))
     }
@@ -165,7 +262,7 @@ impl CoreHarness for TestkitHarness {
     /// The controls that the testkit builds (design 6.3, `docs/core-testkit-controls.md`). The others come with the machines
     /// and edges that they need.
     fn has_control(&self, op: &str) -> bool {
-        op == "fail_next"
+        op == "fail_next" || PROGRAM_CONTROLS.contains(&op) || WORKER_CONTROLS.contains(&op)
     }
 
     /// Core TH-1 has no concrete Core type to ask yet.
@@ -176,6 +273,8 @@ impl CoreHarness for TestkitHarness {
     fn control(&mut self, handle: &str, op: &str, args: &Value) -> Result<Value, ControlError> {
         match op {
             "fail_next" => self.fail_next(handle, args),
+            op if PROGRAM_CONTROLS.contains(&op) => self.program_control(handle, op, args),
+            op if WORKER_CONTROLS.contains(&op) => self.worker_control(handle, op, args),
             _ => Err(ControlError::Unsupported),
         }
     }
@@ -334,7 +433,7 @@ mod tests {
             );
         }
         assert_eq!(
-            harness.control("h", "lose_worker", &json!({})),
+            harness.control("h", "descendants", &json!({})),
             Err(ControlError::Unsupported)
         );
         let nth = harness.control(
