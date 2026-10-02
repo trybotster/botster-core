@@ -88,12 +88,6 @@ pub enum Action {
         identity: ProcessIdentity,
         signal: GroupSignal,
     },
-    /// Signals the process group of a payload. The leader may have been reaped by its worker while descendants keep the group,
-    /// so the edge signals the group unless its leader pid names a different process now (AD-6, LC-5, LC-6).
-    SignalPayloadGroup {
-        identity: ProcessIdentity,
-        signal: GroupSignal,
-    },
     /// Hands a route's connected stream to the worker over its link (DP-2). Core owns the endpoint from here.
     HandoffRoute {
         link: LinkId,

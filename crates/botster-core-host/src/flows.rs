@@ -306,12 +306,11 @@ impl HostEngine {
         match f.phase {
             StopPhase::RowWrite => self.write_session_row(id, SessionState::Stopping),
             // The graceful request goes out before the state event, so that a full queue never delays the effect of a stop
-            // (EV-5c). Without a link the host asks the payload's group itself, never the worker's.
+            // (EV-5c). Without a link the host asks the verified worker (pid and start time, AD-6) to end its group.
             StopPhase::SendStop => {
-                let payload = self.sessions.get(id).and_then(|s| s.payload);
                 if !self.send_msg(id, HostMsg::Stop) {
-                    if let Some(identity) = payload {
-                        self.act(Action::SignalPayloadGroup {
+                    if let Some(identity) = self.identity_of(id) {
+                        self.act(Action::SignalGroup {
                             identity,
                             signal: GroupSignal::Term,
                         });
