@@ -795,14 +795,14 @@ impl HostEngine {
         if op.0 == 0 || op.0 >= self.next_op {
             return CancelResult::UnknownOp;
         }
+        // An op of a removed instance is `UnknownOp` whether or not its completion is polled (ID-1). The identity is exact for
+        // the whole life of the handle.
+        if self.retired_ops.contains(op.0) {
+            return CancelResult::UnknownOp;
+        }
         let Some(pending) = self.ops.get(&op) else {
-            // An op that completed and was polled is `TooLate` while its instance lives, and `UnknownOp` after it is gone
-            // (ID-1). The identity is exact for the whole life of the handle.
-            return if self.retired_ops.contains(op.0) {
-                CancelResult::UnknownOp
-            } else {
-                CancelResult::TooLate
-            };
+            // An op that completed and was polled is `TooLate` while its instance lives (A2-1).
+            return CancelResult::TooLate;
         };
         if matches!(pending.step, Step::Done) {
             return CancelResult::TooLate;

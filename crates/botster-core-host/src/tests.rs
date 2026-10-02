@@ -261,6 +261,9 @@ impl World {
             }
             Action::CloseLink { link } => self.closed.push(link),
             Action::SignalGroup { identity, signal } => self.signals.push((identity, signal)),
+            Action::SignalPayloadGroup { identity, signal } => {
+                self.signals.push((identity, signal))
+            }
             Action::HandoffRoute { .. } => self.trace.push("handoff".into()),
         }
     }
@@ -299,10 +302,10 @@ impl World {
                         name: "GHOSTSNP".into(),
                         version: 1,
                     }],
-                    payload: Some(botster_core_link::msg::PayloadId {
+                    payload: botster_core_link::msg::PayloadId {
                         pid: 900,
                         start_time: 3,
-                    }),
+                    },
                 }
             }]),
             HostMsg::Stop => Some(vec![WorkerMsg::Exited {
@@ -402,10 +405,10 @@ impl World {
                 features: BTreeSet::from([Feature::FocusReport]),
                 terminal: terminal_state(),
                 formats: vec![],
-                payload: Some(botster_core_link::msg::PayloadId {
+                payload: botster_core_link::msg::PayloadId {
                     pid: 900,
                     start_time: 3,
-                }),
+                },
             },
         });
         self.complete(start);
