@@ -120,4 +120,17 @@ exclude_re = [
     # botster-core-sys: `exit_status` has the code `-1` for a reaped child with neither a code nor a signal, which cannot happen;
     # `spawn` kills a child whose reaper thread cannot start (an out-of-memory condition that a test cannot cause).
     'crates/botster-core-sys/src/process\.rs:\d+:\d+: delete - in (exit_status|Children::spawn)$',
+    # botster-core-sys storage: the registry on a real disk (AD-7, LC-2, DP-8): the atomic write with its fsync, the directory fsync,
+    # the lock, the epoch and the safety of the directory. A real fsync takes the time of the disk of the host, so these tests run
+    # in the slow tier (BUILD.md testing rule 2): `slow_tests::a_written_row_reads_back_and_a_missing_row_is_none`,
+    # `a_second_write_replaces_the_row`, `any_key_is_a_valid_row_name_and_lists_back_sorted`,
+    # `delete_removes_the_row_and_is_idempotent`, `the_directory_is_exclusive_until_it_is_dropped`,
+    # `the_host_epoch_strictly_increases_across_opens`, `an_unsafe_directory_is_refused_and_a_new_one_is_private`,
+    # `a_damaged_row_file_is_not_a_row`, `a_row_is_found_only_under_its_own_key`, `a_corrupt_epoch_refuses_the_open`,
+    # `a_write_that_cannot_start_is_failed_with_no_effect`, `only_a_missing_row_is_none_or_deleted_quietly`,
+    # `open_tells_an_existing_file_from_a_failed_create`, `open_reports_a_rows_directory_that_cannot_be_created`. The encoding of
+    # a row, the codes of the errors and `sync_directory` of a missing directory are mutation-tested in the default tier. The logic
+    # of the host over the registry (a failed or uncertain write) is mutation-tested in `botster-core-host` over its Storage edge.
+    'crates/botster-core-sys/src/storage\.rs:\d+:\d+: replace (FileStorage::|<impl Storage for FileStorage>::|DataDir::|check_safe)',
+    'crates/botster-core-sys/src/storage\.rs:\d+:\d+: .* in (FileStorage::|<impl Storage for FileStorage>::|DataDir::|check_safe)',
 ]
