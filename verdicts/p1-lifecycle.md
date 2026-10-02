@@ -1,8 +1,9 @@
 # P1 lifecycle review
 
-VERDICT: NOT CLEAN (3 open)
+VERDICT: NOT CLEAN (2 open)
 
-Reviewed head: `eda5711bc9252dbf402e8d8b391bcf8e8e80ce07` on `stage1/p1-lifecycle`.
+Reviewed head: `3936f014be834e24505354e99fa4932ed989be29` on `stage1/p1-lifecycle`.
+Round 3 head: `eda5711bc9252dbf402e8d8b391bcf8e8e80ce07`.
 Round 2 head: `1f0146e831b03fb3d1edd247240d97b3c9503552`.
 Round 1 head: `fb75dec1b6a00270c89f63ce6b67357892e060ff`.
 Initial code checkpoint: `6a8017621f024cbf6c07a3f9b9c50deae15fb936`.
@@ -13,22 +14,103 @@ Round 2 base: `ccb04eb` (the merged CI infrastructure).
 The review covers P1's dependency move, code, and fixes.
 Authority: plan pin `555bc433`, BUILD.md, and the P1 brief.
 The initial checkpoint pins manifest final14 through `contracts-v0.1.2`.
-The latest head pins manifest final16 through `contracts-v0.1.4`, following the lead's correction reported by the implementer.
+Round 2 pins manifest final16 through `contracts-v0.1.4`.
+The latest head pins manifest final19 through `contracts-v0.1.6` at `caa029cfcc9c0bfd1f59a05d35d7c110ea99f3e0`.
+Its separate pin commit is `ee574ea`.
 This is a logic review. I did not run the gate or a test suite.
 
 The design note contains the required Prior art note. The engine uses injected inputs and actions.
 I accept the JSON construction of `RemoveReport`: the pinned type has no public constructor.
 I exclude the stated P5 adoption, P4c WebRTC, P4a descriptor handoff, and P7 service implementations from this checkpoint.
 Those exclusions do not establish package or Stage 1 acceptance. The pending list must retain unproved ids.
-The latest tag fixes the six unit-valued Remove transcripts and supplies Amendments 7 and 8.
+The Round 1 tag correction fixes the six unit-valued Remove transcripts and supplies Amendments 7 and 8.
 Those ids remain pending until both harnesses prove them.
 The delta adds A8-1 capture reservations. I found no additional defect in that reservation change.
 The Round 1 pin delta did not close F1 through F15. F16 also applies under Amendment 7.
 
-Current open findings: F3, F7, F17.
-Closed findings: F1, F2, F4, F5, F6, F8, F9, F10, F11, F12, F13, F15, F16, F18, F19.
+Current open findings: F3, F7.
+Closed findings: F1, F2, F4, F5, F6, F8, F9, F10, F11, F12, F13, F15, F16, F17, F18, F19.
 F14 has an authorized scope deferral. It is not satisfied as a TI-1 requirement.
 Each open finding must close before CLEAN.
+
+## Round 4: closure evidence and remaining defects
+
+I reviewed the delta from `eda5711` to `3936f01`, including the separate contract pin commit.
+Erratum 3 candidate 3 is now published in the pinned contract set.
+The seven E3-1 ids remain pending conformance proof.
+This remains a logic review. I did not run tests or the gate.
+The references in this section use `3936f01`.
+
+| Finding | Status | Evidence |
+|---|---|---|
+| F3 | OPEN | Metadata and local Detach now post one event per input. At the bound, the eligible work excludes normal work. Action results and carried-step priority still bypass the intended limits. |
+| F7 | OPEN | Core no longer signals an unproved payload group. Its broken-link grace now kills the worker group, which violates payload termination and final-model worker survival. |
+| F17 | CLOSED | `created_path` preserves the notification policy's admitted result path. Admission and Unknown share `held_bytes`, which multiplies the key repeat and wheel notches. |
+
+### F3 remaining — HIGH: Action batches exceed the bound, and newer input bypasses carried deadlines
+
+Evidence: `botster-core-host/src/driver.rs:164`, `:170`, `:559`, and `:575`; `src/inbound.rs:523`.
+
+`perform_counted` drains the entire action queue before accounting for the events that the results post.
+`step_mark` limits completions within one input, but each action result is a separate input with a fresh mark.
+
+For example, configure `pump_events = 1` and enough mandatory room.
+Register two routes on a Running session before the next pump.
+Both handoffs enter the action queue.
+If both handoffs fail, each result posts RouteClosed, and `perform` posts both in the same pump.
+The pump therefore exceeds its event bound despite the new one-event completion guard.
+
+The driver also feeds newer process and link inputs before it considers Work::Silent.
+After a pump carries a Silent step, a Bell frame in the next pump can consume the whole budget first.
+The carried Silent then carries again.
+Repeated newer input can keep that carried step from running.
+E3-1 requires runnable carried steps before newer work.
+
+Listing Silent before ordinary work is also insufficient for the shared scheduler.
+ReadyWork still includes operations alongside Silent, and the seeded scheduler can select an operation first.
+The carried-step test covers only an ordinary operation under the production selection policy.
+It does not cover newer link input or a different legal scheduler choice.
+
+Required change: Budget the publication caused by each action result.
+Retain deferred publication work without delaying event-less due effects.
+Select runnable carried steps before newer input and normal work under every scheduler policy.
+Prove two failed handoffs with `pump_events = 1`.
+Prove a carried Silent followed by a newer Bell and by a scheduler choice that would prefer an operation.
+Authority: 9B, A2-7, A5-2, E3-1 items 1, 3, and 5, and TM-6.
+
+### F7 remaining — HIGH: Broken-link grace kills the worker and can leave the payload alive
+
+Evidence: `botster-core-host/src/run.rs:211` and DESIGN.md's P3 interface note.
+
+When the link is absent, `kill_payload` sends GroupSignal::Kill to the verified worker group.
+It then records Lost(WorkerUnreachable) as though the payload group was killed.
+SIGKILL cannot invoke a worker signal handler.
+The P3 handler therefore cannot translate this signal into the required payload-group kill.
+The design note explicitly permits the payload group to survive this fallback.
+
+LC-5 requires the payload to end and the final-model worker to survive until Remove.
+Identity verification makes this signal safe from pid reuse; it does not make the worker the correct kill target.
+The current test requires a worker Kill and preserves the original F7 defect.
+
+Required change: Provide an identity-safe control path that asks the worker to kill its payload group without killing the worker.
+Retain the unreaped payload leader through group control, or prove an equivalent mechanism.
+P1 must provide a usable host-side request for P3 to implement.
+Remove the design statement that permits a live payload after Stop completes.
+The lead authorized a distinct catchable worker-control signal in message `msg_plugin-w_1790934505_87cdd0`.
+P1 names SIGUSR1, or another catchable signal, and sends it only to the identity-verified worker.
+Its meaning is a graceful payload request followed by payload-group kill after stop_grace, while the worker keeps serving the final model.
+The worker retains the unreaped leader during group control.
+The host never sends SIGKILL to the worker on this path.
+P1 records the signal, meaning, idempotence, and reports after link recovery or adoption in its PR and botster-core-link documentation.
+P3 implements the handler. P1 retains the ids that need that handler as pending, with the P3 reason.
+A worker that does not respond is a Lost case, not a reason to kill the worker.
+F7 remains open while that interface lacks a valid grace-kill request.
+Authority: LC-5, LC-6, ST-5, and AD-6.
+
+## Round 3 evidence (historical)
+
+The Round 3 statuses below describe `eda5711` only.
+The Round 4 table above contains the current statuses.
 
 ## Round 3: closure evidence and remaining defects
 
