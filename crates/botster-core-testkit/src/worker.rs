@@ -581,7 +581,7 @@ impl CoreApi for TestkitCore {
         session: SessionId,
         transport: RouteTransport,
         options: AttachOptions,
-    ) -> Result<AttachResult, CoreError> {
+    ) -> Result<AttachResult, AttachRefused> {
         self.driver.attach(client, session, transport, options)
     }
 
