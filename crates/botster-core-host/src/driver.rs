@@ -601,6 +601,7 @@ impl<E: HostEdges> CoreApi for HostDriver<E> {
             let work = self.pick_session(&ready, at);
             // A5-2: the scheduler may defer the progress of an operation to a later pump. A deadline is never deferred.
             if !matches!(work, Work::Deadline | Work::Silent)
+                && !self.engine.never_deferred(&work)
                 && self
                     .edges
                     .scheduler()

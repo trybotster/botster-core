@@ -2,7 +2,7 @@
 //! deadlines of Core (plan 2.2). It is a sans-IO machine: see [`crate::io`] for what a driver feeds in and performs.
 
 use crate::flow::Flow;
-use crate::io::{Action, Input, LinkId, Ticket};
+use crate::io::{Action, Input, LinkId, Ticket, Work};
 use crate::queue::{EventQueue, QueueBounds};
 use crate::session::{Admit, Session, WorkerHandle};
 use botster_core_contract::prelude::*;
@@ -96,6 +96,10 @@ pub(crate) struct PendingOp {
     pub held_bytes: u64,
     /// A `SetNotificationPolicy` that was admitted in `Created`: it follows the registry path (A2-1).
     pub created_path: bool,
+    /// The clause fixes the timing of this op: it completes in the next `pump`, and the scheduler never defers it (steward
+    /// ruling R-20, A5-2 "not varied"): LC-5 (a `Stop` of a session whose payload exited), SZ-2 (a `Resize` to the current
+    /// size) and the A2-1 `Resize` row in `Created`.
+    pub fixed_timing: bool,
     /// A `cancel` was admitted (IN-6).
     pub cancelled: bool,
     /// `AdoptAll`: the rows that remain.
@@ -502,6 +506,14 @@ impl HostEngine {
             }
         }
         polled.events
+    }
+
+    /// Whether a clause fixes the timing of this work: the scheduler never defers it (R-20).
+    pub fn never_deferred(&self, work: &Work) -> bool {
+        match work {
+            Work::Op(op) => self.ops.get(op).is_some_and(|p| p.fixed_timing),
+            _ => false,
+        }
     }
 
     /// The count of events posted since the last call: the `events_posted` of `PumpReport` (A2-7).
