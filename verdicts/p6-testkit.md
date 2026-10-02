@@ -1,6 +1,31 @@
 # P6 testkit review — Scope 2, step 2
 
-VERDICT: NOT CLEAN (3 open)
+VERDICT: CLEAN
+
+Reviewed head: `9a55c2367ecfd193259d4e05c1da59f2b210eb12`.
+Delta base: `3012073`.
+Contracts pin: `contracts-v0.1.9`, commit `7f72acf8427ad7bf414db42d2360d5dccc7b3e13`.
+No reported findings remain open. The reviewer ran no tests or gate.
+
+- S2-R1 closes under R-19. The layer returns `AttachRefused { error, transport }` for every scripted attach refusal.
+  Delegated results pass through unchanged. The test retains and uses an owned stream across refusal at occurrence 2.
+  Calls 1 and 3 delegate. The test also checks the returned WebRTC fields.
+- S4-R1 closes. The dependency graph resolves explicit package aliases and inherited workspace aliases.
+  It reads target-specific dependency, build-dependency, and dev-dependency tables. The tests cover these cases and transitive aliases.
+- S4-R2 closes. Cleanup takes and retires the group ID before signalling and reaping.
+  The guard exposes pipes, not a mutable `Child`. Status checks use `NOWAIT`, so the leader stays unreaped until cleanup.
+  The slow tests cover repeated cleanup, cleanup followed by drop, and leader exit before cleanup.
+- The pin and lockfile agree with the fixed contract tag. Both ledger lists add the three E4 ids as pending.
+  BUILD.md and the source status files are unchanged between the previous and new tags.
+
+This CLEAN covers the reviewed refusal layer, edge building blocks, statement check, candidate reader, and group guard.
+It does not approve completion of Scope 2. The real-process harness type, harness control dispatch, quiet fences,
+identity-dependent controls, terminal oracle controls, and conformance proofs remain outstanding.
+The gate must run on this exact head after CLEAN. A changed head requires delta review.
+
+## Earlier review history
+
+The entries below preserve earlier evidence. The CLEAN and closure statements above control their current status.
 
 Latest delta reviewed: `3012073e6db33a953a69414575ba63807acc24b7`, against `c32c7a7`.
 S3-R1 is closed. Output pieces preserve atomic boundaries and bound every read by the front piece and buffer.
