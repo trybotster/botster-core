@@ -88,7 +88,7 @@ Requirement: plan section 5 says that pending and deferred ids are never counted
 Only `Outcome::Passed` establishes a passing proof.
 
 Required change: make pending and deferred trials remain ignored at runtime, even when the caller requests ignored tests.
-libtest-mimic 0.8.2 provides `Trial::skippable_test` and `Completion::ignored_with` for this purpose.
+libtest-mimic 0.8.2 provides `Trial::ignorable_test` and `Completion::ignored_with` for this purpose.
 Apply the runner selection before creating runnable trials, or report excluded trials as ignored.
 Keep the passed count limited to transcripts that actually return `Outcome::Passed`.
 Include the authority and start condition in the deferred report, as plan section 5 requires.
