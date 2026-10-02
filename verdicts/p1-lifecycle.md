@@ -2,7 +2,8 @@
 
 VERDICT: NOT CLEAN (2 open)
 
-Reviewed head: `3936f014be834e24505354e99fa4932ed989be29` on `stage1/p1-lifecycle`.
+Reviewed head: `154f0109e8809536a30340cda89198fa34259db5` on `stage1/p1-lifecycle`.
+Round 4 head: `3936f014be834e24505354e99fa4932ed989be29`.
 Round 3 head: `eda5711bc9252dbf402e8d8b391bcf8e8e80ce07`.
 Round 2 head: `1f0146e831b03fb3d1edd247240d97b3c9503552`.
 Round 1 head: `fb75dec1b6a00270c89f63ce6b67357892e060ff`.
@@ -28,10 +29,65 @@ Those ids remain pending until both harnesses prove them.
 The delta adds A8-1 capture reservations. I found no additional defect in that reservation change.
 The Round 1 pin delta did not close F1 through F15. F16 also applies under Amendment 7.
 
-Current open findings: F3, F7.
-Closed findings: F1, F2, F4, F5, F6, F8, F9, F10, F11, F12, F13, F15, F16, F17, F18, F19.
+Current open findings: F7, F20.
+Closed findings: F1, F2, F3, F4, F5, F6, F8, F9, F10, F11, F12, F13, F15, F16, F17, F18, F19.
 F14 has an authorized scope deferral. It is not satisfied as a TI-1 requirement.
 Each open finding must close before CLEAN.
+
+## Round 5: closure evidence and remaining defects
+
+I reviewed the delta from `3936f01` to `154f010`.
+This remains a logic review. I did not run tests or the gate.
+The references in this section use `154f010`.
+
+| Finding | Status | Evidence |
+|---|---|---|
+| F3 | CLOSED | The driver queues failed handoffs and publishes their results within the event budget. It runs due Silent steps before process and link input, outside scheduler selection. |
+| F7 | OPEN, LOW | The code and botster-core-link interface follow the authorized EndPayload signal path. DESIGN.md still gives conflicting instructions for P3. |
+| F20 | OPEN, LOW | The new real signal test uses a fixed sleep as proof that the worker handler is ready. |
+
+F7's runtime defect is closed for P1's host-side checkpoint.
+EndPayload maps to SIGUSR1 for the verified worker process alone, rather than its group.
+Stop, link failure during Stop, and stop grace all use that request.
+The interface defines payload teardown, worker survival, idempotence, and exit reports after recovery or adoption.
+P3 still supplies the real worker handler, and the required end-to-end ids remain pending for P3.
+This closure does not establish LC-5 or ST-5 end-to-end conformance.
+
+### F7 remaining — LOW: The design note still gives forbidden worker-control instructions
+
+Evidence: `crates/botster-core-host/DESIGN.md:37`, `:65`, and `:66`.
+
+The choices table still says that a broken-link Stop signals the bare payload group.
+The Round 2 decisions still instruct the host to send Term and then Kill to the worker.
+The P3 interface note still specifies SIGTERM and permits a surviving payload after the host kills the worker.
+The new EndPayload paragraph supplies the correct interface, but it does not remove those contradictory instructions.
+The previous review explicitly required removal of the statement that permits this live payload.
+
+Required change: Make DESIGN.md state the current worker-control interface consistently.
+Remove the bare-group signal, worker Term/Kill fallback, and live-payload permission.
+Keep the approved SIGUSR1 request, worker survival, and P3 ownership clear.
+Authority: the lead's F7 authorization, LC-5, ST-5, and AD-6.
+
+### F20 — LOW: The signal test assumes handler readiness from elapsed time
+
+Evidence: `crates/botster-core-sys/tests/slow_process.rs:114`.
+
+The test sleeps for 300 ms, then sends SIGUSR1 twice.
+Elapsed time does not prove that the shell installed its trap.
+A delayed shell can receive SIGUSR1 before the trap is installed and exit from the default signal action.
+The test then fails despite a correct signal edge.
+The annotation describes a settle timer, not a deadline timer.
+The binding pair-common rule allows marked deadline timers only and prohibits sleeps used to wait for progress.
+
+Required change: Wait for an explicit handler-ready indication before sending EndPayload.
+Use a deadline to bound that wait.
+Retain the test's process cleanup and exact exit assertion.
+Authority: pair-common's test rule and BUILD.md's fast and lean proof rules.
+
+## Round 4 evidence (historical)
+
+The Round 4 statuses below describe `3936f01` only.
+The Round 5 table above contains the current statuses.
 
 ## Round 4: closure evidence and remaining defects
 
