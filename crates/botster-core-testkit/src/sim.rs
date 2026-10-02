@@ -29,8 +29,9 @@ pub struct TraceEntry {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct NodeId(pub usize);
 
-/// A machine with its edges, as the `Sim` sees it.
-pub trait Node {
+/// A machine with its edges, as the `Sim` sees it. It is `Send`, because a `Core` that owns the `Sim` of its workers is
+/// `Send` (Core TH-1).
+pub trait Node: Send {
     /// How many inputs are ready at `now`: an edge endpoint whose flag matches its interest, and a due deadline.
     fn ready(&mut self, now: Instant) -> usize;
     /// Hands the `index`-th ready input (of `ready(now)`) to the machine and routes its actions.
@@ -75,10 +76,10 @@ impl<M: Machine, B: Binding<M>> MachineNode<M, B> {
 
 impl<M, B> Node for MachineNode<M, B>
 where
-    M: Machine,
+    M: Machine + Send,
     M::Input: Debug,
     M::Action: Debug,
-    B: Binding<M>,
+    B: Binding<M> + Send,
 {
     fn ready(&mut self, now: Instant) -> usize {
         self.edge_inputs = self.binding.ready(now, &self.machine);
@@ -129,6 +130,16 @@ impl Sim {
         Sim {
             now: start,
             scheduler: SchedulerHandle::with_seed(seed),
+            nodes: Vec::new(),
+            trace: Vec::new(),
+        }
+    }
+
+    /// A `Sim` that draws from `scheduler`, the one seeded stream of a run that it shares with the host's edges (Core A5-2).
+    pub fn with_scheduler(scheduler: SchedulerHandle, start: Instant) -> Sim {
+        Sim {
+            now: start,
+            scheduler,
             nodes: Vec::new(),
             trace: Vec::new(),
         }
