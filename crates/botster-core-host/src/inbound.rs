@@ -13,6 +13,7 @@ use std::collections::BTreeSet;
 
 impl HostEngine {
     pub(crate) fn on_input(&mut self, input: Input) {
+        self.step_mark = self.queue.total_posted();
         match input {
             Input::Clock(unix) => self.unix = unix,
             Input::Run(work) => self.run(work),
@@ -81,13 +82,9 @@ impl HostEngine {
             (Op::UpdateMetadata { labels, .. }, Ok(())) => {
                 if let Some(session) = session.and_then(|id| self.sessions.get_mut(&id)) {
                     session.labels = labels;
-                    let event = Event::MetadataChanged {
-                        id: session.id.clone(),
-                        instance: session.instance.clone(),
-                    };
-                    // LC-9: `MetadataChanged` follows the completion.
+                    session.metadata_pending = true;
+                    // LC-9: `MetadataChanged` follows the completion, in the next step of the session.
                     self.complete(op, OpResult::Ok(OpOutput::Unit));
-                    self.queue.post_keyed(event);
                 } else {
                     self.complete(op, OpResult::Ok(OpOutput::Unit));
                 }

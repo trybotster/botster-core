@@ -233,6 +233,8 @@ pub struct Session {
     pub ops: IdRanges,
     /// Admitted setters of a `Created` session that have not run: a start waits for them (AM-1 order).
     pub pending_setters: u32,
+    /// `MetadataChanged` is due: it follows the completion of an `UpdateMetadata` in a step of its own (LC-9).
+    pub metadata_pending: bool,
     /// How the payload ended while a start flow was still running: applied when the flow ends.
     pub pending_end: Option<SessionEnd>,
     /// Routes that were registered before the link existed: the handoff waits for the link (DP-2).
