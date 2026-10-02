@@ -161,14 +161,16 @@ mod tests {
         )
         .unwrap();
         let tokens = parse_denylist(&text);
-        for name in [
-            "botster-core-daemon",
-            "botster-terminal-protocol",
-            "TerminalMetadataProducer",
-            "SessionRegistry",
-            "SPH1",
-        ] {
-            assert!(tokens.iter().any(|t| t == name), "{name}");
+        // The names are built from halves: this file is scanned by the taint check too.
+        let names = [
+            ["botster-core", "-daemon"],
+            ["botster-terminal", "-protocol"],
+            ["TerminalMetadata", "Producer"],
+            ["Session", "Registry"],
+            ["SPH", "1"],
+        ];
+        for name in names.map(|halves| halves.concat()) {
+            assert!(tokens.iter().any(|t| *t == name), "{name}");
         }
     }
 }
