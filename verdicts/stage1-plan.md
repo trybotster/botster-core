@@ -790,3 +790,25 @@ The lead has assigned the remaining code changes to P6; this verdict does not ve
 I ran no product tests.
 
 VERDICT: CLEAN
+
+## Round 15 — revision 15
+
+Plan: `3cb6ec9c0aa9a21ddfdd8459c2756c9e368db7e9`, `docs/stage1-plan.md`.
+Pin: `stage1-plan.c43693ff.md`.
+Verified SHA-256: `c43693fffde49ea2eaaac2e9eca9c5133d380376b171f1af478423fcf6d86649`.
+Contracts tag: `contracts-v0.1.7`, commit `f14c89510323fd3956219212a4dfffbf7d09f8ae`, manifest final21.
+
+I reviewed the complete delta against the new contracts tag.
+The plan matches its pin. The A11 and A12 hashes and manifest tags match their sources.
+The A11 summary preserves rejection of frames from an unauthenticated impostor.
+The A12 summary distinguishes a held report from cleanup interrupted before its result exists.
+A12-1a loses the held report by breaking the link, as its pinned clause requires.
+The R-18 summary matches the ruling. BUILD.md and tooling.md have no changes between the two contracts tags.
+The ownership generator reproduces all lists with 638 unique active ids and two withdrawn ids excluded.
+P4b owns 65 ids, including both new cleanup ids. P5 owns 55 ids, including the new impostor-frame id.
+F1 through F15 remain CLOSED. I found no new finding.
+This verdict covers the plan at the commit above.
+It does not approve product code or establish Stage 1 acceptance.
+I ran no product tests.
+
+VERDICT: CLEAN
