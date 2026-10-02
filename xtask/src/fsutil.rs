@@ -249,4 +249,19 @@ mod tests {
             .to_string()
             .contains("does not resolve"));
     }
+
+    /// `base` resolves `BOTSTER_CI_BASE_REF` to the commit of the run. (The one test that calls it: the commit is kept for the
+    /// whole process.)
+    #[test]
+    fn base_resolves_the_variable_to_a_commit() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        git(root, &["init", "-q"]);
+        git(root, &["commit", "-q", "--allow-empty", "-m", "one"]);
+        git(root, &["tag", "gate-base"]);
+        std::env::set_var("BOTSTER_CI_BASE_REF", "gate-base");
+        let commit = commit_of(root, "gate-base").unwrap();
+        assert_eq!(base(root).unwrap(), commit);
+        assert_eq!(base(root).unwrap(), commit);
+    }
 }

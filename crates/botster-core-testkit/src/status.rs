@@ -47,22 +47,12 @@ fn lines(text: &str) -> impl Iterator<Item = (usize, Vec<&str>)> {
         if line.is_empty() || line.starts_with('#') {
             return None;
         }
-        let mut fields = Vec::new();
-        let mut start = 0;
-        let bytes = line.as_bytes();
-        let mut at = 0;
-        while at < bytes.len() {
-            if bytes[at] == b' ' && bytes.get(at + 1) == Some(&b' ') {
-                fields.push(line[start..at].trim());
-                while bytes.get(at) == Some(&b' ') {
-                    at += 1;
-                }
-                start = at;
-            } else {
-                at += 1;
-            }
-        }
-        fields.push(line[start..].trim());
+        // Fields are separated by two or more spaces; a longer run leaves empty pieces, which are dropped.
+        let fields: Vec<&str> = line
+            .split("  ")
+            .map(str::trim)
+            .filter(|field| !field.is_empty())
+            .collect();
         Some((i + 1, fields))
     })
 }
