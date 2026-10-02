@@ -48,8 +48,8 @@ worker needs `startup` on its command line for it.
 
 ## Prior art (BUILD.md rule 0)
 
-- **Vault:** "botster workers own authoritative terminal modes and semantic input encoding" (M2 follows it); "portable_pty
-  MasterPty is private"; "O_CLOEXEC is process-scoped and does not affect SCM_RIGHTS fd transfer" (DP-2, later).
+- **Vault:** "botster workers own authoritative terminal modes and semantic input encoding" (M2 follows it); "the old PTY crate's
+  master is private" (plan 7.1); "O_CLOEXEC is process-scoped and does not affect SCM_RIGHTS fd transfer" (DP-2, later).
 - **Old botster-core at `72b2e33`:**
   - `crates/botster-core/src/runtime/process_exit.rs` (kqueue `EVFILT_PROC` and `waitid(WNOWAIT)` on macOS, pidfd on Linux):
     **REJECTED as a steal**, kept as a lesson. Its kqueue path needs `unsafe` (`libc::kevent`, and `rustix::event::kqueue::kevent`
@@ -58,14 +58,14 @@ worker needs `startup` on its command line for it.
     child is unreaped; report the exit without reaping. Its subtle cases (`NOTE_EXIT` before the child is reapable, `ESRCH` at
     registration, the `SIGCHLD` recheck) disappear, because `waitid` returns only when the child is reapable. One code path on
     macOS and Linux.
-  - `crates/botster-core/src/runtime/local_process.rs` (on `portable-pty`): **REJECTED** (plan 7.1). Lesson kept: `killpg`
+  - `crates/botster-core/src/runtime/local_process.rs` (on the old PTY crate that plan 7.1 rejects): **REJECTED** (plan 7.1). Lesson kept: `killpg`
     `SIGTERM`, then `SIGKILL`.
-  - `crates/botster-core-daemon/src/bin/botster-session-worker.rs`: **mechanism REJECTED** (not sans-IO), lessons kept: control
+  - the old session-worker binary of the old daemon crate (plan 7.1, its path is in the PR's Prior-art note): **mechanism REJECTED** (not sans-IO), lessons kept: control
     first in each turn (the binary's loop); the remaining lessons (reply slots, the snapshot gate) are M2's.
   - Nothing was stolen: there is no `Stolen-From` commit.
 - **Libraries added:**
   - `pty-process` 0.5.3: opens the PTY with `rustix`, starts the payload as a session leader with the PTY as its controlling
-    terminal (`setsid`, `TIOCSCTTY`), and exposes the master descriptor. It is not `portable-pty`: the master is ours. Its
+    terminal (`setsid`, `TIOCSCTTY`), and exposes the master descriptor. It is not the PTY crate that plan 7.1 rejects: the master is ours. Its
     `pre_exec` `unsafe` is inside the library, so our crates keep `unsafe_code = "forbid"`.
   - `signal-hook` 0.3 and `signal-hook-mio` 0.2: the `SIGUSR1` handler as a readiness source of the `mio` loop.
   - `mio` (already in the workspace, P1), `rustix` (`event` feature added, for the slow tests' readiness waits).
