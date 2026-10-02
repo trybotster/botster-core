@@ -512,6 +512,13 @@ impl HostEngine {
     pub fn never_deferred(&self, work: &Work) -> bool {
         match work {
             Work::Op(op) => self.ops.get(op).is_some_and(|p| p.fixed_timing),
+            // The end of a payload that an edge reported (the exit of the worker, its loss) is posted by the step that follows the
+            // report: no operation makes progress there, so the scheduler has nothing to defer (A5-2: it defers the progress
+            // of an operation).
+            Work::Session(id) => self
+                .sessions
+                .get(id)
+                .is_some_and(|s| matches!(&s.flow, Flow::Stop(f) if f.end.is_some())),
             _ => false,
         }
     }

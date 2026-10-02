@@ -598,3 +598,28 @@ fn writes_of_one_session_reach_the_worker_in_begin_order() {
         .collect();
     assert_eq!(sent, ["a", "b", "c", "d"]);
 }
+
+/// A5-2: the scheduler defers the progress of an operation, not the transition that an edge report causes: when the process
+/// edge reports the exit of a worker, the session is `Lost` in the pump that takes the report, whatever the scheduler defers.
+#[test]
+fn a_reported_exit_is_posted_in_its_pump_whatever_the_scheduler_defers() {
+    let on = Arc::new(AtomicBool::new(false));
+    let mut rig = Rig::with_scheduler(
+        CoreLimits::default(),
+        Box::new(Switched(Production::new(), Arc::clone(&on))),
+    );
+    run_session(&mut rig, "s1", LinkId(1));
+    on.store(true, Ordering::SeqCst);
+    rig.mock.lock().unwrap().exits.push((
+        ProcessIdentity {
+            pid: 500,
+            start_time: 1,
+        },
+        ExitStatus::Code(0),
+    ));
+    rig.pump();
+    assert_eq!(
+        rig.driver.get(&sid("s1")).unwrap().state,
+        SessionState::Lost(LostReason::WorkerGone)
+    );
+}
