@@ -110,8 +110,18 @@ impl HostEngine {
         if self.due_deadline(true).is_some() {
             out.push(Work::Silent);
         }
+        // The writes of one session reach its worker in `begin` order (AM-2): only the first write of a session that is not
+        // forwarded yet is offered.
+        let mut unsent_write: BTreeSet<&SessionId> = BTreeSet::new();
         for (id, p) in &self.ops {
             match &p.step {
+                Step::Ready(Next::Forward) if matches!(p.op, Op::WriteInput { .. }) => {
+                    if let Some(session) = &p.session {
+                        if unsent_write.insert(session) {
+                            out.push(Work::Op(*id));
+                        }
+                    }
+                }
                 Step::Ready(next) => {
                     if !self.step_needs_room(next) || room {
                         out.push(Work::Op(*id));
