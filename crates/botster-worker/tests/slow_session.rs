@@ -109,6 +109,8 @@ fn end_child_worker(pid: rustix::process::Pid) {
 struct Link {
     stream: UnixStream,
     decoder: FrameDecoder,
+    /// Bytes read from the socket that the decoder has not taken yet: the frames after the first one of a read.
+    pending: Vec<u8>,
 }
 
 impl Link {
@@ -124,26 +126,23 @@ impl Link {
         self.send(FrameType::HOST_MSG, &payload);
     }
 
-    /// The next frame; the read times out at the socket (a marked deadline set at the accept).
+    /// The next frame; the read times out at the socket (a marked deadline set at the accept). Every byte of a read is
+    /// kept until the decoder takes it, so several frames in one read are all delivered, in order.
     fn frame(&mut self) -> (FrameType, Vec<u8>) {
         let mut buf = [0u8; 4096];
         loop {
+            let took = self.decoder.push(&self.pending);
+            self.pending.drain(..took);
             if let Some(frame) = self.decoder.next_frame().unwrap() {
                 return (frame.kind, frame.payload);
             }
+            // No complete frame: the decoder took every pending byte, and needs more.
             let n = self
                 .stream
                 .read(&mut buf)
                 .expect("a frame before the deadline");
             assert!(n > 0, "the worker closed the link");
-            let mut rest = &buf[..n];
-            while !rest.is_empty() {
-                let took = self.decoder.push(rest);
-                rest = &rest[took..];
-                if took == 0 {
-                    break;
-                }
-            }
+            self.pending.extend_from_slice(&buf[..n]);
         }
     }
 
@@ -184,6 +183,7 @@ impl Session {
         let mut link = Link {
             stream,
             decoder: FrameDecoder::new(1 << 20),
+            pending: Vec::new(),
         };
         let (kind, payload) = link.frame();
         assert_eq!(kind, FrameType::HELLO);
@@ -378,4 +378,30 @@ fn sigterm_on_the_worker_ends_its_payload_group_then_the_worker() {
     assert_eq!(s.link.report(), exited(None, Some(9)));
     let status = s.worker.worker.wait().unwrap();
     assert_eq!(status.code(), Some(0));
+}
+
+/// The test's own link helper (F8): two complete frames and the start of a third in ONE read are all delivered, in order,
+/// and the third completes with the next read.
+#[test]
+fn the_link_helper_keeps_every_frame_of_one_read() {
+    let (stream, mut peer) = UnixStream::pair().unwrap();
+    // timer: deadline — the limit of a read that a test writes itself; not a contract value.
+    stream
+        .set_read_timeout(Some(Duration::from_secs(20)))
+        .unwrap();
+    let mut link = Link {
+        stream,
+        decoder: FrameDecoder::new(1 << 20),
+        pending: Vec::new(),
+    };
+    let mut wire = Vec::new();
+    for payload in [&b"one"[..], b"two", b"three"] {
+        encode_frame(FrameType::WORKER_MSG, payload, u32::MAX, &mut wire).unwrap();
+    }
+    let split = wire.len() - 2;
+    peer.write_all(&wire[..split]).unwrap();
+    assert_eq!(link.frame().1, b"one");
+    assert_eq!(link.frame().1, b"two");
+    peer.write_all(&wire[split..]).unwrap();
+    assert_eq!(link.frame().1, b"three");
 }
