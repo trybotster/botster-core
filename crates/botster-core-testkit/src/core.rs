@@ -286,6 +286,25 @@ pub struct Directories {
     dirs: BTreeMap<String, Arc<Mutex<Registry>>>,
 }
 
+/// What one run of a harness gives every `Core` that it opens.
+#[derive(Debug, Clone)]
+pub struct RunInputs {
+    /// Seeds the random values (plan 2.3a).
+    pub seed: u64,
+    /// The run's one seeded stream, shared with the in-process workers (A5-2).
+    pub scheduler: SchedulerHandle,
+    /// The start of the injected clock.
+    pub start: Instant,
+}
+
+/// A `Core` that `Directories::open` built: the host driver, its fault switches, and the wake object of its edges.
+pub struct Opened {
+    pub driver: HostDriver<SimEdges>,
+    pub faults: Arc<Mutex<Faults>>,
+    /// The testkit's `Core` also signals it for its in-process workers.
+    pub wake: Arc<dyn HostWake>,
+}
+
 impl Directories {
     /// Opens a `Core` over the in-memory directory `name`, as `Core::open` opens a real one (LC-1, LC-2, 9B, DP-8).
     ///
@@ -295,11 +314,15 @@ impl Directories {
         &mut self,
         name: &str,
         config: &OpenConfig,
-        seed: u64,
-        start: Instant,
+        run: RunInputs,
         features: Features,
         spawner: Option<Box<dyn Spawner>>,
-    ) -> Result<(HostDriver<SimEdges>, Arc<Mutex<Faults>>), CoreError> {
+    ) -> Result<Opened, CoreError> {
+        let RunInputs {
+            seed,
+            scheduler,
+            start,
+        } = run;
         let worker_path = check_open(config)?;
         let registry = Arc::clone(self.dirs.entry(name.to_string()).or_default());
         {
@@ -328,7 +351,6 @@ impl Directories {
             );
             epoch
         };
-        let scheduler = SchedulerHandle::with_seed(seed);
         let faults = Arc::new(Mutex::new(Faults::default()));
         let edges = SimEdges {
             registry,
@@ -356,7 +378,12 @@ impl Directories {
                 terminfo_source: String::new(),
             },
         };
-        Ok((HostDriver::new(cfg, edges, start), faults))
+        let wake = edges.wake();
+        Ok(Opened {
+            driver: HostDriver::new(cfg, edges, start),
+            faults,
+            wake,
+        })
     }
 }
 
