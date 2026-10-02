@@ -561,4 +561,18 @@ mod tests {
             io::ErrorKind::BrokenPipe
         );
     }
+
+    /// Either end can send a descriptor, and the second end finds its peer too.
+    #[test]
+    fn the_second_end_sends_descriptors_too() {
+        let (a, mut b) = link_pair(2);
+        let mut a = a;
+        b.send_descriptor(Descriptor::new(5u8)).unwrap();
+        assert_eq!(a.recv_descriptor().unwrap().downcast::<u8>().unwrap(), 5);
+        drop(a);
+        assert_eq!(
+            b.send_descriptor(Descriptor::new(6u8)).unwrap_err().kind(),
+            io::ErrorKind::BrokenPipe
+        );
+    }
 }
