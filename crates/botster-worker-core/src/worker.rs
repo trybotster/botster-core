@@ -204,6 +204,10 @@ pub struct Worker {
     early: Early,
     /// The admission point and the host's writes (AM-2, IN-1 to IN-10).
     input: input::InputState,
+    /// The terminal model (libghostty), from the launch.
+    model: Option<model::Model>,
+    /// Core's limits that the worker applies itself (`LaunchSpec.limits`).
+    limits: CoreLimits,
     actions: VecDeque<Action>,
 }
 
@@ -240,6 +244,8 @@ impl Worker {
             terminating: false,
             early: Early::default(),
             input: input::InputState::default(),
+            model: None,
+            limits: CoreLimits::default(),
             actions: VecDeque::new(),
         };
         let hello = Hello {
@@ -400,6 +406,16 @@ impl Worker {
         if self.payload != PayloadState::None {
             return;
         }
+        // The model exists before the payload, so no byte of its output is missed (BUILD.md: libghostty is the model).
+        let Some(model) = model::Model::new(&spec.size) else {
+            self.payload = PayloadState::Failed;
+            self.report(&WorkerMsg::LaunchFailed {
+                reason: StartFailReason::WorkerFailed,
+            });
+            return;
+        };
+        self.model = Some(model);
+        self.limits = spec.limits.clone();
         self.frame_bound = spec.link_frame_bound;
         self.decoder = rebound(&self.decoder, spec.link_frame_bound);
         self.stop_grace = Duration::from_millis(spec.stop_grace_ms);
@@ -424,7 +440,7 @@ impl Worker {
                 let msg = WorkerMsg::Launched {
                     features: worker_features(),
                     terminal: self.initial_terminal(),
-                    formats: Vec::new(),
+                    formats: model::snapshot_formats(),
                     payload: id,
                 };
                 self.report(&msg);
@@ -457,19 +473,23 @@ impl Worker {
         }
     }
 
-    /// PLACEHOLDER until the terminal model (P3 M2): the state that `terminal_state` caches at the launch. It carries the
-    /// launch size and no tracked mode, title or cwd. M2 replaces it with the state of the libghostty model (BUILD.md: the
-    /// terminal semantics are libghostty's), and no terminal-state id leaves `core-pending.txt` before that.
+    /// The state that `terminal_state` caches from the launch (ST-4): the model's size, modes, title and cwd, and the
+    /// revisions.
     fn initial_terminal(&self) -> TerminalState {
+        let size = self.launch_size.unwrap_or(Size {
+            rows: 0,
+            cols: 0,
+            cell_px: None,
+        });
         TerminalState {
-            size: self.launch_size.unwrap_or(Size {
-                rows: 0,
-                cols: 0,
-                cell_px: None,
-            }),
-            modes: ModeFlags::default(),
-            title: None,
-            cwd: None,
+            size,
+            modes: self
+                .model
+                .as_ref()
+                .map(model::Model::modes)
+                .unwrap_or_default(),
+            title: self.model.as_ref().and_then(model::Model::title),
+            cwd: self.model.as_ref().and_then(model::Model::cwd),
             last_output_at: None,
             focused: None,
             model_rev: ModelRev(self.input.model_rev),
@@ -477,8 +497,8 @@ impl Worker {
         }
     }
 
-    /// The operations that need the worker: `Signal` (LC-6) and `WriteInput` (IN-1). The reads and the setters come with the
-    /// terminal model, and the worker answers them `Internal` until then.
+    /// The operations that need the worker: `Signal` (LC-6), `WriteInput` (IN-1) and the reads of the model (ST-1 to ST-3).
+    /// The setters, the capture and the facts come next, and the worker answers them `Internal` until then.
     fn on_op(&mut self, _now: Instant, req: u64, op: Op) {
         let result = match op {
             Op::WriteInput { payload, guard, .. } => {
@@ -486,6 +506,9 @@ impl Worker {
                 self.on_write_input(req, payload, guard);
                 return;
             }
+            Op::ReadScreen { history, .. } => self.read_screen(history),
+            Op::ReadCursor { .. } => self.read_cursor(),
+            Op::ReadModeFlags { .. } => self.read_modes(),
             Op::Signal { sig, .. } => {
                 if let (true, Some(number)) = (self.group_live(), signal_number(sig)) {
                     self.signal(number);
@@ -681,8 +704,8 @@ impl Machine for Worker {
             Input::Spawned(result) => self.on_spawned(now, result),
             // The terminal model takes the output in M2. Until then the worker reads it, so the payload never blocks on a
             // full PTY.
-            // Output changes the read-visible state (ST-1); the terminal model takes the bytes when it comes.
-            Input::PtyOutput(_) => self.input.model_rev += 1,
+            // Output goes to the model in steps (plan 2.4); each step that consumes bytes advances model_rev (ST-1).
+            Input::PtyOutput(bytes) => self.feed_model(bytes),
             Input::PtyWritten(result) => self.on_pty_written(result),
             Input::PtyWritable => self.on_pty_writable(),
             Input::PtyDrained => self.on_drained(),
@@ -742,6 +765,7 @@ fn op_name(op: &Op) -> String {
 }
 
 mod input;
+mod model;
 
 #[cfg(test)]
 mod tests;
