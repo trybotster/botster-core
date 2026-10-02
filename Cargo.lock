@@ -315,6 +315,7 @@ dependencies = [
 name = "botster-core-testkit"
 version = "0.1.0"
 dependencies = [
+ "botster-conformance",
  "botster-core-conformance",
  "botster-core-contract",
  "botster-core-edges",

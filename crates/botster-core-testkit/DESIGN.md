@@ -37,10 +37,15 @@ the probe and does not move the pin.
 
 ## Budget check (R4)
 
-- Command: a throwaway example (not committed) that ran `run_transcript` for every Core transcript over `TestkitHarness`, once with
-  the default seed set (0 to 7) and once with `BOTSTER_SEEDS=0-31`. Measured at `b97b605`.
-- Result: 132 transcripts, 32 seeds, 1.5 ms in total, about 11 µs per transcript, worst 0.53 ms (`conf::am_1_create_then_start_same_turn`).
-  The 8-seed run gave the same time.
-- **Limit of this measurement:** every transcript stops at its first step, because `open` reports that no Core exists. The numbers
-  cover the failing `open` path of the harness. They do not show the cost of a passing Core transcript. R4 needs a new measurement when
-  P1 provides the engine.
+- Source and command: `crates/botster-core-testkit/examples/budget.rs`, run as
+  `botsterq run --label "core p6 budget" --deadline 20m -- env -u RUSTUP_TOOLCHAIN CARGO_BUILD_JOBS=4 cargo run -q -p botster-core-testkit --example budget --release`.
+  The example runs every Core transcript once per seed for seeds 0 to 31 explicitly, because the pinned `run_transcript` stops at
+  the first seed that does not pass. It counts the driver constructions and the outcomes.
+- Measured at the head that adds the example (the commit after `4f8ec55`; the harness code is unchanged from `4f8ec55`).
+- Result: 132 transcripts, 32 seeds, 4224 runs, 4192 driver constructions (131 transcripts x 32 seeds), 32 passed, 4192 not passed.
+  Total 2.75 ms: 20.8 µs per transcript over 32 seeds, 650 ns per run, worst run 203 µs
+  (`conf::am_1_create_then_start_same_turn`, seed 0). The one transcript that passes constructs no driver, so it ends before `open`
+  (a structural or control check that stops the transcript earlier).
+- **Limit of this measurement:** the 4192 runs that construct a driver stop at `open`, which reports that no Core exists. The numbers
+  cover the failing `open` path of the harness. They do not show the cost of a passing Core transcript. R4 needs a new measurement
+  when P1 provides the engine.
