@@ -1,10 +1,10 @@
 # P2 libghostty review
 
-Reviewed head: `f66bbcc740721db8dc017df5c4434caaa328c9a7`.
+Reviewed head: `e9f8727da6d23ee700312d4f67eb0a5aa0b502d7`.
 Previous audit head: `fd1471eabca0adb344c6027b8995e1151aa8f8a8`.
 Scope: the written audit only. This verdict does not approve the binding or a Ghostty pin change.
 
-VERDICT: NOT CLEAN (2 open; F1–F9 and F11 closed for the written audit)
+VERDICT: CLEAN (written audit only; F1–F12 closed)
 
 The review uses manifest final13, BUILD.md at `2f2996ef0f016a1fefc6879e74deaef033383b66`, and plan pin `stage1-plan.a24efe7e`.
 The plan hash matches its recorded SHA-256.
@@ -223,7 +223,7 @@ A remaining crash needs a root-cause repair or a lead decision before the pin mo
 
 ## F10 — MEDIUM — The build proposal permits a network-dependent gate
 
-Status: OPEN.
+Status: CLOSED in audit revision 3c. Original finding follows for the record.
 Audit evidence: Build notes permit `build.rs` to fetch `translate_c` and defer the choice until binding implementation.
 The lead requires a hash-pinned, prefetched dependency so gate builds work offline.
 
@@ -244,7 +244,7 @@ Do not carry the PIN return-value interface into the proposed UP binding.
 
 ## F12 — HIGH — The resume rule covers the corpus but omits continuation failure
 
-Status: OPEN.
+Status: CLOSED in audit revision 3c. Original finding follows for the record.
 Audit evidence: the ST-6b resume row sizes the continuation limit above the longest sequence in the test corpus.
 ST-6b requires the invariant at every cut, including production output outside that corpus.
 At UP, `stream_continuation.zig:95–97` marks tracking broken when the suffix exceeds the limit or retention fails.
@@ -297,3 +297,32 @@ Neither sentence supplies a parser-byte-bound failure code.
 Required change: cite and use an existing permitted rule, or remove the unsupported byte-bound policy.
 If a contract decision is required, obtain it now rather than claiming COVERED and deferring the question.
 Also replace the incorrect UP line-50 quote citation with the actual continuation preflight evidence above.
+
+
+## Revision 3c review — CLEAN for the written audit
+
+Reviewed head: `e9f8727da6d23ee700312d4f67eb0a5aa0b502d7`.
+The reviewer checked the deltas at `765f43a1cb43eea9182649a7f237f3d5932bc577` and this head.
+The review uses plan `555bc433` and contracts-v0.1.1.
+The reviewer ran no tests.
+
+F10 closes. The audit separates immutable package inputs from writable Zig artifacts.
+The build proposal copies the pinned packages into the build cache and runs Zig with network access denied.
+A missing package or unavailable denial wrapper fails the build.
+The audit states which parts of the offline experiment were tested and which remain implementation work.
+The binding review will check the actual prefetch, copy, and denial paths.
+
+F12 closes for the written audit. The audit now states the refusal path and the ground-state alternative.
+It identifies P2's library wrappers and P3's cut and pending-output duties.
+It removes the unsupported byte-bound failure policy and corrects the source citation.
+UP `src/terminal/snapshot/snapshot.zig:50` contains the quoted preflight comment.
+UP `src/terminal/c/snapshot.zig:565–567` and `:645–646` preflight continuation before writing snapshot bytes.
+
+The audit explicitly leaves the no-ground-state capture, baseline, and resync case open as a steward question.
+It makes no completion, cancellation, bound, or failure-code claim for that case.
+The lead has taken that question to the steward. Worker completion behavior remains unapproved until the answer arrives.
+Recording that uncertainty closes the audit finding; it does not resolve the contract question.
+
+All twelve review findings close for this written audit.
+CLEAN does not approve a fork patch, binding code, a Ghostty pin change, or the worker's unresolved completion behavior.
+The next review checks the fork patch series on exact commits.
