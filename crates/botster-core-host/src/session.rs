@@ -333,4 +333,34 @@ mod tests {
         let bytes = serde_json::to_vec(&row).unwrap();
         assert_eq!(serde_json::from_slice::<Row>(&bytes).unwrap(), row);
     }
+
+    /// Core ID-1, IN-6: the op identity of a session is the exact set of its ids, whatever the order of the inserts: a gap
+    /// stays a gap, and ranges that touch merge.
+    #[test]
+    fn id_ranges_keep_the_exact_set_in_any_order() {
+        let mut ranges = IdRanges::default();
+        for id in [5, 3, 4, 9, 1] {
+            ranges.insert(id);
+        }
+        for id in 0..12u64 {
+            assert_eq!(ranges.contains(id), [1, 3, 4, 5, 9].contains(&id), "{id}");
+        }
+        assert_eq!(
+            ranges.ranges.len(),
+            3,
+            "3..=5 is one range: {:?}",
+            ranges.ranges
+        );
+        ranges.insert(4);
+        ranges.insert(2);
+        assert_eq!(ranges.ranges.len(), 2, "1..=5 merged: {:?}", ranges.ranges);
+        assert_eq!(ranges.ranges.get(&1), Some(&5));
+        ranges.insert(6);
+        ranges.insert(8);
+        assert_eq!(ranges.ranges.get(&1), Some(&6));
+        ranges.insert(7);
+        assert_eq!(ranges.ranges.len(), 1);
+        assert_eq!(ranges.ranges.get(&1), Some(&9));
+        assert!(!ranges.contains(0) && !ranges.contains(10));
+    }
 }
