@@ -506,6 +506,7 @@ mod admission;
 mod boundaries;
 mod driver;
 mod lifecycle;
+mod losses;
 mod queue_pressure;
 mod review;
 mod worker_link;
