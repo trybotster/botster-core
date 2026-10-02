@@ -4,8 +4,8 @@ Reviewed head: `89afa037b198cb26173ff520245adb926b6ca21e`.
 Previous audit head: `fd1471eabca0adb344c6027b8995e1151aa8f8a8`.
 Scope: the written audit and fork patches 0, 2, and 3 only. This verdict does not approve the full fork series, binding, or pin change.
 
-VERDICT: NOT CLEAN (patch 1: 3 open findings, P14–P16).
-Reviewed fork head: `6495721bb0496b4de561eb5b377cacd50987de0e`.
+VERDICT: NOT CLEAN (patch 1: 2 open findings, P14 and P17).
+Reviewed fork head: `38599d3209beb7bdc8c8ffcde2f8af414a21f202`.
 Written audit: CLEAN at `89afa037b198cb26173ff520245adb926b6ca21e`; F1–F12 closed.
 
 The review uses manifest final13, BUILD.md at `2f2996ef0f016a1fefc6879e74deaef033383b66`, and plan pin `stage1-plan.a24efe7e`.
@@ -541,7 +541,7 @@ Compare reported requests with the relevant input slices.
 
 ## P15 — HIGH — Two normative window queries are ignored
 
-Status: OPEN.
+Status: CLOSED at `38599d3209beb7bdc8c8ffcde2f8af414a21f202`. The original finding follows for the record.
 Evidence: `src/terminal/stream.zig:2424` accepts CSI 14 t only with one parameter.
 The new arm at line 2452 accepts CSI 13 t only with one parameter.
 The EV-8 normative table also names `CSI 14 ; 2 t` as `WindowPixels`.
@@ -556,7 +556,7 @@ Reject extra parameters that are outside the supported forms.
 
 ## P16 — MEDIUM — A failed request allocation can produce bytes with a gap
 
-Status: OPEN.
+Status: CLOSED at `38599d3209beb7bdc8c8ffcde2f8af414a21f202`. The original finding follows for the record.
 Evidence: `src/terminal/c/terminal.zig:1050–1058` sets `query_raw_truncated` when append fails, but later bytes still call append.
 If a later allocation succeeds, the buffer contains a prefix followed by later bytes, with the failed byte missing.
 The callback still marks the request available.
@@ -567,4 +567,52 @@ Never present a buffer with missing interior bytes as the request or its prefix.
 Add a focused allocation-failure test that checks the callback's bytes and flags after a later allocation can succeed.
 
 VERDICT: NOT CLEAN (3 open findings, P14–P16).
+The full fork series, binding code, and Ghostty pin change remain unapproved.
+
+
+## Patch 1 delta review — P15 and P16 closed; P14 remains open
+
+Reviewed commit: `38599d3209beb7bdc8c8ffcde2f8af414a21f202`.
+The reviewer read the complete delta and relevant stream and parser logic with `git show`.
+The reviewer ran no tests.
+
+P15 closes. CSI 14;2 t and CSI 13;2 t have distinct query kinds.
+The parser accepts the normative parameter forms and rejects the tested extra-parameter forms.
+The C enum values match the Zig enum values. Neither new kind has a library reply.
+
+P16 closes. `QueryRaw.append` stops retaining bytes after its first failure or limit overflow.
+Its retained bytes stay a contiguous prefix.
+The allocation test makes a growth fail, restores allocation, and checks that later appends do not alter the prefix.
+
+The ESC restart and shared string-ending ESC cases of P14 now have correct boundary resets.
+The callback reports an embedded ENQ alone and preserves the unfinished parser state.
+Two P14 matters remain:
+
+- **C1 restart with equal states:** `src/terminal/c/terminal.zig:1220` resets a C1 request only when `after != old`.
+  A CSI introducer, byte `0x9B`, starts a CSI even when the parser is already in `csi_entry`.
+  Input `ESC [ <0x9B> 5 n` leaves the parser in `csi_entry` at that introducer.
+  The condition keeps the abandoned `ESC [` prefix in the operating-status request.
+  The parser's anywhere transition to `csi_entry` does not require a different old state.
+  Required change: track this restart without using state inequality as the sole test.
+  Add a test that compares the request with the input slice starting at the C1 introducer.
+- **R-17 and executed C0 controls:** the lead relayed steward ruling R-17 during this review.
+  The query contains parser-assembled bytes and excludes C0 controls executed inside it.
+  The ENQ design therefore matches the ruling, and the ENQ interpretation question closes.
+  The same rule also applies to other executed C0 controls, such as BEL inside CSI.
+  The delta special-cases ENQ only; it still appends BEL to the outer request.
+  Required change: exclude executed C0 controls consistently without changing their terminal effects.
+  Keep every byte in raw Output, as OU-12 requires.
+  Correct the C header's contiguous-span promise to match R-17.
+  Add a test for an executed control other than ENQ inside a pending query.
+
+## P17 — LOW — One new request assertion copies expected escape bytes
+
+Status: OPEN at `38599d3209beb7bdc8c8ffcde2f8af414a21f202`.
+The new test `vt_write_until_query does not count an abandoned prefix against the limit` compares with literal `"\x1b[5n"`.
+That literal duplicates bytes already present in the input.
+BUILD.md forbids hand-written expected terminal bytes. P14 also required comparison with relevant input slices.
+Required change: compare with the second query's slice of `input`, as the adjacent restart test already does.
+
+VERDICT: NOT CLEAN (2 open findings, P14 and P17).
+The written audit and patches 0, 2, and 3 retain their scoped CLEAN verdicts.
 The full fork series, binding code, and Ghostty pin change remain unapproved.
