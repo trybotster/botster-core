@@ -209,6 +209,21 @@ mod tests {
     }
 
     #[test]
+    fn every_refusal_has_its_own_message() {
+        let all = [
+            HelloError::BadMagic,
+            HelloError::Truncated,
+            HelloError::InstanceIdTooLong,
+            HelloError::InstanceIdNotUtf8,
+            HelloError::TrailingBytes,
+        ];
+        let texts: std::collections::BTreeSet<String> =
+            all.iter().map(ToString::to_string).collect();
+        assert_eq!(texts.len(), all.len());
+        assert!(texts.iter().all(|t| !t.is_empty()));
+    }
+
+    #[test]
     fn a_wrong_magic_is_refused() {
         let mut wire = encoded(&sample());
         wire[0] = b'X';

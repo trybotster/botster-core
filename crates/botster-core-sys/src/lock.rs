@@ -78,6 +78,14 @@ mod tests {
     }
 
     #[test]
+    fn a_held_lock_and_an_io_failure_read_differently() {
+        let held = LockError::Held.to_string();
+        let io = LockError::Io(io::Error::other("boom")).to_string();
+        assert!(!held.is_empty() && io.contains("boom"));
+        assert_ne!(held, io);
+    }
+
+    #[test]
     fn different_paths_do_not_conflict() {
         let dir = tempfile::tempdir().unwrap();
         let _a = LockFile::try_exclusive(&dir.path().join("a")).unwrap();
