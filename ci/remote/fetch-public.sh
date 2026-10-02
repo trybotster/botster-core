@@ -18,8 +18,9 @@ with_lock() {
   if command -v flock >/dev/null 2>&1; then
     flock "$file" "$@"
   else
-    perl -MFcntl=:flock -e 'open(my $f, ">", shift) or die "$!"; flock($f, LOCK_EX) or die "$!"; exec @ARGV or die "$!"' \
-      "$file" "$@"
+    # perl keeps the lock while the command runs as its child (an exec would close the descriptor: close-on-exec).
+    perl -MFcntl=:flock -e 'open(my $f, ">", shift) or die "$!"; flock($f, LOCK_EX) or die "$!";
+      my $rc = system(@ARGV); exit($rc == -1 ? 127 : $rc & 127 ? 128 + ($rc & 127) : $rc >> 8)' "$file" "$@"
   fi
 }
 sha1() { if command -v sha1sum >/dev/null 2>&1; then sha1sum; else shasum; fi; }
