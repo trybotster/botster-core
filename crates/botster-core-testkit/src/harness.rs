@@ -1,31 +1,32 @@
 //! `TestkitHarness` (plan 4.2, default tier): the `CoreHarness` over the testkit.
 //!
-//! Until P1 provides the `HostEngine` there is no Core to open. `open` and `attach_stream` return an error that says so, and the
-//! runner reports a transcript that needs them as not passing: an id stays in `conformance/core-pending.txt` until it passes.
-//! The harness holds no stand-in for Core (BUILD.md: no hand-written stand-in for a real component).
+//! `open` builds the real `Core`: the host driver of `botster-core-host` over in-memory edges (`crate::core`). The harness holds
+//! no stand-in for Core (BUILD.md: no hand-written stand-in for a real component). A transcript that needs a control or an
+//! edge that does not exist yet gets `unsupported_control`, which is never a pass; an id stays in `conformance/core-pending.txt`
+//! until it passes.
 
-use crate::refusal::{RefusalHandle, RefusalLayer, ScriptError};
+use crate::core::{core_features, Directories};
 use botster_core_conformance::{
     ControlError, CoreHarness, DataDirRef, OpenSpec, RouteClient, WorkerBuild, WorkerRef,
 };
 use botster_core_contract::prelude::*;
-use serde_json::{json, Value};
-use std::collections::BTreeMap;
+use serde_json::Value;
+use std::time::Instant;
 
 /// The default-tier harness for one seed (foundation design 6.1: seeds 0 to 31).
 #[derive(Debug)]
 pub struct TestkitHarness {
     seed: u64,
-    /// The scripted synchronous refusals of each handle (plan 4.2a). The harness arms them; the layer in front of the handle's
-    /// Core consumes them.
-    refusals: BTreeMap<String, RefusalHandle>,
+    start: Instant,
+    directories: Directories,
 }
 
 impl TestkitHarness {
     pub fn new(seed: u64) -> TestkitHarness {
         TestkitHarness {
             seed,
-            refusals: BTreeMap::new(),
+            start: Instant::now(),
+            directories: Directories::default(),
         }
     }
 
@@ -34,53 +35,49 @@ impl TestkitHarness {
         self.seed
     }
 
-    /// Puts the refusal layer of the handle in front of its Core. `open` calls this with the Core that it built, so every Core
-    /// that a transcript sees can be scripted (Core A5-3 timing 1).
-    pub fn with_refusals(&mut self, handle: &str, core: Box<dyn CoreApi>) -> Box<dyn CoreApi> {
-        let script = self.refusals.entry(handle.to_string()).or_default().clone();
-        Box::new(RefusalLayer::new(core, script))
-    }
-
-    /// The control `fail_next`: the next call of `target` (an operation kind or a call name) is refused with `error` before it
-    /// reaches Core. `occurrence` counts from 1 (default 1). A code that is not in the call's sync column is refused with the
-    /// typed `ControlError::Refused` (Core A5-3).
-    fn fail_next(&mut self, handle: &str, args: &Value) -> Result<Value, ControlError> {
-        let bad = |why: String| ControlError::Bad(why);
-        let target = args
-            .get("target")
-            .and_then(Value::as_str)
-            .ok_or_else(|| bad("needs 'target': the call".into()))?;
-        let error = args
-            .get("error")
-            .ok_or_else(|| bad("needs 'error'".into()))?;
-        let occurrence = match args.get("occurrence") {
-            None => 1,
-            Some(n) => n
-                .as_u64()
-                .and_then(|n| usize::try_from(n).ok())
-                .ok_or_else(|| bad("'occurrence' is a number".into()))?,
-        };
-        let script = self.refusals.entry(handle.to_string()).or_default();
-        match script.arm(target, occurrence, error) {
-            Ok(()) => Ok(Value::Null),
-            Err(ScriptError::NotInSyncColumn { call, code }) => Err(ControlError::Refused(
-                json!({"call": call, "code": code, "reason": "not_in_sync_column"}),
-            )),
-            Err(other) => Err(bad(format!("{other:?}"))),
-        }
-    }
-
-    fn no_core(what: &str) -> CoreError {
+    fn no_route(what: &str) -> CoreError {
         CoreError::new(
-            ErrorCode::Internal,
-            format!("no Core exists yet: {what} needs the HostEngine of P1, which this testkit milestone does not have"),
+            ErrorCode::Unsupported { what: None },
+            format!("unsupported_control: {what} needs the route data plane (P4a)"),
         )
     }
 }
 
 impl CoreHarness for TestkitHarness {
-    fn open(&mut self, _spec: &OpenSpec) -> Result<Box<dyn CoreApi>, CoreError> {
-        Err(TestkitHarness::no_core("open"))
+    /// Builds the real `Core` over an in-memory data directory (LC-1, LC-2, 9B).
+    fn open(&mut self, spec: &OpenSpec) -> Result<Box<dyn CoreApi>, CoreError> {
+        let limits: CoreLimits = serde_json::from_value(spec.limits.clone()).map_err(|error| {
+            CoreError::new(
+                ErrorCode::InvalidConfig {
+                    field: "limits".to_string(),
+                },
+                format!("the limits are not CoreLimits: {error}"),
+            )
+        })?;
+        let config = OpenConfig {
+            data_dir: spec.data_dir.0.clone().into(),
+            worker_path: spec.worker.as_ref().map(|w| {
+                w.file_name
+                    .clone()
+                    .unwrap_or_else(|| "botster-worker".to_string())
+                    .into()
+            }),
+            limits,
+        };
+        let (driver, _faults) = self.directories.open(
+            &spec.data_dir.0,
+            &config,
+            self.seed,
+            self.start,
+            core_features(),
+            None,
+        )?;
+        Ok(Box::new(driver))
+    }
+
+    /// The harness passes the clock, so `advance_clock` moves it (Core TM-1, A5-1).
+    fn injects_clock(&self) -> bool {
+        true
     }
 
     /// A data directory is a name here: the in-memory registry of a `Sim` is keyed by it, and survives a drop and a reopen
@@ -98,9 +95,12 @@ impl CoreHarness for TestkitHarness {
         })
     }
 
-    /// The testkit passes the clock: the `Sim` owns the virtual clock (Core TM-1, plan 2.3 `Clock`).
-    fn injects_clock(&self) -> bool {
-        true
+    /// The in-process worker has no file; Core receives a path and fixes no name for it (Core E1-1).
+    fn worker_named(&self, file_name: &str) -> Option<WorkerRef> {
+        Some(WorkerRef {
+            build: WorkerBuild::Current,
+            file_name: Some(file_name.to_string()),
+        })
     }
 
     /// No handle exists, so there is nothing to drop (Core LC-12 is proven once `open` returns a Core).
@@ -148,7 +148,7 @@ impl CoreHarness for TestkitHarness {
         _session: &SessionId,
         _options: AttachOptions,
     ) -> Result<(AttachResult, Box<dyn RouteClient>), CoreError> {
-        Err(TestkitHarness::no_core("attach_stream"))
+        Err(TestkitHarness::no_route("attach_stream"))
     }
 }
 
@@ -169,18 +169,35 @@ mod tests {
         }
     }
 
-    /// Until P1, `open` says that no Core exists. It is an error that is not `unsupported_control`, so the runner reports a
-    /// failure with this text and never a pass.
+    /// Core LC-1, LC-2, 9B: `open` builds the real Core, refuses a second open of the directory while the first lives, and a
+    /// reopen after the drop works.
     #[test]
-    fn open_says_that_no_core_exists_yet() {
-        let error = TestkitHarness::new(0).open(&spec()).err().expect("no Core");
-        assert_eq!(error.code, ErrorCode::Internal);
-        assert!(
-            error.detail.contains("no Core exists yet"),
-            "{}",
-            error.detail
+    fn open_builds_a_core_and_the_directory_is_exclusive_until_the_drop() {
+        let mut harness = TestkitHarness::new(0);
+        let first = harness.open(&spec()).expect("a Core");
+        assert_eq!(first.list(), vec![]);
+        let second = harness.open(&spec()).err().expect("the directory is held");
+        assert_eq!(second.code, ErrorCode::DataDirInUse);
+        drop(first);
+        assert!(harness.open(&spec()).is_ok());
+    }
+
+    /// Core LC-1, 9B: no worker path is `MissingWorkerPath`, and a zero limit is `InvalidConfig`.
+    #[test]
+    fn open_checks_the_worker_path_and_the_limits() {
+        let mut harness = TestkitHarness::new(0);
+        let mut no_worker = spec();
+        no_worker.worker = None;
+        assert_eq!(
+            harness.open(&no_worker).err().expect("refused").code,
+            ErrorCode::MissingWorkerPath
         );
-        assert!(!error.detail.starts_with("unsupported_control:"));
+        let mut zero = spec();
+        zero.limits = json!({"max_sessions": 0});
+        assert!(matches!(
+            harness.open(&zero).err().expect("refused").code,
+            ErrorCode::InvalidConfig { .. }
+        ));
     }
 
     /// Core A6-2: no previous worker is fabricated while the protocol is 1.
