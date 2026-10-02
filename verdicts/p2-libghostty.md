@@ -4,7 +4,8 @@ Reviewed head: `e9f8727da6d23ee700312d4f67eb0a5aa0b502d7`.
 Previous audit head: `fd1471eabca0adb344c6027b8995e1151aa8f8a8`.
 Scope: the written audit only. This verdict does not approve the binding or a Ghostty pin change.
 
-VERDICT: CLEAN (written audit only; F1–F12 closed)
+VERDICT: NOT CLEAN (fork patch review: 1 open, P13).
+Written audit: CLEAN at `e9f8727da6d23ee700312d4f67eb0a5aa0b502d7`; F1–F12 closed.
 
 The review uses manifest final13, BUILD.md at `2f2996ef0f016a1fefc6879e74deaef033383b66`, and plan pin `stage1-plan.a24efe7e`.
 The plan hash matches its recorded SHA-256.
@@ -326,3 +327,25 @@ Recording that uncertainty closes the audit finding; it does not resolve the con
 All twelve review findings close for this written audit.
 CLEAN does not approve a fork patch, binding code, a Ghostty pin change, or the worker's unresolved completion behavior.
 The next review checks the fork patch series on exact commits.
+
+
+## Initial fork patch review
+
+The lead preserved fork head `c78b4beb4d8d5f2e09dcf60c7e42ea43af49e34c`.
+The reviewer read notification commit `0be4a20a532cd7af209a93c8baf848ab6bc3fcae` and the paste commit at that head.
+These reads use `git show` only. The reviewer ran no tests.
+The replacement implementer will send the final patch commits separately.
+The written audit remains CLEAN; the fork patch series is not approved.
+
+## P13 — MEDIUM — The new paste test hand-writes expected terminal bytes
+
+Status: OPEN.
+Commit: `c78b4beb4d8d5f2e09dcf60c7e42ea43af49e34c`.
+Evidence: new test `frame bracketed` in `src/terminal/c/paste.zig` uses literal escape sequences as expected prefix and suffix.
+BUILD.md requires expected terminal bytes to come from the real libghostty oracle.
+The user repeats that requirement for this review.
+
+Required change: derive the expected frame from an existing libghostty encoder path.
+For example, encode an empty payload with the existing paste encoder and compare its output with the returned frame.
+Do not copy the literal assertions into the replacement stack.
+Check other new tests for the same problem before requesting CLEAN on the patch series.
