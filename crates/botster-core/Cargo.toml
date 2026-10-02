@@ -9,8 +9,20 @@ publish.workspace = true
 [lints]
 workspace = true
 
+[features]
+# The real-process tests of this crate (BUILD.md testing rule 2): `cargo xtask slow` runs them.
+slow = []
+
 [dependencies]
 botster-core-contract.workspace = true
+botster-core-edges.workspace = true
+botster-core-host.workspace = true
+botster-core-link.workspace = true
+botster-core-sys.workspace = true
+botster-route-codec.workspace = true
+botster-worker-core.workspace = true
+mio.workspace = true
+serde_json.workspace = true
 
 [dev-dependencies]
 botster-conformance.workspace = true
@@ -18,6 +30,7 @@ botster-core-conformance.workspace = true
 botster-core-testkit.workspace = true
 libtest-mimic.workspace = true
 static_assertions.workspace = true
+tempfile.workspace = true
 toml.workspace = true
 
 [[test]]
