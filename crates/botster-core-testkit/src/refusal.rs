@@ -1085,7 +1085,7 @@ mod tests {
             }
         }
         fn worker_protocol(&self) -> u8 {
-            1
+            3
         }
         fn adoptable_worker_protocols(&self) -> BTreeSet<u8> {
             BTreeSet::from([7])
@@ -1181,7 +1181,7 @@ mod tests {
             layer.get(&SessionId("s".into())).unwrap_err().detail,
             "behind"
         );
-        assert_eq!(layer.worker_protocol(), 1);
+        assert_eq!(layer.worker_protocol(), 3);
         assert_eq!(layer.terminal_identity().term, "t");
         assert_eq!(
             *reached.lock().unwrap(),
@@ -1452,6 +1452,7 @@ mod tests {
         assert_eq!(layer.diagnostics(), json!({"behind": true}));
         assert_eq!(layer.features().service_preamble_versions, vec![9]);
         assert_eq!(layer.limits().max_sessions, 7);
+        assert_eq!(layer.worker_protocol(), 3);
         assert_eq!(layer.adoptable_worker_protocols(), BTreeSet::from([7]));
         assert!(layer.list().is_empty());
         assert!(layer.status().sessions.is_empty());
