@@ -495,6 +495,21 @@ fn r_20_fixed_ops_complete_while_the_scheduler_defers_everything_else() {
     assert!(done(created_resize), "A2-1 Created Resize");
     assert!(done(same), "SZ-2");
     assert!(!done(read), "an operation that no clause fixes is deferred");
+    let forwarded = rig
+        .host_frames(LinkId(1))
+        .iter()
+        .filter(|(k, p)| {
+            *k == FrameType::HOST_MSG
+                && matches!(
+                    HostMsg::decode(p),
+                    Ok(HostMsg::Op {
+                        op: Op::ReadCursor { .. },
+                        ..
+                    })
+                )
+        })
+        .count();
+    assert_eq!(forwarded, 0, "the deferred read was not sent");
 }
 
 /// 9B, TM-6: `more` is true when only work remains, and when only input remains.
@@ -622,4 +637,57 @@ fn a_reported_exit_is_posted_in_its_pump_whatever_the_scheduler_defers() {
         rig.driver.get(&sid("s1")).unwrap().state,
         SessionState::Lost(LostReason::WorkerGone)
     );
+}
+
+/// TM-6: a pump that leaves work does not settle the wake, and a pump that finds work in the readiness that the settle reports
+/// is not quiet: `more` is true.
+#[test]
+fn the_pump_settles_the_wake_only_when_it_has_no_work_and_looks_again_after() {
+    // Work remains: the wake is not settled.
+    let mut rig = Rig::new(limits(|l| {
+        l.pump_events = 1;
+        l.max_sessions = 4;
+    }));
+    rig.driver.begin(create("a")).unwrap();
+    rig.driver.begin(create("b")).unwrap();
+    assert!(rig.pump().more);
+    assert_eq!(
+        rig.mock.lock().unwrap().settled,
+        0,
+        "no settle while work remains"
+    );
+    // Input remains: the same.
+    let mut rig = Rig::new(limits(|l| l.pump_bytes = 64));
+    run_session(&mut rig, "s1", LinkId(1));
+    let before = rig.mock.lock().unwrap().settled;
+    for _ in 0..40 {
+        rig.worker_says(
+            LinkId(1),
+            WorkerMsg::Observed {
+                observation: Observation::Bell,
+            },
+        );
+    }
+    assert!(rig.pump().more);
+    assert_eq!(
+        rig.mock.lock().unwrap().settled,
+        before,
+        "no settle while input remains"
+    );
+    // The settle reports an exit: the pump looks again and has work.
+    let mut rig = Rig::new(CoreLimits::default());
+    run_session(&mut rig, "s1", LinkId(1));
+    let mut payload = Vec::new();
+    WorkerMsg::Exited {
+        code: Some(0),
+        signal: None,
+    }
+    .encode(&mut payload);
+    rig.mock
+        .lock()
+        .unwrap()
+        .late
+        .push((LinkId(1), frame(FrameType::WORKER_MSG, &payload)));
+    let report = rig.pump();
+    assert!(report.more, "the late exit is work");
 }

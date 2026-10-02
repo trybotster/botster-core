@@ -514,7 +514,10 @@ fn a_stop_joins_an_exit_in_flight_and_follows_a_start_that_finishes() {
     let mut w = World::new(limits(|l| l.mandatory_events = 1));
     w.autopilot = Autopilot::Silent;
     w.running("s1");
-    w.ok(create("x"));
+    // An unpolled `Created` fills the queue, so that the end of s1 waits for room.
+    w.engine.begin(create("x")).unwrap();
+    w.pump();
+    assert!(!w.engine.has_room());
     w.worker_says(
         "s1",
         WorkerMsg::Exited {
