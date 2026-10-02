@@ -101,15 +101,11 @@ pub struct ClipboardWrite {
     pub total_bytes: u64,
     /// `total_bytes` was over the limit, and the model got IO_ERROR.
     pub too_large: bool,
-    /// The bytes that the model wrote to answer the program (the OSC 5522 acknowledgement). The binding writes them
-    /// nowhere: the worker writes them as one contiguous input transaction (A13-1b). Empty for OSC 52 and OSC 1337.
-    pub ack: Vec<u8>,
 }
 
 impl ClipboardWrite {
     fn size(&self) -> usize {
         self.selection.as_ref().map_or(0, String::len)
-            + self.ack.len()
             + self.contents.as_ref().map_or(0, |entries| {
                 entries.iter().map(|e| e.mime.len() + e.bytes.len()).sum()
             })
@@ -127,6 +123,12 @@ pub struct Drained {
     /// Bytes that libghostty wrote to the pty outside a query reply (an in-band size report when mode 2048 is set, for
     /// example). The binding writes them nowhere; the caller decides.
     pub pty_writes: Vec<u8>,
+    /// The acknowledgements that the model wrote for OSC 5522 writes, one entry per write, in the order of the writes
+    /// (A13-1b). They are not events: the event buffer drops its entries when it is full (class D), and an
+    /// acknowledgement is never dropped. The worker writes each entry as one contiguous input transaction through its
+    /// admission point, between transactions. The binding writes them nowhere. A caller that does not drain them gets
+    /// `Error::AckBacklog` from `vt_write_until_query` once they pass `Terminal::set_ack_backlog_limit`.
+    pub clipboard_acks: Vec<Vec<u8>>,
     /// How many queries a plain `vt_write` met. PTY output goes through `vt_write_until_query`, which stops at each
     /// query and returns it, so a nonzero count is a caller error. The count keeps the buffer bounded; a query that a
     /// plain write met got no answer from the caller (the library's shadow reply went to `pty_writes`).
@@ -147,6 +149,10 @@ pub(crate) struct Shared {
     pub(crate) clipboard_limit: usize,
     /// While the callback runs the model's reply, the bytes that the model writes to answer the program.
     ack: Option<Vec<u8>>,
+    /// The finished acknowledgements, in order. They are kept apart from `events` so that no event bound drops one.
+    clipboard_acks: Vec<Vec<u8>>,
+    /// The bytes in `clipboard_acks`.
+    pub(crate) ack_bytes: usize,
     /// True while `vt_write_until_query` runs: the query goes to `held` instead of the event buffer.
     pub(crate) capture: bool,
     pub(crate) held: Option<Query>,
@@ -194,6 +200,10 @@ impl Shared {
             dropped_kinds: std::mem::take(&mut self.dropped_kinds),
             pty_writes: std::mem::take(&mut self.pty_writes),
             unrouted_queries: std::mem::take(&mut self.unrouted_queries),
+            clipboard_acks: {
+                self.ack_bytes = 0;
+                std::mem::take(&mut self.clipboard_acks)
+            },
         }
     }
 }
@@ -356,7 +366,12 @@ pub(crate) unsafe extern "C" fn on_clipboard_write(
     shared(userdata).ack = Some(Vec::new());
     // SAFETY: `request` and the reply are valid for the call, and this is the one reply of the callback.
     unsafe { (request.reply)(write, &reply) };
-    let ack = shared(userdata).ack.take().unwrap_or_default();
+    // The acknowledgement is its own item. It does not travel in the event, which the bounded buffer may drop.
+    let shared_state = shared(userdata);
+    if let Some(ack) = shared_state.ack.take().filter(|ack| !ack.is_empty()) {
+        shared_state.ack_bytes += ack.len();
+        shared_state.clipboard_acks.push(ack);
+    }
 
     shared(userdata).push(TerminalEvent::ClipboardWrite(ClipboardWrite {
         location,
@@ -365,7 +380,6 @@ pub(crate) unsafe extern "C" fn on_clipboard_write(
         contents,
         total_bytes,
         too_large,
-        ack,
     }));
 }
 
@@ -430,10 +444,9 @@ pub(crate) unsafe extern "C" fn on_write_pty(
     };
     let shared = shared(userdata);
     if let Some(ack) = shared.ack.as_mut() {
-        // The acknowledgement of a clipboard write: kept for the event, bounded like the other replies.
-        if ack.len() + bytes.len() <= MAX_SHADOW_REPLY_BYTES {
-            ack.extend_from_slice(bytes);
-        }
+        // The acknowledgement of a clipboard write. The library writes the status and the echoed id of the request,
+        // so it is as long as the request allows, and it is never cut.
+        ack.extend_from_slice(bytes);
         return;
     }
     if let Some(query) = shared.open_query() {

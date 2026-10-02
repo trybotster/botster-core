@@ -662,11 +662,26 @@ fn a_pixel_position_that_an_f32_cannot_hold_is_refused_not_changed() {
             .collect()
     };
 
-    // 2^24 is the last integer that an f32 holds exactly. A release is reported outside the viewport, and the report
-    // carries the position unchanged. A press and a move inside the viewport carry theirs too.
+    // Releases are reported outside the viewport, so they carry any position that the library takes. Every integer up
+    // to 2^24 is exact in an f32; above it only even numbers are, then multiples of four, and so on. The library's
+    // integer result ends at i32::MAX, and 2^31 - 128 is the last f32 below it.
     let exact: u32 = 1 << 24;
-    let bytes = report(MouseAction::Release, MouseButton::Left, exact, exact).unwrap();
-    assert!(digits(&bytes)[1..].iter().all(|n| *n == u64::from(exact)));
+    for value in [
+        0,
+        1,
+        exact - 1,
+        exact,
+        exact + 2,
+        exact + 4,
+        (1 << 31) - 128,
+    ] {
+        let bytes = report(MouseAction::Release, MouseButton::Left, value, value).unwrap();
+        assert!(
+            digits(&bytes)[1..].iter().all(|n| *n == u64::from(value)),
+            "release at {value}"
+        );
+    }
+    // A press and a move inside the viewport carry theirs too.
     for (action, button) in [
         (MouseAction::Press, MouseButton::Left),
         (MouseAction::Move, MouseButton::None),
@@ -675,8 +690,17 @@ fn a_pixel_position_that_an_f32_cannot_hold_is_refused_not_changed() {
         assert_eq!(digits(&bytes)[1..], [700, 300], "{action:?}");
     }
 
-    // Above it, and above the native i32 range, the position is refused for every action, releases included.
-    for value in [exact + 1, i32::MAX as u32, i32::MAX as u32 + 1, u32::MAX] {
+    // A position that an f32 rounds, one above the i32 range, and u32::MAX are refused for every action, releases
+    // included, on each axis.
+    for value in [
+        exact + 1,
+        exact + 3,
+        exact + 5,
+        i32::MAX as u32,
+        (1 << 31),
+        (1 << 31) + 128,
+        u32::MAX,
+    ] {
         for (action, button) in [
             (MouseAction::Press, MouseButton::Left),
             (MouseAction::Release, MouseButton::Left),
@@ -687,6 +711,23 @@ fn a_pixel_position_that_an_f32_cannot_hold_is_refused_not_changed() {
             assert_eq!(report(action, button, 0, value), expected, "y {value}");
         }
     }
+}
+
+#[test]
+fn sgr_pixels_without_a_cell_size_reports_the_position_as_given() {
+    let modes = mouse_modes(MouseTracking::Normal, MouseEncoding::SgrPixels);
+    // The spawn size has no cell size, so the pixel screen is unknown and no position is outside it.
+    let no_cell = size(80, 24);
+    let mut press = mouse(MouseAction::Press, MouseButton::Left, 3, 4);
+    press.x = Some(100);
+    press.y = Some(200);
+    let bytes = encode_mouse_with_modes(&modes, &no_cell, &press).unwrap();
+    let numbers: Vec<u64> = bytes
+        .split(|b| !b.is_ascii_digit())
+        .filter(|part| !part.is_empty())
+        .map(|part| std::str::from_utf8(part).unwrap().parse().unwrap())
+        .collect();
+    assert_eq!(numbers[1..], [100, 200]);
 }
 
 #[test]

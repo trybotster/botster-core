@@ -437,13 +437,29 @@ impl Drop for MouseEventHandle {
 
 /// The encoder's size context: the screen in pixels from the cell size, with no padding. Without a cell size the cell is
 /// one pixel, so a pixel position is reported as given.
-fn encoder_size(cols: u32, rows: u32, cell_px: Option<CellPx>) -> sys::MouseEncoderSize {
+/// The size that the mouse encoder works with. Without a cell size, the pixel screen is not known: under SGR pixels
+/// the position is reported as given (R-13), so the screen is made as large as the library allows, and no position is
+/// outside it. For the other formats the screen is the grid at one pixel per cell.
+fn encoder_size(
+    cols: u32,
+    rows: u32,
+    cell_px: Option<CellPx>,
+    unbounded_pixels: bool,
+) -> sys::MouseEncoderSize {
     let (cell_width, cell_height) =
         cell_px.map_or((1, 1), |px| (px.width.max(1), px.height.max(1)));
+    let (screen_width, screen_height) = if cell_px.is_none() && unbounded_pixels {
+        (u32::MAX, u32::MAX)
+    } else {
+        (
+            cols.saturating_mul(cell_width),
+            rows.saturating_mul(cell_height),
+        )
+    };
     sys::MouseEncoderSize {
         size: std::mem::size_of::<sys::MouseEncoderSize>(),
-        screen_width: cols.saturating_mul(cell_width),
-        screen_height: rows.saturating_mul(cell_height),
+        screen_width,
+        screen_height,
         cell_width,
         cell_height,
         padding_top: 0,
@@ -455,10 +471,14 @@ fn encoder_size(cols: u32, rows: u32, cell_px: Option<CellPx>) -> sys::MouseEnco
 
 /// The largest cell that each format can express, as the library encodes it (X10: 222, UTF-8: 2014). A test compares
 /// these with the library at the boundary. They only classify a zero result as `Unsupported(Coordinate)`.
-/// The largest pixel position that an `f32` holds exactly (2^24).
-const MAX_EXACT_PIXEL: u32 = 1 << 24;
 const X10_MAX_CELL: u32 = 222;
 const UTF8_MAX_CELL: u32 = 2014;
+
+/// Whether the library takes a pixel position exactly: an `f32` holds it, and it is within the `i32` range of the
+/// library's integer result.
+fn pixel_is_representable(pixel: u32) -> bool {
+    f64::from(pixel as f32) == f64::from(pixel) && i32::try_from(pixel).is_ok()
+}
 
 pub(crate) fn encode_mouse(
     source: Source,
@@ -479,13 +499,14 @@ pub(crate) fn encode_mouse(
         return Err(EncodeError::Unsupported(UnsupportedWhat::PixelPosition));
     }
 
-    // The library takes a pixel position as `f32`, and above 2^24 an `f32` no longer holds every integer. A position
-    // that it cannot hold exactly is refused, never changed (5.1A).
+    // The library takes a pixel position as `f32` and converts it to an `i32`. A position that an `f32` does not hold
+    // exactly, or that is above the `i32` range, is refused, never changed (5.1A). Some integers above 2^24 are exact
+    // (the next one is 2^24 + 2) and are passed on.
     if format == sys::mouse_format::SGR_PIXELS
         && [input.x, input.y]
             .iter()
             .flatten()
-            .any(|p| *p > MAX_EXACT_PIXEL)
+            .any(|p| !pixel_is_representable(*p))
     {
         return Err(EncodeError::Unsupported(UnsupportedWhat::Coordinate));
     }
@@ -498,7 +519,12 @@ pub(crate) fn encode_mouse(
         return Err(EncodeError::Unsupported(UnsupportedWhat::Other));
     }
     let encoder = MouseEncoder(encoder);
-    let mouse_size = encoder_size(size.cols, size.rows, size.cell_px);
+    let mouse_size = encoder_size(
+        size.cols,
+        size.rows,
+        size.cell_px,
+        format == sys::mouse_format::SGR_PIXELS,
+    );
     let any_button_pressed = !matches!(input.button, MouseButton::None);
     // SAFETY: the encoder is live; each option takes the type that is passed, and the library copies the values.
     unsafe {
