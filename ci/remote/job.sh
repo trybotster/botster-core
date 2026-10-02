@@ -143,14 +143,15 @@ echo "gate job: $project $(git -C "$dir" rev-parse HEAD) on $(hostname), $cpus C
 
 mkdir -p "$artifacts" "$stamps"
 find "$artifacts" -mindepth 1 -maxdepth 1 -type d -mtime +7 -exec rm -rf {} +
+# The image lock covers the image build, the target-volume pruning, this gate's stamp and the volume initialization,
+# so a gate never prunes a volume that another gate has just stamped and checked.
+exec {image_lock}>"$projdir/image.lock"
+flock "$image_lock"
+touch "$stamps/$target_volume"
 # Target volumes that no gate used for 7 days. Docker refuses to remove a volume that a running job mounts.
 while IFS= read -r stamp; do
   docker volume rm "$(basename -- "$stamp")" >/dev/null 2>&1 && rm -f -- "$stamp"
 done < <(find "$stamps" -mindepth 1 -maxdepth 1 -type f -name "$project-target-*" -mtime +7)
-touch "$stamps/$target_volume"
-
-exec {image_lock}>"$projdir/image.lock"
-flock "$image_lock"
 if ! docker image inspect "$image" >/dev/null 2>&1; then
   echo "Building $image (rust $toolchain)..."
   build_args=(--build-arg "RUST_TOOLCHAIN=$toolchain" --build-arg "BUILD_JOBS=$cpus")
