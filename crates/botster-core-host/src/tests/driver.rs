@@ -66,7 +66,7 @@ struct Mock {
 
 type Shared = Arc<Mutex<Mock>>;
 
-struct Edges(Shared, Production);
+struct Edges(Shared, Box<dyn Scheduler + Send>);
 
 fn frame(kind: FrameType, payload: &[u8]) -> Vec<u8> {
     let mut out = Vec::new();
@@ -220,7 +220,7 @@ impl HostEdges for Edges {
     }
 
     fn scheduler(&mut self) -> &mut dyn Scheduler {
-        &mut self.1
+        &mut *self.1
     }
 }
 
@@ -233,6 +233,10 @@ struct Rig {
 
 impl Rig {
     fn new(limits: CoreLimits) -> Rig {
+        Rig::with_scheduler(limits, Box::new(Production::new()))
+    }
+
+    fn with_scheduler(limits: CoreLimits, scheduler: Box<dyn Scheduler + Send>) -> Rig {
         let mock = Arc::new(Mutex::new(Mock {
             rows: BTreeMap::new(),
             links: BTreeMap::new(),
@@ -246,11 +250,7 @@ impl Rig {
         #[allow(clippy::disallowed_methods)] // a test starts the injected clock at a real instant
         let now = Instant::now();
         Rig {
-            driver: HostDriver::new(
-                config(limits),
-                Edges(Arc::clone(&mock), Production::new()),
-                now,
-            ),
+            driver: HostDriver::new(config(limits), Edges(Arc::clone(&mock), scheduler), now),
             mock,
             now,
             unix: 10,
