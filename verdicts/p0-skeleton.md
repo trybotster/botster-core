@@ -1,6 +1,6 @@
 # P0 skeleton review
 
-Reviewed head: `a8aba2c6de7433b0eb1c90d67b78e0b154b45552`.
+Reviewed head: `47759ee1d5ba70661cfadcf16d32983b4bfcf6ef`.
 
 Previous reviewed head: `74f2e9afcd16af8483093f3f12765ca397c31b73`.
 
@@ -143,3 +143,16 @@ The final mutation run must confirm closure of the six previously missed mutants
 
 Fourth review: Head `a8aba2c6` changes one test assertion from `iter().any` to `contains`.
 The assertion has the same meaning. This closes the reported `manual_contains` clippy failure. Source remains CLEAN; final gate remains pending.
+
+## F7 — MEDIUM — The timer test missed the statement boundary mutant
+
+Status: CLOSED in source at `47759ee1`; the gate must confirm closure.
+
+The gate at `a8aba2c6` reported 404 mutants: 386 caught, one missed, zero timeout, and 17 unviable.
+The missed mutant replaces the `!opened` guard with false in `test_lines`.
+That change classifies later production code as test code after a test-only `use` statement.
+Head `47759ee1` adds an assertion for an ordinary crate. The assertion distinguishes allowed production waits from forbidden test waits.
+The assertion fails under the reported mutant. No production code changes. Source remains CLEAN.
+
+I read the gate log at `gate-logs/p0-a8aba2c.log`. Steps through slow passed; mutation failed; fuzz did not run.
+The six earlier missed mutants closed in this run. I ran no tests or heavy jobs. The implementer has started the next gate.
