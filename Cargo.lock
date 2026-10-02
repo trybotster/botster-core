@@ -311,6 +311,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "botster-core-testkit"
+version = "0.1.0"
+dependencies = [
+ "botster-core-conformance",
+ "botster-core-contract",
+ "botster-core-edges",
+ "botster-probe-script",
+ "rand_chacha",
+ "rand_core",
+ "serde_json",
+]
+
+[[package]]
 name = "botster-hub-conformance"
 version = "0.1.0"
 source = "git+https://github.com/trybotster/botster-contracts?tag=contracts-v0.1.1#366bca41da0a6de69cc1ea13b17c773cdfdb75b6"
