@@ -89,6 +89,11 @@ pub struct SpawnError {
 pub enum GroupSignal {
     Term,
     Kill,
+    /// The worker-control signal `SIGUSR1`, sent to the verified worker process only, never to its group (LC-5, AD-6).
+    /// Meaning: "end your payload: ask it to stop, then kill its group after `stop_grace` from the leader you hold
+    /// unreaped, keep running, and keep serving the final model". Sent when the control link is broken. Idempotent: a
+    /// worker that already ends its payload ignores a second signal. P3 implements the handler.
+    EndPayload,
 }
 
 /// What a process identity matches now (AD-6: a process that does not match is never signalled).
