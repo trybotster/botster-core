@@ -208,6 +208,12 @@ impl HostEdges for SimEdges {
         }
     }
 
+    fn signal_payload_group(&mut self, identity: ProcessIdentity, signal: GroupSignal) {
+        if let Some(spawner) = self.spawner.as_mut() {
+            spawner.signal_group(identity, signal);
+        }
+    }
+
     fn poll_process_exit(&mut self) -> Option<(ProcessIdentity, ExitStatus)> {
         self.spawner.as_mut().and_then(|s| s.poll_exit())
     }

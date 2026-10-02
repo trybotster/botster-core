@@ -215,9 +215,9 @@ impl HostEngine {
                 }
                 let s = self.sessions.get_mut(id).expect("checked");
                 s.worker_features = Some(features);
-                s.payload = payload.map(|p| ProcessIdentity {
-                    pid: p.pid,
-                    start_time: p.start_time,
+                s.payload = Some(ProcessIdentity {
+                    pid: payload.pid,
+                    start_time: payload.start_time,
                 });
                 s.terminal = Some(terminal);
                 s.formats = formats;
@@ -574,7 +574,7 @@ impl HostEngine {
                 // LC-5: a session whose control link is broken still ends: the host asks the payload's group itself. The
                 // worker's group is never signalled for a stop (it holds the final model).
                 if let Some(identity) = self.sessions.get(&id).and_then(|s| s.payload) {
-                    self.act(Action::SignalGroup {
+                    self.act(Action::SignalPayloadGroup {
                         identity,
                         signal: GroupSignal::Term,
                     });

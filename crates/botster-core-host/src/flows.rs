@@ -311,7 +311,7 @@ impl HostEngine {
                 let payload = self.sessions.get(id).and_then(|s| s.payload);
                 if !self.send_msg(id, HostMsg::Stop) {
                     if let Some(identity) = payload {
-                        self.act(Action::SignalGroup {
+                        self.act(Action::SignalPayloadGroup {
                             identity,
                             signal: GroupSignal::Term,
                         });
@@ -434,7 +434,7 @@ impl HostEngine {
                     "the worker link ended with the operation pending",
                 )),
             };
-            self.complete(op, result);
+            self.complete_later(op, result);
         }
         self.wake_launch_waiters(id);
     }
@@ -482,13 +482,8 @@ impl HostEngine {
             .map(|(op, _)| *op)
             .collect();
         for op in doomed {
-            let result = match (&error, self.ops.get(&op).map(|p| &p.op)) {
-                (Some(e), Some(op)) if !matches!(op, Op::WriteInput { .. }) => {
-                    OpResult::Err(e.clone())
-                }
-                _ => self.ended_result(op),
-            };
-            self.complete(op, result);
+            let result = self.ended_result(op, error.as_ref());
+            self.complete_later(op, result);
         }
         if let Some(s) = self.sessions.get_mut(id) {
             s.inflight.clear();
@@ -579,20 +574,21 @@ impl HostEngine {
         }
     }
 
-    /// The worker did not end within `stop_grace` after its teardown: it is killed, and SIGKILL cannot be ignored.
+    /// The worker did not end within `stop_grace` after its teardown: it is killed, and the wait goes on. A signal is not an
+    /// observed exit: steps 4 and 5 wait for the exit input, and the kill is repeated each `stop_grace` (LC-7, A6-3).
     pub(crate) fn remove_grace_expired(&mut self, id: &SessionId) {
-        let worker = self.identity_of(id);
-        if let Some(identity) = worker {
+        if let Some(identity) = self.identity_of(id) {
             self.act(Action::SignalGroup {
                 identity,
                 signal: GroupSignal::Kill,
             });
         }
+        let next = self.mono().map(|now| now + self.cfg.limits.stop_grace);
         if let Some(s) = self.sessions.get_mut(id) {
             if let Flow::Remove(f) = &mut s.flow {
-                f.worker_gone = true;
-                f.deadline = None;
+                f.deadline = next;
                 if f.uploads.is_none() {
+                    // The result can no longer be trusted to come (A6-3).
                     f.uploads = Some(UploadsOutcome::NotDeleted(NotDeleted::OutcomeUnknown));
                 }
             }
@@ -726,18 +722,35 @@ impl HostEngine {
                 }
             }
             (Flow::Stop(f), Err(e)) if f.phase == StopPhase::RowWrite => {
+                // R-16: the Stopping row of a `StopAll` target is best effort. A failed or uncertain write is ignored, the stop
+                // proceeds, and `StopAll` completes when the target ends (LC-12). A plain `Stop` keeps `RegistryFailed`.
+                let by_stop_all = self.stop_all_targets(id);
                 let waiters = {
+                    let s = self.sessions.get_mut(id).expect("kept");
+                    std::mem::take(&mut s.waiters)
+                };
+                if waiters.is_empty() && by_stop_all {
+                    if let Some(flow) = self.stop_flow(id) {
+                        flow.phase = StopPhase::SendStop;
+                    }
+                    return;
+                }
+                {
                     let s = self.sessions.get_mut(id).expect("kept");
                     s.admit = Admit::Running;
                     s.host_ended = false;
-                    std::mem::take(&mut s.waiters)
-                };
+                }
                 self.flow_done(id);
                 for op in waiters {
                     self.complete_later(op, OpResult::Err(registry_failed(e)));
                 }
-                // A `StopAll` that named this target leaves it as it is (LC-12).
-                self.drop_stop_all_target(id);
+                if by_stop_all {
+                    // The `StopAll` still stops the target, without waiting for the row (R-16).
+                    self.start_stop_flow(id);
+                    if let Some(flow) = self.stop_flow(id) {
+                        flow.phase = StopPhase::SendStop;
+                    }
+                }
             }
             (Flow::Remove(f), Ok(())) if f.phase == RemovePhase::DeleteRow => {
                 self.set_remove_phase(id, RemovePhase::PostReleased);
