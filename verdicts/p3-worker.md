@@ -1,13 +1,12 @@
 # P3 worker review
 
-VERDICT: CLEAN
+VERDICT: NOT CLEAN (2 open findings)
 
-Reviewed head: `46b16945ead49715949d5983bb41a673c081f8ad`, branch `stage1/p3-worker-m1-stack`.
-Previous reviewed head: `1911ed09654260e7a57ae0a5b2a251ff470ad330`.
-Round 9 covers the stack on P1 `823a1f1`, the transferred testkit wiring, and the restored v1 interfaces.
-F1 through F8 remain CLOSED. No open findings remain in M1.
-This CLEAN verdict applies only to M1 at the exact reviewed head. M2 and the same-suite real-process proof remain later work.
-The original evidence refers to `f37c46b`. Rounds 2 through 8 record review history. Round 9 records the latest delta verdict.
+Reviewed head: `5a41a33fd65468dcddb9fe025e8f645743693e00`, branch `stage1/p3-worker-m2a`.
+Previous reviewed head: `46b16945ead49715949d5983bb41a673c081f8ad`.
+Round 10 covers M2a and the replay on P1 `3512c68`. F1 through F8 remain CLOSED.
+F9 and F10 are OPEN. F11 is CLOSED at `5a41a33`. M2's terminal model, route admission, and the same-suite real-process proof remain later work.
+The original evidence refers to `f37c46b`. Rounds 2 through 9 record review history. Round 10 records the latest delta verdict.
 Base: `2016886`. Scope: M1, including the Worker machine, real driver, payload edge, and testkit driver.
 This verdict covers both review units in the implementer's message.
 
@@ -434,3 +433,101 @@ This verdict does not establish a green Linux gate or the same-suite real-proces
 
 VERDICT: CLEAN on the exact M1 head above. All eight findings remain closed.
 Any later commit, including a rebase, requires a delta review before this verdict applies to that head.
+
+## Round 10 — M2a host input and testkit controls
+
+Reviewed head: `5a41a33fd65468dcddb9fe025e8f645743693e00` on P1 `3512c68`.
+The range-diff shows all fourteen M1 stack commits unchanged: `823a1f1..46b1694` equals `3512c68..3cb011c`.
+The reviewer inspected `af4abdd`, `db1c1d4`, the proof list at `6621709`, the test-only delta at `0cbb064`, and the testkit fixes at `5a41a33`.
+The admission state retains transaction ownership across short writes. Guards run at transaction start.
+Cancellation waits for an outstanding write count. The completion reports exact counts.
+Bytes and Text are implemented. The other payload kinds explicitly wait for the libghostty model.
+The pending conformance list remains unchanged. The final 26 transcript ids are testkit proof only.
+
+### F9 — HIGH — Controls can target another handle's worker
+
+Status: OPEN.
+
+Evidence at the reviewed head:
+`crates/botster-core-testkit/src/worker.rs:102-112,137-169,239-246,403`;
+`crates/botster-core-testkit/src/core.rs:339-369`;
+`crates/botster-core-host/src/engine.rs:221-224`.
+
+Workers shares its programs and worker_processes maps across every handle. Both maps use only InstanceId as the key.
+HostEngine mints InstanceId from the directory's host epoch and a handle-local counter.
+Two new directories each start at epoch 1. Their first sessions each receive InstanceId("1-1").
+The second worker replaces the first worker's entry in both shared maps.
+The sessions map includes the handle, but its lookup returns the colliding InstanceId and then reads the shared map.
+
+Open handles A and B on different new directories. Create and start one held payload in each handle.
+After B starts, pty_blocked for A changes B's payload. pty_input for A returns B's input log.
+process_end_worker for A ends B's worker. break_control for A breaks B's link.
+These controls no longer inject a fault into the requested session's edge.
+
+Required change: Include the data-directory or host namespace in the shared worker and program keys.
+Keep that namespace stable for the lifetime and restart behavior that the harness supports.
+Do not rely on InstanceId being unique across different directories.
+Check program controls and process controls with two live handles on different directories, each with its first session.
+
+Authority: A5-1, A5-3, ID-1, and plan 4.1's shared Sim with the real machines.
+
+### F10 — HIGH — The real write path has no turn bound
+
+Status: OPEN.
+
+Evidence at the reviewed head:
+`crates/botster-worker/src/main.rs:135-174,212-222,239-255`;
+`crates/botster-worker-core/src/worker/input.rs:233-287`.
+
+settle drains actions and inputs until both queues are empty.
+Each successful short PTY write queues PtyWritten. Handling that count immediately emits the next PtyWrite.
+This cycle continues inside settle until the entire active transaction, and queued transactions, finish or block.
+The cycle has no write-count or byte budget for the turn.
+The Interrupted retry loop inside PtyWrite also has no turn bound.
+
+While a large transaction receives repeated positive short writes, the driver does not return to read_control or poll.
+A newly arrived Cancel, Stop, SIGUSR1, or payload-exit notification therefore waits for the write cycle.
+A stop grace deadline that becomes due inside that cycle also waits for the outer loop's timer check.
+IN-5's retained-byte limit bounds storage. It does not bound driver work before the next control or timer check.
+The testkit can select other ready inputs between write attempts, so the real driver lacks the same progress opportunity.
+
+Required change: Bound PTY write work in each real driver turn.
+Retain transaction ownership and pending write work across turns.
+Return to control, signal, exit, and timer handling between bounded write batches.
+Bound Interrupted retries as well. Preserve exact counts and contiguous input when a turn yields.
+Check repeated short writes with a pending cancel and a due stop deadline.
+
+Authority: LC-5, IN-6, the closure requirement of F3, and plan 2.4's control-first worker scheduling.
+
+### F11 — LOW — The testkit reports runnable work after it finishes that work
+
+Status: CLOSED at `5a41a33` during this review.
+The wrapper now uses remaining readiness and does not use the completed-input count.
+The evidence below describes the superseded head `0cbb064`.
+
+Evidence at `0cbb064`: `crates/botster-core-testkit/src/worker.rs:657-669`.
+
+TestkitCore::pump forces more = true whenever Workers::run handled any input.
+It does this even when the host driver reports more = false and Workers::has_ready returns false.
+For example, consume the last injected PTY output on an otherwise idle held payload.
+The current machine advances model_rev and emits no action for that output.
+Both drivers have no runnable work after the pump, but the wrapper reports more and sets the wake flag.
+The caller must perform an extra empty pump to clear that flag.
+
+Required change: Report more from remaining runnable work, rather than from work completed in this pump.
+If an effect needs a later pump, represent that effect as pending work and include it in the readiness check.
+Check that a pump which consumes the last input returns more = false when no runnable work remains.
+
+Authority: TM-6, A5-1, and plan 2.5's rule against wake loops for work that is not runnable.
+
+The reviewer inspected logic only and ran no tests or gate.
+The implementer reported clean clippy, 420 default tests, 15 slow tests, and 27 transcript ids passing on all 32 seeds.
+The implementer also supplied test-only pty_chunk cases and P6 review fixes. The reviewer inspected both deltas.
+The P6 fixes remove the completed-work flag, preserve a link on WouldBlock, and distinguish lose_worker reasons.
+Sim::with_seed delegates to with_scheduler. No new finding exists in those changes.
+The cancel-race transcript left the proof list and remains pending. The implementer raised its driver behavior with the lead.
+The implementer reported 200 testkit and worker-core tests, and 26 transcript ids passing on all 32 seeds at `5a41a33`.
+Reported tests do not close F9 or F10.
+
+VERDICT: NOT CLEAN (2 open findings) on the exact M2a head above.
+All findings, including LOW findings, require closure before CLEAN.
