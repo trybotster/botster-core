@@ -631,19 +631,17 @@ impl CoreApi for RefusalLayer {
         self.inner.shadow_answerable_kinds()
     }
 
-    /// A refused `attach` currently drops the transport that the call took by value. Steward ruling R-19: on every
-    /// synchronous refusal the caller gets its transport back. The by-value `CoreApi::attach` of `contracts-v0.1.7` cannot give
-    /// it back, which is a defect of that crate; when the fixed tag lands, this method returns the transport on every refusal
-    /// path (scripted ones here, and the ones of the Core behind the layer).
+    /// A scripted refusal returns the caller's transport untouched (Core DP-2, steward ruling R-19): the transport belongs to
+    /// Core only from a successful return. A refusal of the Core behind the layer passes through with its own transport.
     fn attach(
         &mut self,
         client: ClientId,
         session: SessionId,
         transport: RouteTransport,
         options: AttachOptions,
-    ) -> Result<AttachResult, CoreError> {
+    ) -> Result<AttachResult, AttachRefused> {
         if let Some(error) = self.core("attach") {
-            return Err(error);
+            return Err(AttachRefused::new(error, transport));
         }
         self.inner.attach(client, session, transport, options)
     }
@@ -1024,11 +1022,14 @@ mod tests {
             &mut self,
             _client: ClientId,
             _session: SessionId,
-            _transport: RouteTransport,
+            transport: RouteTransport,
             _options: AttachOptions,
-        ) -> Result<AttachResult, CoreError> {
+        ) -> Result<AttachResult, AttachRefused> {
             self.note("attach");
-            Err(CoreError::new(ErrorCode::UnknownSession, "behind"))
+            Err(AttachRefused::new(
+                CoreError::new(ErrorCode::UnknownSession, "behind"),
+                transport,
+            ))
         }
         fn tap_read(&mut self, _session: &SessionId, _max: usize) -> Result<TapChunk, CoreError> {
             self.note("tap_read");
@@ -1231,17 +1232,12 @@ mod tests {
             .arm("service_log_tail", 1, &json!("UnknownService"))
             .unwrap();
         assert!(layer.service_log_tail(&service, 1).is_err());
-        let transport = RouteTransport::WebRtc {
-            offer: String::new(),
-            expected_fingerprint: String::new(),
-        };
-        let options: AttachOptions =
-            serde_json::from_value(json!({"file_directory": "/tmp"})).unwrap();
+        let (transport, _client_end) = owned_stream();
         handle.arm("attach", 1, &json!("RouteLimit")).unwrap();
-        let error = layer
-            .attach(ClientId("c".into()), session, transport, options)
+        let refused = layer
+            .attach(ClientId("c".into()), session, transport, attach_options())
             .unwrap_err();
-        assert_eq!(error.code, ErrorCode::RouteLimit);
+        assert_eq!(refused.error.code, ErrorCode::RouteLimit);
         // Only the unscripted second `terminal_state` reached the Core.
         assert_eq!(*reached.lock().unwrap(), ["terminal_state"]);
         assert!(handle.is_empty());
@@ -1268,45 +1264,93 @@ mod tests {
         assert_eq!(*reached.lock().unwrap(), ["snapshot_formats", "tap_read"]);
     }
 
-    /// Each `attach` call is counted once: occurrence 2 refuses the second call, and the calls around it reach the Core. (The
-    /// transport that a refusal returns to the caller waits for the fixed `CoreApi::attach`, steward ruling R-19.)
+    fn attach_options() -> AttachOptions {
+        serde_json::from_value(json!({"file_directory": "/tmp"})).unwrap()
+    }
+
+    /// A transport that owns an in-memory stream end, and the client's end of that stream.
+    fn owned_stream() -> (RouteTransport, crate::net::StreamEnd) {
+        let (worker, client) =
+            crate::net::stream_pair(&crate::scheduler::SchedulerHandle::with_seed(0), 8);
+        (RouteTransport::Stream(StreamEndpoint::new(worker)), client)
+    }
+
+    /// The stream end inside a transport that came back to the caller.
+    fn stream_back(transport: RouteTransport) -> crate::net::StreamEnd {
+        match transport {
+            RouteTransport::Stream(endpoint) => endpoint
+                .downcast::<crate::net::StreamEnd>()
+                .expect("the caller's own stream end"),
+            other => panic!("not the caller's stream: {other:?}"),
+        }
+    }
+
+    /// Steward ruling R-19, Core DP-2: a scripted attach refusal returns the caller's transport untouched. The stream end that
+    /// the caller passed in comes back still connected (its peer sees no close), and it works: it is not dropped, closed or
+    /// replaced. Each call is counted once: occurrence 2 refuses the second call, and the calls around it reach the Core, whose
+    /// own refusal returns the transport as well.
     #[test]
-    fn attach_counts_each_call_once() {
+    fn a_scripted_attach_refusal_returns_the_callers_transport() {
+        use botster_core_edges::RouteTransport as _;
         let (mut layer, handle, reached) = layer();
         handle.arm("attach", 2, &json!("RouteLimit")).unwrap();
-        let attach = |layer: &mut RefusalLayer| {
-            let transport = RouteTransport::WebRtc {
-                offer: String::new(),
-                expected_fingerprint: String::new(),
-            };
-            let options: AttachOptions =
-                serde_json::from_value(json!({"file_directory": "/tmp"})).unwrap();
+        let attach = |layer: &mut RefusalLayer, transport| {
             layer
                 .attach(
                     ClientId("c".into()),
                     SessionId("s".into()),
                     transport,
-                    options,
+                    attach_options(),
                 )
                 .unwrap_err()
         };
-        assert_eq!(
-            attach(&mut layer).detail,
-            "behind",
-            "the first call is delegated"
+        // The first call is delegated; the Core behind the layer refuses and returns the transport.
+        let (transport, mut client) = owned_stream();
+        let first = attach(&mut layer, transport);
+        assert_eq!(first.error.detail, "behind");
+        let mut kept = stream_back(first.transport);
+        // The second call is refused by the script, before the Core.
+        let refused = attach(
+            &mut layer,
+            RouteTransport::Stream(StreamEndpoint::new(kept)),
         );
+        assert_eq!(refused.error.code, ErrorCode::RouteLimit);
         assert_eq!(
-            attach(&mut layer).code,
-            ErrorCode::RouteLimit,
-            "the second call is refused"
+            refused.error.detail,
+            "refused by the testkit script (Core A5-3)"
         );
-        assert_eq!(
-            attach(&mut layer).detail,
-            "behind",
-            "the third call is delegated"
+        kept = stream_back(refused.transport);
+        // The stream is still the caller's: connected, and open at both ends.
+        client.write(b"hi").unwrap();
+        // A read returns a seed-chosen part of the bytes (A5-2): read until both arrived.
+        let mut buf = [0u8; 2];
+        let mut got = 0;
+        while got < 2 {
+            got += kept.read(&mut buf[got..]).unwrap();
+        }
+        assert_eq!(&buf, b"hi");
+        assert!(!client.end().peer_write_blocked());
+        // The third call is delegated again.
+        let third = attach(
+            &mut layer,
+            RouteTransport::Stream(StreamEndpoint::new(kept)),
         );
+        assert_eq!(third.error.detail, "behind");
         assert_eq!(*reached.lock().unwrap(), ["attach", "attach"]);
         assert!(handle.is_empty());
+        // The transport that is not a stream comes back too.
+        handle.arm("attach", 1, &json!("InvalidInput")).unwrap();
+        let web = RouteTransport::WebRtc {
+            offer: "o".into(),
+            expected_fingerprint: "f".into(),
+        };
+        match attach(&mut layer, web).transport {
+            RouteTransport::WebRtc {
+                offer,
+                expected_fingerprint,
+            } => assert_eq!((offer.as_str(), expected_fingerprint.as_str()), ("o", "f")),
+            other => panic!("{other:?}"),
+        }
     }
 
     /// Entries that name the same call conflict, armed together or at different times. No entry moves to another call.
