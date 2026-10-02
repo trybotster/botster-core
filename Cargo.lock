@@ -370,6 +370,8 @@ dependencies = [
 name = "botster-terminal-ghostty"
 version = "0.1.0"
 dependencies = [
+ "botster-core-contract",
+ "botster-route-codec",
  "static_assertions",
 ]
 
