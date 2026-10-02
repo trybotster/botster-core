@@ -1,6 +1,27 @@
 # P6 testkit review — Scope 2, step 2
 
-VERDICT: NOT CLEAN (3 open)
+VERDICT: NOT CLEAN (2 open)
+
+Delta reviewed: `04b0ca3bbd2536fdb279d26d35b92ccd14decb47`, against `4a001508`.
+S2-R1 counting is closed: the precheck advice is removed, and the layer counts each attach once.
+Its test checks delegation on calls 1 and 3, with a scripted refusal on call 2.
+S2-R1 descriptor preservation remains open under R-19 until the fixed contract tag exists.
+S2-R2 is closed: both missing rows cite their clauses, have row tests, and refuse before delegation.
+S2-R3 is closed: absolute call numbers and conflict rejection preserve occurrences, including entries that converge after separate arming.
+The reviewer ran no tests or gate for this delta.
+
+## S2-R4 — LOW — An occurrence can overflow the absolute call number
+
+Evidence: `RefusalScript::arm` computes `counted + occurrence` with unchecked `usize` addition.
+Call `take("Start")` once, then arm `Start` with occurrence `usize::MAX` and `WrongState`.
+The addition panics when overflow checks are enabled. Otherwise it wraps to 0, and the entry does not fire at its specified occurrence.
+The harness accepts this occurrence from JSON on a 64-bit target.
+The previous counter did not add occurrence to past calls.
+
+Required change: use checked addition and return a script error when the call number cannot be represented.
+Reject the entry without changing the script. Add a boundary test after at least one counted call.
+
+The earlier findings below retain their original evidence. The delta status above controls their current status.
 
 Reviewed head: `4a0015085fd91430cfc0204ebb16eeafc0dc3846`.
 Base: `06f1f04`.
