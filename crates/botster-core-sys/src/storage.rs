@@ -274,6 +274,57 @@ fn check_safe(path: &Path) -> Result<(), OpenError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_wire_form_is_length_key_value() {
+        assert_eq!(encode("ab", b"cd"), [2, 0, 0, 0, b'a', b'b', b'c', b'd']);
+        assert_eq!(
+            decode(&encode("ab", b"cd")),
+            Some(("ab".to_string(), b"cd".to_vec()))
+        );
+        assert_eq!(decode(&[9, 0, 0, 0, 1]), None);
+        assert_eq!(decode(&[1]), None);
+    }
+
+    /// The errno of an OS error is kept, and an error with none is 0.
+    #[test]
+    fn an_errno_is_kept() {
+        assert_eq!(errno(&io::Error::from_raw_os_error(13)), 13);
+        assert_eq!(errno(&io::Error::other("no code")), 0);
+    }
+
+    /// Every error of the open has its own words.
+    #[test]
+    fn open_errors_say_what_failed() {
+        assert_eq!(
+            OpenError::InUse.to_string(),
+            "another host holds the data directory"
+        );
+        assert_eq!(
+            OpenError::Unsafe("mode".into()).to_string(),
+            "the data directory is not safe: mode"
+        );
+        assert!(OpenError::Io(io::Error::other("boom"))
+            .to_string()
+            .starts_with("the data directory failed: boom"));
+        assert_eq!(
+            OpenError::CorruptEpoch.to_string(),
+            "the host epoch row is not a number"
+        );
+    }
+
+    /// A directory that does not exist cannot be synced.
+    #[test]
+    fn a_missing_directory_cannot_be_synced() {
+        assert!(sync_directory(std::path::Path::new("/nonexistent-botster-dir")).is_err());
+    }
+}
+
+/// The tests that write to a real disk (the fsync of a row, the lock, the epoch) run in the slow tier (BUILD.md testing rule 2):
+/// their time is the time of the disk of the host, and a busy host breaks the budget of the default tier.
+#[cfg(all(test, feature = "slow"))]
+mod slow_tests {
+    use super::*;
     use std::os::unix::fs::PermissionsExt;
 
     fn dir() -> tempfile::TempDir {
@@ -451,32 +502,6 @@ mod tests {
         assert_eq!(storage.read_row("k").unwrap(), None);
     }
 
-    #[test]
-    fn the_wire_form_is_length_key_value() {
-        assert_eq!(encode("ab", b"cd"), [2, 0, 0, 0, b'a', b'b', b'c', b'd']);
-        assert_eq!(
-            decode(&encode("ab", b"cd")),
-            Some(("ab".to_string(), b"cd".to_vec()))
-        );
-        assert_eq!(decode(&[9, 0, 0, 0, 1]), None);
-        assert_eq!(decode(&[1]), None);
-    }
-
-    /// The errno of an OS error is kept, and an error with none is 0.
-    #[test]
-    fn an_errno_is_kept() {
-        assert_eq!(errno(&io::Error::from_raw_os_error(13)), 13);
-        assert_eq!(errno(&io::Error::other("no code")), 0);
-    }
-
-    /// Plan 2.3: a directory that does not exist cannot be synced.
-    #[test]
-    fn a_missing_directory_cannot_be_synced() {
-        let tmp = dir();
-        assert!(sync_directory(tmp.path()).is_ok());
-        assert!(sync_directory(&tmp.path().join("missing")).is_err());
-    }
-
     /// An error that is not "not found" is an error: a row path under a file, and a row path that is a directory.
     #[test]
     fn only_a_missing_row_is_none_or_deleted_quietly() {
@@ -546,23 +571,10 @@ mod tests {
         assert!(matches!(DataDir::open(&base), Err(OpenError::Unsafe(_))));
     }
 
-    /// Every error of the open has its own words.
+    /// Plan 2.3: a directory that exists can be synced.
     #[test]
-    fn open_errors_say_what_failed() {
-        assert_eq!(
-            OpenError::InUse.to_string(),
-            "another host holds the data directory"
-        );
-        assert_eq!(
-            OpenError::Unsafe("mode".into()).to_string(),
-            "the data directory is not safe: mode"
-        );
-        assert!(OpenError::Io(io::Error::other("boom"))
-            .to_string()
-            .starts_with("the data directory failed: boom"));
-        assert_eq!(
-            OpenError::CorruptEpoch.to_string(),
-            "the host epoch row is not a number"
-        );
+    fn an_existing_directory_can_be_synced() {
+        let tmp = dir();
+        assert!(sync_directory(tmp.path()).is_ok());
     }
 }
