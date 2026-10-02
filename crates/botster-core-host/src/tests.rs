@@ -508,5 +508,6 @@ mod driver;
 mod lifecycle;
 mod losses;
 mod queue_pressure;
+mod ready;
 mod review;
 mod worker_link;
