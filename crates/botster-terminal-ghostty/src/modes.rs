@@ -99,7 +99,8 @@ fn get_bool(terminal: sys::Terminal, key: i32) -> bool {
     out
 }
 
-pub(crate) fn mode_flags(terminal: sys::Terminal) -> ModeFlags {
+/// The modes of the terminal as the library reports them, without the modifyOtherKeys probe.
+pub(crate) fn base_mode_flags(terminal: sys::Terminal) -> ModeFlags {
     let mut kitty: u8 = 0;
     // SAFETY: the terminal is live, and KITTY_KEYBOARD_FLAGS writes a `u8`.
     let code = unsafe {
@@ -151,4 +152,17 @@ pub(crate) fn mode_flags(terminal: sys::Terminal) -> ModeFlags {
 #[cfg(test)]
 pub(crate) fn normative_dec() -> &'static [u16] {
     NORMATIVE_DEC
+}
+
+/// The name in `other_modes` of xterm's modifyOtherKeys state 2 (`CSI > 4 ; 2 m`). libghostty tracks it in the terminal
+/// and offers no getter, so it is read through the key encoder (see `encode::modify_other_keys_state_2`).
+pub(crate) const MODIFY_OTHER_KEYS_2: &str = "xterm_modify_other_keys_2";
+
+pub(crate) fn mode_flags(terminal: sys::Terminal) -> ModeFlags {
+    let mut flags = base_mode_flags(terminal);
+    let state_2 = crate::encode::modify_other_keys_state_2(terminal, &flags);
+    flags
+        .other_modes
+        .insert(MODIFY_OTHER_KEYS_2.to_owned(), state_2);
+    flags
 }

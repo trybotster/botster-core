@@ -177,18 +177,19 @@ fn osc_52_writes_report_the_selection_as_written_and_the_decoded_bytes() {
             assert_eq!(
                 events_of(sequence.as_bytes()),
                 vec![TerminalEvent::ClipboardWrite {
-                    selection: selection.to_owned(),
+                    selection: Some(selection.to_owned()),
                     bytes: b"hi".to_vec()
                 }],
                 "selection {selection:?}"
             );
         }
     }
-    // A program that leaves the selection out writes `s0`.
+    // A program that leaves the selection out gives none: the library reports the same for OSC 52 without a selection
+    // and for the other clipboard protocols.
     assert_eq!(
         events_of(b"\x1b]52;;aGk=\x07"),
         vec![TerminalEvent::ClipboardWrite {
-            selection: "s0".to_owned(),
+            selection: None,
             bytes: b"hi".to_vec()
         }]
     );
