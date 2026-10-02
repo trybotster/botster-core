@@ -450,11 +450,17 @@ fn a_query_deadline_below_one_millisecond_is_refused() {
         )
     };
     assert_eq!(
-        attach(&mut w, Duration::from_nanos(1)).unwrap_err().code,
+        attach(&mut w, Duration::from_nanos(1))
+            .unwrap_err()
+            .error
+            .code,
         ErrorCode::InvalidInput
     );
     assert_eq!(
-        attach(&mut w, Duration::from_micros(999)).unwrap_err().code,
+        attach(&mut w, Duration::from_micros(999))
+            .unwrap_err()
+            .error
+            .code,
         ErrorCode::InvalidInput
     );
     assert!(attach(&mut w, Duration::from_millis(1)).is_ok());
