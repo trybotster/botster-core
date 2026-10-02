@@ -926,3 +926,25 @@ Every other generated list matches the pinned contracts revision.
 Required change: regenerate the P4c list against `contracts-v0.1.9` and commit the 15 transcript-status changes.
 
 VERDICT: NOT CLEAN (2 open)
+
+## Round 19 — revision 19
+
+Plan: `f8c9ade30c3e8437160db0c05551a93ee8191f1b`, `docs/stage1-plan.md`.
+Pin: `stage1-plan.62f664de.md`.
+Verified SHA-256: `62f664de2476bc172336a9ddac7b111517a9fc49f34eb59b69a8d11a24c0bea8`.
+Contracts tag: `contracts-v0.1.9`, commit `7f72acf8427ad7bf414db42d2360d5dccc7b3e13`, manifest final22.
+Ghostty fork: `85a8d8eb197c5752887c017c9a3faa6f1dc1969b`.
+
+I reviewed the complete delta and F17 and F18.
+The plan matches its pin.
+F17 is CLOSED: model steps use completed calls and consumed prefixes, with the unconsumed suffix retained in order.
+Section 2.4 now includes query-capacity backpressure, final-mode comparison after each step, and input admission only between completed steps.
+The architecture still prohibits terminal parsing outside libghostty.
+F18 is CLOSED: all 15 P4c rows now match the transcript status at the pinned contracts tag.
+All other ownership lists are unchanged from the reviewed revision 18.
+F1 through F16 remain CLOSED. All eighteen findings are closed.
+This verdict covers the plan at the commit above.
+It does not approve product code or establish Stage 1 acceptance.
+I ran no product tests.
+
+VERDICT: CLEAN
