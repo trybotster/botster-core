@@ -146,7 +146,7 @@ impl HostEngine {
 
     /// The held bytes of A8-1: `max_snapshot_bytes` for every capture op whose `Completed` is not polled, and `total_bytes`
     /// for a successful capture after it was polled. A failed capture counts nothing after the poll.
-    fn retained_bytes(&self) -> u64 {
+    pub(crate) fn retained_bytes(&self) -> u64 {
         let reserved = self
             .ops
             .values()
