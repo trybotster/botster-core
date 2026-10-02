@@ -67,7 +67,6 @@ pub fn encode_frame(
     if len > max_payload {
         return Err(too_large);
     }
-    out.reserve(HEADER_LEN + payload.len());
     out.extend_from_slice(&len.to_le_bytes());
     out.push(kind.0);
     out.extend_from_slice(payload);
@@ -149,6 +148,25 @@ mod tests {
         let mut out = Vec::new();
         encode_frame(FrameType(kind), payload, 64, &mut out).unwrap();
         out
+    }
+
+    #[test]
+    fn the_default_bound_is_one_mebibyte() {
+        assert_eq!(DEFAULT_MAX_PAYLOAD, 1_048_576);
+    }
+
+    #[test]
+    fn a_refusal_names_the_length_and_the_bound() {
+        let text = FrameError::TooLarge { len: 17, max: 16 }.to_string();
+        assert!(text.contains("17") && text.contains("16"), "{text}");
+    }
+
+    #[test]
+    fn buffered_counts_the_bytes_that_wait() {
+        let mut decoder = FrameDecoder::new(64);
+        assert_eq!(decoder.buffered(), 0);
+        decoder.push(&[3, 0, 0]);
+        assert_eq!(decoder.buffered(), 3);
     }
 
     #[test]
