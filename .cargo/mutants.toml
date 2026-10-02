@@ -63,7 +63,14 @@ exclude_re = [
     # settle_wake), and in tests/slow_real_core.rs: `a_worker_that_exits_before_it_connects_ends_the_start_at_once`
     # (spawn_worker, signal_group, poll_process_exit, the reaper wake) and `a_hello_for_an_unknown_instance_is_closed`
     # (the listener token, accept_link, link_close).
-    'crates/botster-core/src/real\.rs:\d+:\d+: (replace (<impl (HostEdges for RealEdges|WakeHandle for PollWake|WakeEdge for PollWake|Drop for RealEdges)>::|PollWake::consume|socket_path|LinkIo::apply)|replace [-+] with .*)',
+    'crates/botster-core/src/real\.rs:\d+:\d+: replace (<impl (HostEdges for RealEdges|WakeHandle for PollWake|WakeEdge for PollWake|Drop for RealEdges)>::|PollWake::consume|socket_path|LinkIo::apply)',
+    # real.rs: the token of the listener is `usize::MAX - 1`, and `a_hello_for_an_unknown_instance_is_closed` fails when it equals
+    # the token of the waker. The number of a link counts up from 1: `a_link_reads_writes_and_closes`.
+    'crates/botster-core/src/real\.rs:\d+:\d+: replace - with /$',
+    'crates/botster-core/src/real\.rs:\d+:\d+: replace \+= with [-*]= in <impl HostEdges for RealEdges>::accept_link$',
+    # real.rs: an `accept` that the kernel interrupts (`EINTR`) is tried again. A test cannot make the kernel interrupt a call on
+    # command; the match guard has the two outcomes of `io::ErrorKind` and no other logic.
+    'crates/botster-core/src/real\.rs:\d+:\d+: replace (match guard e\.kind\(\) == io::ErrorKind::Interrupted with (true|false)|== with !=) in <impl HostEdges for RealEdges>::accept_link$',
     # botster-core-sys process: the wrappers of the operating system. `Children` waits for a child, reaps it and signals a group:
     # a real child process is needed, so the proof is in the slow tier: `a_child_exit_calls_the_notifier_and_is_polled`
     # (poll_exit, wait_exit), `the_worker_control_signal_reaches_the_worker_handler` and
