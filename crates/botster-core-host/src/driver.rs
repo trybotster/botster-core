@@ -1,0 +1,601 @@
+//! The driver of the `HostEngine` (plan 2.1, 2.5): it connects the machine to the edges and implements `CoreApi`.
+//!
+//! There is one driver. The real `Core` and the testkit's core both use it, each with its own [`HostEdges`], so the logic
+//! that moves bytes between the links and the engine, orders the work of a `pump` with the scheduler, and keeps the wake
+//! flag exists once (plan 2.1, Core A5-1: "one code path").
+//!
+//! The driver holds no clock and draws no random number: the host passes `now` to `pump` (TM-1), and the edges draw (2.3a).
+//! It calls no operating system function: every effect is a call of an edge.
+
+use crate::engine::{EngineConfig, HostEngine};
+use crate::io::{Action, Input, LinkId, Work};
+use botster_core_contract::prelude::*;
+use botster_core_edges::edges::{
+    ExitStatus, GroupSignal, ProcessIdentity, SpawnError, StorageError, Wake as WakeEdge,
+};
+use botster_core_edges::scheduler::{ChoicePoint, Scheduler};
+use botster_core_edges::Machine;
+use botster_core_link::frame::{encode_frame, FrameDecoder, FrameType};
+use botster_core_link::hello::Hello;
+use botster_core_link::msg::{HostMsg, WorkerMsg};
+use botster_core_link::proof::TOKEN_LEN;
+use botster_route_codec::prelude::QueryKind;
+use std::collections::{BTreeMap, BTreeSet};
+use std::io;
+use std::path::PathBuf;
+use std::sync::Arc;
+use std::time::{Duration, Instant};
+
+/// What a worker needs to find the host and prove itself (AD-6, DP-8). The edge turns it into a command line and an
+/// environment; the token never goes on a command line that other users can read.
+#[derive(Debug, Clone)]
+pub struct WorkerSpawn {
+    pub program: PathBuf,
+    pub instance: InstanceId,
+    pub token: [u8; TOKEN_LEN],
+    pub host_epoch: u64,
+}
+
+/// The handoff of a route's stream failed (DP-2): the route closes `HandoffFailed`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct HandoffError;
+
+/// The wake object: the `WakeHandle` that the host waits on, and the "runnable work exists" flag that the driver sets and
+/// clears (TM-6, TH-2).
+pub trait HostWake: WakeHandle + WakeEdge {}
+
+impl<T: WakeHandle + WakeEdge> HostWake for T {}
+
+/// Every edge that the host driver uses (plan 2.3), as one trait with a real implementation in `botster-core` and a testkit
+/// implementation in `botster-core-testkit`. A call that cannot proceed returns `io::ErrorKind::WouldBlock`.
+pub trait HostEdges: Send {
+    /// The registry (`Storage`) and the random values (`Entropy`).
+    fn fill_random(&mut self, buf: &mut [u8]);
+    fn write_row(&mut self, key: &str, bytes: &[u8]) -> Result<(), StorageError>;
+    fn delete_row(&mut self, key: &str) -> Result<(), StorageError>;
+    /// Every row whose key starts with `prefix`, in key order.
+    fn read_rows(&mut self, prefix: &str) -> Result<Vec<(String, Vec<u8>)>, StorageError>;
+
+    /// Workers as processes (`Process`).
+    fn spawn_worker(&mut self, spec: &WorkerSpawn) -> Result<ProcessIdentity, SpawnError>;
+    fn signal_group(&mut self, identity: ProcessIdentity, signal: GroupSignal);
+    fn poll_process_exit(&mut self) -> Option<(ProcessIdentity, ExitStatus)>;
+
+    /// The control links (`Link`). A worker connects to the host; `accept_link` returns the next new link, or `None`.
+    fn accept_link(&mut self) -> Option<LinkId>;
+    /// `Ok(0)` means that the peer closed the link.
+    fn link_recv(&mut self, link: LinkId, buf: &mut [u8]) -> io::Result<usize>;
+    fn link_send(&mut self, link: LinkId, bytes: &[u8]) -> io::Result<usize>;
+    fn link_close(&mut self, link: LinkId);
+    /// Write interest follows the outbound buffer (plan 2.5): on while bytes wait, off when none do.
+    fn set_write_interest(&mut self, link: LinkId, on: bool);
+    /// Hands the stream of a route to the worker over its link (DP-2).
+    fn handoff_route(
+        &mut self,
+        link: LinkId,
+        route: RouteId,
+        transport: StreamEndpoint,
+        options: &AttachOptions,
+    ) -> Result<(), HandoffError>;
+
+    /// The wake object (`Wake`). The driver signals and drains it, and hands it out as the `WakeHandle`.
+    fn wake(&self) -> Arc<dyn HostWake>;
+    /// Consumes the readiness that the wake object holds. The driver calls it when a `pump` found nothing to do, and reads
+    /// every link once more after it, so that a readiness that arrives after the read is never consumed unread (plan 2.5).
+    fn settle_wake(&mut self);
+    /// The scheduling policy (`Scheduler`): the production policy, or the seeded policy of the testkit.
+    fn scheduler(&mut self) -> &mut dyn Scheduler;
+}
+
+/// The errors of `open` that do not need the data directory: the limits (9B, LC-1) and the worker path (LC-1).
+///
+/// Clause: Core LC-1, Core 9B.
+pub fn check_open(config: &OpenConfig) -> Result<PathBuf, CoreError> {
+    config.limits.validate().map_err(CoreError::from)?;
+    config.worker_path.clone().ok_or_else(|| {
+        CoreError::new(
+            ErrorCode::MissingWorkerPath,
+            "OpenConfig.worker_path is not set",
+        )
+    })
+}
+
+/// The first byte count that a link read asks for.
+const READ_CHUNK: usize = 16 * 1024;
+
+#[derive(Debug)]
+struct LinkState {
+    decoder: FrameDecoder,
+    /// Bytes that the link did not take yet (plan 2.5: write interest while this is not empty).
+    out: Vec<u8>,
+    /// The first frame of a link is the hello; after it, messages.
+    hello_seen: bool,
+}
+
+/// The host driver. It is `Send`, and `Core` is `Send` and not `Sync` (TH-1) because the owner thread alone calls it.
+pub struct HostDriver<E: HostEdges> {
+    engine: HostEngine,
+    edges: E,
+    links: BTreeMap<LinkId, LinkState>,
+    wake: Arc<dyn HostWake>,
+    frame_bound: u32,
+}
+
+impl<E: HostEdges> HostDriver<E> {
+    /// `epoch` is an instant before the first `pump`, for example the time of `open`: the driver never reads a clock.
+    pub fn new(cfg: EngineConfig, edges: E, epoch: Instant) -> HostDriver<E> {
+        let engine = HostEngine::new(cfg, epoch);
+        let frame_bound = engine.link_frame_bound();
+        let wake = edges.wake();
+        HostDriver {
+            engine,
+            edges,
+            links: BTreeMap::new(),
+            wake,
+            frame_bound,
+        }
+    }
+
+    pub fn engine(&self) -> &HostEngine {
+        &self.engine
+    }
+
+    pub fn edges(&mut self) -> &mut E {
+        &mut self.edges
+    }
+
+    /// TM-6: a call that leaves work for `pump` signals the wake before it returns.
+    fn sync_wake(&self) {
+        if self.engine.runnable() {
+            self.wake.signal();
+        }
+    }
+
+    // ---- actions ----
+
+    fn perform(&mut self) {
+        while let Some(action) = self.engine.poll_action() {
+            self.act(action);
+        }
+    }
+
+    fn feed(&mut self, now: Instant, input: Input) {
+        self.engine.handle(now, input);
+    }
+
+    fn act(&mut self, action: Action) {
+        let now = self.now();
+        match action {
+            Action::Random { ticket, len } => {
+                let mut bytes = vec![0u8; len];
+                self.edges.fill_random(&mut bytes);
+                self.feed(now, Input::Random { ticket, bytes });
+            }
+            Action::WriteRow { ticket, key, bytes } => {
+                let result = self.edges.write_row(&key, &bytes);
+                self.feed(now, Input::RowWritten { ticket, result });
+            }
+            Action::DeleteRow { ticket, key } => {
+                let result = self.edges.delete_row(&key);
+                self.feed(now, Input::RowDeleted { ticket, result });
+            }
+            Action::ReadRows { ticket, prefix } => {
+                let result = self.edges.read_rows(&prefix);
+                self.feed(now, Input::Rows { ticket, result });
+            }
+            Action::SpawnWorker {
+                ticket,
+                program,
+                instance,
+                token,
+                host_epoch,
+            } => {
+                let result = self.edges.spawn_worker(&WorkerSpawn {
+                    program,
+                    instance,
+                    token,
+                    host_epoch,
+                });
+                self.feed(now, Input::Spawned { ticket, result });
+            }
+            Action::SendHello { link, hello } => {
+                let mut payload = Vec::new();
+                if hello.encode(&mut payload).is_ok() {
+                    self.send_frame(link, FrameType::HELLO, &payload);
+                }
+            }
+            Action::SendMsg { link, msg } => {
+                let mut payload = Vec::new();
+                msg.encode(&mut payload);
+                self.send_frame(link, FrameType::HOST_MSG, &payload);
+            }
+            Action::CloseLink { link } => self.close_link(link),
+            Action::SignalGroup { identity, signal } => self.edges.signal_group(identity, signal),
+            Action::HandoffRoute {
+                link,
+                route,
+                transport,
+                options,
+            } => {
+                if self
+                    .edges
+                    .handoff_route(link, route, transport, &options)
+                    .is_err()
+                {
+                    self.feed(now, Input::HandoffFailed { route });
+                }
+            }
+        }
+    }
+
+    fn now(&self) -> Instant {
+        // The engine keeps the last time that the host passed; a call before the first `pump` uses a fixed past instant that
+        // no deadline can be due at.
+        self.engine.last_now()
+    }
+
+    // ---- links ----
+
+    fn send_frame(&mut self, link: LinkId, kind: FrameType, payload: &[u8]) {
+        let Some(state) = self.links.get_mut(&link) else {
+            return;
+        };
+        if encode_frame(kind, payload, self.frame_bound, &mut state.out).is_err() {
+            // A frame over the bound can never be sent: the link is broken.
+            self.close_link(link);
+            return;
+        }
+        self.flush(link);
+    }
+
+    fn flush(&mut self, link: LinkId) {
+        let Some(state) = self.links.get_mut(&link) else {
+            return;
+        };
+        while !state.out.is_empty() {
+            match self.edges.link_send(link, &state.out) {
+                Ok(0) => break,
+                Ok(n) => {
+                    state.out.drain(..n);
+                }
+                Err(e) if e.kind() == io::ErrorKind::WouldBlock => break,
+                Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
+                Err(_) => {
+                    self.close_link(link);
+                    return;
+                }
+            }
+        }
+        let wanted = !state.out.is_empty();
+        self.edges.set_write_interest(link, wanted);
+    }
+
+    fn close_link(&mut self, link: LinkId) {
+        if self.links.remove(&link).is_some() {
+            self.edges.link_close(link);
+            let now = self.now();
+            self.feed(now, Input::LinkClosed { link });
+        }
+    }
+
+    /// Reads every link that has input, and gives the engine what it decoded (plan 2.5). Control comes before data: this
+    /// runs before the work of a `pump`.
+    fn service_links(&mut self) {
+        let now = self.now();
+        while let Some(link) = self.edges.accept_link() {
+            self.links.insert(
+                link,
+                LinkState {
+                    decoder: FrameDecoder::new(self.frame_bound),
+                    out: Vec::new(),
+                    hello_seen: false,
+                },
+            );
+        }
+        let ids: Vec<LinkId> = self.links.keys().copied().collect();
+        for link in ids {
+            self.flush(link);
+            self.read_link(link, now);
+        }
+    }
+
+    fn read_link(&mut self, link: LinkId, now: Instant) {
+        let mut buf = vec![0u8; READ_CHUNK];
+        loop {
+            if !self.links.contains_key(&link) {
+                return;
+            }
+            let n = match self.edges.link_recv(link, &mut buf) {
+                Ok(0) => {
+                    self.close_link(link);
+                    return;
+                }
+                Ok(n) => n,
+                Err(e) if e.kind() == io::ErrorKind::WouldBlock => return,
+                Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
+                Err(_) => {
+                    self.close_link(link);
+                    return;
+                }
+            };
+            let mut rest = &buf[..n];
+            while !rest.is_empty() {
+                let Some(state) = self.links.get_mut(&link) else {
+                    return;
+                };
+                let took = state.decoder.push(rest);
+                rest = &rest[took..];
+                match state.decoder.next_frame() {
+                    Ok(Some(frame)) => {
+                        let first = !state.hello_seen;
+                        state.hello_seen = true;
+                        if !self.deliver(link, first, frame.kind, &frame.payload, now) {
+                            self.close_link(link);
+                            return;
+                        }
+                    }
+                    Ok(None) => {}
+                    Err(_) => {
+                        // A frame over the bound ends the link (plan section 3).
+                        self.close_link(link);
+                        return;
+                    }
+                }
+            }
+        }
+    }
+
+    /// Turns one frame into an input. False when the frame is not valid on this link.
+    fn deliver(
+        &mut self,
+        link: LinkId,
+        first: bool,
+        kind: FrameType,
+        payload: &[u8],
+        now: Instant,
+    ) -> bool {
+        if first {
+            if kind != FrameType::HELLO {
+                return false;
+            }
+            return match Hello::decode(payload) {
+                Ok(hello) => {
+                    self.feed(now, Input::LinkHello { link, hello });
+                    true
+                }
+                Err(_) => false,
+            };
+        }
+        if kind != FrameType::WORKER_MSG {
+            return false;
+        }
+        match WorkerMsg::decode(payload) {
+            Ok(msg) => {
+                self.feed(now, Input::LinkMsg { link, msg });
+                true
+            }
+            Err(_) => false,
+        }
+    }
+}
+
+impl<E: HostEdges> CoreApi for HostDriver<E> {
+    fn begin(&mut self, op: Op) -> Result<OpId, CoreError> {
+        let id = self.engine.begin(op)?;
+        self.sync_wake();
+        Ok(id)
+    }
+
+    /// The only call that makes progress (OR-1, TM-2): the order of the work is the scheduler's (plan 2.4).
+    fn pump(&mut self, now: Now) -> PumpReport {
+        self.feed(now.monotonic, Input::Clock(now.unix));
+        while let Some((identity, status)) = self.edges.poll_process_exit() {
+            self.feed(now.monotonic, Input::ProcessExited { identity, status });
+        }
+        self.service_links();
+        self.perform();
+        let pump_events = self.engine.limits().pump_events as usize;
+        let bound = self
+            .edges
+            .scheduler()
+            .bound(ChoicePoint::PumpBound, pump_events);
+        let mut posted = 0usize;
+        let mut deferred: BTreeSet<Work> = BTreeSet::new();
+        loop {
+            if posted >= bound {
+                break;
+            }
+            let ready: Vec<Work> = self
+                .engine
+                .ready()
+                .into_iter()
+                .filter(|w| !deferred.contains(w))
+                .collect();
+            if ready.is_empty() {
+                break;
+            }
+            let at = self
+                .edges
+                .scheduler()
+                .pick(ChoicePoint::ReadyWork, ready.len());
+            let work = ready[at.min(ready.len() - 1)].clone();
+            // A5-2: the scheduler may defer the progress of an operation to a later pump. A deadline is never deferred
+            // (TM-3: a due deadline is processed in its pump).
+            if work != Work::Deadline
+                && self
+                    .edges
+                    .scheduler()
+                    .pick(ChoicePoint::OperationDeferral, 2)
+                    == 1
+            {
+                deferred.insert(work);
+                continue;
+            }
+            self.feed(now.monotonic, Input::Run(work));
+            self.perform();
+            self.service_links();
+            self.perform();
+            posted += self.engine.take_posted() as usize;
+        }
+        let mut more = self.engine.runnable();
+        if !more {
+            self.edges.settle_wake();
+            self.service_links();
+            self.perform();
+            more = self.engine.runnable();
+            if !more {
+                self.wake.drain();
+            }
+        }
+        PumpReport {
+            more,
+            events_posted: u32::try_from(posted).unwrap_or(u32::MAX),
+        }
+    }
+
+    /// A5-2: the scheduler chooses the size of the non-empty part of the queue that a poll returns; the production policy
+    /// returns `max`.
+    fn poll_events(&mut self, max: usize) -> Vec<Event> {
+        let batch = self.edges.scheduler().bound(ChoicePoint::PollBatch, max);
+        let events = self.engine.poll_events(batch);
+        self.sync_wake();
+        events
+    }
+
+    fn wake_handle(&self) -> Arc<dyn WakeHandle> {
+        let wake: Arc<dyn HostWake> = Arc::clone(&self.wake);
+        wake
+    }
+
+    fn next_deadline(&self) -> Option<Instant> {
+        self.engine.next_deadline()
+    }
+
+    fn cancel(&mut self, op: OpId) -> CancelResult {
+        let result = self.engine.cancel(op);
+        self.perform();
+        self.sync_wake();
+        result
+    }
+
+    fn get(&self, id: &SessionId) -> Result<SessionRecord, CoreError> {
+        self.engine.get(id)
+    }
+
+    fn list(&self) -> Vec<SessionRecord> {
+        self.engine.list()
+    }
+
+    fn status(&self) -> Status {
+        self.engine.status()
+    }
+
+    fn diagnostics(&self) -> serde_json::Value {
+        self.engine.diagnostics()
+    }
+
+    fn terminal_state(&self, id: &SessionId) -> Result<TerminalState, CoreError> {
+        self.engine.terminal_state(id)
+    }
+
+    fn read_page(&self, capture: CaptureId, page: u32) -> Result<Page, CoreError> {
+        self.engine.read_page(capture, page)
+    }
+
+    fn release(&mut self, capture: CaptureId) {
+        self.engine.release(capture);
+    }
+
+    fn release_owner(&mut self, client: &ClientId) {
+        self.engine.release_owner(client);
+    }
+
+    fn snapshot_formats(&self, session: &SessionId) -> Result<Vec<SnapshotFormat>, CoreError> {
+        self.engine.snapshot_formats(session)
+    }
+
+    fn shadow_answerable_kinds(&self) -> Vec<QueryKind> {
+        self.engine.shadow_answerable_kinds()
+    }
+
+    fn attach(
+        &mut self,
+        client: ClientId,
+        session: SessionId,
+        transport: RouteTransport,
+        options: AttachOptions,
+    ) -> Result<AttachResult, CoreError> {
+        let result = self.engine.attach(client, session, transport, options)?;
+        self.sync_wake();
+        Ok(result)
+    }
+
+    fn tap_read(&mut self, session: &SessionId, _max: usize) -> Result<TapChunk, CoreError> {
+        self.engine.tap_read(session)
+    }
+
+    fn set_silence_threshold(
+        &mut self,
+        session: &SessionId,
+        threshold: Option<Duration>,
+    ) -> Result<(), CoreError> {
+        let result = self.engine.set_silence_threshold(session, threshold);
+        self.sync_wake();
+        result
+    }
+
+    fn service_send(
+        &mut self,
+        _id: &ServiceId,
+        _lane: u8,
+        _frame: &OutboundFrame,
+    ) -> Result<(), SendError> {
+        Err(SendError::UnknownService)
+    }
+
+    fn service_recv(&mut self, _id: &ServiceId, _lane: u8) -> Result<Option<Frame>, RecvError> {
+        Err(RecvError::UnknownService)
+    }
+
+    fn service_report(&self, id: &ServiceId) -> Result<SpawnReport, CoreError> {
+        Err(CoreError::new(
+            ErrorCode::UnknownService,
+            format!("no service {id}"),
+        ))
+    }
+
+    fn service_log_tail(&self, id: &ServiceId, _max: usize) -> Result<Vec<u8>, CoreError> {
+        Err(CoreError::new(
+            ErrorCode::UnknownService,
+            format!("no service {id}"),
+        ))
+    }
+
+    fn features(&self) -> Features {
+        self.engine.features()
+    }
+
+    fn limits(&self) -> CoreLimits {
+        self.engine.limits()
+    }
+
+    fn worker_protocol(&self) -> u8 {
+        self.engine.worker_protocol()
+    }
+
+    fn adoptable_worker_protocols(&self) -> BTreeSet<u8> {
+        self.engine.adoptable_worker_protocols()
+    }
+
+    fn worker_protocol_compatibility(&self, protocol: Option<u8>) -> WorkerCompatibility {
+        self.engine.worker_protocol_compatibility(protocol)
+    }
+
+    fn terminal_identity(&self) -> TerminalIdentity {
+        self.engine.terminal_identity()
+    }
+}
+
+// The driver sends host messages through the engine's `SendMsg` action: this keeps the type in the public docs.
+#[allow(dead_code)]
+fn _host_msg_is_the_wire(_: &HostMsg) {}
