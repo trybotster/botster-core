@@ -38,7 +38,19 @@ RUN curl -fsSL -o /tmp/zig.tar.xz "https://ziglang.org/download/$ZIG_VERSION/zig
     mkdir /usr/local/zig && tar -xJf /tmp/zig.tar.xz -C /usr/local/zig --strip-components=1 && rm /tmp/zig.tar.xz && \
     zig version
 
-ENV CARGO_HOME=/cargo \
+
+# cargo-mutants builds its mutant copies under TMPDIR. The gate's /tmp is a tmpfs (job.sh: test temp roots off the disk,
+# so writeback of a heavy writer in the same container cannot stall them), so this shim, first on PATH, gives
+# cargo-mutants a directory on the target volume instead.
+RUN mkdir -p /usr/local/botster/bin && \
+    printf '%s\n' '#!/bin/sh' \
+      'export TMPDIR="${BOTSTER_MUTANTS_TMPDIR:-/work/target/tmp}"' \
+      'mkdir -p "$TMPDIR"' \
+      'exec /usr/local/cargo/bin/cargo-mutants "$@"' > /usr/local/botster/bin/cargo-mutants && \
+    chmod 755 /usr/local/botster/bin/cargo-mutants
+
+ENV PATH=/usr/local/botster/bin:$PATH \
+    CARGO_HOME=/cargo \
     ZIG_GLOBAL_CACHE_DIR=/zig \
     CARGO_TERM_COLOR=never \
     TZ=UTC
