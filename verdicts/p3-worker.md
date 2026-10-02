@@ -2,11 +2,12 @@
 
 VERDICT: CLEAN
 
-Reviewed head: `1911ed09654260e7a57ae0a5b2a251ff470ad330`, branch `stage1/p3-worker-m1`.
-Previous reviewed head: `0ab2a7dc1d0f49a89931432dba51b956ca0fdb3b`.
-Round 8 delta: `0ab2a7d..1911ed0`. F1 through F8 remain CLOSED. No open findings remain in M1.
+Reviewed head: `46b16945ead49715949d5983bb41a673c081f8ad`, branch `stage1/p3-worker-m1-stack`.
+Previous reviewed head: `1911ed09654260e7a57ae0a5b2a251ff470ad330`.
+Round 9 covers the stack on P1 `823a1f1`, the transferred testkit wiring, and the restored v1 interfaces.
+F1 through F8 remain CLOSED. No open findings remain in M1.
 This CLEAN verdict applies only to M1 at the exact reviewed head. M2 and the same-suite real-process proof remain later work.
-The original evidence refers to `f37c46b`. Rounds 2 through 7 record review history. Round 8 records the latest delta verdict.
+The original evidence refers to `f37c46b`. Rounds 2 through 8 record review history. Round 9 records the latest delta verdict.
 Base: `2016886`. Scope: M1, including the Worker machine, real driver, payload edge, and testkit driver.
 This verdict covers both review units in the implementer's message.
 
@@ -397,6 +398,39 @@ The delta changes no code, dependency, or test behavior. No new finding exists.
 The reviewer inspected the complete delta and ran no tests or gate.
 The implementer reported that the previous head's Linux gate passed fmt and clippy, then failed the taint check.
 The implementer reported local taint, lists, and public-api checks passing on this fix head. This verdict does not establish a green gate.
+
+VERDICT: CLEAN on the exact M1 head above. All eight findings remain closed.
+Any later commit, including a rebase, requires a delta review before this verdict applies to that head.
+
+## Round 9 — M1 stack and transferred testkit wiring
+
+Reviewed head: `46b16945ead49715949d5983bb41a673c081f8ad`, on P1 base `823a1f1` and v1 base `67124ec`.
+The review covers all four units in the implementer's message:
+
+- `befe0ff`: the transferred P1 testkit wiring, including the host edges, directory storage, wake object, and harness construction.
+- `7c69586..eb9b3d1`: the replay of the eleven previously reviewed M1 commits.
+- `f60e7d9`: the restored candidate module and refusal controls.
+- `46b1694`: the lock file correction for v1's rustix and schemars dependencies.
+
+The transferred wiring matches P1's `95a5854` for the testkit source and manifest files.
+The final harness constructs the real HostDriver with in-memory edges and the real Worker with the scripted program edge.
+The host and workers share the scheduler of the run. The TestkitCore wrapper delegates the Core API to the host driver.
+The directory lock ends when the host edges drop. The registry remains in the harness after that drop.
+The marked terminal identity placeholder and unsupported controls remain later work. This review does not claim adoption or M2 conformance.
+
+The range-diff compares `6db7924..1911ed0` with `befe0ff..eb9b3d1`.
+Nine commits match exactly. The other two differ only in patch context from v1's dependencies and testkit interfaces.
+The v1 program control handle retains the existing blocked-write behavior. The replay preserves all eight finding closures.
+
+The final harness restores the refusal map, fail_next control, and RefusalLayer around each opened Core.
+The existing v1 refusal layer retains the caller's transport on an attach refusal, as R-19 requires.
+The candidate module remains public. The lock correction restores declared dependencies without changing their versions.
+No new finding exists.
+
+The reviewer inspected logic only and ran no tests or gate.
+The implementer reported clean clippy, taint, lists, ledger, and public-api checks.
+The implementer reported 442 default tests and 15 slow tests passing on macOS.
+This verdict does not establish a green Linux gate or the same-suite real-process proof.
 
 VERDICT: CLEAN on the exact M1 head above. All eight findings remain closed.
 Any later commit, including a rebase, requires a delta review before this verdict applies to that head.
