@@ -252,6 +252,11 @@ if (( private_git_deps )); then
     "$image" bash ci/remote/fetch.sh
   remove_child "${TMPDIR:-/tmp}" "$secrets"
   secrets=
+  # Public sources that are built or unpacked from third-party code (ci/remote/fetch-public.sh: submodules, Zig packages)
+  # come in a second container with network and without the token.
+  if [ -f "$dir/ci/remote/fetch-public.sh" ]; then
+    container --name "$name-fetch-public" "${gate_env[@]}" "${mounts[@]}" -w /work "$image" bash ci/remote/fetch-public.sh
+  fi
   network=(--network none -e CARGO_NET_OFFLINE=true)
 fi
 
