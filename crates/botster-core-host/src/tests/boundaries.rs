@@ -1209,3 +1209,27 @@ fn held_capture_bytes_count_each_capture_once() {
         },
     );
 }
+
+/// The launch carries the engine's own limits, so the worker applies the same bounds as the host (EV-3, A2-4, ST-7, EV-8,
+/// TP-1), and stop_grace_ms is the engine's stop_grace.
+#[test]
+fn the_launch_carries_the_engines_limits() {
+    let limits = limits(|l| {
+        l.clipboard_bytes = 1234;
+        l.stop_grace = std::time::Duration::from_millis(7000);
+    });
+    let mut w = World::new(limits.clone());
+    w.ok(create("s1"));
+    w.engine.begin(Op::Start { id: sid("s1") }).unwrap();
+    w.pump();
+    let spec = w
+        .sent
+        .iter()
+        .find_map(|(_, m)| match m {
+            HostMsg::Launch(spec) => Some(spec.clone()),
+            _ => None,
+        })
+        .expect("the launch");
+    assert_eq!(spec.limits, limits);
+    assert_eq!(spec.stop_grace_ms, 7000);
+}
