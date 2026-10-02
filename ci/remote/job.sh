@@ -31,8 +31,13 @@ private_git_deps=1
 image_args() { echo "RUST_NIGHTLY=$(sed -n 's/^pub const NIGHTLY: &str = "\(.*\)";/\1/p' "$dir/xtask/src/tools.rs")"; }
 # Files whose content picks the image tag, besides the Dockerfile.
 image_inputs=(rust-toolchain.toml)
-# Volumes besides cargo, target and npm: "<suffix>:<mount>". zig: Zig's global cache (libghostty's packages).
+# Volumes besides cargo, target and npm: "<suffix>:<mount>". zig: Zig's global cache and the libghostty package store.
 extra_volumes=(zig:/zig)
+# Environment of the fetch and gate containers. libghostty's build.rs reads its Zig packages from the store that fetch.sh
+# fills, and runs Zig under a network denial: unshare --net cannot work in the container (Docker's seccomp profile and
+# the host's apparmor_restrict_unprivileged_userns refuse it), and the gate container has no network at all
+# (--network none), so it declares that with BOTSTER_ZIG_NETWORK_DENIED=1.
+extra_env=(BOTSTER_ZIG_PACKAGES=/zig/packages BOTSTER_ZIG_NETWORK_DENIED=1)
 # --------------------------------------------------------------------------------------------------------------------------
 
 dir=$(realpath -- "${1:?job.sh: no snapshot directory}")
@@ -128,9 +133,11 @@ cargo_volume=$project-cargo
 target_volume=$project-target-$slug
 npm_volume=$project-npm
 
-# Priority jobs (CI) get more CPU weight when the host is busy. Memory: rustc and the linker need about 2 GB a CPU.
+# Priority jobs (CI) get more CPU weight when the host is busy. Memory: rustc and the linker need about 2 GB a CPU, plus the
+# gate container's tmpfs /tmp (tmp_gb).
+tmp_gb=4
 shares=$(( ${TESTQ_PRIORITY:-0} ? 2048 : 1024 ))
-limits=(--cpus "$cpus" --cpu-shares "$shares" --memory "$(( cpus * 2 + 4 ))g")
+limits=(--cpus "$cpus" --cpu-shares "$shares" --memory "$(( cpus * 2 + 4 + tmp_gb ))g")
 
 # --init: tini is PID 1 and reaps orphans, as launchd does on the Mac. Without it, a test's reparented child stays a zombie
 # and the leftover-process check fails.
@@ -231,6 +238,7 @@ for volume in "${extra_volumes[@]}"; do mounts+=(-v "$project-${volume%%:*}:${vo
 network=()
 gate_env=(-e TZ=UTC)
 [ -n "$base" ] && gate_env+=(-e "BOTSTER_CI_BASE_REF=$base")
+for variable in "${extra_env[@]}"; do gate_env+=(-e "$variable"); done
 
 if (( private_git_deps )); then
   # Fetch every dependency with the host's GitHub CLI token, in a container that runs no repo code but cargo's resolver.
@@ -239,18 +247,28 @@ if (( private_git_deps )); then
   secrets=$(mktemp -d)
   chmod 700 "$secrets"
   (umask 077; printf '%s' "$(gh auth token)" > "$secrets/github-token")
-  container --name "$name-fetch" "${mounts[@]}" -v "$secrets:/run/testq-secrets:ro" -w /work \
+  container --name "$name-fetch" "${gate_env[@]}" "${mounts[@]}" -v "$secrets:/run/testq-secrets:ro" -w /work \
     -e GIT_TERMINAL_PROMPT=0 -e GIT_CONFIG_COUNT=1 \
     -e GIT_CONFIG_KEY_0=credential.https://github.com.helper \
     -e 'GIT_CONFIG_VALUE_0=!f() { cat >/dev/null; [ "$1" = get ] || exit 0; echo username=x-access-token; printf "password=%s\n" "$(cat /run/testq-secrets/github-token)"; }; f' \
     "$image" bash ci/remote/fetch.sh
   remove_child "${TMPDIR:-/tmp}" "$secrets"
   secrets=
+  # Public sources that are built or unpacked from third-party code (ci/remote/fetch-public.sh: submodules, Zig packages)
+  # come in a second container with network and without the token.
+  if [ -f "$dir/ci/remote/fetch-public.sh" ]; then
+    container --name "$name-fetch-public" "${gate_env[@]}" "${mounts[@]}" -w /work "$image" bash ci/remote/fetch-public.sh
+  fi
   network=(--network none -e CARGO_NET_OFFLINE=true)
 fi
 
 status=0
-container --name "$name" "${network[@]}" "${gate_env[@]}" "${mounts[@]}" -w /work "$image" "$@" || status=$?
+# /tmp is a tmpfs: the kernel throttles every writer of a container whose dirty page cache is at its limit, so the tests'
+# temp roots (git repositories, small files) stalled for seconds while rustc or another test wrote gigabytes in the same
+# container (measured: git init/add/commit 6 ms quiet, 566 ms median and 1.8 s max under such a writer, 13 ms on tmpfs).
+# cargo-mutants keeps its large build copies on the target volume (the image's cargo-mutants shim).
+container --name "$name" "${network[@]}" "${gate_env[@]}" "${mounts[@]}" --tmpfs "/tmp:rw,exec,mode=1777,size=${tmp_gb}g" \
+  -w /work "$image" "$@" || status=$?
 
 # The mutation reports: botster-contracts writes them in the tree, botster-core in the target volume, which only a
 # container sees.
