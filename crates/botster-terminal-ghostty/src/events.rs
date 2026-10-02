@@ -8,6 +8,7 @@ use std::ffi::c_void;
 
 use botster_core_contract::prelude::{LostKind, NotificationSource, PromptMarkKind};
 
+use crate::query::{Query, QueryKind, Terminator, MAX_SHADOW_REPLY_BYTES};
 use crate::sys;
 
 /// The most events that the buffer holds between two drains.
@@ -31,6 +32,9 @@ pub enum TerminalEvent {
     PromptMark { mark: PromptMarkKind, exit_code: Option<i32> },
     /// An OSC 52 write, with the selection as the program wrote it (`s0` when it left it out) and the decoded bytes.
     ClipboardWrite { selection: String, bytes: Vec<u8> },
+    /// A query that a plain `vt_write` met. The request bytes are not kept by a plain write (`request` is `None`), and
+    /// the shadow reply is held in the query. `vt_write_until_query` returns its query in the step, not here.
+    Query(Query),
 }
 
 impl TerminalEvent {
@@ -42,6 +46,8 @@ impl TerminalEvent {
             TerminalEvent::ClipboardWrite { .. } => Some(LostKind::ClipboardWrite),
             // Title and cwd are class K: the last value wins, so the model's own title and cwd reads stay exact.
             TerminalEvent::Title(_) | TerminalEvent::Cwd(_) => None,
+            // A query is never discarded (EV-8): it bypasses the bounds, so it has no lost kind.
+            TerminalEvent::Query(_) => None,
         }
     }
 
@@ -51,6 +57,7 @@ impl TerminalEvent {
             TerminalEvent::Bell | TerminalEvent::PromptMark { .. } => 0,
             TerminalEvent::Notification { title, body, .. } => title.as_ref().map_or(0, String::len) + body.len(),
             TerminalEvent::ClipboardWrite { selection, bytes } => selection.len() + bytes.len(),
+            TerminalEvent::Query(_) => 0,
         }
     }
 }
@@ -63,6 +70,9 @@ pub struct Drained {
     pub dropped: u64,
     /// The kinds of the dropped events that Core reports as lost (EV-2).
     pub dropped_kinds: BTreeSet<LostKind>,
+    /// Bytes that libghostty wrote to the pty outside a query reply (an in-band size report when mode 2048 is set, for
+    /// example). The binding writes them nowhere; the caller decides.
+    pub pty_writes: Vec<u8>,
 }
 
 /// The buffer that the callbacks fill. It lives on the heap, at an address that does not move, and the terminal holds
@@ -73,9 +83,44 @@ pub(crate) struct Shared {
     bytes: usize,
     dropped: u64,
     dropped_kinds: BTreeSet<LostKind>,
+    pty_writes: Vec<u8>,
+    /// True while `vt_write_until_query` runs: the query goes to `held` instead of the event buffer.
+    pub(crate) capture: bool,
+    pub(crate) held: Option<Query>,
+    /// The index in `events` of the query that the current plain write has open.
+    open: Option<usize>,
+    /// The cell size in pixels that the host gave, which the shadow's size reports need (EV-8).
+    pub(crate) cell_px: Option<(u32, u32)>,
 }
 
 impl Shared {
+    /// Forget the query of the previous call. Every write starts here.
+    pub(crate) fn begin_write(&mut self, capture: bool) {
+        self.capture = capture;
+        self.held = None;
+        self.open = None;
+    }
+
+    fn open_query(&mut self) -> Option<&mut Query> {
+        if self.capture {
+            return self.held.as_mut();
+        }
+        let index = self.open?;
+        match self.events.get_mut(index) {
+            Some(TerminalEvent::Query(query)) => Some(query),
+            _ => None,
+        }
+    }
+
+    fn push_query(&mut self, query: Query) {
+        if self.capture {
+            self.held = Some(query);
+        } else {
+            self.events.push(TerminalEvent::Query(query));
+            self.open = Some(self.events.len() - 1);
+        }
+    }
+
     fn push(&mut self, event: TerminalEvent) {
         let size = event.size();
         if self.events.len() >= MAX_BUFFERED_EVENTS || self.bytes + size > MAX_BUFFERED_BYTES {
@@ -95,6 +140,7 @@ impl Shared {
             events: std::mem::take(&mut self.events),
             dropped: std::mem::take(&mut self.dropped),
             dropped_kinds: std::mem::take(&mut self.dropped_kinds),
+            pty_writes: std::mem::take(&mut self.pty_writes),
         }
     }
 }
@@ -211,4 +257,86 @@ pub(crate) unsafe extern "C" fn on_clipboard_write(
     };
     // SAFETY: `request` and the reply are valid for the call, and this is the one reply of the callback.
     unsafe { (request.reply)(write, &reply) };
+}
+
+pub(crate) unsafe extern "C" fn on_query(_: sys::Terminal, userdata: *mut c_void, query: *const sys::Query) {
+    // SAFETY: the library passes a valid struct, and the bytes in it, for the duration of the callback.
+    let query = unsafe { &*query };
+    let shared = shared(userdata);
+    let Some(kind) = QueryKind::from_c(query.kind) else {
+        // A kind that this binding does not know is a library newer than its table. It is counted, never silent.
+        shared.dropped += 1;
+        return;
+    };
+    // SAFETY: as above.
+    let request = query.request_available.then(|| unsafe { query.request.bytes() }.to_vec());
+    shared.push_query(Query::new(kind, request, query.request_truncated));
+}
+
+pub(crate) unsafe extern "C" fn on_clipboard_read(
+    _: sys::Terminal,
+    userdata: *mut c_void,
+    read: *const sys::ClipboardRead,
+) {
+    // SAFETY: the library passes a valid request for the duration of the callback.
+    let read = unsafe { &*read };
+    // SAFETY: as above.
+    let selection = unsafe { read.selection.bytes() };
+    let selection = if selection.is_empty() { "s0".to_owned() } else { text(selection) };
+    let terminator = if read.terminator == 1 { Terminator::Bel } else { Terminator::St };
+    if let Some(query) = shared(userdata).open_query() {
+        query.selection = Some(selection);
+        query.terminator = Some(terminator);
+    }
+    // No reply. The shadow never answers a clipboard read (EV-8); the library then writes an empty answer to the pty,
+    // and `on_write_pty` drops it.
+}
+
+pub(crate) unsafe extern "C" fn on_write_pty(
+    _: sys::Terminal,
+    userdata: *mut c_void,
+    data: *const u8,
+    len: usize,
+) {
+    // SAFETY: the library passes `len` valid bytes for the duration of the callback.
+    let bytes = if len == 0 { &[][..] } else { unsafe { std::slice::from_raw_parts(data, len) } };
+    let shared = shared(userdata);
+    if let Some(query) = shared.open_query() {
+        // The shadow never answers a clipboard read.
+        if matches!(query.kind, QueryKind::ClipboardRead | QueryKind::KittyClipboardRead) {
+            return;
+        }
+        if query.shadow_reply.len() + bytes.len() > MAX_SHADOW_REPLY_BYTES {
+            query.shadow_reply.clear();
+            query.shadow_reply_overflow = true;
+        } else if !query.shadow_reply_overflow {
+            query.shadow_reply.extend_from_slice(bytes);
+        }
+        return;
+    }
+    if shared.pty_writes.len() + bytes.len() > MAX_SHADOW_REPLY_BYTES {
+        shared.dropped += 1;
+    } else {
+        shared.pty_writes.extend_from_slice(bytes);
+    }
+}
+
+pub(crate) unsafe extern "C" fn on_size(
+    terminal: sys::Terminal,
+    userdata: *mut c_void,
+    out: *mut sys::SizeReportSize,
+) -> bool {
+    // The pixel reports need the cell size, and an unknown cell size gives no answer (EV-8: external).
+    let Some((cell_width, cell_height)) = shared(userdata).cell_px else {
+        return false;
+    };
+    let mut cols: u16 = 0;
+    let mut rows: u16 = 0;
+    // SAFETY: the terminal is the live handle of the callback, and each key writes a `u16`.
+    unsafe {
+        sys::ghostty_terminal_get(terminal, sys::data::COLS, (&mut cols as *mut u16).cast());
+        sys::ghostty_terminal_get(terminal, sys::data::ROWS, (&mut rows as *mut u16).cast());
+        *out = sys::SizeReportSize { rows, columns: cols, cell_width, cell_height };
+    }
+    true
 }
