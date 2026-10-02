@@ -2,9 +2,10 @@
 
 Reviewed head: `908b9b79fc625b22b885f23a8880e5e749c16d5a`.
 Previous audit head: `fd1471eabca0adb344c6027b8995e1151aa8f8a8`.
-Scope: the written audit only. This verdict does not approve the binding or a Ghostty pin change.
+Scope: the written audit and fork patches 2–3 only. This verdict does not approve the full fork series, binding, or pin change.
 
-VERDICT: NOT CLEAN (fork patch review: 1 open, P13).
+VERDICT: CLEAN (written audit and fork patches 2–3 only).
+Reviewed fork head: `970a1c9dfd62ab7c75ac8d1b652de2cb19cf6442`.
 Written audit: CLEAN at `908b9b79fc625b22b885f23a8880e5e749c16d5a`; F1–F12 closed.
 
 The review uses manifest final13, BUILD.md at `2f2996ef0f016a1fefc6879e74deaef033383b66`, and plan pin `stage1-plan.a24efe7e`.
@@ -339,7 +340,7 @@ The written audit remains CLEAN; the fork patch series is not approved.
 
 ## P13 — MEDIUM — The new paste test hand-writes expected terminal bytes
 
-Status: OPEN.
+Status: CLOSED at `970a1c9dfd62ab7c75ac8d1b652de2cb19cf6442`. The original finding follows for the record.
 Commit: `c78b4beb4d8d5f2e09dcf60c7e42ea43af49e34c`.
 Evidence: new test `frame bracketed` in `src/terminal/c/paste.zig` uses literal escape sequences as expected prefix and suffix.
 BUILD.md requires expected terminal bytes to come from the real libghostty oracle.
@@ -413,3 +414,25 @@ With no injected resource failure, only pending state beyond the stated continua
 Ordinary snapshot size refusal has separate OU-9 coverage.
 No new finding. F12 stays closed for the written audit; P13 stays open for the preserved paste patch.
 The candidate remains pending acceptance. No pin moved. The reviewer ran no tests.
+
+
+## Replacement fork review — patches 2–3 CLEAN
+
+The reviewer checked both complete diffs and the relevant source with `git show` only.
+The reviewer ran no tests.
+
+- Patch 2, notification source: `7afa387ddc8b0ecd7b1e1f13892899165719304a`.
+- Patch 3, paste frame: `970a1c9dfd62ab7c75ac8d1b652de2cb19cf6442`.
+
+Patch 2 carries the OSC 9 or OSC 777 source through parsing, stream dispatch, and the C callback.
+The C enum values match the Zig enum values. The callback supplies the extended structure size.
+No open finding applies to this patch.
+
+Patch 3 returns static markers from the existing paste encoder without changing payload bytes.
+Its new tests compare the frame with output from the existing encoder for empty and safe payloads.
+The unbracketed test checks empty markers and the existing encoder's empty output.
+The replacement tests contain no hand-written expected terminal bytes. P13 closes.
+
+VERDICT: CLEAN for patches 2–3 on these exact commits.
+Patches 0, 1, and 4–8 remain outside this verdict.
+The full fork series, binding code, and Ghostty pin change remain unapproved.
