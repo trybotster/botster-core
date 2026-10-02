@@ -256,3 +256,12 @@ Required change: describe the snapshot rule when continuation data is unavailabl
 Use the ST-6b ground-state alternative, or prove a sufficient bound for every admitted sequence and address retention failure.
 State which package owns the cut and pending-output handling.
 Do not emit a snapshot that silently omits unfinished parser state.
+
+
+## Review basis update
+
+After the revision 2 verdict, the lead supplied plan revision 11:
+`~/botster-sessions/pins/stage1-plan.555bc433.md`.
+The reviewer verified SHA-256 `555bc4337fe72e9fad833fe330d43e8147a39569cb14291734f34847f56596d7`.
+The contracts pin is `contracts-v0.1.1` at `366bca41da0a6de69cc1ea13b17c773cdfdb75b6` (final14 plus R-13).
+This update does not change the four open findings. The next review uses these pins.
