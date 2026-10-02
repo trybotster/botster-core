@@ -402,6 +402,55 @@ pub fn command(root: &Path, args: &[String]) -> Result<()> {
     bail!("{} budget failure(s)", failures.len())
 }
 
+/// The failures that the way nextest ended gives: a run past its deadline, a failing status, or no status.
+fn exit_failures(
+    timed_out: bool,
+    status: &Result<ExitStatus, String>,
+    tier: &str,
+    deadline: Duration,
+) -> Vec<String> {
+    if timed_out {
+        return vec![format!(
+            "the {tier} tier passed its {} s deadline; the run was killed",
+            deadline.as_secs()
+        )];
+    }
+    match status {
+        Ok(status) if status.success() => Vec::new(),
+        Ok(status) => vec![format!("nextest failed ({status})")],
+        Err(why) => vec![format!("could not wait for nextest: {why}")],
+    }
+}
+
+/// The budget failures of a default-tier run: a test over the per-test limit, and a run over the tier limit. The slow tier
+/// has neither (its deadline is the whole-run kill).
+fn budget_failures(
+    slow: bool,
+    timed_out: bool,
+    wall: Duration,
+    times: &BTreeMap<String, f64>,
+) -> Vec<String> {
+    let mut failures = Vec::new();
+    if slow {
+        return failures;
+    }
+    for (name, secs) in sorted_slowest_first(times) {
+        if secs > TEST_LIMIT_SECS {
+            failures.push(format!(
+                "{name} took {secs:.3} s (limit {TEST_LIMIT_SECS} s): fix it or move it to the slow tier"
+            ));
+        }
+    }
+    if !timed_out && wall > TIER_LIMIT {
+        failures.push(format!(
+            "the default tier took {:.1} s (limit {} s)",
+            wall.as_secs_f64(),
+            TIER_LIMIT.as_secs()
+        ));
+    }
+    failures
+}
+
 /// The budget checks, the report and the files. Returns the failures; an `Err` is a failure of the command itself.
 fn analyse(
     options: &Options,
@@ -411,19 +460,7 @@ fn analyse(
     deadline: Duration,
     run: &Run,
 ) -> Result<Vec<String>> {
-    let mut failures: Vec<String> = Vec::new();
-    if run.timed_out {
-        failures.push(format!(
-            "the {tier} tier passed its {} s deadline; the run was killed",
-            deadline.as_secs()
-        ));
-    } else {
-        match &run.status {
-            Ok(status) if status.success() => {}
-            Ok(status) => failures.push(format!("nextest failed ({status})")),
-            Err(why) => failures.push(format!("could not wait for nextest: {why}")),
-        }
-    }
+    let mut failures = exit_failures(run.timed_out, &run.status, tier, deadline);
 
     let times = match std::fs::read_to_string(junit) {
         Ok(xml) => parse_junit(&xml),
@@ -439,22 +476,12 @@ fn analyse(
     }
     println!("test-budget: wall time {:.1} s", run.wall.as_secs_f64());
 
-    if !options.slow {
-        for (name, secs) in sorted_slowest_first(&times) {
-            if secs > TEST_LIMIT_SECS {
-                failures.push(format!(
-                    "{name} took {secs:.3} s (limit {TEST_LIMIT_SECS} s): fix it or move it to the slow tier"
-                ));
-            }
-        }
-        if !run.timed_out && run.wall > TIER_LIMIT {
-            failures.push(format!(
-                "the default tier took {:.1} s (limit {} s)",
-                run.wall.as_secs_f64(),
-                TIER_LIMIT.as_secs()
-            ));
-        }
-    }
+    failures.extend(budget_failures(
+        options.slow,
+        run.timed_out,
+        run.wall,
+        &times,
+    ));
 
     let file = meta.target_dir.join(if options.slow {
         "test-times-slow.json"
@@ -552,5 +579,143 @@ mod tests {
         let found = doublings(&old, &new);
         let names: Vec<&str> = found.iter().map(|d| d.0.as_str()).collect();
         assert_eq!(names, vec!["a", "b", "y", "z"]);
+    }
+
+    #[test]
+    fn the_tier_environment_sets_seeds_and_the_bolero_pin_for_the_default_tier_only() {
+        let default = tier_env(false);
+        assert!(default.contains(&("BOTSTER_SEEDS", "0-31")));
+        assert!(default
+            .iter()
+            .any(|(k, v)| *k == "BOLERO_RANDOM_SEED" && !v.is_empty()));
+        assert!(default
+            .iter()
+            .any(|(k, v)| *k == "BOLERO_RANDOM_ITERATIONS" && !v.is_empty()));
+        assert_eq!(tier_env(true), [("BOTSTER_SEEDS", "0")]);
+    }
+
+    fn meta(slow: &[&str]) -> Meta {
+        Meta {
+            target_dir: PathBuf::from("/t"),
+            contracts_root: PathBuf::from("/c"),
+            members: Vec::new(),
+            slow_packages: slow.iter().map(|s| s.to_string()).collect(),
+        }
+    }
+
+    fn opts(slow: bool) -> Options {
+        Options {
+            slow,
+            deadline: None,
+            compare: None,
+        }
+    }
+
+    #[test]
+    fn the_default_tier_runs_the_whole_workspace() {
+        assert_eq!(selection(&opts(false), &meta(&["a"])), ["--workspace"]);
+    }
+
+    #[test]
+    fn the_slow_tier_runs_the_slow_packages_with_their_feature_and_the_slow_binaries() {
+        let args = selection(&opts(true), &meta(&["a", "b"]));
+        assert_eq!(
+            args,
+            [
+                "-p",
+                "a",
+                "-p",
+                "b",
+                "--features",
+                "a/slow,b/slow",
+                "-E",
+                "binary(/^slow/)"
+            ]
+        );
+    }
+
+    #[test]
+    fn slowest_first_orders_by_time_then_name() {
+        let times = map(&[("b", 1.0), ("a", 1.0), ("c", 3.0)]);
+        let order: Vec<&str> = sorted_slowest_first(&times)
+            .into_iter()
+            .map(|(n, _)| n.as_str())
+            .collect();
+        assert_eq!(order, ["c", "a", "b"]);
+    }
+
+    #[test]
+    fn the_pid_file_is_read_line_by_line_and_a_missing_file_is_empty() {
+        let root = botster_test_support::tempdir::TempRoot::new().unwrap();
+        let file = root.path().join("pids");
+        std::fs::write(&file, "12\n x\n 34 \n\n").unwrap();
+        assert_eq!(read_pids(&file), [12, 34]);
+        assert!(read_pids(&root.path().join("none")).is_empty());
+    }
+
+    #[test]
+    fn the_times_document_names_the_tier_and_keeps_the_times() {
+        let doc = times_document("default", Duration::from_millis(1234), &map(&[("a", 0.5)]));
+        assert_eq!(doc["tier"], "default");
+        assert_eq!(doc["wall_secs"], 1.234);
+        assert_eq!(doc["tests"]["a"], 0.5);
+    }
+
+    #[test]
+    fn times_are_read_back_from_a_times_document() {
+        let root = botster_test_support::tempdir::TempRoot::new().unwrap();
+        let file = root.path().join("t.json");
+        let doc = times_document(
+            "default",
+            Duration::from_secs(1),
+            &map(&[("a", 0.5), ("b", 2.0)]),
+        );
+        std::fs::write(&file, doc.to_string()).unwrap();
+        assert_eq!(read_times(&file).unwrap(), map(&[("a", 0.5), ("b", 2.0)]));
+        std::fs::write(&file, "{}").unwrap();
+        assert!(read_times(&file).is_err());
+    }
+
+    #[test]
+    fn a_test_over_two_seconds_fails_the_default_tier_and_exactly_two_does_not() {
+        let wall = Duration::from_secs(5);
+        assert!(budget_failures(false, false, wall, &map(&[("a", 2.0), ("b", 0.1)])).is_empty());
+        let failures = budget_failures(false, false, wall, &map(&[("a", 2.001), ("b", 0.1)]));
+        assert_eq!(failures.len(), 1);
+        assert!(failures[0].contains("a took 2.001"));
+    }
+
+    #[test]
+    fn a_default_tier_over_sixty_seconds_fails_and_sixty_does_not() {
+        let none = map(&[]);
+        assert!(budget_failures(false, false, Duration::from_secs(60), &none).is_empty());
+        assert_eq!(
+            budget_failures(false, false, Duration::from_millis(60_001), &none).len(),
+            1
+        );
+        // A killed run reports its deadline instead.
+        assert!(budget_failures(false, true, Duration::from_secs(90), &none).is_empty());
+    }
+
+    #[test]
+    fn the_slow_tier_has_no_per_test_or_tier_limit() {
+        assert!(
+            budget_failures(true, false, Duration::from_secs(900), &map(&[("a", 50.0)])).is_empty()
+        );
+    }
+
+    #[test]
+    fn the_way_nextest_ended_is_judged() {
+        use std::os::unix::process::ExitStatusExt;
+        let d = Duration::from_secs(90);
+        assert!(exit_failures(false, &Ok(ExitStatus::from_raw(0)), "default", d).is_empty());
+        assert!(
+            exit_failures(false, &Ok(ExitStatus::from_raw(256)), "default", d)[0]
+                .contains("nextest failed")
+        );
+        assert!(exit_failures(false, &Err("gone".into()), "default", d)[0].contains("gone"));
+        let timed = exit_failures(true, &Ok(ExitStatus::from_raw(0)), "slow", d);
+        assert_eq!(timed.len(), 1);
+        assert!(timed[0].contains("slow tier passed its 90 s deadline"));
     }
 }

@@ -62,12 +62,15 @@ fn install_executable(built: &Path, target: &Path) -> Result<()> {
     std::fs::rename(&fresh, target).with_context(|| format!("replace {}", target.display()))
 }
 
-fn build_worker(root: &Path, meta: &Meta, candidate: &Path) -> Result<Option<(String, String)>> {
-    if !meta
-        .members
+/// Whether the workspace has a package named `botster-worker` with a binary target.
+fn has_worker_binary(members: &[(String, bool)]) -> bool {
+    members
         .iter()
         .any(|(name, has_bin)| name == WORKER && *has_bin)
-    {
+}
+
+fn build_worker(root: &Path, meta: &Meta, candidate: &Path) -> Result<Option<(String, String)>> {
+    if !has_worker_binary(&meta.members) {
         println!("prebuild-worker: no `{WORKER}` binary in the workspace yet (P3 adds it); nothing to build");
         return Ok(None);
     }
@@ -138,6 +141,18 @@ mod tests {
             "[workspace.dependencies]\nbotster-core-contract = { git = \"u\", rev = \"r\" }\n"
         )
         .is_err());
+    }
+
+    #[test]
+    fn the_worker_is_built_only_when_a_package_of_that_name_has_a_binary() {
+        let member = |name: &str, bin: bool| (name.to_string(), bin);
+        assert!(has_worker_binary(&[
+            member("a", true),
+            member("botster-worker", true)
+        ]));
+        assert!(!has_worker_binary(&[member("botster-worker", false)]));
+        assert!(!has_worker_binary(&[member("other", true)]));
+        assert!(!has_worker_binary(&[]));
     }
 
     #[test]

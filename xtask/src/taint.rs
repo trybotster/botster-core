@@ -43,6 +43,27 @@ pub fn hits_in_line<'a>(line: &str, tokens: &'a [String]) -> Vec<&'a str> {
     found
 }
 
+/// A banned name in a file: `(file, 1-based line, token)`.
+pub type Hit = (String, usize, String);
+
+/// The hits of whole-word tokens over files given as `(path, text)`. A path under a skipped prefix is not scanned.
+pub fn scan_files(files: &[(String, String)], tokens: &[String]) -> (usize, Vec<Hit>) {
+    let mut scanned = 0;
+    let mut hits = Vec::new();
+    for (file, text) in files {
+        if SKIPPED_PREFIXES.iter().any(|p| file.starts_with(p)) {
+            continue;
+        }
+        scanned += 1;
+        for (index, line) in text.lines().enumerate() {
+            for token in hits_in_line(line, tokens) {
+                hits.push((file.clone(), index + 1, token.to_string()));
+            }
+        }
+    }
+    (scanned, hits)
+}
+
 pub fn command(root: &Path, args: &[String]) -> Result<()> {
     if let Some(arg) = args.first() {
         bail!("unknown argument '{arg}'");
@@ -55,29 +76,22 @@ pub fn command(root: &Path, args: &[String]) -> Result<()> {
     let mut tokens = parse_denylist(&contracts);
     let from_contracts = tokens.len();
     tokens.extend(parse_denylist(&additions));
-    let mut hits = 0;
-    let mut scanned = 0;
+    let mut files = Vec::new();
     for file in tracked_files(root)? {
-        if SKIPPED_PREFIXES.iter().any(|p| file.starts_with(p)) {
-            continue;
+        if let Ok(bytes) = std::fs::read(root.join(&file)) {
+            files.push((file, String::from_utf8_lossy(&bytes).into_owned()));
         }
-        let Ok(bytes) = std::fs::read(root.join(&file)) else {
-            continue;
-        };
-        scanned += 1;
-        for (index, line) in String::from_utf8_lossy(&bytes).lines().enumerate() {
-            for token in hits_in_line(line, &tokens) {
-                eprintln!("{file}:{}: banned name '{token}'", index + 1);
-                hits += 1;
-            }
-        }
+    }
+    let (scanned, hits) = scan_files(&files, &tokens);
+    for (file, line, token) in &hits {
+        eprintln!("{file}:{line}: banned name '{token}'");
     }
     println!(
         "taint: {scanned} files scanned, {from_contracts} names from botster-contracts, {} from Core",
         tokens.len() - from_contracts
     );
-    if hits > 0 {
-        bail!("{hits} hit(s)");
+    if !hits.is_empty() {
+        bail!("{} hit(s)", hits.len());
     }
     Ok(())
 }
@@ -107,6 +121,35 @@ mod tests {
     #[test]
     fn denylist_skips_comments_and_blank_lines() {
         assert_eq!(tokens(), vec!["old_name", "thing"]);
+    }
+
+    fn file(path: &str, text: &str) -> (String, String) {
+        (path.to_string(), text.to_string())
+    }
+
+    #[test]
+    fn hits_carry_file_line_and_token_and_files_are_counted() {
+        let files = [
+            file("a.rs", "ok\nuse old_name;\n"),
+            file("b.rs", "thing\n"),
+            file("c.rs", "clean\n"),
+        ];
+        let (scanned, hits) = scan_files(&files, &tokens());
+        assert_eq!(scanned, 3);
+        assert_eq!(
+            hits,
+            [
+                ("a.rs".to_string(), 2, "old_name".to_string()),
+                ("b.rs".to_string(), 1, "thing".to_string())
+            ]
+        );
+    }
+
+    #[test]
+    fn docs_are_not_scanned_and_not_counted() {
+        let files = [file("docs/x.md", "old_name\n"), file("a.rs", "ok\n")];
+        let (scanned, hits) = scan_files(&files, &tokens());
+        assert_eq!((scanned, hits.len()), (1, 0));
     }
 
     #[test]

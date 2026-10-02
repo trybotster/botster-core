@@ -33,9 +33,8 @@ fn problems(value_of: impl Fn(&str) -> Option<String>) -> Vec<String> {
         .collect()
 }
 
-/// Refuses to continue when the launch command did not cap the run.
-pub fn require() -> Result<()> {
-    let found = problems(|name| std::env::var(name).ok());
+/// Turns the problems of a launch into an error.
+fn refusal(found: &[String]) -> Result<()> {
     if found.is_empty() {
         return Ok(());
     }
@@ -43,6 +42,12 @@ pub fn require() -> Result<()> {
         "the parallelism cap is missing: {}. Launch with `botsterq run … -- env CARGO_BUILD_JOBS={LIMIT} NEXTEST_TEST_THREADS={LIMIT} cargo xtask …`",
         found.join("; ")
     )
+}
+
+/// Refuses to continue when the launch command did not cap the run. It reads the environment; `problems` and `refusal`
+/// hold the decision.
+pub fn require() -> Result<()> {
+    refusal(&problems(|name| std::env::var(name).ok()))
 }
 
 /// Caps a child: the inherited value when it is lower, else [`LIMIT`].
@@ -89,6 +94,18 @@ mod tests {
     fn a_launch_with_both_variables_at_the_limit_passes() {
         assert!(problems(|_| Some("4".into())).is_empty());
         assert!(problems(|_| Some("1".into())).is_empty());
+    }
+
+    #[test]
+    fn a_refusal_names_every_problem_and_the_launch_command() {
+        assert!(refusal(&[]).is_ok());
+        let text = refusal(&["A is not set".to_string(), "B=9".to_string()])
+            .unwrap_err()
+            .to_string();
+        assert!(
+            text.contains("A is not set; B=9") && text.contains("CARGO_BUILD_JOBS=4"),
+            "{text}"
+        );
     }
 
     #[test]

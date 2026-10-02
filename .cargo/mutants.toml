@@ -1,10 +1,42 @@
 # cargo-mutants settings (plan section 8, step 8). The gate reads this file.
 #
-# A mutant that the tests do not catch is a review finding. A mutant that cannot change behavior (an equivalent mutant)
-# is recorded in `exclude_re` with the reason on the lines above the entry. The reviewer judges the reason.
-# Never add an entry to make a job pass.
+# A mutant that the tests do not catch is a review finding. A mutant that cannot change behavior (an equivalent mutant) or that
+# lives in process glue is recorded in `exclude_re` with the reason on the lines above the entry. The reviewer judges the
+# reason. Never add an entry to make a job pass.
+#
+# Every decision of xtask is mutation-tested (the gate order, the caps, the lists rules, the taint and timer scans, the
+# budgets, the snapshot comparison). Only the glue that starts a process, reads a file or prints is excluded, per function.
 
 # Test code is not mutated: the tests are the checks.
 exclude_globs = ["**/tests/**", "tests/**"]
 
-exclude_re = []
+exclude_re = [
+    # fsutil: wrappers of `git` and `cargo metadata` and of one environment variable. They return the data that the pure checks judge; a
+    # replaced body is seen by a real `cargo xtask ci` run, not by a unit test. The decision `base_ref_from` is mutation-tested.
+    'xtask/src/fsutil\.rs:\d+:\d+: (replace (repo_root|tracked_files|git_show|resolves|metadata|base_ref)( ->| with)|.* in (repo_root|tracked_files|git_show|resolves|metadata|base_ref)$)',
+    # tools: process spawning (cargo, rustup) with inherited output. No decision is in them; `caps::apply` (tested) caps every cargo child.
+    'xtask/src/tools\.rs:\d+:\d+: (replace (run|cargo|cargo_nightly|ensure_nightly|require_cargo_tool)( ->| with)|.* in (run|cargo|cargo_nightly|ensure_nightly|require_cargo_tool)$)',
+    # main: the dispatch of command names to functions, and the process exit.
+    'xtask/src/main\.rs:\d+:\d+: (replace (main|run)( ->| with)|.* in (main|run)$)',
+    # caps::require: reads two environment variables. The decision is `problems` and `refusal`, which are mutation-tested.
+    'xtask/src/caps\.rs:\d+:\d+: (replace (require)( ->| with)|.* in (require)$)',
+    # ci: each step function starts one tool (cargo, git, nextest, mutants, bolero) and passes its status on, and `command` prints.
+    # The decisions are mutation-tested: `run_steps` (order, stop, keep-going, one step), `summary_line`, `parse_options`,
+    # `changed_crates`, `harnesses_to_run`, `passed_count`, `parse_outcomes`.
+    'xtask/src/ci\.rs:\d+:\d+: (replace (fmt_job|clippy_job|taint_job|lists_job|conformance_report|public_api_job|prebuild_job|test_budget_job|slow_job|changed_paths|base|mutants_job|fuzz_job|command)( ->| with)|.* in (fmt_job|clippy_job|taint_job|lists_job|conformance_report|public_api_job|prebuild_job|test_budget_job|slow_job|changed_paths|base|mutants_job|fuzz_job|command)$)',
+    # lists: reads the three files, the pinned ledger and the base ref, then prints. Every decision is in `check`, `pin_moved`, `report`,
+    # `ledger_text`, `contracts_tag` and the parsers, which are mutation-tested.
+    'xtask/src/lists\.rs:\d+:\d+: (replace (command|ledger_ids_command)( ->| with)|.* in (command|ledger_ids_command)$)',
+    # taint: reads the tracked files and prints. The decisions are `hits_in_line` and `scan_files`, which are mutation-tested.
+    'xtask/src/taint\.rs:\d+:\d+: (replace (command)( ->| with)|.* in (command)$)',
+    # timers: reads the tracked files and prints. The decisions are `scan`, `scan_files`, `test_lines` and `marked`, which are mutation-tested.
+    'xtask/src/timers\.rs:\d+:\d+: (replace (command)( ->| with)|.* in (command)$)',
+    # prebuild: runs `cargo build` and `cargo install` and copies the result. The decisions are mutation-tested: `has_worker_binary`,
+    # `install_executable`, `contracts_source`, `manifest_text`, `sha256_hex`.
+    'xtask/src/prebuild\.rs:\d+:\d+: (replace (build_worker|build_probe|command)( ->| with)|.* in (build_worker|build_probe|command)$)',
+    # public_api: runs `cargo public-api` and reads one file. The decision `first_difference` is mutation-tested.
+    'xtask/src/public_api\.rs:\d+:\d+: (replace (command)( ->| with)|.* in (command)$)',
+    # test_budget: starts nextest in its own process group, tracks and kills its processes, and prints. The decisions are mutation-tested:
+    # `exit_failures`, `budget_failures`, `doublings`, `parse_junit`, `parse_options`, `parse_duration`, `selection`, `tier_env`.
+    'xtask/src/test_budget\.rs:\d+:\d+: (replace (run_nextest|clean_up|kill|command|analyse)( ->| with)|.* in (run_nextest|clean_up|kill|command|analyse)$)',
+]

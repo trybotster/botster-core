@@ -374,6 +374,53 @@ enum Status {
     NotRun,
 }
 
+/// Runs the steps in order. A failure stops the run unless `keep_going`; the steps after it are `NotRun`. `only` limits the
+/// run to one step. Returns one row per step that was considered, and whether any step failed.
+fn run_steps<'a>(
+    root: &Path,
+    jobs: &'a [(&'a str, &'a str, JobFn)],
+    only: Option<&str>,
+    keep_going: bool,
+    out: &mut dyn FnMut(&str),
+) -> (Vec<(&'a str, Status, Duration)>, bool) {
+    let mut rows = Vec::new();
+    let mut failed = false;
+    for (name, _, job) in jobs {
+        if only.is_some_and(|only| only != *name) {
+            continue;
+        }
+        if failed && !keep_going {
+            rows.push((*name, Status::NotRun, Duration::ZERO));
+            continue;
+        }
+        out(&format!("\n=== ci: {name} ==="));
+        let started = Instant::now();
+        let status = match job(root) {
+            Ok(()) => Status::Pass,
+            Err(error) => {
+                out(&format!("error: {error:#}"));
+                failed = true;
+                Status::Fail(format!("{error:#}"))
+            }
+        };
+        rows.push((*name, status, started.elapsed()));
+    }
+    (rows, failed)
+}
+
+/// The summary line of one step.
+fn summary_line(name: &str, status: &Status, took: Duration) -> String {
+    let (label, note) = match status {
+        Status::Pass => ("PASS", String::new()),
+        Status::Fail(why) => ("FAIL", why.lines().next().unwrap_or("").to_string()),
+        Status::NotRun => ("NOT RUN", "an earlier step failed".into()),
+    };
+    format!(
+        "{name:<16} {label:<8} {:>7.1} s  {note}",
+        took.as_secs_f64()
+    )
+}
+
 pub fn command(root: &Path, args: &[String]) -> Result<()> {
     let options = parse_options(args)?;
     if options.list {
@@ -384,41 +431,18 @@ pub fn command(root: &Path, args: &[String]) -> Result<()> {
     }
     // Plan section 8: the xtask refuses to start a step without the parallelism cap.
     caps::require()?;
-    let mut rows: Vec<(&str, Status, Duration)> = Vec::new();
-    let mut failed = false;
-    for (name, _, job) in JOBS {
-        if options.job.as_deref().is_some_and(|only| only != *name) {
-            continue;
-        }
-        if failed && !options.keep_going {
-            rows.push((name, Status::NotRun, Duration::ZERO));
-            continue;
-        }
-        println!("\n=== ci: {name} ===");
-        let started = Instant::now();
-        let status = match job(root) {
-            Ok(()) => Status::Pass,
-            Err(error) => {
-                eprintln!("error: {error:#}");
-                failed = true;
-                Status::Fail(format!("{error:#}"))
-            }
-        };
-        rows.push((name, status, started.elapsed()));
-    }
+    let (rows, failed) = run_steps(
+        root,
+        JOBS,
+        options.job.as_deref(),
+        options.keep_going,
+        &mut |line| println!("{line}"),
+    );
     println!("\n=== ci summary ===");
     let mut total = Duration::ZERO;
     for (name, status, took) in &rows {
         total += *took;
-        let (label, note) = match status {
-            Status::Pass => ("PASS", String::new()),
-            Status::Fail(why) => ("FAIL", why.lines().next().unwrap_or("").to_string()),
-            Status::NotRun => ("NOT RUN", "an earlier step failed".into()),
-        };
-        println!(
-            "{name:<16} {label:<8} {:>7.1} s  {note}",
-            took.as_secs_f64()
-        );
+        println!("{}", summary_line(name, status, *took));
     }
     println!("{:<16} {:<8} {:>7.1} s", "total", "", total.as_secs_f64());
     if failed {
@@ -530,5 +554,76 @@ mod tests {
             }
         );
         assert!(parse_outcomes("{}").is_err());
+    }
+
+    fn pass(_: &Path) -> Result<()> {
+        Ok(())
+    }
+
+    fn fail(_: &Path) -> Result<()> {
+        bail!("boom\nsecond line")
+    }
+
+    const FAKE: &[(&str, &str, JobFn)] = &[("a", "", pass), ("b", "", fail), ("c", "", pass)];
+
+    fn run(only: Option<&str>, keep_going: bool) -> (Vec<(String, String)>, bool) {
+        let mut lines = Vec::new();
+        let (rows, failed) = run_steps(Path::new("."), FAKE, only, keep_going, &mut |l| {
+            lines.push(l.to_string())
+        });
+        let kinds = rows
+            .iter()
+            .map(|(n, s, _)| {
+                let kind = match s {
+                    Status::Pass => "pass",
+                    Status::Fail(_) => "fail",
+                    Status::NotRun => "notrun",
+                };
+                (n.to_string(), kind.to_string())
+            })
+            .collect();
+        (kinds, failed)
+    }
+
+    fn kinds(list: &[(&str, &str)]) -> Vec<(String, String)> {
+        list.iter()
+            .map(|(a, b)| (a.to_string(), b.to_string()))
+            .collect()
+    }
+
+    #[test]
+    fn a_failure_stops_the_run_and_marks_the_rest_not_run() {
+        assert_eq!(
+            run(None, false),
+            (
+                kinds(&[("a", "pass"), ("b", "fail"), ("c", "notrun")]),
+                true
+            )
+        );
+    }
+
+    #[test]
+    fn keep_going_runs_every_step() {
+        assert_eq!(
+            run(None, true),
+            (kinds(&[("a", "pass"), ("b", "fail"), ("c", "pass")]), true)
+        );
+    }
+
+    #[test]
+    fn one_step_can_be_run_alone() {
+        assert_eq!(run(Some("a"), false), (kinds(&[("a", "pass")]), false));
+        assert_eq!(run(Some("b"), false), (kinds(&[("b", "fail")]), true));
+    }
+
+    #[test]
+    fn a_summary_line_names_the_step_the_result_and_the_first_line_of_the_reason() {
+        let took = Duration::from_millis(1500);
+        assert!(summary_line("fmt", &Status::Pass, took).starts_with("fmt"));
+        assert!(summary_line("fmt", &Status::Pass, took).contains("PASS"));
+        let failed = summary_line("fmt", &Status::Fail("boom\nsecond".into()), took);
+        assert!(failed.contains("FAIL") && failed.contains("boom") && !failed.contains("second"));
+        assert!(summary_line("fmt", &Status::NotRun, took).contains("NOT RUN"));
+        assert!(summary_line("fmt", &Status::Pass, took).contains("1.5 s"));
     }
 }
