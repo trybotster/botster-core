@@ -13,11 +13,11 @@ publish = false
 unsafe_code = "forbid"
 
 [workspace.dependencies]
-# botster-contracts, by tag (plan section 0; contracts-v0.1.0 = 6d2c376, manifest final13).
-botster-core-contract = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.0" }
-botster-conformance = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.0" }
-botster-core-conformance = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.0" }
-botster-test-support = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.0" }
+# botster-contracts, by tag (plan section 0; contracts-v0.1.1 = 366bca4, manifest final14).
+botster-core-contract = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.1" }
+botster-conformance = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.1" }
+botster-core-conformance = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.1" }
+botster-test-support = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.1" }
 
 anyhow = "1"
 bolero = "0.13"
