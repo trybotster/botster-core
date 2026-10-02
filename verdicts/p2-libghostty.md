@@ -3,7 +3,7 @@
 Reviewed head: `fd1471eabca0adb344c6027b8995e1151aa8f8a8`.
 Scope: the written audit only. This verdict does not approve the binding or a Ghostty pin change.
 
-VERDICT: NOT CLEAN (7 open)
+VERDICT: NOT CLEAN (8 open)
 
 The review uses manifest final13, BUILD.md at `2f2996ef0f016a1fefc6879e74deaef033383b66`, and plan pin `stage1-plan.a24efe7e`.
 The plan hash matches its recorded SHA-256.
@@ -130,6 +130,26 @@ Status: OPEN.
 
 Required change: correct the paths, exact symbols, and PIN-versus-UP claims.
 Do not add meanings that the headers do not state.
+
+## F8 — HIGH — ModeFlags cannot read the authoritative mouse mode
+
+Status: OPEN.
+Audit evidence: lines 59–60 claim that mode bits cover `mouse_tracking` and `mouse_encoding`.
+
+At PIN, `src/terminal/modes.zig:36` changes only the requested mode bit.
+`src/terminal/stream_terminal.zig:810` separately sets `terminal.flags.mouse_event` for each tracking command.
+The last tracking command sets that enum, even if other tracking bits remain set.
+Enabling 1000 then 1003 produces the same mode bits as enabling 1003 then 1000.
+The active tracking enums differ between those two histories.
+The format commands likewise set `terminal.flags.mouse_format` separately from their mode bits.
+`src/input/mouse_encode.zig:43` reads those enums for authoritative encoding.
+The PIN and UP C headers expose only a mouse-tracking boolean and individual mode bits.
+The mouse encoder exposes setters and encoding, but no getter for the selected enums.
+The binding therefore cannot derive the required ModeFlags values from the proposed reads without duplicating mode semantics.
+
+Required change: mark authoritative mouse-mode reads as a GAP at PIN and UP.
+Add getters for the active tracking and format enums to the Q1 patch proposal, or identify an existing equivalent API.
+Do not reconstruct these enums from bit precedence or from a Botster parser.
 
 ## Remaining review notes
 
