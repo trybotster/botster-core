@@ -17,6 +17,7 @@ unsafe_code = "forbid"
 botster-core-contract = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.1" }
 botster-conformance = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.1" }
 botster-core-conformance = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.1" }
+botster-route-codec = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.1" }
 botster-probe-script = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.1" }
 botster-test-support = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.1" }
 

@@ -14,6 +14,7 @@ botster-core-contract.workspace = true
 botster-core-conformance.workspace = true
 botster-core-edges.workspace = true
 botster-probe-script.workspace = true
+botster-route-codec.workspace = true
 rand_chacha.workspace = true
 rand_core.workspace = true
 serde_json.workspace = true
