@@ -499,8 +499,7 @@ impl HostEngine {
 
     fn run_remove(&mut self, id: &SessionId, f: RemoveFlow) {
         match f.phase {
-            // The effects come first (EV-5c): the capture release, the teardown request, and the kill of a worker that
-            // cannot be asked.
+            // Steps 2 and 3 (R-15): they run once every bound route is closed, under pressure if need be.
             RemovePhase::SendRemove => {
                 // Step 2: the open captures of the session are released, and no op stays attached to it.
                 let instance = self.sessions[id].instance.clone();
@@ -541,9 +540,10 @@ impl HostEngine {
                         f.uploads = uploads;
                         f.worker_gone = worker_gone;
                         f.deadline = deadline;
-                        f.phase = RemovePhase::CloseRoutes;
+                        f.phase = RemovePhase::AwaitTeardown;
                     }
                 }
+                self.remove_progress(id);
             }
             RemovePhase::CloseRoutes => {
                 let next = self.sessions[id].routes.iter().next().copied();
@@ -551,10 +551,7 @@ impl HostEngine {
                     Some(route) => {
                         let _ = self.close_route(route, RouteCloseReason::SessionRemoved);
                     }
-                    None => {
-                        self.set_remove_phase(id, RemovePhase::AwaitTeardown);
-                        self.remove_progress(id);
-                    }
+                    None => self.set_remove_phase(id, RemovePhase::SendRemove),
                 }
             }
             RemovePhase::DeleteRow => {
