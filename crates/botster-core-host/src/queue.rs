@@ -197,6 +197,8 @@ pub struct EventQueue {
     mandatory: usize,
     /// How many events were posted since the last `take_posted` (the `events_posted` of `PumpReport`).
     posted: u32,
+    /// Every event ever posted: a step compares it with its start to learn whether it posted already.
+    total: u64,
 }
 
 impl EventQueue {
@@ -210,7 +212,13 @@ impl EventQueue {
             droppable: BTreeSet::new(),
             mandatory: 0,
             posted: 0,
+            total: 0,
         }
+    }
+
+    /// The count of every event posted so far.
+    pub fn total_posted(&self) -> u64 {
+        self.total
     }
 
     pub fn is_empty(&self) -> bool {
@@ -236,6 +244,7 @@ impl EventQueue {
         self.next_seq += 1;
         self.entries.insert(seq, entry);
         self.posted += 1;
+        self.total += 1;
         seq
     }
 

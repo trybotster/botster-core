@@ -94,6 +94,8 @@ pub(crate) struct PendingOp {
     pub req: Option<u64>,
     /// The bytes that a `WriteInput` holds against the lane bound (IN-5).
     pub held_bytes: u64,
+    /// A `SetNotificationPolicy` that was admitted in `Created`: it follows the registry path (A2-1).
+    pub created_path: bool,
     /// A `cancel` was admitted (IN-6).
     pub cancelled: bool,
     /// `AdoptAll`: the rows that remain.
@@ -133,6 +135,8 @@ pub struct HostEngine {
     pub(crate) cfg: EngineConfig,
     pub(crate) features: Features,
     pub(crate) queue: EventQueue,
+    /// `queue.total_posted()` when the current input began: a step posts at most one event (9B `pump_events`).
+    pub(crate) step_mark: u64,
     pub(crate) sessions: BTreeMap<SessionId, Session>,
     pub(crate) ops: BTreeMap<OpId, PendingOp>,
     /// The ops of removed instances, and of no session at all: `cancel` tells them apart exactly (ID-1, IN-6).
@@ -171,6 +175,7 @@ impl HostEngine {
         HostEngine {
             features: cfg.features.clone(),
             queue: EventQueue::new(bounds),
+            step_mark: 0,
             sessions: BTreeMap::new(),
             ops: BTreeMap::new(),
             retired_ops: Default::default(),
@@ -266,6 +271,11 @@ impl HostEngine {
     pub(crate) fn complete(&mut self, op: OpId, result: OpResult) {
         if let Some(pending) = self.ops.get_mut(&op) {
             if matches!(pending.step, Step::Done) {
+                return;
+            }
+            // A step that posted an event already completes the op in a step of its own (9B `pump_events`).
+            if self.queue.total_posted() > self.step_mark {
+                pending.step = Step::Ready(Next::Complete(result));
                 return;
             }
             pending.step = Step::Done;
@@ -596,6 +606,7 @@ pub(crate) fn new_session(
         formats: Vec::new(),
         ops: Default::default(),
         pending_setters: 0,
+        metadata_pending: false,
         payload: None,
         pending_end: None,
         pending_routes: Vec::new(),
