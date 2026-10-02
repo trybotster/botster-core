@@ -22,7 +22,7 @@ const TEST_LIMIT_SECS: f64 = 2.0;
 /// The default tier as a whole must finish within this.
 const TIER_LIMIT: Duration = Duration::from_secs(60);
 /// The slow tier deadline when `--deadline` is not given.
-const SLOW_DEADLINE: Duration = Duration::from_secs(10 * 60);
+const SLOW_DEADLINE: Duration = Duration::from_secs(600);
 const USAGE: &str = "usage: cargo xtask test-budget [--slow [--deadline <10m|90s|1h>]] [--compare <test-times.json>]";
 
 #[derive(Debug, PartialEq)]

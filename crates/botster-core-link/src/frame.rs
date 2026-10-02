@@ -337,6 +337,10 @@ mod tests {
         assert_eq!(took, HEADER_LEN + 16);
         assert_eq!(decoder.buffered(), HEADER_LEN + 16);
         assert!(
+            decoder.retained_capacity() >= 16,
+            "the payload buffer holds the payload"
+        );
+        assert!(
             decoder.retained_capacity() <= 2 * 16,
             "capacity {}",
             decoder.retained_capacity()
