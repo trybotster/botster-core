@@ -330,6 +330,17 @@ impl World {
         }
     }
 
+    /// Runs the first ready work, and tells whether there was any.
+    pub fn step(&mut self) -> bool {
+        match self.engine.ready().into_iter().next() {
+            Some(work) => {
+                self.feed(Input::Run(work));
+                true
+            }
+            None => false,
+        }
+    }
+
     /// One `pump` of a driver with the production policy: the clock, then ready work until none is left.
     pub fn pump(&mut self) -> PumpReport {
         self.feed(Input::Clock(self.unix));
@@ -505,6 +516,7 @@ pub(crate) fn run_work(world: &mut World, work: Work) {
 mod admission;
 mod boundaries;
 mod driver;
+mod flow_edges;
 mod lifecycle;
 mod losses;
 mod queue_pressure;
