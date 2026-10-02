@@ -1,12 +1,15 @@
 # P1 lifecycle review
 
-VERDICT: NOT CLEAN (16 open)
+VERDICT: NOT CLEAN (8 open)
 
-Reviewed head: `fb75dec1b6a00270c89f63ce6b67357892e060ff` on `stage1/p1-lifecycle`.
+Reviewed head: `1f0146e831b03fb3d1edd247240d97b3c9503552` on `stage1/p1-lifecycle`.
+Round 1 head: `fb75dec1b6a00270c89f63ce6b67357892e060ff`.
 Initial code checkpoint: `6a8017621f024cbf6c07a3f9b9c50deae15fb936`.
 I also reviewed the delta through `eb39516`, `3ca7680`, and `fb75dec`.
 
-Base: `7c0ae16` (P0 and the merged P6 testkit). The review covers P1's dependency move and code commit.
+Round 1 base: `7c0ae16` (P0 and the merged P6 testkit).
+Round 2 base: `ccb04eb` (the merged CI infrastructure).
+The review covers P1's dependency move, code, and fixes.
 Authority: plan pin `555bc433`, BUILD.md, and the P1 brief.
 The initial checkpoint pins manifest final14 through `contracts-v0.1.2`.
 The latest head pins manifest final16 through `contracts-v0.1.4`, following the lead's correction reported by the implementer.
@@ -19,10 +22,206 @@ Those exclusions do not establish package or Stage 1 acceptance. The pending lis
 The latest tag fixes the six unit-valued Remove transcripts and supplies Amendments 7 and 8.
 Those ids remain pending until both harnesses prove them.
 The delta adds A8-1 capture reservations. I found no additional defect in that reservation change.
-The delta does not close F1 through F15. F16 also applies under Amendment 7.
+The Round 1 pin delta did not close F1 through F15. F16 also applies under Amendment 7.
 
-All findings are OPEN. Each finding must close before CLEAN.
-Line numbers below refer to the initial code checkpoint. The cited logic remains in the latest head.
+Current open findings: F2, F3, F7, F8, F10, F13, F17, F19.
+Closed findings: F1, F4, F5, F6, F9, F11, F12, F15, F16, F18.
+F14 has an authorized scope deferral. It is not satisfied as a TI-1 requirement.
+Each open finding must close before CLEAN.
+
+## Round 2: closure evidence and remaining defects
+
+The implementer rebased onto `ccb04eb` and sent fix commit `76110a4` plus comment commit `8bbee48`.
+The final delta `1f0146e` applies ruling R-15 and closes F18.
+I reviewed those changes against the rebased P1 code and the Round 1 findings.
+The following references use the Round 2 head. I did not run tests or the gate.
+
+| Finding | Status | Evidence |
+|---|---|---|
+| F1 | CLOSED | Stop sends its request and starts grace before publishing Stopping. Remove follows ruling R-15 and continues the permitted effects under pressure. |
+| F2 | OPEN | Held route frames and read-interest restoration fix route-event growth. Worker exit frames still bypass the consumption check. |
+| F3 | OPEN | Accounting and separate Stop completions improve the budget. Other inputs and retirement steps still exceed it. |
+| F4 | CLOSED | `poll_events` releases each input reservation and checks the instance. |
+| F5 | CLOSED | Failed Create retires all associated pending operations. F17 records invalid retirement results. |
+| F6 | CLOSED | Remove retires associated operations, clears inflight requests, and guards later steps by instance. F17 records invalid retirement results. |
+| F7 | OPEN | The reported payload identity separates payload and worker groups. Missing identity and leader absence still leave a payload group uncontrolled. |
+| F8 | OPEN | Normal removal waits for exit, but grace expiry still declares worker exit without observing it. |
+| F9 | CLOSED | Signal travels as a numbered worker operation and waits for Done. Link failure resolves its inflight request. |
+| F10 | OPEN | StopAll no longer hangs in the reviewed failure case, but now completes with a Running target. |
+| F11 | CLOSED | Atomic commit errors map to Uncertain, and the Prior art note describes directory synchronization correctly. |
+| F12 | CLOSED | Created setters apply in pump. Start waits for the admitted setters. |
+| F13 | OPEN | Exact ranges fix truncated history and unminted zero. Unpolled operations still bypass the retired-instance check. |
+| F14 | SCOPE DEFERRED | The lead approved a placeholder for this checkpoint, subject to comments and pending ids. See the ownership note below. |
+| F15 | CLOSED | HostDriver now calls the Session choice point for session work. |
+| F16 | CLOSED | Attach rejects durations below 1 ms before reserving a route. |
+| F18 | CLOSED | Remove starts with CloseRoutes. Each route remains bound until its RouteClosed posts. SendRemove then releases captures and starts teardown. |
+
+### F2 remaining — HIGH: Exit frames do not park with the state transition
+
+Evidence: `crates/botster-core-host/src/engine.rs:224`.
+`can_accept` checks only RouteClosed, RouteStalled, and RouteResumed.
+With mandatory room absent, WorkerMsg::Exited still enters the engine and changes the flow.
+The driver continues consuming later frames instead of retaining the exit frame and removing read interest.
+
+EV-5b and plan 2.5 rule 7 explicitly require the worker exit to stay unread when its state event cannot fit.
+Extend the consumption check to the inputs that cause a parked state transition.
+Prove the exit-frame case through HostDriver.
+
+### F3 remaining — HIGH: Some inputs and steps still exceed the pump bounds
+
+Evidence: `src/driver.rs:355`, `:369`, `:544`, `src/flows.rs:406`, and `:464` in botster-core-host.
+
+- `retry_held` delivers every acceptable held input without checking the remaining event budget.
+- `poll_process_exit` drains every exit without checking that budget. One exit can also complete many inflight operations.
+- `fail_inflight` and `retire_session_ops` still call `complete` repeatedly in one step.
+- `close_route` also completes every waiting route operation after posting RouteClosed, without an event-budget check.
+- `read_link` tests its remaining byte allowance but always passes a 16 KiB buffer to `link_recv`.
+  With a configured byte allowance below 16 KiB, one read can exceed that allowance.
+- When fewer than 16 KiB remain but the allowance is nonzero, `may_read` refuses another read.
+  That branch does not set more_input. The driver can report no runnable input even though it stopped because of its byte bound.
+
+For example, `pump_events = 1` plus two pending reads and one link failure posts two completions in one pump.
+The new single-frame Bell test does not cover this path.
+
+Preserve the current accounting fixes.
+Split every multi-completion path into budgeted publication steps.
+Limit the actual receive slice to the remaining byte allowance.
+Distinguish parked work from input deferred only by a pump bound.
+Authority: 9B, A2-7, TM-6, and plan 2.4.
+
+### F7 remaining — HIGH: Broken-link Stop can claim an end without controlling the payload group
+
+Evidence: `crates/botster-core-link/src/msg.rs:157`, `botster-core-host/src/inbound.rs:218`,
+`botster-core-host/src/run.rs:189`, and `botster-core-sys/src/process.rs:120`.
+
+Core accepts Launched with `payload: None` and reaches Running.
+After link loss, neither the graceful request nor the grace kill sends an OS signal for that session.
+`kill_payload` nevertheless sets the end to Lost(WorkerUnreachable).
+
+When a payload identity exists, the real edge still requires that the group leader's pid and start time match.
+If the worker reaps that leader after link loss, surviving descendants can retain the payload group.
+The identity check then returns Absent and skips the group kill.
+Leader absence does not prove group absence.
+
+Require the identity needed for broken-link control before accepting a real launched payload.
+Provide a group-control path that accounts for surviving descendants after leader exit without signaling an unrelated group.
+Do not treat missing control identity as proof of payload termination.
+Authority: LC-5, LC-6, and AD-6.
+
+### F8 remaining — HIGH: Grace expiry still frees an id before observed worker exit
+
+Evidence: `crates/botster-core-host/src/flows.rs:586`.
+
+`remove_grace_expired` queues SignalGroup(Kill), sets `worker_gone = true`, and advances removal.
+The process edge has not returned an exit result.
+Its signal method has no result and can skip a signal or ignore an OS error.
+A sent signal is not an observed process exit.
+
+The new `remove_waits_for_the_worker_to_end` test explicitly expects completion after the deadline without supplying ProcessExited.
+That expectation preserves the defect.
+
+Keep removal waiting after the kill request.
+Advance steps 4 and 5 only after an exit or a verified absence result for the worker identity.
+Authority: LC-7 and A6-3.
+
+### F10 remaining — HIGH: StopAll completes with a Running target
+
+Evidence: `crates/botster-core-host/src/flows.rs:731` and `src/run.rs:502`.
+
+On a stop-row failure, Core restores Running and removes that session from every StopAll target set.
+StopAll then completes Ok.
+LC-12 requires completion after every original target reaches Exited, Lost, or Created.
+Its explicit leave-as-is states are Created, Exited, and Lost; this target is Running.
+The A2-1 table's shorthand refers to LC-12 and does not remove that completion condition.
+
+The new test `stop_all_leaves_a_target_whose_stop_row_failed` asserts the forbidden Running result.
+Preserve the original target obligation and meet LC-12's completion condition.
+Ask the lead for a contract ruling if the failure path needs an outcome that the contract does not define.
+
+### F13 remaining — MEDIUM: Unpolled retired operations return TooLate
+
+Evidence: `crates/botster-core-host/src/admit.rs:798`.
+
+The retired range check runs only when the operation is absent from `self.ops`.
+An old operation whose Completed remains unpolled still exists as Step::Done.
+After Remove and recreation of the id, cancel returns TooLate for that operation.
+ID-1 requires UnknownOp for the removed incarnation, with no polling exception.
+
+Check retired-instance identity before the live operation table's Done case.
+Keep the Completed event and its pending slot until polling, as EV-5a requires.
+
+### F14 ownership note
+
+The lead confirmed the deferral in message `msg_plugin-w_1790927459_d216e0`.
+P2 supplies `botster_terminal_ghostty::terminal_identity()` after its fork patch 5 lands.
+P1 still owns all three TI-1 ids and must wire that function in a follow-up PR.
+The three ids remain in core-pending.txt.
+The real facade and testkit now label the source as a TI-1 placeholder, and no inspected test asserts an empty source.
+This closes the checkpoint scope question only. It does not establish TI-1 conformance.
+
+### F17 — HIGH: Retirement results bypass the operation table and input certainty rules
+
+Evidence: `crates/botster-core-host/src/flows.rs:484` and `src/run.rs:511`.
+
+Failed Create gives its RegistryFailed result to every associated non-input operation.
+An admitted Resize or SetColorProfile can therefore receive RegistryFailed, which its A2-1 row does not allow.
+During Remove, `ended_result` gives every non-input operation SessionEnded.
+ReadModeFlags, ReadScreen, CaptureSnapshot, UpdateMetadata, and Detach do not have that asynchronous error in their rows.
+The new read-removal test asserts SessionEnded for ReadModeFlags.
+
+Retirement also reports NotWritten(SessionEnded) for every input operation.
+It does not check whether the request was sent and remains unacknowledged.
+That path can claim certain zero for a write whose actual progress Core does not know.
+
+Required change: Resolve each operation through its documented result path.
+Preserve exact or unknown write progress according to IN-2 and IN-7.
+Ask for a contract ruling when no documented result covers an admitted operation after a failed Create or Remove.
+Authority: A2-1, A2-2, AM-3, IN-2, and IN-7.
+
+### F18 — CLOSED: Remove releases captures before it closes bound routes
+
+Original evidence at `8bbee48`: `crates/botster-core-host/src/flows.rs:504` and `:548`.
+
+SendRemove releases all captures before CloseRoutes runs.
+A previously readable capture becomes UnknownCapture while the session still has bound routes in the host table.
+This occurs even when mandatory room is available.
+LC-7 orders route closure, capture release, then upload cleanup and worker end.
+
+Required change: Preserve the order of teardown effects.
+Ruling R-15 in contract commit `ee44b0c` also requires this order under mandatory pressure.
+The lead relayed it in message `msg_plugin-w_1790928065_a6d4e9`.
+Each route closure and its RouteClosed event form one atomic step.
+When the queue has no room, the route stays Open in the worker and host.
+Steps 2 through 5 wait until every bound route's RouteClosed event is posted.
+With no bound routes, or after those events, steps 2 through 5 continue under pressure.
+SessionState{Released} then waits for room, followed by Completed{Remove}.
+
+Prove the pressure case with one bound route and one open capture.
+The capture must stay readable until the queue frees and RouteClosed posts.
+
+Closure: `1f0146e` starts Remove in CloseRoutes and moves to SendRemove only after every route closes.
+The existing room check parks CloseRoutes while any bound route remains and the queue is full.
+`close_route` posts RouteClosed before it removes the binding.
+The new test retains the capture and blocks teardown until the route event posts.
+
+### F19 — MEDIUM: Frame consumption recurses once per decoded frame
+
+Evidence: `crates/botster-core-host/src/driver.rs:369` and `:409`.
+
+After processing pending bytes, `read_link` calls itself instead of continuing its loop.
+Each call creates another 16 KiB read buffer.
+Frames that post no event, such as Pages for an unknown request, do not consume the event budget.
+A legal-sized input batch can therefore cause thousands of nested calls before the byte bound stops reception.
+Rust does not guarantee tail-call elimination. The driver can exhaust its stack, and nested calls retain their read buffers until return.
+
+Required change: Consume frames with an iterative loop and one read buffer per active link read.
+Keep the existing byte and event bounds.
+
+## Round 1 evidence (historical)
+
+The sections below preserve the original findings.
+Their current status appears in the Round 2 table above.
+Their line numbers refer to the initial code checkpoint.
 
 ## F1 — HIGH: Mandatory pressure blocks Stop effects
 
