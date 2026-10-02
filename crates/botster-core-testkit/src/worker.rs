@@ -97,17 +97,21 @@ impl Pids {
 }
 
 /// The `Sim` of one harness: every in-process worker of every handle (plan 4.1: "a `Sim` owns ... every `Worker`").
+/// A session instance's worker, named by its data directory and its `InstanceId`: an instance id is unique within one data
+/// directory only (each directory mints its own), so the directory is part of the name.
+type WorkerKey = (String, InstanceId);
+
 #[derive(Clone)]
 pub struct Workers {
     sim: Arc<Mutex<Sim>>,
     pids: Arc<Mutex<Pids>>,
     scheduler: SchedulerHandle,
     /// The program edge of each session instance's payload, for the program controls (`pty_*`).
-    programs: Arc<Mutex<BTreeMap<InstanceId, ProgramControl>>>,
-    /// The instance of each session of each handle, as its Core posted it (`SessionState` carries both).
-    sessions: Arc<Mutex<BTreeMap<String, BTreeMap<SessionId, InstanceId>>>>,
+    programs: Arc<Mutex<BTreeMap<WorkerKey, ProgramControl>>>,
+    /// The worker of each session of each handle, as its Core posted it (`SessionState` carries the instance).
+    sessions: Arc<Mutex<BTreeMap<String, BTreeMap<SessionId, WorkerKey>>>>,
     /// The worker process of each session instance, for the process controls.
-    worker_processes: Arc<Mutex<BTreeMap<InstanceId, WorkerProcess>>>,
+    worker_processes: Arc<Mutex<BTreeMap<WorkerKey, WorkerProcess>>>,
 }
 
 impl std::fmt::Debug for Workers {
@@ -134,13 +138,13 @@ impl Workers {
         }
     }
 
-    fn instance_of(&self, handle: &str, session: &SessionId) -> Option<InstanceId> {
+    fn key_of(&self, handle: &str, session: &SessionId) -> Option<WorkerKey> {
         lock(&self.sessions).get(handle)?.get(session).cloned()
     }
 
     fn worker_process(&self, handle: &str, session: &SessionId) -> Option<WorkerProcess> {
-        let instance = self.instance_of(handle, session)?;
-        lock(&self.worker_processes).get(&instance).cloned()
+        let key = self.key_of(handle, session)?;
+        lock(&self.worker_processes).get(&key).cloned()
     }
 
     /// `process_end_worker` (Core A5-1, A5-3): the process edge ends the session's worker at this script point, as a kill
@@ -165,15 +169,15 @@ impl Workers {
 
     /// The controls of the payload of the session `session` of the handle `handle`.
     pub fn program_control(&self, handle: &str, session: &SessionId) -> Option<ProgramControl> {
-        let instance = lock(&self.sessions).get(handle)?.get(session)?.clone();
-        lock(&self.programs).get(&instance).cloned()
+        let key = self.key_of(handle, session)?;
+        lock(&self.programs).get(&key).cloned()
     }
 
-    fn record_session(&self, handle: &str, id: &SessionId, instance: &InstanceId) {
+    fn record_session(&self, handle: &str, data_dir: &str, id: &SessionId, instance: &InstanceId) {
         lock(&self.sessions)
             .entry(handle.to_string())
             .or_default()
-            .insert(id.clone(), instance.clone());
+            .insert(id.clone(), (data_dir.to_string(), instance.clone()));
     }
 
     /// Runs every ready input of every worker at `now`, until none is ready.
@@ -206,11 +210,12 @@ impl Workers {
         lock(&self.sim).next_deadline()
     }
 
-    /// The `Process` edge of one host for its workers.
-    pub fn spawner(&self) -> WorkerSpawner {
+    /// The `Process` edge of one host, over the data directory `data_dir`, for its workers.
+    pub fn spawner(&self, data_dir: &str) -> WorkerSpawner {
         WorkerSpawner {
             workers: self.clone(),
             processes: Arc::default(),
+            data_dir: data_dir.to_string(),
         }
     }
 }
@@ -219,6 +224,8 @@ impl Workers {
 pub struct WorkerSpawner {
     workers: Workers,
     processes: Arc<Mutex<Processes>>,
+    /// The data directory of the host: with an instance, it names a worker.
+    data_dir: String,
 }
 
 impl Spawner for WorkerSpawner {
@@ -234,8 +241,9 @@ impl Spawner for WorkerSpawner {
         };
         let cell = Arc::new(Mutex::new(ProcessCell::default()));
         lock(&self.processes).cells.insert(id, Arc::clone(&cell));
+        let key: WorkerKey = (self.data_dir.clone(), spec.instance.clone());
         lock(&self.workers.worker_processes).insert(
-            spec.instance.clone(),
+            key.clone(),
             WorkerProcess {
                 id,
                 cell: Arc::clone(&cell),
@@ -250,7 +258,7 @@ impl Spawner for WorkerSpawner {
         ));
         let mut edges = WorkerEdges {
             id,
-            instance: spec.instance.clone(),
+            key,
             programs: Arc::clone(&self.workers.programs),
             pty_write: None,
             wait_writable: false,
@@ -341,8 +349,8 @@ enum Ready {
 /// answer, an exit.
 struct WorkerEdges {
     id: ProcessIdentity,
-    instance: InstanceId,
-    programs: Arc<Mutex<BTreeMap<InstanceId, ProgramControl>>>,
+    key: WorkerKey,
+    programs: Arc<Mutex<BTreeMap<WorkerKey, ProgramControl>>>,
     /// The bytes of a `PtyWrite` that the program has not been offered yet.
     pty_write: Option<Vec<u8>>,
     /// The program took no byte at the last write: `PtyWritable` follows its write readiness.
@@ -399,7 +407,7 @@ impl WorkerEdges {
         program
             .resize(window)
             .map_err(|_| SpawnFailure::Exec { errno: ENOEXEC })?;
-        lock(&self.programs).insert(self.instance.clone(), program.control());
+        lock(&self.programs).insert(self.key.clone(), program.control());
         self.payload = Some(program);
         self.output_ended = false;
         Ok(PayloadId {
@@ -626,6 +634,8 @@ pub struct TestkitCore {
     wake: Arc<dyn HostWake>,
     /// The handle's name in the transcript: the program controls find a session's payload through it.
     handle: String,
+    /// The data directory of the handle: with an instance, it names a worker.
+    data_dir: String,
 }
 
 impl TestkitCore {
@@ -635,12 +645,14 @@ impl TestkitCore {
         wake: Arc<dyn HostWake>,
         workers: Workers,
         handle: &str,
+        data_dir: &str,
     ) -> TestkitCore {
         TestkitCore {
             driver,
             workers,
             wake,
             handle: handle.to_string(),
+            data_dir: data_dir.to_string(),
         }
     }
 
@@ -675,7 +687,8 @@ impl CoreApi for TestkitCore {
         let events = self.driver.poll_events(max);
         for event in &events {
             if let Event::SessionState { id, instance, .. } = event {
-                self.workers.record_session(&self.handle, id, instance);
+                self.workers
+                    .record_session(&self.handle, &self.data_dir, id, instance);
             }
         }
         events
