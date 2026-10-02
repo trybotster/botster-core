@@ -1,16 +1,18 @@
 # P3 worker review
 
-VERDICT: CLEAN
+VERDICT: NOT CLEAN (1 open)
 
-Reviewed head: `306b143a8c75d8cd8024a8f8125c264163648c34`.
-Previous reviewed head: `ca45f66c7946f941eb8638c9b28bc0bb50ab5f25`.
-Round 4 delta: `ca45f66..306b143`. F1 through F7 are CLOSED. No open findings remain in M1.
-This CLEAN verdict applies only to M1 at the exact reviewed head. It does not accept M2 or the later work listed below.
-The original evidence refers to `f37c46b`. Rounds 2 and 3 record review history. Round 4 records final closure.
+Reviewed head: `439e5e14c6fe55b3331d545c254dc11a8baf1ed8`, branch `stage1/p3-worker-m1`.
+Previous reviewed head: `306b143a8c75d8cd8024a8f8125c264163648c34`.
+Round 5: M1 rebased from `2016886` onto P1 `6db7924`, followed by `dbc4957..439e5e1`.
+F1 through F6 remain CLOSED. F7 is REOPENED because the new base changes process ownership.
+The original evidence refers to `f37c46b`. Rounds 2 through 4 record review history. Round 5 gives the current finding.
 Base: `2016886`. Scope: M1, including the Worker machine, real driver, payload edge, and testkit driver.
 This verdict covers both review units in the implementer's message.
 
-Authority: plan pin `c43693ff`, pair-common.md, brief-p3-worker.md, BUILD.md, and contracts-v0.1.7 (manifest final21).
+Current authority: plan pin `2b03dc1b`, pair-common.md, brief-p3-worker.md, BUILD.md, and contracts-v0.1.9 (manifest final22).
+The lead explicitly authorized contracts-v0.1.9, rulings R-19/R-20, and the stack on P1 `6db7924` on 2026-10-02.
+The original review used plan pin `c43693ff` and contracts-v0.1.7 (manifest final21).
 The reviewer inspected logic only. The reviewer did not run tests or a gate.
 The implementer reported 276 default tests and 12 slow tests passing. That evidence does not close the findings below.
 
@@ -270,7 +272,7 @@ Do not reap a non-matching id unless a separate child-ownership record proves it
 
 Authority: the explicit rule against signalling an unproven id, the lead's P1 F7 reservation principle, and BUILD.md testing rule 10.
 
-## Round 4 — Final closure
+## Round 4 — Closure on the previous base
 
 F7 status: CLOSED at `306b143a8c75d8cd8024a8f8125c264163648c34`.
 
@@ -283,5 +285,46 @@ The cleanup guard no longer signals a cached payload group id.
 The reviewer inspected the complete delta, which changes only the slow test cleanup file.
 The reviewer ran no tests or gate. The implementer reported clean clippy checks and 13 slow tests passing on macOS.
 
-VERDICT: CLEAN on the exact M1 head above. Every finding is closed.
+Round 4 verdict: CLEAN on `306b143a8c75d8cd8024a8f8125c264163648c34`. Every finding was closed on that head.
 A rebase, contracts pin move, or any other later commit requires a delta review before this verdict applies to that head.
+
+## Round 5 — F7 reopened after rebase
+
+The range-diff `2016886..306b143` against `6db7924..dbc4957` shows unchanged P3 patches except dependency and module context.
+The added commit changes TestkitCore's attach return type to AttachRefused and adds the EV-4 and LC-5 transcript selections.
+Attach delegates directly to the host driver, so the wrapper preserves R-19's returned transport on refusal.
+All five selected transcripts remain pending for the real-process harness, as the plan requires.
+R-20 and the host's fixed-timing change are compatible with the worker's existing stop path.
+
+The reviewer inspected the rebase, the new commit, and the changed base behavior that affects P3's cleanup assumptions.
+The reviewer ran no tests or gate.
+The implementer reported clean clippy checks, 291 default tests, five transcripts on 32 seeds, and 14 slow tests passing on macOS.
+
+### F7 — HIGH — The base reaper can release the worker id during fallback cleanup
+
+Status: REOPENED at `439e5e14c6fe55b3331d545c254dc11a8baf1ed8`.
+
+Evidence: `crates/botster-core-sys/src/process.rs:119-134` and `crates/botster-worker/tests/slow_session.rs:81-83,114-115,130-151`.
+
+P1's new Children::spawn transfers Child to an independent thread that calls `child.wait()` and reaps the worker.
+That thread owns cloned state and continues after Core drops.
+RowReaper still assumes that dropping Core leaves nobody else able to reap the worker.
+That assumption no longer holds.
+
+The reaper can reap the worker after RowReaper verifies its start time but before end_child_worker sends SIGTERM.
+The id can then be reused before that signal.
+The same reaper can release the id between the cleanup timeout and SIGKILL.
+The cleanup observer's WNOWAIT cannot reserve a child that another thread reaps.
+The final cleanup waitpid can also act on a reused id after the independent reaper finishes.
+
+OwnedWorker's separately owned Child path has no independent P1 reaper and remains compatible with the round 4 fix.
+
+Required change: Coordinate fallback cleanup with the child owner that can reap the worker.
+That owner must keep the worker unreaped through every possible signal and perform the final reap itself, or transfer exclusive ownership before cleanup.
+Remove RowReaper's unchecked assumption about ownership after Core drops.
+A second start-time check does not remove the check-to-signal race.
+Preserve cleanup of active sessions and the prohibition against signalling or reaping an unproven id.
+
+Authority: AD-6, the explicit rule against signalling an unproven id, the lead's P1 F7 reservation principle, and BUILD.md testing rule 10.
+
+VERDICT: NOT CLEAN (1 open) on the exact rebased M1 head above.
