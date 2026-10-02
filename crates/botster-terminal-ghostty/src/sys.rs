@@ -60,6 +60,9 @@ pub struct ModeConfig {
 pub mod data {
     pub const COLS: i32 = 1;
     pub const ROWS: i32 = 2;
+    pub const CURSOR_X: i32 = 3;
+    pub const CURSOR_Y: i32 = 4;
+    pub const TOTAL_ROWS: i32 = 14;
     pub const ACTIVE_SCREEN: i32 = 6;
     pub const CURSOR_VISIBLE: i32 = 7;
     pub const KITTY_KEYBOARD_FLAGS: i32 = 8;
@@ -79,6 +82,7 @@ pub mod opt {
     pub const CLIPBOARD_WRITE: i32 = 26;
     pub const DESKTOP_NOTIFICATION: i32 = 29;
     pub const SEMANTIC_PROMPT: i32 = 42;
+    pub const SCROLLBACK_MAX_BYTES: i32 = 27;
 }
 
 /// `GhosttyTerminalScreen`.
@@ -180,6 +184,124 @@ pub type DesktopNotificationFn = unsafe extern "C" fn(Terminal, *mut c_void, *co
 pub type SemanticPromptFn = unsafe extern "C" fn(Terminal, *mut c_void, *const SemanticPrompt);
 pub type ClipboardWriteFn = unsafe extern "C" fn(Terminal, *mut c_void, *const ClipboardWrite);
 
+/// `GhosttyPointTag`.
+pub mod point_tag {
+    pub const ACTIVE: i32 = 0;
+    pub const SCREEN: i32 = 2;
+}
+
+/// `GhosttyPointCoordinate`.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct PointCoordinate {
+    pub x: u16,
+    pub y: u32,
+}
+
+/// `GhosttyPointValue`.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub union PointValue {
+    pub coordinate: PointCoordinate,
+    pub padding: [u64; 2],
+}
+
+/// `GhosttyPoint`.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct Point {
+    pub tag: i32,
+    pub value: PointValue,
+}
+
+impl Point {
+    pub fn new(tag: i32, x: u16, y: u32) -> Self {
+        Self { tag, value: PointValue { coordinate: PointCoordinate { x, y } } }
+    }
+}
+
+/// `GhosttyGridRef`: set `size` before use.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct GridRef {
+    pub size: usize,
+    pub node: *mut c_void,
+    pub x: u16,
+    pub y: u16,
+}
+
+impl GridRef {
+    pub fn empty() -> Self {
+        Self { size: std::mem::size_of::<Self>(), node: std::ptr::null_mut(), x: 0, y: 0 }
+    }
+}
+
+/// `GhosttyCell`.
+pub type Cell = u64;
+
+/// `GhosttyCellData` keys that this crate reads.
+pub mod cell_data {
+    pub const WIDE: i32 = 3;
+    pub const HAS_TEXT: i32 = 4;
+}
+
+/// `GhosttyCellWide`.
+pub mod cell_wide {
+    pub const SPACER_TAIL: i32 = 2;
+    pub const SPACER_HEAD: i32 = 3;
+}
+
+/// `GhosttySelection`.
+#[repr(C)]
+pub struct Selection {
+    pub size: usize,
+    pub start: GridRef,
+    pub end: GridRef,
+    pub rectangle: bool,
+}
+
+/// `GhosttyFormatterScreenExtra`.
+#[repr(C)]
+pub struct FormatterScreenExtra {
+    pub size: usize,
+    pub cursor: bool,
+    pub style: bool,
+    pub hyperlink: bool,
+    pub protection: bool,
+    pub kitty_keyboard: bool,
+    pub charsets: bool,
+}
+
+/// `GhosttyFormatterTerminalExtra`.
+#[repr(C)]
+pub struct FormatterTerminalExtra {
+    pub size: usize,
+    pub palette: bool,
+    pub modes: bool,
+    pub scrolling_region: bool,
+    pub tabstops: bool,
+    pub pwd: bool,
+    pub keyboard: bool,
+    pub screen: FormatterScreenExtra,
+}
+
+/// `GhosttyFormatterTerminalOptions`.
+#[repr(C)]
+pub struct FormatterTerminalOptions {
+    pub size: usize,
+    pub emit: i32,
+    pub unwrap: bool,
+    pub trim: bool,
+    pub extra: FormatterTerminalExtra,
+    pub selection: *const Selection,
+}
+
+/// `GhosttyFormatterFormat`.
+pub const FORMATTER_FORMAT_PLAIN: i32 = 0;
+
+/// `GhosttyFormatter`: an opaque handle.
+pub type Formatter = *mut c_void;
+
 extern "C" {
     pub fn ghostty_terminal_new(allocator: *const c_void, terminal: *mut Terminal, cols: u16, rows: u16) -> Result;
     pub fn ghostty_terminal_free(terminal: Terminal);
@@ -193,4 +315,26 @@ extern "C" {
     pub fn ghostty_terminal_vt_write(terminal: Terminal, data: *const u8, len: usize);
     pub fn ghostty_terminal_get(terminal: Terminal, data: i32, out: *mut c_void) -> Result;
     pub fn ghostty_terminal_set(terminal: Terminal, option: i32, value: *const c_void) -> Result;
+    pub fn ghostty_terminal_grid_ref(terminal: Terminal, point: Point, out_ref: *mut GridRef) -> Result;
+    pub fn ghostty_grid_ref_cell(grid_ref: *const GridRef, out_cell: *mut Cell) -> Result;
+    pub fn ghostty_grid_ref_graphemes(
+        grid_ref: *const GridRef,
+        buf: *mut u32,
+        buf_len: usize,
+        out_len: *mut usize,
+    ) -> Result;
+    pub fn ghostty_cell_get(cell: Cell, data: i32, out: *mut c_void) -> Result;
+    pub fn ghostty_formatter_terminal_new(
+        allocator: *const c_void,
+        formatter: *mut Formatter,
+        terminal: Terminal,
+        options: FormatterTerminalOptions,
+    ) -> Result;
+    pub fn ghostty_formatter_format_buf(
+        formatter: Formatter,
+        buf: *mut u8,
+        buf_len: usize,
+        out_written: *mut usize,
+    ) -> Result;
+    pub fn ghostty_formatter_free(formatter: Formatter);
 }
