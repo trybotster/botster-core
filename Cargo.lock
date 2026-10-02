@@ -382,6 +382,8 @@ dependencies = [
  "botster-worker-core",
  "rand_chacha",
  "rand_core 0.9.5",
+ "rustix",
+ "schemars",
  "serde_json",
  "sha2",
  "tempfile",
