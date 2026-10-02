@@ -133,9 +133,11 @@ cargo_volume=$project-cargo
 target_volume=$project-target-$slug
 npm_volume=$project-npm
 
-# Priority jobs (CI) get more CPU weight when the host is busy. Memory: rustc and the linker need about 2 GB a CPU.
+# Priority jobs (CI) get more CPU weight when the host is busy. Memory: rustc and the linker need about 2 GB a CPU, plus the
+# gate container's tmpfs /tmp (tmp_gb).
+tmp_gb=4
 shares=$(( ${TESTQ_PRIORITY:-0} ? 2048 : 1024 ))
-limits=(--cpus "$cpus" --cpu-shares "$shares" --memory "$(( cpus * 2 + 4 ))g")
+limits=(--cpus "$cpus" --cpu-shares "$shares" --memory "$(( cpus * 2 + 4 + tmp_gb ))g")
 
 # --init: tini is PID 1 and reaps orphans, as launchd does on the Mac. Without it, a test's reparented child stays a zombie
 # and the leftover-process check fails.
@@ -261,7 +263,12 @@ if (( private_git_deps )); then
 fi
 
 status=0
-container --name "$name" "${network[@]}" "${gate_env[@]}" "${mounts[@]}" -w /work "$image" "$@" || status=$?
+# /tmp is a tmpfs: the kernel throttles every writer of a container whose dirty page cache is at its limit, so the tests'
+# temp roots (git repositories, small files) stalled for seconds while rustc or another test wrote gigabytes in the same
+# container (measured: git init/add/commit 6 ms quiet, 566 ms median and 1.8 s max under such a writer, 13 ms on tmpfs).
+# cargo-mutants keeps its large build copies on the target volume (the image's cargo-mutants shim).
+container --name "$name" "${network[@]}" "${gate_env[@]}" "${mounts[@]}" --tmpfs "/tmp:rw,exec,mode=1777,size=${tmp_gb}g" \
+  -w /work "$image" "$@" || status=$?
 
 # The mutation reports: botster-contracts writes them in the tree, botster-core in the target volume, which only a
 # container sees.
