@@ -10,6 +10,8 @@ use std::io;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
+mod deadlines;
+
 #[derive(Default)]
 struct TestWake {
     flag: AtomicBool,

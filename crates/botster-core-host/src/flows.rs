@@ -45,6 +45,16 @@ impl HostEngine {
         let Some(flow) = self.sessions.get(id).map(|s| s.flow.clone()) else {
             return;
         };
+        if let Some(s) = self.sessions.get_mut(id) {
+            if std::mem::take(&mut s.metadata_pending) {
+                let event = Event::MetadataChanged {
+                    id: s.id.clone(),
+                    instance: s.instance.clone(),
+                };
+                self.queue.post_keyed(event);
+                return;
+            }
+        }
         match flow {
             Flow::Idle => {}
             Flow::Create(f) => self.run_create(id, f),
@@ -421,7 +431,7 @@ impl HostEngine {
                 Some(Op::WriteInput { payload, .. }) => {
                     OpResult::Ok(OpOutput::Input(InputResult {
                         outcome: WriteOutcome::Unknown {
-                            max_payload_bytes: Self::payload_len(payload),
+                            max_payload_bytes: Self::held_bytes(payload),
                         },
                         payload_bytes_written: 0,
                         pty_bytes_written: 0,
@@ -436,16 +446,6 @@ impl HostEngine {
             self.complete_later(op, result);
         }
         self.wake_launch_waiters(id);
-    }
-
-    fn payload_len(payload: &InputPayload) -> u64 {
-        match payload {
-            InputPayload::Bytes { bytes } | InputPayload::Paste { bytes, .. } => {
-                bytes.0.len() as u64
-            }
-            InputPayload::Text { text } => text.len() as u64,
-            _ => 64,
-        }
     }
 
     // ---- remove (LC-7) ----

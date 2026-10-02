@@ -31,8 +31,12 @@ pub enum Work {
     Op(OpId),
     /// One step of the flow of a session (create, start, stop or remove).
     Session(SessionId),
-    /// The earliest due deadline (TM-3, TM-5).
+    /// The earliest due deadline whose effect posts no event: capture expiry, the kill of `stop_grace`, the startup and
+    /// remove grace. It runs in its due pump whatever the event budget (TM-3, erratum 3 E3-1 item 1).
     Deadline,
+    /// The earliest due `Silent`: one atomic step with its event. It needs event budget, and otherwise it is carried to the
+    /// next pump (TM-4, E3-1 items 2, 3 and 6).
+    Silent,
     /// A route event that waited for queue room.
     Parked,
 }

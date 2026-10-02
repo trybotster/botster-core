@@ -557,9 +557,9 @@ fn due_deadlines_run_in_order_of_due_time() {
     );
     w.advance(Duration::from_secs(6));
     w.feed(Input::Clock(w.unix));
-    assert_eq!(w.engine.ready().last(), Some(&Work::Deadline));
+    assert!(w.engine.ready().contains(&Work::Silent));
     let before = w.engine.captures.len();
-    run_work(&mut w, Work::Deadline);
+    run_work(&mut w, Work::Silent);
     assert_eq!(
         w.engine.captures.len(),
         before,
@@ -662,5 +662,176 @@ fn the_reservation_changes_only_when_the_completion_is_polled() {
     assert_eq!(
         capture_op(&mut w, "f").unwrap_err().code,
         ErrorCode::CaptureLimit
+    );
+}
+
+/// E3-1 items 4, 5: a transition that finds the mandatory queue full is parked and keeps its state. A later `Silent` (class
+/// K, no mandatory room needed) is posted meanwhile. A poll that frees room makes the transition runnable again.
+#[test]
+fn e3_1_runnable_silent_bypasses_a_transition_parked_on_queue_room() {
+    let mut w = World::new(limits(|l| {
+        l.mandatory_events = 3;
+        l.max_sessions = 5;
+    }));
+    w.autopilot = Autopilot::Silent;
+    w.running("s1");
+    w.worker_says(
+        "s1",
+        observation(Observation::Output {
+            model_rev: ModelRev(2),
+        }),
+    );
+    w.engine
+        .set_silence_threshold(&sid("s1"), Some(Duration::from_secs(1)))
+        .unwrap();
+    w.pump();
+    w.engine.poll_events(64);
+    // Three `Created` events fill the queue of three.
+    for name in ["x1", "x2", "x3"] {
+        w.engine.begin(create(name)).unwrap();
+    }
+    w.pump();
+    let stop = w.engine.begin(Op::Stop { id: sid("s1") }).unwrap();
+    let report = w.pump();
+    assert!(!report.more, "a parked step is not runnable work (TM-6)");
+    assert_eq!(
+        w.engine.get(&sid("s1")).unwrap().state,
+        SessionState::Running,
+        "the transition is parked and the state is unchanged"
+    );
+    w.advance(Duration::from_secs(1));
+    w.pump();
+    let events = w.engine.poll_events(64);
+    assert_eq!(
+        events
+            .iter()
+            .filter(|e| matches!(e, Event::Silent { .. }))
+            .count(),
+        1,
+        "Silent bypassed the parked step"
+    );
+    assert!(w.engine.runnable(), "the poll freed room (EV-5d)");
+    w.pump();
+    assert_eq!(
+        w.engine.get(&sid("s1")).unwrap().state,
+        SessionState::Stopping,
+        "the parked transition ran when room returned"
+    );
+    let _ = stop;
+}
+
+/// E3-1 item 5: an effect with no event runs while an earlier step is parked on room.
+#[test]
+fn e3_1_eventless_effect_overtakes_a_carried_or_parked_step() {
+    let mut w = World::new(limits(|l| {
+        l.mandatory_events = 3;
+        l.max_sessions = 6;
+        l.stop_grace = Duration::from_millis(100);
+    }));
+    w.autopilot = Autopilot::Silent;
+    w.running("s1");
+    w.engine.poll_events(64);
+    w.running("s2");
+    w.engine.poll_events(64);
+    let stop2 = w.engine.begin(Op::Stop { id: sid("s2") }).unwrap();
+    w.pump();
+    w.engine.poll_events(64);
+    // Three `Created` events fill the queue, so that the `Stopping` step of s1 parks.
+    for name in ["x1", "x2", "x3"] {
+        w.engine.begin(create(name)).unwrap();
+    }
+    w.pump();
+    w.engine.begin(Op::Stop { id: sid("s1") }).unwrap();
+    w.pump();
+    assert_eq!(
+        w.engine.get(&sid("s1")).unwrap().state,
+        SessionState::Running
+    );
+    w.advance(Duration::from_millis(100));
+    w.pump();
+    assert!(
+        w.sent.iter().any(|(_, m)| matches!(m, HostMsg::Kill)),
+        "the kill of s2 ran while the step of s1 was parked"
+    );
+    let _ = stop2;
+}
+
+/// Core A2-1, IN-7, IN-9 (F17): a `SetNotificationPolicy` of an `Exited` session ends `WorkerLinkFailed` when a `Remove`
+/// retires it (the registry path is only the one of `Created`), and a sent repeated key is `Unknown` with the bound of
+/// every repeat.
+#[test]
+fn retirement_keeps_the_result_path_and_bounds_a_repeated_key() {
+    let mut w = World::new(limits(|l| {
+        l.max_key_repeat = 100;
+    }));
+    w.autopilot = Autopilot::Silent;
+    w.ok(create("s1"));
+    let start = w.engine.begin(Op::Start { id: sid("s1") }).unwrap();
+    w.pump();
+    let link = w.link_of_after_hello("s1");
+    w.feed(Input::LinkMsg {
+        link,
+        msg: WorkerMsg::Launched {
+            features: BTreeSet::from([Feature::NotificationPolicy]),
+            terminal: terminal_state(),
+            formats: vec![],
+            payload: botster_core_link::msg::PayloadId {
+                pid: 900,
+                start_time: 3,
+            },
+        },
+    });
+    w.complete(start);
+    w.worker_says(
+        "s1",
+        WorkerMsg::Exited {
+            code: Some(0),
+            signal: None,
+        },
+    );
+    w.pump();
+    w.engine.poll_events(64);
+    let policy = w
+        .engine
+        .begin(Op::SetNotificationPolicy {
+            session: sid("s1"),
+            policy: NotificationPolicy::All,
+        })
+        .unwrap();
+    let remove = w.engine.begin(Op::Remove { id: sid("s1") }).unwrap();
+    w.pump();
+    w.worker_says(
+        "s1",
+        WorkerMsg::RemoveResult {
+            uploads: UploadsOutcome::Deleted,
+        },
+    );
+    w.exited("s1");
+    let mut done = BTreeMap::new();
+    for _ in 0..10 {
+        w.pump();
+        for e in w.engine.poll_events(64) {
+            if let Event::Completed { op, result } = e {
+                done.insert(op, result);
+            }
+        }
+    }
+    assert!(
+        matches!(done.get(&policy), Some(OpResult::Err(e)) if e.code == ErrorCode::WorkerLinkFailed),
+        "{:?}",
+        done.get(&policy)
+    );
+    assert!(done.contains_key(&remove));
+    assert_eq!(
+        HostEngine::held_bytes(&InputPayload::Key(KeyInput {
+            key: botster_route_codec::prelude::Key::Char('a'.into()),
+            shifted_key: None,
+            base_layout_key: None,
+            mods: vec![],
+            event: botster_route_codec::prelude::KeyEvent::Press,
+            text: None,
+            repeat: Some(100),
+        })),
+        6400
     );
 }
