@@ -70,10 +70,20 @@ After budget exhaustion, restrict the eligible work itself to permitted deadline
 Prove UpdateMetadata and local Detach through HostDriver with `pump_events = 1`.
 Authority: 9B, A2-7, A5-2, LC-9, and DP-7.
 
-Deadline subcase pending: with two due silence deadlines and `pump_events = 1`, Core posts both Silent events in one pump.
-TM-4 requires both in that first pump, while 9B limits the pump to one event.
-I sent the lead a QUESTION about that conflict.
-The implementer must use the resulting ruling and must not invent an exception.
+Deadline subcase: with two due silence deadlines and `pump_events = 1`, this head posts both Silent events in one pump.
+The lead supplied erratum 3 candidate 1 at contract commit `5cdb45e` in message `msg_plugin-w_1790930614_f7b88a`.
+The candidate is under Amendment review. The lead directs P1 to implement and review against it.
+An event-less due effect runs in its due pump regardless of the event budget.
+An atomic effect-and-event step runs only with budget; otherwise the entire step carries to the next pump.
+Carried steps set more and signal the wake.
+They run before newer work in due-time order.
+Silent posts in the first pump with budget, with unchanged since, once per idle period.
+The four `e3_1` ids remain pending until the Amendment ACK:
+
+- `e3_1_due_effect_without_event_runs_in_its_pump_with_no_budget`
+- `e3_1_due_step_beyond_budget_is_carried_with_more`
+- `e3_1_carried_steps_run_first_in_due_order`
+- `e3_1_two_silences_due_together_with_budget_one`
 
 ### F7 remaining — HIGH: An absent leader does not prove the saved group identity
 
