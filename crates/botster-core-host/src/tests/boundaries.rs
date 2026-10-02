@@ -1034,3 +1034,107 @@ fn each_observation_becomes_its_event_and_updates_the_cache() {
         "{events:?}"
     );
 }
+
+/// Core 2, 9B: the constant reads of the engine return what it holds: the shadow kinds, the snapshot formats of a launched
+/// worker, the diagnostics counts, and the bound of a link frame.
+#[test]
+fn the_engine_reads_return_what_it_holds() {
+    let mut w = World::default();
+    w.autopilot = Autopilot::Silent;
+    w.engine.cfg.shadow_answerable = vec![botster_route_codec::prelude::QueryKind::CellPixels];
+    assert_eq!(
+        w.engine.shadow_answerable_kinds(),
+        vec![botster_route_codec::prelude::QueryKind::CellPixels]
+    );
+    w.ok(create("s1"));
+    let start = w.engine.begin(Op::Start { id: sid("s1") }).unwrap();
+    w.pump();
+    let link = w.link_of_after_hello("s1");
+    let format = SnapshotFormat {
+        name: "ghostty-vt".into(),
+        version: 3,
+    };
+    w.feed(Input::LinkMsg {
+        link,
+        msg: WorkerMsg::Launched {
+            features: BTreeSet::new(),
+            terminal: terminal_state(),
+            formats: vec![format.clone()],
+            payload: botster_core_link::msg::PayloadId {
+                pid: 900,
+                start_time: 3,
+            },
+        },
+    });
+    w.complete(start);
+    assert_eq!(w.engine.snapshot_formats(&sid("s1")).unwrap(), vec![format]);
+    let read = w
+        .engine
+        .begin(Op::ReadCursor { session: sid("s1") })
+        .unwrap();
+    let diagnostics = w.engine.diagnostics();
+    assert_eq!(diagnostics["sessions"], 1);
+    assert_eq!(diagnostics["pending_ops"], 1, "{diagnostics}");
+    assert_eq!(diagnostics["captures"], 0);
+    assert_eq!(diagnostics["routes"], 0);
+    assert_eq!(diagnostics["host_epoch"], 7);
+    assert_eq!(diagnostics["queued_events"], w.engine.queue.len());
+    let _ = read;
+    // Each ticket is new.
+    let first = w.engine.ticket(crate::engine::Owner::Ignored);
+    let second = w.engine.ticket(crate::engine::Owner::Ignored);
+    assert_eq!(second.0, first.0 + 1);
+    // The bound of a link frame: four times the largest payload, and a mebibyte for the framing; at most half of u32.
+    let bound = |paste: u64, snapshot: u64| {
+        World::new(limits(|l| {
+            l.max_paste_bytes = paste;
+            l.max_snapshot_bytes = snapshot;
+        }))
+        .engine
+        .link_frame_bound()
+    };
+    assert_eq!(bound(1000, 3000), 3000 * 4 + (1 << 20));
+    assert_eq!(bound(5000, 3000), 5000 * 4 + (1 << 20));
+    assert_eq!(bound(1000, 1 << 40), u32::MAX / 2);
+}
+
+/// 9B `pump_events`: an op that completes in a step that already posted an event completes in a step of its own; the
+/// completion is not lost.
+#[test]
+fn a_completion_after_a_post_in_the_same_step_waits_for_its_own_step() {
+    let mut w = World::default();
+    w.autopilot = Autopilot::Silent;
+    w.running("s1");
+    w.engine.poll_events(64);
+    let op = w
+        .engine
+        .begin(Op::UpdateMetadata {
+            id: sid("s1"),
+            labels: Default::default(),
+        })
+        .unwrap();
+    w.engine.step_mark = w.engine.queue.total_posted();
+    w.engine.queue.post_droppable(Event::Bell {
+        id: sid("s1"),
+        instance: w.instance_of("s1"),
+        at: 1,
+    });
+    w.engine.complete(op, OpResult::Ok(OpOutput::Unit));
+    assert!(matches!(
+        w.engine.ops[&op].step,
+        crate::engine::Step::Ready(crate::engine::Next::Complete(_))
+    ));
+    assert!(w
+        .engine
+        .poll_events(64)
+        .iter()
+        .all(|e| !matches!(e, Event::Completed { .. })));
+    w.engine.step_mark = w.engine.queue.total_posted();
+    w.engine.complete(op, OpResult::Ok(OpOutput::Unit));
+    assert!(matches!(w.engine.ops[&op].step, crate::engine::Step::Done));
+    assert!(w
+        .engine
+        .poll_events(64)
+        .iter()
+        .any(|e| matches!(e, Event::Completed { .. })));
+}

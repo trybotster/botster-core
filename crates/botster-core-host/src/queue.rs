@@ -840,4 +840,142 @@ mod tests {
         assert_eq!(queue.take_posted(), 3);
         assert_eq!(queue.take_posted(), 0);
     }
+
+    fn modes(instance: &str) -> Event {
+        Event::ModesChanged {
+            id: sid("s"),
+            instance: inst(instance),
+            flags: Default::default(),
+        }
+    }
+
+    /// Core 6.2, EV-6: each class K kind coalesces by its key: a second event of the same kind and instance replaces the first,
+    /// and the kinds do not share a key.
+    #[test]
+    fn every_keyed_kind_coalesces_by_its_own_key() {
+        let mut queue = EventQueue::new(bounds(4, 8));
+        for _ in 0..2 {
+            queue.post_keyed(modes("i"));
+            queue.post_keyed(Event::SizeChanged {
+                id: sid("s"),
+                instance: inst("i"),
+                size: Size {
+                    rows: 1,
+                    cols: 1,
+                    cell_px: None,
+                },
+            });
+            queue.post_keyed(Event::SessionWritable {
+                id: sid("s"),
+                instance: inst("i"),
+            });
+        }
+        assert_eq!(queue.len(), 3, "one event of each kind");
+        assert_eq!(drain(&mut queue).len(), 3);
+        // The loss marker has its own class: it is not mandatory, and it holds no mandatory slot.
+        assert_eq!(
+            class_of(&Event::EventsLost {
+                id: sid("s"),
+                instance: inst("i"),
+                kinds: BTreeSet::new(),
+                tap_dropped_bytes: None,
+            }),
+            Class::Lost
+        );
+    }
+
+    /// Core EV-2, TP-1: a loss of zero tap bytes records no byte count, and a count is added up.
+    #[test]
+    fn a_zero_tap_loss_records_no_bytes() {
+        let mut queue = EventQueue::new(bounds(4, 8));
+        queue.post_lost(&sid("s"), &inst("i"), LostKind::Query, 0);
+        queue.post_lost(&sid("s"), &inst("i"), LostKind::Query, 0);
+        match &drain(&mut queue)[..] {
+            [Event::EventsLost {
+                tap_dropped_bytes, ..
+            }] => assert_eq!(*tap_dropped_bytes, None),
+            other => panic!("{other:?}"),
+        }
+        queue.post_lost(&sid("s"), &inst("i"), LostKind::Tap, 4);
+        queue.post_lost(&sid("s"), &inst("i"), LostKind::Query, 0);
+        match &drain(&mut queue)[..] {
+            [Event::EventsLost {
+                tap_dropped_bytes, ..
+            }] => assert_eq!(*tap_dropped_bytes, Some(4)),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    /// Core EV-2: a dropped droppable event names its kind in the marker, for every droppable kind.
+    #[test]
+    fn a_dropped_event_of_every_droppable_kind_names_its_kind() {
+        let events = [
+            (
+                LostKind::PromptMark,
+                Event::PromptMark {
+                    id: sid("s"),
+                    instance: inst("i"),
+                    mark: PromptMarkKind::PromptStart,
+                    exit_code: None,
+                    at: 1,
+                },
+            ),
+            (
+                LostKind::Notification,
+                Event::Notification {
+                    id: sid("s"),
+                    instance: inst("i"),
+                    source: NotificationSource::Osc9,
+                    title: None,
+                    body: String::new(),
+                    truncated: false,
+                    at: 1,
+                },
+            ),
+            (
+                LostKind::ClipboardWrite,
+                Event::ClipboardWrite {
+                    id: sid("s"),
+                    instance: inst("i"),
+                    selection: "c".into(),
+                    bytes: None,
+                    total_bytes: 0,
+                    reason: None,
+                },
+            ),
+        ];
+        for (kind, event) in events {
+            let mut queue = EventQueue::new(bounds(1, 8));
+            queue.post_droppable(event);
+            queue.post_droppable(bell("s", "i", 9));
+            let drained = drain(&mut queue);
+            assert!(
+                matches!(&drained[0], Event::EventsLost { kinds, .. } if kinds.contains(&kind)),
+                "{kind:?}: {drained:?}"
+            );
+        }
+    }
+
+    /// Core EV-5, 6.2: retiring a route removes its class K events only; a mandatory event of the route stays, and
+    /// `total_posted` counts every post.
+    #[test]
+    fn retiring_a_route_keeps_mandatory_events_and_posts_are_counted() {
+        let mut queue = EventQueue::new(bounds(4, 1));
+        assert!(queue.is_empty());
+        assert_eq!(queue.total_posted(), 0);
+        queue
+            .post_mandatory(Event::RouteStalled { route: RouteId(3) })
+            .unwrap();
+        assert!(!queue.is_empty());
+        assert_eq!(queue.total_posted(), 1);
+        assert!(!queue.has_mandatory_room());
+        queue.retire_route(RouteId(3));
+        assert!(
+            !queue.has_mandatory_room(),
+            "a mandatory event is never retired"
+        );
+        assert_eq!(queue.len(), 1);
+        queue.post_completed(OpId(1), OpResult::Ok(OpOutput::Unit));
+        assert_eq!(queue.total_posted(), 2);
+    }
 }
