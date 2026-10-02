@@ -1,5 +1,5 @@
 [package]
-name = "botster-core-sys"
+name = "botster-worker"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -14,15 +14,16 @@ workspace = true
 slow = []
 
 [dependencies]
+botster-core-contract.workspace = true
 botster-core-edges.workspace = true
-atomic-write-file.workspace = true
-getrandom.workspace = true
-pty-process.workspace = true
+botster-core-link.workspace = true
+botster-core-sys.workspace = true
+botster-worker-core.workspace = true
+mio.workspace = true
 rustix.workspace = true
-sha2.workspace = true
+signal-hook.workspace = true
+signal-hook-mio.workspace = true
 
 [dev-dependencies]
+botster-core.workspace = true
 tempfile.workspace = true
-
-[target.'cfg(target_os = "macos")'.dependencies]
-libproc = "0.14"
