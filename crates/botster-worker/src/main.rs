@@ -80,6 +80,9 @@ struct Driver {
     pty_registered: bool,
     /// The PTY took no byte at the last write: write interest is on until it is writable again.
     pty_wants_write: bool,
+    /// The bytes of the machine's `PtyWrite`, written in a later turn: at most one PTY write per turn, so a run of short
+    /// writes never holds back the control link, a signal or a due grace.
+    pty_write: Option<Vec<u8>>,
     /// The bytes still to read for a `DrainPty`; `None` when no drain is asked.
     drain_left: Option<usize>,
     waker: Arc<Waker>,
@@ -124,6 +127,7 @@ impl Driver {
             payload: None,
             pty_registered: false,
             pty_wants_write: false,
+            pty_write: None,
             drain_left: None,
             waker,
             exits: mpsc::channel(),
@@ -153,6 +157,7 @@ impl Driver {
             {
                 self.inputs.push_back(Input::Timer);
             }
+            self.write_pty_once();
             self.read_pty_chunk();
             self.settle()?;
             if self.exit {
@@ -162,6 +167,7 @@ impl Driver {
             let busy = (self.link_open && self.control_readable)
                 || (self.pty_registered && self.pty_readable)
                 || self.drain_left.is_some()
+                || (self.pty_write.is_some() && !self.pty_wants_write)
                 || !self.inputs.is_empty();
             let timeout = if busy {
                 Some(std::time::Duration::ZERO)
@@ -236,24 +242,7 @@ impl Driver {
                 let result = self.spawn(&spec);
                 self.inputs.push_back(Input::Spawned(result));
             }
-            Action::PtyWrite(bytes) => {
-                let result = match self.payload.as_ref() {
-                    // No PTY any more: the write fails as a write to a closed PTY does.
-                    None => Err(5),
-                    Some(payload) => loop {
-                        match payload.write(&bytes) {
-                            Ok(n) => break Ok(n),
-                            Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
-                            Err(e) if e.kind() == io::ErrorKind::WouldBlock => break Ok(0),
-                            Err(e) => break Err(e.raw_os_error().unwrap_or(5)),
-                        }
-                    },
-                };
-                if result == Ok(0) && !bytes.is_empty() {
-                    self.set_pty_write_interest(true);
-                }
-                self.inputs.push_back(Input::PtyWritten(result));
-            }
+            Action::PtyWrite(bytes) => self.pty_write = Some(bytes),
             Action::DrainPty => {
                 let left = self
                     .payload
@@ -319,6 +308,34 @@ impl Driver {
             // A payload that ended at once may have no readable start time; the identity is still unique while unreaped.
             start_time: start_time(pid).unwrap_or(0),
         })
+    }
+
+    /// One PTY write of the pending `PtyWrite` (plan 2.4: one bounded piece per turn). A write that the PTY did not take
+    /// waits for its write readiness; an interrupted write is tried again in the next turn.
+    fn write_pty_once(&mut self) {
+        if self.pty_wants_write {
+            return;
+        }
+        let Some(bytes) = self.pty_write.take() else {
+            return;
+        };
+        let result = match self.payload.as_ref() {
+            // No PTY any more: the write fails as a write to a closed PTY does.
+            None => Err(5),
+            Some(payload) => match payload.write(&bytes) {
+                Ok(n) => Ok(n),
+                Err(e) if e.kind() == io::ErrorKind::Interrupted => {
+                    self.pty_write = Some(bytes);
+                    return;
+                }
+                Err(e) if e.kind() == io::ErrorKind::WouldBlock => Ok(0),
+                Err(e) => Err(e.raw_os_error().unwrap_or(5)),
+            },
+        };
+        if result == Ok(0) && !bytes.is_empty() {
+            self.set_pty_write_interest(true);
+        }
+        self.inputs.push_back(Input::PtyWritten(result));
     }
 
     /// Write interest on the PTY follows a write that it did not take (plan 2.5). A PTY that left the loop takes none.
