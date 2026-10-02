@@ -378,3 +378,43 @@ fn r_20_fixed_timing_ops_are_never_deferred() {
     rig.pump();
     assert!(completed(&rig.drain_events(), stop), "LC-5");
 }
+
+/// A scheduler that picks an index past the end at the choice points of work and of sessions.
+struct Overshoot(Production);
+
+impl Scheduler for Overshoot {
+    fn pick(&mut self, point: ChoicePoint, candidates: usize) -> usize {
+        match point {
+            ChoicePoint::ReadyWork | ChoicePoint::Session => usize::MAX,
+            _ => self.0.pick(point, candidates),
+        }
+    }
+
+    fn bound(&mut self, point: ChoicePoint, max: usize) -> usize {
+        self.0.bound(point, max)
+    }
+}
+
+/// Plan 2.4: the driver keeps a pick of the scheduler inside the list of ready work: a pick past the end is the last one.
+#[test]
+fn a_pick_past_the_end_is_the_last_ready_work() {
+    let mut rig = Rig::with_scheduler(
+        limits(|l| l.max_sessions = 4),
+        Box::new(Overshoot(Production::new())),
+    );
+    for name in ["a", "b", "c"] {
+        rig.driver.begin(create(name)).unwrap();
+    }
+    let mut guard = 0;
+    while rig.pump().more {
+        rig.drain_events();
+        guard += 1;
+        assert!(guard < 100);
+    }
+    for name in ["a", "b", "c"] {
+        assert_eq!(
+            rig.driver.get(&sid(name)).unwrap().state,
+            SessionState::Created
+        );
+    }
+}

@@ -232,3 +232,125 @@ impl CoreApi for Core {
         self.driver.terminal_identity()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::BTreeMap;
+
+    fn config(dir: &std::path::Path) -> OpenConfig {
+        OpenConfig {
+            data_dir: dir.join("d"),
+            worker_path: Some(std::path::PathBuf::from("/bin/true")),
+            limits: CoreLimits::default(),
+        }
+    }
+
+    fn sid(name: &str) -> SessionId {
+        SessionId(name.into())
+    }
+
+    fn pump(core: &mut Core) -> Vec<Event> {
+        let mut out = Vec::new();
+        loop {
+            #[allow(clippy::disallowed_methods)] // a test passes a real instant to the pump
+            let monotonic = Instant::now();
+            let report = core.pump(Now {
+                monotonic,
+                unix: 1_000_000,
+            });
+            out.extend(core.poll_events(64));
+            if !report.more {
+                return out;
+            }
+        }
+    }
+
+    /// Core 2, 9B: every call of the facade reaches the driver and returns what the driver returns: the constants, the
+    /// reads, the service calls and the silence threshold.
+    #[test]
+    fn every_call_reaches_the_driver() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut core = Core::open(config(tmp.path())).expect("open");
+        assert_eq!(core.limits(), CoreLimits::default());
+        assert_eq!(core.worker_protocol(), WORKER_PROTOCOL);
+        assert!(core.adoptable_worker_protocols().contains(&WORKER_PROTOCOL));
+        assert_eq!(
+            core.worker_protocol_compatibility(Some(WORKER_PROTOCOL)),
+            WorkerCompatibility::Compatible
+        );
+        assert!(core.features().names.contains(&Feature::Silence));
+        assert_eq!(core.terminal_identity().term, "xterm-ghostty");
+        assert!(core.list().is_empty());
+        assert!(core.status().sessions.is_empty());
+        assert_eq!(core.diagnostics()["sessions"], 0);
+        assert_eq!(core.next_deadline(), None);
+        assert_eq!(
+            core.snapshot_formats(&sid("nope")).unwrap_err().code,
+            ErrorCode::UnknownSession
+        );
+        assert_eq!(
+            core.set_silence_threshold(&sid("nope"), None)
+                .unwrap_err()
+                .code,
+            ErrorCode::UnknownSession
+        );
+        let service = ServiceId([0; 32]);
+        let frame = OutboundFrame {
+            frame_type: 0,
+            payload: botster_route_codec::prelude::HexBytes(vec![]),
+        };
+        assert_eq!(
+            core.service_send(&service, 0, &frame).unwrap_err(),
+            SendError::UnknownService
+        );
+        assert_eq!(
+            core.service_recv(&service, 0).unwrap_err(),
+            RecvError::UnknownService
+        );
+        assert_eq!(
+            core.service_report(&service).unwrap_err().code,
+            ErrorCode::UnknownService
+        );
+        assert_eq!(
+            core.service_log_tail(&service, 8).unwrap_err().code,
+            ErrorCode::UnknownService
+        );
+        core.release(CaptureId(1));
+        core.release_owner(&ClientId("c".into()));
+        // `begin`, `pump` and `poll_events` carry a create through, and the reads then see the session.
+        let create = core
+            .begin(Op::Create {
+                session: sid("s1"),
+                request: SpawnRequest {
+                    argv: vec!["/bin/true".into()],
+                    env: BTreeMap::new(),
+                    cwd: "/".into(),
+                    size: Size {
+                        rows: 24,
+                        cols: 80,
+                        cell_px: None,
+                    },
+                    labels: BTreeMap::new(),
+                    color_profile: None,
+                    notification_policy: None,
+                    size_policy: None,
+                },
+            })
+            .unwrap();
+        let events = pump(&mut core);
+        assert!(events.iter().any(
+            |e| matches!(e, Event::Completed { op, result: OpResult::Ok(_) } if *op == create)
+        ));
+        assert_eq!(core.list().len(), 1);
+        assert_eq!(core.status().sessions.len(), 1);
+        assert_eq!(core.diagnostics()["sessions"], 1);
+        assert_eq!(core.get(&sid("s1")).unwrap().state, SessionState::Created);
+        assert_eq!(core.cancel(create), CancelResult::TooLate);
+        core.set_silence_threshold(&sid("s1"), Some(Duration::from_secs(5)))
+            .unwrap();
+        assert!(core.terminal_state(&sid("s1")).is_err());
+        assert!(core.read_page(CaptureId(1), 0).is_err());
+        assert!(core.tap_read(&sid("s1"), 8).is_ok());
+    }
+}
