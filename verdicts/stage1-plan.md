@@ -320,3 +320,55 @@ Treat a deletion failure as unresolved teardown work or ask the steward if the r
 Do not report successful removal while an uploaded file remains.
 
 VERDICT: NOT CLEAN (4 open)
+
+## Round 3 — revision 3
+
+Plan: `6c82fb316c213bba56191f3f0cb984763564b922`, `docs/stage1-plan.md`.
+Pin: `stage1-plan.ad4d340d.md`.
+Verified SHA-256: `ad4d340df5395c61b0e15671c0a407c4cecb0c8675fde44cf5258122b286bf6f`.
+The binding source revision remains `9666bf5cbb9e7a46cd40d98810d473a9452541e9`.
+
+I reviewed the complete delta and every remaining finding.
+I ran no product tests.
+
+### Closed findings
+
+- F3: CLOSED. Section 2.5 gates lane reads on epoch commit and capacity. It parks control reads when mandatory events cannot progress.
+- F5: CLOSED. Section 8 uses a separately pinned nightly toolchain for landing fuzz checks and stable Rust for property tests.
+- F6: CLOSED. Section 5 defines initialization, later shrink-only checks, and zero pending ids of both kinds at acceptance.
+- F1, F2, F4, and F7 remain CLOSED.
+
+### F8 — MAJOR — File ownership must survive worker loss
+
+Status: OPEN, narrowed.
+Plan sections: 2.3b and 9, Q5.
+
+The normal teardown now waits for file completions before the worker ends or the host frees the row.
+This closes the request-versus-completion defect.
+Asking the steward about a failed deletion is appropriate because A2-1 supplies no dedicated file-deletion failure outcome.
+The unreachable-worker case has a different cause: the plan keeps the required ownership information only in the worker.
+
+Plan evidence:
+> "Where no worker is reachable, the host cannot know the file names; Q5 includes this case."
+> Q5: "only the worker knows the file names".
+
+Binding evidence at the binding revision:
+- `core-contract-v1.17.md`, LC-7: `Remove` "applies to `Created`, `Exited` and `Lost` sessions".
+- LC-7, step 3 requires deletion of uploaded files before the durable row and id are freed.
+- DP-5b requires deletion "at `Remove` (LC-7) at the latest".
+- `core-contract-v1.17-amendment-2-candidate4.md`, A2-1 admits `Remove` in `Lost` and returns `()` after LC-7 step 5.
+
+These clauses do not make file cleanup conditional on worker reachability.
+The contract does not require the worker to be the only keeper of file ownership information.
+That restriction comes from the plan's design.
+A reachable-worker requirement would leave required removal behavior unavailable after worker loss.
+
+Required change: define file ownership information that survives loss of the worker and restart of the host.
+Let teardown identify and delete this session's uploaded and partial files without a reachable worker.
+Protect files that the session does not own.
+Define the order that records ownership before an upload can leave a file requiring later cleanup.
+Assign the metadata and cleanup interfaces to P4b, P1, and P5 as needed.
+Keep Q5 for actual deletion failure semantics.
+Do not classify the ordinary `Lost` removal path as a missing contract outcome caused by worker-local metadata.
+
+VERDICT: NOT CLEAN (1 open)
