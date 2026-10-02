@@ -1,4 +1,31 @@
-# P6 testkit review — M0b
+# P6 testkit review — Scope 2, step 1
+
+VERDICT: CLEAN
+
+Reviewed head: `15f26f309862075ea244753db0a2b5a5469768a3`.
+Base: `ccb04eb`.
+Authority: Scope 2 brief, plan pin `c43693ff`, and `contracts-v0.1.7` at `f14c895`.
+No findings remain open for this step. The reviewer ran no tests or gate.
+
+This verdict covers the contracts pin move, status reporting, the base commit, and nightly verification.
+It does not approve the later refusal layer, edge controls, real-process harness, or completion of Scope 2.
+
+The review checked these behaviors:
+
+- The pin move is a separate commit. The commit lists all 41 added Core ids and both withdrawn ids.
+- The copied status files match the pinned source. The list check rejects a changed copy.
+- Withdrawn ids stay in the ledger and leave the pending list. Their trials remain ignored even when ignored trials are included.
+- Whole-id deferrals must equal the contracts' Core deferrals. Existing A6-2 authority and start-condition checks remain active.
+- A not-applicable case does not defer its active id. The report lists the case and its reason separately.
+- The report prints passed, failed, pending, deferred, and withdrawn counts. Ignored categories do not count as passed.
+- The pending-list check, mutation diff, and changed-decoder selection use the same cached base commit.
+- The first base lookup resolves the reference and records the commit. Later checks reuse that commit.
+- Nightly verification uses `rustup run` with automatic installation disabled. A missing nightly reports the required prerequisite error.
+- The delta adds no test branch to a production machine and no second implementation of Core.
+
+The gate must run on this exact head after CLEAN. A changed head requires delta review.
+
+# Prior review — M0b
 
 VERDICT: CLEAN
 
