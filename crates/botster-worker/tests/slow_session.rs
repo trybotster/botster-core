@@ -3,7 +3,8 @@
 //!
 //! The binary is the prebuilt one (`cargo xtask prebuild-worker` puts it in `target/candidate/`); a test never builds it.
 //! Every worker and payload that a test starts is ended on every exit path, panics included: a Core-started session is
-//! removed by [`Sessions`] on drop, and a worker that a test starts itself is killed by [`OwnedWorker`].
+//! stopped and removed by [`Sessions`] on drop, and a worker that a test starts itself is killed by [`OwnedWorker`], after
+//! the payload group that its `Launched` proved.
 //!
 //! Clause: Core EV-4, Core LC-5, Core LC-6, Core LC-7, Core AD-6, Core AD-7.
 #![cfg(feature = "slow")]
@@ -176,20 +177,31 @@ impl Sessions {
     }
 }
 
+impl Sessions {
+    /// Waits for `op` and ignores its result: cleanup goes on whatever a step answers.
+    fn settle(&mut self, op: OpId) {
+        let wanted = move |e: &Event| matches!(e, Event::Completed { op: o, .. } if *o == op);
+        if std::thread::panicking() {
+            // Best effort: a second panic would abort the test binary before the next session is cleaned up.
+            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                self.until("cleanup", wanted)
+            }));
+        } else {
+            self.until("cleanup", wanted);
+        }
+    }
+}
+
+/// Every session ends on every exit path: `Stop` ends a payload that still runs (`Remove` is refused while a session runs),
+/// then `Remove` ends the worker (LC-5, LC-7). A step that Core refuses is skipped, and the next one is still tried.
 impl Drop for Sessions {
     fn drop(&mut self) {
         for id in std::mem::take(&mut self.ids) {
+            if let Ok(op) = self.core.begin(Op::Stop { id: id.clone() }) {
+                self.settle(op);
+            }
             if let Ok(op) = self.core.begin(Op::Remove { id }) {
-                let wanted =
-                    move |e: &Event| matches!(e, Event::Completed { op: o, .. } if *o == op);
-                if std::thread::panicking() {
-                    // Best effort: a second panic would abort.
-                    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                        self.until("remove", wanted)
-                    }));
-                } else {
-                    self.until("remove", wanted);
-                }
+                self.settle(op);
             }
         }
     }
@@ -258,13 +270,24 @@ fn lc_6_signal_reaches_the_whole_group() {
     assert_eq!(exit.signal, Some(2));
 }
 
-/// A worker that a test starts itself, killed with its group on drop.
-struct OwnedWorker(Child);
+/// A worker that a test starts itself, and its payload once `Launched` proved it.
+struct OwnedWorker {
+    worker: Child,
+    payload: Option<u32>,
+}
 
 impl Drop for OwnedWorker {
+    /// The payload's group first, while the live worker still holds the leader unreaped (so the group id is the payload's,
+    /// F7); then the worker.
     fn drop(&mut self) {
-        let _ = self.0.kill();
-        let _ = self.0.wait();
+        let alive = matches!(self.worker.try_wait(), Ok(None));
+        if let (true, Some(pid)) = (alive, self.payload) {
+            if let Some(pid) = rustix::process::Pid::from_raw(i32::try_from(pid).unwrap_or(0)) {
+                let _ = rustix::process::kill_process_group(pid, rustix::process::Signal::KILL);
+            }
+        }
+        let _ = self.worker.kill();
+        let _ = self.worker.wait();
     }
 }
 
@@ -335,7 +358,10 @@ fn lc_5_the_worker_control_signal_ends_the_payload_and_the_worker_stays() {
     };
     let mut command = Command::new(worker_binary());
     command.args(launch.args()).env_clear().envs(launch.env());
-    let worker = OwnedWorker(command.spawn().unwrap());
+    let mut worker = OwnedWorker {
+        worker: command.spawn().unwrap(),
+        payload: None,
+    };
     let (stream, _) = listener.accept().unwrap();
     // timer: deadline — the limit of a wait for a real worker's frame; not a contract value.
     stream
@@ -382,6 +408,7 @@ fn lc_5_the_worker_control_signal_ends_the_payload_and_the_worker_stays() {
         panic!("not launched");
     };
     assert!(payload.pid > 0);
+    worker.payload = Some(payload.pid);
     // The payload ignores TERM once it has written to the FIFO. External `/bin/echo` and a blocking open: a signal cannot
     // interrupt a shell builtin's FIFO open here.
     let mut up = String::new();
@@ -391,7 +418,7 @@ fn lc_5_the_worker_control_signal_ends_the_payload_and_the_worker_stays() {
         .unwrap();
     assert_eq!(up, "up\n");
     rustix::process::kill_process(
-        rustix::process::Pid::from_raw(i32::try_from(worker.0.id()).unwrap()).unwrap(),
+        rustix::process::Pid::from_raw(i32::try_from(worker.worker.id()).unwrap()).unwrap(),
         rustix::process::Signal::USR1,
     )
     .unwrap();
@@ -405,8 +432,7 @@ fn lc_5_the_worker_control_signal_ends_the_payload_and_the_worker_stays() {
     );
     link.msg(&HostMsg::Remove);
     assert!(matches!(link.report(), WorkerMsg::RemoveResult { .. }));
-    let mut worker = worker;
-    let status = worker.0.wait().unwrap();
+    let status = worker.worker.wait().unwrap();
     assert_eq!(
         status.code(),
         Some(0),

@@ -2,7 +2,14 @@
 //!
 //! It wires the real edges to the `Worker` machine of `botster-worker-core` and holds no worker logic (plan 2.1: one machine,
 //! two drivers). One `mio` loop serves the control socket, the PTY master, the worker-control signal (`SIGUSR1`, LC-5) and the
-//! wake of the payload's exit watch. In each turn the control link is served first (plan 2.4).
+//! wake of the payload's exit watch.
+//!
+//! **Bounded turns (plan 2.4, 2.5).** `mio` reports readiness by edge, so the driver keeps a readiness flag per descriptor
+//! and clears it only when a read or write finds `WouldBlock`. Each turn reads at most one chunk from each descriptor, control
+//! first, and the machine handles every input before the next turn: a payload that writes without end cannot hold back a
+//! host request, the worker-control signal or a due grace, and the driver holds at most one chunk per descriptor.
+//! **Nothing blocks:** writes to the control socket are nonblocking, and a staged close waits in the machine
+//! (`Input::LinkFlushed`), so a host that stops reading never stops the worker from serving its payload.
 //!
 //! The host starts it with the arguments and the environment of `botster_core_link::launch::WorkerLaunch` (AD-6: the token is
 //! in the environment only).
@@ -20,7 +27,7 @@ use signal_hook::consts::SIGUSR1;
 use signal_hook_mio::v1_0::Signals;
 use std::collections::VecDeque;
 use std::io::{self, Read, Write};
-use std::os::fd::{AsFd, AsRawFd};
+use std::os::fd::AsRawFd;
 use std::process::ExitCode;
 use std::sync::mpsc;
 use std::sync::Arc;
@@ -62,15 +69,21 @@ struct Driver {
     /// Bytes of `LinkSend` that the socket has not taken yet.
     outbound: VecDeque<u8>,
     writable_interest: bool,
+    /// Readiness flags, cleared on `WouldBlock` (edge-triggered readiness).
+    control_readable: bool,
+    control_writable: bool,
+    pty_readable: bool,
     signals: Signals,
     payload: Option<Payload>,
     pty_registered: bool,
+    /// The bytes still to read for a `DrainPty`; `None` when no drain is asked.
+    drain_left: Option<usize>,
     waker: Arc<Waker>,
     exits: (
         mpsc::Sender<botster_core_edges::edges::ExitStatus>,
         mpsc::Receiver<botster_core_edges::edges::ExitStatus>,
     ),
-    /// Inputs that performing an action produced; they are handled before the next poll.
+    /// Inputs of the current turn; the machine handles them before the next one.
     inputs: VecDeque<Input>,
     exit: bool,
 }
@@ -99,9 +112,13 @@ impl Driver {
             link_open: true,
             outbound: VecDeque::new(),
             writable_interest: false,
+            control_readable: true,
+            control_writable: true,
+            pty_readable: false,
             signals,
             payload: None,
             pty_registered: false,
+            drain_left: None,
             waker,
             exits: mpsc::channel(),
             inputs: VecDeque::new(),
@@ -114,52 +131,14 @@ impl Driver {
         loop {
             self.settle()?;
             if self.exit {
-                return self.finish();
+                return Ok(());
             }
-            let timeout = self
-                .worker
-                .next_deadline()
-                .map(|at| at.saturating_duration_since(Instant::now()));
-            match self.poll.poll(&mut events, timeout) {
-                Ok(()) => {}
-                Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
-                Err(e) => return Err(e),
-            }
-            let mut control = (false, false);
-            let (mut pty, mut signals, mut exit) = (false, false, false);
-            for event in &events {
-                match event.token() {
-                    CONTROL => {
-                        control.0 |=
-                            event.is_readable() || event.is_read_closed() || event.is_error();
-                        control.1 |= event.is_writable();
-                    }
-                    PTY => pty = true,
-                    SIGNALS => signals = true,
-                    EXIT => exit = true,
-                    _ => {}
-                }
-            }
-            // Plan 2.4: the control link first.
-            if control.1 {
-                self.flush()?;
-            }
-            if control.0 {
-                self.read_control();
-            }
-            if signals {
-                let count = self.signals.pending().filter(|s| *s == SIGUSR1).count();
-                for _ in 0..count {
-                    self.inputs.push_back(Input::EndPayload);
-                }
-            }
-            if exit {
-                while let Ok(status) = self.exits.1.try_recv() {
-                    self.inputs.push_back(Input::PayloadExited(status));
-                }
-            }
-            if pty {
-                self.read_pty(false);
+            // One bounded turn. Plan 2.4: the control link first.
+            self.flush()?;
+            self.read_control();
+            self.settle()?;
+            if self.exit {
+                return Ok(());
             }
             if self
                 .worker
@@ -167,6 +146,50 @@ impl Driver {
                 .is_some_and(|at| at <= Instant::now())
             {
                 self.inputs.push_back(Input::Timer);
+            }
+            self.read_pty_chunk();
+            self.settle()?;
+            if self.exit {
+                return Ok(());
+            }
+            // Ready work left: collect new readiness without waiting. Otherwise wait for readiness or the next deadline.
+            let busy = (self.link_open && self.control_readable)
+                || (self.pty_registered && self.pty_readable)
+                || self.drain_left.is_some()
+                || !self.inputs.is_empty();
+            let timeout = if busy {
+                Some(std::time::Duration::ZERO)
+            } else {
+                self.worker
+                    .next_deadline()
+                    .map(|at| at.saturating_duration_since(Instant::now()))
+            };
+            match self.poll.poll(&mut events, timeout) {
+                Ok(()) => {}
+                Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
+                Err(e) => return Err(e),
+            }
+            for event in &events {
+                match event.token() {
+                    CONTROL => {
+                        self.control_readable |=
+                            event.is_readable() || event.is_read_closed() || event.is_error();
+                        self.control_writable |= event.is_writable() || event.is_error();
+                    }
+                    PTY => self.pty_readable = true,
+                    SIGNALS => {
+                        let count = self.signals.pending().filter(|s| *s == SIGUSR1).count();
+                        for _ in 0..count {
+                            self.inputs.push_back(Input::EndPayload);
+                        }
+                    }
+                    EXIT => {
+                        while let Ok(status) = self.exits.1.try_recv() {
+                            self.inputs.push_back(Input::PayloadExited(status));
+                        }
+                    }
+                    _ => {}
+                }
             }
         }
     }
@@ -192,12 +215,19 @@ impl Driver {
                     self.flush()?;
                 }
             }
-            Action::LinkClose => self.close_link(),
+            // The machine closes only when everything it sent is written (`LinkFlushed`).
+            Action::LinkClose => self.drop_link(),
             Action::SpawnPayload(spec) => {
                 let result = self.spawn(&spec);
                 self.inputs.push_back(Input::Spawned(result));
             }
-            Action::DrainPty => self.read_pty(true),
+            Action::DrainPty => {
+                let left = self
+                    .payload
+                    .as_ref()
+                    .map_or(0, |p| p.pending_output().unwrap_or(0));
+                self.drain_left = Some(left);
+            }
             Action::SignalPayload(signal) => {
                 if let Some(payload) = self.payload.as_ref() {
                     payload.signal_group(signal);
@@ -205,13 +235,10 @@ impl Driver {
             }
             Action::ReapPayload => {
                 if let Some(payload) = self.payload.take() {
-                    if self.pty_registered {
-                        let fd = payload.master().as_raw_fd();
-                        let _ = self.poll.registry().deregister(&mut SourceFd(&fd));
-                        self.pty_registered = false;
-                    }
+                    self.deregister_pty(&payload);
                     payload.reap();
                 }
+                self.drain_left = None;
             }
             Action::Exit => self.exit = true,
         }
@@ -244,13 +271,15 @@ impl Driver {
             let _ = waker.wake();
         });
         if let Err(error) = registered.and(watched) {
-            // The payload cannot be served: it is ended (its drop kills the group) and the launch fails.
+            // The payload cannot be served: it is ended (its drop kills the group and reaps it) and the launch fails.
+            let _ = self.poll.registry().deregister(&mut SourceFd(&fd));
             drop(payload);
             return Err(SpawnFailure::Exec {
                 errno: error.raw_os_error().unwrap_or(5),
             });
         }
         self.pty_registered = true;
+        self.pty_readable = true;
         self.payload = Some(payload);
         Ok(PayloadId {
             pid,
@@ -259,77 +288,107 @@ impl Driver {
         })
     }
 
-    /// Reads the PTY until it has no byte now. With `drained`, the machine asked for the drain (EV-4): it gets `PtyDrained`
-    /// at the end.
-    fn read_pty(&mut self, drained: bool) {
-        let mut ended = false;
-        if let Some(payload) = self.payload.as_ref() {
-            let mut buf = vec![0u8; READ_CHUNK];
-            loop {
-                match payload.read(&mut buf) {
-                    Ok(0) => {
-                        ended = true;
-                        break;
-                    }
-                    Ok(n) => self.inputs.push_back(Input::PtyOutput(buf[..n].to_vec())),
-                    Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
-                    Err(e) if e.kind() == io::ErrorKind::WouldBlock => break,
-                    Err(_) => {
-                        ended = true;
-                        break;
-                    }
-                }
-            }
-            if ended && self.pty_registered {
-                // The output ended: the descriptor would stay readable, so it leaves the loop.
-                let fd = payload.master().as_raw_fd();
-                let _ = self.poll.registry().deregister(&mut SourceFd(&fd));
-                self.pty_registered = false;
-            }
+    fn deregister_pty(&mut self, payload: &Payload) {
+        if self.pty_registered {
+            let fd = payload.master().as_raw_fd();
+            let _ = self.poll.registry().deregister(&mut SourceFd(&fd));
+            self.pty_registered = false;
+            self.pty_readable = false;
         }
-        if drained {
+    }
+
+    /// At most one chunk of the PTY. During a drain the read is bounded by what the PTY held when the drain was asked, and
+    /// `PtyDrained` follows once that is read (or the output ended).
+    fn read_pty_chunk(&mut self) {
+        let Some(payload) = self.payload.as_ref() else {
+            if self.drain_left.take().is_some() {
+                self.inputs.push_back(Input::PtyDrained);
+            }
+            return;
+        };
+        let draining = self.drain_left;
+        if draining == Some(0) {
+            self.drain_left = None;
             self.inputs.push_back(Input::PtyDrained);
+            return;
         }
-    }
-
-    fn read_control(&mut self) {
-        let mut buf = vec![0u8; READ_CHUNK];
-        while self.link_open {
-            match self.control.read(&mut buf) {
-                Ok(0) => {
-                    self.inputs.push_back(Input::LinkClosed);
-                    self.drop_link();
+        if !(self.pty_registered && self.pty_readable) && draining.is_none() {
+            return;
+        }
+        let want = draining.map_or(READ_CHUNK, |left| left.min(READ_CHUNK));
+        let mut buf = vec![0u8; want];
+        let mut ended = false;
+        match payload.read(&mut buf) {
+            Ok(0) => ended = true,
+            Ok(n) => {
+                self.inputs.push_back(Input::PtyOutput(buf[..n].to_vec()));
+                if let Some(left) = self.drain_left.as_mut() {
+                    *left = left.saturating_sub(n);
                 }
-                Ok(n) => self.inputs.push_back(Input::LinkBytes(buf[..n].to_vec())),
-                Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
-                Err(e) if e.kind() == io::ErrorKind::WouldBlock => break,
-                Err(_) => {
-                    self.inputs.push_back(Input::LinkClosed);
-                    self.drop_link();
+            }
+            Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
+            Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
+                self.pty_readable = false;
+                if self.drain_left.is_some() {
+                    self.drain_left = Some(0);
                 }
+            }
+            Err(_) => ended = true,
+        }
+        if ended {
+            // The output ended: the descriptor would stay readable, so it leaves the loop.
+            if let Some(payload) = self.payload.take() {
+                self.deregister_pty(&payload);
+                self.payload = Some(payload);
+            }
+            if self.drain_left.is_some() {
+                self.drain_left = Some(0);
             }
         }
     }
 
-    /// Writes what the socket takes now; write interest follows the outbound queue (plan 2.5).
+    /// At most one chunk of the control socket.
+    fn read_control(&mut self) {
+        if !(self.link_open && self.control_readable) {
+            return;
+        }
+        let mut buf = vec![0u8; READ_CHUNK];
+        match self.control.read(&mut buf) {
+            Ok(0) => self.link_lost(),
+            Ok(n) => self.inputs.push_back(Input::LinkBytes(buf[..n].to_vec())),
+            Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
+            Err(e) if e.kind() == io::ErrorKind::WouldBlock => self.control_readable = false,
+            Err(_) => self.link_lost(),
+        }
+    }
+
+    /// Writes what the socket takes now, without blocking. When nothing sent is left, the machine hears it
+    /// (`LinkFlushed{drained: true}`). Write interest follows the outbound queue (plan 2.5).
     fn flush(&mut self) -> io::Result<()> {
-        while self.link_open && !self.outbound.is_empty() {
+        if !self.link_open || self.outbound.is_empty() {
+            return Ok(());
+        }
+        while self.control_writable && !self.outbound.is_empty() {
             let (head, _) = self.outbound.as_slices();
             match self.control.write(head) {
-                Ok(0) => break,
+                Ok(0) => self.control_writable = false,
                 Ok(n) => {
                     self.outbound.drain(..n);
                 }
                 Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
-                Err(e) if e.kind() == io::ErrorKind::WouldBlock => break,
+                Err(e) if e.kind() == io::ErrorKind::WouldBlock => self.control_writable = false,
                 Err(_) => {
-                    // The host is gone: the bytes are lost with the link, and the read side reports the end.
-                    self.outbound.clear();
+                    // A failed transport, not a full one: the link is gone, and the bytes with it.
+                    self.link_lost();
+                    return Ok(());
                 }
             }
         }
-        let want = self.link_open && !self.outbound.is_empty();
-        if want != self.writable_interest && self.link_open {
+        if self.outbound.is_empty() {
+            self.inputs.push_back(Input::LinkFlushed { drained: true });
+        }
+        let want = !self.outbound.is_empty();
+        if want != self.writable_interest {
             let interest = if want {
                 Interest::READABLE | Interest::WRITABLE
             } else {
@@ -343,11 +402,11 @@ impl Driver {
         Ok(())
     }
 
-    /// The machine closes the link: what it sent before is written first.
-    fn close_link(&mut self) {
+    /// The link failed or the host closed it: the machine hears `LinkClosed`.
+    fn link_lost(&mut self) {
         if self.link_open {
-            self.write_all_blocking();
             self.drop_link();
+            self.inputs.push_back(Input::LinkClosed);
         }
     }
 
@@ -357,27 +416,7 @@ impl Driver {
             let _ = self.control.shutdown(std::net::Shutdown::Both);
             self.link_open = false;
             self.outbound.clear();
+            self.control_readable = false;
         }
-    }
-
-    /// Writes every queued byte, waiting for the socket: the last reports (`RemoveResult`) reach the host before the end.
-    /// The socket leaves the readiness loop for this write, so blocking on it starves nothing.
-    fn write_all_blocking(&mut self) {
-        if self.outbound.is_empty() {
-            return;
-        }
-        let bytes: Vec<u8> = self.outbound.drain(..).collect();
-        let fd = self.control.as_fd();
-        let blocking = rustix::fs::fcntl_getfl(fd)
-            .and_then(|flags| rustix::fs::fcntl_setfl(fd, flags - rustix::fs::OFlags::NONBLOCK));
-        if blocking.is_ok() {
-            // A host that is gone takes nothing more: the bytes are lost with the link.
-            let _ = self.control.write_all(&bytes);
-        }
-    }
-
-    fn finish(mut self) -> io::Result<()> {
-        self.close_link();
-        Ok(())
     }
 }

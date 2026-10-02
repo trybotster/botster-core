@@ -47,6 +47,8 @@ struct World {
     worker: Worker,
     now: Instant,
     decoder: FrameDecoder,
+    /// The link takes every byte at once: after each input the driver reports `LinkFlushed{drained: true}`.
+    instant_link: bool,
 }
 
 impl World {
@@ -61,12 +63,19 @@ impl World {
             worker: Worker::new(cfg),
             now,
             decoder: FrameDecoder::new(DEFAULT_MAX_PAYLOAD),
+            instant_link: true,
         }
     }
 
     fn feed(&mut self, input: Input) -> Vec<Action> {
         self.worker.handle(self.now, input);
-        std::iter::from_fn(|| self.worker.poll_action()).collect()
+        let mut actions: Vec<Action> = std::iter::from_fn(|| self.worker.poll_action()).collect();
+        if self.instant_link {
+            self.worker
+                .handle(self.now, Input::LinkFlushed { drained: true });
+            actions.extend(std::iter::from_fn(|| self.worker.poll_action()));
+        }
+        actions
     }
 
     fn frame(kind: FrameType, payload: &[u8]) -> Vec<u8> {
@@ -662,4 +671,103 @@ fn the_configuration_never_prints_the_token() {
     let shown = format!("{:?}", cfg());
     assert!(shown.contains("4-1"), "{shown}");
     assert!(!shown.contains("7, 7"), "{shown}");
+}
+
+/// F1 (EV-4, A5-2): an exit that the edge reports before the spawn's answer is kept, and reported after `Launched`.
+#[test]
+fn an_exit_before_the_spawn_answer_is_reported_after_the_launch() {
+    let mut w = World::linked();
+    w.send(&HostMsg::Launch(Box::new(spec())));
+    assert_eq!(w.feed(Input::PayloadExited(ExitStatus::Code(3))), []);
+    let actions = w.feed(Input::Spawned(Ok(PAYLOAD)));
+    assert!(actions.ends_with(&[Action::DrainPty]), "{actions:?}");
+    let mut actions = actions;
+    actions.extend(w.feed(Input::PtyDrained));
+    let reports = w.reports(&actions);
+    assert!(
+        matches!(reports[0], WorkerMsg::Launched { .. }),
+        "{reports:?}"
+    );
+    assert_eq!(
+        reports[1..],
+        [WorkerMsg::Exited {
+            code: Some(3),
+            signal: None
+        }]
+    );
+}
+
+/// F2 (LC-5): `EndPayload` that comes while the spawn is out applies when the spawn succeeds: the graceful request and the
+/// grace. When the spawn fails, nothing is signalled (no proven group).
+#[test]
+fn end_payload_during_the_spawn_applies_after_it() {
+    let mut w = World::linked();
+    w.send(&HostMsg::Launch(Box::new(spec())));
+    assert_eq!(w.feed(Input::EndPayload), []);
+    let actions = w.feed(Input::Spawned(Ok(PAYLOAD)));
+    assert_eq!(signals(&actions), [SIGTERM]);
+    assert_eq!(
+        w.worker.next_deadline(),
+        Some(w.now + Duration::from_millis(250))
+    );
+    let mut failed = World::linked();
+    failed.send(&HostMsg::Launch(Box::new(spec())));
+    failed.feed(Input::EndPayload);
+    let actions = failed.feed(Input::Spawned(Err(SpawnFailure::CwdMissing)));
+    assert!(signals(&actions).is_empty());
+    assert_eq!(failed.worker.next_deadline(), None);
+}
+
+/// F2 (LC-5): `Stop` and `Kill` that come while the spawn is out apply when it succeeds; a kill wins over the request.
+#[test]
+fn stop_and_kill_during_the_spawn_apply_after_it() {
+    for (msgs, expected) in [
+        (vec![HostMsg::Stop], vec![SIGTERM]),
+        (vec![HostMsg::Kill], vec![SIGKILL]),
+        (vec![HostMsg::Stop, HostMsg::Kill], vec![SIGKILL]),
+    ] {
+        let mut w = World::linked();
+        w.send(&HostMsg::Launch(Box::new(spec())));
+        for msg in &msgs {
+            assert!(signals(&w.send(msg)).is_empty());
+        }
+        assert_eq!(signals(&w.feed(Input::Spawned(Ok(PAYLOAD)))), expected);
+    }
+}
+
+/// F4 (LC-7, A6-3): the close and the end wait until everything sent is on the link; a partial write does not release
+/// them; a link that fails releases them with no close action.
+#[test]
+fn the_close_and_the_end_wait_for_the_link_to_drain() {
+    let mut w = World::linked();
+    w.instant_link = false;
+    let actions = w.send(&HostMsg::Remove);
+    assert!(
+        matches!(actions.as_slice(), [Action::LinkSend(_)]),
+        "{actions:?}"
+    );
+    assert_eq!(w.feed(Input::LinkFlushed { drained: false }), []);
+    assert_eq!(
+        w.feed(Input::LinkFlushed { drained: true }),
+        [Action::LinkClose, Action::Exit]
+    );
+    let mut failed = World::linked();
+    failed.instant_link = false;
+    failed.send(&HostMsg::Remove);
+    assert_eq!(failed.feed(Input::LinkClosed), [Action::Exit]);
+}
+
+/// F4: a staged close obeys nothing more and sends nothing more.
+#[test]
+fn a_closing_link_obeys_and_sends_nothing() {
+    let mut w = World::new();
+    w.instant_link = false;
+    while w.worker.poll_action().is_some() {}
+    let mut bytes = World::host_hello(instance(), EPOCH, [8; TOKEN_LEN]);
+    bytes.extend(World::msg(&HostMsg::Launch(Box::new(spec()))));
+    assert_eq!(w.feed(Input::LinkBytes(bytes)), []);
+    assert_eq!(
+        w.feed(Input::LinkFlushed { drained: true }),
+        [Action::LinkClose]
+    );
 }
