@@ -7,3 +7,10 @@ target/
 !.env.example
 
 mise.local.toml
+
+# cargo-mutants output
+mutants.out/
+mutants.out.old/
+
+# bolero: the generated corpus is not checked in; a crash input (crashes/) is.
+**/__fuzz__/**/corpus/
