@@ -22,8 +22,8 @@ const LEDGER_IDS: &str = include_str!("../conformance/core-ledger-ids.txt");
 const PENDING_IDS: &str = include_str!("../conformance/core-pending.txt");
 const DEFERRED: &str = include_str!("../conformance/core-deferred.toml");
 
-/// Builds the harness of one seed. P6 provides `TestkitHarness` for the default tier and `RealCoreHarness` for the `slow`
-/// feature. Until then no id has a proof, so every id is pending or deferred and this is never reached.
+/// Builds the harness of one seed. P6 provides `TestkitHarness` for the default tier, and adds the `slow` feature with
+/// `RealCoreHarness` for the real-process tier (plan section 5). Until then no id has a proof, so every id is pending or deferred and this is never reached.
 fn harness_factory() -> Option<fn(u64) -> Box<dyn CoreHarness>> {
     None
 }

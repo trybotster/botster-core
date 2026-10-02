@@ -9,10 +9,6 @@ publish.workspace = true
 [lints]
 workspace = true
 
-[features]
-# The real-process tier of the conformance suite (P6 wires RealCoreHarness; plan section 5).
-slow = []
-
 [dependencies]
 botster-core-contract.workspace = true
 
