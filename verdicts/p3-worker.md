@@ -2,11 +2,10 @@
 
 VERDICT: NOT CLEAN (1 open)
 
-Reviewed head: `439e5e14c6fe55b3331d545c254dc11a8baf1ed8`, branch `stage1/p3-worker-m1`.
-Previous reviewed head: `306b143a8c75d8cd8024a8f8125c264163648c34`.
-Round 5: M1 rebased from `2016886` onto P1 `6db7924`, followed by `dbc4957..439e5e1`.
-F1 through F6 remain CLOSED. F7 is REOPENED because the new base changes process ownership.
-The original evidence refers to `f37c46b`. Rounds 2 through 4 record review history. Round 5 gives the current finding.
+Reviewed head: `a855586248de777d553352039bcec915e307a0b0`, branch `stage1/p3-worker-m1`.
+Previous reviewed head: `439e5e14c6fe55b3331d545c254dc11a8baf1ed8`.
+Round 6 delta: `439e5e1..a855586`. F1 through F7 are CLOSED. New F8 is OPEN.
+The original evidence refers to `f37c46b`. Rounds 2 through 5 record review history. Round 6 gives the current finding.
 Base: `2016886`. Scope: M1, including the Worker machine, real driver, payload edge, and testkit driver.
 This verdict covers both review units in the implementer's message.
 
@@ -288,7 +287,7 @@ The reviewer ran no tests or gate. The implementer reported clean clippy checks 
 Round 4 verdict: CLEAN on `306b143a8c75d8cd8024a8f8125c264163648c34`. Every finding was closed on that head.
 A rebase, contracts pin move, or any other later commit requires a delta review before this verdict applies to that head.
 
-## Round 5 — F7 reopened after rebase
+## Round 5 — Review history
 
 The range-diff `2016886..306b143` against `6db7924..dbc4957` shows unchanged P3 patches except dependency and module context.
 The added commit changes TestkitCore's attach return type to AttachRefused and adds the EV-4 and LC-5 transcript selections.
@@ -302,7 +301,7 @@ The implementer reported clean clippy checks, 291 default tests, five transcript
 
 ### F7 — HIGH — The base reaper can release the worker id during fallback cleanup
 
-Status: REOPENED at `439e5e14c6fe55b3331d545c254dc11a8baf1ed8`.
+Round 5 status: REOPENED at `439e5e14c6fe55b3331d545c254dc11a8baf1ed8`. Closed in round 6 below.
 
 Evidence: `crates/botster-core-sys/src/process.rs:119-134` and `crates/botster-worker/tests/slow_session.rs:81-83,114-115,130-151`.
 
@@ -327,4 +326,44 @@ Preserve cleanup of active sessions and the prohibition against signalling or re
 
 Authority: AD-6, the explicit rule against signalling an unproven id, the lead's P1 F7 reservation principle, and BUILD.md testing rule 10.
 
-VERDICT: NOT CLEAN (1 open) on the exact rebased M1 head above.
+Round 5 verdict: NOT CLEAN (1 open) on `439e5e14c6fe55b3331d545c254dc11a8baf1ed8`.
+
+## Round 6 — F7 closed; new F8 open
+
+F7 status: CLOSED at `a855586248de777d553352039bcec915e307a0b0`.
+
+The slow tests now start each real worker directly and retain its Child in OwnedWorker.
+The tests no longer use the independent P1 reaper or RowReaper.
+The WNOWAIT observer and final reap therefore have exclusive ownership of the worker throughout cleanup.
+The tests never signal a cached payload id.
+
+The reviewer inspected the complete delta, including the rewritten slow tests and removed development dependencies.
+The named tests now prove the worker and its real payload edge through the control link.
+They do not prove real Core's host lifecycle path; the same-suite real-process proof remains pending under plan 4.2.
+The reviewer ran no tests or gate. The implementer reported clean clippy checks and 14 slow tests passing on macOS.
+
+### F8 — MEDIUM — The test link discards a second frame in the same socket read
+
+Status: OPEN. New finding exposed by the rewritten tests at `a855586`.
+
+Evidence: `crates/botster-worker/tests/slow_session.rs:137-162` and `crates/botster-core-link/src/frame.rs:137-149,184-193`.
+
+Link::frame reads a socket chunk and pushes it into FrameDecoder.
+FrameDecoder stops consuming bytes when its first frame is complete.
+If that chunk also contains another frame, the next push returns zero because the first frame has not been taken yet.
+The helper breaks the loop and drops the unconsumed remainder of the socket chunk.
+The next frame() call retrieves the first frame, but the second frame is already lost.
+
+The new immediate-exit tests can receive Launched and Exited in one socket read.
+The Signal test can receive Done and Exited in one socket read.
+Both are valid stream chunkings, so passing runs do not establish that the helper preserves the worker's reports.
+A coalesced read can make these tests wait for a report they discarded themselves.
+
+Required change: Retain every unread byte or decode and queue every complete frame from each socket read.
+Keep partial bytes for the next read as well.
+Check the helper with two complete frames in one chunk and a complete frame followed by part of the next frame.
+Do not depend on the kernel delivering one worker report per read.
+
+Authority: EV-4, LC-6, BUILD.md's structural test rules, and the plan's real-process proof requirement.
+
+VERDICT: NOT CLEAN (1 open) on the exact M1 head above.
