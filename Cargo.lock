@@ -367,6 +367,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "botster-terminal-ghostty"
+version = "0.1.0"
+dependencies = [
+ "static_assertions",
+]
+
+[[package]]
 name = "botster-test-support"
 version = "0.1.0"
 source = "git+https://github.com/trybotster/botster-contracts?tag=contracts-v0.1.9#7f72acf8427ad7bf414db42d2360d5dccc7b3e13"
