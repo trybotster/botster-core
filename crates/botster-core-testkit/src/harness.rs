@@ -151,6 +151,7 @@ mod tests {
         );
         assert_eq!(harness.core_is_send_not_sync(), None);
         assert!(!harness.is_fake());
+        assert!(harness.injects_clock());
         assert_eq!(harness.seed(), 2);
     }
 }
