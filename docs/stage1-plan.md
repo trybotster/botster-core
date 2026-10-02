@@ -19,6 +19,7 @@ Every input of this plan, at a fixed revision. An implementer reads these revisi
 | Core Amendment 5 | sha256 `72c05f4b5ef8e3808536d23f0a7f56640e2d4b6fa1b66c0c7433ba157b1e89e8` |
 | Core erratum 1 | sha256 `0a7578bb6eabe7c1b2eca6f673965d13eddb7cc59e1332e3187b1f9b62a37709` |
 | Route codec revision 36 (Core adopts it verbatim, A3-1) | sha256 `1c6b16948450a327fa969a445a4249d82b3370cc80c8983bbb59ecada3d307a0` |
+| Core Amendment 6 **candidate 1** (A6-1 service-lane edge, A6-2 first worker protocol, A6-3 uploads at Remove), the steward's answer to Q2, Q3 and Q5; **not yet accepted** | botster-contracts `37f083b40d47f13158bdcdfb47f39ef33137d1f5`, `amendments/core-contract-v1.17-amendment-6-candidate1.md`, sha256 `8332c662eba22d585b11e919adbbb2587a9f9bd57f9d8f3012400c1f55898289`. Packages build on it; its ids stay pending until the Amendment reviewer's ACK and the manifest entry; a changed later candidate is a plan revision. |
 | Steward rulings | R-1 to R-12 in `docs/steward-rulings.md` at the botster-contracts commit above |
 | Old botster-core (prior art, read-only) | `72b2e3354ffc291e39f9a5d7eb2f9c5fcbb5e79c` (= `origin/main`). The local `main` of `~/Projects/botster-core` is a stale ancestor (`053148f`). Never read it. |
 | Ghostty fork (libghostty) | `https://github.com/trybotster/ghostty` at `eb72ec61304ea256be1d86ed8fa961c84e43ecbd`. Risk R1 can move this pin, but only by an orchestrator decision. |
@@ -45,7 +46,8 @@ Stage 1 builds the real Botster Core on the `v1` branch of botster-core. It has 
 2. The same suite passes on **real Core with real worker and guardian processes** (the slow tier).
 3. Each id that only a real OS condition can prove (A5-3: a real crash, fsync, descriptor handoff, `payload_dies_with_guardian`, and the others that the replacement map names) passes as a **named real-process test** that cites its clause. On the testkit, the suite lists that id as real-only (A5-3).
 4. The section 15 acceptance script passes as a test.
-5. Only `passed` counts. `unsupported_control`, `inconclusive` and `not_applicable` are not passes (foundation design 6.1), except `not_applicable` for a feature that `features()` honestly reports absent.
+5. **Deferred ids (A6-2):** `conf::ad_4_previous_worker_version_adopts`, `conf::ad_4_missing_worker_capability_is_unsupported`, and every per-worker feature id that needs an N−1 worker are recorded as "deferred until worker protocol 2", as A6-2 states. They are neither passed nor pending, and they must pass at the first release whose worker protocol is 2. Stage 1 builds the A6-2 behavior that is testable now: worker protocol 1, `adoptable_worker_protocols() = {1}`, and an out-of-set hello gives `Lost(WorkerVersion)`.
+6. Only `passed` counts. `unsupported_control`, `inconclusive` and `not_applicable` are not passes (foundation design 6.1), except `not_applicable` for a feature that `features()` honestly reports absent.
 
 The C ABI (section 13) is **not** built in Stage 1. The facade rules that section 13 places on the Rust API are kept (no callbacks into host code, no borrowed data across calls, explicit discriminants).
 
@@ -86,7 +88,7 @@ Why this shape, and not threads or async:
 | Core host (the library in the host process) | `HostEngine`: registry model, admission table (AM-1), op table (A2-1), event queue classes M, K, D, L (EV-2, EV-5, EV-6), captures (ST-6), deadlines (TM-3), adoption logic (AD-1), service bookkeeping (SV-3, SV-6) | `Core` in `botster-core`: `pump(now)` reads the control links, feeds the engine, and executes its actions | `TestkitCore` in the testkit: the same engine, with in-memory links and the seeded scheduler |
 | Session worker | `Worker`: PTY input admission (AM-2), input encoding (IN-8, IN-9), guards (IN-10), the terminal model through `botster-terminal-ghostty`, route state machines (OU-2), egress queues and backpressure (OU-3), resync (OU-9), queries (EV-8), files (DP-5b), focus (DP-12), input records (ST-7), the tap (TP-1) | `botster-worker` binary, role `session`: a `mio` loop over the PTY master, the control socket, the route sockets, the UDP sockets of WebRTC routes and the child-exit watch | the testkit runs the same `Worker` on the test thread, stepped by the scheduler, with the scripted program edge and in-memory route streams |
 | Service guardian | `Guardian`: the service's identity, orphan grace (SV-8), exit status (SV-5), log ring (SV-9), tree kill (SV-9) | `botster-worker` binary, role `guardian` | the same `Guardian`, stepped by the scheduler, with the process edge |
-| Service lanes | part of `HostEngine` (Core listens, SV-2) | real Unix listeners per lane | in-memory lane endpoints. This needs the open steward item Q3 (section 9). |
+| Service lanes | part of `HostEngine` (Core listens, SV-2) | real Unix listeners per lane | in-memory lane endpoints to a scripted service (A6-1, candidate 1) |
 
 **One binary, two roles.** `OpenConfig` carries only `worker_path` (LC-1), and Core fixes no file name (erratum 1). So the guardian is the same binary in its `guardian` role. The topology and the binary name of the guardian are implementation-defined (section 10), so this choice needs no contract change. One binary also keeps the install layout (HC RT-3: `botster-worker`) at one file.
 
@@ -102,7 +104,7 @@ An **edge** is a trait that a machine's driver calls for one kind of I/O. Each e
 | `Program` (the payload on the PTY) | worker | the PTY master and the payload's process group | the scripted program: the probe script interpreted in-process (writes output, reads input, exits with a code or a signal at script points) | write-size and read-size variation (A5-2); `pty_blocked` |
 | `Link` (the control link to a worker or a guardian) | host engine, worker, guardian | a Unix stream socket, with `SCM_RIGHTS` for the route descriptor | an in-memory duplex with descriptor objects passed by value | a broken link (`break_control`, `lose_worker`) |
 | `RouteTransport` | worker | a connected stream descriptor (DP-2), or a UDP socket for a WebRTC route | an in-memory connected stream; an in-memory datagram pair for WebRTC | read and write size variation; peer close; write failure |
-| `ServiceLane` | host engine | a Unix listener per lane in a 0700 directory (SV-2) | in-memory lane endpoints | peer close, truncation, oversize (SV-2). Conditional on Q3. |
+| `ServiceLane` | host engine | a Unix listener per lane in a 0700 directory (SV-2) | in-memory connected streams to a scripted service that sends the real SV-2 preamble (A6-1) | peer close, truncation, oversize (SV-2). Peer OS identity, orphan grace, `payload_dies_with_guardian`, descendant enumeration and the SIGTERM-then-group-kill stop stay real-process only (A6-1). |
 | `Wake` | host engine | a pollable kqueue or epoll descriptor over all control links, plus a self-pipe for TM-6 runnable work | an in-memory level flag; under shuttle, built on shuttle primitives | a spurious wake (A5-1) |
 | `FileSink` (DP-5b) | worker | a request and completion interface; the operations run on one file-I/O thread per worker, outside the readiness loop (2.3b) | the same interface; the scheduler chooses when each completion is delivered; the effect is a real file in the test's temporary root (files are not sockets or processes, so the default tier allows them, BUILD.md testing rule 1) | a failed create or write (`write_failed`) |
 | `Scheduler` | every driver | the production policy: control first, then round-robin over sessions with `pump_bytes` and `pump_events` (9B) | a seeded ChaCha8 policy that chooses which ready input is handled next, how much work one `pump` does, and the batch size of `poll_events` (A5-2) | none |
@@ -130,13 +132,13 @@ DP-5b: "file I/O never blocks the PTY reader or another route". A file system ca
 - **Bound and backpressure:** the request queue is bounded per route by `max_chunk_bytes` worth of pending writes. When a route's file requests are at the bound, the worker stops reading **that route** (transport backpressure, as DP-5's input queue). Other routes and the PTY continue.
 - **Order:** the requests of one file run in order. Completions of different routes have no promised order. The path paste of a `file_commit` is admitted only after its file's `Closed` completion, at the commit's place in that route's receive order (DP-5b, AM-2). The route's later input waits behind it; other routes do not.
 - **Abort and route end before the commit:** the worker drops the queued writes of that file and requests `Delete` of the partial file. It sends no frame (DP-5b).
-- **Cleanup at `Remove`** (LC-7 step 3) is part of the teardown state machine, and it is complete only on **completions**, not requests:
-  1. When the host's `Remove` reaches the worker, every open upload is aborted: queued writes are dropped, and the worker waits for the completion of each request already in progress on the file thread (a create or write that is running cannot be recalled; the worker waits for its `Created`, `Written` or `Failed`).
-  2. The worker then requests `Delete` for every file that its routes wrote, and for every partial file.
-  3. The worker reports "files deleted" to the host and ends **only after** every `Deleted` completion has arrived. The worker keeps its file edge until then.
-  4. The host engine advances LC-7 to step 4 (the durable row) and step 5 (the id is free) only after that report. `SessionState{Released}` and `Completed{Remove}` follow step 5 as LC-7 says. No successful removal is reported while an uploaded file remains.
-  5. **A `Failed` completion of a `Delete`** has no outcome in the contract: `Remove`'s async errors are only `RegistryFailed` (A2-1), and LC-7 requires the files to be deleted. Q5 asks the steward. Until the ruling, the teardown stays at step 3 with the failure recorded, and no id that needs this case is built.
-  - The same order applies to a `Lost` session whose stray worker is found and ended (LC-7 step 3): the worker deletes its files before it ends. Where no worker is reachable, the host cannot know the file names; Q5 includes this case.
+- **Cleanup at `Remove`** follows LC-7 step 3 as Core Amendment 6 candidate 1, A6-3, states it (the steward's reading of Q5; build on it, ids pending until the ACK). The worker deletes the uploads, because it knows their names; Core writes no per-file name to the registry. The cleanup is complete only on **completions**:
+  1. When `Remove` reaches the worker, every open upload ends: queued writes are dropped, and the worker waits for each request already running on its file thread (`Created`, `Written` or `Failed`).
+  2. The worker requests `Delete` for every file that its routes wrote, and for every partial file, and waits for every `Deleted` or `Failed` completion.
+  3. The worker reports the result to the host and then ends: `Deleted` (every file is gone, or there were none) or `NotDeleted{reason: delete_failed, paths}` (the files that stayed). **A failed delete does not stop the teardown** (A6-3 (a)).
+  4. **No reachable worker** (a `Lost` session with no stray worker found): nothing is deleted, and the result is `NotDeleted{reason: worker_unreachable}` (A6-3 (b)).
+  5. Only after the result is known does the host engine advance LC-7 to step 4 (the durable row) and step 5 (the id is free). `Completed{Remove}` carries `RemoveReport{uploads}` (A6-4 item 1); `SessionState{Released}` and `Completed{Remove}` follow step 5 as LC-7 says.
+- **Owners:** P4b, the worker side (steps 1 to 3); P1, the host side (step 5, `RemoveReport`); P5, the `Lost` and restart cases (step 4, and the stray-worker path).
 - **Testkit:** the same request and completion interface. The scheduler chooses when each completion is delivered (a choice point of 2.4). The worker logic is the same in both runs.
 
 ### 2.3c No test branches
@@ -183,7 +185,7 @@ DP-5b: "file I/O never blocks the PTY reader or another route". A file system ca
 7. **A control link is read only as far as the engine can consume.** Each link has a bounded receive buffer (one maximal link frame). `pump` decodes a message from it only when the engine can take the step that the message causes. When the message needs mandatory-queue room that is not there (a worker exit whose `SessionState` cannot be posted, EV-5b), the message stays in the buffer (the exit "stays unread on its link"), the link's read interest is removed, and the work is parked. When `poll_events` frees room, Core restores read interest on every link that was parked for room and signals the self-pipe. So a parked link never wakes the host in a loop, and `PumpReport.more` stays false for it (TM-6).
 8. **The same rules hold in the testkit:** an in-memory endpoint is ready work only when its flag matches an interest that these rules allow.
 
-**In the testkit** the in-memory link and lane endpoints carry the same two flags (readable, writable) per endpoint, and the `Sim` treats an endpoint with a set flag and a matching interest as ready work. The in-memory lane edge depends on Q3; until Q3 closes, P7 builds the readiness rules against the real lanes and the interface that the in-memory edge will implement.
+**In the testkit** the in-memory link and lane endpoints carry the same two flags (readable, writable) per endpoint, and the `Sim` treats an endpoint with a set flag and a matching interest as ready work. The in-memory lane edge is A6-1's (candidate 1, pending ACK).
 
 ### 2.6 Workspace layout
 
@@ -221,7 +223,7 @@ The control link between the host and a worker, and between the host and a guard
 - **Hello:** magic, protocol number `P` (one byte), the session `InstanceId`, and proof of the per-worker token (AD-6). The host also sends its **host epoch** (DP-8). The worker obeys only the highest epoch that it has seen.
 - **Descriptor handoff:** the route's connected stream goes to the worker by `SCM_RIGHTS` on this link (DP-2). The receiver sets `FD_CLOEXEC` at once (vault: "O_CLOEXEC is process-scoped and does not affect SCM_RIGHTS fd transfer"; `cmsg_len` type differs between Linux and macOS).
 - **Tap traffic** is the lowest class and delays any other host-bound message by at most `tap_inflight_bytes` (TP-1).
-- **Worker protocol number.** The first v1 worker protocol number `T` is fixed by P0. See Q2 for N−1 at the first release.
+- **Worker protocol number.** The first v1 worker protocol number is **1** (A6-2). For the out-of-set test of A6-2, the harness makes a real worker announce another number through its hello parameter, which is a construction input of the worker, not a test branch.
 
 ## 4. The testkit (`botster-core-testkit`, Core A5-1)
 
@@ -248,7 +250,7 @@ The testkit is a small discrete-event simulation over the machines of section 2.
 | Program | the probe script, interpreted by the scripted program edge | the `botster-conformance-probe` binary from botster-contracts, with the probe script as its argument |
 | Controls (6.3) | built from the testkit edges, and the scripted synchronous refusal (4.2a) | built from injected parts of the real `Core` (a failing `Storage` wrapper, a refusing `Process` wrapper, the same scripted synchronous refusal of 4.2a over the real `Core`) and from real OS acts on the test's own process groups (a kill of a verified worker pid). |
 | `oracle_encode` and every terminal oracle | `botster-terminal-ghostty` (R-7) | the same |
-| `worker(Previous)` | a `Worker` that speaks protocol `T−1` (Q2) | a prebuilt worker binary of protocol `T−1` from a pinned tag (Q2) |
+| `worker(Previous)` | none while `T = 1` (A6-2: no old protocol is fabricated); from `T = 2`, the pinned binary of the last protocol-1 release, run as a real process | the same pinned binary |
 
 ### 4.2a Scripted synchronous refusals (A5-3 timing 1)
 
@@ -317,7 +319,7 @@ The pinned runner's `conformance_tests!` macro generates one `#[test]` per trans
 
 ### 6.1 The packages, their clauses and dependencies
 
-Each Core id of the ledger has **exactly one** owning package. `docs/stage1-clauses/owners.py` assigns them by the rules below (the first rule that matches wins) and writes one list per package to `docs/stage1-clauses/<package>.txt`. The owner makes the id pass on both harnesses. Other packages may write code that the id needs.
+Each Core id of the ledger has **exactly one** owning package. When the pinned ledger gains the A6 ids, `owners.py` assigns A6-1 to P7, A6-2 to P5 and A6-3 to P4b (its rules already contain them). `docs/stage1-clauses/owners.py` assigns them by the rules below (the first rule that matches wins) and writes one list per package to `docs/stage1-clauses/<package>.txt`. The owner makes the id pass on both harnesses. Other packages may write code that the id needs.
 
 | # | Package | Owns (rule) | Ids | Crates | Depends on |
 |---|---|---|---|---|---|
@@ -330,7 +332,7 @@ Each Core id of the ledger has **exactly one** owning package. `docs/stage1-clau
 | P4c | **route data plane: WebRTC and performance** | DP-10, DP-11, and ids that name WebRTC, the DataChannel, T2 or `connect_deadline` | 15 | `botster-worker-core/webrtc`, UDP edge | P4a merge-ready |
 | P5 | **adoption and restart** | AD-1 to AD-7, DP-8, ID-2, LC-11, `lc_12_drop_leaves_workers_running`, and every id that names adoption, restart or survival | 47 | `botster-core-host/adopt`, the link's epoch and token proof | P1, P3; P4a for the route ids; P7 for the service ids |
 | P6 | **testkit** | A5-1 to A5-4, OR-3 | 15 | `botster-core-testkit`: the `Sim`, the seeded scheduler and `Entropy`, the scripted edges, the `RefusalScript` layer and its sync-column table (4.2a), both harnesses | P0. It grows with each package. |
-| P7 | **services and the guardian** | SV-1 to SV-10, A2-5, A4-1 (except adoption ids) | 57 | `botster-guardian-core`, `botster-worker` (role `guardian`), `ServiceLane` and `Process` real edges, `botster-core-host/services` | P1; Q3 for the in-memory lane edge |
+| P7 | **services and the guardian** | SV-1 to SV-10, A2-5, A4-1 (except adoption ids); A6-1 when the ledger has it | 57 | `botster-guardian-core`, `botster-worker` (role `guardian`), `ServiceLane` and `Process` real edges and the A6-1 in-memory lane edge, `botster-core-host/services` | P1 |
 | P8 | **example consumer** | section 15 acceptance script (no ledger id) | — | `botster-mux-example` | P1, P4a, P5 |
 
 Total: 578 ids, as the ledger at the pinned commit. When a new ledger lands (a moved contracts pin), the lead reruns `owners.py`, and the diff is part of that commit.
@@ -434,10 +436,10 @@ New tools (`str0m`, `mio`, `polling`, `rustix`, `getrandom`, `libtest-mimic`, `a
 | # | Question | To | Blocks |
 |---|---|---|---|
 | Q1 | **libghostty gaps.** If the P2 audit (R1) finds a Core clause that the pinned libghostty cannot serve without a parser outside libghostty, does the orchestrator approve a patch to the trybotster/ghostty fork and a new pinned SHA? After any pin change, P2 compares the terminfo entry of the new pin with the old one. A2-8: "A change of the pinned emulator that **changes the entry** changes `terminfo_source` and is a contract-tag change"; so only if the entry changed, `terminfo_source` and the contract tag change. The non-normative shadow list (EV-8) is re-checked in either case. | orchestrator (through the lead) | P2's gap items; P3 EV-7 and A2-4; P4b EV-8 |
-| Q2 | **AD-4 at the first release.** AD-4 requires adoption of a worker of protocol `T−1`, proven with "a pinned old worker binary". At the first v1 release no older v1 protocol exists. What proves `conf::ad_4_previous_worker_version_adopts` and its siblings: `not_applicable` until a second protocol exists, or a `T−1` build made for the test? | steward (spec meaning) | the ids that need an N−1 worker: at least `conf::ad_4_previous_worker_version_adopts`, `conf::ad_4_missing_worker_capability_is_unsupported`, and the per-worker feature ids that an N−1 worker proves (`focus_report`, DP-12; `CursorReadUnsupported` in the replacement map) |
-| Q3 | **The service-lane edge.** A5-1 lists no edge for service lanes. The steward recommends a small Core amendment (handoffs/steward.md). Without it, the SV ids move to the slow tier. | steward (already open) | in-memory runs of P7's lane ids |
+| Q2 | **AD-4 at the first release.** ANSWERED by the steward (A6-2, candidate 1, pending ACK): protocol 1; no fabricated N−1 build; the N−1 ids are deferred until worker protocol 2. | — | — |
+| Q3 | **The service-lane edge.** ANSWERED by the steward (A6-1, candidate 1, pending ACK): yes, with the real-process exceptions listed in the `ServiceLane` row of 2.3. | — | — |
 | Q4 | **The probe-script types.** They must move out of `botster-fake-core` before FakeCore is deleted, so the testkit and the probe binary keep one script format. | Foundation lead (through the orchestrator) | P6 scripted program edge |
-| Q5 | **A file that cannot be deleted at `Remove`.** LC-7 step 3 deletes the uploaded files, and `Remove`'s only async error is `RegistryFailed` (A2-1). What does `Remove` do when a `Delete` fails, and when the session is `Lost` with no reachable worker (only the worker knows the file names)? | steward (spec meaning) | the ids for these two cases (P4b, P5) |
+| Q5 | **Uploads at `Remove`.** ANSWERED by the steward (A6-3, candidate 1, pending ACK): the worker deletes; a failed delete does not stop teardown; a `Lost` session with no worker deletes nothing; `RemoveReport` reports both. See 2.3b. | — | — |
 
 ## 10. Risks
 
@@ -459,7 +461,7 @@ New tools (`str0m`, `mio`, `polling`, `rustix`, `getrandom`, `libtest-mimic`, `a
 ## 11. What the lead does next
 
 1. Get this plan CLEAN from the Sol plan reviewer; pin each revision to `~/botster-sessions/pins/stage1-plan.<sha8>.md` (read-only, hash-verified).
-2. Report DONE (plan CLEAN) to the orchestrator with the pin path, and send Q1 to Q4 up at the same time.
+2. Report DONE (plan CLEAN) to the orchestrator with the pin path, and send Q1 and Q4 up at the same time (Q2, Q3 and Q5 are answered by Core A6 candidate 1; the lead tracks its ACK).
 3. When the orchestrator starts Stage 1: staff P0 and P2 (wave 1), checking `uptime` before each spawn, and continue by section 6.3.
 
 ## 12. Revisions
@@ -469,3 +471,4 @@ New tools (`str0m`, `mio`, `polling`, `rustix`, `getrandom`, `libtest-mimic`, `a
 | 1 (`47630cb`) | First plan. |
 | 2 | Round 1 review (`stage1/plan-review` `9ba86b2`): F1 the `Entropy` edge and banned hidden randomness (2.3, 2.3a); F2 scripted synchronous refusals (4.2a); F3 host readiness for service listeners and lanes (2.5); F4 no testkit-only exemption (4.2b); F5 mutation and fuzz steps in the gate (section 8); F6 the consumer-side pending harness (section 5); F7 Q1 keeps A2-8's condition; F8 nonblocking file I/O (2.3b). |
 | 3 | Round 2 review (`ba9d60b`): F3 read interest follows epoch commit and engine consumption (2.5 rules 7 and 8); F5 the nightly toolchain of the landing fuzzer (section 8); F6 one-time initialization of the pending file and zero pending of both kinds at acceptance (section 5); F8 teardown waits for `Deleted` completions, and Q5. |
+| 4 | Round 3 review (`ae09900`) and the steward's answer (Core A6 candidate 1, `37f083b`): F8 cleanup at `Remove` follows A6-3 (the worker deletes on completions; a failure or an unreachable worker is reported in `RemoveReport`, never a silent success; 2.3b). Q2, Q3 and Q5 answered by A6-1 to A6-3; pins and done criterion updated (section 0, section 1 item 5, 2.3, 3, 4.2, 6.1). |
