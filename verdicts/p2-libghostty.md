@@ -1,11 +1,11 @@
 # P2 libghostty review
 
-Reviewed head: `c392adb3fa9aa0ae238cef2c669e44f3b136c3d9`.
+Reviewed head: `36e111f241029d43efb12be25e1179317b910d61`.
 Previous audit head: `fd1471eabca0adb344c6027b8995e1151aa8f8a8`.
 Scope: the written audit only. This verdict does not approve the binding or a Ghostty pin change.
 
-VERDICT: NOT CLEAN (2 open: audit F12 reopened; fork patch P13).
-Written audit: CLEAN at `e9f8727da6d23ee700312d4f67eb0a5aa0b502d7`; F1–F12 closed.
+VERDICT: NOT CLEAN (fork patch review: 1 open, P13).
+Written audit: CLEAN at `36e111f241029d43efb12be25e1179317b910d61`; F1–F12 closed.
 
 The review uses manifest final13, BUILD.md at `2f2996ef0f016a1fefc6879e74deaef033383b66`, and plan pin `stage1-plan.a24efe7e`.
 The plan hash matches its recorded SHA-256.
@@ -245,7 +245,7 @@ Do not carry the PIN return-value interface into the proposed UP binding.
 
 ## F12 — HIGH — The resume rule covers the corpus but omits continuation failure
 
-Status: REOPENED in revision 4. Revision 3c closed the original finding, which follows for the record.
+Status: CLOSED in revision 4c against the steward text supplied by the lead. Original finding follows for the record.
 Audit evidence: the ST-6b resume row sizes the continuation limit above the longest sequence in the test corpus.
 ST-6b requires the invariant at every cut, including production output outside that corpus.
 At UP, `stream_continuation.zig:95–97` marks tracking broken when the suffix exceeds the limit or retention fails.
@@ -383,3 +383,21 @@ The audit now records retention allocation failure below the continuation limit 
 The lead confirmed that candidate 1 does not explicitly cover this case and asked the steward to resolve it.
 At the lead's instruction, F12 remains OPEN until that answer arrives.
 P13 remains OPEN on the preserved paste patch. The reviewer ran no tests.
+
+
+## Revision 4c delta review — written audit CLEAN
+
+Reviewed audit head: `36e111f241029d43efb12be25e1179317b910d61`.
+The lead instructed the reviewer to close the allocation-failure mapping against Core A8 candidate 4.
+The reviewer read that candidate at `0d0bd7ea107d3383d07e4b7bf04c4bf882f18e53` with `git show`.
+A8-2 now explicitly covers pending parser state the model failed to retain, including allocation failure below the limit.
+The audit matches that text, withdraws ground-state deferral, and records the format limit and package duties.
+The every-offset test rule rejects a within-limit refusal when no resource failure is injected.
+F12 closes for the written audit. The reviewer ran no tests.
+
+The candidate remains under Amendment review, as the audit states.
+This audit verdict does not move the contracts pin or authorize implementation against an unaccepted amendment.
+The lead owns the accepted pin update.
+
+The written audit is CLEAN on this exact head. P13 remains OPEN on the preserved paste patch.
+The fork series and binding code remain unapproved.
