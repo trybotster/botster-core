@@ -2,7 +2,7 @@
 
 VERDICT: CLEAN
 
-Reviewed head: `82fcaf4060eec37ea7fb4576889fca227161862b`.
+Reviewed head: `e33ff1323fec8b1e868b1c330b8f6637871913c7`.
 Previous reviewed head: `b97b6055856e60c17af7cf0300ab89bc582a6d5e`.
 Base: `118c972`.
 Scope: M0b only, under plan pin `555bc433` and `contracts-v0.1.1`.
@@ -109,9 +109,21 @@ All six findings are closed. Copying this evidence into the eventual pull reques
 
 ## Final review result
 
-M0b is CLEAN on `82fcaf4060eec37ea7fb4576889fca227161862b`. No findings remain open.
+M0b is CLEAN on `e33ff1323fec8b1e868b1c330b8f6637871913c7`. No findings remain open.
 This verdict does not approve later P6 milestones or establish passing Core conformance.
 The implementer must run the gate on this exact head after CLEAN. The reviewer did not run the gate.
+
+## Mutation delta at `e33ff13`
+
+The gate on `82fcaf4` reported 17 missed mutants, 192 caught mutants, and 33 unviable mutants. It reported no mutation timeout.
+Evidence: `~/botster-sessions/shared/core-stage1/logs/p6-m0b-gate-82fcaf4.log`.
+
+The delta adds assertions for each reported behavior. The assertions distinguish the original behavior from each missed mutation.
+The sampler refactor extracts the same rejection loop into `sample_below`. The call still draws from the same ChaCha8 stream.
+Scripted boundary draws test rejection of the biased tail. Fixed binary draws distinguish the two inverted predicates.
+The remaining assertions cover descriptor output and closure, interest, program errors, size, readiness, node identifiers, and clock movement.
+The 17 findings from the missed mutants are closed by this delta. The next gate must confirm mutation results on the reviewed head.
+No production machine, contract pin, conformance pending list, or M0b scope changes in this delta.
 
 ## Contract question resolved by the lead
 
