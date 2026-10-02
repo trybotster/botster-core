@@ -5,7 +5,7 @@ Previous audit head: `fd1471eabca0adb344c6027b8995e1151aa8f8a8`.
 Scope: the written audit and fork patches 0, 2, and 3 only. This verdict does not approve the full fork series, binding, or pin change.
 
 VERDICT: NOT CLEAN (patch 1: 1 open finding, P14).
-Reviewed fork head: `b60d005420f1eda6a932c509b257f8300994b34b`.
+Reviewed fork head: `56b54e92365fe94c512804e8ffe44ea93f1cb550`.
 Written audit: CLEAN at `89afa037b198cb26173ff520245adb926b6ca21e`; F1–F12 closed.
 
 The review uses manifest final13, BUILD.md at `2f2996ef0f016a1fefc6879e74deaef033383b66`, and plan pin `stage1-plan.a24efe7e`.
@@ -645,4 +645,39 @@ Add string-to-C1 tests, including a call boundary, that compare each request wit
 
 VERDICT: NOT CLEAN (1 open finding, P14). P15–P17 are closed.
 The written audit and patches 0, 2, and 3 retain their scoped CLEAN verdicts.
+The full fork series, binding code, and Ghostty pin change remain unapproved.
+
+
+## Patch 1 evidence correction — P14 narrows to APC-to-C1 transitions
+
+Reviewed commit: `56b54e92365fe94c512804e8ffe44ea93f1cb550`.
+The reviewer read the new test and the complete relevant parse-table overrides.
+The reviewer also checked the scalar dispatch and the APC bulk path.
+All Ghostty reads used `git show`. The reviewer ran no tests.
+
+**Correction:** the previous review missed the later OSC and DCS overrides in `parse_table.zig`.
+OSC high bytes are payload. DCS passthrough high bytes are payload, and DCS ignore high bytes are ignored.
+Those states override the initial anywhere C1 transitions.
+The OSC and DCS examples in the previous P14 delta review are withdrawn.
+The new OSC test correctly records the pinned parser's behavior and compares the later CSI request with its input.
+
+**P14 remains OPEN for APC.** `sos_pm_apc_string` has no corresponding high-byte override.
+`src/terminal/parse_table.zig:78` sends byte `0x9B` from that state to `csi_entry`.
+The APC section at lines 111–121 does not replace that entry.
+`src/terminal/stream.zig` also states that most C1 bytes exit APC in `consumeApcString`.
+Its existing test `stream: apc bulk slice C1 ST` confirms that APC does honor a C1 transition.
+The scalar path used by the query writer applies `Parser.next` to this byte.
+
+Input `ESC _ Gpayload <0x9B> 5 n` therefore ends the APC and starts a CSI.
+The condition at `src/terminal/c/terminal.zig:1234` still rejects the reset because `stringState(old)` includes `sos_pm_apc_string`.
+The operating-status callback retains the APC prefix in its request.
+This defect also applies when a call ends just after the C1 introducer.
+
+Required change: reset the request on the actual APC-to-C1 transition.
+Preserve OSC and DCS high bytes as their parser tables require.
+Keep the equal-state CSI restart fix.
+Add an APC-to-C1 query test across a call boundary and compare with the input slice starting at the C1 introducer.
+
+VERDICT: NOT CLEAN (1 open finding, P14, limited to APC-to-C1 transitions).
+P15–P17 remain closed. The written audit and patches 0, 2, and 3 retain their scoped CLEAN verdicts.
 The full fork series, binding code, and Ghostty pin change remain unapproved.
