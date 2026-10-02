@@ -1,3 +1,4 @@
+# conf::a2_8_*: terminfo source from P2 (botster-terminal-ghostty), not yet on v1 (Core TI-1; wired in a follow-up PR).
 conf::a2_1_adopt_completes_ok_with_the_state_it_reached
 conf::a2_1_adoptall_twice_is_wrong_state
 conf::a2_1_attach_state_rules
