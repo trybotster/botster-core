@@ -1014,7 +1014,7 @@ Binding inputs:
 - Contracts: `contracts-v0.1.9`, commit `7f72acf8427ad7bf414db42d2360d5dccc7b3e13`, manifest final22.
 - Plan revision 19: `stage1-plan.62f664de.md`, SHA-256 `62f664de2476bc172336a9ddac7b111517a9fc49f34eb59b69a8d11a24c0bea8`.
 - Ghostty: `85a8d8eb197c5752887c017c9a3faa6f1dc1969b`.
-- Clipboard: Core Amendment 13 candidate 2, contracts commit `5a20a10`, supplied by the lead for this review.
+- Clipboard: Core Amendment 13 candidate 5, frozen in manifest final30 at contracts commit `627d507`, supplied by the lead for this review.
 
 The reviewer used `git show` for all Ghostty evidence. The reviewer ran no tests.
 Source logic proves these findings. Every finding requires closure before CLEAN.
@@ -1053,7 +1053,7 @@ Preserve the distinction between zero entries and one empty entry.
 Provide synchronous worker size admission inside the native callback so it can choose SUCCESS or IO_ERROR before return.
 Do not retain the native request pointer after the callback. Do not perform I/O or call host code inside the callback.
 Return the native acknowledgement bytes to the worker as a value. The worker writes them as one contiguous AM-2 transaction (A13-1b).
-Update the audit and tests against A13 candidate 2. Remove the withdrawn erratum 5 reference.
+Update the audit and tests against frozen A13 candidate 5. Remove the withdrawn erratum 5 reference.
 
 ### P26 — HIGH — The mode probe loses modifyOtherKeys state under kitty flags
 
@@ -1142,3 +1142,16 @@ Supply the corrected exact head and the green Linux gate that the lead requires 
 
 VERDICT: NOT CLEAN (9 open: P24–P32) for the binding and its audit at the exact Core head above.
 The earlier native patch verdicts remain scoped to their reviewed changes. No new native patch or pin move is approved here.
+
+
+## Frozen Amendment 13 update
+
+The lead supplied frozen A13 candidate 5 at contracts commit `627d507`, manifest final30.
+The reviewer read `frozen/current/core-contract-v1.17-amendment-13-candidate5.md` at that commit.
+A13-1 and A13-1b keep the clipboard write requirements used in P25. P25 remains open without a change in scope.
+The final read note includes every native clipboard read under EV-8.
+OSC 52 reads have the typed label; other reads, including OSC 5522, are untyped queries.
+The shadow must answer none of these reads. The binding's suppression of `KittyClipboardRead` agrees with that requirement.
+This contract update closes no finding and approves no new binding head. The reviewer ran no tests.
+
+VERDICT: NOT CLEAN (9 open: P24–P32) at Core head `43432744e0db3f48494828ab5cca9d4cd7f94ea9`.
