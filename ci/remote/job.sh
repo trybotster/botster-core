@@ -143,15 +143,9 @@ echo "gate job: $project $(git -C "$dir" rev-parse HEAD) on $(hostname), $cpus C
 
 mkdir -p "$artifacts" "$stamps"
 find "$artifacts" -mindepth 1 -maxdepth 1 -type d -mtime +7 -exec rm -rf {} +
-# The image lock covers the image build, the target-volume pruning, this gate's stamp and the volume initialization,
-# so a gate never prunes a volume that another gate has just stamped and checked.
+# The image lock covers this project's image build.
 exec {image_lock}>"$projdir/image.lock"
 flock "$image_lock"
-touch "$stamps/$target_volume"
-# Target volumes that no gate used for 7 days. Docker refuses to remove a volume that a running job mounts.
-while IFS= read -r stamp; do
-  docker volume rm "$(basename -- "$stamp")" >/dev/null 2>&1 && rm -f -- "$stamp"
-done < <(find "$stamps" -mindepth 1 -maxdepth 1 -type f -name "$project-target-*" -mtime +7)
 if ! docker image inspect "$image" >/dev/null 2>&1; then
   echo "Building $image (rust $toolchain)..."
   build_args=(--build-arg "RUST_TOOLCHAIN=$toolchain" --build-arg "BUILD_JOBS=$cpus")
@@ -163,6 +157,54 @@ if ! docker image inspect "$image" >/dev/null 2>&1; then
   docker image ls "$project-gate" --format '{{.Repository}}:{{.Tag}}' | grep -vxF "$image" \
     | xargs --no-run-if-empty docker image rm >/dev/null 2>&1 || true
 fi
+exec {image_lock}>&-
+
+# Disk. The host is shared, and a target volume holds about 10 GB, so target volumes are bounded:
+#   - at most $max_targets per project; the least recently used go first, the base branch's (main, v1) last;
+#   - below $floor_gb GB free, least recently used Botster target volumes of either project go until the floor is met;
+#   - below $fail_gb GB free after that, the gate fails at once instead of filling the disk mid-run.
+# A volume whose stamp is newer than $fresh_min minutes belongs to a gate that may be about to mount it, and is never
+# evicted; Docker refuses to remove a volume that a running job mounts. One Botster-wide lock covers the stamps, the
+# pruning and the volume initialization of both projects.
+max_targets=8 floor_gb=60 fail_gb=40 fresh_min=120
+botster_projects=$(dirname "$projdir")
+free_gb() { df -BG --output=avail "$projdir" | tail -n 1 | tr -dc '0-9'; }
+# Removes the volume of a stamp file, unless a job mounts it.
+evict() {
+  local volume
+  volume=$(basename -- "$1")
+  docker volume rm "$volume" >/dev/null 2>&1 || return 1
+  rm -f -- "$1"
+  echo "job.sh: removed the target volume $volume ($2)"
+}
+# Stamp files that may be evicted, least recently used first, the base branch's volumes last.
+evictable() {
+  find "$@" -maxdepth 0 -type f -mmin +"$fresh_min" -printf '%T@ %p\n' 2>/dev/null | sort -n | cut -d' ' -f2- \
+    | awk '/-target-(main|v1)-[0-9a-f]+$/ { last = last $0 "\n"; next } { print } END { printf "%s", last }'
+}
+mkdir -p "$botster_projects/botster-locks"
+exec {volumes_lock}>"$botster_projects/botster-locks/volumes.lock"
+flock "$volumes_lock"
+touch "$stamps/$target_volume"
+while IFS= read -r stamp; do
+  evict "$stamp" "no gate used it for 7 days" || true
+done < <(find "$stamps" -mindepth 1 -maxdepth 1 -type f -name "$project-target-*" -mtime +7)
+count=$(find "$stamps" -mindepth 1 -maxdepth 1 -type f -name "$project-target-*" | wc -l)
+while IFS= read -r stamp; do
+  (( count > max_targets )) || break
+  evict "$stamp" "more than $max_targets target volumes of $project" && count=$(( count - 1 ))
+done < <(evictable "$stamps"/"$project"-target-*)
+if (( $(free_gb) < floor_gb )); then
+  while IFS= read -r stamp; do
+    (( $(free_gb) < floor_gb )) || break
+    evict "$stamp" "the host disk is below $floor_gb GB free" || true
+  done < <(evictable "$botster_projects"/botster-*/targets/botster-*-target-*)
+fi
+free=$(free_gb)
+if (( free < fail_gb )); then
+  echo "job.sh: the host disk has $free GB free, below $fail_gb GB, after trimming Botster target volumes; the gate does not start. Free space on the host (other projects' volumes, docker build cache)." >&2
+  exit 75
+fi
 for volume in "$cargo_volume" "$target_volume" "$npm_volume" "${extra_volumes[@]/#/$project-}"; do
   volume=${volume%%:*}
   if ! docker volume inspect "$volume" >/dev/null 2>&1; then
@@ -171,7 +213,8 @@ for volume in "$cargo_volume" "$target_volume" "$npm_volume" "${extra_volumes[@]
     wait $!
   fi
 done
-exec {image_lock}>&-
+exec {volumes_lock}>&-
+echo "gate job: $free GB free on the host"
 
 mounts=(-v "$dir:/work" -v "$target_volume:/work/target" -v "$cargo_volume:/cargo" -v "$npm_volume:/npm")
 for volume in "${extra_volumes[@]}"; do mounts+=(-v "$project-${volume%%:*}:${volume#*:}"); done
