@@ -96,3 +96,22 @@ fn the_child_environment_is_exact() {
     assert_eq!(exit.1, ExitStatus::Code(0), "nothing is inherited");
     std::mem::forget(reaper);
 }
+
+/// Core LC-5, AD-6: `EndPayload` is `SIGUSR1` to the worker process. A worker with a handler runs it, and the signal is
+/// repeatable.
+#[test]
+fn the_worker_control_signal_reaches_the_worker_handler() {
+    let mut children = Children::new();
+    let identity = children
+        .spawn(&spec(
+            "/bin/sh",
+            &["-c", "trap 'exit 7' USR1; while :; do :; done"],
+        ))
+        .expect("spawn");
+    let guard = Reaper(&mut children, identity);
+    std::thread::sleep(std::time::Duration::from_millis(300)); // timer: settle — a real shell installs its trap
+    guard.0.signal_group(identity, GroupSignal::EndPayload);
+    guard.0.signal_group(identity, GroupSignal::EndPayload);
+    let exit = guard.0.wait_exit(identity.pid).expect("the worker ends");
+    assert_eq!(exit.1, ExitStatus::Code(7), "the handler ran");
+}

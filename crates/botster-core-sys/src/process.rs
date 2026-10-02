@@ -131,6 +131,13 @@ impl Children {
         let signal = match signal {
             GroupSignal::Term => Signal::TERM,
             GroupSignal::Kill => Signal::KILL,
+            // The worker-control signal goes to the worker process alone: its group holds no payload, and a default
+            // `SIGUSR1` would end a descendant of the worker (LC-5).
+            GroupSignal::EndPayload => {
+                let _: io::Result<()> =
+                    rustix::process::kill_process(pid, Signal::USR1).map_err(io::Error::from);
+                return;
+            }
         };
         // The group may already be gone: that is the goal, so a failure is not an error.
         let _: io::Result<()> = kill_process_group(pid, signal).map_err(io::Error::from);
