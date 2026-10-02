@@ -80,9 +80,25 @@ fn link_decoder() {
                 let mut again = Vec::new();
                 hello.encode(&mut again).unwrap();
                 assert_eq!(
-                    again, bytes,
-                    "a hello is not the bytes that it decoded from"
+                    Hello::decode(&again),
+                    Ok(hello),
+                    "a hello does not survive an encode and a decode"
                 );
             }
         });
+}
+
+/// A valid hello need not be canonical: whitespace, another field order and an unknown field decode, and the decoded value
+/// survives an encode and a decode (the property of `link_decoder`, kept deterministic).
+#[test]
+fn a_noncanonical_hello_survives_a_round_trip() {
+    let proof = "ab".repeat(32);
+    let text = format!(
+        " {{ \"host_epoch\" : 7 , \"later\" : [1, {{\"x\": null}}], \"proof\":\"{proof}\",\"instance\":\"i\",\"protocol\":1,\"magic\":\"BCLK\" }} "
+    );
+    let hello = Hello::decode(text.as_bytes()).expect("a noncanonical hello decodes");
+    let mut again = Vec::new();
+    hello.encode(&mut again).unwrap();
+    assert_ne!(again, text.as_bytes(), "the encoder emits its own form");
+    assert_eq!(Hello::decode(&again), Ok(hello));
 }
