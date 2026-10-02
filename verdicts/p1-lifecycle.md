@@ -1,8 +1,9 @@
 # P1 lifecycle review
 
-VERDICT: NOT CLEAN (2 open)
+VERDICT: CLEAN
 
-Reviewed head: `154f0109e8809536a30340cda89198fa34259db5` on `stage1/p1-lifecycle`.
+Reviewed head: `40117af8398c292e8763d04beca875466bd276ef` on `stage1/p1-lifecycle`.
+Round 5 head: `154f0109e8809536a30340cda89198fa34259db5`.
 Round 4 head: `3936f014be834e24505354e99fa4932ed989be29`.
 Round 3 head: `eda5711bc9252dbf402e8d8b391bcf8e8e80ce07`.
 Round 2 head: `1f0146e831b03fb3d1edd247240d97b3c9503552`.
@@ -29,10 +30,33 @@ Those ids remain pending until both harnesses prove them.
 The delta adds A8-1 capture reservations. I found no additional defect in that reservation change.
 The Round 1 pin delta did not close F1 through F15. F16 also applies under Amendment 7.
 
-Current open findings: F7, F20.
-Closed findings: F1, F2, F3, F4, F5, F6, F8, F9, F10, F11, F12, F13, F15, F16, F17, F18, F19.
+Current open findings: none.
+Closed findings: F1, F2, F3, F4, F5, F6, F7, F8, F9, F10, F11, F12, F13, F15, F16, F17, F18, F19, F20.
 F14 has an authorized scope deferral. It is not satisfied as a TI-1 requirement.
-Each open finding must close before CLEAN.
+This CLEAN verdict applies to the reviewed P1 host-side checkpoint only.
+P3 supplies the EndPayload worker handler and the worker-dependent end-to-end proofs.
+F14 and the other unproved conformance ids remain pending with their owners and scope reasons.
+The implementer must run the gate once on this exact committed head before reporting DONE to the lead.
+A later commit requires a delta review.
+
+## Round 6: final closure evidence
+
+I reviewed the complete delta from `154f010` to `40117af`.
+This remains a logic review. I did not run tests or the gate.
+
+| Finding | Status | Evidence |
+|---|---|---|
+| F7 | CLOSED | DESIGN.md's choices table and P3 interface note now use EndPayload consistently. The forbidden bare-group signal, worker Term/Kill fallback, and live-payload permission are removed. |
+| F20 | CLOSED | The shell creates its ready file after installing the trap. The test checks that explicit indication under a 10-second deadline before sending EndPayload. It retains Reaper cleanup and the exact exit assertion. |
+
+The Round 5 code closure for F3 remains valid because this delta changes no driver logic.
+The EndPayload runtime interface remains the identity-verified SIGUSR1 request to the worker process alone.
+All checkpoint findings, including LOW findings, are closed or have the lead's explicit scope deferral.
+
+## Round 5 evidence (historical)
+
+The Round 5 statuses below describe `154f010` only.
+The final closure table above contains the current statuses.
 
 ## Round 5: closure evidence and remaining defects
 
