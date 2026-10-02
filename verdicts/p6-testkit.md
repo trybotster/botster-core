@@ -2,6 +2,15 @@
 
 VERDICT: NOT CLEAN (1 open)
 
+Exclusion delta reviewed: `22f7e3c7db8d1f6f377391dc060d43930eae3aed`, against `db6d1d6`.
+S5-R1 remains open only for one incorrect statement in the new reason.
+The regex now names the process glue functions and does not cover a later pure decision. That part closes.
+The coverage statement now identifies the functions that the slow tests call. That part also closes.
+However, the comment calls both OR-to-AND and OR-to-XOR mutations equivalent.
+Only XOR preserves the union of disjoint option bits. AND removes those bits and changes the wait call.
+Required change: remove `&` from the equivalence claim. Keep its exclusion under the process glue reason.
+The reviewer ran no tests or gate.
+
 Mutation delta reviewed: `db6d1d6b02dd79b11fb27827905c70b22047a58c`, against `9a55c236`.
 The reviewer read the gate artifact's `target-mutants.out/missed.txt`.
 It lists 37 missed mutants: 18 in `process_group.rs`, 12 in `refusal.rs`, 5 in `program.rs`, and 2 in `harness.rs`.
