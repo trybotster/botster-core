@@ -170,3 +170,77 @@ fn a_step_posts_one_event_for_metadata() {
         .collect();
     assert_eq!(kinds, ["completed", "changed"], "LC-9 order");
 }
+
+/// E3-1 item 3: a carried `Silent` runs before link input that arrived later: a newer `Bell` does not take the budget.
+#[test]
+fn e3_1_a_carried_silent_runs_before_newer_link_input() {
+    let mut rig = Rig::new(limits(|l| {
+        l.pump_events = 1;
+        l.mandatory_events = 64;
+    }));
+    silent_session(&mut rig, "s1", LinkId(1), 3);
+    while rig.pump().more {
+        rig.drain_events();
+    }
+    rig.drain_events();
+    rig.now += Duration::from_secs(3);
+    rig.unix += 3;
+    rig.worker_says(
+        LinkId(1),
+        WorkerMsg::Observed {
+            observation: Observation::Bell,
+        },
+    );
+    let report = rig.pump();
+    assert_eq!(report.events_posted, 1);
+    let events = rig.drain_events();
+    assert_eq!(silents(&events).len(), 1, "{events:?}");
+}
+
+/// 9B: two route handoffs that fail post two `RouteClosed` events in two pumps when `pump_events = 1`.
+#[test]
+fn two_failed_handoffs_post_one_event_per_pump() {
+    let mut rig = Rig::new(limits(|l| {
+        l.pump_events = 1;
+        l.mandatory_events = 64;
+        l.max_sessions = 4;
+    }));
+    run_session(&mut rig, "s1", LinkId(1));
+    let attach = |rig: &mut Rig| {
+        rig.driver
+            .attach(
+                ClientId("c".into()),
+                sid("s1"),
+                RouteTransport::Stream(StreamEndpoint::new(())),
+                AttachOptions {
+                    file_directory: "/tmp".into(),
+                    file_permissions: None,
+                    route_features: vec![],
+                    terminal_formats: vec![],
+                    connect_deadline: None,
+                    owner: None,
+                    query_deadline: Some(Duration::from_secs(1)),
+                    route_tag: None,
+                    route_limits: None,
+                    history: None,
+                    stall_deadline: None,
+                    answers_queries: true,
+                    input: true,
+                },
+            )
+            .unwrap()
+    };
+    attach(&mut rig);
+    attach(&mut rig);
+    let mut closed = 0;
+    for _ in 0..20 {
+        let r = rig.pump();
+        assert!(r.events_posted <= 1, "{r:?}");
+        closed += rig
+            .drain_events()
+            .iter()
+            .filter(|e| matches!(e, Event::RouteClosed { .. }))
+            .count();
+    }
+    assert_eq!(closed, 2);
+}

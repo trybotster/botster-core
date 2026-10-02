@@ -126,6 +126,8 @@ pub struct HostDriver<E: HostEdges> {
     links: BTreeMap<LinkId, LinkState>,
     wake: Arc<dyn HostWake>,
     frame_bound: u32,
+    /// Routes whose handoff failed: each one is fed to the engine in a step of its own, within the budget of a pump (9B).
+    failed_handoffs: std::collections::VecDeque<RouteId>,
 }
 
 impl<E: HostEdges> HostDriver<E> {
@@ -140,6 +142,7 @@ impl<E: HostEdges> HostDriver<E> {
             links: BTreeMap::new(),
             wake,
             frame_bound,
+            failed_handoffs: std::collections::VecDeque::new(),
         }
     }
 
@@ -170,6 +173,19 @@ impl<E: HostEdges> HostDriver<E> {
     fn perform_counted(&mut self, budget: &mut Budget) {
         self.perform();
         budget.account(&mut self.engine);
+        // A failed handoff posts `RouteClosed`: one input per route, and only while the pump has budget (9B `pump_events`).
+        while !budget.exhausted() {
+            let Some(route) = self.failed_handoffs.pop_front() else {
+                break;
+            };
+            let now = self.now();
+            self.feed(now, Input::HandoffFailed { route });
+            budget.account(&mut self.engine);
+            self.perform();
+        }
+        if !self.failed_handoffs.is_empty() {
+            budget.more_input = true;
+        }
     }
 
     /// The production policy visits sessions round-robin (plan 2.4): when the chosen work is a session step, the scheduler
@@ -270,7 +286,7 @@ impl<E: HostEdges> HostDriver<E> {
                     .handoff_route(link, route, transport, &options)
                     .is_err()
                 {
-                    self.feed(now, Input::HandoffFailed { route });
+                    self.failed_handoffs.push_back(route);
                 }
             }
         }
@@ -545,6 +561,11 @@ impl<E: HostEdges> CoreApi for HostDriver<E> {
             more_input: false,
         };
         self.feed(now.monotonic, Input::Clock(now.unix));
+        // A due `Silent` is an older step than any input that arrives now: it runs first, with the budget it needs (E3-1 item 3).
+        while !budget.exhausted() && self.engine.ready().contains(&Work::Silent) {
+            self.feed(now.monotonic, Input::Run(Work::Silent));
+            budget.account(&mut self.engine);
+        }
         while !budget.exhausted() {
             let Some((identity, status)) = self.edges.poll_process_exit() else {
                 break;

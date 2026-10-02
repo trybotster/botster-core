@@ -573,7 +573,7 @@ impl HostEngine {
                 if let Some(identity) = self.identity_of(&id) {
                     self.act(Action::SignalGroup {
                         identity,
-                        signal: GroupSignal::Term,
+                        signal: GroupSignal::EndPayload,
                     });
                 }
             }
