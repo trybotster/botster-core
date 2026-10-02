@@ -5,7 +5,9 @@
 //! edge that does not exist yet gets `unsupported_control`, which is never a pass; an id stays in `conformance/core-pending.txt`
 //! until it passes.
 
-use crate::core::{core_features, Directories};
+use crate::core::{core_features, Directories, RunInputs};
+use crate::scheduler::SchedulerHandle;
+use crate::worker::{TestkitCore, Workers};
 use botster_core_conformance::{
     ControlError, CoreHarness, DataDirRef, OpenSpec, RouteClient, WorkerBuild, WorkerRef,
 };
@@ -19,14 +21,18 @@ pub struct TestkitHarness {
     seed: u64,
     start: Instant,
     directories: Directories,
+    /// Every in-process worker of the run, in one `Sim` with the run's seeded stream (plan 4.1, A5-2).
+    workers: Workers,
 }
 
 impl TestkitHarness {
     pub fn new(seed: u64) -> TestkitHarness {
+        let start = Instant::now();
         TestkitHarness {
             seed,
-            start: Instant::now(),
+            start,
             directories: Directories::default(),
+            workers: Workers::new(SchedulerHandle::with_seed(seed), start),
         }
     }
 
@@ -64,15 +70,22 @@ impl CoreHarness for TestkitHarness {
             }),
             limits,
         };
-        let (driver, _faults) = self.directories.open(
+        let opened = self.directories.open(
             &spec.data_dir.0,
             &config,
-            self.seed,
-            self.start,
+            RunInputs {
+                seed: self.seed,
+                scheduler: self.workers.scheduler(),
+                start: self.start,
+            },
             core_features(),
-            None,
+            Some(Box::new(self.workers.spawner())),
         )?;
-        Ok(Box::new(driver))
+        Ok(Box::new(TestkitCore::new(
+            opened.driver,
+            opened.wake,
+            self.workers.clone(),
+        )))
     }
 
     /// The harness passes the clock, so `advance_clock` moves it (Core TM-1, A5-1).
