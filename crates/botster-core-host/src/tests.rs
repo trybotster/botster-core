@@ -503,6 +503,7 @@ pub(crate) fn run_work(world: &mut World, work: Work) {
 }
 
 mod admission;
+mod boundaries;
 mod driver;
 mod lifecycle;
 mod queue_pressure;
