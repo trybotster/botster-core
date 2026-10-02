@@ -42,7 +42,8 @@ exclude_re = [
     # botster-core-testkit process_group: process glue of a real process group (BUILD.md testing rule 10), per function. `spawn`
     # starts the child as a group leader; `pid`, `take_stdin`, `take_stdout`, `take_stderr` and `is_active` are accessors over the
     # child and the retained group id; `leader_exited` and `wait_for_leader_exit` call `waitid` (their `|` joins disjoint option
-    # flags, so `&` or `^` change nothing for a valid call: equivalent); `kill` and `drop` signal the group and reap the leader.
+    # flags, so `^` gives the same value: equivalent; `&` drops the flags and changes the call, which only a slow test that
+    # blocks on the wait would see); `kill` and `drop` signal the group and reap the leader.
     # They start or signal real processes, which the default tier of this run never does. The slow-tier tests
     # `tests/slow_process_group.rs` exercise `spawn`, `pid`, `take_stdout`, `leader_exited`, `wait_for_leader_exit`, `is_active`,
     # `kill` and `drop`; `take_stdin` and `take_stderr` are the same one-line `Option::take` as `take_stdout` and no slow test calls
