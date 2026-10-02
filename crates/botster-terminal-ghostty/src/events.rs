@@ -27,9 +27,16 @@ pub enum TerminalEvent {
     /// A BEL.
     Bell,
     /// OSC 9 or OSC 777, with the full text. The caller applies the bound of A2-4.
-    Notification { source: NotificationSource, title: Option<String>, body: String },
+    Notification {
+        source: NotificationSource,
+        title: Option<String>,
+        body: String,
+    },
     /// OSC 133.
-    PromptMark { mark: PromptMarkKind, exit_code: Option<i32> },
+    PromptMark {
+        mark: PromptMarkKind,
+        exit_code: Option<i32>,
+    },
     /// An OSC 52 write, with the selection as the program wrote it (`s0` when it left it out) and the decoded bytes.
     ClipboardWrite { selection: String, bytes: Vec<u8> },
     /// A query that a plain `vt_write` met. The request bytes are not kept by a plain write (`request` is `None`), and
@@ -55,7 +62,9 @@ impl TerminalEvent {
         match self {
             TerminalEvent::Title(text) | TerminalEvent::Cwd(text) => text.len(),
             TerminalEvent::Bell | TerminalEvent::PromptMark { .. } => 0,
-            TerminalEvent::Notification { title, body, .. } => title.as_ref().map_or(0, String::len) + body.len(),
+            TerminalEvent::Notification { title, body, .. } => {
+                title.as_ref().map_or(0, String::len) + body.len()
+            }
             TerminalEvent::ClipboardWrite { selection, bytes } => selection.len() + bytes.len(),
             TerminalEvent::Query(_) => 0,
         }
@@ -160,10 +169,14 @@ fn text(bytes: &[u8]) -> String {
 
 /// Read a string datum of the terminal (the title or the working directory).
 pub(crate) unsafe fn read_string(terminal: sys::Terminal, key: i32) -> String {
-    let mut out = sys::GString { ptr: std::ptr::null(), len: 0 };
+    let mut out = sys::GString {
+        ptr: std::ptr::null(),
+        len: 0,
+    };
     // SAFETY: the caller passes the live terminal that the library handed to its callback; `out` is a valid
     // `GhosttyString` out pointer for the string keys.
-    let code = unsafe { sys::ghostty_terminal_get(terminal, key, (&mut out as *mut sys::GString).cast()) };
+    let code =
+        unsafe { sys::ghostty_terminal_get(terminal, key, (&mut out as *mut sys::GString).cast()) };
     if code != sys::SUCCESS {
         return String::new();
     }
@@ -201,14 +214,23 @@ pub(crate) unsafe extern "C" fn on_notification(
 ) {
     // SAFETY: the library passes a valid struct for the duration of the callback, and the strings with it.
     let notification = unsafe { &*notification };
-    let (title, body) = unsafe { (text(notification.title.bytes()), text(notification.body.bytes())) };
+    let (title, body) = unsafe {
+        (
+            text(notification.title.bytes()),
+            text(notification.body.bytes()),
+        )
+    };
     let (source, title) = if notification.source == sys::notification_source::OSC777 {
         (NotificationSource::Osc777, Some(title))
     } else {
         // OSC 9 always has an empty title.
         (NotificationSource::Osc9, None)
     };
-    shared(userdata).push(TerminalEvent::Notification { source, title, body });
+    shared(userdata).push(TerminalEvent::Notification {
+        source,
+        title,
+        body,
+    });
 }
 
 pub(crate) unsafe extern "C" fn on_semantic_prompt(
@@ -238,12 +260,17 @@ pub(crate) unsafe extern "C" fn on_clipboard_write(
     // borrowed for that time and copied here before the reply.
     let request = unsafe { &*write };
     let selection = unsafe { request.selection.bytes() };
-    let selection = if selection.is_empty() { "s0".to_owned() } else { text(selection) };
+    let selection = if selection.is_empty() {
+        "s0".to_owned()
+    } else {
+        text(selection)
+    };
     let bytes = if request.contents.is_null() || request.contents_len == 0 {
         Vec::new()
     } else {
         // SAFETY: `contents` points at `contents_len` entries.
-        let contents = unsafe { std::slice::from_raw_parts(request.contents, request.contents_len) };
+        let contents =
+            unsafe { std::slice::from_raw_parts(request.contents, request.contents_len) };
         unsafe { contents[0].data.bytes() }.to_vec()
     };
     shared(userdata).push(TerminalEvent::ClipboardWrite { selection, bytes });
@@ -259,7 +286,11 @@ pub(crate) unsafe extern "C" fn on_clipboard_write(
     unsafe { (request.reply)(write, &reply) };
 }
 
-pub(crate) unsafe extern "C" fn on_query(_: sys::Terminal, userdata: *mut c_void, query: *const sys::Query) {
+pub(crate) unsafe extern "C" fn on_query(
+    _: sys::Terminal,
+    userdata: *mut c_void,
+    query: *const sys::Query,
+) {
     // SAFETY: the library passes a valid struct, and the bytes in it, for the duration of the callback.
     let query = unsafe { &*query };
     let shared = shared(userdata);
@@ -269,7 +300,9 @@ pub(crate) unsafe extern "C" fn on_query(_: sys::Terminal, userdata: *mut c_void
         return;
     };
     // SAFETY: as above.
-    let request = query.request_available.then(|| unsafe { query.request.bytes() }.to_vec());
+    let request = query
+        .request_available
+        .then(|| unsafe { query.request.bytes() }.to_vec());
     shared.push_query(Query::new(kind, request, query.request_truncated));
 }
 
@@ -282,8 +315,16 @@ pub(crate) unsafe extern "C" fn on_clipboard_read(
     let read = unsafe { &*read };
     // SAFETY: as above.
     let selection = unsafe { read.selection.bytes() };
-    let selection = if selection.is_empty() { "s0".to_owned() } else { text(selection) };
-    let terminator = if read.terminator == 1 { Terminator::Bel } else { Terminator::St };
+    let selection = if selection.is_empty() {
+        "s0".to_owned()
+    } else {
+        text(selection)
+    };
+    let terminator = if read.terminator == 1 {
+        Terminator::Bel
+    } else {
+        Terminator::St
+    };
     if let Some(query) = shared(userdata).open_query() {
         query.selection = Some(selection);
         query.terminator = Some(terminator);
@@ -299,11 +340,18 @@ pub(crate) unsafe extern "C" fn on_write_pty(
     len: usize,
 ) {
     // SAFETY: the library passes `len` valid bytes for the duration of the callback.
-    let bytes = if len == 0 { &[][..] } else { unsafe { std::slice::from_raw_parts(data, len) } };
+    let bytes = if len == 0 {
+        &[][..]
+    } else {
+        unsafe { std::slice::from_raw_parts(data, len) }
+    };
     let shared = shared(userdata);
     if let Some(query) = shared.open_query() {
         // The shadow never answers a clipboard read.
-        if matches!(query.kind, QueryKind::ClipboardRead | QueryKind::KittyClipboardRead) {
+        if matches!(
+            query.kind,
+            QueryKind::ClipboardRead | QueryKind::KittyClipboardRead
+        ) {
             return;
         }
         if query.shadow_reply.len() + bytes.len() > MAX_SHADOW_REPLY_BYTES {
@@ -336,7 +384,12 @@ pub(crate) unsafe extern "C" fn on_size(
     unsafe {
         sys::ghostty_terminal_get(terminal, sys::data::COLS, (&mut cols as *mut u16).cast());
         sys::ghostty_terminal_get(terminal, sys::data::ROWS, (&mut rows as *mut u16).cast());
-        *out = sys::SizeReportSize { rows, columns: cols, cell_width, cell_height };
+        *out = sys::SizeReportSize {
+            rows,
+            columns: cols,
+            cell_width,
+            cell_height,
+        };
     }
     true
 }

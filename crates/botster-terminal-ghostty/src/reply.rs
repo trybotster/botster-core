@@ -20,7 +20,10 @@ pub enum ReplyError {
 pub const MAX_REPLY_BYTES: usize = 1 << 20;
 
 fn string(bytes: &[u8]) -> sys::GString {
-    sys::GString { ptr: bytes.as_ptr(), len: bytes.len() }
+    sys::GString {
+        ptr: bytes.as_ptr(),
+        len: bytes.len(),
+    }
 }
 
 fn blank(kind: i32) -> sys::QueryReply {
@@ -73,7 +76,7 @@ fn position(value: u32) -> Result<u16, ReplyError> {
 /// Decode standard base64 with padding. Anything else is `Invalid`.
 pub(crate) fn base64_decode(text: &str) -> Result<Vec<u8>, ReplyError> {
     let bytes = text.as_bytes();
-    if bytes.len() % 4 != 0 {
+    if !bytes.len().is_multiple_of(4) {
         return Err(ReplyError::Invalid);
     }
     let value = |b: u8| -> Result<u32, ReplyError> {
@@ -167,7 +170,10 @@ impl Query {
                 r.text = string(text.as_bytes());
                 run(&r)
             }
-            QueryReply::Clipboard { selection, data_base64 } => {
+            QueryReply::Clipboard {
+                selection,
+                data_base64,
+            } => {
                 if self.kind != QueryKind::ClipboardRead {
                     return Err(ReplyError::Mismatch);
                 }
@@ -195,7 +201,9 @@ impl Query {
                     ColorScheme::Light => sys::COLOR_SCHEME_LIGHT,
                 };
                 // SAFETY: only the buffer arguments are pointers, and `fill` gives valid ones.
-                fill(|buf, len, out| unsafe { sys::ghostty_color_scheme_report_encode(scheme, buf, len, out) })
+                fill(|buf, len, out| unsafe {
+                    sys::ghostty_color_scheme_report_encode(scheme, buf, len, out)
+                })
             }
         }
     }

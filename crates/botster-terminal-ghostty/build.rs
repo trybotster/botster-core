@@ -36,7 +36,14 @@ fn main() {
     println!("cargo:rerun-if-env-changed=BOTSTER_ZIG");
     println!("cargo:rerun-if-env-changed=BOTSTER_ZIG_PACKAGES");
     println!("cargo:rerun-if-env-changed=BOTSTER_ZIG_NETWORK_DENIED");
-    for path in ["build.zig", "build.zig.zon", "src", "include", "pkg", "LICENSE"] {
+    for path in [
+        "build.zig",
+        "build.zig.zon",
+        "src",
+        "include",
+        "pkg",
+        "LICENSE",
+    ] {
         println!("cargo:rerun-if-changed=vendor/ghostty/{path}");
     }
 
@@ -54,9 +61,16 @@ fn main() {
     run_zig_build(&zig, &ghostty, &out_dir, &global_cache, &prefix);
 
     let library = prefix.join("lib/libghostty-vt.a");
-    assert!(library.exists(), "zig build did not install {}", library.display());
+    assert!(
+        library.exists(),
+        "zig build did not install {}",
+        library.display()
+    );
     // The header directory, for a consumer that wants the C headers of the same build.
-    println!("cargo:rustc-link-search=native={}", prefix.join("lib").display());
+    println!(
+        "cargo:rustc-link-search=native={}",
+        prefix.join("lib").display()
+    );
     println!("cargo:rustc-link-lib=static=ghostty-vt");
     println!("cargo:include={}", ghostty.join("include").display());
 }
@@ -125,12 +139,19 @@ fn stage_packages(global_cache: &Path) {
 }
 
 fn resolve_zig(ghostty: &Path) -> PathBuf {
-    let program = env::var_os("BOTSTER_ZIG").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("zig"));
+    let program = env::var_os("BOTSTER_ZIG")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("zig"));
     let output = Command::new(&program)
         .arg("version")
         .current_dir(ghostty)
         .output()
-        .unwrap_or_else(|e| panic!("cannot run Zig ({}): {e}. Set BOTSTER_ZIG to a Zig {REQUIRED_ZIG_VERSION}.", program.display()));
+        .unwrap_or_else(|e| {
+            panic!(
+                "cannot run Zig ({}): {e}. Set BOTSTER_ZIG to a Zig {REQUIRED_ZIG_VERSION}.",
+                program.display()
+            )
+        });
     let version = String::from_utf8_lossy(&output.stdout).trim().to_owned();
     assert!(
         output.status.success() && version == REQUIRED_ZIG_VERSION,
@@ -154,7 +175,9 @@ fn network_denial() -> Vec<String> {
         ];
     }
     if cfg!(target_os = "linux") {
-        let probe = Command::new("unshare").args(["--net", "--map-root-user", "true"]).status();
+        let probe = Command::new("unshare")
+            .args(["--net", "--map-root-user", "true"])
+            .status();
         if probe.is_ok_and(|s| s.success()) {
             return vec!["unshare".into(), "--net".into(), "--map-root-user".into()];
         }
@@ -187,6 +210,11 @@ fn run_zig_build(zig: &Path, ghostty: &Path, out_dir: &Path, global_cache: &Path
         .arg(prefix)
         .current_dir(ghostty);
     println!("cargo:warning=building libghostty-vt with Zig {REQUIRED_ZIG_VERSION} and no network");
-    let status = command.status().unwrap_or_else(|e| panic!("cannot run the Zig build: {e}"));
-    assert!(status.success(), "the libghostty-vt build failed ({status})");
+    let status = command
+        .status()
+        .unwrap_or_else(|e| panic!("cannot run the Zig build: {e}"));
+    assert!(
+        status.success(),
+        "the libghostty-vt build failed ({status})"
+    );
 }

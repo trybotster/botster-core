@@ -67,9 +67,18 @@ pub(crate) fn mode_name(value: u16, ansi: bool) -> String {
 }
 
 pub(crate) fn read_mode(terminal: sys::Terminal, value: u16, ansi: bool) -> bool {
-    let mut config = sys::ModeConfig { mode: sys::mode_new(value, ansi), value: false };
+    let mut config = sys::ModeConfig {
+        mode: sys::mode_new(value, ansi),
+        value: false,
+    };
     // SAFETY: the terminal is live, and `config` is the in/out struct of the MODE key with its mode set.
-    let code = unsafe { sys::ghostty_terminal_get(terminal, sys::data::MODE, (&mut config as *mut sys::ModeConfig).cast()) };
+    let code = unsafe {
+        sys::ghostty_terminal_get(
+            terminal,
+            sys::data::MODE,
+            (&mut config as *mut sys::ModeConfig).cast(),
+        )
+    };
     debug_assert_eq!(code, sys::SUCCESS);
     code == sys::SUCCESS && config.value
 }
@@ -93,7 +102,13 @@ fn get_bool(terminal: sys::Terminal, key: i32) -> bool {
 pub(crate) fn mode_flags(terminal: sys::Terminal) -> ModeFlags {
     let mut kitty: u8 = 0;
     // SAFETY: the terminal is live, and KITTY_KEYBOARD_FLAGS writes a `u8`.
-    let code = unsafe { sys::ghostty_terminal_get(terminal, sys::data::KITTY_KEYBOARD_FLAGS, (&mut kitty as *mut u8).cast()) };
+    let code = unsafe {
+        sys::ghostty_terminal_get(
+            terminal,
+            sys::data::KITTY_KEYBOARD_FLAGS,
+            (&mut kitty as *mut u8).cast(),
+        )
+    };
     debug_assert_eq!(code, sys::SUCCESS);
 
     let mouse_tracking = match get_i32(terminal, sys::data::MOUSE_EVENT) {

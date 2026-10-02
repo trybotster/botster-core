@@ -165,7 +165,8 @@ pub struct ClipboardWriteReply {
     pub remember: bool,
 }
 
-pub type ClipboardWriteReplyFn = unsafe extern "C" fn(*const ClipboardWrite, *const ClipboardWriteReply);
+pub type ClipboardWriteReplyFn =
+    unsafe extern "C" fn(*const ClipboardWrite, *const ClipboardWriteReply);
 
 /// `GhosttyClipboardWrite`.
 #[repr(C)]
@@ -231,7 +232,8 @@ pub type WritePtyFn = unsafe extern "C" fn(Terminal, *mut c_void, *const u8, usi
 pub type BellFn = unsafe extern "C" fn(Terminal, *mut c_void);
 pub type TitleChangedFn = unsafe extern "C" fn(Terminal, *mut c_void);
 pub type PwdChangedFn = unsafe extern "C" fn(Terminal, *mut c_void);
-pub type DesktopNotificationFn = unsafe extern "C" fn(Terminal, *mut c_void, *const DesktopNotification);
+pub type DesktopNotificationFn =
+    unsafe extern "C" fn(Terminal, *mut c_void, *const DesktopNotification);
 pub type SemanticPromptFn = unsafe extern "C" fn(Terminal, *mut c_void, *const SemanticPrompt);
 pub type ClipboardWriteFn = unsafe extern "C" fn(Terminal, *mut c_void, *const ClipboardWrite);
 
@@ -267,7 +269,12 @@ pub struct Point {
 
 impl Point {
     pub fn new(tag: i32, x: u16, y: u32) -> Self {
-        Self { tag, value: PointValue { coordinate: PointCoordinate { x, y } } }
+        Self {
+            tag,
+            value: PointValue {
+                coordinate: PointCoordinate { x, y },
+            },
+        }
     }
 }
 
@@ -283,7 +290,12 @@ pub struct GridRef {
 
 impl GridRef {
     pub fn empty() -> Self {
-        Self { size: std::mem::size_of::<Self>(), node: std::ptr::null_mut(), x: 0, y: 0 }
+        Self {
+            size: std::mem::size_of::<Self>(),
+            node: std::ptr::null_mut(),
+            x: 0,
+            y: 0,
+        }
     }
 }
 
@@ -481,7 +493,10 @@ extern "C" {
     pub fn ghostty_key_event_set_shifted_key(event: KeyEvent, codepoint: u32);
     pub fn ghostty_key_event_set_base_layout_key(event: KeyEvent, codepoint: u32);
 
-    pub fn ghostty_mouse_encoder_new(allocator: *const c_void, encoder: *mut MouseEncoder) -> Result;
+    pub fn ghostty_mouse_encoder_new(
+        allocator: *const c_void,
+        encoder: *mut MouseEncoder,
+    ) -> Result;
     pub fn ghostty_mouse_encoder_free(encoder: MouseEncoder);
     pub fn ghostty_mouse_encoder_setopt(encoder: MouseEncoder, option: i32, value: *const c_void);
     pub fn ghostty_mouse_encoder_setopt_from_terminal(encoder: MouseEncoder, terminal: Terminal);
@@ -509,10 +524,20 @@ extern "C" {
         out_len: usize,
         out_written: *mut usize,
     ) -> Result;
-    pub fn ghostty_focus_encode(event: i32, buf: *mut u8, buf_len: usize, out_written: *mut usize) -> Result;
+    pub fn ghostty_focus_encode(
+        event: i32,
+        buf: *mut u8,
+        buf_len: usize,
+        out_written: *mut usize,
+    ) -> Result;
     pub fn ghostty_paste_frame(bracketed: bool, out: *mut PasteFrame);
 
-    pub fn ghostty_terminal_new(allocator: *const c_void, terminal: *mut Terminal, cols: u16, rows: u16) -> Result;
+    pub fn ghostty_terminal_new(
+        allocator: *const c_void,
+        terminal: *mut Terminal,
+        cols: u16,
+        rows: u16,
+    ) -> Result;
     pub fn ghostty_terminal_free(terminal: Terminal);
     pub fn ghostty_terminal_resize(
         terminal: Terminal,
@@ -530,7 +555,11 @@ extern "C" {
     ) -> Result;
     pub fn ghostty_terminal_get(terminal: Terminal, data: i32, out: *mut c_void) -> Result;
     pub fn ghostty_terminal_set(terminal: Terminal, option: i32, value: *const c_void) -> Result;
-    pub fn ghostty_terminal_grid_ref(terminal: Terminal, point: Point, out_ref: *mut GridRef) -> Result;
+    pub fn ghostty_terminal_grid_ref(
+        terminal: Terminal,
+        point: Point,
+        out_ref: *mut GridRef,
+    ) -> Result;
     pub fn ghostty_grid_ref_cell(grid_ref: *const GridRef, out_cell: *mut Cell) -> Result;
     pub fn ghostty_grid_ref_graphemes(
         grid_ref: *const GridRef,
@@ -588,8 +617,18 @@ pub const COLOR_SCHEME_LIGHT: i32 = 0;
 pub const COLOR_SCHEME_DARK: i32 = 1;
 
 extern "C" {
-    pub fn ghostty_query_reply_encode(reply: *const QueryReply, buf: *mut u8, buf_len: usize, out_written: *mut usize) -> Result;
-    pub fn ghostty_color_scheme_report_encode(scheme: i32, buf: *mut u8, buf_len: usize, out_written: *mut usize) -> Result;
+    pub fn ghostty_query_reply_encode(
+        reply: *const QueryReply,
+        buf: *mut u8,
+        buf_len: usize,
+        out_written: *mut usize,
+    ) -> Result;
+    pub fn ghostty_color_scheme_report_encode(
+        scheme: i32,
+        buf: *mut u8,
+        buf_len: usize,
+        out_written: *mut usize,
+    ) -> Result;
 }
 
 pub mod snapshot_opt {
@@ -600,11 +639,28 @@ pub mod snapshot_opt {
 pub type SnapshotDecoder = *mut c_void;
 
 extern "C" {
-    pub fn ghostty_snapshot_encode_buf(terminal: Terminal, buf: *mut u8, buf_len: usize, out_written: *mut usize) -> Result;
-    pub fn ghostty_snapshot_decoder_new_buf(allocator: *const c_void, decoder: *mut SnapshotDecoder, ptr: *const u8, len: usize) -> Result;
-    pub fn ghostty_snapshot_decoder_set(decoder: SnapshotDecoder, option: i32, value: *const c_void) -> Result;
+    pub fn ghostty_snapshot_encode_buf(
+        terminal: Terminal,
+        buf: *mut u8,
+        buf_len: usize,
+        out_written: *mut usize,
+    ) -> Result;
+    pub fn ghostty_snapshot_decoder_new_buf(
+        allocator: *const c_void,
+        decoder: *mut SnapshotDecoder,
+        ptr: *const u8,
+        len: usize,
+    ) -> Result;
+    pub fn ghostty_snapshot_decoder_set(
+        decoder: SnapshotDecoder,
+        option: i32,
+        value: *const c_void,
+    ) -> Result;
     pub fn ghostty_snapshot_decoder_free(decoder: SnapshotDecoder);
-    pub fn ghostty_snapshot_decoder_decode(decoder: SnapshotDecoder, terminal: *mut Terminal) -> Result;
+    pub fn ghostty_snapshot_decoder_decode(
+        decoder: SnapshotDecoder,
+        terminal: *mut Terminal,
+    ) -> Result;
     pub fn ghostty_terminfo_name(out: *mut GString);
     pub fn ghostty_terminfo_source(out: *mut GString);
 }

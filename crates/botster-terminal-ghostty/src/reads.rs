@@ -41,7 +41,9 @@ pub(crate) fn cursor(terminal: sys::Terminal) -> CursorCell {
 fn grid_ref(terminal: sys::Terminal, tag: i32, x: u16, y: u32) -> Option<sys::GridRef> {
     let mut grid_ref = sys::GridRef::empty();
     // SAFETY: the terminal is live and `grid_ref` is a valid out pointer with its size set.
-    let code = unsafe { sys::ghostty_terminal_grid_ref(terminal, sys::Point::new(tag, x, y), &mut grid_ref) };
+    let code = unsafe {
+        sys::ghostty_terminal_grid_ref(terminal, sys::Point::new(tag, x, y), &mut grid_ref)
+    };
     (code == sys::SUCCESS).then_some(grid_ref)
 }
 
@@ -59,9 +61,13 @@ pub(crate) fn cell_text(terminal: sys::Terminal, x: u16, row: u16) -> Option<Str
     let mut has_text = false;
     // SAFETY: `cell` is a value that the library returned, and each key writes the type that is passed.
     unsafe {
-        if sys::ghostty_cell_get(cell, sys::cell_data::WIDE, (&mut wide as *mut i32).cast()) != sys::SUCCESS
-            || sys::ghostty_cell_get(cell, sys::cell_data::HAS_TEXT, (&mut has_text as *mut bool).cast())
-                != sys::SUCCESS
+        if sys::ghostty_cell_get(cell, sys::cell_data::WIDE, (&mut wide as *mut i32).cast())
+            != sys::SUCCESS
+            || sys::ghostty_cell_get(
+                cell,
+                sys::cell_data::HAS_TEXT,
+                (&mut has_text as *mut bool).cast(),
+            ) != sys::SUCCESS
         {
             return None;
         }
@@ -76,28 +82,45 @@ pub(crate) fn cell_text(terminal: sys::Terminal, x: u16, row: u16) -> Option<Str
     // A grapheme cluster has a handful of codepoints. Ask for the length first.
     let mut len: usize = 0;
     // SAFETY: a null buffer with length 0 asks for the length.
-    let code = unsafe { sys::ghostty_grid_ref_graphemes(&reference, std::ptr::null_mut(), 0, &mut len) };
+    let code =
+        unsafe { sys::ghostty_grid_ref_graphemes(&reference, std::ptr::null_mut(), 0, &mut len) };
     if code != sys::SUCCESS && code != sys::OUT_OF_SPACE {
         return None;
     }
     let mut codepoints = vec![0u32; len];
     // SAFETY: the buffer holds `len` codepoints.
-    if unsafe { sys::ghostty_grid_ref_graphemes(&reference, codepoints.as_mut_ptr(), len, &mut len) } != sys::SUCCESS {
+    if unsafe {
+        sys::ghostty_grid_ref_graphemes(&reference, codepoints.as_mut_ptr(), len, &mut len)
+    } != sys::SUCCESS
+    {
         return None;
     }
     Some(codepoints.into_iter().filter_map(char::from_u32).collect())
 }
 
 /// The plain text of the screen. `history` asks for the scrollback in front of the visible screen.
-pub(crate) fn screen_text(terminal: sys::Terminal, history: bool, cols: u16, rows: u16) -> Option<String> {
+pub(crate) fn screen_text(
+    terminal: sys::Terminal,
+    history: bool,
+    cols: u16,
+    rows: u16,
+) -> Option<String> {
     let (tag, last_row) = if history {
-        (sys::point_tag::SCREEN, get::<usize>(terminal, sys::data::TOTAL_ROWS).saturating_sub(1) as u32)
+        (
+            sys::point_tag::SCREEN,
+            get::<usize>(terminal, sys::data::TOTAL_ROWS).saturating_sub(1) as u32,
+        )
     } else {
         (sys::point_tag::ACTIVE, u32::from(rows).saturating_sub(1))
     };
     let start = grid_ref(terminal, tag, 0, 0)?;
     let end = grid_ref(terminal, tag, cols.saturating_sub(1), last_row)?;
-    let selection = sys::Selection { size: std::mem::size_of::<sys::Selection>(), start, end, rectangle: false };
+    let selection = sys::Selection {
+        size: std::mem::size_of::<sys::Selection>(),
+        start,
+        end,
+        rectangle: false,
+    };
 
     let options = sys::FormatterTerminalOptions {
         size: std::mem::size_of::<sys::FormatterTerminalOptions>(),
@@ -128,18 +151,25 @@ pub(crate) fn screen_text(terminal: sys::Terminal, history: bool, cols: u16, row
     let mut formatter: sys::Formatter = std::ptr::null_mut();
     // SAFETY: the terminal is live; `options` and the selection it points to are valid for the call, and the library
     // copies them. A successful call stores a formatter that is freed below.
-    if unsafe { sys::ghostty_formatter_terminal_new(std::ptr::null(), &mut formatter, terminal, options) } != sys::SUCCESS {
+    if unsafe {
+        sys::ghostty_formatter_terminal_new(std::ptr::null(), &mut formatter, terminal, options)
+    } != sys::SUCCESS
+    {
         return None;
     }
 
     let mut needed: usize = 0;
     // SAFETY: a null buffer asks for the size, which the library stores in `needed`.
-    let probe = unsafe { sys::ghostty_formatter_format_buf(formatter, std::ptr::null_mut(), 0, &mut needed) };
+    let probe = unsafe {
+        sys::ghostty_formatter_format_buf(formatter, std::ptr::null_mut(), 0, &mut needed)
+    };
     let text = if probe == sys::SUCCESS || probe == sys::OUT_OF_SPACE {
         let mut buffer = vec![0u8; needed];
         let mut written: usize = 0;
         // SAFETY: the buffer holds `needed` bytes.
-        let code = unsafe { sys::ghostty_formatter_format_buf(formatter, buffer.as_mut_ptr(), needed, &mut written) };
+        let code = unsafe {
+            sys::ghostty_formatter_format_buf(formatter, buffer.as_mut_ptr(), needed, &mut written)
+        };
         (code == sys::SUCCESS).then(|| {
             buffer.truncate(written);
             String::from_utf8_lossy(&buffer).into_owned()

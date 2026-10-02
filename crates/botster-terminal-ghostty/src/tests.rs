@@ -7,7 +7,11 @@ use botster_route_codec::prelude::{ModeFlags, MouseEncoding, MouseTracking};
 use super::*;
 
 fn size(cols: u32, rows: u32) -> Size {
-    Size { rows, cols, cell_px: None }
+    Size {
+        rows,
+        cols,
+        cell_px: None,
+    }
 }
 
 fn terminal() -> Terminal {
@@ -58,7 +62,10 @@ fn osc_0_and_osc_2_set_the_title_and_osc_1_does_not() {
     let title = "my title";
     for number in [0, 2] {
         let sequence = format!("\x1b]{number};{title}\x07");
-        assert_eq!(events_of(sequence.as_bytes()), vec![TerminalEvent::Title(title.to_owned())]);
+        assert_eq!(
+            events_of(sequence.as_bytes()),
+            vec![TerminalEvent::Title(title.to_owned())]
+        );
     }
     // E2-1: OSC 1 gives no TitleChanged, and the title stays empty.
     let mut terminal = terminal();
@@ -130,15 +137,31 @@ fn osc_9_and_osc_777_are_notifications_with_their_source() {
 
 #[test]
 fn osc_133_marks_and_the_exit_code() {
-    let events = events_of(b"\x1b]133;A\x07\x1b]133;B\x07\x1b]133;C\x07\x1b]133;D;3\x07\x1b]133;D\x07");
+    let events =
+        events_of(b"\x1b]133;A\x07\x1b]133;B\x07\x1b]133;C\x07\x1b]133;D;3\x07\x1b]133;D\x07");
     assert_eq!(
         events,
         vec![
-            TerminalEvent::PromptMark { mark: PromptMarkKind::PromptStart, exit_code: None },
-            TerminalEvent::PromptMark { mark: PromptMarkKind::CommandStart, exit_code: None },
-            TerminalEvent::PromptMark { mark: PromptMarkKind::CommandExecuted, exit_code: None },
-            TerminalEvent::PromptMark { mark: PromptMarkKind::CommandFinished, exit_code: Some(3) },
-            TerminalEvent::PromptMark { mark: PromptMarkKind::CommandFinished, exit_code: None },
+            TerminalEvent::PromptMark {
+                mark: PromptMarkKind::PromptStart,
+                exit_code: None
+            },
+            TerminalEvent::PromptMark {
+                mark: PromptMarkKind::CommandStart,
+                exit_code: None
+            },
+            TerminalEvent::PromptMark {
+                mark: PromptMarkKind::CommandExecuted,
+                exit_code: None
+            },
+            TerminalEvent::PromptMark {
+                mark: PromptMarkKind::CommandFinished,
+                exit_code: Some(3)
+            },
+            TerminalEvent::PromptMark {
+                mark: PromptMarkKind::CommandFinished,
+                exit_code: None
+            },
         ]
     );
 }
@@ -153,7 +176,10 @@ fn osc_52_writes_report_the_selection_as_written_and_the_decoded_bytes() {
             let sequence = format!("\x1b]52;{selection};aGk={terminator}");
             assert_eq!(
                 events_of(sequence.as_bytes()),
-                vec![TerminalEvent::ClipboardWrite { selection: selection.to_owned(), bytes: b"hi".to_vec() }],
+                vec![TerminalEvent::ClipboardWrite {
+                    selection: selection.to_owned(),
+                    bytes: b"hi".to_vec()
+                }],
                 "selection {selection:?}"
             );
         }
@@ -161,7 +187,10 @@ fn osc_52_writes_report_the_selection_as_written_and_the_decoded_bytes() {
     // A program that leaves the selection out writes `s0`.
     assert_eq!(
         events_of(b"\x1b]52;;aGk=\x07"),
-        vec![TerminalEvent::ClipboardWrite { selection: "s0".to_owned(), bytes: b"hi".to_vec() }]
+        vec![TerminalEvent::ClipboardWrite {
+            selection: "s0".to_owned(),
+            bytes: b"hi".to_vec()
+        }]
     );
 }
 
@@ -194,7 +223,12 @@ fn each_normative_mode_follows_its_sequence() {
     assert!(modes.alt_screen);
 
     terminal.vt_write(b"\x1b[?2004l\x1b[?1l\x1b[?66l\x1b[?1004l\x1b[?25h\x1b[?1049l");
-    assert_eq!(terminal.modes(), ModeFlags { ..terminal_default() });
+    assert_eq!(
+        terminal.modes(),
+        ModeFlags {
+            ..terminal_default()
+        }
+    );
 }
 
 fn terminal_default() -> ModeFlags {
@@ -281,18 +315,30 @@ fn the_mode_lists_cover_every_mode_of_the_pinned_header() {
     // Every `ghostty_mode_new(n, ansi)` of modes.h is either normative or in other_modes.
     let header = include_str!("../vendor/ghostty/include/ghostty/vt/modes.h");
     let mut in_header = BTreeSet::new();
-    for line in header.lines().filter(|l| l.starts_with("#define GHOSTTY_MODE_")) {
-        let Some(start) = line.find("ghostty_mode_new(") else { continue };
+    for line in header
+        .lines()
+        .filter(|l| l.starts_with("#define GHOSTTY_MODE_"))
+    {
+        let Some(start) = line.find("ghostty_mode_new(") else {
+            continue;
+        };
         let args = &line[start + "ghostty_mode_new(".len()..];
         let args = &args[..args.find(')').unwrap()];
         let (value, ansi) = args.split_once(',').unwrap();
         in_header.insert((value.trim().parse::<u16>().unwrap(), ansi.trim() == "true"));
     }
-    assert!(in_header.len() > 30, "the header parse found {} modes", in_header.len());
+    assert!(
+        in_header.len() > 30,
+        "the header parse found {} modes",
+        in_header.len()
+    );
 
     let mut covered: BTreeSet<(u16, bool)> = modes::OTHER_MODES.iter().copied().collect();
     covered.extend(modes::normative_dec().iter().map(|&value| (value, false)));
-    assert_eq!(in_header, covered, "a mode of the pinned header is in neither list, or a listed mode is not in it");
+    assert_eq!(
+        in_header, covered,
+        "a mode of the pinned header is in neither list, or a listed mode is not in it"
+    );
 }
 
 // ---- the event buffer is bounded and drops loudly (EV-2) ----
@@ -320,7 +366,11 @@ fn a_full_buffer_drops_events_and_says_which_kinds() {
 #[test]
 fn a_size_the_library_cannot_hold_is_refused() {
     for (cols, rows) in [(0, 24), (80, 0), (65_536, 24), (80, 65_536)] {
-        assert_eq!(Terminal::new(&size(cols, rows), History::On).err(), Some(Error::InvalidValue), "{cols}x{rows}");
+        assert_eq!(
+            Terminal::new(&size(cols, rows), History::On).err(),
+            Some(Error::InvalidValue),
+            "{cols}x{rows}"
+        );
     }
     let mut terminal = terminal();
     assert_eq!(terminal.resize(&size(0, 5)), Err(Error::InvalidValue));
@@ -330,10 +380,26 @@ fn a_size_the_library_cannot_hold_is_refused() {
 
 #[test]
 fn a_cell_pixel_size_is_taken_when_given() {
-    let with_px = Size { rows: 24, cols: 80, cell_px: Some(CellPx { width: 9, height: 18 }) };
+    let with_px = Size {
+        rows: 24,
+        cols: 80,
+        cell_px: Some(CellPx {
+            width: 9,
+            height: 18,
+        }),
+    };
     let mut terminal = Terminal::new(&with_px, History::On).unwrap();
     assert_eq!((terminal.cols(), terminal.rows()), (80, 24));
-    terminal.resize(&Size { rows: 30, cols: 100, cell_px: Some(CellPx { width: 10, height: 20 }) }).unwrap();
+    terminal
+        .resize(&Size {
+            rows: 30,
+            cols: 100,
+            cell_px: Some(CellPx {
+                width: 10,
+                height: 20,
+            }),
+        })
+        .unwrap();
     assert_eq!((terminal.cols(), terminal.rows()), (100, 30));
 }
 
@@ -374,14 +440,35 @@ fn history_adds_the_scrollback_and_off_says_that_it_is_unavailable() {
 #[test]
 fn the_cursor_is_in_zero_based_cells_and_a_wide_character_takes_two() {
     let mut terminal = terminal();
-    assert_eq!(terminal.cursor(), CursorCell { row: 0, col: 0, visible: true });
+    assert_eq!(
+        terminal.cursor(),
+        CursorCell {
+            row: 0,
+            col: 0,
+            visible: true
+        }
+    );
 
     terminal.vt_write(b"abc");
-    assert_eq!(terminal.cursor(), CursorCell { row: 0, col: 3, visible: true });
+    assert_eq!(
+        terminal.cursor(),
+        CursorCell {
+            row: 0,
+            col: 3,
+            visible: true
+        }
+    );
 
     terminal.vt_write("\r\n日本".as_bytes());
     // Two wide characters are four cells.
-    assert_eq!(terminal.cursor(), CursorCell { row: 1, col: 4, visible: true });
+    assert_eq!(
+        terminal.cursor(),
+        CursorCell {
+            row: 1,
+            col: 4,
+            visible: true
+        }
+    );
 
     terminal.vt_write(b"\x1b[?25l");
     assert!(!terminal.cursor().visible);

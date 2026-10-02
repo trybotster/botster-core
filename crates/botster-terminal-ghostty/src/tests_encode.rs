@@ -4,13 +4,18 @@
 
 use botster_core_contract::prelude::{CellPx, KeyInput, MouseInput, Size, UnsupportedWhat};
 use botster_route_codec::prelude::{
-    Key, KeyEvent, ModeFlags, Modifier, MouseAction, MouseButton, MouseEncoding, MouseTracking, NamedKey,
+    Key, KeyEvent, ModeFlags, Modifier, MouseAction, MouseButton, MouseEncoding, MouseTracking,
+    NamedKey,
 };
 
 use super::*;
 
 fn size(cols: u32, rows: u32) -> Size {
-    Size { rows, cols, cell_px: None }
+    Size {
+        rows,
+        cols,
+        cell_px: None,
+    }
 }
 
 fn terminal() -> Terminal {
@@ -18,7 +23,15 @@ fn terminal() -> Terminal {
 }
 
 fn key(key: Key, mods: &[Modifier]) -> KeyInput {
-    KeyInput { key, shifted_key: None, base_layout_key: None, mods: mods.to_vec(), event: KeyEvent::Press, text: None, repeat: None }
+    KeyInput {
+        key,
+        shifted_key: None,
+        base_layout_key: None,
+        mods: mods.to_vec(),
+        event: KeyEvent::Press,
+        text: None,
+        repeat: None,
+    }
 }
 
 fn named(name: &str, mods: &[Modifier]) -> KeyInput {
@@ -30,7 +43,16 @@ fn character(c: char, mods: &[Modifier]) -> KeyInput {
 }
 
 fn mouse(action: MouseAction, button: MouseButton, col: u32, row: u32) -> MouseInput {
-    MouseInput { action, button, row, col, x: None, y: None, mods: vec![], notches: None }
+    MouseInput {
+        action,
+        button,
+        row,
+        col,
+        x: None,
+        y: None,
+        mods: vec![],
+        notches: None,
+    }
 }
 
 /// Modes after a terminal received `bytes`.
@@ -54,7 +76,11 @@ fn the_terminal_and_the_explicit_modes_give_the_same_key_bytes() {
         named("kp_5", &[]),
         character('a', &[Modifier::Ctrl]),
         character('a', &[Modifier::Alt]),
-        { let mut k = character('a', &[Modifier::Shift]); k.text = Some("A".into()); k },
+        {
+            let mut k = character('a', &[Modifier::Shift]);
+            k.text = Some("A".into());
+            k
+        },
     ];
     for setup in setups {
         let terminal = terminal_with(setup);
@@ -75,18 +101,27 @@ fn modes_change_the_bytes_that_the_library_writes() {
     let application = terminal_with(b"\x1b[?1h");
     let up = named("arrow_up", &[]);
     // Application cursor keys change the cursor key sequence.
-    assert_ne!(plain.encode_key(&up).unwrap(), application.encode_key(&up).unwrap());
+    assert_ne!(
+        plain.encode_key(&up).unwrap(),
+        application.encode_key(&up).unwrap()
+    );
 
     // Kitty flags change a key that they disambiguate: escape.
     let kitty = terminal_with(b"\x1b[>1u");
     let escape = named("escape", &[]);
-    assert_ne!(plain.encode_key(&escape).unwrap(), kitty.encode_key(&escape).unwrap());
+    assert_ne!(
+        plain.encode_key(&escape).unwrap(),
+        kitty.encode_key(&escape).unwrap()
+    );
 
     // The keypad in application mode changes the keypad enter key, once mode 1035 (ignore keypad with NumLock, on by
     // default) is off.
     let keypad = terminal_with(b"\x1b[?1035l\x1b[?66h");
     let kp = named("kp_enter", &[]);
-    assert_ne!(plain.encode_key(&kp).unwrap(), keypad.encode_key(&kp).unwrap());
+    assert_ne!(
+        plain.encode_key(&kp).unwrap(),
+        keypad.encode_key(&kp).unwrap()
+    );
 }
 
 // ---- keys (IN-9, 5.1A) ----
@@ -103,7 +138,10 @@ fn a_named_key_outside_the_set_is_unsupported() {
 #[test]
 fn every_named_key_of_the_contract_has_a_library_key() {
     for name in botster_route_codec::prelude::named_key_names() {
-        assert!(encode::named_key(&name).is_some(), "no library key for {name}");
+        assert!(
+            encode::named_key(&name).is_some(),
+            "no library key for {name}"
+        );
     }
     assert_eq!(encode::named_key("f0"), None);
     assert_eq!(encode::named_key("f36"), None);
@@ -116,15 +154,28 @@ fn the_named_key_table_matches_the_header_of_the_pinned_ghostty() {
     // The header lists `GHOSTTY_KEY_*` in order from 0, with explicit values from time to time.
     let header = include_str!("../vendor/ghostty/include/ghostty/vt/key/event.h");
     let start = header.find("GHOSTTY_KEY_UNIDENTIFIED").unwrap();
-    let body = &header[start..header[start..].find("} GhosttyKey;").map(|i| start + i).unwrap()];
+    let body = &header[start
+        ..header[start..]
+            .find("} GhosttyKey;")
+            .map(|i| start + i)
+            .unwrap()];
     let mut values = BTreeMap::new();
     let mut next = 0i32;
     for token in body.split(',') {
         let token = token.trim();
-        let Some(name) = token.split_whitespace().find(|word| word.starts_with("GHOSTTY_KEY_")) else { continue };
+        let Some(name) = token
+            .split_whitespace()
+            .find(|word| word.starts_with("GHOSTTY_KEY_"))
+        else {
+            continue;
+        };
         if let Some((_, value)) = token.split_once('=') {
             // `GHOSTTY_KEY_MAX_VALUE = GHOSTTY_ENUM_MAX_VALUE` is not a number.
-            if let Some(number) = value.split_whitespace().next().and_then(|word| word.parse().ok()) {
+            if let Some(number) = value
+                .split_whitespace()
+                .next()
+                .and_then(|word| word.parse().ok())
+            {
                 next = number;
             }
         }
@@ -134,7 +185,11 @@ fn the_named_key_table_matches_the_header_of_the_pinned_ghostty() {
 
     let expect = |name: &str, header_name: &str| {
         let key = encode::named_key(name).unwrap_or_else(|| panic!("no key for {name}"));
-        assert_eq!(values.get(header_name), Some(&key), "{name} is {header_name}");
+        assert_eq!(
+            values.get(header_name),
+            Some(&key),
+            "{name} is {header_name}"
+        );
     };
     for (name, key) in encode::NAMED_KEYS {
         let header_name = match *name {
@@ -157,7 +212,11 @@ fn the_named_key_table_matches_the_header_of_the_pinned_ghostty() {
             other if other.starts_with("kp_") => format!("GHOSTTY_KEY_NUMPAD_{}", &other[3..]),
             other => format!("GHOSTTY_KEY_{}", other.to_uppercase()),
         };
-        assert_eq!(values.get(&header_name), Some(key), "{name} is {header_name}");
+        assert_eq!(
+            values.get(&header_name),
+            Some(key),
+            "{name} is {header_name}"
+        );
     }
     for number in 1..=35 {
         expect(&format!("f{number}"), &format!("GHOSTTY_KEY_F{number}"));
@@ -169,7 +228,9 @@ fn ctrl_and_a_character_is_the_control_code_of_the_base_character() {
     let terminal = terminal();
     let mut control_codes = 0;
     for letter in 'a'..='z' {
-        let bytes = terminal.encode_key(&character(letter, &[Modifier::Ctrl])).unwrap();
+        let bytes = terminal
+            .encode_key(&character(letter, &[Modifier::Ctrl]))
+            .unwrap();
         if bytes == vec![(letter as u8) & 0x1f] {
             // The C0 control code of a letter is the letter with the top bits cleared.
             control_codes += 1;
@@ -180,7 +241,10 @@ fn ctrl_and_a_character_is_the_control_code_of_the_base_character() {
             assert_eq!(*bytes.last().unwrap(), b'u', "ctrl+{letter}");
         }
     }
-    assert!(control_codes >= 20, "{control_codes} letters gave their control code");
+    assert!(
+        control_codes >= 20,
+        "{control_codes} letters gave their control code"
+    );
 }
 
 #[test]
@@ -188,7 +252,9 @@ fn alt_and_a_character_prefixes_the_base_character_when_the_mode_asks_for_it() {
     // DEC mode 1036 makes Alt send an escape prefix (it is in other_modes). Core's Alt is the Alt key, on every
     // operating system, so the macOS option setting must not hide the prefix.
     let terminal = terminal_with(b"\x1b[?1036h");
-    let bytes = terminal.encode_key(&character('a', &[Modifier::Alt])).unwrap();
+    let bytes = terminal
+        .encode_key(&character('a', &[Modifier::Alt]))
+        .unwrap();
     assert_eq!(bytes.len(), 2);
     assert_eq!(bytes[0], 0x1b);
     assert_eq!(bytes[1], b'a');
@@ -200,7 +266,11 @@ fn text_is_written_as_it_is_in_legacy_mode() {
     for text in ["a", "A", "é", "日", "😀"] {
         let mut input = character('x', &[]);
         input.text = Some(text.to_owned());
-        assert_eq!(terminal.encode_key(&input).unwrap(), text.as_bytes(), "text {text:?}");
+        assert_eq!(
+            terminal.encode_key(&input).unwrap(),
+            text.as_bytes(),
+            "text {text:?}"
+        );
     }
 }
 
@@ -213,7 +283,10 @@ fn shift_with_no_text_uses_the_supplied_shifted_key_else_ascii_else_nothing() {
     supplied.shifted_key = Some(Key::Char("A".into()));
     let mut with_text = character('a', &[Modifier::Shift]);
     with_text.text = Some("A".into());
-    assert_eq!(terminal.encode_key(&supplied).unwrap(), terminal.encode_key(&with_text).unwrap());
+    assert_eq!(
+        terminal.encode_key(&supplied).unwrap(),
+        terminal.encode_key(&with_text).unwrap()
+    );
 
     // A non-US layout: the supplied key decides.
     let mut accented = character('é', &[Modifier::Shift]);
@@ -221,7 +294,12 @@ fn shift_with_no_text_uses_the_supplied_shifted_key_else_ascii_else_nothing() {
     assert_eq!(terminal.encode_key(&accented).unwrap(), "É".as_bytes());
 
     // Not supplied: a to z become capitals.
-    assert_eq!(terminal.encode_key(&character('q', &[Modifier::Shift])).unwrap(), b"Q");
+    assert_eq!(
+        terminal
+            .encode_key(&character('q', &[Modifier::Shift]))
+            .unwrap(),
+        b"Q"
+    );
 
     // Nothing else is guessed.
     for c in ['1', ';', 'é'] {
@@ -268,10 +346,16 @@ fn kitty_alternate_keys_are_reported_only_when_supplied() {
     let plain = character('a', &[Modifier::Ctrl]);
     let mut with_base = plain.clone();
     with_base.base_layout_key = Some(Key::Char("q".into()));
-    assert_ne!(terminal.encode_key(&plain).unwrap(), terminal.encode_key(&with_base).unwrap());
+    assert_ne!(
+        terminal.encode_key(&plain).unwrap(),
+        terminal.encode_key(&with_base).unwrap()
+    );
     // The base layout key is the only difference: removing it again gives the first bytes.
     with_base.base_layout_key = None;
-    assert_eq!(terminal.encode_key(&plain).unwrap(), terminal.encode_key(&with_base).unwrap());
+    assert_eq!(
+        terminal.encode_key(&plain).unwrap(),
+        terminal.encode_key(&with_base).unwrap()
+    );
 }
 
 #[test]
@@ -279,7 +363,9 @@ fn f26_to_f35_are_keys() {
     let terminal = terminal_with(b"\x1b[>1u");
     let mut seen = std::collections::BTreeSet::new();
     for number in 1..=35 {
-        let bytes = terminal.encode_key(&named(&format!("f{number}"), &[])).unwrap();
+        let bytes = terminal
+            .encode_key(&named(&format!("f{number}"), &[]))
+            .unwrap();
         assert!(!bytes.is_empty(), "f{number}");
         assert!(seen.insert(bytes), "f{number} repeats another key");
     }
@@ -288,12 +374,21 @@ fn f26_to_f35_are_keys() {
 // ---- mouse (IN-9, 5.1A, R-13) ----
 
 fn mouse_modes(tracking: MouseTracking, encoding: MouseEncoding) -> ModeFlags {
-    ModeFlags { mouse_tracking: tracking, mouse_encoding: encoding, ..ModeFlags::default() }
+    ModeFlags {
+        mouse_tracking: tracking,
+        mouse_encoding: encoding,
+        ..ModeFlags::default()
+    }
 }
 
 #[test]
 fn the_terminal_and_the_explicit_modes_give_the_same_mouse_bytes() {
-    let setups: [&[u8]; 4] = [b"\x1b[?1000h", b"\x1b[?1000h\x1b[?1006h", b"\x1b[?1003h\x1b[?1015h", b"\x1b[?1000h\x1b[?1005h"];
+    let setups: [&[u8]; 4] = [
+        b"\x1b[?1000h",
+        b"\x1b[?1000h\x1b[?1006h",
+        b"\x1b[?1003h\x1b[?1015h",
+        b"\x1b[?1000h\x1b[?1005h",
+    ];
     for setup in setups {
         let terminal = terminal_with(setup);
         let modes = terminal.modes();
@@ -303,7 +398,11 @@ fn the_terminal_and_the_explicit_modes_give_the_same_mouse_bytes() {
             mouse(MouseAction::Release, MouseButton::Left, 3, 4),
             mouse(MouseAction::Wheel, MouseButton::WheelUp, 3, 4),
         ] {
-            assert_eq!(terminal.encode_mouse(&input), encode_mouse_with_modes(&modes, &size, &input), "{setup:?} {input:?}");
+            assert_eq!(
+                terminal.encode_mouse(&input),
+                encode_mouse_with_modes(&modes, &size, &input),
+                "{setup:?} {input:?}"
+            );
         }
     }
 }
@@ -328,8 +427,18 @@ fn a_cell_outside_the_screen_is_reported_as_given_whatever_the_screen_size() {
         assert_eq!(small, large, "{action:?}");
     }
     // The cell is in the bytes: another column gives other bytes.
-    let a = encode_mouse_with_modes(&modes, &size(80, 24), &mouse(MouseAction::Press, MouseButton::Left, 300, 5)).unwrap();
-    let b = encode_mouse_with_modes(&modes, &size(80, 24), &mouse(MouseAction::Press, MouseButton::Left, 301, 5)).unwrap();
+    let a = encode_mouse_with_modes(
+        &modes,
+        &size(80, 24),
+        &mouse(MouseAction::Press, MouseButton::Left, 300, 5),
+    )
+    .unwrap();
+    let b = encode_mouse_with_modes(
+        &modes,
+        &size(80, 24),
+        &mouse(MouseAction::Press, MouseButton::Left, 301, 5),
+    )
+    .unwrap();
     assert_ne!(a, b);
 }
 
@@ -337,20 +446,46 @@ fn a_cell_outside_the_screen_is_reported_as_given_whatever_the_screen_size() {
 fn the_edge_cells_of_the_legacy_formats_are_classified_with_the_library_boundary() {
     // X10: the library encodes cell 222 and refuses 223.
     let x10 = mouse_modes(MouseTracking::Normal, MouseEncoding::X10);
-    let at = |col: u32, row: u32| encode_mouse_with_modes(&x10, &size(80, 24), &mouse(MouseAction::Press, MouseButton::Left, col, row));
+    let at = |col: u32, row: u32| {
+        encode_mouse_with_modes(
+            &x10,
+            &size(80, 24),
+            &mouse(MouseAction::Press, MouseButton::Left, col, row),
+        )
+    };
     assert!(at(222, 222).is_ok());
-    assert_eq!(at(223, 0), Err(EncodeError::Unsupported(UnsupportedWhat::Coordinate)));
-    assert_eq!(at(0, 223), Err(EncodeError::Unsupported(UnsupportedWhat::Coordinate)));
+    assert_eq!(
+        at(223, 0),
+        Err(EncodeError::Unsupported(UnsupportedWhat::Coordinate))
+    );
+    assert_eq!(
+        at(0, 223),
+        Err(EncodeError::Unsupported(UnsupportedWhat::Coordinate))
+    );
 
     // UTF-8: the library encodes cell 2014 and refuses 2015.
     let utf8 = mouse_modes(MouseTracking::Normal, MouseEncoding::Utf8);
-    let at = |col: u32, row: u32| encode_mouse_with_modes(&utf8, &size(80, 24), &mouse(MouseAction::Press, MouseButton::Left, col, row));
+    let at = |col: u32, row: u32| {
+        encode_mouse_with_modes(
+            &utf8,
+            &size(80, 24),
+            &mouse(MouseAction::Press, MouseButton::Left, col, row),
+        )
+    };
     assert!(at(2014, 2014).is_ok());
-    assert_eq!(at(2015, 0), Err(EncodeError::Unsupported(UnsupportedWhat::Coordinate)));
+    assert_eq!(
+        at(2015, 0),
+        Err(EncodeError::Unsupported(UnsupportedWhat::Coordinate))
+    );
 
     // SGR has no limit.
     let sgr = mouse_modes(MouseTracking::Normal, MouseEncoding::Sgr);
-    assert!(encode_mouse_with_modes(&sgr, &size(80, 24), &mouse(MouseAction::Press, MouseButton::Left, u32::MAX, u32::MAX)).is_ok());
+    assert!(encode_mouse_with_modes(
+        &sgr,
+        &size(80, 24),
+        &mouse(MouseAction::Press, MouseButton::Left, u32::MAX, u32::MAX)
+    )
+    .is_ok());
 }
 
 #[test]
@@ -360,7 +495,11 @@ fn sgr_pixels_needs_a_pixel_position_and_reports_it_without_an_offset() {
 
     // No x and y: Core never invents pixels from a cell.
     assert_eq!(
-        encode_mouse_with_modes(&modes, &cells, &mouse(MouseAction::Press, MouseButton::Left, 3, 4)),
+        encode_mouse_with_modes(
+            &modes,
+            &cells,
+            &mouse(MouseAction::Press, MouseButton::Left, 3, 4)
+        ),
         Err(EncodeError::Unsupported(UnsupportedWhat::PixelPosition))
     );
 
@@ -370,7 +509,19 @@ fn sgr_pixels_needs_a_pixel_position_and_reports_it_without_an_offset() {
         let mut input = mouse(MouseAction::Press, MouseButton::Left, 3, 4);
         input.x = Some(x);
         input.y = Some(7);
-        encode_mouse_with_modes(&modes, &Size { rows: 24, cols: 80, cell_px: Some(CellPx { width: 9, height: 18 }) }, &input).unwrap()
+        encode_mouse_with_modes(
+            &modes,
+            &Size {
+                rows: 24,
+                cols: 80,
+                cell_px: Some(CellPx {
+                    width: 9,
+                    height: 18,
+                }),
+            },
+            &input,
+        )
+        .unwrap()
     };
     let (a, b) = (at(40), at(41));
     let text = |bytes: &[u8]| String::from_utf8(bytes.to_vec()).unwrap();
@@ -394,7 +545,12 @@ fn sgr_pixels_needs_a_pixel_position_and_reports_it_without_an_offset() {
 #[test]
 fn wheel_notches_are_that_many_reports() {
     let modes = mouse_modes(MouseTracking::Normal, MouseEncoding::Sgr);
-    let single = encode_mouse_with_modes(&modes, &size(80, 24), &mouse(MouseAction::Wheel, MouseButton::WheelUp, 2, 2)).unwrap();
+    let single = encode_mouse_with_modes(
+        &modes,
+        &size(80, 24),
+        &mouse(MouseAction::Wheel, MouseButton::WheelUp, 2, 2),
+    )
+    .unwrap();
     for notches in [1u32, 2, 5] {
         let mut input = mouse(MouseAction::Wheel, MouseButton::WheelUp, 2, 2);
         input.notches = Some(notches);
@@ -410,11 +566,28 @@ fn the_four_wheel_directions_and_the_two_extra_buttons_are_distinct_reports() {
         encode_mouse_with_modes(&modes, &size(80, 24), &mouse(action, button, 1, 1)).unwrap()
     };
     let mut seen = std::collections::BTreeSet::new();
-    for button in [MouseButton::WheelUp, MouseButton::WheelDown, MouseButton::WheelLeft, MouseButton::WheelRight] {
-        assert!(seen.insert(report(MouseAction::Wheel, button)), "{button:?}");
+    for button in [
+        MouseButton::WheelUp,
+        MouseButton::WheelDown,
+        MouseButton::WheelLeft,
+        MouseButton::WheelRight,
+    ] {
+        assert!(
+            seen.insert(report(MouseAction::Wheel, button)),
+            "{button:?}"
+        );
     }
-    for button in [MouseButton::Left, MouseButton::Middle, MouseButton::Right, MouseButton::Back, MouseButton::Forward] {
-        assert!(seen.insert(report(MouseAction::Press, button)), "{button:?}");
+    for button in [
+        MouseButton::Left,
+        MouseButton::Middle,
+        MouseButton::Right,
+        MouseButton::Back,
+        MouseButton::Forward,
+    ] {
+        assert!(
+            seen.insert(report(MouseAction::Press, button)),
+            "{button:?}"
+        );
     }
 }
 
@@ -445,7 +618,16 @@ fn the_paste_frame_is_what_the_library_writes_around_an_empty_paste() {
     let mut out = [0u8; 64];
     let mut written = 0usize;
     // SAFETY: a null payload of length 0 is an empty paste, and the buffer holds 64 bytes.
-    let code = unsafe { sys::ghostty_paste_encode(std::ptr::null_mut(), 0, true, out.as_mut_ptr(), out.len(), &mut written) };
+    let code = unsafe {
+        sys::ghostty_paste_encode(
+            std::ptr::null_mut(),
+            0,
+            true,
+            out.as_mut_ptr(),
+            out.len(),
+            &mut written,
+        )
+    };
     assert_eq!(code, sys::SUCCESS);
     assert_eq!([prefix, suffix].concat(), &out[..written]);
 }

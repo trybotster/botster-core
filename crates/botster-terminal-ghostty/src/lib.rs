@@ -20,14 +20,17 @@ use std::ffi::c_void;
 use std::marker::PhantomData;
 use std::ptr::NonNull;
 
-pub use botster_route_codec::prelude::ModeFlags;
 pub use botster_core_contract::prelude::{KeyInput, MouseInput, Size};
+pub use botster_route_codec::prelude::ModeFlags;
 pub use encode::EncodeError;
 pub use events::{Drained, TerminalEvent, MAX_BUFFERED_BYTES, MAX_BUFFERED_EVENTS};
 pub use query::{Query, QueryKind, QueryStep, Terminator, MAX_SHADOW_REPLY_BYTES};
 pub use reads::{CursorCell, ScreenText};
 pub use reply::{ReplyError, MAX_REPLY_BYTES};
-pub use snapshot::{terminal_identity, SnapshotError, SnapshotFormat, TerminalIdentityParts, CONTINUATION_LIMIT, SNAPSHOT_FORMAT};
+pub use snapshot::{
+    terminal_identity, SnapshotError, SnapshotFormat, TerminalIdentityParts, CONTINUATION_LIMIT,
+    SNAPSHOT_FORMAT,
+};
 
 /// The default limit, in bytes, of the request that a query reports (`CoreLimits.max_query_bytes`, EV-8).
 pub const DEFAULT_QUERY_REQUEST_BYTES: usize = 4096;
@@ -100,7 +103,13 @@ impl Terminal {
         let handle = NonNull::new(handle).ok_or(Error::InvalidValue)?;
 
         let shared = NonNull::from(Box::leak(Box::<events::Shared>::default()));
-        let mut terminal = Self { handle, shared, history, cell_px: size.cell_px, _not_sync: PhantomData };
+        let mut terminal = Self {
+            handle,
+            shared,
+            history,
+            cell_px: size.cell_px,
+            _not_sync: PhantomData,
+        };
         terminal.register_callbacks()?;
         terminal.set_history_limit()?;
         terminal.set_query_request_limit_default()?;
@@ -116,7 +125,11 @@ impl Terminal {
         let limit = DEFAULT_QUERY_REQUEST_BYTES;
         // SAFETY: the handle is live, and the option takes a `size_t` pointer.
         check(unsafe {
-            sys::ghostty_terminal_set(self.handle.as_ptr(), sys::opt::QUERY_MAX_BYTES, (&limit as *const usize).cast())
+            sys::ghostty_terminal_set(
+                self.handle.as_ptr(),
+                sys::opt::QUERY_MAX_BYTES,
+                (&limit as *const usize).cast(),
+            )
         })
     }
 
@@ -128,7 +141,11 @@ impl Terminal {
         };
         // SAFETY: the handle is live, and the SCROLLBACK_MAX_BYTES option takes a `size_t` pointer.
         check(unsafe {
-            sys::ghostty_terminal_set(self.handle.as_ptr(), sys::opt::SCROLLBACK_MAX_BYTES, (&limit as *const usize).cast())
+            sys::ghostty_terminal_set(
+                self.handle.as_ptr(),
+                sys::opt::SCROLLBACK_MAX_BYTES,
+                (&limit as *const usize).cast(),
+            )
         })
     }
 
@@ -139,8 +156,16 @@ impl Terminal {
         // SAFETY: the handle is live. The userdata is the boxed buffer, valid until `Drop`. Each callback is passed as
         // the option's value, which is how the library takes a function pointer.
         unsafe {
-            check(sys::ghostty_terminal_set(handle, sys::opt::USERDATA, self.shared.as_ptr().cast()))?;
-            check(sys::ghostty_terminal_set(handle, sys::opt::BELL, events::on_bell as sys::BellFn as *const c_void))?;
+            check(sys::ghostty_terminal_set(
+                handle,
+                sys::opt::USERDATA,
+                self.shared.as_ptr().cast(),
+            ))?;
+            check(sys::ghostty_terminal_set(
+                handle,
+                sys::opt::BELL,
+                events::on_bell as sys::BellFn as *const c_void,
+            ))?;
             check(sys::ghostty_terminal_set(
                 handle,
                 sys::opt::TITLE_CHANGED,
@@ -216,7 +241,12 @@ impl Terminal {
         let mut consumed: usize = 0;
         // SAFETY: the handle is live, the slice is valid for its length, and `consumed` is a valid out pointer.
         let code = unsafe {
-            sys::ghostty_terminal_vt_write_until_query(self.handle.as_ptr(), bytes.as_ptr(), bytes.len(), &mut consumed)
+            sys::ghostty_terminal_vt_write_until_query(
+                self.handle.as_ptr(),
+                bytes.as_ptr(),
+                bytes.len(),
+                &mut consumed,
+            )
         };
         // SAFETY: the call returned, so no callback runs.
         let shared = unsafe { self.shared.as_mut() };
@@ -224,7 +254,10 @@ impl Terminal {
         let query = shared.held.take();
         match code {
             sys::SUCCESS => Ok(QueryStep { consumed, query }),
-            sys::NO_VALUE => Ok(QueryStep { consumed, query: None }),
+            sys::NO_VALUE => Ok(QueryStep {
+                consumed,
+                query: None,
+            }),
             other => Err(Error::from_code(other)),
         }
     }
@@ -234,7 +267,11 @@ impl Terminal {
     pub fn set_query_request_limit(&mut self, bytes: usize) -> Result<(), Error> {
         // SAFETY: the handle is live, and the option takes a `size_t` pointer.
         check(unsafe {
-            sys::ghostty_terminal_set(self.handle.as_ptr(), sys::opt::QUERY_MAX_BYTES, (&bytes as *const usize).cast())
+            sys::ghostty_terminal_set(
+                self.handle.as_ptr(),
+                sys::opt::QUERY_MAX_BYTES,
+                (&bytes as *const usize).cast(),
+            )
         })
     }
 
@@ -260,10 +297,22 @@ impl Terminal {
         unsafe { self.shared.as_mut() }.cell_px = cell_px.map(|px| (px.width, px.height));
     }
 
-    fn apply_size(&self, cols: u16, rows: u16, cell_width_px: u32, cell_height_px: u32) -> Result<(), Error> {
+    fn apply_size(
+        &self,
+        cols: u16,
+        rows: u16,
+        cell_width_px: u32,
+        cell_height_px: u32,
+    ) -> Result<(), Error> {
         // SAFETY: the handle is live.
         check(unsafe {
-            sys::ghostty_terminal_resize(self.handle.as_ptr(), cols, rows, cell_width_px, cell_height_px)
+            sys::ghostty_terminal_resize(
+                self.handle.as_ptr(),
+                cols,
+                rows,
+                cell_width_px,
+                cell_height_px,
+            )
         })
     }
 
@@ -271,9 +320,17 @@ impl Terminal {
     /// (`History::Off`) says so in `history_unavailable` and returns the visible screen.
     pub fn screen_text(&self, history: bool) -> Result<ScreenText, Error> {
         let history_available = self.history == History::On;
-        let text = reads::screen_text(self.handle.as_ptr(), history && history_available, self.cols(), self.rows())
-            .ok_or(Error::InvalidValue)?;
-        Ok(ScreenText { text, history_unavailable: history && !history_available })
+        let text = reads::screen_text(
+            self.handle.as_ptr(),
+            history && history_available,
+            self.cols(),
+            self.rows(),
+        )
+        .ok_or(Error::InvalidValue)?;
+        Ok(ScreenText {
+            text,
+            history_unavailable: history && !history_available,
+        })
     }
 
     /// The cursor (ST-3).
@@ -286,7 +343,9 @@ impl Terminal {
     /// rules of ST-3 to this raw text.
     pub fn row_cells(&self, row: u32) -> Option<Vec<String>> {
         let row = u16::try_from(row).ok().filter(|row| *row < self.rows())?;
-        (0..self.cols()).map(|x| reads::cell_text(self.handle.as_ptr(), x, row)).collect()
+        (0..self.cols())
+            .map(|x| reads::cell_text(self.handle.as_ptr(), x, row))
+            .collect()
     }
 
     /// Encode one key event with the terminal's current modes (IN-9, 5.1A). `repeat` is the caller's: it writes the
@@ -298,7 +357,11 @@ impl Terminal {
     /// Encode one mouse event with the terminal's current modes (IN-9, 5.1A). A wheel event with `notches` is that many
     /// reports, one after the other.
     pub fn encode_mouse(&self, input: &MouseInput) -> Result<Vec<u8>, EncodeError> {
-        let size = Size { rows: u32::from(self.rows()), cols: u32::from(self.cols()), cell_px: self.cell_px };
+        let size = Size {
+            rows: u32::from(self.rows()),
+            cols: u32::from(self.cols()),
+            cell_px: self.cell_px,
+        };
         encode::encode_mouse(encode::Source::Terminal(self.handle.as_ptr()), &size, input)
     }
 
@@ -326,7 +389,9 @@ impl Terminal {
     fn get_u16(&self, key: i32) -> u16 {
         let mut out: u16 = 0;
         // SAFETY: the handle is live, and `key` is one of the keys whose output type is a `u16` cell count.
-        let code = unsafe { sys::ghostty_terminal_get(self.handle.as_ptr(), key, (&mut out as *mut u16).cast()) };
+        let code = unsafe {
+            sys::ghostty_terminal_get(self.handle.as_ptr(), key, (&mut out as *mut u16).cast())
+        };
         debug_assert_eq!(code, sys::SUCCESS);
         out
     }
@@ -351,20 +416,37 @@ impl Terminal {
 
 /// The dimensions of a size as the library takes them.
 fn cell_dimensions(size: &Size) -> Result<(u16, u16), Error> {
-    let cols = u16::try_from(size.cols).ok().filter(|cols| *cols > 0).ok_or(Error::InvalidValue)?;
-    let rows = u16::try_from(size.rows).ok().filter(|rows| *rows > 0).ok_or(Error::InvalidValue)?;
+    let cols = u16::try_from(size.cols)
+        .ok()
+        .filter(|cols| *cols > 0)
+        .ok_or(Error::InvalidValue)?;
+    let rows = u16::try_from(size.rows)
+        .ok()
+        .filter(|rows| *rows > 0)
+        .ok_or(Error::InvalidValue)?;
     Ok((cols, rows))
 }
 
 /// Encode a key with explicit modes, for an oracle that has no terminal. `ModeFlags` carries every state that the
 /// encoder needs except xterm modifyOtherKeys state 2 and the macOS option-as-alt setting; both are off here.
 pub fn encode_key_with_modes(modes: &ModeFlags, input: &KeyInput) -> Result<Vec<u8>, EncodeError> {
-    encode::encode_key(encode::Source::State(encode::EncoderState::from_mode_flags(modes)), input)
+    encode::encode_key(
+        encode::Source::State(encode::EncoderState::from_mode_flags(modes)),
+        input,
+    )
 }
 
 /// Encode a mouse event with explicit modes and size, for an oracle that has no terminal.
-pub fn encode_mouse_with_modes(modes: &ModeFlags, size: &Size, input: &MouseInput) -> Result<Vec<u8>, EncodeError> {
-    encode::encode_mouse(encode::Source::State(encode::EncoderState::from_mode_flags(modes)), size, input)
+pub fn encode_mouse_with_modes(
+    modes: &ModeFlags,
+    size: &Size,
+    input: &MouseInput,
+) -> Result<Vec<u8>, EncodeError> {
+    encode::encode_mouse(
+        encode::Source::State(encode::EncoderState::from_mode_flags(modes)),
+        size,
+        input,
+    )
 }
 
 /// The bytes of a focus event with explicit modes, or `None` when focus reporting is off.
