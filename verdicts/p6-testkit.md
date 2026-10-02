@@ -2,6 +2,40 @@
 
 VERDICT: NOT CLEAN (2 open)
 
+Latest reviewed head: `c32c7a7eae0b586998a778263e0e7e39248958be`.
+The review covers the refusal fix `78d2452`, edge controls `38cbabf`, and scheduler overrides `c32c7a7`.
+S2-R4 is closed: `checked_add` rejects an unrepresentable occurrence before insertion.
+The boundary test checks rejection after a counted call and acceptance of the largest representable occurrence.
+Open findings are S2-R1 descriptor preservation and S3-R1 below.
+The reviewer ran no tests or gate.
+
+## S3-R1 — HIGH — Atomic output markers can corrupt program output
+
+Evidence: `program.rs`, `take_injected` and `Program::read`.
+Each atomic marker stores an offset from the current output front.
+A read updates only the first remaining marker. Markers behind it retain offsets for bytes already read.
+When a split atomic write completes, the next marker still counts its earlier pieces.
+The read length can then exceed the available output. `pop_front().unwrap_or_default()` supplies zero bytes for the deficit.
+This changes the program's output, contrary to A5-1 and A5-2.
+
+Concrete sequence with a holding program, `write_size(Some(3))`, and a four-byte read buffer:
+
+1. Queue `write_once(b"abcdef")` and `write_once(b"XYZ")` before reading.
+2. Reads return `abcd`, then `ef`, then `XYZ`.
+3. The stale marker remains with offset 1 and length 3, although the output queue is empty.
+4. Queue `write_once(b"pq")`.
+5. Reads return `p`, then a three-byte result `q\0\0` instead of the remaining single byte.
+
+An empty atomic write is another boundary case: its zero-length marker can return `Ok(0)` while later output remains queued.
+
+Required change: keep every marker consistent with the output front, or store output pieces without stale absolute offsets.
+Never return more bytes than the output holds. Preserve separate atomic writes when the buffer can hold them.
+Cover multiple queued writes, a split first write, later injection after draining, and an empty write.
+
+The other reviewed controls operate at the program, stream, or scheduler source.
+The review found no reordering of finished Core results and no production test branch in this delta.
+These controls remain building blocks. Harness dispatch, quiet fences, identity-dependent controls, and real Core proofs remain outstanding.
+
 Delta reviewed: `04b0ca3bbd2536fdb279d26d35b92ccd14decb47`, against `4a001508`.
 S2-R1 counting is closed: the precheck advice is removed, and the layer counts each attach once.
 Its test checks delegation on calls 1 and 3, with a scripted refusal on call 2.
