@@ -395,13 +395,20 @@ impl HostEngine {
         Ok(())
     }
 
-    /// The payload bytes of a write that count against `input_retained_bytes` (IN-5).
-    fn held_bytes(payload: &InputPayload) -> u64 {
+    /// The most encoded bytes that a write can put on the PTY (IN-9): the payload bytes, or the worst case of one sequence
+    /// for each repeat or notch. It counts against `input_retained_bytes` (IN-5), and it bounds an `Unknown` write (IN-7).
+    pub(crate) fn held_bytes(payload: &InputPayload) -> u64 {
         match payload {
             InputPayload::Bytes { bytes } | InputPayload::Paste { bytes, .. } => {
                 bytes.0.len() as u64
             }
             InputPayload::Text { text } => text.len() as u64,
+            InputPayload::Key(key) => {
+                u64::from(key.repeat.unwrap_or(1)) * WORST_CASE_SEQUENCE_BYTES
+            }
+            InputPayload::Mouse(mouse) => {
+                u64::from(mouse.notches.unwrap_or(1)) * WORST_CASE_SEQUENCE_BYTES
+            }
             _ => WORST_CASE_SEQUENCE_BYTES,
         }
     }
@@ -509,6 +516,7 @@ impl HostEngine {
             pages: None,
             req: None,
             held_bytes: 0,
+            created_path: false,
             cancelled: false,
             rows: Default::default(),
         }
@@ -686,7 +694,8 @@ impl HostEngine {
             Op::SetNotificationPolicy { session, .. } => {
                 let instance = instance_of(self, &session);
                 let admit = self.sessions[&session].admit;
-                let step = if admit == Admit::Created {
+                let created = admit == Admit::Created;
+                let step = if created {
                     self.sessions
                         .get_mut(&session)
                         .expect("checked")
@@ -695,8 +704,9 @@ impl HostEngine {
                 } else {
                     Step::Ready(Next::Forward)
                 };
-                self.ops
-                    .insert(id, Self::pending(op, Some(session), instance, step));
+                let mut pending = Self::pending(op, Some(session), instance, step);
+                pending.created_path = created;
+                self.ops.insert(id, pending);
             }
             Op::Resize { session, size } => {
                 let instance = instance_of(self, &session);
