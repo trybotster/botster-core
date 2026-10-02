@@ -15,6 +15,7 @@ pub mod sim;
 pub mod statements;
 pub mod status;
 pub mod wake;
+pub mod worker;
 
 pub use entropy::SeededEntropy;
 pub use harness::TestkitHarness;
@@ -24,3 +25,4 @@ pub use refusal::{RefusalHandle, RefusalLayer, RefusalScript, ScriptError};
 pub use scheduler::{SchedulerHandle, SeededScheduler};
 pub use sim::{Binding, Handled, Livelock, MachineNode, Node, NodeId, Sim, TraceEntry};
 pub use wake::SimWake;
+pub use worker::{TestkitCore, WorkerSpawner, Workers};
