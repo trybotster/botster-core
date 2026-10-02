@@ -609,3 +609,39 @@ It does not approve product code or establish Stage 1 acceptance.
 I ran no product tests.
 
 VERDICT: CLEAN
+
+## Round 10 — revision 10
+
+Plan: `e70814647686347dafc1f3e32e0a00de21595952`, `docs/stage1-plan.md`.
+Pin: `stage1-plan.f7a8aeab.md`.
+Verified SHA-256: `f7a8aeab34e3ee4dcfec5abafc33bfb0942bcd59256327bbea6a77c5dee5d7bc`.
+Contracts tag: `contracts-v0.1.1`, commit `366bca41da0a6de69cc1ea13b17c773cdfdb75b6`, manifest final14.
+
+I reviewed the delta against the new contracts tag.
+The erratum hash, ACCEPT, manifest tag, and release tag match the plan.
+The worker rule matches E2-3's final-state comparison and admission between model steps.
+The R-13 summary and new spawn rule match their pinned sources.
+The probe binary depends on `botster-probe-script`, which has no fake dependency.
+The ownership generator reproduces all lists, with 599 unique ids and 145 ids assigned to P3.
+F1 through F11 remain CLOSED.
+I ran no product tests.
+
+### F12 — LOW — R2 still says that no release tag exists
+
+Status: OPEN.
+Plan section: 10, R2.
+
+Plan evidence:
+> "no release tag exists."
+
+Source evidence:
+- `contracts-v0.1.1` resolves to `366bca41da0a6de69cc1ea13b17c773cdfdb75b6`.
+- Sections 0 and 4.3 correctly pin this release tag and mark the tag requirement DONE.
+
+R2 presents the absence of a release tag as a current risk.
+That statement conflicts with the completed dependency change in this revision.
+
+Required change: remove the claim that no release tag exists from R2.
+Keep the remaining transcript and replacement-map risks.
+
+VERDICT: NOT CLEAN (1 open)
