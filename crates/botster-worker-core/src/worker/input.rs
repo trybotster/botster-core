@@ -3,16 +3,17 @@
 //!
 //! - **One admission point.** Every PTY input goes through [`Worker::try_start`]: one transaction owns the PTY input at a
 //!   time, from its first byte to its last, across short writes (AM-2: contiguous). The next starts only after the previous
-//!   completed, failed or was cancelled. Host writes are admitted in `begin` order (the host's request order).
-//! - **Start-time decisions.** The guards (IN-10) and the encoding are decided when a transaction starts, never when it is
-//!   queued: a client frame or a model change before the start is seen; one after it is ordered after the write.
+//!   completed, failed or was cancelled. Pending inputs are taken in arrival order (host writes in `begin` order).
+//! - **The start is the first byte.** A transaction starts when the PTY takes its first byte. Its decisions (the guards of
+//!   IN-10, the bracket and the encoding of IN-8 and IN-9) are made when it is offered to the PTY, and made again while the
+//!   PTY takes none of it: a client frame or a model change before the start is seen; one after it is ordered after the
+//!   write. The host's input revision advances, and the host hears it, at the start.
 //! - **Exact counts (IN-2).** A short write, a cancel, a failure and the payload's end report the bytes really written. A
 //!   write that is cancelled while a PTY write is out waits for that write's count before it completes (IN-6: "the
 //!   cancelled op's completion reports exactly what happened").
 //!
-//! `Paste`, `Key`, `Mouse` and `Focus` are encoded by the terminal model at the start of their transaction (IN-8, IN-9:
-//! libghostty). A reply of the model (a query's shadow reply, the model's own PTY writes) is a transaction of the same
-//! admission point, in arrival order, that advances no input revision and completes no operation (EV-8).
+//! A reply of the model (a query's shadow reply, the model's own PTY writes) is a transaction of the same admission point, in
+//! arrival order, that advances no input revision and completes no operation (EV-8).
 
 use super::{PayloadState, Worker};
 use botster_core_contract::prelude::*;
@@ -38,8 +39,8 @@ pub(super) enum Pending {
 /// The transaction that owns the PTY input (AM-2).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct Active {
-    /// The host's request, or none for a reply.
-    req: Option<u64>,
+    /// The host's write (decided again until it starts), or none for a reply.
+    host: Option<HostWrite>,
     /// Every byte that this transaction writes to the PTY.
     bytes: Vec<u8>,
     /// Where the caller's payload is in `bytes`: markers that the worker adds are outside it (IN-2 units).
@@ -47,6 +48,8 @@ pub(super) struct Active {
     payload_len: usize,
     /// The bytes that the PTY took.
     written: usize,
+    /// The PTY took a byte: the transaction has started, and its decisions are final.
+    started: bool,
     /// A PTY write is out, and its count has not come.
     in_flight: bool,
     /// A cancel came; the transaction ends at the next count.
@@ -103,8 +106,21 @@ fn not_written(reason: NotWrittenReason, detail: &str) -> InputResult {
     }
 }
 
+/// The decisions of a host write at its start: the bytes and where its payload is in them, or how it ends with no byte.
+enum Decision {
+    Write {
+        bytes: Vec<u8>,
+        payload_start: usize,
+        payload_len: usize,
+    },
+    /// A certain zero (IN-2, IN-8, IN-9, IN-10).
+    Zero(InputResult),
+    /// A payload kind that this worker cannot write: `Internal`, the only error a write may complete with (A2-2).
+    Internal,
+}
+
 impl Worker {
-    /// IN-1: a host write joins the host's FIFO; it starts at its turn.
+    /// IN-1: a host write joins the admission point; it starts at its turn.
     pub(super) fn on_write_input(&mut self, req: u64, payload: InputPayload, guard: Option<Guard>) {
         self.input.queue.push_back(Pending::Host(HostWrite {
             req,
@@ -141,7 +157,12 @@ impl Worker {
             );
             return;
         }
-        let Some(active) = self.input.active.as_mut().filter(|a| a.req == Some(req)) else {
+        let Some(active) = self
+            .input
+            .active
+            .as_mut()
+            .filter(|a| a.host.as_ref().is_some_and(|w| w.req == req))
+        else {
             return;
         };
         active.cancelled = true;
@@ -150,8 +171,7 @@ impl Worker {
         }
     }
 
-    /// The admission point (AM-2): when no transaction owns the PTY input, the next one starts, with its guards and its
-    /// encoding decided now.
+    /// The admission point (AM-2): when no transaction owns the PTY input, the next one is offered to the PTY.
     pub(super) fn try_start(&mut self) {
         // A write waits for the spawn's answer: it starts on a live payload or ends on a failed one.
         if self.payload == PayloadState::Spawning {
@@ -161,103 +181,71 @@ impl Worker {
             let Some(pending) = self.input.queue.pop_front() else {
                 return;
             };
-            let write = match pending {
+            match pending {
                 Pending::Reply(bytes) => {
                     // A reply goes only to a live payload; it advances no revision and completes no operation.
-                    if matches!(self.payload, PayloadState::Live(_))
-                        && self.exit.is_none()
-                        && !bytes.is_empty()
-                    {
+                    if self.payload_live() && !bytes.is_empty() {
                         let len = bytes.len();
                         self.input.active = Some(Active {
-                            req: None,
+                            host: None,
                             bytes,
                             payload_start: 0,
                             payload_len: len,
                             written: 0,
+                            started: false,
                             in_flight: false,
                             cancelled: false,
                         });
                         self.write_more();
                     }
-                    continue;
                 }
-                Pending::Host(write) => write,
-            };
-            if let Err(result) = self.start_checks(&write) {
-                self.complete_write(write.req, result);
-                continue;
-            }
-            let encoded = match &write.payload {
-                InputPayload::Bytes { bytes } => {
-                    let len = bytes.0.len();
-                    Ok(Some((bytes.0.clone(), 0, len)))
-                }
-                InputPayload::Text { text } => {
-                    let len = text.len();
-                    Ok(Some((text.as_bytes().to_vec(), 0, len)))
-                }
-                // IN-8, IN-9: the model encodes with its modes at this start.
-                other => match self.model.as_ref() {
-                    Some(model) => super::model::encode(model, other),
-                    None => Ok(None),
+                Pending::Host(write) => match self.decide(&write) {
+                    Decision::Zero(result) => self.complete_write(write.req, result),
+                    Decision::Internal => self.complete_internal(write.req),
+                    Decision::Write {
+                        bytes,
+                        payload_start,
+                        payload_len,
+                    } => {
+                        let empty = bytes.is_empty();
+                        self.input.active = Some(Active {
+                            host: Some(write),
+                            bytes,
+                            payload_start,
+                            payload_len,
+                            written: 0,
+                            started: false,
+                            in_flight: false,
+                            cancelled: false,
+                        });
+                        if empty {
+                            // Nothing to write: it starts and completes at once.
+                            self.mark_started();
+                            self.finish_active(WriteOutcome::Written, "");
+                        } else {
+                            self.write_more();
+                        }
+                    }
                 },
-            };
-            let (bytes, payload_start, payload_len) = match encoded {
-                Ok(Some(encoded)) => encoded,
-                Err(reason) => {
-                    self.complete_write(
-                        write.req,
-                        not_written(reason, "the event has no write with the modes at its start"),
-                    );
-                    continue;
-                }
-                Ok(None) => {
-                    self.report(&WorkerMsg::Done {
-                        req: write.req,
-                        result: OpResult::Err(CoreError::new(
-                            ErrorCode::Internal,
-                            "this worker cannot write this payload kind",
-                        )),
-                    });
-                    continue;
-                }
-            };
-            // Admitted: the host's revision advances, and the host learns it (IN-10, IN-4).
-            self.input.host_rev += 1;
-            let input_rev = InputRev(self.input.host_rev);
-            self.report(&WorkerMsg::Observed {
-                observation: Observation::HostInput { input_rev },
-            });
-            let empty = bytes.is_empty();
-            self.input.active = Some(Active {
-                req: Some(write.req),
-                bytes,
-                payload_start,
-                payload_len,
-                written: 0,
-                in_flight: false,
-                cancelled: false,
-            });
-            if empty {
-                self.finish_active(WriteOutcome::Written, "");
-            } else {
-                self.write_more();
             }
         }
     }
 
-    /// The decisions at the start of a transaction: the session can take input, and both guards pass (IN-10; a failed guard
-    /// is `Stale` with exact zero).
-    fn start_checks(&self, write: &HostWrite) -> Result<(), InputResult> {
-        if !matches!(self.payload, PayloadState::Live(_)) || self.exit.is_some() {
-            return Err(not_written(
+    fn payload_live(&self) -> bool {
+        matches!(self.payload, PayloadState::Live(_)) && self.exit.is_none()
+    }
+
+    /// The decisions of a host write now: the session takes input, both guards pass (IN-10), and the model encodes the
+    /// payload with its modes now (IN-8, IN-9).
+    fn decide(&self, write: &HostWrite) -> Decision {
+        if !self.payload_live() {
+            return Decision::Zero(not_written(
                 NotWrittenReason::SessionEnded,
                 "the payload has ended",
             ));
         }
         if self.termed || self.killed || self.grace.is_some() {
-            return Err(not_written(
+            return Decision::Zero(not_written(
                 NotWrittenReason::Stopping,
                 "the payload is being stopped",
             ));
@@ -271,7 +259,7 @@ impl Worker {
                     _ => u64::MAX,
                 };
                 if InputRev(current) != input.rev {
-                    return Err(not_written(
+                    return Decision::Zero(not_written(
                         NotWrittenReason::Stale,
                         "input of the guarded class came after the guard's revision",
                     ));
@@ -279,14 +267,51 @@ impl Worker {
             }
             if let Some(model_rev) = guard.model_rev {
                 if ModelRev(self.input.model_rev) != model_rev {
-                    return Err(not_written(
+                    return Decision::Zero(not_written(
                         NotWrittenReason::Stale,
                         "the model changed after the guard's revision",
                     ));
                 }
             }
         }
-        Ok(())
+        let encoded = match &write.payload {
+            InputPayload::Bytes { bytes } => Ok(Some((bytes.0.clone(), 0, bytes.0.len()))),
+            InputPayload::Text { text } => Ok(Some((text.as_bytes().to_vec(), 0, text.len()))),
+            other => match self.model.as_ref() {
+                Some(model) => super::model::encode(model, other),
+                None => Ok(None),
+            },
+        };
+        match encoded {
+            Ok(Some((bytes, payload_start, payload_len))) => Decision::Write {
+                bytes,
+                payload_start,
+                payload_len,
+            },
+            Ok(None) => Decision::Internal,
+            Err(reason) => Decision::Zero(not_written(
+                reason,
+                "the event has no write with the modes at its start",
+            )),
+        }
+    }
+
+    /// The transaction's first byte reached the PTY: a host write's revision advances, and the host hears it (IN-10, IN-4).
+    fn mark_started(&mut self) {
+        let Some(active) = self.input.active.as_mut() else {
+            return;
+        };
+        if active.started {
+            return;
+        }
+        active.started = true;
+        if active.host.is_some() {
+            self.input.host_rev += 1;
+            let input_rev = InputRev(self.input.host_rev);
+            self.report(&WorkerMsg::Observed {
+                observation: Observation::HostInput { input_rev },
+            });
+        }
     }
 
     /// Hands the rest of the active transaction to the PTY, unless a write is out or the PTY takes no byte now.
@@ -313,6 +338,12 @@ impl Worker {
         active.in_flight = false;
         match result {
             Ok(n) => {
+                if n > 0 {
+                    self.mark_started();
+                }
+                let Some(active) = self.input.active.as_mut() else {
+                    return;
+                };
                 active.written = (active.written + n).min(active.bytes.len());
                 let done = active.written == active.bytes.len();
                 let cancelled = active.cancelled;
@@ -343,9 +374,43 @@ impl Worker {
         }
     }
 
-    /// The PTY takes bytes again.
+    /// The PTY takes bytes again. A host write that has not started is decided again with the state now (its start is its
+    /// first byte).
     pub(super) fn on_pty_writable(&mut self) {
         self.input.blocked = false;
+        let redecide = self
+            .input
+            .active
+            .as_ref()
+            .filter(|a| !a.started && !a.in_flight)
+            .and_then(|a| a.host.clone());
+        if let Some(write) = redecide {
+            match self.decide(&write) {
+                Decision::Write {
+                    bytes,
+                    payload_start,
+                    payload_len,
+                } => {
+                    if let Some(active) = self.input.active.as_mut() {
+                        active.bytes = bytes;
+                        active.payload_start = payload_start;
+                        active.payload_len = payload_len;
+                    }
+                }
+                Decision::Zero(result) => {
+                    self.input.active = None;
+                    self.complete_write(write.req, result);
+                    self.try_start();
+                    return;
+                }
+                Decision::Internal => {
+                    self.input.active = None;
+                    self.complete_internal(write.req);
+                    self.try_start();
+                    return;
+                }
+            }
+        }
         self.write_more();
     }
 
@@ -369,8 +434,8 @@ impl Worker {
             other => other,
         };
         let result = active.result(outcome, detail);
-        if let Some(req) = active.req {
-            self.complete_write(req, result);
+        if let Some(write) = &active.host {
+            self.complete_write(write.req, result);
         }
         self.try_start();
     }
@@ -379,6 +444,16 @@ impl Worker {
         self.report(&WorkerMsg::Done {
             req,
             result: OpResult::Ok(OpOutput::Input(result)),
+        });
+    }
+
+    fn complete_internal(&mut self, req: u64) {
+        self.report(&WorkerMsg::Done {
+            req,
+            result: OpResult::Err(CoreError::new(
+                ErrorCode::Internal,
+                "this worker cannot write this payload kind",
+            )),
         });
     }
 }
