@@ -224,27 +224,27 @@ fn the_named_key_table_matches_the_header_of_the_pinned_ghostty() {
 }
 
 #[test]
-fn ctrl_and_a_character_is_the_control_code_of_the_base_character() {
+fn ctrl_and_a_letter_is_a_key_of_its_own_for_every_letter() {
+    // The library decides the bytes. The test states only what must hold of any encoding: each letter gives a
+    // sequence, no two letters give the same one, and none is the plain letter.
     let terminal = terminal();
-    let mut control_codes = 0;
+    let mut seen = std::collections::BTreeSet::new();
+    let mut one_byte = 0;
     for letter in 'a'..='z' {
         let bytes = terminal
             .encode_key(&character(letter, &[Modifier::Ctrl]))
             .unwrap();
-        if bytes == vec![(letter as u8) & 0x1f] {
-            // The C0 control code of a letter is the letter with the top bits cleared.
-            control_codes += 1;
-        } else {
-            // The library does not write the control code for a letter whose code is also another key (ctrl+i is
-            // tab, ctrl+m is enter): it writes the CSI u form, which no other key shares.
-            assert_eq!(bytes[..2], [0x1b, b'['], "ctrl+{letter}");
-            assert_eq!(*bytes.last().unwrap(), b'u', "ctrl+{letter}");
+        assert!(!bytes.is_empty(), "ctrl+{letter}");
+        let mut plain = character(letter, &[]);
+        plain.text = Some(letter.to_string());
+        assert_ne!(bytes, terminal.encode_key(&plain).unwrap());
+        if bytes.len() == 1 {
+            one_byte += 1;
         }
+        assert!(seen.insert(bytes), "ctrl+{letter} repeats another letter");
     }
-    assert!(
-        control_codes >= 20,
-        "{control_codes} letters gave their control code"
-    );
+    // Most letters have a one-byte control code. The ones that share a code with another key (ctrl+i, ctrl+m) do not.
+    assert!(one_byte >= 20, "{one_byte} letters gave one byte");
 }
 
 #[test]
@@ -252,12 +252,15 @@ fn alt_and_a_character_prefixes_the_base_character_when_the_mode_asks_for_it() {
     // DEC mode 1036 makes Alt send an escape prefix (it is in other_modes). Core's Alt is the Alt key, on every
     // operating system, so the macOS option setting must not hide the prefix.
     let terminal = terminal_with(b"\x1b[?1036h");
-    let bytes = terminal
+    let mut plain_key = character('a', &[]);
+    plain_key.text = Some("a".to_owned());
+    let plain = terminal.encode_key(&plain_key).unwrap();
+    let alt = terminal
         .encode_key(&character('a', &[Modifier::Alt]))
         .unwrap();
-    assert_eq!(bytes.len(), 2);
-    assert_eq!(bytes[0], 0x1b);
-    assert_eq!(bytes[1], b'a');
+    // One prefix byte, then the same bytes as the plain key.
+    assert_eq!(alt.len(), plain.len() + 1);
+    assert_eq!(&alt[1..], &plain[..]);
 }
 
 #[test]
@@ -294,11 +297,13 @@ fn shift_with_no_text_uses_the_supplied_shifted_key_else_ascii_else_nothing() {
     assert_eq!(terminal.encode_key(&accented).unwrap(), "É".as_bytes());
 
     // Not supplied: a to z become capitals.
+    let mut capital = character('q', &[Modifier::Shift]);
+    capital.text = Some("Q".to_owned());
     assert_eq!(
         terminal
             .encode_key(&character('q', &[Modifier::Shift]))
             .unwrap(),
-        b"Q"
+        terminal.encode_key(&capital).unwrap()
     );
 
     // Nothing else is guessed.
@@ -630,4 +635,86 @@ fn the_paste_frame_is_what_the_library_writes_around_an_empty_paste() {
     };
     assert_eq!(code, sys::SUCCESS);
     assert_eq!([prefix, suffix].concat(), &out[..written]);
+}
+
+#[test]
+fn a_pixel_position_that_an_f32_cannot_hold_is_refused_not_changed() {
+    let modes = mouse_modes(MouseTracking::AnyEvent, MouseEncoding::SgrPixels);
+    let cells = Size {
+        rows: 24,
+        cols: 80,
+        cell_px: Some(CellPx {
+            width: 9,
+            height: 18,
+        }),
+    };
+    let report = |action: MouseAction, button: MouseButton, x: u32, y: u32| {
+        let mut input = mouse(action, button, 3, 4);
+        input.x = Some(x);
+        input.y = Some(y);
+        encode_mouse_with_modes(&modes, &cells, &input)
+    };
+    let digits = |bytes: &[u8]| -> Vec<u64> {
+        bytes
+            .split(|b| !b.is_ascii_digit())
+            .filter(|part| !part.is_empty())
+            .map(|part| std::str::from_utf8(part).unwrap().parse().unwrap())
+            .collect()
+    };
+
+    // 2^24 is the last integer that an f32 holds exactly. A release is reported outside the viewport, and the report
+    // carries the position unchanged. A press and a move inside the viewport carry theirs too.
+    let exact: u32 = 1 << 24;
+    let bytes = report(MouseAction::Release, MouseButton::Left, exact, exact).unwrap();
+    assert!(digits(&bytes)[1..].iter().all(|n| *n == u64::from(exact)));
+    for (action, button) in [
+        (MouseAction::Press, MouseButton::Left),
+        (MouseAction::Move, MouseButton::None),
+    ] {
+        let bytes = report(action, button, 700, 300).unwrap();
+        assert_eq!(digits(&bytes)[1..], [700, 300], "{action:?}");
+    }
+
+    // Above it, and above the native i32 range, the position is refused for every action, releases included.
+    for value in [exact + 1, i32::MAX as u32, i32::MAX as u32 + 1, u32::MAX] {
+        for (action, button) in [
+            (MouseAction::Press, MouseButton::Left),
+            (MouseAction::Release, MouseButton::Left),
+            (MouseAction::Move, MouseButton::None),
+        ] {
+            let expected = Err(EncodeError::Unsupported(UnsupportedWhat::Coordinate));
+            assert_eq!(report(action, button, value, 0), expected, "x {value}");
+            assert_eq!(report(action, button, 0, value), expected, "y {value}");
+        }
+    }
+}
+
+#[test]
+fn a_modifier_key_alone_is_a_named_key_refusal_unless_kitty_flag_8_is_on() {
+    let off = terminal();
+    let on = terminal_with(b"\x1b[>8u");
+    for name in [
+        "left_shift",
+        "left_control",
+        "left_alt",
+        "left_super",
+        "right_shift",
+        "right_control",
+        "right_alt",
+        "right_super",
+    ] {
+        assert_eq!(
+            off.encode_key(&named(name, &[])),
+            Err(EncodeError::Unsupported(UnsupportedWhat::NamedKey)),
+            "{name} with flag 8 off"
+        );
+        let bytes = on.encode_key(&named(name, &[])).unwrap();
+        assert!(!bytes.is_empty(), "{name} with flag 8 on");
+    }
+    // Flag 1 alone does not report modifier keys.
+    let flag_one = terminal_with(b"\x1b[>1u");
+    assert_eq!(
+        flag_one.encode_key(&named("left_shift", &[])),
+        Err(EncodeError::Unsupported(UnsupportedWhat::NamedKey))
+    );
 }

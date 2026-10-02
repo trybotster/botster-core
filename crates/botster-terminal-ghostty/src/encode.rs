@@ -126,6 +126,21 @@ pub(crate) const NAMED_KEYS: &[(&str, i32)] = &[
     ("right_super", 60),
 ];
 
+/// The named modifier keys. Alone, they encode only when the kitty flag 8 is on.
+const MODIFIER_KEYS: &[&str] = &[
+    "left_shift",
+    "left_control",
+    "left_alt",
+    "left_super",
+    "right_shift",
+    "right_control",
+    "right_alt",
+    "right_super",
+];
+
+/// The kitty keyboard flag "report all keys as escape codes".
+const KITTY_REPORT_ALL: u8 = 8;
+
 /// `GhosttyKey` of `f1` to `f25` follows F1 in order. The keys `f26` to `f35` come after every other key.
 const KEY_F1: i32 = 121;
 const KEY_F26: i32 = 176;
@@ -352,6 +367,15 @@ pub(crate) fn encode_key(source: Source, input: &KeyInput) -> Result<Vec<u8>, En
         Source::State(state) => state.kitty_flags,
         Source::Terminal(terminal) => crate::modes::mode_flags(terminal).kitty_flags,
     };
+    // A modifier key alone gives no bytes unless the kitty flag "report all keys as escape codes" (8) is on. That is
+    // a defined refusal of the named key (steward ruling R-14.1), not an unreported result.
+    if state_kitty & KITTY_REPORT_ALL == 0 {
+        if let Key::Named(name) = &input.key {
+            if MODIFIER_KEYS.contains(&name.0.as_str()) {
+                return Err(EncodeError::Unsupported(UnsupportedWhat::NamedKey));
+            }
+        }
+    }
     let shift = input.mods.contains(&Modifier::Shift);
     let ctrl_or_alt = input
         .mods
@@ -431,6 +455,8 @@ fn encoder_size(cols: u32, rows: u32, cell_px: Option<CellPx>) -> sys::MouseEnco
 
 /// The largest cell that each format can express, as the library encodes it (X10: 222, UTF-8: 2014). A test compares
 /// these with the library at the boundary. They only classify a zero result as `Unsupported(Coordinate)`.
+/// The largest pixel position that an `f32` holds exactly (2^24).
+const MAX_EXACT_PIXEL: u32 = 1 << 24;
 const X10_MAX_CELL: u32 = 222;
 const UTF8_MAX_CELL: u32 = 2014;
 
@@ -451,6 +477,17 @@ pub(crate) fn encode_mouse(
     // Under SGR pixels a position in pixels is required: Core never invents pixels from a cell.
     if format == sys::mouse_format::SGR_PIXELS && (input.x.is_none() || input.y.is_none()) {
         return Err(EncodeError::Unsupported(UnsupportedWhat::PixelPosition));
+    }
+
+    // The library takes a pixel position as `f32`, and above 2^24 an `f32` no longer holds every integer. A position
+    // that it cannot hold exactly is refused, never changed (5.1A).
+    if format == sys::mouse_format::SGR_PIXELS
+        && [input.x, input.y]
+            .iter()
+            .flatten()
+            .any(|p| *p > MAX_EXACT_PIXEL)
+    {
+        return Err(EncodeError::Unsupported(UnsupportedWhat::Coordinate));
     }
 
     let mut encoder: sys::MouseEncoder = std::ptr::null_mut();

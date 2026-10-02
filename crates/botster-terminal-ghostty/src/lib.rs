@@ -623,3 +623,6 @@ mod tests_snapshot;
 
 #[cfg(test)]
 mod tests_color;
+
+#[cfg(test)]
+mod tests_archive;

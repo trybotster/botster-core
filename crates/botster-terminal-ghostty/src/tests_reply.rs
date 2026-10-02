@@ -139,7 +139,18 @@ fn a_clipboard_reply_names_the_selection_and_ends_like_the_request() {
             "{request:?}"
         );
         assert!(bytes.windows(8).any(|w| w == b"Zm9vYmFy"));
-        assert!(bytes.windows(3).any(|w| w == b";p;"));
+        // The selection of the request is in the reply: the same request for selection `q` gives another reply of the
+        // same length.
+        let mut other_request = request.to_vec();
+        other_request[5] = b'q';
+        let other = query(&other_request)
+            .reply_bytes(&QueryReply::Clipboard {
+                selection: "q".into(),
+                data_base64: "Zm9vYmFy".into(),
+            })
+            .unwrap();
+        assert_eq!(other.len(), bytes.len());
+        assert_ne!(other, bytes);
     }
     // An empty clipboard is a valid reply.
     let q = query(b"\x1b]52;c;?\x07");

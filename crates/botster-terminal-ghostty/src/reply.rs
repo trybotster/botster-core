@@ -73,45 +73,13 @@ fn position(value: u32) -> Result<u16, ReplyError> {
     u16::try_from(value).map_err(|_| ReplyError::Invalid)
 }
 
-/// Decode standard base64 with padding. Anything else is `Invalid`.
+/// Decode standard base64 with canonical padding and no stray bits: the strict form (the maintained `base64` crate's
+/// `STANDARD` engine). Anything else is `Invalid`.
 pub(crate) fn base64_decode(text: &str) -> Result<Vec<u8>, ReplyError> {
-    let bytes = text.as_bytes();
-    if !bytes.len().is_multiple_of(4) {
-        return Err(ReplyError::Invalid);
-    }
-    let value = |b: u8| -> Result<u32, ReplyError> {
-        match b {
-            b'A'..=b'Z' => Ok(u32::from(b - b'A')),
-            b'a'..=b'z' => Ok(u32::from(b - b'a') + 26),
-            b'0'..=b'9' => Ok(u32::from(b - b'0') + 52),
-            b'+' => Ok(62),
-            b'/' => Ok(63),
-            _ => Err(ReplyError::Invalid),
-        }
-    };
-    let mut out = Vec::with_capacity(bytes.len() / 4 * 3);
-    let groups = bytes.len() / 4;
-    for (index, group) in bytes.chunks(4).enumerate() {
-        let last = index + 1 == groups;
-        let pad = group.iter().rev().take_while(|b| **b == b'=').count();
-        if pad > 2 || (pad > 0 && !last) {
-            return Err(ReplyError::Invalid);
-        }
-        let mut n = 0u32;
-        for (i, &b) in group.iter().enumerate() {
-            n <<= 6;
-            if i < 4 - pad {
-                n |= value(b)?;
-            }
-        }
-        let triple = n.to_be_bytes();
-        out.extend_from_slice(&triple[1..4 - pad]);
-        // The unused low bits of a padded group must be zero, so that one byte string has one encoding.
-        if pad > 0 && (n >> (pad * 6)) & ((1 << (pad * 2)) - 1) != 0 {
-            return Err(ReplyError::Invalid);
-        }
-    }
-    Ok(out)
+    use base64::Engine;
+    base64::engine::general_purpose::STANDARD
+        .decode(text)
+        .map_err(|_| ReplyError::Invalid)
 }
 
 impl Query {
