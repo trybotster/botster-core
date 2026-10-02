@@ -6,6 +6,7 @@
 //! until it passes.
 
 use crate::core::{core_features, Directories, RunInputs};
+use crate::oracle::Oracle;
 use crate::refusal::{RefusalHandle, RefusalLayer, ScriptError};
 use crate::scheduler::SchedulerHandle;
 use crate::worker::{TestkitCore, Workers};
@@ -29,6 +30,16 @@ const PROGRAM_CONTROLS: &[&str] = &[
     "pty_fail_after",
     "program_write_size",
     "program_write_once",
+];
+
+/// The terminal oracles (R-7): an independent libghostty terminal replays what reached the session's PTY.
+const ORACLE_CONTROLS: &[&str] = &[
+    "oracle_modes",
+    "oracle_state",
+    "oracle_cursor",
+    "oracle_screen",
+    "oracle_notification",
+    "oracle_encode",
 ];
 
 /// The controls of the process edge that the harness dispatches to a session's worker.
@@ -190,6 +201,49 @@ impl TestkitHarness {
         }
     }
 
+    /// The terminal oracles of a session (R-7): a fresh libghostty terminal replays the session's PTY log and answers.
+    fn oracle_control(
+        &mut self,
+        handle: &str,
+        op: &str,
+        args: &Value,
+    ) -> Result<Value, ControlError> {
+        let session = args
+            .get("session")
+            .and_then(Value::as_str)
+            .map(|s| SessionId(s.to_string()))
+            .ok_or_else(|| ControlError::Bad(format!("{op} needs 'session'")))?;
+        let control = self
+            .workers
+            .program_control(handle, &session)
+            .ok_or_else(|| {
+                ControlError::Bad(format!("{op}: session {} has no payload", session.0))
+            })?;
+        let oracle = Oracle::replay(&control.model_log())?;
+        match op {
+            "oracle_modes" => Ok(oracle.modes()),
+            "oracle_state" => Ok(oracle.state()),
+            "oracle_cursor" => Ok(oracle.cursor()),
+            "oracle_screen" => oracle.screen(
+                args.get("history")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false),
+            ),
+            "oracle_notification" => oracle.notification(),
+            "oracle_encode" => {
+                let kind = args
+                    .get("kind")
+                    .and_then(Value::as_str)
+                    .ok_or_else(|| ControlError::Bad("oracle_encode needs 'kind'".into()))?;
+                let input = args
+                    .get("input")
+                    .ok_or_else(|| ControlError::Bad("oracle_encode needs 'input'".into()))?;
+                oracle.encode(kind, input, args.get("modes"))
+            }
+            _ => Err(ControlError::Unsupported),
+        }
+    }
+
     fn no_route(what: &str) -> CoreError {
         CoreError::new(
             ErrorCode::Unsupported { what: None },
@@ -274,7 +328,10 @@ impl CoreHarness for TestkitHarness {
     /// The controls that the testkit builds (design 6.3, `docs/core-testkit-controls.md`). The others come with the machines
     /// and edges that they need.
     fn has_control(&self, op: &str) -> bool {
-        op == "fail_next" || PROGRAM_CONTROLS.contains(&op) || WORKER_CONTROLS.contains(&op)
+        op == "fail_next"
+            || PROGRAM_CONTROLS.contains(&op)
+            || WORKER_CONTROLS.contains(&op)
+            || ORACLE_CONTROLS.contains(&op)
     }
 
     /// Core TH-1 has no concrete Core type to ask yet.
@@ -287,6 +344,7 @@ impl CoreHarness for TestkitHarness {
             "fail_next" => self.fail_next(handle, args),
             op if PROGRAM_CONTROLS.contains(&op) => self.program_control(handle, op, args),
             op if WORKER_CONTROLS.contains(&op) => self.worker_control(handle, op, args),
+            op if ORACLE_CONTROLS.contains(&op) => self.oracle_control(handle, op, args),
             _ => Err(ControlError::Unsupported),
         }
     }

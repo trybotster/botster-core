@@ -78,8 +78,20 @@ struct Controls {
     inject: VecDeque<(Vec<u8>, bool)>,
     /// Every byte of input that the program took (the log behind `pty_input`).
     input_log: Vec<u8>,
+    /// What reached the PTY of the worker's terminal, in order: every output byte that the worker read and every size the
+    /// worker set. An independent oracle terminal replays it (the terminal oracles, R-7).
+    model_log: Vec<ModelLogEntry>,
     /// Output bytes that the worker has not read: the program's queue and the injected bytes (`pty_output_unread`).
     unread: usize,
+}
+
+/// One entry of the log that the oracle terminal replays.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ModelLogEntry {
+    /// Output bytes that the worker read, in one piece.
+    Output(Vec<u8>),
+    /// A size that the worker set on the PTY.
+    Size(WindowSize),
 }
 
 /// A handle on the controls of a [`ScriptedProgram`]. It outlives the move of the program into a worker.
@@ -169,6 +181,11 @@ impl ProgramControl {
     /// Every byte of input that the program took, in order.
     pub fn input_log(&self) -> Vec<u8> {
         self.lock().input_log.clone()
+    }
+
+    /// The output the worker read and the sizes it set, in order: what an oracle terminal replays (R-7).
+    pub fn model_log(&self) -> Vec<ModelLogEntry> {
+        self.lock().model_log.clone()
     }
 
     /// `pty_output_unread`: the output bytes that the worker has not read.
@@ -499,12 +516,20 @@ impl Program for ScriptedProgram {
             Some(cap) => fits.min(cap).max(1),
             None => scheduler.with(|s| s.program_write_size(fits)),
         });
-        self.controls.lock().unread = self.output.len();
+        let mut controls = self.controls.lock();
+        controls.unread = self.output.len();
+        controls
+            .model_log
+            .push(ModelLogEntry::Output(buf[..n].to_vec()));
         Ok(n)
     }
 
     fn resize(&mut self, size: WindowSize) -> io::Result<()> {
         self.size = Some(size);
+        self.controls
+            .lock()
+            .model_log
+            .push(ModelLogEntry::Size(size));
         Ok(())
     }
 
