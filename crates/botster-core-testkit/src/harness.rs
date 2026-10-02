@@ -6,13 +6,15 @@
 //! until it passes.
 
 use crate::core::{core_features, Directories, RunInputs};
+use crate::refusal::{RefusalHandle, RefusalLayer, ScriptError};
 use crate::scheduler::SchedulerHandle;
 use crate::worker::{TestkitCore, Workers};
 use botster_core_conformance::{
     ControlError, CoreHarness, DataDirRef, OpenSpec, RouteClient, WorkerBuild, WorkerRef,
 };
 use botster_core_contract::prelude::*;
-use serde_json::Value;
+use serde_json::{json, Value};
+use std::collections::BTreeMap;
 use std::time::Instant;
 
 /// The default-tier harness for one seed (foundation design 6.1: seeds 0 to 31).
@@ -23,6 +25,9 @@ pub struct TestkitHarness {
     directories: Directories,
     /// Every in-process worker of the run, in one `Sim` with the run's seeded stream (plan 4.1, A5-2).
     workers: Workers,
+    /// The scripted synchronous refusals of each handle (plan 4.2a). The harness arms them; the layer in front of the handle's
+    /// Core consumes them.
+    refusals: BTreeMap<String, RefusalHandle>,
 }
 
 impl TestkitHarness {
@@ -33,12 +38,49 @@ impl TestkitHarness {
             start,
             directories: Directories::default(),
             workers: Workers::new(SchedulerHandle::with_seed(seed), start),
+            refusals: BTreeMap::new(),
         }
     }
 
     /// The seed of this run. `with_seed` of every `Sim` that `open` builds takes it (Core A5-2).
     pub fn seed(&self) -> u64 {
         self.seed
+    }
+
+    /// Puts the refusal layer of the handle in front of its Core. `open` calls this with the Core that it built, so every Core
+    /// that a transcript sees can be scripted (Core A5-3 timing 1).
+    pub fn with_refusals(&mut self, handle: &str, core: Box<dyn CoreApi>) -> Box<dyn CoreApi> {
+        let script = self.refusals.entry(handle.to_string()).or_default().clone();
+        Box::new(RefusalLayer::new(core, script))
+    }
+
+    /// The control `fail_next`: the next call of `target` (an operation kind or a call name) is refused with `error` before it
+    /// reaches Core. `occurrence` counts from 1 (default 1). A code that is not in the call's sync column is refused with the
+    /// typed `ControlError::Refused` (Core A5-3).
+    fn fail_next(&mut self, handle: &str, args: &Value) -> Result<Value, ControlError> {
+        let bad = |why: String| ControlError::Bad(why);
+        let target = args
+            .get("target")
+            .and_then(Value::as_str)
+            .ok_or_else(|| bad("needs 'target': the call".into()))?;
+        let error = args
+            .get("error")
+            .ok_or_else(|| bad("needs 'error'".into()))?;
+        let occurrence = match args.get("occurrence") {
+            None => 1,
+            Some(n) => n
+                .as_u64()
+                .and_then(|n| usize::try_from(n).ok())
+                .ok_or_else(|| bad("'occurrence' is a number".into()))?,
+        };
+        let script = self.refusals.entry(handle.to_string()).or_default();
+        match script.arm(target, occurrence, error) {
+            Ok(()) => Ok(Value::Null),
+            Err(ScriptError::NotInSyncColumn { call, code }) => Err(ControlError::Refused(
+                json!({"call": call, "code": code, "reason": "not_in_sync_column"}),
+            )),
+            Err(other) => Err(bad(format!("{other:?}"))),
+        }
     }
 
     fn no_route(what: &str) -> CoreError {
@@ -81,11 +123,12 @@ impl CoreHarness for TestkitHarness {
             core_features(),
             Some(Box::new(self.workers.spawner())),
         )?;
-        Ok(Box::new(TestkitCore::new(
+        let core = Box::new(TestkitCore::new(
             opened.driver,
             opened.wake,
             self.workers.clone(),
-        )))
+        ));
+        Ok(self.with_refusals(&spec.handle, core))
     }
 
     /// The harness passes the clock, so `advance_clock` moves it (Core TM-1, A5-1).
