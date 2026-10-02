@@ -44,8 +44,10 @@ the probe and does not move the pin.
 - Measured at the head that adds the example (the commit after `4f8ec55`; the harness code is unchanged from `4f8ec55`).
 - Result: 132 transcripts, 32 seeds, 4224 runs, 4192 driver constructions (131 transcripts x 32 seeds), 32 passed, 4192 not passed.
   Total 2.75 ms: 20.8 µs per transcript over 32 seeds, 650 ns per run, worst run 203 µs
-  (`conf::am_1_create_then_start_same_turn`, seed 0). The one transcript that passes constructs no driver, so it ends before `open`
-  (a structural or control check that stops the transcript earlier).
-- **Limit of this measurement:** the 4192 runs that construct a driver stop at `open`, which reports that no Core exists. The numbers
-  cover the failing `open` path of the harness. They do not show the cost of a passing Core transcript. R4 needs a new measurement
-  when P1 provides the engine.
+  (`conf::am_1_create_then_start_same_turn`, seed 0). The one passing transcript is `conf::er_deadline_expired`: the pinned
+  transcript has kind `withdrawn`, and `run_transcript` returns `Passed` before it constructs a driver.
+- **Limit of this measurement:** the 4192 runs that construct a driver end early, and the example does not tell which way. A run
+  stops at an absent feature or an unsupported control (`has_control` is false for every op, so a transcript that requires
+  `pty_blocked` or `pty_input` stops before setup, for example `conf::am_2_fairness_bound_across_routes`), or at `open`, which
+  reports that no Core exists. The numbers are an early-exit measurement of the harness. They do not show the cost of a passing
+  Core transcript. R4 needs a new measurement when P1 provides the engine and the controls exist.
