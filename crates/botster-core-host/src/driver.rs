@@ -69,6 +69,9 @@ pub trait HostEdges: Send {
     fn link_close(&mut self, link: LinkId);
     /// Write interest follows the outbound buffer (plan 2.5): on while bytes wait, off when none do.
     fn set_write_interest(&mut self, link: LinkId, on: bool);
+    /// Read interest follows what the engine can take (plan 2.5 rule 7): off while a frame is held, on again when the engine
+    /// can take it.
+    fn set_read_interest(&mut self, link: LinkId, on: bool);
     /// Hands the stream of a route to the worker over its link (DP-2).
     fn handoff_route(
         &mut self,
@@ -110,6 +113,10 @@ struct LinkState {
     out: Vec<u8>,
     /// The first frame of a link is the hello; after it, messages.
     hello_seen: bool,
+    /// Bytes that were read and not decoded yet: at most one read chunk.
+    pending: Vec<u8>,
+    /// A decoded input that the engine cannot take now (EV-5b): the link is not read until it can.
+    held: Option<Input>,
 }
 
 /// The host driver. It is `Send`, and `Core` is `Send` and not `Sync` (TH-1) because the owner thread alone calls it.
@@ -156,6 +163,47 @@ impl<E: HostEdges> HostDriver<E> {
     fn perform(&mut self) {
         while let Some(action) = self.engine.poll_action() {
             self.act(action);
+        }
+    }
+
+    /// Performs the engine's actions, and counts the events that their results post against the pump (9B).
+    fn perform_counted(&mut self, budget: &mut Budget) {
+        self.perform();
+        budget.account(&mut self.engine);
+    }
+
+    /// The production policy visits sessions round-robin (plan 2.4): when the chosen work is a session step, the scheduler
+    /// picks among the session steps at the `Session` choice point, so one busy session cannot starve another.
+    fn pick_session(&mut self, ready: &[Work], at: usize) -> Work {
+        if !matches!(ready[at], Work::Session(_)) {
+            return ready[at].clone();
+        }
+        let sessions: Vec<&Work> = ready
+            .iter()
+            .filter(|w| matches!(w, Work::Session(_)))
+            .collect();
+        let i = self
+            .edges
+            .scheduler()
+            .pick(ChoicePoint::Session, sessions.len())
+            .min(sessions.len() - 1);
+        sessions[i].clone()
+    }
+
+    /// A poll freed mandatory room: a link whose held frame can be taken now gets its read interest back, and the wake is
+    /// signalled so that the host pumps (EV-5d, TM-6). The frame itself is delivered in the next `pump` (OR-1).
+    fn unpark_links(&mut self) {
+        let ids: Vec<LinkId> = self.links.keys().copied().collect();
+        for link in ids {
+            let ready = self
+                .links
+                .get(&link)
+                .and_then(|s| s.held.as_ref())
+                .is_some_and(|input| self.engine.can_accept(input));
+            if ready {
+                self.edges.set_read_interest(link, true);
+                self.wake.signal();
+            }
         }
     }
 
@@ -278,9 +326,10 @@ impl<E: HostEdges> HostDriver<E> {
         }
     }
 
-    /// Reads every link that has input, and gives the engine what it decoded (plan 2.5). Control comes before data: this
-    /// runs before the work of a `pump`.
-    fn service_links(&mut self) {
+    /// Reads every link that has input, and gives the engine what it decoded (plan 2.5). Control comes before data: this runs
+    /// before the work of a `pump`. A link is read only as far as the engine can take what it decoded and as far as the
+    /// budget of the pump allows: the rest stays unread (kernel buffer, or the one frame in `held`).
+    fn service_links(&mut self, budget: &mut Budget) {
         let now = self.now();
         while let Some(link) = self.edges.accept_link() {
             self.links.insert(
@@ -289,20 +338,81 @@ impl<E: HostEdges> HostDriver<E> {
                     decoder: FrameDecoder::new(self.frame_bound),
                     out: Vec::new(),
                     hello_seen: false,
+                    pending: Vec::new(),
+                    held: None,
                 },
             );
         }
         let ids: Vec<LinkId> = self.links.keys().copied().collect();
         for link in ids {
             self.flush(link);
-            self.read_link(link, now);
+            self.read_link(link, now, budget);
         }
     }
 
-    fn read_link(&mut self, link: LinkId, now: Instant) {
+    /// Delivers a frame that the engine could not take before, when it can now (EV-5d).
+    fn retry_held(&mut self, now: Instant, budget: &mut Budget) {
+        let ids: Vec<LinkId> = self.links.keys().copied().collect();
+        for link in ids {
+            let held = self.links.get_mut(&link).and_then(|s| s.held.take());
+            let Some(input) = held else { continue };
+            if !self.engine.can_accept(&input) {
+                self.links.get_mut(&link).expect("kept").held = Some(input);
+                continue;
+            }
+            self.feed(now, input);
+            budget.account(&mut self.engine);
+            self.edges.set_read_interest(link, true);
+        }
+    }
+
+    fn read_link(&mut self, link: LinkId, now: Instant, budget: &mut Budget) {
         let mut buf = vec![0u8; READ_CHUNK];
         loop {
-            if !self.links.contains_key(&link) {
+            let Some(state) = self.links.get_mut(&link) else {
+                return;
+            };
+            if state.held.is_some() {
+                return;
+            }
+            // 1. The bytes that were read earlier and not yet decoded.
+            while !state.pending.is_empty() {
+                if budget.exhausted() {
+                    budget.more_input = true;
+                    return;
+                }
+                let took = state.decoder.push(&state.pending);
+                state.pending.drain(..took);
+                match state.decoder.next_frame() {
+                    Ok(Some(frame)) => {
+                        let first = !state.hello_seen;
+                        state.hello_seen = true;
+                        match self.deliver(link, first, frame.kind, &frame.payload, now, budget) {
+                            Delivery::Done => {}
+                            Delivery::Held => return,
+                            Delivery::Bad => {
+                                self.close_link(link);
+                                return;
+                            }
+                        }
+                    }
+                    Ok(None) => {}
+                    Err(_) => {
+                        // A frame over the bound ends the link (plan section 3).
+                        self.close_link(link);
+                        return;
+                    }
+                }
+                if !self.links.contains_key(&link) {
+                    return;
+                }
+                return self.read_link(link, now, budget);
+            }
+            // 2. More bytes, within the bytes that one pump may read from this link (9B `pump_bytes`).
+            if budget.exhausted() || !budget.may_read(link, READ_CHUNK) {
+                if budget.exhausted() || budget.bytes_left(link) == 0 {
+                    budget.more_input = true;
+                }
                 return;
             }
             let n = match self.edges.link_recv(link, &mut buf) {
@@ -318,34 +428,14 @@ impl<E: HostEdges> HostDriver<E> {
                     return;
                 }
             };
-            let mut rest = &buf[..n];
-            while !rest.is_empty() {
-                let Some(state) = self.links.get_mut(&link) else {
-                    return;
-                };
-                let took = state.decoder.push(rest);
-                rest = &rest[took..];
-                match state.decoder.next_frame() {
-                    Ok(Some(frame)) => {
-                        let first = !state.hello_seen;
-                        state.hello_seen = true;
-                        if !self.deliver(link, first, frame.kind, &frame.payload, now) {
-                            self.close_link(link);
-                            return;
-                        }
-                    }
-                    Ok(None) => {}
-                    Err(_) => {
-                        // A frame over the bound ends the link (plan section 3).
-                        self.close_link(link);
-                        return;
-                    }
-                }
+            budget.read(link, n);
+            if let Some(state) = self.links.get_mut(&link) {
+                state.pending.extend_from_slice(&buf[..n]);
             }
         }
     }
 
-    /// Turns one frame into an input. False when the frame is not valid on this link.
+    /// Turns one frame into an input. `Held` when the engine cannot take it now: it stays unread on its link (EV-5b).
     fn deliver(
         &mut self,
         link: LinkId,
@@ -353,29 +443,76 @@ impl<E: HostEdges> HostDriver<E> {
         kind: FrameType,
         payload: &[u8],
         now: Instant,
-    ) -> bool {
-        if first {
+        budget: &mut Budget,
+    ) -> Delivery {
+        let input = if first {
             if kind != FrameType::HELLO {
-                return false;
+                return Delivery::Bad;
             }
-            return match Hello::decode(payload) {
-                Ok(hello) => {
-                    self.feed(now, Input::LinkHello { link, hello });
-                    true
-                }
-                Err(_) => false,
-            };
-        }
-        if kind != FrameType::WORKER_MSG {
-            return false;
-        }
-        match WorkerMsg::decode(payload) {
-            Ok(msg) => {
-                self.feed(now, Input::LinkMsg { link, msg });
-                true
+            match Hello::decode(payload) {
+                Ok(hello) => Input::LinkHello { link, hello },
+                Err(_) => return Delivery::Bad,
             }
-            Err(_) => false,
+        } else {
+            if kind != FrameType::WORKER_MSG {
+                return Delivery::Bad;
+            }
+            match WorkerMsg::decode(payload) {
+                Ok(msg) => Input::LinkMsg { link, msg },
+                Err(_) => return Delivery::Bad,
+            }
+        };
+        if !self.engine.can_accept(&input) {
+            self.edges.set_read_interest(link, false);
+            if let Some(state) = self.links.get_mut(&link) {
+                state.held = Some(input);
+            }
+            return Delivery::Held;
         }
+        self.feed(now, input);
+        budget.account(&mut self.engine);
+        Delivery::Done
+    }
+}
+
+enum Delivery {
+    Done,
+    Held,
+    Bad,
+}
+
+/// The bounds of one `pump` (9B `pump_events`, `pump_bytes`, plan 2.4).
+struct Budget {
+    /// The events that this pump may post (the scheduler's bound).
+    bound: usize,
+    posted: usize,
+    /// The bytes that one link may deliver in this pump.
+    per_link_bytes: usize,
+    read: BTreeMap<LinkId, usize>,
+    /// Input remains unread because of a bound: the host must pump again.
+    more_input: bool,
+}
+
+impl Budget {
+    fn exhausted(&self) -> bool {
+        self.posted >= self.bound
+    }
+
+    fn account(&mut self, engine: &mut HostEngine) {
+        self.posted += engine.take_posted() as usize;
+    }
+
+    fn bytes_left(&self, link: LinkId) -> usize {
+        self.per_link_bytes
+            .saturating_sub(self.read.get(&link).copied().unwrap_or(0))
+    }
+
+    fn may_read(&self, link: LinkId, chunk: usize) -> bool {
+        self.bytes_left(link) >= chunk.min(self.per_link_bytes).max(1)
+    }
+
+    fn read(&mut self, link: LinkId, n: usize) {
+        *self.read.entry(link).or_insert(0) += n;
     }
 }
 
@@ -386,25 +523,33 @@ impl<E: HostEdges> CoreApi for HostDriver<E> {
         Ok(id)
     }
 
-    /// The only call that makes progress (OR-1, TM-2): the order of the work is the scheduler's (plan 2.4).
+    /// The only call that makes progress (OR-1, TM-2): the order of the work is the scheduler's (plan 2.4), and every kind of
+    /// work (link input, process exits, steps) counts against the bounds of this pump (9B).
     fn pump(&mut self, now: Now) -> PumpReport {
-        self.feed(now.monotonic, Input::Clock(now.unix));
-        while let Some((identity, status)) = self.edges.poll_process_exit() {
-            self.feed(now.monotonic, Input::ProcessExited { identity, status });
-        }
-        self.service_links();
-        self.perform();
-        let pump_events = self.engine.limits().pump_events as usize;
+        // Events that an earlier call posted (a `cancel`) are not this pump's.
+        let _ = self.engine.take_posted();
+        let limits = self.engine.limits();
         let bound = self
             .edges
             .scheduler()
-            .bound(ChoicePoint::PumpBound, pump_events);
-        let mut posted = 0usize;
+            .bound(ChoicePoint::PumpBound, limits.pump_events as usize);
+        let mut budget = Budget {
+            bound,
+            posted: 0,
+            per_link_bytes: usize::try_from(limits.pump_bytes).unwrap_or(usize::MAX),
+            read: BTreeMap::new(),
+            more_input: false,
+        };
+        self.feed(now.monotonic, Input::Clock(now.unix));
+        while let Some((identity, status)) = self.edges.poll_process_exit() {
+            self.feed(now.monotonic, Input::ProcessExited { identity, status });
+            budget.account(&mut self.engine);
+        }
+        self.retry_held(now.monotonic, &mut budget);
+        self.service_links(&mut budget);
+        self.perform_counted(&mut budget);
         let mut deferred: BTreeSet<Work> = BTreeSet::new();
         loop {
-            if posted >= bound {
-                break;
-            }
             let ready: Vec<Work> = self
                 .engine
                 .ready()
@@ -414,13 +559,17 @@ impl<E: HostEdges> CoreApi for HostDriver<E> {
             if ready.is_empty() {
                 break;
             }
+            // A due deadline is processed in its pump, whatever the budget (TM-3, TM-5); other work stops at the bound.
+            if budget.exhausted() && ready[0] != Work::Deadline {
+                break;
+            }
             let at = self
                 .edges
                 .scheduler()
-                .pick(ChoicePoint::ReadyWork, ready.len());
-            let work = ready[at.min(ready.len() - 1)].clone();
-            // A5-2: the scheduler may defer the progress of an operation to a later pump. A deadline is never deferred
-            // (TM-3: a due deadline is processed in its pump).
+                .pick(ChoicePoint::ReadyWork, ready.len())
+                .min(ready.len() - 1);
+            let work = self.pick_session(&ready, at);
+            // A5-2: the scheduler may defer the progress of an operation to a later pump. A deadline is never deferred.
             if work != Work::Deadline
                 && self
                     .edges
@@ -432,24 +581,27 @@ impl<E: HostEdges> CoreApi for HostDriver<E> {
                 continue;
             }
             self.feed(now.monotonic, Input::Run(work));
-            self.perform();
-            self.service_links();
-            self.perform();
-            posted += self.engine.take_posted() as usize;
+            budget.account(&mut self.engine);
+            self.perform_counted(&mut budget);
+            self.service_links(&mut budget);
+            self.perform_counted(&mut budget);
         }
-        let mut more = self.engine.runnable();
+        let mut more = self.engine.runnable() || budget.more_input;
         if !more {
             self.edges.settle_wake();
-            self.service_links();
-            self.perform();
-            more = self.engine.runnable();
-            if !more {
-                self.wake.drain();
-            }
+            self.service_links(&mut budget);
+            self.perform_counted(&mut budget);
+            more = self.engine.runnable() || budget.more_input;
+        }
+        if more {
+            // Work or input remains: the wake stays set, so a host that waits on it pumps again (TM-6).
+            self.wake.signal();
+        } else {
+            self.wake.drain();
         }
         PumpReport {
             more,
-            events_posted: u32::try_from(posted).unwrap_or(u32::MAX),
+            events_posted: u32::try_from(budget.posted).unwrap_or(u32::MAX),
         }
     }
 
@@ -458,6 +610,7 @@ impl<E: HostEdges> CoreApi for HostDriver<E> {
     fn poll_events(&mut self, max: usize) -> Vec<Event> {
         let batch = self.edges.scheduler().bound(ChoicePoint::PollBatch, max);
         let events = self.engine.poll_events(batch);
+        self.unpark_links();
         self.sync_wake();
         events
     }

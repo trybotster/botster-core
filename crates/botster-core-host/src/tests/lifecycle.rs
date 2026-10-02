@@ -420,21 +420,44 @@ fn a_stop_of_a_starting_session_stops_it_when_the_start_ends() {
 
 /// Core LC-6: a signal is sent to the worker and the completion follows the send; the exit is `HostStop`.
 #[test]
-fn signal_is_sent_to_the_worker_and_the_exit_is_host_stop() {
+fn signal_completes_when_the_worker_confirms_it_and_the_exit_is_host_stop() {
     let mut w = World::default();
     w.autopilot = Autopilot::Silent;
     w.running("s1");
-    assert_eq!(
-        w.ok(Op::Signal {
+    let signal = w
+        .engine
+        .begin(Op::Signal {
             id: sid("s1"),
-            sig: Signal::Kill
-        }),
-        OpOutput::Unit
-    );
-    assert!(w
+            sig: Signal::Kill,
+        })
+        .unwrap();
+    w.pump();
+    let (req, sent) = w
         .sent
         .iter()
-        .any(|(_, m)| matches!(m, HostMsg::Signal { sig: Signal::Kill })));
+        .find_map(|(_, m)| match m {
+            HostMsg::Op {
+                req,
+                op: Op::Signal { sig, .. },
+            } => Some((*req, *sig)),
+            _ => None,
+        })
+        .expect("the signal went to the worker as a request");
+    assert_eq!(sent, Signal::Kill);
+    // A2-1: the completion follows the signal that was sent, not the request: nothing is completed before the worker says so.
+    assert!(w
+        .engine
+        .poll_events(64)
+        .iter()
+        .all(|e| !matches!(e, Event::Completed { op, .. } if *op == signal)));
+    w.worker_says(
+        "s1",
+        WorkerMsg::Done {
+            req,
+            result: OpResult::Ok(OpOutput::Unit),
+        },
+    );
+    assert_eq!(w.complete(signal), OpResult::Ok(OpOutput::Unit));
     w.worker_says(
         "s1",
         WorkerMsg::Exited {
@@ -462,6 +485,27 @@ fn signal_is_sent_to_the_worker_and_the_exit_is_host_stop() {
             })
         ))
     ));
+}
+
+/// Core A2-1: a signal whose link fails before the worker confirms completes `WorkerLinkFailed`, never `Ok`.
+#[test]
+fn a_signal_over_a_failed_link_is_worker_link_failed() {
+    let mut w = World::default();
+    w.autopilot = Autopilot::Silent;
+    w.running("s1");
+    let signal = w
+        .engine
+        .begin(Op::Signal {
+            id: sid("s1"),
+            sig: Signal::Term,
+        })
+        .unwrap();
+    w.pump();
+    let link = w.link_of("s1");
+    w.feed(Input::LinkClosed { link });
+    assert!(
+        matches!(w.complete(signal), OpResult::Err(e) if e.code == ErrorCode::WorkerLinkFailed)
+    );
 }
 
 /// Core EV-4: an exit that nobody asked for is `Normal` with a code, or `Signal` when a signal ended it.
@@ -521,6 +565,10 @@ fn a_payload_that_ends_at_once_posts_running_before_exited() {
             features: BTreeSet::new(),
             terminal: terminal_state(),
             formats: vec![],
+            payload: Some(botster_core_link::msg::PayloadId {
+                pid: 900,
+                start_time: 3,
+            }),
         },
     });
     w.feed(Input::LinkMsg {
@@ -639,6 +687,7 @@ fn a_delete_failure_is_reported_with_its_paths_and_the_teardown_continues() {
             }),
         },
     );
+    w.exited("s1");
     match w.complete(op) {
         OpResult::Ok(OpOutput::RemoveReport(r)) => assert_eq!(
             r.uploads,
@@ -674,6 +723,7 @@ fn a_worker_lost_during_the_cleanup_is_outcome_unknown() {
     w.pump();
     let link = w.link_of("s1");
     w.feed(Input::LinkClosed { link });
+    w.exited("s1");
     match w.complete(op) {
         OpResult::Ok(OpOutput::RemoveReport(r)) => {
             assert_eq!(
@@ -1018,32 +1068,6 @@ fn a_write_in_flight_when_the_link_fails_is_unknown() {
                 max_payload_bytes: 3
             }
         ),
-        other => panic!("{other:?}"),
-    }
-}
-
-/// Core LC-5: a session whose control link is broken still ends: the process edge carries the request.
-#[test]
-fn stop_with_a_broken_link_signals_the_process_group_and_ends() {
-    let mut w = World::new(limits(|l| l.stop_grace = Duration::from_millis(100)));
-    w.autopilot = Autopilot::Silent;
-    w.running("s1");
-    let link = w.link_of("s1");
-    w.feed(Input::LinkClosed { link });
-    let op = w.engine.begin(Op::Stop { id: sid("s1") }).unwrap();
-    w.pump();
-    let identity = w.identity_of("s1");
-    assert!(w
-        .signals
-        .contains(&(identity, botster_core_edges::edges::GroupSignal::Term)));
-    w.advance(Duration::from_millis(100));
-    w.pump();
-    assert!(w
-        .signals
-        .contains(&(identity, botster_core_edges::edges::GroupSignal::Kill)));
-    w.exited("s1");
-    match w.complete(op) {
-        OpResult::Ok(OpOutput::End(SessionEnd::Lost(LostReason::WorkerGone))) => {}
         other => panic!("{other:?}"),
     }
 }

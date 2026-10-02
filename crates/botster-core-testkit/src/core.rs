@@ -246,6 +246,14 @@ impl HostEdges for SimEdges {
         }
     }
 
+    fn set_read_interest(&mut self, link: LinkId, on: bool) {
+        if let Some(end) = self.links.get_mut(&link) {
+            let mut interest = end.end().interest();
+            interest.read = on;
+            end.end().set_interest(interest);
+        }
+    }
+
     fn handoff_route(
         &mut self,
         link: LinkId,
