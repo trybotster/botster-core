@@ -96,32 +96,3 @@ fn the_child_environment_is_exact() {
     assert_eq!(exit.1, ExitStatus::Code(0), "nothing is inherited");
     std::mem::forget(reaper);
 }
-
-/// Core LC-5, LC-6, AD-6: the group of a payload whose leader was reaped is still signalled when descendants keep it, and a
-/// leader pid that names a different process is never signalled.
-#[test]
-fn a_payload_group_with_a_reaped_leader_is_still_signalled() {
-    use rustix::process::{test_kill_process_group, Pid};
-    let mut children = Children::new();
-    // The leader starts a descendant in its group and exits at once.
-    let identity = children
-        .spawn(&spec("/bin/sh", &["-c", "sleep 30 & exit 0"]))
-        .expect("spawn");
-    let exit = children.wait_exit(identity.pid).expect("the leader ends");
-    assert_eq!(exit.1, ExitStatus::Code(0));
-    let pid = Pid::from_raw(i32::try_from(identity.pid).unwrap()).unwrap();
-    assert_eq!(identity_state(identity), IdentityState::Absent);
-    assert!(
-        test_kill_process_group(pid).is_ok(),
-        "the descendant keeps the group"
-    );
-    children.signal_payload_group(identity, GroupSignal::Kill);
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10); // timer: deadline — the kernel reaps the killed descendant
-    while test_kill_process_group(pid).is_ok() {
-        assert!(
-            std::time::Instant::now() < deadline,
-            "the group survived the kill"
-        );
-        std::thread::yield_now();
-    }
-}

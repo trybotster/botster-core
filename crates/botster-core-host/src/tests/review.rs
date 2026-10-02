@@ -219,9 +219,11 @@ fn remove_ends_the_ops_of_the_instance_and_a_new_instance_is_untouched() {
     assert_eq!(w.engine.cancel(read), CancelResult::UnknownOp, "ID-1");
 }
 
-/// Core LC-5 (F7): with the link gone, a stop signals the payload's group and never the worker's; the session ends `Lost`.
+/// Core LC-5, AD-6 (F7): with the link gone, a stop signals only the verified worker (pid and start time), never a bare
+/// payload group; the session ends `Lost`.
 #[test]
-fn a_broken_link_stop_signals_the_payload_group_not_the_worker() {
+fn a_broken_link_stop_signals_the_verified_worker_only() {
+    use botster_core_edges::edges::GroupSignal;
     let mut w = World::new(limits(|l| l.stop_grace = Duration::from_millis(100)));
     w.autopilot = Autopilot::Silent;
     w.running("s1");
@@ -230,21 +232,13 @@ fn a_broken_link_stop_signals_the_payload_group_not_the_worker() {
     w.feed(Input::LinkClosed { link });
     let op = w.engine.begin(Op::Stop { id: sid("s1") }).unwrap();
     w.pump();
-    let payload = botster_core_edges::edges::ProcessIdentity {
-        pid: 900,
-        start_time: 3,
-    };
-    assert!(w
-        .signals
-        .contains(&(payload, botster_core_edges::edges::GroupSignal::Term)));
+    assert!(w.signals.contains(&(worker, GroupSignal::Term)));
     w.advance(Duration::from_millis(100));
     w.pump();
-    assert!(w
-        .signals
-        .contains(&(payload, botster_core_edges::edges::GroupSignal::Kill)));
+    assert!(w.signals.contains(&(worker, GroupSignal::Kill)));
     assert!(
-        w.signals.iter().all(|(id, _)| *id != worker),
-        "the worker's group is never signalled for a stop"
+        w.signals.iter().all(|(id, _)| *id == worker),
+        "no process but the verified worker is signalled"
     );
     assert!(matches!(
         w.complete(op),
