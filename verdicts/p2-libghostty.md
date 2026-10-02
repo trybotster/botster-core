@@ -1,9 +1,10 @@
 # P2 libghostty review
 
-Reviewed head: `fd1471eabca0adb344c6027b8995e1151aa8f8a8`.
+Reviewed head: `18b06f972cb64360c09c1a1d605531d7e70d0c54`.
+Previous audit head: `fd1471eabca0adb344c6027b8995e1151aa8f8a8`.
 Scope: the written audit only. This verdict does not approve the binding or a Ghostty pin change.
 
-VERDICT: NOT CLEAN (8 open)
+VERDICT: NOT CLEAN (4 open; F1–F8 closed for the written audit)
 
 The review uses manifest final13, BUILD.md at `2f2996ef0f016a1fefc6879e74deaef033383b66`, and plan pin `stage1-plan.a24efe7e`.
 The plan hash matches its recorded SHA-256.
@@ -17,7 +18,7 @@ The reviewer ran no tests. Source logic proves the findings below.
 
 ## F1 — HIGH — Mouse coverage omits known coordinate defects
 
-Status: OPEN.
+Status: CLOSED in audit revision 2. Original finding follows for the record.
 Audit evidence: lines 48–50 mark mouse encoding COVERED and defer possible clamping to a future test.
 
 Core 5.1A supplies zero-based cells and pixels. The encoder must apply the xterm coordinate offset.
@@ -36,7 +37,7 @@ Do not defer an established source defect to a future test.
 
 ## F2 — HIGH — Graphics snapshot coverage is false
 
-Status: OPEN.
+Status: CLOSED in audit revision 2. Original finding follows for the record.
 Audit evidence: line 79 marks graphics snapshots COVERED because snapshot files reference kitty graphics.
 
 At PIN, `src/terminal/snapshot/snapshot.zig:1197` tests preservation of virtual placeholders.
@@ -54,7 +55,7 @@ Do not use a failed feature test as an undocumented exclusion of state that the 
 
 ## F3 — HIGH — Typed query reply encoding is an unlisted GAP
 
-Status: OPEN.
+Status: CLOSED in audit revision 2. Original finding follows for the record.
 Audit evidence: line 108 leaves missing reply encoders as a P4b design question.
 The summary and patch series omit this GAP.
 
@@ -72,7 +73,7 @@ Add required encoders to the Q1 patch proposal. P4b cannot write terminal reply 
 
 ## F4 — HIGH — Clipboard write coverage loses the selection
 
-Status: OPEN.
+Status: CLOSED in audit revision 2. Original finding follows for the record.
 Audit evidence: line 94 marks `ClipboardWrite{selection, bytes, total_bytes}` COVERED.
 
 At PIN, `include/ghostty/vt/terminal.h:491` exposes `GhosttyClipboardWrite.location` and decoded representations.
@@ -88,7 +89,7 @@ Include any required preservation of the selection in the patch proposal.
 
 ## F5 — HIGH — The key NOTE changes text and leaves flag behavior unchecked
 
-Status: OPEN.
+Status: CLOSED in audit revision 2. Original finding follows for the record.
 Audit evidence: lines 42 and 46 claim coverage for kitty flags 1, 2, 8, and 16.
 The audit proposes dropping any `text` that contains a control codepoint before `_set_utf8`.
 
@@ -107,7 +108,7 @@ Keep semantic encoding policy inside libghostty, as BUILD.md requires.
 
 ## F6 — MEDIUM — The audit lacks required coverage and a Prior art note
 
-Status: OPEN.
+Status: CLOSED in audit revision 2. Original finding follows for the record.
 The audit states that its scope includes every Core clause that needs terminal semantics.
 It omits explicit coverage for SZ-1's cell pixel size, ST-4's terminal state, ST-5's retained model, ST-7's atomic terminal facts, and IN-10's terminal guard.
 Some duties belong to other packages. The audit must still identify their required library inputs and ownership.
@@ -120,7 +121,7 @@ Read old code only at `72b2e3354ffc291e39f9a5d7eb2f9c5fcbb5e79c`.
 
 ## F7 — LOW — Several header claims are inaccurate
 
-Status: OPEN.
+Status: CLOSED in audit revision 2. Original finding follows for the record.
 
 - Line 105 says the PIN unknown-sequence callback supports OSC and APC. `terminal.h:365` exposes only APC at PIN. UP adds OSC.
 - Line 91 names `GhosttySemanticPrompt`. The UP payload type is `GhosttyTerminalSemanticPrompt`.
@@ -133,7 +134,7 @@ Do not add meanings that the headers do not state.
 
 ## F8 — HIGH — ModeFlags cannot read the authoritative mouse mode
 
-Status: OPEN.
+Status: CLOSED in audit revision 2. Original finding follows for the record.
 Audit evidence: lines 59–60 claim that mode bits cover `mouse_tracking` and `mouse_encoding`.
 
 At PIN, `src/terminal/modes.zig:36` changes only the requested mode bit.
@@ -173,3 +174,85 @@ Both files are byte-identical at PIN and UP.
 This supports the audit's terminfo comparison. Any final patched pin still needs the same comparison.
 
 Every finding, including F7, must close before CLEAN.
+
+
+## Revision 2 review
+
+The lead authorized final14 at `063d6f05a9bd2e02fe8d252e82aff72c34a25d01` and Core erratum 2.
+The plan pin remains `stage1-plan.a24efe7e`.
+The lead also supplied steward ruling R-13 at `bcdcf19c756de7c06b38481d38ca1db30f027f86`.
+R-13 requires no offset for SGR-pixels. The original F1 pixel-offset concern is withdrawn under that ruling.
+
+F1–F8 close for the written audit:
+
+- F1: G8 records the cell API and clamping defects. Patch 6 supplies the cell path. R-13 resolves the pixel question.
+- F2: H1 disables kitty image storage with a zero limit and omits `snapshot_graphics`.
+- F3: G9 lists the missing typed encoders and the available color-scheme encoder.
+- F4: G10 records the original-selection gap and proposes preservation in patch 8.
+- F5: G5 preserves other text uses and changes associated-text rules inside libghostty.
+- F6: the missing clause rows and the Prior art note are present.
+- F7: the original paths, symbols, and PIN-versus-UP claims are corrected. F11 records a new UP callback error.
+- F8: G8 supplies active mouse enum getters rather than mode-bit precedence.
+
+E2 resolves the earlier OSC 1, unknown-mode, and mode-observation questions.
+Patch 1 now includes the consumed-byte boundary needed for EV-8c and EV-8g.
+These closures approve the audit descriptions only. They do not approve patches or binding code.
+The reviewer ran no tests in this round.
+
+## F9 — HIGH — The removed-fix mapping is incomplete and partly false
+
+Status: OPEN.
+Audit evidence: the Pin move section groups seven commits as page-pressure degradation and cites three upstream fixes.
+The lead requires a complete per-commit mapping before the nine commits can be dropped.
+
+`cfce1cd56` fixes replacement of an aliased current hyperlink in `startHyperlinkOnce`.
+PIN already contains that fix: `Screen.zig:2639–2648` duplicates the hyperlink before `endHyperlink`.
+It therefore does not establish that UP newly fixes the capacity-retry lifetime issue described by `3025fa29e`.
+That fork commit owns URI and ID across the full retry loop, which is a different lifetime.
+`1041a51ae` is a compile correction, rather than a separate degradation fix.
+`f4d6b79c4` removes logging. `ea6550256` changes logging, implicit-ID rollback, and comments.
+The grouped description does not account for those changes individually.
+The audit itself states that its stress program cannot prove the crash fix.
+
+Required change: provide one row per removed commit.
+Map each material change to exact UP logic, or state why it has no effect in the configured binding.
+Distinguish a root-cause fix from removal of a state-losing workaround.
+Correct the claim about `cfce1cd56`.
+Do not promise to restore a state-losing degradation patch after a crash; that contradicts the stated ST-6b and EV-7 rationale.
+A remaining crash needs a root-cause repair or a lead decision before the pin moves.
+
+## F10 — MEDIUM — The build proposal permits a network-dependent gate
+
+Status: OPEN.
+Audit evidence: Build notes permit `build.rs` to fetch `translate_c` and defer the choice until binding implementation.
+The lead requires a hash-pinned, prefetched dependency so gate builds work offline.
+
+Required change: record the prefetch step and the cache location before the gate build.
+Require the gate build to use the recorded package hash without network access.
+A missing cache entry must report the missing prerequisite. It must not fetch during the gate.
+Keep the existing exact `translate_c` hash in the record.
+
+## F11 — LOW — The UP clipboard-write callback does not return a result
+
+Status: OPEN.
+Audit evidence: the clipboard-write row says that the callback returns a result and the binding returns success.
+At UP, `terminal.h:816–870` requires `write->reply(write, &reply)` before the callback returns.
+`GhosttyTerminalClipboardWriteFn` returns `void`. Returning without a reply denies the write.
+
+Required change: describe the UP reply call and its callback-lifetime requirement.
+Do not carry the PIN return-value interface into the proposed UP binding.
+
+## F12 — HIGH — The resume rule covers the corpus but omits continuation failure
+
+Status: OPEN.
+Audit evidence: the ST-6b resume row sizes the continuation limit above the longest sequence in the test corpus.
+ST-6b requires the invariant at every cut, including production output outside that corpus.
+At UP, `stream_continuation.zig:95–97` marks tracking broken when the suffix exceeds the limit or retention fails.
+The checks at lines 166–172 and 182–186 implement those failures.
+The continuation APIs then return `GHOSTTY_INVALID_VALUE` for an unavailable continuation.
+A corpus-size limit does not establish coverage of those paths.
+
+Required change: describe the snapshot rule when continuation data is unavailable.
+Use the ST-6b ground-state alternative, or prove a sufficient bound for every admitted sequence and address retention failure.
+State which package owns the cut and pending-output handling.
+Do not emit a snapshot that silently omits unfinished parser state.
