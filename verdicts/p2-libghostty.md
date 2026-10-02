@@ -1,11 +1,11 @@
 # P2 libghostty review
 
-Reviewed head: `36e111f241029d43efb12be25e1179317b910d61`.
+Reviewed head: `908b9b79fc625b22b885f23a8880e5e749c16d5a`.
 Previous audit head: `fd1471eabca0adb344c6027b8995e1151aa8f8a8`.
 Scope: the written audit only. This verdict does not approve the binding or a Ghostty pin change.
 
 VERDICT: NOT CLEAN (fork patch review: 1 open, P13).
-Written audit: CLEAN at `36e111f241029d43efb12be25e1179317b910d61`; F1–F12 closed.
+Written audit: CLEAN at `908b9b79fc625b22b885f23a8880e5e749c16d5a`; F1–F12 closed.
 
 The review uses manifest final13, BUILD.md at `2f2996ef0f016a1fefc6879e74deaef033383b66`, and plan pin `stage1-plan.a24efe7e`.
 The plan hash matches its recorded SHA-256.
@@ -401,3 +401,15 @@ The lead owns the accepted pin update.
 
 The written audit is CLEAN on this exact head. P13 remains OPEN on the preserved paste patch.
 The fork series and binding code remain unapproved.
+
+
+## Revision 4d delta review — written audit CLEAN
+
+Reviewed audit head: `908b9b79fc625b22b885f23a8880e5e749c16d5a`.
+The lead supplied Core A8 candidate 5 at `7bf8d0dffa2f81fa1570f3d804e4163141e6654e`.
+The reviewer read the candidate and the audit delta.
+The audit correctly constrains the every-offset corpus so that each snapshot fits `max_snapshot_bytes`.
+With no injected resource failure, only pending state beyond the stated continuation limit may cause refusal in that test.
+Ordinary snapshot size refusal has separate OU-9 coverage.
+No new finding. F12 stays closed for the written audit; P13 stays open for the preserved paste patch.
+The candidate remains pending acceptance. No pin moved. The reviewer ran no tests.
