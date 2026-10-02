@@ -22,9 +22,11 @@ botster-core-link.workspace = true
 botster-worker-core.workspace = true
 botster-probe-script.workspace = true
 botster-route-codec.workspace = true
+botster-terminal-ghostty.workspace = true
 rand_chacha.workspace = true
 rand_core.workspace = true
 rustix = { workspace = true, features = ["process"] }
+serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
 toml.workspace = true
