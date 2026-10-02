@@ -102,3 +102,43 @@ fn a_noncanonical_hello_survives_a_round_trip() {
     assert_ne!(again, text.as_bytes(), "the encoder emits its own form");
     assert_eq!(Hello::decode(&again), Ok(hello));
 }
+
+/// For arbitrary bytes: neither message decoder panics, and a message that decodes survives an encode and a decode to the
+/// same value (the property of `link_decoder`, for the messages that follow the hello).
+#[test]
+fn msg_decoder() {
+    use botster_core_link::msg::{HostMsg, WorkerMsg};
+    bolero::check!()
+        .with_iterations(CASES)
+        .for_each(|bytes: &[u8]| {
+            if let Ok(msg) = HostMsg::decode(bytes) {
+                let mut again = Vec::new();
+                msg.encode(&mut again);
+                assert_eq!(
+                    HostMsg::decode(&again),
+                    Ok(msg),
+                    "a host message does not survive a round trip"
+                );
+            }
+            if let Ok(msg) = WorkerMsg::decode(bytes) {
+                let mut again = Vec::new();
+                msg.encode(&mut again);
+                assert_eq!(
+                    WorkerMsg::decode(&again),
+                    Ok(msg),
+                    "a worker message does not survive a round trip"
+                );
+            }
+        });
+}
+
+/// A message with every field in a noncanonical order, with an unknown field, decodes and survives a round trip.
+#[test]
+fn a_noncanonical_message_survives_a_round_trip() {
+    use botster_core_link::msg::WorkerMsg;
+    let msg = WorkerMsg::decode(br#" { "later": {"x": [1]}, "signal": 9, "t": "exited" } "#)
+        .expect("a noncanonical message decodes");
+    let mut again = Vec::new();
+    msg.encode(&mut again);
+    assert_eq!(WorkerMsg::decode(&again), Ok(msg));
+}
