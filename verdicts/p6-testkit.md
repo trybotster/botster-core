@@ -1,6 +1,42 @@
 # P6 testkit review — Scope 2, step 2
 
-VERDICT: NOT CLEAN (2 open)
+VERDICT: NOT CLEAN (3 open)
+
+Latest delta reviewed: `3012073e6db33a953a69414575ba63807acc24b7`, against `c32c7a7`.
+S3-R1 is closed. Output pieces preserve atomic boundaries and bound every read by the front piece and buffer.
+Empty writes add no piece. The tests cover split writes, queued writes, later injection, and empty writes.
+Open findings are S2-R1 descriptor preservation, S4-R1, and S4-R2.
+The reviewer ran no tests or gate.
+
+## S4-R1 — MEDIUM — The dependency statement can report a false absence
+
+Evidence: `statements.rs:111-117` reads only top-level dependency tables and records their keys as package names.
+Cargo permits `kit = { package = "botster-core-testkit", path = "../botster-core-testkit" }`.
+With that dependency in `botster-core-ffi`, the graph records `kit` and reports no dependency on `botster-core-testkit`.
+Cargo also permits dependencies under `[target.'cfg(unix)'.dependencies]`. The graph omits those tables entirely.
+Renamed intermediate packages can also break the transitive check.
+The A5-1 statement must detect these dependencies before it can prove the testkit is absent from FFI dependencies.
+
+Required change: resolve Cargo dependency names to package names, including workspace-inherited aliases.
+Include target-specific dependency tables. Prefer the resolved Cargo dependency graph if available.
+Cover direct aliases, transitive aliases, and target-specific dependencies.
+
+## S4-R2 — MEDIUM — The group guard can signal a group after releasing its identity
+
+Evidence: `process_group.rs:35-50` exposes the mutable `Child` and retains the same `Pid` after `kill` reaps the leader.
+Calling `kill`, retaining the guard, and then dropping it sends `SIGKILL` to the same numeric group ID twice.
+Once the leader is reaped and the group ends, the OS can reuse that ID for another group.
+The second signal can therefore reach a group that the test did not start.
+The exposed `Child` also permits callers to reap the leader before the guard cleans up the group.
+This breaks the guard's stated ownership guarantee and BUILD.md's test process ownership rule.
+
+Required change: make cleanup idempotent and retire the group ID after cleanup.
+Keep control of leader reaping in the guard so its identity remains reserved until group cleanup.
+Expose the needed pipes or guarded status operations instead of unrestricted mutable `Child` access.
+Cover explicit cleanup followed by drop, repeated cleanup, and leader exit before cleanup.
+
+The candidate reader matches the current xtask manifest format and checks both binary hashes.
+The real-process harness type and its integration remain outstanding. The current delta provides helper types only.
 
 Latest reviewed head: `c32c7a7eae0b586998a778263e0e7e39248958be`.
 The review covers the refusal fix `78d2452`, edge controls `38cbabf`, and scheduler overrides `c32c7a7`.
