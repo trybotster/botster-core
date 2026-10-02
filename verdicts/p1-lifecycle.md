@@ -138,6 +138,12 @@ The new test `stop_all_leaves_a_target_whose_stop_row_failed` asserts the forbid
 Preserve the original target obligation and meet LC-12's completion condition.
 Ask the lead for a contract ruling if the failure path needs an outcome that the contract does not define.
 
+The lead supplied ruling R-16 in message `msg_plugin-w_1790928340_fa7c8c` after this review.
+For StopAll targets, the Stopping row write is best effort, and the stop proceeds to LC-12 completion.
+Plain Stop keeps RegistryFailed.
+F10 remains open at the reviewed head because that implementation restores Running and drops the target.
+Close F10 when the implementation follows R-16.
+
 ### F13 remaining — MEDIUM: Unpolled retired operations return TooLate
 
 Evidence: `crates/botster-core-host/src/admit.rs:798`.
