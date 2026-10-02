@@ -15,6 +15,16 @@ core = [x for x in ids if x["contract"] == "core"]
 def owner(x):
     i, c = x["id"], x["clause"] or ""
     fam = c.split("-")[0]
+    if c == "A7-1":
+        return "p4a-routes"
+    if c == "A8-1":
+        return "p1-lifecycle"
+    if c == "A8-2":
+        if "capture" in i:
+            return "p1-lifecycle"
+        if "baseline" in i or "resync" in i:
+            return "p4a-routes"
+        return "p2-terminal"
     if c.startswith("E2-"):
         return "p3-worker"
     if "withheld_control_link" in i:
