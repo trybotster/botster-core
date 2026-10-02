@@ -1109,4 +1109,34 @@ mod tests {
         assert_eq!(out, b"hi!!");
         assert_eq!(control.output_unread(), 0);
     }
+
+    /// `pty_chunk` edges: a new step clears a refusal even with no cap; lifting the cap mid-step lets the rest through at
+    /// once; a zero-length write with the cap spent neither fails nor marks pending step work.
+    #[test]
+    fn pty_chunk_edges() {
+        let mut p = program(json!({"program": [{"hold": {}}]}), true, 0);
+        let control = p.control();
+        control.input_chunk(Some(1));
+        assert_eq!(p.write(b"ab").unwrap(), 1);
+        assert_eq!(p.write(b"").unwrap(), 0, "an empty write is not refused");
+        assert!(!control.waits_for_next_step(), "and marks no step work");
+        assert_eq!(p.write(b"b").unwrap_err().kind(), io::ErrorKind::WouldBlock);
+        assert!(control.waits_for_next_step());
+        control.input_chunk(None);
+        control.new_step();
+        assert!(
+            !control.waits_for_next_step(),
+            "a new step clears it with no cap"
+        );
+        assert_eq!(p.write(b"bcd").unwrap(), 3, "no cap: the whole write");
+        control.input_chunk(Some(1));
+        assert_eq!(p.write(b"e").unwrap(), 1);
+        control.input_chunk(None);
+        assert!(
+            p.is_writable(),
+            "lifting the cap mid-step lifts the step's limit"
+        );
+        assert_eq!(p.write(b"fg").unwrap(), 2);
+        assert_eq!(control.input_log(), b"abcdefg");
+    }
 }
