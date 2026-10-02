@@ -170,7 +170,7 @@ mod tests {
             ["SPH", "1"],
         ];
         for name in names.map(|halves| halves.concat()) {
-            assert!(tokens.iter().any(|t| *t == name), "{name}");
+            assert!(tokens.contains(&name), "{name}");
         }
     }
 }
