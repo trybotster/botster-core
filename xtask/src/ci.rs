@@ -63,7 +63,10 @@ const JOBS: &[(&str, &str, JobFn)] = &[
 
 /// The bolero harnesses of the repo: `(crate, harness name)`. Every byte decoder of the repo has one (plan section 8,
 /// step 9). A package that adds a decoder adds its harness here, and the fuzz step runs it when the diff changes its crate.
-const HARNESSES: &[(&str, &str)] = &[("botster-core-link", "link_decoder")];
+const HARNESSES: &[(&str, &str)] = &[
+    ("botster-core-link", "link_decoder"),
+    ("botster-core-link", "msg_decoder"),
+];
 
 /// The seconds of one fuzz run per harness.
 const FUZZ_SECONDS: &str = "60s";
