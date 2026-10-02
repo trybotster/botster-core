@@ -1,6 +1,6 @@
 # P2 libghostty review
 
-Reviewed head: `c1589932d6644927d4f4dbdfd32d8c474fda03d8`.
+Reviewed head: `c392adb3fa9aa0ae238cef2c669e44f3b136c3d9`.
 Previous audit head: `fd1471eabca0adb344c6027b8995e1151aa8f8a8`.
 Scope: the written audit only. This verdict does not approve the binding or a Ghostty pin change.
 
@@ -373,3 +373,13 @@ F12 reopens for two changes:
 
 The CLEAN audit verdict remains valid only for the earlier `e9f8727` head.
 P13 remains open on the preserved paste patch.
+
+
+## Revision 4b delta review
+
+Reviewed audit head: `c392adb3fa9aa0ae238cef2c669e44f3b136c3d9`.
+The stale ground-state deferral sentence is corrected.
+The audit now records retention allocation failure below the continuation limit as an open question.
+The lead confirmed that candidate 1 does not explicitly cover this case and asked the steward to resolve it.
+At the lead's instruction, F12 remains OPEN until that answer arrives.
+P13 remains OPEN on the preserved paste patch. The reviewer ran no tests.
