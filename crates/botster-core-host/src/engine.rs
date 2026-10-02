@@ -228,7 +228,11 @@ impl HostEngine {
                 msg:
                     WorkerMsg::RouteClosed { .. }
                     | WorkerMsg::RouteStalled { .. }
-                    | WorkerMsg::RouteResumed { .. },
+                    | WorkerMsg::RouteResumed { .. }
+                    // The frames that cause a state transition stay unread until their event fits (EV-5b).
+                    | WorkerMsg::Exited { .. }
+                    | WorkerMsg::Launched { .. }
+                    | WorkerMsg::LaunchFailed { .. },
                 ..
             } => self.has_room(),
             _ => true,
