@@ -88,8 +88,61 @@ fn collect_rust_files(dir: &Path, out: &mut Vec<std::path::PathBuf>) {
     }
 }
 
-/// The dependencies of every crate of the workspace, by package name, from all of its dependency tables.
+const DEPENDENCY_TABLES: [&str; 3] = ["dependencies", "build-dependencies", "dev-dependencies"];
+
+/// The package names that a manifest depends on: every dependency table, the tables of `[target.<cfg>.*]` too. A dependency can be
+/// renamed (`alias = { package = "real-name" }`) or inherited (`alias = { workspace = true }`, whose entry in the root manifest
+/// can carry the `package`), so the name of the key is not the name of the package.
+fn dependency_packages(
+    manifest: &toml::Table,
+    workspace_dependencies: Option<&toml::Table>,
+) -> BTreeSet<String> {
+    let mut tables: Vec<&toml::Table> = DEPENDENCY_TABLES
+        .iter()
+        .filter_map(|name| manifest.get(*name).and_then(toml::Value::as_table))
+        .collect();
+    if let Some(targets) = manifest.get("target").and_then(toml::Value::as_table) {
+        for target in targets.values().filter_map(toml::Value::as_table) {
+            tables.extend(
+                DEPENDENCY_TABLES
+                    .iter()
+                    .filter_map(|name| target.get(*name).and_then(toml::Value::as_table)),
+            );
+        }
+    }
+    let package_of = |entry: &toml::Value| -> Option<String> {
+        entry
+            .get("package")
+            .and_then(toml::Value::as_str)
+            .map(str::to_string)
+    };
+    let mut packages = BTreeSet::new();
+    for table in tables {
+        for (key, entry) in table {
+            let inherited = entry.get("workspace").and_then(toml::Value::as_bool) == Some(true);
+            let name = package_of(entry)
+                .or_else(|| {
+                    inherited
+                        .then(|| workspace_dependencies?.get(key).and_then(package_of))
+                        .flatten()
+                })
+                .unwrap_or_else(|| key.clone());
+            packages.insert(name);
+        }
+    }
+    packages
+}
+
+/// The dependencies of every crate of the workspace, by package name.
 fn workspace_dependencies(root: &Path) -> Result<BTreeMap<String, BTreeSet<String>>, String> {
+    let root_manifest: Option<toml::Table> = std::fs::read_to_string(root.join("Cargo.toml"))
+        .ok()
+        .and_then(|text| text.parse().ok());
+    let workspace_dependencies = root_manifest
+        .as_ref()
+        .and_then(|m| m.get("workspace"))
+        .and_then(|w| w.get("dependencies"))
+        .and_then(toml::Value::as_table);
     let mut graph = BTreeMap::new();
     let crates =
         std::fs::read_dir(root.join("crates")).map_err(|e| format!("read crates/: {e}"))?;
@@ -108,13 +161,10 @@ fn workspace_dependencies(root: &Path) -> Result<BTreeMap<String, BTreeSet<Strin
         else {
             continue;
         };
-        let mut deps = BTreeSet::new();
-        for section in ["dependencies", "build-dependencies", "dev-dependencies"] {
-            if let Some(entries) = table.get(section).and_then(toml::Value::as_table) {
-                deps.extend(entries.keys().cloned());
-            }
-        }
-        graph.insert(name.to_string(), deps);
+        graph.insert(
+            name.to_string(),
+            dependency_packages(&table, workspace_dependencies),
+        );
     }
     Ok(graph)
 }
@@ -273,5 +323,60 @@ mod tests {
     fn this_workspace_keeps_the_testkit_out_of_the_facade() {
         let report = check_crates(workspace_root(), &spec()).unwrap();
         assert_eq!(report, json!({"found_in": [], "depended_on_by": []}));
+    }
+
+    /// A renamed dependency, an inherited one whose root entry carries the package, and a dependency under `[target.<cfg>]` all
+    /// count: the key is not the package name, and the table is not always `[dependencies]`.
+    #[test]
+    fn aliases_inherited_entries_and_target_tables_are_resolved() {
+        let write = |dir: &tempfile::TempDir, name: &str, text: &str| {
+            let krate = dir.path().join("crates").join(name);
+            std::fs::create_dir_all(&krate).unwrap();
+            std::fs::write(krate.join("Cargo.toml"), text).unwrap();
+        };
+        let dir = workspace(
+            &[("botster-core", ""), ("botster-core-testkit", "")],
+            "",
+            "",
+        );
+        // The alias names the testkit as `kit`.
+        write(&dir, "botster-core-ffi", "[package]\nname = \"botster-core-ffi\"\n\n[dependencies]\nkit = { package = \"botster-core-testkit\", path = \"../x\" }\n");
+        assert_eq!(run(&dir)["depended_on_by"], json!(["botster-core-ffi"]));
+        // The same alias through a crate of the workspace.
+        write(
+            &dir,
+            "botster-core-ffi",
+            "[package]\nname = \"botster-core-ffi\"\n\n[dependencies]\nbotster-core-mid = \"1\"\n",
+        );
+        write(&dir, "botster-core-mid", "[package]\nname = \"botster-core-mid\"\n\n[dependencies]\nkit = { package = \"botster-core-testkit\", version = \"1\" }\n");
+        assert_eq!(run(&dir)["depended_on_by"], json!(["botster-core-ffi"]));
+        // A target-specific table, a build dependency, and a dev-dependency under a target.
+        for table in [
+            "[target.'cfg(unix)'.dependencies]\nbotster-core-testkit = \"1\"",
+            "[target.x86_64-unknown-linux-gnu.build-dependencies]\nbotster-core-testkit = \"1\"",
+            "[target.'cfg(windows)'.dev-dependencies]\nbotster-core-testkit = \"1\"",
+        ] {
+            write(
+                &dir,
+                "botster-core-ffi",
+                &format!("[package]\nname = \"botster-core-ffi\"\n\n{table}\n"),
+            );
+            assert_eq!(
+                run(&dir)["depended_on_by"],
+                json!(["botster-core-ffi"]),
+                "{table}"
+            );
+        }
+        // An inherited dependency: the root manifest names the package behind the key.
+        std::fs::write(
+            dir.path().join("Cargo.toml"),
+            "[workspace.dependencies]\nkit = { package = \"botster-core-testkit\", path = \"crates/x\" }\n",
+        )
+        .unwrap();
+        write(&dir, "botster-core-ffi", "[package]\nname = \"botster-core-ffi\"\n\n[dependencies]\nkit = { workspace = true }\n");
+        assert_eq!(run(&dir)["depended_on_by"], json!(["botster-core-ffi"]));
+        // A key that merely looks like the testkit, but is another package, is not a dependency.
+        write(&dir, "botster-core-ffi", "[package]\nname = \"botster-core-ffi\"\n\n[dependencies]\nbotster-core-testkit = { package = \"other\", version = \"1\" }\n");
+        assert_eq!(run(&dir)["depended_on_by"], json!([]));
     }
 }
