@@ -83,6 +83,11 @@ pub mod opt {
     pub const DESKTOP_NOTIFICATION: i32 = 29;
     pub const SEMANTIC_PROMPT: i32 = 42;
     pub const SCROLLBACK_MAX_BYTES: i32 = 27;
+    pub const WRITE_PTY: i32 = 1;
+    pub const SIZE: i32 = 6;
+    pub const CLIPBOARD_READ: i32 = 38;
+    pub const QUERY: i32 = 44;
+    pub const QUERY_MAX_BYTES: i32 = 45;
 }
 
 /// `GhosttyTerminalScreen`.
@@ -176,6 +181,51 @@ pub struct ClipboardWrite {
     pub selection: GString,
     pub terminator: i32,
 }
+
+/// `GhosttyTerminalQuery`.
+#[repr(C)]
+pub struct Query {
+    pub size: usize,
+    pub kind: i32,
+    pub request: GString,
+    pub request_available: bool,
+    pub request_truncated: bool,
+}
+
+pub type ClipboardReadReplyFn = unsafe extern "C" fn(*const ClipboardRead, *const c_void);
+
+/// `GhosttyClipboardRead`.
+#[repr(C)]
+pub struct ClipboardRead {
+    pub size: usize,
+    pub location: i32,
+    pub mimes: *const GString,
+    pub mimes_len: usize,
+    pub list: bool,
+    pub name: GString,
+    pub granted: bool,
+    pub can_remember: bool,
+    pub ctx: *const c_void,
+    pub reply: ClipboardReadReplyFn,
+    pub selection: GString,
+    pub terminator: i32,
+}
+
+/// `GhosttySizeReportSize`.
+#[repr(C)]
+pub struct SizeReportSize {
+    pub rows: u16,
+    pub columns: u16,
+    pub cell_width: u32,
+    pub cell_height: u32,
+}
+
+/// The size effect: fill the size and return true, or return false when the size is not known.
+pub type SizeFn = unsafe extern "C" fn(Terminal, *mut c_void, *mut SizeReportSize) -> bool;
+
+pub type QueryFn = unsafe extern "C" fn(Terminal, *mut c_void, *const Query);
+pub type ClipboardReadFn = unsafe extern "C" fn(Terminal, *mut c_void, *const ClipboardRead);
+pub type WritePtyFn = unsafe extern "C" fn(Terminal, *mut c_void, *const u8, usize);
 
 pub type BellFn = unsafe extern "C" fn(Terminal, *mut c_void);
 pub type TitleChangedFn = unsafe extern "C" fn(Terminal, *mut c_void);
@@ -471,6 +521,12 @@ extern "C" {
         cell_height_px: u32,
     ) -> Result;
     pub fn ghostty_terminal_vt_write(terminal: Terminal, data: *const u8, len: usize);
+    pub fn ghostty_terminal_vt_write_until_query(
+        terminal: Terminal,
+        data: *const u8,
+        len: usize,
+        out_consumed: *mut usize,
+    ) -> Result;
     pub fn ghostty_terminal_get(terminal: Terminal, data: i32, out: *mut c_void) -> Result;
     pub fn ghostty_terminal_set(terminal: Terminal, option: i32, value: *const c_void) -> Result;
     pub fn ghostty_terminal_grid_ref(terminal: Terminal, point: Point, out_ref: *mut GridRef) -> Result;

@@ -9,6 +9,7 @@
 mod encode;
 mod events;
 mod modes;
+mod query;
 mod reads;
 mod sys;
 
@@ -21,7 +22,11 @@ pub use botster_route_codec::prelude::ModeFlags;
 pub use botster_core_contract::prelude::{KeyInput, MouseInput, Size};
 pub use encode::EncodeError;
 pub use events::{Drained, TerminalEvent, MAX_BUFFERED_BYTES, MAX_BUFFERED_EVENTS};
+pub use query::{Query, QueryKind, QueryStep, Terminator, MAX_SHADOW_REPLY_BYTES};
 pub use reads::{CursorCell, ScreenText};
+
+/// The default limit, in bytes, of the request that a query reports (`CoreLimits.max_query_bytes`, EV-8).
+pub const DEFAULT_QUERY_REQUEST_BYTES: usize = 4096;
 
 /// How much scrollback the model keeps. `Off` backs the testkit control `disable_history` (ST-2).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -91,13 +96,23 @@ impl Terminal {
         let handle = NonNull::new(handle).ok_or(Error::InvalidValue)?;
 
         let shared = NonNull::from(Box::leak(Box::<events::Shared>::default()));
-        let terminal = Self { handle, shared, history, cell_px: size.cell_px, _not_sync: PhantomData };
+        let mut terminal = Self { handle, shared, history, cell_px: size.cell_px, _not_sync: PhantomData };
         terminal.register_callbacks()?;
         terminal.set_history_limit()?;
+        terminal.set_query_request_limit_default()?;
+        terminal.set_cell_px(size.cell_px);
         if let Some(px) = size.cell_px {
             terminal.apply_size(cols, rows, px.width, px.height)?;
         }
         Ok(terminal)
+    }
+
+    fn set_query_request_limit_default(&self) -> Result<(), Error> {
+        let limit = DEFAULT_QUERY_REQUEST_BYTES;
+        // SAFETY: the handle is live, and the option takes a `size_t` pointer.
+        check(unsafe {
+            sys::ghostty_terminal_set(self.handle.as_ptr(), sys::opt::QUERY_MAX_BYTES, (&limit as *const usize).cast())
+        })
     }
 
     fn set_history_limit(&self) -> Result<(), Error> {
@@ -146,14 +161,76 @@ impl Terminal {
                 sys::opt::CLIPBOARD_WRITE,
                 events::on_clipboard_write as sys::ClipboardWriteFn as *const c_void,
             ))?;
+            // Queries: the kind and the exact bytes, then the reply that the shadow computes, which is held.
+            check(sys::ghostty_terminal_set(
+                handle,
+                sys::opt::QUERY,
+                events::on_query as sys::QueryFn as *const c_void,
+            ))?;
+            check(sys::ghostty_terminal_set(
+                handle,
+                sys::opt::WRITE_PTY,
+                events::on_write_pty as sys::WritePtyFn as *const c_void,
+            ))?;
+            // The shadow's size reports (CSI 14, 16 and 18 t, and mode 2048) need the size and the cell size.
+            check(sys::ghostty_terminal_set(
+                handle,
+                sys::opt::SIZE,
+                events::on_size as sys::SizeFn as *const c_void,
+            ))?;
+            // Only to learn the selection and the terminator of a clipboard read. It never replies.
+            check(sys::ghostty_terminal_set(
+                handle,
+                sys::opt::CLIPBOARD_READ,
+                events::on_clipboard_read as sys::ClipboardReadFn as *const c_void,
+            ))?;
         }
         Ok(())
     }
 
-    /// Feed one chunk of program output to the model. The callbacks run inside this call and fill the event buffer.
+    /// Feed one chunk of program output to the model. The callbacks run inside this call and fill the event buffer. A
+    /// query in the chunk is an event (`TerminalEvent::Query`) without its request bytes; use `vt_write_until_query`
+    /// to get the bytes and to stop at the query.
     pub fn vt_write(&mut self, bytes: &[u8]) {
+        // SAFETY: no callback runs now, so this is the only reference to the buffer.
+        unsafe { self.shared.as_mut() }.begin_write(false);
         // SAFETY: the handle is live, and the slice is valid for its length for the duration of the call.
         unsafe { sys::ghostty_terminal_vt_write(self.handle.as_ptr(), bytes.as_ptr(), bytes.len()) }
+    }
+
+    /// Feed the chunk up to and including the byte that completes the first query. The step says how many bytes the
+    /// model took, and the query, if one ended the step: its kind, its exact request bytes (R-17) and the shadow reply
+    /// that the model computed at that point. The model never takes a byte past the query, so a later byte cannot
+    /// change the state that the shadow reply or a client's answer depends on (EV-8 c, g).
+    ///
+    /// When the step took fewer bytes than were offered and found no query, the model kept an ESC that may start the
+    /// ST of an unfinished string sequence unconsumed; the caller offers it again with the next bytes.
+    pub fn vt_write_until_query(&mut self, bytes: &[u8]) -> Result<QueryStep, Error> {
+        // SAFETY: no callback runs now, so this is the only reference to the buffer.
+        unsafe { self.shared.as_mut() }.begin_write(true);
+        let mut consumed: usize = 0;
+        // SAFETY: the handle is live, the slice is valid for its length, and `consumed` is a valid out pointer.
+        let code = unsafe {
+            sys::ghostty_terminal_vt_write_until_query(self.handle.as_ptr(), bytes.as_ptr(), bytes.len(), &mut consumed)
+        };
+        // SAFETY: the call returned, so no callback runs.
+        let shared = unsafe { self.shared.as_mut() };
+        shared.capture = false;
+        let query = shared.held.take();
+        match code {
+            sys::SUCCESS => Ok(QueryStep { consumed, query }),
+            sys::NO_VALUE => Ok(QueryStep { consumed, query: None }),
+            other => Err(Error::from_code(other)),
+        }
+    }
+
+    /// Set the largest request, in bytes, that a query reports (`CoreLimits.max_query_bytes`). A longer sequence
+    /// reports its first bytes and sets `request_truncated`.
+    pub fn set_query_request_limit(&mut self, bytes: usize) -> Result<(), Error> {
+        // SAFETY: the handle is live, and the option takes a `size_t` pointer.
+        check(unsafe {
+            sys::ghostty_terminal_set(self.handle.as_ptr(), sys::opt::QUERY_MAX_BYTES, (&bytes as *const usize).cast())
+        })
     }
 
     /// Take what the model reported since the last drain, in observation order.
@@ -168,8 +245,14 @@ impl Terminal {
         let (cols, rows) = cell_dimensions(size)?;
         let (width, height) = size.cell_px.map_or((0, 0), |px| (px.width, px.height));
         self.apply_size(cols, rows, width, height)?;
-        self.cell_px = size.cell_px;
+        self.set_cell_px(size.cell_px);
         Ok(())
+    }
+
+    fn set_cell_px(&mut self, cell_px: Option<botster_core_contract::prelude::CellPx>) {
+        self.cell_px = cell_px;
+        // SAFETY: no callback runs now, so this is the only reference to the buffer.
+        unsafe { self.shared.as_mut() }.cell_px = cell_px.map(|px| (px.width, px.height));
     }
 
     fn apply_size(&self, cols: u16, rows: u16, cell_width_px: u32, cell_height_px: u32) -> Result<(), Error> {
@@ -304,3 +387,5 @@ impl Drop for Terminal {
 mod tests;
 #[cfg(test)]
 mod tests_encode;
+#[cfg(test)]
+mod tests_query;
