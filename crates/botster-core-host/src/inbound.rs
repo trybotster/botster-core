@@ -571,10 +571,10 @@ impl HostEngine {
                 );
             }
             Flow::Stop(f) if f.end.is_none() && f.phase != StopPhase::RowWrite => {
-                // LC-5: a session whose control link is broken still ends: the host asks the payload's group itself. The
-                // worker's group is never signalled for a stop (it holds the final model).
-                if let Some(identity) = self.sessions.get(&id).and_then(|s| s.payload) {
-                    self.act(Action::SignalPayloadGroup {
+                // LC-5: a session whose control link is broken still ends: the host signals the verified worker (pid and
+                // start time, AD-6), which ends its payload group. The host never signals a bare payload group.
+                if let Some(identity) = self.identity_of(&id) {
+                    self.act(Action::SignalGroup {
                         identity,
                         signal: GroupSignal::Term,
                     });
