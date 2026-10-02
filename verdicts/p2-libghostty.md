@@ -1,12 +1,14 @@
 # P2 libghostty review
 
-Reviewed head: `52b3d866da11cf7c1b9b89bb5d68089be6b2e834`.
-Previous audit head: `fd1471eabca0adb344c6027b8995e1151aa8f8a8`.
-Scope: the written audit and fork patches 0–8 only. This verdict does not approve the full fork series, binding, or pin change.
+Current reviewed binding head: `43432744e0db3f48494828ab5cca9d4cd7f94ea9`.
+Current Ghostty pin: `85a8d8eb197c5752887c017c9a3faa6f1dc1969b`.
 
-VERDICT: CLEAN (written audit and fork patches 0–8 only).
-Reviewed fork head: `85a8d8eb197c5752887c017c9a3faa6f1dc1969b`.
-Written audit: CLEAN at `52b3d866da11cf7c1b9b89bb5d68089be6b2e834`. F1–F12 and P13–P23 are closed.
+VERDICT: NOT CLEAN (9 open: P24–P32).
+The build has one open Linux finding, P32, supplied by the lead after the source review.
+F1–F12 and P13–P23 remain closed. The earlier reviews below retain their stated scope.
+The binding review also identifies audit corrections in P26, P27 and P31.
+
+## Earlier audit and fork reviews
 
 The review uses manifest final13, BUILD.md at `2f2996ef0f016a1fefc6879e74deaef033383b66`, and plan pin `stage1-plan.a24efe7e`.
 The plan hash matches its recorded SHA-256.
@@ -999,3 +1001,144 @@ The terminfo entry and encoder hashes at this fork head still match the PIN and 
 VERDICT: CLEAN for patch 8 through this exact fork head and the written audit at the exact audit head above.
 Patches 0–7 retain their CLEAN verdicts. All recorded findings are closed.
 This verdict does not approve the Rust binding, the final pin change, or the full P2 package.
+
+
+## Binding review — P24–P32 open
+
+Reviewed Core head: `43432744e0db3f48494828ab5cca9d4cd7f94ea9`.
+The reviewer read the complete production binding and its tests, including the delta from `977d986`.
+The audit at rebased commit `bad4f47ea23e168d518f545e07d652796dc7d5e2` equals the previously reviewed audit at `52b3d866`.
+
+Binding inputs:
+
+- Contracts: `contracts-v0.1.9`, commit `7f72acf8427ad7bf414db42d2360d5dccc7b3e13`, manifest final22.
+- Plan revision 19: `stage1-plan.62f664de.md`, SHA-256 `62f664de2476bc172336a9ddac7b111517a9fc49f34eb59b69a8d11a24c0bea8`.
+- Ghostty: `85a8d8eb197c5752887c017c9a3faa6f1dc1969b`.
+- Clipboard: Core Amendment 13 candidate 2, contracts commit `5a20a10`, supplied by the lead for this review.
+
+The reviewer used `git show` for all Ghostty evidence. The reviewer ran no tests.
+Source logic proves these findings. Every finding requires closure before CLEAN.
+
+### Build scope — P32 remains open
+
+`build.rs` and `build_data.rs` match the reviewed package list and Zig 0.16.0 pin.
+The build copies package archives into caches under `OUT_DIR` and denies network access during the native build.
+Missing prerequisites stop the build with a named prerequisite. The native library is unconditional.
+The initial source review found no build defect. The later Linux evidence establishes P32 below.
+This review does not approve the remote fetch configuration or the full package.
+
+### P24 — HIGH — The model still holds graphics that its snapshot loses
+
+**Evidence:** `lib.rs::Terminal::new` never sets `GHOSTTY_TERMINAL_OPT_KITTY_IMAGE_STORAGE_LIMIT` to zero.
+`sys.rs::opt` does not declare that option. The build enables the default native features.
+At the Ghostty pin, `build_options.zig::Features.kitty_graphics` defaults to true.
+`kitty/graphics_storage.zig::ImageStorage.total_limit` defaults to 320,000,000 bytes. Its `enabled` method tests whether that limit is nonzero.
+The audit's H1 resolution requires a zero limit before the model receives output because snapshots omit images and placements.
+The current binding therefore breaks its reviewed ST-6b configuration premise.
+
+**Required change:** set the native image storage limit to zero before any write.
+Confirm that both screens retain that configuration. Keep `snapshot_graphics` absent in the worker feature list.
+Add the audit's native-state test for a kitty image. Use native state and snapshot results as the oracle.
+
+### P25 — HIGH — Clipboard events cannot satisfy Amendment 13
+
+**Evidence:** `events.rs::on_clipboard_write` ignores `request.location` and copies only `contents[0].data`.
+`TerminalEvent::ClipboardWrite` has only `selection: Option<String>` and `bytes: Vec<u8>`.
+It loses MIME types and all later representations. It also merges a clear request with one empty value.
+The callback always replies SUCCESS before the worker can apply its clipboard size bound.
+The worker cannot produce the selection, atomic contents, total size, or TooLarge acknowledgement that A13-1 requires.
+
+**Required change:** expose the native location, exact selection, and every `{mime, bytes}` representation in order.
+Preserve the distinction between zero entries and one empty entry.
+Provide synchronous worker size admission inside the native callback so it can choose SUCCESS or IO_ERROR before return.
+Do not retain the native request pointer after the callback. Do not perform I/O or call host code inside the callback.
+Return the native acknowledgement bytes to the worker as a value. The worker writes them as one contiguous AM-2 transaction (A13-1b).
+Update the audit and tests against A13 candidate 2. Remove the withdrawn erratum 5 reference.
+
+### P26 — HIGH — The mode probe loses modifyOtherKeys state under kitty flags
+
+**Evidence:** `encode.rs::modify_other_keys_state_2` compares three encodings with state 2 disabled.
+At the Ghostty pin, `src/input/key_encode.zig::encode` selects `kitty()` whenever `kitty_flags.int() != 0`.
+The three probe events enter that path. `kitty()` does not read `modify_other_keys_state_2`.
+Only the legacy path reads that field. Thus both probe encodings match while kitty flags mask a tracked, active state 2.
+`modes.rs::mode_flags` then reports `xterm_modify_other_keys_2 = false` although the native terminal retains true.
+E2-2 and EV-7 require the tracked state, including state that has no current effect on key encoding.
+The audit omits this missing state getter.
+
+**Required change:** expose the actual native state through a getter that works with every kitty flag combination.
+Record this GAP in the audit. Follow Q1 for any native patch and pin change.
+Do not track the sequence in Rust. Add a regression that enables state 2, enables kitty flags, and checks the retained state.
+
+### P27 — HIGH — SGR pixel coordinates lose precision or exceed the native integer range
+
+**Evidence:** `encode.rs::encode_mouse` casts the contract's `u32` pixel coordinates to `f32` without a representation check.
+The value 16,777,217 becomes 16,777,216 before the native encoder sees it.
+At the pin, `src/input/mouse_encode.zig::posToPixels` rounds that value into an `i32`.
+Coordinates above the `i32` range can also reach that conversion. Native release events bypass the viewport refusal.
+The supplied cell does not protect this path: SGR-pixels explicitly ignores it.
+5.1A requires an unrepresentable coordinate to produce typed zero, rather than a changed coordinate.
+The audit's G8 coverage omits these representation limits.
+
+**Required change:** preserve exact pixels through a native integer API, or refuse values that the pinned API cannot represent exactly.
+Use `Unsupported{what: coordinate}` for a representation refusal. Do not encode protocol bytes in Rust.
+Update the audit. Add native-oracle tests around the `f32` precision boundary and the native integer boundary, including releases.
+
+### P28 — MEDIUM — A required unsupported named key returns NotReported
+
+**Evidence:** `encode.rs::encode_key` maps a native empty result to NotReported except for the ProducedText case.
+For a modifier key with kitty flag 8 off, the native encoder returns no bytes.
+R-14.1 expressly requires `Unsupported{what: named_key}` for all eight named modifier keys in that case.
+The current binding returns NotReported. The distinction reaches host and route input results through the shared oracle.
+
+**Required change:** map this contract-defined empty result to NamedKey.
+Review other empty named-key results against R-14.1 without inventing terminal bytes.
+Add structured result tests for the fixed modifier case, with flag 8 off and on.
+
+### P29 — MEDIUM — The snapshot test does not test restored continuation
+
+**Evidence:** `tests_snapshot.rs::restore_and_encode` frees the restored terminal immediately after re-encoding it.
+The every-offset test feeds the suffix into `split`, the original terminal, rather than the restored terminal.
+It proves snapshot round trips and split writes. It does not prove ST-6b's resume invariant.
+The corpus also omits explicit saved cursor, tab stop, margin, and charset state cases named in the audit.
+
+**Required change:** retain the restored terminal and feed the suffix into it at every byte offset.
+Compare its final native state or snapshot with the terminal that consumed the whole corpus input.
+Include the required saved state and pending UTF-8, CSI, OSC and DCS cases. Keep the existing continuation refusal tests.
+
+### P30 — MEDIUM — Tests still contain handwritten expected terminal bytes
+
+**Evidence:** `tests_encode.rs` constructs control-code expectations with `(letter as u8) & 0x1f`.
+It checks literal CSI-u framing and literal ESC prefixes. It also expects generated Shift results such as `b"Q"`.
+`tests_reply.rs` expects clipboard framing with `b";p;"`.
+These are handwritten terminal byte expectations. BUILD.md architecture rule 2 forbids them when libghostty is the oracle.
+Literal request inputs and unchanged host payload bytes are permitted; they do not justify generated protocol expectations.
+
+**Required change:** replace generated byte expectations with independent native encoder results or native parsed state.
+Keep structured contract assertions and literal request stimuli.
+Check every binding test for this rule, including tests added after this review.
+
+### P31 — MEDIUM — The custom base64 decoder has no recorded reason
+
+**Evidence:** `reply.rs::base64_decode` implements the alphabet, padding, decoded allocation and canonical-bit checks by hand.
+The Prior art note lists other custom pieces but gives no ecosystem comparison or reason for this decoder.
+Its reuse list also still describes proposed reuse, rather than the binding's final reuse and rejection decisions.
+BUILD.md rule 0 requires a recorded reason for each custom infrastructure component and prefers maintained libraries.
+
+**Required change:** use an established base64 component, or record a specific ecosystem comparison and reason for the custom decoder.
+Update the Prior art note to describe the final binding, its reuse trailers, rejected code, and all custom pieces.
+Preserve strict decoding behavior when changing the decoder.
+
+### P32 — HIGH — The Linux archive mixes incompatible allocators
+
+**Evidence supplied by the lead:** the infra engineer found this failure at Core head `977d986`.
+The Zig archive defines `calloc` and `free`, while `malloc` and `realloc` remain glibc implementations.
+The binding tests then abort with a heap error on Linux. The reviewed delta to `43432744` changes no build file.
+The reviewer has not reproduced this failure and has run no tests.
+This evidence supersedes the earlier source-only build result.
+
+**Required change:** make the native archive use a consistent allocator on Linux.
+Add a Linux check that the archive exports no libc allocator symbol.
+Supply the corrected exact head and the green Linux gate that the lead requires for closure.
+
+VERDICT: NOT CLEAN (9 open: P24–P32) for the binding and its audit at the exact Core head above.
+The earlier native patch verdicts remain scoped to their reviewed changes. No new native patch or pin move is approved here.
