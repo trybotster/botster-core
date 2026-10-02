@@ -137,6 +137,8 @@ impl HostEdges for Edges {
 
     fn signal_group(&mut self, _identity: ProcessIdentity, _signal: GroupSignal) {}
 
+    fn signal_payload_group(&mut self, _identity: ProcessIdentity, _signal: GroupSignal) {}
+
     fn poll_process_exit(&mut self) -> Option<(ProcessIdentity, ExitStatus)> {
         None
     }
@@ -305,10 +307,10 @@ fn launched() -> WorkerMsg {
         features: BTreeSet::new(),
         terminal: terminal_state(),
         formats: vec![],
-        payload: Some(botster_core_link::msg::PayloadId {
+        payload: botster_core_link::msg::PayloadId {
             pid: 900,
             start_time: 3,
-        }),
+        },
     }
 }
 
@@ -632,4 +634,86 @@ fn sessions_are_visited_round_robin() {
         })
         .collect();
     assert_eq!(first, ["a", "b", "c"], "{events:?}");
+}
+
+/// 9B (F19): a link that holds many small frames is read in a loop, not by recursion: one pump takes them all, within one buffer.
+#[test]
+fn many_small_frames_are_read_without_recursion() {
+    let mut rig = Rig::new(limits(|l| {
+        l.pump_events = 100_000;
+        l.pump_bytes = 8 << 20;
+        l.mandatory_events = 1_000;
+    }));
+    start_session(&mut rig, "s1", LinkId(1));
+    rig.drain_events();
+    for _ in 0..50_000 {
+        rig.worker_says(
+            LinkId(1),
+            WorkerMsg::Observed {
+                observation: botster_core_link::msg::Observation::Bell,
+            },
+        );
+    }
+    let _ = rig.pump();
+    assert!(
+        rig.mock.lock().unwrap().links[&LinkId(1)]
+            .to_host
+            .is_empty(),
+        "every frame was read"
+    );
+}
+
+/// 9B `pump_bytes` (F3): one pump takes at most `pump_bytes` from a link, even when that is below one read chunk.
+#[test]
+fn a_pump_reads_no_more_than_pump_bytes_from_a_link() {
+    let mut rig = Rig::new(limits(|l| l.pump_bytes = 64));
+    start_session(&mut rig, "s1", LinkId(1));
+    rig.drain_events();
+    for _ in 0..40 {
+        rig.worker_says(
+            LinkId(1),
+            WorkerMsg::Observed {
+                observation: botster_core_link::msg::Observation::Bell,
+            },
+        );
+    }
+    let before = rig.mock.lock().unwrap().links[&LinkId(1)].to_host.len();
+    let report = rig.pump();
+    let after = rig.mock.lock().unwrap().links[&LinkId(1)].to_host.len();
+    assert!(before - after <= 64, "took {} bytes", before - after);
+    assert!(report.more, "input remains");
+}
+
+/// Core EV-5b, LC-4 (F2): the `Exited` frame of a worker waits on its link while the queue is full, and it ends the session
+/// after a poll frees room.
+#[test]
+fn an_exited_frame_behind_a_full_queue_is_held_then_delivered() {
+    let mut rig = Rig::new(limits(|l| {
+        l.mandatory_events = 3;
+        l.max_sessions = 4;
+    }));
+    start_session(&mut rig, "s1", LinkId(1));
+    rig.worker_says(
+        LinkId(1),
+        WorkerMsg::Exited {
+            code: Some(0),
+            signal: None,
+        },
+    );
+    rig.pump();
+    assert!(
+        !matches!(
+            rig.driver.get(&sid("s1")).unwrap().state,
+            SessionState::Exited(_)
+        ),
+        "held while the queue is full"
+    );
+    for _ in 0..6 {
+        rig.drain_events();
+        rig.pump();
+    }
+    assert!(matches!(
+        rig.driver.get(&sid("s1")).unwrap().state,
+        SessionState::Exited(_)
+    ));
 }

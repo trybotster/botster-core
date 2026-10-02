@@ -58,3 +58,11 @@ Package P1 (session registry and lifecycle) of Stage 1. Plan pin `555bc433`, con
   time of a process on macOS), `sha2` (the token proof and the row file name).
 - **Hand-rolled, with reasons:** the event queue and the engine (they are the contract); the token proof (a bound hash; a
   keyed MAC would need a second round trip on a local socket that only the host's uid can reach).
+
+## Round 2 decisions
+
+- **StopAll row (R-16).** The Stopping row of a `StopAll` target is best effort. When the write fails, the stop goes on and `StopAll` completes (LC-12). A plain `Stop` keeps `RegistryFailed`.
+- **Payload group.** `Launched` carries the payload identity. A stop with a broken link signals the payload group, never the worker group. A group whose leader is gone is still signalled. A group whose leader pid was reused is never signalled.
+- **Ops that end with their instance (AM-3, IN-7).** Writes that were sent and not acknowledged complete `Unknown`. Writes never sent complete `NotWritten(SessionEnded)`. Resize, size policy and signal complete `SessionEnded`. Detach completes `Ok`. Start, Remove, metadata and notification policy complete with the failed Create, or `RegistryFailed`. Other ops complete `WorkerLinkFailed`.
+- **Remove grace.** A kill is not an observed exit. Remove waits for the exit input and repeats the kill each `stop_grace`.
+- **Pump bounds.** Held frames, process exits and completions count against `pump_events`. A read takes at most what is left of `pump_bytes`.
