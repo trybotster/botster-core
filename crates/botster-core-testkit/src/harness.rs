@@ -48,7 +48,15 @@ impl CoreHarness for TestkitHarness {
     /// `Current` is the in-process `Worker`. There is no `Previous` while the worker protocol is 1 (Core A6-2: no old
     /// protocol is fabricated).
     fn worker(&self, which: WorkerBuild) -> Option<WorkerRef> {
-        (which == WorkerBuild::Current).then_some(WorkerRef { build: which })
+        (which == WorkerBuild::Current).then_some(WorkerRef {
+            build: which,
+            file_name: None,
+        })
+    }
+
+    /// The testkit passes the clock: the `Sim` owns the virtual clock (Core TM-1, plan 2.3 `Clock`).
+    fn injects_clock(&self) -> bool {
+        true
     }
 
     /// No handle exists, so there is nothing to drop (Core LC-12 is proven once `open` returns a Core).
@@ -97,6 +105,7 @@ mod tests {
             data_dir: DataDirRef("d".into()),
             worker: Some(WorkerRef {
                 build: WorkerBuild::Current,
+                file_name: None,
             }),
             limits: json!({}),
         }
@@ -123,7 +132,8 @@ mod tests {
         assert_eq!(
             harness.worker(WorkerBuild::Current),
             Some(WorkerRef {
-                build: WorkerBuild::Current
+                build: WorkerBuild::Current,
+                file_name: None
             })
         );
         assert_eq!(harness.worker(WorkerBuild::Previous), None);
