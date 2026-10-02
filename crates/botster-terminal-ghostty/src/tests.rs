@@ -1,13 +1,17 @@
 //! Tests of the binding. The terminal's own behaviour is the oracle: the tests feed the sequence that a program writes
 //! and compare what the binding reports with the values that the sequence carries.
 
-use botster_core_contract::prelude::{LostKind, NotificationSource, PromptMarkKind};
+use botster_core_contract::prelude::{CellPx, LostKind, NotificationSource, PromptMarkKind};
 use botster_route_codec::prelude::{ModeFlags, MouseEncoding, MouseTracking};
 
 use super::*;
 
+fn size(cols: u32, rows: u32) -> Size {
+    Size { rows, cols, cell_px: None }
+}
+
 fn terminal() -> Terminal {
-    Terminal::new(80, 24).unwrap()
+    Terminal::new(&size(80, 24), History::On).unwrap()
 }
 
 /// The events of writing `bytes`.
@@ -24,7 +28,7 @@ fn a_new_terminal_has_its_size_and_takes_output() {
     let mut terminal = terminal();
     assert_eq!((terminal.cols(), terminal.rows()), (80, 24));
     terminal.vt_write(b"hello");
-    terminal.resize(100, 30, 0, 0).unwrap();
+    terminal.resize(&size(100, 30)).unwrap();
     assert_eq!((terminal.cols(), terminal.rows()), (100, 30));
 }
 
@@ -309,4 +313,108 @@ fn a_full_buffer_drops_events_and_says_which_kinds() {
     assert_eq!(next.events.len(), 1);
     assert_eq!(next.dropped, 0);
     assert!(next.dropped_kinds.is_empty());
+}
+
+// ---- sizes (SZ-1, SZ-3) ----
+
+#[test]
+fn a_size_the_library_cannot_hold_is_refused() {
+    for (cols, rows) in [(0, 24), (80, 0), (65_536, 24), (80, 65_536)] {
+        assert_eq!(Terminal::new(&size(cols, rows), History::On).err(), Some(Error::InvalidValue), "{cols}x{rows}");
+    }
+    let mut terminal = terminal();
+    assert_eq!(terminal.resize(&size(0, 5)), Err(Error::InvalidValue));
+    // The refusal leaves the size as it was.
+    assert_eq!((terminal.cols(), terminal.rows()), (80, 24));
+}
+
+#[test]
+fn a_cell_pixel_size_is_taken_when_given() {
+    let with_px = Size { rows: 24, cols: 80, cell_px: Some(CellPx { width: 9, height: 18 }) };
+    let mut terminal = Terminal::new(&with_px, History::On).unwrap();
+    assert_eq!((terminal.cols(), terminal.rows()), (80, 24));
+    terminal.resize(&Size { rows: 30, cols: 100, cell_px: Some(CellPx { width: 10, height: 20 }) }).unwrap();
+    assert_eq!((terminal.cols(), terminal.rows()), (100, 30));
+}
+
+// ---- screen, cursor and row reads (ST-2, ST-3) ----
+
+#[test]
+fn the_screen_text_is_the_plain_text_of_the_visible_screen() {
+    let mut terminal = terminal();
+    terminal.vt_write(b"first line\r\nsecond line");
+    let screen = terminal.screen_text(false).unwrap();
+    assert!(!screen.history_unavailable);
+    assert_eq!(screen.text, "first line\nsecond line");
+}
+
+#[test]
+fn history_adds_the_scrollback_and_off_says_that_it_is_unavailable() {
+    // A 3-row screen with 6 lines has 3 lines of scrollback.
+    let lines = "line1\r\nline2\r\nline3\r\nline4\r\nline5\r\nline6";
+
+    let mut with_history = Terminal::new(&size(20, 3), History::On).unwrap();
+    with_history.vt_write(lines.as_bytes());
+    let visible = with_history.screen_text(false).unwrap();
+    let all = with_history.screen_text(true).unwrap();
+    assert_eq!(visible.text, "line4\nline5\nline6");
+    assert_eq!(all.text, "line1\nline2\nline3\nline4\nline5\nline6");
+    assert!(!all.history_unavailable);
+
+    let mut without = Terminal::new(&size(20, 3), History::Off).unwrap();
+    without.vt_write(lines.as_bytes());
+    let asked = without.screen_text(true).unwrap();
+    // The text is the visible screen, not an empty text that stands for it, and the flag says so.
+    assert_eq!(asked.text, "line4\nline5\nline6");
+    assert!(asked.history_unavailable);
+    // Asking for no history is not "unavailable".
+    assert!(!without.screen_text(false).unwrap().history_unavailable);
+}
+
+#[test]
+fn the_cursor_is_in_zero_based_cells_and_a_wide_character_takes_two() {
+    let mut terminal = terminal();
+    assert_eq!(terminal.cursor(), CursorCell { row: 0, col: 0, visible: true });
+
+    terminal.vt_write(b"abc");
+    assert_eq!(terminal.cursor(), CursorCell { row: 0, col: 3, visible: true });
+
+    terminal.vt_write("\r\n日本".as_bytes());
+    // Two wide characters are four cells.
+    assert_eq!(terminal.cursor(), CursorCell { row: 1, col: 4, visible: true });
+
+    terminal.vt_write(b"\x1b[?25l");
+    assert!(!terminal.cursor().visible);
+}
+
+#[test]
+fn row_cells_hold_text_spaces_and_wide_characters() {
+    let mut terminal = Terminal::new(&size(10, 3), History::On).unwrap();
+    terminal.vt_write("a日b".as_bytes());
+    let cells = terminal.row_cells(0).unwrap();
+    assert_eq!(cells.len(), 10);
+    // a, the wide character, the empty second cell of it, b, then empty cells that read as spaces.
+    assert_eq!(&cells[..4], ["a", "日", "", "b"]);
+    assert!(cells[4..].iter().all(|cell| cell == " "));
+
+    // The untrimmed text of the row has one space per empty cell and none for the second half of a wide character.
+    assert_eq!(cells.concat(), format!("a日b{}", " ".repeat(6)));
+
+    // A written trailing space is a real cell.
+    terminal.vt_write(b"\r\nx ");
+    assert_eq!(terminal.row_cells(1).unwrap()[..3], ["x", " ", " "]);
+
+    // Rows outside the screen have no cells.
+    assert_eq!(terminal.row_cells(3), None);
+    assert_eq!(terminal.row_cells(u32::MAX), None);
+}
+
+#[test]
+fn a_grapheme_cluster_is_one_cell_of_text() {
+    let mut terminal = Terminal::new(&size(10, 2), History::On).unwrap();
+    // "e" followed by a combining acute accent is one cell of two codepoints.
+    terminal.vt_write("e\u{301}x".as_bytes());
+    let cells = terminal.row_cells(0).unwrap();
+    assert_eq!(cells[0], "e\u{301}");
+    assert_eq!(cells[1], "x");
 }

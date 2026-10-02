@@ -8,6 +8,7 @@
 
 mod events;
 mod modes;
+mod reads;
 mod sys;
 
 use std::cell::Cell;
@@ -16,7 +17,20 @@ use std::marker::PhantomData;
 use std::ptr::NonNull;
 
 pub use botster_route_codec::prelude::ModeFlags;
+pub use botster_core_contract::prelude::Size;
 pub use events::{Drained, TerminalEvent, MAX_BUFFERED_BYTES, MAX_BUFFERED_EVENTS};
+pub use reads::{CursorCell, ScreenText};
+
+/// How much scrollback the model keeps. `Off` backs the testkit control `disable_history` (ST-2).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum History {
+    On,
+    Off,
+}
+
+/// The most bytes of scrollback that `History::On` keeps. It bounds the memory of one session; libghostty drops the
+/// oldest pages beyond it.
+pub const HISTORY_MAX_BYTES: usize = 16 * 1024 * 1024;
 
 /// An error of the libghostty-vt library.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -49,6 +63,7 @@ fn check(code: sys::Result) -> Result<(), Error> {
 
 /// A terminal model.
 pub struct Terminal {
+    history: History,
     handle: NonNull<c_void>,
     /// The event buffer that the callbacks fill. It is a leaked `Box`, freed in `Drop` after the terminal.
     shared: NonNull<events::Shared>,
@@ -62,8 +77,10 @@ pub struct Terminal {
 unsafe impl Send for Terminal {}
 
 impl Terminal {
-    /// A terminal of the given size, with no cell pixel size.
-    pub fn new(cols: u16, rows: u16) -> Result<Self, Error> {
+    /// A terminal of the given size. A size that the library cannot hold (zero, or above 65535 in either dimension) is
+    /// `Error::InvalidValue`; the library reports an allocation failure as `Error::OutOfMemory`, and never aborts.
+    pub fn new(size: &Size, history: History) -> Result<Self, Error> {
+        let (cols, rows) = cell_dimensions(size)?;
         let mut handle: sys::Terminal = std::ptr::null_mut();
         // SAFETY: `handle` is a valid out pointer, a null allocator selects the default, and a successful call stores
         // a live handle that `Drop` frees.
@@ -71,9 +88,25 @@ impl Terminal {
         let handle = NonNull::new(handle).ok_or(Error::InvalidValue)?;
 
         let shared = NonNull::from(Box::leak(Box::<events::Shared>::default()));
-        let terminal = Self { handle, shared, _not_sync: PhantomData };
+        let terminal = Self { handle, shared, history, _not_sync: PhantomData };
         terminal.register_callbacks()?;
+        terminal.set_history_limit()?;
+        if let Some(px) = size.cell_px {
+            terminal.apply_size(cols, rows, px.width, px.height)?;
+        }
         Ok(terminal)
+    }
+
+    fn set_history_limit(&self) -> Result<(), Error> {
+        let limit: usize = match self.history {
+            History::On => HISTORY_MAX_BYTES,
+            // A limit of zero disables scrollback and erases retained history.
+            History::Off => 0,
+        };
+        // SAFETY: the handle is live, and the SCROLLBACK_MAX_BYTES option takes a `size_t` pointer.
+        check(unsafe {
+            sys::ghostty_terminal_set(self.handle.as_ptr(), sys::opt::SCROLLBACK_MAX_BYTES, (&limit as *const usize).cast())
+        })
     }
 
     /// Register the callbacks that fill the event buffer. The title and the working directory are read in their own
@@ -127,12 +160,40 @@ impl Terminal {
         unsafe { self.shared.as_mut() }.drain()
     }
 
-    /// Apply a new size. A zero cell size means that it is unknown.
-    pub fn resize(&mut self, cols: u16, rows: u16, cell_width_px: u32, cell_height_px: u32) -> Result<(), Error> {
+    /// Apply a new size (SZ-1, SZ-3). `cell_px` is taken when given; without it, the library keeps no cell size.
+    pub fn resize(&mut self, size: &Size) -> Result<(), Error> {
+        let (cols, rows) = cell_dimensions(size)?;
+        let (width, height) = size.cell_px.map_or((0, 0), |px| (px.width, px.height));
+        self.apply_size(cols, rows, width, height)
+    }
+
+    fn apply_size(&self, cols: u16, rows: u16, cell_width_px: u32, cell_height_px: u32) -> Result<(), Error> {
         // SAFETY: the handle is live.
         check(unsafe {
             sys::ghostty_terminal_resize(self.handle.as_ptr(), cols, rows, cell_width_px, cell_height_px)
         })
+    }
+
+    /// The plain text of the screen (ST-2). With `history`, it starts with the scrollback; a model that keeps none
+    /// (`History::Off`) says so in `history_unavailable` and returns the visible screen.
+    pub fn screen_text(&self, history: bool) -> Result<ScreenText, Error> {
+        let history_available = self.history == History::On;
+        let text = reads::screen_text(self.handle.as_ptr(), history && history_available, self.cols(), self.rows())
+            .ok_or(Error::InvalidValue)?;
+        Ok(ScreenText { text, history_unavailable: history && !history_available })
+    }
+
+    /// The cursor (ST-3).
+    pub fn cursor(&self) -> CursorCell {
+        reads::cursor(self.handle.as_ptr())
+    }
+
+    /// The cells of a visible row, from column 0: the graphemes of the cell, a space for an empty cell, and nothing for
+    /// the second cell of a wide character. `None` when the row is outside the screen. The caller applies the trim
+    /// rules of ST-3 to this raw text.
+    pub fn row_cells(&self, row: u32) -> Option<Vec<String>> {
+        let row = u16::try_from(row).ok().filter(|row| *row < self.rows())?;
+        (0..self.cols()).map(|x| reads::cell_text(self.handle.as_ptr(), x, row)).collect()
     }
 
     /// The number of columns.
@@ -169,6 +230,13 @@ impl Terminal {
         // SAFETY: the handle is live.
         unsafe { events::read_string(self.handle.as_ptr(), sys::data::PWD) }
     }
+}
+
+/// The dimensions of a size as the library takes them.
+fn cell_dimensions(size: &Size) -> Result<(u16, u16), Error> {
+    let cols = u16::try_from(size.cols).ok().filter(|cols| *cols > 0).ok_or(Error::InvalidValue)?;
+    let rows = u16::try_from(size.rows).ok().filter(|rows| *rows > 0).ok_or(Error::InvalidValue)?;
+    Ok((cols, rows))
 }
 
 impl Drop for Terminal {
