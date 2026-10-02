@@ -48,6 +48,20 @@ fn manifest_text(entries: &[(String, String)]) -> String {
     serde_json::to_string_pretty(&serde_json::json!({ "binaries": binaries })).expect("json") + "\n"
 }
 
+/// Puts `built` at `target` as a new file: the bytes go to a fresh file, which is renamed over `target`. The old inode is
+/// never rewritten, because macOS can kill a re-signed binary that was written over an inode that already ran (the lesson of
+/// the old `script/prebuild-worker`).
+fn install_executable(built: &Path, target: &Path) -> Result<()> {
+    let name = target
+        .file_name()
+        .context("a target has a file name")?
+        .to_string_lossy();
+    let fresh = target.with_file_name(format!(".{name}.new"));
+    let _ = std::fs::remove_file(&fresh);
+    std::fs::copy(built, &fresh).with_context(|| format!("copy {}", built.display()))?;
+    std::fs::rename(&fresh, target).with_context(|| format!("replace {}", target.display()))
+}
+
 fn build_worker(root: &Path, meta: &Meta, candidate: &Path) -> Result<Option<(String, String)>> {
     if !meta
         .members
@@ -62,7 +76,7 @@ fn build_worker(root: &Path, meta: &Meta, candidate: &Path) -> Result<Option<(St
     run(build)?;
     let built = meta.target_dir.join("debug").join(WORKER);
     let target = candidate.join(WORKER);
-    std::fs::copy(&built, &target).with_context(|| format!("copy {}", built.display()))?;
+    install_executable(&built, &target)?;
     Ok(Some((WORKER.to_string(), sha256_hex(&target)?)))
 }
 
@@ -82,7 +96,7 @@ fn build_probe(root: &Path, meta: &Meta, candidate: &Path) -> Result<(String, St
     run(install)?;
     let built = install_root.join("bin").join(PROBE);
     let target = candidate.join(PROBE);
-    std::fs::copy(&built, &target).with_context(|| format!("copy {}", built.display()))?;
+    install_executable(&built, &target)?;
     Ok((PROBE.to_string(), sha256_hex(&target)?))
 }
 
@@ -94,10 +108,12 @@ pub fn command(root: &Path, args: &[String]) -> Result<()> {
     let meta = metadata(root)?;
     let candidate = meta.target_dir.join("candidate");
     std::fs::create_dir_all(&candidate)?;
+    // The manifest is written last, after every replacement succeeded: a failed run leaves none.
+    let manifest = candidate.join("manifest.json");
+    let _ = std::fs::remove_file(&manifest);
     let mut entries = Vec::new();
     entries.extend(build_worker(root, &meta, &candidate)?);
     entries.push(build_probe(root, &meta, &candidate)?);
-    let manifest = candidate.join("manifest.json");
     std::fs::write(&manifest, manifest_text(&entries))?;
     println!(
         "prebuild-worker: wrote {} ({} binaries)",
@@ -131,6 +147,32 @@ mod tests {
         assert_eq!(json["binaries"][0]["name"], "a");
         assert_eq!(json["binaries"][0]["sha256"], "11");
         assert_eq!(json["binaries"][1]["name"], "b");
+    }
+
+    #[test]
+    fn an_installed_executable_is_a_new_file_with_the_new_bytes() {
+        use std::os::unix::fs::MetadataExt;
+        let root = botster_test_support::tempdir::TempRoot::new().unwrap();
+        let built = root.path().join("built");
+        let target = root.path().join("candidate");
+        std::fs::write(&built, b"new").unwrap();
+        std::fs::write(&target, b"old").unwrap();
+        let old_inode = std::fs::metadata(&target).unwrap().ino();
+        install_executable(&built, &target).unwrap();
+        assert_eq!(std::fs::read(&target).unwrap(), b"new");
+        assert_ne!(
+            std::fs::metadata(&target).unwrap().ino(),
+            old_inode,
+            "the old inode was rewritten"
+        );
+        assert!(
+            !root.path().join(".candidate.new").exists(),
+            "no temporary file is left"
+        );
+        // A target that does not exist yet is installed too.
+        let fresh = root.path().join("second");
+        install_executable(&built, &fresh).unwrap();
+        assert_eq!(std::fs::read(&fresh).unwrap(), b"new");
     }
 
     #[test]

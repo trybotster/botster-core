@@ -11,6 +11,8 @@ workspace = true
 
 [dependencies]
 botster-core-contract.workspace = true
+serde.workspace = true
+serde_json.workspace = true
 
 [dev-dependencies]
 bolero.workspace = true

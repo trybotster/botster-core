@@ -4,8 +4,7 @@
 # is recorded in `exclude_re` with the reason on the lines above the entry. The reviewer judges the reason.
 # Never add an entry to make a job pass.
 
-# Test code is not mutated. xtask is tooling: its process-spawning code has no unit-level oracle, and a real run of
-# `cargo xtask ci` is its test; its decision logic (lists, taint, timers, caps, budgets) has unit tests that the reviewer reads.
-exclude_globs = ["**/tests/**", "tests/**", "xtask/**"]
+# Test code is not mutated: the tests are the checks.
+exclude_globs = ["**/tests/**", "tests/**"]
 
 exclude_re = []
