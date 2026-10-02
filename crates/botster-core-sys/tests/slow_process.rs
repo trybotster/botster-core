@@ -98,18 +98,32 @@ fn the_child_environment_is_exact() {
 }
 
 /// Core LC-5, AD-6: `EndPayload` is `SIGUSR1` to the worker process. A worker with a handler runs it, and the signal is
-/// repeatable.
+/// repeatable. The shell writes a file when its trap is installed, and the test signals only after it sees the file.
 #[test]
 fn the_worker_control_signal_reaches_the_worker_handler() {
+    let ready = std::env::temp_dir().join(format!("botster-core-sys-ready-{}", std::process::id()));
+    let _ = std::fs::remove_file(&ready);
     let mut children = Children::new();
     let identity = children
         .spawn(&spec(
             "/bin/sh",
-            &["-c", "trap 'exit 7' USR1; while :; do :; done"],
+            &[
+                "-c",
+                "trap 'exit 7' USR1; : > \"$0\"; while :; do :; done",
+                ready.to_str().expect("a temp path is UTF-8"),
+            ],
         ))
         .expect("spawn");
     let guard = Reaper(&mut children, identity);
-    std::thread::sleep(std::time::Duration::from_millis(300)); // timer: settle — a real shell installs its trap
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10); // timer: deadline — bounds the wait for the trap
+    while !ready.exists() {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the shell never installed its trap"
+        );
+        std::thread::yield_now();
+    }
+    let _ = std::fs::remove_file(&ready);
     guard.0.signal_group(identity, GroupSignal::EndPayload);
     guard.0.signal_group(identity, GroupSignal::EndPayload);
     let exit = guard.0.wait_exit(identity.pid).expect("the worker ends");
