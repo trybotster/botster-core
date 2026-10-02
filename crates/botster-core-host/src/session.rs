@@ -54,6 +54,9 @@ pub struct Row {
     pub token: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub worker: Option<RowWorker>,
+    /// The payload's identity, once the worker launched it (LC-5).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub payload: Option<RowWorker>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub worker_protocol: Option<u8>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -87,8 +90,47 @@ impl From<ProcessIdentity> for RowWorker {
 
 pub const ROW_VERSION: u32 = 1;
 
-/// How many op ids a session keeps for `cancel` after its instance is removed.
-pub const OPS_SEEN_KEPT: usize = 4096;
+/// A set of `OpId`s as disjoint ranges. `cancel` needs exact identity for the whole life of the handle (ID-1, IN-6), and ranges
+/// keep that exact set small.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct IdRanges {
+    /// Start to inclusive end.
+    ranges: std::collections::BTreeMap<u64, u64>,
+}
+
+impl IdRanges {
+    pub fn insert(&mut self, id: u64) {
+        let (mut start, mut end) = (id, id);
+        if let Some((&s, &e)) = self.ranges.range(..=id).next_back() {
+            if e >= id {
+                return;
+            }
+            if e + 1 == id {
+                start = s;
+            }
+        }
+        if let Some(&e) = self.ranges.get(&(id + 1)) {
+            end = e;
+            self.ranges.remove(&(id + 1));
+        }
+        self.ranges.insert(start, end);
+    }
+
+    pub fn contains(&self, id: u64) -> bool {
+        self.ranges
+            .range(..=id)
+            .next_back()
+            .is_some_and(|(_, &e)| e >= id)
+    }
+
+    pub fn extend(&mut self, other: &IdRanges) {
+        for (&s, &e) in &other.ranges {
+            for id in s..=e {
+                self.insert(id);
+            }
+        }
+    }
+}
 
 pub fn hex_encode(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
@@ -141,6 +183,8 @@ pub struct WorkerHandle {
     pub link: Option<LinkId>,
     /// The link existed and ended: ops on it fail with `WorkerLinkFailed` (A2-1).
     pub link_failed: bool,
+    /// The worker process ended (the exit watch reported it).
+    pub gone: bool,
 }
 
 /// A live session: the row, the two states, and the machines that work on it.
@@ -159,6 +203,8 @@ pub struct Session {
     pub worker_features: Option<BTreeSet<Feature>>,
     pub token: Option<[u8; TOKEN_LEN]>,
     pub worker: WorkerHandle,
+    /// The payload's identity, from the launch report (LC-5, LC-6).
+    pub payload: Option<ProcessIdentity>,
     pub terminal: Option<TerminalState>,
     pub silence: Silence,
     /// The host asked for the end of the payload, or signalled it (decides the `ExitCause`, LC-5, LC-6).
@@ -183,9 +229,10 @@ pub struct Session {
     pub ticket: Option<Ticket>,
     /// The snapshot formats that the worker reported at launch (ST-6).
     pub formats: Vec<SnapshotFormat>,
-    /// The ops that acted on this instance, kept so that `cancel` can tell an op of a removed instance (ID-1). At most
-    /// [`OPS_SEEN_KEPT`].
-    pub ops_seen: Vec<OpId>,
+    /// The ops that acted on this instance, so that `cancel` can tell an op of a removed instance (ID-1).
+    pub ops: IdRanges,
+    /// Admitted setters of a `Created` session that have not run: a start waits for them (AM-1 order).
+    pub pending_setters: u32,
     /// How the payload ended while a start flow was still running: applied when the flow ends.
     pub pending_end: Option<SessionEnd>,
     /// Routes that were registered before the link existed: the handoff waits for the link (DP-2).
@@ -217,6 +264,7 @@ impl Session {
             labels: self.labels.clone(),
             token: self.token.map(|t| hex_encode(&t)),
             worker: self.worker.identity.map(RowWorker::from),
+            payload: self.payload.map(RowWorker::from),
             worker_protocol: self.worker_protocol,
             worker_features: self.worker_features.clone(),
         }
@@ -276,6 +324,7 @@ mod tests {
                 pid: 4,
                 start_time: 9,
             }),
+            payload: None,
             worker_protocol: Some(1),
             worker_features: None,
         };

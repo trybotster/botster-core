@@ -19,6 +19,7 @@ use std::time::Instant;
 pub(crate) enum DeadlineKind {
     Startup(SessionId),
     StopGrace(SessionId),
+    RemoveGrace(SessionId),
     Silence(SessionId),
     Capture(CaptureId),
 }
@@ -46,6 +47,11 @@ impl HostEngine {
                 Flow::Stop(f) => {
                     if let Some(at) = f.deadline {
                         out.push((at, DeadlineKind::StopGrace(id.clone())));
+                    }
+                }
+                Flow::Remove(f) => {
+                    if let Some(at) = f.deadline {
+                        out.push((at, DeadlineKind::RemoveGrace(id.clone())));
                     }
                 }
                 _ => {}
@@ -88,7 +94,7 @@ impl HostEngine {
             Flow::Create(_) => false,
             Flow::Start(f) => matches!(f.phase, StartPhase::AwaitHello | StartPhase::AwaitLaunched),
             Flow::Stop(f) => f.phase == StopPhase::AwaitExit,
-            Flow::Remove(f) => f.phase == RemovePhase::AwaitResult,
+            Flow::Remove(f) => f.phase == RemovePhase::AwaitTeardown,
         }
     }
 
@@ -96,15 +102,33 @@ impl HostEngine {
     pub fn ready(&self) -> Vec<Work> {
         let room = self.has_room();
         let mut out = Vec::new();
+        // A due deadline is processed in its pump, before other work (TM-3, TM-5).
+        if let (Some(now), Some((due, _))) = (self.now, self.deadlines().first()) {
+            if *due <= now {
+                out.push(Work::Deadline);
+            }
+        }
         for (id, p) in &self.ops {
-            if let Step::Ready(next) = &p.step {
-                if !self.step_needs_room(next) || room {
+            match &p.step {
+                Step::Ready(next) => {
+                    if !self.step_needs_room(next) || room {
+                        out.push(Work::Op(*id));
+                    }
+                }
+                Step::Await(Wait::StopAll(targets)) if self.stop_all_done(targets) => {
                     out.push(Work::Op(*id));
                 }
+                _ => {}
             }
         }
         for (id, s) in &self.sessions {
             if s.ticket.is_some() || self.flow_waiting(s) {
+                continue;
+            }
+            // A start does not begin before the setters that were admitted ahead of it have run (AM-1 order).
+            if matches!(&s.flow, Flow::Start(f) if f.phase == StartPhase::Token)
+                && s.pending_setters > 0
+            {
                 continue;
             }
             if self.flow_needs_room(s) && !room {
@@ -114,11 +138,6 @@ impl HostEngine {
         }
         if self.parked_work() && room {
             out.push(Work::Parked);
-        }
-        if let (Some(now), Some((due, _))) = (self.now, self.deadlines().first()) {
-            if *due <= now {
-                out.push(Work::Deadline);
-            }
         }
         out
     }
@@ -159,27 +178,36 @@ impl HostEngine {
                 }
             }
             DeadlineKind::StopGrace(id) => self.kill_payload(&id),
+            DeadlineKind::RemoveGrace(id) => self.remove_grace_expired(&id),
             DeadlineKind::Startup(id) => self.startup_expired(&id),
         }
     }
 
-    /// The kill of `stop_grace` (LC-5): through the link, or through the process edge when the link is gone.
+    /// The kill of `stop_grace` (LC-5). With the link it goes to the worker, which kills the payload's group and keeps the
+    /// final model. Without it, the host kills the payload's group itself through the process edge: never the worker's group,
+    /// which would lose the final model and leave a separately grouped payload alive (LC-5, LC-6).
     fn kill_payload(&mut self, id: &SessionId) {
-        let identity = self.identity_of(id);
+        let payload = self.sessions.get(id).and_then(|s| s.payload);
         let sent = self.send_msg(id, HostMsg::Kill);
         if !sent {
-            if let Some(identity) = identity {
+            if let Some(identity) = payload {
                 self.act(Action::SignalGroup {
                     identity,
                     signal: GroupSignal::Kill,
                 });
             }
         }
+        let broken = !sent;
         if let Some(s) = self.sessions.get_mut(id) {
             s.killed = true;
             if let Flow::Stop(f) = &mut s.flow {
                 f.deadline = None;
             }
+        }
+        if broken {
+            // The worker cannot answer: the payload was killed and Core cannot learn the exit. The session ends
+            // `Lost(WorkerUnreachable)` (AD-2: the worker is alive, and no connection is made).
+            self.begin_end_flow(id, SessionEnd::Lost(LostReason::WorkerUnreachable));
         }
     }
 
@@ -219,10 +247,32 @@ impl HostEngine {
         let Some(pending) = self.ops.get(&op_id) else {
             return;
         };
+        if let Step::Await(Wait::StopAll(targets)) = &pending.step {
+            if self.stop_all_done(targets) {
+                self.complete(op_id, OpResult::Ok(OpOutput::Unit));
+            }
+            return;
+        }
         let Step::Ready(next) = pending.step.clone() else {
             return;
         };
         let session = pending.session.clone();
+        // An op of an instance that is gone never reaches a later instance of the same id (ID-1, AM-3).
+        if let (Some(id), Some(instance), false) = (
+            &pending.session,
+            &pending.instance,
+            matches!(next, Next::Complete(_)),
+        ) {
+            if self
+                .sessions
+                .get(id)
+                .is_none_or(|s| &s.instance != instance)
+            {
+                let result = self.ended_result(op_id);
+                self.complete(op_id, result);
+                return;
+            }
+        }
         match next {
             Next::Complete(result) => self.complete(op_id, result),
             Next::MetaWrite => {
@@ -252,17 +302,28 @@ impl HostEngine {
                 self.set_step(op_id, Step::Await(Wait::Ticket));
             }
             Next::Forward => self.forward(op_id),
-            Next::Signal(sig) => {
+            Next::Setter => {
                 let Some(session) = session else { return };
-                let result = if self.send_msg(&session, HostMsg::Signal { sig }) {
-                    OpResult::Ok(OpOutput::Unit)
-                } else {
-                    OpResult::Err(CoreError::new(
-                        ErrorCode::WorkerLinkFailed,
-                        "the session has no worker link",
-                    ))
+                let op = self.ops[&op_id].op.clone();
+                let s = self.sessions.get_mut(&session).expect("checked above");
+                s.pending_setters = s.pending_setters.saturating_sub(1);
+                let output = match op {
+                    Op::Resize { size, .. } => {
+                        s.size = size;
+                        s.request.size = size;
+                        OpOutput::Resize(ResizeResult::Applied { actual: size })
+                    }
+                    Op::SetSizePolicy { policy, .. } => {
+                        s.request.size_policy = Some(policy);
+                        OpOutput::Unit
+                    }
+                    Op::SetColorProfile { profile, .. } => {
+                        s.request.color_profile = Some(profile);
+                        OpOutput::Unit
+                    }
+                    _ => OpOutput::Unit,
                 };
-                self.complete(op_id, result);
+                self.complete(op_id, OpResult::Ok(output));
             }
             Next::StopAllStart(targets) => self.stop_all_start(op_id, targets),
             Next::Detach => {
@@ -421,31 +482,44 @@ impl HostEngine {
             }
         }
         self.set_step(op_id, Step::Await(Wait::StopAll(waiting)));
-        self.check_stop_alls();
     }
 
-    /// Completes the `StopAll` ops whose targets have all reached `Exited` or `Lost`, or are gone (LC-12).
-    pub(crate) fn check_stop_alls(&mut self) {
-        let done: Vec<OpId> = self
-            .ops
-            .iter()
-            .filter_map(|(id, p)| match &p.step {
-                Step::Await(Wait::StopAll(targets)) => targets
-                    .iter()
-                    .all(|t| {
-                        self.sessions.get(t).is_none_or(|s| {
-                            matches!(
-                                s.shown,
-                                Some(SessionState::Exited(_) | SessionState::Lost(_))
-                            )
-                        })
-                    })
-                    .then_some(*id),
-                _ => None,
+    /// True when every target of a `StopAll` reached `Exited` or `Lost`, or is gone (LC-12). The op is then ready work, so
+    /// its completion is a step of its own (`pump_events` bounds events, not steps that complete several ops).
+    pub(crate) fn stop_all_done(&self, targets: &BTreeSet<SessionId>) -> bool {
+        targets.iter().all(|t| {
+            self.sessions.get(t).is_none_or(|s| {
+                matches!(
+                    s.shown,
+                    Some(SessionState::Exited(_) | SessionState::Lost(_))
+                )
             })
-            .collect();
-        for op in done {
-            self.complete(op, OpResult::Ok(OpOutput::Unit));
+        })
+    }
+
+    /// A target whose stop could not begin is left as it is (LC-12: "a target that cannot be stopped is left"), so no
+    /// `StopAll` waits for it.
+    pub(crate) fn drop_stop_all_target(&mut self, session: &SessionId) {
+        for p in self.ops.values_mut() {
+            if let Step::Await(Wait::StopAll(targets)) = &mut p.step {
+                targets.remove(session);
+            }
+        }
+    }
+
+    /// The result of an op whose instance ended before the op could run (AM-3, IN-7).
+    pub(crate) fn ended_result(&self, op: OpId) -> OpResult {
+        match self.ops.get(&op).map(|p| &p.op) {
+            Some(Op::WriteInput { .. }) => OpResult::Ok(OpOutput::Input(InputResult {
+                outcome: WriteOutcome::NotWritten(NotWrittenReason::SessionEnded),
+                payload_bytes_written: 0,
+                pty_bytes_written: 0,
+                detail: "the session was removed".into(),
+            })),
+            _ => OpResult::Err(CoreError::new(
+                ErrorCode::SessionEnded,
+                "the session ended before the operation ran",
+            )),
         }
     }
 

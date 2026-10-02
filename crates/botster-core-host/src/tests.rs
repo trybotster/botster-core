@@ -97,6 +97,7 @@ pub(crate) struct World {
     pub closed: Vec<LinkId>,
     pub trace: Vec<String>,
     spawned: BTreeMap<InstanceId, (ProcessIdentity, [u8; TOKEN_LEN], LinkId)>,
+    identities: BTreeMap<LinkId, ProcessIdentity>,
     next_pid: u32,
     pub(crate) next_link: u64,
     random: u8,
@@ -122,6 +123,7 @@ impl World {
             closed: Vec::new(),
             trace: Vec::new(),
             spawned: BTreeMap::new(),
+            identities: BTreeMap::new(),
             next_pid: 100,
             next_link: 1,
             random: 1,
@@ -224,6 +226,7 @@ impl World {
                 };
                 let link = LinkId(self.next_link);
                 self.next_link += 1;
+                self.identities.insert(link, identity);
                 self.spawned
                     .insert(instance.clone(), (identity, token, link));
                 self.inject.push(Input::Spawned {
@@ -242,6 +245,15 @@ impl World {
                     if let Some(reply) = self.reply(link, &msg) {
                         for r in reply {
                             self.inject.push(Input::LinkMsg { link, msg: r });
+                        }
+                    }
+                    // The worker ends after its teardown (LC-7 step 3).
+                    if matches!(msg, HostMsg::Remove) {
+                        if let Some(identity) = self.identities.get(&link).copied() {
+                            self.inject.push(Input::ProcessExited {
+                                identity,
+                                status: ExitStatus::Code(0),
+                            });
                         }
                     }
                 }
@@ -287,6 +299,10 @@ impl World {
                         name: "GHOSTSNP".into(),
                         version: 1,
                     }],
+                    payload: Some(botster_core_link::msg::PayloadId {
+                        pid: 900,
+                        start_time: 3,
+                    }),
                 }
             }]),
             HostMsg::Stop => Some(vec![WorkerMsg::Exited {
@@ -386,6 +402,10 @@ impl World {
                 features: BTreeSet::from([Feature::FocusReport]),
                 terminal: terminal_state(),
                 formats: vec![],
+                payload: Some(botster_core_link::msg::PayloadId {
+                    pid: 900,
+                    start_time: 3,
+                }),
             },
         });
         self.complete(start);
@@ -437,7 +457,6 @@ fn msg_name(msg: &HostMsg) -> &'static str {
         HostMsg::Launch(_) => "launch",
         HostMsg::Stop => "stop",
         HostMsg::Kill => "kill",
-        HostMsg::Signal { .. } => "signal",
         HostMsg::Op { .. } => "op",
         HostMsg::Cancel { .. } => "cancel",
         HostMsg::Remove => "remove",
@@ -487,4 +506,5 @@ mod admission;
 mod driver;
 mod lifecycle;
 mod queue_pressure;
+mod review;
 mod worker_link;
