@@ -1,0 +1,15 @@
+conf::dp_10_t1_keystroke_to_pty_latency_budget	DP-10	pending
+conf::dp_10_t1_pty_to_client_latency_budget	DP-10	pending
+conf::dp_10_t1_throughput_and_byte_identity	DP-10	pending
+conf::dp_10_t2_latency_and_throughput_budgets	DP-10	pending
+conf::dp_11_hop_counts_match_the_stated_topologies	DP-11	pending
+conf::dp_2_host_never_reads_the_datachannel	DP-2	pending
+conf::dp_2_webrtc_answer_has_all_candidates	DP-2	pending
+conf::dp_2_webrtc_fingerprint_mismatch_closes_bad_peer	DP-2	pending
+conf::dp_2_webrtc_only_the_terminal_channel_is_accepted	DP-2	pending
+conf::dp_3_datachannel_chunking_matches_tr3	DP-3	pending
+conf::dp_3_incomplete_datachannel_frame_is_discarded	DP-3	pending
+conf::ou_2b_connect_deadline_closes_not_connected	OU-2b	pending
+conf::ou_3_webrtc_progress_is_acknowledged_payload_not_retransmission	OU-3	pending
+conf::ou_3_webrtc_send_queue_is_bounded_and_backpressures	OU-3	pending
+conf::ou_3_webrtc_stuck_peer_with_retransmissions_is_a_stall	OU-3	pending
