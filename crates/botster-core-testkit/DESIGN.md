@@ -51,3 +51,24 @@ the probe and does not move the pin.
   `pty_blocked` or `pty_input` stops before setup, for example `conf::am_2_fairness_bound_across_routes`), or at `open`, which
   reports that no Core exists. The numbers are an early-exit measurement of the harness. They do not show the cost of a passing
   Core transcript. R4 needs a new measurement when P1 provides the engine and the controls exist.
+
+# Scope 2, step 1: the pin move, the status files, the base commit, the nightly
+
+Plan pin `c43693ff`, contracts `contracts-v0.1.7` (`f14c895`, manifest final21).
+
+- **Pin move** (its own commit): 599 to 640 Core ids; the 41 new ids are listed in the commit message and added to
+  `core-pending.txt`; the two ids that A9-2 withdrew leave `core-pending.txt` and are never pending again. `CoreHarness` gained
+  `WorkerRef::file_name`, `worker_named`, `injects_clock` and `statement` at this tag; the testkit answers `file_name: None` and
+  `injects_clock: true`.
+- **Status files.** The harness reads verbatim copies of the contracts' `conformance/deferred.txt` and `withdrawn.txt`
+  (`conformance/contracts-*.txt`), because a test binary cannot find the contracts checkout at run time. `cargo xtask lists` fails
+  when a copy is not the pinned file, and `cargo xtask ledger-ids --write` writes them, as it does for the ledger ids. The parser
+  is `botster_core_testkit::status` (hand-rolled, about 60 lines: the contracts' own parser is inside their xtask, not a crate);
+  xtask and `tests/conformance.rs` share it.
+- **Checks added to `lists`:** a withdrawn id is a ledger id and is never pending or deferred; `core-deferred.toml` equals the
+  whole-id Core deferrals of `deferred.txt`; a `not-applicable` id is a ledger id that is neither withdrawn nor deferred. The
+  harness reports five counts and lists each not-applicable case.
+- **Base commit.** `fsutil::base` resolves `BOTSTER_CI_BASE_REF` (or `origin/v1`) to a commit once per run, prints it
+  (`base: <ref> = <sha>`), and returns it to every check. The mutation diff and the pending-list check both use it.
+- **Nightly.** `ensure_nightly` runs `rustup run nightly-2026-09-30 rustc --version` with auto-install off and fails with
+  `missing prerequisite: nightly-2026-09-30`. The `rustup toolchain install` fallback is gone.

@@ -12,9 +12,13 @@ workspace = true
 [dependencies]
 anyhow.workspace = true
 botster-core-contract.workspace = true
+botster-core-testkit.workspace = true
 botster-test-support.workspace = true
 botster-worker-core.workspace = true
 regex.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
 toml.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

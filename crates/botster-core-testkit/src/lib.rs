@@ -9,6 +9,7 @@ pub mod net;
 pub mod program;
 pub mod scheduler;
 pub mod sim;
+pub mod status;
 pub mod wake;
 
 pub use entropy::SeededEntropy;

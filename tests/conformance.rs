@@ -5,6 +5,9 @@
 //!
 //! - an id in `conformance/core-pending.txt` is an ignored trial of kind `pending`;
 //! - an id in `conformance/core-deferred.toml` is an ignored trial of kind `deferred`;
+//! - an id in the contracts' `withdrawn.txt` is an ignored trial of kind `withdrawn`: never pending, never a pass;
+//! - a `not-applicable` line of the contracts' `deferred.txt` names a CASE of an active id: the id runs, and the report lists the
+//!   case;
 //! - a ledger id without a transcript that is not deferred is an ignored trial of kind `pending: no transcript`;
 //! - every other id runs `run_transcript` over the seed set and passes only on `Outcome::Passed`.
 //!
@@ -14,6 +17,7 @@
 use botster_conformance::report::describe;
 use botster_conformance::{load_dir, run_transcript, Limits, SeedSet, Selection, Transcript};
 use botster_core_conformance::{driver_for, CoreHarness, CoreSchemas, CORE_TRANSCRIPTS};
+use botster_core_testkit::status::{parse_deferred as parse_status_deferred, parse_withdrawn};
 use botster_core_testkit::TestkitHarness;
 use libtest_mimic::{Arguments, Completion, Failed, Trial};
 use std::collections::BTreeSet;
@@ -22,6 +26,9 @@ use std::collections::BTreeSet;
 const LEDGER_IDS: &str = include_str!("../conformance/core-ledger-ids.txt");
 const PENDING_IDS: &str = include_str!("../conformance/core-pending.txt");
 const DEFERRED: &str = include_str!("../conformance/core-deferred.toml");
+/// The contracts' status files at the pinned tag (`cargo xtask lists` checks that they are the pinned files).
+const CONTRACTS_DEFERRED: &str = include_str!("../conformance/contracts-deferred.txt");
+const CONTRACTS_WITHDRAWN: &str = include_str!("../conformance/contracts-withdrawn.txt");
 
 /// Builds the harness of one seed: `TestkitHarness` for the default tier. P6 adds the `slow` feature with `RealCoreHarness`
 /// for the real-process tier (plan section 5). Until P1 provides the engine, `open` reports that no Core exists, so a trial
@@ -98,14 +105,22 @@ fn main() {
     let ledger = id_list(LEDGER_IDS);
     let pending = id_list(PENDING_IDS);
     let deferred = deferred_entries(DEFERRED);
+    let withdrawn = parse_withdrawn(CONTRACTS_WITHDRAWN).expect("withdrawn.txt parses");
+    let (_, cases) = parse_status_deferred(CONTRACTS_DEFERRED).expect("deferred.txt parses");
     let transcripts = load_dir(&CORE_TRANSCRIPTS).expect("the Core transcripts load");
     let selection = Selection::from_env();
 
     let mut trials = Vec::new();
-    let (mut pending_count, mut no_transcript_count) = (0usize, 0usize);
+    let (mut pending_count, mut no_transcript_count, mut withdrawn_count) =
+        (0usize, 0usize, 0usize);
     for id in &ledger {
         let transcript = transcripts.iter().find(|t| &t.id == id);
-        if let Some((_, authority, start)) = deferred.iter().find(|(d, _, _)| d == id) {
+        if let Some(w) = withdrawn.iter().find(|w| &w.id == id) {
+            let replacement = w.replaced_by.as_deref().unwrap_or("nothing");
+            let reason = format!("withdrawn by {}; replaced by {replacement}", w.authority);
+            withdrawn_count += 1;
+            trials.push(never_passes(id, "withdrawn", reason));
+        } else if let Some((_, authority, start)) = deferred.iter().find(|(d, _, _)| d == id) {
             let reason = format!("deferred by {authority}; starts when {start}");
             trials.push(never_passes(id, "deferred", reason));
         } else if pending.contains(id) || transcript.is_none() {
@@ -140,15 +155,23 @@ fn main() {
     let report = !args.list && !args.exact;
     let conclusion = libtest_mimic::run(&args, trials);
     if report {
-        // A pending, deferred or unselected id is never a pass (plan section 5): the four counts of the report.
+        // A pending, deferred, withdrawn or unselected id is never a pass (plan section 5): the five counts of the report.
         println!(
-            "conformance: passed {}, failed {}, pending {} (+ {} with no transcript), deferred {}",
+            "conformance: passed {}, failed {}, pending {} (+ {} with no transcript), deferred {}, withdrawn {}",
             conclusion.num_passed,
             conclusion.num_failed,
             pending_count,
             no_transcript_count,
-            deferred.len()
+            deferred.len(),
+            withdrawn_count
         );
+        // A not-applicable case belongs to an ACTIVE id: the id itself is counted under its run result.
+        for case in &cases {
+            println!(
+                "conformance: not-applicable case `{}` of {} ({}): {}",
+                case.case, case.id, case.authority, case.because
+            );
+        }
         for (id, authority, start) in &deferred {
             println!("conformance: deferred {id} ({authority}; starts when {start})");
         }
