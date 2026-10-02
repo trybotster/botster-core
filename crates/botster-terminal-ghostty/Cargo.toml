@@ -13,5 +13,9 @@ description = "The libghostty-vt binding of Botster Core: the terminal model, th
 [lints.rust]
 unsafe_code = "allow"
 
+[dependencies]
+botster-core-contract.workspace = true
+botster-route-codec.workspace = true
+
 [dev-dependencies]
 static_assertions.workspace = true

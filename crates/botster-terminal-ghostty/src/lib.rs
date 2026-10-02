@@ -6,11 +6,17 @@
 //!
 //! `Terminal` is `Send` and not `Sync`: the worker machine owns it on one thread.
 
+mod events;
+mod modes;
 mod sys;
 
 use std::cell::Cell;
+use std::ffi::c_void;
 use std::marker::PhantomData;
 use std::ptr::NonNull;
+
+pub use botster_route_codec::prelude::ModeFlags;
+pub use events::{Drained, TerminalEvent, MAX_BUFFERED_BYTES, MAX_BUFFERED_EVENTS};
 
 /// An error of the libghostty-vt library.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -43,13 +49,16 @@ fn check(code: sys::Result) -> Result<(), Error> {
 
 /// A terminal model.
 pub struct Terminal {
-    handle: NonNull<std::ffi::c_void>,
+    handle: NonNull<c_void>,
+    /// The event buffer that the callbacks fill. It is a leaked `Box`, freed in `Drop` after the terminal.
+    shared: NonNull<events::Shared>,
     // Not Sync: the library keeps unsynchronized state.
     _not_sync: PhantomData<Cell<()>>,
 }
 
-// SAFETY: the library does not tie a terminal to the thread that made it, and `&mut self` serializes every call. A
-// terminal is `!Sync`, so it is never used from two threads at once.
+// SAFETY: the library does not tie a terminal to the thread that made it, and `&mut self` serializes every call. The
+// event buffer is only reached through the terminal. A terminal is `!Sync`, so it is never used from two threads at
+// once.
 unsafe impl Send for Terminal {}
 
 impl Terminal {
@@ -60,13 +69,62 @@ impl Terminal {
         // a live handle that `Drop` frees.
         check(unsafe { sys::ghostty_terminal_new(std::ptr::null(), &mut handle, cols, rows) })?;
         let handle = NonNull::new(handle).ok_or(Error::InvalidValue)?;
-        Ok(Self { handle, _not_sync: PhantomData })
+
+        let shared = NonNull::from(Box::leak(Box::<events::Shared>::default()));
+        let terminal = Self { handle, shared, _not_sync: PhantomData };
+        terminal.register_callbacks()?;
+        Ok(terminal)
     }
 
-    /// Feed one chunk of program output to the model.
+    /// Register the callbacks that fill the event buffer. The title and the working directory are read in their own
+    /// callbacks, so this is the one place that sets effects.
+    fn register_callbacks(&self) -> Result<(), Error> {
+        let handle = self.handle.as_ptr();
+        // SAFETY: the handle is live. The userdata is the boxed buffer, valid until `Drop`. Each callback is passed as
+        // the option's value, which is how the library takes a function pointer.
+        unsafe {
+            check(sys::ghostty_terminal_set(handle, sys::opt::USERDATA, self.shared.as_ptr().cast()))?;
+            check(sys::ghostty_terminal_set(handle, sys::opt::BELL, events::on_bell as sys::BellFn as *const c_void))?;
+            check(sys::ghostty_terminal_set(
+                handle,
+                sys::opt::TITLE_CHANGED,
+                events::on_title_changed as sys::TitleChangedFn as *const c_void,
+            ))?;
+            check(sys::ghostty_terminal_set(
+                handle,
+                sys::opt::PWD_CHANGED,
+                events::on_pwd_changed as sys::PwdChangedFn as *const c_void,
+            ))?;
+            check(sys::ghostty_terminal_set(
+                handle,
+                sys::opt::DESKTOP_NOTIFICATION,
+                events::on_notification as sys::DesktopNotificationFn as *const c_void,
+            ))?;
+            check(sys::ghostty_terminal_set(
+                handle,
+                sys::opt::SEMANTIC_PROMPT,
+                events::on_semantic_prompt as sys::SemanticPromptFn as *const c_void,
+            ))?;
+            check(sys::ghostty_terminal_set(
+                handle,
+                sys::opt::CLIPBOARD_WRITE,
+                events::on_clipboard_write as sys::ClipboardWriteFn as *const c_void,
+            ))?;
+        }
+        Ok(())
+    }
+
+    /// Feed one chunk of program output to the model. The callbacks run inside this call and fill the event buffer.
     pub fn vt_write(&mut self, bytes: &[u8]) {
-        // SAFETY: the handle is live, and the slice is valid for the length for the duration of the call.
+        // SAFETY: the handle is live, and the slice is valid for its length for the duration of the call.
         unsafe { sys::ghostty_terminal_vt_write(self.handle.as_ptr(), bytes.as_ptr(), bytes.len()) }
+    }
+
+    /// Take what the model reported since the last drain, in observation order.
+    pub fn drain_events(&mut self) -> Drained {
+        // SAFETY: the buffer is live until `Drop`, and `&mut self` means that no callback runs now, so this is the
+        // only reference.
+        unsafe { self.shared.as_mut() }.drain()
     }
 
     /// Apply a new size. A zero cell size means that it is unknown.
@@ -94,41 +152,35 @@ impl Terminal {
         debug_assert_eq!(code, sys::SUCCESS);
         out
     }
+
+    /// The modes of the model (5.1A `ModeFlags`), read from the library now.
+    pub fn modes(&self) -> ModeFlags {
+        modes::mode_flags(self.handle.as_ptr())
+    }
+
+    /// The title, as the library holds it (empty when none was set).
+    pub fn title(&self) -> String {
+        // SAFETY: the handle is live.
+        unsafe { events::read_string(self.handle.as_ptr(), sys::data::TITLE) }
+    }
+
+    /// The working directory that OSC 7 set, as the library holds it (empty when none was set).
+    pub fn cwd(&self) -> String {
+        // SAFETY: the handle is live.
+        unsafe { events::read_string(self.handle.as_ptr(), sys::data::PWD) }
+    }
 }
 
 impl Drop for Terminal {
     fn drop(&mut self) {
-        // SAFETY: the handle is live and is freed exactly once.
-        unsafe { sys::ghostty_terminal_free(self.handle.as_ptr()) }
+        // SAFETY: the handle is live and is freed exactly once. Freeing the terminal first means that no callback runs
+        // after the buffer is freed. The buffer came from `Box::leak` and is freed exactly once.
+        unsafe {
+            sys::ghostty_terminal_free(self.handle.as_ptr());
+            drop(Box::from_raw(self.shared.as_ptr()));
+        }
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_new_terminal_has_its_size_and_takes_output() {
-        let mut terminal = Terminal::new(80, 24).unwrap();
-        assert_eq!((terminal.cols(), terminal.rows()), (80, 24));
-        terminal.vt_write(b"hello");
-        terminal.resize(100, 30, 0, 0).unwrap();
-        assert_eq!((terminal.cols(), terminal.rows()), (100, 30));
-    }
-
-    #[test]
-    fn terminal_is_send_and_not_sync() {
-        fn is_send<T: Send>() {}
-        is_send::<Terminal>();
-        static_assertions::assert_not_impl_any!(Terminal: Sync);
-    }
-
-    #[test]
-    fn the_zig_package_list_is_the_one_that_the_prefetch_script_reads() {
-        // build_data.rs holds the only list. The script reads it with sed, so each entry sits on its own line.
-        let data = include_str!("../build_data.rs");
-        let listed = data.lines().filter(|line| line.trim_start().starts_with('"') && line.trim_end().ends_with("\",")).count();
-        // 6 build arguments, 7 packages and the 2 of them that the zon files name.
-        assert_eq!(listed, 15);
-    }
-}
+mod tests;
