@@ -125,6 +125,16 @@ impl HostEngine {
             if s.ticket.is_some() || self.flow_waiting(s) {
                 continue;
             }
+            // `Remove` does not begin its teardown before an `UpdateMetadata` admitted ahead of it has written its row.
+            if matches!(&s.flow, Flow::Remove(f) if f.phase == RemovePhase::SendRemove)
+                && self.ops.values().any(|p| {
+                    p.session.as_ref() == Some(id)
+                        && matches!(p.op, Op::UpdateMetadata { .. })
+                        && !matches!(p.step, Step::Done)
+                })
+            {
+                continue;
+            }
             // A start does not begin before the setters that were admitted ahead of it have run (AM-1 order).
             if matches!(&s.flow, Flow::Start(f) if f.phase == StartPhase::Token)
                 && s.pending_setters > 0
@@ -191,7 +201,7 @@ impl HostEngine {
         let sent = self.send_msg(id, HostMsg::Kill);
         if !sent {
             if let Some(identity) = payload {
-                self.act(Action::SignalGroup {
+                self.act(Action::SignalPayloadGroup {
                     identity,
                     signal: GroupSignal::Kill,
                 });
@@ -268,7 +278,7 @@ impl HostEngine {
                 .get(id)
                 .is_none_or(|s| &s.instance != instance)
             {
-                let result = self.ended_result(op_id);
+                let result = self.ended_result(op_id, None);
                 self.complete(op_id, result);
                 return;
             }
@@ -497,29 +507,62 @@ impl HostEngine {
         })
     }
 
-    /// A target whose stop could not begin is left as it is (LC-12: "a target that cannot be stopped is left"), so no
-    /// `StopAll` waits for it.
-    pub(crate) fn drop_stop_all_target(&mut self, session: &SessionId) {
-        for p in self.ops.values_mut() {
-            if let Step::Await(Wait::StopAll(targets)) = &mut p.step {
-                targets.remove(session);
+    /// Whether a `StopAll` waits for this session to end (R-16).
+    pub(crate) fn stop_all_targets(&self, session: &SessionId) -> bool {
+        self.ops
+            .values()
+            .any(|p| matches!(&p.step, Step::Await(Wait::StopAll(t)) if t.contains(session)))
+    }
+
+    /// The result of an op whose instance ended before the op could finish (AM-3, IN-7): each op ends through a code of its own
+    /// A2-1 row. `failed_create` is the failure of the `Create` that the op was admitted behind, for the rows that list
+    /// `RegistryFailed`.
+    pub(crate) fn ended_result(&self, op: OpId, failed_create: Option<&CoreError>) -> OpResult {
+        let Some(pending) = self.ops.get(&op) else {
+            return OpResult::Err(CoreError::new(ErrorCode::Internal, "the op is gone"));
+        };
+        let err = |code| {
+            OpResult::Err(CoreError::new(
+                code,
+                "the session ended before the operation finished",
+            ))
+        };
+        match &pending.op {
+            // A write that was sent and not acknowledged is `Unknown`; one that was never sent is a certain zero (IN-7).
+            Op::WriteInput { payload, .. } => OpResult::Ok(OpOutput::Input(InputResult {
+                outcome: if pending.req.is_some() {
+                    WriteOutcome::Unknown {
+                        max_payload_bytes: Self::payload_len_of(payload),
+                    }
+                } else {
+                    WriteOutcome::NotWritten(NotWrittenReason::SessionEnded)
+                },
+                payload_bytes_written: 0,
+                pty_bytes_written: 0,
+                detail: "the session ended".into(),
+            })),
+            Op::Start { .. }
+            | Op::Remove { .. }
+            | Op::UpdateMetadata { .. }
+            | Op::SetNotificationPolicy { .. } => match failed_create {
+                Some(e) => OpResult::Err(e.clone()),
+                None => err(ErrorCode::RegistryFailed { uncertain: false }),
+            },
+            Op::Detach { .. } => OpResult::Ok(OpOutput::Unit),
+            Op::Resize { .. } | Op::SetSizePolicy { .. } | Op::Signal { .. } => {
+                err(ErrorCode::SessionEnded)
             }
+            _ => err(ErrorCode::WorkerLinkFailed),
         }
     }
 
-    /// The result of an op whose instance ended before the op could run (AM-3, IN-7).
-    pub(crate) fn ended_result(&self, op: OpId) -> OpResult {
-        match self.ops.get(&op).map(|p| &p.op) {
-            Some(Op::WriteInput { .. }) => OpResult::Ok(OpOutput::Input(InputResult {
-                outcome: WriteOutcome::NotWritten(NotWrittenReason::SessionEnded),
-                payload_bytes_written: 0,
-                pty_bytes_written: 0,
-                detail: "the session was removed".into(),
-            })),
-            _ => OpResult::Err(CoreError::new(
-                ErrorCode::SessionEnded,
-                "the session ended before the operation ran",
-            )),
+    fn payload_len_of(payload: &InputPayload) -> u64 {
+        match payload {
+            InputPayload::Bytes { bytes } | InputPayload::Paste { bytes, .. } => {
+                bytes.0.len() as u64
+            }
+            InputPayload::Text { text } => text.len() as u64,
+            _ => 64,
         }
     }
 
@@ -551,7 +594,7 @@ impl HostEngine {
             .map(|(id, _)| *id)
             .collect();
         for op in waiting {
-            self.complete(op, OpResult::Ok(OpOutput::Unit));
+            self.complete_later(op, OpResult::Ok(OpOutput::Unit));
         }
         true
     }

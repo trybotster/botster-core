@@ -59,6 +59,8 @@ pub trait HostEdges: Send {
     /// Workers as processes (`Process`).
     fn spawn_worker(&mut self, spec: &WorkerSpawn) -> Result<ProcessIdentity, SpawnError>;
     fn signal_group(&mut self, identity: ProcessIdentity, signal: GroupSignal);
+    /// Signals the group of a payload whose worker may have reaped its leader (AD-6, LC-5).
+    fn signal_payload_group(&mut self, identity: ProcessIdentity, signal: GroupSignal);
     fn poll_process_exit(&mut self) -> Option<(ProcessIdentity, ExitStatus)>;
 
     /// The control links (`Link`). A worker connects to the host; `accept_link` returns the next new link, or `None`.
@@ -259,6 +261,9 @@ impl<E: HostEdges> HostDriver<E> {
             }
             Action::CloseLink { link } => self.close_link(link),
             Action::SignalGroup { identity, signal } => self.edges.signal_group(identity, signal),
+            Action::SignalPayloadGroup { identity, signal } => {
+                self.edges.signal_payload_group(identity, signal);
+            }
             Action::HandoffRoute {
                 link,
                 route,
@@ -356,6 +361,12 @@ impl<E: HostEdges> HostDriver<E> {
         for link in ids {
             let held = self.links.get_mut(&link).and_then(|s| s.held.take());
             let Some(input) = held else { continue };
+            // A held frame posts events like any other input: it waits for a pump with budget left (9B `pump_events`).
+            if budget.exhausted() {
+                self.links.get_mut(&link).expect("kept").held = Some(input);
+                budget.more_input = true;
+                continue;
+            }
             if !self.engine.can_accept(&input) {
                 self.links.get_mut(&link).expect("kept").held = Some(input);
                 continue;
@@ -375,8 +386,8 @@ impl<E: HostEdges> HostDriver<E> {
             if state.held.is_some() {
                 return;
             }
-            // 1. The bytes that were read earlier and not yet decoded.
-            while !state.pending.is_empty() {
+            // 1. The bytes that were read earlier and not yet decoded: one frame at a time.
+            if !state.pending.is_empty() {
                 if budget.exhausted() {
                     budget.more_input = true;
                     return;
@@ -406,16 +417,18 @@ impl<E: HostEdges> HostDriver<E> {
                 if !self.links.contains_key(&link) {
                     return;
                 }
-                return self.read_link(link, now, budget);
+                continue;
             }
-            // 2. More bytes, within the bytes that one pump may read from this link (9B `pump_bytes`).
-            if budget.exhausted() || !budget.may_read(link, READ_CHUNK) {
+            // 2. More bytes, within the bytes that one pump may read from this link (9B `pump_bytes`). A read never takes
+            // more than what is left of that allowance.
+            let slice = budget.bytes_left(link).min(READ_CHUNK);
+            if budget.exhausted() || slice == 0 {
                 if budget.exhausted() || budget.bytes_left(link) == 0 {
                     budget.more_input = true;
                 }
                 return;
             }
-            let n = match self.edges.link_recv(link, &mut buf) {
+            let n = match self.edges.link_recv(link, &mut buf[..slice]) {
                 Ok(0) => {
                     self.close_link(link);
                     return;
@@ -507,10 +520,6 @@ impl Budget {
             .saturating_sub(self.read.get(&link).copied().unwrap_or(0))
     }
 
-    fn may_read(&self, link: LinkId, chunk: usize) -> bool {
-        self.bytes_left(link) >= chunk.min(self.per_link_bytes).max(1)
-    }
-
     fn read(&mut self, link: LinkId, n: usize) {
         *self.read.entry(link).or_insert(0) += n;
     }
@@ -541,9 +550,16 @@ impl<E: HostEdges> CoreApi for HostDriver<E> {
             more_input: false,
         };
         self.feed(now.monotonic, Input::Clock(now.unix));
-        while let Some((identity, status)) = self.edges.poll_process_exit() {
+        while !budget.exhausted() {
+            let Some((identity, status)) = self.edges.poll_process_exit() else {
+                break;
+            };
             self.feed(now.monotonic, Input::ProcessExited { identity, status });
             budget.account(&mut self.engine);
+        }
+        // An exit that stays in the edge is for the next pump; the host must call again.
+        if budget.exhausted() {
+            budget.more_input = true;
         }
         self.retry_held(now.monotonic, &mut budget);
         self.service_links(&mut budget);

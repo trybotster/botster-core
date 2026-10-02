@@ -565,10 +565,10 @@ fn a_payload_that_ends_at_once_posts_running_before_exited() {
             features: BTreeSet::new(),
             terminal: terminal_state(),
             formats: vec![],
-            payload: Some(botster_core_link::msg::PayloadId {
+            payload: botster_core_link::msg::PayloadId {
                 pid: 900,
                 start_time: 3,
-            }),
+            },
         },
     });
     w.feed(Input::LinkMsg {

@@ -196,7 +196,9 @@ fn remove_ends_the_ops_of_the_instance_and_a_new_instance_is_untouched() {
             }
         }
     }
-    assert!(matches!(done.get(&read), Some(OpResult::Err(e)) if e.code == ErrorCode::SessionEnded));
+    assert!(
+        matches!(done.get(&read), Some(OpResult::Err(e)) if e.code == ErrorCode::WorkerLinkFailed)
+    );
     assert!(matches!(
         done.get(&remove),
         Some(OpResult::Ok(OpOutput::RemoveReport(_)))
@@ -289,6 +291,10 @@ fn remove_waits_for_the_worker_to_end() {
             .any(|(_, s)| *s == botster_core_edges::edges::GroupSignal::Kill),
         "the stray worker is killed"
     );
+    // A signal is not an observed exit: the id stays taken until the exit is seen (A6-3).
+    w.pump();
+    assert!(w.engine.poll_events(64).is_empty(), "Remove still waits");
+    w.exited("s1");
     assert!(
         matches!(w.complete(remove), OpResult::Ok(OpOutput::RemoveReport(r)) if r.uploads == UploadsOutcome::Deleted)
     );
@@ -324,14 +330,35 @@ fn a_remove_without_a_link_kills_the_stray_worker() {
     );
 }
 
-/// Core LC-12, AM-3 (F10): a `StopAll` whose target cannot be stopped (its row write fails) leaves the target and completes.
+/// Core LC-12, AM-3, steward ruling R-16 (F10): the Stopping row of a `StopAll` target is best effort. The write fails, the
+/// stop goes on, the target ends, and `StopAll` completes.
 #[test]
-fn stop_all_leaves_a_target_whose_stop_row_failed() {
+fn stop_all_goes_on_when_the_stopping_row_write_fails() {
     let mut w = World::default();
     w.running("s1");
     let all = w.engine.begin(Op::StopAll).unwrap();
     w.fail_row = Some(StorageError::Failed { errno: 5 });
     assert_eq!(w.complete(all), OpResult::Ok(OpOutput::Unit));
+    assert!(
+        w.sent.iter().any(|(_, m)| matches!(m, HostMsg::Stop)),
+        "the stop was sent"
+    );
+    assert!(matches!(
+        w.engine.get(&sid("s1")).unwrap().state,
+        SessionState::Exited(_) | SessionState::Lost(_)
+    ));
+}
+
+/// Core LC-5, R-16 (F10): a plain `Stop` keeps `RegistryFailed` when its row write fails, and the session stays `Running`.
+#[test]
+fn a_plain_stop_keeps_registry_failed_when_the_row_write_fails() {
+    let mut w = World::default();
+    w.running("s1");
+    let op = w.engine.begin(Op::Stop { id: sid("s1") }).unwrap();
+    w.fail_row = Some(StorageError::Failed { errno: 5 });
+    assert!(
+        matches!(w.complete(op), OpResult::Err(e) if matches!(e.code, ErrorCode::RegistryFailed { .. }))
+    );
     assert_eq!(
         w.engine.get(&sid("s1")).unwrap().state,
         SessionState::Running
