@@ -617,7 +617,7 @@ impl HostEngine {
                     &session,
                     Flow::Remove(RemoveFlow {
                         op: id,
-                        phase: RemovePhase::SendRemove,
+                        phase: RemovePhase::CloseRoutes,
                         uploads: None,
                         worker_gone: false,
                         deadline: None,
