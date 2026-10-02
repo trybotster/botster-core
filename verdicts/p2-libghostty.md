@@ -2,11 +2,11 @@
 
 Reviewed head: `d2cce61b19d724ddc657f17fa8dee26dff409997`.
 Previous audit head: `fd1471eabca0adb344c6027b8995e1151aa8f8a8`.
-Scope: the written audit and fork patches 0–7 only. This verdict does not approve the full fork series, binding, or pin change.
+Scope: the written audit and fork patches 0–8 only. This verdict does not approve the full fork series, binding, or pin change.
 
-VERDICT: NOT CLEAN (patch 7 has open findings P20–P22; the written audit and patches 0–6 remain CLEAN).
-Reviewed fork head: `05540bd6906163ae3d7599071deb08b26829a16d`.
-Written audit: CLEAN at `d2cce61b19d724ddc657f17fa8dee26dff409997`; G12 records the legacy Shift GAP. F1–F12 and P19 are closed.
+VERDICT: NOT CLEAN (P23 is open for patch 8 and the audit; patches 0–7 are CLEAN).
+Reviewed fork head: `d27593e55d2e09e5af61ae358ff63d7620140f34`.
+Written audit: NOT CLEAN at `d2cce61b19d724ddc657f17fa8dee26dff409997` because P23 identifies a missed clipboard GAP. F1–F12 and P19 remain closed.
 
 The review uses manifest final13, BUILD.md at `2f2996ef0f016a1fefc6879e74deaef033383b66`, and plan pin `stage1-plan.a24efe7e`.
 The plan hash matches its recorded SHA-256.
@@ -919,3 +919,58 @@ Use a native oracle as P20 requires.
 VERDICT: NOT CLEAN for patch 7 (P20–P22 remain open).
 The written audit and patches 0–6 retain their CLEAN verdicts.
 Patch 8, the binding code, and the Ghostty pin change remain outside this verdict.
+
+
+## Patch 7 delta review — P20–P22 closed
+
+Reviewed commit: `96b4f3f4f8024db6611afd8565f64ad33e30dd0e`.
+The reviewer read the complete delta with `git show`. The reviewer ran no tests.
+
+P20 closes. The new tests obtain structured results from the native parser and compare native encoders where available.
+They no longer construct expected terminal bytes by hand. The two-character selection check compares two real encoder outputs.
+P21 closes. The C entry point reads enums and the bool through an integer layout before it constructs typed values.
+Compile-time checks verify the size, alignment, and every field offset. Unknown enum values and invalid bool values return `GHOSTTY_INVALID_VALUE`.
+The checks occur before output.
+P22 closes. The header and Zig struct now use unsigned 16-bit position values.
+The position test checks the upper range through the native parser.
+
+VERDICT: CLEAN for patch 7 through this exact head.
+Patches 0–6 retain their CLEAN verdicts.
+
+## Patch 8 review — clipboard selection coverage
+
+Reviewed commit: `d27593e55d2e09e5af61ae358ff63d7620140f34`.
+The reviewer read the complete delta and the parser-to-callback path with `git show`.
+The reviewer also checked the parser at PIN and UP. The reviewer ran no tests.
+
+The new fields preserve a single selection character and its terminator through the native action and the synchronous C callbacks.
+The fields follow the existing sized structs. Other protocols retain empty selection and ST defaults.
+The tests cover single characters, omitted selection, and both terminators. One finding remains open.
+
+### P23 — HIGH — Clipboard selections with multiple characters are still dropped
+
+Status: OPEN. This finding also identifies a missed GAP in the written audit at `d2cce61b19d724ddc657f17fa8dee26dff409997`.
+Evidence: `src/terminal/osc/parsers/clipboard_operation.zig` requires `data[1] == ';'` for a nonempty selection.
+For selection `s0`, `data[1]` is `0`, so the parser returns null and reports no command.
+The same restriction exists at PIN and UP. Patch 8 only copies `data[0..1]` into the new selection field.
+Thus an OSC 52 read with selection `s0` produces no query or clipboard-read callback.
+An OSC 52 write with that selection produces no clipboard-write callback.
+The new typed reply encoder already accepts selections with multiple characters, but the request parser cannot reach that path.
+
+EV-8 defines `selection` as the program's selection string from the allowed character set. It also names `s0` as the default.
+EV-3 requires clipboard writes to surface. EV-7 makes a missing clipboard observation a conformance failure.
+The audit's G10 rows and patch proposal do not record this parser restriction.
+The review missed this restriction earlier. This finding corrects that review omission.
+
+Required change: parse the whole selection string up to its separator in libghostty.
+Carry the whole selection string through the existing new fields without truncation or replacement.
+Retain the omitted-selection representation and its contract mapping.
+Add focused native checks for reads and writes with selections such as `s0` and `cp`, using both terminators.
+Check that the query and clipboard callback each occur once for a read.
+Check that the clipboard-write callback preserves the selection and decoded payload.
+Update the written audit to record the restriction at PIN and UP and the patch that closes it.
+Rust must not parse OSC 52 to bypass this GAP.
+
+VERDICT: NOT CLEAN for patch 8 and the written audit (P23 remains open).
+Patches 0–7 retain their CLEAN verdicts.
+The binding code and the Ghostty pin change remain outside this verdict.
