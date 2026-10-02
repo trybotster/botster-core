@@ -429,16 +429,13 @@ source = "git+https://github.com/trybotster/botster-contracts?tag=contracts-v0.1
 name = "botster-worker"
 version = "0.1.0"
 dependencies = [
- "botster-core",
  "botster-core-contract",
  "botster-core-edges",
- "botster-core-host",
  "botster-core-link",
  "botster-core-sys",
  "botster-worker-core",
  "mio",
  "rustix",
- "serde_json",
  "signal-hook",
  "signal-hook-mio",
  "tempfile",
