@@ -2,7 +2,7 @@
 
 VERDICT: NOT CLEAN (1 open)
 
-Reviewed head: `4f8ec55210e09afbd458ae956bf7ce855b55181f`.
+Reviewed head: `7797e33abd3a8f400ba59ea01feef0103be8f901`.
 Previous reviewed head: `b97b6055856e60c17af7cf0300ab89bc582a6d5e`.
 Base: `118c972`.
 Scope: M0b only, under plan pin `555bc433` and `contracts-v0.1.1`.
@@ -93,6 +93,16 @@ For the M0b budget check, execute seeds 0 through 31 explicitly and count driver
 Record the exact command and example source so the measurement can be repeated.
 Keep the limit that this measurement does not establish the cost of passing Core transcripts.
 Copy the budget evidence into the pull request when the pull request exists.
+
+Delta review at `7797e33`: the committed budget example executes each seed separately. The command and source now permit a repeated measurement.
+Two statements in `DESIGN.md` remain incorrect:
+
+- The no-driver pass is the withdrawn `conf::er_deadline_expired` transcript. The runner returns before constructing a driver.
+- Constructing a driver does not prove that a run reaches `open`. The runner checks required features and controls before setup.
+  For example, `conf::am_2_fairness_bound_across_routes` requires controls that the harness does not provide.
+
+Remaining required change: Identify the withdrawn pass correctly. Describe the numbers as an early-exit harness measurement.
+The early exits include unsupported controls, absent features, and failed `open` calls. Do not claim that all constructed-driver runs reach `open`.
 
 ## Contract question resolved by the lead
 
