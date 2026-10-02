@@ -517,6 +517,7 @@ impl HostEngine {
             req: None,
             held_bytes: 0,
             created_path: false,
+            fixed_timing: false,
             cancelled: false,
             rows: Default::default(),
         }
@@ -606,8 +607,10 @@ impl HostEngine {
                         Step::Await(Wait::Flow)
                     }
                 };
-                self.ops
-                    .insert(id, Self::pending(op, Some(session), instance, step));
+                let mut pending = Self::pending(op, Some(session), instance, step);
+                // LC-5, R-20: a `Stop` of a session whose payload already exited completes in the next `pump`.
+                pending.fixed_timing = matches!(admit, Admit::Exited | Admit::Lost);
+                self.ops.insert(id, pending);
             }
             Op::Signal { id: session, sig } => {
                 let instance = instance_of(self, &session);
@@ -711,18 +714,25 @@ impl HostEngine {
             Op::Resize { session, size } => {
                 let instance = instance_of(self, &session);
                 let admit = self.sessions[&session].admit;
-                let _ = size;
+                // SZ-2, R-20: a `Resize` to the current size is `Applied` with no `SizeChanged`, in the next `pump`.
+                let same_size = admit == Admit::Running && self.sessions[&session].size == size;
                 let step = if admit == Admit::Created {
                     self.sessions
                         .get_mut(&session)
                         .expect("checked")
                         .pending_setters += 1;
                     Step::Ready(Next::Setter)
+                } else if same_size {
+                    Step::Ready(Next::Complete(OpResult::Ok(OpOutput::Resize(
+                        ResizeResult::Applied { actual: size },
+                    ))))
                 } else {
                     Step::Ready(Next::Forward)
                 };
-                self.ops
-                    .insert(id, Self::pending(op, Some(session), instance, step));
+                let mut pending = Self::pending(op, Some(session), instance, step);
+                // A2-1 (`Resize` in `Created`) and SZ-2: fixed timing, R-20.
+                pending.fixed_timing = admit == Admit::Created || same_size;
+                self.ops.insert(id, pending);
             }
             Op::WriteInput {
                 session, payload, ..

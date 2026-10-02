@@ -1,6 +1,7 @@
 //! Core erratum 3 (E3-1): due deadlines and the `pump_events` budget, and the steps that post one event each (9B).
 
 use super::*;
+use botster_core_edges::scheduler::ChoicePoint;
 
 /// A session that runs, through the driver, with a small `pump_events`: it pumps until each step is through.
 fn run_session(rig: &mut Rig, name: &str, link: LinkId) {
@@ -243,4 +244,137 @@ fn two_failed_handoffs_post_one_event_per_pump() {
             .count();
     }
     assert_eq!(closed, 2);
+}
+
+/// A scheduler that defers every second piece of work that it is asked about, and varies nothing else: work that no clause
+/// fixes is deferred, and it still progresses.
+struct AlwaysDefer(Production, u32);
+
+impl Scheduler for AlwaysDefer {
+    fn pick(&mut self, point: ChoicePoint, candidates: usize) -> usize {
+        match point {
+            ChoicePoint::OperationDeferral => {
+                self.1 += 1;
+                usize::from(self.1 % 2 == 1)
+            }
+            _ => self.0.pick(point, candidates),
+        }
+    }
+
+    fn bound(&mut self, point: ChoicePoint, max: usize) -> usize {
+        self.0.bound(point, max)
+    }
+}
+
+/// Steward ruling R-20, A5-2 "not varied": LC-5 (a `Stop` of a session whose payload exited), SZ-2 (a `Resize` to the current
+/// size) and A2-1's `Resize` in `Created` complete in the next `pump`, even when the scheduler defers every operation. Any
+/// other operation stays deferred by it.
+#[test]
+fn r_20_fixed_timing_ops_are_never_deferred() {
+    let mut rig = Rig::with_scheduler(
+        CoreLimits::default(),
+        Box::new(AlwaysDefer(Production::new(), 0)),
+    );
+    let completed = |events: &[Event], op: OpId| {
+        events
+            .iter()
+            .any(|e| matches!(e, Event::Completed { op: o, .. } if *o == op))
+    };
+    // A2-1: `Resize` in `Created`.
+    rig.driver.begin(create("s1")).unwrap();
+    // The scheduler defers every operation: the create takes pumps, and it ends.
+    let mut guard = 0;
+    while rig.driver.get(&sid("s1")).is_err() {
+        rig.pump();
+        guard += 1;
+        assert!(guard < 50);
+    }
+    rig.drain_events();
+    let resize = rig
+        .driver
+        .begin(Op::Resize {
+            session: sid("s1"),
+            size: Size {
+                rows: 30,
+                cols: 100,
+                cell_px: None,
+            },
+        })
+        .unwrap();
+    rig.pump();
+    assert!(
+        completed(&rig.drain_events(), resize),
+        "A2-1 Created Resize"
+    );
+    // Start with a scripted worker; the start ops are deferred and still end.
+    rig.driver.begin(Op::Start { id: sid("s1") }).unwrap();
+    let mut guard = 0;
+    while !rig.mock.lock().unwrap().links.contains_key(&LinkId(1)) {
+        rig.pump();
+        rig.drain_events();
+        guard += 1;
+        assert!(guard < 50);
+    }
+    // The worker answers after the host sent the launch.
+    let mut guard = 0;
+    while !rig.host_frames(LinkId(1)).iter().any(|(k, p)| {
+        *k == FrameType::HOST_MSG && matches!(HostMsg::decode(p), Ok(HostMsg::Launch(_)))
+    }) {
+        rig.pump();
+        rig.drain_events();
+        guard += 1;
+        assert!(guard < 60);
+    }
+    rig.worker_says(LinkId(1), launched());
+    for _ in 0..60 {
+        rig.pump();
+        rig.drain_events();
+        if rig.driver.get(&sid("s1")).unwrap().state == SessionState::Running {
+            break;
+        }
+    }
+    assert_eq!(
+        rig.driver.get(&sid("s1")).unwrap().state,
+        SessionState::Running
+    );
+    // SZ-2: a `Resize` to the current size.
+    let current = rig.driver.get(&sid("s1")).unwrap().size;
+    let same = rig
+        .driver
+        .begin(Op::Resize {
+            session: sid("s1"),
+            size: current,
+        })
+        .unwrap();
+    // A control: an operation that no clause fixes is deferred by this scheduler.
+    let read = rig
+        .driver
+        .begin(Op::ReadModeFlags { session: sid("s1") })
+        .unwrap();
+    rig.pump();
+    let events = rig.drain_events();
+    assert!(completed(&events, same), "SZ-2: {events:?}");
+    assert!(
+        !rig.driver.engine().never_deferred(&crate::Work::Op(read)),
+        "no clause fixes the timing of a read"
+    );
+    // LC-5: the payload exits, and the session is `Exited`.
+    rig.worker_says(
+        LinkId(1),
+        WorkerMsg::Exited {
+            code: Some(0),
+            signal: None,
+        },
+    );
+    for _ in 0..60 {
+        rig.pump();
+        rig.drain_events();
+    }
+    assert!(matches!(
+        rig.driver.get(&sid("s1")).unwrap().state,
+        SessionState::Exited(_)
+    ));
+    let stop = rig.driver.begin(Op::Stop { id: sid("s1") }).unwrap();
+    rig.pump();
+    assert!(completed(&rig.drain_events(), stop), "LC-5");
 }
