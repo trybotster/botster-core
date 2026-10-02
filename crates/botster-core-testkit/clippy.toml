@@ -1,0 +1,1 @@
+# Exempt from the machine-crate lints of the root clippy.toml (plan 2.3c): the testkit may use threads, clocks and randomness.

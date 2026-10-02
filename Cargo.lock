@@ -257,6 +257,7 @@ dependencies = [
  "botster-conformance",
  "botster-core-conformance",
  "botster-core-contract",
+ "botster-core-testkit",
  "libtest-mimic",
  "static_assertions",
  "toml",
@@ -308,6 +309,21 @@ version = "0.1.0"
 dependencies = [
  "rustix",
  "tempfile",
+]
+
+[[package]]
+name = "botster-core-testkit"
+version = "0.1.0"
+dependencies = [
+ "botster-conformance",
+ "botster-core-conformance",
+ "botster-core-contract",
+ "botster-core-edges",
+ "botster-probe-script",
+ "botster-route-codec",
+ "rand_chacha",
+ "rand_core",
+ "serde_json",
 ]
 
 [[package]]

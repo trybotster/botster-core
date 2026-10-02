@@ -14,6 +14,7 @@
 use botster_conformance::report::describe;
 use botster_conformance::{load_dir, run_transcript, Limits, SeedSet, Selection, Transcript};
 use botster_core_conformance::{driver_for, CoreHarness, CoreSchemas, CORE_TRANSCRIPTS};
+use botster_core_testkit::TestkitHarness;
 use libtest_mimic::{Arguments, Completion, Failed, Trial};
 use std::collections::BTreeSet;
 
@@ -22,10 +23,11 @@ const LEDGER_IDS: &str = include_str!("../conformance/core-ledger-ids.txt");
 const PENDING_IDS: &str = include_str!("../conformance/core-pending.txt");
 const DEFERRED: &str = include_str!("../conformance/core-deferred.toml");
 
-/// Builds the harness of one seed. P6 provides `TestkitHarness` for the default tier, and adds the `slow` feature with
-/// `RealCoreHarness` for the real-process tier (plan section 5). Until then no id has a proof, so every id is pending or deferred and this is never reached.
+/// Builds the harness of one seed: `TestkitHarness` for the default tier. P6 adds the `slow` feature with `RealCoreHarness`
+/// for the real-process tier (plan section 5). Until P1 provides the engine, `open` reports that no Core exists, so a trial
+/// that is not pending fails; the ids stay in `conformance/core-pending.txt`.
 fn harness_factory() -> Option<fn(u64) -> Box<dyn CoreHarness>> {
-    None
+    Some(|seed| Box::new(TestkitHarness::new(seed)))
 }
 
 fn id_list(text: &str) -> BTreeSet<String> {
