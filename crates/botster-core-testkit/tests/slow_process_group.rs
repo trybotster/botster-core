@@ -25,7 +25,7 @@ fn dropping_the_guard_ends_the_whole_group() {
         .args(["-c", "/bin/sleep 600 & echo $!; wait"])
         .stdout(Stdio::piped());
     let mut group = OwnedGroup::spawn(command).unwrap();
-    let mut stdout = group.child().stdout.take().unwrap();
+    let mut stdout = group.take_stdout().unwrap();
     let mut line = String::new();
     let mut byte = [0u8; 1];
     while stdout.read(&mut byte).unwrap() == 1 && byte[0] != b'\n' {
@@ -56,4 +56,54 @@ fn a_panic_ends_the_group() {
     });
     assert!(result.is_err());
     assert!(!alive(pid));
+}
+
+/// Cleanup runs once. A repeat, and the drop after a cleanup, do nothing: the id is retired, so they cannot signal a group that
+/// the OS gave to another process.
+#[test]
+fn cleanup_is_idempotent_and_retires_the_group_id() {
+    let mut command = Command::new("/bin/sleep");
+    command.arg("600");
+    let mut group = OwnedGroup::spawn(command).unwrap();
+    let pid = group.pid();
+    assert!(group.is_active());
+    assert!(!group.leader_exited().unwrap());
+    group.kill();
+    assert!(!group.is_active());
+    assert!(!alive(pid), "the leader was reaped");
+    group.kill();
+    assert!(
+        group.leader_exited().unwrap(),
+        "after cleanup the leader is gone"
+    );
+    drop(group);
+}
+
+/// A leader that exits by itself stays unreaped until cleanup, so its group id is still held, and cleanup still ends the
+/// descendants of the group. The test waits on the pipe that the descendant holds.
+#[test]
+fn a_leader_that_exited_still_has_its_group_ended() {
+    let mut command = Command::new("/bin/sh");
+    command
+        .args(["-c", "/bin/sleep 600 & echo $!"])
+        .stdout(Stdio::piped());
+    let mut group = OwnedGroup::spawn(command).unwrap();
+    let mut stdout = group.take_stdout().unwrap();
+    let mut line = String::new();
+    let mut byte = [0u8; 1];
+    while stdout.read(&mut byte).unwrap() == 1 && byte[0] != b'\n' {
+        line.push(byte[0] as char);
+    }
+    let leader = group.pid();
+    // The shell prints the pid and exits at once. Block on the event: the leader is a zombie that the guard has not reaped.
+    group.wait_for_leader_exit().unwrap();
+    assert!(group.leader_exited().unwrap());
+    assert!(
+        alive(leader),
+        "an exited leader that nobody reaped keeps its pid"
+    );
+    group.kill();
+    let mut rest = Vec::new();
+    stdout.read_to_end(&mut rest).unwrap();
+    assert!(!alive(leader));
 }
