@@ -11,3 +11,6 @@ workspace = true
 
 [dependencies]
 botster-core-contract.workspace = true
+botster-core-edges.workspace = true
+botster-core-link.workspace = true
+serde_json.workspace = true
