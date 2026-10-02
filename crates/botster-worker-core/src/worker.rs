@@ -248,6 +248,7 @@ impl Worker {
             limits: CoreLimits::default(),
             actions: VecDeque::new(),
         };
+        worker.input.model_rev = model::first_rev(&worker.cfg.instance, worker.cfg.host_epoch);
         let hello = Hello {
             protocol: worker.cfg.protocol,
             instance: worker.cfg.instance.clone(),
