@@ -2,10 +2,10 @@
 
 Reviewed head: `36d82ecb48316087e347e42c16a2bd9176439506`.
 Previous audit head: `fd1471eabca0adb344c6027b8995e1151aa8f8a8`.
-Scope: the written audit and fork patches 2–3 only. This verdict does not approve the full fork series, binding, or pin change.
+Scope: the written audit and fork patches 0, 2, and 3 only. This verdict does not approve the full fork series, binding, or pin change.
 
-VERDICT: CLEAN (written audit and fork patches 2–3 only).
-Reviewed fork head: `970a1c9dfd62ab7c75ac8d1b652de2cb19cf6442`.
+VERDICT: CLEAN (written audit and fork patches 0, 2, and 3 only).
+Reviewed fork head: `ea5a1e2975aa6c999051cb6fb30685ececf8be51`.
 Written audit: CLEAN at `36d82ecb48316087e347e42c16a2bd9176439506`; F1–F12 closed.
 
 The review uses manifest final13, BUILD.md at `2f2996ef0f016a1fefc6879e74deaef033383b66`, and plan pin `stage1-plan.a24efe7e`.
@@ -458,3 +458,30 @@ VERDICT: CLEAN for the written audit on this exact head. F12 stays closed.
 The reviewer ran no tests. No dependency pin changed.
 The existing CLEAN verdict for fork patches 2–3 stays unchanged.
 The full fork series and binding code remain unapproved.
+
+
+## Replacement fork review — patch 0 CLEAN
+
+Reviewed fork commit: `ea5a1e2975aa6c999051cb6fb30685ececf8be51`.
+Its parent is the previously reviewed paste commit `970a1c9dfd62ab7c75ac8d1b652de2cb19cf6442`.
+The reviewer read the complete diff and the relevant source with `git show` only.
+The reviewer ran no tests.
+
+`startHyperlink` now copies the URI and explicit ID before it starts the capacity retry loop.
+Each retry reads those owned copies after `startHyperlinkOnce` frees the previous cursor hyperlink.
+The function frees both copies when it returns, including allocation and capacity errors.
+The change preserves implicit ID creation and rollback.
+It adds no retry bound, silent degradation, or change to capacity growth.
+This is the root-cause lifetime repair specified by F9 row 1.
+
+The new test restarts a hyperlink from slices of its current URI and explicit ID.
+Each restart writes a cell and checks the retained values.
+The test requires at least one string-capacity increase during those restarts.
+The implementer reports SIGABRT without the copy and a pass with the copy.
+The reviewer did not independently run those commands.
+This evidence addresses the lifetime defect; it does not reproduce the production crash.
+
+VERDICT: CLEAN for patch 0 on this exact commit. No new finding.
+The existing CLEAN verdicts for patches 2–3 and the written audit remain unchanged.
+Patches 1 and 4–8 remain outside this verdict.
+The full fork series, binding code, and Ghostty pin change remain unapproved.
