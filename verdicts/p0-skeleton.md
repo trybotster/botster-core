@@ -1,16 +1,21 @@
 # P0 skeleton review
 
-Reviewed head: `74f2e9afcd16af8483093f3f12765ca397c31b73`.
+Reviewed head: `7d30cb47bad7e1077d40488f3d04f7860168a5cc`.
 
-VERDICT: NOT CLEAN (5 open)
+Previous reviewed head: `74f2e9afcd16af8483093f3f12765ca397c31b73`.
 
-The review checks logic against BUILD.md, manifest final13, the P0 brief, and plan pin `stage1-plan.a24efe7e`.
+VERDICT: NOT CLEAN (1 open: F6)
+
+The second review checks logic against BUILD.md, contracts-v0.1.1 (`366bca41`, manifest final14), the P0 brief, and plan pin `stage1-plan.555bc433`.
+The first review used manifest final13 and plan pin `stage1-plan.a24efe7e`.
 The Prior art note exists in PR #125. I read the note and its proposed decisions.
 I ran no tests or full gate. The findings below follow from the submitted source and the installed libtest-mimic source.
 
 ## F1 — HIGH — The decoder allocates before it checks the length
 
-Status: OPEN.
+Status: CLOSED at `7d30cb47`.
+
+Closure: The decoder checks the fixed header before storing payload bytes. It returns the consumed length and holds one frame. The oversized-input regression checks zero retained capacity.
 
 Evidence: `crates/botster-core-link/src/frame.rs:95-97` appends every supplied byte to a `VecDeque`.
 The decoder checks the header length only at lines 119-127, in `next_frame()`.
@@ -28,7 +33,9 @@ Check retained capacity as well as the eventual error.
 
 ## F2 — MEDIUM — The hello does not use the planned extensible control payload
 
-Status: OPEN.
+Status: CLOSED at `7d30cb47`.
+
+Closure: The hello uses serde JSON. It requires the five fields and accepts unknown fields. The required-field and unknown-field regressions match the rule.
 
 Evidence: `crates/botster-core-link/src/hello.rs:88-94` writes a fixed binary payload.
 Lines 114-115 reject every trailing field.
@@ -44,7 +51,9 @@ If a binary hello is necessary, ask the lead to decide the plan change before tr
 
 ## F3 — MEDIUM — Prebuild overwrites an existing executable inode
 
-Status: OPEN.
+Status: CLOSED at `7d30cb47`.
+
+Closure: Prebuild copies each executable to a fresh file and renames it over the candidate. It writes the manifest after both installations.
 
 Evidence: `xtask/src/prebuild.rs:65` and `:85` call `std::fs::copy` directly onto the candidate executable paths.
 When a candidate already exists, the copy truncates and rewrites the same file.
@@ -61,7 +70,9 @@ Write the manifest only after both replacements succeed.
 
 ## F4 — MEDIUM — The mutation configuration excludes all gate logic
 
-Status: OPEN.
+Status: CLOSED at `7d30cb47`.
+
+Closure: The configuration removes the blanket xtask exclusion. It records narrow function exclusions for process and file operations. Pure checks have mutation tests. The gate must confirm that the six previously missed mutants close.
 
 Evidence: `.cargo/mutants.toml:9` excludes `xtask/**`.
 This excludes the pending and deferred checks, protocol start conditions, caps, timing checks, and other decisions with unit tests.
@@ -76,7 +87,9 @@ Run mutation tests on the pure gate decisions. Close every missed mutant or time
 
 ## F5 — MEDIUM — The harness can report pending or unselected ids as passed
 
-Status: OPEN.
+Status: CLOSED at `7d30cb47`.
+
+Closure: Pending, deferred, and excluded trials return Completion::ignored_with at runtime. The harness applies selection before creating runnable trials. The deferred report includes authority and start condition.
 
 Evidence: `tests/conformance.rs:89` and `:105` create pending and deferred trials with closures that return `Ok(())`.
 The ignored flag does not prevent execution with `--ignored` or `--include-ignored`.
@@ -97,8 +110,26 @@ Include the authority and start condition in the deferred report, as plan sectio
 
 The facade shell uses a `Cell` marker for `Send` and non-`Sync` behavior.
 The workspace pins the contracts tag. The worker protocol constant is 1.
-The conformance records contain 591 ledger ids, 589 pending ids, and the two A6-2 deferrals.
+The conformance records contain 599 ledger ids, 597 pending ids, and the two A6-2 deferrals.
+Commit `497d255` contains only the contracts pin, lockfile, and eight added ledger and pending ids.
 The owned ids remain pending until the later packages provide their conformance proofs.
 P0 does not need terminal semantics or a second terminal implementation.
 
 Every finding must close before CLEAN. Any new head requires a review of its changes.
+
+## F6 — MEDIUM — The JSON fuzz property requires byte identity
+
+Status: OPEN.
+
+Evidence: `crates/botster-core-link/tests/props.rs`, the final assertion in `link_decoder`, still requires `again == bytes`.
+The hello decoder accepts field order, whitespace, and unknown fields. The encoder emits its fixed field order and removes unknown fields.
+A valid hello with a leading space therefore fails this assertion. A valid hello with an unknown field also fails it.
+The changed comment promises an encode and decode check, but the assertion still checks the old binary property.
+The random default run can miss valid JSON. The fuzz gate can report a crash for correct decoder behavior.
+
+Required change: compare `Hello::decode(&again)` with the decoded `hello`.
+Add a deterministic regression with noncanonical JSON and an unknown field so the check cannot depend on random discovery.
+Update the PR decision that still says xtask is excluded from mutation. The later mutation section contradicts that decision.
+
+Second review: I ran no tests or heavy jobs. I checked the production changes, the property logic, the mutation exclusions, and PR #125.
+The final gate must run after the source review is CLEAN. Gate failures remain findings and require closure.
