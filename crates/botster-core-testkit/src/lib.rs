@@ -12,9 +12,9 @@ pub mod sim;
 pub mod wake;
 
 pub use entropy::SeededEntropy;
-pub use scheduler::{SchedulerHandle, SeededScheduler};
+pub use harness::TestkitHarness;
 pub use net::{link_pair, stream_pair, Descriptor, End, Interest, LinkEnd, Readiness, StreamEnd};
 pub use program::{ProgramError, ScriptedProgram};
-pub use wake::SimWake;
+pub use scheduler::{SchedulerHandle, SeededScheduler};
 pub use sim::{Binding, Handled, Livelock, MachineNode, Node, NodeId, Sim, TraceEntry};
-pub use harness::TestkitHarness;
+pub use wake::SimWake;

@@ -95,7 +95,9 @@ mod tests {
         OpenSpec {
             handle: "h".into(),
             data_dir: DataDirRef("d".into()),
-            worker: Some(WorkerRef { build: WorkerBuild::Current }),
+            worker: Some(WorkerRef {
+                build: WorkerBuild::Current,
+            }),
             limits: json!({}),
         }
     }
@@ -106,7 +108,11 @@ mod tests {
     fn open_says_that_no_core_exists_yet() {
         let error = TestkitHarness::new(0).open(&spec()).err().expect("no Core");
         assert_eq!(error.code, ErrorCode::Internal);
-        assert!(error.detail.contains("no Core exists yet"), "{}", error.detail);
+        assert!(
+            error.detail.contains("no Core exists yet"),
+            "{}",
+            error.detail
+        );
         assert!(!error.detail.starts_with("unsupported_control:"));
     }
 
@@ -114,7 +120,12 @@ mod tests {
     #[test]
     fn only_the_current_worker_is_offered() {
         let harness = TestkitHarness::new(1);
-        assert_eq!(harness.worker(WorkerBuild::Current), Some(WorkerRef { build: WorkerBuild::Current }));
+        assert_eq!(
+            harness.worker(WorkerBuild::Current),
+            Some(WorkerRef {
+                build: WorkerBuild::Current
+            })
+        );
         assert_eq!(harness.worker(WorkerBuild::Previous), None);
     }
 
@@ -124,7 +135,10 @@ mod tests {
         assert_eq!(harness.probe_binary(), "botster-conformance-probe");
         assert_eq!(harness.data_dir("a"), DataDirRef("a".into()));
         assert!(!harness.has_control("kill_worker"));
-        assert_eq!(harness.control("h", "kill_worker", &json!({})), Err(ControlError::Unsupported));
+        assert_eq!(
+            harness.control("h", "kill_worker", &json!({})),
+            Err(ControlError::Unsupported)
+        );
         assert_eq!(harness.core_is_send_not_sync(), None);
         assert!(!harness.is_fake());
         assert_eq!(harness.seed(), 2);

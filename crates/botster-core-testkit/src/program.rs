@@ -22,7 +22,10 @@ pub enum ProgramError {
     Script(ScriptError),
     /// A step that needs a real process (`fork_child`: a child in the process group of the program). The ids that use it are
     /// real-process tests (Core A6-1, SV-9).
-    RealOnly { path: String, step: &'static str },
+    RealOnly {
+        path: String,
+        step: &'static str,
+    },
 }
 
 impl std::fmt::Display for ProgramError {
@@ -197,17 +200,15 @@ impl Program for ScriptedProgram {
         self.advance();
         let available = self.output.len().min(buf.len());
         if available == 0 {
-            return if self.output.is_empty() && self.exit.is_some() {
-                Ok(0)
-            } else if buf.is_empty() {
+            // The end of the output (the program ended and every byte was read), a zero-length buffer, or nothing yet.
+            let ended = self.output.is_empty() && self.exit.is_some();
+            return if ended || buf.is_empty() {
                 Ok(0)
             } else {
                 Err(io::ErrorKind::WouldBlock.into())
             };
         }
-        let n = self
-            .scheduler
-            .with(|s| s.program_write_size(available));
+        let n = self.scheduler.with(|s| s.program_write_size(available));
         for slot in &mut buf[..n] {
             *slot = self.output.pop_front().unwrap_or_default();
         }
@@ -282,7 +283,10 @@ mod tests {
             true,
             0,
         );
-        assert_eq!(p.read(&mut [0u8; 4]).unwrap_err().kind(), io::ErrorKind::WouldBlock);
+        assert_eq!(
+            p.read(&mut [0u8; 4]).unwrap_err().kind(),
+            io::ErrorKind::WouldBlock
+        );
         assert_eq!(p.poll_exit(), None);
         p.write(b"xa").unwrap();
         assert_eq!(p.poll_exit(), None, "half of the match");
@@ -299,11 +303,22 @@ mod tests {
         let mut held = ScriptedProgram::from_argv(&["/bin/sh".to_string()], &sched).unwrap();
         assert_eq!(held.poll_exit(), None);
         assert!(!held.is_readable());
-        let argv = ["/x/botster-conformance-probe".to_string(), r#"{"program":[]}"#.to_string()];
+        let argv = [
+            "/x/botster-conformance-probe".to_string(),
+            r#"{"program":[]}"#.to_string(),
+        ];
         let mut ended = ScriptedProgram::from_argv(&argv, &sched).unwrap();
         assert_eq!(ended.poll_exit(), Some(ExitStatus::Code(0)));
-        let hold = ["botster-conformance-probe".to_string(), r#"{"program":[{"hold":{}}]}"#.to_string()];
-        assert_eq!(ScriptedProgram::from_argv(&hold, &sched).unwrap().poll_exit(), None);
+        let hold = [
+            "botster-conformance-probe".to_string(),
+            r#"{"program":[{"hold":{}}]}"#.to_string(),
+        ];
+        assert_eq!(
+            ScriptedProgram::from_argv(&hold, &sched)
+                .unwrap()
+                .poll_exit(),
+            None
+        );
     }
 
     /// A5-3: `pty_blocked` blocks writes until it is lifted.
@@ -321,7 +336,11 @@ mod tests {
     fn a_seed_chooses_the_write_sizes() {
         let sizes = |seed| {
             let hex = "00".repeat(30);
-            let mut p = program(json!({"program": [{"print": {"bytes_hex": hex}}]}), true, seed);
+            let mut p = program(
+                json!({"program": [{"print": {"bytes_hex": hex}}]}),
+                true,
+                seed,
+            );
             let mut sizes = Vec::new();
             let mut buf = [0u8; 16];
             loop {
@@ -342,14 +361,25 @@ mod tests {
     #[test]
     fn a_script_that_cannot_run_in_process_is_refused() {
         let sched = SchedulerHandle::with_seed(0);
-        let fork: Script = serde_json::from_value(json!({"program": [{"fork_child": {"script": []}}]})).unwrap();
+        let fork: Script =
+            serde_json::from_value(json!({"program": [{"fork_child": {"script": []}}]})).unwrap();
         assert_eq!(
             ScriptedProgram::new(&fork, true, &sched).unwrap_err(),
-            ProgramError::RealOnly { path: "program[0]".into(), step: "fork_child" }
+            ProgramError::RealOnly {
+                path: "program[0]".into(),
+                step: "fork_child"
+            }
         );
-        let bad: Script = serde_json::from_value(json!({"program": [{"print": {"bytes_hex": "zz"}}]})).unwrap();
-        assert!(matches!(ScriptedProgram::new(&bad, true, &sched), Err(ProgramError::Script(_))));
-        let sigterm: Script = serde_json::from_value(json!({"program": [{"ignore_sigterm": {}}]})).unwrap();
-        assert!(ScriptedProgram::new(&sigterm, true, &sched).unwrap().ignores_sigterm());
+        let bad: Script =
+            serde_json::from_value(json!({"program": [{"print": {"bytes_hex": "zz"}}]})).unwrap();
+        assert!(matches!(
+            ScriptedProgram::new(&bad, true, &sched),
+            Err(ProgramError::Script(_))
+        ));
+        let sigterm: Script =
+            serde_json::from_value(json!({"program": [{"ignore_sigterm": {}}]})).unwrap();
+        assert!(ScriptedProgram::new(&sigterm, true, &sched)
+            .unwrap()
+            .ignores_sigterm());
     }
 }

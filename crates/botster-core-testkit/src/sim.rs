@@ -252,7 +252,10 @@ mod tests {
     impl Binding<Counter> for CounterEdges {
         fn ready(&mut self, _now: Instant, machine: &Counter) -> usize {
             // Read interest only while the machine can take a byte.
-            self.link.end().set_interest(Interest { read: machine.total < machine.limit, write: false });
+            self.link.end().set_interest(Interest {
+                read: machine.total < machine.limit,
+                write: false,
+            });
             usize::from(self.link.is_ready())
         }
         fn take(&mut self, _now: Instant, _machine: &Counter, _index: usize) -> CounterInput {
@@ -278,8 +281,16 @@ mod tests {
         for id in 0..3 {
             let (feeder, worker) = link_pair(16);
             feeders.push(feeder);
-            let machine = Counter { total: 0, limit, actions: VecDeque::new() };
-            let edges = CounterEdges { link: worker, out: Arc::clone(&log), id };
+            let machine = Counter {
+                total: 0,
+                limit,
+                actions: VecDeque::new(),
+            };
+            let edges = CounterEdges {
+                link: worker,
+                out: Arc::clone(&log),
+                id,
+            };
             sim.add(Box::new(MachineNode::new(machine, edges)));
         }
         (sim, log, feeders)
@@ -311,18 +322,29 @@ mod tests {
     fn different_seeds_vary_only_the_order() {
         let (base_trace, base_actions) = run(0);
         let per_node = |actions: &[(usize, u32)], node| -> Vec<u32> {
-            actions.iter().filter(|(n, _)| *n == node).map(|(_, a)| *a).collect()
+            actions
+                .iter()
+                .filter(|(n, _)| *n == node)
+                .map(|(_, a)| *a)
+                .collect()
         };
         let mut orders = std::collections::BTreeSet::new();
         for seed in 0..12 {
             let (trace, actions) = run(seed);
             orders.insert(trace.iter().map(|t| t.node).collect::<Vec<_>>());
             for node in 0..3 {
-                assert_eq!(per_node(&actions, node), per_node(&base_actions, node), "seed {seed}");
+                assert_eq!(
+                    per_node(&actions, node),
+                    per_node(&base_actions, node),
+                    "seed {seed}"
+                );
             }
             assert_eq!(trace.len(), base_trace.len());
         }
-        assert!(orders.len() > 1, "the seed must vary the order across nodes");
+        assert!(
+            orders.len() > 1,
+            "the seed must vary the order across nodes"
+        );
     }
 
     /// Plan 2.5 rules 7 and 8: a machine that removes its read interest is not ready work, so the `Sim` does not spin on it
@@ -378,7 +400,13 @@ mod tests {
         let done = Arc::default();
         let mut sim = Sim::with_seed(0, start);
         let at = start + Duration::from_secs(10);
-        sim.add(Box::new(MachineNode::new(Alarm { at: Some(at), fired: VecDeque::new() }, NoEdges(Arc::clone(&done)))));
+        sim.add(Box::new(MachineNode::new(
+            Alarm {
+                at: Some(at),
+                fired: VecDeque::new(),
+            },
+            NoEdges(Arc::clone(&done)),
+        )));
         assert_eq!(sim.next_deadline(), Some(at));
         assert!(!sim.step());
         sim.advance_to(at - Duration::from_secs(1));

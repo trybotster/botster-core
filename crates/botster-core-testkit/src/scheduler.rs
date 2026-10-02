@@ -124,7 +124,9 @@ impl Scheduler for SeededScheduler {
             ChoicePoint::ReadyWork => self.ready_work(candidates),
             ChoicePoint::OperationDeferral => usize::from(self.defer_operation()),
             ChoicePoint::SpuriousWake => usize::from(self.spurious_wake()),
-            ChoicePoint::DeadlineEventPlace => self.deadline_event_place(candidates.saturating_sub(1)),
+            ChoicePoint::DeadlineEventPlace => {
+                self.deadline_event_place(candidates.saturating_sub(1))
+            }
             ChoicePoint::FileCompletion => self.file_completion(candidates),
             ChoicePoint::Session => self.sessions.pick(point, candidates),
             // A count point asked as a pick, and a point of a later revision, are not varied.
@@ -159,7 +161,10 @@ impl SchedulerHandle {
     /// Runs `f` with the scheduler.
     pub fn with<R>(&self, f: impl FnOnce(&mut SeededScheduler) -> R) -> R {
         // The testkit has no panic that leaves the stream half drawn, so a poisoned lock still holds a usable stream.
-        let mut guard = self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut guard = self
+            .0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         f(&mut guard)
     }
 }
@@ -226,10 +231,7 @@ mod tests {
         let mut seen_picks = std::collections::BTreeSet::new();
         let mut seen_bounds = std::collections::BTreeSet::new();
         for _ in 0..400 {
-            seen_picks.insert((
-                0,
-                s.pick(ChoicePoint::ReadyWork, 4),
-            ));
+            seen_picks.insert((0, s.pick(ChoicePoint::ReadyWork, 4)));
             seen_picks.insert((1, s.pick(ChoicePoint::OperationDeferral, 2)));
             seen_picks.insert((2, s.pick(ChoicePoint::SpuriousWake, 2)));
             seen_picks.insert((3, s.pick(ChoicePoint::DeadlineEventPlace, 4)));
