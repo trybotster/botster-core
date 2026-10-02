@@ -968,7 +968,7 @@ fn a_write_not_yet_started_is_decided_again_at_its_start() {
     let mut w = World::running();
     let guard = Guard {
         input: None,
-        model_rev: Some(ModelRev(0)),
+        model_rev: Some(current_rev(&mut w, 90)),
     };
     w.send(&write(1, b"a", Some(guard)));
     let actions = w.feed(Input::PtyWritten(Ok(0)));
@@ -1134,19 +1134,42 @@ fn the_input_guard_is_checked_at_the_start() {
     );
 }
 
+/// The session's `model_rev` now, read as a host reads it.
+fn current_rev(w: &mut World, req: u64) -> ModelRev {
+    let OpResult::Ok(OpOutput::Modes(modes)) = op(w, req, Op::ReadModeFlags { session: sid() }) else {
+        panic!("modes");
+    };
+    modes.model_rev
+}
+
+/// ST-1: tokens from different instances never compare equal; one instance's token moves at each change and repeats
+/// only after 2^64 changes.
+#[test]
+fn model_rev_starts_apart_for_each_instance() {
+    let a = model::first_rev(&InstanceId("7-1".into()), 7);
+    let b = model::first_rev(&InstanceId("7-2".into()), 7);
+    let c = model::first_rev(&InstanceId("7-1".into()), 8);
+    assert!(a != b && a != c && b != c, "{a} {b} {c}");
+    let mut w = World::running();
+    let before = current_rev(&mut w, 90);
+    w.feed(Input::PtyOutput(b"x".to_vec()));
+    assert_ne!(current_rev(&mut w, 91), before);
+}
+
 /// IN-10: the terminal guard passes iff the model's revision is unchanged; output moves it.
 #[test]
 fn the_terminal_guard_refuses_after_output() {
     let mut w = World::running();
+    let rev = current_rev(&mut w, 90);
     let guard = |rev| Guard {
         input: None,
-        model_rev: Some(ModelRev(rev)),
+        model_rev: Some(rev),
     };
-    let actions = w.send(&write(1, b"a", Some(guard(0))));
+    let actions = w.send(&write(1, b"a", Some(guard(rev))));
     assert_eq!(pty_writes(&actions), [b"a".to_vec()]);
     w.feed(Input::PtyWritten(Ok(1)));
     w.feed(Input::PtyOutput(b"redraw".to_vec()));
-    let actions = w.send(&write(2, b"b", Some(guard(0))));
+    let actions = w.send(&write(2, b"b", Some(guard(rev))));
     let result = input_result(&mut w, &actions, 2).expect("done");
     assert_eq!(
         outcome(&result),

@@ -63,6 +63,21 @@ pub(super) fn snapshot_formats() -> Vec<SnapshotFormat> {
     Vec::new()
 }
 
+/// The first `model_rev` of an instance (ST-1: tokens from different instances never compare equal). The token is
+/// 64 bits and an instance id is any text, so the worker cannot make a range per instance that is certain to be
+/// disjoint; it starts each instance at the FNV-1a hash of its host epoch and id. Two instances then share a token only
+/// when their starts are within the number of changes that one of them made: about `changes / 2^64`. Inside one
+/// instance the token repeats only after 2^64 changes.
+pub(super) fn first_rev(instance: &InstanceId, host_epoch: u64) -> u64 {
+    const OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
+    const PRIME: u64 = 0x0000_0100_0000_01b3;
+    host_epoch
+        .to_le_bytes()
+        .iter()
+        .chain(instance.0.as_bytes())
+        .fold(OFFSET, |hash, byte| (hash ^ u64::from(*byte)).wrapping_mul(PRIME))
+}
+
 /// A text cut to at most `max` bytes at a UTF-8 character boundary, and whether it was cut (A2-4).
 fn bounded(text: String, max: usize) -> (String, bool) {
     if text.len() <= max {
@@ -105,7 +120,7 @@ impl Worker {
             model.unfed.drain(..step.consumed.min(model.unfed.len()));
             stepped = true;
             // ST-1: output is a read-visible change.
-            self.input.model_rev += 1;
+            self.input.model_rev = self.input.model_rev.wrapping_add(1);
             self.after_step();
             if let Some(query) = step.query {
                 // EV-8 (P4b offers it to a route first): with no route, the shadow reply answers it.

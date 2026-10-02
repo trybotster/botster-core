@@ -82,8 +82,8 @@ pub(super) struct InputState {
     /// The input revisions of IN-10, per source class.
     host_rev: u64,
     client_rev: u64,
-    /// The read-visible revision of the model (ST-1, IN-10's terminal guard). It advances at every read-visible change the
-    /// worker sees: output and resize.
+    /// The read-visible revision of the model (ST-1, IN-10's terminal guard). It starts at `model::first_rev` of the
+    /// instance and advances by one (wrapping) at every read-visible change the worker sees: output and resize.
     pub(super) model_rev: u64,
 }
 
