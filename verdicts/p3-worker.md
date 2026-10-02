@@ -2,11 +2,11 @@
 
 VERDICT: CLEAN
 
-Reviewed head: `0ab2a7dc1d0f49a89931432dba51b956ca0fdb3b`, branch `stage1/p3-worker-m1`.
-Previous reviewed head: `a855586248de777d553352039bcec915e307a0b0`.
-Round 7 delta: `a855586..0ab2a7d`. F1 through F8 are CLOSED. No open findings remain in M1.
+Reviewed head: `1911ed09654260e7a57ae0a5b2a251ff470ad330`, branch `stage1/p3-worker-m1`.
+Previous reviewed head: `0ab2a7dc1d0f49a89931432dba51b956ca0fdb3b`.
+Round 8 delta: `0ab2a7d..1911ed0`. F1 through F8 remain CLOSED. No open findings remain in M1.
 This CLEAN verdict applies only to M1 at the exact reviewed head. M2 and the same-suite real-process proof remain later work.
-The original evidence refers to `f37c46b`. Rounds 2 through 6 record review history. Round 7 records final closure.
+The original evidence refers to `f37c46b`. Rounds 2 through 7 record review history. Round 8 records the latest delta verdict.
 Base: `2016886`. Scope: M1, including the Worker machine, real driver, payload edge, and testkit driver.
 This verdict covers both review units in the implementer's message.
 
@@ -369,7 +369,7 @@ Authority: EV-4, LC-6, BUILD.md's structural test rules, and the plan's real-pro
 
 Round 6 verdict: NOT CLEAN (1 open) on `a855586248de777d553352039bcec915e307a0b0`.
 
-## Round 7 — Final closure
+## Round 7 — Closure of F8
 
 F8 status: CLOSED at `0ab2a7dc1d0f49a89931432dba51b956ca0fdb3b`.
 
@@ -382,5 +382,21 @@ The added regression test sends two complete frames and a partial third frame, t
 The reviewer inspected the complete delta, which changes only the slow test helper and its regression test.
 The reviewer ran no tests or gate. The implementer reported clean clippy checks and 15 slow tests passing on macOS.
 
-VERDICT: CLEAN on the exact M1 head above. All eight findings are closed.
+Round 7 verdict: CLEAN on `0ab2a7dc1d0f49a89931432dba51b956ca0fdb3b`. All eight findings are closed.
+Any later commit, including a rebase, requires a delta review before this verdict applies to that head.
+
+## Round 8 — Documentation delta
+
+The corrected review head is `1911ed09654260e7a57ae0a5b2a251ff470ad330`. The implementer withdrew the earlier stated head `32cbde5`.
+The delta changes only `crates/botster-worker-core/DESIGN.md`.
+It replaces banned old mechanism names with references to the plan's prior-art rows.
+The note retains the prior-art sources, rejection reasons, library choices, and the statement that no code was stolen.
+The old binary's exact path remains referenced through the PR's Prior-art note.
+The delta changes no code, dependency, or test behavior. No new finding exists.
+
+The reviewer inspected the complete delta and ran no tests or gate.
+The implementer reported that the previous head's Linux gate passed fmt and clippy, then failed the taint check.
+The implementer reported local taint, lists, and public-api checks passing on this fix head. This verdict does not establish a green gate.
+
+VERDICT: CLEAN on the exact M1 head above. All eight findings remain closed.
 Any later commit, including a rebase, requires a delta review before this verdict applies to that head.
