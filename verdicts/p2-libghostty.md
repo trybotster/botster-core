@@ -2,10 +2,10 @@
 
 Reviewed head: `89afa037b198cb26173ff520245adb926b6ca21e`.
 Previous audit head: `fd1471eabca0adb344c6027b8995e1151aa8f8a8`.
-Scope: the written audit and fork patches 0, 2, and 3 only. This verdict does not approve the full fork series, binding, or pin change.
+Scope: the written audit and fork patches 0–3 only. This verdict does not approve the full fork series, binding, or pin change.
 
-VERDICT: NOT CLEAN (patch 1: 1 open finding, P14).
-Reviewed fork head: `56b54e92365fe94c512804e8ffe44ea93f1cb550`.
+VERDICT: CLEAN (written audit and fork patches 0–3 only).
+Reviewed fork head: `72902b1b738525d7fdf2c6ca828e2a40201f4f50`.
 Written audit: CLEAN at `89afa037b198cb26173ff520245adb926b6ca21e`; F1–F12 closed.
 
 The review uses manifest final13, BUILD.md at `2f2996ef0f016a1fefc6879e74deaef033383b66`, and plan pin `stage1-plan.a24efe7e`.
@@ -515,7 +515,7 @@ The written audit and patches 0, 2, and 3 retain their scoped CLEAN verdicts.
 
 ## P14 — HIGH — Request tracking follows ground state instead of query boundaries
 
-Status: OPEN.
+Status: CLOSED at `72902b1b738525d7fdf2c6ca828e2a40201f4f50`. The original finding and delta reviews follow for the record.
 Evidence: `src/terminal/c/terminal.zig:1092–1159` clears request bytes only after ground state or a bulk text feed.
 The parser can start a new sequence without passing through ground state.
 `src/terminal/parse_table.zig` sends ESC from every state to escape state.
@@ -680,4 +680,29 @@ Add an APC-to-C1 query test across a call boundary and compare with the input sl
 
 VERDICT: NOT CLEAN (1 open finding, P14, limited to APC-to-C1 transitions).
 P15–P17 remain closed. The written audit and patches 0, 2, and 3 retain their scoped CLEAN verdicts.
+The full fork series, binding code, and Ghostty pin change remain unapproved.
+
+
+## Patch 1 final delta review — P14 closed
+
+Reviewed commit: `72902b1b738525d7fdf2c6ca828e2a40201f4f50`.
+The reviewer read the complete delta with `git show`. The reviewer ran no tests.
+
+The change handles C1 introducers in `sos_pm_apc_string` separately.
+When the parser enters a different sequence, the request buffer starts at that introducer and drops the APC prefix.
+The change preserves OSC and DCS high-byte behavior and equal-state CSI restarts.
+The test checks the operating-status request against its input bytes across calls and in one call.
+P14 closes. P15–P17 remain closed.
+
+VERDICT: CLEAN for patch 1 through this exact head.
+This verdict covers the initial patch and its reviewed deltas:
+
+- `6495721bb0496b4de561eb5b377cacd50987de0e`.
+- `38599d3209beb7bdc8c8ffcde2f8af414a21f202`.
+- `b60d005420f1eda6a932c509b257f8300994b34b`.
+- `56b54e92365fe94c512804e8ffe44ea93f1cb550`.
+- `72902b1b738525d7fdf2c6ca828e2a40201f4f50`.
+
+The written audit and patches 0, 2, and 3 retain their CLEAN verdicts.
+Patches 4–8 remain outside this verdict.
 The full fork series, binding code, and Ghostty pin change remain unapproved.
