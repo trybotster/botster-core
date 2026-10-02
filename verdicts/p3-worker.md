@@ -1,12 +1,12 @@
 # P3 worker review
 
-VERDICT: NOT CLEAN (2 open findings)
+VERDICT: CLEAN
 
-Reviewed head: `5a41a33fd65468dcddb9fe025e8f645743693e00`, branch `stage1/p3-worker-m2a`.
-Previous reviewed head: `46b16945ead49715949d5983bb41a673c081f8ad`.
-Round 10 covers M2a and the replay on P1 `3512c68`. F1 through F8 remain CLOSED.
-F9 and F10 are OPEN. F11 is CLOSED at `5a41a33`. M2's terminal model, route admission, and the same-suite real-process proof remain later work.
-The original evidence refers to `f37c46b`. Rounds 2 through 9 record review history. Round 10 records the latest delta verdict.
+Reviewed head: `98960e434b0991ebb9d7e65c952f1c6ea116b83a`, branch `stage1/p3-worker-m2a`.
+Previous reviewed head: `5a41a33fd65468dcddb9fe025e8f645743693e00`.
+Round 11 closes F9 and F10. All eleven findings are CLOSED.
+This CLEAN verdict covers M2a only. M2's terminal model, route admission, and the same-suite real-process proof remain later work.
+The original evidence refers to `f37c46b`. Rounds 2 through 10 record review history. Round 11 records the latest delta verdict.
 Base: `2016886`. Scope: M1, including the Worker machine, real driver, payload edge, and testkit driver.
 This verdict covers both review units in the implementer's message.
 
@@ -531,3 +531,34 @@ Reported tests do not close F9 or F10.
 
 VERDICT: NOT CLEAN (2 open findings) on the exact M2a head above.
 All findings, including LOW findings, require closure before CLEAN.
+
+## Round 11 — Closure of F9 and F10
+
+Reviewed head: `98960e434b0991ebb9d7e65c952f1c6ea116b83a`.
+Delta: one commit after `5a41a33`, in the testkit harness, testkit worker driver, and real worker driver.
+
+F9 status: CLOSED at this head.
+WorkerKey includes the data directory and InstanceId. Both shared maps use WorkerKey.
+The spawner carries the data directory into the worker and program entries.
+TestkitCore carries the same data directory into each session lookup recorded from SessionState.
+Program controls and process controls use that complete key.
+Separate directories no longer share entries when both mint InstanceId("1-1").
+The regression test starts the first session in each of two directories and checks that injected output reaches only the requested payload.
+The reviewer checked both control lookup paths in the code.
+
+F10 status: CLOSED at this head.
+The real driver retains PtyWrite as pending work. settle no longer performs the PTY write.
+The outer loop reads control input and checks the stop deadline before it calls write_pty_once.
+write_pty_once performs at most one write attempt in the turn.
+An Interrupted result retains the bytes for the next turn and does not retry inside the function.
+A pending write keeps the poll timeout at zero. A blocked write waits for write readiness.
+The machine retains transaction ownership and counts each write result before it issues the next fragment.
+Control, signal, exit, and timer inputs can progress between fragments.
+
+The reviewer inspected the complete delta and ran no tests or gate.
+The implementer reported clean clippy, 201 default tests, and 6 worker slow tests passing.
+No new finding exists. F1 through F11 are CLOSED.
+
+VERDICT: CLEAN on the exact M2a head above.
+The terminal model and the remaining M2 features remain later work. The same-suite real-process proof remains pending.
+Any later commit, including a rebase, requires a delta review before this verdict applies to that head.
