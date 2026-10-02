@@ -257,6 +257,7 @@ dependencies = [
  "botster-conformance",
  "botster-core-conformance",
  "botster-core-contract",
+ "botster-core-testkit",
  "libtest-mimic",
  "static_assertions",
  "toml",

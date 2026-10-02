@@ -4,9 +4,11 @@
 //! the machine crates may not (plan 2.3c), and it adds no test branch to a production crate (BUILD.md testing rule 8).
 
 pub mod entropy;
+pub mod harness;
 pub mod net;
 pub mod program;
 pub mod scheduler;
+pub mod sim;
 pub mod wake;
 
 pub use entropy::SeededEntropy;
@@ -14,3 +16,5 @@ pub use scheduler::{SchedulerHandle, SeededScheduler};
 pub use net::{link_pair, stream_pair, Descriptor, End, Interest, LinkEnd, Readiness, StreamEnd};
 pub use program::{ProgramError, ScriptedProgram};
 pub use wake::SimWake;
+pub use sim::{Binding, Handled, Livelock, MachineNode, Node, NodeId, Sim, TraceEntry};
+pub use harness::TestkitHarness;
