@@ -89,6 +89,10 @@ pub mod opt {
     pub const QUERY: i32 = 44;
     pub const QUERY_MAX_BYTES: i32 = 45;
     pub const CONTINUATION_MAX_BYTES: i32 = 31;
+    pub const COLOR_FOREGROUND: i32 = 11;
+    pub const COLOR_BACKGROUND: i32 = 12;
+    pub const COLOR_CURSOR: i32 = 13;
+    pub const COLOR_PALETTE: i32 = 14;
 }
 
 /// `GhosttyTerminalScreen`.
@@ -663,4 +667,13 @@ extern "C" {
     ) -> Result;
     pub fn ghostty_terminfo_name(out: *mut GString);
     pub fn ghostty_terminfo_source(out: *mut GString);
+}
+
+/// `GhosttyColorRgb`.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct ColorRgb {
+    pub r: u8,
+    pub g: u8,
+    pub b: u8,
 }

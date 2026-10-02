@@ -46,7 +46,7 @@ impl EncoderState {
             keypad_key_application: modes.application_keypad,
             ignore_keypad_with_numlock: other("dec_1035"),
             alt_esc_prefix: other("dec_1036"),
-            modify_other_keys_state_2: false,
+            modify_other_keys_state_2: other(crate::modes::MODIFY_OTHER_KEYS_2),
             backarrow_key_mode: other("dec_67"),
             kitty_flags: modes.kitty_flags,
             mouse_event: match modes.mouse_tracking {
@@ -350,7 +350,7 @@ pub(crate) fn encode_key(source: Source, input: &KeyInput) -> Result<Vec<u8>, En
     // there is no layout guess (5.1A legacy rule iii).
     let state_kitty = match source {
         Source::State(state) => state.kitty_flags,
-        Source::Terminal(terminal) => crate::modes::mode_flags(terminal).kitty_flags,
+        Source::Terminal(terminal) => crate::modes::base_mode_flags(terminal).kitty_flags,
     };
     let shift = input.mods.contains(&Modifier::Shift);
     let ctrl_or_alt = input
@@ -367,6 +367,36 @@ pub(crate) fn encode_key(source: Source, input: &KeyInput) -> Result<Vec<u8>, En
         return Err(EncodeError::Unsupported(UnsupportedWhat::ProducedText));
     }
     Err(EncodeError::NotReported)
+}
+
+/// Whether the terminal is in xterm's modifyOtherKeys state 2. The library tracks it and has no getter, so the probe
+/// encodes keys with the terminal's own state and again with the state that `ModeFlags` carries (state 2 off). A key
+/// that encodes differently shows state 2. The probe keys are ones that state 2 encodes in its own form.
+pub(crate) fn modify_other_keys_state_2(terminal: sys::Terminal, base: &ModeFlags) -> bool {
+    let off = Source::State(EncoderState::from_mode_flags(base));
+    let key = |key: Key, mods: &[Modifier]| KeyInput {
+        key,
+        shifted_key: None,
+        base_layout_key: None,
+        mods: mods.to_vec(),
+        event: KeyEvent::Press,
+        text: None,
+        repeat: None,
+    };
+    let probes = [
+        key(
+            Key::Named(botster_route_codec::prelude::NamedKey("enter".to_owned())),
+            &[Modifier::Ctrl],
+        ),
+        key(Key::Char("1".to_owned()), &[Modifier::Ctrl]),
+        key(
+            Key::Char("a".to_owned()),
+            &[Modifier::Ctrl, Modifier::Shift],
+        ),
+    ];
+    probes
+        .iter()
+        .any(|probe| encode_key(Source::Terminal(terminal), probe) != encode_key(off, probe))
 }
 
 /// Call an encode function with a probe and then with a buffer of the size that it asks for.
@@ -441,7 +471,7 @@ pub(crate) fn encode_mouse(
 ) -> Result<Vec<u8>, EncodeError> {
     let (event_mode, format) = match source {
         Source::Terminal(terminal) => {
-            let modes = crate::modes::mode_flags(terminal);
+            let modes = crate::modes::base_mode_flags(terminal);
             let state = EncoderState::from_mode_flags(&modes);
             (state.mouse_event, state.mouse_format)
         }

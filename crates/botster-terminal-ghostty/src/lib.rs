@@ -79,6 +79,7 @@ fn check(code: sys::Result) -> Result<(), Error> {
 pub struct Terminal {
     history: History,
     cell_px: Option<botster_core_contract::prelude::CellPx>,
+    color_profile: Option<botster_core_contract::prelude::ColorProfile>,
     handle: NonNull<c_void>,
     /// The event buffer that the callbacks fill. It is a leaked `Box`, freed in `Drop` after the terminal.
     shared: NonNull<events::Shared>,
@@ -108,6 +109,7 @@ impl Terminal {
             shared,
             history,
             cell_px: size.cell_px,
+            color_profile: None,
             _not_sync: PhantomData,
         };
         terminal.register_callbacks()?;
@@ -218,9 +220,9 @@ impl Terminal {
         Ok(())
     }
 
-    /// Feed one chunk of program output to the model. The callbacks run inside this call and fill the event buffer. A
-    /// query in the chunk is an event (`TerminalEvent::Query`) without its request bytes; use `vt_write_until_query`
-    /// to get the bytes and to stop at the query.
+    /// Feed one chunk that holds no query to the model. The callbacks run inside this call and fill the event buffer.
+    /// Program output goes through `vt_write_until_query`, which stops at each query. A query that this call meets is
+    /// counted in `Drained::unrouted_queries` and is not buffered, so the buffer stays bounded (EV-8).
     pub fn vt_write(&mut self, bytes: &[u8]) {
         // SAFETY: no callback runs now, so this is the only reference to the buffer.
         unsafe { self.shared.as_mut() }.begin_write(false);
@@ -289,6 +291,110 @@ impl Terminal {
         self.apply_size(cols, rows, width, height)?;
         self.set_cell_px(size.cell_px);
         Ok(())
+    }
+
+    /// Set the colors that the shadow answers color queries with (EV-8): the default foreground, background and cursor,
+    /// and the 256-color palette. A missing palette or cursor restores the library's default. Later queries see the
+    /// new profile at once. A palette that does not have exactly 256 entries is `Error::InvalidValue`.
+    pub fn set_color_profile(
+        &mut self,
+        profile: &botster_core_contract::prelude::ColorProfile,
+    ) -> Result<(), Error> {
+        let rgb = |c: &botster_core_contract::prelude::Rgb| sys::ColorRgb {
+            r: c.r,
+            g: c.g,
+            b: c.b,
+        };
+        let palette: Option<Vec<sys::ColorRgb>> = match &profile.palette {
+            Some(entries) if entries.len() == 256 => Some(entries.iter().map(rgb).collect()),
+            Some(_) => return Err(Error::InvalidValue),
+            None => None,
+        };
+        let foreground = rgb(&profile.foreground);
+        let background = rgb(&profile.background);
+        let cursor = profile.cursor.as_ref().map(rgb);
+        let pointer = |value: &Option<sys::ColorRgb>| -> *const c_void {
+            value
+                .as_ref()
+                .map_or(std::ptr::null(), |v| (v as *const sys::ColorRgb).cast())
+        };
+        let handle = self.handle.as_ptr();
+        // SAFETY: the handle is live; each color option takes a `GhosttyColorRgb` pointer (null clears it), the palette
+        // takes an array of exactly 256 (null restores the default), and the library copies each value.
+        unsafe {
+            check(sys::ghostty_terminal_set(
+                handle,
+                sys::opt::COLOR_FOREGROUND,
+                (&foreground as *const sys::ColorRgb).cast(),
+            ))?;
+            check(sys::ghostty_terminal_set(
+                handle,
+                sys::opt::COLOR_BACKGROUND,
+                (&background as *const sys::ColorRgb).cast(),
+            ))?;
+            check(sys::ghostty_terminal_set(
+                handle,
+                sys::opt::COLOR_CURSOR,
+                pointer(&cursor),
+            ))?;
+            check(sys::ghostty_terminal_set(
+                handle,
+                sys::opt::COLOR_PALETTE,
+                palette
+                    .as_ref()
+                    .map_or(std::ptr::null(), |p| p.as_ptr().cast()),
+            ))?;
+        }
+        self.color_profile = Some(profile.clone());
+        Ok(())
+    }
+
+    /// The typed query kinds that the shadow answers now (`Core::shadow_answerable_kinds`, EV-8). The set depends on
+    /// what the host gave: the pixel reports need `cell_px`, and the shadow has no answer for a clipboard read. The
+    /// binding asks the library: a scratch terminal with the same cell size and colors gets one query of each kind, and
+    /// a kind is listed when the library gave a reply. The kinds that have no typed label (`Other`) are answered or not
+    /// per query: see `Query::shadow_reply`.
+    pub fn shadow_answerable_kinds(&self) -> Vec<botster_route_codec::prelude::QueryKind> {
+        // One request of each typed kind. The library finds the kind, and the label comes from `Query::label`.
+        const REQUESTS: &[&[u8]] = &[
+            b"\x1b]52;c;?\x07",
+            b"\x1b[14t",
+            b"\x1b[16t",
+            b"\x1b[15t",
+            b"\x1b[14;2t",
+            b"\x1b[19t",
+            b"\x1b[11t",
+            b"\x1b[13t",
+            b"\x1b[13;2t",
+            b"\x1b[21t",
+            b"\x1b[20t",
+            b"\x1b[?996n",
+        ];
+        let size = Size {
+            rows: 24,
+            cols: 80,
+            cell_px: self.cell_px,
+        };
+        let Ok(mut scratch) = Terminal::new(&size, History::Off) else {
+            return Vec::new();
+        };
+        if let Some(profile) = &self.color_profile {
+            if scratch.set_color_profile(profile).is_err() {
+                return Vec::new();
+            }
+        }
+        let mut kinds = Vec::new();
+        for request in REQUESTS {
+            let Ok(step) = scratch.vt_write_until_query(request) else {
+                continue;
+            };
+            if let Some(query) = step.query {
+                if let (Some(label), false) = (query.label(), query.shadow_reply.is_empty()) {
+                    kinds.push(label);
+                }
+            }
+        }
+        kinds
     }
 
     fn set_cell_px(&mut self, cell_px: Option<botster_core_contract::prelude::CellPx>) {
@@ -482,3 +588,6 @@ mod tests_reply;
 
 #[cfg(test)]
 mod tests_snapshot;
+
+#[cfg(test)]
+mod tests_color;

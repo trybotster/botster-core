@@ -187,21 +187,23 @@ fn the_model_takes_no_byte_past_the_query_and_the_reply_is_from_the_query_point(
 }
 
 #[test]
-fn a_plain_write_reports_the_query_as_an_event_without_its_bytes() {
+fn a_plain_write_counts_the_queries_it_meets_and_buffers_none() {
     let mut terminal = terminal();
-    terminal.vt_write(b"\x1b]2;t\x07\x1b[5n\x07");
-    let events = terminal.drain_events().events;
-    assert_eq!(events.len(), 3);
-    assert!(matches!(events[0], TerminalEvent::Title(_)));
-    match &events[1] {
-        TerminalEvent::Query(query) => {
-            assert_eq!(query.kind, QueryKind::OperatingStatus);
-            assert_eq!(query.request, None);
-            assert!(!query.shadow_reply.is_empty());
-        }
-        other => panic!("expected a query, got {other:?}"),
+    let mut input = b"\x1b]2;t\x07".to_vec();
+    for _ in 0..20_000 {
+        input.extend_from_slice(b"\x1b[5n");
     }
-    assert_eq!(events[2], TerminalEvent::Bell);
+    input.push(0x07);
+    terminal.vt_write(&input);
+    let drained = terminal.drain_events();
+    // The other events are kept, and the queries are only counted: the buffer holds none of them.
+    assert_eq!(drained.events.len(), 2);
+    assert!(matches!(drained.events[0], TerminalEvent::Title(_)));
+    assert_eq!(drained.events[1], TerminalEvent::Bell);
+    assert_eq!(drained.unrouted_queries, 20_000);
+    assert!(drained.pty_writes.len() <= MAX_SHADOW_REPLY_BYTES);
+    // The count restarts at each drain.
+    assert_eq!(terminal.drain_events().unrouted_queries, 0);
 }
 
 #[test]
@@ -290,10 +292,7 @@ fn a_reply_outside_a_query_is_a_pty_write_and_never_lost() {
     terminal.vt_write(b"\x1b[?2048h");
     let drained = terminal.drain_events();
     assert!(!drained.pty_writes.is_empty());
-    assert!(drained
-        .events
-        .iter()
-        .all(|event| !matches!(event, TerminalEvent::Query(_))));
+    assert_eq!(drained.unrouted_queries, 0);
 }
 
 #[test]
@@ -365,4 +364,20 @@ fn the_label_of_a_query_is_the_contract_kind() {
     assert_eq!(label(b"\x1b[18t"), None);
     assert_eq!(label(b"\x1b[5n"), None);
     assert_eq!(label(b"\x1b[c"), None);
+}
+
+#[test]
+fn the_shadow_answerable_kinds_follow_the_cell_size_and_never_include_a_clipboard_read() {
+    use botster_route_codec::prelude::QueryKind as Label;
+
+    let without = terminal().shadow_answerable_kinds();
+    let with = terminal_with_px().shadow_answerable_kinds();
+    assert!(!without.contains(&Label::TextAreaPixels));
+    assert!(with.contains(&Label::TextAreaPixels));
+    assert!(with.contains(&Label::CellPixels));
+    // Every kind that the host-less shadow answers, the one with a cell size answers too.
+    assert!(without.iter().all(|kind| with.contains(kind)));
+    assert!(!with
+        .iter()
+        .any(|kind| matches!(kind, Label::ClipboardRead { .. })));
 }

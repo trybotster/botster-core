@@ -37,11 +37,13 @@ pub enum TerminalEvent {
         mark: PromptMarkKind,
         exit_code: Option<i32>,
     },
-    /// An OSC 52 write, with the selection as the program wrote it (`s0` when it left it out) and the decoded bytes.
-    ClipboardWrite { selection: String, bytes: Vec<u8> },
-    /// A query that a plain `vt_write` met. The request bytes are not kept by a plain write (`request` is `None`), and
-    /// the shadow reply is held in the query. `vt_write_until_query` returns its query in the step, not here.
-    Query(Query),
+    /// A clipboard write: OSC 52, OSC 1337 Copy or OSC 5522 (Core erratum 5). `selection` is the OSC 52 selection as
+    /// the program wrote it. It is `None` when the library reports none: an OSC 52 write that left the selection out,
+    /// and every OSC 1337 or OSC 5522 write. The library does not tell these apart.
+    ClipboardWrite {
+        selection: Option<String>,
+        bytes: Vec<u8>,
+    },
 }
 
 impl TerminalEvent {
@@ -53,8 +55,6 @@ impl TerminalEvent {
             TerminalEvent::ClipboardWrite { .. } => Some(LostKind::ClipboardWrite),
             // Title and cwd are class K: the last value wins, so the model's own title and cwd reads stay exact.
             TerminalEvent::Title(_) | TerminalEvent::Cwd(_) => None,
-            // A query is never discarded (EV-8): it bypasses the bounds, so it has no lost kind.
-            TerminalEvent::Query(_) => None,
         }
     }
 
@@ -65,8 +65,9 @@ impl TerminalEvent {
             TerminalEvent::Notification { title, body, .. } => {
                 title.as_ref().map_or(0, String::len) + body.len()
             }
-            TerminalEvent::ClipboardWrite { selection, bytes } => selection.len() + bytes.len(),
-            TerminalEvent::Query(_) => 0,
+            TerminalEvent::ClipboardWrite { selection, bytes } => {
+                selection.as_ref().map_or(0, String::len) + bytes.len()
+            }
         }
     }
 }
@@ -82,6 +83,10 @@ pub struct Drained {
     /// Bytes that libghostty wrote to the pty outside a query reply (an in-band size report when mode 2048 is set, for
     /// example). The binding writes them nowhere; the caller decides.
     pub pty_writes: Vec<u8>,
+    /// How many queries a plain `vt_write` met. PTY output goes through `vt_write_until_query`, which stops at each
+    /// query and returns it, so a nonzero count is a caller error. The count keeps the buffer bounded; a query that a
+    /// plain write met got no answer from the caller (the library's shadow reply went to `pty_writes`).
+    pub unrouted_queries: u64,
 }
 
 /// The buffer that the callbacks fill. It lives on the heap, at an address that does not move, and the terminal holds
@@ -93,11 +98,10 @@ pub(crate) struct Shared {
     dropped: u64,
     dropped_kinds: BTreeSet<LostKind>,
     pty_writes: Vec<u8>,
+    unrouted_queries: u64,
     /// True while `vt_write_until_query` runs: the query goes to `held` instead of the event buffer.
     pub(crate) capture: bool,
     pub(crate) held: Option<Query>,
-    /// The index in `events` of the query that the current plain write has open.
-    open: Option<usize>,
     /// The cell size in pixels that the host gave, which the shadow's size reports need (EV-8).
     pub(crate) cell_px: Option<(u32, u32)>,
 }
@@ -107,26 +111,17 @@ impl Shared {
     pub(crate) fn begin_write(&mut self, capture: bool) {
         self.capture = capture;
         self.held = None;
-        self.open = None;
     }
 
     fn open_query(&mut self) -> Option<&mut Query> {
-        if self.capture {
-            return self.held.as_mut();
-        }
-        let index = self.open?;
-        match self.events.get_mut(index) {
-            Some(TerminalEvent::Query(query)) => Some(query),
-            _ => None,
-        }
+        self.held.as_mut()
     }
 
     fn push_query(&mut self, query: Query) {
         if self.capture {
             self.held = Some(query);
         } else {
-            self.events.push(TerminalEvent::Query(query));
-            self.open = Some(self.events.len() - 1);
+            self.unrouted_queries += 1;
         }
     }
 
@@ -150,6 +145,7 @@ impl Shared {
             dropped: std::mem::take(&mut self.dropped),
             dropped_kinds: std::mem::take(&mut self.dropped_kinds),
             pty_writes: std::mem::take(&mut self.pty_writes),
+            unrouted_queries: std::mem::take(&mut self.unrouted_queries),
         }
     }
 }
@@ -260,11 +256,7 @@ pub(crate) unsafe extern "C" fn on_clipboard_write(
     // borrowed for that time and copied here before the reply.
     let request = unsafe { &*write };
     let selection = unsafe { request.selection.bytes() };
-    let selection = if selection.is_empty() {
-        "s0".to_owned()
-    } else {
-        text(selection)
-    };
+    let selection = (!selection.is_empty()).then(|| text(selection));
     let bytes = if request.contents.is_null() || request.contents_len == 0 {
         Vec::new()
     } else {
