@@ -244,10 +244,6 @@ impl HostEdges for RealEdges {
         self.children.signal_group(identity, signal);
     }
 
-    fn signal_payload_group(&mut self, identity: ProcessIdentity, signal: GroupSignal) {
-        self.children.signal_payload_group(identity, signal);
-    }
-
     fn poll_process_exit(&mut self) -> Option<(ProcessIdentity, ExitStatus)> {
         self.children.poll_exit()
     }
