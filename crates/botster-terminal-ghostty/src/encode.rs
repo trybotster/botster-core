@@ -33,8 +33,6 @@ pub(crate) struct EncoderState {
     kitty_flags: u8,
     mouse_event: i32,
     mouse_format: i32,
-    focus_reporting: bool,
-    bracketed_paste: bool,
 }
 
 impl EncoderState {
@@ -65,8 +63,6 @@ impl EncoderState {
                 MouseEncoding::Urxvt => sys::mouse_format::URXVT,
                 MouseEncoding::SgrPixels => sys::mouse_format::SGR_PIXELS,
             },
-            focus_reporting: modes.focus_reporting,
-            bracketed_paste: modes.bracketed_paste,
         }
     }
 }
@@ -143,7 +139,10 @@ pub(crate) fn named_key(name: &str) -> Option<i32> {
             _ => None,
         };
     }
-    NAMED_KEYS.iter().find(|(known, _)| *known == name).map(|(_, key)| *key)
+    NAMED_KEYS
+        .iter()
+        .find(|(known, _)| *known == name)
+        .map(|(_, key)| *key)
 }
 
 fn one_scalar(text: &str) -> Option<char> {
@@ -186,17 +185,37 @@ impl KeyEncoder {
         let option_as_alt: i32 = 1; // GHOSTTY_OPTION_AS_ALT_TRUE
         match source {
             // SAFETY: the encoder and the terminal are live; the call copies the terminal's state.
-            Source::Terminal(terminal) => unsafe { sys::ghostty_key_encoder_setopt_from_terminal(self.0, terminal) },
+            Source::Terminal(terminal) => unsafe {
+                sys::ghostty_key_encoder_setopt_from_terminal(self.0, terminal)
+            },
             Source::State(state) => {
                 let set_bool = |option: i32, value: bool| {
                     // SAFETY: the encoder is live, and the option takes a `bool`.
-                    unsafe { sys::ghostty_key_encoder_setopt(self.0, option, (&value as *const bool).cast()) }
+                    unsafe {
+                        sys::ghostty_key_encoder_setopt(
+                            self.0,
+                            option,
+                            (&value as *const bool).cast(),
+                        )
+                    }
                 };
-                set_bool(sys::key_opt::CURSOR_KEY_APPLICATION, state.cursor_key_application);
-                set_bool(sys::key_opt::KEYPAD_KEY_APPLICATION, state.keypad_key_application);
-                set_bool(sys::key_opt::IGNORE_KEYPAD_WITH_NUMLOCK, state.ignore_keypad_with_numlock);
+                set_bool(
+                    sys::key_opt::CURSOR_KEY_APPLICATION,
+                    state.cursor_key_application,
+                );
+                set_bool(
+                    sys::key_opt::KEYPAD_KEY_APPLICATION,
+                    state.keypad_key_application,
+                );
+                set_bool(
+                    sys::key_opt::IGNORE_KEYPAD_WITH_NUMLOCK,
+                    state.ignore_keypad_with_numlock,
+                );
                 set_bool(sys::key_opt::ALT_ESC_PREFIX, state.alt_esc_prefix);
-                set_bool(sys::key_opt::MODIFY_OTHER_KEYS_STATE_2, state.modify_other_keys_state_2);
+                set_bool(
+                    sys::key_opt::MODIFY_OTHER_KEYS_STATE_2,
+                    state.modify_other_keys_state_2,
+                );
                 set_bool(sys::key_opt::BACKARROW_KEY_MODE, state.backarrow_key_mode);
                 // SAFETY: the encoder is live, and KITTY_FLAGS takes a `u8` bitmask.
                 unsafe {
@@ -236,7 +255,11 @@ impl Drop for KeyEventHandle {
 }
 
 /// Build the library's event from a key input. The event borrows `text`, so it must not outlive it.
-fn key_event(input: &KeyInput, text: &str, base_text: &mut [u8; 4]) -> Result<KeyEventHandle, EncodeError> {
+fn key_event(
+    input: &KeyInput,
+    text: &str,
+    base_text: &mut [u8; 4],
+) -> Result<KeyEventHandle, EncodeError> {
     let mut event: sys::KeyEvent = std::ptr::null_mut();
     // SAFETY: a valid out pointer; a null allocator selects the default.
     let code = unsafe { sys::ghostty_key_event_new(std::ptr::null(), &mut event) };
@@ -256,7 +279,8 @@ fn key_event(input: &KeyInput, text: &str, base_text: &mut [u8; 4]) -> Result<Ke
     // The key: a named key is a library key. A character key is identified by its unshifted codepoint.
     let (key, unshifted, utf8): (i32, u32, &str) = match &input.key {
         Key::Named(name) => {
-            let key = named_key(&name.0).ok_or(EncodeError::Unsupported(UnsupportedWhat::NamedKey))?;
+            let key =
+                named_key(&name.0).ok_or(EncodeError::Unsupported(UnsupportedWhat::NamedKey))?;
             (key, 0, text)
         }
         Key::Char(base) => {
@@ -264,7 +288,11 @@ fn key_event(input: &KeyInput, text: &str, base_text: &mut [u8; 4]) -> Result<Ke
             // With ctrl or alt, and no text, the rule applies to the base character (5.1A legacy rule ii), which is the
             // text that the library uses for the control code and the escape prefix.
             let rule_ii = !has_text && bits & (sys::mods::CTRL | sys::mods::ALT) != 0;
-            let utf8 = if rule_ii { &*base.encode_utf8(base_text) } else { text };
+            let utf8 = if rule_ii {
+                &*base.encode_utf8(base_text)
+            } else {
+                text
+            };
             (0, u32::from(base), utf8)
         }
     };
@@ -285,7 +313,9 @@ fn key_event(input: &KeyInput, text: &str, base_text: &mut [u8; 4]) -> Result<Ke
     let alternate = |key: &Option<Key>| -> Result<u32, EncodeError> {
         match key {
             None => Ok(0),
-            Some(Key::Char(text)) => one_scalar(text).map(u32::from).ok_or(EncodeError::Unsupported(UnsupportedWhat::Other)),
+            Some(Key::Char(text)) => one_scalar(text)
+                .map(u32::from)
+                .ok_or(EncodeError::Unsupported(UnsupportedWhat::Other)),
             Some(Key::Named(_)) => Err(EncodeError::Unsupported(UnsupportedWhat::Other)),
         }
     };
@@ -300,7 +330,8 @@ fn key_event(input: &KeyInput, text: &str, base_text: &mut [u8; 4]) -> Result<Ke
 }
 
 pub(crate) fn encode_key(source: Source, input: &KeyInput) -> Result<Vec<u8>, EncodeError> {
-    let encoder = KeyEncoder::new().map_err(|_| EncodeError::Unsupported(UnsupportedWhat::Other))?;
+    let encoder =
+        KeyEncoder::new().map_err(|_| EncodeError::Unsupported(UnsupportedWhat::Other))?;
     encoder.configure(source);
 
     let text = input.text.as_deref().unwrap_or("");
@@ -322,7 +353,10 @@ pub(crate) fn encode_key(source: Source, input: &KeyInput) -> Result<Vec<u8>, En
         Source::Terminal(terminal) => crate::modes::mode_flags(terminal).kitty_flags,
     };
     let shift = input.mods.contains(&Modifier::Shift);
-    let ctrl_or_alt = input.mods.iter().any(|m| matches!(m, Modifier::Ctrl | Modifier::Alt));
+    let ctrl_or_alt = input
+        .mods
+        .iter()
+        .any(|m| matches!(m, Modifier::Ctrl | Modifier::Alt));
     if state_kitty == 0
         && matches!(input.event, KeyEvent::Press | KeyEvent::Repeat)
         && shift
@@ -380,7 +414,8 @@ impl Drop for MouseEventHandle {
 /// The encoder's size context: the screen in pixels from the cell size, with no padding. Without a cell size the cell is
 /// one pixel, so a pixel position is reported as given.
 fn encoder_size(cols: u32, rows: u32, cell_px: Option<CellPx>) -> sys::MouseEncoderSize {
-    let (cell_width, cell_height) = cell_px.map_or((1, 1), |px| (px.width.max(1), px.height.max(1)));
+    let (cell_width, cell_height) =
+        cell_px.map_or((1, 1), |px| (px.width.max(1), px.height.max(1)));
     sys::MouseEncoderSize {
         size: std::mem::size_of::<sys::MouseEncoderSize>(),
         screen_width: cols.saturating_mul(cell_width),
@@ -420,7 +455,9 @@ pub(crate) fn encode_mouse(
 
     let mut encoder: sys::MouseEncoder = std::ptr::null_mut();
     // SAFETY: a valid out pointer; a null allocator selects the default.
-    if unsafe { sys::ghostty_mouse_encoder_new(std::ptr::null(), &mut encoder) } != sys::SUCCESS || encoder.is_null() {
+    if unsafe { sys::ghostty_mouse_encoder_new(std::ptr::null(), &mut encoder) } != sys::SUCCESS
+        || encoder.is_null()
+    {
         return Err(EncodeError::Unsupported(UnsupportedWhat::Other));
     }
     let encoder = MouseEncoder(encoder);
@@ -428,9 +465,21 @@ pub(crate) fn encode_mouse(
     let any_button_pressed = !matches!(input.button, MouseButton::None);
     // SAFETY: the encoder is live; each option takes the type that is passed, and the library copies the values.
     unsafe {
-        sys::ghostty_mouse_encoder_setopt(encoder.0, sys::mouse_opt::EVENT, (&event_mode as *const i32).cast());
-        sys::ghostty_mouse_encoder_setopt(encoder.0, sys::mouse_opt::FORMAT, (&format as *const i32).cast());
-        sys::ghostty_mouse_encoder_setopt(encoder.0, sys::mouse_opt::SIZE, (&mouse_size as *const sys::MouseEncoderSize).cast());
+        sys::ghostty_mouse_encoder_setopt(
+            encoder.0,
+            sys::mouse_opt::EVENT,
+            (&event_mode as *const i32).cast(),
+        );
+        sys::ghostty_mouse_encoder_setopt(
+            encoder.0,
+            sys::mouse_opt::FORMAT,
+            (&format as *const i32).cast(),
+        );
+        sys::ghostty_mouse_encoder_setopt(
+            encoder.0,
+            sys::mouse_opt::SIZE,
+            (&mouse_size as *const sys::MouseEncoderSize).cast(),
+        );
         sys::ghostty_mouse_encoder_setopt(
             encoder.0,
             sys::mouse_opt::ANY_BUTTON_PRESSED,
@@ -440,7 +489,9 @@ pub(crate) fn encode_mouse(
 
     let mut event: sys::MouseEvent = std::ptr::null_mut();
     // SAFETY: a valid out pointer; a null allocator selects the default.
-    if unsafe { sys::ghostty_mouse_event_new(std::ptr::null(), &mut event) } != sys::SUCCESS || event.is_null() {
+    if unsafe { sys::ghostty_mouse_event_new(std::ptr::null(), &mut event) } != sys::SUCCESS
+        || event.is_null()
+    {
         return Err(EncodeError::Unsupported(UnsupportedWhat::Other));
     }
     let event = MouseEventHandle(event);
@@ -472,13 +523,29 @@ pub(crate) fn encode_mouse(
             None => sys::ghostty_mouse_event_clear_button(event.0),
         }
         sys::ghostty_mouse_event_set_mods(event.0, mods);
-        sys::ghostty_mouse_event_set_cell(event.0, sys::MouseCell { col: input.col, row: input.row });
+        sys::ghostty_mouse_event_set_cell(
+            event.0,
+            sys::MouseCell {
+                col: input.col,
+                row: input.row,
+            },
+        );
         if let (Some(x), Some(y)) = (input.x, input.y) {
-            sys::ghostty_mouse_event_set_position(event.0, sys::MousePosition { x: x as f32, y: y as f32 });
+            sys::ghostty_mouse_event_set_position(
+                event.0,
+                sys::MousePosition {
+                    x: x as f32,
+                    y: y as f32,
+                },
+            );
         }
     }
 
-    let reports = if input.action == MouseAction::Wheel { input.notches.unwrap_or(1).max(1) } else { 1 };
+    let reports = if input.action == MouseAction::Wheel {
+        input.notches.unwrap_or(1).max(1)
+    } else {
+        1
+    };
     let mut out = Vec::new();
     for _ in 0..reports {
         let bytes = run_encoder(|buf, len, written| {
@@ -509,7 +576,11 @@ pub(crate) fn encode_focus(focus_reporting: bool, focused: bool) -> Option<Vec<u
     if !focus_reporting {
         return None;
     }
-    let event = if focused { sys::focus::GAINED } else { sys::focus::LOST };
+    let event = if focused {
+        sys::focus::GAINED
+    } else {
+        sys::focus::LOST
+    };
     run_encoder(|buf, len, written| {
         // SAFETY: the buffer holds `len` bytes, or is null with length 0 to ask for the size.
         unsafe { sys::ghostty_focus_encode(event, buf, len, written) }
@@ -521,13 +592,20 @@ pub(crate) fn encode_focus(focus_reporting: bool, focused: bool) -> Option<Vec<u
 /// The marker bytes around a paste when bracketed paste is on, else `None` (IN-8). The payload is never touched.
 pub(crate) fn paste_frame(bracketed: bool) -> Option<(Vec<u8>, Vec<u8>)> {
     let mut frame = sys::PasteFrame {
-        prefix: sys::GString { ptr: std::ptr::null(), len: 0 },
-        suffix: sys::GString { ptr: std::ptr::null(), len: 0 },
+        prefix: sys::GString {
+            ptr: std::ptr::null(),
+            len: 0,
+        },
+        suffix: sys::GString {
+            ptr: std::ptr::null(),
+            len: 0,
+        },
     };
     // SAFETY: `frame` is a valid out pointer. The library stores strings of static data.
     unsafe { sys::ghostty_paste_frame(bracketed, &mut frame) };
     // SAFETY: the strings are static and valid for the life of the process.
-    let (prefix, suffix) = unsafe { (frame.prefix.bytes().to_vec(), frame.suffix.bytes().to_vec()) };
+    let (prefix, suffix) =
+        unsafe { (frame.prefix.bytes().to_vec(), frame.suffix.bytes().to_vec()) };
     (!prefix.is_empty() || !suffix.is_empty()).then_some((prefix, suffix))
 }
 

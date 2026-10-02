@@ -22,14 +22,20 @@ pub struct SnapshotFormat {
     pub continuation_limit: usize,
 }
 
-pub const SNAPSHOT_FORMAT: SnapshotFormat = SnapshotFormat { continuation_limit: CONTINUATION_LIMIT };
+pub const SNAPSHOT_FORMAT: SnapshotFormat = SnapshotFormat {
+    continuation_limit: CONTINUATION_LIMIT,
+};
 
 impl Terminal {
     pub(crate) fn set_continuation_limit(&self) -> Result<(), Error> {
         let limit = CONTINUATION_LIMIT;
         // SAFETY: the handle is live, and the option takes a `size_t` pointer.
         crate::check(unsafe {
-            sys::ghostty_terminal_set(self.handle.as_ptr(), sys::opt::CONTINUATION_MAX_BYTES, (&limit as *const usize).cast())
+            sys::ghostty_terminal_set(
+                self.handle.as_ptr(),
+                sys::opt::CONTINUATION_MAX_BYTES,
+                (&limit as *const usize).cast(),
+            )
         })
     }
 
@@ -38,7 +44,14 @@ impl Terminal {
     pub fn snapshot(&self) -> Result<Vec<u8>, SnapshotError> {
         let mut needed = 0usize;
         // SAFETY: a null buffer of length zero asks for the size, and `needed` is a valid out pointer.
-        let code = unsafe { sys::ghostty_snapshot_encode_buf(self.handle.as_ptr(), std::ptr::null_mut(), 0, &mut needed) };
+        let code = unsafe {
+            sys::ghostty_snapshot_encode_buf(
+                self.handle.as_ptr(),
+                std::ptr::null_mut(),
+                0,
+                &mut needed,
+            )
+        };
         match code {
             sys::OUT_OF_SPACE => {}
             sys::SUCCESS => return Ok(Vec::new()),
@@ -46,12 +59,20 @@ impl Terminal {
             other => return Err(SnapshotError::Library(Error::from_code(other))),
         }
         let mut out = Vec::new();
-        out.try_reserve_exact(needed).map_err(|_| SnapshotError::Library(Error::OutOfMemory))?;
+        out.try_reserve_exact(needed)
+            .map_err(|_| SnapshotError::Library(Error::OutOfMemory))?;
         out.resize(needed, 0);
         let mut written = 0usize;
         // SAFETY: the buffer holds `needed` bytes, and `&self` means that nothing changes the terminal between the two
         // calls.
-        let code = unsafe { sys::ghostty_snapshot_encode_buf(self.handle.as_ptr(), out.as_mut_ptr(), out.len(), &mut written) };
+        let code = unsafe {
+            sys::ghostty_snapshot_encode_buf(
+                self.handle.as_ptr(),
+                out.as_mut_ptr(),
+                out.len(),
+                &mut written,
+            )
+        };
         match code {
             sys::SUCCESS => {
                 out.truncate(written);
@@ -73,7 +94,10 @@ pub struct TerminalIdentityParts {
 }
 
 fn text(call: unsafe extern "C" fn(*mut sys::GString)) -> String {
-    let mut out = sys::GString { ptr: std::ptr::null(), len: 0 };
+    let mut out = sys::GString {
+        ptr: std::ptr::null(),
+        len: 0,
+    };
     // SAFETY: `out` is a valid out pointer; the library's string is static for the life of the process.
     unsafe {
         call(&mut out);
@@ -83,5 +107,8 @@ fn text(call: unsafe extern "C" fn(*mut sys::GString)) -> String {
 
 /// `TERM` and the terminfo source of the emulator, from the library (it renders the entry when it is built).
 pub fn terminal_identity() -> TerminalIdentityParts {
-    TerminalIdentityParts { term: text(sys::ghostty_terminfo_name), terminfo_source: text(sys::ghostty_terminfo_source) }
+    TerminalIdentityParts {
+        term: text(sys::ghostty_terminfo_name),
+        terminfo_source: text(sys::ghostty_terminfo_source),
+    }
 }

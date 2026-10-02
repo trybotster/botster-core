@@ -7,7 +7,11 @@ use botster_route_codec::prelude::QueryKind as Label;
 use super::*;
 
 fn size(cols: u32, rows: u32) -> Size {
-    Size { rows, cols, cell_px: None }
+    Size {
+        rows,
+        cols,
+        cell_px: None,
+    }
 }
 
 fn terminal() -> Terminal {
@@ -15,7 +19,18 @@ fn terminal() -> Terminal {
 }
 
 fn terminal_with_px() -> Terminal {
-    Terminal::new(&Size { rows: 24, cols: 80, cell_px: Some(CellPx { width: 9, height: 18 }) }, History::On).unwrap()
+    Terminal::new(
+        &Size {
+            rows: 24,
+            cols: 80,
+            cell_px: Some(CellPx {
+                width: 9,
+                height: 18,
+            }),
+        },
+        History::On,
+    )
+    .unwrap()
 }
 
 /// Every digit run of a reply, in order.
@@ -72,14 +87,21 @@ fn the_query_kind_table_matches_the_header_of_the_pinned_ghostty() {
     for line in header.lines() {
         let line = line.trim();
         if let Some(rest) = line.strip_prefix("GHOSTTY_TERMINAL_QUERY_") {
-            let Some((name, value)) = rest.split_once('=') else { continue };
-            let Ok(value) = value.trim().trim_end_matches(',').parse::<i32>() else { continue };
+            let Some((name, value)) = rest.split_once('=') else {
+                continue;
+            };
+            let Ok(value) = value.trim().trim_end_matches(',').parse::<i32>() else {
+                continue;
+            };
             in_header.insert(format!("GHOSTTY_TERMINAL_QUERY_{}", name.trim()), value);
         }
     }
     // The invalid kind (0) is in the header and not in the table; the table lists every other kind.
     in_header.remove("GHOSTTY_TERMINAL_QUERY_INVALID");
-    let table: BTreeMap<String, i32> = query::KINDS.iter().map(|(v, _, name)| ((*name).to_owned(), *v)).collect();
+    let table: BTreeMap<String, i32> = query::KINDS
+        .iter()
+        .map(|(v, _, name)| ((*name).to_owned(), *v))
+        .collect();
     assert_eq!(in_header, table);
 }
 
@@ -92,11 +114,17 @@ fn every_query_stops_the_write_with_its_exact_bytes_and_kind() {
         input.extend_from_slice(b"tail");
 
         let step = terminal.vt_write_until_query(&input).unwrap();
-        let query = step.query.unwrap_or_else(|| panic!("no query for {sequence:?}"));
+        let query = step
+            .query
+            .unwrap_or_else(|| panic!("no query for {sequence:?}"));
         assert_eq!(query.kind, kind, "{sequence:?}");
         // It stops right after the sequence, and the request is the sequence as it was fed.
         assert_eq!(step.consumed, 3 + sequence.len(), "{sequence:?}");
-        assert_eq!(query.request.as_deref(), Some(&input[3..step.consumed]), "{sequence:?}");
+        assert_eq!(
+            query.request.as_deref(),
+            Some(&input[3..step.consumed]),
+            "{sequence:?}"
+        );
         assert!(!query.request_truncated);
     }
 }
@@ -112,7 +140,10 @@ fn the_shadow_reply_exists_for_what_the_library_answers_and_is_empty_otherwise()
         // The reply is held: nothing went to the pty.
         let drained = terminal.drain_events();
         assert!(drained.pty_writes.is_empty(), "{sequence:?}");
-        assert!(drained.events.is_empty() || sequence == b"\x1b]52;c;?\x1b\\", "{sequence:?}");
+        assert!(
+            drained.events.is_empty() || sequence == b"\x1b]52;c;?\x1b\\",
+            "{sequence:?}"
+        );
     }
 }
 
@@ -132,13 +163,26 @@ fn the_model_takes_no_byte_past_the_query_and_the_reply_is_from_the_query_point(
     assert_eq!((cursor.row, cursor.col), (2, 6));
 
     // The held reply names the cursor of the query point, one-based.
-    assert_eq!(numbers(&query.shadow_reply), vec![i64::from(cursor.row) + 1, i64::from(cursor.col) + 1]);
+    assert_eq!(
+        numbers(&query.shadow_reply),
+        vec![i64::from(cursor.row) + 1, i64::from(cursor.col) + 1]
+    );
 
     // Offering the rest takes it, and the held reply does not change.
-    let rest = terminal.vt_write_until_query(&input[step.consumed..]).unwrap();
+    let rest = terminal
+        .vt_write_until_query(&input[step.consumed..])
+        .unwrap();
     assert_eq!(rest.consumed, 3);
     assert!(rest.query.is_none());
-    assert_eq!(terminal.screen_text(false).unwrap().text.trim_start_matches('\n').trim(), "XYZ");
+    assert_eq!(
+        terminal
+            .screen_text(false)
+            .unwrap()
+            .text
+            .trim_start_matches('\n')
+            .trim(),
+        "XYZ"
+    );
     assert_eq!(numbers(&query.shadow_reply), vec![3, 7]);
 }
 
@@ -170,14 +214,21 @@ fn the_shadow_never_answers_a_clipboard_read_and_the_selection_and_terminator_ar
             let query = step.query.unwrap();
             assert_eq!(query.kind, QueryKind::ClipboardRead);
             assert_eq!(query.selection.as_deref(), Some(expected));
-            assert_eq!(query.terminator, Some(if bel { Terminator::Bel } else { Terminator::St }));
+            assert_eq!(
+                query.terminator,
+                Some(if bel { Terminator::Bel } else { Terminator::St })
+            );
             assert!(query.shadow_reply.is_empty());
             assert!(terminal.drain_events().pty_writes.is_empty());
         }
     }
     // A selection that the program left out is `s0`.
     let mut terminal = terminal();
-    let query = terminal.vt_write_until_query(b"\x1b]52;;?\x07").unwrap().query.unwrap();
+    let query = terminal
+        .vt_write_until_query(b"\x1b]52;;?\x07")
+        .unwrap()
+        .query
+        .unwrap();
     assert_eq!(query.selection.as_deref(), Some("s0"));
 }
 
@@ -185,21 +236,50 @@ fn the_shadow_never_answers_a_clipboard_read_and_the_selection_and_terminator_ar
 fn the_size_reports_of_the_shadow_follow_the_size_and_the_cell_size() {
     // With a cell size, the pixel reports are the cells times the cell size, height before width.
     let mut terminal = terminal_with_px();
-    let text_area = terminal.vt_write_until_query(b"\x1b[14t").unwrap().query.unwrap();
+    let text_area = terminal
+        .vt_write_until_query(b"\x1b[14t")
+        .unwrap()
+        .query
+        .unwrap();
     assert_eq!(&numbers(&text_area.shadow_reply)[1..], [24 * 18, 80 * 9]);
-    let cell = terminal.vt_write_until_query(b"\x1b[16t").unwrap().query.unwrap();
+    let cell = terminal
+        .vt_write_until_query(b"\x1b[16t")
+        .unwrap()
+        .query
+        .unwrap();
     assert_eq!(&numbers(&cell.shadow_reply)[1..], [18, 9]);
-    let chars = terminal.vt_write_until_query(b"\x1b[18t").unwrap().query.unwrap();
+    let chars = terminal
+        .vt_write_until_query(b"\x1b[18t")
+        .unwrap()
+        .query
+        .unwrap();
     assert_eq!(&numbers(&chars.shadow_reply)[1..], [24, 80]);
 
     // After a resize, they follow.
-    terminal.resize(&Size { rows: 30, cols: 100, cell_px: Some(CellPx { width: 10, height: 20 }) }).unwrap();
-    let again = terminal.vt_write_until_query(b"\x1b[14t").unwrap().query.unwrap();
+    terminal
+        .resize(&Size {
+            rows: 30,
+            cols: 100,
+            cell_px: Some(CellPx {
+                width: 10,
+                height: 20,
+            }),
+        })
+        .unwrap();
+    let again = terminal
+        .vt_write_until_query(b"\x1b[14t")
+        .unwrap()
+        .query
+        .unwrap();
     assert_eq!(&numbers(&again.shadow_reply)[1..], [30 * 20, 100 * 10]);
 
     // Without a cell size, the shadow has no answer for them.
     let mut without = self::terminal();
-    let none = without.vt_write_until_query(b"\x1b[14t").unwrap().query.unwrap();
+    let none = without
+        .vt_write_until_query(b"\x1b[14t")
+        .unwrap()
+        .query
+        .unwrap();
     assert!(none.shadow_reply.is_empty());
 }
 
@@ -210,7 +290,10 @@ fn a_reply_outside_a_query_is_a_pty_write_and_never_lost() {
     terminal.vt_write(b"\x1b[?2048h");
     let drained = terminal.drain_events();
     assert!(!drained.pty_writes.is_empty());
-    assert!(drained.events.iter().all(|event| !matches!(event, TerminalEvent::Query(_))));
+    assert!(drained
+        .events
+        .iter()
+        .all(|event| !matches!(event, TerminalEvent::Query(_))));
 }
 
 #[test]
@@ -229,29 +312,55 @@ fn a_trailing_esc_of_an_unfinished_string_is_offered_again() {
     let mut terminal = terminal();
     let sequence = b"\x1b]52;c;?\x1b\\";
     // The input ends after the ESC that may start the ST.
-    let step = terminal.vt_write_until_query(&sequence[..sequence.len() - 1]).unwrap();
+    let step = terminal
+        .vt_write_until_query(&sequence[..sequence.len() - 1])
+        .unwrap();
     assert!(step.query.is_none());
     assert_eq!(step.consumed, sequence.len() - 2);
 
-    let rest = terminal.vt_write_until_query(&sequence[step.consumed..]).unwrap();
+    let rest = terminal
+        .vt_write_until_query(&sequence[step.consumed..])
+        .unwrap();
     assert_eq!(rest.query.unwrap().request.as_deref(), Some(&sequence[..]));
 }
 
 #[test]
 fn the_label_of_a_query_is_the_contract_kind() {
-    let label = |sequence: &[u8]| terminal().vt_write_until_query(sequence).unwrap().query.unwrap().label();
+    let label = |sequence: &[u8]| {
+        terminal()
+            .vt_write_until_query(sequence)
+            .unwrap()
+            .query
+            .unwrap()
+            .label()
+    };
     assert_eq!(label(b"\x1b[14t"), Some(Label::TextAreaPixels));
     assert_eq!(label(b"\x1b[14;2t"), Some(Label::WindowPixels));
     assert_eq!(label(b"\x1b[16t"), Some(Label::CellPixels));
     assert_eq!(label(b"\x1b[15t"), Some(Label::ScreenPixels));
     assert_eq!(label(b"\x1b[19t"), Some(Label::ScreenChars));
     assert_eq!(label(b"\x1b[11t"), Some(Label::WindowState));
-    assert_eq!(label(b"\x1b[13t"), Some(Label::WindowPosition { area: "window".into() }));
-    assert_eq!(label(b"\x1b[13;2t"), Some(Label::WindowPosition { area: "text_area".into() }));
+    assert_eq!(
+        label(b"\x1b[13t"),
+        Some(Label::WindowPosition {
+            area: "window".into()
+        })
+    );
+    assert_eq!(
+        label(b"\x1b[13;2t"),
+        Some(Label::WindowPosition {
+            area: "text_area".into()
+        })
+    );
     assert_eq!(label(b"\x1b[21t"), Some(Label::WindowTitle));
     assert_eq!(label(b"\x1b[20t"), Some(Label::IconLabel));
     assert_eq!(label(b"\x1b[?996n"), Some(Label::ColorScheme));
-    assert_eq!(label(b"\x1b]52;q;?\x07"), Some(Label::ClipboardRead { selection: "q".into() }));
+    assert_eq!(
+        label(b"\x1b]52;q;?\x07"),
+        Some(Label::ClipboardRead {
+            selection: "q".into()
+        })
+    );
     // CSI 18 t and the others have no typed kind.
     assert_eq!(label(b"\x1b[18t"), None);
     assert_eq!(label(b"\x1b[5n"), None);
