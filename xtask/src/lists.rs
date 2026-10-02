@@ -11,6 +11,7 @@
 use crate::fsutil::{base_ref, git_show, resolves};
 use anyhow::{bail, Context, Result};
 use botster_core_contract::prelude::Feature;
+use botster_core_testkit::status;
 use botster_worker_core::{WORKER_FEATURES_BY_PROTOCOL, WORKER_PROTOCOL};
 use std::collections::BTreeSet;
 use std::path::Path;
@@ -18,6 +19,10 @@ use std::path::Path;
 const LEDGER_FILE: &str = "conformance/core-ledger-ids.txt";
 const PENDING_FILE: &str = "conformance/core-pending.txt";
 const DEFERRED_FILE: &str = "conformance/core-deferred.toml";
+/// Verbatim copies of the contracts' status files at the pinned tag (`conformance/deferred.txt`, `conformance/withdrawn.txt`).
+/// The harness reads the copies; `check` fails when a copy differs from the pinned source.
+pub const CONTRACTS_DEFERRED_COPY: &str = "conformance/contracts-deferred.txt";
+pub const CONTRACTS_WITHDRAWN_COPY: &str = "conformance/contracts-withdrawn.txt";
 
 /// The deferred set that Core A6-2 enumerates, with the start condition of each id. A later accepted text replaces this data
 /// in the commit that moves the contracts pin (plan section 5, rule 3). Source: A6-2 of
@@ -110,6 +115,12 @@ pub struct Input<'a> {
     /// The worker protocol number `T` and the features of each protocol.
     pub worker_protocol: u8,
     pub features: &'a [(u8, &'a [Feature])],
+    /// The Core ids that the contracts withdrew (`withdrawn.txt`): reported as withdrawn, never pending.
+    pub withdrawn: &'a BTreeSet<String>,
+    /// The whole-id Core deferrals of the contracts' `deferred.txt`. `core-deferred.toml` must list exactly these.
+    pub contract_deferred: &'a BTreeSet<String>,
+    /// The ids of the `not-applicable` lines of `deferred.txt`: cases of ACTIVE ids.
+    pub not_applicable: &'a [String],
     /// The base ref's files. `None`: the base has no pending file (initialization).
     pub base: Option<Base<'a>>,
     /// The contracts tag moved against the base.
@@ -139,6 +150,44 @@ pub fn check(input: &Input<'_>) -> Vec<String> {
         problems.push(format!(
             "{PENDING_FILE}: {id} is not a Core id of the ledger"
         ));
+    }
+    for id in input.withdrawn {
+        if !input.ledger.contains(id) {
+            problems.push(format!(
+                "withdrawn.txt: {id} is not a Core id of the ledger"
+            ));
+        }
+        if input.pending.contains(id) {
+            problems.push(format!(
+                "{PENDING_FILE}: {id} is withdrawn; a withdrawn id is never pending"
+            ));
+        }
+        if deferred_ids.contains(id) {
+            problems.push(format!("{id} is both withdrawn and deferred"));
+        }
+    }
+    // The deferred file is the whole-id Core deferrals of the contracts' `deferred.txt`, no more and no fewer.
+    for id in deferred_ids.difference(input.contract_deferred) {
+        problems.push(format!(
+            "{DEFERRED_FILE}: {id} is not deferred by the contracts' deferred.txt"
+        ));
+    }
+    for id in input.contract_deferred.difference(&deferred_ids) {
+        problems.push(format!(
+            "{DEFERRED_FILE}: {id} is deferred by the contracts' deferred.txt and missing here"
+        ));
+    }
+    // A `not-applicable` line names a case of an id that stays active: it is a ledger id, and neither deferred nor withdrawn.
+    for id in input.not_applicable {
+        if !input.ledger.contains(id) {
+            problems.push(format!(
+                "deferred.txt: the not-applicable id {id} is not a Core id of the ledger"
+            ));
+        } else if input.withdrawn.contains(id) || input.contract_deferred.contains(id) {
+            problems.push(format!(
+                "deferred.txt: the not-applicable id {id} must stay active, and it is withdrawn or deferred"
+            ));
+        }
     }
     for id in &deferred_ids {
         if !input.ledger.contains(id) {
@@ -199,9 +248,12 @@ pub fn check(input: &Input<'_>) -> Vec<String> {
         None => {
             // Initialization: nothing has a passing proof yet, so every ledger id is pending or deferred.
             for id in input.ledger {
-                if !input.pending.contains(id) && !deferred_ids.contains(id) {
+                if !input.pending.contains(id)
+                    && !deferred_ids.contains(id)
+                    && !input.withdrawn.contains(id)
+                {
                     problems.push(format!(
-                        "initialization: {id} has no passing proof and is neither pending nor deferred"
+                        "initialization: {id} has no passing proof and is neither pending, deferred nor withdrawn"
                     ));
                 }
             }
@@ -263,6 +315,33 @@ pub fn command(root: &Path, args: &[String]) -> Result<()> {
         std::fs::read_to_string(root.join(path)).with_context(|| format!("read {path}"))
     };
     let ledger = ledger_of(&meta.contracts_root)?;
+    let source = status_sources(&meta.contracts_root)?;
+    let (contract_deferred, cases) =
+        status::parse_deferred(&source.deferred).map_err(anyhow::Error::msg)?;
+    let withdrawn: BTreeSet<String> = status::parse_withdrawn(&source.withdrawn)
+        .map_err(anyhow::Error::msg)?
+        .into_iter()
+        .map(|w| w.id)
+        .collect();
+    // `deferred.txt` is shared by every contract: this repo holds the Core ids.
+    let contract_deferred: BTreeSet<String> = contract_deferred
+        .into_iter()
+        .map(|d| d.id)
+        .filter(|id| ledger.contains(id))
+        .collect();
+    let not_applicable: Vec<String> = cases.into_iter().map(|c| c.id).collect();
+    let mut problems: Vec<String> = copy_problems(&[
+        (
+            CONTRACTS_DEFERRED_COPY,
+            &read(CONTRACTS_DEFERRED_COPY)?,
+            &source.deferred,
+        ),
+        (
+            CONTRACTS_WITHDRAWN_COPY,
+            &read(CONTRACTS_WITHDRAWN_COPY)?,
+            &source.withdrawn,
+        ),
+    ]);
     let ledger_file = parse_ids(&read(LEDGER_FILE)?).map_err(anyhow::Error::msg)?;
     let pending = parse_ids(&read(PENDING_FILE)?).map_err(anyhow::Error::msg)?;
     let deferred = parse_deferred(&read(DEFERRED_FILE)?)?;
@@ -304,25 +383,32 @@ pub fn command(root: &Path, args: &[String]) -> Result<()> {
     });
     let tag_moved = pin_moved(base_cargo.as_deref(), &cargo);
 
-    let problems = check(&Input {
+    problems.extend(check(&Input {
         ledger: &ledger,
         ledger_file: &ledger_file,
         pending: &pending,
         deferred: &deferred,
+        withdrawn: &withdrawn,
+        contract_deferred: &contract_deferred,
+        not_applicable: &not_applicable,
         a6_in_manifest: manifest.contains(A6_MANIFEST_MARKER),
         worker_protocol: WORKER_PROTOCOL,
         features: WORKER_FEATURES_BY_PROTOCOL,
         base,
         tag_moved,
-    });
+    }));
     report(&problems)?;
     println!(
-        "lists: ok. ledger {} ids, pending {}, deferred {}, to run {}",
+        "lists: ok. ledger {} ids, pending {}, deferred {}, withdrawn {}, to run {}",
         ledger.len(),
         pending.len(),
         deferred.len(),
-        ledger.len() - pending.len() - deferred.len()
+        withdrawn.len(),
+        ledger.len() - pending.len() - deferred.len() - withdrawn.len()
     );
+    for case in &not_applicable {
+        println!("lists: not-applicable case of the active id {case}");
+    }
     Ok(())
 }
 
@@ -349,6 +435,34 @@ fn ledger_text(ledger: &BTreeSet<String>) -> String {
     ledger.iter().map(|id| format!("{id}\n")).collect()
 }
 
+/// The text of the contracts' status files at the pinned tag.
+pub struct StatusSources {
+    pub deferred: String,
+    pub withdrawn: String,
+}
+
+pub fn status_sources(contracts_root: &Path) -> Result<StatusSources> {
+    let read = |name: &str| {
+        std::fs::read_to_string(contracts_root.join("conformance").join(name))
+            .with_context(|| format!("read the pinned conformance/{name}"))
+    };
+    Ok(StatusSources {
+        deferred: read("deferred.txt")?,
+        withdrawn: read("withdrawn.txt")?,
+    })
+}
+
+/// One problem for each checked-in copy that is not the pinned source: `(path, copy, source)`.
+fn copy_problems(copies: &[(&str, &str, &str)]) -> Vec<String> {
+    copies
+        .iter()
+        .filter(|(_, copy, source)| copy != source)
+        .map(|(path, ..)| {
+            format!("{path} is not the pinned file of botster-contracts; run `cargo xtask ledger-ids --write`")
+        })
+        .collect()
+}
+
 /// The Core ids of the ledger of the pinned contracts checkout.
 pub fn ledger_of(contracts_root: &Path) -> Result<BTreeSet<String>> {
     let text = std::fs::read_to_string(contracts_root.join("conformance/ledger.json"))
@@ -365,16 +479,31 @@ pub fn ledger_ids_command(root: &Path, args: &[String]) -> Result<()> {
     };
     let meta = crate::fsutil::metadata(root)?;
     let ledger = ledger_of(&meta.contracts_root)?;
-    let text = ledger_text(&ledger);
-    let path = root.join(LEDGER_FILE);
+    let source = status_sources(&meta.contracts_root)?;
+    let files = [
+        (LEDGER_FILE, ledger_text(&ledger)),
+        (CONTRACTS_DEFERRED_COPY, source.deferred),
+        (CONTRACTS_WITHDRAWN_COPY, source.withdrawn),
+    ];
     if write {
-        std::fs::write(&path, &text)?;
-        println!("ledger-ids: wrote {} ids", ledger.len());
-    } else if std::fs::read_to_string(&path).ok().as_deref() != Some(text.as_str()) {
-        bail!("{LEDGER_FILE} is not the pinned ledger; run `cargo xtask ledger-ids --write`");
-    } else {
-        println!("ledger-ids: {} ids match the pinned ledger", ledger.len());
+        for (path, text) in &files {
+            std::fs::write(root.join(path), text)?;
+        }
+        println!(
+            "ledger-ids: wrote {} ids and the two status files",
+            ledger.len()
+        );
+        return Ok(());
     }
+    for (path, text) in &files {
+        if std::fs::read_to_string(root.join(path)).ok().as_deref() != Some(text.as_str()) {
+            bail!("{path} is not the pinned file; run `cargo xtask ledger-ids --write`");
+        }
+    }
+    println!(
+        "ledger-ids: {} ids and the status files match the pin",
+        ledger.len()
+    );
     Ok(())
 }
 
@@ -415,6 +544,9 @@ mod tests {
         ledger: BTreeSet<String>,
         pending: BTreeSet<String>,
         deferred: Vec<Deferred>,
+        withdrawn: BTreeSet<String>,
+        contract_deferred: BTreeSet<String>,
+        not_applicable: Vec<String>,
     }
 
     /// Ledger `a b c` plus the two deferred ids; `a b c` pending; both deferred ids deferred.
@@ -426,6 +558,9 @@ mod tests {
                 entry(D1, "worker_protocol >= 2"),
                 entry(D2, "new_worker_feature_over_previous"),
             ],
+            withdrawn: BTreeSet::new(),
+            contract_deferred: set(&[D1, D2]),
+            not_applicable: Vec::new(),
         }
     }
 
@@ -435,6 +570,9 @@ mod tests {
             ledger_file: &w.ledger,
             pending: &w.pending,
             deferred: &w.deferred,
+            withdrawn: &w.withdrawn,
+            contract_deferred: &w.contract_deferred,
+            not_applicable: &w.not_applicable,
             a6_in_manifest: true,
             worker_protocol: 1,
             features: NO_FEATURES,
@@ -494,6 +632,7 @@ mod tests {
         assert!(problems.iter().any(|p| p.contains("must be empty")));
         let mut none = world();
         none.deferred.clear();
+        none.contract_deferred.clear();
         none.pending.insert(D1.into());
         none.pending.insert(D2.into());
         assert_eq!(
@@ -696,5 +835,86 @@ mod tests {
             "[workspace.dependencies]\nbotster-core-contract = { git = \"u\", rev = \"abc\" }\n";
         assert_eq!(contracts_tag(tag), "v1");
         assert_eq!(contracts_tag(rev), "abc");
+    }
+
+    #[test]
+    fn a_withdrawn_id_is_in_the_ledger_and_never_pending_or_deferred() {
+        let mut w = world();
+        w.ledger.insert("w".into());
+        w.withdrawn.insert("w".into());
+        assert!(
+            run(&w, |_| {}).is_empty(),
+            "withdrawn needs no proof, even at initialization"
+        );
+        w.pending.insert("w".into());
+        assert!(run(&w, |_| {})
+            .iter()
+            .any(|p| p.contains("w is withdrawn") && p.contains("never pending")));
+        w.pending.remove("w");
+        w.deferred.push(entry("w", "worker_protocol >= 2"));
+        w.contract_deferred.insert("w".into());
+        assert!(run(&w, |_| {})
+            .iter()
+            .any(|p| p.contains("w is both withdrawn and deferred")));
+        let mut outside = world();
+        outside.withdrawn.insert("zz".into());
+        assert!(run(&outside, |_| {})
+            .iter()
+            .any(|p| p.contains("withdrawn.txt: zz is not a Core id")));
+    }
+
+    #[test]
+    fn the_deferred_file_is_exactly_the_contracts_whole_id_deferrals() {
+        let mut extra = world();
+        extra.contract_deferred.remove(D2);
+        let problems = run(&extra, |_| {});
+        assert!(
+            problems
+                .iter()
+                .any(|p| p.contains(D2) && p.contains("not deferred by the contracts")),
+            "{problems:?}"
+        );
+        let mut missing = world();
+        missing.deferred.pop();
+        missing.pending.insert(D2.into());
+        let problems = run(&missing, |_| {});
+        assert!(
+            problems
+                .iter()
+                .any(|p| p.contains(D2) && p.contains("missing here")),
+            "{problems:?}"
+        );
+    }
+
+    /// A `not-applicable` line is a case of an active id: the id is a ledger id, and it is not withdrawn or deferred.
+    #[test]
+    fn a_not_applicable_id_stays_active() {
+        let mut w = world();
+        w.not_applicable = vec!["a".into()];
+        assert!(run(&w, |_| {}).is_empty());
+        w.not_applicable = vec!["nope".into()];
+        assert!(run(&w, |_| {})
+            .iter()
+            .any(|p| p.contains("nope") && p.contains("not a Core id")));
+        w.not_applicable = vec![D1.into()];
+        assert!(run(&w, |_| {})
+            .iter()
+            .any(|p| p.contains("must stay active")));
+        let mut withdrawn = world();
+        withdrawn.withdrawn.insert("a".into());
+        withdrawn.pending.remove("a");
+        withdrawn.not_applicable = vec!["a".into()];
+        assert!(run(&withdrawn, |_| {})
+            .iter()
+            .any(|p| p.contains("must stay active")));
+    }
+
+    #[test]
+    fn a_copy_that_is_not_the_pinned_file_is_a_problem() {
+        let ok = copy_problems(&[("x", "same", "same"), ("y", "", "")]);
+        assert!(ok.is_empty());
+        let bad = copy_problems(&[("x", "same", "same"), ("y", "old", "new")]);
+        assert_eq!(bad.len(), 1);
+        assert!(bad[0].starts_with("y is not the pinned file"));
     }
 }
