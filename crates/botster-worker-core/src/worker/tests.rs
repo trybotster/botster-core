@@ -923,8 +923,8 @@ fn a_write_is_one_transaction_across_short_writes() {
     assert_eq!(outcome(&result), (WriteOutcome::Written, 5, 5));
 }
 
-/// AM-2: the next write starts only after the previous one completed; host writes are admitted in their order, and each
-/// admission advances the host's revision and reports it (IN-10, IN-4).
+/// AM-2: the next write is offered only after the previous one completed; host writes go in their order; each write's start
+/// (its first byte on the PTY) advances the host's revision and reports it (IN-10, IN-4).
 #[test]
 fn writes_are_admitted_one_at_a_time_in_order() {
     let mut w = World::running();
@@ -938,18 +938,49 @@ fn writes_are_admitted_one_at_a_time_in_order() {
     let actions = w.feed(Input::PtyWritten(Ok(2)));
     assert_eq!(pty_writes(&actions), [b"cd".to_vec()]);
     let reports = w.reports(&actions);
+    assert_eq!(
+        reports[0],
+        WorkerMsg::Observed {
+            observation: Observation::HostInput {
+                input_rev: InputRev(1)
+            }
+        }
+    );
     assert!(
-        matches!(reports[0], WorkerMsg::Done { req: 1, .. }),
+        matches!(reports[1], WorkerMsg::Done { req: 1, .. }),
         "{reports:?}"
     );
+    let actions = w.feed(Input::PtyWritten(Ok(2)));
     assert_eq!(
-        reports[1],
+        w.reports(&actions)[0],
         WorkerMsg::Observed {
             observation: Observation::HostInput {
                 input_rev: InputRev(2)
             }
         }
     );
+}
+
+/// IN-9, IN-10: a write that the PTY has not taken a byte of has not started: when the PTY takes bytes again, its decisions
+/// are made again with the state now (here a guard that a later output made stale).
+#[test]
+fn a_write_not_yet_started_is_decided_again_at_its_start() {
+    let mut w = World::running();
+    let guard = Guard {
+        input: None,
+        model_rev: Some(ModelRev(0)),
+    };
+    w.send(&write(1, b"a", Some(guard)));
+    let actions = w.feed(Input::PtyWritten(Ok(0)));
+    assert!(input_result(&mut w, &actions, 1).is_none(), "it waits");
+    w.feed(Input::PtyOutput(b"x".to_vec()));
+    let actions = w.feed(Input::PtyWritable);
+    let result = input_result(&mut w, &actions, 1).expect("decided again: stale");
+    assert_eq!(
+        outcome(&result),
+        (WriteOutcome::NotWritten(NotWrittenReason::Stale), 0, 0)
+    );
+    assert!(pty_writes(&actions).is_empty());
 }
 
 /// The PTY takes nothing now: the rest waits for `PtyWritable`, with no spin.
