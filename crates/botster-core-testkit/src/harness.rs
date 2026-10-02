@@ -271,4 +271,30 @@ mod tests {
         );
         assert_eq!(nth, Ok(Value::Null));
     }
+
+    /// `check_crates` is answered from the workspace: this testkit is in no facade, and no listed crate depends on it. Another
+    /// statement is not answered yet, and that is never a pass.
+    #[test]
+    fn the_harness_answers_check_crates_and_nothing_else_yet() {
+        let mut harness = TestkitHarness::new(0);
+        let spec = json!({"crate": "botster-core-testkit", "not_in": ["botster_core::prelude"], "no_dependency_of": ["botster-core-ffi"]});
+        assert_eq!(
+            harness.statement("check_crates", &spec),
+            Ok(json!({"found_in": [], "depended_on_by": []}))
+        );
+        let missing = harness.statement("check_crates", &json!({}));
+        assert!(matches!(missing, Err(ControlError::Bad(_))));
+        for kind in [
+            "run_suite",
+            "error_codes_reachable",
+            "run_deterministic",
+            "other",
+        ] {
+            assert_eq!(
+                harness.statement(kind, &spec),
+                Err(ControlError::Unsupported),
+                "{kind}"
+            );
+        }
+    }
 }

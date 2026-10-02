@@ -39,4 +39,8 @@ exclude_re = [
     # test_budget: starts nextest in its own process group, tracks and kills its processes, and prints. The decisions are mutation-tested:
     # `exit_failures`, `budget_failures`, `doublings`, `parse_junit`, `parse_options`, `parse_duration`, `selection`, `tier_env`.
     'xtask/src/test_budget\.rs:\d+:\d+: (replace (run_nextest|clean_up|kill|command|analyse)( ->| with)|.* in (run_nextest|clean_up|kill|command|analyse)$)',
+    # botster-core-testkit process_group: the guard of a real process group (BUILD.md testing rule 10). Its behavior is proved by the
+    # slow-tier test `crates/botster-core-testkit/tests/slow_process_group.rs` (real processes, which the default tier of this run
+    # does not start). A replaced body is seen there: the group survives, a descendant outlives the guard, or the wait returns early.
+    'crates/botster-core-testkit/src/process_group\.rs:\d+:\d+: ',
 ]

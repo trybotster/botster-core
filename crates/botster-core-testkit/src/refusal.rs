@@ -952,6 +952,7 @@ mod tests {
     /// conformance run.
     struct Behind {
         reached: Arc<Mutex<Vec<String>>>,
+        deadline: Instant,
     }
 
     impl Behind {
@@ -980,7 +981,7 @@ mod tests {
             unreachable!("not used")
         }
         fn next_deadline(&self) -> Option<Instant> {
-            None
+            Some(self.deadline)
         }
         fn cancel(&mut self, _op: OpId) -> CancelResult {
             self.note("cancel");
@@ -991,15 +992,17 @@ mod tests {
             Err(CoreError::new(ErrorCode::UnknownSession, "behind"))
         }
         fn list(&self) -> Vec<SessionRecord> {
+            self.note("list");
             Vec::new()
         }
         fn status(&self) -> Status {
+            self.note("status");
             Status {
                 sessions: Vec::new(),
             }
         }
         fn diagnostics(&self) -> Value {
-            json!({})
+            json!({"behind": true})
         }
         fn terminal_state(&self, _id: &SessionId) -> Result<TerminalState, CoreError> {
             self.note("terminal_state");
@@ -1009,13 +1012,18 @@ mod tests {
             self.note("read_page");
             Err(CoreError::new(ErrorCode::UnknownCapture, "behind"))
         }
-        fn release(&mut self, _capture: CaptureId) {}
-        fn release_owner(&mut self, _client: &ClientId) {}
+        fn release(&mut self, capture: CaptureId) {
+            self.note(&format!("release {}", capture.0));
+        }
+        fn release_owner(&mut self, client: &ClientId) {
+            self.note(&format!("release_owner {}", client.0));
+        }
         fn snapshot_formats(&self, _session: &SessionId) -> Result<Vec<SnapshotFormat>, CoreError> {
             self.note("snapshot_formats");
             Ok(Vec::new())
         }
         fn shadow_answerable_kinds(&self) -> Vec<botster_route_codec::prelude::QueryKind> {
+            self.note("shadow_answerable_kinds");
             Vec::new()
         }
         fn attach(
@@ -1065,16 +1073,22 @@ mod tests {
             Ok(Vec::new())
         }
         fn features(&self) -> Features {
-            unreachable!("not used")
+            Features {
+                names: BTreeSet::new(),
+                service_preamble_versions: vec![9],
+            }
         }
         fn limits(&self) -> CoreLimits {
-            CoreLimits::default()
+            CoreLimits {
+                max_sessions: 7,
+                ..CoreLimits::default()
+            }
         }
         fn worker_protocol(&self) -> u8 {
             1
         }
         fn adoptable_worker_protocols(&self) -> BTreeSet<u8> {
-            BTreeSet::from([1])
+            BTreeSet::from([7])
         }
         fn worker_protocol_compatibility(&self, _protocol: Option<u8>) -> WorkerCompatibility {
             WorkerCompatibility::Compatible
@@ -1087,11 +1101,17 @@ mod tests {
         }
     }
 
+    thread_local! {
+        /// One instant for the test thread, so the layer's `next_deadline` can be compared with what the Core returned.
+        static DEADLINE: Instant = Instant::now();
+    }
+
     fn layer() -> (RefusalLayer, RefusalHandle, Arc<Mutex<Vec<String>>>) {
         let reached = Arc::new(Mutex::new(Vec::new()));
         let handle = RefusalHandle::new();
         let behind = Behind {
             reached: Arc::clone(&reached),
+            deadline: DEADLINE.with(|d| *d),
         };
         (
             RefusalLayer::new(Box::new(behind), handle.clone()),
@@ -1422,5 +1442,32 @@ mod tests {
             .arm("Start", usize::MAX - 1, &json!("WrongState"))
             .unwrap();
         assert!(!script.is_empty());
+    }
+
+    /// A call without a row is passed through, and so is its result, for every such method: nothing is replaced by a default.
+    #[test]
+    fn every_call_without_a_row_passes_through_with_its_result() {
+        let (mut layer, handle, reached) = layer();
+        assert_eq!(layer.next_deadline(), Some(DEADLINE.with(|d| *d)));
+        assert_eq!(layer.diagnostics(), json!({"behind": true}));
+        assert_eq!(layer.features().service_preamble_versions, vec![9]);
+        assert_eq!(layer.limits().max_sessions, 7);
+        assert_eq!(layer.adoptable_worker_protocols(), BTreeSet::from([7]));
+        assert!(layer.list().is_empty());
+        assert!(layer.status().sessions.is_empty());
+        assert!(layer.shadow_answerable_kinds().is_empty());
+        layer.release(CaptureId(5));
+        layer.release_owner(&ClientId("c9".into()));
+        assert_eq!(
+            *reached.lock().unwrap(),
+            [
+                "list",
+                "status",
+                "shadow_answerable_kinds",
+                "release 5",
+                "release_owner c9"
+            ]
+        );
+        assert!(handle.is_empty());
     }
 }
