@@ -412,4 +412,55 @@ mod tests {
         );
         assert!(!never.ignores_sigterm());
     }
+
+    /// The text of each error names the step or the script fault.
+    #[test]
+    fn an_error_names_its_cause() {
+        let real = ProgramError::RealOnly {
+            path: "program[2]".into(),
+            step: "fork_child",
+        };
+        assert_eq!(
+            real.to_string(),
+            "program[2]: `fork_child` needs a real process"
+        );
+        let sched = SchedulerHandle::with_seed(0);
+        let bad: Script =
+            serde_json::from_value(json!({"program": [{"print": {"bytes_hex": "zz"}}]})).unwrap();
+        let text = ScriptedProgram::new(&bad, true, &sched)
+            .unwrap_err()
+            .to_string();
+        assert!(text.starts_with("program[0].bytes_hex: "), "{text}");
+    }
+
+    /// The window size is the last size that the worker set.
+    #[test]
+    fn the_window_size_is_kept() {
+        let mut p = program(json!({"program": [{"hold": {}}]}), true, 0);
+        assert_eq!(p.window_size(), None);
+        let size = WindowSize {
+            cols: 80,
+            rows: 24,
+            width_px: 0,
+            height_px: 0,
+        };
+        p.resize(size).unwrap();
+        assert_eq!(p.window_size(), Some(size));
+    }
+
+    /// The program is readable when output waits, and when it has ended (the end of the output); it is not readable while it
+    /// holds with nothing to read.
+    #[test]
+    fn readiness_is_output_or_the_end() {
+        let mut holds = program(json!({"program": [{"hold": {}}]}), true, 0);
+        assert!(!holds.is_readable());
+        let mut output = program(
+            json!({"program": [{"print": {"bytes_hex": "61"}}, {"hold": {}}]}),
+            true,
+            0,
+        );
+        assert!(output.is_readable());
+        let mut ended = program(json!({"program": [{"exit": {"code": 0}}]}), true, 0);
+        assert!(ended.is_readable());
+    }
 }
