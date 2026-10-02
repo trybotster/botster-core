@@ -1,12 +1,12 @@
 # P2 libghostty review
 
-Reviewed head: `89afa037b198cb26173ff520245adb926b6ca21e`.
+Reviewed head: `d2cce61b19d724ddc657f17fa8dee26dff409997`.
 Previous audit head: `fd1471eabca0adb344c6027b8995e1151aa8f8a8`.
 Scope: the written audit and fork patches 0–3 only. This verdict does not approve the full fork series, binding, or pin change.
 
-VERDICT: NOT CLEAN (patch 4 and its audit coverage: 2 open findings, P18–P19).
-Reviewed fork head: `50569efc8806ba3e5411ca5e556a7168a1c82259`.
-Written audit: prior CLEAN at `89afa037b198cb26173ff520245adb926b6ca21e`; P19 now requires a legacy Shift GAP. F1–F12 remain closed.
+VERDICT: NOT CLEAN (patch 4: 1 open finding, P18).
+Reviewed fork head: `22035f7c2216b84caa7cf8e763affaca19d1ab8e`.
+Written audit: CLEAN at `d2cce61b19d724ddc657f17fa8dee26dff409997`; G12 records the legacy Shift GAP. F1–F12 and P19 are closed.
 
 The review uses manifest final13, BUILD.md at `2f2996ef0f016a1fefc6879e74deaef033383b66`, and plan pin `stage1-plan.a24efe7e`.
 The plan hash matches its recorded SHA-256.
@@ -739,7 +739,7 @@ Do not copy old expected-byte tests into new tests.
 
 ## P19 — HIGH — Legacy Shift encoding is an unresolved library GAP
 
-Status: OPEN.
+Status: CLOSED at fork `22035f7c2216b84caa7cf8e763affaca19d1ab8e` and audit `d2cce61b19d724ddc657f17fa8dee26dff409997`. The original finding follows for the record.
 Core 5.1A rule 1 defines Shift with no text: use supplied `shifted_key`, else uppercase an ASCII letter, else typed zero `produced_text`.
 The implementer proposes leaving this rule to P3 mapping.
 BUILD.md assigns terminal input encoding to libghostty and forbids encoding outside it.
@@ -759,5 +759,35 @@ Add native tests for supplied Shift characters, ASCII fallback, and the unsuppor
 Use native encoder oracles or semantic properties rather than literal expected terminal bytes.
 
 VERDICT: NOT CLEAN (2 open findings, P18–P19).
+Patches 0–3 retain their scoped CLEAN verdicts.
+The full fork series, binding code, and Ghostty pin change remain unapproved.
+
+
+## Patch 4 delta review — P19 closed; P18 remains open
+
+Reviewed fork delta: `22035f7c2216b84caa7cf8e763affaca19d1ab8e`.
+Reviewed audit delta: `d2cce61b19d724ddc657f17fa8dee26dff409997`.
+The reviewer read both complete deltas. All Ghostty reads used `git show`.
+The reviewer ran no tests.
+
+P19 closes. The audit adds G12 and a dedicated legacy printable-key row.
+The native legacy encoder now handles Shift with no text for events with supplied alternates.
+It uses the supplied shifted character, then ASCII uppercase fallback, then zero for the no-layout-guess case.
+Ctrl and Alt retain the base-character path. The derived Zig event mode stays unchanged.
+The generated text re-enters the native legacy encoder, so Rust does not encode this rule.
+The tests cover supplied characters, ASCII fallback, unsupported characters, and unchanged Alt and derived behavior.
+
+The new kitty tests now use the existing structured `KittySequence.encode` path as their oracle.
+The preservation test also uses the actual C0-, DEL-, and C1-containing text.
+Those parts of P18 close.
+
+**P18 remains OPEN:** the new test `legacy: shift with no text keeps the alt and derive behavior` still uses a literal expected byte array.
+It compares the output with `&[_]u8{ 0x1B, 'a' }`, which constructs the expected Alt encoding by hand.
+Required change: compare with a real legacy encoder path for the unchanged base-character case.
+For example, encode the corresponding derived event with the same modes and compare the two native results.
+Keep the supplied shifted alternate on the actual event so the test checks that Alt retains the base-character rule.
+
+VERDICT: NOT CLEAN (1 open finding, P18).
+The written audit is CLEAN on the exact audit head above.
 Patches 0–3 retain their scoped CLEAN verdicts.
 The full fork series, binding code, and Ghostty pin change remain unapproved.
