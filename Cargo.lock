@@ -323,8 +323,12 @@ dependencies = [
  "botster-route-codec",
  "rand_chacha",
  "rand_core",
+ "rustix",
  "schemars",
  "serde_json",
+ "sha2",
+ "tempfile",
+ "toml",
 ]
 
 [[package]]
