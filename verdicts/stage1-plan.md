@@ -433,6 +433,7 @@ At protocol 2, make deferral invalid and require the pinned protocol-1 worker pr
 Update sections 1, 4.2b, and 5 so that their acceptance rules agree.
 
 VERDICT: NOT CLEAN (1 open)
+
 ## Round 5 — revision 5
 
 Plan: `fa3b3abf4dfcdb8c76f3de086b5fc3203fc733d9`, `docs/stage1-plan.md`.
@@ -548,5 +549,44 @@ Apply `CARGO_BUILD_JOBS=4` to every interim local gate and local build.
 Apply the required four-thread limit to every nextest invocation in those gates.
 Make nested build and test commands inherit the limits, including mutation commands.
 Record these limits in section 8's CI and interim-gate rules.
+
+VERDICT: NOT CLEAN (1 open)
+
+## Round 8 — revision 8
+
+Plan: `8c491c096a127405d8ff9438a39a0f4218a1fd41`, `docs/stage1-plan.md`.
+Pin: `stage1-plan.0ad8f09e.md`.
+Verified SHA-256: `0ad8f09e63511b43123030bf3bbbd8aa8a62b0492c542a0a48ed5a0656d49929`.
+Contracts pin: `2f2996ef0f016a1fefc6879e74deaef033383b66`, manifest final13.
+
+I reviewed the complete delta and F11.
+The section 0 history correction is accurate.
+The steward rulings and tooling document did not change between the two contract pins.
+F1 through F10 remain CLOSED.
+I ran no product tests.
+
+### F11 — MINOR — Set the limits before Cargo starts the xtask
+
+Status: OPEN, narrowed from MAJOR.
+Plan section: 8.
+
+The revision limits child builds, nextest, mutation work, and fuzz work.
+This closes the missing child-command limits.
+The gate launcher still needs the limits before it starts Cargo.
+
+Plan evidence:
+> "cargo xtask ci sets `CARGO_BUILD_JOBS=4` and `NEXTEST_TEST_THREADS=4` in its own environment before it starts any step".
+
+Source evidence at the contracts pin:
+- `.cargo/config.toml` defines `xtask = "run --quiet --package xtask --"`.
+- `docs/BUILD.md`, Resources, requires the limit on "every gate and local build".
+
+With this Cargo alias, Cargo can build the xtask executable before the executable sets its environment.
+An environment change inside the executable cannot limit that earlier build.
+
+Required change: set both variables in the gate launch environment before invoking `cargo xtask ci`.
+For example, the command run through `botsterq` can start with `env CARGO_BUILD_JOBS=4 NEXTEST_TEST_THREADS=4 cargo xtask ci`.
+Keep the xtask's child-command enforcement and checks.
+Apply the same launch rule to focused commands that build an xtask.
 
 VERDICT: NOT CLEAN (1 open)
