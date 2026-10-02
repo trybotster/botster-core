@@ -662,3 +662,27 @@ It does not approve product code or establish Stage 1 acceptance.
 I ran no product tests.
 
 VERDICT: CLEAN
+
+## Round 12 — revision 12
+
+Plan: `0a8c80351746d01aaa79b994570c9506312766e9`, `docs/stage1-plan.md`.
+Pin: `stage1-plan.00f63f57.md`.
+Verified SHA-256: `00f63f578ceac79d952b72ccb17a8d263f297a09331d7fb6dcc911db1afce4d2`.
+Contracts tag: `contracts-v0.1.3`, commit `943d5b98df725c962bf67251e1834e606ef929c2`, manifest final16.
+
+I reviewed the complete delta against the new contracts tag.
+The plan matches its pin.
+The A7 and A8 hashes and manifest tags match their pinned sources.
+The plan states the A7 refusal rule and the SCTP chunk exception correctly.
+The A8 summary preserves the reservation until polling and the qualified snapshot refusal.
+The ownership generator reproduces every list with 622 unique ids, correct clauses, and correct transcript status.
+P1 owns 117 ids, P2 owns 6 ids, and P4a owns 148 ids.
+The probe implements ordered steps, `ignore_sigterm`, and a direct `signal_self` as section 4.3 states.
+The BUILD reporting summary and R-14 summary match their pinned sources.
+Section 8 preserves the concurrency caps and adds the exclusive heavy-job rule before the gate starts.
+F1 through F12 remain CLOSED. I found no new finding.
+This verdict covers the plan at the commit above.
+It does not approve product code or establish Stage 1 acceptance.
+I ran no product tests.
+
+VERDICT: CLEAN
