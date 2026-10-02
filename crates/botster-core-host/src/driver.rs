@@ -561,17 +561,15 @@ impl<E: HostEdges> CoreApi for HostDriver<E> {
         self.perform_counted(&mut budget);
         let mut deferred: BTreeSet<Work> = BTreeSet::new();
         loop {
+            // At the event bound only an effect without an event may run; every step with an event is carried (E3-1).
             let ready: Vec<Work> = self
                 .engine
                 .ready()
                 .into_iter()
                 .filter(|w| !deferred.contains(w))
+                .filter(|w| !budget.exhausted() || *w == Work::Deadline)
                 .collect();
             if ready.is_empty() {
-                break;
-            }
-            // A due deadline is processed in its pump, whatever the budget (TM-3, TM-5); other work stops at the bound.
-            if budget.exhausted() && ready[0] != Work::Deadline {
                 break;
             }
             let at = self
@@ -581,7 +579,7 @@ impl<E: HostEdges> CoreApi for HostDriver<E> {
                 .min(ready.len() - 1);
             let work = self.pick_session(&ready, at);
             // A5-2: the scheduler may defer the progress of an operation to a later pump. A deadline is never deferred.
-            if work != Work::Deadline
+            if !matches!(work, Work::Deadline | Work::Silent)
                 && self
                     .edges
                     .scheduler()
