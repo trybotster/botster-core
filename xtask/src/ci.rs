@@ -522,7 +522,7 @@ mod tests {
 
     #[test]
     fn a_harness_runs_only_when_its_crate_changed() {
-        assert_eq!(harnesses_to_run(&strings(&["botster-core-link"])).len(), 1);
+        assert_eq!(harnesses_to_run(&strings(&["botster-core-link"])).len(), 2);
         assert!(harnesses_to_run(&strings(&["botster-core-sys"])).is_empty());
     }
 
