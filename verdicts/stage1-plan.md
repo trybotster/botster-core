@@ -768,3 +768,25 @@ Make step 9 verify that the toolchain exists and run it without installation or 
 State how the Mac gate receives the same pinned nightly before its gate starts.
 
 VERDICT: NOT CLEAN (3 open)
+
+## Round 14 — revision 14
+
+Plan: `be14eb4c75681b7dda28875776d9d12e13cd5fd7`, `docs/stage1-plan.md`.
+Pin: `stage1-plan.834f6cef.md`.
+Verified SHA-256: `834f6cefe466b3123bae167fae1eb5902e529d0b317f07167c4cca86704ff3a9`.
+Contracts tag: `contracts-v0.1.6`, commit `caa029cfcc9c0bfd1f59a05d35d7c110ea99f3e0`, manifest final19.
+
+I reviewed the complete delta and F13 through F15.
+The plan matches its pin.
+F13 is CLOSED: only whole-id deferrals enter `core-deferred.toml`; the active DP-12 id runs and its excluded case is reported separately.
+The report now has five counts.
+F14 is CLOSED: both checks use the recorded base inside the gate, with one recorded resolution outside the gate.
+F15 is CLOSED: the nightly is provisioned before the gate; the fuzz step verifies it without installation or update requests.
+The pinned contracts image provisions `nightly-2026-09-30`, which matches the revised plan.
+F1 through F12 remain CLOSED. All fifteen findings are closed.
+This verdict covers the plan at the commit above.
+It does not approve product code or establish Stage 1 acceptance.
+The lead has assigned the remaining code changes to P6; this verdict does not verify those changes.
+I ran no product tests.
+
+VERDICT: CLEAN
