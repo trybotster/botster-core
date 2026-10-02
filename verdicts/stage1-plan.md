@@ -194,3 +194,129 @@ Let the testkit script completion timing at that interface.
 Keep the worker logic common to both runs.
 
 VERDICT: NOT CLEAN (8 open)
+
+## Round 2 — revision 2
+
+Plan: `cbcf022deba7303f44dbc4984da32c02a9819f07`, `docs/stage1-plan.md`.
+Pin: `stage1-plan.29cb43ee.md`.
+Verified SHA-256: `29cb43ee08de062612b039963e918dcc31a45c64024229622b1697bcd069e10c`.
+The binding source revision remains `9666bf5cbb9e7a46cd40d98810d473a9452541e9`.
+
+I reviewed the complete delta and all eight open findings.
+The ownership generator and lists did not change.
+I ran no product tests.
+
+### Closed findings
+
+- F1: CLOSED. Sections 2.3a and 2.3c define the entropy source, its consumers, deterministic test values, and the WebRTC audit.
+- F2: CLOSED. Section 4.2a separates refusals before admission from edge failures after admission. Both harnesses use the refusal layer.
+- F4: CLOSED. Section 4.2b removes the testkit-only exemption. Other non-passing results remain acceptance failures.
+- F7: CLOSED. Q1 preserves A2-8's condition and requires an audit of the terminfo entry.
+
+### F3 — MAJOR — Read interest must also follow epoch and queue state
+
+Status: OPEN, narrowed.
+Plan section: 2.5.
+
+The revision registers service listeners and sockets. This closes the missing-registration part of F3.
+The new registration rules still permit reads when the host cannot consume them.
+
+Plan evidence:
+> An authenticated lane socket has read interest "only while that lane's inbound queue has room for one more frame".
+> A worker or guardian control link has read interest "always, until the link ends".
+> "Work that is parked on mandatory-queue room (EV-5b) has no registration effect."
+
+Binding evidence, `core-contract-v1.17.md` at the binding revision:
+- SV-6: "Until then no payload frame is read or delivered." This condition holds until every lane authenticates and Core commits the epoch.
+- TM-6: work blocked on mandatory-queue room "is not runnable" and "keeps `more` false".
+- TM-6: "A due stall or state transition that is parked never makes `pump` return at once in a loop."
+
+An authenticated lane can still belong to an uncommitted epoch.
+Queue room alone does not permit Core to read that lane's payload.
+An always-readable control link also needs a bounded consumption rule when mandatory events cannot progress.
+Leaving blocked bytes readable can repeatedly wake a host that cannot consume them.
+
+Required change: enable payload reads only after Core commits the lane's epoch.
+Disable read interest on staged lanes after Core reads their preambles.
+Restore read interest when the epoch commits and inbound capacity permits a read.
+Define bounded control receive storage and disable read interest when Core cannot consume more input.
+Restore that interest when mandatory-queue room or another required condition permits progress.
+Apply the same readiness rules in the testkit.
+
+### F5 — MINOR — The fuzz command omits the required nightly toolchain
+
+Status: OPEN, narrowed from MAJOR.
+Plan section: 8, step 9.
+
+The revision adds mutation and fuzz checks to the gate. This closes their omission.
+The fuzz command does not match the cited tooling source.
+
+Plan evidence:
+> "cargo bolero test … -T 60s", "as tooling.md states".
+
+Source evidence, `docs/tooling.md` at the binding revision, Fuzzing row:
+> "cargo +nightly bolero test -T 60s".
+
+The workspace pins stable Rust `1.97.0` in section 0.
+The plan gives no nightly setup for the landing fuzzer.
+
+Required change: specify the nightly toolchain used by the Bolero landing fuzzer.
+Use that toolchain explicitly in the gate command.
+Keep the stable property-test path in the default tier.
+Record the nightly pin when P0 fixes the gate tool versions.
+
+### F6 — MINOR — The pending-list check rejects its first commit
+
+Status: OPEN, narrowed.
+Plan section: 5.
+
+The public runner functions support the proposed consumer harness.
+This closes the missing integration mechanism.
+The new monotonic check cannot bootstrap the pending file on the empty branch.
+
+Plan evidence:
+> "cargo xtask ci fails if it gains an id that the `origin/v1` head did not list."
+> "P0 builds this harness and the two files at M0, with every id pending."
+
+Source evidence:
+- The plan's section 0 pins `origin/v1` to `d91495eb8b6e4c730177c1d440d2d06ce762caa5`.
+- That commit has no `conformance/core-pending.txt`.
+- `docs/BUILD.md` at the binding revision requires an empty `v1` branch with "no old files".
+
+P0 necessarily adds pending ids that the initial `origin/v1` head did not list.
+The stated check therefore rejects P0's gate.
+
+Required change: define a one-time initialization rule when the base contains no pending file.
+Validate that initial list against the complete pinned Core ledger.
+Apply the shrink-only check after initialization.
+Keep missing-transcript ids visible and require zero pending ids of either kind at Stage 1 acceptance.
+
+### F8 — MAJOR — Remove must wait for file deletion completions
+
+Status: OPEN, narrowed.
+Plan section: 2.3b.
+
+The revision defines the file request interface, file thread, bounded writes, and scheduled testkit completions.
+This closes the blocking-I/O part of F8.
+The asynchronous cleanup rule still specifies request order instead of completion order.
+
+Plan evidence:
+> "the worker requests `Delete` for every file that its routes wrote, before it ends."
+
+Binding evidence, `core-contract-v1.17.md` at the binding revision:
+- LC-7, step 3: "the files that the session's routes uploaded (DP-5b) are deleted, and the worker ends".
+- LC-7: "`Completed{Remove}` is posted only after step 5".
+- DP-5b: files "are deleted at `Remove` (LC-7) at the latest".
+
+A queued deletion request does not establish that the file was deleted.
+The worker must retain the file edge until deletion completes.
+The host must not free the durable row or id before the required cleanup completes.
+
+Required change: wait for the required `Deleted` completions before the worker ends.
+Keep deletion progress in the teardown state machine.
+Do not advance LC-7 steps 4 and 5 until step 3 completes.
+State how pending creates and writes finish or cancel before deletion.
+Treat a deletion failure as unresolved teardown work or ask the steward if the required outcome is not specified.
+Do not report successful removal while an uploaded file remains.
+
+VERDICT: NOT CLEAN (4 open)
