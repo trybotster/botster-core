@@ -47,6 +47,8 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 struct ProcessCell {
     /// The worker-control signal (`GroupSignal::EndPayload`) was delivered and the worker has not taken it yet.
     end_payload: bool,
+    /// `SIGTERM` was delivered and the worker has not taken it yet (the worker's handler ends its payload, then itself).
+    terminate: bool,
     /// The worker process ended: by its own `Exit`, or by a signal of the `Process` edge.
     ended: bool,
 }
@@ -179,6 +181,7 @@ impl Spawner for WorkerSpawner {
             link,
             link_open: true,
             outbound: VecDeque::new(),
+            written: 0,
             payload: None,
             spawned: None,
             exit: None,
@@ -198,8 +201,8 @@ impl Spawner for WorkerSpawner {
         Ok(id)
     }
 
-    /// `EndPayload` is the worker-control signal: the worker takes it as an input. A `Term` or a `Kill` ends the worker
-    /// process (a process with no handler for them), and its exit is reported to the host.
+    /// `EndPayload` and `Term` reach the worker's handlers: the worker takes them as inputs. A `Kill` ends the worker
+    /// process, and its exit is reported to the host.
     fn signal_group(&mut self, identity: ProcessIdentity, signal: GroupSignal) {
         let mut processes = lock(&self.processes);
         match signal {
@@ -211,7 +214,14 @@ impl Spawner for WorkerSpawner {
                     }
                 }
             }
-            GroupSignal::Term => processes.end(identity, ExitStatus::Signal(15)),
+            GroupSignal::Term => {
+                if let Some(cell) = processes.cells.get(&identity) {
+                    let mut cell = lock(cell);
+                    if !cell.ended {
+                        cell.terminate = true;
+                    }
+                }
+            }
             GroupSignal::Kill => processes.end(identity, ExitStatus::Signal(9)),
         }
     }
@@ -225,6 +235,7 @@ impl Spawner for WorkerSpawner {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Ready {
     EndPayload,
+    Terminate,
     /// The link has bytes, or its peer closed it.
     Link,
     /// The link takes bytes and some of `outbound` waits for it.
@@ -238,7 +249,7 @@ enum Ready {
 /// The edges of one in-process worker: the control link, the scripted program on its PTY, and its process cell.
 ///
 /// `ready` reads no edge and writes none: it only reads flags, so the order of every effect is the scheduler's (plan 2.5
-/// rule 8). Each effect is one input: a read of the link or the PTY, a write of queued link bytes (`LinkFlushed`), a spawn's
+/// rule 8). Each effect is one input: a read of the link or the PTY, a write of queued link bytes (`LinkWritten`), a spawn's
 /// answer, an exit.
 struct WorkerEdges {
     id: ProcessIdentity,
@@ -250,6 +261,8 @@ struct WorkerEdges {
     link_open: bool,
     /// Bytes of `LinkSend` that the link has not taken yet, in order.
     outbound: VecDeque<u8>,
+    /// The bytes of `LinkSend` written so far (`Input::LinkWritten`).
+    written: u64,
     payload: Option<ScriptedProgram>,
     /// The answer to `SpawnPayload`, until the worker takes it.
     spawned: Option<Result<PayloadId, SpawnFailure>>,
@@ -298,8 +311,8 @@ impl WorkerEdges {
         })
     }
 
-    /// Writes what the link takes now. A link whose peer is gone ends: its bytes are lost (`LinkClosed`); a full link is
-    /// written later.
+    /// Writes what the link takes now and reports the bytes written in all (`LinkWritten`). A link whose peer is gone ends:
+    /// its bytes are lost (`LinkClosed`); a full link is written later.
     fn flush(&mut self) -> Input {
         while !self.outbound.is_empty() {
             let (head, _) = self.outbound.as_slices();
@@ -307,6 +320,7 @@ impl WorkerEdges {
                 Ok(0) => break,
                 Ok(n) => {
                     self.outbound.drain(..n);
+                    self.written += n as u64;
                 }
                 Err(e) if e.kind() == io::ErrorKind::WouldBlock => break,
                 Err(_) => {
@@ -317,8 +331,8 @@ impl WorkerEdges {
                 }
             }
         }
-        Input::LinkFlushed {
-            drained: self.outbound.is_empty(),
+        Input::LinkWritten {
+            total: self.written,
         }
     }
 }
@@ -332,6 +346,9 @@ impl Binding<Worker> for WorkerEdges {
         }
         if lock(&self.cell).end_payload {
             self.ready.push(Ready::EndPayload);
+        }
+        if lock(&self.cell).terminate {
+            self.ready.push(Ready::Terminate);
         }
         if self.link_open {
             // Plan 2.5: read interest always; write interest while bytes wait.
@@ -371,6 +388,10 @@ impl Binding<Worker> for WorkerEdges {
             Ready::EndPayload => {
                 lock(&self.cell).end_payload = false;
                 Input::EndPayload
+            }
+            Ready::Terminate => {
+                lock(&self.cell).terminate = false;
+                Input::Terminate
             }
             Ready::Link => {
                 let mut buf = vec![0u8; READ_CHUNK];
