@@ -228,13 +228,14 @@ impl CoreHarness for TestkitHarness {
                 start: self.start,
             },
             core_features(),
-            Some(Box::new(self.workers.spawner())),
+            Some(Box::new(self.workers.spawner(&spec.data_dir.0))),
         )?;
         let core = Box::new(TestkitCore::new(
             opened.driver,
             opened.wake,
             self.workers.clone(),
             &spec.handle,
+            &spec.data_dir.0,
         ));
         Ok(self.with_refusals(&spec.handle, core))
     }
@@ -479,5 +480,87 @@ mod tests {
                 "{kind}"
             );
         }
+    }
+
+    /// Starts session `s1` on `core` (Create, then Start), pumping until the Start completes. The program holds.
+    fn start_s1(core: &mut dyn CoreApi) {
+        let request = SpawnRequest {
+            argv: vec![
+                botster_probe_script::PROBE_BINARY.to_string(),
+                r#"{"program":[{"hold":{}}]}"#.to_string(),
+            ],
+            env: std::collections::BTreeMap::new(),
+            cwd: "/".into(),
+            size: Size {
+                rows: 24,
+                cols: 80,
+                cell_px: None,
+            },
+            labels: std::collections::BTreeMap::new(),
+            color_profile: None,
+            notification_policy: None,
+            size_policy: None,
+        };
+        let s1 = SessionId("s1".into());
+        core.begin(Op::Create {
+            session: s1.clone(),
+            request,
+        })
+        .unwrap();
+        let start = std::time::Instant::now();
+        let now = |i: u64| Now {
+            monotonic: start + std::time::Duration::from_millis(i),
+            unix: 1,
+        };
+        let mut started = None;
+        for i in 0..200 {
+            core.pump(now(i));
+            for event in core.poll_events(64) {
+                if matches!(event, Event::Completed { op, .. } if Some(op) == started) {
+                    return;
+                }
+                if matches!(&event, Event::Completed { .. }) && started.is_none() {
+                    started = Some(core.begin(Op::Start { id: s1.clone() }).unwrap());
+                }
+            }
+        }
+        panic!("s1 did not start");
+    }
+
+    /// F9: two data directories each mint the instance `1-1`; a program control on one handle reaches that handle's payload
+    /// only.
+    #[test]
+    fn program_controls_reach_the_handle_of_their_own_directory() {
+        let mut harness = TestkitHarness::new(0);
+        let mut a = harness.open(&spec()).expect("a Core");
+        let mut b = harness
+            .open(&OpenSpec {
+                handle: "h2".into(),
+                data_dir: DataDirRef("d2".into()),
+                ..spec()
+            })
+            .expect("a second Core");
+        start_s1(a.as_mut());
+        start_s1(b.as_mut());
+        harness
+            .control(
+                "h",
+                "pty_output",
+                &json!({"session": "s1", "bytes_hex": "6162"}),
+            )
+            .unwrap();
+        let unread = |harness: &mut TestkitHarness, handle| {
+            harness
+                .control(handle, "pty_output_unread", &json!({"session": "s1"}))
+                .unwrap()["bytes"]
+                .as_u64()
+                .unwrap()
+        };
+        assert_eq!(unread(&mut harness, "h"), 2);
+        assert_eq!(
+            unread(&mut harness, "h2"),
+            0,
+            "the other directory's payload is untouched"
+        );
     }
 }
