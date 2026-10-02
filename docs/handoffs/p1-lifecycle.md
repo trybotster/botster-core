@@ -103,7 +103,7 @@ Written at the pause ordered by the lead. A new agent can resume from this file.
 
 ## Ids
 
-- Owned ids: 124 (docs/stage1-clauses/p1-lifecycle.txt in the contracts repo). All stay in `conformance/core-pending.txt` until
+- Owned ids: 124 (`docs/stage1-clauses/p1-lifecycle.txt` in botster-core, branch `stage1/plan`, plan commit `27ffaa4006c3f979fdceb897cbde09de6c25c15e`). All stay in `conformance/core-pending.txt` until
   both harnesses pass them; no id has been removed from the pending list. P3 reports on the testkit (with its worker): 55 of its ids
   pass, including `in_7_lost_worker_ends_pending`, `am_2_next_write_waits_for_completion_or_partial_end`,
   `in_5_lane_bounds_refuse_at_begin`, `in_8_*`, `in_9_*`. The seven `e3_1_*` ids pass in P1's tests but are named after the
