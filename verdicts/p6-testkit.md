@@ -2,7 +2,7 @@
 
 VERDICT: CLEAN
 
-Reviewed head: `15f26f309862075ea244753db0a2b5a5469768a3`.
+Reviewed head: `96140c9a8baf4263ff8e896f08d47d3e9226c53c`.
 Base: `ccb04eb`.
 Authority: Scope 2 brief, plan pin `c43693ff`, and `contracts-v0.1.7` at `f14c895`.
 No findings remain open for this step. The reviewer ran no tests or gate.
@@ -24,6 +24,20 @@ The review checked these behaviors:
 - The delta adds no test branch to a production machine and no second implementation of Core.
 
 The gate must run on this exact head after CLEAN. A changed head requires delta review.
+
+## Scope 2 step 1 — mutation delta
+
+The gate on `15f26f3` reported four missed mutants. The reviewer read the gate's `missed.txt`.
+
+- The harness assertion distinguishes `injects_clock = true` from `false`.
+- The new base test compares the resolved commit with both returned values. It distinguishes an empty string and `xyzzy` from that commit.
+- The former status parser mutant changes `at + 1` to `at - 1`. It detects each separator one space later.
+  Trimming each field removes that added space, so the mutation preserves field values for this format.
+  The reviewer accepts the equivalence explanation. The new implementation uses `split("  ")`, trimming, and removal of empty pieces.
+  It preserves valid fields separated by two or more spaces and removes the index arithmetic.
+
+All four mutation findings are closed. The delta adds no production test branch and changes no Core behavior.
+The gate must confirm the mutation result on `96140c9` after CLEAN. The reviewer ran no tests or gate.
 
 # Prior review — M0b
 
