@@ -4,8 +4,8 @@ Reviewed head: `89afa037b198cb26173ff520245adb926b6ca21e`.
 Previous audit head: `fd1471eabca0adb344c6027b8995e1151aa8f8a8`.
 Scope: the written audit and fork patches 0, 2, and 3 only. This verdict does not approve the full fork series, binding, or pin change.
 
-VERDICT: NOT CLEAN (patch 1: 2 open findings, P14 and P17).
-Reviewed fork head: `38599d3209beb7bdc8c8ffcde2f8af414a21f202`.
+VERDICT: NOT CLEAN (patch 1: 1 open finding, P14).
+Reviewed fork head: `b60d005420f1eda6a932c509b257f8300994b34b`.
 Written audit: CLEAN at `89afa037b198cb26173ff520245adb926b6ca21e`; F1–F12 closed.
 
 The review uses manifest final13, BUILD.md at `2f2996ef0f016a1fefc6879e74deaef033383b66`, and plan pin `stage1-plan.a24efe7e`.
@@ -607,12 +607,42 @@ Two P14 matters remain:
 
 ## P17 — LOW — One new request assertion copies expected escape bytes
 
-Status: OPEN at `38599d3209beb7bdc8c8ffcde2f8af414a21f202`.
+Status: CLOSED at `b60d005420f1eda6a932c509b257f8300994b34b`. The original finding follows for the record.
 The new test `vt_write_until_query does not count an abandoned prefix against the limit` compares with literal `"\x1b[5n"`.
 That literal duplicates bytes already present in the input.
 BUILD.md forbids hand-written expected terminal bytes. P14 also required comparison with relevant input slices.
 Required change: compare with the second query's slice of `input`, as the adjacent restart test already does.
 
 VERDICT: NOT CLEAN (2 open findings, P14 and P17).
+The written audit and patches 0, 2, and 3 retain their scoped CLEAN verdicts.
+The full fork series, binding code, and Ghostty pin change remain unapproved.
+
+
+## Patch 1 delta review — P17 closed; P14 remains open for string-to-C1 transitions
+
+Reviewed commit: `b60d005420f1eda6a932c509b257f8300994b34b`.
+The reviewer read the complete delta and relevant parser transitions with `git show`.
+The reviewer ran no tests.
+
+P17 closes. The assertion now compares the reported request with the second query's input slice.
+The R-17 part of P14 closes. The delta excludes independent C0 controls from unfinished non-string requests while preserving their effects.
+The header and Zig documentation now describe the recognized sequence and the C0 exclusion.
+The tests check the two ENQ/CSI queries in order and the BEL effect with parser-assembled request bytes.
+The equal-state C1 CSI restart now clears the abandoned prefix.
+
+**P14 remains OPEN:** the replacement condition at `src/terminal/c/terminal.zig:1234` requires `!stringState(old)` for every C1 restart.
+The parser's anywhere transitions can start a new CSI or DCS from a string state.
+For example, input `ESC ] 0 ; title <0x9B> 5 n` changes `osc_string` to `csi_entry` at the C1 CSI introducer.
+The condition does not clear the old request because the old state is a string state.
+The operating-status callback then includes the preceding OSC bytes in its request.
+The same issue applies across calls and when the old string itself reports a query before the new sequence.
+The preceding revision handled changed-state C1 transitions; the new guard removes that coverage.
+
+Required change: handle a C1 transition from a string state into a different sequence.
+Keep the equal-state non-string restart fix.
+Preserve any callback for the completed old string before starting the new request buffer.
+Add string-to-C1 tests, including a call boundary, that compare each request with its relevant input bytes.
+
+VERDICT: NOT CLEAN (1 open finding, P14). P15–P17 are closed.
 The written audit and patches 0, 2, and 3 retain their scoped CLEAN verdicts.
 The full fork series, binding code, and Ghostty pin change remain unapproved.
