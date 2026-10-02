@@ -1,11 +1,12 @@
 # P3 worker review
 
-VERDICT: NOT CLEAN (1 open)
+VERDICT: CLEAN
 
-Reviewed head: `ca45f66c7946f941eb8638c9b28bc0bb50ab5f25`.
-Previous reviewed head: `37c96f1ef6cbbae514829a260d1088296098b3fa`.
-Round 3 delta: `37c96f1..ca45f66`. F1 through F6 are CLOSED. F7 remains OPEN.
-The original evidence refers to `f37c46b`. The round 2 section records that review. Round 3 gives the current open evidence.
+Reviewed head: `306b143a8c75d8cd8024a8f8125c264163648c34`.
+Previous reviewed head: `ca45f66c7946f941eb8638c9b28bc0bb50ab5f25`.
+Round 4 delta: `ca45f66..306b143`. F1 through F7 are CLOSED. No open findings remain in M1.
+This CLEAN verdict applies only to M1 at the exact reviewed head. It does not accept M2 or the later work listed below.
+The original evidence refers to `f37c46b`. Rounds 2 and 3 record review history. Round 4 records final closure.
 Base: `2016886`. Scope: M1, including the Worker machine, real driver, payload edge, and testkit driver.
 This verdict covers both review units in the implementer's message.
 
@@ -233,12 +234,14 @@ Do not retain the direct killpg path with only `worker.try_wait()` as proof.
 
 Authority: the lead's P1 F7 decision, the explicit rule against signalling an unproven id, and pair-common.md's process ownership rule.
 
-## Round 3 — F7 remains OPEN
+## Round 3 — Review history
 
 This review inspected the complete delta at `ca45f66`. The reviewer ran no tests or gate.
 The implementer reported clean clippy checks, 284 default tests, and 13 slow tests passing on macOS.
 
 ### F7 — HIGH — The cleanup waiter releases the id before the last possible signal
+
+Round 3 status: OPEN. Closed in round 4, as recorded below.
 
 Evidence: `crates/botster-worker/tests/slow_session.rs:112-116,125-138`.
 
@@ -266,3 +269,19 @@ Do not use receipt of a channel message as proof that the id remains reserved.
 Do not reap a non-matching id unless a separate child-ownership record proves it belongs to this cleanup owner.
 
 Authority: the explicit rule against signalling an unproven id, the lead's P1 F7 reservation principle, and BUILD.md testing rule 10.
+
+## Round 4 — Final closure
+
+F7 status: CLOSED at `306b143a8c75d8cd8024a8f8125c264163648c34`.
+
+The exit observer now uses `waitid(P_PID, WEXITED | WNOWAIT)` and does not reap the child.
+The cleanup owner completes its SIGKILL decision, joins the observer, and then reaps with waitpid.
+The worker id therefore stays reserved through the last possible signal, including a timeout before the observer's channel result arrives.
+RowReaper no longer signals or waits for a non-matching identity.
+The cleanup guard no longer signals a cached payload group id.
+
+The reviewer inspected the complete delta, which changes only the slow test cleanup file.
+The reviewer ran no tests or gate. The implementer reported clean clippy checks and 13 slow tests passing on macOS.
+
+VERDICT: CLEAN on the exact M1 head above. Every finding is closed.
+A rebase, contracts pin move, or any other later commit requires a delta review before this verdict applies to that head.
