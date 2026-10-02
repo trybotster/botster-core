@@ -89,8 +89,12 @@ pub struct PayloadSpec {
 pub enum Input {
     /// Bytes that the control link delivered, in order.
     LinkBytes(Vec<u8>),
-    /// The control link ended: the peer closed it, or it failed.
+    /// The control link ended: the peer closed it, or it failed. Bytes that the driver still held for it are lost.
     LinkClosed,
+    /// The driver wrote queued bytes of earlier `LinkSend`s. `drained` is true when no byte of them is left: everything the
+    /// worker sent so far is on the link. A staged close and the worker's end wait for it (LC-7: the result reaches the
+    /// host before the worker ends).
+    LinkFlushed { drained: bool },
     /// The result of [`Action::SpawnPayload`].
     Spawned(Result<PayloadId, SpawnFailure>),
     /// Bytes that the payload wrote on the PTY.
@@ -110,12 +114,14 @@ pub enum Input {
 pub enum Action {
     /// Write these bytes on the control link, after every byte of the earlier `LinkSend`s.
     LinkSend(Vec<u8>),
-    /// Close the control link. The worker keeps running (DP-8).
+    /// Close the control link. Every earlier `LinkSend` is already on the link ([`Input::LinkFlushed`]). The worker keeps
+    /// running (DP-8).
     LinkClose,
     /// Start the payload on a new PTY as the leader of its own session and process group. The answer is [`Input::Spawned`].
     SpawnPayload(PayloadSpec),
-    /// Read the PTY until a read finds no byte, then give [`Input::PtyDrained`]: the output that the payload wrote before
-    /// its exit is read before the exit is reported (EV-4, ST-5: the final model holds it).
+    /// Read the output that the PTY holds now, then give [`Input::PtyDrained`]: the output that the payload wrote before
+    /// its exit is read before the exit is reported (EV-4, ST-5: the final model holds it). The drain is bounded by what the
+    /// PTY held when it was asked, so output that a remaining process of the group writes later cannot hold the exit back.
     DrainPty,
     /// Send this signal to the payload's process group. It is emitted only while the leader is unreaped.
     SignalPayload(i32),
@@ -131,6 +137,8 @@ enum LinkState {
     AwaitHello,
     /// The host proved the token and the epoch: messages flow.
     Ready,
+    /// The worker closes the link once its queued bytes are written. Nothing more is sent or obeyed.
+    Closing,
     /// Closed by either end. A later host reaches the worker through adoption (P5).
     Closed,
 }
@@ -174,7 +182,23 @@ pub struct Worker {
     grace: Option<Instant>,
     /// LC-7 step 3: the worker ends once the payload is reaped and the result is sent.
     removing: bool,
+    /// The worker ends once its link is closed (LC-7 step 3 is done).
+    exit_pending: bool,
+    /// Bytes of earlier `LinkSend`s may still be in the driver.
+    unflushed: bool,
+    /// Inputs about the payload that came while its spawn was out (the drivers may deliver them before the spawn's answer):
+    /// they apply once the spawn succeeds, and are dropped when it fails (no group to signal).
+    early: Early,
     actions: VecDeque<Action>,
+}
+
+/// What came for the payload while its spawn was out.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct Early {
+    exit: Option<ExitStatus>,
+    stop: bool,
+    kill: bool,
+    end_payload: bool,
 }
 
 impl Worker {
@@ -195,6 +219,9 @@ impl Worker {
             launch_size: None,
             grace: None,
             removing: false,
+            exit_pending: false,
+            unflushed: false,
+            early: Early::default(),
             actions: VecDeque::new(),
         };
         let hello = Hello {
@@ -223,11 +250,12 @@ impl Worker {
     }
 
     fn send_frame(&mut self, kind: FrameType, payload: &[u8]) {
-        if self.link == LinkState::Closed {
+        if matches!(self.link, LinkState::Closing | LinkState::Closed) {
             return;
         }
         let mut out = Vec::new();
         if encode_frame(kind, payload, self.frame_bound, &mut out).is_ok() {
+            self.unflushed = true;
             self.actions.push_back(Action::LinkSend(out));
         }
     }
@@ -243,10 +271,23 @@ impl Worker {
         true
     }
 
+    /// Closes the link after the bytes already sent are written (LC-7: the result reaches the host first).
     fn close_link(&mut self) {
-        if self.link != LinkState::Closed {
+        if matches!(self.link, LinkState::AwaitHello | LinkState::Ready) {
+            self.link = LinkState::Closing;
+        }
+        self.finish_close();
+    }
+
+    /// A staged close completes when nothing sent is left in the driver; a staged end follows the close.
+    fn finish_close(&mut self) {
+        if self.link == LinkState::Closing && !self.unflushed {
             self.link = LinkState::Closed;
             self.actions.push_back(Action::LinkClose);
+        }
+        if self.exit_pending && self.link == LinkState::Closed {
+            self.exit_pending = false;
+            self.actions.push_back(Action::Exit);
         }
     }
 
@@ -267,7 +308,7 @@ impl Worker {
     // ---- the control link ----
 
     fn on_link_bytes(&mut self, now: Instant, mut bytes: &[u8]) {
-        while !bytes.is_empty() && self.link != LinkState::Closed {
+        while !bytes.is_empty() && matches!(self.link, LinkState::AwaitHello | LinkState::Ready) {
             let took = self.decoder.push(bytes);
             bytes = &bytes[took..];
             loop {
@@ -280,7 +321,7 @@ impl Worker {
                         return;
                     }
                 }
-                if self.link == LinkState::Closed {
+                if !matches!(self.link, LinkState::AwaitHello | LinkState::Ready) {
                     return;
                 }
             }
@@ -296,7 +337,7 @@ impl Worker {
                     self.on_host_msg(now, msg);
                 }
             }
-            LinkState::Ready | LinkState::Closed => {}
+            LinkState::Ready | LinkState::Closing | LinkState::Closed => {}
         }
     }
 
@@ -320,7 +361,9 @@ impl Worker {
     fn on_host_msg(&mut self, now: Instant, msg: HostMsg) {
         match msg {
             HostMsg::Launch(spec) => self.on_launch(*spec),
+            HostMsg::Stop if self.payload == PayloadState::Spawning => self.early.stop = true,
             HostMsg::Stop => self.signal(SIGTERM),
+            HostMsg::Kill if self.payload == PayloadState::Spawning => self.early.kill = true,
             HostMsg::Kill => {
                 self.signal(SIGKILL);
                 self.reap_when_complete();
@@ -352,10 +395,11 @@ impl Worker {
         }));
     }
 
-    fn on_spawned(&mut self, result: Result<PayloadId, SpawnFailure>) {
+    fn on_spawned(&mut self, now: Instant, result: Result<PayloadId, SpawnFailure>) {
         if self.payload != PayloadState::Spawning {
             return;
         }
+        let early = std::mem::take(&mut self.early);
         match result {
             Ok(id) => {
                 self.payload = PayloadState::Live(id);
@@ -366,9 +410,18 @@ impl Worker {
                     payload: id,
                 };
                 self.report(&msg);
-                if self.removing {
-                    // A `Remove` that came while the spawn was out ends the payload at once.
+                // What came while the spawn was out applies now: a kill (a `Remove` or `Kill`) first, else the graceful
+                // request; the grace of `EndPayload`; then the exit that the edge already saw.
+                if self.removing || early.kill {
                     self.signal(SIGKILL);
+                } else if early.stop {
+                    self.signal(SIGTERM);
+                }
+                if early.end_payload {
+                    self.on_end_payload(now);
+                }
+                if let Some(status) = early.exit {
+                    self.on_exited(status);
                 }
             }
             Err(failure) => {
@@ -465,14 +518,18 @@ impl Worker {
         self.report(&WorkerMsg::RemoveResult {
             uploads: UploadsOutcome::Deleted,
         });
-        self.close_link();
-        self.actions.push_back(Action::Exit);
         self.removing = false;
+        self.exit_pending = true;
+        self.close_link();
     }
 
     // ---- the payload ----
 
     fn on_exited(&mut self, status: ExitStatus) {
+        if self.payload == PayloadState::Spawning {
+            self.early.exit = Some(status);
+            return;
+        }
         if !self.group_live() || self.exit.is_some() {
             return;
         }
@@ -515,6 +572,10 @@ impl Worker {
 
     /// LC-5 without the link: the graceful request, then the group kill after `stop_grace`. A repeated signal changes nothing.
     fn on_end_payload(&mut self, now: Instant) {
+        if self.payload == PayloadState::Spawning {
+            self.early.end_payload = true;
+            return;
+        }
         if !self.group_live() || self.killed {
             return;
         }
@@ -549,10 +610,19 @@ impl Machine for Worker {
         match input {
             Input::LinkBytes(bytes) => self.on_link_bytes(now, &bytes),
             Input::LinkClosed => {
-                // DP-8: the worker keeps its payload and its model when the host is gone.
+                // DP-8: the worker keeps its payload and its model when the host is gone. Unwritten bytes are lost with
+                // the link, so a staged close is complete, and a staged end follows.
                 self.link = LinkState::Closed;
+                self.unflushed = false;
+                self.finish_close();
             }
-            Input::Spawned(result) => self.on_spawned(result),
+            Input::LinkFlushed { drained } => {
+                if drained {
+                    self.unflushed = false;
+                    self.finish_close();
+                }
+            }
+            Input::Spawned(result) => self.on_spawned(now, result),
             // The terminal model takes the output in M2. Until then the worker reads it, so the payload never blocks on a
             // full PTY.
             Input::PtyOutput(_) => {}
