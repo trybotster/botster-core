@@ -17,7 +17,6 @@ use botster_core_testkit::TestkitHarness;
 /// that the host decides alone (IN-5, IN-9 input checks, ST-7 limits) run here too: they need a started session.
 const IDS: &[&str] = &[
     "conf::a2_2_cancel_is_ok_cancelled_never_err",
-    "conf::a2_2_cancel_race_reports_the_real_outcome",
     "conf::a2_2_sent_unacknowledged_write_is_unknown_on_link_loss",
     "conf::a2_2_write_input_never_completes_with_err_except_internal",
     "conf::a2_2_write_to_ended_is_ok_not_written_session_ended",

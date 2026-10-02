@@ -152,8 +152,9 @@ impl TestkitHarness {
         Ok(Value::Null)
     }
 
-    /// The process controls of a session's worker (Core A5-1, A5-3): `process_end_worker` and FakeCore's `lose_worker` end
-    /// the worker process at this point; `break_control` breaks its control link while it lives.
+    /// The process controls of a session's worker (Core A5-1, A5-3): `process_end_worker` and FakeCore's `lose_worker` (reason
+    /// `worker_gone`, its default) end the worker process at this point; `break_control` breaks its control link while it
+    /// lives.
     fn worker_control(
         &mut self,
         handle: &str,
@@ -165,9 +166,19 @@ impl TestkitHarness {
             .and_then(Value::as_str)
             .map(|s| SessionId(s.to_string()))
             .ok_or_else(|| ControlError::Bad(format!("{op} needs 'session'")))?;
-        let done = match op {
-            "break_control" => self.workers.break_link(handle, &session),
-            _ => self.workers.end_worker(handle, &session),
+        let done = match (op, args.get("reason").and_then(Value::as_str)) {
+            ("break_control", _) => self.workers.break_link(handle, &session),
+            // FakeCore's default reason: the worker process ends (`Lost(WorkerGone)`).
+            ("process_end_worker", _) | ("lose_worker", None | Some("worker_gone")) => {
+                self.workers.end_worker(handle, &session)
+            }
+            // A live worker whose link is withheld (`Lost(WorkerUnreachable)`) is the process edge's `withhold_control_link`
+            // (P6); ending the worker would give the other state, so it is not offered here.
+            ("lose_worker", Some("worker_unreachable")) => return Err(ControlError::Unsupported),
+            (_, Some(other)) => {
+                return Err(ControlError::Bad(format!("{op}: unknown reason {other}")))
+            }
+            _ => return Err(ControlError::Unsupported),
         };
         if done {
             Ok(Value::Null)

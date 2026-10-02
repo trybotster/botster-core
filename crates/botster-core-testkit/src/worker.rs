@@ -181,17 +181,15 @@ impl Workers {
     /// # Panics
     /// When the workers still have ready work after [`SIM_STEP_LIMIT`] inputs: a worker that makes work for itself without
     /// end is a defect, never a result.
-    /// Returns the number of inputs that the workers handled.
-    pub fn run(&self, now: Instant) -> usize {
+    pub fn run(&self, now: Instant) {
         // A pump is a step of the program edge: the input cap of `pty_chunk` is available again.
         for program in lock(&self.programs).values() {
             program.new_step();
         }
         let mut sim = lock(&self.sim);
         sim.advance_to(now);
-        match sim.run_until_idle(SIM_STEP_LIMIT) {
-            Ok(handled) => handled,
-            Err(livelock) => panic!("the in-process workers did not settle: {livelock:?}"),
+        if let Err(livelock) = sim.run_until_idle(SIM_STEP_LIMIT) {
+            panic!("the in-process workers did not settle: {livelock:?}");
         }
     }
 
@@ -337,8 +335,9 @@ enum Ready {
 
 /// The edges of one in-process worker: the control link, the scripted program on its PTY, and its process cell.
 ///
-/// `ready` reads no edge and writes none: it only reads flags, so the order of every effect is the scheduler's (plan 2.5
-/// rule 8). Each effect is one input: a read of the link or the PTY, a write of queued link bytes (`LinkWritten`), a spawn's
+/// `ready` performs no read or write that the worker asked for: it reads readiness flags and applies the OS facts that need
+/// no worker input (a process that ended closes its descriptors; `break_control` breaks the link; a program's exit becomes
+/// visible), so the order of every worker effect is the scheduler's (plan 2.5 rule 8). Each worker effect is one input: a read of the link or the PTY, a write of queued link bytes (`LinkWritten`), a spawn's
 /// answer, an exit.
 struct WorkerEdges {
     id: ProcessIdentity,
@@ -518,6 +517,8 @@ impl Binding<Worker> for WorkerEdges {
                         buf.truncate(n);
                         Input::LinkBytes(buf)
                     }
+                    // Readable with no byte: a descriptor waits on the link (DP-2, P4a takes it). Nothing arrived yet.
+                    Err(e) if e.kind() == io::ErrorKind::WouldBlock => Input::LinkBytes(Vec::new()),
                     _ => {
                         self.outbound.clear();
                         self.link_open = false;
@@ -656,13 +657,12 @@ impl CoreApi for TestkitCore {
 
     /// TM-1, plan 4.1: the clock moves to `now`, the workers run their ready work, then the host pumps. A worker that still
     /// has ready work keeps `more` true and the wake set (TM-6), as a real worker's pending bytes would.
-    /// A pump in which a worker did work also reports `more`: the effects of a worker's progress (a byte on the PTY, a
-    /// report on its link) can need another pump to show, as a real worker's progress does in real time. The next pump with
-    /// no work reports `more = false`.
+    /// TM-1, plan 4.1: the clock moves to `now`, the workers run their ready work, then the host pumps. A worker that still
+    /// has ready work keeps `more` true and the wake set (TM-6), as a real worker's pending bytes would.
     fn pump(&mut self, now: Now) -> PumpReport {
-        let worked = self.workers.run(now.monotonic) > 0;
+        self.workers.run(now.monotonic);
         let mut report = self.driver.pump(now);
-        if worked || self.workers.has_ready() {
+        if self.workers.has_ready() {
             report.more = true;
             self.wake.signal();
         }
