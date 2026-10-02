@@ -1,12 +1,12 @@
 # P2 libghostty review
 
-Reviewed head: `908b9b79fc625b22b885f23a8880e5e749c16d5a`.
+Reviewed head: `36d82ecb48316087e347e42c16a2bd9176439506`.
 Previous audit head: `fd1471eabca0adb344c6027b8995e1151aa8f8a8`.
 Scope: the written audit and fork patches 2–3 only. This verdict does not approve the full fork series, binding, or pin change.
 
 VERDICT: CLEAN (written audit and fork patches 2–3 only).
 Reviewed fork head: `970a1c9dfd62ab7c75ac8d1b652de2cb19cf6442`.
-Written audit: CLEAN at `908b9b79fc625b22b885f23a8880e5e749c16d5a`; F1–F12 closed.
+Written audit: CLEAN at `36d82ecb48316087e347e42c16a2bd9176439506`; F1–F12 closed.
 
 The review uses manifest final13, BUILD.md at `2f2996ef0f016a1fefc6879e74deaef033383b66`, and plan pin `stage1-plan.a24efe7e`.
 The plan hash matches its recorded SHA-256.
@@ -436,3 +436,25 @@ The replacement tests contain no hand-written expected terminal bytes. P13 close
 VERDICT: CLEAN for patches 2–3 on these exact commits.
 Patches 0, 1, and 4–8 remain outside this verdict.
 The full fork series, binding code, and Ghostty pin change remain unapproved.
+
+
+## Revision 5 delta review — accepted Core A8
+
+Reviewed audit head: `36d82ecb48316087e347e42c16a2bd9176439506`.
+The lead instructed the reviewer to check A8-2 against the frozen file in manifest final16.
+The reviewer read `frozen/current/core-contract-v1.17-amendment-8-candidate5.md` at contracts commit `55171091b91be9a169182882993ac38199b0015a`.
+Its SHA-256 is `c6918a9bf19d739422abc775441a9aa42811bbe044f1a18cd39f20215e2a8006`.
+That hash matches manifest final16 and the previously reviewed candidate 5.
+
+The delta changes only the ST-6b row and cut rules 3 and 4.
+Those entries now cite the accepted amendment and its frozen file.
+The rules still cover both continuation overflow and failed retention below the limit.
+Captures complete with `SnapshotTooLarge`; baselines and resyncs close the route at once without partial snapshots.
+The format description states the continuation limit. The worker does not wait for ground state.
+The every-offset corpus keeps snapshots within `max_snapshot_bytes` and injects no resource failure.
+It permits refusal only when pending state exceeds the stated continuation limit.
+
+VERDICT: CLEAN for the written audit on this exact head. F12 stays closed.
+The reviewer ran no tests. No dependency pin changed.
+The existing CLEAN verdict for fork patches 2–3 stays unchanged.
+The full fork series and binding code remain unapproved.
