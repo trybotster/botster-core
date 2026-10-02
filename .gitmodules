@@ -1,0 +1,4 @@
+[submodule "crates/botster-terminal-ghostty/vendor/ghostty"]
+	path = crates/botster-terminal-ghostty/vendor/ghostty
+	url = https://github.com/trybotster/ghostty.git
+	branch = botster/vt-core-stage1-b
