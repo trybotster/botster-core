@@ -21,6 +21,15 @@ fn run_session(rig: &mut Rig, name: &str, link: LinkId) {
         guard += 1;
         assert!(guard < 200);
     }
+    // The worker answers after the host sent the launch.
+    while !rig.host_frames(link).iter().any(|(k, p)| {
+        *k == FrameType::HOST_MSG && matches!(HostMsg::decode(p), Ok(HostMsg::Launch(_)))
+    }) {
+        rig.pump();
+        rig.drain_events();
+        guard += 1;
+        assert!(guard < 200);
+    }
     rig.worker_says(link, launched());
     while rig.pump().more {
         rig.drain_events();
@@ -542,4 +551,50 @@ fn the_driver_takes_the_exits_of_the_process_edge() {
         rig.driver.get(&sid("s1")).unwrap().state,
         SessionState::Lost(LostReason::WorkerGone)
     );
+}
+
+/// Core AM-2: the writes of one session reach the worker in `begin` order, whatever the scheduler defers: a deferred write
+/// holds the later writes of its session.
+#[test]
+fn writes_of_one_session_reach_the_worker_in_begin_order() {
+    let mut rig = Rig::with_scheduler(
+        CoreLimits::default(),
+        Box::new(AlwaysDefer(Production::new(), 0)),
+    );
+    run_session(&mut rig, "s1", LinkId(1));
+    for _ in 0..60 {
+        if rig.driver.get(&sid("s1")).unwrap().state == SessionState::Running {
+            break;
+        }
+        rig.pump();
+        rig.drain_events();
+    }
+    let write = |text: &str| Op::WriteInput {
+        session: sid("s1"),
+        payload: InputPayload::Text { text: text.into() },
+        guard: None,
+    };
+    for text in ["a", "b", "c", "d"] {
+        rig.driver.begin(write(text)).unwrap();
+    }
+    for _ in 0..20 {
+        rig.pump();
+        rig.drain_events();
+    }
+    let sent: Vec<String> = rig
+        .host_frames(LinkId(1))
+        .iter()
+        .filter_map(|(k, p)| match HostMsg::decode(p) {
+            Ok(HostMsg::Op {
+                op:
+                    Op::WriteInput {
+                        payload: InputPayload::Text { text },
+                        ..
+                    },
+                ..
+            }) if *k == FrameType::HOST_MSG => Some(text),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(sent, ["a", "b", "c", "d"]);
 }
