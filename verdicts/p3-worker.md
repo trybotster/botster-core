@@ -1,11 +1,12 @@
 # P3 worker review
 
-VERDICT: NOT CLEAN (1 open)
+VERDICT: CLEAN
 
-Reviewed head: `a855586248de777d553352039bcec915e307a0b0`, branch `stage1/p3-worker-m1`.
-Previous reviewed head: `439e5e14c6fe55b3331d545c254dc11a8baf1ed8`.
-Round 6 delta: `439e5e1..a855586`. F1 through F7 are CLOSED. New F8 is OPEN.
-The original evidence refers to `f37c46b`. Rounds 2 through 5 record review history. Round 6 gives the current finding.
+Reviewed head: `0ab2a7dc1d0f49a89931432dba51b956ca0fdb3b`, branch `stage1/p3-worker-m1`.
+Previous reviewed head: `a855586248de777d553352039bcec915e307a0b0`.
+Round 7 delta: `a855586..0ab2a7d`. F1 through F8 are CLOSED. No open findings remain in M1.
+This CLEAN verdict applies only to M1 at the exact reviewed head. M2 and the same-suite real-process proof remain later work.
+The original evidence refers to `f37c46b`. Rounds 2 through 6 record review history. Round 7 records final closure.
 Base: `2016886`. Scope: M1, including the Worker machine, real driver, payload edge, and testkit driver.
 This verdict covers both review units in the implementer's message.
 
@@ -328,7 +329,7 @@ Authority: AD-6, the explicit rule against signalling an unproven id, the lead's
 
 Round 5 verdict: NOT CLEAN (1 open) on `439e5e14c6fe55b3331d545c254dc11a8baf1ed8`.
 
-## Round 6 — F7 closed; new F8 open
+## Round 6 — Review history
 
 F7 status: CLOSED at `a855586248de777d553352039bcec915e307a0b0`.
 
@@ -344,7 +345,7 @@ The reviewer ran no tests or gate. The implementer reported clean clippy checks 
 
 ### F8 — MEDIUM — The test link discards a second frame in the same socket read
 
-Status: OPEN. New finding exposed by the rewritten tests at `a855586`.
+Round 6 status: OPEN. New finding exposed by the rewritten tests at `a855586`. Closed in round 7 below.
 
 Evidence: `crates/botster-worker/tests/slow_session.rs:137-162` and `crates/botster-core-link/src/frame.rs:137-149,184-193`.
 
@@ -366,4 +367,20 @@ Do not depend on the kernel delivering one worker report per read.
 
 Authority: EV-4, LC-6, BUILD.md's structural test rules, and the plan's real-process proof requirement.
 
-VERDICT: NOT CLEAN (1 open) on the exact M1 head above.
+Round 6 verdict: NOT CLEAN (1 open) on `a855586248de777d553352039bcec915e307a0b0`.
+
+## Round 7 — Final closure
+
+F8 status: CLOSED at `0ab2a7dc1d0f49a89931432dba51b956ca0fdb3b`.
+
+Link now retains the bytes that FrameDecoder has not consumed.
+Each frame() call pushes those bytes, removes only the consumed prefix, and returns the next complete frame.
+The helper reads more bytes only when the decoder needs them.
+This preserves complete frames and partial frames across socket reads.
+The added regression test sends two complete frames and a partial third frame, then completes the third frame in another write.
+
+The reviewer inspected the complete delta, which changes only the slow test helper and its regression test.
+The reviewer ran no tests or gate. The implementer reported clean clippy checks and 15 slow tests passing on macOS.
+
+VERDICT: CLEAN on the exact M1 head above. All eight findings are closed.
+Any later commit, including a rebase, requires a delta review before this verdict applies to that head.
