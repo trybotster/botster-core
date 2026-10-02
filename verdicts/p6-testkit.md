@@ -20,9 +20,11 @@ For occurrence 2, the precheck decrements the entry to 1. The layer then refuses
 
 Required change: preserve the caller's stream on refusal. Count each attach call exactly once.
 Add proof with an owned stream endpoint, including a refusal at occurrence 2 and an unchanged successful delegation.
-The lead confirmed the counting defect. The lead sent the descriptor question to the steward.
-The descriptor part stays open pending that ruling. The pinned trait cannot return the endpoint with `Err`.
-Do not change that trait without authority. Other findings can close while this question remains open.
+The lead confirmed the counting defect. Steward ruling R-19 (`botster-contracts` commit `8e1f51c`) confirms descriptor preservation.
+Every synchronous attach refusal must return the caller's transport. Plan 4.2a stands.
+The by-value refusal result is a contract-crate defect. Stage 0 will fix the trait.
+The descriptor part stays open until P6 returns the transport on every refusal path against the fixed crate.
+P6 must wait for the fixed tag and pin authority. Other findings can close during that wait.
 
 ## S2-R2 — MEDIUM — The table omits two synchronous calls
 
