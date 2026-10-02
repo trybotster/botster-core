@@ -1,10 +1,10 @@
 # P2 libghostty review
 
-Reviewed head: `e9f8727da6d23ee700312d4f67eb0a5aa0b502d7`.
+Reviewed head: `c1589932d6644927d4f4dbdfd32d8c474fda03d8`.
 Previous audit head: `fd1471eabca0adb344c6027b8995e1151aa8f8a8`.
 Scope: the written audit only. This verdict does not approve the binding or a Ghostty pin change.
 
-VERDICT: NOT CLEAN (fork patch review: 1 open, P13).
+VERDICT: NOT CLEAN (2 open: audit F12 reopened; fork patch P13).
 Written audit: CLEAN at `e9f8727da6d23ee700312d4f67eb0a5aa0b502d7`; F1–F12 closed.
 
 The review uses manifest final13, BUILD.md at `2f2996ef0f016a1fefc6879e74deaef033383b66`, and plan pin `stage1-plan.a24efe7e`.
@@ -245,7 +245,7 @@ Do not carry the PIN return-value interface into the proposed UP binding.
 
 ## F12 — HIGH — The resume rule covers the corpus but omits continuation failure
 
-Status: CLOSED in audit revision 3c. Original finding follows for the record.
+Status: REOPENED in revision 4. Revision 3c closed the original finding, which follows for the record.
 Audit evidence: the ST-6b resume row sizes the continuation limit above the longest sequence in the test corpus.
 ST-6b requires the invariant at every cut, including production output outside that corpus.
 At UP, `stream_continuation.zig:95–97` marks tracking broken when the suffix exceeds the limit or retention fails.
@@ -349,3 +349,27 @@ Required change: derive the expected frame from an existing libghostty encoder p
 For example, encode an empty payload with the existing paste encoder and compare its output with the returned frame.
 Do not copy the literal assertions into the replacement stack.
 Check other new tests for the same problem before requesting CLEAN on the patch series.
+
+
+## Revision 4 delta review — F12 reopened
+
+Reviewed audit head: `c1589932d6644927d4f4dbdfd32d8c474fda03d8`.
+The lead supplied Core Amendment 8 candidate 1 at `16fcdad26318fe4d762fb4718b78f732eb123325` for this delta.
+The candidate is under Amendment review. It is not part of the current contracts pin.
+The reviewer ran no tests.
+
+F12 reopens for two changes:
+
+- The ST-6b table row still says the worker takes a ground-state cut after refusal.
+  Rule 3 withdraws that deferral and instead applies A8-2's immediate `SnapshotTooLarge` result.
+  Required change: make the table row agree with the revised rule.
+- Rule 4 also maps a failed retention allocation to `SnapshotTooLarge`.
+  UP `stream_continuation.zig:170–172` and `:186` mark tracking broken on allocation failure.
+  This can occur below the advertised continuation limit.
+  Candidate A8-2 enumerates excess snapshot size and pending state beyond what the format carries.
+  It does not explicitly name allocation failure below that limit.
+  Required change: obtain the steward's meaning through the lead, or mark this mapping open.
+  The reviewer sent the QUESTION to the lead. The current C API does not expose the original cause of the broken tracker.
+
+The CLEAN audit verdict remains valid only for the earlier `e9f8727` head.
+P13 remains open on the preserved paste patch.
