@@ -252,6 +252,29 @@ mod tests {
     }
 
     #[test]
+    fn an_item_without_a_closing_brace_runs_to_the_end_of_the_file() {
+        let text = "#[test]\nfn t() {\n    let a = 1;\n    sleep(d);\n";
+        assert_eq!(violations("crates/x/src/a.rs", text), [4]);
+        assert_eq!(
+            test_lines(&["#[test]", "fn t() {", "x;"]),
+            [true, true, true]
+        );
+    }
+
+    #[test]
+    fn a_semicolon_inside_braces_does_not_end_the_item() {
+        let lines = [
+            "#[test]",
+            "fn t() {",
+            "    let a = 1;",
+            "    b();",
+            "}",
+            "after",
+        ];
+        assert_eq!(test_lines(&lines), [true, true, true, true, true, false]);
+    }
+
+    #[test]
     fn braces_of_nested_items_are_balanced() {
         let text = "#[cfg(test)]\nmod t {\n    fn a() {\n        {\n        }\n    }\n    fn b() {\n        sleep(d);\n    }\n}\nfn prod() {\n    sleep(e);\n}\n";
         assert_eq!(
