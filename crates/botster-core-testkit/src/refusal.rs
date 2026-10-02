@@ -375,6 +375,8 @@ pub enum ScriptError {
     BadValue { call: String, why: String },
     /// An occurrence counts from 1.
     ZeroOccurrence,
+    /// The occurrence added to the calls already counted does not fit a call number.
+    OccurrenceOutOfRange,
     /// Another entry already refuses this call (the `call_number`-th call of its kind since the script began).
     Conflict { call: String, call_number: usize },
 }
@@ -456,7 +458,10 @@ impl RefusalScript {
                 Scripted::Cancel(serde_json::from_value(error.clone()).map_err(parse)?)
             }
         };
-        let at = self.counted.get(call).copied().unwrap_or(0) + occurrence;
+        let counted = self.counted.get(call).copied().unwrap_or(0);
+        let at = counted
+            .checked_add(occurrence)
+            .ok_or(ScriptError::OccurrenceOutOfRange)?;
         if self.entries.iter().any(|e| e.call == call && e.at == at) {
             return Err(ScriptError::Conflict {
                 call: call.to_string(),
@@ -1356,5 +1361,22 @@ mod tests {
         assert_eq!(code(script.take("Start")), None);
         assert_eq!(code(script.take("Start")), Some(ErrorCode::PendingLimit));
         assert_eq!(code(script.take("Start")), None);
+    }
+
+    /// An occurrence that would overflow the call number is an error and arms nothing, also after calls were counted.
+    #[test]
+    fn an_occurrence_past_the_call_number_range_is_refused() {
+        let mut script = RefusalScript::new();
+        assert!(script.take("Start").is_none());
+        assert_eq!(
+            script.arm("Start", usize::MAX, &json!("WrongState")),
+            Err(ScriptError::OccurrenceOutOfRange)
+        );
+        assert!(script.is_empty());
+        // The largest occurrence that fits is armed.
+        script
+            .arm("Start", usize::MAX - 1, &json!("WrongState"))
+            .unwrap();
+        assert!(!script.is_empty());
     }
 }
