@@ -154,9 +154,9 @@ pub enum WorkerMsg {
         /// The snapshot formats that the worker can emit (`snapshot_formats`, ST-6).
         #[serde(default)]
         formats: Vec<SnapshotFormat>,
-        /// The payload's identity, so that the host can end its group when the link is gone (LC-5).
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        payload: Option<PayloadId>,
+        /// The payload's identity, so that the host can end its group when the link is gone (LC-5). It is required: a worker
+        /// that cannot name its payload cannot be controlled without its link, and the host refuses such a launch.
+        payload: PayloadId,
     },
     /// The payload did not start (LC-4).
     LaunchFailed {

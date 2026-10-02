@@ -305,10 +305,10 @@ fn a_route_of_a_starting_session_is_handed_over_at_launch() {
             features: BTreeSet::new(),
             terminal: terminal_state(),
             formats: vec![],
-            payload: Some(botster_core_link::msg::PayloadId {
+            payload: botster_core_link::msg::PayloadId {
                 pid: 900,
                 start_time: 3,
-            }),
+            },
         },
     });
     w.pump();
