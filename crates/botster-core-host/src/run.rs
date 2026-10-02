@@ -102,11 +102,13 @@ impl HostEngine {
     pub fn ready(&self) -> Vec<Work> {
         let room = self.has_room();
         let mut out = Vec::new();
-        // A due deadline is processed in its pump, before other work (TM-3, TM-5).
-        if let (Some(now), Some((due, _))) = (self.now, self.deadlines().first()) {
-            if *due <= now {
-                out.push(Work::Deadline);
-            }
+        // A due deadline is processed in its pump, before other work (TM-3, TM-5). An effect without an event comes first
+        // (E3-1 item 5); a due `Silent` follows as a carried step, before newer work (E3-1 item 3).
+        if self.due_deadline(false).is_some() {
+            out.push(Work::Deadline);
+        }
+        if self.due_deadline(true).is_some() {
+            out.push(Work::Silent);
         }
         for (id, p) in &self.ops {
             match &p.step {
@@ -122,6 +124,10 @@ impl HostEngine {
             }
         }
         for (id, s) in &self.sessions {
+            if s.metadata_pending {
+                out.push(Work::Session(id.clone()));
+                continue;
+            }
             if s.ticket.is_some() || self.flow_waiting(s) {
                 continue;
             }
@@ -152,24 +158,30 @@ impl HostEngine {
         out
     }
 
+    /// The earliest due deadline: a `Silent` when `silent`, and any other kind otherwise (E3-1).
+    fn due_deadline(&self, silent: bool) -> Option<DeadlineKind> {
+        let now = self.now?;
+        self.deadlines()
+            .into_iter()
+            .find(|(at, kind)| *at <= now && matches!(kind, DeadlineKind::Silence(_)) == silent)
+            .map(|(_, kind)| kind)
+    }
+
     /// Runs one piece of ready work (plan 2.4).
     pub(crate) fn run(&mut self, work: Work) {
         match work {
             Work::Op(op) => self.run_op(op),
             Work::Session(id) => self.run_flow(&id),
-            Work::Deadline => self.run_deadline(),
+            Work::Deadline => self.run_deadline(false),
+            Work::Silent => self.run_deadline(true),
             Work::Parked => self.run_parked(),
         }
     }
 
-    fn run_deadline(&mut self) {
-        let Some(now) = self.now else { return };
-        let Some((at, kind)) = self.deadlines().into_iter().next() else {
+    fn run_deadline(&mut self, silent: bool) {
+        let Some(kind) = self.due_deadline(silent) else {
             return;
         };
-        if at > now {
-            return;
-        }
         match kind {
             DeadlineKind::Capture(id) => {
                 self.captures.remove(&id);
@@ -357,8 +369,9 @@ impl HostEngine {
                     DetachReason::Revoked => RouteCloseReason::Revoked,
                     _ => RouteCloseReason::Detached,
                 };
+                // `RouteClosed` first, then the completion in a step of its own (DP-7).
                 if self.close_route(route, reason) {
-                    self.complete(op_id, OpResult::Ok(OpOutput::Unit));
+                    self.complete_later(op_id, OpResult::Ok(OpOutput::Unit));
                 }
             }
             Next::AdoptRead => {
@@ -531,7 +544,7 @@ impl HostEngine {
             Op::WriteInput { payload, .. } => OpResult::Ok(OpOutput::Input(InputResult {
                 outcome: if pending.req.is_some() {
                     WriteOutcome::Unknown {
-                        max_payload_bytes: Self::payload_len_of(payload),
+                        max_payload_bytes: Self::held_bytes(payload),
                     }
                 } else {
                     WriteOutcome::NotWritten(NotWrittenReason::SessionEnded)
@@ -540,10 +553,13 @@ impl HostEngine {
                 pty_bytes_written: 0,
                 detail: "the session ended".into(),
             })),
-            Op::Start { .. }
-            | Op::Remove { .. }
-            | Op::UpdateMetadata { .. }
-            | Op::SetNotificationPolicy { .. } => match failed_create {
+            Op::Start { .. } | Op::Remove { .. } | Op::UpdateMetadata { .. } => match failed_create
+            {
+                Some(e) => OpResult::Err(e.clone()),
+                None => err(ErrorCode::RegistryFailed { uncertain: false }),
+            },
+            // The registry row path is only the one of a `Created` session (A2-1); a worker path ends `WorkerLinkFailed`.
+            Op::SetNotificationPolicy { .. } if pending.created_path => match failed_create {
                 Some(e) => OpResult::Err(e.clone()),
                 None => err(ErrorCode::RegistryFailed { uncertain: false }),
             },
@@ -552,16 +568,6 @@ impl HostEngine {
                 err(ErrorCode::SessionEnded)
             }
             _ => err(ErrorCode::WorkerLinkFailed),
-        }
-    }
-
-    fn payload_len_of(payload: &InputPayload) -> u64 {
-        match payload {
-            InputPayload::Bytes { bytes } | InputPayload::Paste { bytes, .. } => {
-                bytes.0.len() as u64
-            }
-            InputPayload::Text { text } => text.len() as u64,
-            _ => 64,
         }
     }
 
