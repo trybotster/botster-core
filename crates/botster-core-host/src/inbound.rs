@@ -301,6 +301,18 @@ impl HostEngine {
             {
                 self.take_capture(op, c.clone())
             }
+            // SZ-3: on the link, `by` is the request number of the replacing `Resize`, which is still in flight here.
+            (OpResult::Ok(OpOutput::Resize(ResizeResult::Superseded { by })), _) => {
+                match self.sessions.get(id).and_then(|s| s.inflight.get(&by.0)) {
+                    Some(replacing) => OpResult::Ok(OpOutput::Resize(ResizeResult::Superseded {
+                        by: *replacing,
+                    })),
+                    None => OpResult::Err(CoreError::new(
+                        ErrorCode::Internal,
+                        "the worker named a replacing resize that is not in flight",
+                    )),
+                }
+            }
             _ => result,
         };
         self.complete(op, result);

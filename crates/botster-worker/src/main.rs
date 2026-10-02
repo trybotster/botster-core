@@ -19,7 +19,9 @@ use botster_core_link::launch::{WorkerLaunch, TOKEN_VAR};
 use botster_core_link::msg::PayloadId;
 use botster_core_sys::payload::{self, Payload, PayloadCommand};
 use botster_core_sys::process::start_time;
-use botster_worker_core::{Action, Input, PayloadSpec, SpawnFailure, Worker, WorkerConfig};
+use botster_worker_core::{
+    window_size, Action, Input, PayloadSpec, SpawnFailure, Worker, WorkerConfig,
+};
 use mio::net::UnixStream;
 use mio::unix::SourceFd;
 use mio::{Events, Interest, Poll, Token, Waker};
@@ -243,6 +245,16 @@ impl Driver {
                 self.inputs.push_back(Input::Spawned(result));
             }
             Action::PtyWrite(bytes) => self.pty_write = Some(bytes),
+            Action::ResizePty(window) => {
+                // No PTY any more (the leader was reaped): the resize fails as one of a closed PTY does (EBADF).
+                let result = match self.payload.as_ref() {
+                    Some(payload) => payload
+                        .resize(window.rows, window.cols, window.width_px, window.height_px)
+                        .map_err(|e| e.raw_os_error().unwrap_or(5)),
+                    None => Err(9),
+                };
+                self.inputs.push_back(Input::PtyResized(result));
+            }
             Action::DrainPty => {
                 let left = self
                     .payload
@@ -268,13 +280,13 @@ impl Driver {
     }
 
     fn spawn(&mut self, spec: &PayloadSpec) -> Result<PayloadId, SpawnFailure> {
-        let clamp = |n: u32| u16::try_from(n).unwrap_or(u16::MAX);
+        let window = window_size(&spec.size);
         let payload = Payload::spawn(&PayloadCommand {
             argv: &spec.argv,
             env: &spec.env,
             cwd: &spec.cwd,
-            rows: clamp(spec.size.rows),
-            cols: clamp(spec.size.cols),
+            rows: window.rows,
+            cols: window.cols,
         })
         .map_err(|failure| match failure {
             payload::SpawnFailure::CwdMissing => SpawnFailure::CwdMissing,

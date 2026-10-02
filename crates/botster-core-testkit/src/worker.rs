@@ -20,7 +20,9 @@ use botster_core_edges::{Link, Machine, Program};
 use botster_core_host::driver::{HostDriver, HostWake, WorkerSpawn};
 use botster_core_link::msg::PayloadId;
 use botster_route_codec::prelude::QueryKind;
-use botster_worker_core::{Action, Input, PayloadSpec, SpawnFailure, Worker, WorkerConfig};
+use botster_worker_core::{
+    window_size, Action, Input, PayloadSpec, SpawnFailure, Worker, WorkerConfig,
+};
 use std::collections::{BTreeMap, VecDeque};
 use std::io;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
@@ -261,6 +263,7 @@ impl Spawner for WorkerSpawner {
             key,
             programs: Arc::clone(&self.workers.programs),
             pty_write: None,
+            pty_resize: None,
             wait_writable: false,
             cell,
             processes: Arc::clone(&self.processes),
@@ -334,6 +337,8 @@ enum Ready {
     Spawned,
     /// A `PtyWrite` waits to be offered to the program.
     PtyWrite,
+    /// A `ResizePty` waits to be given to the program.
+    PtyResize,
     /// The program takes input again after a write that it did not take.
     PtyWritable,
     PtyRead,
@@ -353,6 +358,8 @@ struct WorkerEdges {
     programs: Arc<Mutex<BTreeMap<WorkerKey, ProgramControl>>>,
     /// The bytes of a `PtyWrite` that the program has not been offered yet.
     pty_write: Option<Vec<u8>>,
+    /// The size of a `ResizePty` that the program has not been given yet.
+    pty_resize: Option<WindowSize>,
     /// The program took no byte at the last write: `PtyWritable` follows its write readiness.
     wait_writable: bool,
     cell: Arc<Mutex<ProcessCell>>,
@@ -398,14 +405,8 @@ impl WorkerEdges {
         }
         let mut program = ScriptedProgram::from_argv(&spec.argv, &self.scheduler)
             .map_err(|_| SpawnFailure::Exec { errno: ENOEXEC })?;
-        let window = WindowSize {
-            cols: u16::try_from(spec.size.cols).unwrap_or(u16::MAX),
-            rows: u16::try_from(spec.size.rows).unwrap_or(u16::MAX),
-            width_px: 0,
-            height_px: 0,
-        };
         program
-            .resize(window)
+            .resize(window_size(&spec.size))
             .map_err(|_| SpawnFailure::Exec { errno: ENOEXEC })?;
         lock(&self.programs).insert(self.key.clone(), program.control());
         self.payload = Some(program);
@@ -481,6 +482,9 @@ impl Binding<Worker> for WorkerEdges {
         }
         if self.pty_write.is_some() && self.spawned.is_none() {
             self.ready.push(Ready::PtyWrite);
+        }
+        if self.pty_resize.is_some() && self.spawned.is_none() {
+            self.ready.push(Ready::PtyResize);
         }
         if self.spawned.is_some() {
             // The payload's inputs depend on its spawn: none is offered before the spawn's answer is taken.
@@ -560,6 +564,16 @@ impl Binding<Worker> for WorkerEdges {
                     }
                 })
             }
+            Ready::PtyResize => {
+                let window = self.pty_resize.take().expect("counted as ready");
+                // No PTY any more (the leader was reaped): the resize fails as one of a closed PTY does (EBADF).
+                Input::PtyResized(match self.payload.as_mut() {
+                    Some(program) => program
+                        .resize(window)
+                        .map_err(|e| e.raw_os_error().unwrap_or(5)),
+                    None => Err(9),
+                })
+            }
             Ready::PtyWritable => {
                 self.wait_writable = false;
                 Input::PtyWritable
@@ -613,6 +627,8 @@ impl Binding<Worker> for WorkerEdges {
             Action::DrainPty => self.drain = true,
             // The write is its own input (`Ready::PtyWrite`), so the scheduler orders it among the other ready work.
             Action::PtyWrite(bytes) => self.pty_write = Some(bytes),
+            // The resize is its own input (`Ready::PtyResize`), as the write is.
+            Action::ResizePty(window) => self.pty_resize = Some(window),
             Action::SignalPayload(signal) => {
                 if let Some(program) = self.payload.as_mut() {
                     program.signal(signal);

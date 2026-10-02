@@ -182,7 +182,8 @@ pub enum WorkerMsg {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         signal: Option<i32>,
     },
-    /// The answer to `HostMsg::Op` with this request number.
+    /// The answer to `HostMsg::Op` with this request number. In a `Resize` result `Superseded{by}`, `by` is the request
+    /// number of the replacing `Resize` on this link; the host maps it to that operation's `OpId` (SZ-3).
     Done {
         req: u64,
         result: OpResult,

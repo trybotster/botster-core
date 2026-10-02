@@ -9,7 +9,7 @@ use botster_core_contract::prelude::Feature;
 
 pub mod worker;
 
-pub use worker::{Action, Input, PayloadSpec, SpawnFailure, Worker, WorkerConfig};
+pub use worker::{window_size, Action, Input, PayloadSpec, SpawnFailure, Worker, WorkerConfig};
 
 /// The worker protocol number `T` of this Core. The first v1 worker protocol number is 1.
 ///
