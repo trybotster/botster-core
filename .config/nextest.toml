@@ -1,4 +1,4 @@
-# cargo-nextest settings. `cargo xtask test-budget` is the entry point (see xtask/README.md).
+# cargo-nextest settings. `cargo xtask test-budget` is the entry point (plan section 8).
 #
 # Default tier: a test over 2 s is terminated and fails; a test that leaves a child holding its
 # output pipes fails (leak-timeout). Every profile writes JUnit to target/nextest/<profile>/junit.xml,

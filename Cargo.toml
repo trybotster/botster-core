@@ -30,10 +30,7 @@ static_assertions = "1"
 tempfile = "3"
 toml = "0.9"
 
-# Crates of this workspace.
-botster-core-edges = { path = "crates/botster-core-edges" }
-botster-core-link = { path = "crates/botster-core-link" }
-botster-core-sys = { path = "crates/botster-core-sys" }
+# Crates of this workspace, once another crate depends on them.
 botster-worker-core = { path = "crates/botster-worker-core" }
 
 # The profile that `cargo bolero test` builds with: the landing fuzz step.
