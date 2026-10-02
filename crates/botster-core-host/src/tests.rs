@@ -261,9 +261,6 @@ impl World {
             }
             Action::CloseLink { link } => self.closed.push(link),
             Action::SignalGroup { identity, signal } => self.signals.push((identity, signal)),
-            Action::SignalPayloadGroup { identity, signal } => {
-                self.signals.push((identity, signal))
-            }
             Action::HandoffRoute { .. } => self.trace.push("handoff".into()),
         }
     }

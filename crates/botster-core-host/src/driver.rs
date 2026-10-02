@@ -59,8 +59,6 @@ pub trait HostEdges: Send {
     /// Workers as processes (`Process`).
     fn spawn_worker(&mut self, spec: &WorkerSpawn) -> Result<ProcessIdentity, SpawnError>;
     fn signal_group(&mut self, identity: ProcessIdentity, signal: GroupSignal);
-    /// Signals the group of a payload whose worker may have reaped its leader (AD-6, LC-5).
-    fn signal_payload_group(&mut self, identity: ProcessIdentity, signal: GroupSignal);
     fn poll_process_exit(&mut self) -> Option<(ProcessIdentity, ExitStatus)>;
 
     /// The control links (`Link`). A worker connects to the host; `accept_link` returns the next new link, or `None`.
@@ -261,9 +259,6 @@ impl<E: HostEdges> HostDriver<E> {
             }
             Action::CloseLink { link } => self.close_link(link),
             Action::SignalGroup { identity, signal } => self.edges.signal_group(identity, signal),
-            Action::SignalPayloadGroup { identity, signal } => {
-                self.edges.signal_payload_group(identity, signal);
-            }
             Action::HandoffRoute {
                 link,
                 route,
