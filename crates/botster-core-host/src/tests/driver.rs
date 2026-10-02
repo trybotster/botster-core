@@ -137,8 +137,6 @@ impl HostEdges for Edges {
 
     fn signal_group(&mut self, _identity: ProcessIdentity, _signal: GroupSignal) {}
 
-    fn signal_payload_group(&mut self, _identity: ProcessIdentity, _signal: GroupSignal) {}
-
     fn poll_process_exit(&mut self) -> Option<(ProcessIdentity, ExitStatus)> {
         None
     }

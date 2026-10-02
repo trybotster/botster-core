@@ -116,17 +116,6 @@ impl Children {
         Some((ProcessIdentity { pid, start_time }, status))
     }
 
-    /// Signals the process group of a payload (LC-5, LC-6). The group id is the pid of the payload's leader. The worker may
-    /// have reaped the leader while descendants keep the group, so an absent leader does not stop the signal: a pid is not
-    /// reused while a group with that id has members. A leader pid that names a different process (a changed start time)
-    /// means the group is gone and the pid was reused, so nothing is signalled (AD-6).
-    pub fn signal_payload_group(&self, identity: ProcessIdentity, signal: GroupSignal) {
-        if identity_state(identity) == IdentityState::Reused {
-            return;
-        }
-        self.kill_group(identity.pid, signal);
-    }
-
     /// Signals the process group of `identity`, only when the identity still matches (AD-6).
     pub fn signal_group(&self, identity: ProcessIdentity, signal: GroupSignal) {
         if identity_state(identity) != IdentityState::Matches {
