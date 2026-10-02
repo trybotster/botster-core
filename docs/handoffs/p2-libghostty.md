@@ -57,11 +57,15 @@ Reviewer status: patches 0 to 8 CLEAN. Patches 9 to 11 CLEAN for source logic th
 
 ## Order the lead set (do not skip steps)
 
-1. Reviewer reviews fork `ada251c` (patches 9 to 13) and the binding.
-2. On CLEAN, the lead records the pin move.
-3. The infra engineer's `ci/remote/fetch-public.sh` fetches the submodule at the commit the tree pins and publishes the Zig packages into the gate volume (merged in botster-core `41ebcc0`, PR #131).
-4. Merge `origin/v1` into the branch, then run `botster-gate` **once** on the exact reviewed head. The Linux gate sets `BOTSTER_ZIG_NETWORK_DENIED=1` (unshare cannot run in the container) and `/tmp` is a tmpfs.
-5. Send the lead DONE with the head SHA, the verdict commit and the gate log path. Open the PR with the description above. Never gate before step 3.
+This replaces the order set before the pause; it follows `docs/stage1-status.md` section 7, action 1, and BUILD.md "Ghostty fork policy".
+
+1. **Upstream sync first.** Before any further fork patch, rebase the `botster/vt-core-stage1-c` stack (22 commits on upstream `83edd491e`) onto the LATEST upstream `ghostty-org/ghostty` main. Push it as a NEW branch (never force-push `-c`). Rebuild, re-run the libghostty audit, the Zig tests and the binding tests, drop every patch that upstream now covers, and record the new upstream SHA and the surviving patch list in the audit.
+2. Point the binding's submodule and `.gitmodules` at the new fork head; verify the Zig package list of `build_data.rs` at that head (7 at `85a8d8e`; the infra engineer reported 9).
+3. The reviewer reviews the surviving fork stack at its new head (including patches 12 and 13) and the binding at its new head. Every finding, LOW included, closes before CLEAN.
+4. On CLEAN, the lead records the pin move in the plan.
+5. Merge `origin/v1` into the binding branch (no rebase: the branch is pushed). Send the reviewer the new exact head for a delta review; the delta must be CLEAN before the gate.
+6. The infra engineer's `ci/remote/fetch-public.sh` (merged in botster-core `41ebcc0`, PR #131) fetches the submodule at the pinned commit and the Zig packages into the gate volume. Then run `botster-gate` **once** on the exact delta-CLEAN head. The Linux gate sets `BOTSTER_ZIG_NETWORK_DENIED=1` (unshare cannot run in the container) and `/tmp` is a tmpfs. A green Linux run closes P32.
+7. Send the lead DONE with the head SHA, the verdict commit and the gate log path. Open the PR with the description above.
 
 ## The Linux defect (P32) and patch 10
 

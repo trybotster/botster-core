@@ -55,8 +55,10 @@ Written at the lead's PAUSE. A new agent can resume from this file.
   pending only in the PR that makes it pass; `cargo xtask lists` checks. a5_x ids that need a real-process proof stay pending with the
   reason until RealCoreHarness runs.
 - Re-measure R4 (the budget example `examples/budget.rs`) once ids run; the first numbers measure only the failing-open path.
-- Known open question for the driver (P3 raised it with the lead): `conf::a2_2_cancel_race_reports_the_real_outcome` and `await_pty`
-  with the injected clock.
+- The driver defect P3 raised (`conf::a2_2_cancel_race_reports_the_real_outcome` and `await_pty` with the injected clock) is FIXED
+  in `contracts-v0.1.13` (`a8db5c9`): the driver checks `pty_input` again after each pump before it declares Core idle. P6 is still
+  on v0.1.9: move the pin to v0.1.13 in its own commit, then verify that the a2_2 cancel-race id and the `await_pty` paths run
+  through the conformance harness with the new driver.
 
 ## Decisions in force
 - **RefusalScript (plan 4.2a):** a sync refusal is returned before the call reaches Core; `ROWS` is the per-call sync column, each row
