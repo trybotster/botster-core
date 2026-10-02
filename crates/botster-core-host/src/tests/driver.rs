@@ -10,6 +10,7 @@ use std::io;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
+mod api;
 mod deadlines;
 
 #[derive(Default)]
@@ -51,6 +52,10 @@ struct MockLink {
     write_interest: bool,
     read_interest: bool,
     peer_closed: bool,
+    /// Errors that the next `recv` calls return, last first (a test of the error kinds).
+    fail_recv: Vec<io::ErrorKind>,
+    /// Errors that the next `send` calls return, last first.
+    fail_send: Vec<io::ErrorKind>,
 }
 
 struct Mock {
@@ -157,6 +162,9 @@ impl HostEdges for Edges {
         let Some(l) = mock.links.get_mut(&link) else {
             return Ok(0);
         };
+        if let Some(kind) = l.fail_recv.pop() {
+            return Err(kind.into());
+        }
         if l.to_host.is_empty() {
             return if l.peer_closed {
                 Ok(0)
@@ -175,6 +183,9 @@ impl HostEdges for Edges {
         let Some(l) = mock.links.get_mut(&link) else {
             return Err(io::ErrorKind::BrokenPipe.into());
         };
+        if let Some(kind) = l.fail_send.pop() {
+            return Err(kind.into());
+        }
         let n = l.send_cap.map_or(bytes.len(), |cap| cap.min(bytes.len()));
         if n == 0 {
             return Err(io::ErrorKind::WouldBlock.into());
@@ -237,6 +248,10 @@ impl Rig {
     }
 
     fn with_scheduler(limits: CoreLimits, scheduler: Box<dyn Scheduler + Send>) -> Rig {
+        Rig::with_config(config(limits), scheduler)
+    }
+
+    fn with_config(cfg: crate::EngineConfig, scheduler: Box<dyn Scheduler + Send>) -> Rig {
         let mock = Arc::new(Mutex::new(Mock {
             rows: BTreeMap::new(),
             links: BTreeMap::new(),
@@ -250,7 +265,7 @@ impl Rig {
         #[allow(clippy::disallowed_methods)] // a test starts the injected clock at a real instant
         let now = Instant::now();
         Rig {
-            driver: HostDriver::new(config(limits), Edges(Arc::clone(&mock), scheduler), now),
+            driver: HostDriver::new(cfg, Edges(Arc::clone(&mock), scheduler), now),
             mock,
             now,
             unix: 10,
