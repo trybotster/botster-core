@@ -686,3 +686,85 @@ It does not approve product code or establish Stage 1 acceptance.
 I ran no product tests.
 
 VERDICT: CLEAN
+
+## Round 13 — revision 13
+
+Plan: `bfdc82059b6e00f33ef36765a33b71a579ecc788`, `docs/stage1-plan.md`.
+Pin: `stage1-plan.dcee98cb.md`.
+Verified SHA-256: `dcee98cb434017049a4869ceb8aa33acc40d97298323f37809ac0c1b7fef6d7f`.
+Contracts tag: `contracts-v0.1.6`, commit `caa029cfcc9c0bfd1f59a05d35d7c110ea99f3e0`, manifest final19.
+
+I reviewed the complete delta against the new contracts tag.
+The plan matches its pin. The three new contract hashes and manifest tags match their sources.
+The A9, A10, E3-1, and R-15 through R-17 summaries match the pinned text.
+The ownership generator reproduces all lists with 635 unique active ids and two withdrawn ids excluded.
+P1 owns 124 ids, P4a owns 151 ids, and P5 owns 54 ids.
+F1 through F12 remain CLOSED. I ran no product tests.
+
+### F13 — MINOR — distinguish deferred ids from a not-applicable case
+
+Status: OPEN.
+Plan section: 5, status-file source and report.
+
+Plan evidence at the plan commit above:
+> "lists exactly the Core entries of `deferred.txt` (rules 1 to 4 below still apply)"
+
+Source evidence at the contracts commit above, `conformance/deferred.txt`:
+> "not-applicable conf::dp_12_unreachable_or_n_minus_1_worker_leaves_focused_unknown"
+> "the id stays active and its unreachable-worker case runs now"
+
+The file contains two deferred Core ids and one not-applicable case of a third active Core id.
+The new exact-match instruction includes all three entries, while rule 3 permits only the two deferred ids.
+Section 1 correctly requires the third id's unreachable-worker case to pass now.
+The report also still says "four counts" immediately before adding a fifth category.
+
+Required change: match `core-deferred.toml` only against the whole-id deferrals in the contracts file.
+Validate and report the not-applicable case separately, while the active id still runs.
+Update the report description to include the withdrawn category.
+
+### F14 — MAJOR — gate checks still use a mutable base reference
+
+Status: OPEN.
+Plan sections: 5, pending-list comparison; 8, mutation step 8.
+
+Plan evidence at the plan commit above:
+> "the file gains an id that the `origin/v1` head did not list"
+> "`git diff origin/v1...HEAD > target/landing.diff`"
+
+Source evidence at the contracts commit above, `docs/BUILD.md`, "The same gate on either machine":
+> "`BOTSTER_CI_BASE_REF` set to the base commit recorded when the gate starts"
+
+Source evidence at the same commit, `ci/remote/botster-gate`, Mac path:
+> "a detached worktree of the same repository"
+> "BOTSTER_CI_BASE_REF=\"$base_sha\""
+
+Section 8 now records the captured base, but the two check instructions still read `origin/v1`.
+A detached Mac gate tree shares repository references with the other worktrees.
+A fetch can move `origin/v1` while the gate waits or runs.
+The pending check and mutation scope can then use a different base from the gate log.
+
+Required change: use `BOTSTER_CI_BASE_REF` for the pending-list comparison and mutation diff inside the gate.
+Resolve and record a base once for focused runs outside the gate.
+Do not resolve the moving branch reference separately for each check.
+
+### F15 — MINOR — the fuzz step still installs its toolchain inside the offline gate
+
+Status: OPEN.
+Plan section: 8, decoder fuzzing step 9.
+
+Plan evidence at the plan commit above:
+> "a nightly that the gate installs with `rustup toolchain install`"
+
+Source evidence at the contracts commit above, `docs/BUILD.md`, Linux gate:
+> "The image holds the toolchains of `rust-toolchain.toml`, the pinned nightly"
+> "The gate container then runs with no network and no token."
+
+The new Linux gate has no network, but step 9 still instructs the gate to install a nightly.
+The image must contain that exact toolchain before the gate command starts.
+Section 8 sends build-time fetches to the infrastructure path, but does not update this installation instruction.
+
+Required change: provision the pinned nightly in the gate image before the offline gate starts.
+Make step 9 verify that the toolchain exists and run it without installation or update requests.
+State how the Mac gate receives the same pinned nightly before its gate starts.
+
+VERDICT: NOT CLEAN (3 open)
