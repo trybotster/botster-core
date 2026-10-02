@@ -49,6 +49,8 @@ remove_child() {
 
 cleanup() {
   local status=$?
+  # Every step runs, whatever the one before returned (an already-ended watcher, a container already gone).
+  set +e
   # testq cancel TERMs the job's process group and testq-launch forwards a second TERM; ignore both so cleanup finishes.
   trap - EXIT
   trap '' INT TERM HUP
