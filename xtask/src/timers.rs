@@ -113,30 +113,40 @@ fn timer_regex() -> Regex {
         .expect("regex")
 }
 
+/// The violations over files given as `(path, text)`: `(file, 1-based line, message)`, and the number of Rust files scanned.
+/// The xtask is tooling: its own waits are on child processes and carry no test timer.
+pub fn scan_files(files: &[(String, String)], re: &Regex) -> (usize, Vec<(String, usize, String)>) {
+    let mut scanned = 0;
+    let mut found = Vec::new();
+    for (file, text) in files {
+        if !file.ends_with(".rs") || file.starts_with("xtask/") {
+            continue;
+        }
+        scanned += 1;
+        for (line, message) in scan(file, text, re) {
+            found.push((file.clone(), line, message));
+        }
+    }
+    (scanned, found)
+}
+
 pub fn command(root: &Path, args: &[String]) -> Result<()> {
     if let Some(arg) = args.first() {
         bail!("unknown argument '{arg}'");
     }
-    let re = timer_regex();
-    let mut violations = 0;
-    let mut scanned = 0;
+    let mut files = Vec::new();
     for file in tracked_files(root)? {
-        // The xtask is tooling: its own waits are on child processes and carry no test timer.
-        if !file.ends_with(".rs") || file.starts_with("xtask/") {
-            continue;
-        }
-        let Ok(text) = std::fs::read_to_string(root.join(&file)) else {
-            continue;
-        };
-        scanned += 1;
-        for (line, message) in scan(&file, &text, &re) {
-            eprintln!("{file}:{line}: {message}");
-            violations += 1;
+        if let Ok(text) = std::fs::read_to_string(root.join(&file)) {
+            files.push((file, text));
         }
     }
+    let (scanned, violations) = scan_files(&files, &timer_regex());
+    for (file, line, message) in &violations {
+        eprintln!("{file}:{line}: {message}");
+    }
     println!("timers: {scanned} Rust files scanned");
-    if violations > 0 {
-        bail!("{violations} violation(s)");
+    if !violations.is_empty() {
+        bail!("{} violation(s)", violations.len());
     }
     Ok(())
 }
@@ -213,5 +223,73 @@ mod tests {
     #[test]
     fn an_identifier_that_ends_in_sleep_is_not_a_timer() {
         assert!(violations("crates/x/tests/a.rs", "fn f() { nosleep(d); }\n").is_empty());
+    }
+
+    #[test]
+    fn a_timer_on_the_first_line_needs_its_marker_too() {
+        assert_eq!(violations("crates/x/tests/a.rs", "sleep(d);\n"), [1]);
+        let marked_first = "sleep(d); // timer: deadline \u{2014} reason\n";
+        assert!(violations("crates/x/tests/a.rs", marked_first).is_empty());
+    }
+
+    #[test]
+    fn test_code_ends_at_the_closing_brace_of_its_item() {
+        let text = "#[test]\nfn t() {\n    if x {\n        y();\n    }\n    sleep(a);\n}\nfn prod() {\n    sleep(b);\n}\n";
+        // Line 6 is in the test (unmarked: a violation); line 9 is production of an ordinary crate (allowed).
+        assert_eq!(violations("crates/x/src/a.rs", text), [6]);
+        let machine = violations("crates/botster-core-link/src/a.rs", text);
+        assert_eq!(machine, [6, 9]);
+    }
+
+    #[test]
+    fn a_test_attribute_on_a_statement_item_ends_at_its_semicolon() {
+        let text = "#[cfg(test)]\nuse a::b;\nfn prod() {\n    sleep(b);\n}\n";
+        assert_eq!(
+            violations("crates/botster-core-link/src/a.rs", text),
+            [4],
+            "production code after a test `use`"
+        );
+    }
+
+    #[test]
+    fn braces_of_nested_items_are_balanced() {
+        let text = "#[cfg(test)]\nmod t {\n    fn a() {\n        {\n        }\n    }\n    fn b() {\n        sleep(d);\n    }\n}\nfn prod() {\n    sleep(e);\n}\n";
+        assert_eq!(
+            violations("crates/botster-core-link/src/a.rs", text),
+            [8, 12]
+        );
+    }
+
+    #[test]
+    fn a_test_attribute_with_its_item_on_the_same_line_is_test_code() {
+        let text = "#[test] fn t() { sleep(d); }\nfn prod() {}\n";
+        assert_eq!(violations("crates/x/src/a.rs", text), [1]);
+    }
+
+    #[test]
+    fn test_lines_marks_exactly_the_item() {
+        let lines = ["a", "#[test]", "fn t() {", "    x();", "}", "b"];
+        assert_eq!(test_lines(&lines), [false, true, true, true, true, false]);
+    }
+
+    fn file(path: &str, text: &str) -> (String, String) {
+        (path.to_string(), text.to_string())
+    }
+
+    #[test]
+    fn files_are_scanned_with_their_path_and_line_and_xtask_is_skipped() {
+        let files = [
+            file("crates/x/tests/a.rs", "ok\nsleep(d);\n"),
+            file("xtask/src/a.rs", "sleep(d);\n"),
+            file("README.md", "sleep(d);\n"),
+            file("crates/x/tests/b.rs", "fine\n"),
+        ];
+        let (scanned, found) = scan_files(&files, &timer_regex());
+        assert_eq!(scanned, 2);
+        assert_eq!(found.len(), 1);
+        assert_eq!(
+            (found[0].0.as_str(), found[0].1),
+            ("crates/x/tests/a.rs", 2)
+        );
     }
 }

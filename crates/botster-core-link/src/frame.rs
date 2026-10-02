@@ -119,29 +119,27 @@ impl FrameDecoder {
         if self.failed.is_some() {
             return bytes.len();
         }
-        let mut used = 0;
-        if self.header_len < HEADER_LEN {
-            let n = (HEADER_LEN - self.header_len).min(bytes.len());
-            self.header[self.header_len..self.header_len + n].copy_from_slice(&bytes[..n]);
-            self.header_len += n;
-            used += n;
-            if self.header_len == HEADER_LEN {
-                let len = u32::from_le_bytes([
-                    self.header[0],
-                    self.header[1],
-                    self.header[2],
-                    self.header[3],
-                ]);
-                if len > self.max_payload {
-                    // Refused from the header alone: no payload byte is kept, and the rest of the input is dropped.
-                    self.failed = Some(FrameError::TooLarge {
-                        len,
-                        max: self.max_payload,
-                    });
-                    self.header_len = 0;
-                    self.payload = Vec::new();
-                    return bytes.len();
-                }
+        // The header bytes still missing; zero when the header is complete.
+        let n = (HEADER_LEN - self.header_len).min(bytes.len());
+        self.header[self.header_len..self.header_len + n].copy_from_slice(&bytes[..n]);
+        self.header_len += n;
+        let mut used = n;
+        if self.header_len == HEADER_LEN {
+            let len = u32::from_le_bytes([
+                self.header[0],
+                self.header[1],
+                self.header[2],
+                self.header[3],
+            ]);
+            if len > self.max_payload {
+                // Refused from the header alone: no payload byte is kept, and the rest of the input is dropped.
+                self.failed = Some(FrameError::TooLarge {
+                    len,
+                    max: self.max_payload,
+                });
+                self.header_len = 0;
+                self.payload = Vec::new();
+                return bytes.len();
             }
         }
         if let Some(len) = self.announced() {

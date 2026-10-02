@@ -76,8 +76,12 @@ pub fn resolves(root: &Path, reference: &str) -> bool {
 
 /// The base ref of the merge gate: `BOTSTER_CI_BASE_REF`, else `origin/v1`.
 pub fn base_ref() -> String {
-    std::env::var("BOTSTER_CI_BASE_REF")
-        .ok()
+    base_ref_from(std::env::var("BOTSTER_CI_BASE_REF").ok())
+}
+
+/// The base ref from the value of the variable.
+pub fn base_ref_from(value: Option<String>) -> String {
+    value
         .filter(|v| !v.is_empty())
         .unwrap_or_else(|| "origin/v1".into())
 }
@@ -160,4 +164,16 @@ pub fn metadata(root: &Path) -> Result<Meta> {
         members,
         slow_packages,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_base_is_origin_v1_unless_the_variable_names_another() {
+        assert_eq!(base_ref_from(None), "origin/v1");
+        assert_eq!(base_ref_from(Some(String::new())), "origin/v1");
+        assert_eq!(base_ref_from(Some("origin/x".into())), "origin/x");
+    }
 }

@@ -302,8 +302,7 @@ pub fn command(root: &Path, args: &[String]) -> Result<()> {
         deferred: &base_deferred,
         ledger_file: &base_ledger,
     });
-    // A base without Cargo.toml has no pin: the first commit that has one moved it.
-    let tag_moved = base_cargo.as_deref().map(contracts_tag) != Some(contracts_tag(&cargo));
+    let tag_moved = pin_moved(base_cargo.as_deref(), &cargo);
 
     let problems = check(&Input {
         ledger: &ledger,
@@ -316,12 +315,7 @@ pub fn command(root: &Path, args: &[String]) -> Result<()> {
         base,
         tag_moved,
     });
-    if !problems.is_empty() {
-        for problem in &problems {
-            eprintln!("lists: {problem}");
-        }
-        bail!("{} problem(s) in the conformance lists", problems.len());
-    }
+    report(&problems)?;
     println!(
         "lists: ok. ledger {} ids, pending {}, deferred {}, to run {}",
         ledger.len(),
@@ -330,6 +324,29 @@ pub fn command(root: &Path, args: &[String]) -> Result<()> {
         ledger.len() - pending.len() - deferred.len()
     );
     Ok(())
+}
+
+/// Prints the problems and fails when there is one.
+fn report(problems: &[String]) -> Result<()> {
+    for problem in problems {
+        eprintln!("lists: {problem}");
+    }
+    if problems.is_empty() {
+        Ok(())
+    } else {
+        bail!("{} problem(s) in the conformance lists", problems.len())
+    }
+}
+
+/// Whether the contracts pin differs from the base's. A base without a `Cargo.toml` has no pin: the first commit that has
+/// one moved it.
+fn pin_moved(base_cargo: Option<&str>, cargo: &str) -> bool {
+    base_cargo.map(contracts_tag) != Some(contracts_tag(cargo))
+}
+
+/// The text of `core-ledger-ids.txt` for a set of ids.
+fn ledger_text(ledger: &BTreeSet<String>) -> String {
+    ledger.iter().map(|id| format!("{id}\n")).collect()
 }
 
 /// The Core ids of the ledger of the pinned contracts checkout.
@@ -348,7 +365,7 @@ pub fn ledger_ids_command(root: &Path, args: &[String]) -> Result<()> {
     };
     let meta = crate::fsutil::metadata(root)?;
     let ledger = ledger_of(&meta.contracts_root)?;
-    let text: String = ledger.iter().map(|id| format!("{id}\n")).collect();
+    let text = ledger_text(&ledger);
     let path = root.join(LEDGER_FILE);
     if write {
         std::fs::write(&path, &text)?;
@@ -635,6 +652,40 @@ mod tests {
     fn only_core_ids_are_taken_from_the_ledger() {
         let json = r#"{"version":1,"ids":[{"id":"conf::a","contract":"core"},{"id":"conf::b","contract":"hp"}]}"#;
         assert_eq!(core_ids_of_ledger(json).unwrap(), set(&["conf::a"]));
+    }
+
+    #[test]
+    fn a_report_of_no_problem_passes_and_any_problem_fails() {
+        assert!(report(&[]).is_ok());
+        assert!(report(&["x".to_string()]).is_err());
+    }
+
+    #[test]
+    fn the_pin_moved_unless_base_and_head_name_the_same_tag() {
+        let a = "[workspace.dependencies]\nbotster-core-contract = { git = \"u\", tag = \"v1\" }\n";
+        let b = "[workspace.dependencies]\nbotster-core-contract = { git = \"u\", tag = \"v2\" }\n";
+        assert!(!pin_moved(Some(a), a));
+        assert!(pin_moved(Some(a), b));
+        assert!(pin_moved(None, a), "a base with no Cargo.toml has no pin");
+    }
+
+    #[test]
+    fn the_ledger_file_is_one_id_per_line_in_order() {
+        assert_eq!(ledger_text(&set(&["b", "a"])), "a\nb\n");
+        assert_eq!(ledger_text(&set(&[])), "");
+    }
+
+    #[test]
+    fn the_pinned_ledger_is_read_from_a_contracts_checkout() {
+        let root = botster_test_support::tempdir::TempRoot::new().unwrap();
+        std::fs::create_dir_all(root.path().join("conformance")).unwrap();
+        std::fs::write(
+            root.path().join("conformance/ledger.json"),
+            r#"{"ids":[{"id":"conf::a","contract":"core"},{"id":"conf::b","contract":"hc"}]}"#,
+        )
+        .unwrap();
+        assert_eq!(ledger_of(root.path()).unwrap(), set(&["conf::a"]));
+        assert!(ledger_of(&root.path().join("missing")).is_err());
     }
 
     #[test]

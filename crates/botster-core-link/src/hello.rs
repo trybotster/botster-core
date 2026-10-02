@@ -100,7 +100,7 @@ fn from_hex(text: &str) -> Option<[u8; PROOF_LEN]> {
     };
     let mut out = [0u8; PROOF_LEN];
     for (byte, pair) in out.iter_mut().zip(digits.chunks(2)) {
-        *byte = nibble(pair[0])? << 4 | nibble(pair[1])?;
+        *byte = nibble(pair[0])? * 16 + nibble(pair[1])?;
     }
     Some(out)
 }
