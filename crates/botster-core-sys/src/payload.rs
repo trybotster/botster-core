@@ -92,6 +92,11 @@ impl Payload {
         let (pty, pts) = pty_process::blocking::open().map_err(exec_failure)?;
         pty.resize(pty_process::Size::new(command.rows, command.cols))
             .map_err(exec_failure)?;
+        // Every fallible setup of the master comes before the child exists, so a failure leaves no process behind. The
+        // master's flags do not reach the payload's side of the PTY.
+        set_nonblocking(pty.as_fd()).map_err(|e| SpawnFailure::Exec {
+            errno: errno_of(&e),
+        })?;
         let child = pty_process::blocking::Command::new(program)
             .args(args)
             .env_clear()
@@ -100,10 +105,7 @@ impl Payload {
             .spawn(pts)
             .map_err(exec_failure)?;
         let pid = child.id();
-        // The master is read in the worker's readiness loop.
-        set_nonblocking(pty.as_fd()).map_err(|e| SpawnFailure::Exec {
-            errno: errno_of(&e),
-        })?;
+        // From here a `Payload` owns the child: its drop kills the group and reaps the leader.
         Ok(Payload {
             pty,
             child: Some(child),
@@ -132,6 +134,15 @@ impl Payload {
             Err(e) if e.raw_os_error() == Some(rustix::io::Errno::IO.raw_os_error()) => Ok(0),
             other => other,
         }
+    }
+
+    /// The bytes that the PTY holds for reading now (`FIONREAD`): the bound of the drain after the leader's exit.
+    ///
+    /// # Errors
+    /// The query failed.
+    pub fn pending_output(&self) -> io::Result<usize> {
+        let n = rustix::io::ioctl_fionread(self.pty.as_fd())?;
+        Ok(usize::try_from(n).unwrap_or(usize::MAX))
     }
 
     /// Writes input to the payload.
