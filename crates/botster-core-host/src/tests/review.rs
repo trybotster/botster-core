@@ -486,3 +486,104 @@ impl HostEngine {
         self.has_room()
     }
 }
+
+/// Core LC-7, steward ruling R-15: with the queue full, step 1 (close each bound route, with its `RouteClosed`) parks, and
+/// steps 2 to 5 wait for it: the open capture stays readable and no teardown request goes out until the poll frees room and
+/// `RouteClosed` is posted. Then the capture is released and the teardown request is sent.
+#[test]
+fn remove_with_a_bound_route_waits_for_route_closed_before_releasing_captures() {
+    let mut w = World::new(limits(|l| {
+        l.max_sessions = 4;
+        l.mandatory_events = 2;
+    }));
+    w.autopilot = Autopilot::Silent;
+    w.running("s1");
+    let op = w
+        .engine
+        .begin(Op::CaptureSnapshot {
+            session: sid("s1"),
+            owner: ClientId("c".into()),
+        })
+        .unwrap();
+    w.pump();
+    let req = *w.engine.sessions[&sid("s1")]
+        .inflight
+        .keys()
+        .next()
+        .unwrap();
+    w.worker_says(
+        "s1",
+        WorkerMsg::Pages {
+            req,
+            pages: vec![Page {
+                index: 0,
+                bytes: botster_route_codec::prelude::HexBytes(vec![1]),
+                last: true,
+            }],
+        },
+    );
+    w.worker_says(
+        "s1",
+        WorkerMsg::Done {
+            req,
+            result: OpResult::Ok(OpOutput::Capture(Capture {
+                capture: CaptureId(0),
+                page_count: 1,
+                total_bytes: 1,
+                model_rev: ModelRev(1),
+            })),
+        },
+    );
+    let capture = match w.complete(op) {
+        OpResult::Ok(OpOutput::Capture(c)) => c.capture,
+        other => panic!("{other:?}"),
+    };
+    w.engine
+        .attach(
+            ClientId("c".into()),
+            sid("s1"),
+            RouteTransport::Stream(StreamEndpoint::new(())),
+            opts(),
+        )
+        .unwrap();
+    w.worker_says(
+        "s1",
+        WorkerMsg::Exited {
+            code: Some(0),
+            signal: None,
+        },
+    );
+    w.pump();
+    w.engine.poll_events(64);
+    // Fill the queue, then remove.
+    w.engine.begin(create("s2")).unwrap();
+    w.engine.begin(create("s3")).unwrap();
+    w.pump();
+    w.engine.begin(Op::Remove { id: sid("s1") }).unwrap();
+    w.pump();
+    assert!(
+        w.engine.read_page(capture, 0).is_ok(),
+        "step 2 waits for step 1"
+    );
+    assert!(
+        !w.sent.iter().any(|(_, m)| matches!(m, HostMsg::Remove)),
+        "no teardown request while a route is still bound (R-15)"
+    );
+    let freed = w.engine.poll_events(64);
+    assert!(!freed.is_empty());
+    w.pump();
+    let events = w.engine.poll_events(64);
+    assert!(events.iter().any(|e| matches!(
+        e,
+        Event::RouteClosed {
+            reason: RouteCloseReason::SessionRemoved,
+            ..
+        }
+    )));
+    assert_eq!(
+        w.engine.read_page(capture, 0).unwrap_err().code,
+        ErrorCode::UnknownCapture,
+        "the capture is released after RouteClosed"
+    );
+    assert!(w.sent.iter().any(|(_, m)| matches!(m, HostMsg::Remove)));
+}
