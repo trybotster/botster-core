@@ -1,0 +1,4 @@
+# Ledger ids deferred by a ruling, and not-applicable cases of active ids. Format: README "Deferred and withdrawn ids". Fields are separated by two or more spaces.
+conf::ad_4_previous_worker_version_adopts  worker-protocol-2  (Core A6-2)  until: the first release whose worker protocol T is 2 (it then runs a pinned protocol-1 worker under that Core)
+conf::ad_4_missing_worker_capability_is_unsupported  worker-protocol-2  (Core A6-2)  until: the first release whose protocol T adds a worker feature that the pinned T-1 worker lacks (its subject is that feature)
+not-applicable conf::dp_12_unreachable_or_n_minus_1_worker_leaves_focused_unknown  n-minus-1-worker-without-focus_report  (Core A6-2)  because: focus_report is part of protocol 1, so no adoptable v1 worker lacks it; the id stays active and its unreachable-worker case runs now
