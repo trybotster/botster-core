@@ -95,10 +95,18 @@ impl HostEngine {
             (Op::SetNotificationPolicy { policy, .. }, Ok(())) => {
                 if let Some(session) = session.and_then(|id| self.sessions.get_mut(&id)) {
                     session.request.notification_policy = Some(policy);
+                    session.pending_setters = session.pending_setters.saturating_sub(1);
                 }
                 self.complete(op, OpResult::Ok(OpOutput::Unit));
             }
-            (_, Err(error)) => self.complete(op, OpResult::Err(registry_failed(error))),
+            (body, Err(error)) => {
+                if let (Op::SetNotificationPolicy { .. }, Some(id)) = (&body, &session) {
+                    if let Some(s) = self.sessions.get_mut(id) {
+                        s.pending_setters = s.pending_setters.saturating_sub(1);
+                    }
+                }
+                self.complete(op, OpResult::Err(registry_failed(error)))
+            }
             _ => {}
         }
     }
@@ -196,6 +204,7 @@ impl HostEngine {
                 features,
                 terminal,
                 formats,
+                payload,
             } => {
                 let awaiting = matches!(
                     self.sessions.get(id).map(|s| &s.flow),
@@ -206,6 +215,10 @@ impl HostEngine {
                 }
                 let s = self.sessions.get_mut(id).expect("checked");
                 s.worker_features = Some(features);
+                s.payload = payload.map(|p| ProcessIdentity {
+                    pid: p.pid,
+                    start_time: p.start_time,
+                });
                 s.terminal = Some(terminal);
                 s.formats = formats;
                 if let Flow::Start(f) = &mut s.flow {
@@ -298,6 +311,19 @@ impl HostEngine {
 
     /// A capture is a frozen copy that Core keeps (ST-6): it mints the `CaptureId` and keeps the pages.
     fn take_capture(&mut self, op: OpId, reported: Capture) -> OpResult {
+        let alive = self.ops.get(&op).is_some_and(|p| {
+            p.session
+                .as_ref()
+                .and_then(|s| self.sessions.get(s))
+                .is_some_and(|s| Some(&s.instance) == p.instance.as_ref())
+        });
+        if !alive {
+            // A capture of a removed instance is never kept (LC-7 step 2, ID-1).
+            return OpResult::Err(CoreError::new(
+                ErrorCode::SessionEnded,
+                "the session was removed before the capture finished",
+            ));
+        }
         let Some(p) = self.ops.get_mut(&op) else {
             return OpResult::Err(CoreError::new(
                 ErrorCode::Internal,
@@ -544,16 +570,17 @@ impl HostEngine {
                     }),
                 );
             }
-            Flow::Stop(f) if f.phase == StopPhase::AwaitExit => {
-                // LC-5: a session whose control link is broken still ends: the process edge carries the request.
-                if let Some(identity) = self.identity_of(&id) {
+            Flow::Stop(f) if f.end.is_none() && f.phase != StopPhase::RowWrite => {
+                // LC-5: a session whose control link is broken still ends: the host asks the payload's group itself. The
+                // worker's group is never signalled for a stop (it holds the final model).
+                if let Some(identity) = self.sessions.get(&id).and_then(|s| s.payload) {
                     self.act(Action::SignalGroup {
                         identity,
                         signal: GroupSignal::Term,
                     });
                 }
             }
-            Flow::Remove(f) if f.phase == RemovePhase::AwaitResult => {
+            Flow::Remove(_) => {
                 // A6-3: the result was lost with the link, so Core claims no path.
                 self.flow_remove_result(
                     &id,
@@ -574,6 +601,7 @@ impl HostEngine {
         let Some(id) = found else {
             return;
         };
+        self.sessions.get_mut(&id).expect("found above").worker.gone = true;
         let shown = self.sessions[&id].shown;
         let flow = self.sessions[&id].flow.clone();
         // The worker is gone: its link is gone with it.
@@ -600,13 +628,8 @@ impl HostEngine {
                     SessionState::Lost(LostReason::WorkerGone),
                 );
             }
-            Flow::Remove(f) if f.phase == RemovePhase::AwaitResult => {
-                self.flow_remove_result(
-                    &id,
-                    UploadsOutcome::NotDeleted(NotDeleted::OutcomeUnknown),
-                );
-            }
-            Flow::Remove(_) | Flow::Create(_) => {}
+            Flow::Remove(_) => self.flow_remove_worker_gone(&id),
+            Flow::Create(_) => {}
             _ => {
                 if matches!(
                     shown,

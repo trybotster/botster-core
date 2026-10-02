@@ -465,10 +465,7 @@ impl HostEngine {
         let session = Self::session_of(&op);
         self.commit(id, op);
         if let Some(s) = session.and_then(|session| self.sessions.get_mut(&session)) {
-            s.ops_seen.push(id);
-            if s.ops_seen.len() > crate::session::OPS_SEEN_KEPT {
-                s.ops_seen.remove(0);
-            }
+            s.ops.insert(id.0);
         }
         Ok(id)
     }
@@ -606,10 +603,11 @@ impl HostEngine {
             }
             Op::Signal { id: session, sig } => {
                 let instance = instance_of(self, &session);
+                let _ = sig;
                 self.sessions.get_mut(&session).expect("checked").host_ended = true;
                 self.ops.insert(
                     id,
-                    Self::pending(op, Some(session), instance, Step::Ready(Next::Signal(sig))),
+                    Self::pending(op, Some(session), instance, Step::Ready(Next::Forward)),
                 );
             }
             Op::Remove { id: session } => {
@@ -619,8 +617,10 @@ impl HostEngine {
                     &session,
                     Flow::Remove(RemoveFlow {
                         op: id,
-                        phase: RemovePhase::CloseRoutes,
+                        phase: RemovePhase::SendRemove,
                         uploads: None,
+                        worker_gone: false,
+                        deadline: None,
                     }),
                 );
                 self.ops.insert(
@@ -652,13 +652,13 @@ impl HostEngine {
             } => {
                 let instance = instance_of(self, &session);
                 let admit = self.sessions[&session].admit;
+                let _ = policy;
                 let step = if admit == Admit::Created {
                     self.sessions
                         .get_mut(&session)
                         .expect("checked")
-                        .request
-                        .size_policy = Some(policy);
-                    Step::Ready(Next::Complete(OpResult::Ok(OpOutput::Unit)))
+                        .pending_setters += 1;
+                    Step::Ready(Next::Setter)
                 } else {
                     Step::Ready(Next::Forward)
                 };
@@ -670,13 +670,13 @@ impl HostEngine {
             } => {
                 let instance = instance_of(self, &session);
                 let admit = self.sessions[&session].admit;
+                let _ = profile;
                 let step = if admit == Admit::Created {
                     self.sessions
                         .get_mut(&session)
                         .expect("checked")
-                        .request
-                        .color_profile = Some(profile);
-                    Step::Ready(Next::Complete(OpResult::Ok(OpOutput::Unit)))
+                        .pending_setters += 1;
+                    Step::Ready(Next::Setter)
                 } else {
                     Step::Ready(Next::Forward)
                 };
@@ -687,6 +687,10 @@ impl HostEngine {
                 let instance = instance_of(self, &session);
                 let admit = self.sessions[&session].admit;
                 let step = if admit == Admit::Created {
+                    self.sessions
+                        .get_mut(&session)
+                        .expect("checked")
+                        .pending_setters += 1;
                     Step::Ready(Next::PolicyWrite)
                 } else {
                     Step::Ready(Next::Forward)
@@ -697,13 +701,13 @@ impl HostEngine {
             Op::Resize { session, size } => {
                 let instance = instance_of(self, &session);
                 let admit = self.sessions[&session].admit;
+                let _ = size;
                 let step = if admit == Admit::Created {
-                    let s = self.sessions.get_mut(&session).expect("checked");
-                    s.size = size;
-                    s.request.size = size;
-                    Step::Ready(Next::Complete(OpResult::Ok(OpOutput::Resize(
-                        ResizeResult::Applied { actual: size },
-                    ))))
+                    self.sessions
+                        .get_mut(&session)
+                        .expect("checked")
+                        .pending_setters += 1;
+                    Step::Ready(Next::Setter)
                 } else {
                     Step::Ready(Next::Forward)
                 };
@@ -787,13 +791,17 @@ impl HostEngine {
 
     /// `cancel` (IN-6, A2-1): only a `WriteInput` can be cancelled.
     pub fn cancel(&mut self, op: OpId) -> CancelResult {
+        // An id that this handle never minted is `UnknownOp` (IN-6).
+        if op.0 == 0 || op.0 >= self.next_op {
+            return CancelResult::UnknownOp;
+        }
         let Some(pending) = self.ops.get(&op) else {
             // An op that completed and was polled is `TooLate` while its instance lives, and `UnknownOp` after it is gone
-            // (ID-1). An id that this handle never minted is `UnknownOp`.
-            return if op.0 < self.next_op && !self.retired_ops.contains(&op) {
-                CancelResult::TooLate
-            } else {
+            // (ID-1). The identity is exact for the whole life of the handle.
+            return if self.retired_ops.contains(op.0) {
                 CancelResult::UnknownOp
+            } else {
+                CancelResult::TooLate
             };
         };
         if matches!(pending.step, Step::Done) {
@@ -921,7 +929,7 @@ impl HostEngine {
         }
         let query_deadline = match (options.answers_queries, options.query_deadline) {
             (true, None) => return Err(invalid("answers_queries needs a query_deadline")),
-            (true, Some(d)) if d.is_zero() || d > limits.max_query_deadline => {
+            (true, Some(d)) if d < Duration::from_millis(1) || d > limits.max_query_deadline => {
                 return Err(invalid("query_deadline is from 1 ms to max_query_deadline"))
             }
             (true, Some(d)) => d,

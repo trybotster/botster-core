@@ -13,6 +13,14 @@ use botster_core_contract::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
+/// The identity of a payload process: pid and start time (AD-6). The payload is the leader of its own process group, so its
+/// pid is its group id (LC-5, LC-6).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PayloadId {
+    pub pid: u32,
+    pub start_time: u64,
+}
+
 /// What the host tells a worker to launch (AD-7 step 4, after the worker's identity is durable).
 ///
 /// Clause: Core LC-3, Core A2-1, Core A3-1, Core DP-6.
@@ -44,8 +52,6 @@ pub enum HostMsg {
     Stop,
     /// The kill of the payload's process group after `stop_grace` (LC-5).
     Kill,
-    /// A signal to the payload's process group (LC-6).
-    Signal { sig: Signal },
     /// An operation that needs the worker's model or input path (the reads, `WriteInput`, the setters). `req` is the host's
     /// request number, unique on this link. The worker answers with [`WorkerMsg::Done`].
     Op { req: u64, op: Op },
@@ -148,6 +154,9 @@ pub enum WorkerMsg {
         /// The snapshot formats that the worker can emit (`snapshot_formats`, ST-6).
         #[serde(default)]
         formats: Vec<SnapshotFormat>,
+        /// The payload's identity, so that the host can end its group when the link is gone (LC-5).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        payload: Option<PayloadId>,
     },
     /// The payload did not start (LC-4).
     LaunchFailed {
