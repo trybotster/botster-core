@@ -1,8 +1,8 @@
 # P6 testkit review — M0b
 
-VERDICT: NOT CLEAN (1 open)
+VERDICT: CLEAN
 
-Reviewed head: `7797e33abd3a8f400ba59ea01feef0103be8f901`.
+Reviewed head: `82fcaf4060eec37ea7fb4576889fca227161862b`.
 Previous reviewed head: `b97b6055856e60c17af7cf0300ab89bc582a6d5e`.
 Base: `118c972`.
 Scope: M0b only, under plan pin `555bc433` and `contracts-v0.1.1`.
@@ -70,7 +70,7 @@ Add regression cases for exact-limit completion and an empty simulation with a z
 
 ## F6 — LOW — Record the required prior-art note and budget limits
 
-Status: OPEN.
+Status: CLOSED at `82fcaf4`. The design note and repeatable example state the measured paths and limits correctly.
 Evidence: The reviewed tree contains no P6 prior-art note. Its README contains only the crate description.
 No pull request exists for `stage1/p6-testkit` at review time.
 The implementer's message supplies prior-art decisions and budget numbers, but those facts are not in a durable review artifact.
@@ -103,6 +103,15 @@ Two statements in `DESIGN.md` remain incorrect:
 
 Remaining required change: Identify the withdrawn pass correctly. Describe the numbers as an early-exit harness measurement.
 The early exits include unsupported controls, absent features, and failed `open` calls. Do not claim that all constructed-driver runs reach `open`.
+
+Delta review at `82fcaf4`: the design note identifies the withdrawn transcript and describes the measurement as an early-exit harness measurement.
+All six findings are closed. Copying this evidence into the eventual pull request remains part of the implementer's handoff.
+
+## Final review result
+
+M0b is CLEAN on `82fcaf4060eec37ea7fb4576889fca227161862b`. No findings remain open.
+This verdict does not approve later P6 milestones or establish passing Core conformance.
+The implementer must run the gate on this exact head after CLEAN. The reviewer did not run the gate.
 
 ## Contract question resolved by the lead
 
