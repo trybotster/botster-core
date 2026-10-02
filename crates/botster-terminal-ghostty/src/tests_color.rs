@@ -154,3 +154,61 @@ fn modify_other_keys_state_2_is_in_other_modes_and_follows_the_sequence() {
     terminal.vt_write(b"\x1b[>4;0m");
     assert_eq!(terminal.modes().other_modes.get(name), Some(&false));
 }
+
+#[test]
+fn modify_other_keys_state_2_is_kept_when_kitty_flags_are_on() {
+    let mut terminal = terminal();
+    let name = "xterm_modify_other_keys_2";
+    terminal.vt_write(b"\x1b[>4;2m");
+    // The kitty keyboard flags take over the key encoding, and the state is still the terminal's own.
+    terminal.vt_write(b"\x1b[>31u");
+    assert_ne!(terminal.modes().kitty_flags, 0);
+    assert_eq!(terminal.modes().other_modes.get(name), Some(&true));
+    terminal.vt_write(b"\x1b[>4;0m");
+    assert_eq!(terminal.modes().other_modes.get(name), Some(&false));
+}
+
+#[test]
+fn the_shift_capture_of_the_program_is_in_other_modes() {
+    let mut terminal = terminal();
+    let name = "xterm_mouse_shift_capture";
+    assert_eq!(terminal.modes().other_modes.get(name), Some(&false));
+    terminal.vt_write(b"\x1b[>1s");
+    assert_eq!(terminal.modes().other_modes.get(name), Some(&true));
+    terminal.vt_write(b"\x1b[>0s");
+    assert_eq!(terminal.modes().other_modes.get(name), Some(&false));
+}
+
+/// The Kitty image storage limit of the active screen, from the library.
+fn image_limit(terminal: &Terminal) -> u64 {
+    let mut limit: u64 = u64::MAX;
+    // SAFETY: the handle is live, and the key writes a `uint64_t`.
+    let code = unsafe {
+        sys::ghostty_terminal_get(
+            terminal.handle.as_ptr(),
+            sys::data::KITTY_IMAGE_STORAGE_LIMIT,
+            (&mut limit as *mut u64).cast(),
+        )
+    };
+    assert_eq!(code, sys::SUCCESS);
+    limit
+}
+
+#[test]
+fn the_kitty_graphics_protocol_is_off_on_both_screens_and_a_snapshot_loses_nothing() {
+    let mut terminal = terminal();
+    assert_eq!(image_limit(&terminal), 0);
+    terminal.vt_write(b"\x1b[?1049h");
+    assert_eq!(image_limit(&terminal), 0);
+
+    // A 1x1 image: with the protocol off the terminal holds none, so the snapshot is the one of a terminal that
+    // never saw it.
+    let mut with_image = self::terminal();
+    let fresh = self::terminal();
+    with_image.vt_write(b"\x1b_Ga=T,f=24,s=1,v=1,i=1;AAAA\x1b\\");
+    assert_eq!(with_image.snapshot().unwrap(), fresh.snapshot().unwrap());
+    with_image.vt_write(b"\x1b[?1049h\x1b_Ga=T,f=24,s=1,v=1,i=2;AAAA\x1b\\\x1b[?1049l");
+    let mut alt_only = self::terminal();
+    alt_only.vt_write(b"\x1b[?1049h\x1b[?1049l");
+    assert_eq!(with_image.snapshot().unwrap(), alt_only.snapshot().unwrap());
+}

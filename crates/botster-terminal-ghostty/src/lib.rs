@@ -23,14 +23,19 @@ use std::ptr::NonNull;
 pub use botster_core_contract::prelude::{KeyInput, MouseInput, Size};
 pub use botster_route_codec::prelude::ModeFlags;
 pub use encode::EncodeError;
-pub use events::{Drained, TerminalEvent, MAX_BUFFERED_BYTES, MAX_BUFFERED_EVENTS};
+pub use events::{
+    ClipboardEntry, ClipboardLocation, ClipboardWrite, Drained, TerminalEvent, MAX_BUFFERED_BYTES,
+    MAX_BUFFERED_EVENTS,
+};
 pub use query::{Query, QueryKind, QueryStep, Terminator, MAX_SHADOW_REPLY_BYTES};
 pub use reads::{CursorCell, ScreenText};
 pub use reply::{ReplyError, MAX_REPLY_BYTES};
 pub use snapshot::{
-    terminal_identity, SnapshotError, SnapshotFormat, TerminalIdentityParts, CONTINUATION_LIMIT,
-    SNAPSHOT_FORMAT,
+    snapshot_format, terminal_identity, SnapshotError, TerminalIdentityParts, CONTINUATION_LIMIT,
 };
+
+/// The default limit of one clipboard write, in bytes of all representations (`CoreLimits.clipboard_bytes`).
+pub const DEFAULT_CLIPBOARD_BYTES: usize = MAX_BUFFERED_BYTES;
 
 /// The default limit, in bytes, of the request that a query reports (`CoreLimits.max_query_bytes`, EV-8).
 pub const DEFAULT_QUERY_REQUEST_BYTES: usize = 4096;
@@ -112,6 +117,8 @@ impl Terminal {
             color_profile: None,
             _not_sync: PhantomData,
         };
+        terminal.set_clipboard_limit(DEFAULT_CLIPBOARD_BYTES);
+        terminal.set_image_storage_limit_zero()?;
         terminal.register_callbacks()?;
         terminal.set_history_limit()?;
         terminal.set_query_request_limit_default()?;
@@ -121,6 +128,20 @@ impl Terminal {
             terminal.apply_size(cols, rows, px.width, px.height)?;
         }
         Ok(terminal)
+    }
+
+    /// Turn the Kitty graphics protocol off before any write (audit H1, ST-6b): a snapshot holds no images or
+    /// placements, so the model must hold none either. The library applies the limit to every screen.
+    fn set_image_storage_limit_zero(&self) -> Result<(), Error> {
+        let limit: u64 = 0;
+        // SAFETY: the handle is live, and the option takes a `uint64_t` pointer.
+        check(unsafe {
+            sys::ghostty_terminal_set(
+                self.handle.as_ptr(),
+                sys::opt::KITTY_IMAGE_STORAGE_LIMIT,
+                (&limit as *const u64).cast(),
+            )
+        })
     }
 
     fn set_query_request_limit_default(&self) -> Result<(), Error> {
@@ -221,8 +242,11 @@ impl Terminal {
     }
 
     /// Feed one chunk that holds no query to the model. The callbacks run inside this call and fill the event buffer.
-    /// Program output goes through `vt_write_until_query`, which stops at each query. A query that this call meets is
-    /// counted in `Drained::unrouted_queries` and is not buffered, so the buffer stays bounded (EV-8).
+    ///
+    /// **PTY output never goes through this function.** It goes through `vt_write_until_query`, which stops at each
+    /// query so that the client has its turn to answer (EV-8(d)). A query that this call meets gets the library's
+    /// shadow reply in `Drained::pty_writes` at once, before any client could answer, and is counted in
+    /// `Drained::unrouted_queries`. It is not buffered, so the buffer stays bounded (EV-8).
     pub fn vt_write(&mut self, bytes: &[u8]) {
         // SAFETY: no callback runs now, so this is the only reference to the buffer.
         unsafe { self.shared.as_mut() }.begin_write(false);
@@ -262,6 +286,14 @@ impl Terminal {
             }),
             other => Err(Error::from_code(other)),
         }
+    }
+
+    /// Set the largest clipboard write, in bytes of all representations, that the model is answered SUCCESS for
+    /// (`CoreLimits.clipboard_bytes`, A13-1b). A larger write is surfaced as `too_large` without its bytes, and the
+    /// model gets IO_ERROR. The decision is made inside the native callback, by size alone.
+    pub fn set_clipboard_limit(&mut self, bytes: usize) {
+        // SAFETY: no callback runs now, so this is the only reference to the buffer.
+        unsafe { self.shared.as_mut() }.clipboard_limit = bytes;
     }
 
     /// Set the largest request, in bytes, that a query reports (`CoreLimits.max_query_bytes`). A longer sequence

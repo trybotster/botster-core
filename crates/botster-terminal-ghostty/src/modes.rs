@@ -99,8 +99,10 @@ fn get_bool(terminal: sys::Terminal, key: i32) -> bool {
     out
 }
 
-/// The modes of the terminal as the library reports them, without the modifyOtherKeys probe.
-pub(crate) fn base_mode_flags(terminal: sys::Terminal) -> ModeFlags {
+/// `GHOSTTY_MOUSE_SHIFT_CAPTURE_ON`.
+const SHIFT_CAPTURE_ON: i32 = 2;
+
+pub(crate) fn mode_flags(terminal: sys::Terminal) -> ModeFlags {
     let mut kitty: u8 = 0;
     // SAFETY: the terminal is live, and KITTY_KEYBOARD_FLAGS writes a `u8`.
     let code = unsafe {
@@ -134,6 +136,15 @@ pub(crate) fn base_mode_flags(terminal: sys::Terminal) -> ModeFlags {
         other_modes.insert(mode_name(value, ansi), read_mode(terminal, value, ansi));
     }
 
+    other_modes.insert(
+        MODIFY_OTHER_KEYS_2.to_owned(),
+        get_bool(terminal, sys::data::MODIFY_OTHER_KEYS_2),
+    );
+    other_modes.insert(
+        MOUSE_SHIFT_CAPTURE.to_owned(),
+        get_i32(terminal, sys::data::MOUSE_SHIFT_CAPTURE) == SHIFT_CAPTURE_ON,
+    );
+
     ModeFlags {
         alt_screen: get_i32(terminal, sys::data::ACTIVE_SCREEN) == sys::SCREEN_ALTERNATE,
         cursor_visible: get_bool(terminal, sys::data::CURSOR_VISIBLE),
@@ -154,15 +165,10 @@ pub(crate) fn normative_dec() -> &'static [u16] {
     NORMATIVE_DEC
 }
 
-/// The name in `other_modes` of xterm's modifyOtherKeys state 2 (`CSI > 4 ; 2 m`). libghostty tracks it in the terminal
-/// and offers no getter, so it is read through the key encoder (see `encode::modify_other_keys_state_2`).
+/// The name in `other_modes` of xterm's modifyOtherKeys state 2 (`CSI > 4 ; 2 m`), read from the terminal's own state
+/// (`GHOSTTY_TERMINAL_DATA_MODIFY_OTHER_KEYS_2`, fork patch 9). It holds whatever the kitty keyboard flags are.
 pub(crate) const MODIFY_OTHER_KEYS_2: &str = "xterm_modify_other_keys_2";
 
-pub(crate) fn mode_flags(terminal: sys::Terminal) -> ModeFlags {
-    let mut flags = base_mode_flags(terminal);
-    let state_2 = crate::encode::modify_other_keys_state_2(terminal, &flags);
-    flags
-        .other_modes
-        .insert(MODIFY_OTHER_KEYS_2.to_owned(), state_2);
-    flags
-}
+/// The name in `other_modes` of XTSHIFTESCAPE (`CSI > 1 s`): true when the program turned Shift capture on. The
+/// library also tells "never set" from "turned off"; both are false here.
+pub(crate) const MOUSE_SHIFT_CAPTURE: &str = "xterm_mouse_shift_capture";

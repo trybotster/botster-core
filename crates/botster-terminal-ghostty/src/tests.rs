@@ -166,33 +166,131 @@ fn osc_133_marks_and_the_exit_code() {
     );
 }
 
-// ---- clipboard writes (EV-3, EV-7) ----
+// ---- clipboard writes (Core Amendment 13, A13-1, A13-1b) ----
+
+/// The one clipboard write that `bytes` produces.
+fn clipboard_write_of(terminal: &mut Terminal, bytes: &[u8]) -> ClipboardWrite {
+    terminal.vt_write(bytes);
+    let mut events = terminal.drain_events().events;
+    assert_eq!(events.len(), 1, "{events:?}");
+    match events.remove(0) {
+        TerminalEvent::ClipboardWrite(write) => write,
+        other => panic!("expected a clipboard write, got {other:?}"),
+    }
+}
+
+fn entry(mime: &str, bytes: &[u8]) -> ClipboardEntry {
+    ClipboardEntry {
+        mime: mime.to_owned(),
+        bytes: bytes.to_vec(),
+    }
+}
 
 #[test]
-fn osc_52_writes_report_the_selection_as_written_and_the_decoded_bytes() {
-    // "aGk=" is "hi".
-    for selection in ["c", "p", "q", "s", "0", "7", "s0", "cp", "cpqs01234567"] {
-        for terminator in ["\x07", "\x1b\\"] {
+fn osc_52_writes_report_the_selection_location_terminator_and_the_decoded_bytes() {
+    // "aGk=" is "hi". The selection is the string as written; the location is the library's mapping of it.
+    for (selection, location) in [
+        ("c", ClipboardLocation::Standard),
+        ("p", ClipboardLocation::Primary),
+        ("s", ClipboardLocation::Selection),
+        ("q", ClipboardLocation::Standard),
+        ("0", ClipboardLocation::Standard),
+        ("s0", ClipboardLocation::Selection),
+        ("cp", ClipboardLocation::Standard),
+        ("cpqs01234567", ClipboardLocation::Standard),
+    ] {
+        for (terminator, expected) in [("\x07", Terminator::Bel), ("\x1b\\", Terminator::St)] {
             let sequence = format!("\x1b]52;{selection};aGk={terminator}");
-            assert_eq!(
-                events_of(sequence.as_bytes()),
-                vec![TerminalEvent::ClipboardWrite {
-                    selection: Some(selection.to_owned()),
-                    bytes: b"hi".to_vec()
-                }],
-                "selection {selection:?}"
-            );
+            let write = clipboard_write_of(&mut terminal(), sequence.as_bytes());
+            assert_eq!(write.selection.as_deref(), Some(selection));
+            assert_eq!(write.location, location, "selection {selection:?}");
+            assert_eq!(write.terminator, expected);
+            assert_eq!(write.contents, Some(vec![entry("text/plain", b"hi")]));
+            assert_eq!((write.total_bytes, write.too_large), (2, false));
+            assert!(write.ack.is_empty());
         }
     }
-    // A program that leaves the selection out gives none: the library reports the same for OSC 52 without a selection
-    // and for the other clipboard protocols.
+    // A program that leaves the selection out gives none, and the location says where the write goes.
+    let write = clipboard_write_of(&mut terminal(), b"\x1b]52;;aGk=\x07");
+    assert_eq!(write.selection, None);
+    assert_eq!(write.location, ClipboardLocation::Standard);
+}
+
+#[test]
+fn an_osc_52_clear_has_no_entries_and_is_not_an_empty_value() {
+    let clear = clipboard_write_of(&mut terminal(), b"\x1b]52;s;\x1b\\");
+    assert_eq!(clear.contents, Some(Vec::new()));
+    assert_eq!(clear.total_bytes, 0);
+    assert!(!clear.too_large);
+
+    // A kitty write of one representation with no bytes is one entry with empty bytes.
+    let mut terminal = terminal();
+    terminal.vt_write(b"\x1b]5522;type=write:id=1\x1b\\");
+    terminal.vt_write(b"\x1b]5522;type=wdata:mime=dGV4dC9wbGFpbg==;\x1b\\");
+    let empty = clipboard_write_of(&mut terminal, b"\x1b]5522;type=wdata\x1b\\");
+    assert_eq!(empty.contents, Some(vec![entry("text/plain", b"")]));
+    assert_ne!(empty.contents, clear.contents);
+}
+
+#[test]
+fn osc_1337_copy_is_a_clipboard_write_without_a_selection_or_an_acknowledgement() {
+    let write = clipboard_write_of(&mut terminal(), b"\x1b]1337;Copy=:aVRlcm0y\x1b\\");
+    assert_eq!(write.selection, None);
+    assert_eq!(write.contents, Some(vec![entry("text/plain", b"iTerm2")]));
+    assert!(write.ack.is_empty());
+}
+
+/// The transaction of an OSC 5522 write with two representations, one in two chunks.
+fn kitty_write(terminal: &mut Terminal) -> ClipboardWrite {
+    terminal.vt_write(b"\x1b]5522;type=write:id=42\x1b\\");
+    terminal.vt_write(b"\x1b]5522;type=wdata:mime=dGV4dC9wbGFpbg==;R2hvc3Q=\x1b\\");
+    terminal.vt_write(b"\x1b]5522;type=wdata:mime=dGV4dC9wbGFpbg==;dHk=\x1b\\");
+    terminal.vt_write(b"\x1b]5522;type=wdata:mime=dGV4dC9odG1s;PGI+aGk8L2I+\x1b\\");
+    clipboard_write_of(terminal, b"\x1b]5522;type=wdata\x1b\\")
+}
+
+#[test]
+fn an_osc_5522_write_keeps_every_representation_in_order_and_returns_the_acknowledgement_as_a_value(
+) {
+    let mut terminal = terminal();
+    let write = kitty_write(&mut terminal);
+    assert_eq!(write.selection, None);
+    assert_eq!(write.location, ClipboardLocation::Standard);
     assert_eq!(
-        events_of(b"\x1b]52;;aGk=\x07"),
-        vec![TerminalEvent::ClipboardWrite {
-            selection: None,
-            bytes: b"hi".to_vec()
-        }]
+        write.contents,
+        Some(vec![
+            entry("text/plain", b"Ghostty"),
+            entry("text/html", b"<b>hi</b>")
+        ])
     );
+    assert_eq!((write.total_bytes, write.too_large), (16, false));
+    // The model wrote an acknowledgement while it handled the reply. It is in the event, and nothing went to the pty.
+    assert!(!write.ack.is_empty());
+    let drained = terminal.drain_events();
+    assert!(drained.pty_writes.is_empty());
+    assert_eq!(drained.unrouted_queries, 0);
+}
+
+#[test]
+fn a_write_over_the_limit_is_surfaced_without_its_bytes_and_the_model_gets_io_error() {
+    let mut within = terminal();
+    let ok = kitty_write(&mut within);
+
+    let mut terminal = terminal();
+    // The limit counts the bytes of all representations: 7 + 9 = 16.
+    terminal.set_clipboard_limit(15);
+    let over = kitty_write(&mut terminal);
+    assert!(over.too_large);
+    assert_eq!(over.contents, None);
+    assert_eq!(over.total_bytes, 16);
+    // The program is told a different status (IO_ERROR, not DONE), and the answer is still a value.
+    assert!(!over.ack.is_empty());
+    assert_ne!(over.ack, ok.ack);
+
+    // At the limit it is within.
+    let mut at_limit = self::terminal();
+    at_limit.set_clipboard_limit(16);
+    assert!(!kitty_write(&mut at_limit).too_large);
 }
 
 // ---- modes (5.1A, Core erratum 2) ----
