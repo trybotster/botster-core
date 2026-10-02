@@ -53,8 +53,29 @@ impl std::fmt::Debug for Descriptor {
     }
 }
 
+/// What a test scripts about the writes and reads of one side (the route controls of `docs/core-testkit-controls.md`). A
+/// control is state of the edge, never a branch in a machine.
+#[derive(Debug, Default, Clone)]
+struct SideControl {
+    /// While set, this side's stream takes no byte from its owner (`route_gate`).
+    gate: bool,
+    /// At most this many more bytes are taken, then none (`route_accept`). `None`: no limit.
+    accept: Option<usize>,
+    /// The next write fails with this kind, once (`fail_writes`).
+    fail_write: Option<io::ErrorKind>,
+    /// The end reports itself writable although it takes no byte (`route_spurious_ready`).
+    spurious_writable: bool,
+    /// Each read returns at most this many bytes (`route_read_size`).
+    read_cap: Option<usize>,
+    /// The next descriptor that this side hands over fails (`fail_handoff`).
+    fail_descriptor: bool,
+}
+
 #[derive(Debug)]
 struct Shared {
+    control: [SideControl; 2],
+    /// The stream was reset at one end with no close handshake (`drop_transport`): every call fails.
+    reset: bool,
     /// `queues[s]` holds the bytes that side `s` wrote and side `1 - s` has not read.
     queues: [VecDeque<u8>; 2],
     descriptors: [VecDeque<Descriptor>; 2],
@@ -68,7 +89,14 @@ pub struct End {
     shared: Arc<Mutex<Shared>>,
     side: usize,
     interest: Interest,
-    write_error: Option<io::ErrorKind>,
+}
+
+/// A handle on the controls of one end. It stays valid after the end moved (into a descriptor, into a worker), which is how a
+/// test scripts a stream whose end it no longer holds.
+#[derive(Debug, Clone)]
+pub struct EndControl {
+    shared: Arc<Mutex<Shared>>,
+    side: usize,
 }
 
 fn lock(shared: &Mutex<Shared>) -> MutexGuard<'_, Shared> {
@@ -78,6 +106,8 @@ fn lock(shared: &Mutex<Shared>) -> MutexGuard<'_, Shared> {
 impl End {
     fn pair(capacity: usize) -> (End, End) {
         let shared = Arc::new(Mutex::new(Shared {
+            control: [SideControl::default(), SideControl::default()],
+            reset: false,
             queues: [VecDeque::new(), VecDeque::new()],
             descriptors: [VecDeque::new(), VecDeque::new()],
             capacity,
@@ -87,7 +117,6 @@ impl End {
             shared: Arc::clone(&shared),
             side,
             interest: Interest::default(),
-            write_error: None,
         };
         (end(0), end(1))
     }
@@ -104,13 +133,19 @@ impl End {
         let shared = lock(&self.shared);
         let (me, peer) = (self.side, 1 - self.side);
         let readable = !shared.closed[me]
-            && (!shared.queues[peer].is_empty()
+            && (shared.reset
+                || !shared.queues[peer].is_empty()
                 || !shared.descriptors[peer].is_empty()
                 || shared.closed[peer]);
+        let control = &shared.control[me];
+        let takes =
+            !control.gate && control.accept != Some(0) && shared.queues[me].len() < shared.capacity;
         let writable = !shared.closed[me]
-            && (self.write_error.is_some()
+            && (shared.reset
+                || control.fail_write.is_some()
+                || control.spurious_writable
                 || shared.closed[peer]
-                || shared.queues[me].len() < shared.capacity);
+                || takes);
         Readiness { readable, writable }
     }
 
@@ -132,6 +167,10 @@ impl End {
         if shared.closed[me] {
             return Ok(0);
         }
+        if shared.reset {
+            return Err(io::ErrorKind::ConnectionReset.into());
+        }
+        let max = shared.control[me].read_cap.map_or(max, |cap| max.min(cap));
         let queue = &mut shared.queues[peer];
         if queue.is_empty() {
             return if shared.closed[peer] {
@@ -149,20 +188,28 @@ impl End {
 
     /// Writes as many bytes as the queue has room for.
     pub fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
-        if let Some(kind) = self.write_error.take() {
-            return Err(kind.into());
-        }
         let mut shared = lock(&self.shared);
         let (me, peer) = (self.side, 1 - self.side);
+        if shared.reset {
+            return Err(io::ErrorKind::ConnectionReset.into());
+        }
+        if let Some(kind) = shared.control[me].fail_write.take() {
+            return Err(kind.into());
+        }
         if shared.closed[me] || shared.closed[peer] {
             return Err(io::ErrorKind::BrokenPipe.into());
         }
+        let control = &shared.control[me];
         let room = shared.capacity - shared.queues[me].len();
-        if room == 0 && !bytes.is_empty() {
+        let room = control.accept.map_or(room, |accept| room.min(accept));
+        if (control.gate || room == 0) && !bytes.is_empty() {
             return Err(io::ErrorKind::WouldBlock.into());
         }
         let n = room.min(bytes.len());
         shared.queues[me].extend(&bytes[..n]);
+        if let Some(accept) = &mut shared.control[me].accept {
+            *accept -= n;
+        }
         Ok(n)
     }
 
@@ -182,7 +229,77 @@ impl End {
 
     /// The next write fails with `kind` (A5-3: a failed write of the route transport).
     pub fn fail_next_write(&mut self, kind: io::ErrorKind) {
-        self.write_error = Some(kind);
+        self.control().fail_next_write(kind);
+    }
+
+    /// A handle on this end's controls that outlives the end.
+    pub fn control(&self) -> EndControl {
+        EndControl {
+            shared: Arc::clone(&self.shared),
+            side: self.side,
+        }
+    }
+
+    /// True when the peer's writes toward this end are blocked: the queue toward this end is full, so the owner of the other
+    /// end sees a stream that takes no more bytes (`input_blocked`, Core DP-5).
+    pub fn peer_write_blocked(&self) -> bool {
+        let shared = lock(&self.shared);
+        shared.queues[1 - self.side].len() >= shared.capacity
+    }
+}
+
+impl EndControl {
+    fn with<R>(&self, f: impl FnOnce(&mut SideControl) -> R) -> R {
+        f(&mut lock(&self.shared).control[self.side])
+    }
+
+    /// While `on`, the stream takes no byte from this end's owner; `route_accept` limits end with it (`route_gate`, Core OU-2,
+    /// OU-3b). `on: false` releases the gate and the limit.
+    pub fn gate(&self, on: bool) {
+        self.with(|c| {
+            c.gate = on;
+            if !on {
+                c.accept = None;
+            }
+        });
+    }
+
+    /// The stream takes at most `bytes` more bytes from this end's owner, then none until [`EndControl::gate`] with `false`
+    /// (`route_accept`, Core OU-3a, OU-4).
+    pub fn accept_at_most(&self, bytes: usize) {
+        self.with(|c| c.accept = Some(bytes));
+    }
+
+    /// The next write of this end's owner fails with `kind` (`fail_writes`, Core OU-2b, A2-3).
+    pub fn fail_next_write(&self, kind: io::ErrorKind) {
+        self.with(|c| c.fail_write = Some(kind));
+    }
+
+    /// Lifts a pending write failure.
+    pub fn clear_write_failure(&self) {
+        self.with(|c| c.fail_write = None);
+    }
+
+    /// The end reports write readiness although it takes no byte (`route_spurious_ready`, Core OU-6).
+    pub fn spurious_writable(&self, on: bool) {
+        self.with(|c| c.spurious_writable = on);
+    }
+
+    /// Each read of this end returns at most `bytes` bytes (`route_read_size`, Core A5-2); `None` removes the limit.
+    pub fn read_at_most(&self, bytes: Option<usize>) {
+        self.with(|c| c.read_cap = bytes);
+    }
+
+    /// The next descriptor that this end hands to its peer fails; the descriptor is dropped, so the object in it closes
+    /// (`fail_handoff`, Core DP-2: the route closes `HandoffFailed` and Core closes the descriptor).
+    pub fn fail_next_handoff(&self) {
+        self.with(|c| c.fail_descriptor = true);
+    }
+
+    /// The stream is reset with no close handshake: every later read and write of both ends fails with `ConnectionReset`
+    /// (`drop_transport`, Core OU-5).
+    pub fn reset(&self) {
+        lock(&self.shared).reset = true;
     }
 }
 
@@ -218,6 +335,9 @@ impl LinkEnd {
     pub fn send_descriptor(&mut self, descriptor: Descriptor) -> io::Result<()> {
         let mut shared = lock(&self.0.shared);
         let (me, peer) = (self.0.side, 1 - self.0.side);
+        if std::mem::take(&mut shared.control[me].fail_descriptor) {
+            return Err(io::ErrorKind::ConnectionReset.into());
+        }
         if shared.closed[me] || shared.closed[peer] {
             return Err(io::ErrorKind::BrokenPipe.into());
         }
@@ -574,5 +694,176 @@ mod tests {
             b.send_descriptor(Descriptor::new(6u8)).unwrap_err().kind(),
             io::ErrorKind::BrokenPipe
         );
+    }
+
+    fn pair_of_streams() -> (StreamEnd, StreamEnd) {
+        stream_pair(&SchedulerHandle::with_seed(0), 8)
+    }
+
+    /// `route_gate`: the stream takes no byte from the worker while on, reports itself not writable, and takes bytes again when
+    /// released. The other direction is not affected.
+    #[test]
+    fn a_gated_end_takes_no_byte_and_is_not_writable() {
+        let (mut worker, mut client) = pair_of_streams();
+        worker.end().set_interest(Interest {
+            read: false,
+            write: true,
+        });
+        let gate = worker.end().control();
+        gate.gate(true);
+        assert_eq!(
+            worker.write(b"x").unwrap_err().kind(),
+            io::ErrorKind::WouldBlock
+        );
+        assert!(!worker.is_ready());
+        assert_eq!(
+            client.write(b"y").unwrap(),
+            1,
+            "the other direction is open"
+        );
+        gate.gate(false);
+        assert!(worker.is_ready());
+        assert_eq!(worker.write(b"x").unwrap(), 1);
+    }
+
+    /// `route_accept`: at most N more bytes, a straddling write takes its prefix, then none until the gate is released.
+    #[test]
+    fn an_accept_limit_takes_a_prefix_and_then_blocks() {
+        let (mut worker, _client) = pair_of_streams();
+        let control = worker.end().control();
+        control.accept_at_most(3);
+        assert_eq!(worker.write(b"abcdef").unwrap(), 3);
+        assert_eq!(
+            worker.write(b"d").unwrap_err().kind(),
+            io::ErrorKind::WouldBlock
+        );
+        worker.end().set_interest(Interest {
+            read: false,
+            write: true,
+        });
+        assert!(!worker.is_ready());
+        control.gate(false);
+        assert_eq!(worker.write(b"def").unwrap(), 3);
+        control.accept_at_most(0);
+        assert_eq!(
+            worker.write(b"g").unwrap_err().kind(),
+            io::ErrorKind::WouldBlock
+        );
+    }
+
+    /// `route_spurious_ready`: the end reports write readiness while it takes no byte (the report is not progress, OU-3a).
+    #[test]
+    fn a_spurious_ready_end_reports_writable_and_takes_nothing() {
+        let (mut worker, _client) = pair_of_streams();
+        worker.end().set_interest(Interest {
+            read: false,
+            write: true,
+        });
+        let control = worker.end().control();
+        control.gate(true);
+        assert!(!worker.is_ready());
+        control.spurious_writable(true);
+        assert!(worker.is_ready());
+        assert_eq!(
+            worker.write(b"x").unwrap_err().kind(),
+            io::ErrorKind::WouldBlock
+        );
+        control.spurious_writable(false);
+        assert!(!worker.is_ready());
+    }
+
+    /// `fail_writes`: the next write fails once; the handle works after the end moved.
+    #[test]
+    fn a_write_failure_can_be_scripted_through_a_handle() {
+        let (mut worker, _client) = pair_of_streams();
+        let control = worker.end().control();
+        let mut moved = Descriptor::new(worker)
+            .downcast::<StreamEnd>()
+            .ok()
+            .unwrap();
+        control.fail_next_write(io::ErrorKind::BrokenPipe);
+        assert_eq!(
+            moved.write(b"a").unwrap_err().kind(),
+            io::ErrorKind::BrokenPipe
+        );
+        assert_eq!(moved.write(b"a").unwrap(), 1);
+        control.fail_next_write(io::ErrorKind::BrokenPipe);
+        control.clear_write_failure();
+        assert_eq!(
+            moved.write(b"b").unwrap(),
+            1,
+            "a lifted failure does not fire"
+        );
+    }
+
+    /// `drop_transport`: a reset fails every call of both ends with `ConnectionReset`, and a reset end is readable and writable
+    /// so a loop learns of it.
+    #[test]
+    fn a_reset_fails_both_ends() {
+        let (mut worker, mut client) = pair_of_streams();
+        worker.write(b"a").unwrap();
+        client.end().control().reset();
+        for end in [&mut worker, &mut client] {
+            end.end().set_interest(Interest {
+                read: true,
+                write: true,
+            });
+            assert!(end.is_ready());
+            assert_eq!(
+                end.read(&mut [0u8; 4]).unwrap_err().kind(),
+                io::ErrorKind::ConnectionReset
+            );
+            assert_eq!(
+                end.write(b"x").unwrap_err().kind(),
+                io::ErrorKind::ConnectionReset
+            );
+        }
+    }
+
+    /// `route_read_size`: each read returns at most this many bytes, whatever the seed chooses.
+    #[test]
+    fn a_read_cap_bounds_every_read() {
+        let (mut worker, mut client) = pair_of_streams();
+        client.write(&[7u8; 8]).unwrap();
+        worker.end().control().read_at_most(Some(2));
+        let mut buf = [0u8; 8];
+        for _ in 0..4 {
+            assert!(worker.read(&mut buf).unwrap() <= 2);
+        }
+        worker.end().control().read_at_most(None);
+        client.write(&[7u8; 8]).unwrap();
+        let mut total = 0;
+        while total < 8 {
+            total += worker.read(&mut buf).unwrap();
+        }
+    }
+
+    /// `input_blocked`: the end sees whether its peer's writes toward it are blocked, which is the worker's view of a full input
+    /// queue; `fail_handoff`: the next descriptor fails and is dropped.
+    #[test]
+    fn a_full_queue_blocks_the_peer_and_a_handoff_can_fail() {
+        let (mut worker, mut client) = pair_of_streams();
+        assert!(!worker.end().peer_write_blocked());
+        client.write(&[1u8; 8]).unwrap();
+        assert!(worker.end().peer_write_blocked());
+        let mut buf = [0u8; 8];
+        worker.read(&mut buf).unwrap();
+
+        let (mut a, mut b) = link_pair(2);
+        let (end, mut other) = pair_of_streams();
+        a.end().control().fail_next_handoff();
+        assert_eq!(
+            a.send_descriptor(Descriptor::new(end)).unwrap_err().kind(),
+            io::ErrorKind::ConnectionReset
+        );
+        assert!(b.recv_descriptor().is_none());
+        assert_eq!(
+            other.read(&mut buf).unwrap(),
+            0,
+            "the dropped descriptor closed its stream end"
+        );
+        let (end, _other) = pair_of_streams();
+        a.send_descriptor(Descriptor::new(end)).unwrap();
+        assert!(b.recv_descriptor().is_some(), "only one handoff failed");
     }
 }
