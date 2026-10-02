@@ -215,14 +215,6 @@ fn harnesses_to_run<'a>(changed: &[String]) -> Vec<&'a (&'a str, &'a str)> {
         .collect()
 }
 
-fn base(root: &Path) -> Result<String> {
-    let base = fsutil::base_ref();
-    if !fsutil::resolves(root, &base) {
-        bail!("{base} does not resolve; the landing diff has no base (fetch it, or set BOTSTER_CI_BASE_REF)");
-    }
-    Ok(base)
-}
-
 /// What the mutation run reports (`mutants.out/outcomes.json`).
 #[derive(Debug, PartialEq, Eq)]
 struct MutantSummary {
@@ -262,7 +254,7 @@ fn mutants_job(root: &Path) -> Result<()> {
         &["nextest", "--version"],
         "cargo install cargo-nextest --locked",
     )?;
-    let base = base(root)?;
+    let base = fsutil::base(root)?;
     let diff = Command::new("git")
         .arg("-C")
         .arg(root)
@@ -323,7 +315,7 @@ fn fuzz_job(root: &Path) -> Result<()> {
         "cargo install cargo-bolero --locked",
     )?;
     ensure_nightly()?;
-    let changed = changed_crates(&changed_paths(root, &base(root)?)?);
+    let changed = changed_crates(&changed_paths(root, &fsutil::base(root)?)?);
     let to_run = harnesses_to_run(&changed);
     if to_run.is_empty() {
         println!("fuzz: the diff changes no crate with a decoder harness");

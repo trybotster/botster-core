@@ -8,7 +8,7 @@
 //! - After that the pending file only shrinks. A moved contracts pin may add the ids that the new ledger adds.
 //! - The deferred file follows the four rules of plan section 5.
 
-use crate::fsutil::{base_ref, git_show, resolves};
+use crate::fsutil::{base, git_show};
 use anyhow::{bail, Context, Result};
 use botster_core_contract::prelude::Feature;
 use botster_core_testkit::status;
@@ -348,10 +348,7 @@ pub fn command(root: &Path, args: &[String]) -> Result<()> {
     let manifest = std::fs::read_to_string(meta.contracts_root.join("frozen/current/MANIFEST.md"))
         .unwrap_or_default();
 
-    let base_name = base_ref();
-    if !resolves(root, &base_name) {
-        bail!("{base_name} does not resolve; the pending list has no base (fetch it, or set BOTSTER_CI_BASE_REF)");
-    }
+    let base_name = base(root)?;
     let base_pending_text = git_show(root, &base_name, PENDING_FILE)?;
     let base_deferred_text = git_show(root, &base_name, DEFERRED_FILE)?;
     let base_ledger_text = git_show(root, &base_name, LEDGER_FILE)?;

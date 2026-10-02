@@ -4,6 +4,7 @@ use crate::caps;
 use anyhow::{bail, Context, Result};
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::OnceLock;
 
 /// The repo root: the parent of the xtask manifest directory.
 pub fn repo_root() -> Result<PathBuf> {
@@ -59,24 +60,48 @@ pub fn git_show(root: &Path, reference: &str, path: &str) -> Result<Option<Strin
     bail!("git show {reference}:{path} failed: {err}")
 }
 
-/// Whether `reference` names a commit.
-pub fn resolves(root: &Path, reference: &str) -> bool {
-    Command::new("git")
-        .arg("-C")
-        .arg(root)
-        .args([
-            "rev-parse",
-            "--verify",
-            "-q",
-            &format!("{reference}^{{commit}}"),
-        ])
-        .output()
-        .is_ok_and(|o| o.status.success())
-}
-
 /// The base ref of the merge gate: `BOTSTER_CI_BASE_REF`, else `origin/v1`.
 pub fn base_ref() -> String {
     base_ref_from(std::env::var("BOTSTER_CI_BASE_REF").ok())
+}
+
+/// The base commit of the run, resolved once (plan section 5, section 8).
+///
+/// The gate records its base in `BOTSTER_CI_BASE_REF`. Outside the gate, `origin/v1` moves while a run is under way, so the
+/// first call resolves the reference to a commit, prints it, and every later check of the run uses that commit. No check
+/// resolves the moving branch reference on its own.
+pub fn base(root: &Path) -> Result<String> {
+    static BASE: BaseCommit = BaseCommit(OnceLock::new());
+    BASE.get(root, &base_ref())
+}
+
+/// A commit that is resolved once.
+struct BaseCommit(OnceLock<String>);
+
+impl BaseCommit {
+    fn get(&self, root: &Path, reference: &str) -> Result<String> {
+        if let Some(commit) = self.0.get() {
+            return Ok(commit.clone());
+        }
+        let commit = commit_of(root, reference)?;
+        eprintln!("base: {reference} = {commit}");
+        Ok(self.0.get_or_init(|| commit).clone())
+    }
+}
+
+/// The commit that `reference` names.
+fn commit_of(root: &Path, reference: &str) -> Result<String> {
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(root)
+        .args(["rev-parse", "--verify", "-q"])
+        .arg(format!("{reference}^{{commit}}"))
+        .output()
+        .context("run git rev-parse")?;
+    if !output.status.success() {
+        bail!("{reference} does not resolve; the base of this run has no commit (fetch it, or set BOTSTER_CI_BASE_REF)");
+    }
+    Ok(String::from_utf8(output.stdout)?.trim().to_string())
 }
 
 /// The base ref from the value of the variable.
@@ -175,5 +200,53 @@ mod tests {
         assert_eq!(base_ref_from(None), "origin/v1");
         assert_eq!(base_ref_from(Some(String::new())), "origin/v1");
         assert_eq!(base_ref_from(Some("origin/x".into())), "origin/x");
+    }
+
+    fn git(root: &Path, args: &[&str]) {
+        let status = Command::new("git")
+            .arg("-C")
+            .arg(root)
+            .args([
+                "-c",
+                "user.name=t",
+                "-c",
+                "user.email=t@t",
+                "-c",
+                "commit.gpgsign=false",
+            ])
+            .args(args)
+            .status()
+            .unwrap();
+        assert!(status.success(), "git {args:?}");
+    }
+
+    /// The base is resolved once: a reference that moves later does not change the commit of the run.
+    #[test]
+    fn the_base_commit_is_resolved_once() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        git(root, &["init", "-q"]);
+        git(root, &["commit", "-q", "--allow-empty", "-m", "one"]);
+        git(root, &["tag", "base"]);
+        let first = commit_of(root, "base").unwrap();
+        assert_eq!(first.len(), 40);
+        let cell = BaseCommit(OnceLock::new());
+        assert_eq!(cell.get(root, "base").unwrap(), first);
+        git(root, &["commit", "-q", "--allow-empty", "-m", "two"]);
+        git(root, &["tag", "-f", "base"]);
+        assert_ne!(
+            commit_of(root, "base").unwrap(),
+            first,
+            "the reference moved"
+        );
+        assert_eq!(
+            cell.get(root, "base").unwrap(),
+            first,
+            "the run keeps its base"
+        );
+        assert!(commit_of(root, "no-such-ref")
+            .unwrap_err()
+            .to_string()
+            .contains("does not resolve"));
     }
 }
