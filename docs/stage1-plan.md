@@ -360,7 +360,7 @@ Each Core id of the ledger has **exactly one** owning package. `owners.py` assig
 | P7 | **services and the guardian** | SV-1 to SV-10, A2-5, A4-1 (except adoption ids); A6-1 (except the withheld-control-link id) | 60 | `botster-guardian-core`, `botster-worker` (role `guardian`), `ServiceLane` and `Process` real edges and the A6-1 in-memory lane edge, `botster-core-host/services` | P1 |
 | P8 | **example consumer** | section 15 acceptance script (no ledger id) | — | `botster-mux-example` | P1, P4a, P5 |
 
-Total: 638 active ids at the pinned tag (578 at final12, plus 13 ids of A6, 8 of erratum 2, 11 of A7, 12 of A8, 5 of A9, 3 of A10, 7 of erratum 3, 1 of A11, 2 of A12 and 3 of erratum 4, minus 2 ids that A9-2 withdrew). `owners.py` skips every id listed in the contracts' `conformance/withdrawn.txt`. When a new ledger lands (a moved contracts pin), the lead reruns `owners.py`, and the diff is part of that commit.
+Total: 641 active ids at the pinned tag (578 at final12, plus 13 ids of A6, 8 of erratum 2, 11 of A7, 12 of A8, 5 of A9, 3 of A10, 7 of erratum 3, 1 of A11, 2 of A12 and 3 of erratum 4, minus 2 ids that A9-2 withdrew). `owners.py` skips every id listed in the contracts' `conformance/withdrawn.txt`. When a new ledger lands (a moved contracts pin), the lead reruns `owners.py`, and the diff is part of that commit.
 
 **Split rule.** A package whose review would exceed about 2,500 changed lines is landed as stacked pull requests on its own branch, each one reviewable alone. P3 and P4a are expected to split.
 
@@ -510,3 +510,4 @@ New tools (`str0m`, `mio`, `polling`, `rustix`, `getrandom`, `libtest-mimic`, `a
 | 14 | Round 13 review (`93b231f`): F13 `core-deferred.toml` matches only whole-id deferrals; a not-applicable case of an active id is reported separately; the report has five counts; F14 the pending-list check and the mutation diff use `BOTSTER_CI_BASE_REF` (outside the gate, one recorded resolution of `origin/v1`); F15 the gate never installs a toolchain: the pinned nightly is provisioned in the Linux image and on the Mac beforehand, and step 9 verifies it offline. |
 | 15 | Contracts pin moved to `contracts-v0.1.7` (manifest final21: Core A11, A12; the P3, P6 and P5 transcripts): section 0 pins; R-18 the only doc change; owners.py rules A11 to P5, A12 to P4b (638 active ids: P4b 65, P5 55). |
 | 16 | Contracts pin moved to `contracts-v0.1.8` (manifest final22: Core erratum 4; the e3_1 and P4b transcripts): section 0 pins (no doc changes); owners.py rule E4 to P4b (641 active ids: P4b 68). |
+| 17 | Round 16 review (`6b9b689`): F16 the total in 6.1 reads 641. |
