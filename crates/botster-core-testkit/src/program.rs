@@ -880,4 +880,52 @@ mod tests {
         assert_eq!(read_pieces(&mut p, 8), [b"ab".to_vec()]);
         assert_eq!(control.output_unread(), 0);
     }
+
+    /// `uncarriable_sequence`: the open string is the start plus exactly `limit + 1` bytes, and the unread count includes them.
+    #[test]
+    fn an_unterminated_sequence_is_one_byte_over_the_limit() {
+        let mut p = holds();
+        let control = p.control();
+        control.write_unterminated(UnterminatedKind::Osc, 10);
+        assert_eq!(
+            control.output_unread(),
+            4 + 11,
+            "the start `ESC ] 0 ;` and limit + 1 bytes"
+        );
+        control.write_unterminated(UnterminatedKind::Dcs, 3);
+        assert_eq!(control.output_unread(), 15 + 5 + 4);
+        let mut buf = [0u8; 64];
+        let mut total = 0;
+        while let Ok(n) = p.read(&mut buf) {
+            total += n;
+        }
+        assert_eq!(total, 24);
+    }
+
+    /// `Output::push`: plain bytes after plain bytes are one piece; an atomic piece is never joined to its neighbours.
+    #[test]
+    fn plain_bytes_merge_and_an_atomic_piece_stands_alone() {
+        let mut output = Output::default();
+        output.push(b"ab", false);
+        output.push(b"cd", false);
+        assert_eq!(output.pieces.len(), 1);
+        output.push(b"EF", true);
+        output.push(b"gh", false);
+        output.push(b"IJ", true);
+        output.push(b"kl", false);
+        output.push(b"mn", false);
+        let shape: Vec<(usize, bool)> = output
+            .pieces
+            .iter()
+            .map(|p| (p.bytes.len(), p.atomic))
+            .collect();
+        assert_eq!(
+            shape,
+            [(4, false), (2, true), (2, false), (2, true), (4, false)]
+        );
+        assert_eq!(output.len(), 14);
+        output.push(b"", true);
+        output.push(b"", false);
+        assert_eq!(output.pieces.len(), 5);
+    }
 }
