@@ -590,3 +590,22 @@ Keep the xtask's child-command enforcement and checks.
 Apply the same launch rule to focused commands that build an xtask.
 
 VERDICT: NOT CLEAN (1 open)
+
+## Round 9 — revision 9
+
+Plan: `194f7437e11debc85a9af88a6b7ef27b967f86f6`, `docs/stage1-plan.md`.
+Pin: `stage1-plan.a24efe7e.md`.
+Verified SHA-256: `a24efe7e3f5a18631ab8c6032ce15dbf39c48e70d33a2cd14b7269cef3d394dc`.
+Contracts pin: `2f2996ef0f016a1fefc6879e74deaef033383b66`, manifest final13.
+
+I reviewed the complete delta and F11.
+Section 8 now sets both concurrency limits in the launch environment before Cargo builds the xtask.
+The xtask retains enforcement for its child commands.
+
+F11 is CLOSED. F1 through F10 remain CLOSED.
+All eleven findings are closed.
+This verdict covers the plan at the commit above.
+It does not approve product code or establish Stage 1 acceptance.
+I ran no product tests.
+
+VERDICT: CLEAN
