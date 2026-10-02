@@ -206,15 +206,16 @@ impl HostEngine {
     }
 
     /// The kill of `stop_grace` (LC-5). With the link it goes to the worker, which kills the payload's group and keeps the
-    /// final model. Without it, the host signals only the worker, which it identifies by pid and start time (AD-6). The
-    /// host never signals a bare payload group: the worker is the parent of the payload and ends its group (P3).
+    /// final model. Without it, the host sends `GroupSignal::EndPayload` to the worker alone, which it identifies by pid and
+    /// start time (AD-6). The host never signals a bare payload group and never kills the worker: the worker holds the
+    /// payload leader unreaped and ends the group itself (P3), and it keeps the final model (LC-5).
     fn kill_payload(&mut self, id: &SessionId) {
         let sent = self.send_msg(id, HostMsg::Kill);
         if !sent {
             if let Some(identity) = self.identity_of(id) {
                 self.act(Action::SignalGroup {
                     identity,
-                    signal: GroupSignal::Kill,
+                    signal: GroupSignal::EndPayload,
                 });
             }
         }
