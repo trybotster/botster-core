@@ -15,7 +15,7 @@
 
 use crate::{WORKER_FEATURES_BY_PROTOCOL, WORKER_PROTOCOL};
 use botster_core_contract::prelude::*;
-use botster_core_edges::edges::ExitStatus;
+use botster_core_edges::edges::{ExitStatus, WindowSize};
 use botster_core_edges::Machine;
 use botster_core_link::frame::{encode_frame, FrameDecoder, FrameType, DEFAULT_MAX_PAYLOAD};
 use botster_core_link::hello::Hello;
@@ -113,6 +113,8 @@ pub enum Input {
     /// `SIGTERM` to the worker: end the payload's group if the worker still holds its leader, reap it, and end. A worker that
     /// is told to end leaves no payload behind (plan R12: teardown is TERM, grace, KILL, reap). Nothing waits for the link.
     Terminate,
+    /// The answer to [`Action::ResizePty`]: the PTY took the size, or the OS error of the resize.
+    PtyResized(Result<(), i32>),
     /// A deadline of [`Machine::next_deadline`] is due.
     Timer,
 }
@@ -133,6 +135,8 @@ pub enum Action {
     DrainPty,
     /// Write these bytes to the payload's PTY, and answer with [`Input::PtyWritten`]. One write is out at a time (AM-2).
     PtyWrite(Vec<u8>),
+    /// Set the PTY's size, and answer with [`Input::PtyResized`]. One resize is out at a time (SZ-3).
+    ResizePty(WindowSize),
     /// Send this signal to the payload's process group. It is emitted only while the leader is unreaped.
     SignalPayload(i32),
     /// Reap the payload's leader: its group kill is complete, so its id may be reused from now on.
@@ -186,8 +190,8 @@ pub struct Worker {
     /// A `SIGKILL` went to the group: once the leader has ended, its group kill is complete.
     killed: bool,
     stop_grace: Duration,
-    /// The size of the launch, for the state that `Launched` carries.
-    launch_size: Option<Size>,
+    /// The session's size: the launch's, then the last one that the PTY took (SZ-2).
+    size: Option<Size>,
     /// The kill of the worker-control signal's grace (LC-5).
     grace: Option<Instant>,
     /// LC-7 step 3: the worker ends once the payload is reaped and the result is sent.
@@ -204,6 +208,7 @@ pub struct Worker {
     early: Early,
     /// The admission point and the host's writes (AM-2, IN-1 to IN-10).
     input: input::InputState,
+    resizes: size::Resizes,
     /// The terminal model (libghostty), from the launch.
     model: Option<model::Model>,
     /// Core's limits that the worker applies itself (`LaunchSpec.limits`).
@@ -235,7 +240,7 @@ impl Worker {
             termed: false,
             killed: false,
             stop_grace: CoreLimits::default().stop_grace,
-            launch_size: None,
+            size: None,
             grace: None,
             removing: false,
             exit_pending: false,
@@ -244,6 +249,7 @@ impl Worker {
             terminating: false,
             early: Early::default(),
             input: input::InputState::default(),
+            resizes: size::Resizes::default(),
             model: None,
             limits: CoreLimits::default(),
             actions: VecDeque::new(),
@@ -421,7 +427,7 @@ impl Worker {
         self.decoder = rebound(&self.decoder, spec.link_frame_bound);
         self.stop_grace = Duration::from_millis(spec.stop_grace_ms);
         self.payload = PayloadState::Spawning;
-        self.launch_size = Some(spec.size);
+        self.size = Some(spec.size);
         self.actions.push_back(Action::SpawnPayload(PayloadSpec {
             argv: spec.argv,
             env: spec.env,
@@ -477,7 +483,7 @@ impl Worker {
     /// The state that `terminal_state` caches from the launch (ST-4): the model's size, modes, title and cwd, and the
     /// revisions.
     fn initial_terminal(&self) -> TerminalState {
-        let size = self.launch_size.unwrap_or(Size {
+        let size = self.size.unwrap_or(Size {
             rows: 0,
             cols: 0,
             cell_px: None,
@@ -510,6 +516,11 @@ impl Worker {
             Op::ReadScreen { history, .. } => self.read_screen(history),
             Op::ReadCursor { .. } => self.read_cursor(),
             Op::ReadModeFlags { .. } => self.read_modes(),
+            Op::Resize { size, .. } => {
+                // Its `Done` comes when the PTY took the size, or when a later one replaced it (SZ-3).
+                self.on_resize(req, size);
+                return;
+            }
             Op::Signal { sig, .. } => {
                 if let (true, Some(number)) = (self.group_live(), signal_number(sig)) {
                     self.signal(number);
@@ -710,6 +721,7 @@ impl Machine for Worker {
             Input::PtyWritten(result) => self.on_pty_written(result),
             Input::PtyWritable => self.on_pty_writable(),
             Input::PtyDrained => self.on_drained(),
+            Input::PtyResized(result) => self.on_pty_resized(result),
             Input::PayloadExited(status) => self.on_exited(status),
             Input::EndPayload => self.on_end_payload(now),
             Input::Terminate => self.on_terminate(),
@@ -767,6 +779,8 @@ fn op_name(op: &Op) -> String {
 
 mod input;
 mod model;
+mod size;
+pub use size::window_size;
 
 #[cfg(test)]
 mod tests;

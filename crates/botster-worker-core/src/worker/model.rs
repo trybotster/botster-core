@@ -75,7 +75,9 @@ pub(super) fn first_rev(instance: &InstanceId, host_epoch: u64) -> u64 {
         .to_le_bytes()
         .iter()
         .chain(instance.0.as_bytes())
-        .fold(OFFSET, |hash, byte| (hash ^ u64::from(*byte)).wrapping_mul(PRIME))
+        .fold(OFFSET, |hash, byte| {
+            (hash ^ u64::from(*byte)).wrapping_mul(PRIME)
+        })
 }
 
 /// A text cut to at most `max` bytes at a UTF-8 character boundary, and whether it was cut (A2-4).
@@ -139,7 +141,7 @@ impl Worker {
 
     /// After a step: the model's events go to the host in their order, a lost event is never silent (EV-2), the model's own
     /// PTY writes are replies, and `ModesChanged` is posted only when the final flags changed (E2-3).
-    fn after_step(&mut self) {
+    pub(super) fn after_step(&mut self) {
         let Some(model) = self.model.as_mut() else {
             return;
         };

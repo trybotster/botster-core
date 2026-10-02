@@ -145,6 +145,22 @@ impl Payload {
         Ok(usize::try_from(n).unwrap_or(usize::MAX))
     }
 
+    /// Sets the PTY's size: rows, columns and the screen's pixel size (zero when unknown). The kernel sends `SIGWINCH` to the
+    /// PTY's foreground process group.
+    ///
+    /// # Errors
+    /// The resize failed.
+    pub fn resize(&self, rows: u16, cols: u16, width_px: u16, height_px: u16) -> io::Result<()> {
+        self.pty
+            .resize(pty_process::Size::new_with_pixel(
+                rows, cols, width_px, height_px,
+            ))
+            .map_err(|e| match e {
+                pty_process::Error::Io(e) => e,
+                pty_process::Error::Rustix(e) => io::Error::from(e),
+            })
+    }
+
     /// Writes input to the payload.
     ///
     /// # Errors

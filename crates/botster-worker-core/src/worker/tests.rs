@@ -1136,7 +1136,8 @@ fn the_input_guard_is_checked_at_the_start() {
 
 /// The session's `model_rev` now, read as a host reads it.
 fn current_rev(w: &mut World, req: u64) -> ModelRev {
-    let OpResult::Ok(OpOutput::Modes(modes)) = op(w, req, Op::ReadModeFlags { session: sid() }) else {
+    let OpResult::Ok(OpOutput::Modes(modes)) = op(w, req, Op::ReadModeFlags { session: sid() })
+    else {
         panic!("modes");
     };
     modes.model_rev
@@ -1474,5 +1475,177 @@ fn a_long_notification_is_truncated_and_flagged() {
     assert!(
         body.len() <= 4 && "héllo world".starts_with(body.as_str()),
         "{body:?}"
+    );
+}
+
+fn resize(req: u64, rows: u32, cols: u32) -> HostMsg {
+    HostMsg::Op {
+        req,
+        op: Op::Resize {
+            session: sid(),
+            size: Size {
+                rows,
+                cols,
+                cell_px: None,
+            },
+        },
+    }
+}
+
+fn resizes_out(actions: &[Action]) -> Vec<WindowSize> {
+    actions
+        .iter()
+        .filter_map(|a| match a {
+            Action::ResizePty(window) => Some(*window),
+            _ => None,
+        })
+        .collect()
+}
+
+fn dones(w: &mut World, actions: &[Action]) -> Vec<(u64, OpResult)> {
+    w.reports(actions)
+        .into_iter()
+        .filter_map(|m| match m {
+            WorkerMsg::Done { req, result } => Some((req, result)),
+            _ => None,
+        })
+        .collect()
+}
+
+fn applied(rows: u32, cols: u32) -> OpResult {
+    OpResult::Ok(OpOutput::Resize(ResizeResult::Applied {
+        actual: Size {
+            rows,
+            cols,
+            cell_px: None,
+        },
+    }))
+}
+
+/// SZ-1, SZ-3, ST-1: a `Resize` sets the PTY size; when the PTY took it, the model has the size, model_rev moved, `Size`
+/// is reported, and then the `Resize` completes `Applied` with the size.
+#[test]
+fn a_resize_sets_the_pty_then_the_model_then_completes() {
+    let mut w = World::running();
+    let before = current_rev(&mut w, 90);
+    let actions = w.send(&resize(1, 30, 100));
+    assert_eq!(
+        resizes_out(&actions),
+        [WindowSize {
+            cols: 100,
+            rows: 30,
+            width_px: 0,
+            height_px: 0
+        }]
+    );
+    assert!(dones(&mut w, &actions).is_empty(), "it waits for the PTY");
+    let actions = w.feed(Input::PtyResized(Ok(())));
+    let reports = w.reports(&actions);
+    let size_at = reports
+        .iter()
+        .position(|m| {
+            matches!(m, WorkerMsg::Observed { observation: Observation::Size { size, .. } }
+                if size.rows == 30 && size.cols == 100)
+        })
+        .expect("Size is reported");
+    let done_at = reports
+        .iter()
+        .position(
+            |m| matches!(m, WorkerMsg::Done { req: 1, result } if *result == applied(30, 100)),
+        )
+        .expect("Applied");
+    assert!(size_at < done_at, "{reports:?}");
+    let OpResult::Ok(OpOutput::Screen(screen)) = op(
+        &mut w,
+        91,
+        Op::ReadScreen {
+            session: sid(),
+            history: false,
+        },
+    ) else {
+        panic!("screen");
+    };
+    assert_eq!((screen.rows, screen.cols), (30, 100));
+    assert_ne!(screen.model_rev, before);
+}
+
+/// SZ-3: while a resize is out, a later one waits and a still later one replaces it (`Superseded{by}` names the replacing
+/// request); every `Resize` completes once, and only the last waiting one goes out.
+#[test]
+fn resizes_coalesce_while_one_is_out() {
+    let mut w = World::running();
+    let actions = w.send(&resize(1, 30, 100));
+    assert_eq!(resizes_out(&actions).len(), 1);
+    let actions = w.send(&resize(2, 40, 120));
+    assert!(resizes_out(&actions).is_empty() && dones(&mut w, &actions).is_empty());
+    let actions = w.send(&resize(3, 50, 130));
+    assert_eq!(
+        dones(&mut w, &actions),
+        [(
+            2,
+            OpResult::Ok(OpOutput::Resize(ResizeResult::Superseded { by: OpId(3) }))
+        )]
+    );
+    let actions = w.feed(Input::PtyResized(Ok(())));
+    assert_eq!(dones(&mut w, &actions), [(1, applied(30, 100))]);
+    assert_eq!(resizes_out(&actions).len(), 1, "the waiting one goes out");
+    let actions = w.feed(Input::PtyResized(Ok(())));
+    assert_eq!(dones(&mut w, &actions), [(3, applied(50, 130))]);
+    assert!(resizes_out(&actions).is_empty());
+}
+
+/// SZ-2: a `Resize` of the current size completes `Applied` at once, with no PTY resize and no `Size` report.
+#[test]
+fn a_resize_to_the_current_size_is_applied_with_no_report() {
+    let mut w = World::running();
+    let current = size();
+    let actions = w.send(&resize(1, current.rows, current.cols));
+    assert!(resizes_out(&actions).is_empty());
+    let reports = w.reports(&actions);
+    assert!(
+        !reports
+            .iter()
+            .any(|m| matches!(m, WorkerMsg::Observed { .. })),
+        "{reports:?}"
+    );
+    assert!(reports.iter().any(
+        |m| matches!(m, WorkerMsg::Done { req: 1, result } if *result == applied(current.rows, current.cols))
+    ));
+}
+
+/// SZ-1: a resize that the PTY refused completes with its error, and the model keeps its size.
+#[test]
+fn a_failed_pty_resize_completes_with_an_error() {
+    let mut w = World::running();
+    let before = current_rev(&mut w, 90);
+    w.send(&resize(1, 30, 100));
+    let actions = w.feed(Input::PtyResized(Err(5)));
+    let done = dones(&mut w, &actions);
+    assert!(
+        matches!(done.as_slice(), [(1, OpResult::Err(e))] if e.code == ErrorCode::Internal),
+        "{done:?}"
+    );
+    assert_eq!(current_rev(&mut w, 91), before);
+}
+
+/// The PTY size of a session size: the screen's pixels come from the cell size; rows and columns are clamped.
+#[test]
+fn the_window_size_of_a_session_size() {
+    let window = window_size(&Size {
+        rows: 70_000,
+        cols: 10,
+        cell_px: Some(CellPx {
+            width: 8,
+            height: 16,
+        }),
+    });
+    assert_eq!(
+        window,
+        WindowSize {
+            cols: 10,
+            rows: u16::MAX,
+            width_px: 80,
+            height_px: u16::MAX
+        }
     );
 }
