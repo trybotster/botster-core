@@ -13,6 +13,7 @@ publish = false
 unsafe_code = "forbid"
 
 [workspace.dependencies]
+base64 = { version = "0.22", default-features = false, features = ["alloc"] }
 # botster-contracts, by tag (plan section 0; contracts-v0.1.9 = 7f72acf, manifest final22).
 botster-core-contract = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.9" }
 botster-conformance = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.9" }

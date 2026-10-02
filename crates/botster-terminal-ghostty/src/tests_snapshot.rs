@@ -17,59 +17,87 @@ fn terminal() -> Terminal {
     .unwrap()
 }
 
+/// A terminal that the library's decoder restored from a snapshot. It keeps the unfinished parser input, so that it
+/// takes the rest of the program's output as the original terminal would.
+struct Restored(sys::Terminal);
+
+impl Restored {
+    fn from(bytes: &[u8]) -> Self {
+        let mut decoder: sys::SnapshotDecoder = std::ptr::null_mut();
+        let mut restored: sys::Terminal = std::ptr::null_mut();
+        let (limit, retain) = (CONTINUATION_LIMIT, true);
+        // SAFETY: the bytes outlive the decoder, the options take the types that are passed, and the decoder is freed
+        // here. The restored terminal is caller-owned and freed in `Drop`.
+        unsafe {
+            assert_eq!(
+                sys::ghostty_snapshot_decoder_new_buf(
+                    std::ptr::null(),
+                    &mut decoder,
+                    bytes.as_ptr(),
+                    bytes.len()
+                ),
+                sys::SUCCESS
+            );
+            assert_eq!(
+                sys::ghostty_snapshot_decoder_set(
+                    decoder,
+                    sys::snapshot_opt::MAX_CONTINUATION_BYTES,
+                    (&limit as *const usize).cast()
+                ),
+                sys::SUCCESS
+            );
+            assert_eq!(
+                sys::ghostty_snapshot_decoder_set(
+                    decoder,
+                    sys::snapshot_opt::RETAIN_CONTINUATION,
+                    (&retain as *const bool).cast()
+                ),
+                sys::SUCCESS
+            );
+            assert_eq!(
+                sys::ghostty_snapshot_decoder_decode(decoder, &mut restored),
+                sys::SUCCESS
+            );
+            sys::ghostty_snapshot_decoder_free(decoder);
+        }
+        Self(restored)
+    }
+
+    fn write(&mut self, bytes: &[u8]) {
+        // SAFETY: the handle is live, and the slice is valid for its length.
+        unsafe { sys::ghostty_terminal_vt_write(self.0, bytes.as_ptr(), bytes.len()) }
+    }
+
+    fn snapshot(&self) -> Vec<u8> {
+        // SAFETY: the handle is live, the first call asks for the size, and the buffer holds that many bytes.
+        unsafe {
+            let mut needed = 0usize;
+            assert_eq!(
+                sys::ghostty_snapshot_encode_buf(self.0, std::ptr::null_mut(), 0, &mut needed),
+                sys::OUT_OF_SPACE
+            );
+            let mut out = vec![0u8; needed];
+            let mut written = 0usize;
+            assert_eq!(
+                sys::ghostty_snapshot_encode_buf(self.0, out.as_mut_ptr(), out.len(), &mut written),
+                sys::SUCCESS
+            );
+            out.truncate(written);
+            out
+        }
+    }
+}
+
+impl Drop for Restored {
+    fn drop(&mut self) {
+        // SAFETY: the handle is live and freed once.
+        unsafe { sys::ghostty_terminal_free(self.0) }
+    }
+}
+
 /// Restore `bytes` with the library's decoder and encode the result again.
 fn restore_and_encode(bytes: &[u8]) -> Vec<u8> {
-    let mut decoder: sys::SnapshotDecoder = std::ptr::null_mut();
-    let mut restored: sys::Terminal = std::ptr::null_mut();
-    // SAFETY: the bytes outlive the decoder, and every handle is freed below.
-    unsafe {
-        assert_eq!(
-            sys::ghostty_snapshot_decoder_new_buf(
-                std::ptr::null(),
-                &mut decoder,
-                bytes.as_ptr(),
-                bytes.len()
-            ),
-            sys::SUCCESS
-        );
-        // Keep the continuation on the restored terminal, so that it can be encoded again.
-        let (limit, retain) = (CONTINUATION_LIMIT, true);
-        assert_eq!(
-            sys::ghostty_snapshot_decoder_set(
-                decoder,
-                sys::snapshot_opt::MAX_CONTINUATION_BYTES,
-                (&limit as *const usize).cast()
-            ),
-            sys::SUCCESS
-        );
-        assert_eq!(
-            sys::ghostty_snapshot_decoder_set(
-                decoder,
-                sys::snapshot_opt::RETAIN_CONTINUATION,
-                (&retain as *const bool).cast()
-            ),
-            sys::SUCCESS
-        );
-        assert_eq!(
-            sys::ghostty_snapshot_decoder_decode(decoder, &mut restored),
-            sys::SUCCESS
-        );
-        let mut needed = 0usize;
-        assert_eq!(
-            sys::ghostty_snapshot_encode_buf(restored, std::ptr::null_mut(), 0, &mut needed),
-            sys::OUT_OF_SPACE
-        );
-        let mut out = vec![0u8; needed];
-        let mut written = 0usize;
-        assert_eq!(
-            sys::ghostty_snapshot_encode_buf(restored, out.as_mut_ptr(), out.len(), &mut written),
-            sys::SUCCESS
-        );
-        out.truncate(written);
-        sys::ghostty_terminal_free(restored);
-        sys::ghostty_snapshot_decoder_free(decoder);
-        out
-    }
+    Restored::from(bytes).snapshot()
 }
 
 #[test]
@@ -153,8 +181,9 @@ fn the_identity_comes_from_the_library_and_tic_compiles_it() {
     );
 }
 
-/// A small corpus that stops inside every kind of unfinished input: a CSI, an OSC, a DCS, a UTF-8 sequence and a
-/// string that ends with an ESC.
+/// A small corpus that stops inside every kind of unfinished input (a CSI, an OSC, a DCS, a UTF-8 sequence, a string
+/// that ends with an ESC) and sets the saved state that a snapshot must carry: the saved cursor, tab stops, margins and
+/// the character sets.
 fn corpus() -> Vec<Vec<u8>> {
     vec![
         "plain \u{e9}\u{4e2d}\u{1f600} text\r\nsecond line"
@@ -164,6 +193,14 @@ fn corpus() -> Vec<Vec<u8>> {
         b"\x1b]2;a long title\x07\x1b]8;;http://example.test\x1b\\link\x1b]8;;\x1b\\".to_vec(),
         b"\x1bP$qm\x1b\\\x1bP+q544e\x1b\\after".to_vec(),
         b"\x1b]52;c;aGVsbG8=\x1b\\\x1b[?1049halt\x1b[?1049l".to_vec(),
+        // The saved cursor (DECSC and DECRC) with a style, then a move and a restore.
+        b"\x1b[4;9H\x1b[1;32m\x1b7\x1b[10;1H\x1b[0mmoved\x1b8restored".to_vec(),
+        // Tab stops: clear all, set two, and tab over them.
+        b"\x1b[3g\x1b[1;7H\x1bH\x1b[1;19H\x1bH\r\tA\tB\tC".to_vec(),
+        // Margins: top and bottom, then left and right, then text and a scroll inside them.
+        b"\x1b[2;8r\x1b[?69h\x1b[5;30s\x1b[2;5Hinside\nmargins\n\n\n\n\n\n\nscrolled".to_vec(),
+        // Character sets: DEC graphics in G0, shifted out to G1, and back.
+        b"\x1b(0lqk\x1b)B\x0eabc\x0f\x1b(Bxyz".to_vec(),
     ]
 }
 
@@ -191,6 +228,32 @@ fn a_snapshot_at_every_byte_offset_restores_and_equals_the_snapshot_of_a_split_w
             split.vt_write(&input[offset..]);
             assert_eq!(
                 split.snapshot().unwrap(),
+                expected,
+                "corpus {index}, offset {offset}"
+            );
+        }
+    }
+}
+
+#[test]
+fn a_restored_terminal_takes_the_rest_of_the_output_at_every_byte_offset_like_the_whole_input() {
+    for (index, input) in corpus().iter().enumerate() {
+        let mut whole = terminal();
+        whole.vt_write(input);
+        let expected = whole.snapshot().unwrap();
+
+        for offset in 0..=input.len() {
+            let mut before = terminal();
+            before.vt_write(&input[..offset]);
+            let snapshot = before.snapshot().unwrap_or_else(|e| {
+                panic!("corpus {index}, offset {offset}: {e:?}");
+            });
+
+            // The restored terminal, not the original, takes the suffix.
+            let mut restored = Restored::from(&snapshot);
+            restored.write(&input[offset..]);
+            assert_eq!(
+                restored.snapshot(),
                 expected,
                 "corpus {index}, offset {offset}"
             );

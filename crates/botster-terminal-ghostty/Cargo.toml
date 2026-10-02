@@ -14,6 +14,7 @@ description = "The libghostty-vt binding of Botster Core: the terminal model, th
 unsafe_code = "allow"
 
 [dependencies]
+base64.workspace = true
 botster-core-contract.workspace = true
 botster-route-codec.workspace = true
 

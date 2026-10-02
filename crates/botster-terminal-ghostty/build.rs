@@ -72,6 +72,11 @@ fn main() {
         prefix.join("lib").display()
     );
     println!("cargo:rustc-link-lib=static=ghostty-vt");
+    // The archive, for the test that checks which symbols it defines.
+    println!(
+        "cargo:rustc-env=BOTSTER_GHOSTTY_VT_ARCHIVE={}",
+        library.display()
+    );
     println!("cargo:include={}", ghostty.join("include").display());
 }
 
