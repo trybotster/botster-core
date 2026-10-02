@@ -31,8 +31,13 @@ private_git_deps=1
 image_args() { echo "RUST_NIGHTLY=$(sed -n 's/^pub const NIGHTLY: &str = "\(.*\)";/\1/p' "$dir/xtask/src/tools.rs")"; }
 # Files whose content picks the image tag, besides the Dockerfile.
 image_inputs=(rust-toolchain.toml)
-# Volumes besides cargo, target and npm: "<suffix>:<mount>". zig: Zig's global cache (libghostty's packages).
+# Volumes besides cargo, target and npm: "<suffix>:<mount>". zig: Zig's global cache and the libghostty package store.
 extra_volumes=(zig:/zig)
+# Environment of the fetch and gate containers. libghostty's build.rs reads its Zig packages from the store that fetch.sh
+# fills, and runs Zig under a network denial: unshare --net cannot work in the container (Docker's seccomp profile and
+# the host's apparmor_restrict_unprivileged_userns refuse it), and the gate container has no network at all
+# (--network none), so it declares that with BOTSTER_ZIG_NETWORK_DENIED=1.
+extra_env=(BOTSTER_ZIG_PACKAGES=/zig/packages BOTSTER_ZIG_NETWORK_DENIED=1)
 # --------------------------------------------------------------------------------------------------------------------------
 
 dir=$(realpath -- "${1:?job.sh: no snapshot directory}")
@@ -231,6 +236,7 @@ for volume in "${extra_volumes[@]}"; do mounts+=(-v "$project-${volume%%:*}:${vo
 network=()
 gate_env=(-e TZ=UTC)
 [ -n "$base" ] && gate_env+=(-e "BOTSTER_CI_BASE_REF=$base")
+for variable in "${extra_env[@]}"; do gate_env+=(-e "$variable"); done
 
 if (( private_git_deps )); then
   # Fetch every dependency with the host's GitHub CLI token, in a container that runs no repo code but cargo's resolver.
@@ -239,7 +245,7 @@ if (( private_git_deps )); then
   secrets=$(mktemp -d)
   chmod 700 "$secrets"
   (umask 077; printf '%s' "$(gh auth token)" > "$secrets/github-token")
-  container --name "$name-fetch" "${mounts[@]}" -v "$secrets:/run/testq-secrets:ro" -w /work \
+  container --name "$name-fetch" "${gate_env[@]}" "${mounts[@]}" -v "$secrets:/run/testq-secrets:ro" -w /work \
     -e GIT_TERMINAL_PROMPT=0 -e GIT_CONFIG_COUNT=1 \
     -e GIT_CONFIG_KEY_0=credential.https://github.com.helper \
     -e 'GIT_CONFIG_VALUE_0=!f() { cat >/dev/null; [ "$1" = get ] || exit 0; echo username=x-access-token; printf "password=%s\n" "$(cat /run/testq-secrets/github-token)"; }; f' \
