@@ -3,6 +3,12 @@ conf::a2_9_leading_dot_is_not_an_extension	A2-9	pending
 conf::a2_9_long_name_is_never_refused	A2-9	pending
 conf::a2_9_long_stem_is_cut_and_extension_kept	A2-9	pending
 conf::a2_9_suffix_room_is_reserved_so_the_name_stays_unique_and_within_the_limit	A2-9	pending
+conf::a6_3_delete_failure_does_not_stop_teardown_and_lists_exact_paths	A6-3	pending
+conf::a6_3_lost_result_reports_outcome_unknown	A6-3	pending
+conf::a6_3_unauthenticated_result_is_not_trusted	A6-3	pending
+conf::a6_3_unreachable_worker_reports_outcome_unknown	A6-3	pending
+conf::a6_3_uploads_deleted_at_remove_report_deleted	A6-3	pending
+conf::a6_3_worker_lost_during_cleanup_reports_outcome_unknown	A6-3	pending
 conf::dp_5_input_done_answers_only_want_result_paste_and_file_commit	DP-5b	pending
 conf::dp_5_silent_not_reported_is_omitted_not_written	DP-5b	pending
 conf::dp_5_unstarted_terminal_query_frame_retires_when_the_query_resolves	DP-5	pending

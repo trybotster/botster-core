@@ -11,6 +11,9 @@ conf::a2_5_startup_runs_to_epoch_one_commit	A2-5	pending
 conf::a4_1_service_report_after_exit_until_remove	A4-1	pending
 conf::a4_1_service_report_equals_spawn_completion	A4-1	pending
 conf::a4_1_unknown_or_removed_service	A4-1	pending
+conf::a6_1_lane_and_epoch_outcomes_match_real_lanes	A6-1	pending
+conf::a6_1_peer_identity_is_real_process_only	A6-1	pending
+conf::a6_1_scripted_service_over_in_memory_lanes_uses_the_real_preamble_and_epoch_checks	A6-1	pending
 conf::sv_10_lost_service_keeps_id	SV-10	pending
 conf::sv_1_exact_env_plus_core_vars	SV-1	pending
 conf::sv_1_inherits_only_listed_descriptors	SV-1	pending

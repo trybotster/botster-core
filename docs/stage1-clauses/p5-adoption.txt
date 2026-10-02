@@ -3,6 +3,10 @@ conf::a2_1_adoptall_twice_is_wrong_state	A2-1	pending
 conf::a3_1_output_dropped_is_retained_and_survives_the_resync	A3-1	pending
 conf::a3_1_policy_survives_host_restart	A3-1	pending
 conf::a4_1_service_report_survives_adoption	A4-1	pending
+conf::a6_1_withheld_control_link_gives_worker_unreachable_not_worker_gone	A6-1	pending
+conf::a6_2_deferred_set_is_exactly_the_enumerated_ids_with_start_conditions	A6-2	pending
+conf::a6_2_first_protocol_adoptable_set_is_one	A6-2	pending
+conf::a6_2_out_of_set_hello_is_lost_worker_version	A6-2	pending
 conf::ad_1_created_rows_kept	AD-1	pending
 conf::ad_1_exited_final_model_worker_adopts_as_exited	AD-1	pending
 conf::ad_1_running_adopts_running	AD-1	pending

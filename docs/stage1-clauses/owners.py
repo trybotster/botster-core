@@ -15,6 +15,8 @@ core = [x for x in ids if x["contract"] == "core"]
 def owner(x):
     i, c = x["id"], x["clause"] or ""
     fam = c.split("-")[0]
+    if "withheld_control_link" in i:
+        return "p5-adoption"
     if c == "A6-1":
         return "p7-services"
     if c == "A6-2":
