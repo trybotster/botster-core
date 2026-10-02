@@ -1,0 +1,683 @@
+//! The flows of a session: create, start (AD-7), stop (LC-5) and remove (LC-7). See [`crate::flow`].
+
+use crate::engine::{HostEngine, Owner};
+use crate::flow::*;
+use crate::io::Action;
+use crate::run::registry_failed;
+use crate::session::Admit;
+use botster_core_contract::prelude::*;
+use botster_core_edges::edges::{GroupSignal, StorageError};
+use botster_core_link::msg::HostMsg;
+
+/// `RemoveReport` is `#[non_exhaustive]` and has no constructor in `contracts-v0.1.2`, so an external crate builds it through
+/// its own JSON form. The result is the value that the contract defines (A6-3); a constructor in the next tag removes this.
+fn remove_report(uploads: UploadsOutcome) -> RemoveReport {
+    serde_json::from_value(serde_json::json!({ "uploads": uploads }))
+        .expect("a RemoveReport is its uploads outcome")
+}
+
+fn failed_start_exit() -> Exit {
+    // The payload never ran: no code and no signal. `Other` is the cause that a host cannot confuse with a run.
+    Exit {
+        code: None,
+        signal: None,
+        cause: ExitCause::Other,
+    }
+}
+
+impl HostEngine {
+    fn start_flow(&mut self, id: &SessionId) -> Option<&mut StartFlow> {
+        match &mut self.sessions.get_mut(id)?.flow {
+            Flow::Start(f) => Some(f),
+            _ => None,
+        }
+    }
+
+    fn stop_flow(&mut self, id: &SessionId) -> Option<&mut StopFlow> {
+        match &mut self.sessions.get_mut(id)?.flow {
+            Flow::Stop(f) => Some(f),
+            _ => None,
+        }
+    }
+
+    /// Runs one step of the session's flow (plan 2.2). A step posts at most one event.
+    pub(crate) fn run_flow(&mut self, id: &SessionId) {
+        let Some(flow) = self.sessions.get(id).map(|s| s.flow.clone()) else {
+            return;
+        };
+        match flow {
+            Flow::Idle => {}
+            Flow::Create(f) => self.run_create(id, f),
+            Flow::Start(f) => self.run_start(id, f),
+            Flow::Stop(f) => self.run_stop(id, f),
+            Flow::Remove(f) => self.run_remove(id, f),
+        }
+    }
+
+    fn await_ticket(&mut self, id: &SessionId, ticket: crate::io::Ticket) {
+        self.sessions
+            .get_mut(id)
+            .expect("a flow has a session")
+            .ticket = Some(ticket);
+    }
+
+    fn write_session_row(&mut self, id: &SessionId, state: SessionState) {
+        let row = self.row_of(id, state);
+        let ticket = self.ticket(Owner::Session(id.clone()));
+        self.act(Action::WriteRow {
+            ticket,
+            key: crate::session::row_key(id),
+            bytes: serde_json::to_vec(&row).expect("a row is JSON"),
+        });
+        self.await_ticket(id, ticket);
+    }
+
+    // ---- create ----
+
+    fn run_create(&mut self, id: &SessionId, f: CreateFlow) {
+        match f.phase {
+            CreatePhase::WriteRow => self.write_session_row(id, SessionState::Created),
+            CreatePhase::PostCreated => {
+                if self.post_state(id, SessionState::Created) {
+                    let s = self.sessions.get_mut(id).expect("a flow has a session");
+                    s.shown = Some(SessionState::Created);
+                    s.flow = Flow::Create(CreateFlow {
+                        phase: CreatePhase::Finish,
+                        ..f
+                    });
+                }
+            }
+            CreatePhase::Finish => {
+                let record = self.sessions[id].record().expect("Created was shown");
+                self.flow_done(id);
+                self.complete(f.op, OpResult::Ok(OpOutput::Record(record)));
+            }
+        }
+    }
+
+    // ---- start (AD-7) ----
+
+    fn set_start_phase(&mut self, id: &SessionId, phase: StartPhase) {
+        if let Some(f) = self.start_flow(id) {
+            f.phase = phase;
+        }
+    }
+
+    /// Ends the start with `reason`, in the state `state` (LC-4: `Exited` or `Lost`, never `Starting`).
+    pub(crate) fn fail_start(
+        &mut self,
+        id: &SessionId,
+        reason: StartFailReason,
+        state: SessionState,
+    ) {
+        if let Some(f) = self.start_flow(id) {
+            f.failure = Some(StartFailure { reason, state });
+            f.deadline = None;
+            f.phase = StartPhase::PostFailed;
+        }
+    }
+
+    /// The `startup` deadline passed before the payload ran (LC-4).
+    pub(crate) fn startup_expired(&mut self, id: &SessionId) {
+        if let Some(identity) = self.identity_of(id) {
+            self.act(Action::SignalGroup {
+                identity,
+                signal: GroupSignal::Kill,
+            });
+        }
+        self.close_worker_link(id);
+        self.fail_start(
+            id,
+            StartFailReason::StartupTimeout,
+            SessionState::Exited(failed_start_exit()),
+        );
+    }
+
+    pub(crate) fn close_worker_link(&mut self, id: &SessionId) {
+        if let Some(s) = self.sessions.get_mut(id) {
+            if let Some(link) = s.worker.link.take() {
+                self.links.remove(&link);
+                self.act(Action::CloseLink { link });
+            }
+        }
+    }
+
+    fn run_start(&mut self, id: &SessionId, f: StartFlow) {
+        match f.phase {
+            StartPhase::Token => {
+                let ticket = self.ticket(Owner::Session(id.clone()));
+                self.act(Action::Random {
+                    ticket,
+                    len: botster_core_link::proof::TOKEN_LEN,
+                });
+                self.await_ticket(id, ticket);
+            }
+            StartPhase::RowStarting => self.write_session_row(id, SessionState::Starting),
+            StartPhase::PostStarting => {
+                if self.post_state(id, SessionState::Starting) {
+                    self.sessions
+                        .get_mut(id)
+                        .expect("a flow has a session")
+                        .shown = Some(SessionState::Starting);
+                    self.set_start_phase(id, StartPhase::Spawn);
+                }
+            }
+            StartPhase::Spawn => {
+                let ticket = self.ticket(Owner::Session(id.clone()));
+                let s = &self.sessions[id];
+                self.act(Action::SpawnWorker {
+                    ticket,
+                    program: self.cfg.worker_path.clone(),
+                    instance: s.instance.clone(),
+                    token: s.token.expect("the token was drawn"),
+                    host_epoch: self.cfg.host_epoch,
+                });
+                self.await_ticket(id, ticket);
+            }
+            StartPhase::RowIdentity => self.write_session_row(id, SessionState::Starting),
+            StartPhase::SendLaunch => {
+                let spec = self.launch_spec(id);
+                if self.send_msg(id, HostMsg::Launch(Box::new(spec))) {
+                    self.set_start_phase(id, StartPhase::AwaitLaunched);
+                } else {
+                    self.fail_start(
+                        id,
+                        StartFailReason::WorkerFailed,
+                        SessionState::Exited(failed_start_exit()),
+                    );
+                }
+            }
+            StartPhase::PostRunning => {
+                if self.post_state(id, SessionState::Running) {
+                    let s = self.sessions.get_mut(id).expect("a flow has a session");
+                    s.shown = Some(SessionState::Running);
+                    s.admit = if s.admit == Admit::Stopping {
+                        Admit::Stopping
+                    } else {
+                        Admit::Running
+                    };
+                    self.set_start_phase(id, StartPhase::Finish);
+                }
+            }
+            StartPhase::PostFailed => {
+                let failure = f.failure.expect("a failed start has its failure");
+                if self.post_state(id, failure.state) {
+                    let s = self.sessions.get_mut(id).expect("a flow has a session");
+                    s.shown = Some(failure.state);
+                    match failure.state {
+                        SessionState::Exited(exit) => {
+                            s.exit = Some(exit);
+                            s.admit = Admit::Exited;
+                        }
+                        _ => s.admit = Admit::Lost,
+                    }
+                    self.write_row_ignored(id, failure.state);
+                    self.set_start_phase(id, StartPhase::Finish);
+                }
+            }
+            StartPhase::Finish => self.finish_start(id, f),
+            StartPhase::AwaitHello | StartPhase::AwaitLaunched => {}
+        }
+    }
+
+    fn finish_start(&mut self, id: &SessionId, f: StartFlow) {
+        let running = f.failure.is_none() && f.error.is_none();
+        let result = if let Some(error) = f.error.clone() {
+            OpResult::Err(error)
+        } else if let Some(failure) = f.failure {
+            OpResult::Err(CoreError::new(
+                ErrorCode::StartFailed(failure.reason),
+                format!("the session did not start: {:?}", failure.reason),
+            ))
+        } else {
+            OpResult::Ok(OpOutput::Record(
+                self.sessions[id].record().expect("Running was shown"),
+            ))
+        };
+        self.flow_done(id);
+        let (stop_after, pending_end) = {
+            let s = self.sessions.get_mut(id).expect("a flow has a session");
+            (
+                std::mem::take(&mut s.stop_after_start),
+                s.pending_end.take(),
+            )
+        };
+        self.complete(f.op, result);
+        if running {
+            if let Some(end) = pending_end {
+                // The payload ended while the start was finishing: the exit is applied now, after `Running` (OR-2).
+                self.begin_end_flow(id, end);
+            } else if stop_after {
+                self.start_stop_flow(id);
+            }
+        } else {
+            // The start failed: a `Stop` that waited ends with the state that the failure reached.
+            let end = self.session_end(id);
+            let waiters = std::mem::take(&mut self.sessions.get_mut(id).expect("kept").waiters);
+            for op in waiters {
+                self.complete(op, OpResult::Ok(OpOutput::End(end)));
+            }
+        }
+        self.wake_launch_waiters(id);
+        self.check_stop_alls();
+    }
+
+    // ---- stop (LC-5) ----
+
+    /// Begins the stop of a `Running` session. The waiters (`Stop` ops) are already in the list.
+    fn start_stop_flow(&mut self, id: &SessionId) {
+        let s = self.sessions.get_mut(id).expect("a flow has a session");
+        s.admit = Admit::Stopping;
+        s.host_ended = true;
+        s.flow = Flow::Stop(StopFlow {
+            phase: StopPhase::RowWrite,
+            deadline: None,
+            end: None,
+        });
+    }
+
+    /// The payload ended, or the worker was lost: the session reaches `end` (EV-4, AD-2).
+    pub(crate) fn begin_end_flow(&mut self, id: &SessionId, end: SessionEnd) {
+        let Some(s) = self.sessions.get_mut(id) else {
+            return;
+        };
+        match &mut s.flow {
+            Flow::Stop(f) => {
+                f.end = Some(end);
+                f.deadline = None;
+                f.phase = StopPhase::PostEnd;
+            }
+            Flow::Start(_) => s.pending_end = Some(end),
+            Flow::Idle => {
+                s.flow = Flow::Stop(StopFlow {
+                    phase: StopPhase::PostEnd,
+                    deadline: None,
+                    end: Some(end),
+                });
+            }
+            // A session that is being created or removed has no payload.
+            _ => {}
+        }
+    }
+
+    fn run_stop(&mut self, id: &SessionId, f: StopFlow) {
+        match f.phase {
+            StopPhase::RowWrite => self.write_session_row(id, SessionState::Stopping),
+            StopPhase::PostStopping => {
+                if self.post_state(id, SessionState::Stopping) {
+                    self.sessions
+                        .get_mut(id)
+                        .expect("a flow has a session")
+                        .shown = Some(SessionState::Stopping);
+                    if let Some(f) = self.stop_flow(id) {
+                        f.phase = StopPhase::SendStop;
+                    }
+                }
+            }
+            StopPhase::SendStop => {
+                let identity = self.identity_of(id);
+                if !self.send_msg(id, HostMsg::Stop) {
+                    if let Some(identity) = identity {
+                        self.act(Action::SignalGroup {
+                            identity,
+                            signal: GroupSignal::Term,
+                        });
+                    }
+                }
+                let deadline = self.mono().map(|now| now + self.cfg.limits.stop_grace);
+                if let Some(f) = self.stop_flow(id) {
+                    f.deadline = deadline;
+                    f.phase = StopPhase::AwaitExit;
+                }
+            }
+            StopPhase::PostEnd => {
+                let end = f.end.expect("PostEnd has its end");
+                let state = match end {
+                    SessionEnd::Exited(exit) => SessionState::Exited(exit),
+                    SessionEnd::Lost(reason) => SessionState::Lost(reason),
+                    _ => SessionState::Lost(LostReason::Other),
+                };
+                if self.post_state(id, state) {
+                    let s = self.sessions.get_mut(id).expect("a flow has a session");
+                    s.shown = Some(state);
+                    match end {
+                        SessionEnd::Exited(exit) => {
+                            s.exit = Some(exit);
+                            s.admit = Admit::Exited;
+                        }
+                        _ => s.admit = Admit::Lost,
+                    }
+                    self.write_row_ignored(id, state);
+                    if let Some(f) = self.stop_flow(id) {
+                        f.phase = StopPhase::Finish;
+                    }
+                }
+            }
+            StopPhase::Finish => {
+                let end = f.end.expect("Finish has its end");
+                self.flow_done(id);
+                let waiters = std::mem::take(&mut self.sessions.get_mut(id).expect("kept").waiters);
+                for op in waiters {
+                    self.complete(op, OpResult::Ok(OpOutput::End(end)));
+                }
+                self.fail_inflight(id);
+                self.check_stop_alls();
+            }
+            StopPhase::AwaitExit => {}
+        }
+    }
+
+    /// The decision of the `ExitCause` (LC-5, LC-6, EV-4): the host knows what it asked for.
+    pub(crate) fn exit_of(&self, id: &SessionId, code: Option<i32>, signal: Option<i32>) -> Exit {
+        let s = &self.sessions[id];
+        let cause = if s.killed {
+            ExitCause::Killed
+        } else if s.host_ended {
+            ExitCause::HostStop
+        } else if signal.is_some() {
+            ExitCause::Signal
+        } else {
+            ExitCause::Normal
+        };
+        Exit {
+            code,
+            signal,
+            cause,
+        }
+    }
+
+    /// The link of a session that ended failed its pending ops (AM-3, IN-7): a write that was sent and not acknowledged is
+    /// `Unknown`, and every other op is `WorkerLinkFailed`. Reads of an `Exited` session keep their worker.
+    pub(crate) fn fail_inflight(&mut self, id: &SessionId) {
+        let Some(s) = self.sessions.get(id) else {
+            return;
+        };
+        let dead = s.worker.link.is_none();
+        if !dead {
+            return;
+        }
+        let inflight: Vec<(u64, OpId)> = s.inflight.iter().map(|(r, o)| (*r, *o)).collect();
+        self.sessions
+            .get_mut(id)
+            .expect("read above")
+            .inflight
+            .clear();
+        for (_, op) in inflight {
+            let result = match self.ops.get(&op).map(|p| &p.op) {
+                Some(Op::WriteInput { payload, .. }) => {
+                    OpResult::Ok(OpOutput::Input(InputResult {
+                        outcome: WriteOutcome::Unknown {
+                            max_payload_bytes: Self::payload_len(payload),
+                        },
+                        payload_bytes_written: 0,
+                        pty_bytes_written: 0,
+                        detail: "the worker link failed after the write was sent".into(),
+                    }))
+                }
+                _ => OpResult::Err(CoreError::new(
+                    ErrorCode::WorkerLinkFailed,
+                    "the worker link ended with the operation pending",
+                )),
+            };
+            self.complete(op, result);
+        }
+        self.wake_launch_waiters(id);
+    }
+
+    fn payload_len(payload: &InputPayload) -> u64 {
+        match payload {
+            InputPayload::Bytes { bytes } | InputPayload::Paste { bytes, .. } => {
+                bytes.0.len() as u64
+            }
+            InputPayload::Text { text } => text.len() as u64,
+            _ => 64,
+        }
+    }
+
+    // ---- remove (LC-7) ----
+
+    fn set_remove_phase(&mut self, id: &SessionId, phase: RemovePhase) {
+        if let Some(s) = self.sessions.get_mut(id) {
+            if let Flow::Remove(f) = &mut s.flow {
+                f.phase = phase;
+            }
+        }
+    }
+
+    fn run_remove(&mut self, id: &SessionId, f: RemoveFlow) {
+        match f.phase {
+            RemovePhase::CloseRoutes => {
+                let next = self.sessions[id].routes.iter().next().copied();
+                match next {
+                    Some(route) => {
+                        let _ = self.close_route(route, RouteCloseReason::SessionRemoved);
+                    }
+                    None => self.set_remove_phase(id, RemovePhase::SendRemove),
+                }
+            }
+            RemovePhase::SendRemove => {
+                // Step 2: the open captures of the session are released.
+                let instance = self.sessions[id].instance.clone();
+                self.captures.retain(|_, c| c.instance != instance);
+                let (has_link, ever_had_worker) = {
+                    let s = &self.sessions[id];
+                    (s.worker.link.is_some(), s.worker.identity.is_some())
+                };
+                if has_link && self.send_msg(id, HostMsg::Remove) {
+                    self.set_remove_phase(id, RemovePhase::AwaitResult);
+                } else {
+                    // No worker to ask. A session that never had one has no uploads; any other has an unknown outcome
+                    // (A6-3).
+                    let uploads = if ever_had_worker {
+                        UploadsOutcome::NotDeleted(NotDeleted::OutcomeUnknown)
+                    } else {
+                        UploadsOutcome::Deleted
+                    };
+                    if let Some(s) = self.sessions.get_mut(id) {
+                        if let Flow::Remove(f) = &mut s.flow {
+                            f.uploads = Some(uploads);
+                            f.phase = RemovePhase::DeleteRow;
+                        }
+                    }
+                }
+            }
+            RemovePhase::DeleteRow => {
+                let ticket = self.ticket(Owner::Session(id.clone()));
+                self.act(Action::DeleteRow {
+                    ticket,
+                    key: crate::session::row_key(id),
+                });
+                self.await_ticket(id, ticket);
+            }
+            RemovePhase::PostReleased => self.release_session(id, f),
+            RemovePhase::AwaitResult => {}
+            RemovePhase::Finish => {}
+        }
+    }
+
+    /// Step 5 of LC-7 and `SessionState{Released}`, as one atomic step: the id is freed only when the event fits (EV-5b).
+    fn release_session(&mut self, id: &SessionId, f: RemoveFlow) {
+        let s = &self.sessions[id];
+        let event = Event::SessionState {
+            id: s.id.clone(),
+            instance: s.instance.clone(),
+            state: SessionState::Released,
+        };
+        let instance = s.instance.clone();
+        // The events of the instance are retired first, so that only its class M events remain (6.2).
+        if !self.has_room() {
+            return;
+        }
+        self.queue.retire_instance(&instance);
+        self.queue
+            .post_mandatory(event)
+            .expect("the room was checked above");
+        let mut session = self.sessions.remove(id).expect("a flow has a session");
+        if let Some(link) = session.worker.link.take() {
+            self.links.remove(&link);
+            self.act(Action::CloseLink { link });
+        }
+        self.retired_ops.extend(session.ops_seen.drain(..));
+        while self.retired_ops.len() > crate::engine::RETIRED_OPS_KEPT {
+            self.retired_ops.pop_first();
+        }
+        let uploads = f
+            .uploads
+            .unwrap_or(UploadsOutcome::NotDeleted(NotDeleted::OutcomeUnknown));
+        self.complete(
+            f.op,
+            OpResult::Ok(OpOutput::RemoveReport(remove_report(uploads))),
+        );
+        self.check_stop_alls();
+    }
+
+    // ---- results of the edges for a flow ----
+
+    pub(crate) fn flow_random(&mut self, id: &SessionId, bytes: Vec<u8>) {
+        let Some(s) = self.sessions.get_mut(id) else {
+            return;
+        };
+        let mut token = [0u8; botster_core_link::proof::TOKEN_LEN];
+        let n = token.len().min(bytes.len());
+        token[..n].copy_from_slice(&bytes[..n]);
+        s.token = Some(token);
+        self.set_start_phase(id, StartPhase::RowStarting);
+    }
+
+    pub(crate) fn flow_row(&mut self, id: &SessionId, result: Result<(), StorageError>) {
+        let Some(flow) = self.sessions.get(id).map(|s| s.flow.clone()) else {
+            return;
+        };
+        match (flow, result) {
+            (Flow::Create(f), Ok(())) => {
+                self.sessions.get_mut(id).expect("kept").flow = Flow::Create(CreateFlow {
+                    phase: CreatePhase::PostCreated,
+                    ..f
+                });
+            }
+            (Flow::Create(f), Err(e)) => {
+                // The row was not written: the session never existed (LC-3).
+                self.sessions.remove(id);
+                self.complete(f.op, OpResult::Err(registry_failed(e)));
+            }
+            (Flow::Start(f), result) => match (f.phase, result) {
+                (StartPhase::RowStarting, Ok(())) => {
+                    self.set_start_phase(id, StartPhase::PostStarting)
+                }
+                (StartPhase::RowStarting, Err(e)) => {
+                    // Nothing ran: the session is `Created` again.
+                    let s = self.sessions.get_mut(id).expect("kept");
+                    s.admit = Admit::Created;
+                    s.token = None;
+                    let waiters = std::mem::take(&mut s.waiters);
+                    s.stop_after_start = false;
+                    self.flow_done(id);
+                    self.complete(f.op, OpResult::Err(registry_failed(e)));
+                    for op in waiters {
+                        self.complete(
+                            op,
+                            OpResult::Err(CoreError::new(
+                                ErrorCode::WrongState,
+                                "the start that the stop waited for failed",
+                            )),
+                        );
+                    }
+                }
+                (StartPhase::RowIdentity, Ok(())) => {
+                    let phase = if f.hello_seen {
+                        StartPhase::SendLaunch
+                    } else {
+                        StartPhase::AwaitHello
+                    };
+                    self.set_start_phase(id, phase);
+                }
+                (StartPhase::RowIdentity, Err(e)) => {
+                    // AD-7: the identity is not durable, so the payload is never launched. The worker is ended.
+                    if let Some(identity) = self.identity_of(id) {
+                        self.act(Action::SignalGroup {
+                            identity,
+                            signal: GroupSignal::Kill,
+                        });
+                    }
+                    self.close_worker_link(id);
+                    if let Some(flow) = self.start_flow(id) {
+                        flow.error = Some(registry_failed(e));
+                    }
+                    self.fail_start(
+                        id,
+                        StartFailReason::WorkerFailed,
+                        SessionState::Lost(LostReason::StartInterrupted),
+                    );
+                }
+                _ => {}
+            },
+            (Flow::Stop(f), Ok(())) if f.phase == StopPhase::RowWrite => {
+                if let Some(flow) = self.stop_flow(id) {
+                    flow.phase = StopPhase::PostStopping;
+                }
+            }
+            (Flow::Stop(f), Err(e)) if f.phase == StopPhase::RowWrite => {
+                let waiters = {
+                    let s = self.sessions.get_mut(id).expect("kept");
+                    s.admit = Admit::Running;
+                    s.host_ended = false;
+                    std::mem::take(&mut s.waiters)
+                };
+                self.flow_done(id);
+                for op in waiters {
+                    self.complete(op, OpResult::Err(registry_failed(e)));
+                }
+            }
+            (Flow::Remove(f), Ok(())) if f.phase == RemovePhase::DeleteRow => {
+                self.set_remove_phase(id, RemovePhase::PostReleased);
+            }
+            (Flow::Remove(f), Err(e)) if f.phase == RemovePhase::DeleteRow => {
+                let s = self.sessions.get_mut(id).expect("kept");
+                s.admit = match s.shown {
+                    Some(SessionState::Exited(_)) => Admit::Exited,
+                    Some(SessionState::Lost(_)) => Admit::Lost,
+                    _ => Admit::Created,
+                };
+                self.flow_done(id);
+                self.complete(f.op, OpResult::Err(registry_failed(e)));
+            }
+            _ => {}
+        }
+    }
+
+    pub(crate) fn flow_spawned(
+        &mut self,
+        id: &SessionId,
+        result: Result<
+            botster_core_edges::edges::ProcessIdentity,
+            botster_core_edges::edges::SpawnError,
+        >,
+    ) {
+        match result {
+            Ok(identity) => {
+                let deadline = self.mono().map(|now| now + self.cfg.limits.startup);
+                self.sessions.get_mut(id).expect("kept").worker.identity = Some(identity);
+                if let Some(f) = self.start_flow(id) {
+                    f.deadline = deadline;
+                    f.phase = StartPhase::RowIdentity;
+                }
+            }
+            Err(e) => self.fail_start(
+                id,
+                StartFailReason::ExecFailed { errno: e.errno },
+                SessionState::Exited(failed_start_exit()),
+            ),
+        }
+    }
+
+    pub(crate) fn flow_remove_result(&mut self, id: &SessionId, uploads: UploadsOutcome) {
+        if let Some(s) = self.sessions.get_mut(id) {
+            if let Flow::Remove(f) = &mut s.flow {
+                if f.phase == RemovePhase::AwaitResult {
+                    f.uploads = Some(uploads);
+                    f.phase = RemovePhase::DeleteRow;
+                }
+            }
+        }
+    }
+}

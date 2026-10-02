@@ -22,13 +22,16 @@ botster-probe-script = { git = "https://github.com/trybotster/botster-contracts"
 botster-test-support = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.2" }
 
 anyhow = "1"
+atomic-write-file = "0.3"
 bolero = "0.13"
+getrandom = "0.4"
 libtest-mimic = "0.8"
+mio = { version = "1", features = ["os-poll", "os-ext", "net"] }
 rand_chacha = "0.9"
 rand_core = "0.9"
 schemars = "1"
 regex = "1"
-rustix = { version = "1", features = ["fs"] }
+rustix = { version = "1", features = ["fs", "process"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"
@@ -38,6 +41,9 @@ toml = "0.9"
 
 # Crates of this workspace, once another crate depends on them.
 botster-core-edges = { path = "crates/botster-core-edges" }
+botster-core-host = { path = "crates/botster-core-host" }
+botster-core-link = { path = "crates/botster-core-link" }
+botster-core-sys = { path = "crates/botster-core-sys" }
 botster-core-testkit = { path = "crates/botster-core-testkit" }
 botster-worker-core = { path = "crates/botster-worker-core" }
 
