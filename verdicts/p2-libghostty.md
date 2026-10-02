@@ -4,8 +4,8 @@ Reviewed head: `89afa037b198cb26173ff520245adb926b6ca21e`.
 Previous audit head: `fd1471eabca0adb344c6027b8995e1151aa8f8a8`.
 Scope: the written audit and fork patches 0, 2, and 3 only. This verdict does not approve the full fork series, binding, or pin change.
 
-VERDICT: CLEAN (written audit and fork patches 0, 2, and 3 only).
-Reviewed fork head: `ea5a1e2975aa6c999051cb6fb30685ececf8be51`.
+VERDICT: NOT CLEAN (patch 1: 3 open findings, P14–P16).
+Reviewed fork head: `6495721bb0496b4de561eb5b377cacd50987de0e`.
 Written audit: CLEAN at `89afa037b198cb26173ff520245adb926b6ca21e`; F1–F12 closed.
 
 The review uses manifest final13, BUILD.md at `2f2996ef0f016a1fefc6879e74deaef033383b66`, and plan pin `stage1-plan.a24efe7e`.
@@ -504,3 +504,67 @@ This audit commit does not change the dependency pin.
 VERDICT: CLEAN for the written audit on this exact head. No new finding.
 The reviewer ran no tests. The fork verdicts remain unchanged.
 The full fork series and binding code remain unapproved.
+
+
+## Replacement fork review — patch 1 NOT CLEAN
+
+Reviewed commit: `6495721bb0496b4de561eb5b377cacd50987de0e`.
+The reviewer read every changed file and relevant parser, stream, and contract source.
+All Ghostty reads used `git show`. The reviewer ran no tests.
+The written audit and patches 0, 2, and 3 retain their scoped CLEAN verdicts.
+
+## P14 — HIGH — Request tracking follows ground state instead of query boundaries
+
+Status: OPEN.
+Evidence: `src/terminal/c/terminal.zig:1092–1159` clears request bytes only after ground state or a bulk text feed.
+The parser can start a new sequence without passing through ground state.
+`src/terminal/parse_table.zig` sends ESC from every state to escape state.
+`src/terminal/stream.zig:1255` also executes ENQ inside CSI parameters without ending the CSI.
+
+Examples of input stimuli:
+
+- `ESC [ 3 ESC [ 5 n`: the second ESC abandons the first CSI.
+  The callback reports the abandoned CSI prefix together with the operating-status query.
+- `ESC [ 3 ENQ`: the callback reports the CSI prefix together with ENQ, instead of the ENQ request alone.
+  The pending CSI must still remain valid after the ENQ query.
+- A string query ended by ESC followed by a new CSI keeps the previous string in `query_raw`.
+  On the next call, `query_raw_open` preserves that buffer because the parser remains in escape state.
+  The next query therefore includes the previous query's bytes.
+
+EV-8(c) requires the exact request bytes. The C API also promises each query's first through final byte.
+These paths can report wrong bytes and can mark a short query as truncated because an abandoned prefix used its limit.
+
+Required change: track actual query boundaries, including parser restarts and controls executed inside unfinished sequences.
+Preserve pending parser state when an independent control query occurs.
+Test restart, embedded ENQ, and string-to-CSI transitions across call boundaries.
+Compare reported requests with the relevant input slices.
+
+## P15 — HIGH — Two normative window queries are ignored
+
+Status: OPEN.
+Evidence: `src/terminal/stream.zig:2424` accepts CSI 14 t only with one parameter.
+The new arm at line 2452 accepts CSI 13 t only with one parameter.
+The EV-8 normative table also names `CSI 14 ; 2 t` as `WindowPixels`.
+It names `CSI 13 ; 2 t` as `WindowPosition{area: TextArea}`.
+Both sequences have two parameters, so neither reaches the query callback or stops the write.
+
+Required change: recognize both normative forms inside libghostty.
+Expose enough semantic information to distinguish window pixels from text-area pixels and the two position areas.
+Do not require the Rust binding to parse request bytes to recover those distinctions.
+Add tests for both forms, exact request slices, and the stop before later output.
+Reject extra parameters that are outside the supported forms.
+
+## P16 — MEDIUM — A failed request allocation can produce bytes with a gap
+
+Status: OPEN.
+Evidence: `src/terminal/c/terminal.zig:1050–1058` sets `query_raw_truncated` when append fails, but later bytes still call append.
+If a later allocation succeeds, the buffer contains a prefix followed by later bytes, with the failed byte missing.
+The callback still marks the request available.
+The header says a truncated request contains the first bytes only. This buffer does not satisfy that promise.
+
+Required change: stop retaining later bytes after the first failed append, or use explicit unavailable/error handling.
+Never present a buffer with missing interior bytes as the request or its prefix.
+Add a focused allocation-failure test that checks the callback's bytes and flags after a later allocation can succeed.
+
+VERDICT: NOT CLEAN (3 open findings, P14–P16).
+The full fork series, binding code, and Ghostty pin change remain unapproved.
