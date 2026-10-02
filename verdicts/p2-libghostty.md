@@ -1,12 +1,13 @@
 # P2 libghostty review
 
-Current reviewed binding head: `43432744e0db3f48494828ab5cca9d4cd7f94ea9`.
-Current Ghostty pin: `85a8d8eb197c5752887c017c9a3faa6f1dc1969b`.
+Current reviewed binding head: `ab8577a0e0f7017271be2daa27d63ee324e1ac9e`.
+Reviewed proposed Ghostty head: `170d6faf82fb1a90f4776707421702f4ff4a66fc`.
+The recorded Ghostty pin remains `85a8d8eb197c5752887c017c9a3faa6f1dc1969b` until the lead records a move.
 
-VERDICT: NOT CLEAN (9 open: P24–P32).
-The build has one open Linux finding, P32, supplied by the lead after the source review.
+VERDICT: NOT CLEAN (5 open: P25, P27, P32, P33, P34).
+P24, P26, P28, P29, P30 and P31 close at this binding head.
+P32 has a reviewed source correction but still lacks the Linux gate evidence required by the lead.
 F1–F12 and P13–P23 remain closed. The earlier reviews below retain their stated scope.
-The binding review also identifies audit corrections in P26, P27 and P31.
 
 ## Earlier audit and fork reviews
 
@@ -1155,3 +1156,114 @@ The shadow must answer none of these reads. The binding's suppression of `KittyC
 This contract update closes no finding and approves no new binding head. The reviewer ran no tests.
 
 VERDICT: NOT CLEAN (9 open: P24–P32) at Core head `43432744e0db3f48494828ab5cca9d4cd7f94ea9`.
+
+
+## Binding delta and proposed native patches 9–11
+
+Reviewed Core head: `ab8577a0e0f7017271be2daa27d63ee324e1ac9e`.
+Reviewed native changes, read with `git show` only:
+
+- Patch 9: `468268e5c9f9073d1d5856da9a088aacc52aab02`.
+- Patch 10: `92d13482af18eaa39b3abb898759dd38874109e4`.
+- Patch 11: `170d6faf82fb1a90f4776707421702f4ff4a66fc`.
+
+The reviewer read the complete binding delta, audit revision 8, and all three native deltas.
+The reviewer ran no tests. The contract and plan inputs remain those recorded above, including frozen A13 candidate 5.
+
+### Native patch scope — CLEAN
+
+Patch 9 reads the native modifyOtherKeys and mouse Shift capture state without an encoder probe.
+Its output types match the C header. Its tests assert native state after native sequence handling.
+Patch 10 links libc for the Linux native module. That correction removes the allocator-mixing premise of P32.
+Patch 11 writes the OSC 5522 commit status inside the synchronous reply call.
+The one-reply guard remains in place. The handler clears the transaction after the callback returns.
+A callback that gives no reply still gets one EPERM response and transaction cleanup.
+The new test checks that response delivery finishes before the synchronous reply returns.
+
+VERDICT: CLEAN for the source logic of patches 9–11 through the exact native head above.
+This scoped verdict approves no pin move and does not satisfy the Linux gate evidence required for P32.
+
+### Closed binding findings
+
+- P24 closes: the binding sets the native image limit to zero before writes. Native screen creation inherits that limit.
+  The new test reads both screen limits and checks snapshot equality after image input. P34 records a separate restore defect below.
+- P26 closes: the binding reads the actual native state through patch 9, including when kitty flags mask key encoding.
+- P28 closes: the eight modifier keys with flag 8 off now produce the required NamedKey result after native zero output.
+- P29 closes: the new every-offset test feeds the restored terminal. Its corpus includes saved cursor, tabs, margins and charsets.
+- P30 closes: the identified generated protocol expectations are removed. Remaining supplied text and request stimuli do not construct protocol framing.
+- P31 closes: the binding uses the base64 STANDARD engine. The Prior art note records final reuse and custom pieces.
+
+### P25 remains HIGH — Acknowledgements are lost with discrete events
+
+The event now preserves location, selection, all MIME representations, total size and the clear distinction.
+The callback applies the configured size limit synchronously and captures the native acknowledgement from patch 11.
+These parts of P25 are corrected.
+
+**Remaining evidence:** `ClipboardWrite::ack` exists only inside `TerminalEvent::ClipboardWrite`.
+`Shared::push` discards that whole event when the event count or byte bound is full.
+A write of enough bells before an OSC 5522 commit fills the event buffer in one model step.
+The callback then reports SUCCESS, but `push` discards the only copy of its acknowledgement.
+Even without a preceding event, a clipboard value larger than the event buffer can cause the same loss.
+A13-1b permits class D event loss but requires the acknowledgement to survive that loss.
+
+**Required change:** separate acknowledgement delivery from the class D event buffer.
+Preserve each acknowledgement as its own ordered input transaction, even when the event is dropped.
+Bound the acknowledgement path with admission backpressure or a native model-step boundary; do not silently drop or truncate it.
+Add a regression with a full event buffer and a clipboard write, including a SUCCESS response with no host.
+
+### P27 remains HIGH — The precision check refuses valid exact pixels
+
+The new check prevents rounded coordinates and native integer overflow. That part of P27 is corrected.
+
+**Remaining evidence:** `encode_mouse` refuses every coordinate above 2^24.
+An `f32` holds every integer up to 2^24, but it also holds some larger integers exactly.
+For example, 16,777,218 is exact in `f32` and fits the native `i32` pixel result.
+A native SGR-pixels release can report that coordinate. The binding returns Unsupported Coordinate before calling the encoder.
+The comment and test also incorrectly call 2^24 the last exactly representable integer.
+
+**Required change:** test the supplied value's exact representation and the native integer range, rather than imposing a blanket 2^24 cap.
+Permit exactly representable values that the native API can encode.
+Keep typed zero for values that lose precision or exceed the native integer range.
+Add native-oracle coverage for 2^24+1 and 2^24+2, including releases, and correct the audit and comments.
+
+### P32 remains open — The Linux gate evidence is pending
+
+The source correction in native patch 10 is CLEAN.
+`tests_archive.rs` checks the defined native symbols and rejects libc allocator definitions.
+The implementer reports that the check detects the old Linux archive.
+The lead requires a green Linux gate for closure. The implementer has not supplied that result.
+No reviewer test ran. This finding remains open for that evidence only.
+
+### P33 — LOW — Audit identifiers and the clipboard read note are inconsistent
+
+**Evidence:** audit revision 8 assigns G12 to the clipboard event shape, although G12 already identifies legacy Shift key encoding.
+Its closing note says `EV-8: OSC 52 only` without stating that only the typed clipboard label has that scope.
+Frozen A13 also requires every other native clipboard read to reach the client as an untyped query, with no shadow answer.
+The revision introduction claims that P24–P32 are closed, including P32 before its required Linux gate evidence exists.
+
+**Required change:** use unique GAP identifiers and update their references.
+State the typed OSC 52 rule and the untyped clipboard read rule explicitly.
+Describe P25, P27 and P32 as corrected or pending only when the review and required evidence support that status.
+
+### P34 — HIGH — Snapshot restore enables graphics that the source model disables
+
+**Evidence:** the binding sets each source screen's image storage limit to zero.
+Native `snapshot/terminal.zig::decode` reconstructs the terminal without a stored image limit.
+Native `snapshot/snapshot.zig::Decoder.ready` also constructs `screen_options` without `kitty_image_storage_limit`.
+`Screen.Options` therefore supplies the lib default of 10,000,000 bytes.
+`snapshot/screen.zig::decode` applies that nonzero default to each restored screen.
+The snapshot format excludes image state and does not record the disabled image policy.
+The C decoder replays pending continuation through that restored terminal before it returns the terminal to the caller.
+The original model rejects later image input while the restored model accepts it. H1's configuration does not survive restore.
+The new resume corpus contains no image input and does not expose this ST-6b gap.
+
+**Required change:** preserve the disabled native image policy through restore, including before pending continuation replay.
+The lead chose policy preservation and authorized one minimal native patch on top of `170d6fa`.
+The patch may restore the configured limit or carry the limit in the snapshot record; the implementer selects the smaller change.
+Keep `snapshot_graphics` absent and state the image exclusion in the snapshot format description.
+Record this GAP in the audit and follow Q1 for the resolution and any pin move.
+Add every-offset resume coverage for image protocol input. Check native storage limits before and after restore as part of that proof.
+The lead answered the reviewer’s QUESTION with this policy-preservation requirement.
+P34 needs both a native image-resume test and the binding every-offset image-resume test.
+
+VERDICT: NOT CLEAN (5 open: P25, P27, P32, P33, P34) at exact Core head `ab8577a0e0f7017271be2daa27d63ee324e1ac9e`.
