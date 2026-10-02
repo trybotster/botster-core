@@ -303,7 +303,10 @@ mod tests {
         assert_eq!(a.send(b"abcdef").unwrap(), 4);
         assert_eq!(a.send(b"ef").unwrap_err().kind(), io::ErrorKind::WouldBlock);
         assert_eq!(drain(&mut b), b"abcd");
-        assert_eq!(b.recv(&mut [0u8; 4]).unwrap_err().kind(), io::ErrorKind::WouldBlock);
+        assert_eq!(
+            b.recv(&mut [0u8; 4]).unwrap_err().kind(),
+            io::ErrorKind::WouldBlock
+        );
         assert_eq!(a.send(b"ef").unwrap(), 2);
         assert_eq!(drain(&mut b), b"ef");
     }
@@ -324,25 +327,43 @@ mod tests {
     fn readiness_follows_the_interest_rules() {
         let (mut a, mut b) = link_pair(4);
         // Nothing queued: writable only.
-        assert_eq!(b.end().readiness(), Readiness { readable: false, writable: true });
+        assert_eq!(
+            b.end().readiness(),
+            Readiness {
+                readable: false,
+                writable: true
+            }
+        );
         assert!(!b.is_ready(), "no interest registered");
-        b.end().set_interest(Interest { read: true, write: false });
+        b.end().set_interest(Interest {
+            read: true,
+            write: false,
+        });
         assert!(!b.is_ready(), "no bytes, and no write interest");
         a.send(b"ab").unwrap();
         assert!(b.is_ready(), "bytes and read interest");
         // The owner removes read interest (a parked link, rule 7): the flag stays set and the link is not work.
-        b.end().set_interest(Interest { read: false, write: false });
+        b.end().set_interest(Interest {
+            read: false,
+            write: false,
+        });
         assert!(b.end().readiness().readable);
         assert!(!b.is_ready());
         // Write interest only counts while the queue has room.
-        b.end().set_interest(Interest { read: false, write: true });
+        b.end().set_interest(Interest {
+            read: false,
+            write: true,
+        });
         assert!(b.is_ready());
         b.send(b"wxyz").unwrap();
         assert!(!b.end().readiness().writable);
         assert!(!b.is_ready());
         // The peer's close is readable, so a loop with read interest learns of it.
         Link::close(&mut a);
-        b.end().set_interest(Interest { read: true, write: false });
+        b.end().set_interest(Interest {
+            read: true,
+            write: false,
+        });
         assert!(b.is_ready());
     }
 
@@ -354,8 +375,15 @@ mod tests {
         let (route_worker, mut route_client) = stream_pair(&sched, 8);
         a.send_descriptor(Descriptor::new(route_worker)).unwrap();
         a.send_descriptor(Descriptor::new(7u32)).unwrap();
-        assert!(b.end().readiness().readable, "a descriptor is readable work");
-        let mut worker_end = b.recv_descriptor().unwrap().downcast::<StreamEnd>().unwrap();
+        assert!(
+            b.end().readiness().readable,
+            "a descriptor is readable work"
+        );
+        let mut worker_end = b
+            .recv_descriptor()
+            .unwrap()
+            .downcast::<StreamEnd>()
+            .unwrap();
         assert_eq!(b.recv_descriptor().unwrap().downcast::<u32>().unwrap(), 7);
         assert!(b.recv_descriptor().is_none());
         // The descriptor is the very stream end, still connected to the client.
@@ -396,9 +424,15 @@ mod tests {
     fn a_stream_reports_would_block_peer_close_and_a_write_failure() {
         let sched = SchedulerHandle::with_seed(0);
         let (mut worker, mut client) = stream_pair(&sched, 8);
-        assert_eq!(worker.read(&mut [0u8; 4]).unwrap_err().kind(), io::ErrorKind::WouldBlock);
+        assert_eq!(
+            worker.read(&mut [0u8; 4]).unwrap_err().kind(),
+            io::ErrorKind::WouldBlock
+        );
         client.end().fail_next_write(io::ErrorKind::ConnectionReset);
-        assert_eq!(client.write(b"a").unwrap_err().kind(), io::ErrorKind::ConnectionReset);
+        assert_eq!(
+            client.write(b"a").unwrap_err().kind(),
+            io::ErrorKind::ConnectionReset
+        );
         assert_eq!(client.write(b"a").unwrap(), 1, "the failure is one write");
         RouteTransport::close(&mut client);
         assert_eq!(worker.read(&mut [0u8; 4]).unwrap(), 1);
