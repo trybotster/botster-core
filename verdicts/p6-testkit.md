@@ -1,15 +1,16 @@
 # P6 testkit review — M0b
 
-VERDICT: NOT CLEAN (6 open)
+VERDICT: NOT CLEAN (1 open)
 
-Reviewed head: `b97b6055856e60c17af7cf0300ab89bc582a6d5e`.
+Reviewed head: `4f8ec55210e09afbd458ae956bf7ce855b55181f`.
+Previous reviewed head: `b97b6055856e60c17af7cf0300ab89bc582a6d5e`.
 Base: `118c972`.
 Scope: M0b only, under plan pin `555bc433` and `contracts-v0.1.1`.
 This review checks logic. No tests or gate ran in the reviewer worktree.
 
 ## F1 — MEDIUM — Apply `ignore_sigterm` at its script step
 
-Status: OPEN.
+Status: CLOSED at `4f8ec55`. `IgnoreSigterm` is now an operation. Execution sets the flag only when the program reaches it.
 Evidence: `program.rs:109` removes `IgnoreSigterm` from the operations. Line 130 sets the flag from the complete script during construction.
 For `[PrintAfterInput(match="61"), IgnoreSigterm, Hold]`, the flag is true before the program receives `a`.
 For `[Hold, IgnoreSigterm]`, the flag is true although the program never reaches that step.
@@ -21,7 +22,7 @@ Add a regression case with a waiting step before `IgnoreSigterm`.
 
 ## F2 — MEDIUM — Dropping an endpoint must close its side
 
-Status: OPEN.
+Status: CLOSED at `4f8ec55`. Endpoint drop closes its side. Close releases incoming descriptors outside the shared lock.
 Evidence: `net.rs:167` sets `Shared.closed` only through an explicit `close` call. `End` has no `Drop` implementation.
 Create a pair, then drop one endpoint without calling `close`. The surviving endpoint still reports writable.
 Its reads return `WouldBlock` after queued bytes end. Its writes can succeed although no receiver exists.
@@ -34,7 +35,7 @@ Add regression cases for a dropped link endpoint and a dropped route endpoint.
 
 ## F3 — MEDIUM — An injected write failure must produce write readiness
 
-Status: OPEN.
+Status: CLOSED at `4f8ec55`. A pending write error now sets write readiness while the endpoint remains open.
 Evidence: `net.rs:110` computes write readiness from peer closure or byte capacity. It ignores `write_error`.
 Fill an endpoint's outgoing queue, then call `fail_next_write(ConnectionReset)`.
 With write interest enabled, `is_ready()` remains false although `write()` would immediately return the injected error.
@@ -46,7 +47,7 @@ Add a regression case with a full queue and write interest.
 
 ## F4 — LOW — `Scheduler::pick` can return an invalid index
 
-Status: OPEN.
+Status: CLOSED at `4f8ec55`. Binary picks return 0 without a draw when fewer than two candidates exist.
 Evidence: `scheduler.rs:125-126` use a two-way draw for `OperationDeferral` and `SpuriousWake`, irrespective of `candidates`.
 With `candidates = 1`, either function can return 1. The `Scheduler` trait requires an index below the supplied candidate count.
 This can make a generic driver select a nonexistent input.
@@ -57,7 +58,7 @@ Add a regression case through the `Scheduler` trait.
 
 ## F5 — LOW — The simulation reports idle work as a livelock at the limit
 
-Status: OPEN.
+Status: CLOSED at `4f8ec55`. The simulation checks readiness after the limit without selecting or handling another input.
 Evidence: `sim.rs:192-198` returns `Livelock` after exactly `limit` successful steps without checking whether work remains ready.
 A simulation with one input returns `Err(Livelock { limit: 1 })` after handling its only input.
 An empty simulation with `limit = 0` also returns a livelock.
@@ -80,6 +81,18 @@ Required change: Record the prior-art decisions, library choices, and reasons fo
 Record the budget command, measured head, counts, and numbers in the pull request.
 State that the measurement covers the failing `open` path. It does not establish the cost of passing Core transcripts.
 Record the Stage 0 probe defect described below.
+
+Delta review at `4f8ec55`: `DESIGN.md` records the prior-art decisions, custom-code reasons, and Stage 0 defect. Those requirements are satisfied.
+The budget evidence remains incomplete. The note describes an uncommitted example instead of supplying its exact command or source.
+It reports 132 transcripts and 32 seeds, but the pinned `botster-conformance/src/run.rs:40-43` returns after the first non-passing seed.
+The harness reports no passing Core, so this procedure does not measure all 32 seeds.
+The runner can also stop at a required control or feature before it calls `open`.
+
+Remaining required change: Measure each seed separately, or correct the stated coverage to the actual executions.
+For the M0b budget check, execute seeds 0 through 31 explicitly and count driver constructions and outcomes.
+Record the exact command and example source so the measurement can be repeated.
+Keep the limit that this measurement does not establish the cost of passing Core transcripts.
+Copy the budget evidence into the pull request when the pull request exists.
 
 ## Contract question resolved by the lead
 
