@@ -26,4 +26,6 @@ signal-hook-mio.workspace = true
 
 [dev-dependencies]
 botster-core.workspace = true
+botster-core-host.workspace = true
+serde_json.workspace = true
 tempfile.workspace = true

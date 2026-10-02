@@ -2,14 +2,14 @@
 //!
 //! It wires the real edges to the `Worker` machine of `botster-worker-core` and holds no worker logic (plan 2.1: one machine,
 //! two drivers). One `mio` loop serves the control socket, the PTY master, the worker-control signal (`SIGUSR1`, LC-5) and the
-//! wake of the payload's exit watch.
+//! wake of the payload's exit watch. `SIGTERM` ends the worker after its payload (`Input::Terminate`).
 //!
 //! **Bounded turns (plan 2.4, 2.5).** `mio` reports readiness by edge, so the driver keeps a readiness flag per descriptor
 //! and clears it only when a read or write finds `WouldBlock`. Each turn reads at most one chunk from each descriptor, control
 //! first, and the machine handles every input before the next turn: a payload that writes without end cannot hold back a
 //! host request, the worker-control signal or a due grace, and the driver holds at most one chunk per descriptor.
 //! **Nothing blocks:** writes to the control socket are nonblocking, and a staged close waits in the machine
-//! (`Input::LinkFlushed`), so a host that stops reading never stops the worker from serving its payload.
+//! (`Input::LinkWritten`), so a host that stops reading never stops the worker from serving its payload.
 //!
 //! The host starts it with the arguments and the environment of `botster_core_link::launch::WorkerLaunch` (AD-6: the token is
 //! in the environment only).
@@ -23,7 +23,7 @@ use botster_worker_core::{Action, Input, PayloadSpec, SpawnFailure, Worker, Work
 use mio::net::UnixStream;
 use mio::unix::SourceFd;
 use mio::{Events, Interest, Poll, Token, Waker};
-use signal_hook::consts::SIGUSR1;
+use signal_hook::consts::{SIGTERM, SIGUSR1};
 use signal_hook_mio::v1_0::Signals;
 use std::collections::VecDeque;
 use std::io::{self, Read, Write};
@@ -68,6 +68,8 @@ struct Driver {
     link_open: bool,
     /// Bytes of `LinkSend` that the socket has not taken yet.
     outbound: VecDeque<u8>,
+    /// The bytes of `LinkSend` written so far (`Input::LinkWritten`).
+    written: u64,
     writable_interest: bool,
     /// Readiness flags, cleared on `WouldBlock` (edge-triggered readiness).
     control_readable: bool,
@@ -96,7 +98,7 @@ impl Driver {
         let mut control = UnixStream::from_std(std_control);
         poll.registry()
             .register(&mut control, CONTROL, Interest::READABLE)?;
-        let mut signals = Signals::new([SIGUSR1])?;
+        let mut signals = Signals::new([SIGUSR1, SIGTERM])?;
         poll.registry()
             .register(&mut signals, SIGNALS, Interest::READABLE)?;
         let waker = Arc::new(Waker::new(poll.registry(), EXIT)?);
@@ -111,6 +113,7 @@ impl Driver {
             control,
             link_open: true,
             outbound: VecDeque::new(),
+            written: 0,
             writable_interest: false,
             control_readable: true,
             control_writable: true,
@@ -178,9 +181,12 @@ impl Driver {
                     }
                     PTY => self.pty_readable = true,
                     SIGNALS => {
-                        let count = self.signals.pending().filter(|s| *s == SIGUSR1).count();
-                        for _ in 0..count {
-                            self.inputs.push_back(Input::EndPayload);
+                        for signal in self.signals.pending() {
+                            self.inputs.push_back(if signal == SIGTERM {
+                                Input::Terminate
+                            } else {
+                                Input::EndPayload
+                            });
                         }
                     }
                     EXIT => {
@@ -215,7 +221,7 @@ impl Driver {
                     self.flush()?;
                 }
             }
-            // The machine closes only when everything it sent is written (`LinkFlushed`).
+            // The machine closes only when everything it sent is written (`LinkWritten`).
             Action::LinkClose => self.drop_link(),
             Action::SpawnPayload(spec) => {
                 let result = self.spawn(&spec);
@@ -362,18 +368,20 @@ impl Driver {
         }
     }
 
-    /// Writes what the socket takes now, without blocking. When nothing sent is left, the machine hears it
-    /// (`LinkFlushed{drained: true}`). Write interest follows the outbound queue (plan 2.5).
+    /// Writes what the socket takes now, without blocking, and tells the machine how many bytes are written in all
+    /// (`LinkWritten`). Write interest follows the outbound queue (plan 2.5).
     fn flush(&mut self) -> io::Result<()> {
         if !self.link_open || self.outbound.is_empty() {
             return Ok(());
         }
+        let before = self.written;
         while self.control_writable && !self.outbound.is_empty() {
             let (head, _) = self.outbound.as_slices();
             match self.control.write(head) {
                 Ok(0) => self.control_writable = false,
                 Ok(n) => {
                     self.outbound.drain(..n);
+                    self.written += n as u64;
                 }
                 Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
                 Err(e) if e.kind() == io::ErrorKind::WouldBlock => self.control_writable = false,
@@ -384,8 +392,10 @@ impl Driver {
                 }
             }
         }
-        if self.outbound.is_empty() {
-            self.inputs.push_back(Input::LinkFlushed { drained: true });
+        if self.written != before {
+            self.inputs.push_back(Input::LinkWritten {
+                total: self.written,
+            });
         }
         let want = !self.outbound.is_empty();
         if want != self.writable_interest {

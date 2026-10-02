@@ -47,8 +47,10 @@ struct World {
     worker: Worker,
     now: Instant,
     decoder: FrameDecoder,
-    /// The link takes every byte at once: after each input the driver reports `LinkFlushed{drained: true}`.
+    /// The link takes every byte at once: after each input the driver reports every byte sent so far as written.
     instant_link: bool,
+    /// The bytes of every `LinkSend` that the test has collected.
+    sent: u64,
 }
 
 impl World {
@@ -64,18 +66,35 @@ impl World {
             now,
             decoder: FrameDecoder::new(DEFAULT_MAX_PAYLOAD),
             instant_link: true,
+            sent: 0,
         }
     }
 
     fn feed(&mut self, input: Input) -> Vec<Action> {
         self.worker.handle(self.now, input);
-        let mut actions: Vec<Action> = std::iter::from_fn(|| self.worker.poll_action()).collect();
+        let mut actions = self.collect();
         if self.instant_link {
             self.worker
-                .handle(self.now, Input::LinkFlushed { drained: true });
-            actions.extend(std::iter::from_fn(|| self.worker.poll_action()));
+                .handle(self.now, Input::LinkWritten { total: self.sent });
+            actions.extend(self.collect());
         }
         actions
+    }
+
+    /// The machine's actions, with the bytes of its sends counted.
+    fn collect(&mut self) -> Vec<Action> {
+        let actions: Vec<Action> = std::iter::from_fn(|| self.worker.poll_action()).collect();
+        for action in &actions {
+            if let Action::LinkSend(bytes) = action {
+                self.sent += bytes.len() as u64;
+            }
+        }
+        actions
+    }
+
+    /// The actions of the construction (the hello).
+    fn initial(&mut self) -> Vec<Action> {
+        self.collect()
     }
 
     fn frame(kind: FrameType, payload: &[u8]) -> Vec<u8> {
@@ -136,7 +155,7 @@ impl World {
     /// The worker's hello, then the host's: the link is ready.
     fn linked() -> World {
         let mut w = World::new();
-        let first: Vec<Action> = std::iter::from_fn(|| w.worker.poll_action()).collect();
+        let first = w.initial();
         assert_eq!(w.frames(&first).len(), 1);
         let actions = w.feed(Input::LinkBytes(World::host_hello(
             instance(),
@@ -187,7 +206,7 @@ fn reaps(actions: &[Action]) -> usize {
 #[test]
 fn the_first_action_is_the_hello_with_the_token_proof() {
     let mut w = World::new();
-    let actions: Vec<Action> = std::iter::from_fn(|| w.worker.poll_action()).collect();
+    let actions = w.initial();
     let frames = w.frames(&actions);
     assert_eq!(frames.len(), 1);
     assert_eq!(frames[0].kind, FrameType::HELLO);
@@ -216,7 +235,7 @@ fn the_hello_announces_the_configured_protocol() {
         protocol: 9,
         ..cfg()
     });
-    let actions: Vec<Action> = std::iter::from_fn(|| w.worker.poll_action()).collect();
+    let actions = w.initial();
     assert_eq!(
         Hello::decode(&w.frames(&actions)[0].payload)
             .unwrap()
@@ -238,7 +257,7 @@ fn a_host_hello_that_does_not_prove_the_token_closes_the_link() {
     ];
     for bytes in wrong {
         let mut w = World::new();
-        while w.worker.poll_action().is_some() {}
+        w.initial();
         let mut input = bytes;
         input.extend(World::msg(&HostMsg::Launch(Box::new(spec()))));
         let actions = w.feed(Input::LinkBytes(input));
@@ -275,7 +294,7 @@ fn the_payload_launches_only_on_the_host_launch() {
 #[test]
 fn the_hello_and_the_launch_in_one_read_are_both_handled() {
     let mut w = World::new();
-    while w.worker.poll_action().is_some() {}
+    w.initial();
     let mut bytes = World::host_hello(instance(), EPOCH, TOKEN);
     bytes.extend(World::msg(&HostMsg::Launch(Box::new(spec()))));
     let actions = w.feed(Input::LinkBytes(bytes));
@@ -735,20 +754,28 @@ fn stop_and_kill_during_the_spawn_apply_after_it() {
     }
 }
 
-/// F4 (LC-7, A6-3): the close and the end wait until everything sent is on the link; a partial write does not release
-/// them; a link that fails releases them with no close action.
+/// F4 (LC-7, A6-3): the close and the end wait until every byte sent before them is written. A report that covers only
+/// earlier bytes (here: the exit report written, the removal result not) releases nothing; a stale report changes
+/// nothing; a link that fails releases them with no close action.
 #[test]
-fn the_close_and_the_end_wait_for_the_link_to_drain() {
-    let mut w = World::linked();
+fn the_close_and_the_end_wait_for_every_byte_sent_before_them() {
+    let (mut w, _) = World::exited(ExitStatus::Code(0));
     w.instant_link = false;
+    let written = w.sent;
     let actions = w.send(&HostMsg::Remove);
-    assert!(
-        matches!(actions.as_slice(), [Action::LinkSend(_)]),
-        "{actions:?}"
-    );
-    assert_eq!(w.feed(Input::LinkFlushed { drained: false }), []);
+    let sends: Vec<usize> = actions
+        .iter()
+        .filter_map(|a| match a {
+            Action::LinkSend(b) => Some(b.len()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(sends.len(), 1, "{actions:?}");
+    assert!(!actions.contains(&Action::LinkClose));
+    assert_eq!(w.feed(Input::LinkWritten { total: written }), []);
+    assert_eq!(w.feed(Input::LinkWritten { total: w.sent - 1 }), []);
     assert_eq!(
-        w.feed(Input::LinkFlushed { drained: true }),
+        w.feed(Input::LinkWritten { total: w.sent }),
         [Action::LinkClose, Action::Exit]
     );
     let mut failed = World::linked();
@@ -757,17 +784,69 @@ fn the_close_and_the_end_wait_for_the_link_to_drain() {
     assert_eq!(failed.feed(Input::LinkClosed), [Action::Exit]);
 }
 
+/// F4: two reports are queued (the exit report, then the removal result) and the driver reports only the first one as
+/// written: the close waits for the second.
+#[test]
+fn a_report_of_the_first_send_does_not_release_a_close_over_the_second() {
+    let mut w = World::running();
+    w.instant_link = false;
+    let before = w.sent;
+    w.feed(Input::PayloadExited(ExitStatus::Signal(9)));
+    w.feed(Input::PtyDrained);
+    let first = w.sent;
+    assert!(first > before, "the exit report is queued");
+    let actions = w.send(&HostMsg::Kill);
+    assert!(actions.contains(&Action::ReapPayload), "{actions:?}");
+    let actions = w.send(&HostMsg::Remove);
+    assert!(
+        matches!(actions.as_slice(), [Action::LinkSend(_)]),
+        "{actions:?}"
+    );
+    assert_eq!(w.feed(Input::LinkWritten { total: first }), []);
+    assert_eq!(
+        w.feed(Input::LinkWritten { total: w.sent }),
+        [Action::LinkClose, Action::Exit]
+    );
+}
+
 /// F4: a staged close obeys nothing more and sends nothing more.
 #[test]
 fn a_closing_link_obeys_and_sends_nothing() {
     let mut w = World::new();
     w.instant_link = false;
-    while w.worker.poll_action().is_some() {}
+    w.initial();
     let mut bytes = World::host_hello(instance(), EPOCH, [8; TOKEN_LEN]);
     bytes.extend(World::msg(&HostMsg::Launch(Box::new(spec()))));
     assert_eq!(w.feed(Input::LinkBytes(bytes)), []);
     assert_eq!(
-        w.feed(Input::LinkFlushed { drained: true }),
+        w.feed(Input::LinkWritten { total: w.sent }),
         [Action::LinkClose]
     );
+}
+
+/// F7 (plan R12): `SIGTERM` kills the group of a leader that the worker holds, reaps it, and ends the worker without
+/// waiting for a host that does not read.
+#[test]
+fn terminate_kills_the_held_group_reaps_and_ends() {
+    let mut w = World::running();
+    w.instant_link = false;
+    assert_eq!(signals(&w.feed(Input::Terminate)), [SIGKILL]);
+    let mut actions = w.feed(Input::PayloadExited(ExitStatus::Signal(9)));
+    actions.extend(w.feed(Input::PtyDrained));
+    assert!(
+        actions.ends_with(&[Action::ReapPayload, Action::LinkClose, Action::Exit]),
+        "{actions:?}"
+    );
+}
+
+/// F7: a worker that holds no leader (none launched, or reaped) signals nothing at `SIGTERM` and ends at once.
+#[test]
+fn terminate_without_a_held_leader_signals_nothing() {
+    let mut w = World::linked();
+    assert_eq!(w.feed(Input::Terminate), [Action::LinkClose, Action::Exit]);
+    let (mut w, _) = World::exited(ExitStatus::Code(0));
+    w.send(&HostMsg::Kill);
+    let actions = w.feed(Input::Terminate);
+    assert!(signals(&actions).is_empty(), "{actions:?}");
+    assert_eq!(actions, [Action::LinkClose, Action::Exit]);
 }
