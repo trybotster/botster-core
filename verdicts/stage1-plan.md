@@ -373,6 +373,63 @@ Do not classify the ordinary `Lost` removal path as a missing contract outcome c
 
 VERDICT: NOT CLEAN (1 open)
 
+## Round 5 — revision 5
+
+Plan: `fa3b3abf4dfcdb8c76f3de086b5fc3203fc733d9`, `docs/stage1-plan.md`.
+Pin: `stage1-plan.1be2ed10.md`.
+Verified SHA-256: `1be2ed103a31ddc33fb3fbd4606b3d4646390b204e0501952afec183b05d8d2e`.
+The accepted contract set remains pinned at `9666bf5cbb9e7a46cd40d98810d473a9452541e9`.
+
+Additional design input: Core Amendment 6 candidate 2 at botster-contracts `0aa03e569d05481edcb4a8c297c9fc1a063b5fdb`.
+Path: `amendments/core-contract-v1.17-amendment-6-candidate2.md`.
+Verified SHA-256: `b1e674cc0100823bf0acdb7ef0b4bf8bf8cbe9d729b1c80f6bb4d7ad935676d3`.
+The candidate is not yet accepted.
+
+I reviewed the complete delta and F9.
+The cleanup design matches candidate 2's complete trusted result, exact failure paths, and unknown-outcome rules.
+F1 through F8 remain CLOSED.
+I ran no product tests.
+
+### F9 — MINOR — One sentence still ends both deferrals at protocol 2
+
+Status: OPEN, narrowed from MAJOR.
+Plan section: 5, deferred-list validation rule 4.
+
+The revision defines the deferred list, report category, accepted-manifest condition, and pin update.
+Sections 1 and 4.2b now recognize that category.
+These changes close the gate-design parts of F9.
+
+Plan evidence, rule 4:
+> "so at protocol 2 the deferral ends and the tests against the pinned protocol-1 worker binary must pass."
+
+Source evidence, A6-2 candidate 2 at `0aa03e569d05481edcb4a8c297c9fc1a063b5fdb`:
+> "A release whose new protocol adds no worker feature does not end the deferral, because the test has no subject."
+
+The start conditions differ.
+Protocol 2 ends the previous-worker adoption deferral.
+Protocol 2 ends the missing-capability deferral only if that protocol adds a feature absent from the pinned previous worker.
+The quoted plan sentence contradicts its preceding checks and section 1.
+
+Required change: state each start condition separately in the final sentence of rule 4.
+Do not require the missing-capability test at protocol 2 if the pinned previous worker lacks no current feature.
+
+### F10 — LOW — Revision history names the wrong amendment candidate
+
+Status: OPEN.
+Plan section: 12, revision 4 row.
+
+Plan evidence:
+> "the steward's answer (Core A6 candidate 2, `37f083b`)".
+
+Source evidence:
+- botster-contracts `37f083b40d47f13158bdcdfb47f39ef33137d1f5` adds `amendments/core-contract-v1.17-amendment-6-candidate1.md`.
+- Candidate 2 at `0aa03e569d05481edcb4a8c297c9fc1a063b5fdb` states: "Supersedes candidate 1" and names commit `37f083b`.
+
+Required change: restore candidate 1 in the revision 4 history row.
+Keep candidate 2 and `0aa03e5` in the revision 5 row.
+
+VERDICT: NOT CLEAN (2 open)
+
 ## Round 4 — revision 4
 
 Plan: `feb537652fa20b8e9883300791e535f1d4707c37`, `docs/stage1-plan.md`.
