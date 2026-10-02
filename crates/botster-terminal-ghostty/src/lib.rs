@@ -11,6 +11,7 @@ mod events;
 mod modes;
 mod query;
 mod reads;
+mod reply;
 mod sys;
 
 use std::cell::Cell;
@@ -24,6 +25,7 @@ pub use encode::EncodeError;
 pub use events::{Drained, TerminalEvent, MAX_BUFFERED_BYTES, MAX_BUFFERED_EVENTS};
 pub use query::{Query, QueryKind, QueryStep, Terminator, MAX_SHADOW_REPLY_BYTES};
 pub use reads::{CursorCell, ScreenText};
+pub use reply::{ReplyError, MAX_REPLY_BYTES};
 
 /// The default limit, in bytes, of the request that a query reports (`CoreLimits.max_query_bytes`, EV-8).
 pub const DEFAULT_QUERY_REQUEST_BYTES: usize = 4096;
@@ -389,3 +391,6 @@ mod tests;
 mod tests_encode;
 #[cfg(test)]
 mod tests_query;
+
+#[cfg(test)]
+mod tests_reply;
