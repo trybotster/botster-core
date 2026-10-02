@@ -372,3 +372,64 @@ Keep Q5 for actual deletion failure semantics.
 Do not classify the ordinary `Lost` removal path as a missing contract outcome caused by worker-local metadata.
 
 VERDICT: NOT CLEAN (1 open)
+
+## Round 4 — revision 4
+
+Plan: `feb537652fa20b8e9883300791e535f1d4707c37`, `docs/stage1-plan.md`.
+Pin: `stage1-plan.5647f413.md`.
+Verified SHA-256: `5647f413c5939fcc20d4050466fe4b274eeade6478e2f6dea3a16073c2133553`.
+The accepted contract set remains pinned at `9666bf5cbb9e7a46cd40d98810d473a9452541e9`.
+
+Additional design input: Core Amendment 6 candidate 1 at botster-contracts `37f083b40d47f13158bdcdfb47f39ef33137d1f5`.
+Path: `amendments/core-contract-v1.17-amendment-6-candidate1.md`.
+Verified SHA-256: `8332c662eba22d585b11e919adbbb2587a9f9bd57f9d8f3012400c1f55898289`.
+This candidate is not yet accepted.
+
+I reviewed the complete delta, the amendment candidate, and F8.
+The changed ownership rules still reproduce the current 578-id allocation without a mismatch.
+I ran no product tests.
+
+### F8 — CLOSED through the amendment path
+
+Section 2.3b now matches A6-3's proposed cleanup behavior and assigns each part to a package.
+The worker waits for deletion results before it ends.
+The host advances teardown only after it knows the cleanup result.
+`RemoveReport` exposes deletion failure or worker loss instead of silently claiming that files were deleted.
+
+The lead filed the required contract change with the steward.
+This resolves the design finding through the amendment path that BUILD permits.
+It does not approve the amendment or waive its review and manifest requirements.
+The plan identifies those requirements in section 0.
+F1 through F7 remain CLOSED.
+
+### F9 — MAJOR — The gate does not define the new deferred category
+
+Status: OPEN.
+Plan sections: 0, 1, 4.2b, and 5.
+
+Plan evidence:
+- Section 1 item 5 records N−1 worker ids as deferred, "neither passed nor pending".
+- Section 5's trial rules support runnable transcripts, pending ids, and missing transcripts. They do not classify deferred ids.
+- Section 5 still permits a package to remove an id from the pending file only when it passes on both harnesses.
+- Section 4.2b still makes every other non-pass an acceptance failure.
+- Section 0 keeps "its ids" pending until A6's ACK and manifest entry, but does not explicitly cover existing AD-4 ids that A6 proposes to defer.
+
+Source evidence:
+- A6-2 candidate 1 requires each deferred id to be recorded with A6-2 as its authority. It is "neither passed nor pending".
+- `crates/botster-conformance/src/result.rs` at the accepted contract revision defines no deferred outcome.
+- `docs/BUILD.md` at that revision requires contract amendments to land through the steward and Amendment reviewer.
+- AD-4 in the accepted `core-contract-v1.17.md` still requires the N−1 adoption proof.
+
+The custom consumer harness must implement this new category.
+Without that step, the ids either remain pending, fail through `worker(Previous)`, or disappear without a recorded classification.
+Existing ids also must not gain the proposed exemption before A6 is accepted.
+
+Required change: define a checked-in list of the exact deferred ids with A6-2 citations.
+Have the consumer harness report deferred ids separately from passed, failed, and pending ids.
+Define the authorized move from pending to deferred after A6's ACK, manifest entry, and contracts pin update.
+Make the gate validate each deferred id against that accepted list and the running worker protocol.
+Keep existing AD-4 obligations pending before A6 is accepted.
+At protocol 2, make deferral invalid and require the pinned protocol-1 worker proofs.
+Update sections 1, 4.2b, and 5 so that their acceptance rules agree.
+
+VERDICT: NOT CLEAN (1 open)
