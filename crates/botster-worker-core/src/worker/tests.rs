@@ -55,9 +55,11 @@ impl World {
     }
 
     fn with(cfg: WorkerConfig) -> World {
+        #[allow(clippy::disallowed_methods)] // a test starts the injected clock at a real instant
+        let now = Instant::now();
         World {
             worker: Worker::new(cfg),
-            now: Instant::now(),
+            now,
             decoder: FrameDecoder::new(DEFAULT_MAX_PAYLOAD),
         }
     }
