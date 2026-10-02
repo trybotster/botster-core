@@ -2,10 +2,10 @@
 
 Reviewed head: `d2cce61b19d724ddc657f17fa8dee26dff409997`.
 Previous audit head: `fd1471eabca0adb344c6027b8995e1151aa8f8a8`.
-Scope: the written audit and fork patches 0–4 only. This verdict does not approve the full fork series, binding, or pin change.
+Scope: the written audit and fork patches 0–5 only. This verdict does not approve the full fork series, binding, or pin change.
 
-VERDICT: CLEAN (written audit and fork patches 0–4 only).
-Reviewed fork head: `3f28780d2af7d8fea8717b2f9ccba0cfbafecc26`.
+VERDICT: CLEAN (written audit and fork patches 0–5 only).
+Reviewed fork head: `da42a8ac0d9f99ece0adf534b375991df5de489b`.
 Written audit: CLEAN at `d2cce61b19d724ddc657f17fa8dee26dff409997`; G12 records the legacy Shift GAP. F1–F12 and P19 are closed.
 
 The review uses manifest final13, BUILD.md at `2f2996ef0f016a1fefc6879e74deaef033383b66`, and plan pin `stage1-plan.a24efe7e`.
@@ -814,3 +814,26 @@ This verdict covers these reviewed commits:
 The written audit and patches 0–3 retain their CLEAN verdicts.
 Patches 5–8 remain outside this verdict.
 The full fork series, binding code, and Ghostty pin change remain unapproved.
+
+
+## Patch 5 review — terminfo exports
+
+Reviewed commit: `da42a8ac0d9f99ece0adf534b375991df5de489b`.
+The reviewer read the complete delta and the native source encoder with `git show`.
+The reviewer ran no tests.
+
+The C API returns the first name and encoded source of the native Ghostty entry.
+The source uses `terminfo.ghostty.encode` at compile time. The returned strings have static storage and a NUL after their stated length.
+The header, C exports, and aggregate header agree.
+The source test compares the result with the existing encoder at run time. It does not construct expected terminal bytes.
+The name test checks the contract identity, `xterm-ghostty`.
+
+The entry and encoder are unchanged at PIN, UP, and the reviewed commit. Their SHA-256 values are:
+
+- `src/terminfo/ghostty.zig`: `75e9b0d0b4e5cff4b050a0abbd7f7ae5b87095a5c75c11aab1967ce83cda6b9d`.
+- `src/terminfo/Source.zig`: `d928b56daed3d0863aad849842b49fffc510a408c4dc8d66e1e3139f39c9aa52`.
+
+VERDICT: CLEAN for patch 5 at this exact head.
+This verdict covers the native exports for TI-1 and A2-8. The binding must still verify installation with `tic`.
+The written audit and patches 0–4 retain their CLEAN verdicts.
+Patches 6–8, the binding code, and the Ghostty pin change remain outside this verdict.
