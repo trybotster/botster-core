@@ -124,6 +124,16 @@ impl CoreHarness for TestkitHarness {
         }
     }
 
+    /// The statement steps that need no Core: `check_crates` (Core A5-1). The others wait for a Core and the real harness.
+    fn statement(&mut self, kind: &str, spec: &Value) -> Result<Value, ControlError> {
+        match kind {
+            "check_crates" => {
+                crate::statements::check_crates(crate::statements::workspace_root(), spec)
+            }
+            _ => Err(ControlError::Unsupported),
+        }
+    }
+
     /// `argv[0]` of a session program: the probe binary. The scripted program edge interprets the script of `argv[1]`
     /// in-process (Core A5-1).
     fn probe_binary(&self) -> String {
