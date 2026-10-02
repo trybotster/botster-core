@@ -361,6 +361,7 @@ dependencies = [
  "botster-core-edges",
  "getrandom 0.4.3",
  "libproc",
+ "pty-process",
  "rustix",
  "sha2",
  "tempfile",
@@ -426,6 +427,23 @@ dependencies = [
 name = "botster-test-support"
 version = "0.1.0"
 source = "git+https://github.com/trybotster/botster-contracts?tag=contracts-v0.1.9#7f72acf8427ad7bf414db42d2360d5dccc7b3e13"
+
+[[package]]
+name = "botster-worker"
+version = "0.1.0"
+dependencies = [
+ "botster-core",
+ "botster-core-contract",
+ "botster-core-edges",
+ "botster-core-link",
+ "botster-core-sys",
+ "botster-worker-core",
+ "mio",
+ "rustix",
+ "signal-hook",
+ "signal-hook-mio",
+ "tempfile",
+]
 
 [[package]]
 name = "botster-worker-core"
@@ -1157,6 +1175,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "pty-process"
+version = "0.5.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "71cec9e2670207c5ebb9e477763c74436af3b9091dd550b9fb3c1bec7f3ea266"
+dependencies = [
+ "rustix",
+]
+
+[[package]]
 name = "quote"
 version = "1.0.47"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1449,6 +1476,37 @@ name = "shlex"
 version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f8fadd59c855ef2080decdef8ff161eb6661b86933c9d82e5ba29dc602a55aba"
+
+[[package]]
+name = "signal-hook"
+version = "0.3.18"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d881a16cf4426aa584979d30bd82cb33429027e42122b169753d6ef1085ed6e2"
+dependencies = [
+ "libc",
+ "signal-hook-registry",
+]
+
+[[package]]
+name = "signal-hook-mio"
+version = "0.2.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b75a19a7a740b25bc7944bdee6172368f988763b744e3d4dfe753f6b4ece40cc"
+dependencies = [
+ "libc",
+ "mio",
+ "signal-hook",
+]
+
+[[package]]
+name = "signal-hook-registry"
+version = "1.4.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c4db69cba1110affc0e9f7bcd48bbf87b3f4fc7c61fc9155afd4c469eb3d6c1b"
+dependencies = [
+ "errno",
+ "libc",
+]
 
 [[package]]
 name = "smallvec"

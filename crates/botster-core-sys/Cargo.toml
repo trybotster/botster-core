@@ -17,6 +17,7 @@ slow = []
 botster-core-edges.workspace = true
 atomic-write-file.workspace = true
 getrandom.workspace = true
+pty-process.workspace = true
 rustix.workspace = true
 sha2.workspace = true
 
