@@ -39,8 +39,13 @@ exclude_re = [
     # test_budget: starts nextest in its own process group, tracks and kills its processes, and prints. The decisions are mutation-tested:
     # `exit_failures`, `budget_failures`, `doublings`, `parse_junit`, `parse_options`, `parse_duration`, `selection`, `tier_env`.
     'xtask/src/test_budget\.rs:\d+:\d+: (replace (run_nextest|clean_up|kill|command|analyse)( ->| with)|.* in (run_nextest|clean_up|kill|command|analyse)$)',
-    # botster-core-testkit process_group: the guard of a real process group (BUILD.md testing rule 10). Its behavior is proved by the
-    # slow-tier test `crates/botster-core-testkit/tests/slow_process_group.rs` (real processes, which the default tier of this run
-    # does not start). A replaced body is seen there: the group survives, a descendant outlives the guard, or the wait returns early.
-    'crates/botster-core-testkit/src/process_group\.rs:\d+:\d+: ',
+    # botster-core-testkit process_group: process glue of a real process group (BUILD.md testing rule 10), per function. `spawn`
+    # starts the child as a group leader; `pid`, `take_stdin`, `take_stdout`, `take_stderr` and `is_active` are accessors over the
+    # child and the retained group id; `leader_exited` and `wait_for_leader_exit` call `waitid` (their `|` joins disjoint option
+    # flags, so `&` or `^` change nothing for a valid call: equivalent); `kill` and `drop` signal the group and reap the leader.
+    # They start or signal real processes, which the default tier of this run never does. The slow-tier tests
+    # `tests/slow_process_group.rs` exercise `spawn`, `pid`, `take_stdout`, `leader_exited`, `wait_for_leader_exit`, `is_active`,
+    # `kill` and `drop`; `take_stdin` and `take_stderr` are the same one-line `Option::take` as `take_stdout` and no slow test calls
+    # them. A pure decision added to this file later is not covered by this entry: it must be tested in the default tier.
+    'crates/botster-core-testkit/src/process_group\.rs:\d+:\d+: (replace OwnedGroup::(spawn|pid|take_stdin|take_stdout|take_stderr|leader_exited|wait_for_leader_exit|is_active|kill)( ->| with)|.* in OwnedGroup::(spawn|pid|take_stdin|take_stdout|take_stderr|leader_exited|wait_for_leader_exit|is_active|kill)$|replace <impl Drop for OwnedGroup>::drop)',
 ]
