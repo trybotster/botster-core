@@ -3,7 +3,7 @@
 //! Rust-only: not in the facade `botster-core` and not in any FFI crate. It may use the threads, clocks and randomness that
 //! the machine crates may not (plan 2.3c), and it adds no test branch to a production crate (BUILD.md testing rule 8).
 
-pub mod candidate;
+pub mod core;
 pub mod entropy;
 pub mod harness;
 pub mod net;
