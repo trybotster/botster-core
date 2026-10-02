@@ -2,7 +2,8 @@
 
 VERDICT: CLEAN
 
-Reviewed head: `40117af8398c292e8763d04beca875466bd276ef` on `stage1/p1-lifecycle`.
+Reviewed head: `0ac2b84d38a8e3a3a1667eec172985cd0284dc90` on `stage1/p1-lifecycle`.
+Round 6 head: `40117af8398c292e8763d04beca875466bd276ef`.
 Round 5 head: `154f0109e8809536a30340cda89198fa34259db5`.
 Round 4 head: `3936f014be834e24505354e99fa4932ed989be29`.
 Round 3 head: `eda5711bc9252dbf402e8d8b391bcf8e8e80ce07`.
@@ -38,6 +39,17 @@ P3 supplies the EndPayload worker handler and the worker-dependent end-to-end pr
 F14 and the other unproved conformance ids remain pending with their owners and scope reasons.
 The implementer must run the gate once on this exact committed head before reporting DONE to the lead.
 A later commit requires a delta review.
+
+## Round 7: public API snapshot delta
+
+I reviewed the complete delta from `40117af` to `0ac2b84`.
+It changes only `api/botster-core.txt`.
+The snapshot now records the existing Core::open and CoreApi implementation, plus the resulting auto-trait changes.
+I checked the added signatures against the facade source.
+The snapshot retains Core's Send implementation and negative Sync implementation, as TH-1 requires.
+This delta changes no runtime code and opens no finding.
+VERDICT: CLEAN remains valid on the exact head above.
+I did not run a build, tests, or the gate.
 
 ## Round 6: final closure evidence
 
