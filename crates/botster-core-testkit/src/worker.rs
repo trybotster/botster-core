@@ -164,11 +164,7 @@ impl Spawner for WorkerSpawner {
         };
         let cell = Arc::new(Mutex::new(ProcessCell::default()));
         lock(&self.processes).cells.insert(id, Arc::clone(&cell));
-        let mut link = connect();
-        link.end().set_interest(Interest {
-            read: true,
-            write: false,
-        });
+        let link = connect();
         let worker = Worker::new(WorkerConfig::new(
             spec.instance.clone(),
             spec.token,
@@ -229,7 +225,10 @@ impl Spawner for WorkerSpawner {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Ready {
     EndPayload,
+    /// The link has bytes, or its peer closed it.
     Link,
+    /// The link takes bytes and some of `outbound` waits for it.
+    Flush,
     Spawned,
     PtyRead,
     PtyDrained,
@@ -237,6 +236,10 @@ enum Ready {
 }
 
 /// The edges of one in-process worker: the control link, the scripted program on its PTY, and its process cell.
+///
+/// `ready` reads no edge and writes none: it only reads flags, so the order of every effect is the scheduler's (plan 2.5
+/// rule 8). Each effect is one input: a read of the link or the PTY, a write of queued link bytes (`LinkFlushed`), a spawn's
+/// answer, an exit.
 struct WorkerEdges {
     id: ProcessIdentity,
     cell: Arc<Mutex<ProcessCell>>,
@@ -261,26 +264,7 @@ struct WorkerEdges {
 }
 
 impl WorkerEdges {
-    /// Moves what the link has room for. A link that the host closed takes nothing more.
-    fn flush(&mut self) {
-        while self.link_open && !self.outbound.is_empty() {
-            let (head, _) = self.outbound.as_slices();
-            match self.link.send(head) {
-                Ok(0) => break,
-                Ok(n) => {
-                    self.outbound.drain(..n);
-                }
-                Err(e) if e.kind() == io::ErrorKind::WouldBlock => break,
-                Err(_) => {
-                    // The host closed the link: the bytes are lost with it, and the worker sees the end on its read side.
-                    self.outbound.clear();
-                    break;
-                }
-            }
-        }
-    }
-
-    /// The end of the worker process: its link closes with it, and its payload's PTY is gone.
+    /// The end of the worker process: the OS closes its descriptors, so its link closes, and its payload's PTY is gone.
     fn ended(&mut self) {
         if self.link_open {
             self.link_open = false;
@@ -313,6 +297,30 @@ impl WorkerEdges {
             start_time: 1,
         })
     }
+
+    /// Writes what the link takes now. A link whose peer is gone ends: its bytes are lost (`LinkClosed`); a full link is
+    /// written later.
+    fn flush(&mut self) -> Input {
+        while !self.outbound.is_empty() {
+            let (head, _) = self.outbound.as_slices();
+            match self.link.send(head) {
+                Ok(0) => break,
+                Ok(n) => {
+                    self.outbound.drain(..n);
+                }
+                Err(e) if e.kind() == io::ErrorKind::WouldBlock => break,
+                Err(_) => {
+                    self.outbound.clear();
+                    self.link_open = false;
+                    self.link.close();
+                    return Input::LinkClosed;
+                }
+            }
+        }
+        Input::LinkFlushed {
+            drained: self.outbound.is_empty(),
+        }
+    }
 }
 
 impl Binding<Worker> for WorkerEdges {
@@ -322,17 +330,27 @@ impl Binding<Worker> for WorkerEdges {
             self.ended();
             return 0;
         }
-        self.flush();
         if lock(&self.cell).end_payload {
             self.ready.push(Ready::EndPayload);
         }
-        if self.link_open && self.link.is_ready() {
-            self.ready.push(Ready::Link);
+        if self.link_open {
+            // Plan 2.5: read interest always; write interest while bytes wait.
+            self.link.end().set_interest(Interest {
+                read: true,
+                write: !self.outbound.is_empty(),
+            });
+            let flags = self.link.end().readiness();
+            if flags.readable {
+                self.ready.push(Ready::Link);
+            }
+            if flags.writable && !self.outbound.is_empty() {
+                self.ready.push(Ready::Flush);
+            }
         }
         if self.spawned.is_some() {
+            // The payload's inputs depend on its spawn: none is offered before the spawn's answer is taken.
             self.ready.push(Ready::Spawned);
-        }
-        if let Some(program) = self.payload.as_mut() {
+        } else if let Some(program) = self.payload.as_mut() {
             if self.exit.is_none() {
                 self.exit = program.poll_exit();
             }
@@ -341,9 +359,9 @@ impl Binding<Worker> for WorkerEdges {
             } else if self.drain {
                 self.ready.push(Ready::PtyDrained);
             }
-        }
-        if self.exit.is_some() {
-            self.ready.push(Ready::Exited);
+            if self.exit.is_some() {
+                self.ready.push(Ready::Exited);
+            }
         }
         self.ready.len()
     }
@@ -362,11 +380,13 @@ impl Binding<Worker> for WorkerEdges {
                         Input::LinkBytes(buf)
                     }
                     _ => {
+                        self.outbound.clear();
                         self.link_open = false;
                         Input::LinkClosed
                     }
                 }
             }
+            Ready::Flush => self.flush(),
             Ready::Spawned => Input::Spawned(self.spawned.take().expect("counted as ready")),
             Ready::PtyRead => {
                 let program = self.payload.as_mut().expect("counted as ready");
@@ -400,12 +420,14 @@ impl Binding<Worker> for WorkerEdges {
 
     fn perform(&mut self, _now: Instant, action: Action) {
         match action {
+            // Queued; the write is its own input (`Ready::Flush`), as the real driver writes when the socket takes bytes.
             Action::LinkSend(bytes) => {
-                self.outbound.extend(bytes);
-                self.flush();
+                if self.link_open {
+                    self.outbound.extend(bytes);
+                }
             }
+            // The machine closes only when everything it sent is written.
             Action::LinkClose => {
-                self.flush();
                 if self.link_open {
                     self.link_open = false;
                     self.link.close();
@@ -420,7 +442,6 @@ impl Binding<Worker> for WorkerEdges {
             }
             Action::ReapPayload => self.payload = None,
             Action::Exit => {
-                self.flush();
                 lock(&self.processes).end(self.id, ExitStatus::Code(0));
                 self.ended();
             }
