@@ -2,10 +2,10 @@
 
 Reviewed head: `d2cce61b19d724ddc657f17fa8dee26dff409997`.
 Previous audit head: `fd1471eabca0adb344c6027b8995e1151aa8f8a8`.
-Scope: the written audit and fork patches 0–6 only. This verdict does not approve the full fork series, binding, or pin change.
+Scope: the written audit and fork patches 0–7 only. This verdict does not approve the full fork series, binding, or pin change.
 
-VERDICT: CLEAN (written audit and fork patches 0–6 only).
-Reviewed fork head: `b59b1f47b9684319a3d20167c98c0f9976df4a00`.
+VERDICT: NOT CLEAN (patch 7 has open findings P20–P22; the written audit and patches 0–6 remain CLEAN).
+Reviewed fork head: `05540bd6906163ae3d7599071deb08b26829a16d`.
 Written audit: CLEAN at `d2cce61b19d724ddc657f17fa8dee26dff409997`; G12 records the legacy Shift GAP. F1–F12 and P19 are closed.
 
 The review uses manifest final13, BUILD.md at `2f2996ef0f016a1fefc6879e74deaef033383b66`, and plan pin `stage1-plan.a24efe7e`.
@@ -862,3 +862,60 @@ The tests do not construct expected terminal bytes by hand.
 VERDICT: CLEAN for patch 6 at this exact head.
 The written audit and patches 0–5 retain their CLEAN verdicts.
 Patches 7–8, the binding code, and the Ghostty pin change remain outside this verdict.
+
+
+## Patch 7 review — typed query replies
+
+Reviewed commit: `05540bd6906163ae3d7599071deb08b26829a16d`.
+The reviewer read the complete delta, the enum implementation, and the relevant native encoders with `git show`.
+The review checked EV-8 and BUILD.md at `contracts-v0.1.3`. The reviewer ran no tests.
+
+The reply forms match the EV-8 table for valid unsigned position values.
+The encoder checks UTF-8 text and refuses control codepoints. It checks clipboard selection characters.
+The base64 chunks use a multiple of three input bytes, so only the final chunk can add padding.
+The output-space path counts the complete reply with the same encoder.
+Three findings remain open.
+
+### P20 — MEDIUM — New tests construct expected terminal bytes
+
+Status: OPEN.
+Evidence: `src/terminal/c/query_reply.zig` tests contain literal expected CSI 9 and CSI 3 replies.
+The title, icon, and clipboard tests also construct expected OSC prefixes and terminators by hand.
+BUILD.md states: "Expected terminal bytes are never hand-written." The absence of an existing encoder does not create an exception.
+
+Required change: remove all newly handwritten terminal-byte expectations from these tests.
+Use existing native encoders or the native parser to check structured results.
+Keep the base64 round-trip, text validation, and buffer-size checks.
+
+### P21 — MEDIUM — Bad enum values bypass the documented refusal
+
+Status: OPEN.
+Evidence: `encode` validates the pointer and struct size, then calls `encodeReply` without validating `reply.kind`.
+`encodeReply` uses an exhaustive switch. The clipboard branch also uses an exhaustive switch on `reply.terminator`.
+Both enums come from `lib.Enum`, which constructs exhaustive enum types.
+A C caller can supply an integer outside either enum. Those values cannot reach a documented `GHOSTTY_INVALID_VALUE` return.
+An invalid clipboard terminator reaches its switch after the encoder writes the prefix and payload.
+The header promises `GHOSTTY_INVALID_VALUE` for a bad kind or field.
+
+Required change: validate the reply kind before the encoder uses it.
+Validate the terminator for clipboard replies before the encoder writes bytes.
+Return `GHOSTTY_INVALID_VALUE` for unknown values in both cases.
+Add focused argument checks for values outside the enum sets.
+
+### P22 — MEDIUM — Position fields use signed coordinates
+
+Status: OPEN.
+Evidence: the new header defines `x` and `y` as `int32_t`. The Zig reply uses `i32`.
+The new position test requires a negative decimal coordinate in the reply.
+EV-8 states: "Position{x, y} are the unsigned wire values (u16, 0 to 65,535)".
+The client maps negative coordinates before it sends the typed reply. Core applies no conversion.
+The new API and test therefore describe a different position model from the clause that this patch implements.
+
+Required change: use the EV-8 unsigned wire-value model for this typed reply API.
+Update the header and schema declaration together.
+Replace the negative-coordinate expectation with checks for valid unsigned values, including the upper range.
+Use a native oracle as P20 requires.
+
+VERDICT: NOT CLEAN for patch 7 (P20–P22 remain open).
+The written audit and patches 0–6 retain their CLEAN verdicts.
+Patch 8, the binding code, and the Ghostty pin change remain outside this verdict.
