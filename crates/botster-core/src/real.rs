@@ -412,6 +412,13 @@ mod tests {
         assert_eq!(registration(None, true), Registration::Deregister);
         assert_eq!(registration(None, false), Registration::Keep);
     }
+}
+
+/// The tests that open real edges (a data directory, a socket, a poll) start a process that links the whole crate, which is
+/// slow: they run in the slow tier (BUILD.md testing rule 2).
+#[cfg(all(test, feature = "slow"))]
+mod slow_tests {
+    use super::*;
 
     fn edges() -> (RealEdges, tempfile::TempDir) {
         let tmp = tempfile::tempdir().unwrap();

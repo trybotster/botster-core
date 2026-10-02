@@ -49,4 +49,28 @@ exclude_re = [
     # `kill` and `drop`; `take_stdin` and `take_stderr` are the same one-line `Option::take` as `take_stdout` and no slow test calls
     # them. A pure decision added to this file later is not covered by this entry: it must be tested in the default tier.
     'crates/botster-core-testkit/src/process_group\.rs:\d+:\d+: (replace OwnedGroup::(spawn|pid|take_stdin|take_stdout|take_stderr|leader_exited|wait_for_leader_exit|is_active|kill)( ->| with)|.* in OwnedGroup::(spawn|pid|take_stdin|take_stdout|take_stderr|leader_exited|wait_for_leader_exit|is_active|kill)$|replace <impl Drop for OwnedGroup>::drop)',
+    # botster-core facade: `impl CoreApi for Core` forwards each call to `HostDriver`, with no decision of its own (plan 2.1: the
+    # facade only wires real edges). Opening a `Core` starts a process that links the whole crate, so the proof is in the slow
+    # tier: `slow_tests::every_call_reaches_the_driver` (lib.rs) calls each method on a real `Core` and checks its result. The
+    # behavior behind each method is mutation-tested in `botster-core-host` (`HostDriver`, `HostEngine`).
+    'crates/botster-core/src/lib\.rs:\d+:\d+: replace <impl CoreApi for Core>::',
+    # botster-core real edges: OS wiring with no decision of its own (a descriptor, a socket, a poll, a row call). The decisions
+    # (`wake_after`, `interest_of`, `registration`) are in pure functions that are mutation-tested. The slow tier proves the rest
+    # with real descriptors, in `slow_tests`: `the_edges_keep_rows_in_the_registry` (write_row, read_rows, delete_row),
+    # `the_edges_draw_random_bytes_and_refuse_the_handoff` (fill_random, handoff_route, poll_process_exit, accept_link),
+    # `a_link_reads_writes_and_closes` (accept_link, link_recv, link_send, link_close, set_read_interest, set_write_interest,
+    # LinkIo::apply), `the_socket_lives_with_the_edges` (socket_path, Drop), `the_wake_follows_its_flag` (PollWake::*,
+    # settle_wake), and in tests/slow_real_core.rs: `a_worker_that_exits_before_it_connects_ends_the_start_at_once`
+    # (spawn_worker, signal_group, poll_process_exit, the reaper wake) and `a_hello_for_an_unknown_instance_is_closed`
+    # (the listener token, accept_link, link_close).
+    'crates/botster-core/src/real\.rs:\d+:\d+: (replace (<impl (HostEdges for RealEdges|WakeHandle for PollWake|WakeEdge for PollWake|Drop for RealEdges)>::|PollWake::consume|socket_path|LinkIo::apply)|replace [-+] with .*)',
+    # botster-core-sys process: the wrappers of the operating system. `Children` waits for a child, reaps it and signals a group:
+    # a real child process is needed, so the proof is in the slow tier: `a_child_exit_calls_the_notifier_and_is_polled`
+    # (poll_exit, wait_exit), `the_worker_control_signal_reaches_the_worker_handler` and
+    # `a_spawned_child_matches_its_identity_and_dies_by_the_group_kill` (signal_group, kill_group).
+    'crates/botster-core-sys/src/process\.rs:\d+:\d+: (replace Children::(poll_exit|wait_exit|signal_group|kill_group)( ->| with)|.* in Children::(poll_exit|wait_exit|signal_group|kill_group)$)',
+    # botster-core-sys process: `start_time` of macOS is `cfg(target_os = "macos")` code: the Linux gate does not compile it,
+    # so a mutant in it cannot change a test result there. Only equality has a meaning (AD-6), and the macOS slow tier runs
+    # `a_spawned_child_matches_its_identity_and_dies_by_the_group_kill`.
+    'crates/botster-core-sys/src/process\.rs:\d+:\d+: replace [*+] with [-+*/] in start_time$',
 ]
