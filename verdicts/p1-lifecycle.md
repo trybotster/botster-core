@@ -1,8 +1,9 @@
 # P1 lifecycle review
 
-VERDICT: NOT CLEAN (8 open)
+VERDICT: NOT CLEAN (3 open)
 
-Reviewed head: `1f0146e831b03fb3d1edd247240d97b3c9503552` on `stage1/p1-lifecycle`.
+Reviewed head: `eda5711bc9252dbf402e8d8b391bcf8e8e80ce07` on `stage1/p1-lifecycle`.
+Round 2 head: `1f0146e831b03fb3d1edd247240d97b3c9503552`.
 Round 1 head: `fb75dec1b6a00270c89f63ce6b67357892e060ff`.
 Initial code checkpoint: `6a8017621f024cbf6c07a3f9b9c50deae15fb936`.
 I also reviewed the delta through `eb39516`, `3ca7680`, and `fb75dec`.
@@ -24,17 +25,113 @@ Those ids remain pending until both harnesses prove them.
 The delta adds A8-1 capture reservations. I found no additional defect in that reservation change.
 The Round 1 pin delta did not close F1 through F15. F16 also applies under Amendment 7.
 
-Current open findings: F2, F3, F7, F8, F10, F13, F17, F19.
-Closed findings: F1, F4, F5, F6, F9, F11, F12, F15, F16, F18.
+Current open findings: F3, F7, F17.
+Closed findings: F1, F2, F4, F5, F6, F8, F9, F10, F11, F12, F13, F15, F16, F18, F19.
 F14 has an authorized scope deferral. It is not satisfied as a TI-1 requirement.
 Each open finding must close before CLEAN.
+
+## Round 3: closure evidence and remaining defects
+
+I reviewed the delta from `1f0146e` to `eda5711`.
+This remains a logic review. I did not run tests or the gate.
+The references in this section use `eda5711`.
+
+| Finding | Status | Evidence |
+|---|---|---|
+| F2 | CLOSED | The consumption check now parks Exited, Launched, and LaunchFailed frames when mandatory room is absent. The driver test covers a parked Exited frame. |
+| F3 | OPEN | Held inputs and process exits check the budget. Retirement and route waiters complete in separate steps. Receive slices use the remaining allowance. Other paths still post multiple events per step. |
+| F7 | OPEN | Launched now requires payload identity. The new group signal path controls descendants after leader exit, but it does not prove group identity when the leader is absent. |
+| F8 | CLOSED | Remove grace requests a kill and continues waiting for ProcessExited. The id remains reserved during that wait. |
+| F10 | CLOSED | StopAll targets continue after row failure under R-16. Plain Stop retains RegistryFailed. Concurrent Stop waiters fail while StopAll still stops its target. |
+| F13 | CLOSED | Cancel checks retired ranges before the operation table and its Done case. |
+| F17 | OPEN | Retirement now selects a result by operation kind and uses Unknown for sent writes. Notification-policy state and semantic-input bounds remain incorrect. |
+| F19 | CLOSED | Frame consumption uses an iterative loop with one read buffer. The driver test supplies 50,000 frames. |
+
+### F3 remaining — HIGH: A pump still posts more than its event bound
+
+Evidence: `botster-core-host/src/inbound.rs:81`, `src/run.rs:351`, and `src/driver.rs:579`.
+
+With `pump_events = 1`, a successful UpdateMetadata row result posts Completed and MetadataChanged in one input.
+`perform_counted` accounts for both only after the input returns.
+The queue counts both posts, including keyed replacements.
+Thus the pump posts two events despite its bound of one.
+
+DetachLocal has the same problem.
+It calls `close_route`, which posts RouteClosed, then calls `complete` in the same step.
+A bound route with a failed worker link can reach this path and post two events.
+The change to route waiters does not split this direct completion.
+
+The exhausted-budget check also inspects `ready[0]` before the scheduler selects the work.
+If a deadline occupies index zero, the scheduler can select normal operation work and run it after the event budget is exhausted.
+
+Required change: Split every multi-event path into separate publication steps.
+Preserve Completed-before-MetadataChanged and RouteClosed-before-Completed ordering.
+After budget exhaustion, restrict the eligible work itself to permitted deadline processing.
+Prove UpdateMetadata and local Detach through HostDriver with `pump_events = 1`.
+Authority: 9B, A2-7, A5-2, LC-9, and DP-7.
+
+Deadline subcase pending: with two due silence deadlines and `pump_events = 1`, Core posts both Silent events in one pump.
+TM-4 requires both in that first pump, while 9B limits the pump to one event.
+I sent the lead a QUESTION about that conflict.
+The implementer must use the resulting ruling and must not invent an exception.
+
+### F7 remaining — HIGH: An absent leader does not prove the saved group identity
+
+Evidence: `botster-core-sys/src/process.rs:124` and `:45`.
+
+`signal_payload_group` rejects Reused but sends a group signal for Absent.
+The saved group can have ended before this check.
+Its pid can then name an unrelated group leader that exits and is reaped while that group's descendants remain.
+The probe again returns Absent, and Core signals the unrelated group.
+The rule that a current group retains its id does not prove continuity from the saved identity.
+
+The lead confirmed the AD-6 requirement in message `msg_plugin-w_1790930323_896b04`.
+It applies to every signal Core sends, including this payload fallback.
+No contract ruling is needed to reject the unproved group signal.
+
+Required change: Prove the identity throughout the control interval.
+The lead permits a worker parent to retain the unreaped payload leader until its group kill completes.
+For a broken link, the host can signal the verified worker, whose handler controls that retained payload group.
+The worker must remain alive to serve the final model, as LC-5 requires.
+The implementer must choose and prove the mechanism.
+Ask the lead if identity proof and LC-5 cannot both hold for a required case.
+Authority: AD-6, LC-5, and LC-6.
+
+### F17 remaining — HIGH: Retirement still gives a forbidden result and understates write uncertainty
+
+Evidence: `botster-core-host/src/run.rs:547`, `:559`, and `src/flows.rs:442`.
+
+`ended_result` always groups SetNotificationPolicy with the registry operations.
+Admit SetNotificationPolicy on an Exited session whose worker supports that feature, then admit Remove before the policy finishes.
+Retirement returns RegistryFailed even though the worker-state row permits only WorkerLinkFailed.
+Amendment 3 permits RegistryFailed only in Created.
+Select this result from the admitted operation path, not only from its operation kind.
+
+Both `payload_len_of` and `payload_len` return 64 for every semantic input.
+For example, configure `max_key_repeat >= 100` and `max_input_bytes >= 6400`.
+A sent Backspace Key press with `repeat = 100` can write 100 encoded bytes before the link fails.
+The resulting Unknown reports `max_payload_bytes = 64`.
+IN-9 counts encoded bytes for semantic input, so 64 is not a valid upper bound for that write.
+The same defect applies to repeated wheel notches.
+
+Required change: Preserve the documented result path for notification policy in each admitted state.
+Use a valid conservative bound for semantic writes, including repeat and notches, on retirement and link failure.
+Reuse the admission bound instead of maintaining two inconsistent payload-length helpers.
+Prove a sent repeated key that exceeds 64 encoded bytes before link loss.
+Authority: Amendment 3 A2-1, IN-2, IN-7, and IN-9.
+
+## Round 2 evidence (historical)
+
+The Round 2 statuses below describe `1f0146e` only.
+The Round 3 table above contains the current statuses.
 
 ## Round 2: closure evidence and remaining defects
 
 The implementer rebased onto `ccb04eb` and sent fix commit `76110a4` plus comment commit `8bbee48`.
 The final delta `1f0146e` applies ruling R-15 and closes F18.
 I reviewed those changes against the rebased P1 code and the Round 1 findings.
-The following references use the Round 2 head. I did not run tests or the gate.
+The following references use `8bbee48`, except the final F18 closure at `1f0146e`.
+I did not run tests or the gate.
 
 | Finding | Status | Evidence |
 |---|---|---|
