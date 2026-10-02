@@ -2,10 +2,10 @@
 
 Reviewed head: `d2cce61b19d724ddc657f17fa8dee26dff409997`.
 Previous audit head: `fd1471eabca0adb344c6027b8995e1151aa8f8a8`.
-Scope: the written audit and fork patches 0–3 only. This verdict does not approve the full fork series, binding, or pin change.
+Scope: the written audit and fork patches 0–4 only. This verdict does not approve the full fork series, binding, or pin change.
 
-VERDICT: NOT CLEAN (patch 4: 1 open finding, P18).
-Reviewed fork head: `22035f7c2216b84caa7cf8e763affaca19d1ab8e`.
+VERDICT: CLEAN (written audit and fork patches 0–4 only).
+Reviewed fork head: `3f28780d2af7d8fea8717b2f9ccba0cfbafecc26`.
 Written audit: CLEAN at `d2cce61b19d724ddc657f17fa8dee26dff409997`; G12 records the legacy Shift GAP. F1–F12 and P19 are closed.
 
 The review uses manifest final13, BUILD.md at `2f2996ef0f016a1fefc6879e74deaef033383b66`, and plan pin `stage1-plan.a24efe7e`.
@@ -723,7 +723,7 @@ The legacy Shift rule cannot remain there for the reason below.
 
 ## P18 — MEDIUM — New key tests hand-write expected terminal bytes
 
-Status: OPEN.
+Status: CLOSED at `3f28780d2af7d8fea8717b2f9ccba0cfbafecc26`. The original finding and delta reviews follow for the record.
 Evidence: the new tests in `src/input/key_encode.zig` use literal expected kitty sequences.
 Examples include `kitty: hyper and meta modifiers`, `kitty: provided alternate keys are reported exactly and never derived`, and `kitty: function keys f26 to f35`.
 BUILD.md forbids hand-written expected terminal bytes. The user repeats that rule for this review.
@@ -790,4 +790,27 @@ Keep the supplied shifted alternate on the actual event so the test checks that 
 VERDICT: NOT CLEAN (1 open finding, P18).
 The written audit is CLEAN on the exact audit head above.
 Patches 0–3 retain their scoped CLEAN verdicts.
+The full fork series, binding code, and Ghostty pin change remain unapproved.
+
+
+## Patch 4 final delta review — P18 closed
+
+Reviewed commit: `3f28780d2af7d8fea8717b2f9ccba0cfbafecc26`.
+The reviewer read the complete delta with `git show`. The reviewer ran no tests.
+
+The Alt test now obtains its expected result from the real legacy encoder.
+The reference event uses the base character with Alt and the same encoder options.
+The actual event keeps Shift and the supplied shifted alternate.
+The test requires a nonempty reference result and compares the native outputs.
+It no longer constructs expected terminal bytes by hand. P18 closes. P19 remains closed.
+
+VERDICT: CLEAN for patch 4 through this exact head.
+This verdict covers these reviewed commits:
+
+- `50569efc8806ba3e5411ca5e556a7168a1c82259`.
+- `22035f7c2216b84caa7cf8e763affaca19d1ab8e`.
+- `3f28780d2af7d8fea8717b2f9ccba0cfbafecc26`.
+
+The written audit and patches 0–3 retain their CLEAN verdicts.
+Patches 5–8 remain outside this verdict.
 The full fork series, binding code, and Ghostty pin change remain unapproved.
