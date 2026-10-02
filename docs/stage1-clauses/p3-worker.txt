@@ -19,6 +19,14 @@ conf::am_2_next_write_waits_for_completion_or_partial_end	AM-2	transcript
 conf::am_2_no_interleave_across_paste_markers	AM-2	transcript
 conf::am_2_one_admission_point_orders_all_sources	AM-2	transcript
 conf::am_2_transaction_is_contiguous_across_short_writes	AM-2	transcript
+conf::e2_1_osc_0_and_2_give_title_changed	E2-1	pending
+conf::e2_1_osc_1_gives_no_title_changed_and_stays_in_output	E2-1	pending
+conf::e2_2_other_modes_are_tracked_model_modes	E2-2	pending
+conf::e2_2_unrecognized_mode_number_changes_no_field	E2-2	pending
+conf::e2_3_mode_change_posts_latest_flags	E2-3	pending
+conf::e2_3_one_step_net_changed_posts_final_flags	E2-3	pending
+conf::e2_3_one_step_net_unchanged_posts_nothing	E2-3	pending
+conf::e2_3_write_start_uses_current_model_modes	E2-3	pending
 conf::ev_1_metadata_reaches_host	EV-1	pending
 conf::ev_3_clipboard_write_surfaced	EV-3	pending
 conf::ev_3_oversize_write_is_reported_not_dropped	EV-3	pending
