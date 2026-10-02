@@ -1,0 +1,12 @@
+# Ids that are neither passed nor pending: exactly the set that Core A6-2 enumerates (plan section 1 item 5, section 5).
+# `cargo xtask ci` validates this file on every run (rules 1 to 4 of plan section 5).
+
+[[deferred]]
+id = "conf::ad_4_previous_worker_version_adopts"
+authority = "Core A6-2, manifest-final13"
+start_condition = "worker_protocol >= 2"
+
+[[deferred]]
+id = "conf::ad_4_missing_worker_capability_is_unsupported"
+authority = "Core A6-2, manifest-final13"
+start_condition = "new_worker_feature_over_previous"
