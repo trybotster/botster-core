@@ -88,10 +88,7 @@ fn the_child_environment_is_exact() {
     let identity = children
         .spawn(&spec(
             "/bin/sh",
-            &[
-                "-c",
-                "test \"$A\" = 1 && test -z \"$HOME\"",
-            ],
+            &["-c", "test \"$A\" = 1 && test -z \"$HOME\""],
         ))
         .expect("spawn");
     let reaper = Reaper(&mut children, identity);

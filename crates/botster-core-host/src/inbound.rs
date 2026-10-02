@@ -325,6 +325,7 @@ impl HostEngine {
         self.captures.insert(
             capture,
             CaptureEntry {
+                op,
                 owner,
                 instance,
                 pages,

@@ -566,3 +566,99 @@ fn due_deadlines_run_in_order_of_due_time() {
     run_work(&mut w, Work::Deadline);
     assert_eq!(w.engine.captures.len(), 0, "then the capture expiry");
 }
+
+fn capture_op(w: &mut World, owner: &str) -> Result<OpId, CoreError> {
+    w.engine.begin(Op::CaptureSnapshot {
+        session: sid("s1"),
+        owner: ClientId(owner.into()),
+    })
+}
+
+fn answer_capture(w: &mut World, ok: bool) {
+    let req = *w.engine.sessions[&sid("s1")]
+        .inflight
+        .keys()
+        .next()
+        .expect("a request is in flight");
+    let result = if ok {
+        w.worker_says(
+            "s1",
+            WorkerMsg::Pages {
+                req,
+                pages: vec![page(0, true)],
+            },
+        );
+        OpResult::Ok(OpOutput::Capture(Capture {
+            capture: CaptureId(0),
+            page_count: 1,
+            total_bytes: 4,
+            model_rev: ModelRev(5),
+        }))
+    } else {
+        OpResult::Err(CoreError::new(
+            ErrorCode::SnapshotTooLarge,
+            "cannot be formed",
+        ))
+    };
+    w.worker_says("s1", WorkerMsg::Done { req, result });
+}
+
+/// Core A8-1: a capture reserves `max_snapshot_bytes` at `begin`, so k captures in progress are admitted and the next is
+/// `CaptureLimit`, whatever a capture's size.
+#[test]
+fn a_capture_reserves_max_snapshot_bytes_at_begin() {
+    let mut w = World::new(limits(|l| {
+        l.max_snapshot_bytes = 1000;
+        l.route_queue_bytes = 1000;
+        l.snapshot_retained_bytes = 2000;
+        l.open_captures_per_client = 8;
+    }));
+    w.autopilot = Autopilot::Silent;
+    w.running("s1");
+    capture_op(&mut w, "a").unwrap();
+    capture_op(&mut w, "b").unwrap();
+    assert_eq!(
+        capture_op(&mut w, "c").unwrap_err().code,
+        ErrorCode::CaptureLimit
+    );
+}
+
+/// Core A8-1, AM-4: a finished capture whose `Completed` is not polled still counts `max_snapshot_bytes`; after the poll a
+/// success counts its `total_bytes` and a failure counts nothing.
+#[test]
+fn the_reservation_changes_only_when_the_completion_is_polled() {
+    let mut w = World::new(limits(|l| {
+        l.max_snapshot_bytes = 1000;
+        l.route_queue_bytes = 1000;
+        l.snapshot_retained_bytes = 2100;
+        l.open_captures_per_client = 8;
+    }));
+    w.autopilot = Autopilot::Silent;
+    w.running("s1");
+    let ok = capture_op(&mut w, "a").unwrap();
+    w.pump();
+    answer_capture(&mut w, true);
+    let failed = capture_op(&mut w, "b").unwrap();
+    w.pump();
+    answer_capture(&mut w, false);
+    w.pump();
+    assert_eq!(
+        capture_op(&mut w, "c").unwrap_err().code,
+        ErrorCode::CaptureLimit,
+        "unpolled success and unpolled failure both count the maximum"
+    );
+    let events = w.engine.poll_events(64);
+    assert!(events
+        .iter()
+        .any(|e| matches!(e, Event::Completed { op, result: OpResult::Err(e) } if *op == failed && e.code == ErrorCode::SnapshotTooLarge)));
+    assert!(events
+        .iter()
+        .any(|e| matches!(e, Event::Completed { op, result: OpResult::Ok(_) } if *op == ok)));
+    // 4 bytes held for the success, nothing for the failure: two reservations fit again.
+    assert!(capture_op(&mut w, "d").is_ok());
+    assert!(capture_op(&mut w, "e").is_ok());
+    assert_eq!(
+        capture_op(&mut w, "f").unwrap_err().code,
+        ErrorCode::CaptureLimit
+    );
+}
