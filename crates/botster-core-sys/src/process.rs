@@ -207,3 +207,75 @@ impl Children {
         let _: io::Result<()> = kill_process_group(pid, signal).map_err(io::Error::from);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// AD-6: the start time of a live process is stable, is not a placeholder, and differs from the start time of another
+    /// process; the start time of a pid that does not exist is `None`.
+    #[test]
+    fn the_start_time_names_a_process() {
+        let me = std::process::id();
+        let first = start_time(me).expect("this process exists");
+        assert_eq!(start_time(me), Some(first), "stable");
+        assert!(first > 1, "not a placeholder");
+        // A pid above the pid range of every platform.
+        assert_eq!(start_time(u32::MAX - 1), None);
+        let parent = std::os::unix::process::parent_id();
+        if parent != me {
+            if let Some(other) = start_time(parent) {
+                assert_ne!(other, first, "another process has another start time");
+            }
+        }
+    }
+
+    /// AD-6: an identity matches while the pid and the start time agree, and is `Reused` when the start time differs and
+    /// `Absent` when no process has the pid.
+    #[test]
+    fn an_identity_is_matched_reused_or_absent() {
+        let me = std::process::id();
+        let start = start_time(me).unwrap();
+        let identity = ProcessIdentity {
+            pid: me,
+            start_time: start,
+        };
+        assert_eq!(identity_state(identity), IdentityState::Matches);
+        assert_eq!(
+            identity_state(ProcessIdentity {
+                pid: me,
+                start_time: start + 1
+            }),
+            IdentityState::Reused
+        );
+        assert_eq!(
+            identity_state(ProcessIdentity {
+                pid: u32::MAX - 1,
+                start_time: 1
+            }),
+            IdentityState::Absent
+        );
+    }
+
+    /// AD-6: a signal goes only to the process that the identity names: a reused pid is never signalled (the test would end
+    /// with `SIGUSR1` otherwise).
+    #[test]
+    fn a_reused_identity_is_never_signalled() {
+        let me = std::process::id();
+        let children = Children::new();
+        children.signal_group(
+            ProcessIdentity {
+                pid: me,
+                start_time: start_time(me).unwrap() + 1,
+            },
+            GroupSignal::EndPayload,
+        );
+        children.signal_group(
+            ProcessIdentity {
+                pid: u32::MAX - 1,
+                start_time: 1,
+            },
+            GroupSignal::EndPayload,
+        );
+    }
+}

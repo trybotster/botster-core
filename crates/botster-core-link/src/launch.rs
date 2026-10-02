@@ -190,4 +190,40 @@ mod tests {
             Err(LaunchError::MissingValue)
         );
     }
+
+    /// AD-6: a token of every hex digit decodes to its bytes, and a non-digit or a short text does not.
+    #[test]
+    fn unhex_reads_every_digit() {
+        let text: String = (0..TOKEN_LEN)
+            .map(|i| format!("{:02x}", (i * 7 + 9) % 256))
+            .collect();
+        let bytes = unhex(&text).expect("a token");
+        for (i, b) in bytes.iter().enumerate() {
+            assert_eq!(usize::from(*b), (i * 7 + 9) % 256);
+        }
+        assert_eq!(unhex(&"09".repeat(TOKEN_LEN)).unwrap(), [9u8; TOKEN_LEN]);
+        assert_eq!(unhex(&"90".repeat(TOKEN_LEN)).unwrap(), [0x90u8; TOKEN_LEN]);
+        assert_eq!(unhex(&"af".repeat(TOKEN_LEN)).unwrap(), [0xAFu8; TOKEN_LEN]);
+        assert!(unhex(&"0g".repeat(TOKEN_LEN)).is_none());
+        assert!(unhex("00").is_none());
+    }
+
+    /// Every launch error has its own words.
+    #[test]
+    fn launch_errors_say_what_is_wrong() {
+        assert_eq!(LaunchError::MissingValue.to_string(), "a flag has no value");
+        assert_eq!(LaunchError::UnknownFlag.to_string(), "an unknown flag");
+        assert_eq!(
+            LaunchError::UnknownRole.to_string(),
+            "the role is not `session`"
+        );
+        assert_eq!(
+            LaunchError::Missing("--epoch").to_string(),
+            "--epoch is missing"
+        );
+        assert_eq!(
+            LaunchError::BadToken.to_string(),
+            "the token is missing or is not 64 hex digits"
+        );
+    }
 }

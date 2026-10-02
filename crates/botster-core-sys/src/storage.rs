@@ -461,4 +461,108 @@ mod tests {
         assert_eq!(decode(&[9, 0, 0, 0, 1]), None);
         assert_eq!(decode(&[1]), None);
     }
+
+    /// The errno of an OS error is kept, and an error with none is 0.
+    #[test]
+    fn an_errno_is_kept() {
+        assert_eq!(errno(&io::Error::from_raw_os_error(13)), 13);
+        assert_eq!(errno(&io::Error::other("no code")), 0);
+    }
+
+    /// Plan 2.3: a directory that does not exist cannot be synced.
+    #[test]
+    fn a_missing_directory_cannot_be_synced() {
+        let tmp = dir();
+        assert!(sync_directory(tmp.path()).is_ok());
+        assert!(sync_directory(&tmp.path().join("missing")).is_err());
+    }
+
+    /// An error that is not "not found" is an error: a row path under a file, and a row path that is a directory.
+    #[test]
+    fn only_a_missing_row_is_none_or_deleted_quietly() {
+        let tmp = dir();
+        let mut data = DataDir::open(&tmp.path().join("d")).unwrap();
+        let storage = data.storage();
+        // The row path is a directory: reading it fails, and deleting it fails.
+        let path = storage.path("session/x");
+        fs::create_dir(&path).unwrap();
+        assert!(storage.read_file(&path).is_err() || storage.read_row("session/x").is_err());
+        assert!(matches!(
+            storage.delete_row("session/x"),
+            Err(StorageError::Failed { .. })
+        ));
+        // A path below a file is not "not found" either.
+        let file = tmp.path().join("plain");
+        fs::write(&file, b"x").unwrap();
+        assert!(storage.read_file(&file.join("child")).is_err());
+        // A row that is not there is `None`, and its delete is quiet.
+        assert_eq!(storage.read_row("session/none").unwrap(), None);
+        assert!(storage.delete_row("session/none").is_ok());
+    }
+
+    /// AD-6: the data directory that exists as a file is unsafe, not an I/O error; one that cannot be created is the I/O error
+    /// of the system, with its own kind.
+    #[test]
+    fn open_tells_an_existing_file_from_a_failed_create() {
+        let tmp = dir();
+        let file = tmp.path().join("file");
+        fs::write(&file, b"x").unwrap();
+        assert!(
+            matches!(DataDir::open(&file), Err(OpenError::Unsafe(_))),
+            "a file"
+        );
+        let locked = tmp.path().join("locked");
+        fs::create_dir(&locked).unwrap();
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o500)).unwrap();
+        let result = DataDir::open(&locked.join("d"));
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o700)).unwrap();
+        match result {
+            Err(OpenError::Io(error)) => assert_eq!(error.kind(), io::ErrorKind::PermissionDenied),
+            // A user that ignores permissions (root) creates the directory.
+            Ok(_) => {}
+            Err(other) => panic!("{other}"),
+        }
+    }
+
+    /// The rows directory that cannot be created is the I/O error of the system.
+    #[test]
+    fn open_reports_a_rows_directory_that_cannot_be_created() {
+        let tmp = dir();
+        let base = tmp.path().join("d");
+        fs::DirBuilder::new().mode(0o700).create(&base).unwrap();
+        fs::write(base.join("lock"), b"").unwrap();
+        fs::set_permissions(&base, fs::Permissions::from_mode(0o500)).unwrap();
+        let result = DataDir::open(&base);
+        fs::set_permissions(&base, fs::Permissions::from_mode(0o700)).unwrap();
+        match result {
+            Err(OpenError::Io(error)) => assert_eq!(error.kind(), io::ErrorKind::PermissionDenied),
+            Ok(_) => {}
+            Err(other) => panic!("{other}"),
+        }
+        // A rows path that is a file is unsafe.
+        let base = tmp.path().join("e");
+        fs::DirBuilder::new().mode(0o700).create(&base).unwrap();
+        fs::write(base.join("rows"), b"x").unwrap();
+        assert!(matches!(DataDir::open(&base), Err(OpenError::Unsafe(_))));
+    }
+
+    /// Every error of the open has its own words.
+    #[test]
+    fn open_errors_say_what_failed() {
+        assert_eq!(
+            OpenError::InUse.to_string(),
+            "another host holds the data directory"
+        );
+        assert_eq!(
+            OpenError::Unsafe("mode".into()).to_string(),
+            "the data directory is not safe: mode"
+        );
+        assert!(OpenError::Io(io::Error::other("boom"))
+            .to_string()
+            .starts_with("the data directory failed: boom"));
+        assert_eq!(
+            OpenError::CorruptEpoch.to_string(),
+            "the host epoch row is not a number"
+        );
+    }
 }

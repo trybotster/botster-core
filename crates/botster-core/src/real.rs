@@ -78,13 +78,12 @@ impl WakeHandle for PollWake {
             return Wake::Woken;
         };
         let mut events = Events::with_capacity(64);
-        match poll.poll(&mut events, Some(timeout)) {
-            Ok(()) if !events.is_empty() => Wake::Woken,
-            Ok(()) if self.flag.load(Ordering::SeqCst) => Wake::Woken,
-            Ok(()) => Wake::TimedOut,
-            // An interrupted wait is a spurious wake, which TH-2 allows.
-            Err(_) => Wake::Woken,
-        }
+        let polled = poll.poll(&mut events, Some(timeout));
+        wake_after(
+            polled.is_ok(),
+            !events.is_empty(),
+            self.flag.load(Ordering::SeqCst),
+        )
     }
 
     fn fd(&self) -> RawFd {
@@ -100,6 +99,44 @@ impl WakeEdge for PollWake {
 
     fn drain(&self) {
         self.flag.store(false, Ordering::SeqCst);
+    }
+}
+
+/// What a wait that ended means (TH-2): an event or the flag is a wake; a timeout with neither is `TimedOut`; a failed wait
+/// (an interrupted one) is a spurious wake, which TH-2 allows.
+fn wake_after(polled_ok: bool, any_event: bool, flagged: bool) -> Wake {
+    if !polled_ok || any_event || flagged {
+        Wake::Woken
+    } else {
+        Wake::TimedOut
+    }
+}
+
+/// The readiness that a link needs: what the engine can read and what waits to be written (plan 2.5).
+fn interest_of(read: bool, write: bool) -> Option<Interest> {
+    match (read, write) {
+        (true, true) => Some(Interest::READABLE | Interest::WRITABLE),
+        (true, false) => Some(Interest::READABLE),
+        (false, true) => Some(Interest::WRITABLE),
+        (false, false) => None,
+    }
+}
+
+/// What to do with the registration of a link whose interest is `interest` and that is `registered` or not.
+#[derive(Debug, PartialEq, Eq)]
+enum Registration {
+    Reregister(Interest),
+    Register(Interest),
+    Deregister,
+    Keep,
+}
+
+fn registration(interest: Option<Interest>, registered: bool) -> Registration {
+    match (interest, registered) {
+        (Some(i), true) => Registration::Reregister(i),
+        (Some(i), false) => Registration::Register(i),
+        (None, true) => Registration::Deregister,
+        (None, false) => Registration::Keep,
     }
 }
 
@@ -120,27 +157,21 @@ struct LinkIo {
 
 impl LinkIo {
     fn apply(&mut self, registry: &Registry, link: LinkId) {
-        let interest = match (self.read, self.write) {
-            (true, true) => Some(Interest::READABLE | Interest::WRITABLE),
-            (true, false) => Some(Interest::READABLE),
-            (false, true) => Some(Interest::WRITABLE),
-            (false, false) => None,
-        };
         let token = Token(link.0 as usize);
-        match (interest, self.registered) {
-            (Some(i), true) => {
+        match registration(interest_of(self.read, self.write), self.registered) {
+            Registration::Reregister(i) => {
                 let _ = registry.reregister(&mut self.stream, token, i);
             }
-            (Some(i), false) => {
+            Registration::Register(i) => {
                 if registry.register(&mut self.stream, token, i).is_ok() {
                     self.registered = true;
                 }
             }
-            (None, true) => {
+            Registration::Deregister => {
                 let _ = registry.deregister(&mut self.stream);
                 self.registered = false;
             }
-            (None, false) => {}
+            Registration::Keep => {}
         }
     }
 }
@@ -348,4 +379,177 @@ impl HostEdges for RealEdges {
 #[allow(dead_code)]
 fn _source_fd(fd: &RawFd) -> SourceFd<'_> {
     SourceFd(fd)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// TH-2: a wait is a wake when it was interrupted, when an event came, or when the flag is set; only a quiet timeout is
+    /// `TimedOut`.
+    #[test]
+    fn a_wait_ends_as_a_wake_or_a_timeout() {
+        assert_eq!(wake_after(true, false, false), Wake::TimedOut);
+        assert_eq!(wake_after(true, true, false), Wake::Woken);
+        assert_eq!(wake_after(true, false, true), Wake::Woken);
+        assert_eq!(wake_after(false, false, false), Wake::Woken);
+    }
+
+    /// Plan 2.5: the interest of a link follows what the engine can read and what waits to be written, and the registration
+    /// follows the interest.
+    #[test]
+    fn a_link_registers_for_exactly_what_it_needs() {
+        assert_eq!(
+            interest_of(true, true),
+            Some(Interest::READABLE | Interest::WRITABLE)
+        );
+        assert_eq!(interest_of(true, false), Some(Interest::READABLE));
+        assert_eq!(interest_of(false, true), Some(Interest::WRITABLE));
+        assert_eq!(interest_of(false, false), None);
+        let r = Interest::READABLE;
+        assert_eq!(registration(Some(r), true), Registration::Reregister(r));
+        assert_eq!(registration(Some(r), false), Registration::Register(r));
+        assert_eq!(registration(None, true), Registration::Deregister);
+        assert_eq!(registration(None, false), Registration::Keep);
+    }
+
+    fn edges() -> (RealEdges, tempfile::TempDir) {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path().join("d");
+        let data = DataDir::open(&dir).unwrap();
+        let (edges, epoch) = RealEdges::new(data, &dir).unwrap();
+        assert_eq!(epoch, 1);
+        (edges, tmp)
+    }
+
+    fn connect(tmp: &tempfile::TempDir) -> std::os::unix::net::UnixStream {
+        std::os::unix::net::UnixStream::connect(socket_path(&tmp.path().join("d"))).unwrap()
+    }
+
+    fn accept(edges: &mut RealEdges) -> LinkId {
+        // A connect on a Unix socket is queued at once; the accept sees it.
+        edges.accept_link().expect("a client is waiting")
+    }
+
+    /// Plan 2.3: the rows go through the registry of the data directory: write, read by prefix, delete.
+    #[test]
+    fn the_edges_keep_rows_in_the_registry() {
+        let (mut edges, _tmp) = edges();
+        edges.write_row("session/a", b"1").unwrap();
+        edges.write_row("session/b", b"2").unwrap();
+        edges.write_row("other/c", b"3").unwrap();
+        assert_eq!(
+            edges.read_rows("session/").unwrap(),
+            vec![
+                ("session/a".to_string(), b"1".to_vec()),
+                ("session/b".to_string(), b"2".to_vec())
+            ]
+        );
+        edges.delete_row("session/a").unwrap();
+        assert_eq!(edges.read_rows("session/").unwrap().len(), 1);
+    }
+
+    /// Plan 2.3: random bytes come from the system; the descriptor handoff is not built yet and says so.
+    #[test]
+    fn the_edges_draw_random_bytes_and_refuse_the_handoff() {
+        let (mut edges, _tmp) = edges();
+        let mut a = [0u8; 32];
+        let mut b = [0u8; 32];
+        edges.fill_random(&mut a);
+        edges.fill_random(&mut b);
+        assert_ne!(a, [0; 32]);
+        assert_ne!(a, b);
+        assert!(edges.poll_process_exit().is_none());
+        assert!(edges.accept_link().is_none(), "no client waits");
+        let endpoint = StreamEndpoint::new(());
+        let options = AttachOptions {
+            file_directory: "/tmp".into(),
+            file_permissions: None,
+            route_features: vec![],
+            terminal_formats: vec![],
+            connect_deadline: None,
+            owner: None,
+            query_deadline: None,
+            route_tag: None,
+            route_limits: None,
+            history: None,
+            stall_deadline: None,
+            answers_queries: false,
+            input: true,
+        };
+        assert!(edges
+            .handoff_route(LinkId(1), RouteId(1), endpoint, &options)
+            .is_err());
+    }
+
+    /// Plan 2.5: a client that connects is a link with its own number; the host reads what it writes, sends what it is
+    /// given, follows the interest that the engine sets, and closing the link ends the stream for the client.
+    #[test]
+    fn a_link_reads_writes_and_closes() {
+        use std::io::{Read, Write};
+        let (mut edges, tmp) = edges();
+        let mut client1 = connect(&tmp);
+        let mut client2 = connect(&tmp);
+        let first = accept(&mut edges);
+        let second = accept(&mut edges);
+        assert_eq!((first, second), (LinkId(1), LinkId(2)));
+        client1.write_all(b"abc").unwrap();
+        let mut buf = [0u8; 8];
+        let n = edges.link_recv(first, &mut buf).unwrap();
+        assert_eq!(&buf[..n], b"abc");
+        assert_eq!(
+            edges.link_recv(LinkId(99), &mut buf).unwrap(),
+            0,
+            "no such link: closed"
+        );
+        assert_eq!(edges.link_send(second, b"xyz").unwrap(), 3);
+        let mut got = [0u8; 3];
+        client2.read_exact(&mut got).unwrap();
+        assert_eq!(&got, b"xyz");
+        assert!(edges.link_send(LinkId(99), b"x").is_err());
+        // The interest follows the engine: write on, read off, then both off, then read on again.
+        edges.set_write_interest(first, true);
+        assert!(edges.streams[&first].write && edges.streams[&first].read);
+        edges.set_read_interest(first, false);
+        assert!(edges.streams[&first].write && !edges.streams[&first].read);
+        edges.set_write_interest(first, false);
+        assert!(
+            !edges.streams[&first].registered,
+            "no interest: not registered"
+        );
+        edges.set_read_interest(first, true);
+        assert!(edges.streams[&first].registered);
+        edges.link_close(first);
+        assert!(!edges.streams.contains_key(&first));
+        let mut rest = Vec::new();
+        client1.read_to_end(&mut rest).unwrap();
+        assert!(rest.is_empty(), "the client sees the end of the stream");
+    }
+
+    /// LC-2, LC-12: the control socket is at its name while the edges live and gone when they drop.
+    #[test]
+    fn the_socket_lives_with_the_edges() {
+        let (edges, tmp) = edges();
+        let socket = socket_path(&tmp.path().join("d"));
+        assert_eq!(socket, tmp.path().join("d").join("c"));
+        assert!(socket.exists());
+        drop(edges);
+        assert!(!socket.exists());
+    }
+
+    /// TM-6, TH-2: the wake flag is set by `signal` and cleared by `drain`; a set flag makes a wait return at once; the handle
+    /// has a descriptor of its own.
+    #[test]
+    fn the_wake_follows_its_flag() {
+        let (edges, _tmp) = edges();
+        let wake = &edges.wake;
+        assert_eq!(wake.wait(Duration::ZERO), Wake::TimedOut);
+        wake.signal();
+        assert_eq!(wake.wait(Duration::ZERO), Wake::Woken);
+        wake.drain();
+        // The readiness of the self-pipe is still queued: `consume` takes it without waiting, and a quiet wait times out.
+        wake.consume();
+        assert_eq!(wake.wait(Duration::ZERO), Wake::TimedOut);
+        assert!(wake.fd() > 2, "the descriptor of the poll");
+    }
 }
