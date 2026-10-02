@@ -129,3 +129,33 @@ fn the_worker_control_signal_reaches_the_worker_handler() {
     let exit = guard.0.wait_exit(identity.pid).expect("the worker ends");
     assert_eq!(exit.1, ExitStatus::Code(7), "the handler ran");
 }
+
+/// Core TM-6, LC-7: the host wakes at the moment a child ends. The reaper thread calls the notifier after it queued the
+/// exit, and `poll_exit` then returns it at once, with no pump driven by a deadline.
+#[test]
+fn a_child_exit_calls_the_notifier_and_is_polled() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Arc;
+    let notified = Arc::new(AtomicBool::new(false));
+    let flag = Arc::clone(&notified);
+    let mut children = Children::with_notify(Arc::new(move || flag.store(true, Ordering::SeqCst)));
+    let identity = children
+        .spawn(&spec("/bin/sh", &["-c", "exit 3"]))
+        .expect("spawn");
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10); // timer: deadline — bounds the wait for the exit
+    while !notified.load(Ordering::SeqCst) {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the notifier never ran"
+        );
+        std::thread::yield_now();
+    }
+    let (id, status) = children.poll_exit().expect("the exit is queued");
+    assert_eq!(id, identity);
+    assert_eq!(status, ExitStatus::Code(3));
+    assert!(children.poll_exit().is_none());
+    assert!(
+        children.wait_exit(identity.pid).is_none(),
+        "an exit is taken once"
+    );
+}
