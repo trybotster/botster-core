@@ -237,17 +237,22 @@ fn attach_refuses_what_it_can_refuse_at_registration() {
     assert_eq!(
         attach(&mut w, options("rel", Some(Duration::from_secs(1))))
             .unwrap_err()
+            .error
             .code,
         ErrorCode::InvalidInput
     );
     assert_eq!(
-        attach(&mut w, options("/tmp", None)).unwrap_err().code,
+        attach(&mut w, options("/tmp", None))
+            .unwrap_err()
+            .error
+            .code,
         ErrorCode::InvalidInput
     );
     assert!(attach(&mut w, options("/tmp", Some(Duration::from_secs(1)))).is_ok());
     assert_eq!(
         attach(&mut w, options("/tmp", Some(Duration::from_secs(1))))
             .unwrap_err()
+            .error
             .code,
         ErrorCode::RouteLimit
     );
@@ -259,7 +264,7 @@ fn attach_refuses_what_it_can_refuse_at_registration() {
         options("/tmp", Some(Duration::from_secs(1))),
     );
     assert_eq!(
-        wrong.unwrap_err().code,
+        wrong.unwrap_err().error.code,
         ErrorCode::WrongState,
         "A2-1: a Created session takes no route"
     );
@@ -389,6 +394,7 @@ fn remove_closes_the_bound_routes_with_session_removed() {
                 }
             )
             .unwrap_err()
+            .error
             .code,
         ErrorCode::UnknownSession
     );
@@ -425,4 +431,52 @@ fn limits_features_and_identity_are_reported() {
     assert_eq!(w.engine.limits().max_sessions, 3);
     assert!(w.engine.features().names.contains(&Feature::Silence));
     assert_eq!(w.engine.terminal_identity().term, "xterm-ghostty");
+}
+
+/// Core DP-2, AM-4, OU-1, steward ruling R-19: every synchronous refusal of `attach` hands the caller's transport back,
+/// untouched; the transport belongs to Core only from a successful return.
+#[test]
+fn a_refused_attach_hands_the_transport_back() {
+    let mut w = World::default();
+    w.autopilot = Autopilot::Silent;
+    w.running("s1");
+    let options = |dir: &str| AttachOptions {
+        file_directory: dir.into(),
+        file_permissions: None,
+        route_features: vec![],
+        terminal_formats: vec![],
+        connect_deadline: None,
+        owner: None,
+        query_deadline: Some(Duration::from_secs(1)),
+        route_tag: None,
+        route_limits: None,
+        history: None,
+        stall_deadline: None,
+        answers_queries: true,
+        input: true,
+    };
+    let try_attach = |w: &mut World, session: &str, dir: &str| {
+        w.engine.attach(
+            ClientId("c".into()),
+            sid(session),
+            RouteTransport::Stream(StreamEndpoint::new(())),
+            options(dir),
+        )
+    };
+    // UnknownSession, InvalidInput (a relative directory): the same transport object comes back.
+    let refused = try_attach(&mut w, "nope", "/tmp").unwrap_err();
+    assert_eq!(refused.error.code, ErrorCode::UnknownSession);
+    assert!(matches!(refused.transport, RouteTransport::Stream(_)));
+    let refused = try_attach(&mut w, "s1", "relative").unwrap_err();
+    assert_eq!(refused.error.code, ErrorCode::InvalidInput);
+    assert!(matches!(refused.transport, RouteTransport::Stream(_)));
+    // RouteLimit: fill the routes of the session, then one more.
+    let limit = w.engine.limits().routes_per_session;
+    for _ in 0..limit {
+        try_attach(&mut w, "s1", "/tmp").unwrap();
+    }
+    let refused = try_attach(&mut w, "s1", "/tmp").unwrap_err();
+    assert_eq!(refused.error.code, ErrorCode::RouteLimit);
+    assert!(matches!(refused.transport, RouteTransport::Stream(_)));
+    assert_eq!(w.engine.sessions[&sid("s1")].routes.len(), limit as usize);
 }
