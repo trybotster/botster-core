@@ -15,6 +15,7 @@ botster-core-contract.workspace = true
 [dev-dependencies]
 botster-conformance.workspace = true
 botster-core-conformance.workspace = true
+botster-core-testkit.workspace = true
 libtest-mimic.workspace = true
 static_assertions.workspace = true
 toml.workspace = true
