@@ -106,6 +106,8 @@ pub(crate) struct PendingOp {
 /// A capture: a frozen copy of a snapshot (ST-6).
 #[derive(Debug)]
 pub(crate) struct CaptureEntry {
+    /// The `CaptureSnapshot` op that made it: its reservation turns into `bytes` when the host polls its `Completed` (A8-1).
+    pub op: OpId,
     pub owner: ClientId,
     pub instance: InstanceId,
     pub pages: Vec<Page>,

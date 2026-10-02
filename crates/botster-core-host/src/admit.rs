@@ -128,21 +128,38 @@ impl HostEngine {
         }
     }
 
+    /// The captures of `owner`: operations whose `Completed` is not polled, and captures that are open after it was polled.
+    /// Each capture counts once (A8-1).
     fn capture_load(&self, owner: &ClientId) -> usize {
-        let open = self.captures.values().filter(|c| &c.owner == owner).count();
-        let in_flight = self
+        let unpolled = self
             .ops
             .values()
-            .filter(|p| {
-                !matches!(p.step, Step::Done)
-                    && matches!(&p.op, Op::CaptureSnapshot { owner: o, .. } if o == owner)
-            })
+            .filter(|p| matches!(&p.op, Op::CaptureSnapshot { owner: o, .. } if o == owner))
             .count();
-        open + in_flight
+        let polled = self
+            .captures
+            .values()
+            .filter(|c| &c.owner == owner && !self.ops.contains_key(&c.op))
+            .count();
+        unpolled + polled
     }
 
+    /// The held bytes of A8-1: `max_snapshot_bytes` for every capture op whose `Completed` is not polled, and `total_bytes`
+    /// for a successful capture after it was polled. A failed capture counts nothing after the poll.
     fn retained_bytes(&self) -> u64 {
-        self.captures.values().map(|c| c.bytes).sum()
+        let reserved = self
+            .ops
+            .values()
+            .filter(|p| matches!(p.op, Op::CaptureSnapshot { .. }))
+            .count() as u64
+            * self.cfg.limits.max_snapshot_bytes;
+        let kept: u64 = self
+            .captures
+            .values()
+            .filter(|c| !self.ops.contains_key(&c.op))
+            .map(|c| c.bytes)
+            .sum();
+        reserved + kept
     }
 
     /// Checks the arguments and the state of `op` (the sync column of A2-1, without the capacity codes).
@@ -400,7 +417,10 @@ impl HostEngine {
             }
             Op::CaptureSnapshot { owner, .. } => {
                 if self.capture_load(owner) >= self.cfg.limits.open_captures_per_client as usize
-                    || self.retained_bytes() >= self.cfg.limits.snapshot_retained_bytes
+                    || self
+                        .retained_bytes()
+                        .saturating_add(self.cfg.limits.max_snapshot_bytes)
+                        > self.cfg.limits.snapshot_retained_bytes
                 {
                     Err(err(
                         ErrorCode::CaptureLimit,
