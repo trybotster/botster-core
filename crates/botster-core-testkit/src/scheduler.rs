@@ -13,11 +13,31 @@ use std::sync::{Arc, Mutex};
 /// The most pumps that the program and process edges spend between two states (A5-2: "a seed-chosen number of pumps").
 pub const MAX_PUMPS_BETWEEN_STATES: usize = 4;
 
+/// What a test fixes instead of letting the seed choose (the scheduler controls of `docs/core-testkit-controls.md`). A fixed
+/// choice draws nothing from the stream. The scheduler still orders only work that real Core has not produced yet (A5-2): it
+/// never reorders a result.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Overrides {
+    /// `scheduler_work_limit`: one `pump` does at most this much work (Core A5-2: "partial progress per pump").
+    pub work_limit: Option<usize>,
+    /// `scheduler_poll_batch`: `poll_events` returns at most this many events.
+    pub poll_batch: Option<usize>,
+    /// `scheduler_deadline`: a due deadline's event runs before (`true`) or after (`false`) the other events of its pump.
+    pub deadline_first: Option<bool>,
+    /// `schedule {first: edge_input}`: the input of the worker links and the process edge runs before the admitted operations.
+    pub edge_input_first: bool,
+    /// `no_spurious_wakes`: the wake fires only for real wake sources.
+    pub no_spurious_wakes: bool,
+    /// Every operation's progress is (`Some(true)`) or is not (`Some(false)`) deferred to a later pump.
+    pub defer_operations: Option<bool>,
+}
+
 /// The seeded policy of A5-2.
 #[derive(Debug, Clone)]
 pub struct SeededScheduler {
     rng: ChaCha8Rng,
     sessions: Production,
+    overrides: Overrides,
 }
 
 impl SeededScheduler {
@@ -26,7 +46,13 @@ impl SeededScheduler {
         SeededScheduler {
             rng: ChaCha8Rng::seed_from_u64(seed),
             sessions: Production::new(),
+            overrides: Overrides::default(),
         }
+    }
+
+    /// The choices that a test fixes. They apply to every driver that shares this scheduler.
+    pub fn overrides_mut(&mut self) -> &mut Overrides {
+        &mut self.overrides
     }
 
     /// A uniform index below `n`. A choice among 0 or 1 candidates draws nothing.
@@ -112,13 +138,29 @@ impl SeededScheduler {
 
 impl Scheduler for SeededScheduler {
     fn pick(&mut self, point: ChoicePoint, candidates: usize) -> usize {
+        let fixed = &self.overrides;
         match point {
+            ChoicePoint::ReadyWork if fixed.edge_input_first => 0,
             ChoicePoint::ReadyWork => self.ready_work(candidates),
             // Index 1 is "deferred" or "spurious". With one candidate only index 0 exists, and nothing is drawn.
+            ChoicePoint::OperationDeferral
+                if candidates >= 2 && fixed.defer_operations.is_some() =>
+            {
+                usize::from(fixed.defer_operations == Some(true))
+            }
             ChoicePoint::OperationDeferral if candidates >= 2 => {
                 usize::from(self.defer_operation())
             }
+            ChoicePoint::SpuriousWake if fixed.no_spurious_wakes => 0,
             ChoicePoint::SpuriousWake if candidates >= 2 => usize::from(self.spurious_wake()),
+            // Place 0 runs the deadline's event first; the last place runs it after every other event.
+            ChoicePoint::DeadlineEventPlace if fixed.deadline_first.is_some() => {
+                if fixed.deadline_first == Some(true) {
+                    0
+                } else {
+                    candidates.saturating_sub(1)
+                }
+            }
             ChoicePoint::DeadlineEventPlace => {
                 self.deadline_event_place(candidates.saturating_sub(1))
             }
@@ -131,6 +173,12 @@ impl Scheduler for SeededScheduler {
 
     fn bound(&mut self, point: ChoicePoint, max: usize) -> usize {
         match point {
+            ChoicePoint::PumpBound if self.overrides.work_limit.is_some() => {
+                self.overrides.work_limit.map_or(max, |n| n.min(max))
+            }
+            ChoicePoint::PollBatch if self.overrides.poll_batch.is_some() => {
+                self.overrides.poll_batch.map_or(max, |n| n.min(max))
+            }
             ChoicePoint::PumpsToRunning => self.pumps_to_running().min(max),
             ChoicePoint::PumpsToExited => self.pumps_to_exited().min(max),
             ChoicePoint::PumpBound => self.pump_bound(max),
@@ -163,6 +211,11 @@ pub struct SchedulerHandle(Arc<Mutex<SeededScheduler>>);
 impl SchedulerHandle {
     pub fn with_seed(seed: u64) -> SchedulerHandle {
         SchedulerHandle(Arc::new(Mutex::new(SeededScheduler::with_seed(seed))))
+    }
+
+    /// Fixes choices for every driver that shares this scheduler (the scheduler controls).
+    pub fn set_overrides(&self, f: impl FnOnce(&mut Overrides)) {
+        self.with(|s| f(s.overrides_mut()));
     }
 
     /// Runs `f` with the scheduler.
@@ -308,5 +361,88 @@ mod tests {
         assert_eq!(deferred, spurious, "one stream, one draw each");
         let expected = [0u8, 1, 0, 0, 1, 1, 0, 0, 0, 0, 0, 1, 1, 0, 0, 1];
         assert_eq!(deferred, expected.map(|b| b == 1));
+    }
+
+    fn fixed(f: impl FnOnce(&mut Overrides)) -> SeededScheduler {
+        let mut s = SeededScheduler::with_seed(21);
+        f(s.overrides_mut());
+        s
+    }
+
+    /// `scheduler_work_limit` and `scheduler_poll_batch`: the count is exactly the limit when the bound allows it, and never above
+    /// the bound; a limit of zero is "no bound" and is not stored (a `None`).
+    #[test]
+    fn work_and_batch_limits_fix_the_count() {
+        let mut s = fixed(|o| {
+            o.work_limit = Some(3);
+            o.poll_batch = Some(2);
+        });
+        for _ in 0..50 {
+            assert_eq!(s.bound(ChoicePoint::PumpBound, 10), 3);
+            assert_eq!(s.bound(ChoicePoint::PumpBound, 2), 2);
+            assert_eq!(s.bound(ChoicePoint::PollBatch, 10), 2);
+            assert_eq!(s.bound(ChoicePoint::PollBatch, 1), 1);
+            // The other counts still vary.
+            assert!((1..=10).contains(&s.bound(ChoicePoint::ClassKUpdates, 10)));
+        }
+    }
+
+    /// `scheduler_deadline`: the due deadline's event takes the first or the last place among the events of its pump.
+    #[test]
+    fn the_deadline_place_is_fixed() {
+        let mut before = fixed(|o| o.deadline_first = Some(true));
+        let mut after = fixed(|o| o.deadline_first = Some(false));
+        for _ in 0..50 {
+            assert_eq!(before.pick(ChoicePoint::DeadlineEventPlace, 5), 0);
+            assert_eq!(after.pick(ChoicePoint::DeadlineEventPlace, 5), 4);
+        }
+        assert_eq!(after.pick(ChoicePoint::DeadlineEventPlace, 0), 0);
+        assert_eq!(after.pick(ChoicePoint::DeadlineEventPlace, 1), 0);
+    }
+
+    /// `schedule {first: edge_input}`, `no_spurious_wakes`, and a fixed deferral.
+    #[test]
+    fn edge_input_first_no_spurious_wakes_and_a_fixed_deferral() {
+        let mut s = fixed(|o| {
+            o.edge_input_first = true;
+            o.no_spurious_wakes = true;
+            o.defer_operations = Some(false);
+        });
+        for _ in 0..50 {
+            assert_eq!(s.pick(ChoicePoint::ReadyWork, 6), 0);
+            assert_eq!(s.pick(ChoicePoint::SpuriousWake, 2), 0);
+            assert_eq!(s.pick(ChoicePoint::OperationDeferral, 2), 0);
+        }
+        let mut deferred = fixed(|o| o.defer_operations = Some(true));
+        assert_eq!(deferred.pick(ChoicePoint::OperationDeferral, 2), 1);
+        assert_eq!(
+            deferred.pick(ChoicePoint::OperationDeferral, 1),
+            0,
+            "one candidate has one index"
+        );
+    }
+
+    /// A fixed choice draws nothing: the stream of the other choices is the stream of a scheduler with no override.
+    #[test]
+    fn a_fixed_choice_draws_nothing() {
+        let mut plain = SeededScheduler::with_seed(33);
+        let mut fixed_one = fixed(|o| o.edge_input_first = true);
+        fixed_one.rng = ChaCha8Rng::seed_from_u64(33);
+        for _ in 0..10 {
+            fixed_one.pick(ChoicePoint::ReadyWork, 9);
+        }
+        assert_eq!(
+            plain.pick(ChoicePoint::FileCompletion, 1000),
+            fixed_one.pick(ChoicePoint::FileCompletion, 1000)
+        );
+    }
+
+    /// The handle fixes choices for every clone that shares the stream.
+    #[test]
+    fn the_handle_sets_overrides_for_every_clone() {
+        let handle = SchedulerHandle::with_seed(4);
+        let other = handle.clone();
+        handle.set_overrides(|o| o.work_limit = Some(1));
+        assert_eq!(other.with(|s| s.bound(ChoicePoint::PumpBound, 9)), 1);
     }
 }

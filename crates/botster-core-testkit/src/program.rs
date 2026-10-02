@@ -15,6 +15,7 @@ use botster_probe_script::{Script, ScriptError, Step};
 use botster_route_codec::prelude::hex_decode;
 use std::collections::VecDeque;
 use std::io;
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 /// A script that the in-process program cannot run.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -55,6 +56,157 @@ enum Op {
     IgnoreSigterm,
 }
 
+/// What a test scripts about the program edge (the program controls of `docs/core-testkit-controls.md`). It is state of the edge,
+/// shared with a [`ProgramControl`] handle so a test can script a program that the worker owns.
+#[derive(Debug, Default)]
+struct Controls {
+    /// Writes return `WouldBlock` (`pty_blocked`).
+    blocked: bool,
+    /// At most this many more bytes of input are taken, then none (`pty_accept`).
+    accept: Option<usize>,
+    /// This many more bytes are taken, then the next write fails (`pty_fail_after`).
+    fail_after: Option<usize>,
+    /// Every read returns at most this many bytes (`program_write_size`).
+    write_cap: Option<usize>,
+    /// Output that the program writes besides its script: `(bytes, atomic)` (`program_write_once`, `uncarriable_sequence`).
+    inject: VecDeque<(Vec<u8>, bool)>,
+    /// Every byte of input that the program took (the log behind `pty_input`).
+    input_log: Vec<u8>,
+    /// Output bytes that the worker has not read: the program's queue and the injected bytes (`pty_output_unread`).
+    unread: usize,
+}
+
+/// A handle on the controls of a [`ScriptedProgram`]. It outlives the move of the program into a worker.
+#[derive(Debug, Clone)]
+pub struct ProgramControl(Arc<Mutex<Controls>>);
+
+impl ProgramControl {
+    fn lock(&self) -> MutexGuard<'_, Controls> {
+        self.0.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// `pty_blocked`: writes return `WouldBlock` while on. Turning it off also lifts a `pty_accept` limit.
+    pub fn set_blocked(&self, on: bool) {
+        let mut controls = self.lock();
+        controls.blocked = on;
+        if !on {
+            controls.accept = None;
+        }
+    }
+
+    /// `pty_accept`: the program takes at most `bytes` more bytes of input, then none until `set_blocked(false)`. A write that
+    /// straddles the limit has its accepted prefix written (Core A5-2, IN-2: `Partial`).
+    pub fn accept_at_most(&self, bytes: usize) {
+        self.lock().accept = Some(bytes);
+    }
+
+    /// `pty_fail_after`: the program takes `bytes` more bytes, then the next write fails with an OS error (Core IN-2).
+    pub fn fail_after(&self, bytes: usize) {
+        self.lock().fail_after = Some(bytes);
+    }
+
+    /// `program_write_size`: every read returns at most `bytes` bytes; `None` gives the choice back to the scheduler.
+    pub fn write_size(&self, bytes: Option<usize>) {
+        self.lock().write_cap = bytes;
+    }
+
+    /// `program_write_once`: the program writes these bytes as one write, so the worker reads them in one piece (Core A5-2, E2-3).
+    pub fn write_once(&self, bytes: &[u8]) {
+        let mut controls = self.lock();
+        controls.unread += bytes.len();
+        controls.inject.push_back((bytes.to_vec(), true));
+    }
+
+    /// `uncarriable_sequence`: the program writes the start of an OSC or DCS string and more than `limit` bytes of it, with no
+    /// terminator (Core A8-2). `kind` is `osc` or `dcs`; the caller names the continuation limit of the snapshot format.
+    pub fn write_unterminated(&self, kind: UnterminatedKind, limit: usize) {
+        let mut bytes = match kind {
+            UnterminatedKind::Osc => b"\x1b]0;".to_vec(),
+            UnterminatedKind::Dcs => b"\x1bP1$r".to_vec(),
+        };
+        bytes.extend(std::iter::repeat_n(b'a', limit + 1));
+        let mut controls = self.lock();
+        controls.unread += bytes.len();
+        controls.inject.push_back((bytes, false));
+    }
+
+    /// Every byte of input that the program took, in order.
+    pub fn input_log(&self) -> Vec<u8> {
+        self.lock().input_log.clone()
+    }
+
+    /// `pty_output_unread`: the output bytes that the worker has not read.
+    pub fn output_unread(&self) -> usize {
+        self.lock().unread
+    }
+}
+
+/// The string that `uncarriable_sequence` leaves open.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UnterminatedKind {
+    Osc,
+    Dcs,
+}
+
+/// The output that the worker has not read: pieces in the order that the program wrote them. An atomic piece is read in one
+/// piece when the buffer holds it (`program_write_once`), and is never read together with the bytes around it. Plain bytes that
+/// follow plain bytes are one piece, so the scheduler chooses where a read ends within them.
+#[derive(Debug, Default)]
+struct Output {
+    pieces: VecDeque<Piece>,
+    len: usize,
+}
+
+#[derive(Debug)]
+struct Piece {
+    bytes: VecDeque<u8>,
+    atomic: bool,
+}
+
+impl Output {
+    fn push(&mut self, bytes: &[u8], atomic: bool) {
+        if bytes.is_empty() {
+            return;
+        }
+        self.len += bytes.len();
+        match self.pieces.back_mut() {
+            Some(back) if !atomic && !back.atomic => back.bytes.extend(bytes),
+            _ => self.pieces.push_back(Piece {
+                bytes: bytes.iter().copied().collect(),
+                atomic,
+            }),
+        }
+    }
+
+    fn len(&self) -> usize {
+        self.len
+    }
+
+    fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+
+    /// Moves the bytes of one read into `buf`: at most the front piece and the buffer. `choose` picks the size of a read of a plain
+    /// piece (at least 1, at most its argument). Returns the bytes moved.
+    fn take(&mut self, buf: &mut [u8], choose: impl FnOnce(usize) -> usize) -> usize {
+        let Some(front) = self.pieces.front_mut() else {
+            return 0;
+        };
+        let fits = front.bytes.len().min(buf.len());
+        let n = if front.atomic { fits } else { choose(fits) };
+        for slot in &mut buf[..n] {
+            if let Some(byte) = front.bytes.pop_front() {
+                *slot = byte;
+            }
+        }
+        if front.bytes.is_empty() {
+            self.pieces.pop_front();
+        }
+        self.len -= n;
+        n
+    }
+}
+
 /// The program of a session, run from a probe script.
 ///
 /// Clause: Core A5-1 (the program edge), Core A5-2 (write-size variation), Core A5-3 (`pty_blocked`).
@@ -64,11 +216,11 @@ pub struct ScriptedProgram {
     cursor: usize,
     /// Everything that the program has read, as the probe's `seen` buffer.
     seen: Vec<u8>,
-    output: VecDeque<u8>,
+    output: Output,
     exit: Option<ExitStatus>,
     exit_taken: bool,
     ignores_sigterm: bool,
-    blocked: bool,
+    controls: ProgramControl,
     size: Option<WindowSize>,
     scheduler: SchedulerHandle,
 }
@@ -128,11 +280,11 @@ impl ScriptedProgram {
             ops,
             cursor: 0,
             seen: Vec::new(),
-            output: VecDeque::new(),
+            output: Output::default(),
             exit: None,
             exit_taken: false,
             ignores_sigterm: false,
-            blocked: false,
+            controls: ProgramControl(Arc::default()),
             size: None,
             scheduler: scheduler.clone(),
         })
@@ -147,7 +299,12 @@ impl ScriptedProgram {
 
     /// Makes writes to the program return `WouldBlock` (A5-3, `pty_blocked`), or lets them proceed again.
     pub fn set_blocked(&mut self, blocked: bool) {
-        self.blocked = blocked;
+        self.controls.set_blocked(blocked);
+    }
+
+    /// The handle on this program's controls.
+    pub fn control(&self) -> ProgramControl {
+        self.controls.clone()
     }
 
     /// The size that the worker last set.
@@ -161,11 +318,26 @@ impl ScriptedProgram {
         !self.output.is_empty() || self.exit.is_some()
     }
 
+    /// Takes the output that a control injected.
+    fn take_injected(&mut self) {
+        let injected: Vec<(Vec<u8>, bool)> = self.controls.lock().inject.drain(..).collect();
+        for (bytes, atomic) in injected {
+            self.output.push(&bytes, atomic);
+        }
+    }
+
     /// Runs every step that can proceed.
     fn advance(&mut self) {
+        // The script's output that can run now comes first; the bytes that a control injected follow it.
+        self.run_steps();
+        self.take_injected();
+        self.controls.lock().unread = self.output.len();
+    }
+
+    fn run_steps(&mut self) {
         while self.exit.is_none() {
             match &self.ops[self.cursor] {
-                Op::Print(bytes) => self.output.extend(bytes),
+                Op::Print(bytes) => self.output.push(bytes, false),
                 Op::PrintAfterInput { wanted, bytes } => {
                     let found = self
                         .seen
@@ -174,7 +346,7 @@ impl ScriptedProgram {
                     if !found {
                         return;
                     }
-                    self.output.extend(bytes);
+                    self.output.push(bytes, false);
                 }
                 Op::Exit(status) => {
                     self.exit = Some(*status);
@@ -194,12 +366,33 @@ impl Program for ScriptedProgram {
         if self.exit.is_some() {
             return Err(io::ErrorKind::BrokenPipe.into());
         }
-        if self.blocked {
-            return Err(io::ErrorKind::WouldBlock.into());
-        }
-        self.seen.extend_from_slice(bytes);
+        let taken = {
+            let mut controls = self.controls.lock();
+            if controls.fail_after == Some(0) {
+                return Err(io::Error::from_raw_os_error(5));
+            }
+            let mut room = bytes.len();
+            if let Some(accept) = controls.accept {
+                room = room.min(accept);
+            }
+            if let Some(left) = controls.fail_after {
+                room = room.min(left);
+            }
+            if (controls.blocked || room == 0) && !bytes.is_empty() {
+                return Err(io::ErrorKind::WouldBlock.into());
+            }
+            if let Some(accept) = &mut controls.accept {
+                *accept -= room;
+            }
+            if let Some(left) = &mut controls.fail_after {
+                *left -= room;
+            }
+            controls.input_log.extend_from_slice(&bytes[..room]);
+            room
+        };
+        self.seen.extend_from_slice(&bytes[..taken]);
         self.advance();
-        Ok(bytes.len())
+        Ok(taken)
     }
 
     /// Reads a seed-chosen number of the bytes that the program has written (A5-2, "the program edge varies its write sizes").
@@ -215,10 +408,13 @@ impl Program for ScriptedProgram {
                 Err(io::ErrorKind::WouldBlock.into())
             };
         }
-        let n = self.scheduler.with(|s| s.program_write_size(available));
-        for slot in &mut buf[..n] {
-            *slot = self.output.pop_front().unwrap_or_default();
-        }
+        let scheduler = self.scheduler.clone();
+        let cap = self.controls.lock().write_cap;
+        let n = self.output.take(buf, |fits| match cap {
+            Some(cap) => fits.min(cap).max(1),
+            None => scheduler.with(|s| s.program_write_size(fits)),
+        });
+        self.controls.lock().unread = self.output.len();
         Ok(n)
     }
 
@@ -462,5 +658,274 @@ mod tests {
         assert!(output.is_readable());
         let mut ended = program(json!({"program": [{"exit": {"code": 0}}]}), true, 0);
         assert!(ended.is_readable());
+    }
+
+    fn holds() -> ScriptedProgram {
+        program(json!({"program": [{"hold": {}}]}), true, 0)
+    }
+
+    /// `pty_accept`: at most N more bytes, a straddling write has its accepted prefix, then none until the block is lifted.
+    #[test]
+    fn pty_accept_takes_a_prefix_then_blocks_until_lifted() {
+        let mut p = holds();
+        let control = p.control();
+        control.accept_at_most(3);
+        assert_eq!(p.write(b"abcdef").unwrap(), 3);
+        assert_eq!(p.write(b"d").unwrap_err().kind(), io::ErrorKind::WouldBlock);
+        control.set_blocked(false);
+        assert_eq!(
+            p.write(b"def").unwrap(),
+            3,
+            "lifting the block lifts the limit"
+        );
+        assert_eq!(control.input_log(), b"abcdef");
+    }
+
+    /// `pty_fail_after`: N more bytes, then the next write fails with an OS error; the log holds what was taken.
+    #[test]
+    fn pty_fail_after_fails_the_write_after_n_bytes() {
+        let mut p = holds();
+        let control = p.control();
+        control.fail_after(2);
+        assert_eq!(p.write(b"abc").unwrap(), 2);
+        let error = p.write(b"c").unwrap_err();
+        assert_eq!(error.raw_os_error(), Some(5));
+        assert_eq!(control.input_log(), b"ab");
+    }
+
+    /// `pty_blocked` through the handle reaches a program that the worker owns.
+    #[test]
+    fn the_handle_blocks_a_program_that_moved() {
+        let p = holds();
+        let control = p.control();
+        let mut moved = Box::new(p);
+        control.set_blocked(true);
+        assert_eq!(
+            moved.write(b"a").unwrap_err().kind(),
+            io::ErrorKind::WouldBlock
+        );
+        control.set_blocked(false);
+        assert_eq!(moved.write(b"a").unwrap(), 1);
+    }
+
+    /// `program_write_size`: every read returns at most N bytes, whatever the seed chooses.
+    #[test]
+    fn the_write_size_control_caps_every_read() {
+        let hex = "61".repeat(10);
+        let mut p = program(
+            json!({"program": [{"print": {"bytes_hex": hex}}, {"hold": {}}]}),
+            true,
+            5,
+        );
+        p.control().write_size(Some(3));
+        let mut buf = [0u8; 16];
+        let mut sizes = Vec::new();
+        for _ in 0..4 {
+            sizes.push(p.read(&mut buf).unwrap());
+        }
+        assert_eq!(sizes, [3, 3, 3, 1]);
+    }
+
+    /// `program_write_once`: the bytes are read in one piece, after the bytes before them, and the pieces before are never merged
+    /// into it.
+    #[test]
+    fn write_once_is_read_in_one_piece() {
+        let mut p = program(
+            json!({"program": [{"print": {"bytes_hex": "6162"}}, {"hold": {}}]}),
+            true,
+            3,
+        );
+        let control = p.control();
+        control.write_once(b"WXYZ");
+        let mut buf = [0u8; 16];
+        let mut pieces = Vec::new();
+        while let Ok(n) = p.read(&mut buf) {
+            pieces.push(buf[..n].to_vec());
+        }
+        let flat: Vec<u8> = pieces.concat();
+        assert_eq!(flat, b"abWXYZ");
+        assert!(pieces.contains(&b"WXYZ".to_vec()), "{pieces:?}");
+    }
+
+    /// An atomic write that does not fit the buffer is split only because it must be.
+    #[test]
+    fn a_small_buffer_splits_an_atomic_write_without_loss() {
+        let mut p = holds();
+        p.control().write_once(b"abcdef");
+        let mut buf = [0u8; 4];
+        assert_eq!(p.read(&mut buf).unwrap(), 4);
+        assert_eq!(&buf, b"abcd");
+        assert_eq!(p.read(&mut buf).unwrap(), 2);
+        assert_eq!(&buf[..2], b"ef");
+    }
+
+    /// `pty_output_unread`: the bytes that the worker has not read, the injected ones included.
+    #[test]
+    fn output_unread_counts_what_the_worker_has_not_read() {
+        let mut p = program(
+            json!({"program": [{"print": {"bytes_hex": "61626364"}}, {"hold": {}}]}),
+            true,
+            0,
+        );
+        let control = p.control();
+        p.control().write_size(Some(1));
+        assert!(p.is_readable());
+        assert_eq!(control.output_unread(), 4);
+        p.read(&mut [0u8; 8]).unwrap();
+        assert_eq!(control.output_unread(), 3);
+        control.write_once(b"xy");
+        assert_eq!(
+            control.output_unread(),
+            5,
+            "before the program takes them in"
+        );
+    }
+
+    /// `uncarriable_sequence`: an open OSC or DCS string longer than the limit, with no terminator.
+    #[test]
+    fn an_unterminated_sequence_exceeds_the_limit() {
+        for (kind, start) in [
+            (UnterminatedKind::Osc, &b"\x1b]"[..]),
+            (UnterminatedKind::Dcs, &b"\x1bP"[..]),
+        ] {
+            let mut p = holds();
+            p.control().write_unterminated(kind, 100);
+            let mut out = Vec::new();
+            let mut buf = [0u8; 256];
+            while let Ok(n) = p.read(&mut buf) {
+                out.extend_from_slice(&buf[..n]);
+            }
+            assert!(out.starts_with(start));
+            assert!(out.len() > 100 + start.len());
+            assert!(
+                !out.contains(&0x07) && !out.windows(2).any(|w| w == b"\x1b\\"),
+                "no terminator"
+            );
+        }
+    }
+
+    /// Every read of the program until it would block, as separate pieces.
+    fn read_pieces(p: &mut ScriptedProgram, buf_len: usize) -> Vec<Vec<u8>> {
+        let mut buf = vec![0u8; buf_len];
+        let mut pieces = Vec::new();
+        while let Ok(n) = p.read(&mut buf) {
+            assert!(
+                n > 0 || pieces.is_empty() || p.control().output_unread() == 0,
+                "Ok(0) while output remains"
+            );
+            if n == 0 {
+                break;
+            }
+            pieces.push(buf[..n].to_vec());
+        }
+        pieces
+    }
+
+    /// Several atomic writes are each read whole and never merged with each other or with plain bytes; one that does not fit the
+    /// buffer is split without loss; a write injected after the queue drained is read whole too; no byte is invented.
+    #[test]
+    fn queued_atomic_writes_keep_their_boundaries() {
+        let mut p = holds();
+        let control = p.control();
+        control.write_size(Some(3));
+        control.write_once(b"abcdef");
+        control.write_once(b"XYZ");
+        assert_eq!(
+            read_pieces(&mut p, 4),
+            [b"abcd".to_vec(), b"ef".to_vec(), b"XYZ".to_vec()]
+        );
+        assert_eq!(control.output_unread(), 0);
+        control.write_once(b"pq");
+        assert_eq!(
+            read_pieces(&mut p, 4),
+            [b"pq".to_vec()],
+            "one read, no padding"
+        );
+        // Plain bytes between atomic writes stay between them, and are read at the scripted size.
+        let mut mixed = program(
+            json!({"program": [{"print": {"bytes_hex": "6162636465"}}, {"hold": {}}]}),
+            true,
+            0,
+        );
+        let control = mixed.control();
+        control.write_size(Some(2));
+        control.write_once(b"WX");
+        control.write_once(b"YZ");
+        assert_eq!(
+            read_pieces(&mut mixed, 8),
+            [
+                b"ab".to_vec(),
+                b"cd".to_vec(),
+                b"e".to_vec(),
+                b"WX".to_vec(),
+                b"YZ".to_vec()
+            ]
+        );
+    }
+
+    /// An empty atomic write is nothing: it is no piece, it does not end a read with `Ok(0)`, and the output behind it is read.
+    #[test]
+    fn an_empty_atomic_write_is_no_piece() {
+        let mut p = holds();
+        let control = p.control();
+        control.write_once(b"");
+        assert!(!p.is_readable());
+        assert_eq!(
+            p.read(&mut [0u8; 4]).unwrap_err().kind(),
+            io::ErrorKind::WouldBlock
+        );
+        control.write_once(b"");
+        control.write_once(b"ab");
+        control.write_once(b"");
+        assert_eq!(read_pieces(&mut p, 8), [b"ab".to_vec()]);
+        assert_eq!(control.output_unread(), 0);
+    }
+
+    /// `uncarriable_sequence`: the open string is the start plus exactly `limit + 1` bytes, and the unread count includes them.
+    #[test]
+    fn an_unterminated_sequence_is_one_byte_over_the_limit() {
+        let mut p = holds();
+        let control = p.control();
+        control.write_unterminated(UnterminatedKind::Osc, 10);
+        assert_eq!(
+            control.output_unread(),
+            4 + 11,
+            "the start `ESC ] 0 ;` and limit + 1 bytes"
+        );
+        control.write_unterminated(UnterminatedKind::Dcs, 3);
+        assert_eq!(control.output_unread(), 15 + 5 + 4);
+        let mut buf = [0u8; 64];
+        let mut total = 0;
+        while let Ok(n) = p.read(&mut buf) {
+            total += n;
+        }
+        assert_eq!(total, 24);
+    }
+
+    /// `Output::push`: plain bytes after plain bytes are one piece; an atomic piece is never joined to its neighbours.
+    #[test]
+    fn plain_bytes_merge_and_an_atomic_piece_stands_alone() {
+        let mut output = Output::default();
+        output.push(b"ab", false);
+        output.push(b"cd", false);
+        assert_eq!(output.pieces.len(), 1);
+        output.push(b"EF", true);
+        output.push(b"gh", false);
+        output.push(b"IJ", true);
+        output.push(b"kl", false);
+        output.push(b"mn", false);
+        let shape: Vec<(usize, bool)> = output
+            .pieces
+            .iter()
+            .map(|p| (p.bytes.len(), p.atomic))
+            .collect();
+        assert_eq!(
+            shape,
+            [(4, false), (2, true), (2, false), (2, true), (4, false)]
+        );
+        assert_eq!(output.len(), 14);
+        output.push(b"", true);
+        output.push(b"", false);
+        assert_eq!(output.pieces.len(), 5);
     }
 }
