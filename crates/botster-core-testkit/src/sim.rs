@@ -188,6 +188,12 @@ impl Sim {
         unreachable!("the index is below the total")
     }
 
+    /// True when an input is ready now. It draws no scheduling choice and handles nothing.
+    pub fn has_ready(&mut self) -> bool {
+        let now = self.now;
+        self.nodes.iter_mut().any(|node| node.ready(now) > 0)
+    }
+
     /// Handles inputs until none is ready; returns how many were handled.
     pub fn run_until_idle(&mut self, limit: usize) -> Result<usize, Livelock> {
         for handled in 0..limit {
@@ -195,7 +201,12 @@ impl Sim {
                 return Ok(handled);
             }
         }
-        Err(Livelock { limit })
+        // Work that is still ready after the limit is a livelock. The check handles nothing and draws no choice.
+        if self.has_ready() {
+            Err(Livelock { limit })
+        } else {
+            Ok(limit)
+        }
     }
 
     /// The handled inputs, in order, with their actions.
@@ -427,5 +438,17 @@ mod tests {
         feed(&mut feeders);
         assert_eq!(sim.run_until_idle(3), Err(Livelock { limit: 3 }));
         assert_eq!(sim.trace().len(), 3);
+    }
+
+    /// The limit is the most inputs to handle. Finishing exactly at it is idle, not a livelock, and an empty `Sim` with limit 0
+    /// is idle. No choice is drawn by the check.
+    #[test]
+    fn finishing_exactly_at_the_limit_is_idle() {
+        let (mut sim, _log, mut feeders) = world(0, u32::MAX);
+        assert_eq!(sim.run_until_idle(0), Ok(0));
+        feed(&mut feeders);
+        assert_eq!(sim.run_until_idle(12), Ok(12));
+        assert!(!sim.has_ready());
+        assert_eq!(Sim::with_seed(0, Instant::now()).run_until_idle(0), Ok(0));
     }
 }

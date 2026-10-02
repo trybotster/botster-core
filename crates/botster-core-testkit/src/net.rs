@@ -108,7 +108,9 @@ impl End {
                 || !shared.descriptors[peer].is_empty()
                 || shared.closed[peer]);
         let writable = !shared.closed[me]
-            && (shared.closed[peer] || shared.queues[me].len() < shared.capacity);
+            && (self.write_error.is_some()
+                || shared.closed[peer]
+                || shared.queues[me].len() < shared.capacity);
         Readiness { readable, writable }
     }
 
@@ -165,13 +167,29 @@ impl End {
     }
 
     /// Closes this end. The peer reads what is queued, then `Ok(0)`.
+    ///
+    /// The bytes that this end wrote stay queued until the peer reads them. The descriptors that the peer sent and this end
+    /// has not received are released, as the kernel releases the descriptors of a closed socket.
     pub fn close(&mut self) {
-        lock(&self.shared).closed[self.side] = true;
+        let released: Vec<Descriptor> = {
+            let mut shared = lock(&self.shared);
+            shared.closed[self.side] = true;
+            shared.descriptors[1 - self.side].drain(..).collect()
+        };
+        // Dropped outside the lock: a descriptor can hold an endpoint of another duplex, whose drop takes its own lock.
+        drop(released);
     }
 
     /// The next write fails with `kind` (A5-3: a failed write of the route transport).
     pub fn fail_next_write(&mut self, kind: io::ErrorKind) {
         self.write_error = Some(kind);
+    }
+}
+
+impl Drop for End {
+    /// A dropped end is a closed end (the connection boundary of a real stream: the peer sees the close).
+    fn drop(&mut self) {
+        self.close();
     }
 }
 
@@ -437,5 +455,68 @@ mod tests {
         RouteTransport::close(&mut client);
         assert_eq!(worker.read(&mut [0u8; 4]).unwrap(), 1);
         assert_eq!(worker.read(&mut [0u8; 4]).unwrap(), 0);
+    }
+
+    /// A dropped end closes its side: the survivor reads the queued bytes, then `Ok(0)`, its writes fail, and it sees the close.
+    #[test]
+    fn a_dropped_link_end_closes_its_side() {
+        let (mut a, mut b) = link_pair(8);
+        a.send(b"xy").unwrap();
+        drop(a);
+        b.end().set_interest(Interest {
+            read: true,
+            write: true,
+        });
+        assert_eq!(drain(&mut b), b"xy", "queued bytes are kept");
+        assert_eq!(b.recv(&mut [0u8; 4]).unwrap(), 0);
+        assert_eq!(b.send(b"z").unwrap_err().kind(), io::ErrorKind::BrokenPipe);
+        assert!(
+            b.is_ready(),
+            "the close is readable and the failing write is writable"
+        );
+    }
+
+    /// The same for a route stream, and for a stream end that moved into a descriptor and is dropped with it.
+    #[test]
+    fn a_dropped_route_end_closes_its_side() {
+        let sched = SchedulerHandle::with_seed(0);
+        let (worker, mut client) = stream_pair(&sched, 8);
+        drop(worker);
+        assert_eq!(client.read(&mut [0u8; 4]).unwrap(), 0);
+        assert_eq!(
+            client.write(b"z").unwrap_err().kind(),
+            io::ErrorKind::BrokenPipe
+        );
+
+        let (mut a, b) = link_pair(4);
+        let (worker, mut client) = stream_pair(&sched, 8);
+        a.send_descriptor(Descriptor::new(worker)).unwrap();
+        // The receiver closes without taking the descriptor: the descriptor, and the route end in it, are released.
+        drop(b);
+        assert_eq!(client.read(&mut [0u8; 4]).unwrap(), 0);
+        assert_eq!(
+            client.write(b"z").unwrap_err().kind(),
+            io::ErrorKind::BrokenPipe
+        );
+    }
+
+    /// A5-3: an injected write failure is write-ready work for an open end, even while the queue is full.
+    #[test]
+    fn an_injected_write_failure_is_write_ready_on_a_full_queue() {
+        let sched = SchedulerHandle::with_seed(0);
+        let (mut worker, _client) = stream_pair(&sched, 2);
+        worker.end().set_interest(Interest {
+            read: false,
+            write: true,
+        });
+        worker.write(b"ab").unwrap();
+        assert!(!worker.is_ready(), "full queue, no failure pending");
+        worker.end().fail_next_write(io::ErrorKind::ConnectionReset);
+        assert!(worker.is_ready());
+        assert_eq!(
+            worker.write(b"c").unwrap_err().kind(),
+            io::ErrorKind::ConnectionReset
+        );
+        assert!(!worker.is_ready(), "the failure was delivered");
     }
 }

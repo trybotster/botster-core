@@ -122,8 +122,11 @@ impl Scheduler for SeededScheduler {
     fn pick(&mut self, point: ChoicePoint, candidates: usize) -> usize {
         match point {
             ChoicePoint::ReadyWork => self.ready_work(candidates),
-            ChoicePoint::OperationDeferral => usize::from(self.defer_operation()),
-            ChoicePoint::SpuriousWake => usize::from(self.spurious_wake()),
+            // Index 1 is "deferred" or "spurious". With one candidate only index 0 exists, and nothing is drawn.
+            ChoicePoint::OperationDeferral if candidates >= 2 => {
+                usize::from(self.defer_operation())
+            }
+            ChoicePoint::SpuriousWake if candidates >= 2 => usize::from(self.spurious_wake()),
             ChoicePoint::DeadlineEventPlace => {
                 self.deadline_event_place(candidates.saturating_sub(1))
             }
@@ -254,5 +257,25 @@ mod tests {
         // Every pick point gives each of its candidates, and every bound point gives each of 1 to 4.
         assert_eq!(seen_picks.len(), 4 + 2 + 2 + 4 + 4);
         assert_eq!(seen_bounds.len(), 7 * 4);
+    }
+
+    /// The `Scheduler` trait gives an index below the candidate count, also for the binary points (Scheduler::pick contract).
+    #[test]
+    fn a_pick_stays_below_the_candidate_count() {
+        let mut s = SeededScheduler::with_seed(13);
+        for _ in 0..200 {
+            for point in [
+                ChoicePoint::ReadyWork,
+                ChoicePoint::OperationDeferral,
+                ChoicePoint::SpuriousWake,
+                ChoicePoint::DeadlineEventPlace,
+                ChoicePoint::FileCompletion,
+                ChoicePoint::Session,
+            ] {
+                assert_eq!(s.pick(point, 1), 0, "{point:?}");
+                assert_eq!(s.pick(point, 0), 0, "{point:?}");
+                assert!(s.pick(point, 2) < 2, "{point:?}");
+            }
+        }
     }
 }

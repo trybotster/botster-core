@@ -44,9 +44,15 @@ impl std::error::Error for ProgramError {}
 #[derive(Debug, Clone)]
 enum Op {
     Print(Vec<u8>),
-    PrintAfterInput { wanted: Vec<u8>, bytes: Vec<u8> },
+    PrintAfterInput {
+        wanted: Vec<u8>,
+        bytes: Vec<u8>,
+    },
     Exit(ExitStatus),
     Hold,
+    /// Sets the flag when execution reaches it: the in-process program receives no signal, and the Process edge reads the flag
+    /// to decide whether a SIGTERM ends the program.
+    IgnoreSigterm,
 }
 
 /// The program of a session, run from a probe script.
@@ -104,9 +110,7 @@ impl ScriptedProgram {
                 Step::Exit { code } => Op::Exit(ExitStatus::Code(*code)),
                 Step::SignalSelf { n } => Op::Exit(ExitStatus::Signal(*n)),
                 Step::Hold {} => Op::Hold,
-                // A flag only: the in-process program receives no signal. The Process edge reads it to decide whether a
-                // SIGTERM ends the program.
-                Step::IgnoreSigterm {} => continue,
+                Step::IgnoreSigterm {} => Op::IgnoreSigterm,
                 Step::ForkChild { .. } => {
                     return Err(ProgramError::RealOnly {
                         path: format!("program[{i}]"),
@@ -127,15 +131,17 @@ impl ScriptedProgram {
             output: VecDeque::new(),
             exit: None,
             exit_taken: false,
-            ignores_sigterm: script.ignores_sigterm(),
+            ignores_sigterm: false,
             blocked: false,
             size: None,
             scheduler: scheduler.clone(),
         })
     }
 
-    /// True when a step of the script ignores `SIGTERM`.
-    pub fn ignores_sigterm(&self) -> bool {
+    /// True once execution has reached a step that ignores `SIGTERM` (the steps run in order, and a waiting step holds the
+    /// later ones back, Core A5-1).
+    pub fn ignores_sigterm(&mut self) -> bool {
+        self.advance();
         self.ignores_sigterm
     }
 
@@ -175,6 +181,7 @@ impl ScriptedProgram {
                     return;
                 }
                 Op::Hold => return,
+                Op::IgnoreSigterm => self.ignores_sigterm = true,
             }
             self.cursor += 1;
         }
@@ -381,5 +388,28 @@ mod tests {
         assert!(ScriptedProgram::new(&sigterm, true, &sched)
             .unwrap()
             .ignores_sigterm());
+    }
+
+    /// A5-1: `ignore_sigterm` takes effect when execution reaches it, not before. A waiting step before it holds it back, and a
+    /// step after a `hold` is never reached.
+    #[test]
+    fn ignore_sigterm_applies_at_its_script_step() {
+        let mut waits = program(
+            json!({"program": [
+                {"print_after_input": {"match_hex": "61", "bytes_hex": "62"}},
+                {"ignore_sigterm": {}},
+                {"hold": {}}]}),
+            true,
+            0,
+        );
+        assert!(!waits.ignores_sigterm());
+        waits.write(b"a").unwrap();
+        assert!(waits.ignores_sigterm());
+        let mut never = program(
+            json!({"program": [{"hold": {}}, {"ignore_sigterm": {}}]}),
+            true,
+            0,
+        );
+        assert!(!never.ignores_sigterm());
     }
 }
