@@ -1,3 +1,58 @@
+# P6 testkit review — Scope 2, step 2
+
+VERDICT: NOT CLEAN (3 open)
+
+Reviewed head: `4a0015085fd91430cfc0204ebb16eeafc0dc3846`.
+Base: `06f1f04`.
+Authority: Scope 2 brief, plan pin `c43693ff`, and `contracts-v0.1.7` at `f14c895`.
+The reviewer checked logic only. The reviewer ran no tests or gate.
+
+## S2-R1 — HIGH — A scripted attach refusal drops the caller's endpoint
+
+Evidence: `crates/botster-core-testkit/src/refusal.rs:605-618`.
+`attach` owns `RouteTransport` and returns `Err` when the script matches.
+For `RouteTransport::Stream`, that return drops `StreamEndpoint` and its owned stream.
+The method comment states this behavior. Plan 4.2a requires the descriptor to stay with the caller.
+DP-2 transfers ownership only from a successful attach return.
+
+The comment's proposed harness precheck also has a counting error if the call proceeds through the current layer.
+For occurrence 2, the precheck decrements the entry to 1. The layer then refuses the first attach call.
+
+Required change: preserve the caller's stream on refusal. Count each attach call exactly once.
+Add proof with an owned stream endpoint, including a refusal at occurrence 2 and an unchanged successful delegation.
+The reviewer sent the lead a QUESTION about direct-layer versus harness ownership under the by-value contract trait.
+Do not change that trait without authority.
+
+## S2-R2 — MEDIUM — The table omits two synchronous calls
+
+Evidence: `ROWS` has no `snapshot_formats` or `tap_read` row.
+Their layer methods at lines 600 and 623 always delegate.
+`arm("snapshot_formats", 1, "UnknownSession")` and the corresponding `tap_read` entry return `UnknownCall`.
+Both methods take a session and return `Result<..., CoreError>` in the pinned `CoreApi`.
+ST-6 and TP-1 define these synchronous reads. Section 9.3 defines `UnknownSession` as a synchronous error.
+Plan 4.2a requires a row per call, including the other synchronous calls.
+
+Required change: add the missing rows with their source clauses and valid synchronous codes.
+Add a unit test per row and verify that each method refuses before delegation.
+Keep calls without a refusal result outside the script table.
+
+## S2-R3 — MEDIUM — Conflicting entries silently change their occurrence
+
+Evidence: `RefusalScript::arm` accepts two entries with the same call and occurrence.
+`take` at lines 454-458 fires only the first entry and keeps the second at remaining 1.
+Arm `Start` occurrence 1 with `WrongState`, then `Start` occurrence 1 with `PendingLimit`.
+The first call returns `WrongState`. The second call returns `PendingLimit`, although its entry named the first call.
+The same defect occurs when entries armed at different times converge on one call.
+Plan 4.2a and the public `arm` documentation specify the n-th call from arming.
+
+Required change: reject conflicting entries when arming, or apply another explicit policy that preserves the specified occurrence.
+Do not silently move a refusal to a later call. Cover both simultaneous and converging entries.
+
+The remaining layer methods preserve real Core results. The reviewed delta adds no production test branch.
+Both harnesses and the conformance proof remain part of later Scope 2 integration.
+
+---
+
 # P6 testkit review — Scope 2, step 1
 
 VERDICT: CLEAN
