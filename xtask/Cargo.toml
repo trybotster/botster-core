@@ -12,6 +12,7 @@ workspace = true
 [dependencies]
 anyhow.workspace = true
 botster-core-contract.workspace = true
+botster-core-testkit.workspace = true
 botster-test-support.workspace = true
 botster-worker-core.workspace = true
 regex.workspace = true
