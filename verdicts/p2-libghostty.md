@@ -1,12 +1,12 @@
 # P2 libghostty review
 
-Reviewed head: `d2cce61b19d724ddc657f17fa8dee26dff409997`.
+Reviewed head: `52b3d866da11cf7c1b9b89bb5d68089be6b2e834`.
 Previous audit head: `fd1471eabca0adb344c6027b8995e1151aa8f8a8`.
 Scope: the written audit and fork patches 0–8 only. This verdict does not approve the full fork series, binding, or pin change.
 
-VERDICT: NOT CLEAN (P23 is open for patch 8 and the audit; patches 0–7 are CLEAN).
-Reviewed fork head: `d27593e55d2e09e5af61ae358ff63d7620140f34`.
-Written audit: NOT CLEAN at `d2cce61b19d724ddc657f17fa8dee26dff409997` because P23 identifies a missed clipboard GAP. F1–F12 and P19 remain closed.
+VERDICT: CLEAN (written audit and fork patches 0–8 only).
+Reviewed fork head: `85a8d8eb197c5752887c017c9a3faa6f1dc1969b`.
+Written audit: CLEAN at `52b3d866da11cf7c1b9b89bb5d68089be6b2e834`. F1–F12 and P13–P23 are closed.
 
 The review uses manifest final13, BUILD.md at `2f2996ef0f016a1fefc6879e74deaef033383b66`, and plan pin `stage1-plan.a24efe7e`.
 The plan hash matches its recorded SHA-256.
@@ -974,3 +974,28 @@ Rust must not parse OSC 52 to bypass this GAP.
 VERDICT: NOT CLEAN for patch 8 and the written audit (P23 remains open).
 Patches 0–7 retain their CLEAN verdicts.
 The binding code and the Ghostty pin change remain outside this verdict.
+
+
+## Patch 8 delta and audit review — P23 closed
+
+Reviewed fork commit: `85a8d8eb197c5752887c017c9a3faa6f1dc1969b`.
+Reviewed audit commit: `52b3d866da11cf7c1b9b89bb5d68089be6b2e834`.
+The reviewer read both complete deltas. All Ghostty reads used `git show`. The reviewer ran no tests.
+
+The native OSC 52 parser now finds the first selection separator and preserves the whole preceding string.
+The parser excludes the final NUL from its separator search and retains the data slice's NUL sentinel.
+An omitted selection remains empty. Its first-character destination mapping remains `c`.
+A request without the separator remains invalid.
+The existing action and callback fields carry the whole borrowed selection during the synchronous callback.
+The read path still calls the query effect once before the clipboard-read effect.
+The new tests cover `s0`, `cp`, and all allowed selection characters together, with both terminators.
+They check one clipboard callback, the full selection, the terminator, and the decoded write payload.
+The tests use literal request stimuli and structured callback results, rather than handwritten expected terminal bytes.
+
+The audit updates the G10 summary, both clipboard rows, and the patch 8 proposal.
+Those rows now record the parser restriction at PIN and UP and the native fix. P23 closes in both the fork and audit.
+The terminfo entry and encoder hashes at this fork head still match the PIN and UP hashes recorded under patch 5.
+
+VERDICT: CLEAN for patch 8 through this exact fork head and the written audit at the exact audit head above.
+Patches 0–7 retain their CLEAN verdicts. All recorded findings are closed.
+This verdict does not approve the Rust binding, the final pin change, or the full P2 package.
