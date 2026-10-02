@@ -1,0 +1,29 @@
+[package]
+name = "botster-worker"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[features]
+# The real-process tests of this crate (BUILD.md testing rule 2): `cargo xtask slow` runs them.
+slow = []
+
+[dependencies]
+botster-core-contract.workspace = true
+botster-core-edges.workspace = true
+botster-core-link.workspace = true
+botster-core-sys.workspace = true
+botster-worker-core.workspace = true
+mio.workspace = true
+rustix.workspace = true
+signal-hook.workspace = true
+signal-hook-mio.workspace = true
+
+[dev-dependencies]
+botster-core.workspace = true
+tempfile.workspace = true
