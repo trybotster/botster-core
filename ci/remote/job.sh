@@ -92,14 +92,16 @@ segment='^[A-Za-z0-9][A-Za-z0-9_.-]*$'
   || reject "invalid --lease file"
 
 # The client's lease: a free lock means the client is gone (Ctrl-C it could not report, a lost connection, a killed shell).
+# The holder deletes the file when it exits; flock would create it again, so a missing file also means "gone".
+client_gone() { [ ! -e "$lease" ] || flock -n "$lease" true; }
 if [ -n "$lease" ]; then
-  if flock -n "$lease" true; then
+  if client_gone; then
     echo "job.sh: the client is gone; the job does not start" >&2
     exit 125
   fi
   # timer: deadline — polls the lease every 5 s; flock has no wait-for-release-by-another-process primitive here.
   ( while sleep 5; do
-      if flock -n "$lease" true; then
+      if client_gone; then
         echo "job.sh: the client is gone (no heartbeat); stopping the job" >&2
         kill -TERM $$
         exit 0
