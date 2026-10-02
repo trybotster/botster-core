@@ -88,6 +88,7 @@ pub mod opt {
     pub const CLIPBOARD_READ: i32 = 38;
     pub const QUERY: i32 = 44;
     pub const QUERY_MAX_BYTES: i32 = 45;
+    pub const CONTINUATION_MAX_BYTES: i32 = 31;
 }
 
 /// `GhosttyTerminalScreen`.
@@ -589,4 +590,21 @@ pub const COLOR_SCHEME_DARK: i32 = 1;
 extern "C" {
     pub fn ghostty_query_reply_encode(reply: *const QueryReply, buf: *mut u8, buf_len: usize, out_written: *mut usize) -> Result;
     pub fn ghostty_color_scheme_report_encode(scheme: i32, buf: *mut u8, buf_len: usize, out_written: *mut usize) -> Result;
+}
+
+pub mod snapshot_opt {
+    pub const MAX_CONTINUATION_BYTES: i32 = 0;
+    pub const RETAIN_CONTINUATION: i32 = 1;
+}
+
+pub type SnapshotDecoder = *mut c_void;
+
+extern "C" {
+    pub fn ghostty_snapshot_encode_buf(terminal: Terminal, buf: *mut u8, buf_len: usize, out_written: *mut usize) -> Result;
+    pub fn ghostty_snapshot_decoder_new_buf(allocator: *const c_void, decoder: *mut SnapshotDecoder, ptr: *const u8, len: usize) -> Result;
+    pub fn ghostty_snapshot_decoder_set(decoder: SnapshotDecoder, option: i32, value: *const c_void) -> Result;
+    pub fn ghostty_snapshot_decoder_free(decoder: SnapshotDecoder);
+    pub fn ghostty_snapshot_decoder_decode(decoder: SnapshotDecoder, terminal: *mut Terminal) -> Result;
+    pub fn ghostty_terminfo_name(out: *mut GString);
+    pub fn ghostty_terminfo_source(out: *mut GString);
 }

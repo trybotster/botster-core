@@ -12,6 +12,7 @@ mod modes;
 mod query;
 mod reads;
 mod reply;
+mod snapshot;
 mod sys;
 
 use std::cell::Cell;
@@ -26,6 +27,7 @@ pub use events::{Drained, TerminalEvent, MAX_BUFFERED_BYTES, MAX_BUFFERED_EVENTS
 pub use query::{Query, QueryKind, QueryStep, Terminator, MAX_SHADOW_REPLY_BYTES};
 pub use reads::{CursorCell, ScreenText};
 pub use reply::{ReplyError, MAX_REPLY_BYTES};
+pub use snapshot::{terminal_identity, SnapshotError, SnapshotFormat, TerminalIdentityParts, CONTINUATION_LIMIT, SNAPSHOT_FORMAT};
 
 /// The default limit, in bytes, of the request that a query reports (`CoreLimits.max_query_bytes`, EV-8).
 pub const DEFAULT_QUERY_REQUEST_BYTES: usize = 4096;
@@ -102,6 +104,7 @@ impl Terminal {
         terminal.register_callbacks()?;
         terminal.set_history_limit()?;
         terminal.set_query_request_limit_default()?;
+        terminal.set_continuation_limit()?;
         terminal.set_cell_px(size.cell_px);
         if let Some(px) = size.cell_px {
             terminal.apply_size(cols, rows, px.width, px.height)?;
@@ -394,3 +397,6 @@ mod tests_query;
 
 #[cfg(test)]
 mod tests_reply;
+
+#[cfg(test)]
+mod tests_snapshot;
