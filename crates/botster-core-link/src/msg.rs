@@ -39,6 +39,15 @@ pub struct LaunchSpec {
     /// The largest frame payload that the host accepts and sends on this link, in bytes. The worker sizes its decoder with it
     /// (plan section 3: `len` is checked against a bound before any allocation).
     pub link_frame_bound: u32,
+    /// `CoreLimits.stop_grace` in milliseconds. The worker times the kill of its payload's group with it when the host asks
+    /// without its link (`GroupSignal::EndPayload`, LC-5); on the linked path the host sends `Kill` itself. Absent: the
+    /// default of the Core limits table.
+    #[serde(default = "default_stop_grace_ms")]
+    pub stop_grace_ms: u64,
+}
+
+fn default_stop_grace_ms() -> u64 {
+    u64::try_from(CoreLimits::default().stop_grace.as_millis()).unwrap_or(u64::MAX)
 }
 
 /// A request of the host to a session worker.
@@ -257,10 +266,21 @@ mod tests {
             notification_policy: NotificationPolicy::All,
             size_policy: SizePolicy::Latest,
             link_frame_bound: 1 << 20,
+            stop_grace_ms: 250,
         }));
         let mut bytes = Vec::new();
         msg.encode(&mut bytes);
         assert_eq!(HostMsg::decode(&bytes), Ok(msg));
+    }
+
+    /// An older host sends no `stop_grace_ms`: the worker uses the default of the Core limits table (5 s).
+    #[test]
+    fn an_absent_stop_grace_is_the_default_of_the_limits_table() {
+        let text = r#"{"t":"launch","argv":["/bin/sh"],"env":{},"cwd":"/","size":{"rows":24,"cols":80},"link_frame_bound":1024}"#;
+        let Ok(HostMsg::Launch(spec)) = HostMsg::decode(text.as_bytes()) else {
+            panic!("a launch");
+        };
+        assert_eq!(spec.stop_grace_ms, 5000);
     }
 
     #[test]
