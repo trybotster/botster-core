@@ -109,34 +109,46 @@ impl Drop for RowReaper {
             else {
                 continue;
             };
+            // An id that does not match is unproven: it is never signalled and never waited for. (A zombie worker that the
+            // platform cannot identify ends with this test process: nextest runs each test in a process of its own.)
             if botster_core_sys::process::identity_state(identity) == IdentityState::Matches {
                 end_child_worker(pid);
-            } else {
-                // An ended worker may be our zombie: reap it. A pid that is not our child gives ECHILD and changes nothing.
-                let _ = rustix::process::waitpid(Some(pid), rustix::process::WaitOptions::NOHANG);
             }
         }
     }
 }
 
 /// Ends a worker that is an unreaped child of this process: `SIGTERM`, which makes it end the payload group that it still
-/// holds (a reaped payload id is never signalled) and then end itself; `SIGKILL` if it has not ended by the deadline. The
-/// child is reaped here.
+/// holds (a reaped payload id is never signalled) and then end itself; `SIGKILL` if it has not ended by the deadline.
+///
+/// The child stays reserved until every signal decision is made: the waiter only observes the exit (`waitid` with
+/// `WNOWAIT`) and never reaps, so the pid cannot be reused before the last signal. The reap comes last, here.
 fn end_child_worker(pid: rustix::process::Pid) {
-    let _ = rustix::process::kill_process(pid, rustix::process::Signal::TERM);
+    use rustix::process::{
+        kill_process, waitid, waitpid, Signal, WaitId, WaitIdOptions, WaitOptions,
+    };
+    let _ = kill_process(pid, Signal::TERM);
     let (tx, rx) = std::sync::mpsc::channel();
-    let waiter = std::thread::spawn(move || {
-        let _ = tx.send(rustix::process::waitpid(
-            Some(pid),
-            rustix::process::WaitOptions::empty(),
-        ));
+    let observer = std::thread::spawn(move || loop {
+        match waitid(
+            WaitId::Pid(pid),
+            WaitIdOptions::EXITED | WaitIdOptions::NOWAIT,
+        ) {
+            Err(rustix::io::Errno::INTR) | Ok(None) => continue,
+            // Exited and reapable, or not our child: either way the waiting ends.
+            _ => {
+                let _ = tx.send(());
+                return;
+            }
+        }
     });
     // timer: deadline — the limit of a worker's own cleanup after SIGTERM; not a contract value.
     if rx.recv_timeout(Duration::from_secs(10)).is_err() {
-        // Still unreaped (the waiter has not returned), so the pid is still the worker's.
-        let _ = rustix::process::kill_process(pid, rustix::process::Signal::KILL);
+        // Nothing has reaped the child (the observer does not reap), so the pid is still the worker's.
+        let _ = kill_process(pid, Signal::KILL);
     }
-    let _ = waiter.join();
+    let _ = observer.join();
+    let _ = waitpid(Some(pid), WaitOptions::empty());
 }
 
 impl Sessions {
