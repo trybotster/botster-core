@@ -1,4 +1,4 @@
-//! The session worker machine of Core (plan 2.2). P0 holds only the worker protocol constants.
+//! The session worker machine of Core (plan 2.2): [`worker::Worker`], with the worker protocol constants.
 //!
 //! No compatibility promise; use `botster-core`.
 //!
@@ -6,6 +6,10 @@
 //! (plan section 5, rule 4). They live in this crate because the plan names it, and P3 grows the worker around them.
 
 use botster_core_contract::prelude::Feature;
+
+pub mod worker;
+
+pub use worker::{Action, Input, PayloadSpec, SpawnFailure, Worker, WorkerConfig};
 
 /// The worker protocol number `T` of this Core. The first v1 worker protocol number is 1.
 ///

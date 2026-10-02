@@ -678,6 +678,8 @@ impl HostEngine {
             notification_policy: s.request.notification_policy.clone().unwrap_or_default(),
             size_policy: s.request.size_policy.unwrap_or_default(),
             link_frame_bound: self.link_frame_bound(),
+            stop_grace_ms: u64::try_from(self.cfg.limits.stop_grace.as_millis())
+                .unwrap_or(u64::MAX),
         }
     }
 }
