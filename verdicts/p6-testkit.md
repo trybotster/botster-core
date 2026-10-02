@@ -2,7 +2,7 @@
 
 VERDICT: CLEAN
 
-Reviewed head: `e33ff1323fec8b1e868b1c330b8f6637871913c7`.
+Reviewed head: `9846f9edfcdce277e136ff66c7e008e0f05af72f`.
 Previous reviewed head: `b97b6055856e60c17af7cf0300ab89bc582a6d5e`.
 Base: `118c972`.
 Scope: M0b only, under plan pin `555bc433` and `contracts-v0.1.1`.
@@ -109,7 +109,7 @@ All six findings are closed. Copying this evidence into the eventual pull reques
 
 ## Final review result
 
-M0b is CLEAN on `e33ff1323fec8b1e868b1c330b8f6637871913c7`. No findings remain open.
+M0b is CLEAN on `9846f9edfcdce277e136ff66c7e008e0f05af72f`. No findings remain open.
 This verdict does not approve later P6 milestones or establish passing Core conformance.
 The implementer must run the gate on this exact head after CLEAN. The reviewer did not run the gate.
 
@@ -118,12 +118,22 @@ The implementer must run the gate on this exact head after CLEAN. The reviewer d
 The gate on `82fcaf4` reported 17 missed mutants, 192 caught mutants, and 33 unviable mutants. It reported no mutation timeout.
 Evidence: `~/botster-sessions/shared/core-stage1/logs/p6-m0b-gate-82fcaf4.log`.
 
-The delta adds assertions for each reported behavior. The assertions distinguish the original behavior from each missed mutation.
+The delta adds assertions for the reported behaviors. The later gate found one assertion gap, recorded below.
 The sampler refactor extracts the same rejection loop into `sample_below`. The call still draws from the same ChaCha8 stream.
 Scripted boundary draws test rejection of the biased tail. Fixed binary draws distinguish the two inverted predicates.
 The remaining assertions cover descriptor output and closure, interest, program errors, size, readiness, node identifiers, and clock movement.
-The 17 findings from the missed mutants are closed by this delta. The next gate must confirm mutation results on the reviewed head.
+The later gate confirmed closure of 16 findings. One descriptor-index mutant remained missed, as recorded below.
 No production machine, contract pin, conformance pending list, or M0b scope changes in this delta.
+
+## Mutation delta at `9846f9e`
+
+The implementer reported one missed mutant from the gate on `e33ff13`: `LinkEnd::send_descriptor` changed `1 - side` to `1 + side`.
+The previous tests sent only from side 0. Both expressions produce 1 for that side, so those tests did not distinguish the mutation.
+The reviewer corrects the earlier claim that all 17 mutations had distinguishing assertions.
+
+The new test sends from side 1 and receives on side 0. The original expression indexes side 0; the mutation indexes nonexistent side 2.
+The test also checks the error after the peer drops. The delta changes no library code.
+The remaining mutation finding is closed by this assertion. The gate must confirm the result on `9846f9e` after CLEAN.
 
 ## Contract question resolved by the lead
 
