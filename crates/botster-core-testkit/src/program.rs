@@ -148,6 +148,65 @@ pub enum UnterminatedKind {
     Dcs,
 }
 
+/// The output that the worker has not read: pieces in the order that the program wrote them. An atomic piece is read in one
+/// piece when the buffer holds it (`program_write_once`), and is never read together with the bytes around it. Plain bytes that
+/// follow plain bytes are one piece, so the scheduler chooses where a read ends within them.
+#[derive(Debug, Default)]
+struct Output {
+    pieces: VecDeque<Piece>,
+    len: usize,
+}
+
+#[derive(Debug)]
+struct Piece {
+    bytes: VecDeque<u8>,
+    atomic: bool,
+}
+
+impl Output {
+    fn push(&mut self, bytes: &[u8], atomic: bool) {
+        if bytes.is_empty() {
+            return;
+        }
+        self.len += bytes.len();
+        match self.pieces.back_mut() {
+            Some(back) if !atomic && !back.atomic => back.bytes.extend(bytes),
+            _ => self.pieces.push_back(Piece {
+                bytes: bytes.iter().copied().collect(),
+                atomic,
+            }),
+        }
+    }
+
+    fn len(&self) -> usize {
+        self.len
+    }
+
+    fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+
+    /// Moves the bytes of one read into `buf`: at most the front piece and the buffer. `choose` picks the size of a read of a plain
+    /// piece (at least 1, at most its argument). Returns the bytes moved.
+    fn take(&mut self, buf: &mut [u8], choose: impl FnOnce(usize) -> usize) -> usize {
+        let Some(front) = self.pieces.front_mut() else {
+            return 0;
+        };
+        let fits = front.bytes.len().min(buf.len());
+        let n = if front.atomic { fits } else { choose(fits) };
+        for slot in &mut buf[..n] {
+            if let Some(byte) = front.bytes.pop_front() {
+                *slot = byte;
+            }
+        }
+        if front.bytes.is_empty() {
+            self.pieces.pop_front();
+        }
+        self.len -= n;
+        n
+    }
+}
+
 /// The program of a session, run from a probe script.
 ///
 /// Clause: Core A5-1 (the program edge), Core A5-2 (write-size variation), Core A5-3 (`pty_blocked`).
@@ -157,12 +216,10 @@ pub struct ScriptedProgram {
     cursor: usize,
     /// Everything that the program has read, as the probe's `seen` buffer.
     seen: Vec<u8>,
-    output: VecDeque<u8>,
+    output: Output,
     exit: Option<ExitStatus>,
     exit_taken: bool,
     ignores_sigterm: bool,
-    /// The atomic writes of `program_write_once` still in the output: `(bytes before it in the queue, its length)`.
-    atomic: VecDeque<(usize, usize)>,
     controls: ProgramControl,
     size: Option<WindowSize>,
     scheduler: SchedulerHandle,
@@ -223,11 +280,10 @@ impl ScriptedProgram {
             ops,
             cursor: 0,
             seen: Vec::new(),
-            output: VecDeque::new(),
+            output: Output::default(),
             exit: None,
             exit_taken: false,
             ignores_sigterm: false,
-            atomic: VecDeque::new(),
             controls: ProgramControl(Arc::default()),
             size: None,
             scheduler: scheduler.clone(),
@@ -262,22 +318,11 @@ impl ScriptedProgram {
         !self.output.is_empty() || self.exit.is_some()
     }
 
-    /// The size of one read: the scripted size, or the scheduler's choice (A5-2), at most `available`.
-    fn chosen_size(&self, available: usize) -> usize {
-        match self.controls.lock().write_cap {
-            Some(cap) => available.min(cap).max(1),
-            None => self.scheduler.with(|s| s.program_write_size(available)),
-        }
-    }
-
     /// Takes the output that a control injected.
     fn take_injected(&mut self) {
         let injected: Vec<(Vec<u8>, bool)> = self.controls.lock().inject.drain(..).collect();
         for (bytes, atomic) in injected {
-            if atomic {
-                self.atomic.push_back((self.output.len(), bytes.len()));
-            }
-            self.output.extend(bytes);
+            self.output.push(&bytes, atomic);
         }
     }
 
@@ -292,7 +337,7 @@ impl ScriptedProgram {
     fn run_steps(&mut self) {
         while self.exit.is_none() {
             match &self.ops[self.cursor] {
-                Op::Print(bytes) => self.output.extend(bytes),
+                Op::Print(bytes) => self.output.push(bytes, false),
                 Op::PrintAfterInput { wanted, bytes } => {
                     let found = self
                         .seen
@@ -301,7 +346,7 @@ impl ScriptedProgram {
                     if !found {
                         return;
                     }
-                    self.output.extend(bytes);
+                    self.output.push(bytes, false);
                 }
                 Op::Exit(status) => {
                     self.exit = Some(*status);
@@ -363,24 +408,12 @@ impl Program for ScriptedProgram {
                 Err(io::ErrorKind::WouldBlock.into())
             };
         }
-        // An atomic write is read whole, and the bytes before it are read first and never together with it.
-        let n = match self.atomic.front().copied() {
-            Some((0, len)) if len <= buf.len() => {
-                self.atomic.pop_front();
-                len
-            }
-            Some((0, _)) => buf.len(),
-            Some((before, _)) => self.chosen_size(available.min(before)),
-            None => self.chosen_size(available),
-        };
-        match self.atomic.front_mut() {
-            Some((0, len)) if n < *len => *len -= n,
-            Some((before, _)) if *before > 0 => *before -= n,
-            _ => {}
-        }
-        for slot in &mut buf[..n] {
-            *slot = self.output.pop_front().unwrap_or_default();
-        }
+        let scheduler = self.scheduler.clone();
+        let cap = self.controls.lock().write_cap;
+        let n = self.output.take(buf, |fits| match cap {
+            Some(cap) => fits.min(cap).max(1),
+            None => scheduler.with(|s| s.program_write_size(fits)),
+        });
         self.controls.lock().unread = self.output.len();
         Ok(n)
     }
@@ -769,5 +802,82 @@ mod tests {
                 "no terminator"
             );
         }
+    }
+
+    /// Every read of the program until it would block, as separate pieces.
+    fn read_pieces(p: &mut ScriptedProgram, buf_len: usize) -> Vec<Vec<u8>> {
+        let mut buf = vec![0u8; buf_len];
+        let mut pieces = Vec::new();
+        while let Ok(n) = p.read(&mut buf) {
+            assert!(
+                n > 0 || pieces.is_empty() || p.control().output_unread() == 0,
+                "Ok(0) while output remains"
+            );
+            if n == 0 {
+                break;
+            }
+            pieces.push(buf[..n].to_vec());
+        }
+        pieces
+    }
+
+    /// Several atomic writes are each read whole and never merged with each other or with plain bytes; one that does not fit the
+    /// buffer is split without loss; a write injected after the queue drained is read whole too; no byte is invented.
+    #[test]
+    fn queued_atomic_writes_keep_their_boundaries() {
+        let mut p = holds();
+        let control = p.control();
+        control.write_size(Some(3));
+        control.write_once(b"abcdef");
+        control.write_once(b"XYZ");
+        assert_eq!(
+            read_pieces(&mut p, 4),
+            [b"abcd".to_vec(), b"ef".to_vec(), b"XYZ".to_vec()]
+        );
+        assert_eq!(control.output_unread(), 0);
+        control.write_once(b"pq");
+        assert_eq!(
+            read_pieces(&mut p, 4),
+            [b"pq".to_vec()],
+            "one read, no padding"
+        );
+        // Plain bytes between atomic writes stay between them, and are read at the scripted size.
+        let mut mixed = program(
+            json!({"program": [{"print": {"bytes_hex": "6162636465"}}, {"hold": {}}]}),
+            true,
+            0,
+        );
+        let control = mixed.control();
+        control.write_size(Some(2));
+        control.write_once(b"WX");
+        control.write_once(b"YZ");
+        assert_eq!(
+            read_pieces(&mut mixed, 8),
+            [
+                b"ab".to_vec(),
+                b"cd".to_vec(),
+                b"e".to_vec(),
+                b"WX".to_vec(),
+                b"YZ".to_vec()
+            ]
+        );
+    }
+
+    /// An empty atomic write is nothing: it is no piece, it does not end a read with `Ok(0)`, and the output behind it is read.
+    #[test]
+    fn an_empty_atomic_write_is_no_piece() {
+        let mut p = holds();
+        let control = p.control();
+        control.write_once(b"");
+        assert!(!p.is_readable());
+        assert_eq!(
+            p.read(&mut [0u8; 4]).unwrap_err().kind(),
+            io::ErrorKind::WouldBlock
+        );
+        control.write_once(b"");
+        control.write_once(b"ab");
+        control.write_once(b"");
+        assert_eq!(read_pieces(&mut p, 8), [b"ab".to_vec()]);
+        assert_eq!(control.output_unread(), 0);
     }
 }
