@@ -232,10 +232,14 @@ fn a_broken_link_stop_signals_the_verified_worker_only() {
     w.feed(Input::LinkClosed { link });
     let op = w.engine.begin(Op::Stop { id: sid("s1") }).unwrap();
     w.pump();
-    assert!(w.signals.contains(&(worker, GroupSignal::Term)));
+    assert!(w.signals.contains(&(worker, GroupSignal::EndPayload)));
     w.advance(Duration::from_millis(100));
     w.pump();
-    assert!(w.signals.contains(&(worker, GroupSignal::Kill)));
+    assert!(w.signals.contains(&(worker, GroupSignal::EndPayload)));
+    assert!(
+        w.signals.iter().all(|(_, s)| *s == GroupSignal::EndPayload),
+        "the worker is never killed: it keeps the final model (LC-5)"
+    );
     assert!(
         w.signals.iter().all(|(id, _)| *id == worker),
         "no process but the verified worker is signalled"
