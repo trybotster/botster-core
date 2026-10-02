@@ -519,4 +519,46 @@ mod tests {
         );
         assert!(!worker.is_ready(), "the failure was delivered");
     }
+
+    /// A descriptor is debug-printed without its content.
+    #[test]
+    fn a_descriptor_prints_its_name() {
+        assert_eq!(format!("{:?}", Descriptor::new(1u8)), "Descriptor");
+    }
+
+    /// The interest that the owner set is the interest that it reads back.
+    #[test]
+    fn the_interest_reads_back() {
+        let (mut a, _b) = link_pair(2);
+        assert_eq!(a.end().interest(), Interest::default());
+        a.end().set_interest(Interest {
+            read: true,
+            write: false,
+        });
+        assert_eq!(
+            a.end().interest(),
+            Interest {
+                read: true,
+                write: false
+            }
+        );
+    }
+
+    /// A descriptor cannot be sent when either end is closed, and an open pair accepts it.
+    #[test]
+    fn a_descriptor_needs_two_open_ends() {
+        let (mut a, b) = link_pair(2);
+        a.send_descriptor(Descriptor::new(1u8)).unwrap();
+        drop(b);
+        assert_eq!(
+            a.send_descriptor(Descriptor::new(2u8)).unwrap_err().kind(),
+            io::ErrorKind::BrokenPipe
+        );
+        let (mut a, _b) = link_pair(2);
+        Link::close(&mut a);
+        assert_eq!(
+            a.send_descriptor(Descriptor::new(3u8)).unwrap_err().kind(),
+            io::ErrorKind::BrokenPipe
+        );
+    }
 }

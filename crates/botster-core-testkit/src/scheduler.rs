@@ -34,15 +34,7 @@ impl SeededScheduler {
         if n <= 1 {
             return 0;
         }
-        let n = n as u64;
-        // Rejection sampling: the accepted range is a whole number of lengths of `n`, so the result has no bias.
-        let limit = u64::MAX - u64::MAX % n;
-        loop {
-            let x = self.rng.next_u64();
-            if x < limit {
-                return (x % n) as usize;
-            }
-        }
+        sample_below(n as u64, || self.rng.next_u64()) as usize
     }
 
     /// A uniform count in `1..=max`; 0 only when `max` is 0.
@@ -148,6 +140,18 @@ impl Scheduler for SeededScheduler {
             ChoicePoint::RouteReadSize => self.route_read_size(max),
             // A pick point asked as a bound, and a point of a later revision, use the bound in full.
             _ => max,
+        }
+    }
+}
+
+/// A uniform value below `n` (at least 2) from the 64-bit draws of `draw`. Rejection sampling: the accepted range is a whole
+/// number of lengths of `n`, so the result has no bias.
+fn sample_below(n: u64, mut draw: impl FnMut() -> u64) -> u64 {
+    let limit = u64::MAX - u64::MAX % n;
+    loop {
+        let x = draw();
+        if x < limit {
+            return x % n;
         }
     }
 }
@@ -277,5 +281,32 @@ mod tests {
                 assert!(s.pick(point, 2) < 2, "{point:?}");
             }
         }
+    }
+
+    /// The sampler has no modulo bias: a draw at or above the largest whole multiple of `n` is rejected, and a draw below it is
+    /// used. For `n = 7` the limit is `u64::MAX - 1`.
+    #[test]
+    fn the_sampler_rejects_the_biased_tail() {
+        let mut draws = [u64::MAX - 1, u64::MAX, u64::MAX - 2].into_iter();
+        // The first two draws are at or above the limit and are rejected; the third is used.
+        assert_eq!(
+            sample_below(7, || draws.next().unwrap()),
+            (u64::MAX - 2) % 7
+        );
+        let mut draws = [0u64].into_iter();
+        assert_eq!(sample_below(7, || draws.next().unwrap()), 0);
+    }
+
+    /// The binary choice points use the draw as "index 1 is yes". The values of seed 0 are fixed, so a change of the stream
+    /// or of the meaning of a draw shows up here.
+    #[test]
+    fn the_binary_points_follow_the_stream() {
+        let mut s = SeededScheduler::with_seed(0);
+        let deferred: Vec<bool> = (0..16).map(|_| s.defer_operation()).collect();
+        let mut s = SeededScheduler::with_seed(0);
+        let spurious: Vec<bool> = (0..16).map(|_| s.spurious_wake()).collect();
+        assert_eq!(deferred, spurious, "one stream, one draw each");
+        let expected = [0u8, 1, 0, 0, 1, 1, 0, 0, 0, 0, 0, 1, 1, 0, 0, 1];
+        assert_eq!(deferred, expected.map(|b| b == 1));
     }
 }

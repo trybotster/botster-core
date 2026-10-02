@@ -451,4 +451,28 @@ mod tests {
         assert!(!sim.has_ready());
         assert_eq!(Sim::with_seed(0, Instant::now()).run_until_idle(0), Ok(0));
     }
+
+    /// Node ids are the registration order, and `advance_by` moves the clock forward by exactly that time.
+    #[test]
+    fn ids_follow_registration_and_the_clock_moves_by_the_step() {
+        let (mut sim, _log, _feeders) = world(0, u32::MAX);
+        assert_eq!(
+            sim.add(Box::new(MachineNode::new(
+                Counter {
+                    total: 0,
+                    limit: 1,
+                    actions: VecDeque::new()
+                },
+                CounterEdges {
+                    link: link_pair(1).0,
+                    out: Arc::default(),
+                    id: 9
+                }
+            ))),
+            NodeId(3)
+        );
+        let before = sim.now();
+        sim.advance_by(Duration::from_secs(5));
+        assert_eq!(sim.now(), before + Duration::from_secs(5));
+    }
 }
