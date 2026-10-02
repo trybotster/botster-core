@@ -429,6 +429,9 @@ name = "botster-worker-core"
 version = "0.1.0"
 dependencies = [
  "botster-core-contract",
+ "botster-core-edges",
+ "botster-core-link",
+ "serde_json",
 ]
 
 [[package]]
