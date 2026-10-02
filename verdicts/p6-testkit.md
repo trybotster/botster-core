@@ -1,6 +1,31 @@
 # P6 testkit review — Scope 2, step 2
 
-VERDICT: CLEAN
+VERDICT: NOT CLEAN (1 open)
+
+Mutation delta reviewed: `db6d1d6b02dd79b11fb27827905c70b22047a58c`, against `9a55c236`.
+The reviewer read the gate artifact's `target-mutants.out/missed.txt`.
+It lists 37 missed mutants: 18 in `process_group.rs`, 12 in `refusal.rs`, 5 in `program.rs`, and 2 in `harness.rs`.
+The new tests distinguish the 19 mutants outside `process_group.rs`.
+They check delegated values or call logs, statement dispatch, exact sequence lengths, unread counts, and output piece boundaries.
+The reviewer ran no tests or gate. S5-R1 below is the only open finding.
+
+## S5-R1 — LOW — The process exclusion is broader than its stated reason
+
+Evidence: `.cargo/mutants.toml` excludes every mutation in `process_group.rs` by file name.
+The same file requires exclusions per function and limits them to process glue or equivalent mutants.
+The process group functions qualify as process glue, because they require real child processes and OS wait or signal calls.
+The default mutation tier does not run their slow tests. That is a valid reason to exclude these functions.
+It does not justify an unrestricted file exclusion that also covers any later function.
+
+The new comment also claims that each replaced body is detected by the slow tests.
+Those tests never call `take_stdin` or `take_stderr`. They do not establish that a replaced wait body always fails.
+The bitwise OR-to-XOR mutations use disjoint option bits and are equivalent, rather than missed behavior.
+
+Required change: limit the exclusion to the named process glue functions and mutations within those functions.
+State the process glue reason directly. Remove the claim that the slow tests detect every replacement,
+or add the required proof. Keep future pure decisions outside the exclusion.
+
+## Previous CLEAN
 
 Reviewed head: `9a55c2367ecfd193259d4e05c1da59f2b210eb12`.
 Delta base: `3012073`.
