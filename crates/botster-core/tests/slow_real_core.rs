@@ -176,3 +176,99 @@ fn the_data_directory_is_private() {
         assert_eq!(mode, 0o700, "{}", path.display());
     }
 }
+
+fn sid(name: &str) -> SessionId {
+    SessionId(name.into())
+}
+
+/// Core AD-2, LC-4, TM-6: a worker that ends before it connects is seen at once, not at a deadline: the reaper thread wakes
+/// the host, the exit is polled from the real process edge, and the start ends.
+#[test]
+fn a_worker_that_exits_before_it_connects_ends_the_start_at_once() {
+    let tmp = tempfile::tempdir().unwrap();
+    let mut core = Core::open(config(tmp.path())).expect("open");
+    let wake = core.wake_handle();
+    core.begin(Op::Create {
+        session: sid("s1"),
+        request: request(),
+    })
+    .unwrap();
+    pump(&mut core);
+    let start = core.begin(Op::Start { id: sid("s1") }).unwrap();
+    let began = Instant::now();
+    let mut events = Vec::new();
+    // timer: deadline — a failing run must not hang; the default startup deadline is longer than this wait
+    while began.elapsed() < Duration::from_secs(8) {
+        events.extend(pump(&mut core));
+        if events
+            .iter()
+            .any(|e| matches!(e, Event::Completed { op, .. } if *op == start))
+        {
+            break;
+        }
+        let _ = wake.wait(Duration::from_millis(500));
+    }
+    assert!(
+        events.iter().any(
+            |e| matches!(e, Event::Completed { op, result: OpResult::Err(_) } if *op == start)
+        ),
+        "{events:?}"
+    );
+    assert!(
+        began.elapsed() < Duration::from_secs(5),
+        "the exit woke the host: {:?}",
+        began.elapsed()
+    );
+    assert!(matches!(
+        core.get(&sid("s1")).unwrap().state,
+        SessionState::Lost(_) | SessionState::Exited(_)
+    ));
+}
+
+/// Core AD-6: a client that connects to the control socket is accepted and read; a hello for an instance that no start waits
+/// for is answered by closing the link, which the client sees as the end of the stream.
+#[test]
+fn a_hello_for_an_unknown_instance_is_closed() {
+    use botster_core_link::frame::{encode_frame, FrameType};
+    use botster_core_link::hello::Hello;
+    use std::io::{Read, Write};
+    let tmp = tempfile::tempdir().unwrap();
+    let mut core = Core::open(config(tmp.path())).expect("open");
+    let wake = core.wake_handle();
+    let socket = tmp.path().join("d").join("c");
+    let mut client = std::os::unix::net::UnixStream::connect(&socket).expect("the host listens");
+    let hello = Hello {
+        protocol: 1,
+        instance: InstanceId("9-9".into()),
+        proof: botster_core_link::proof::token_proof(
+            &[7; botster_core_link::proof::TOKEN_LEN],
+            &InstanceId("9-9".into()),
+            1,
+        ),
+        host_epoch: 1,
+    };
+    let mut payload = Vec::new();
+    hello.encode(&mut payload).unwrap();
+    let mut frame = Vec::new();
+    encode_frame(FrameType::HELLO, &payload, 1 << 20, &mut frame).unwrap();
+    client.write_all(&frame).unwrap();
+    client
+        .set_read_timeout(Some(Duration::from_millis(200)))
+        .unwrap();
+    let began = Instant::now();
+    let mut buf = [0u8; 16];
+    loop {
+        pump(&mut core);
+        match client.read(&mut buf) {
+            Ok(0) => break,
+            Ok(_) => panic!("the host sent bytes to an unknown worker"),
+            Err(_) => {}
+        }
+        // timer: deadline — a failing run must not hang
+        assert!(
+            began.elapsed() < Duration::from_secs(8),
+            "the link was not closed"
+        );
+        let _ = wake.wait(Duration::from_millis(50));
+    }
+}

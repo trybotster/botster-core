@@ -339,4 +339,13 @@ mod tests {
         assert_eq!(WorkerMsg::decode(br#"{"t":"later"}"#), Err(MsgError));
         assert_eq!(HostMsg::decode(br#"{"t":"stop","x":1}"#), Ok(HostMsg::Stop));
     }
+
+    /// A message error says what it is.
+    #[test]
+    fn a_message_error_says_what_it_is() {
+        assert_eq!(
+            MsgError.to_string(),
+            "the payload is not a message of the control link"
+        );
+    }
 }
