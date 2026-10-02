@@ -87,6 +87,9 @@ impl Core {
             shadow_answerable: Vec::new(),
             terminal_identity: TerminalIdentity {
                 term: "xterm-ghostty".to_string(),
+                // PLACEHOLDER (Core TI-1, A2-8): the terminfo source of the pinned emulator comes from P2's binding
+                // (`botster-terminal-ghostty`), which is not on `v1` yet. Core must not invent it. The follow-up PR wires
+                // `botster_terminal_ghostty::terminal_identity()` and removes this value; the a2_8 ids stay pending until then.
                 terminfo_source: String::new(),
             },
         };
