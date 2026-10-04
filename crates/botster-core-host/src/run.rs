@@ -377,9 +377,9 @@ impl HostEngine {
                     return;
                 };
                 let reason = match reason {
-                    DetachReason::Detached => RouteCloseReason::Detached,
                     DetachReason::Replaced => RouteCloseReason::Replaced,
                     DetachReason::Revoked => RouteCloseReason::Revoked,
+                    // `Detached`; the enum is non-exhaustive, so a later reason closes the route as a plain detach.
                     _ => RouteCloseReason::Detached,
                 };
                 // `RouteClosed` first, then the completion in a step of its own (DP-7).
