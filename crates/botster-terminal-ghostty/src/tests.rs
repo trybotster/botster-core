@@ -700,6 +700,11 @@ fn header_value(header: &str, name: &str) -> i64 {
 
 #[test]
 fn the_declared_result_codes_and_modifier_bits_are_those_of_the_pinned_headers() {
+    let terminal = include_str!("../vendor/ghostty/include/ghostty/vt/terminal.h");
+    assert_eq!(
+        header_value(terminal, "GHOSTTY_TERMINAL_DATA_VT_PROCESSING_ERROR"),
+        i64::from(sys::data::VT_PROCESSING_ERROR)
+    );
     let types = include_str!("../vendor/ghostty/include/ghostty/vt/types.h");
     for (name, value) in [
         ("GHOSTTY_SUCCESS", sys::SUCCESS),
