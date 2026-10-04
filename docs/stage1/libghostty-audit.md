@@ -18,6 +18,14 @@ It does not distinguish configured overflow from lost retention.
 The testkit must use a separate oracle with a sufficient retention bound to measure pending input independently.
 The binding does not infer parser state from the input bytes.
 
+The fork does not export `Tracker.broken`. `VT_PROCESSING_ERROR` reads a separate semantic failure flag.
+The lead accepted this classification for `oracle_resume_every_cut` under its no-injection condition:
+
+- Unavailable retention within the independently measured continuation limit is a mismatch.
+- Unavailable retention above that limit is expected and permits classification as `refused_beyond_limit`.
+- An unknown pending size makes the cut inconclusive.
+- A semantic failure is a mismatch with its own reason.
+
 Prior art: the decoder reuses this crate's private decoder path from `tests_snapshot.rs`.
 The binding copies the hyperlink URI and continuation bytes from libghostty.
 No old botster-core code was reused.
