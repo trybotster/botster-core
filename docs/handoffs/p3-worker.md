@@ -286,3 +286,13 @@ The correction matches only LINK_CAPACITY at core.rs:33:33 and READ_CHUNK at wor
 Both positive-value assertions now apply in all builds. The zero-value tests still check the same construction path.
 The `34bad40` Linux job remains pending. It cannot prove this correction.
 Review and Linux evidence for the corrected exact head remain required.
+
+## Constant mutant-name correction (2026-10-04)
+
+The focused testkit job at `34bad40b4ee3d97eab1866b991c4e2ba5251a7dd` passed baseline and tested 178 mutants.
+Result: 120 caught, 1 missed, 57 unviable, and 0 timeouts.
+Log: `~/botster-sessions/gates/botster-core-stage1-p3-m1-v1-34bad40b-linux-20261004-140843-56057.log`.
+Artifacts: `~/botster-sessions/gates/artifacts-trybotster_botster_core_stage1_p3_m1_v1-bcb322fa-20261004140843-56057/target-mutants.out/`.
+The only miss is READ_CHUNK arithmetic. The constant's actual mutant name has no trailing `in`.
+Both exact-location regexes now use the actual constant name. The next Linux job must prove their match and the corrected all-build checks.
+Package verdict `b9f665b9cb38b7c9651834c47e522a5cf835d210` conditionally accepts both designs, pending corrected-head proof.
