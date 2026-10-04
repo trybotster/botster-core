@@ -2,7 +2,7 @@
 
 Current restack verdict: NOT CLEAN (F13, F18, and F19 open; F14, F15, F16, and F17 closed).
 Reviewed head: `4b1d39cb294dfc4308dae1ddb0f2ce4f6274170a`, branch `stage1/p3-m1-v1`.
-Round 42 records a second failed Mac baseline and a handoff-only delta. F13 retains 66 entries; F18/F19 remain open.
+Round 43 verifies corrected-source Linux tests. F13 retains 66 entries; F18/F19 remain open for Mac evidence.
 The CLEAN below applies only to the old M2a head that it names.
 
 VERDICT: CLEAN
@@ -1471,6 +1471,24 @@ F18 and F19 remain OPEN pending corrected-source Mac evidence and any required s
 A Linux result can support the source review but cannot establish correction of these observed Mac failures.
 The recorded Mac hold limits when the implementer can collect that evidence; it does not close either finding.
 F13 retains 66 original entries. No mutation closure follows from this plain baseline.
+All earlier findings and closures remain preserved. The reviewer ran no tests or gate.
+
+VERDICT: NOT CLEAN (F13: 66 entries; F18 and F19 open) on `4b1d39cb294dfc4308dae1ddb0f2ce4f6274170a`.
+
+
+## Round 43 — Corrected-source Linux payload baseline
+
+Reviewed and evidence head: `4b1d39cb294dfc4308dae1ddb0f2ce4f6274170a`.
+Log: `~/botster-sessions/gates/botster-core-stage1-p3-m1-v1-4b1d39cb-linux-20261004-163542-77986.log`.
+The reviewer read the exact-head plain nextest log with base v1 `38bbe580`.
+The Linux job exits zero after ten seconds. All 15 slow_payload tests pass with zero skipped in 0.022 seconds.
+The queued-output/query/input test passes in 0.006 seconds.
+The panic-while-waiting-for-input test passes in 0.008 seconds.
+This supplies Linux evidence for the corrected FIFO synchronization and bounded cleanup source from round 41.
+It does not establish correction of the observed Mac failures under F18 and F19.
+No mutant runs in this plain baseline, so no F13 entry closes.
+
+F13 retains 66 original entries. F18 and F19 remain OPEN for corrected-source Mac evidence.
 All earlier findings and closures remain preserved. The reviewer ran no tests or gate.
 
 VERDICT: NOT CLEAN (F13: 66 entries; F18 and F19 open) on `4b1d39cb294dfc4308dae1ddb0f2ce4f6274170a`.
