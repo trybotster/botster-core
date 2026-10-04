@@ -353,3 +353,21 @@ The exit-watch decision now uses an injected wait operation. Production and the 
 A default test supplies EINTR then ECHILD and checks retry plus the negative unknown-exit code.
 This tests the fallback-sign mutant instead of asserting that the error path is unreachable.
 The `3d13dda` Linux job remains pending. It does not prove this later correction.
+
+## Mac baseline failure and guard correction (2026-10-04)
+
+Package verdict `1cf33021330677bd9e868698b4804931028ec6a5` verifies the `3d13dda` Linux artifacts.
+The run caught the read-zero and drop-no-op mutants. F13 retains 65 driver entries and one fallback-sign entry.
+The lead released the Mac and prohibited new Linux jobs. New heavy jobs use Mac, one at a time.
+The focused Mac job at `ebed102` reached its 45-minute deadline during baseline. No mutant ran.
+Log: `~/botster-sessions/gates/botster-core-stage1-p3-m1-v1-ebed1022-mac-20261004-150213-23937.log`.
+The input test failed its pending-output assertion. Its cleanup then blocked. The other 59 tests passed.
+This is a new cleanup finding. The passing Linux run does not prove Mac cleanup.
+
+The payload anchor now explicitly joins the leader's group before registration completes.
+A shell can put its background command in a separate group. The anchor must own the payload group.
+The shell provides its group id while it waits for registration. The anchor still signals only its current group on EOF.
+The pending-output test now waits within a ten-second deadline for more than one program byte.
+The correction does not assume that descriptor readiness means the full readiness word has arrived.
+Both causes remain unverified until the focused Mac baseline runs.
+Next: run the Mac payload baseline before another mutation job.

@@ -225,8 +225,13 @@ fn the_pty_counts_output_and_delivers_input_to_the_program() {
         tv_sec: 10,
         tv_nsec: 0,
     };
-    assert!(rustix::event::poll(&mut fds, Some(&limit)).unwrap() > 0);
-    assert!(p.pending_output().unwrap() > 1);
+    // Readiness can arrive before the complete readiness word.
+    // timer: deadline — bounds the wait for more than one program byte.
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    while p.pending_output().unwrap() <= 1 {
+        assert!(std::time::Instant::now() < deadline, "no program output");
+        assert!(rustix::event::poll(&mut fds, Some(&limit)).unwrap() > 0);
+    }
     assert_eq!(p.write(b"input\n").unwrap(), 6);
     let bytes = read_all(&p);
     assert_eq!(bytes, b"readyinput");
