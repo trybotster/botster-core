@@ -21,8 +21,21 @@
 - Focused Linux job: head `88f7bfecce6187a0084df4ca7b0f1104e08dae81`.
   Log: `~/botster-sessions/gates/botster-core-stage1-p3-m1-v1-88f7bfec-linux-20261004-124221-89834.log`.
   The job builds the candidate and runs worker-core units, M1 transcripts, slow_payload, and slow_session.
-  The result is pending. A later delta borrows the FIFO's File descriptor directly.
-- Open review findings: none received on this restack. The new guard needs review.
+  The job failed before tests because its custom command omitted the required parallelism variables.
+  This job supplies no test evidence.
+- Corrected focused Linux job at `049751aed4b97fc7b817c0201119c0e363a73935`: exit 0.
+  Log: `~/botster-sessions/gates/botster-core-stage1-p3-m1-v1-049751ae-linux-20261004-124610-1358.log`.
+  Worker-core: 37 unit tests passed. The five M1 ids passed under the selected CI seeds.
+  slow_payload: 5 tests passed, including 2 helper entries. slow_session: 9 tests passed, including 2 helper entries.
+  This result precedes the F12 fix and does not prove that fix.
+- PR: https://github.com/trybotster/botster-core/pull/136.
+- Integration reviewer: `sess-1791143089-0101-8ce5f4942328f5697c410ea4da89c466`.
+- No full gate has run.
+- Package review at `049751a`: NOT CLEAN, F12 HIGH, verdict `6bdde0794525f0112776376a57da229a7aeab1a0`.
+  SIGTERM could end the guard member while a TERM-ignoring payload survived.
+  The proposed F12 fix registers SIGTERM before guard registration.
+  The broken-cleanup test now sends the graceful group signal before worker SIGKILL and test panic.
+  Both reviewers must check this delta before F12 closes.
 - Next: finish focused verification, obtain both exact-head CLEAN verdicts, and run one full Linux gate.
 - M2a and M2b remain separate PRs after M1 merges. The pause record below lists their remaining scope.
 

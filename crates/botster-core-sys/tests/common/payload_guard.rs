@@ -93,9 +93,11 @@ fn payload_anchor() {
     let Some(socket) = std::env::var_os("BOTSTER_PAYLOAD_GUARD") else {
         return;
     };
-    // A natural leader exit must not remove the member before test cleanup.
-    let flag = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
-    signal_hook::flag::register(signal_hook::consts::SIGHUP, flag).unwrap();
+    // A graceful group signal or leader exit must not remove test ownership.
+    for signal in [signal_hook::consts::SIGHUP, signal_hook::consts::SIGTERM] {
+        let flag = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        signal_hook::flag::register(signal, flag).unwrap();
+    }
     let Ok(mut stream) = UnixStream::connect(socket) else {
         return;
     };

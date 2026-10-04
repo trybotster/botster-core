@@ -421,12 +421,27 @@ fn a_panic_after_worker_sigkill_ends_the_payload_group() {
     let root = temp_root();
     let held = fifo(root.path(), "f");
     let script = format!(
-        "trap '' HUP; exec 3> {}; /bin/echo up >&3; exec sleep 30",
+        "trap '' HUP TERM; exec 3> {}; /bin/echo up >&3; exec sleep 30",
         held.display()
     );
     let mut session = Session::launch(root.path(), &script, 5000);
     let (mut reader, line) = first_line(&held);
     assert_eq!(line, "up\n");
+    // The graceful group signal must not remove independent test ownership.
+    session.link.msg(&HostMsg::Op {
+        req: 1,
+        op: Op::Signal {
+            id: SessionId("s".into()),
+            sig: Signal::Term,
+        },
+    });
+    assert_eq!(
+        session.link.report(),
+        WorkerMsg::Done {
+            req: 1,
+            result: OpResult::Ok(OpOutput::Unit)
+        }
+    );
     // SIGKILL prevents every production cleanup action in the worker.
     session.signal_worker(rustix::process::Signal::KILL);
     session.worker.worker.wait().unwrap();
