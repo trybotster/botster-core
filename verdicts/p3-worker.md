@@ -1,8 +1,8 @@
 # P3 worker review
 
 Current restack verdict: NOT CLEAN (F13 open after the mutation gate).
-Reviewed head: `fdd2b8e73927d592b75713c55a86c6ea8c60c037`, branch `stage1/p3-m1-v1`.
-Round 19 closes the five worker-core mutant entries. F13 remains open for 162 other entries.
+Reviewed head: `91f8a4260a5e0ffb0721872400ad03da4868498e`, branch `stage1/p3-m1-v1`.
+Round 20 reviews proposed host-edge tests. F13 remains open for 162 entries.
 The CLEAN below applies only to the old M2a head that it names.
 
 VERDICT: CLEAN
@@ -825,3 +825,30 @@ F13 remains OPEN for the other 162 entries in the preserved list.
 The implementer is continuing the testkit work. No new source delta accompanies this evidence.
 
 VERDICT: NOT CLEAN (F13 open; 162 mutant entries remain) on `fdd2b8e73927d592b75713c55a86c6ea8c60c037`.
+
+## Round 20 — Proposed host-edge mutation coverage
+
+Reviewed head: `91f8a4260a5e0ffb0721872400ad03da4868498e`.
+Previous reviewed head: `fdd2b8e73927d592b75713c55a86c6ea8c60c037`.
+The complete delta adds host-edge tests, extends the harness worker_named check, and updates the handoff.
+The only production-file change declares the test module under `cfg(test)`.
+The delta adds no behavior branch or mutation exclusion.
+
+The tests exercise row persistence and injected failures, seeded edge forwarding, wake behavior, link data and descriptors, process events, and directory reopen.
+The facade test checks configuration forwarding and typed failures through the host driver.
+The wake test uses a marked deadline and checks that an unset wake waits for the requested timeout.
+No child process or terminal expectation is added.
+No new source finding exists in this delta.
+
+The reviewer accepts these test designs but does not infer that every missed mutant is caught.
+In particular, the new spawn test sends one byte per link.
+That test does not distinguish the `spawn_worker` mutant that changes `64 * 1024` to `64 + 1024`.
+That entry still needs mutation evidence or an equivalent-mutant argument, as F13 already requires.
+The implementer says compilation and focused mutation verification remain pending.
+
+The reviewer inspected logic only and ran no tests or gate.
+No additional F13 entry closes in this round. The five worker-core closures remain preserved.
+The other 162 entries remain open, including the 29 original core.rs and harness.rs misses pending evidence.
+WorkerEdges and real-process findings remain later work.
+
+VERDICT: NOT CLEAN (F13 open; 162 mutant entries remain) on `91f8a4260a5e0ffb0721872400ad03da4868498e`.
