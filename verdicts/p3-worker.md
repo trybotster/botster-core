@@ -1,8 +1,8 @@
 # P3 worker review
 
-Current restack verdict: NOT CLEAN (F13, F15, and F16 open; F14 closed).
-Reviewed head: `b6b1660bb2c63828c75e51b0ec95cab8f585b9a3`, branch `stage1/p3-m1-v1`.
-Round 34 closes 20 payload mutant entries. F13 retains 71 entries; F15 and F16 remain open.
+Current restack verdict: NOT CLEAN (F13 and F17 open; F14, F15, and F16 closed).
+Reviewed head: `3d13dda8fb2baad575495501a083d0244eb726ce`, branch `stage1/p3-m1-v1`.
+Round 35 closes F15 and F16 in source and opens F17. F13 retains 71 entries pending corrected mutation evidence.
 The CLEAN below applies only to the old M2a head that it names.
 
 VERDICT: CLEAN
@@ -1186,3 +1186,53 @@ F15 and F16 remain OPEN. All earlier closures remain preserved.
 The reviewer inspected logic and existing evidence only. The reviewer ran no tests or gate.
 
 VERDICT: NOT CLEAN (F13: 71 entries; F15 and F16 open) on `b6b1660bb2c63828c75e51b0ec95cab8f585b9a3`.
+
+
+## Round 35 — Payload equivalence proposals and observer delta
+
+Reviewed head: `3d13dda8fb2baad575495501a083d0244eb726ce`.
+The complete delta from `b6b1660` adds premature-EOF failure, an isolated reaping observer, and the handoff update.
+No production path or mutation exclusion changes. The reviewer ran no tests or gate.
+
+F15 is CLOSED in source: the readiness loop now panics on EOF before readiness.
+Unwinding drops the independent payload guard.
+F16 is CLOSED in source: the observer runs only its exact helper with one test thread and owns no other direct child.
+The query uses NOWAIT and NOHANG. It cannot block or reap, and a reused PID cannot identify another child of this observer.
+The outer Observer retains its Child until wait completes and retires the handle before Drop can signal it.
+Corrected mutation evidence remains pending. The held Payload::drop entry and timed-out Payload::read entry remain open under F13.
+
+The wait_unreaped OR-to-XOR proposal has a valid argument: EXITED and NOWAIT are disjoint flags in pinned rustix 1.1.5.
+The set_nonblocking OR-to-XOR proposal has a valid current-caller argument.
+Its sole caller passes a fresh PTY from pinned pty-process 0.5.3 blocking::open.
+The dependency opens RDWR|NOCTTY, sets descriptor CLOEXEC, and does not set status NONBLOCK on that path.
+No other code receives the master before set_nonblocking. OR and XOR therefore set the same clear bit.
+Each exclusion still requires one exact-function mutation entry, its reason, and a caller/dependency recheck condition.
+No F13 entry closes before the reviewer inspects those entries.
+
+The Payload::reap no-op proposal remains pending.
+The production machine requires killed && exit_drained before ReapPayload.
+However, a_group_signal_ends_the_leader_and_its_group sends TERM before reap, rather than KILL.
+The proposed claim that every caller has already killed the group is not a complete proof.
+A revised argument must cover every current caller and the additional SIGKILL while the leader remains reserved.
+Signal delivery alone does not establish that every group member has already exited.
+The wait_unreaped fallback-sign entry remains open without an accepted argument.
+
+### F17 — MEDIUM — The observer does not detect parent death
+
+Status: OPEN at this head.
+Evidence: slow_payload.rs, dropping_the_payload_reaps_its_leader and Observer.
+
+The outer test starts another test executable and waits for it.
+Observer::drop kills that child when the outer test unwinds, but parent process death does not run Drop.
+The observer has no parent-lifetime connection or parent-death mechanism.
+If a mutation leaves the observer blocked, termination of the outer test process can leave the observer alive.
+The payload guard detects observer death; it does not cause observer death when the outer parent dies.
+
+Required change: Give the observer an independent parent-lifetime mechanism that ends it when the outer test process dies.
+Preserve the isolated child ownership proof and production-only payload reaping.
+Preserve the independent payload group guard through observer termination.
+Authority: the user's real-process rule that children exit when their parent is gone.
+
+F13 retains 71 entries. F17 remains open. All earlier findings and closures remain preserved.
+
+VERDICT: NOT CLEAN (F13: 71 entries; F17 open) on `3d13dda8fb2baad575495501a083d0244eb726ce`.
