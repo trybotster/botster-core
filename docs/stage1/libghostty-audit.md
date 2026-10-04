@@ -43,9 +43,11 @@ The `Render::drop` exclusion covers one cleanup call that only frees a native ha
 Removing that call leaks memory but changes no public read.
 
 The pinned fork exposes no complete image count.
-The graphics control must require an explicit ID for every image command in its test stimulus.
-The control must check both the native storage limit and every issued image ID.
-A zero limit alone proves configuration, not stored state.
+The revised lead ruling requires the graphics control to read the limit on both actual terminal instances.
+The model constructor and snapshot decoder set the storage limit to zero before any input.
+Libghostty enforces that limit, so neither instance can store images while the limit remains zero.
+Tests write explicit image IDs to both instances and check the native image lookup.
+The control requires no stimulus record and parses no image bytes.
 
 Scope: every Core clause that needs terminal semantics, checked against libghostty.
 Contract: botster-contracts tag `contracts-v0.1.1` (`366bca41da0a6de69cc1ea13b17c773cdfdb75b6`): manifest final14, Core erratum 2 ("E2") and steward ruling R-13.
