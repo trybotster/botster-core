@@ -1,8 +1,8 @@
 # P3 worker review
 
 Current restack verdict: NOT CLEAN (F13 open after the mutation gate).
-Reviewed head: `78b88fa99546059dc5d8500af890432edd855537`, branch `stage1/p3-m1-v1`.
-Round 17 records 167 missed mutants. All earlier verdicts and closures remain historical evidence.
+Reviewed head: `fdd2b8e73927d592b75713c55a86c6ea8c60c037`, branch `stage1/p3-m1-v1`.
+Round 18 accepts one equivalent mutant and reviews four proposed tests. F13 remains open.
 The CLEAN below applies only to the old M2a head that it names.
 
 VERDICT: CLEAN
@@ -774,3 +774,36 @@ The implementer plans worker-core coverage first, then testkit coverage and slow
 No proposed fix or exclusion has received review in this round.
 
 VERDICT: NOT CLEAN (F13 open; 167 mutant entries require closure) on `78b88fa99546059dc5d8500af890432edd855537`.
+
+## Round 18 — Partial worker-core mutation disposition
+
+Reviewed head: `fdd2b8e73927d592b75713c55a86c6ea8c60c037`.
+Previous reviewed head: `78b88fa99546059dc5d8500af890432edd855537`.
+The complete delta adds four worker-core tests, one exact-mutant exclusion, and a handoff update.
+The implementer explicitly requests partial review, not CLEAN.
+
+The exclusion for `replace || with && in Worker::report_exit` is ACCEPTED as equivalent in M1.
+It names one function and one mutation. Its comment gives the complete reachability argument.
+The first accepted hello precedes Launch, so `report_exit` returns because no exit exists.
+The only later caller is the first drain after an exit. That caller sets `exit_drained` before calling `report_exit`.
+At that call, `exit_reported` is false and `!exit_drained` is false. Both expressions therefore continue to the same report.
+Later drains do not call `report_exit`, and M1 has no reconnect path.
+This disposition closes that one entry under F13. Recheck the argument when caller or reconnect behavior changes.
+
+The four tests cover the other four worker-core misses in source:
+
+- `Worker::on_frame`, HOST_MSG guard replaced with true: a HELLO frame containing a host Kill message must produce no action.
+- `Worker::on_op`, kill equality changed to inequality: explicit Signal(Kill) after the exit drain must emit one reap.
+- `Worker::on_drained`, `&&` changed to `||`: a drain before the exit must not permit a reap before the required exit drain.
+- `Worker::on_end_payload`, `||` changed to `&&`: EndPayload after group kill must produce neither another signal nor a grace deadline.
+
+The tests observe machine actions and reports. They add no test branch or terminal expectation.
+Each test reaches the behavior changed by its named mutant. The reviewer accepts the test design.
+The implementer says focused mutation verification is starting. No result accompanies this review request.
+These four entries remain pending mutation evidence. The remaining 162 entries have no disposition in this delta.
+
+The reviewer inspected logic only and ran no tests or gate.
+F13 remains OPEN: one accepted equivalent entry, four entries awaiting mutation evidence, and 162 other entries awaiting closure.
+All earlier findings retain their closures. This round does not grant CLEAN.
+
+VERDICT: NOT CLEAN (F13 open) on `fdd2b8e73927d592b75713c55a86c6ea8c60c037`.
