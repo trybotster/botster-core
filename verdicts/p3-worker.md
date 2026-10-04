@@ -1,8 +1,8 @@
 # P3 worker review
 
 Current restack verdict: NOT CLEAN (F13 open; F14 closed).
-Reviewed head: `34bad40b4ee3d97eab1866b991c4e2ba5251a7dd`, branch `stage1/p3-m1-v1`.
-Round 29 closes F14 and reviews proposed tuning exclusions. F13 retains 93 open entries.
+Reviewed head: `c1af2211cedce075be7af5f63fa1cca51f0a6647`, branch `stage1/p3-m1-v1`.
+Round 30 conditionally accepts tuning exclusion designs. F13 retains 93 open entries pending evidence.
 The CLEAN below applies only to the old M2a head that it names.
 
 VERDICT: CLEAN
@@ -1054,3 +1054,22 @@ Both arithmetic entries remain OPEN under F13 until all four conditions have ver
 The earlier mutation closures remain preserved. F13 retains 93 open entries: two testkit arithmetic entries and 91 real-process entries.
 
 VERDICT: NOT CLEAN (F13 open; F14 closed) on `34bad40b4ee3d97eab1866b991c4e2ba5251a7dd`.
+
+## Round 30 — Narrow exclusions and all-build lower bounds
+
+Reviewed head: `c1af2211cedce075be7af5f63fa1cca51f0a6647`.
+The complete delta from `34bad40` narrows both constant exclusions, replaces debug assertions, and updates the handoff.
+The LINK_CAPACITY pattern names only its multiplication at core.rs:33:33.
+The READ_CHUNK pattern names only its multiplication at worker.rs:38:30.
+Each entry therefore covers one verified constant declaration and retains its argument and named tests.
+Both lower-bound checks now use `assert!`, which enforces the positive range in all builds.
+
+The source changes resolve both defects identified in round 29.
+The reviewer conditionally accepts the two exclusion designs under the lead's four-condition rule.
+Passing proof at the default, 1088, and 1 remains pending on this corrected head.
+The job on `34bad40` cannot establish the corrected head's result.
+Both arithmetic entries remain OPEN under F13 until the required evidence arrives.
+F14 remains CLOSED. All earlier mutation closures remain preserved.
+The reviewer inspected logic only and ran no tests or gate.
+
+VERDICT: NOT CLEAN (F13 open; 93 mutant entries remain) on `c1af2211cedce075be7af5f63fa1cca51f0a6647`.
