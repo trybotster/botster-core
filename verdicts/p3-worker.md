@@ -1,8 +1,8 @@
 # P3 worker review
 
 Current restack verdict: NOT CLEAN (F13 open; F14 closed).
-Reviewed head: `c1af2211cedce075be7af5f63fa1cca51f0a6647`, branch `stage1/p3-m1-v1`.
-Round 30 conditionally accepts tuning exclusion designs. F13 retains 93 open entries pending evidence.
+Reviewed head: `4960d73873d8301575e312f8fbc596059300c813`, branch `stage1/p3-m1-v1`.
+Round 31 accepts the constant-name pattern correction. F13 retains 93 open entries pending evidence.
 The CLEAN below applies only to the old M2a head that it names.
 
 VERDICT: CLEAN
@@ -1073,3 +1073,18 @@ F14 remains CLOSED. All earlier mutation closures remain preserved.
 The reviewer inspected logic only and ran no tests or gate.
 
 VERDICT: NOT CLEAN (F13 open; 93 mutant entries remain) on `c1af2211cedce075be7af5f63fa1cca51f0a6647`.
+
+## Round 31 — Constant mutant-name correction
+
+Reviewed head: `4960d73873d8301575e312f8fbc596059300c813`.
+The complete delta from `c1af221` removes the trailing `in` from both exact-location exclusion patterns and updates the handoff.
+Constant mutant names omit that suffix. The patterns retain their exact file, line, column, operator, and replacement.
+Each pattern still covers only its verified constant declaration.
+No executable code or proving test changes in this delta.
+The reviewer accepts the pattern correction. The exclusions remain conditional on corrected-head evidence under round 30.
+The handoff reports 178 tested at the older `34bad40` head: 120 caught, 1 missed, 57 unviable, and 0 timeouts.
+That result does not prove the all-build checks or corrected patterns at this head.
+No additional original entry closes in this round. F13 retains 93 open entries; F14 remains closed.
+The reviewer inspected logic only and ran no tests or gate.
+
+VERDICT: NOT CLEAN (F13 open; 93 mutant entries remain) on `4960d73873d8301575e312f8fbc596059300c813`.
