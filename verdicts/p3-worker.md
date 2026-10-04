@@ -1,8 +1,8 @@
 # P3 worker review
 
 Current restack verdict: NOT CLEAN (F13, F18, and F19 open; F14, F15, F16, and F17 closed).
-Reviewed head: `a32542a887ca013afea3c787d557caa010e663fd`, branch `stage1/p3-m1-v1`.
-Round 40 reviews the current-v1 merge delta. F13 retains 66 entries; F18/F19 remain open.
+Reviewed head: `ec8cee11fea200ef6db9dd2d80f5200d5dca2180`, branch `stage1/p3-m1-v1`.
+Round 41 reviews FIFO synchronization and bounded panic cleanup. F13 retains 66 entries; F18/F19 await Mac evidence.
 The CLEAN below applies only to the old M2a head that it names.
 
 VERDICT: CLEAN
@@ -1416,3 +1416,35 @@ F13 retains 66 original entries. F18 and F19 remain OPEN.
 All earlier findings and closures remain preserved. The reviewer ran no tests or gate.
 
 VERDICT: NOT CLEAN (F13: 66 entries; F18 and F19 open) on `a32542a887ca013afea3c787d557caa010e663fd`.
+
+
+## Round 41 — FIFO synchronization and bounded panic cleanup
+
+Reviewed head: `ec8cee11fea200ef6db9dd2d80f5200d5dca2180`.
+The complete delta from `a32542a` changes slow_payload.rs and its handoff.
+No production path, exclusion, dependency, or conflict resolution changes.
+
+The input test now uses payload_waiting_for_input instead of repeated PTY queries and polls.
+The program writes ready to the PTY, runs external /bin/echo to write queued to a FIFO, then reads its input.
+The test opens the FIFO before spawn, waits once within a deadline, checks IN, and consumes the marker.
+It then checks the unchanged production pending_output query before it sends the input line.
+The input-delivery and complete-output assertions remain.
+This removes the busy loop and separates incomplete program output from a production query failure.
+The guard remains active through setup, marker wait, query failure, and panic.
+F18 remains OPEN pending Mac evidence for the queued-output count.
+A further count failure after this marker requires investigation of the production query rather than another readiness workaround.
+
+The new a_panic_ends_the_payload_while_it_waits_for_input test uses the same marker synchronization.
+A separate thread catches a panic while it owns the guarded payload.
+The main test bounds completion of the independent guard and production reaper with recv_timeout, then joins the thread.
+The guard does not reap the payload. Production still owns that reap.
+Parent death retains the independent anchor cleanup from the prior source correction.
+The new test exercises the failure path from the Mac baseline with a finite completion check.
+F19 remains OPEN pending Mac evidence for this exact corrected path.
+
+No new source finding exists in this delta.
+The active Mac baseline at `a532a729` does not cover this later synchronization or panic test.
+F13 retains 66 original entries. F18 and F19 remain OPEN pending evidence.
+All earlier findings and closures remain preserved. The reviewer ran no tests or gate.
+
+VERDICT: NOT CLEAN (F13: 66 entries; F18 and F19 open) on `ec8cee11fea200ef6db9dd2d80f5200d5dca2180`.
