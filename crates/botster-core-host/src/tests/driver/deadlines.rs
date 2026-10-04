@@ -1,0 +1,815 @@
+//! Core erratum 3 (E3-1): due deadlines and the `pump_events` budget, and the steps that post one event each (9B).
+
+use super::*;
+use botster_core_edges::scheduler::ChoicePoint;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+
+/// A session that runs, through the driver, with a small `pump_events`: it pumps until each step is through.
+fn run_session(rig: &mut Rig, name: &str, link: LinkId) {
+    to_launch(rig, name, link);
+    rig.worker_says(link, launched());
+    let mut guard = 0;
+    while rig.pump().more {
+        rig.drain_events();
+        guard += 1;
+        assert!(guard < 200);
+    }
+    rig.drain_events();
+}
+
+/// A session whose worker got the launch request and has not answered yet. Returns the `Start` op.
+pub(super) fn to_launch(rig: &mut Rig, name: &str, link: LinkId) -> OpId {
+    rig.driver.begin(create(name)).unwrap();
+    let mut guard = 0;
+    while rig.pump().more {
+        rig.drain_events();
+        guard += 1;
+        assert!(guard < 200);
+    }
+    let start = rig.driver.begin(Op::Start { id: sid(name) }).unwrap();
+    while !rig.mock.lock().unwrap().links.contains_key(&link) {
+        rig.pump();
+        rig.drain_events();
+        guard += 1;
+        assert!(guard < 200);
+    }
+    // The worker answers after the host sent the launch.
+    while !rig.host_frames(link).iter().any(|(k, p)| {
+        *k == FrameType::HOST_MSG && matches!(HostMsg::decode(p), Ok(HostMsg::Launch(_)))
+    }) {
+        rig.pump();
+        rig.drain_events();
+        guard += 1;
+        assert!(guard < 200);
+    }
+    start
+}
+
+/// A session with a silence deadline `secs` after its last output, through the driver.
+fn silent_session(rig: &mut Rig, name: &str, link: LinkId, secs: u64) {
+    run_session(rig, name, link);
+    rig.worker_says(
+        link,
+        WorkerMsg::Observed {
+            observation: Observation::Output {
+                model_rev: ModelRev(2),
+            },
+        },
+    );
+    rig.pump();
+    rig.driver
+        .set_silence_threshold(&sid(name), Some(Duration::from_secs(secs)))
+        .unwrap();
+}
+
+fn silents(events: &[Event]) -> Vec<SessionId> {
+    events
+        .iter()
+        .filter_map(|e| match e {
+            Event::Silent { id, .. } => Some(id.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+/// E3-1 items 2, 3, 6; TM-4: two silences due together with `pump_events = 1`: one is posted with `more`, and the other is
+/// carried and posted first in the next pump, before an op that was admitted after.
+#[test]
+fn e3_1_two_silences_due_together_with_budget_one() {
+    let mut rig = Rig::new(limits(|l| {
+        l.pump_events = 1;
+        l.max_sessions = 4;
+        l.mandatory_events = 64;
+    }));
+    silent_session(&mut rig, "s1", LinkId(1), 3);
+    silent_session(&mut rig, "s2", LinkId(2), 3);
+    while rig.pump().more {
+        rig.drain_events();
+    }
+    rig.drain_events();
+    rig.now += Duration::from_secs(3);
+    rig.unix += 3;
+    let first = rig.pump();
+    assert_eq!(first.events_posted, 1, "the budget is one");
+    assert!(first.more, "the other Silent is carried");
+    assert!(rig.wake_set(), "the wake stays signaled (TM-6)");
+    let a = silents(&rig.drain_events());
+    // E3-1 item 3: the carried step runs before newer work.
+    rig.driver
+        .begin(Op::UpdateMetadata {
+            id: sid("s1"),
+            labels: Default::default(),
+        })
+        .unwrap();
+    let second = rig.pump();
+    assert_eq!(second.events_posted, 1);
+    let b = silents(&rig.drain_events());
+    assert_eq!(a.len(), 1);
+    assert_eq!(b.len(), 1, "the carried Silent came before the op");
+    assert_ne!(a, b);
+    let mut later = Vec::new();
+    for _ in 0..8 {
+        rig.pump();
+        later.extend(silents(&rig.drain_events()));
+    }
+    assert!(later.is_empty(), "once per idle period");
+}
+
+/// E3-1 item 1: an effect with no event (the kill at the end of `stop_grace`) runs in its due pump whatever the budget.
+#[test]
+fn e3_1_due_effect_without_event_runs_in_its_pump_with_no_budget() {
+    let mut rig = Rig::new(limits(|l| {
+        l.pump_events = 1;
+        l.stop_grace = Duration::from_millis(100);
+        l.mandatory_events = 64;
+    }));
+    run_session(&mut rig, "s1", LinkId(1));
+    rig.driver.begin(Op::Stop { id: sid("s1") }).unwrap();
+    for _ in 0..10 {
+        rig.pump();
+        rig.drain_events();
+    }
+    let kills = |rig: &Rig| {
+        rig.host_frames(LinkId(1))
+            .iter()
+            .filter(|(k, p)| {
+                *k == FrameType::HOST_MSG && matches!(HostMsg::decode(p), Ok(HostMsg::Kill))
+            })
+            .count()
+    };
+    assert_eq!(kills(&rig), 0);
+    // Link input uses the whole budget of the pump in which the kill is due.
+    for _ in 0..4 {
+        rig.worker_says(
+            LinkId(1),
+            WorkerMsg::Observed {
+                observation: Observation::Bell,
+            },
+        );
+    }
+    rig.now += Duration::from_millis(100);
+    let report = rig.pump();
+    assert_eq!(report.events_posted, 1, "the budget was used by the input");
+    assert_eq!(kills(&rig), 1, "the kill ran in its due pump");
+}
+
+/// 9B, LC-9: `UpdateMetadata` posts `Completed` and `MetadataChanged` in two steps: a pump with `pump_events = 1` never posts
+/// two, and `Completed` comes first.
+#[test]
+fn a_step_posts_one_event_for_metadata() {
+    let mut rig = Rig::new(limits(|l| {
+        l.pump_events = 1;
+        l.mandatory_events = 64;
+    }));
+    run_session(&mut rig, "s1", LinkId(1));
+    while rig.pump().more {
+        rig.drain_events();
+    }
+    rig.drain_events();
+    rig.driver
+        .begin(Op::UpdateMetadata {
+            id: sid("s1"),
+            labels: Default::default(),
+        })
+        .unwrap();
+    let mut seen = Vec::new();
+    for _ in 0..10 {
+        let r = rig.pump();
+        assert!(r.events_posted <= 1, "{r:?}");
+        seen.extend(rig.drain_events());
+    }
+    let kinds: Vec<&str> = seen
+        .iter()
+        .filter_map(|e| match e {
+            Event::Completed { .. } => Some("completed"),
+            Event::MetadataChanged { .. } => Some("changed"),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(kinds, ["completed", "changed"], "LC-9 order");
+}
+
+/// E3-1 item 3: a carried `Silent` runs before link input that arrived later: a newer `Bell` does not take the budget.
+#[test]
+fn e3_1_a_carried_silent_runs_before_newer_link_input() {
+    let mut rig = Rig::new(limits(|l| {
+        l.pump_events = 1;
+        l.mandatory_events = 64;
+    }));
+    silent_session(&mut rig, "s1", LinkId(1), 3);
+    while rig.pump().more {
+        rig.drain_events();
+    }
+    rig.drain_events();
+    rig.now += Duration::from_secs(3);
+    rig.unix += 3;
+    rig.worker_says(
+        LinkId(1),
+        WorkerMsg::Observed {
+            observation: Observation::Bell,
+        },
+    );
+    let report = rig.pump();
+    assert_eq!(report.events_posted, 1);
+    let events = rig.drain_events();
+    assert_eq!(silents(&events).len(), 1, "{events:?}");
+}
+
+/// 9B: two route handoffs that fail post two `RouteClosed` events in two pumps when `pump_events = 1`.
+#[test]
+fn two_failed_handoffs_post_one_event_per_pump() {
+    let mut rig = Rig::new(limits(|l| {
+        l.pump_events = 1;
+        l.mandatory_events = 64;
+        l.max_sessions = 4;
+    }));
+    run_session(&mut rig, "s1", LinkId(1));
+    let attach = |rig: &mut Rig| {
+        rig.driver
+            .attach(
+                ClientId("c".into()),
+                sid("s1"),
+                RouteTransport::Stream(StreamEndpoint::new(())),
+                AttachOptions {
+                    file_directory: "/tmp".into(),
+                    file_permissions: None,
+                    route_features: vec![],
+                    terminal_formats: vec![],
+                    connect_deadline: None,
+                    owner: None,
+                    query_deadline: Some(Duration::from_secs(1)),
+                    route_tag: None,
+                    route_limits: None,
+                    history: None,
+                    stall_deadline: None,
+                    answers_queries: true,
+                    input: true,
+                },
+            )
+            .unwrap()
+    };
+    attach(&mut rig);
+    attach(&mut rig);
+    let mut closed = 0;
+    for _ in 0..20 {
+        let r = rig.pump();
+        assert!(r.events_posted <= 1, "{r:?}");
+        closed += rig
+            .drain_events()
+            .iter()
+            .filter(|e| matches!(e, Event::RouteClosed { .. }))
+            .count();
+    }
+    assert_eq!(closed, 2);
+}
+
+/// A scheduler that defers every second piece of work that it is asked about, and varies nothing else: work that no clause
+/// fixes is deferred, and it still progresses.
+struct AlwaysDefer(Production, u32);
+
+impl Scheduler for AlwaysDefer {
+    fn pick(&mut self, point: ChoicePoint, candidates: usize) -> usize {
+        match point {
+            ChoicePoint::OperationDeferral => {
+                self.1 += 1;
+                usize::from(self.1 % 2 == 1)
+            }
+            _ => self.0.pick(point, candidates),
+        }
+    }
+
+    fn bound(&mut self, point: ChoicePoint, max: usize) -> usize {
+        self.0.bound(point, max)
+    }
+}
+
+/// Steward ruling R-20, A5-2 "not varied": LC-5 (a `Stop` of a session whose payload exited), SZ-2 (a `Resize` to the current
+/// size) and A2-1's `Resize` in `Created` complete in the next `pump`, even when the scheduler defers every operation. Any
+/// other operation stays deferred by it.
+#[test]
+fn r_20_fixed_timing_ops_are_never_deferred() {
+    let mut rig = Rig::with_scheduler(
+        CoreLimits::default(),
+        Box::new(AlwaysDefer(Production::new(), 0)),
+    );
+    let completed = |events: &[Event], op: OpId| {
+        events
+            .iter()
+            .any(|e| matches!(e, Event::Completed { op: o, .. } if *o == op))
+    };
+    // A2-1: `Resize` in `Created`.
+    rig.driver.begin(create("s1")).unwrap();
+    // The scheduler defers every operation: the create takes pumps, and it ends.
+    let mut guard = 0;
+    while rig.driver.get(&sid("s1")).is_err() {
+        rig.pump();
+        guard += 1;
+        assert!(guard < 50);
+    }
+    rig.drain_events();
+    let resize = rig
+        .driver
+        .begin(Op::Resize {
+            session: sid("s1"),
+            size: Size {
+                rows: 30,
+                cols: 100,
+                cell_px: None,
+            },
+        })
+        .unwrap();
+    rig.pump();
+    assert!(
+        completed(&rig.drain_events(), resize),
+        "A2-1 Created Resize"
+    );
+    // Start with a scripted worker; the start ops are deferred and still end.
+    rig.driver.begin(Op::Start { id: sid("s1") }).unwrap();
+    let mut guard = 0;
+    while !rig.mock.lock().unwrap().links.contains_key(&LinkId(1)) {
+        rig.pump();
+        rig.drain_events();
+        guard += 1;
+        assert!(guard < 50);
+    }
+    // The worker answers after the host sent the launch.
+    let mut guard = 0;
+    while !rig.host_frames(LinkId(1)).iter().any(|(k, p)| {
+        *k == FrameType::HOST_MSG && matches!(HostMsg::decode(p), Ok(HostMsg::Launch(_)))
+    }) {
+        rig.pump();
+        rig.drain_events();
+        guard += 1;
+        assert!(guard < 60);
+    }
+    rig.worker_says(LinkId(1), launched());
+    for _ in 0..60 {
+        rig.pump();
+        rig.drain_events();
+        if rig.driver.get(&sid("s1")).unwrap().state == SessionState::Running {
+            break;
+        }
+    }
+    assert_eq!(
+        rig.driver.get(&sid("s1")).unwrap().state,
+        SessionState::Running
+    );
+    // SZ-2: a `Resize` to the current size.
+    let current = rig.driver.get(&sid("s1")).unwrap().size;
+    let same = rig
+        .driver
+        .begin(Op::Resize {
+            session: sid("s1"),
+            size: current,
+        })
+        .unwrap();
+    // A control: an operation that no clause fixes is deferred by this scheduler.
+    let read = rig
+        .driver
+        .begin(Op::ReadModeFlags { session: sid("s1") })
+        .unwrap();
+    rig.pump();
+    let events = rig.drain_events();
+    assert!(completed(&events, same), "SZ-2: {events:?}");
+    assert!(
+        !rig.driver.engine().never_deferred(&crate::Work::Op(read)),
+        "no clause fixes the timing of a read"
+    );
+    // LC-5: the payload exits, and the session is `Exited`.
+    rig.worker_says(
+        LinkId(1),
+        WorkerMsg::Exited {
+            code: Some(0),
+            signal: None,
+        },
+    );
+    for _ in 0..60 {
+        rig.pump();
+        rig.drain_events();
+    }
+    assert!(matches!(
+        rig.driver.get(&sid("s1")).unwrap().state,
+        SessionState::Exited(_)
+    ));
+    let stop = rig.driver.begin(Op::Stop { id: sid("s1") }).unwrap();
+    rig.pump();
+    assert!(completed(&rig.drain_events(), stop), "LC-5");
+}
+
+/// A scheduler that picks an index past the end at the choice points of work and of sessions.
+struct Overshoot(Production);
+
+impl Scheduler for Overshoot {
+    fn pick(&mut self, point: ChoicePoint, candidates: usize) -> usize {
+        match point {
+            ChoicePoint::ReadyWork | ChoicePoint::Session => usize::MAX,
+            _ => self.0.pick(point, candidates),
+        }
+    }
+
+    fn bound(&mut self, point: ChoicePoint, max: usize) -> usize {
+        self.0.bound(point, max)
+    }
+}
+
+/// Plan 2.4: the driver keeps a pick of the scheduler inside the list of ready work: a pick past the end is the last one.
+#[test]
+fn a_pick_past_the_end_is_the_last_ready_work() {
+    let mut rig = Rig::with_scheduler(
+        limits(|l| l.max_sessions = 4),
+        Box::new(Overshoot(Production::new())),
+    );
+    for name in ["a", "b", "c"] {
+        rig.driver.begin(create(name)).unwrap();
+    }
+    let mut guard = 0;
+    while rig.pump().more {
+        rig.drain_events();
+        guard += 1;
+        assert!(guard < 100);
+    }
+    for name in ["a", "b", "c"] {
+        assert_eq!(
+            rig.driver.get(&sid(name)).unwrap().state,
+            SessionState::Created
+        );
+    }
+}
+
+/// A scheduler that defers every operation while its switch is on, and varies nothing else.
+pub(super) struct Switched(pub(super) Production, pub(super) Arc<AtomicBool>);
+
+impl Scheduler for Switched {
+    fn pick(&mut self, point: ChoicePoint, candidates: usize) -> usize {
+        match point {
+            ChoicePoint::OperationDeferral => usize::from(self.1.load(Ordering::SeqCst)),
+            _ => self.0.pick(point, candidates),
+        }
+    }
+
+    fn bound(&mut self, point: ChoicePoint, max: usize) -> usize {
+        self.0.bound(point, max)
+    }
+}
+
+/// Steward ruling R-20: while the scheduler defers every operation, the fixed-timing ops still complete in the next pump, and an
+/// operation that no clause fixes does not.
+#[test]
+fn r_20_fixed_ops_complete_while_the_scheduler_defers_everything_else() {
+    let on = Arc::new(AtomicBool::new(false));
+    let mut rig = Rig::with_scheduler(
+        CoreLimits::default(),
+        Box::new(Switched(Production::new(), Arc::clone(&on))),
+    );
+    run_session(&mut rig, "s1", LinkId(1));
+    rig.driver.begin(create("c")).unwrap();
+    for _ in 0..6 {
+        rig.pump();
+        rig.drain_events();
+    }
+    on.store(true, Ordering::SeqCst);
+    let created_resize = rig
+        .driver
+        .begin(Op::Resize {
+            session: sid("c"),
+            size: Size {
+                rows: 30,
+                cols: 100,
+                cell_px: None,
+            },
+        })
+        .unwrap();
+    let current = rig.driver.get(&sid("s1")).unwrap().size;
+    let same = rig
+        .driver
+        .begin(Op::Resize {
+            session: sid("s1"),
+            size: current,
+        })
+        .unwrap();
+    let read = rig
+        .driver
+        .begin(Op::ReadCursor { session: sid("s1") })
+        .unwrap();
+    rig.pump();
+    let events = rig.drain_events();
+    let done = |op: OpId| {
+        events
+            .iter()
+            .any(|e| matches!(e, Event::Completed { op: o, .. } if *o == op))
+    };
+    assert!(done(created_resize), "A2-1 Created Resize");
+    assert!(done(same), "SZ-2");
+    assert!(!done(read), "an operation that no clause fixes is deferred");
+    let forwarded = rig
+        .host_frames(LinkId(1))
+        .iter()
+        .filter(|(k, p)| {
+            *k == FrameType::HOST_MSG
+                && matches!(
+                    HostMsg::decode(p),
+                    Ok(HostMsg::Op {
+                        op: Op::ReadCursor { .. },
+                        ..
+                    })
+                )
+        })
+        .count();
+    assert_eq!(forwarded, 0, "the deferred read was not sent");
+}
+
+/// 9B, TM-6: `more` is true when only work remains, and when only input remains.
+#[test]
+fn more_is_true_for_remaining_work_and_for_remaining_input() {
+    // Only work: two creates with the budget of one event.
+    let mut rig = Rig::new(limits(|l| {
+        l.pump_events = 1;
+        l.max_sessions = 4;
+    }));
+    rig.driver.begin(create("a")).unwrap();
+    rig.driver.begin(create("b")).unwrap();
+    assert!(rig.pump().more, "work remains");
+    // Only input: the engine has nothing to run, and a link holds unread bytes beyond the allowance of one pump.
+    let mut rig = Rig::new(limits(|l| l.pump_bytes = 64));
+    run_session(&mut rig, "s1", LinkId(1));
+    for _ in 0..40 {
+        rig.worker_says(
+            LinkId(1),
+            WorkerMsg::Observed {
+                observation: Observation::Bell,
+            },
+        );
+    }
+    let report = rig.pump();
+    assert!(!rig.driver.engine().runnable(), "no engine work");
+    assert!(report.more, "input remains");
+}
+
+/// AD-2: an exit that the process edge reports ends the session `Lost(WorkerGone)`, and one exit per call of the edge is taken
+/// while the pump has budget.
+#[test]
+fn the_driver_takes_the_exits_of_the_process_edge() {
+    let mut rig = Rig::new(CoreLimits::default());
+    run_session(&mut rig, "s1", LinkId(1));
+    let worker = ProcessIdentity {
+        pid: 500,
+        start_time: 1,
+    };
+    rig.mock
+        .lock()
+        .unwrap()
+        .exits
+        .push((worker, ExitStatus::Code(0)));
+    for _ in 0..6 {
+        rig.pump();
+        rig.drain_events();
+    }
+    assert!(
+        rig.mock.lock().unwrap().exits.is_empty(),
+        "the exit was taken"
+    );
+    assert_eq!(
+        rig.driver.get(&sid("s1")).unwrap().state,
+        SessionState::Lost(LostReason::WorkerGone)
+    );
+}
+
+/// Core AM-2: the writes of one session reach the worker in `begin` order, whatever the scheduler defers: a deferred write
+/// holds the later writes of its session.
+#[test]
+fn writes_of_one_session_reach_the_worker_in_begin_order() {
+    let mut rig = Rig::with_scheduler(
+        CoreLimits::default(),
+        Box::new(AlwaysDefer(Production::new(), 0)),
+    );
+    run_session(&mut rig, "s1", LinkId(1));
+    for _ in 0..60 {
+        if rig.driver.get(&sid("s1")).unwrap().state == SessionState::Running {
+            break;
+        }
+        rig.pump();
+        rig.drain_events();
+    }
+    let write = |text: &str| Op::WriteInput {
+        session: sid("s1"),
+        payload: InputPayload::Text { text: text.into() },
+        guard: None,
+    };
+    for text in ["a", "b", "c", "d"] {
+        rig.driver.begin(write(text)).unwrap();
+    }
+    for _ in 0..20 {
+        rig.pump();
+        rig.drain_events();
+    }
+    let sent: Vec<String> = rig
+        .host_frames(LinkId(1))
+        .iter()
+        .filter_map(|(k, p)| match HostMsg::decode(p) {
+            Ok(HostMsg::Op {
+                op:
+                    Op::WriteInput {
+                        payload: InputPayload::Text { text },
+                        ..
+                    },
+                ..
+            }) if *k == FrameType::HOST_MSG => Some(text),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(sent, ["a", "b", "c", "d"]);
+}
+
+/// The sizes of the `Resize` ops that the host sent to the worker, in the order sent.
+fn sent_resizes(rig: &Rig, link: LinkId) -> Vec<Size> {
+    rig.host_frames(link)
+        .iter()
+        .filter_map(|(k, p)| match HostMsg::decode(p) {
+            Ok(HostMsg::Op {
+                op: Op::Resize { size, .. },
+                ..
+            }) if *k == FrameType::HOST_MSG => Some(size),
+            _ => None,
+        })
+        .collect()
+}
+
+fn rows(rows: u32) -> Size {
+    Size {
+        rows,
+        cols: 80,
+        cell_px: None,
+    }
+}
+
+/// Core SZ-3, OR-1: the resizes of one session reach the worker in `begin` order, whatever the scheduler defers, so the last
+/// resize begun is the one applied.
+#[test]
+fn resizes_of_one_session_reach_the_worker_in_begin_order() {
+    let mut rig = Rig::with_scheduler(
+        CoreLimits::default(),
+        Box::new(AlwaysDefer(Production::new(), 0)),
+    );
+    run_session(&mut rig, "s1", LinkId(1));
+    let sizes = [rows(30), rows(31), rows(32)];
+    for size in sizes {
+        rig.driver
+            .begin(Op::Resize {
+                session: sid("s1"),
+                size,
+            })
+            .unwrap();
+    }
+    for _ in 0..20 {
+        rig.pump();
+        rig.drain_events();
+    }
+    assert_eq!(sent_resizes(&rig, LinkId(1)), sizes);
+}
+
+/// Core SZ-2, SZ-3: a `Resize` back to the current size while another `Resize` is in flight is not the same-size case: the
+/// in-flight one applies later, so this one goes to the worker after it and does not complete at once.
+#[test]
+fn a_resize_to_the_current_size_waits_for_a_resize_in_flight() {
+    let mut rig = Rig::new(CoreLimits::default());
+    run_session(&mut rig, "s1", LinkId(1));
+    let current = rig.driver.get(&sid("s1")).unwrap().size;
+    let other = Size {
+        rows: current.rows + 1,
+        ..current
+    };
+    rig.driver
+        .begin(Op::Resize {
+            session: sid("s1"),
+            size: other,
+        })
+        .unwrap();
+    rig.pump();
+    rig.drain_events();
+    let back = rig
+        .driver
+        .begin(Op::Resize {
+            session: sid("s1"),
+            size: current,
+        })
+        .unwrap();
+    let mut completed = false;
+    for _ in 0..10 {
+        rig.pump();
+        completed |= rig
+            .drain_events()
+            .iter()
+            .any(|e| matches!(e, Event::Completed { op, .. } if *op == back));
+    }
+    assert_eq!(sent_resizes(&rig, LinkId(1)), [other, current]);
+    assert!(
+        !completed,
+        "the resize back completes only after the worker answers"
+    );
+}
+
+/// A5-2: the scheduler defers the progress of an operation, not the transition that an edge report causes: when the process
+/// edge reports the exit of a worker, the session is `Lost` in the pump that takes the report, whatever the scheduler defers.
+#[test]
+fn a_reported_exit_is_posted_in_its_pump_whatever_the_scheduler_defers() {
+    let on = Arc::new(AtomicBool::new(false));
+    let mut rig = Rig::with_scheduler(
+        CoreLimits::default(),
+        Box::new(Switched(Production::new(), Arc::clone(&on))),
+    );
+    run_session(&mut rig, "s1", LinkId(1));
+    on.store(true, Ordering::SeqCst);
+    rig.mock.lock().unwrap().exits.push((
+        ProcessIdentity {
+            pid: 500,
+            start_time: 1,
+        },
+        ExitStatus::Code(0),
+    ));
+    rig.pump();
+    assert_eq!(
+        rig.driver.get(&sid("s1")).unwrap().state,
+        SessionState::Lost(LostReason::WorkerGone)
+    );
+}
+
+/// TM-6: a pump that leaves work does not settle the wake, and a pump that finds work in the readiness that the settle reports
+/// is not quiet: `more` is true.
+#[test]
+fn the_pump_settles_the_wake_only_when_it_has_no_work_and_looks_again_after() {
+    // Work remains: the wake is not settled.
+    let mut rig = Rig::new(limits(|l| {
+        l.pump_events = 1;
+        l.max_sessions = 4;
+    }));
+    rig.driver.begin(create("a")).unwrap();
+    rig.driver.begin(create("b")).unwrap();
+    assert!(rig.pump().more);
+    assert_eq!(
+        rig.mock.lock().unwrap().settled,
+        0,
+        "no settle while work remains"
+    );
+    // Input remains: the same.
+    let mut rig = Rig::new(limits(|l| l.pump_bytes = 64));
+    run_session(&mut rig, "s1", LinkId(1));
+    let before = rig.mock.lock().unwrap().settled;
+    for _ in 0..40 {
+        rig.worker_says(
+            LinkId(1),
+            WorkerMsg::Observed {
+                observation: Observation::Bell,
+            },
+        );
+    }
+    assert!(rig.pump().more);
+    assert_eq!(
+        rig.mock.lock().unwrap().settled,
+        before,
+        "no settle while input remains"
+    );
+    // The settle reports an exit: the pump looks again and has work.
+    let mut rig = Rig::new(CoreLimits::default());
+    run_session(&mut rig, "s1", LinkId(1));
+    let mut payload = Vec::new();
+    WorkerMsg::Exited {
+        code: Some(0),
+        signal: None,
+    }
+    .encode(&mut payload);
+    rig.mock
+        .lock()
+        .unwrap()
+        .late
+        .push((LinkId(1), frame(FrameType::WORKER_MSG, &payload)));
+    let report = rig.pump();
+    assert!(report.more, "the late exit is work");
+}
+
+/// TM-6, AD-2: an exit that the process edge queues while the pump ends, and whose wake the settle consumes, is taken in that
+/// pump, which then reports more work with the wake set: nothing waits in the edge without a wake, and the next pump ends the
+/// session `Lost(WorkerGone)`.
+#[test]
+fn an_exit_reaped_while_the_pump_settles_is_taken_in_that_pump() {
+    let mut rig = Rig::new(CoreLimits::default());
+    run_session(&mut rig, "s1", LinkId(1));
+    rig.mock.lock().unwrap().late_exits.push((
+        ProcessIdentity {
+            pid: 500,
+            start_time: 1,
+        },
+        ExitStatus::Code(0),
+    ));
+    let report = rig.pump();
+    assert!(
+        rig.mock.lock().unwrap().exits.is_empty(),
+        "the exit was taken"
+    );
+    assert!(report.more && rig.wake_set(), "the host pumps again");
+    rig.pump();
+    assert_eq!(
+        rig.driver.get(&sid("s1")).unwrap().state,
+        SessionState::Lost(LostReason::WorkerGone)
+    );
+}
