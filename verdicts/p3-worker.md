@@ -2,7 +2,7 @@
 
 Current restack verdict: NOT CLEAN (F13 open after the mutation gate).
 Reviewed head: `cc34474de63030b74031f5a21d6608bf27a4a843`, branch `stage1/p3-m1-v1`.
-Round 21 reviews the AttachOptions fixture correction. F13 remains open for 162 entries.
+Round 22 closes 44 testkit mutant entries. F13 remains open for 118 entries.
 The CLEAN below applies only to the old M2a head that it names.
 
 VERDICT: CLEAN
@@ -863,3 +863,33 @@ No new source finding exists. No mutation entry closes in this round.
 The reviewer inspected logic only and ran no tests or gate.
 
 VERDICT: NOT CLEAN (F13 open; 162 mutant entries remain) on `cc34474de63030b74031f5a21d6608bf27a4a843`.
+
+## Round 22 — Verified testkit mutation closures
+
+Evidence head: `cc34474de63030b74031f5a21d6608bf27a4a843`.
+The reviewer read the focused Linux log and the actual focused outcomes. The reviewer ran no tests or gate.
+Log: `~/botster-sessions/gates/botster-core-stage1-p3-m1-v1-cc34474d-linux-20261004-133509-42847.log`.
+The job reports 177 tested: 94 caught, 27 missed, 56 unviable, and 0 timeouts.
+This is a failed focused mutation job, not a full green gate.
+
+The initial failure collector copied stale `target/mutants.out` from the earlier full gate.
+The implementer retrieved the existing focused output from `target/p3-testkit-mutants/mutants.out` without a rerun.
+The actual outcomes and lists are at `/private/tmp/p3-testkit-evidence/`.
+Their counts match the focused log. The reviewer matched every original testkit entry by its exact mutant name.
+
+The actual outcomes mark 44 original misses as `CaughtMutant`:
+
+- `core.rs`: 27.
+- `harness.rs`: 1.
+- `worker.rs`: 16.
+
+Those 44 entries are CLOSED under F13.
+Their exact names are preserved in `verdicts/p3-worker-mutants-cc34474-caught.txt`.
+No original testkit entry became unviable. The other 27 original testkit entries remain `MissedMutant`.
+The capacity arithmetic miss and the release/release_owner misses remain open.
+
+The five worker-core closures remain preserved.
+F13 remains OPEN for 118 entries: 27 testkit, 26 payload edge, and 65 real worker driver entries.
+No new source delta accompanies this evidence. Proposed binding tests and equivalence arguments require later review.
+
+VERDICT: NOT CLEAN (F13 open; 118 mutant entries remain) on `cc34474de63030b74031f5a21d6608bf27a4a843`.
