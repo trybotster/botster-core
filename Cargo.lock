@@ -291,6 +291,7 @@ dependencies = [
  "botster-core-sys",
  "botster-core-testkit",
  "botster-route-codec",
+ "botster-terminal-ghostty",
  "botster-worker-core",
  "libtest-mimic",
  "mio",
