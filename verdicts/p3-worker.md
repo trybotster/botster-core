@@ -1,8 +1,8 @@
 # P3 worker review
 
 Current restack verdict: NOT CLEAN (F13, F18, and F19 open; F14, F15, F16, and F17 closed).
-Reviewed head: `0e66b74f97d2f6b7665fcff1310f83bfd0bca4b2`, branch `stage1/p3-m1-v1`.
-Round 44 reviews failure diagnostics and the mutation summary. F13 retains 66 entries pending raw fallback evidence; F18/F19 remain open.
+Reviewed head: `39a55c9e8fd8ecc6d4678ba952a363d99fa04139`, branch `stage1/p3-m1-v1`.
+Round 45 reviews the GHOSTSNP documentation merge and Linux compilation evidence. F13 retains 66 entries; F18/F19 remain open.
 The CLEAN below applies only to the old M2a head that it names.
 
 VERDICT: CLEAN
@@ -1519,3 +1519,34 @@ F18 and F19 remain OPEN for corrected-source Mac evidence. The Mac hold still ap
 All earlier findings and closures remain preserved. The reviewer ran no tests or gate.
 
 VERDICT: NOT CLEAN (F13: 66 entries; F18 and F19 open) on `0e66b74f97d2f6b7665fcff1310f83bfd0bca4b2`.
+
+
+## Round 45 — GHOSTSNP documentation merge and diagnostic compilation
+
+Reviewed head: `39a55c9e8fd8ecc6d4678ba952a363d99fa04139`.
+Previous reviewed head: `0e66b74f97d2f6b7665fcff1310f83bfd0bca4b2`.
+Merge commit: `e8094417d6d2d12600945313bf3ac839c8ebd397`.
+Its parents are the previous P3 head and merged v1 `a3b8af5be21389423439fb3c09d6a81d924c987d` (PR #139).
+The implementer reports no conflicts. No P3 conflict resolution accompanies the delta.
+
+The complete delta imports GHOSTSNP.md, changes only snapshot rustdoc, and updates the P3 handoff.
+The imported specification and snapshot.rs blobs match merged v1 exactly.
+No production behavior, P3 source, exclusion, dependency, or conformance list changes.
+The specification leaves Worker paging pending until the P3 M2b CaptureSnapshot implementation.
+The M2b PR must complete that section with citations to its paging code.
+Host metadata contributes zero counted page bytes, but that fact does not establish the worker's framing overhead.
+The every-cut fit check remains inconclusive until the Worker paging section defines that overhead.
+The merge introduces no new P3-scope finding and supplies no M1 finding closure.
+
+Compilation evidence head: `0e66b74f97d2f6b7665fcff1310f83bfd0bca4b2`.
+Log: `~/botster-sessions/gates/botster-core-stage1-p3-m1-v1-0e66b74f-linux-20261004-163914-80877.log`.
+The reviewer read the exact-head Linux nextest log.
+The diagnostics compile, and all 15 slow_payload tests pass with zero skipped in 0.020 seconds.
+The job exits zero after ten seconds. This proves Linux compilation and baseline behavior only.
+It does not close F18 or F19's Mac evidence requirements.
+
+F13 retains 66 original entries pending raw fallback-sign evidence.
+F18 and F19 remain OPEN for corrected-source Mac evidence.
+All earlier findings and closures remain preserved. The reviewer ran no tests or gate.
+
+VERDICT: NOT CLEAN (F13: 66 entries; F18 and F19 open) on `39a55c9e8fd8ecc6d4678ba952a363d99fa04139`.
