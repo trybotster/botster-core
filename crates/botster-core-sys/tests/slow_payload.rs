@@ -7,6 +7,9 @@
 #[path = "common/payload_guard.rs"]
 mod payload_guard;
 
+#[path = "common/process_guard.rs"]
+mod process_guard;
+
 use botster_core_edges::edges::ExitStatus;
 use botster_core_sys::payload::{Payload, PayloadCommand, SpawnFailure};
 use payload_guard::PayloadGuard;
@@ -197,6 +200,7 @@ fn a_group_signal_ends_the_leader_and_its_group() {
     assert_eq!(exit_of(&p), ExitStatus::Signal(15));
     // The `sleep` was in the group: the output ends because no process holds the PTY any more.
     read_all(&p);
+    p.signal_group(9);
     p.reap();
 }
 
@@ -234,7 +238,12 @@ fn the_pty_counts_output_and_delivers_input_to_the_program() {
 /// LC-5 and the payload ownership rule: dropping an unreaped payload retires its leader.
 #[test]
 fn dropping_the_payload_reaps_its_leader() {
-    let child = std::process::Command::new(std::env::current_exe().unwrap())
+    use std::os::unix::process::CommandExt;
+    let root = tempfile::tempdir().unwrap();
+    let group = process_guard::GroupGuard::new(root.path());
+    let child = std::process::Command::new("/bin/sh")
+        .args(["-c", &format!("{}exec \"$@\"", group.prefix()), "observer"])
+        .arg(std::env::current_exe().unwrap())
         .args([
             "--exact",
             "payload_reap_observer",
@@ -242,6 +251,7 @@ fn dropping_the_payload_reaps_its_leader() {
             "--test-threads=1",
         ])
         .env("BOTSTER_REAP_OBSERVER", "1")
+        .process_group(0)
         .spawn()
         .unwrap();
     assert!(Observer(Some(child)).wait().unwrap().success());

@@ -11,6 +11,20 @@
 exclude_globs = ["**/tests/**", "tests/**"]
 
 exclude_re = [
+    # P3 Payload::reap no-op: every current caller observes the leader's exit and sends group SIGKILL before reap.
+    # Production emits ReapPayload only after killed && exit_drained. Explicit slow-test callers follow that order too.
+    # A no-op still consumes self and runs Payload::drop with the child present. Drop sends an additional SIGKILL and waits.
+    # The unreaped leader reserves the group id through that signal. The extra signal cannot change its reported exit.
+    # The first SIGKILL can still be pending; this argument does not require every group member to have exited.
+    # Recheck this entry when any reap caller or Payload::drop changes.
+    'crates/botster-core-sys/src/payload\.rs:\d+:\d+: replace Payload::reap with \(\)$',
+    # wait_unreaped: EXITED and NOWAIT are disjoint option bits, so OR and XOR give the same wait options.
+    # Recheck this entry when the options or the pinned rustix dependency change.
+    'crates/botster-core-sys/src/payload\.rs:\d+:\d+: replace \| with \^ in wait_unreaped$',
+    # set_nonblocking: its sole caller passes a fresh blocking PTY from pinned pty-process 0.5.3.
+    # sys::Pty::open uses RDWR | NOCTTY. blocking::open never sets NONBLOCK, so that bit is clear before this operation.
+    # OR and XOR both set the bit. Recheck this entry when the caller or the pinned PTY dependency changes.
+    'crates/botster-core-sys/src/payload\.rs:\d+:\d+: replace \| with \^ in set_nonblocking$',
     # P3 tuning ruling (2026-10-04): contract equivalence applies to pure tuning constants, not schedule identity.
     # LINK_CAPACITY: no clause fixes this positive capacity. Plan 2.5 rule 7 requires a bounded receive buffer;
     # A5-2 permits partial progress. FrameDecoder retains a frame across reads, so the queue need not hold a whole frame.
