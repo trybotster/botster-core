@@ -54,6 +54,10 @@ The slow process-group tests retain `OwnedGroup` for every spawned group.
 Their children block on a pipe held by the test.
 Closing that pipe ends the child without a timer or CPU loop.
 Drop and panic still kill the owned group and reap its leader.
+The parent-exit regression starts a fixture in the outer test's owned group.
+The fixture starts a child in that group, holds its input pipe, and exits without running Rust cleanup.
+The outer test waits for EOF before it drops its group guard.
+EOF proves that the child closed its inherited output after the parent exited.
 
 Prior art: P2 provides every terminal read and encoder.
 No old botster-core source or test was copied.
