@@ -58,6 +58,38 @@ pub struct EveryCutInput {
     pub beyond_limit: Vec<String>,
 }
 
+#[derive(Default)]
+struct Refusals {
+    beyond_limit: u64,
+    mismatches: Vec<Value>,
+    inconclusive: bool,
+}
+
+impl Refusals {
+    fn record(
+        &mut self,
+        item: usize,
+        offset: usize,
+        pending: Option<usize>,
+        fits: Option<bool>,
+        unavailable: bool,
+    ) {
+        if fits != Some(true) || pending.is_none() {
+            self.inconclusive = true;
+        } else if pending.is_some_and(|length| length > CONTINUATION_LIMIT) {
+            self.beyond_limit += 1;
+        } else {
+            let reason = if unavailable {
+                "retention failure within limit"
+            } else {
+                "refused within limit"
+            };
+            self.mismatches
+                .push(json!({"item": item, "offset": offset, "reason": reason}));
+        }
+    }
+}
+
 /// Check all offsets, including zero and the full length. Do not normalize terminal state or replace Core's pages.
 pub fn oracle_resume_every_cut(
     input: &EveryCutInput,
@@ -68,8 +100,8 @@ pub fn oracle_resume_every_cut(
     for kind in &input.beyond_limit {
         corpus.push(beyond_limit(kind)?);
     }
-    let (mut cuts_checked, mut offered, mut refused_beyond_limit) = (0u64, 0u64, 0u64);
-    let mut mismatches = Vec::new();
+    let (mut cuts_checked, mut offered) = (0u64, 0u64);
+    let mut refusals = Refusals::default();
     let mut inconclusive = false;
     for (item, bytes) in corpus.iter().enumerate() {
         for offset in 0..=bytes.len() {
@@ -115,7 +147,8 @@ pub fn oracle_resume_every_cut(
                 ));
             }
             if semantic_failure {
-                mismatches
+                refusals
+                    .mismatches
                     .push(json!({"item": item, "offset": offset, "reason": "semantic failure"}));
                 continue;
             }
@@ -132,7 +165,7 @@ pub fn oracle_resume_every_cut(
                     ) {
                         Ok(terminal) => terminal,
                         Err(error) => {
-                            mismatches.push(json!({"item": item, "offset": offset, "reason": format!("decode: {error:?}")}));
+                            refusals.mismatches.push(json!({"item": item, "offset": offset, "reason": format!("decode: {error:?}")}));
                             continue;
                         }
                     };
@@ -149,33 +182,30 @@ pub fn oracle_resume_every_cut(
                         .vt_processing_error()
                         .map_err(library_error)?
                     {
-                        mismatches.push(json!({"item": item, "offset": offset, "reason": "semantic failure after suffix"}));
+                        refusals.mismatches.push(json!({"item": item, "offset": offset, "reason": "semantic failure after suffix"}));
                         continue;
                     }
                     match (restored.snapshot(), subject.model().snapshot()) {
                         (Ok(actual), Ok(expected)) if actual == expected => {}
-                        _ => mismatches.push(
+                        _ => refusals.mismatches.push(
                             json!({"item": item, "offset": offset, "reason": "resume differs"}),
                         ),
                     }
                 }
                 CutCapture::SnapshotTooLarge => {
-                    if fits != Some(true) || pending.is_none() {
-                        inconclusive = true;
-                    } else if pending.is_some_and(|length| length > CONTINUATION_LIMIT) {
-                        refused_beyond_limit += 1;
-                    } else {
-                        let reason = if retention == Continuation::Unavailable {
-                            "retention failure within limit"
-                        } else {
-                            "refused within limit"
-                        };
-                        mismatches.push(json!({"item": item, "offset": offset, "reason": reason}));
-                    }
+                    refusals.record(
+                        item,
+                        offset,
+                        pending,
+                        fits,
+                        retention == Continuation::Unavailable,
+                    );
                 }
                 CutCapture::Other(error) => {
                     if fits == Some(true) {
-                        mismatches.push(json!({"item": item, "offset": offset, "reason": error}));
+                        refusals
+                            .mismatches
+                            .push(json!({"item": item, "offset": offset, "reason": error}));
                     } else {
                         inconclusive = true;
                     }
@@ -184,7 +214,7 @@ pub fn oracle_resume_every_cut(
         }
     }
     Ok(json!({"cuts_checked": cuts_checked, "offered": offered,
-        "refused_beyond_limit": refused_beyond_limit, "mismatches": mismatches, "inconclusive": inconclusive}))
+        "refused_beyond_limit": refusals.beyond_limit, "mismatches": refusals.mismatches, "inconclusive": inconclusive || refusals.inconclusive}))
 }
 
 fn library_error(error: botster_terminal_ghostty::Error) -> ControlError {
@@ -207,12 +237,19 @@ fn fit(
     if format.name != native_format.name || format.version != native_format.version {
         return None;
     }
-    if oracle.vt_processing_error().ok()? || oracle.image_storage_limit().ok()? != 0 {
+    if !valid_oracle(
+        oracle.vt_processing_error().ok()?,
+        oracle.image_storage_limit().ok()?,
+    ) {
         return None;
     }
     let native_bytes = oracle.snapshot().ok()?.len();
     let overhead = framing.overhead(format, native_bytes)?;
     Some(native_bytes.checked_add(overhead)? <= maximum)
+}
+
+fn valid_oracle(semantic_failure: bool, image_limit: u64) -> bool {
+    !semantic_failure && image_limit == 0
 }
 
 fn beyond_limit(kind: &str) -> Result<Vec<u8>, ControlError> {
@@ -227,7 +264,12 @@ fn beyond_limit(kind: &str) -> Result<Vec<u8>, ControlError> {
         }
     };
     let mut bytes = start.to_vec();
-    bytes.resize(CONTINUATION_LIMIT + 16, b'x');
+    bytes.resize(
+        CONTINUATION_LIMIT
+            .checked_add(16)
+            .expect("continuation limit fits usize"),
+        b'x',
+    );
     bytes.extend_from_slice(b"\x1b\\");
     Ok(bytes)
 }
@@ -246,6 +288,8 @@ mod tests {
         fault: bool,
         at_ground: bool,
         prefix: Vec<u8>,
+        wrong: bool,
+        other: bool,
         trace: Rc<RefCell<Vec<&'static str>>>,
     }
 
@@ -273,6 +317,9 @@ mod tests {
             if self.refuse {
                 return Ok(CutCapture::SnapshotTooLarge);
             }
+            if self.other {
+                return Ok(CutCapture::Other("capture failed".into()));
+            }
             if self.corrupt {
                 return Ok(CutCapture::Offered {
                     pages: Vec::new(),
@@ -284,6 +331,14 @@ mod tests {
                 return Ok(CutCapture::Offered {
                     pages: model.snapshot().unwrap(),
                     after_capture: vec![self.prefix.clone()],
+                });
+            }
+            if self.wrong {
+                let mut model = Terminal::new(&input().size, self.history).unwrap();
+                model.vt_write(b"different");
+                return Ok(CutCapture::Offered {
+                    pages: model.snapshot().unwrap(),
+                    after_capture: Vec::new(),
                 });
             }
             Ok(CutCapture::Offered {
@@ -330,6 +385,8 @@ mod tests {
             fault: false,
             at_ground: false,
             prefix: Vec::new(),
+            wrong: false,
+            other: false,
             trace,
         }
     }
@@ -474,5 +531,88 @@ mod tests {
             );
         }
         assert!(beyond_limit("unknown").is_err());
+    }
+
+    #[test]
+    fn refusal_classification_checks_both_sides_of_the_limit_and_retention() {
+        let mut result = Refusals::default();
+        result.record(0, 0, Some(CONTINUATION_LIMIT), Some(true), false);
+        assert_eq!(result.beyond_limit, 0);
+        assert_eq!(result.mismatches[0]["reason"], "refused within limit");
+        result.record(0, 1, Some(CONTINUATION_LIMIT - 1), Some(true), true);
+        assert_eq!(
+            result.mismatches[1]["reason"],
+            "retention failure within limit"
+        );
+        result.record(0, 2, Some(CONTINUATION_LIMIT + 1), Some(true), true);
+        assert_eq!(result.beyond_limit, 1);
+        result.record(0, 3, Some(CONTINUATION_LIMIT + 2), Some(true), false);
+        assert_eq!(result.beyond_limit, 2);
+        assert_eq!(result.mismatches.len(), 2);
+        assert!(!result.inconclusive);
+        for (pending, fits) in [(None, Some(true)), (Some(0), None), (Some(0), Some(false))] {
+            let mut result = Refusals::default();
+            result.record(0, 0, pending, fits, false);
+            assert!(result.inconclusive);
+            assert!(result.mismatches.is_empty());
+            assert_eq!(result.beyond_limit, 0);
+        }
+        for (failed, limit, valid) in [
+            (false, 0, true),
+            (true, 0, false),
+            (false, 1, false),
+            (true, 1, false),
+        ] {
+            assert_eq!(valid_oracle(failed, limit), valid);
+        }
+    }
+
+    #[test]
+    fn a_valid_snapshot_of_different_state_and_other_capture_errors_fail() {
+        let input = input();
+        for framing in [&TestFraming(0) as &dyn FormatFraming, &UnknownFraming] {
+            for wrong in [true, false] {
+                let result = oracle_resume_every_cut(&input, framing, |size, history| {
+                    let mut subject = session(size, history, Rc::new(RefCell::new(Vec::new())));
+                    subject.wrong = wrong;
+                    subject.other = !wrong;
+                    Ok(Box::new(subject))
+                })
+                .unwrap();
+                if wrong || framing.overhead(&snapshot_format(), 0).is_some() {
+                    assert_eq!(
+                        result["mismatches"].as_array().unwrap().len(),
+                        result["cuts_checked"].as_u64().unwrap() as usize
+                    );
+                } else {
+                    assert_eq!(result["mismatches"], json!([]));
+                    assert_eq!(result["inconclusive"], true);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn each_subject_configuration_field_must_match() {
+        let input = input();
+        for field in ["rows", "cols", "history"] {
+            assert!(
+                oracle_resume_every_cut(&input, &UnknownFraming, |size, history| {
+                    let mut different = size.clone();
+                    let mut history = history;
+                    match field {
+                        "rows" => different.rows += 1,
+                        "cols" => different.cols += 1,
+                        _ => history = History::Off,
+                    }
+                    Ok(Box::new(session(
+                        &different,
+                        history,
+                        Rc::new(RefCell::new(Vec::new())),
+                    )))
+                })
+                .is_err()
+            );
+        }
     }
 }
