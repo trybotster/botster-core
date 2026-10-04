@@ -7,9 +7,18 @@ impl Terminal {
     /// Read the OSC 8 URI of a visible cell through libghostty (Core EV-7 and ST-6b).
     /// An empty URI means that the cell has no hyperlink. An invalid cell returns `Error::InvalidValue`.
     pub fn hyperlink_uri(&self, row: u32, col: u32) -> Result<String, Error> {
+        self.cell_hyperlink_uri(row, col, false)
+    }
+
+    /// Read a cell URI (Core ST-6b item 4). With `history`, row zero starts at the oldest scrollback row.
+    pub fn cell_hyperlink_uri(&self, row: u32, col: u32, history: bool) -> Result<String, Error> {
         let x = u16::try_from(col).map_err(|_| Error::InvalidValue)?;
-        let reference = grid_ref(self.handle.as_ptr(), sys::point_tag::ACTIVE, x, row)
-            .ok_or(Error::InvalidValue)?;
+        let tag = if history {
+            sys::point_tag::SCREEN
+        } else {
+            sys::point_tag::ACTIVE
+        };
+        let reference = grid_ref(self.handle.as_ptr(), tag, x, row).ok_or(Error::InvalidValue)?;
         let mut needed = 0;
         // SAFETY: the reference is valid until the next mutation. A null buffer asks for the size.
         let code = unsafe {
@@ -75,7 +84,7 @@ pub(crate) fn cursor(terminal: sys::Terminal) -> CursorCell {
     }
 }
 
-fn grid_ref(terminal: sys::Terminal, tag: i32, x: u16, y: u32) -> Option<sys::GridRef> {
+pub(crate) fn grid_ref(terminal: sys::Terminal, tag: i32, x: u16, y: u32) -> Option<sys::GridRef> {
     let mut grid_ref = sys::GridRef::empty();
     // SAFETY: the terminal is live and `grid_ref` is a valid out pointer with its size set.
     let code = unsafe {

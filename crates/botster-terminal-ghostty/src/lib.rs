@@ -8,6 +8,7 @@
 
 mod encode;
 mod events;
+mod inspection;
 mod modes;
 mod query;
 mod reads;
@@ -27,6 +28,7 @@ pub use events::{
     ClipboardEntry, ClipboardLocation, ClipboardWrite, Drained, TerminalEvent, MAX_BUFFERED_BYTES,
     MAX_BUFFERED_EVENTS,
 };
+pub use inspection::{CellAttributes, CellStyle, Colors, CursorAppearance, Rgb, StyleColor};
 pub use query::{Query, QueryKind, QueryStep, Terminator, MAX_SHADOW_REPLY_BYTES};
 pub use reads::{CursorCell, ScreenText};
 pub use reply::{ReplyError, MAX_REPLY_BYTES};
