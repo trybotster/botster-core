@@ -5,8 +5,8 @@
 
 use botster_core_testkit::process_group::OwnedGroup;
 use rustix::process::{test_kill_process, Pid};
-use std::io::Read;
-use std::process::{Command, Stdio};
+use std::io::{Read, Write};
+use std::process::{Child, Command, Stdio};
 
 fn alive(pid: u32) -> bool {
     let Some(pid) = i32::try_from(pid).ok().and_then(Pid::from_raw) else {
@@ -127,6 +127,58 @@ fn closing_the_parent_pipe_ends_the_child() {
     let mut bytes = Vec::new();
     stdout.read_to_end(&mut bytes).unwrap();
     assert!(bytes.is_empty());
+    let pid = group.pid();
+    drop(group);
+    assert!(!alive(pid));
+}
+
+/// The outer test owns the group. This guard also kills and reaps its direct child if the fixture panics.
+struct FixtureChild(Child);
+
+impl Drop for FixtureChild {
+    fn drop(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
+}
+
+/// This fixture exits without Rust cleanup only when the outer test starts it.
+#[test]
+fn parent_death_fixture() {
+    if std::env::var_os("BOTSTER_P6_PARENT_DEATH_FIXTURE").is_none() {
+        return;
+    }
+    // The child inherits the group owned by the outer test's OwnedGroup.
+    let child = Command::new("/bin/cat")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::inherit())
+        .spawn()
+        .unwrap();
+    let mut child = FixtureChild(child);
+    let _parent_pipe = child.0.stdin.take().unwrap();
+    println!("fixture child {}", child.0.id());
+    std::io::stdout().flush().unwrap();
+    // This skips both guards' destructors. The OS must close the pipe when the parent exits.
+    std::process::exit(0);
+}
+
+/// The child exits even when its parent skips cleanup. The outer guard still owns the whole group on panic.
+#[test]
+fn parent_exit_without_cleanup_ends_the_child() {
+    let mut command = Command::new(std::env::current_exe().unwrap());
+    command
+        .args(["--exact", "parent_death_fixture", "--nocapture"])
+        .env("BOTSTER_P6_PARENT_DEATH_FIXTURE", "1")
+        .stdout(Stdio::piped());
+    let mut group = OwnedGroup::spawn(command).unwrap();
+    let mut stdout = group.take_stdout().unwrap();
+    group.wait_for_leader_exit().unwrap();
+    assert!(group.leader_exited().unwrap());
+    let mut bytes = Vec::new();
+    // EOF requires the child to close its inherited stdout. The outer guard has not killed the group yet.
+    stdout.read_to_end(&mut bytes).unwrap();
+    let output = String::from_utf8(bytes).unwrap();
+    assert!(output.contains("fixture child "));
     let pid = group.pid();
     drop(group);
     assert!(!alive(pid));
