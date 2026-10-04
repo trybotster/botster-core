@@ -65,7 +65,7 @@ impl PayloadGuard {
         let exe = quoted(&std::env::current_exe().unwrap());
         let socket = quoted(&self.socket);
         format!(
-            "BOTSTER_PAYLOAD_GUARD={socket} {exe} --exact {} --nocapture </dev/null >/dev/null 2>/dev/null &\nBOTSTER_PAYLOAD_GUARD={socket} {exe} --exact {} --nocapture </dev/null >/dev/null 2>/dev/null || exit 1\n",
+            "BOTSTER_PAYLOAD_GUARD={socket} BOTSTER_PAYLOAD_GROUP_PID=$$ {exe} --exact {} --nocapture </dev/null >/dev/null 2>/dev/null &\nBOTSTER_PAYLOAD_GUARD={socket} {exe} --exact {} --nocapture </dev/null >/dev/null 2>/dev/null || exit 1\n",
             helper("payload_anchor"),
             helper("payload_ready"),
         )
@@ -93,6 +93,16 @@ fn payload_anchor() {
     let Some(socket) = std::env::var_os("BOTSTER_PAYLOAD_GUARD") else {
         return;
     };
+    // A shell can give its background command a separate process group.
+    // Join the leader's group before the shell can start its body.
+    let group = rustix::process::Pid::from_raw(
+        std::env::var("BOTSTER_PAYLOAD_GROUP_PID")
+            .unwrap()
+            .parse()
+            .unwrap(),
+    )
+    .unwrap();
+    rustix::process::setpgid(None, Some(group)).unwrap();
     // A graceful group signal or leader exit must not remove test ownership.
     for signal in [signal_hook::consts::SIGHUP, signal_hook::consts::SIGTERM] {
         let flag = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
