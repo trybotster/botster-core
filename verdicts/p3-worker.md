@@ -893,3 +893,19 @@ F13 remains OPEN for 118 entries: 27 testkit, 26 payload edge, and 65 real worke
 No new source delta accompanies this evidence. Proposed binding tests and equivalence arguments require later review.
 
 VERDICT: NOT CLEAN (F13 open; 118 mutant entries remain) on `cc34474de63030b74031f5a21d6608bf27a4a843`.
+
+## Round 23 — Proposed capacity and read-bound equivalence arguments
+
+Source examined: `cc34474de63030b74031f5a21d6608bf27a4a843`.
+The implementer proposes exact exclusions for the capacity and READ_CHUNK arithmetic mutants.
+Both mutations change 65536 bytes to 1088 bytes.
+The proposed arguments establish that partial progress can preserve bytes. They do not establish equivalent behavior.
+A smaller capacity changes when the link becomes full and writable.
+A smaller read bound splits a control frame or a batch of control frames across more Binding::take inputs.
+The scheduler can select other ready inputs between those reads. Its choices and the event timing can therefore differ for the same seed.
+A5-2 permits varied partial progress. Permission for variation does not prove that this mutation cannot change behavior.
+
+The reviewer does not accept either equivalence argument as supplied.
+Both original entries remain OPEN under F13. No proposed exclusion has received acceptance in this round.
+The implementer must supply evidence or an argument that accounts for readiness, scheduling, and observable reports.
+The reviewer ran no tests or gate. F13 remains open for 118 entries.
