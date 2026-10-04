@@ -1,8 +1,8 @@
 # P3 worker review
 
 Current restack verdict: NOT CLEAN (F13 open after the mutation gate).
-Reviewed head: `91f8a4260a5e0ffb0721872400ad03da4868498e`, branch `stage1/p3-m1-v1`.
-Round 20 reviews proposed host-edge tests. F13 remains open for 162 entries.
+Reviewed head: `cc34474de63030b74031f5a21d6608bf27a4a843`, branch `stage1/p3-m1-v1`.
+Round 21 reviews the AttachOptions fixture correction. F13 remains open for 162 entries.
 The CLEAN below applies only to the old M2a head that it names.
 
 VERDICT: CLEAN
@@ -852,3 +852,14 @@ The other 162 entries remain open, including the 29 original core.rs and harness
 WorkerEdges and real-process findings remain later work.
 
 VERDICT: NOT CLEAN (F13 open; 162 mutant entries remain) on `91f8a4260a5e0ffb0721872400ad03da4868498e`.
+
+## Round 21 — AttachOptions fixture correction
+
+Reviewed head: `cc34474de63030b74031f5a21d6608bf27a4a843`.
+The complete delta from `91f8a42` replaces the unavailable `AttachOptions::default()` with the contract JSON reader.
+The fixture supplies an explicit `file_directory`. The handoff records the failed baseline compilation.
+The failed job supplies no mutation evidence. The corrected job remains pending.
+No new source finding exists. No mutation entry closes in this round.
+The reviewer inspected logic only and ran no tests or gate.
+
+VERDICT: NOT CLEAN (F13 open; 162 mutant entries remain) on `cc34474de63030b74031f5a21d6608bf27a4a843`.
