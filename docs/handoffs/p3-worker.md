@@ -277,3 +277,12 @@ The minimum legal value is 1. The decoder retains partial frames, so neither buf
 Debug assertions reject zero. Named tests check both assertions.
 Two exact-constant exclusions record this argument and the proving tests. They await package review and Linux evidence.
 No worker conformance id leaves the pending list. Real process findings remain open.
+
+## Tuning exclusion correction (2026-10-04)
+
+Package verdict `57973d879474ba7df4047efc7a2a5ff61974ef18` closes F14 in source at `34bad40`.
+It keeps both tuning entries open. The regexes were too broad, and debug assertions did not enforce the bounds in release builds.
+The correction matches only LINK_CAPACITY at core.rs:33:33 and READ_CHUNK at worker.rs:38:30.
+Both positive-value assertions now apply in all builds. The zero-value tests still check the same construction path.
+The `34bad40` Linux job remains pending. It cannot prove this correction.
+Review and Linux evidence for the corrected exact head remain required.

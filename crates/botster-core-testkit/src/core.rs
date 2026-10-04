@@ -197,7 +197,7 @@ impl HostEdges for SimEdges {
         };
         let (pending, next_link) = (&mut self.pending, &mut self.next_link);
         let link_capacity = self.link_capacity;
-        debug_assert!(link_capacity > 0, "a link needs a positive queue capacity");
+        assert!(link_capacity > 0, "a link needs a positive queue capacity");
         let mut connect = || {
             let (host, worker) = crate::net::link_pair(link_capacity);
             let link = LinkId(*next_link);

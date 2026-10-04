@@ -118,7 +118,7 @@ impl Workers {
         start: Instant,
         read_chunk: usize,
     ) -> Workers {
-        debug_assert!(read_chunk > 0, "a worker needs a positive read bound");
+        assert!(read_chunk > 0, "a worker needs a positive read bound");
         Workers {
             sim: Arc::new(Mutex::new(Sim::with_scheduler(scheduler.clone(), start))),
             pids: Arc::new(Mutex::new(Pids { next: 1000 })),
