@@ -265,7 +265,8 @@ impl Drop for Render {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use botster_core_contract::prelude::{History, Size};
+    use crate::History;
+    use botster_core_contract::prelude::Size;
 
     #[test]
     fn native_cell_fields_and_dynamic_colors_match_the_public_reads() {
