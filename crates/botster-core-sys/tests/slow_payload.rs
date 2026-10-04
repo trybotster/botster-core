@@ -170,6 +170,7 @@ fn a_group_signal_ends_the_leader_and_its_group() {
     let mut seen = Vec::new();
     while !String::from_utf8_lossy(&seen).contains("up") {
         match p.read(&mut buf) {
+            Ok(0) => panic!("the payload output ended before readiness"),
             Ok(n) => {
                 seen.extend_from_slice(&buf[..n]);
                 assert!(
@@ -230,20 +231,62 @@ fn the_pty_counts_output_and_delivers_input_to_the_program() {
     p.reap();
 }
 
-/// LC-5 and the payload ownership rule: dropping an unreaped payload reaps its leader after group cleanup.
+/// LC-5 and the payload ownership rule: dropping an unreaped payload retires its leader.
 #[test]
 fn dropping_the_payload_reaps_its_leader() {
+    let child = std::process::Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "payload_reap_observer",
+            "--nocapture",
+            "--test-threads=1",
+        ])
+        .env("BOTSTER_REAP_OBSERVER", "1")
+        .spawn()
+        .unwrap();
+    assert!(Observer(Some(child)).wait().unwrap().success());
+}
+
+/// The observer owns no other direct child. A reused payload PID cannot name another child of this observer.
+#[test]
+fn payload_reap_observer() {
+    if std::env::var_os("BOTSTER_REAP_OBSERVER").is_none() {
+        return;
+    }
     let p = spawn(&["/bin/sh", "-c", "printf ready; exit 0"], "/").unwrap();
     let pid = rustix::process::Pid::from_raw(p.pid() as i32).unwrap();
     assert_eq!(read_all(&p), b"ready");
     assert_eq!(exit_of(&p), ExitStatus::Code(0));
     drop(p);
-    // This query does not reap. Production must already have retired the child.
+    // The isolated observer has no remaining child. This query does not reap and cannot wait for another child owner.
     assert!(matches!(
         rustix::process::waitid(
             rustix::process::WaitId::Pid(pid),
-            rustix::process::WaitIdOptions::EXITED | rustix::process::WaitIdOptions::NOWAIT
+            rustix::process::WaitIdOptions::EXITED
+                | rustix::process::WaitIdOptions::NOWAIT
+                | rustix::process::WaitIdOptions::NOHANG
         ),
         Err(rustix::io::Errno::CHILD)
     ));
+}
+
+/// The test owns its observer independently of every mutated payload function.
+struct Observer(Option<std::process::Child>);
+
+impl Observer {
+    fn wait(mut self) -> io::Result<std::process::ExitStatus> {
+        let result = self.0.as_mut().unwrap().wait()?;
+        // The observer was reaped. Retire its handle before Drop can signal it.
+        self.0 = None;
+        Ok(result)
+    }
+}
+
+impl Drop for Observer {
+    fn drop(&mut self) {
+        if let Some(mut child) = self.0.take() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+    }
 }
