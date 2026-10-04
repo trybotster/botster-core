@@ -1,8 +1,8 @@
 # P3 worker review
 
 Current restack verdict: NOT CLEAN (F13, F18, and F19 open; F14, F15, F16, and F17 closed).
-Reviewed head: `a532a7292a3a419cb9903b1425b22ef331f05be2`, branch `stage1/p3-m1-v1`.
-Round 39 reviews the proposed Mac correction. F13 retains 66 entries; F18/F19 remain open.
+Reviewed head: `a32542a887ca013afea3c787d557caa010e663fd`, branch `stage1/p3-m1-v1`.
+Round 40 reviews the current-v1 merge delta. F13 retains 66 entries; F18/F19 remain open.
 The CLEAN below applies only to the old M2a head that it names.
 
 VERDICT: CLEAN
@@ -1385,3 +1385,34 @@ F13 retains 66 original entries. F18 and F19 remain OPEN.
 All earlier findings and closures remain preserved. The reviewer ran no tests or gate.
 
 VERDICT: NOT CLEAN (F13: 66 entries; F18 and F19 open) on `a532a7292a3a419cb9903b1425b22ef331f05be2`.
+
+
+## Round 40 — Current-v1 binding merge delta
+
+Reviewed head: `a32542a887ca013afea3c787d557caa010e663fd`.
+Previous reviewed head: `a532a7292a3a419cb9903b1425b22ef331f05be2`.
+Merge commit: `d25355563b00aa16aec44fa39cfda63a60c9b6d3`.
+Its parents are the previous P3 head and merged v1 `38bbe580013d02175636395a28a4c359b20c32b2` (PR #138).
+The implementer reports no conflicts. No conflict resolution is named or present in the changed P3 scope.
+
+The merge imports binding inspection, restoration, hyperlink/parser reads, cell/color/cursor reads, and the image-limit APIs.
+All nine imported binding and audit files match the merged v1 blobs exactly.
+The other changes are the combined mutation configuration and the P3 handoff update.
+No P3 worker, payload, machine, or testkit source changes.
+Current M1 callers do not adopt the new inspection or restoration APIs.
+The existing terminal-identity call and binding-backed testkit proof remain unchanged.
+The P2 implementation's contract verdict belongs to the P2 and integration reviewers; this review covers its P3 merge effects.
+
+The mutation configuration preserves all reviewed P3 entries unchanged.
+The only added entry identifies the Render::drop no-op in inspection.rs, one named function and one mutation.
+Its reason states that removing the native free leaks memory without changing a public read.
+The destructor contains only ghostty_render_state_free. The entry follows the existing binding destructor-exclusion form.
+No broad P3 exclusion, handwritten terminal expectation, new worker path, or production test branch accompanies the merge.
+
+The handoff correctly retains F13, F18, and F19 and identifies the pending earlier-head Mac baseline.
+That earlier job cannot establish a full green gate on this merged head.
+No new P3-scope finding exists in this merge delta.
+F13 retains 66 original entries. F18 and F19 remain OPEN.
+All earlier findings and closures remain preserved. The reviewer ran no tests or gate.
+
+VERDICT: NOT CLEAN (F13: 66 entries; F18 and F19 open) on `a32542a887ca013afea3c787d557caa010e663fd`.
