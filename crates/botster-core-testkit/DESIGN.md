@@ -1,5 +1,64 @@
 # botster-core-testkit: M0b design note
 
+## P6 oracle controls: current phase
+
+Scope: `brief-p6-oracle.md`, plan pin `bdda2359`, contracts `contracts-v0.1.13`.
+The testkit owns the oracle handles, the control reports, and the statement reports.
+P2 owns terminal semantics and snapshot decoding in `botster-terminal-ghostty`.
+P1 and P3 own harness dispatch and worker integration.
+This phase does not edit `harness.rs`, `program.rs`, `core.rs`, or `worker.rs`.
+
+`OracleHandle` owns a separate libghostty terminal behind a retained handle.
+The driver feeds `consumed_output` after each completed worker model step.
+The driver supplies only the consumed prefix, including a query when the step ends at a query.
+The oracle uses `vt_write_until_query` and drains its callbacks after that step.
+A different consumption count or lost callbacks produces an error.
+The driver applies each accepted resize through `OracleHandle::resize`.
+The oracle never reads the subject's cached modes, text, title, cwd, or notification.
+
+Planned dispatch after the stacked P1/P3 PR lands:
+
+1. Create one `OracleHandle` with each session's size and history configuration.
+2. Retain a clone in the harness's session map.
+3. Feed consumed output at the worker model boundary, after each model step.
+4. Apply accepted resize and terminal configuration changes at that boundary.
+5. Dispatch `oracle_state`, `oracle_modes`, `oracle_screen`, `oracle_cursor`, and `oracle_notification` through the retained handle.
+6. Parse `oracle_encode` input into the contract's key or mouse type.
+7. Pass explicit modes to the binding when the control supplies them.
+8. Otherwise use the oracle's current modes.
+9. Convert binding output bytes into the control's JSON result with the contract codec.
+10. Keep the binding's typed zero result when the encoder produces no output.
+
+Key repetition remains a transaction concern of the dispatch adapter.
+The key encoder returns one event's encoding, as P2 specifies.
+Focus reports and paste markers also come from libghostty.
+
+`statement_runs::run_deterministic` calls `run_script_events` with a fresh harness for every requested run.
+The factory must reuse the seed and configuration.
+The helper preserves event order and instance values.
+The conformance driver checks normalized equality and session identity.
+
+`statement_runs::error_codes_reachable` validates every scripted sync case against `refusal::ROWS`.
+The dispatch adapter must execute each probe through real Core or its refusal layer.
+The adapter returns true only after it observes the requested code at the requested timing.
+A table entry alone never proves reachability.
+The helper reports every missing probe in `not_reached`.
+The helper reports the statement's explicit exclusions without treating those exclusions as reached codes.
+
+All existing pending ids remain pending.
+Oracle unit tests cannot prove conformance dispatch while the harness cannot open Core.
+The terminal snapshot controls also depend on the separate P2 API PR.
+The acceptance check remains the conformance transcript through real Core after dispatch lands.
+
+The slow process-group tests retain `OwnedGroup` for every spawned group.
+Their children block on a pipe held by the test.
+Closing that pipe ends the child without a timer or CPU loop.
+Drop and panic still kill the owned group and reap its leader.
+
+Prior art: P2 provides every terminal read and encoder.
+No old botster-core source or test was copied.
+The new testkit code keeps handles and forms reports; it implements no terminal semantics.
+
 Scope: P6 milestone M0b (plan 6.2). Plan pin `555bc433`, contracts `contracts-v0.1.1`. The `RefusalScript` layer, `RealCoreHarness`
 and the controls that need real Core come later.
 

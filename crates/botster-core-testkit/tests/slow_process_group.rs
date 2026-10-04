@@ -15,16 +15,31 @@ fn alive(pid: u32) -> bool {
     test_kill_process(pid).is_ok()
 }
 
-/// The guard ends the leader and a descendant of its group when it drops. The shell and its background `sleep` both hold the write
+/// The child blocks on the pipe owned by the test. The child exits when that pipe closes.
+fn blocked_command(descendant: bool, wait: bool) -> Command {
+    let script = if descendant {
+        if wait {
+            "exec 3<&0; /bin/cat <&3 & echo $!; wait"
+        } else {
+            "exec 3<&0; /bin/cat <&3 & echo $!"
+        }
+    } else {
+        "exec /bin/cat"
+    };
+    let mut command = Command::new("/bin/sh");
+    command
+        .args(["-c", script])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped());
+    command
+}
+
+/// The guard ends the leader and a descendant of its group when it drops. The shell and its background `cat` both hold the write
 /// end of the stdout pipe, so the read side reaches its end only when every process of the group is gone. The test waits on that
 /// event, with no polling.
 #[test]
 fn dropping_the_guard_ends_the_whole_group() {
-    let mut command = Command::new("/bin/sh");
-    command
-        .args(["-c", "/bin/sleep 600 & echo $!; wait"])
-        .stdout(Stdio::piped());
-    let mut group = OwnedGroup::spawn(command).unwrap();
+    let mut group = OwnedGroup::spawn(blocked_command(true, true)).unwrap();
     let mut stdout = group.take_stdout().unwrap();
     let mut line = String::new();
     let mut byte = [0u8; 1];
@@ -46,9 +61,7 @@ fn dropping_the_guard_ends_the_whole_group() {
 /// A panic ends the group as well: the guard is dropped while the stack unwinds.
 #[test]
 fn a_panic_ends_the_group() {
-    let mut command = Command::new("/bin/sleep");
-    command.arg("600");
-    let group = OwnedGroup::spawn(command).unwrap();
+    let group = OwnedGroup::spawn(blocked_command(false, false)).unwrap();
     let pid = group.pid();
     let result = std::panic::catch_unwind(move || {
         let _guard = group;
@@ -62,9 +75,7 @@ fn a_panic_ends_the_group() {
 /// the OS gave to another process.
 #[test]
 fn cleanup_is_idempotent_and_retires_the_group_id() {
-    let mut command = Command::new("/bin/sleep");
-    command.arg("600");
-    let mut group = OwnedGroup::spawn(command).unwrap();
+    let mut group = OwnedGroup::spawn(blocked_command(false, false)).unwrap();
     let pid = group.pid();
     assert!(group.is_active());
     assert!(!group.leader_exited().unwrap());
@@ -83,11 +94,7 @@ fn cleanup_is_idempotent_and_retires_the_group_id() {
 /// descendants of the group. The test waits on the pipe that the descendant holds.
 #[test]
 fn a_leader_that_exited_still_has_its_group_ended() {
-    let mut command = Command::new("/bin/sh");
-    command
-        .args(["-c", "/bin/sleep 600 & echo $!"])
-        .stdout(Stdio::piped());
-    let mut group = OwnedGroup::spawn(command).unwrap();
+    let mut group = OwnedGroup::spawn(blocked_command(true, false)).unwrap();
     let mut stdout = group.take_stdout().unwrap();
     let mut line = String::new();
     let mut byte = [0u8; 1];
@@ -106,4 +113,21 @@ fn a_leader_that_exited_still_has_its_group_ended() {
     let mut rest = Vec::new();
     stdout.read_to_end(&mut rest).unwrap();
     assert!(!alive(leader));
+}
+
+/// The test's pipe supplies parent lifetime without a timer or CPU loop.
+#[test]
+fn closing_the_parent_pipe_ends_the_child() {
+    let mut group = OwnedGroup::spawn(blocked_command(false, false)).unwrap();
+    let stdin = group.take_stdin().unwrap();
+    let mut stdout = group.take_stdout().unwrap();
+    drop(stdin);
+    group.wait_for_leader_exit().unwrap();
+    assert!(group.leader_exited().unwrap());
+    let mut bytes = Vec::new();
+    stdout.read_to_end(&mut bytes).unwrap();
+    assert!(bytes.is_empty());
+    let pid = group.pid();
+    drop(group);
+    assert!(!alive(pid));
 }

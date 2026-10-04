@@ -6,8 +6,8 @@
 use botster_core_contract::prelude::{KeyInput, MouseInput, Size};
 use botster_route_codec::prelude::ModeFlags;
 use botster_terminal_ghostty::{
-    encode_key_with_modes, encode_mouse_with_modes, EncodeError, Error, History, Terminal,
-    TerminalEvent,
+    encode_focus_with_modes, encode_key_with_modes, encode_mouse_with_modes,
+    paste_frame_with_modes, EncodeError, Error, History, Terminal, TerminalEvent,
 };
 use serde_json::{json, Value};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
@@ -15,6 +15,14 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 struct State {
     terminal: Terminal,
     notification: Option<Value>,
+}
+
+/// A failure while the driver feeds an oracle step.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum OracleError {
+    Library(Error),
+    EventsLost { count: u64 },
+    ConsumptionMismatch { offered: usize, consumed: usize },
 }
 
 /// A separate libghostty terminal behind a driver handle.
@@ -34,12 +42,23 @@ impl OracleHandle {
     }
 
     /// Feed one completed model step. The bytes are stimulus, never an expected terminal value.
-    pub fn consumed_output(&self, bytes: &[u8]) -> Result<(), Error> {
+    pub fn consumed_output(&self, bytes: &[u8]) -> Result<(), OracleError> {
         let mut state = self.lock();
-        state.terminal.vt_write(bytes);
+        let step = state
+            .terminal
+            .vt_write_until_query(bytes)
+            .map_err(OracleError::Library)?;
         let drained = state.terminal.drain_events();
         if drained.dropped != 0 {
-            return Err(Error::OutOfMemory);
+            return Err(OracleError::EventsLost {
+                count: drained.dropped,
+            });
+        }
+        if step.consumed != bytes.len() {
+            return Err(OracleError::ConsumptionMismatch {
+                offered: bytes.len(),
+                consumed: step.consumed,
+            });
         }
         for event in drained.events {
             if let TerminalEvent::Notification {
@@ -122,6 +141,22 @@ impl OracleHandle {
         match explicit {
             Some((modes, size)) => encode_mouse_with_modes(modes, size, input),
             None => self.lock().terminal.encode_mouse(input),
+        }
+    }
+
+    /// Get a focus report from libghostty. No report is `None`.
+    pub fn encode_focus(&self, focused: bool, modes: Option<&ModeFlags>) -> Option<Vec<u8>> {
+        match modes {
+            Some(modes) => encode_focus_with_modes(modes, focused),
+            None => self.lock().terminal.encode_focus(focused),
+        }
+    }
+
+    /// Get paste markers from libghostty. No markers is `None`.
+    pub fn paste_frame(&self, modes: Option<&ModeFlags>) -> Option<(Vec<u8>, Vec<u8>)> {
+        match modes {
+            Some(modes) => paste_frame_with_modes(modes),
+            None => self.lock().terminal.paste_frame(),
         }
     }
 }
@@ -217,5 +252,92 @@ mod tests {
             .unwrap()
             .resize(&invalid)
             .is_err());
+    }
+
+    #[test]
+    fn encoders_use_live_modes_or_explicit_modes() {
+        use botster_route_codec::prelude::{Key, KeyEvent, MouseAction, MouseButton, NamedKey};
+        let oracle = OracleHandle::new(&size(), History::Off).unwrap();
+        let mut reference = Terminal::new(&size(), History::Off).unwrap();
+        let plain = reference.modes();
+        let bytes = b"\x1b[?1h\x1b[?1000h\x1b[?1006h\x1b[?1004h\x1b[?2004h";
+        oracle.consumed_output(bytes).unwrap();
+        reference.vt_write(bytes);
+        let key = KeyInput {
+            key: Key::Named(NamedKey("arrow_up".into())),
+            mods: vec![],
+            shifted_key: None,
+            base_layout_key: None,
+            event: KeyEvent::Press,
+            text: None,
+            repeat: None,
+        };
+        let mouse = MouseInput {
+            action: MouseAction::Press,
+            button: MouseButton::Left,
+            row: 1,
+            col: 2,
+            x: None,
+            y: None,
+            mods: vec![],
+            notches: None,
+        };
+        assert_eq!(oracle.encode_key(&key, None), reference.encode_key(&key));
+        assert_eq!(
+            oracle.encode_key(&key, Some(&plain)),
+            encode_key_with_modes(&plain, &key)
+        );
+        assert_eq!(
+            oracle.encode_mouse(&mouse, None),
+            reference.encode_mouse(&mouse)
+        );
+        assert_eq!(
+            oracle.encode_mouse(&mouse, Some((&plain, &size()))),
+            encode_mouse_with_modes(&plain, &size(), &mouse)
+        );
+        for focused in [false, true] {
+            assert_eq!(
+                oracle.encode_focus(focused, None),
+                reference.encode_focus(focused)
+            );
+            assert_eq!(
+                oracle.encode_focus(focused, Some(&plain)),
+                encode_focus_with_modes(&plain, focused)
+            );
+        }
+        assert_eq!(oracle.paste_frame(None), reference.paste_frame());
+        assert_eq!(
+            oracle.paste_frame(Some(&plain)),
+            paste_frame_with_modes(&plain)
+        );
+    }
+
+    #[test]
+    fn an_incomplete_step_reports_the_library_consumption() {
+        let oracle = OracleHandle::new(&size(), History::Off).unwrap();
+        let mut reference = Terminal::new(&size(), History::Off).unwrap();
+        let bytes = b"\x1b[6ntail";
+        let step = reference.vt_write_until_query(bytes).unwrap();
+        assert_eq!(
+            oracle.consumed_output(bytes),
+            Err(OracleError::ConsumptionMismatch {
+                offered: bytes.len(),
+                consumed: step.consumed
+            })
+        );
+    }
+
+    #[test]
+    fn a_lost_notification_is_an_error() {
+        let oracle = OracleHandle::new(&size(), History::Off).unwrap();
+        let mut reference = Terminal::new(&size(), History::Off).unwrap();
+        let bytes = vec![7; botster_terminal_ghostty::MAX_BUFFERED_EVENTS + 1];
+        reference.vt_write_until_query(&bytes).unwrap();
+        let lost = reference.drain_events().dropped;
+        assert!(lost > 0);
+        assert_eq!(
+            oracle.consumed_output(&bytes),
+            Err(OracleError::EventsLost { count: lost })
+        );
     }
 }
