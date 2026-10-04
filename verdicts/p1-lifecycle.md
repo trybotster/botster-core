@@ -1,9 +1,9 @@
 # P1 lifecycle review
 
-VERDICT: NOT CLEAN (7 open)
+VERDICT: NOT CLEAN (8 open)
 
 Current reviewed head: `8c3899155b45101d922d2c38e100d0ebcd4dba83` on `stage1/p1-lifecycle`.
-Current open findings: F21, F22, F23, F24, F25, F26, F27.
+Current open findings: F21, F22, F23, F24, F25, F26, F27, F28.
 The Round 9 section below records the current review.
 The earlier CLEAN and all earlier findings and closure evidence remain historical evidence.
 
@@ -992,3 +992,28 @@ Authority: TM-6, BUILD.md testing rule 5, and the named slow-test exclusion poli
 Every Round 9 finding, including LOW, must close before CLEAN.
 Any fix creates a new head that requires a delta review.
 The implementer must run the gate only after CLEAN on that exact head.
+
+## Lead addendum: orphaned real-process test children
+
+### F28 — HIGH: Mutation tests left seven test children running
+
+Evidence: lead message `msg_plugin-w_1791135708_4056a1`, relaying the orchestrator's finding.
+The lead reports seven orphaned botster-core-sys ready children from the implementer's cargo-mutants run.
+Each child ran `trap 'exit 7' USR1; ... while :; do :; done` and used CPU for about six hours.
+The report does not identify the exact run head. I have not independently inspected those processes.
+The matching test script appears at `crates/botster-core-sys/tests/slow_process.rs:112` in reviewed head `8c389915`.
+This finding is separate from F23's production reaper-creation failure and remains open.
+
+The lead requires all four changes:
+
+1. Add a test-code guard that owns the child's process group. The guard must kill and reap the child on Drop and panic.
+2. Make the child wait without CPU use. Make the child exit by itself when its parent is gone.
+3. Add a test that proves no child remains when the production cleanup path fails.
+4. Apply the same cleanup check to the other real-process tests, as plan R12 requires.
+
+Close F28 only with evidence on the exact reviewed fix head.
+Production cleanup alone does not satisfy the independent test-code guard requirement.
+Authority: the lead's explicit instruction, BUILD.md hygiene rule 10, and plan R12.
+
+Current verdict: NOT CLEAN (8 open).
+The reviewer waits for READY with an exact fix head.
