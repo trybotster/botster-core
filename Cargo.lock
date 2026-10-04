@@ -294,6 +294,7 @@ dependencies = [
  "botster-worker-core",
  "libtest-mimic",
  "mio",
+ "rustix",
  "serde_json",
  "static_assertions",
  "tempfile",

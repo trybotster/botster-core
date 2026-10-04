@@ -29,6 +29,7 @@ botster-conformance.workspace = true
 botster-core-conformance.workspace = true
 botster-core-testkit.workspace = true
 libtest-mimic.workspace = true
+rustix.workspace = true
 static_assertions.workspace = true
 tempfile.workspace = true
 toml.workspace = true

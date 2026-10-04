@@ -5,6 +5,8 @@
 //! Clause: Core LC-1, LC-2, LC-9, LC-12, DP-8, TH-2, TM-6, AD-6.
 #![cfg(feature = "slow")]
 
+mod common;
+
 use botster_core::prelude::*;
 use botster_core::Core;
 use std::collections::BTreeMap;
@@ -186,24 +188,16 @@ fn sid(name: &str) -> SessionId {
 /// (it reads a FIFO that the test closes), so only the reaper's wake can end the wait.
 #[test]
 fn a_worker_that_exits_before_it_connects_ends_the_start_at_once() {
-    use std::os::unix::fs::PermissionsExt;
     let tmp = tempfile::tempdir().unwrap();
     let gate = tmp.path().join("gate");
-    let made = std::process::Command::new("/usr/bin/mkfifo")
-        .arg(&gate)
-        .status()
-        .expect("mkfifo runs");
-    assert!(made.success());
+    common::mkfifo(&gate);
     // The worker blocks reading the FIFO (an external `/bin/cat`, not a shell builtin) and ends when the test closes it.
-    let worker = tmp.path().join("worker.sh");
-    std::fs::write(
-        &worker,
-        format!("#!/bin/sh\nexec /bin/cat '{}' >/dev/null\n", gate.display()),
-    )
-    .unwrap();
-    std::fs::set_permissions(&worker, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let mut worker = common::ScriptWorker::new(
+        tmp.path(),
+        &format!("exec /bin/cat '{}' >/dev/null", gate.display()),
+    );
     let mut open = config(tmp.path());
-    open.worker_path = Some(worker);
+    open.worker_path = Some(worker.path.clone());
     // The start deadline is far away: a start that ends before it ended because the exit was seen, not because time ran out.
     open.limits.startup = Duration::from_secs(120);
     let mut core = Core::open(open).expect("open");
@@ -222,6 +216,7 @@ fn a_worker_that_exits_before_it_connects_ends_the_start_at_once() {
         "the host is idle and the worker runs: {events:?}"
     );
     // The worker ends now: opening the FIFO waits for its reader, and closing it ends `cat`.
+    worker.disarm();
     drop(std::fs::OpenOptions::new().write(true).open(&gate).unwrap());
     // The host pumps only after a wake (TM-6): every wait must end by a wake, never by its timeout. The worker never
     // connects, so the wake that ends the start is the reaper's, through `RealEdges` and `PollWake`.
