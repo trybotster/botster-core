@@ -1,4 +1,3 @@
-# conf::a2_8_*: Core TI-1 uses the pinned libghostty identity; harness proof awaits the testkit wiring with P3.
 conf::a10_1_wrong_instance_is_never_signalled
 conf::a10_1_wrong_token_is_never_signalled
 conf::a10_2_corrupted_row_is_lost_registry_corrupt
@@ -68,8 +67,11 @@ conf::a2_6_missing_optional_feature_is_unsupported
 conf::a2_6_per_worker_features_in_worker_features
 conf::a2_7_pump_report_fields
 conf::a2_7_set_silence_threshold_errors
+# TI-1: waits for spawn_record (M2a).
 conf::a2_8_core_sets_no_term_in_the_session_env
+# TI-1: testkit proof added; waits for its Linux result and RealCoreHarness.
 conf::a2_8_terminal_identity_names_the_entry
+# TI-1: waits for tic_compile (slow tier, real process).
 conf::a2_8_terminfo_source_compiles_with_tic
 conf::a2_9_extension_too_long_to_keep_is_dropped_with_the_name_cut
 conf::a2_9_leading_dot_is_not_an_extension
