@@ -1,8 +1,8 @@
 # P3 worker review
 
 Current restack verdict: CLEAN (P3 package scope, M1 only).
-Reviewed head: `4de71bbf5dcb5d95ff3b9ad12a4b797a7166ae61`, branch `stage1/p3-m1-v1`.
-Round 14 accepts the merge and terminal identity delta. All earlier verdicts and closures remain historical evidence.
+Reviewed head: `0044bf7346ca486bf09b5265dbfc0c75f93dd978`, branch `stage1/p3-m1-v1`.
+Round 15 accepts the documentation delta. All earlier verdicts and closures remain historical evidence.
 The CLEAN below applies only to the old M2a head that it names.
 
 VERDICT: CLEAN
@@ -689,4 +689,26 @@ This CLEAN covers P3's package scope for restacked M1 only.
 The integration reviewer must also clear this exact head. M2a and M2b remain later reviews.
 
 VERDICT: CLEAN on `4de71bbf5dcb5d95ff3b9ad12a4b797a7166ae61`.
+Any later commit requires a delta review before this verdict applies to that head.
+
+## Round 15 — TI-1 proof documentation
+
+Reviewed head: `0044bf7346ca486bf09b5265dbfc0c75f93dd978`, PR #136.
+Previous reviewed head: `4de71bbf5dcb5d95ff3b9ad12a4b797a7166ae61`.
+The complete delta changes one pending-list comment and the handoff only.
+
+The identity comment now states that the testkit passes and that RealCoreHarness proof remains pending.
+The handoff records the implementer's reported Linux exit 0 on code head `9a6099d4125bdf2a23db0290c506507fc0f3509f`.
+The identity transcript and five M1 lifecycle transcripts passed in that reported job.
+Reported log: `~/botster-sessions/gates/botster-core-stage1-p3-m1-v1-9a6099d4-linux-20261004-125359-14517.log`.
+Only documentation changes after that code head. All three `a2_8` ids remain pending.
+The environment and tic comments retain their separate remaining controls.
+
+The delta changes no code, dependency, test behavior, transcript, or mutation exclusion.
+No new finding exists. Every earlier finding and closure remains preserved.
+The reviewer inspected the complete delta and ran no tests or gate.
+This CLEAN covers P3's package scope for restacked M1 only. Integration must clear the same exact head.
+M2a and M2b remain later reviews. This verdict does not establish a full green gate or real-harness TI-1 proof.
+
+VERDICT: CLEAN on `0044bf7346ca486bf09b5265dbfc0c75f93dd978`.
 Any later commit requires a delta review before this verdict applies to that head.
