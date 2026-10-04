@@ -189,12 +189,17 @@ fn sid(name: &str) -> SessionId {
 #[test]
 fn a_worker_that_exits_before_it_connects_ends_the_start_at_once() {
     let tmp = tempfile::tempdir().unwrap();
-    let gate = tmp.path().join("gate");
-    common::mkfifo(&gate);
-    // The worker blocks reading the FIFO (an external `/bin/cat`, not a shell builtin) and ends when the test closes it.
+    let ready = tmp.path().join("ready");
+    common::mkfifo(&ready);
+    // The worker says that it runs (an external `/bin/echo` into a FIFO), then waits, without the CPU, until the test ends it
+    // with a signal or the test process is gone.
     let mut worker = common::ScriptWorker::new(
         tmp.path(),
-        &format!("exec /bin/cat '{}' >/dev/null", gate.display()),
+        &format!(
+            "/bin/echo ready > '{}'\n{}",
+            ready.display(),
+            common::WAIT_WHILE_THE_PARENT_LIVES
+        ),
     );
     let mut open = config(tmp.path());
     open.worker_path = Some(worker.path.clone());
@@ -216,9 +221,19 @@ fn a_worker_that_exits_before_it_connects_ends_the_start_at_once() {
         SessionState::Starting,
         "the host is idle and the worker runs: {events:?}"
     );
-    // The worker ends now: opening the FIFO waits for its reader, and closing it ends `cat`.
-    worker.disarm();
-    drop(std::fs::OpenOptions::new().write(true).open(&gate).unwrap());
+    // The worker ends now, while the host waits: the test reads that it runs, then ends it with `SIGTERM`.
+    let (told, heard) = std::sync::mpsc::channel();
+    let fifo = ready.clone();
+    std::thread::spawn(move || {
+        let _ = told.send(std::fs::read_to_string(fifo));
+    });
+    let said = heard
+        // timer: deadline — bounds the wait for the worker's start
+        .recv_timeout(Duration::from_secs(10))
+        .expect("the worker runs");
+    assert_eq!(said.unwrap().trim(), "ready");
+    let pid = worker.pid().expect("the worker recorded its pid");
+    rustix::process::kill_process(pid, rustix::process::Signal::TERM).unwrap();
     // The host pumps only after a wake (TM-6): every wait must end by a wake, never by its timeout. The worker never
     // connects, so the wake that ends the start is the reaper's, through `RealEdges` and `PollWake`.
     while !events
@@ -243,6 +258,8 @@ fn a_worker_that_exits_before_it_connects_ends_the_start_at_once() {
         core.get(&sid("s1")).unwrap().state,
         SessionState::Lost(_) | SessionState::Exited(_)
     ));
+    // The host saw the exit, so the reaper reaped the worker.
+    worker.disarm();
 }
 
 /// Core AD-6: a client that connects to the control socket is accepted and read; a hello for an instance that no start waits
@@ -291,4 +308,54 @@ fn a_hello_for_an_unknown_instance_is_closed() {
         );
         let _ = wake.wait(Duration::from_millis(50));
     }
+}
+
+/// Plan R12, testing rule 10 (review finding F28): a test whose cleanup never runs leaves no worker. The session is started
+/// and the host is dropped with no `Stop` (LC-12: the worker survives the host); the guard in test code then kills the
+/// worker's group and reaps it.
+#[test]
+fn a_worker_is_not_left_when_the_cleanup_of_a_test_fails() {
+    let tmp = tempfile::tempdir().unwrap();
+    let ready = tmp.path().join("ready");
+    common::mkfifo(&ready);
+    let worker = common::ScriptWorker::new(
+        tmp.path(),
+        &format!(
+            "/bin/echo ready > '{}'\n{}",
+            ready.display(),
+            common::WAIT_WHILE_THE_PARENT_LIVES
+        ),
+    );
+    let mut open = config(tmp.path());
+    open.worker_path = Some(worker.path.clone());
+    let mut core = Core::open(open).expect("open");
+    core.begin(Op::Create {
+        session: sid("s1"),
+        request: request(),
+    })
+    .unwrap();
+    pump(&mut core);
+    core.begin(Op::Start { id: sid("s1") }).unwrap();
+    pump(&mut core);
+    let (told, heard) = std::sync::mpsc::channel();
+    let fifo = ready.clone();
+    std::thread::spawn(move || {
+        let _ = told.send(std::fs::read_to_string(fifo));
+    });
+    heard
+        // timer: deadline — bounds the wait for the worker's start
+        .recv_timeout(Duration::from_secs(10))
+        .expect("the worker runs")
+        .unwrap();
+    let pid = worker.pid().expect("the worker recorded its pid");
+    drop(core);
+    assert!(
+        rustix::process::test_kill_process(pid).is_ok(),
+        "the worker outlives the host (LC-12)"
+    );
+    drop(worker);
+    assert!(
+        rustix::process::test_kill_process(pid).is_err(),
+        "the guard killed and reaped the worker"
+    );
 }
