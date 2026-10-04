@@ -66,16 +66,18 @@ fn main() {
         "zig build did not install {}",
         library.display()
     );
-    // The header directory, for a consumer that wants the C headers of the same build.
-    println!(
-        "cargo:rustc-link-search=native={}",
-        prefix.join("lib").display()
-    );
+    // Zig installs the shared library next to the archive, and the Apple linker takes a `.dylib` before a `.a` of the
+    // same name in one search directory, whatever the link kind says. The link directory holds the archive only.
+    let link_dir = out_dir.join("link");
+    fs::create_dir_all(&link_dir).expect("create the link directory");
+    let linked = link_dir.join("libghostty-vt.a");
+    fs::copy(&library, &linked).unwrap_or_else(|e| panic!("copy {}: {e}", library.display()));
+    println!("cargo:rustc-link-search=native={}", link_dir.display());
     println!("cargo:rustc-link-lib=static=ghostty-vt");
-    // The archive, for the test that checks which symbols it defines.
+    // The linked archive, for the test that checks which symbols it defines.
     println!(
         "cargo:rustc-env=BOTSTER_GHOSTTY_VT_ARCHIVE={}",
-        library.display()
+        linked.display()
     );
     println!("cargo:include={}", ghostty.join("include").display());
 }

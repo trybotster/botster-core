@@ -321,6 +321,7 @@ The binding also exposes, from the lead's rulings: `set_color_profile`, `shadow_
 
 The commits on the branch are in this order from the base: patches 2 and 3, then 0, 1, 4 to 13. Drop: none; no upstream change covers a patch.
 
+- **Static link on macOS.** Zig installs `libghostty-vt.dylib` next to `libghostty-vt.a`. The Apple linker takes the `.dylib` from that one search directory, whatever the link kind says, so the binding was linked dynamically on macOS. Plain `cargo test` hid this because it sets the loader path; the Mac gate (nextest) failed to load every test. `build.rs` now copies the archive into `OUT_DIR/link` and links from there. Test: `tests_archive::the_library_is_linked_into_the_program_and_not_loaded_from_a_shared_library` (`dladdr` of `ghostty_terminal_new` names no `libghostty` image); it fails with the previous `build.rs`.
 - **Zig packages at the new pin: 7.** A lib-vt build with `GHOSTTY_BUILD_ARGS` and an empty scratch global cache (Zig 0.16.0, macOS, 2026-10-04) fetched exactly the 7 hashes of `ZIG_PACKAGES`, so the list is unchanged. The count of 9 came from the shell extraction: the `sed` range `/pub const ZIG_PACKAGES/` also matched `ZIG_PACKAGES_IN_ZON`, which repeats 2 of the 7 hashes. `ci/remote/fetch-public.sh` removes the duplicates with `sort -u`. `prefetch-zig.sh` printed "9 packages"; its pattern is now `/pub const ZIG_PACKAGES: /`, so it reads the 7 hashes once.
 
 ## Rulings used
