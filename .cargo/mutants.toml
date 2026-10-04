@@ -11,6 +11,21 @@
 exclude_globs = ["**/tests/**", "tests/**"]
 
 exclude_re = [
+    # P3 tuning ruling (2026-10-04): contract equivalence applies to pure tuning constants, not schedule identity.
+    # LINK_CAPACITY: no clause fixes this positive capacity. Plan 2.5 rule 7 requires a bounded receive buffer;
+    # A5-2 permits partial progress. FrameDecoder retains a frame across reads, so the queue need not hold a whole frame.
+    # `spawned_links_retain_frames_at_each_queue_capacity` proves byte retention and frame order at 65536, 1088, and 1.
+    # `the_worker_keeps_complete_operations_at_each_buffer_bound` drives the shared Worker through create, start,
+    # signal, and removal at all three values. A debug_assert rejects zero; `a_spawn_refuses_zero_queue_capacity` proves it.
+    # A seed reproduces the same build. A changed capacity can change its schedule without changing these contract results.
+    'crates/botster-core-testkit/src/core\.rs:\d+:\d+: replace \* with \+ in$',
+    # READ_CHUNK: no clause fixes this positive read bound. Plan 2.5 rule 7 and A5-2 permit partial reads.
+    # `control_reads_retain_frames_at_each_read_bound` proves byte retention and complete-frame order at 65536, 1088, and 1.
+    # `program_reads_retain_output_at_each_read_bound` proves program byte retention and order at those values.
+    # The shared-worker lifecycle proof above completes all operations at the same values through the same edge code.
+    # A debug_assert rejects zero; `a_worker_refuses_zero_read_bound` proves it. A minimum whole-frame read is not required.
+    # A seed reproduces the same build; changed read chunking can change a schedule without changing the contract results.
+    'crates/botster-core-testkit/src/worker\.rs:\d+:\d+: replace \* with \+ in$',
     # P3 M1, Worker::report_exit: replacing `exit_reported || !exit_drained` with `&&` is equivalent at this milestone.
     # Only on_host_hello and on_drained call this function. The first hello precedes Launch, so no exit exists there.
     # on_drained calls it only for the first drain after an exit: exit_drained is true and exit_reported is false.

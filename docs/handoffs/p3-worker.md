@@ -260,3 +260,20 @@ A separate facade test injects worker reports through the host edge and checks c
 Libghostty produces the terminal state and every snapshot byte for that test.
 The injected reports test facade forwarding. They do not supply worker conformance proof or close any pending id.
 No new exclusions exist. Linux compilation and focused mutation evidence remain required.
+
+## F14 correction under the lead's tuning ruling (2026-10-04)
+
+The focused job at `91b58e2c8a8f7d198484e8019f08c50aae0e6dd4` passed: 7 selected mutants caught, 0 missed, and 0 timeouts.
+Log: `~/botster-sessions/gates/botster-core-stage1-p3-m1-v1-91b58e2c-linux-20261004-140021-52074.log`.
+This supports capture release and write-interest checks. It does not close F14 or the two arithmetic entries.
+F14 rejects the one-call assertions because A5-2 permits partial progress. Those assertions are removed.
+
+The lead accepts contract equivalence for pure tuning constants, subject to four conditions.
+No clause fixes either positive value. Plan 2.5 rule 7 governs bounded receives; A5-2 governs partial progress.
+The edges now receive internal parameters through the same code path. Production retains its defaults.
+Checks at 65536, 1088, and 1 cover byte retention, frame order, and complete frames.
+A full TestkitCore lifecycle drives the shared Worker at those values and checks ordered completion.
+The minimum legal value is 1. The decoder retains partial frames, so neither buffer must hold a whole frame.
+Debug assertions reject zero. Named tests check both assertions.
+Two exact-constant exclusions record this argument and the proving tests. They await package review and Linux evidence.
+No worker conformance id leaves the pending list. Real process findings remain open.

@@ -92,6 +92,7 @@ pub struct Workers {
     sim: Arc<Mutex<Sim>>,
     pids: Arc<Mutex<Pids>>,
     scheduler: SchedulerHandle,
+    read_chunk: usize,
 }
 
 impl std::fmt::Debug for Workers {
@@ -108,10 +109,21 @@ impl Workers {
 
     /// The workers of a run whose seeded stream is `scheduler` (A5-2) and whose virtual clock starts at `start`.
     pub fn new(scheduler: SchedulerHandle, start: Instant) -> Workers {
+        Self::with_read_chunk(scheduler, start, READ_CHUNK)
+    }
+
+    /// One positive read bound applies to control bytes and program bytes.
+    pub(crate) fn with_read_chunk(
+        scheduler: SchedulerHandle,
+        start: Instant,
+        read_chunk: usize,
+    ) -> Workers {
+        debug_assert!(read_chunk > 0, "a worker needs a positive read bound");
         Workers {
             sim: Arc::new(Mutex::new(Sim::with_scheduler(scheduler.clone(), start))),
             pids: Arc::new(Mutex::new(Pids { next: 1000 })),
             scheduler,
+            read_chunk,
         }
     }
 
@@ -188,6 +200,7 @@ impl Spawner for WorkerSpawner {
             output_ended: false,
             drain: false,
             ready: Vec::new(),
+            read_chunk: self.workers.read_chunk,
         };
         let mut worker = worker;
         let mut sim = lock(&self.workers.sim);
@@ -274,6 +287,7 @@ struct WorkerEdges {
     drain: bool,
     /// The inputs counted by the last `ready`.
     ready: Vec<Ready>,
+    read_chunk: usize,
 }
 
 impl WorkerEdges {
@@ -394,7 +408,7 @@ impl Binding<Worker> for WorkerEdges {
                 Input::Terminate
             }
             Ready::Link => {
-                let mut buf = vec![0u8; READ_CHUNK];
+                let mut buf = vec![0u8; self.read_chunk];
                 match self.link.recv(&mut buf) {
                     Ok(n) if n > 0 => {
                         buf.truncate(n);
@@ -411,7 +425,7 @@ impl Binding<Worker> for WorkerEdges {
             Ready::Spawned => Input::Spawned(self.spawned.take().expect("counted as ready")),
             Ready::PtyRead => {
                 let program = self.payload.as_mut().expect("counted as ready");
-                let mut buf = vec![0u8; READ_CHUNK];
+                let mut buf = vec![0u8; self.read_chunk];
                 match program.read(&mut buf) {
                     Ok(n) if n > 0 => {
                         buf.truncate(n);

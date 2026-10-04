@@ -29,6 +29,9 @@ use std::time::{Duration, Instant};
 /// `ENOEXEC`: the errno of a program that cannot be run. It is what an `exec` of a file that is not a program gives.
 const ENOEXEC: i32 = 8;
 
+/// The default queue capacity. Control frames can span multiple reads and writes.
+const LINK_CAPACITY: usize = 64 * 1024;
+
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     // The testkit has no panic that leaves its state half written, so a poisoned lock still holds usable state.
     mutex.lock().unwrap_or_else(PoisonError::into_inner)
@@ -131,6 +134,7 @@ pub struct SimEdges {
     pending: VecDeque<(LinkId, LinkEnd)>,
     links: BTreeMap<LinkId, LinkEnd>,
     next_link: u64,
+    link_capacity: usize,
 }
 
 impl SimEdges {
@@ -192,8 +196,10 @@ impl HostEdges for SimEdges {
             return Err(SpawnError { errno: ENOEXEC });
         };
         let (pending, next_link) = (&mut self.pending, &mut self.next_link);
+        let link_capacity = self.link_capacity;
+        debug_assert!(link_capacity > 0, "a link needs a positive queue capacity");
         let mut connect = || {
-            let (host, worker) = crate::net::link_pair(64 * 1024);
+            let (host, worker) = crate::net::link_pair(link_capacity);
             let link = LinkId(*next_link);
             *next_link += 1;
             pending.push_back((link, host));
@@ -362,6 +368,7 @@ impl Directories {
             pending: VecDeque::new(),
             links: BTreeMap::new(),
             next_link: 1,
+            link_capacity: LINK_CAPACITY,
         };
         let identity = botster_terminal_ghostty::terminal_identity();
         let cfg = EngineConfig {
