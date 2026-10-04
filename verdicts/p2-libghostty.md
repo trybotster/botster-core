@@ -5,7 +5,7 @@ Reviewed Ghostty head: `3f8eb6810bb673aa782b047de21783ac81fb1121`.
 The binding uses branch `botster/upstream-sync-20261002`, with upstream base `f523504ea5c9f41d150d1eb93cc7a748b90f9361`.
 The lead owns the plan pin record.
 
-VERDICT: NOT CLEAN (2 open: P32, P38).
+VERDICT: NOT CLEAN (3 open: P32, P38, P39).
 P25, P27, P33 and P34 close at this binding head. Lead ruling P35 closes P35 without a fork change.
 P36 and P37 remain closed. P38 has an accepted source correction and awaits the Mac gate. P32 awaits the Linux gate.
 F1–F12, P13–P24, P26 and P28–P31 remain closed. The earlier reviews below retain their stated scope and closure evidence.
@@ -1529,3 +1529,48 @@ P38 remains open for the Mac gate evidence. P32 remains open for the Linux gate 
 A red result requires a new head and delta review before the next gate.
 
 VERDICT: NOT CLEAN (2 open: P32, P38; gate evidence only) at binding head `ced5127b48a09329d5d69aac45e94f16e6605338`.
+
+
+## Mac gate result at ced5127 — P39 records surviving mutants
+
+Exact binding head: `ced5127b48a09329d5d69aac45e94f16e6605338`.
+The reviewer read the failure records and summary of this log:
+
+```text
+~/botster-sessions/gates/botster-core-stage1-p2-libghostty-ced5127b-mac-20261004-010526-1320.log
+```
+
+Fmt, clippy, taint, lists, public-api, prebuild-worker, test-budget, and slow pass.
+The passing executable tests support the accepted P38 source correction.
+The gate fails at mutation testing and does not run fuzz tests. It exits 1.
+The lead requires a green Mac gate, so P38 remains pending that complete result.
+The implementer did not start the Linux gate. P32 remains pending Linux evidence.
+
+### P39 — MEDIUM — The mutation gate reports 92 surviving mutants
+
+**Evidence:** the gate tests 412 mutants: 300 caught, 92 missed, 20 unviable, and zero timeouts.
+The missed mutants cover these binding files:
+
+- `encode.rs`: 36.
+- `lib.rs`: 27.
+- `events.rs`: 15.
+- `sys.rs`: 7.
+- `reply.rs`: 3.
+- `snapshot.rs`: 2.
+- `query.rs`: 1.
+- `reads.rs`: 1.
+
+BUILD.md makes a surviving mutant a review finding.
+Examples in the log include event byte accounting, buffer admission boundaries, modifier operations, and native result handling.
+The gate result therefore prevents CLEAN despite the passing unmutated tests.
+
+**Required change:** add clause or defect coverage that catches mutations with observable effects.
+Keep native oracles for terminal assertions. Do not construct expected terminal protocol bytes.
+For an equivalent mutation, record the exact mutation or narrowly matched group and explain why it cannot change observable behavior.
+An assertion that code is glue does not by itself establish equivalence.
+Every exclusion must have a specific reason and remain narrow enough to preserve checks of real behavior.
+Send the exact correction head, test changes, and exclusion evidence for delta review before another gate.
+The implementer is preparing those changes.
+The reviewer ran no tests, builds, or gates.
+
+VERDICT: NOT CLEAN (3 open: P32, P38, P39) at binding head `ced5127b48a09329d5d69aac45e94f16e6605338`.
