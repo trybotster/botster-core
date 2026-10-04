@@ -224,3 +224,8 @@ The next correction adds checks of the injected host edges and testkit facade.
 The checks cover rows, seeded choices, wake deadlines, links, process events, directory reopen, and facade forwarding.
 The named-worker check covers the worker_named forwarding method.
 These tests await Linux compilation and focused mutation evidence. No other entry has a closure yet.
+
+The focused testkit mutation job at `91f8a4260a5e0ffb0721872400ad03da4868498e` failed baseline compilation.
+AttachOptions has no Default implementation. The fixture now uses the contract's JSON reader with an explicit file_directory.
+Log: `~/botster-sessions/gates/botster-core-stage1-p3-m1-v1-91f8a426-linux-20261004-133151-41107.log`.
+This failed job supplies no mutation evidence. The corrected job must compile and run before any testkit entry closes.

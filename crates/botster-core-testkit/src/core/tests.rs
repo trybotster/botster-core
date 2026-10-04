@@ -118,7 +118,8 @@ fn links_forward_bytes_descriptors_interests_and_close() {
     edges.link_send(link, b"answer").unwrap();
     let n = peer.recv(&mut bytes).unwrap();
     assert_eq!(&bytes[..n], b"answer");
-    let options = AttachOptions::default();
+    let options: AttachOptions =
+        serde_json::from_value(serde_json::json!({"file_directory": "/"})).unwrap();
     edges
         .handoff_route(link, RouteId(1), StreamEndpoint::new(71u64), &options)
         .unwrap();
