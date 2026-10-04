@@ -1,13 +1,13 @@
 # P2 libghostty review
 
-Current reviewed binding head: `7ef7e3aa578b43cc71ea64ef555d485ccc99e17b`.
+Current reviewed binding head: `ff603fe3603275c4c02c173605a817aa9949960b`.
 Reviewed Ghostty head: `3f8eb6810bb673aa782b047de21783ac81fb1121`.
 The binding uses branch `botster/upstream-sync-20261002`, with upstream base `f523504ea5c9f41d150d1eb93cc7a748b90f9361`.
 The lead owns the plan pin record.
 
-VERDICT: NOT CLEAN (3 open: P32, P38, P39).
+VERDICT: NOT CLEAN (2 open: P32, P38).
 P25, P27, P33 and P34 close at this binding head. Lead ruling P35 closes P35 without a fork change.
-P36 and P37 remain closed. P38 has an accepted source correction and awaits the Mac gate. P32 awaits the Linux gate.
+P36 and P37 remain closed. P39 closes at the current head. P38 awaits the Mac gate. P32 awaits the Linux gate.
 F1–F12, P13–P24, P26 and P28–P31 remain closed. The earlier reviews below retain their stated scope and closure evidence.
 
 ## Earlier audit and fork reviews
@@ -1631,3 +1631,32 @@ It is not the complete Mac or Linux gate required by the lead.
 P38 remains pending a green Mac gate. P32 remains pending a green Linux gate on the exact reviewed head.
 
 VERDICT: NOT CLEAN (3 open: P32, P38, P39) at binding head `7ef7e3aa578b43cc71ea64ef555d485ccc99e17b`.
+
+
+## P39 final correction review — constructor exclusions removed
+
+Exact binding head: `ff603fe3603275c4c02c173605a817aa9949960b`.
+The reviewer read the complete delta from `7ef7e3aa578b43cc71ea64ef555d485ccc99e17b`.
+The delta changes the constructor predicate's visibility and documentation, its regression test, the exclusion list, and the audit.
+It changes no production decision or fork file.
+
+**P39 closes.** The mutation list removes both constructor exclusions.
+The regression checks all four combinations of success or allocation failure with a null or non-null pointer.
+Only SUCCESS with a non-null pointer is accepted.
+The test never dereferences the supplied pointer or presents it to the native library.
+It therefore checks the failure guard without forcing system allocation failure or replacing terminal behavior with a fake.
+The assertion rejects the previously excluded constant-true mutation and the constant-false and OR mutations.
+The audit no longer calls the rejected constructor mutation equivalent.
+It identifies the exact Drop exclusions as cleanup coverage exclusions, not proof of equivalence.
+
+The implementer reports 114 binding tests passed, clippy passed, and fmt passed on this exact tree.
+The implementer reports the same mutation command tested 387 mutants: 367 caught, 20 unviable, zero missed, and zero timeouts.
+The constructor exclusions are absent from that run's reviewed configuration.
+The reviewer ran no tests, builds, mutation runs, or gates.
+
+All source and test corrections are accepted at this exact head.
+P38 remains open for the complete green Mac gate required by the lead.
+P32 remains open for the complete green Linux gate on this exact head.
+The gate order remains Mac first, then Linux, with the head unchanged.
+
+VERDICT: NOT CLEAN (2 open: P32, P38; gate evidence only) at binding head `ff603fe3603275c4c02c173605a817aa9949960b`.
