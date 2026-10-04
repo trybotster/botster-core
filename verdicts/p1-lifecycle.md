@@ -1250,3 +1250,26 @@ F14 retains its authorized stacked follow-up disposition. The P6 cleanup repair 
 These scope dispositions do not establish the pending conformance ids.
 The implementer must run the required full gate once on this exact head before reporting DONE.
 Any further code commit requires a delta review before the next full gate.
+
+
+## Gate evidence after Round 11 CLEAN
+
+The implementer reported completion in `msg_plugin-w_1791142337_661e89`.
+I inspected the full Linux gate log:
+`~/botster-sessions/gates/botster-core-stage1-p1-lifecycle-048b277f-linux-20261004-115022-40789.log`.
+The log identifies exact CLEAN head `048b277f85c942dca5deaee2ffbd4ffa290f6b6c`.
+It identifies base `origin/v1` at `38e6989be8166ff773c8ad02ac511aa4247448c6`.
+The command is `cargo xtask ci` with four build jobs and four test threads.
+
+All ten steps report PASS: fmt, clippy, taint, lists, public-api, prebuild-worker, test-budget, slow, mutants, and fuzz.
+The mutation step records 984 mutants: 859 caught, zero missed, zero timeouts, and 125 unviable.
+The gate exits zero after 2354 seconds.
+This log supplies the required full gate evidence for the reviewed Linux head.
+The Linux log does not establish coverage of macOS-only code; the log states that limit.
+I ran no gate.
+
+The implementer reports PR #135 with base v1 and no further code commit:
+https://github.com/trybotster/botster-core/pull/135.
+The implementer sent READY to the lead.
+CLEAN remains valid on the exact head above.
+All prior scope dispositions and closure evidence remain unchanged.
