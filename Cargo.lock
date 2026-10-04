@@ -382,6 +382,7 @@ dependencies = [
  "botster-core-link",
  "botster-probe-script",
  "botster-route-codec",
+ "botster-terminal-ghostty",
  "botster-worker-core",
  "rand_chacha",
  "rand_core 0.9.5",
