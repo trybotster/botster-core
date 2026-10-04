@@ -1031,3 +1031,15 @@ fn the_explicit_modes_give_the_focus_and_paste_bytes_of_the_terminal() {
     let on = terminal_with(b"\x1b[?1004h\x1b[?2004h");
     assert!(on.encode_focus(true).is_some() && on.paste_frame().is_some());
 }
+
+#[test]
+fn a_constructor_result_is_a_handle_only_with_success_and_a_handle() {
+    // A failed constructor (the library's OUT_OF_MEMORY) is refused, and so is a null handle with SUCCESS: the encoder
+    // then returns its typed error and never uses a null handle.
+    let mut storage = 0u8;
+    let handle: *mut std::ffi::c_void = (&mut storage as *mut u8).cast();
+    assert!(encode::created(sys::SUCCESS, handle));
+    assert!(!encode::created(sys::OUT_OF_MEMORY, std::ptr::null_mut()));
+    assert!(!encode::created(sys::SUCCESS, std::ptr::null_mut()));
+    assert!(!encode::created(sys::OUT_OF_MEMORY, handle));
+}

@@ -60,11 +60,6 @@ exclude_re = [
     # Terminal::drop frees the native terminal and then the event buffer that its callbacks write (a `Box` this crate
     # leaked for them). Leak only, not observable through the API: no reference to either survives the drop.
     'crates/botster-terminal-ghostty/src/lib\.rs:\d+:\d+: replace <impl Drop for Terminal>::drop with \(\)$',
-    # created: the library's constructors (key_event.zig, mouse_event.zig, mouse_encode.zig, key_encode.zig `new`) store
-    # the handle only when they return SUCCESS and fail only with OUT_OF_MEMORY of the allocator. So `code == SUCCESS`
-    # and `!handle.is_null()` are equal on every result, `&&` and `||` agree, and `true` differs only on an allocation
-    # failure of the default allocator, which no test can cause.
-    'crates/botster-terminal-ghostty/src/encode\.rs:\d+:\d+: (replace && with \|\| in created|replace created -> bool with true)$',
     # key_event: `CTRL | ALT` joins disjoint bits (sys::mods::CTRL = 1 << 1, ALT = 1 << 2), so `^` gives the same value.
     'crates/botster-terminal-ghostty/src/encode\.rs:\d+:\d+: replace \| with \^ in key_event$',
     # encode_mouse: `SHIFT | ALT | CTRL` joins disjoint bits (1 << 0, 1 << 2, 1 << 1), so `^` gives the same value.

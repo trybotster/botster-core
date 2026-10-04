@@ -181,9 +181,9 @@ fn mod_bits(mods: &[Modifier]) -> u16 {
     })
 }
 
-/// Whether a constructor of the library made its handle. The library stores the handle only on SUCCESS (and fails only
-/// with OUT_OF_MEMORY), so the two checks agree; the null check keeps a broken promise from becoming a null handle.
-fn created(code: sys::Result, handle: *mut c_void) -> bool {
+/// Whether a constructor of the library made its handle: SUCCESS and a handle. A failure (OUT_OF_MEMORY) is refused,
+/// and a null handle is refused even with SUCCESS, so a broken promise never becomes a null handle.
+pub(crate) fn created(code: sys::Result, handle: *mut c_void) -> bool {
     code == sys::SUCCESS && !handle.is_null()
 }
 
