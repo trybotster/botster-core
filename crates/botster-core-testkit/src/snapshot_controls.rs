@@ -206,10 +206,16 @@ mod tests {
             assert_eq!(value, &(key != "palette_equal"), "{key}");
         }
         let bytes = source.snapshot().unwrap();
+        let before_modes = source.modes();
         source.vt_write(b"\x1b[5 q");
         let result = oracle_restore(&mut source, &pages(&bytes)).unwrap();
         for (key, value) in result.as_object().unwrap() {
-            assert_eq!(value, &(key != "cursor_equal"), "{key}");
+            let expected = match key.as_str() {
+                "cursor_equal" => false,
+                "modes_equal" => source.modes() == before_modes,
+                _ => true,
+            };
+            assert_eq!(value, &expected, "{key}");
         }
         let bytes = source.snapshot().unwrap();
         source.vt_write(b"\x1b]2;changed\x1b\\");
