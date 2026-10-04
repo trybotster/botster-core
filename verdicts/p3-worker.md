@@ -1,8 +1,8 @@
 # P3 worker review
 
 Current restack verdict: NOT CLEAN (F13, F18, and F19 open; F14, F15, F16, and F17 closed).
-Reviewed head: `ec8cee11fea200ef6db9dd2d80f5200d5dca2180`, branch `stage1/p3-m1-v1`.
-Round 41 reviews FIFO synchronization and bounded panic cleanup. F13 retains 66 entries; F18/F19 await Mac evidence.
+Reviewed head: `4b1d39cb294dfc4308dae1ddb0f2ce4f6274170a`, branch `stage1/p3-m1-v1`.
+Round 42 records a second failed Mac baseline and a handoff-only delta. F13 retains 66 entries; F18/F19 remain open.
 The CLEAN below applies only to the old M2a head that it names.
 
 VERDICT: CLEAN
@@ -1448,3 +1448,29 @@ F13 retains 66 original entries. F18 and F19 remain OPEN pending evidence.
 All earlier findings and closures remain preserved. The reviewer ran no tests or gate.
 
 VERDICT: NOT CLEAN (F13: 66 entries; F18 and F19 open) on `ec8cee11fea200ef6db9dd2d80f5200d5dca2180`.
+
+
+## Round 42 — Second Mac failure and handoff-only delta
+
+Reviewed head: `4b1d39cb294dfc4308dae1ddb0f2ce4f6274170a`.
+The complete delta from `ec8cee1` changes only docs/handoffs/p3-worker.md.
+The source, exclusions, and dependency pins remain unchanged.
+The handoff records the Mac resource hold and the later M2b paging/specification obligation under R-30 and A8-2.
+That later obligation adds no M1 implementation or closure in this round.
+
+Evidence head: `a532a7292a3a419cb9903b1425b22ef331f05be2`.
+Log: `~/botster-sessions/gates/botster-core-stage1-p3-m1-v1-a532a729-mac-20261004-154924-48598.log`.
+The reviewer read the exact-head plain nextest log.
+The Mac job exits 124 after 2700 seconds. It runs 14 tests: 13 pass and the input test remains alive until external SIGTERM.
+The test reports no program output at its ten-second deadline, then terminates after 2688.563 seconds.
+Explicit anchor group membership alone therefore does not fix the blocked cleanup observed under F19.
+The evidence does not identify the blocking cleanup operation or establish the pending-output failure's cause.
+The later FIFO synchronization and bounded panic test are absent from this run.
+
+F18 and F19 remain OPEN pending corrected-source Mac evidence and any required source correction.
+A Linux result can support the source review but cannot establish correction of these observed Mac failures.
+The recorded Mac hold limits when the implementer can collect that evidence; it does not close either finding.
+F13 retains 66 original entries. No mutation closure follows from this plain baseline.
+All earlier findings and closures remain preserved. The reviewer ran no tests or gate.
+
+VERDICT: NOT CLEAN (F13: 66 entries; F18 and F19 open) on `4b1d39cb294dfc4308dae1ddb0f2ce4f6274170a`.
