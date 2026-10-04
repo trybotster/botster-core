@@ -453,6 +453,26 @@ fn public_graphics_reads_match_the_native_storage_with_and_without_images() {
     );
 }
 
+#[test]
+fn both_public_constructors_reject_image_storage_before_any_input() {
+    let fresh = terminal();
+    let restored = Terminal::from_snapshot(&fresh.snapshot().unwrap(), History::On, None).unwrap();
+    for mut model in [fresh, restored] {
+        assert_eq!(model.image_storage_limit().unwrap(), 0);
+        model.vt_write(IMAGES);
+        for id in [1, 2] {
+            assert!(!model.has_image(id).unwrap());
+            assert!(!stores_image(model.handle.as_ptr(), id));
+        }
+        model.vt_write(b"\x1b[?1049h");
+        assert_eq!(model.image_storage_limit().unwrap(), 0);
+        model.vt_write(IMAGES);
+        for id in [1, 2] {
+            assert!(!model.has_image(id).unwrap());
+        }
+    }
+}
+
 /// A small corpus that stops inside every kind of unfinished input (a CSI, an OSC, a DCS, a UTF-8 sequence, a string
 /// that ends with an ESC) and sets the saved state that a snapshot must carry: the saved cursor, tab stops, margins and
 /// the character sets.
