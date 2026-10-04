@@ -317,3 +317,22 @@ The focused payload job at `5172a53553636dc94d9c86c98b0969499b1955dd` failed bas
 The test used Errno::ACCES, but rustix names the constant Errno::ACCESS. The correction changes only that name.
 Log: `~/botster-sessions/gates/botster-core-stage1-p3-m1-v1-5172a535-linux-20261004-143306-97940.log`.
 No mutant ran. This job supplies no mutation evidence. The corrected Linux job is next.
+
+## F15 and F16 correction (2026-10-04)
+
+Slow payload mutation at `b6b1660bb2c63828c75e51b0ec95cab8f585b9a3` passed baseline and tested 30 mutants.
+Result: 21 caught, 4 missed, 4 unviable, and 1 timeout.
+Log: `~/botster-sessions/gates/botster-core-stage1-p3-m1-v1-b6b1660b-linux-20261004-143410-99127.log`.
+Artifacts: `~/botster-sessions/gates/artifacts-trybotster_botster_core_stage1_p3_m1_v1-bcb322fa-20261004143410-99127/target-mutants.out/`.
+Package verdict `2a5a1666ae4cc522efde37bd93ceea85cebfdabe` opens F15 for premature EOF and F16 for the reaping observation.
+Integration record `e90b9eecf0f392c2352cf198ce7b92e2ae7f7ef2` carries both findings.
+
+The readiness reader now fails on EOF before readiness. This releases its independent group guard on panic.
+The reaping test starts an isolated observer with --exact and --test-threads=1.
+The observer owns no other direct child. A reused payload PID cannot name another child of that observer.
+The query uses WNOWAIT and NOHANG. It never reaps the production payload and never blocks.
+The outer test independently owns the observer's Child handle and retires it immediately after wait.
+The payload group still has its independent guard, including on observer death.
+Three exact equivalence arguments await package review; no payload exclusion exists yet.
+The wait_unreaped fallback-sign argument remains incomplete because spawn-error cleanup can race the exit watch.
+Next: corrected Linux slow mutation. F13, F15, and F16 remain open pending review and evidence.
