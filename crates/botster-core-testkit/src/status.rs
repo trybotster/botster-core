@@ -203,7 +203,8 @@ mod tests {
         assert!(parse_deferred("not-applicable conf::a\n").is_err());
     }
 
-    /// The files of the pinned contracts tag parse (`contracts-v0.1.7`: two deferred ids, one case, two withdrawn ids).
+    /// The files of the pinned contracts tag parse (`contracts-v0.1.13`: two deferred ids, one case, three withdrawn ids;
+    /// the Hub id `wp_3` is withdrawn with no replacement).
     #[test]
     fn the_pinned_files_parse() {
         let (deferred, cases) =
@@ -212,7 +213,10 @@ mod tests {
         assert_eq!(cases.len(), 1);
         let withdrawn =
             parse_withdrawn(include_str!("../../../conformance/contracts-withdrawn.txt")).unwrap();
-        assert_eq!(withdrawn.len(), 2);
-        assert!(withdrawn.iter().all(|w| w.replaced_by.is_some()));
+        assert_eq!(withdrawn.len(), 3);
+        assert_eq!(
+            withdrawn.iter().filter(|w| w.replaced_by.is_none()).count(),
+            1
+        );
     }
 }

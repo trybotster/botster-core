@@ -92,12 +92,24 @@ pub fn parse_deferred(text: &str) -> Result<Vec<Deferred>> {
 
 /// The Core ids of a ledger document (`conformance/ledger.json` of botster-contracts).
 pub fn core_ids_of_ledger(ledger_json: &str) -> Result<BTreeSet<String>> {
+    ids_of_ledger(ledger_json, |row| row["contract"] == "core")
+}
+
+/// Every id of a ledger document, of every contract. The contracts' status files are shared by every contract.
+pub fn all_ids_of_ledger(ledger_json: &str) -> Result<BTreeSet<String>> {
+    ids_of_ledger(ledger_json, |_| true)
+}
+
+fn ids_of_ledger(
+    ledger_json: &str,
+    keep: impl Fn(&serde_json::Value) -> bool,
+) -> Result<BTreeSet<String>> {
     let json: serde_json::Value = serde_json::from_str(ledger_json)?;
     Ok(json["ids"]
         .as_array()
         .context("the ledger has no `ids`")?
         .iter()
-        .filter(|row| row["contract"] == "core")
+        .filter(|row| keep(row))
         .filter_map(|row| row["id"].as_str().map(str::to_string))
         .collect())
 }
@@ -106,6 +118,8 @@ pub fn core_ids_of_ledger(ledger_json: &str) -> Result<BTreeSet<String>> {
 pub struct Input<'a> {
     /// The Core ids of the ledger at the pinned tag.
     pub ledger: &'a BTreeSet<String>,
+    /// Every id of the ledger at the pinned tag, of every contract. Every id of the shared status files is one of them.
+    pub ledger_all: &'a BTreeSet<String>,
     /// The checked-in `core-ledger-ids.txt`.
     pub ledger_file: &'a BTreeSet<String>,
     pub pending: &'a BTreeSet<String>,
@@ -115,11 +129,13 @@ pub struct Input<'a> {
     /// The worker protocol number `T` and the features of each protocol.
     pub worker_protocol: u8,
     pub features: &'a [(u8, &'a [Feature])],
-    /// The Core ids that the contracts withdrew (`withdrawn.txt`): reported as withdrawn, never pending.
+    /// The ids that the contracts withdrew (`withdrawn.txt`), of every contract. A Core id is reported as withdrawn,
+    /// never pending; an id of another contract is that contract's.
     pub withdrawn: &'a BTreeSet<String>,
-    /// The whole-id Core deferrals of the contracts' `deferred.txt`. `core-deferred.toml` must list exactly these.
+    /// The whole-id deferrals of the contracts' `deferred.txt`, of every contract. `core-deferred.toml` must list exactly
+    /// the Core ones.
     pub contract_deferred: &'a BTreeSet<String>,
-    /// The ids of the `not-applicable` lines of `deferred.txt`: cases of ACTIVE ids.
+    /// The ids of the `not-applicable` lines of `deferred.txt`, of every contract. A Core one is a case of an ACTIVE id.
     pub not_applicable: &'a [String],
     /// The base ref's files. `None`: the base has no pending file (initialization).
     pub base: Option<Base<'a>>,
@@ -151,11 +167,17 @@ pub fn check(input: &Input<'_>) -> Vec<String> {
             "{PENDING_FILE}: {id} is not a Core id of the ledger"
         ));
     }
+    // The status files are shared by every contract. An id that is in no contract's ledger is a mistake (a mistyped id
+    // must not pass as another contract's); an id of another contract is that contract's, and Core does not apply it.
     for id in input.withdrawn {
-        if !input.ledger.contains(id) {
+        if !input.ledger_all.contains(id) {
             problems.push(format!(
-                "withdrawn.txt: {id} is not a Core id of the ledger"
+                "withdrawn.txt: {id} is not an id of the pinned ledger"
             ));
+            continue;
+        }
+        if !input.ledger.contains(id) {
+            continue;
         }
         if input.pending.contains(id) {
             problems.push(format!(
@@ -166,23 +188,35 @@ pub fn check(input: &Input<'_>) -> Vec<String> {
             problems.push(format!("{id} is both withdrawn and deferred"));
         }
     }
+    for id in input.contract_deferred.difference(input.ledger_all) {
+        problems.push(format!(
+            "deferred.txt: {id} is not an id of the pinned ledger"
+        ));
+    }
+    let core_contract_deferred: BTreeSet<String> = input
+        .contract_deferred
+        .intersection(input.ledger)
+        .cloned()
+        .collect();
     // The deferred file is the whole-id Core deferrals of the contracts' `deferred.txt`, no more and no fewer.
-    for id in deferred_ids.difference(input.contract_deferred) {
+    for id in deferred_ids.difference(&core_contract_deferred) {
         problems.push(format!(
             "{DEFERRED_FILE}: {id} is not deferred by the contracts' deferred.txt"
         ));
     }
-    for id in input.contract_deferred.difference(&deferred_ids) {
+    for id in core_contract_deferred.difference(&deferred_ids) {
         problems.push(format!(
             "{DEFERRED_FILE}: {id} is deferred by the contracts' deferred.txt and missing here"
         ));
     }
     // A `not-applicable` line names a case of an id that stays active: it is a ledger id, and neither deferred nor withdrawn.
     for id in input.not_applicable {
-        if !input.ledger.contains(id) {
+        if !input.ledger_all.contains(id) {
             problems.push(format!(
-                "deferred.txt: the not-applicable id {id} is not a Core id of the ledger"
+                "deferred.txt: the not-applicable id {id} is not an id of the pinned ledger"
             ));
+        } else if !input.ledger.contains(id) {
+            // A case of another contract's id.
         } else if input.withdrawn.contains(id) || input.contract_deferred.contains(id) {
             problems.push(format!(
                 "deferred.txt: the not-applicable id {id} must stay active, and it is withdrawn or deferred"
@@ -314,7 +348,9 @@ pub fn command(root: &Path, args: &[String]) -> Result<()> {
     let read = |path: &str| -> Result<String> {
         std::fs::read_to_string(root.join(path)).with_context(|| format!("read {path}"))
     };
-    let ledger = ledger_of(&meta.contracts_root)?;
+    let ledger_json = pinned_ledger_json(&meta.contracts_root)?;
+    let ledger = core_ids_of_ledger(&ledger_json)?;
+    let ledger_all = all_ids_of_ledger(&ledger_json)?;
     let source = status_sources(&meta.contracts_root)?;
     let (contract_deferred, cases) =
         status::parse_deferred(&source.deferred).map_err(anyhow::Error::msg)?;
@@ -323,12 +359,8 @@ pub fn command(root: &Path, args: &[String]) -> Result<()> {
         .into_iter()
         .map(|w| w.id)
         .collect();
-    // `deferred.txt` is shared by every contract: this repo holds the Core ids.
-    let contract_deferred: BTreeSet<String> = contract_deferred
-        .into_iter()
-        .map(|d| d.id)
-        .filter(|id| ledger.contains(id))
-        .collect();
+    // `deferred.txt` and `withdrawn.txt` are shared by every contract: `check` applies the Core ids.
+    let contract_deferred: BTreeSet<String> = contract_deferred.into_iter().map(|d| d.id).collect();
     let not_applicable: Vec<String> = cases.into_iter().map(|c| c.id).collect();
     let mut problems: Vec<String> = copy_problems(&[
         (
@@ -382,6 +414,7 @@ pub fn command(root: &Path, args: &[String]) -> Result<()> {
 
     problems.extend(check(&Input {
         ledger: &ledger,
+        ledger_all: &ledger_all,
         ledger_file: &ledger_file,
         pending: &pending,
         deferred: &deferred,
@@ -395,15 +428,16 @@ pub fn command(root: &Path, args: &[String]) -> Result<()> {
         tag_moved,
     }));
     report(&problems)?;
+    let withdrawn = withdrawn.intersection(&ledger).count();
     println!(
         "lists: ok. ledger {} ids, pending {}, deferred {}, withdrawn {}, to run {}",
         ledger.len(),
         pending.len(),
         deferred.len(),
-        withdrawn.len(),
-        ledger.len() - pending.len() - deferred.len() - withdrawn.len()
+        withdrawn,
+        ledger.len() - pending.len() - deferred.len() - withdrawn
     );
-    for case in &not_applicable {
+    for case in not_applicable.iter().filter(|id| ledger.contains(*id)) {
         println!("lists: not-applicable case of the active id {case}");
     }
     Ok(())
@@ -462,9 +496,12 @@ fn copy_problems(copies: &[(&str, &str, &str)]) -> Vec<String> {
 
 /// The Core ids of the ledger of the pinned contracts checkout.
 pub fn ledger_of(contracts_root: &Path) -> Result<BTreeSet<String>> {
-    let text = std::fs::read_to_string(contracts_root.join("conformance/ledger.json"))
-        .context("read the pinned ledger")?;
-    core_ids_of_ledger(&text)
+    core_ids_of_ledger(&pinned_ledger_json(contracts_root)?)
+}
+
+fn pinned_ledger_json(contracts_root: &Path) -> Result<String> {
+    std::fs::read_to_string(contracts_root.join("conformance/ledger.json"))
+        .context("read the pinned ledger")
 }
 
 /// `cargo xtask ledger-ids [--write]`: check or write `conformance/core-ledger-ids.txt` from the pinned ledger.
@@ -535,10 +572,14 @@ mod tests {
 
     const D1: &str = "conf::ad_4_previous_worker_version_adopts";
     const D2: &str = "conf::ad_4_missing_worker_capability_is_unsupported";
+    /// An id of another contract (Hub) in the shared ledger.
+    const HUB: &str = "conf::hub_only";
     const NO_FEATURES: &[(u8, &[Feature])] = &[(1, &[Feature::FocusReport])];
 
     struct World {
         ledger: BTreeSet<String>,
+        /// The ledger of every contract: the Core ids and one id of another contract.
+        ledger_all: BTreeSet<String>,
         pending: BTreeSet<String>,
         deferred: Vec<Deferred>,
         withdrawn: BTreeSet<String>,
@@ -550,6 +591,7 @@ mod tests {
     fn world() -> World {
         World {
             ledger: set(&["a", "b", "c", D1, D2]),
+            ledger_all: set(&["a", "b", "c", D1, D2, HUB]),
             pending: set(&["a", "b", "c"]),
             deferred: vec![
                 entry(D1, "worker_protocol >= 2"),
@@ -564,6 +606,7 @@ mod tests {
     fn run<'a>(w: &'a World, adjust: impl FnOnce(&mut Input<'a>)) -> Vec<String> {
         let mut input = Input {
             ledger: &w.ledger,
+            ledger_all: &w.ledger_all,
             ledger_file: &w.ledger,
             pending: &w.pending,
             deferred: &w.deferred,
@@ -788,6 +831,10 @@ mod tests {
     fn only_core_ids_are_taken_from_the_ledger() {
         let json = r#"{"version":1,"ids":[{"id":"conf::a","contract":"core"},{"id":"conf::b","contract":"hp"}]}"#;
         assert_eq!(core_ids_of_ledger(json).unwrap(), set(&["conf::a"]));
+        assert_eq!(
+            all_ids_of_ledger(json).unwrap(),
+            set(&["conf::a", "conf::b"])
+        );
     }
 
     #[test]
@@ -838,6 +885,7 @@ mod tests {
     fn a_withdrawn_id_is_in_the_ledger_and_never_pending_or_deferred() {
         let mut w = world();
         w.ledger.insert("w".into());
+        w.ledger_all.insert("w".into());
         w.withdrawn.insert("w".into());
         assert!(
             run(&w, |_| {}).is_empty(),
@@ -857,7 +905,31 @@ mod tests {
         outside.withdrawn.insert("zz".into());
         assert!(run(&outside, |_| {})
             .iter()
-            .any(|p| p.contains("withdrawn.txt: zz is not a Core id")));
+            .any(|p| p.contains("withdrawn.txt: zz is not an id of the pinned ledger")));
+    }
+
+    #[test]
+    fn a_withdrawn_or_deferred_id_of_another_contract_is_accepted_and_not_applied() {
+        // A Hub id in the shared files: no problem, and Core neither reports it withdrawn nor expects it deferred.
+        let mut w = world();
+        w.withdrawn.insert(HUB.into());
+        w.contract_deferred.insert(HUB.into());
+        w.not_applicable = vec![HUB.into()];
+        assert_eq!(run(&w, |_| {}), Vec::<String>::new());
+        // Core still applies its own withdrawn id next to it.
+        w.withdrawn.insert("a".into());
+        assert!(run(&w, |_| {})
+            .iter()
+            .any(|p| p.contains("a is withdrawn") && p.contains("never pending")));
+    }
+
+    #[test]
+    fn a_deferred_id_outside_the_ledger_of_every_contract_is_refused() {
+        let mut w = world();
+        w.contract_deferred.insert("zz".into());
+        assert!(run(&w, |_| {})
+            .iter()
+            .any(|p| p.contains("deferred.txt: zz is not an id of the pinned ledger")));
     }
 
     #[test]
@@ -892,7 +964,7 @@ mod tests {
         w.not_applicable = vec!["nope".into()];
         assert!(run(&w, |_| {})
             .iter()
-            .any(|p| p.contains("nope") && p.contains("not a Core id")));
+            .any(|p| p.contains("nope") && p.contains("not an id of the pinned ledger")));
         w.not_applicable = vec![D1.into()];
         assert!(run(&w, |_| {})
             .iter()
