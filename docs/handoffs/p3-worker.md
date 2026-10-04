@@ -453,3 +453,19 @@ No production code or P3 exclusion changed. Both reviewers must review this docu
 P3 read the specification. Its Worker paging section remains pending until M2b implements CaptureSnapshot.
 The specification counts host metadata outside page bytes and requires M2b to specify worker framing independently.
 The next full M1 gate must use this current-v1 tree.
+
+## Driver mutation fixture (2026-10-04)
+
+Package verdict `8b7213ac034bece6e2840e3d881cba4e1a54de36` verifies the retrieved payload outcomes.
+The fallback-sign mutant is CaughtMutant. All 26 original payload entries are closed: 23 caught and three accepted equivalences.
+F13 retains 65 driver entries. F18 and F19 remain open for Mac evidence.
+Raw payload artifacts are in `/private/tmp/p3-payload-evidence/`.
+
+The real session fixture now lives in `crates/botster-worker/tests/common/session.rs`.
+The integration test still starts the prebuilt candidate binary.
+The binary's slow unit tests start a test observer that calls the production Driver directly.
+Cargo-mutants rebuilds that test executable, so the observer contains the mutated driver.
+Both fixtures use the same session tests, control codec, payload guard, and worker ownership rules.
+The observer's launch data matches the fixture. No production test branch or second worker machine exists.
+The fixture move preserves the real worker tests. It does not establish mutation closure by itself.
+Next: run the slow driver unit baseline on Linux, then inspect its focused mutation results.

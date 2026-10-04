@@ -430,3 +430,26 @@ impl Driver {
         }
     }
 }
+
+// Both fixtures use the same session tests and the same production Driver.
+#[cfg(all(test, feature = "slow"))]
+const DRIVER_OBSERVER: Option<&str> = Some("driver_observer");
+
+#[cfg(all(test, feature = "slow"))]
+#[path = "../tests/common/session.rs"]
+mod slow_driver;
+
+#[cfg(all(test, feature = "slow"))]
+#[test]
+fn driver_observer() {
+    let Some(control) = std::env::var_os("BOTSTER_DRIVER_CONTROL") else {
+        return;
+    };
+    let launch = WorkerLaunch {
+        control: control.into(),
+        instance: botster_core_contract::prelude::InstanceId("1-1".into()),
+        host_epoch: 1,
+        token: [5; 32],
+    };
+    Driver::start(&launch).and_then(Driver::run).unwrap();
+}
