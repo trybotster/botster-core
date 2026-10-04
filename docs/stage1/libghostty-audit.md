@@ -1,5 +1,27 @@
 # libghostty audit for Core Stage 1 (package P2)
 
+## Public API follow-up for P6
+
+The binding exposes the following existing C exports at fork `3f8eb6810bb673aa782b047de21783ac81fb1121`.
+These APIs add no terminal parser, terminal encoder, or test branch.
+
+| Clause | Public API | Existing C export | Verification |
+|---|---|---|---|
+| ST-6, ST-6b | `Terminal::from_snapshot` | `ghostty_snapshot_decoder_new_buf`, `_set`, `_decode`, `_free` | The existing every-cut resume tests use the public decoder. A rejected envelope version returns `SnapshotDecodeError::UnsupportedVersion`. |
+| ST-6b graphics | `Terminal::from_snapshot` | Decoder option `KITTY_IMAGE_STORAGE_LIMIT` from patch 13 | The decoder sets the limit to zero before restore. Existing image-resume tests check both screens. |
+| EV-7, ST-6b hyperlinks | `Terminal::hyperlink_uri` | `ghostty_grid_ref_hyperlink_uri` | Tests compare cell URIs before and after restore. |
+| ST-6b, A8-2 pending state | `Terminal::continuation`, `set_continuation_max_bytes` | `ghostty_terminal_continuation_buf`, terminal option `CONTINUATION_MAX_BYTES` | Tests check retained input, ground state, disabled retention, and the configured limit. |
+| ST-6b failure observation | `Terminal::vt_processing_error` | Terminal data key `VT_PROCESSING_ERROR` | Tests check the key against the pinned header and distinguish configured limits from processing errors. |
+
+The C continuation API reports unavailable input without its length or parser kind.
+It does not distinguish configured overflow from lost retention.
+The testkit must use a separate oracle with a sufficient retention bound to measure pending input independently.
+The binding does not infer parser state from the input bytes.
+
+Prior art: the decoder reuses this crate's private decoder path from `tests_snapshot.rs`.
+The binding copies the hyperlink URI and continuation bytes from libghostty.
+No old botster-core code was reused.
+
 Scope: every Core clause that needs terminal semantics, checked against libghostty.
 Contract: botster-contracts tag `contracts-v0.1.1` (`366bca41da0a6de69cc1ea13b17c773cdfdb75b6`): manifest final14, Core erratum 2 ("E2") and steward ruling R-13.
 Plan pin: `stage1-plan.555bc433` (sha256 `555bc4337fe72e9fad833fe330d43e8147a39569cb14291734f34847f56596d7`), sections 0, 6.1, 6.3, 7.1, 8, 9 (Q1) and 10 (R1).
