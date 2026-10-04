@@ -1,0 +1,3 @@
+crates/botster-core-sys/src/payload.rs:189:9: replace Payload::reap with ()
+crates/botster-core-sys/src/payload.rs:212:35: replace | with ^ in wait_unreaped
+crates/botster-core-sys/src/payload.rs:231:39: replace | with ^ in set_nonblocking
