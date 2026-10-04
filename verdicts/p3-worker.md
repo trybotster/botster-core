@@ -2,7 +2,7 @@
 
 Current restack verdict: NOT CLEAN (F13, F18, and F19 open; F14, F15, F16, and F17 closed).
 Reviewed head: `39a55c9e8fd8ecc6d4678ba952a363d99fa04139`, branch `stage1/p3-m1-v1`.
-Round 45 reviews the GHOSTSNP documentation merge and Linux compilation evidence. F13 retains 66 entries; F18/F19 remain open.
+Round 46 closes the relocated fallback-sign entry. F13 retains 65 driver entries; F18/F19 remain open.
 The CLEAN below applies only to the old M2a head that it names.
 
 VERDICT: CLEAN
@@ -1550,3 +1550,28 @@ F18 and F19 remain OPEN for corrected-source Mac evidence.
 All earlier findings and closures remain preserved. The reviewer ran no tests or gate.
 
 VERDICT: NOT CLEAN (F13: 66 entries; F18 and F19 open) on `39a55c9e8fd8ecc6d4678ba952a363d99fa04139`.
+
+
+## Round 46 — Raw fallback-sign outcome
+
+Current reviewed head remains `39a55c9e8fd8ecc6d4678ba952a363d99fa04139`.
+Evidence head: `4b1d39cb294dfc4308dae1ddb0f2ce4f6274170a`.
+The implementer retrieved existing artifacts without rerunning the job, from its target volume through a read-only mount.
+The reviewer read `/private/tmp/p3-payload-evidence/outcomes.json` and caught.txt.
+The raw counts match the exact-head log: 28 tested, 23 caught, five unviable, zero missed, and zero timeouts.
+The baseline result is Success.
+The artifact times, 23:36:37 through 23:37:23 UTC, match the focused job from round 44.
+
+The raw outcome identifies `payload.rs:233:47: delete - in wait_unreaped_with` as CaughtMutant.
+The reviewer checked that location against the evidence head: it is the unchanged negative fallback moved into the shared injected-wait loop.
+This closes the original `payload.rs:224:47: delete - in wait_unreaped` entry under F13.
+Its original name is preserved in `verdicts/p3-worker-mutants-4b1d39c-caught.txt`.
+The default test supplies EINTR followed by ECHILD through the same loop that production uses.
+No exclusion hides the fallback error path.
+
+All 26 original payload entries now have closure: 23 caught and three accepted exact-function equivalences.
+F13 retains 65 original real worker driver entries.
+F18 and F19 remain OPEN for corrected-source Mac evidence. This Linux result does not close either Mac finding.
+All earlier findings and closures remain preserved. The reviewer ran no tests or gate.
+
+VERDICT: NOT CLEAN (F13: 65 entries; F18 and F19 open) on `39a55c9e8fd8ecc6d4678ba952a363d99fa04139`.
