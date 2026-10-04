@@ -1,7 +1,10 @@
 //! A worker program for the slow tests: a shell script that the real `Core` starts, and the guard that ends it on every exit
 //! path, panics included (BUILD.md testing rule 10, plan R12).
 
-use rustix::process::{kill_process_group, waitpid, Pid, Signal, WaitOptions};
+use rustix::process::Pid;
+
+#[path = "../../../botster-core-sys/tests/common/process_guard.rs"]
+mod process_guard;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
@@ -22,28 +25,33 @@ pub fn mkfifo(path: &Path) {
     assert!(made.success());
 }
 
-/// A worker program: a shell script that first records its pid, then runs `body`. `Core` starts a worker as the leader of
-/// its own process group, so the guard ends the whole worker, with every command of the script, by that group.
+/// A worker script registers its group before it records its PID or runs its body.
+/// The test owns the anchor before Core can start the worker.
 pub struct ScriptWorker {
     pub path: PathBuf,
     pid_file: PathBuf,
-    armed: bool,
+    _guard: process_guard::GroupGuard,
 }
 
 impl ScriptWorker {
     pub fn new(dir: &Path, body: &str) -> ScriptWorker {
         let path = dir.join("worker.sh");
         let pid_file = dir.join("worker.pid");
+        let guard = process_guard::GroupGuard::new(dir);
         std::fs::write(
             &path,
-            format!("#!/bin/sh\necho $$ > '{}'\n{body}\n", pid_file.display()),
+            format!(
+                "#!/bin/sh\n{}echo $$ > '{}'\n{body}\n",
+                guard.prefix(),
+                pid_file.display()
+            ),
         )
         .unwrap();
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
         ScriptWorker {
             path,
             pid_file,
-            armed: true,
+            _guard: guard,
         }
     }
 
@@ -53,24 +61,5 @@ impl ScriptWorker {
             .ok()
             .and_then(|text| text.trim().parse::<i32>().ok())
             .and_then(Pid::from_raw)
-    }
-
-    /// The worker has ended and was reaped: the guard must not signal a group whose pid may be reused.
-    pub fn disarm(&mut self) {
-        self.armed = false;
-    }
-}
-
-impl Drop for ScriptWorker {
-    /// Kills the worker's group and reaps the worker in test code, whatever `Core` did: the worker is a child of the test
-    /// process, and this `waitpid` reaps it unless `Core`'s reaper thread reaped it first.
-    fn drop(&mut self) {
-        if !self.armed {
-            return;
-        }
-        if let Some(pid) = self.pid() {
-            let _ = kill_process_group(pid, Signal::KILL);
-            let _ = waitpid(Some(pid), WaitOptions::empty());
-        }
     }
 }

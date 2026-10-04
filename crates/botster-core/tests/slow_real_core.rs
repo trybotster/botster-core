@@ -193,7 +193,7 @@ fn a_worker_that_exits_before_it_connects_ends_the_start_at_once() {
     common::mkfifo(&ready);
     // The worker says that it runs (an external `/bin/echo` into a FIFO), then waits, without the CPU, until the test ends it
     // with a signal or the test process is gone.
-    let mut worker = common::ScriptWorker::new(
+    let worker = common::ScriptWorker::new(
         tmp.path(),
         &format!(
             "/bin/echo ready > '{}'\n{}",
@@ -258,8 +258,6 @@ fn a_worker_that_exits_before_it_connects_ends_the_start_at_once() {
         core.get(&sid("s1")).unwrap().state,
         SessionState::Lost(_) | SessionState::Exited(_)
     ));
-    // The host saw the exit, so the reaper reaped the worker.
-    worker.disarm();
 }
 
 /// Core AD-6: a client that connects to the control socket is accepted and read; a hello for an instance that no start waits
