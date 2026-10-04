@@ -1,8 +1,8 @@
 # P3 worker review
 
-Current restack verdict: NOT CLEAN (F13 and F14 open).
-Reviewed head: `91b58e2c8a8f7d198484e8019f08c50aae0e6dd4`, branch `stage1/p3-m1-v1`.
-Round 28 closes release and write-interest entries. F13 retains 93 open entries; F14 remains open.
+Current restack verdict: NOT CLEAN (F13 open; F14 closed).
+Reviewed head: `34bad40b4ee3d97eab1866b991c4e2ba5251a7dd`, branch `stage1/p3-m1-v1`.
+Round 29 closes F14 and reviews proposed tuning exclusions. F13 retains 93 open entries.
 The CLEAN below applies only to the old M2a head that it names.
 
 VERDICT: CLEAN
@@ -1021,3 +1021,36 @@ F14 remains OPEN. The implementer is preparing the correction under the lead's r
 The reviewer ran no tests or gate. This focused result does not establish a full green gate.
 
 VERDICT: NOT CLEAN (F13: 93 entries; F14 open) on `91b58e2c8a8f7d198484e8019f08c50aae0e6dd4`.
+
+## Round 29 — F14 correction and proposed tuning exclusions
+
+Reviewed head: `34bad40b4ee3d97eab1866b991c4e2ba5251a7dd`.
+The reviewer inspected the complete delta from `91b58e2` and ran no tests or gate.
+The delta injects internal positive capacity and read bounds through the existing edge code.
+The default values remain 65536. No test behavior branch or separate worker code path is added.
+
+F14 status: CLOSED in source at this head.
+The bulk spawn test no longer requires an 8192-byte single write.
+The new control-read test no longer requires a complete frame in one input.
+The replacement tests check byte retention, ordering, and complete frames at 65536, 1088, and 1.
+The program test checks output retention and order at the same values.
+The shared Worker/TestkitCore test checks create, start, signal, and remove completions through the same edge path at each bound.
+The reviewer accepts these test designs. Their focused mutation job remains pending.
+
+The two proposed exclusions remain UNACCEPTED under F13 pending changes and evidence.
+Their comments cite the absence of a fixed contract value, explain partial progress, and name the proving tests.
+However, both regular expressions match every unnamed `replace * with + in` mutant in their entire source file.
+The comments name LINK_CAPACITY and READ_CHUNK, but the patterns do not identify those declarations.
+Required change: Restrict each pattern to its one verified constant declaration or give that constant a uniquely matchable scope.
+A later unnamed arithmetic expression must not inherit the exclusion.
+
+The lower-bound checks use `debug_assert!` in `SimEdges::spawn_worker` and `Workers::with_read_chunk`.
+Release builds omit these checks. The supplied zero-bound tests establish only the debug-build rejection.
+Required change: Enforce the positive lower bound in every build, as condition 3 of the lead's ruling requires.
+Keep the zero-bound proof and provide the focused result for the corrected code.
+
+The lead's condition 2 also requires passing proof at all three bounds. Test source alone does not establish that result.
+Both arithmetic entries remain OPEN under F13 until all four conditions have verified support.
+The earlier mutation closures remain preserved. F13 retains 93 open entries: two testkit arithmetic entries and 91 real-process entries.
+
+VERDICT: NOT CLEAN (F13 open; F14 closed) on `34bad40b4ee3d97eab1866b991c4e2ba5251a7dd`.
