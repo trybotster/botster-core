@@ -392,6 +392,72 @@ fn the_exit_waits_for_a_drain_of_the_pty() {
     assert_eq!(w.feed(Input::PayloadExited(ExitStatus::Code(0))), []);
 }
 
+/// EV-4: a drain before the exit cannot satisfy the drain required by that exit.
+#[test]
+fn a_drain_before_the_exit_does_not_allow_an_early_reap() {
+    let mut w = World::running();
+    assert_eq!(w.feed(Input::PtyDrained), []);
+    assert_eq!(
+        w.feed(Input::PayloadExited(ExitStatus::Code(0))),
+        [Action::DrainPty]
+    );
+    let actions = w.send(&HostMsg::Kill);
+    assert_eq!(signals(&actions), [SIGKILL]);
+    assert_eq!(reaps(&actions), 0);
+    assert!(w.reports(&actions).is_empty());
+    let actions = w.feed(Input::PtyDrained);
+    assert_eq!(reaps(&actions), 1);
+    assert_eq!(
+        w.reports(&actions),
+        [WorkerMsg::Exited {
+            code: Some(0),
+            signal: None,
+        }]
+    );
+}
+
+/// A frame of another kind cannot execute bytes that decode as a host message.
+#[test]
+fn a_host_message_in_another_frame_kind_is_ignored() {
+    let mut w = World::running();
+    let mut payload = Vec::new();
+    HostMsg::Kill.encode(&mut payload);
+    let actions = w.feed(Input::LinkBytes(World::frame(FrameType::HELLO, &payload)));
+    assert_eq!(actions, []);
+    assert_eq!(signals(&w.send(&HostMsg::Kill)), [SIGKILL]);
+}
+
+/// LC-5: a group kill already in progress cannot start a graceful end or a timer.
+#[test]
+fn end_payload_after_a_group_kill_changes_nothing() {
+    let mut w = World::running();
+    assert_eq!(signals(&w.send(&HostMsg::Kill)), [SIGKILL]);
+    assert_eq!(w.feed(Input::EndPayload), []);
+    assert_eq!(w.worker.next_deadline(), None);
+}
+
+/// LC-6 and F7: an explicit kill reaps a leader whose exit was already drained.
+#[test]
+fn an_explicit_kill_after_the_exit_reaps_the_leader() {
+    let (mut w, _) = World::exited(ExitStatus::Code(0));
+    let actions = w.send(&HostMsg::Op {
+        req: 7,
+        op: Op::Signal {
+            id: SessionId("s".into()),
+            sig: Signal::Kill,
+        },
+    });
+    assert_eq!(signals(&actions), [SIGKILL]);
+    assert_eq!(reaps(&actions), 1);
+    assert_eq!(
+        w.reports(&actions),
+        [WorkerMsg::Done {
+            req: 7,
+            result: OpResult::Ok(OpOutput::Unit),
+        }]
+    );
+}
+
 /// LC-5 with the link: `Stop` is the graceful request to the group, and `Kill` the group kill.
 #[test]
 fn stop_and_kill_signal_the_payload_group() {
