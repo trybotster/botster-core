@@ -1,8 +1,8 @@
 # P3 worker review
 
 Current restack verdict: CLEAN (P3 package scope, M1 only).
-Reviewed head: `ed92707f51f80ddd31f3b3c9fb88f4151e94cdbb`, branch `stage1/p3-m1-v1`.
-Round 13 closes F12. All earlier verdicts and closures remain historical evidence.
+Reviewed head: `4de71bbf5dcb5d95ff3b9ad12a4b797a7166ae61`, branch `stage1/p3-m1-v1`.
+Round 14 accepts the merge and terminal identity delta. All earlier verdicts and closures remain historical evidence.
 The CLEAN below applies only to the old M2a head that it names.
 
 VERDICT: CLEAN
@@ -655,4 +655,38 @@ This CLEAN covers P3's package scope for restacked M1 only. The integration revi
 M2a, the terminal model, the remaining M2 features, and the same-suite real-process proof remain later work.
 
 VERDICT: CLEAN on `ed92707f51f80ddd31f3b3c9fb88f4151e94cdbb`.
+Any later commit requires a delta review before this verdict applies to that head.
+
+## Round 14 — Current v1 and the pinned terminal identity
+
+Reviewed head: `4de71bbf5dcb5d95ff3b9ad12a4b797a7166ae61`, PR #136.
+Previous reviewed head: `ed92707f51f80ddd31f3b3c9fb88f4151e94cdbb`.
+The review covers merge `1a49733`, identity change `9a6099d`, and pending-list comments at `4de71bb`.
+
+The implementer reports no conflicts and no conflict resolutions in the merge of `v1` at `393f403047beb1583ab3a711afbe2c37255c7e64`.
+That v1 head is an ancestor of the reviewed head.
+The merged change wires real Core's terminal identity to `botster_terminal_ghostty::terminal_identity()`.
+The follow-up uses that same function when TestkitCore constructs EngineConfig.
+Both drivers pass the returned term and terminfo source without substitutes.
+The binding reads those values from libghostty. The delta adds no terminal parser or hand-written terminal expectation.
+This follows TI-1 and BUILD.md's requirement to use the real terminal component.
+
+The new binding dependency appears in both the testkit manifest and Cargo.lock.
+The testkit proof list adds `conf::a2_8_terminal_identity_names_the_entry`.
+All three `a2_8` ids remain pending. Each comment names the remaining proof or control.
+The lead's reported instruction requires both harnesses to pass before an id leaves pending.
+This verdict does not establish the identity transcript's success or the remaining TI-1 proof.
+
+The Worker machine, real worker driver, payload edge, and F12 guard fix do not change.
+The delta adds no mutation exclusion or test branch.
+No new P3 finding exists. Earlier findings remain closed at their recorded scope and heads.
+The integration reviewer owns its I1 and I2 closure decisions. This source delta includes both requested changes.
+
+The reviewer inspected the complete delta and ran no tests or gate.
+The implementer reports a focused identity and lifecycle job running on code head `9a6099d`.
+Only pending-list comments change after that code head. No result was supplied with the review request.
+This CLEAN covers P3's package scope for restacked M1 only.
+The integration reviewer must also clear this exact head. M2a and M2b remain later reviews.
+
+VERDICT: CLEAN on `4de71bbf5dcb5d95ff3b9ad12a4b797a7166ae61`.
 Any later commit requires a delta review before this verdict applies to that head.
