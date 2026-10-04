@@ -233,7 +233,8 @@ impl CoreApi for Core {
     }
 }
 
-#[cfg(all(test, feature = "slow"))]
+#[cfg(test)]
+#[cfg(feature = "slow")]
 mod slow_tests {
     use super::*;
     use std::collections::BTreeMap;

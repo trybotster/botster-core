@@ -286,6 +286,25 @@ mod tests {
         assert_eq!(decode(&[1]), None);
     }
 
+    /// One file per row (AD-7): each key has a file name of its own, and the name is a safe file name whatever the key
+    /// holds (64 lowercase hex digits of its SHA-256).
+    #[test]
+    fn each_key_has_its_own_safe_file_name() {
+        let names: Vec<String> = ["session/a", "session/b", "", "../x"]
+            .iter()
+            .map(|k| key_hash(k))
+            .collect();
+        for (i, name) in names.iter().enumerate() {
+            assert_eq!(name.len(), 64, "{name}");
+            assert!(
+                name.bytes()
+                    .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)),
+                "{name}"
+            );
+            assert!(!names[..i].contains(name), "{name} is not unique");
+        }
+    }
+
     /// The errno of an OS error is kept, and an error with none is 0.
     #[test]
     fn an_errno_is_kept() {
@@ -322,7 +341,8 @@ mod tests {
 
 /// The tests that write to a real disk (the fsync of a row, the lock, the epoch) run in the slow tier (BUILD.md testing rule 2):
 /// their time is the time of the disk of the host, and a busy host breaks the budget of the default tier.
-#[cfg(all(test, feature = "slow"))]
+#[cfg(test)]
+#[cfg(feature = "slow")]
 mod slow_tests {
     use super::*;
     use std::os::unix::fs::PermissionsExt;

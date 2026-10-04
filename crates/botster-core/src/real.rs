@@ -416,7 +416,8 @@ mod tests {
 
 /// The tests that open real edges (a data directory, a socket, a poll) start a process that links the whole crate, which is
 /// slow: they run in the slow tier (BUILD.md testing rule 2).
-#[cfg(all(test, feature = "slow"))]
+#[cfg(test)]
+#[cfg(feature = "slow")]
 mod slow_tests {
     use super::*;
 
