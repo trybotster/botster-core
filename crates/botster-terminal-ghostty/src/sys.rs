@@ -73,6 +73,7 @@ pub mod data {
     pub const MODIFY_OTHER_KEYS_2: i32 = 45;
     pub const MOUSE_SHIFT_CAPTURE: i32 = 46;
     pub const KITTY_IMAGE_STORAGE_LIMIT: i32 = 26;
+    pub const KITTY_GRAPHICS: i32 = 30;
     pub const MOUSE_FORMAT: i32 = 44;
 }
 
@@ -673,6 +674,19 @@ extern "C" {
     ) -> Result;
     pub fn ghostty_terminfo_name(out: *mut GString);
     pub fn ghostty_terminfo_source(out: *mut GString);
+}
+
+/// `GhosttyKittyGraphics`: a borrowed handle to the image storage of the active screen (`data::KITTY_GRAPHICS`).
+pub type KittyGraphics = *mut c_void;
+/// `GhosttyKittyGraphicsImage`: a borrowed handle to one stored image.
+pub type KittyGraphicsImage = *const c_void;
+
+extern "C" {
+    /// The stored image with this id, or null when the storage holds none.
+    pub fn ghostty_kitty_graphics_image(
+        graphics: KittyGraphics,
+        image_id: u32,
+    ) -> KittyGraphicsImage;
 }
 
 /// `GhosttyColorRgb`.
