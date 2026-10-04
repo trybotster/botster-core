@@ -65,7 +65,8 @@ pub fn snapshot_format() -> botster_core_contract::prelude::SnapshotFormat {
 impl Terminal {
     /// Restore the library's snapshot with retained parser input and image storage disabled (Core ST-6b).
     ///
-    /// `history` and `cell_px` must match the source configuration. The snapshot does not carry these host settings.
+    /// `history` describes the source configuration. `cell_px` supplies geometry for callbacks and mouse encoding.
+    /// Both arguments must match the source. The decoder restores the snapshot's scrollback policy and pixel dimensions.
     /// This method keeps the decoded cells, modes, size, colors, title, cwd and parser state unchanged.
     pub fn from_snapshot(
         bytes: &[u8],
@@ -258,6 +259,47 @@ fn decode_error(bytes: &[u8], error: Error) -> SnapshotDecodeError {
         }
     }
     SnapshotDecodeError::Library(error)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_a_refused_matching_envelope_gets_a_version_error() {
+        let size = crate::Size {
+            rows: 1,
+            cols: 1,
+            cell_px: None,
+        };
+        let mut bytes = Terminal::new(&size, crate::History::Off)
+            .unwrap()
+            .snapshot()
+            .unwrap();
+        assert_eq!(
+            decode_error(&bytes, Error::InvalidValue),
+            SnapshotDecodeError::Library(Error::InvalidValue)
+        );
+        let version = u16::from_le_bytes([bytes[8], bytes[9]]).wrapping_add(1);
+        bytes[8..10].copy_from_slice(&version.to_le_bytes());
+        assert_eq!(
+            decode_error(&bytes, Error::InvalidValue),
+            SnapshotDecodeError::UnsupportedVersion { version }
+        );
+        assert_eq!(
+            decode_error(&bytes, Error::OutOfMemory),
+            SnapshotDecodeError::Library(Error::OutOfMemory)
+        );
+        assert_eq!(
+            decode_error(&bytes[..8], Error::InvalidValue),
+            SnapshotDecodeError::Library(Error::InvalidValue)
+        );
+        bytes[0] ^= 1;
+        assert_eq!(
+            decode_error(&bytes, Error::InvalidValue),
+            SnapshotDecodeError::Library(Error::InvalidValue)
+        );
+    }
 }
 
 /// The identity that the worker gives to the programs it runs.
