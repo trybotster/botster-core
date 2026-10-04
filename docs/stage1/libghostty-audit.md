@@ -14,6 +14,7 @@ These APIs add no terminal parser, terminal encoder, or test branch.
 | ST-6b item 2 | `Terminal::colors` | `ghostty_terminal_get` color keys 18 through 25 | Restore tests compare current and default palettes and dynamic colors. A palette change leaves cursor and cell reads unchanged. |
 | ST-6b item 3 | `Terminal::cursor_appearance` | `ghostty_render_state_new`, `_update`, `_get`, `_free` | Restore tests compare cursor shape and blink. The read consumes render dirty state but leaves snapshot bytes unchanged. |
 | ST-6b item 4 | `Terminal::cell_hyperlink_uri` | `ghostty_grid_ref_hyperlink_uri` | Tests compare history URIs with their visible source and restored history. |
+| ST-6b graphics | `Terminal::image_storage_limit`, `has_image` | Terminal data `KITTY_IMAGE_STORAGE_LIMIT`, `KITTY_GRAPHICS`; `ghostty_kitty_graphics_image` | Tests compare native storage at a nonzero limit with a restored terminal at zero. Each lookup uses an explicit image ID. |
 | ST-6b, A8-2 pending state | `Terminal::continuation`, `set_continuation_max_bytes` | `ghostty_terminal_continuation_buf`, terminal option `CONTINUATION_MAX_BYTES` | Tests check retained input, ground state, disabled retention, and the configured limit. |
 | ST-6b failure observation | `Terminal::vt_processing_error` | Terminal data key `VT_PROCESSING_ERROR` | Tests check the key against the pinned header. An injected C allocator failure sets the native flag and public read together. |
 
@@ -40,6 +41,11 @@ The pinned `src/lib/allocator.zig` passes log2 alignment to each callback.
 The fixture follows that implementation, although the C header describes alignment in byte units.
 The `Render::drop` exclusion covers one cleanup call that only frees a native handle.
 Removing that call leaks memory but changes no public read.
+
+The pinned fork exposes no complete image count.
+The graphics control must require an explicit ID for every image command in its test stimulus.
+The control must check both the native storage limit and every issued image ID.
+A zero limit alone proves configuration, not stored state.
 
 Scope: every Core clause that needs terminal semantics, checked against libghostty.
 Contract: botster-contracts tag `contracts-v0.1.1` (`366bca41da0a6de69cc1ea13b17c773cdfdb75b6`): manifest final14, Core erratum 2 ("E2") and steward ruling R-13.

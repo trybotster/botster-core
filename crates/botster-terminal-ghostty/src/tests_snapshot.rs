@@ -412,6 +412,47 @@ fn the_identity_comes_from_the_library_and_tic_compiles_it() {
 const IMAGES: &[u8] =
     b"top\x1b_Ga=T,f=24,s=1,v=1,i=1;AAAA\x1b\\mid\x1b_Ga=t,f=24,s=1,v=1,i=2,m=1;AAAA\x1b\\\x1b_Gm=0;\x1b\\end";
 
+#[test]
+fn public_graphics_reads_match_the_native_storage_with_and_without_images() {
+    let mut source = terminal();
+    let limit = 1024 * 1024u64;
+    // SAFETY: the option takes a uint64_t and the terminal handle is live.
+    unsafe {
+        check(sys::ghostty_terminal_set(
+            source.handle.as_ptr(),
+            sys::opt::KITTY_IMAGE_STORAGE_LIMIT,
+            (&limit as *const u64).cast(),
+        ))
+        .unwrap();
+    }
+    source.vt_write(IMAGES);
+    assert!(stores_image(source.handle.as_ptr(), 1));
+    let restored = Terminal::from_snapshot(&source.snapshot().unwrap(), History::On, None).unwrap();
+    for model in [&source, &restored] {
+        let mut native_limit = u64::MAX;
+        // SAFETY: the data key writes a uint64_t into this live output pointer.
+        unsafe {
+            check(sys::ghostty_terminal_get(
+                model.handle.as_ptr(),
+                sys::data::KITTY_IMAGE_STORAGE_LIMIT,
+                (&mut native_limit as *mut u64).cast(),
+            ))
+            .unwrap();
+        }
+        assert_eq!(model.image_storage_limit().unwrap(), native_limit);
+        for id in [0, 1, 2, 3, u32::MAX] {
+            assert_eq!(
+                model.has_image(id).unwrap(),
+                stores_image(model.handle.as_ptr(), id)
+            );
+        }
+    }
+    assert_ne!(
+        source.image_storage_limit().unwrap(),
+        restored.image_storage_limit().unwrap()
+    );
+}
+
 /// A small corpus that stops inside every kind of unfinished input (a CSI, an OSC, a DCS, a UTF-8 sequence, a string
 /// that ends with an ESC) and sets the saved state that a snapshot must carry: the saved cursor, tab stops, margins and
 /// the character sets.
