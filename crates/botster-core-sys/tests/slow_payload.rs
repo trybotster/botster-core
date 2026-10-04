@@ -84,7 +84,13 @@ fn read_all(p: &Payload) -> Vec<u8> {
     loop {
         match p.read(&mut buf) {
             Ok(0) => return out,
-            Ok(n) => out.extend_from_slice(&buf[..n]),
+            Ok(n) => {
+                out.extend_from_slice(&buf[..n]);
+                assert!(
+                    out.len() <= 65_536,
+                    "the bounded test program wrote too much output"
+                );
+            }
             Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
                 let mut fds = [rustix::event::PollFd::from_borrowed_fd(
                     p.master(),
@@ -139,6 +145,13 @@ fn the_payload_runs_on_the_pty_with_the_exact_environment() {
         "/",
     )
     .unwrap();
+    assert!(rustix::fs::fcntl_getfl(p.master())
+        .unwrap()
+        .contains(rustix::fs::OFlags::NONBLOCK));
+    assert!(p.pid() > 1);
+    let description = format!("{p:?}");
+    assert!(description.contains("Payload"));
+    assert!(description.contains(&p.pid().to_string()));
     let out = String::from_utf8_lossy(&read_all(&p)).replace('\r', "");
     assert_eq!(exit_of(&p), ExitStatus::Code(3));
     assert!(out.starts_with("tty\n"), "{out}");
@@ -157,7 +170,13 @@ fn a_group_signal_ends_the_leader_and_its_group() {
     let mut seen = Vec::new();
     while !String::from_utf8_lossy(&seen).contains("up") {
         match p.read(&mut buf) {
-            Ok(n) => seen.extend_from_slice(&buf[..n]),
+            Ok(n) => {
+                seen.extend_from_slice(&buf[..n]);
+                assert!(
+                    seen.len() <= 65_536,
+                    "the bounded test program wrote too much output"
+                );
+            }
             Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
                 let mut fds = [rustix::event::PollFd::from_borrowed_fd(
                     p.master(),
@@ -178,4 +197,53 @@ fn a_group_signal_ends_the_leader_and_its_group() {
     // The `sleep` was in the group: the output ends because no process holds the PTY any more.
     read_all(&p);
     p.reap();
+}
+
+/// A2-1 and plan 2.3: the PTY exposes pending program output and takes the program's input bytes.
+#[test]
+fn the_pty_counts_output_and_delivers_input_to_the_program() {
+    let p = spawn(
+        &[
+            "/bin/sh",
+            "-c",
+            "stty -echo; printf ready; read answer; printf '%s' \"$answer\"",
+        ],
+        "/",
+    )
+    .unwrap();
+    let mut fds = [rustix::event::PollFd::from_borrowed_fd(
+        p.master(),
+        rustix::event::PollFlags::IN,
+    )];
+    // timer: deadline — wait for the program's output before checking the pending byte count.
+    let limit = rustix::event::Timespec {
+        tv_sec: 10,
+        tv_nsec: 0,
+    };
+    assert!(rustix::event::poll(&mut fds, Some(&limit)).unwrap() > 0);
+    assert!(p.pending_output().unwrap() > 1);
+    assert_eq!(p.write(b"input\n").unwrap(), 6);
+    let bytes = read_all(&p);
+    assert_eq!(bytes, b"readyinput");
+    assert_eq!(exit_of(&p), ExitStatus::Code(0));
+    p.signal_group(9);
+    p.reap();
+}
+
+/// LC-5 and the payload ownership rule: dropping an unreaped payload reaps its leader after group cleanup.
+#[test]
+fn dropping_the_payload_reaps_its_leader() {
+    let p = spawn(&["/bin/sh", "-c", "printf ready; exit 0"], "/").unwrap();
+    let pid = rustix::process::Pid::from_raw(p.pid() as i32).unwrap();
+    assert_eq!(read_all(&p), b"ready");
+    assert_eq!(exit_of(&p), ExitStatus::Code(0));
+    drop(p);
+    // This query does not reap. Production must already have retired the child.
+    assert!(matches!(
+        rustix::process::waitid(
+            rustix::process::WaitId::Pid(pid),
+            rustix::process::WaitIdOptions::EXITED | rustix::process::WaitIdOptions::NOWAIT
+        ),
+        Err(rustix::io::Errno::CHILD)
+    ));
 }

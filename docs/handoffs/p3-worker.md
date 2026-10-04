@@ -296,3 +296,19 @@ Artifacts: `~/botster-sessions/gates/artifacts-trybotster_botster_core_stage1_p3
 The only miss is READ_CHUNK arithmetic. The constant's actual mutant name has no trailing `in`.
 Both exact-location regexes now use the actual constant name. The next Linux job must prove their match and the corrected all-build checks.
 Package verdict `b9f665b9cb38b7c9651834c47e522a5cf835d210` conditionally accepts both designs, pending corrected-head proof.
+
+## Testkit proof and payload-edge correction (2026-10-04)
+
+Corrected focused testkit mutation at `4960d73873d8301575e312f8fbc596059300c813` passed.
+Result: 176 tested, 119 caught, 57 unviable, 0 missed, and 0 timeouts.
+Log: `~/botster-sessions/gates/botster-core-stage1-p3-m1-v1-4960d738-linux-20261004-141936-76354.log`.
+Package verdict `ce1e810323a2ccac0e71afff49651923216fb037` accepts both tuning exclusions and closes all 71 original testkit entries.
+All five worker-core entries are also closed. F14 remains closed. F13 retains 26 payload entries and 65 real driver entries.
+The lead's Mac hold permits reading, editing, and committing. All heavy jobs remain on Linux, one at a time.
+
+The payload correction adds default-tier checks of errno preservation and fallback mapping.
+Slow tests check the nonblocking flag, pid, debug output, pending output, input delivery, and leader reaping on drop.
+The reaping test only queries waitid with WNOWAIT. Production alone reaps the payload.
+Test readers cap output from bounded scripts, so a false read count fails an assertion instead of looping without end.
+The existing independent group guard remains on every exit path.
+Next: focused Linux payload.rs mutation in the slow profile. No real-process exclusion has been added.

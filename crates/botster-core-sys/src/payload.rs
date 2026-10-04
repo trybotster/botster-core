@@ -231,3 +231,23 @@ fn set_nonblocking(fd: BorrowedFd<'_>) -> io::Result<()> {
     rustix::fs::fcntl_setfl(fd, flags | rustix::fs::OFlags::NONBLOCK)?;
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// LC-4: an OS error keeps its errno; an error without one uses ENOEXEC.
+    #[test]
+    fn launch_errors_keep_the_os_errno_and_use_the_fallback_only_without_one() {
+        assert_eq!(errno_of(&io::Error::from_raw_os_error(13)), 13);
+        assert_eq!(errno_of(&io::Error::from(io::ErrorKind::Other)), 8);
+        assert_eq!(
+            exec_failure(pty_process::Error::Io(io::Error::from_raw_os_error(28))),
+            SpawnFailure::Exec { errno: 28 }
+        );
+        assert_eq!(
+            exec_failure(pty_process::Error::Rustix(rustix::io::Errno::ACCES)),
+            SpawnFailure::Exec { errno: 13 }
+        );
+    }
+}
