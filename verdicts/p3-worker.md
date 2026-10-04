@@ -1,8 +1,8 @@
 # P3 worker review
 
 Current restack verdict: NOT CLEAN (F13 open after the mutation gate).
-Reviewed head: `cc34474de63030b74031f5a21d6608bf27a4a843`, branch `stage1/p3-m1-v1`.
-Round 22 closes 44 testkit mutant entries. F13 remains open for 118 entries.
+Reviewed head: `2e9811ca0b1c8a790698999efc24c538b5e755d7`, branch `stage1/p3-m1-v1`.
+Round 24 reviews worker binding tests. F13 remains open for 118 entries.
 The CLEAN below applies only to the old M2a head that it names.
 
 VERDICT: CLEAN
@@ -909,3 +909,19 @@ The reviewer does not accept either equivalence argument as supplied.
 Both original entries remain OPEN under F13. No proposed exclusion has received acceptance in this round.
 The implementer must supply evidence or an argument that accounts for readiness, scheduling, and observable reports.
 The reviewer ran no tests or gate. F13 remains open for 118 entries.
+
+## Round 24 — Proposed worker binding coverage
+
+Reviewed head: `2e9811ca0b1c8a790698999efc24c538b5e755d7`.
+The complete delta from `cc34474` adds worker binding tests, declares their test module, and updates the handoff.
+The tests cover partial link writes and cumulative counts, peer EOF, spawn-before-output ordering, drains, process signals, and exit notification.
+They also check unique process identities and the shared worker machine's grace deadline.
+The tests observe edge inputs, reports, and readiness. The delta adds no production behavior branch or mutation exclusion.
+No terminal expectation is added. No new source finding exists.
+
+The reviewer accepts the test designs. The implementer's focused mutation job is pending.
+The release/release_owner entries and both arithmetic entries remain open.
+No entry closes in this source-only round. The five worker-core and 44 testkit closures remain preserved.
+The reviewer ran no tests or gate.
+
+VERDICT: NOT CLEAN (F13 open; 118 mutant entries remain) on `2e9811ca0b1c8a790698999efc24c538b5e755d7`.
