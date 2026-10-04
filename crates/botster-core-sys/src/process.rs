@@ -12,7 +12,7 @@ use rustix::process::{kill_process_group, Pid, Signal};
 use std::collections::{BTreeSet, VecDeque};
 use std::io;
 use std::os::unix::process::{CommandExt, ExitStatusExt};
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Condvar, Mutex};
 
 /// The start time of `pid` in the unit of the platform, or `None` when no such process exists. Only equality has a meaning
@@ -109,18 +109,17 @@ impl Children {
         if let Some(cwd) = &spec.cwd {
             command.current_dir(cwd);
         }
-        let mut child = command.spawn().map_err(|e| SpawnError {
-            errno: e.raw_os_error().unwrap_or(0),
-        })?;
-        let pid = child.id();
-        // The child is ours and unreaped, so its pid is not reused: the start time that we read is its own.
-        let start_time = start_time(pid).unwrap_or(0);
-        let identity = ProcessIdentity { pid, start_time };
+        // The reaper thread exists before the child: a thread that cannot start leaves no child behind, and a child that
+        // cannot start ends the thread (its sender is dropped). So every child that runs has a thread that reaps it.
+        let (hand_over, take) = std::sync::mpsc::sync_channel::<(Child, ProcessIdentity)>(1);
         let exits = Arc::clone(&self.exits);
         let notify = self.notify.clone();
-        let reaper = std::thread::Builder::new()
+        std::thread::Builder::new()
             .name("botster-reaper".into())
             .spawn(move || {
+                let Ok((mut child, identity)) = take.recv() else {
+                    return;
+                };
                 let status = child.wait().map_or(ExitStatus::Code(-1), exit_status);
                 let (queue, ready) = &*exits;
                 queue
@@ -131,17 +130,20 @@ impl Children {
                 if let Some(notify) = notify {
                     notify();
                 }
-            });
-        if let Err(e) = reaper {
-            // No thread can reap the child: end it, so that nothing is left running that the host cannot see.
-            if let Some(pid) = i32::try_from(pid).ok().and_then(Pid::from_raw) {
-                let _: io::Result<()> =
-                    kill_process_group(pid, Signal::KILL).map_err(io::Error::from);
-            }
-            return Err(SpawnError {
+            })
+            .map_err(|e| SpawnError {
                 errno: e.raw_os_error().unwrap_or(0),
-            });
-        }
+            })?;
+        let child = command.spawn().map_err(|e| SpawnError {
+            errno: e.raw_os_error().unwrap_or(0),
+        })?;
+        let pid = child.id();
+        // The child is ours and unreaped, so its pid is not reused: the start time that we read is its own.
+        let start_time = start_time(pid).unwrap_or(0);
+        let identity = ProcessIdentity { pid, start_time };
+        hand_over
+            .send((child, identity))
+            .expect("the reaper thread waits for its child");
         self.live.insert(pid);
         Ok(identity)
     }
