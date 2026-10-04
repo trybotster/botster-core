@@ -3,7 +3,11 @@
 ## Resume on 2026-10-04: M1
 
 - Worktree: `~/botster-sessions/trybotster-botster-core-stage1-p3-m1-v1`.
-- Branch: `stage1/p3-m1-v1`, based on merged P1 `1d25d093301072bd0c13a122c68d8f1b1ca0815c`.
+- Branch: `stage1/p3-m1-v1`, cut from merged P1 `1d25d093301072bd0c13a122c68d8f1b1ca0815c`.
+- The branch merged current v1 `393f403047beb1583ab3a711afbe2c37255c7e64` in merge `1a49733` without conflicts.
+  PR #137 gives real Core the pinned binding identity.
+  The M1 follow-up also gives TestkitCore that identity.
+  The TI-1 identity transcript joins the M1 proof list. Its id remains pending for real-harness proof.
 - Reviewer: `sess-1791142479-0100-7411ff7507ce89a5e7416311610290d3`.
 - The lead will staff the integration reviewer when M1 enters review.
 - P1 wiring `befe0ff`, the M1 commits, `f60e7d9`, and the lock fix `46b1694` applied without conflicts.
@@ -31,11 +35,26 @@
 - PR: https://github.com/trybotster/botster-core/pull/136.
 - Integration reviewer: `sess-1791143089-0101-8ce5f4942328f5697c410ea4da89c466`.
 - No full gate has run.
-- Package review at `049751a`: NOT CLEAN, F12 HIGH, verdict `6bdde0794525f0112776376a57da229a7aeab1a0`.
-  SIGTERM could end the guard member while a TERM-ignoring payload survived.
-  The proposed F12 fix registers SIGTERM before guard registration.
-  The broken-cleanup test now sends the graceful group signal before worker SIGKILL and test panic.
-  Both reviewers must check this delta before F12 closes.
+- Package reviewer cleared `ed92707f51f80ddd31f3b3c9fb88f4151e94cdbb`.
+  Verdict: `51216ed44581d639c4cf0ac94a19c5242630764f`. F12 is CLOSED.
+  The guard registers SIGTERM before registration.
+  The regression sends the graceful group signal before worker SIGKILL and test panic.
+- Focused F12 Linux job at `ed92707`: exit 0.
+  Log: `~/botster-sessions/gates/botster-core-stage1-p3-m1-v1-ed92707f-linux-20261004-124906-8719.log`.
+  slow_payload: 5 entries passed. slow_session: 9 entries passed.
+  Each binary includes 2 helper entries.
+- Integration review at `ed92707`: NOT CLEAN, I1 and I2 MEDIUM.
+  Verdict: `ce55a6c465bd5257d4d8f8208ecd9c0cebc63d28`.
+  I1 requires current v1. The merge above addresses I1.
+  I2 requires the same pinned terminal identity in the testkit. The follow-up addresses I2.
+  Both reviewers must review the new exact head.
+- Corrected focused Linux job at `049751a`: exit 0.
+  Log: `~/botster-sessions/gates/botster-core-stage1-p3-m1-v1-049751ae-linux-20261004-124610-1358.log`.
+  Worker-core: 37 unit tests passed. The five M1 ids passed under the selected CI seeds.
+  slow_payload: 5 entries passed. slow_session: 9 entries passed. Each includes 2 helper entries.
+- PR: https://github.com/trybotster/botster-core/pull/136.
+- Integration reviewer: `sess-1791143089-0101-8ce5f4942328f5697c410ea4da89c466`.
+- No full gate has run.
 - Next: finish focused verification, obtain both exact-head CLEAN verdicts, and run one full Linux gate.
 - M2a and M2b remain separate PRs after M1 merges. The pause record below lists their remaining scope.
 

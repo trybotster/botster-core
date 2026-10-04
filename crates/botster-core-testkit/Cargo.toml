@@ -20,6 +20,7 @@ botster-core-edges.workspace = true
 botster-core-host.workspace = true
 botster-core-link.workspace = true
 botster-worker-core.workspace = true
+botster-terminal-ghostty.workspace = true
 botster-probe-script.workspace = true
 botster-route-codec.workspace = true
 rand_chacha.workspace = true

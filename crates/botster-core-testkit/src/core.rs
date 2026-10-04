@@ -363,6 +363,7 @@ impl Directories {
             links: BTreeMap::new(),
             next_link: 1,
         };
+        let identity = botster_terminal_ghostty::terminal_identity();
         let cfg = EngineConfig {
             limits: config.limits.clone(),
             features,
@@ -371,11 +372,8 @@ impl Directories {
             worker_protocol: botster_worker_core::WORKER_PROTOCOL,
             shadow_answerable: Vec::new(),
             terminal_identity: TerminalIdentity {
-                term: "xterm-ghostty".to_string(),
-                // PLACEHOLDER (Core TI-1, A2-8): the terminfo source of the pinned emulator comes from P2's binding
-                // (`botster-terminal-ghostty`), which is not on `v1` yet. Core must not invent it. The follow-up PR wires
-                // `botster_terminal_ghostty::terminal_identity()` and removes this value; the a2_8 ids stay pending until then.
-                terminfo_source: String::new(),
+                term: identity.term,
+                terminfo_source: identity.terminfo_source,
             },
         };
         let wake = edges.wake();
