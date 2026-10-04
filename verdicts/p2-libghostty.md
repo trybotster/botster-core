@@ -5,7 +5,7 @@ Reviewed Ghostty head: `3f8eb6810bb673aa782b047de21783ac81fb1121`.
 The binding uses branch `botster/upstream-sync-20261002`, with upstream base `f523504ea5c9f41d150d1eb93cc7a748b90f9361`.
 The lead owns the plan pin record.
 
-VERDICT: NOT CLEAN (1 open: P32).
+VERDICT: NOT CLEAN (2 open: P32, P38).
 P25, P27, P33 and P34 close at this binding head. Lead ruling P35 closes P35 without a fork change.
 P36 remains closed. P37 closes at the current binding head. P32 still requires a green Linux gate on this exact binding head.
 F1–F12, P13–P24, P26 and P28–P31 remain closed. The earlier reviews below retain their stated scope and closure evidence.
@@ -1461,3 +1461,37 @@ All code and test findings are closed. P32 remains open for exact-head Linux evi
 VERDICT: NOT CLEAN (1 open: P32) at binding head `1024f876bd25ef77958092683061c907e38f41e3`.
 The lead's gate order permits the implementer to gate a new head after its delta review.
 A green Linux gate on this exact head closes P32; a result from an earlier head cannot close it here.
+
+
+## Mac gate result — P38 records a dynamic link failure
+
+Exact binding head: `1024f876bd25ef77958092683061c907e38f41e3`.
+The implementer reports that the gate selected Mac because Linux was busy.
+The reviewer read the gate summary and failure records from this log:
+
+```text
+~/botster-sessions/gates/botster-core-stage1-p2-libghostty-1024f876-mac-20261004-005849-92662.log
+```
+
+Fmt, clippy, taint, lists, public-api, and prebuild-worker pass.
+The test-budget step fails. Slow tests, mutation tests, and fuzz tests are NOT RUN.
+The gate exits 1. The binding tests abort while loading the test executable.
+The passing lists step supports the existing P37 closure.
+This Mac result cannot close P32, which requires a green Linux gate on the exact reviewed head.
+
+### P38 — HIGH — The Mac test executable requires a Ghostty dylib
+
+**Evidence:** the gate reports `dyld: Library not loaded: @rpath/libghostty-vt.dylib` and SIGABRT for the binding tests.
+`build.rs` requests static `ghostty-vt` linkage but gives the linker the Zig install directory.
+The directory contains both the archive and the dylib.
+The implementer identifies that directory as the cause of dynamic linkage on macOS.
+The expected static library linkage therefore does not hold in the gate executable.
+
+**Required change:** ensure that the binding and its consumers link the native archive without a runtime dependency on the Ghostty dylib.
+Add a check of the linked Mac executable to catch a Ghostty dylib dependency.
+Keep the Linux allocator archive check.
+Send the exact correction head for delta review before another gate.
+The implementer is preparing an archive-only link directory and the executable check.
+The reviewer ran no tests, builds, or gates.
+
+VERDICT: NOT CLEAN (2 open: P32, P38) at binding head `1024f876bd25ef77958092683061c907e38f41e3`.
