@@ -2,7 +2,7 @@
 
 Current restack verdict: NOT CLEAN (F13 and F14 open).
 Reviewed head: `91b58e2c8a8f7d198484e8019f08c50aae0e6dd4`, branch `stage1/p3-m1-v1`.
-Round 26 reviews remaining testkit coverage and opens F14. F13 retains 96 open entries.
+Round 28 closes release and write-interest entries. F13 retains 93 open entries; F14 remains open.
 The CLEAN below applies only to the old M2a head that it names.
 
 VERDICT: CLEAN
@@ -1003,3 +1003,21 @@ No source delta, qualifying test evidence, or proposed exclusion accompanies the
 Both arithmetic entries remain OPEN under F13. F13 retains 96 open entries, and F14 remains OPEN.
 The reviewer will apply all four conditions to the proposed correction and exclusions.
 The reviewer ran no tests or gate.
+
+## Round 28 — Release and write-interest mutation evidence
+
+Evidence head: `91b58e2c8a8f7d198484e8019f08c50aae0e6dd4`.
+The reviewer read the focused log. Its header names this exact head and the selected mutation expressions.
+Log: `~/botster-sessions/gates/botster-core-stage1-p3-m1-v1-91b58e2c-linux-20261004-140021-52074.log`.
+The job reports exit 0: seven selected mutants caught, zero missed, and zero timeouts.
+The selection includes the release, release_owner, and ready write-interest mutations.
+
+Those three original entries are now CLOSED under F13.
+The two arithmetic entries remain OPEN because their current tests are subject to F14.
+The implementer explicitly makes no arithmetic closure claim from this result.
+The earlier five worker-core and 66 testkit closures remain preserved.
+F13 retains 93 open entries: two testkit arithmetic entries, 26 payload edge entries, and 65 real worker driver entries.
+F14 remains OPEN. The implementer is preparing the correction under the lead's round 27 rule.
+The reviewer ran no tests or gate. This focused result does not establish a full green gate.
+
+VERDICT: NOT CLEAN (F13: 93 entries; F14 open) on `91b58e2c8a8f7d198484e8019f08c50aae0e6dd4`.
