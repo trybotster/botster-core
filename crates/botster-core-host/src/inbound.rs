@@ -371,12 +371,6 @@ impl HostEngine {
         let Some(s) = self.sessions.get_mut(id) else {
             return;
         };
-        // The events of the model belong to the running session: an observation that comes while the start is not through waits
-        // until `Running` and the completion of `Start` are posted.
-        if matches!(s.flow, Flow::Start(_)) {
-            s.held_obs.push_back(observation);
-            return;
-        }
         let (sid, instance) = (s.id.clone(), s.instance.clone());
         match observation {
             Observation::Output { model_rev } => {

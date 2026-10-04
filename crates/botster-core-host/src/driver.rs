@@ -362,30 +362,30 @@ impl<E: HostEdges> HostDriver<E> {
         let ids: Vec<LinkId> = self.links.keys().copied().collect();
         for link in ids {
             self.flush(link);
+            self.retry_held(link, now, budget);
             self.read_link(link, now, budget);
         }
     }
 
-    /// Delivers a frame that the engine could not take before, when it can now (EV-5d).
-    fn retry_held(&mut self, now: Instant, budget: &mut Budget) {
-        let ids: Vec<LinkId> = self.links.keys().copied().collect();
-        for link in ids {
-            let held = self.links.get_mut(&link).and_then(|s| s.held.take());
-            let Some(input) = held else { continue };
-            // A held frame posts events like any other input: it waits for a pump with budget left (9B `pump_events`).
-            if budget.exhausted() {
-                self.links.get_mut(&link).expect("kept").held = Some(input);
-                budget.more_input = true;
-                continue;
-            }
-            if !self.engine.can_accept(&input) {
-                self.links.get_mut(&link).expect("kept").held = Some(input);
-                continue;
-            }
-            self.feed(now, input);
-            budget.account(&mut self.engine);
-            self.edges.set_read_interest(link, true);
+    /// Delivers the frame that the engine could not take before, as soon as it can (EV-5d): it runs whenever the link is
+    /// serviced, so a frame held behind a step (the end of a start) goes in after that step, before any later frame.
+    fn retry_held(&mut self, link: LinkId, now: Instant, budget: &mut Budget) {
+        let Some(input) = self.links.get_mut(&link).and_then(|s| s.held.take()) else {
+            return;
+        };
+        // A held frame posts events like any other input: it waits for a pump with budget left (9B `pump_events`).
+        if budget.exhausted() {
+            self.links.get_mut(&link).expect("kept").held = Some(input);
+            budget.more_input = true;
+            return;
         }
+        if !self.engine.can_accept(&input) {
+            self.links.get_mut(&link).expect("kept").held = Some(input);
+            return;
+        }
+        self.feed(now, input);
+        budget.account(&mut self.engine);
+        self.edges.set_read_interest(link, true);
     }
 
     fn read_link(&mut self, link: LinkId, now: Instant, budget: &mut Budget) {
@@ -577,7 +577,7 @@ impl<E: HostEdges> CoreApi for HostDriver<E> {
         if budget.exhausted() {
             budget.more_input = true;
         }
-        self.retry_held(now.monotonic, &mut budget);
+        // Each link's held frame goes first, before the link's later frames (`service_links`).
         self.service_links(&mut budget);
         self.perform_counted(&mut budget);
         let mut deferred: BTreeSet<Work> = BTreeSet::new();

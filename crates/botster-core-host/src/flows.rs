@@ -46,14 +46,6 @@ impl HostEngine {
             return;
         };
         if let Some(s) = self.sessions.get_mut(id) {
-            if !matches!(s.flow, Flow::Start(_)) {
-                if let Some(observation) = s.held_obs.pop_front() {
-                    self.observe(id, observation);
-                    return;
-                }
-            }
-        }
-        if let Some(s) = self.sessions.get_mut(id) {
             if std::mem::take(&mut s.metadata_pending) {
                 let event = Event::MetadataChanged {
                     id: s.id.clone(),

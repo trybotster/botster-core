@@ -7,6 +7,19 @@ use std::sync::Arc;
 
 /// A session that runs, through the driver, with a small `pump_events`: it pumps until each step is through.
 fn run_session(rig: &mut Rig, name: &str, link: LinkId) {
+    to_launch(rig, name, link);
+    rig.worker_says(link, launched());
+    let mut guard = 0;
+    while rig.pump().more {
+        rig.drain_events();
+        guard += 1;
+        assert!(guard < 200);
+    }
+    rig.drain_events();
+}
+
+/// A session whose worker got the launch request and has not answered yet. Returns the `Start` op.
+pub(super) fn to_launch(rig: &mut Rig, name: &str, link: LinkId) -> OpId {
     rig.driver.begin(create(name)).unwrap();
     let mut guard = 0;
     while rig.pump().more {
@@ -14,7 +27,7 @@ fn run_session(rig: &mut Rig, name: &str, link: LinkId) {
         guard += 1;
         assert!(guard < 200);
     }
-    rig.driver.begin(Op::Start { id: sid(name) }).unwrap();
+    let start = rig.driver.begin(Op::Start { id: sid(name) }).unwrap();
     while !rig.mock.lock().unwrap().links.contains_key(&link) {
         rig.pump();
         rig.drain_events();
@@ -30,13 +43,7 @@ fn run_session(rig: &mut Rig, name: &str, link: LinkId) {
         guard += 1;
         assert!(guard < 200);
     }
-    rig.worker_says(link, launched());
-    while rig.pump().more {
-        rig.drain_events();
-        guard += 1;
-        assert!(guard < 200);
-    }
-    rig.drain_events();
+    start
 }
 
 /// A session with a silence deadline `secs` after its last output, through the driver.
@@ -431,7 +438,7 @@ fn a_pick_past_the_end_is_the_last_ready_work() {
 }
 
 /// A scheduler that defers every operation while its switch is on, and varies nothing else.
-struct Switched(Production, Arc<AtomicBool>);
+pub(super) struct Switched(pub(super) Production, pub(super) Arc<AtomicBool>);
 
 impl Scheduler for Switched {
     fn pick(&mut self, point: ChoicePoint, candidates: usize) -> usize {

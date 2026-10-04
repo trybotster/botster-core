@@ -244,6 +244,17 @@ impl HostEngine {
                     | WorkerMsg::LaunchFailed { .. },
                 ..
             } => self.has_room(),
+            // The events of the model belong to the running session: an observation stays unread on its link while the
+            // session's start is not through, so it follows `Running` and the completion of `Start` (OR-2, EV-5). The link
+            // keeps the worker's order (ST-4, EV-6), and its one held frame bounds what waits (plan 2.5 rule 7).
+            Input::LinkMsg {
+                link,
+                msg: WorkerMsg::Observed { .. },
+            } => !self.links.get(link).is_some_and(|id| {
+                self.sessions
+                    .get(id)
+                    .is_some_and(|s| matches!(s.flow, Flow::Start(_)))
+            }),
             _ => true,
         }
     }
@@ -626,7 +637,6 @@ pub(crate) fn new_session(
         ops: Default::default(),
         pending_setters: 0,
         metadata_pending: false,
-        held_obs: Default::default(),
         payload: None,
         pending_end: None,
         pending_routes: Vec::new(),
