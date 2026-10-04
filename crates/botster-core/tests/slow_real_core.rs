@@ -209,6 +209,7 @@ fn a_worker_that_exits_before_it_connects_ends_the_start_at_once() {
     .unwrap();
     pump(&mut core);
     let start = core.begin(Op::Start { id: sid("s1") }).unwrap();
+    let began = Instant::now();
     let mut events = pump(&mut core);
     assert_eq!(
         core.get(&sid("s1")).unwrap().state,
@@ -224,6 +225,8 @@ fn a_worker_that_exits_before_it_connects_ends_the_start_at_once() {
         .iter()
         .any(|e| matches!(e, Event::Completed { op, .. } if *op == start))
     {
+        // timer: deadline — a host that never settles must fail the test, not spin
+        assert!(began.elapsed() < Duration::from_secs(100), "{events:?}");
         let woke = wake
             // timer: deadline — a failing run must not hang; the start deadline (120 s) is longer than this wait
             .wait(Duration::from_secs(100));

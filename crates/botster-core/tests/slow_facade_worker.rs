@@ -2,8 +2,9 @@
 //! socket and a real worker process. The worker process only hands its launch to the test; the test's thread then speaks
 //! the worker side of the link (plan section 3) and answers what the host asks.
 //!
-//! Clause: Core 2 (the facade), ST-6 (captures: read, `release`, `release_owner`), DP-7 and A2-1 (`attach`), AD-6 (the
-//! token proof of the hello).
+//! Clause: Core 2 (the facade), ST-6 (captures: read, `release`, `release_owner`, the expiry deadline), DP-7 and A2-1
+//! (`attach`), AD-6 (the token proof of the hello; `EndPayload` to the verified worker), LC-5 and AD-2 (a stop over a broken
+//! link).
 #![cfg(feature = "slow")]
 
 mod common;
@@ -37,9 +38,8 @@ fn say(stream: &mut UnixStream, msg: &WorkerMsg) {
 }
 
 /// The worker side of the link: the hello with the token proof, `Launched`, and a one-page capture for each
-/// `CaptureSnapshot`. It ends when the host closes the link.
-fn stand_in_worker(launch: WorkerLaunch) {
-    let mut stream = UnixStream::connect(&launch.control).expect("the host listens");
+/// `CaptureSnapshot`. It ends when the link closes.
+fn stand_in_worker(mut stream: UnixStream, launch: WorkerLaunch) {
     let hello = Hello {
         protocol: 1,
         instance: launch.instance.clone(),
@@ -129,8 +129,14 @@ fn stand_in_worker(launch: WorkerLaunch) {
 /// Pumps until `done` holds for the events so far. The host pumps only after a wake (TM-6): the worker's frames wake it.
 fn pump_until(core: &mut Core, done: impl Fn(&[Event]) -> bool) -> Vec<Event> {
     let wake = core.wake_handle();
+    let began = Instant::now();
     let mut events = Vec::new();
     loop {
+        // timer: deadline — a host that never settles must fail the test, not spin
+        assert!(
+            began.elapsed() < Duration::from_secs(30),
+            "the host never got there: {events:?}"
+        );
         loop {
             let report = core.pump(Now {
                 monotonic: Instant::now(),
@@ -172,24 +178,23 @@ fn capture(core: &mut Core, owner: &str) -> CaptureId {
     }
 }
 
-/// Core 2, ST-6, DP-7, A2-1: the facade's calls reach a real host with a worker on a real link. `release` frees one
-/// capture and `release_owner` frees the captures of its owner (a read of either is then `UnknownCapture`); `attach`
-/// registers a route synchronously, and the real edge, which hands no route over yet, closes it.
+/// Core 2, ST-6, DP-7, A2-1, LC-5, AD-2: the facade's calls reach a real host with a worker on a real link. `release`
+/// frees one capture and `release_owner` frees the captures of its owner (a read of either is then `UnknownCapture`);
+/// `attach` registers a route synchronously, and the real edge, which hands no route over yet, closes it; a stop whose link
+/// breaks ends the worker process through the real signal edge.
 #[test]
 fn the_facade_reaches_a_host_with_a_worker_on_a_real_link() {
     let tmp = tempfile::tempdir().unwrap();
     let launch = tmp.path().join("launch");
-    let hold = tmp.path().join("hold");
     common::mkfifo(&launch);
-    common::mkfifo(&hold);
-    // The worker process hands its launch (token, then arguments) to the test with external commands, and stays alive
-    // until the test closes `hold`.
+    // The worker process hands its launch (token, then arguments) to the test with external commands, then waits until a
+    // signal ends it. The 300 s are a bound, not a wait of the test: a test process that is killed before its guard runs
+    // leaves this worker for at most that long.
     let mut worker = common::ScriptWorker::new(
         tmp.path(),
         &format!(
-            "/bin/echo \"$BOTSTER_WORKER_TOKEN\" \"$@\" | /usr/bin/tee '{}' >/dev/null\nexec /bin/cat '{}' >/dev/null",
+            "/bin/echo \"$BOTSTER_WORKER_TOKEN\" \"$@\" | /usr/bin/tee '{}' >/dev/null\nexec /bin/sleep 300",
             launch.display(),
-            hold.display()
         ),
     );
     let mut core = Core::open(OpenConfig {
@@ -226,7 +231,9 @@ fn the_facade_reaches_a_host_with_a_worker_on_a_real_link() {
     let token = words.next().expect("the token");
     let args: Vec<&str> = words.collect();
     let parsed = WorkerLaunch::parse(&args, Some(token)).expect("a launch");
-    let peer = std::thread::spawn(move || stand_in_worker(parsed));
+    let stream = UnixStream::connect(&parsed.control).expect("the host listens");
+    let link = stream.try_clone().unwrap();
+    let peer = std::thread::spawn(move || stand_in_worker(stream, parsed));
     let events = pump_until(&mut core, |e| completed(e, start).is_some());
     assert!(
         matches!(completed(&events, start), Some(OpResult::Ok(_))),
@@ -281,11 +288,23 @@ fn the_facade_reaches_a_host_with_a_worker_on_a_real_link() {
         ErrorCode::UnknownCapture
     );
     assert!(core.read_page(kept, 0).is_ok());
+    // The open capture's expiry is a deadline of the host (ST-6, TM-3).
+    assert!(core.next_deadline().is_some());
 
-    // The end: the host closes the link when it is dropped, the stand-in worker ends, and the worker process ends when
-    // `hold` is closed; the reaper threads reap it.
-    drop(core);
+    // A stop whose control link breaks still ends (LC-5): the host asks the worker process itself, by its verified
+    // identity, to end its payload (`EndPayload`, SIGUSR1, AD-6). This worker process has no handler, so the signal ends it,
+    // and the host sees the worker's exit (AD-2: `Lost(WorkerGone)`). A host that sent no signal would wait for
+    // `stop_grace` and end the session `Lost(WorkerUnreachable)`.
+    let stop = core.begin(Op::Stop { id: sid("s1") }).unwrap();
+    pump_until(&mut core, |_| true);
+    link.shutdown(std::net::Shutdown::Both).unwrap();
     peer.join().unwrap();
+    let events = pump_until(&mut core, |e| completed(e, stop).is_some());
+    assert_eq!(
+        core.get(&sid("s1")).unwrap().state,
+        SessionState::Lost(LostReason::WorkerGone),
+        "{events:?}"
+    );
+    // The worker process has ended, and its reaper reaped it.
     worker.disarm();
-    drop(std::fs::OpenOptions::new().write(true).open(&hold).unwrap());
 }
