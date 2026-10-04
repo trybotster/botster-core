@@ -365,6 +365,7 @@ dependencies = [
  "pty-process",
  "rustix",
  "sha2",
+ "signal-hook",
  "tempfile",
 ]
 
