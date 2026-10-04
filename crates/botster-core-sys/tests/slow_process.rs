@@ -49,11 +49,11 @@ fn next_exit(children: &mut Children, woken: &Receiver<()>) -> (ProcessIdentity,
 }
 
 /// A child that waits without using the CPU and ends by itself when the test process is gone (plan R12): a killed test runs
-/// no guard, and nothing may outlive it. Each `sleep` is a background job that `wait` waits for, so a trapped signal
-/// interrupts the wait at once. The interval of 1 s bounds how long the child outlives its parent; it is not a timeout of a
-/// test.
+/// no guard, and nothing may outlive it. A `$PPID` of 1 means that the parent was gone before the child started. Each
+/// `sleep` is a background job that `wait` waits for, so a trapped signal interrupts the wait at once. The interval of 1 s
+/// bounds how long the child outlives its parent; it is not a timeout of a test.
 const WAITING_CHILD: &str =
-    "while kill -0 $PPID 2>/dev/null; do /bin/sleep 1 >/dev/null 2>&1 & wait $!; done";
+    "while [ \"$PPID\" != 1 ] && kill -0 $PPID 2>/dev/null; do /bin/sleep 1 >/dev/null 2>&1 & wait $!; done";
 
 /// Owns a child's process group in test code, so that a defect in `Children` cannot leave the child behind: on drop,
 /// panics included, it kills the group and reaps the leader itself (a `waitpid` that the reaper thread may win; then the
@@ -266,7 +266,7 @@ fn wait_exit_takes_the_exit_of_its_own_child() {
 ///   when the child is gone.
 #[test]
 fn no_child_is_left_when_the_cleanup_of_a_test_fails() {
-    use std::io::Read;
+    use std::io::BufRead;
     use std::os::unix::process::CommandExt;
     // The cleanup of `Children` is skipped: only the guard ends the child.
     let (mut children, _woken) = children();
@@ -280,9 +280,13 @@ fn no_child_is_left_when_the_cleanup_of_a_test_fails() {
         "the guard killed and reaped the child"
     );
 
-    // The parent is gone: the child ends by itself.
+    // The parent is gone: the child ends by itself. The parent is a shell that waits for the child; the child says its pid
+    // when it runs, and then the test kills the parent, as nextest kills a test process.
     let mut parent = std::process::Command::new("/bin/sh")
-        .args(["-c", &format!("/bin/sh -c '{WAITING_CHILD}' & echo $!")])
+        .args([
+            "-c",
+            &format!("/bin/sh -c 'echo $$; {WAITING_CHILD}' & wait"),
+        ])
         .stdout(std::process::Stdio::piped())
         .process_group(0)
         .spawn()
@@ -292,21 +296,25 @@ fn no_child_is_left_when_the_cleanup_of_a_test_fails() {
         pid: parent.id(),
         armed: true,
     };
-    let mut stdout = parent.stdout.take().unwrap();
-    assert!(parent.wait().unwrap().success(), "the parent is gone");
-    let (ended, heard) = std::sync::mpsc::channel();
+    let stdout = parent.stdout.take().unwrap();
+    let (said, heard) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
-        let mut said = String::new();
-        let _ = stdout.read_to_string(&mut said);
-        let _ = ended.send(said);
+        let mut lines = std::io::BufReader::new(stdout).lines();
+        let _ = said.send(lines.next());
+        // Then the end of the pipe.
+        let _ = said.send(lines.next());
     });
+    let child = heard
+        // timer: deadline — bounds the wait for the child's start
+        .recv_timeout(Duration::from_secs(10))
+        .expect("the child runs");
+    assert!(child.is_some_and(|line| line.is_ok_and(|pid| pid.trim().parse::<u32>().is_ok())));
+    parent.kill().unwrap();
+    parent.wait().unwrap();
     // The end of the pipe is the child's exit (its `sleep` jobs write nowhere): init reaps the orphan.
-    let said = heard
+    let end = heard
         // timer: deadline — bounds the wait for the orphan's own exit (about one interval of the child)
         .recv_timeout(Duration::from_secs(10))
         .expect("the child ended by itself");
-    assert!(
-        said.trim().parse::<u32>().is_ok(),
-        "the child's pid: {said}"
-    );
+    assert!(end.is_none(), "the child wrote nothing more: {end:?}");
 }
