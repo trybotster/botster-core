@@ -21,6 +21,7 @@ botster-core-link.workspace = true
 botster-core-sys.workspace = true
 botster-route-codec.workspace = true
 botster-worker-core.workspace = true
+botster-terminal-ghostty.workspace = true
 mio.workspace = true
 serde_json.workspace = true
 

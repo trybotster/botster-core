@@ -1,4 +1,4 @@
-# conf::a2_8_*: terminfo source from P2 (botster-terminal-ghostty), not yet on v1 (Core TI-1; wired in a follow-up PR).
+# conf::a2_8_*: Core TI-1 uses the pinned libghostty identity; harness proof awaits the testkit wiring with P3.
 conf::a10_1_wrong_instance_is_never_signalled
 conf::a10_1_wrong_token_is_never_signalled
 conf::a10_2_corrupted_row_is_lost_registry_corrupt
