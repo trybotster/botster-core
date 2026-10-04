@@ -182,11 +182,28 @@ fn sid(name: &str) -> SessionId {
 }
 
 /// Core AD-2, LC-4, TM-6: a worker that ends before it connects is seen at once, not at a deadline: the reaper thread wakes
-/// the host, the exit is polled from the real process edge, and the start ends.
+/// the host, the exit is polled from the real process edge, and the start ends. The worker ends only after the host is idle
+/// (it reads a FIFO that the test closes), so only the reaper's wake can end the wait.
 #[test]
 fn a_worker_that_exits_before_it_connects_ends_the_start_at_once() {
+    use std::os::unix::fs::PermissionsExt;
     let tmp = tempfile::tempdir().unwrap();
+    let gate = tmp.path().join("gate");
+    let made = std::process::Command::new("/usr/bin/mkfifo")
+        .arg(&gate)
+        .status()
+        .expect("mkfifo runs");
+    assert!(made.success());
+    // The worker blocks reading the FIFO (an external `/bin/cat`, not a shell builtin) and ends when the test closes it.
+    let worker = tmp.path().join("worker.sh");
+    std::fs::write(
+        &worker,
+        format!("#!/bin/sh\nexec /bin/cat '{}' >/dev/null\n", gate.display()),
+    )
+    .unwrap();
+    std::fs::set_permissions(&worker, std::fs::Permissions::from_mode(0o755)).unwrap();
     let mut open = config(tmp.path());
+    open.worker_path = Some(worker);
     // The start deadline is far away: a start that ends before it ended because the exit was seen, not because time ran out.
     open.limits.startup = Duration::from_secs(120);
     let mut core = Core::open(open).expect("open");
@@ -198,29 +215,31 @@ fn a_worker_that_exits_before_it_connects_ends_the_start_at_once() {
     .unwrap();
     pump(&mut core);
     let start = core.begin(Op::Start { id: sid("s1") }).unwrap();
-    let began = Instant::now();
-    let mut events = Vec::new();
-    // timer: deadline — a failing run must not hang; the default startup deadline is longer than this wait
-    while began.elapsed() < Duration::from_secs(100) {
+    let mut events = pump(&mut core);
+    assert_eq!(
+        core.get(&sid("s1")).unwrap().state,
+        SessionState::Starting,
+        "the host is idle and the worker runs: {events:?}"
+    );
+    // The worker ends now: opening the FIFO waits for its reader, and closing it ends `cat`.
+    drop(std::fs::OpenOptions::new().write(true).open(&gate).unwrap());
+    // The host pumps only after a wake (TM-6): every wait must end by a wake, never by its timeout. The worker never
+    // connects, so the wake that ends the start is the reaper's, through `RealEdges` and `PollWake`.
+    while !events
+        .iter()
+        .any(|e| matches!(e, Event::Completed { op, .. } if *op == start))
+    {
+        let woke = wake
+            // timer: deadline — a failing run must not hang; the start deadline (120 s) is longer than this wait
+            .wait(Duration::from_secs(100));
+        assert_eq!(woke, Wake::Woken, "the exit woke the host: {events:?}");
         events.extend(pump(&mut core));
-        if events
-            .iter()
-            .any(|e| matches!(e, Event::Completed { op, .. } if *op == start))
-        {
-            break;
-        }
-        let _ = wake.wait(Duration::from_millis(500));
     }
     assert!(
         events.iter().any(
             |e| matches!(e, Event::Completed { op, result: OpResult::Err(_) } if *op == start)
         ),
         "{events:?}"
-    );
-    assert!(
-        began.elapsed() < Duration::from_secs(100),
-        "the exit woke the host: {:?}",
-        began.elapsed()
     );
     assert!(matches!(
         core.get(&sid("s1")).unwrap().state,
