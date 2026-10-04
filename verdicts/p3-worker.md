@@ -1,8 +1,8 @@
 # P3 worker review
 
 Current restack verdict: NOT CLEAN (F13, F18, and F19 open; F14, F15, F16, and F17 closed).
-Reviewed head: `ebed1022a1f3804712342f8288902f42ef1db159`, branch `stage1/p3-m1-v1`.
-Round 38 records a failed Mac baseline and opens F18/F19. F13 retains 66 entries.
+Reviewed head: `a532a7292a3a419cb9903b1425b22ef331f05be2`, branch `stage1/p3-m1-v1`.
+Round 39 reviews the proposed Mac correction. F13 retains 66 entries; F18/F19 remain open.
 The CLEAN below applies only to the old M2a head that it names.
 
 VERDICT: CLEAN
@@ -1360,3 +1360,28 @@ F13 retains 66 original entries. F18 and F19 remain OPEN.
 All earlier findings and closures remain preserved. The reviewer ran no tests or gate.
 
 VERDICT: NOT CLEAN (F13: 66 entries; F18 and F19 open) on `ebed1022a1f3804712342f8288902f42ef1db159`.
+
+
+## Round 39 — Proposed Mac guard and readiness correction
+
+Reviewed head: `a532a7292a3a419cb9903b1425b22ef331f05be2`.
+The complete delta from `ebed102` changes the payload anchor, the pending-output test, and the handoff.
+The shell now supplies its live group id while it waits for registration.
+The anchor calls setpgid before it registers, so the shell cannot start its body before the anchor joins the payload group.
+Cleanup still signals only the anchor's current group. The delta does not add a cached-id signal after ownership ends.
+This improves the explicit group-ownership proof. It does not establish the cause of the prior blocked cleanup.
+F19 remains OPEN pending Mac proof of finite panic cleanup while the payload waits for input.
+
+F18 remains OPEN, including the new test loop.
+The loop repeatedly queries pending_output and polls without checking revents or consuming bytes.
+If pending_output stays at zero or one while the descriptor remains ready, poll can return immediately on every iteration.
+That path is a busy loop until the deadline. A deadline bounds time but does not establish a blocking readiness sequence.
+The prior Mac failure's cause remains unverified.
+Use bounded synchronization to prove queued program output and retain the production count check.
+Do not hide an incorrect EV-4 drain bound behind a weaker test.
+
+The delta changes no production path or mutation exclusion.
+F13 retains 66 original entries. F18 and F19 remain OPEN.
+All earlier findings and closures remain preserved. The reviewer ran no tests or gate.
+
+VERDICT: NOT CLEAN (F13: 66 entries; F18 and F19 open) on `a532a7292a3a419cb9903b1425b22ef331f05be2`.
