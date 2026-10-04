@@ -1,5 +1,10 @@
 # P3 worker review
 
+Current restack verdict: NOT CLEAN (1 open finding, F12).
+Reviewed head: `049751aed4b97fc7b817c0201119c0e363a73935`, branch `stage1/p3-m1-v1`.
+Round 12 covers the M1 delta from `46b16945`. All earlier verdicts and closures remain historical evidence.
+The CLEAN below applies only to the old M2a head that it names.
+
 VERDICT: CLEAN
 
 Reviewed head: `98960e434b0991ebb9d7e65c952f1c6ea116b83a`, branch `stage1/p3-worker-m2a`.
@@ -562,3 +567,60 @@ No new finding exists. F1 through F11 are CLOSED.
 VERDICT: CLEAN on the exact M2a head above.
 The terminal model and the remaining M2 features remain later work. The same-suite real-process proof remains pending.
 Any later commit, including a rebase, requires a delta review before this verdict applies to that head.
+
+## Round 12 — M1 restack onto merged P1
+
+Reviewed head: `049751aed4b97fc7b817c0201119c0e363a73935`.
+Base: `1d25d093301072bd0c13a122c68d8f1b1ca0815c`.
+Previous M1 head: `46b16945ead49715949d5983bb41a673c081f8ad`, CLEAN at verdict commit `30bb483`.
+Authority: plan pin `bdda2359`, the restack brief, pair-common.md, BUILD.md, and contracts-v0.1.13, including R-28 and erratum 2.
+
+The implementer reports no conflicts and no conflict resolutions.
+The range-diff compares `823a1f1..46b16945` with `1d25d09..925f627`.
+Twelve patches match exactly. Two differ only in Cargo.lock context.
+The reviewed Worker machine, real driver, payload edge, and testkit wiring remain unchanged from M1.
+The candidate module and RefusalLayer remain present. Earlier M1 finding closures remain intact.
+The merged P1 code retains its Resize forwarding order and its check for an in-flight Resize before the same-size shortcut.
+M1 does not implement worker Resize handling. The `sz_*` conformance proof remains M2 work.
+
+The new commits add a test guard inside the payload session and a worker-SIGKILL plus panic test.
+The guard signals its own current group. It does not signal a cached group id or reap the production payload.
+The helper blocks on sockets and contains no busy-spinning child loop.
+However, the guard can die before it performs cleanup, as F12 records below.
+
+This PR adds no mutation exclusion. `.cargo/mutants.toml` matches the merged base.
+The inherited entries identify individual functions and give reasons. This delta does not establish a mutation result.
+No terminal expectation or transcript changes in this delta. The terminal model, R-28 input behavior, and A13 remain later M2 work.
+
+### F12 — HIGH — SIGTERM can remove the independent payload guard
+
+Status: OPEN at the reviewed head.
+
+Evidence: `crates/botster-core-sys/tests/common/payload_guard.rs:92-109`;
+`crates/botster-worker/tests/slow_session.rs:290-303,356-369`;
+`crates/botster-core-sys/tests/slow_payload.rs:174-181`.
+
+The guard member handles SIGHUP only. SIGTERM retains its default action, which ends the member.
+The prefix starts the member before the test script installs its TERM trap.
+The member therefore does not inherit the payload's later decision to ignore TERM.
+
+The existing Stop and worker-control-signal tests send SIGTERM to the whole payload group while the payload ignores TERM.
+That signal ends the guard member while the payload remains alive.
+If production cleanup then fails, a panic drops a guard whose member has already died.
+Closing the member's socket cannot make the dead member kill the surviving group.
+The test again depends on production cleanup. The new broken-cleanup test does not cover this path because it sends no payload SIGTERM first.
+
+Required change: Keep independent cleanup available after a graceful group signal that the payload can ignore.
+Preserve the protection against group-id reuse. Do not reap a payload that production reaps.
+Add failure-path proof with the graceful group signal before worker cleanup becomes unavailable and before the test panics.
+The proof must show that the test guard ends the surviving payload group.
+
+Authority: the restack brief's independent group guard requirement, its broken-cleanup test requirement, and BUILD.md testing rule 10.
+
+The reviewer inspected logic only. The reviewer ran no tests or gate.
+The implementer reports that the focused Linux job on `88f7bfe` failed before tests because its command omitted the required parallelism variables.
+No test result exists for that job. The implementer plans a corrected focused job on the review head.
+This verdict covers P3's package scope. M1 also requires the integration reviewer's verdict.
+
+VERDICT: NOT CLEAN (1 open finding) on the exact M1 head above.
+Every finding, including LOW findings, must close before CLEAN.
