@@ -424,3 +424,23 @@ Log: `~/botster-sessions/gates/botster-core-stage1-p3-m1-v1-a532a729-mac-2026100
 Explicit group membership alone did not fix Mac cleanup. F18 and F19 remain open.
 The later FIFO and bounded panic tests were not in that run.
 Next: run those corrected tests on Linux. Corrected-source Mac evidence still requires the lead to lift or except the Mac hold.
+
+## Corrected Linux payload proof and diagnostic preparation (2026-10-04)
+
+The corrected baseline at `4b1d39cb` passed all 15 slow_payload tests in 0.022 seconds.
+Log: `~/botster-sessions/gates/botster-core-stage1-p3-m1-v1-4b1d39cb-linux-20261004-163542-77986.log`.
+Focused slow payload mutation on the same head passed baseline and tested 28 mutants.
+Result: 23 caught, 5 unviable, 0 missed, and 0 timeouts.
+Log: `~/botster-sessions/gates/botster-core-stage1-p3-m1-v1-4b1d39cb-linux-20261004-163631-78503.log`.
+The run supplies current-source evidence for the fallback-sign correction and the three reviewed equivalence exclusions.
+F13 closure still requires package review. The 65 driver entries remain unresolved.
+
+The lead denied a Mac exception. Corrected-source Mac evidence must wait until the orchestrator lifts the Mac hold.
+The lead requires a job deadline that covers the incremental build, such as twenty minutes.
+Code test deadlines remain unchanged. A cleanup hang remains a defect finding.
+The panic test now prints process and group state if its ten-second cleanup wait fails.
+The independent cleanup already runs in its own thread before diagnostics start.
+Diagnostics only read process state. They never signal or reap a process.
+The diagnostic labels the recorded payload pid without claiming that ownership still exists after cleanup starts.
+The queued-output failure prints its observed count before the assertion without a blocking process query.
+No production source changed. These diagnostics still require source review and compilation.

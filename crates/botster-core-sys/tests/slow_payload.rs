@@ -249,11 +249,50 @@ fn payload_waiting_for_input() -> (GuardedPayload, tempfile::TempDir) {
     (p, root)
 }
 
+/// Reports ownership and group state without signaling or reaping any process.
+fn cleanup_state(payload_pid: u32) {
+    let test_pid = std::process::id();
+    eprintln!("test pid={test_pid}; payload pid recorded before cleanup={payload_pid}");
+    eprintln!("the test guard owns control; its thread owns the anchor socket");
+    eprintln!("production owns the payload Child and its reap");
+    match std::process::Command::new("/bin/ps")
+        .args(["-axo", "pid,ppid,pgid,state,command"])
+        .output()
+    {
+        Ok(output) if output.status.success() => {
+            eprintln!("PID PPID PGID STATE COMMAND");
+            for line in String::from_utf8_lossy(&output.stdout).lines() {
+                let fields: Vec<_> = line.split_whitespace().collect();
+                if fields.len() < 4 {
+                    continue;
+                }
+                let ids: Vec<_> = fields[..3]
+                    .iter()
+                    .map(|value| value.parse::<u32>().ok())
+                    .collect();
+                if ids[0] == Some(test_pid)
+                    || ids[0] == Some(payload_pid)
+                    || ids[1] == Some(test_pid)
+                    || ids[1] == Some(payload_pid)
+                    || ids[2] == Some(payload_pid)
+                {
+                    eprintln!("{line}");
+                }
+            }
+        }
+        result => eprintln!("process-state query failed: {result:?}"),
+    }
+}
+
 /// A2-1 and plan 2.3: the PTY counts queued program output and takes program input.
 #[test]
 fn the_pty_counts_output_and_delivers_input_to_the_program() {
     let (p, _root) = payload_waiting_for_input();
-    assert!(p.pending_output().unwrap() > 1);
+    let pending = p.pending_output().unwrap();
+    if pending <= 1 {
+        eprintln!("queued-output marker arrived; pending_output={pending}");
+    }
+    assert!(pending > 1);
     assert_eq!(p.write(b"input\n").unwrap(), 6);
     assert_eq!(read_all(&p), b"readyinput");
     assert_eq!(exit_of(&p), ExitStatus::Code(0));
@@ -265,6 +304,7 @@ fn the_pty_counts_output_and_delivers_input_to_the_program() {
 #[test]
 fn a_panic_ends_the_payload_while_it_waits_for_input() {
     let (p, root) = payload_waiting_for_input();
+    let payload_pid = p.pid();
     let (done, result) = mpsc::channel();
     let thread = std::thread::spawn(move || {
         let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
@@ -275,7 +315,13 @@ fn a_panic_ends_the_payload_while_it_waits_for_input() {
         done.send(outcome.is_err()).unwrap();
     });
     // timer: deadline — the independent guard and production reaper must finish.
-    assert!(result.recv_timeout(Duration::from_secs(10)).unwrap());
+    match result.recv_timeout(Duration::from_secs(10)) {
+        Ok(panicked) => assert!(panicked),
+        Err(error) => {
+            cleanup_state(payload_pid);
+            panic!("payload cleanup did not finish: {error}");
+        }
+    }
     thread.join().unwrap();
 }
 
