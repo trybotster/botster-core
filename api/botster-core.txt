@@ -3,10 +3,42 @@ pub use botster_core::contract
 pub mod botster_core::prelude
 pub use botster_core::prelude::<<botster_core_contract::prelude::*>>
 pub struct botster_core::Core
-impl core::marker::Freeze for botster_core::Core
+impl botster_core::Core
+pub fn botster_core::Core::open(botster_core_contract::api::OpenConfig) -> core::result::Result<botster_core::Core, botster_core_contract::error::CoreError>
+impl botster_core_contract::api::CoreApi for botster_core::Core
+pub fn botster_core::Core::adoptable_worker_protocols(&self) -> alloc::collections::btree::set::BTreeSet<u8>
+pub fn botster_core::Core::attach(&mut self, botster_core_contract::ids::ClientId, botster_core_contract::ids::SessionId, botster_core_contract::route::RouteTransport, botster_core_contract::route::AttachOptions) -> core::result::Result<botster_core_contract::route::AttachResult, botster_core_contract::route::AttachRefused>
+pub fn botster_core::Core::begin(&mut self, botster_core_contract::op::Op) -> core::result::Result<botster_core_contract::ids::OpId, botster_core_contract::error::CoreError>
+pub fn botster_core::Core::cancel(&mut self, botster_core_contract::ids::OpId) -> botster_core_contract::input::CancelResult
+pub fn botster_core::Core::diagnostics(&self) -> serde_json::value::Value
+pub fn botster_core::Core::features(&self) -> botster_core_contract::features::Features
+pub fn botster_core::Core::get(&self, &botster_core_contract::ids::SessionId) -> core::result::Result<botster_core_contract::types::SessionRecord, botster_core_contract::error::CoreError>
+pub fn botster_core::Core::limits(&self) -> botster_core_contract::limits::CoreLimits
+pub fn botster_core::Core::list(&self) -> alloc::vec::Vec<botster_core_contract::types::SessionRecord>
+pub fn botster_core::Core::next_deadline(&self) -> core::option::Option<std::time::Instant>
+pub fn botster_core::Core::poll_events(&mut self, usize) -> alloc::vec::Vec<botster_core_contract::event::Event>
+pub fn botster_core::Core::pump(&mut self, botster_core_contract::api::Now) -> botster_core_contract::api::PumpReport
+pub fn botster_core::Core::read_page(&self, botster_core_contract::ids::CaptureId, u32) -> core::result::Result<botster_core_contract::read::Page, botster_core_contract::error::CoreError>
+pub fn botster_core::Core::release(&mut self, botster_core_contract::ids::CaptureId)
+pub fn botster_core::Core::release_owner(&mut self, &botster_core_contract::ids::ClientId)
+pub fn botster_core::Core::service_log_tail(&self, &botster_core_contract::ids::ServiceId, usize) -> core::result::Result<alloc::vec::Vec<u8>, botster_core_contract::error::CoreError>
+pub fn botster_core::Core::service_recv(&mut self, &botster_core_contract::ids::ServiceId, u8) -> core::result::Result<core::option::Option<botster_core_contract::service::Frame>, botster_core_contract::service::RecvError>
+pub fn botster_core::Core::service_report(&self, &botster_core_contract::ids::ServiceId) -> core::result::Result<botster_core_contract::service::SpawnReport, botster_core_contract::error::CoreError>
+pub fn botster_core::Core::service_send(&mut self, &botster_core_contract::ids::ServiceId, u8, &botster_core_contract::service::OutboundFrame) -> core::result::Result<(), botster_core_contract::service::SendError>
+pub fn botster_core::Core::set_silence_threshold(&mut self, &botster_core_contract::ids::SessionId, core::option::Option<core::time::Duration>) -> core::result::Result<(), botster_core_contract::error::CoreError>
+pub fn botster_core::Core::shadow_answerable_kinds(&self) -> alloc::vec::Vec<botster_route_codec::types::QueryKind>
+pub fn botster_core::Core::snapshot_formats(&self, &botster_core_contract::ids::SessionId) -> core::result::Result<alloc::vec::Vec<botster_core_contract::read::SnapshotFormat>, botster_core_contract::error::CoreError>
+pub fn botster_core::Core::status(&self) -> botster_core_contract::types::Status
+pub fn botster_core::Core::tap_read(&mut self, &botster_core_contract::ids::SessionId, usize) -> core::result::Result<botster_core_contract::read::TapChunk, botster_core_contract::error::CoreError>
+pub fn botster_core::Core::terminal_identity(&self) -> botster_core_contract::read::TerminalIdentity
+pub fn botster_core::Core::terminal_state(&self, &botster_core_contract::ids::SessionId) -> core::result::Result<botster_core_contract::types::TerminalState, botster_core_contract::error::CoreError>
+pub fn botster_core::Core::wake_handle(&self) -> alloc::rcs::arc::Arc<dyn botster_core_contract::api::WakeHandle>
+pub fn botster_core::Core::worker_protocol(&self) -> u8
+pub fn botster_core::Core::worker_protocol_compatibility(&self, core::option::Option<u8>) -> botster_core_contract::api::WorkerCompatibility
+impl !core::marker::Freeze for botster_core::Core
 impl core::marker::Send for botster_core::Core
 impl !core::marker::Sync for botster_core::Core
 impl core::marker::Unpin for botster_core::Core
 impl core::marker::UnsafeUnpin for botster_core::Core
 impl !core::panic::unwind_safe::RefUnwindSafe for botster_core::Core
-impl core::panic::unwind_safe::UnwindSafe for botster_core::Core
+impl !core::panic::unwind_safe::UnwindSafe for botster_core::Core

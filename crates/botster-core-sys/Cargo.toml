@@ -9,8 +9,19 @@ publish.workspace = true
 [lints]
 workspace = true
 
+[features]
+# The real-process tests of this crate (BUILD.md testing rule 2): `cargo xtask slow` runs them.
+slow = []
+
 [dependencies]
+botster-core-edges.workspace = true
+atomic-write-file.workspace = true
+getrandom.workspace = true
 rustix.workspace = true
+sha2.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+libproc = "0.14"
