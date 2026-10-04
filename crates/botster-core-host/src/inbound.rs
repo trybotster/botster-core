@@ -583,13 +583,9 @@ impl HostEngine {
                     });
                 }
             }
-            Flow::Remove(_) => {
-                // A6-3: the result was lost with the link, so Core claims no path.
-                self.flow_remove_result(
-                    &id,
-                    UploadsOutcome::NotDeleted(NotDeleted::OutcomeUnknown),
-                );
-            }
+            // A `Remove` needs nothing here. Its result can no longer come (no other link reaches this session), and the
+            // teardown advances only when the worker is gone or its grace ended, which both record `OutcomeUnknown` when no
+            // result came (A6-3: `flow_remove_worker_gone`, `remove_grace_expired`).
             _ => {}
         }
         self.fail_inflight(&id);
