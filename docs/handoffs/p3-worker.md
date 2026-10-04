@@ -229,3 +229,18 @@ The focused testkit mutation job at `91f8a4260a5e0ffb0721872400ad03da4868498e` f
 AttachOptions has no Default implementation. The fixture now uses the contract's JSON reader with an explicit file_directory.
 Log: `~/botster-sessions/gates/botster-core-stage1-p3-m1-v1-91f8a426-linux-20261004-133151-41107.log`.
 This failed job supplies no mutation evidence. The corrected job must compile and run before any testkit entry closes.
+
+## Focused testkit result and worker edge correction (2026-10-04)
+
+The focused job at `cc34474de63030b74031f5a21d6608bf27a4a843` passed baseline and tested 177 mutants.
+Result: 94 caught, 27 missed, 56 unviable, and 0 timeouts.
+Log: `~/botster-sessions/gates/botster-core-stage1-p3-m1-v1-cc34474d-linux-20261004-133509-42847.log`.
+The actual outcomes.json, missed.txt, caught.txt, and unviable.txt are in `/private/tmp/p3-testkit-evidence/`.
+They came from the existing Linux volume at `target/p3-testkit-mutants/mutants.out`.
+The failure collector copied the old standard output directory. Its target-mutants.out is not evidence for this focused job.
+No tests ran during artifact retrieval.
+
+The next correction adds binding checks for partial writes, EOF, output drains, worker exits, unique identities, and grace deadlines.
+The new checks await Linux mutation evidence. release and release_owner remain open.
+Two exact arithmetic equivalence arguments await review: control link capacity and worker READ_CHUNK.
+No exclusion for either argument exists yet. The remaining real process findings are still open.

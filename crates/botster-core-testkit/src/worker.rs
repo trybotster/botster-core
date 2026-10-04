@@ -642,3 +642,6 @@ impl CoreApi for TestkitCore {
         self.driver.terminal_identity()
     }
 }
+
+#[cfg(test)]
+mod tests;
