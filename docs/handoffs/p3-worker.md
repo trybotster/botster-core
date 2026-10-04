@@ -371,3 +371,17 @@ The pending-output test now waits within a ten-second deadline for more than one
 The correction does not assume that descriptor readiness means the full readiness word has arrived.
 Both causes remain unverified until the focused Mac baseline runs.
 Next: run the Mac payload baseline before another mutation job.
+
+## Current v1 binding merge (2026-10-04)
+
+The lead lifted the Linux hold. Future heavy jobs prefer Linux, one job at a time.
+The active Mac payload baseline at `a532a729` may finish. No second heavy job has started.
+The lead merged PR #138 into v1 at `38bbe580013d02175636395a28a4c359b20c32b2`.
+P3 merged origin/v1 without conflicts. The merge adds binding inspection, snapshot restoration, and image-limit APIs.
+The binding also adds hyperlink, parser state, cell, colour, and cursor reads.
+No P3 worker or payload source changed in the merge. The mutation configuration merged without conflict.
+Both reviewers must review the delta. The next full gate must use the resulting current-v1 tree.
+Package verdict `5297f096118cdbbb396b324018519022bc3b0b6a` keeps F13, F18, and F19 open.
+Integration record `ae4b728d2f725e7defbae71fd67d918ff7794ca9` records the same findings.
+F18 requires a queued-output synchronization proof. F19 requires finite Mac panic cleanup with a payload waiting for input.
+The current Mac baseline result remains pending.
