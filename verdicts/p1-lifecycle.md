@@ -1,10 +1,10 @@
 # P1 lifecycle review
 
-VERDICT: NOT CLEAN (8 open)
+VERDICT: NOT CLEAN (2 open)
 
-Current reviewed head: `8c3899155b45101d922d2c38e100d0ebcd4dba83` on `stage1/p1-lifecycle`.
-Current open findings: F21, F22, F23, F24, F25, F26, F27, F28.
-The Round 9 section below records the current review.
+Current reviewed head: `c22b324550cb1c7612e92a7c6cd91cda240ac409` on `stage1/p1-lifecycle`.
+Current open findings: F24, F28.
+The Round 10 section below records the current review.
 The earlier CLEAN and all earlier findings and closure evidence remain historical evidence.
 
 Historical checkpoint verdict: CLEAN.
@@ -1017,3 +1017,141 @@ Authority: the lead's explicit instruction, BUILD.md hygiene rule 10, and plan R
 
 Current verdict: NOT CLEAN (8 open).
 The reviewer waits for READY with an exact fix head.
+
+## Round 10: fixes at c22b324
+
+VERDICT: NOT CLEAN (2 open)
+
+Reviewed head: `c22b324550cb1c7612e92a7c6cd91cda240ac409`.
+Delta base: `8c3899155b45101d922d2c38e100d0ebcd4dba83`.
+Authority and package scope remain unchanged.
+The lead replaced the implementer with session `sess-1791138159-00fe-ba70137e66e1d137b4d086b3a0697f6f`.
+
+I reviewed the changed source, regression assertions, and every exclusion in the resulting mutants.toml.
+I inspected the supplied Linux mutation log for this exact head.
+It records base `38e6989be8166ff773c8ad02ac511aa4247448c6`, 984 mutants, 859 caught, zero missed, zero timeouts, and 125 unviable.
+Log: `~/botster-sessions/gates/botster-core-stage1-p1-lifecycle-c22b3245-linux-20261004-104845-74862.log`.
+That run selected only the mutants job. It is not a full gate.
+The other Linux and Mac test counts and no-leftover checks are implementer reports in READY.
+I did not run cargo, a build, a mutation run, or a gate.
+I ran one isolated process check to prove the remaining F28 FIFO defect.
+
+### Closure table
+
+| Finding | Status | Evidence at c22b324 |
+|---|---|---|
+| F21 | CLOSED | held_obs is removed. can_accept refuses Observed while Start remains active. The driver retains one held frame and its bounded read chunk. The regression defers Start with 1,000 observations and checks disabled read interest and remaining link bytes. |
+| F22 | CLOSED | service_links retries the held frame before reading later frames, after each engine step. The regression checks the final modes, model_rev, latest keyed value, and Bell-before-PromptMark order. The private wire documents Launched-before-Observed. |
+| F23 | CLOSED | Children::spawn creates the reaper thread before spawning the child. A failed thread start creates no child. A failed child start drops the sender and ends the waiting thread. Successful handoff transfers child ownership to the reaper. |
+| F24 | OPEN, MEDIUM | Entries now name individual functions. Location-free arithmetic, slow-test helper, and EINTR exclusions are removed. The xtask proof requirement and one new equivalence argument remain unresolved below. |
+| F25 | CLOSED | Both ended_result exclusions are removed. The regression advances only session work through Remove retirement. It checks exact NotWritten(SessionEnded) for the unforwarded write and Unit for the unforwarded Detach. |
+| F26 | CLOSED | The notifier test waits for a channel event with a marked deadline. It then checks the queued exit and exact-once removal. |
+| F27 | CLOSED | A controlled worker reports readiness while the host is idle. The test then ends the worker and requires Woken before each later pump. READY reports a failing callback-removal check and a passing original run. |
+| F28 | OPEN, HIGH | Independent guards and quiet parent-watch loops improve cleanup. The loops do not cover blocking FIFO startup. Guard identity and the testkit's cleanup remain unresolved below. |
+
+The added take_exits call after settle_wake addresses the supplied exit-wake race.
+The mock edge inserts an exit during settle, and the regression requires the same pump to take that exit.
+If an exit arrives after the second take_exits call, its notifier still signals the wake.
+I found no new defect in this change.
+
+### F24 remaining: missing proof for xtask exclusions
+
+Evidence: `.cargo/mutants.toml:14-72` and `:186-189`.
+
+The xtask entries are now restricted to individual functions.
+Their comments still supply neither named slow tests nor written equivalence arguments.
+For example, the fsutil comment says a real cargo xtask ci run sees a replaced body.
+The tools comment says the functions spawn processes.
+The ci comment names tested decisions but does not name tests of the excluded wrappers.
+A reason for using real processes does not satisfy the required proof of the excluded function.
+A normal gate run executes unmutated wrappers and cannot prove their mutants are caught.
+
+The new Children::spawn equivalence also states that only its reaper thread waits for the child.
+The test guards now call waitpid for that child independently.
+That competing wait can make Child::wait return ECHILD.
+The stated invariant therefore does not hold for the actual slow-test environment.
+This concerns the excluded negative literal in the wait-error result, not F23's closed thread-start defect.
+
+Required change: Remove each unsupported xtask exclusion or supply its named slow proof or valid written equivalence argument.
+Apply this requirement to every xtask function listed in the file.
+Correct or remove the Children::spawn wait-error equivalence.
+Keep the exclusions restricted to individual functions or exact mutants.
+
+I accept the new facade tests as source evidence for attach, release, release_owner, and capture expiry.
+The non-default limits assertion also closes the prior limits coverage gap.
+The three facade equivalences remain pin-specific: protocol 1, compatibility set {1}, and the configured empty shadow list.
+The P1 real-edge and storage entries now map individual functions to named slow tests.
+The exact host equivalences retain the Round 9 dispositions, except the removed ended_result entries.
+The P2 entries retain their earlier pin-specific dispositions.
+The process-group entries name slow tests. Their cleanup repair is transferred to P6 under the lead's ruling below.
+
+### F28 remaining: startup can block before the parent-watch loop
+
+Evidence: `crates/botster-core/tests/common/mod.rs:42`, `tests/slow_real_core.rs:203`,
+`tests/slow_facade_worker.rs:195`, and `crates/botster-core-sys/tests/slow_process.rs:181`.
+
+The new parent-watch loop runs only after each readiness or launch FIFO write completes.
+Opening a FIFO for writing blocks until a reader opens it.
+The test starts the reader after Core or Children starts the worker.
+If nextest kills the test in that interval, the orphan stays blocked before the parent-watch loop.
+The loop cannot observe the dead parent from that state.
+The same issue applies to the launch tee that opens its FIFO.
+
+I reproduced this sequence with the reviewed worker script:
+
+1. I created the readiness FIFO without a reader.
+2. I started a parent shell and its worker in a new process group.
+3. I killed and waited for the parent shell.
+4. I waited on the inherited stdout pipe with a two-second deadline.
+5. The child still existed, and the pipe had no EOF after the deadline.
+6. I killed only the process group I started and waited for pipe EOF to complete cleanup.
+
+The proof uses an event wait, not a sleep or repeated polling.
+It proves the parent-watch loop does not cover the FIFO startup state.
+The checked script sequence matches the readiness write and wait loop at c22b324.
+
+Required change: Make parent-death cleanup cover every blocking startup state, including FIFO open and launch handoff.
+Add a regression that kills the parent before any FIFO reader opens.
+Require the child and its descendants to end without the parent's guard running.
+
+### F28 remaining: guard ownership must exist before startup and preserve group identity
+
+Evidence: `crates/botster-core/tests/common/mod.rs:56-75` and
+`crates/botster-core-sys/tests/slow_process.rs:67-90`.
+
+ScriptWorker obtains its pid only from a file written by the shell after startup.
+Its Drop does nothing if the file is not yet present.
+A panic after spawn but before that write therefore has no guard-owned process identity.
+Both guards also retain only a bare pid while the production reaper can independently reap the child.
+If the child ends before failure cleanup, that saved pid can become reusable before the guard signals its group.
+Calling waitpid after kill does not establish identity before the signal.
+
+Required change: Establish independent test ownership before a started process can escape cleanup.
+Preserve process-group identity until the guard's final group control completes.
+Do not signal a saved bare pid after another reaper can release its identity.
+Prove cleanup on panic before the readiness indication and after early child exit.
+
+### F28 scope transfer: testkit cleanup belongs to P6
+
+Evidence: `crates/botster-core-testkit/tests/slow_process_group.rs:22-106`.
+
+The testkit's process-group tests still start /bin/sleep 600 children.
+Those tests rely on OwnedGroup, which is the production code under mutation, for cleanup.
+If that cleanup fails, an independent test guard does not end the group.
+If nextest kills the test, the sleeps also have no parent-death exit path.
+A ten-minute sleep uses little CPU but can still leave a child after its test ends.
+This does not satisfy the lead's same-check requirement for the other real-process tests.
+
+The lead transferred this repair to the P6 pair in message `msg_plugin-w_1791138376_424804`.
+P6 implements and reviews it in `stage1/p6-oracle`.
+This testkit repair does not block P1 CLEAN and is not claimed as closed here.
+P1 must not change botster-core-testkit for this repair.
+P1's F28 scope is botster-core-sys, botster-core, botster-core-host, and botster-core-link.
+
+For P1's F28 closure:
+Do not close F28 on a normal no-leftover run alone.
+Prove the failure cases on the exact reviewed fix head.
+
+All earlier findings and closure evidence remain in this file.
+F24 and F28 must close before CLEAN.
+Any further commit requires a delta review before the full gate.
