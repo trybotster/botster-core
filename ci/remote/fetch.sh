@@ -4,7 +4,8 @@
 #   - the workspace's dependencies, botster-contracts (private) included;
 #   - the dependencies of the conformance probe, which `cargo xtask prebuild-worker` installs from the same botster-contracts
 #     tag with `cargo install --git … --locked`.
-# It runs no code of this repo, only cargo's resolver.
+# It runs no code of this repo, only cargo's resolver. Public sources (submodules, Zig packages) come from fetch-public.sh,
+# in a container without the token.
 set -euo pipefail
 
 cargo fetch --locked -q
