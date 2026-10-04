@@ -1,5 +1,54 @@
 # libghostty audit for Core Stage 1 (package P2)
 
+## Public API follow-up for P6
+
+The binding exposes the following existing C exports at fork `3f8eb6810bb673aa782b047de21783ac81fb1121`.
+These APIs add no terminal parser, terminal encoder, or test branch.
+
+| Clause | Public API | Existing C export | Verification |
+|---|---|---|---|
+| ST-6, ST-6b | `Terminal::from_snapshot` | `ghostty_snapshot_decoder_new_buf`, `_set`, `_decode`, `_free` | The existing every-cut resume tests use the public decoder. A rejected envelope version returns `SnapshotDecodeError::UnsupportedVersion`. |
+| ST-6b graphics | `Terminal::from_snapshot` | Decoder option `KITTY_IMAGE_STORAGE_LIMIT` from patch 13 | The decoder sets the limit to zero before restore. Existing image-resume tests check both screens. |
+| EV-7, ST-6b hyperlinks | `Terminal::hyperlink_uri` | `ghostty_grid_ref_hyperlink_uri` | Tests compare cell URIs before and after restore. |
+| ST-6b item 1 | `Terminal::cell_attributes` | `ghostty_grid_ref_cell`, `ghostty_grid_ref_style`, `ghostty_cell_get` | Restore tests compare styled, wide, protected, and background cells. History reads use the library's screen coordinates. |
+| ST-6b item 2 | `Terminal::colors` | `ghostty_terminal_get` color keys 18 through 25 | Restore tests compare current and default palettes and dynamic colors. A palette change leaves cursor and cell reads unchanged. |
+| ST-6b item 3 | `Terminal::cursor_appearance` | `ghostty_render_state_new`, `_update`, `_get`, `_free` | Restore tests compare cursor shape and blink. The read consumes render dirty state but leaves snapshot bytes unchanged. |
+| ST-6b item 4 | `Terminal::cell_hyperlink_uri` | `ghostty_grid_ref_hyperlink_uri` | Tests compare history URIs with their visible source and restored history. |
+| ST-6b graphics | `Terminal::image_storage_limit`, `has_image` | Terminal data `KITTY_IMAGE_STORAGE_LIMIT`, `KITTY_GRAPHICS`; `ghostty_kitty_graphics_image` | Tests compare native storage at a nonzero limit with a restored terminal at zero. Each lookup uses an explicit image ID. |
+| ST-6b, A8-2 pending state | `Terminal::continuation`, `set_continuation_max_bytes` | `ghostty_terminal_continuation_buf`, terminal option `CONTINUATION_MAX_BYTES` | Tests check retained input, ground state, disabled retention, and the configured limit. |
+| ST-6b failure observation | `Terminal::vt_processing_error` | Terminal data key `VT_PROCESSING_ERROR` | Tests check the key against the pinned header. An injected C allocator failure sets the native flag and public read together. |
+
+The C continuation API reports unavailable input without its length or parser kind.
+It does not distinguish configured overflow from lost retention.
+The testkit must use a separate oracle with a sufficient retention bound to measure pending input independently.
+The binding does not infer parser state from the input bytes.
+
+The fork does not export `Tracker.broken`. `VT_PROCESSING_ERROR` reads a separate semantic failure flag.
+The lead accepted this classification for `oracle_resume_every_cut` under its no-injection condition:
+
+- Unavailable retention within the independently measured continuation limit is a mismatch.
+- Unavailable retention above that limit is expected and permits classification as `refused_beyond_limit`.
+- An unknown pending size makes the cut inconclusive.
+- A semantic failure is a mismatch with its own reason.
+
+Prior art: the decoder reuses this crate's private decoder path from `tests_snapshot.rs`.
+The binding copies the hyperlink URI and continuation bytes from libghostty.
+No old botster-core code was reused.
+
+Mutation follow-up: direct C reads check cell fields, cell backgrounds, and dynamic colors independently of restore equality.
+The allocator fixture uses the existing `GhosttyAllocator` interface only in tests.
+The pinned `src/lib/allocator.zig` passes log2 alignment to each callback.
+The fixture follows that implementation, although the C header describes alignment in byte units.
+The `Render::drop` exclusion covers one cleanup call that only frees a native handle.
+Removing that call leaks memory but changes no public read.
+
+The pinned fork exposes no complete image count.
+The revised lead ruling requires the graphics control to read the limit on both actual terminal instances.
+The model constructor and snapshot decoder set the storage limit to zero before any input.
+Libghostty enforces that limit, so neither instance can store images while the limit remains zero.
+Tests write explicit image IDs to both instances and check the native image lookup.
+The control requires no stimulus record and parses no image bytes.
+
 Scope: every Core clause that needs terminal semantics, checked against libghostty.
 Contract: botster-contracts tag `contracts-v0.1.1` (`366bca41da0a6de69cc1ea13b17c773cdfdb75b6`): manifest final14, Core erratum 2 ("E2") and steward ruling R-13.
 Plan pin: `stage1-plan.555bc433` (sha256 `555bc4337fe72e9fad833fe330d43e8147a39569cb14291734f34847f56596d7`), sections 0, 6.1, 6.3, 7.1, 8, 9 (Q1) and 10 (R1).
