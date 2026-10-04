@@ -7,6 +7,7 @@ pub mod candidate;
 pub mod entropy;
 pub mod harness;
 pub mod net;
+pub mod oracle;
 pub mod process_group;
 pub mod program;
 pub mod refusal;
