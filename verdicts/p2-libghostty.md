@@ -1,13 +1,14 @@
 # P2 libghostty review
 
-Current reviewed binding head: `ab8577a0e0f7017271be2daa27d63ee324e1ac9e`.
-Reviewed proposed Ghostty head: `170d6faf82fb1a90f4776707421702f4ff4a66fc`.
-The recorded Ghostty pin remains `85a8d8eb197c5752887c017c9a3faa6f1dc1969b` until the lead records a move.
+Current reviewed binding head: `ce9b0fe8609cf9d958c595d52a3208fbea5bdde7`.
+Reviewed Ghostty head: `3f8eb6810bb673aa782b047de21783ac81fb1121`.
+The binding uses branch `botster/upstream-sync-20261002`, with upstream base `f523504ea5c9f41d150d1eb93cc7a748b90f9361`.
+The lead owns the plan pin record.
 
-VERDICT: NOT CLEAN (5 open: P25, P27, P32, P33, P34).
-P24, P26, P28, P29, P30 and P31 close at this binding head.
-P32 has a reviewed source correction but still lacks the Linux gate evidence required by the lead.
-F1–F12 and P13–P23 remain closed. The earlier reviews below retain their stated scope.
+VERDICT: NOT CLEAN (2 open: P32, P36).
+P25, P27, P33 and P34 close at this binding head. Lead ruling P35 closes P35 without a fork change.
+P32 still requires a green Linux gate on this exact binding head.
+F1–F12, P13–P24, P26 and P28–P31 remain closed. The earlier reviews below retain their stated scope and closure evidence.
 
 ## Earlier audit and fork reviews
 
@@ -1267,3 +1268,111 @@ The lead answered the reviewer’s QUESTION with this policy-preservation requir
 P34 needs both a native image-resume test and the binding every-offset image-resume test.
 
 VERDICT: NOT CLEAN (5 open: P25, P27, P32, P33, P34) at exact Core head `ab8577a0e0f7017271be2daa27d63ee324e1ac9e`.
+
+
+## Resume review — upstream sync, patches 12–13, and binding delta
+
+Exact binding head: `ce9b0fe8609cf9d958c595d52a3208fbea5bdde7`.
+Exact fork head: `3f8eb6810bb673aa782b047de21783ac81fb1121`.
+
+Review inputs:
+
+- `pair-common.md` and `brief-p2-resume.md`, step 5.
+- The P2 handoff on `origin/v1`, including the unpublished checkpoint at binding `52d1f730309a7361870871895f78e03f3e5df9ca`.
+- The plan pin `stage1-plan.e4862c71.md` and `docs/stage1-clauses/p2-terminal.txt` on `origin/stage1/plan`.
+- Contracts `contracts-v0.1.13`, commit `a8db5c9a0f43fc440564989fd38a55121fdda38b`, and BUILD.md.
+- Contracts `origin/main:docs/ghostty/upstream-sync-20261002.md` and its evidence directory.
+- Lead ruling P35 in the resume brief.
+
+The reviewer read the binding changes since `52d1f73`, the unpublished corrections since `ab8577a`, and native patches 12–13.
+The reviewer ran no tests, builds, or gates.
+The implementer reports 94 binding tests passed, clippy passed, and fmt passed on the exact binding head.
+Those reports do not supply the Linux gate required by P32.
+
+### Fork identity and patch decisions
+
+The reviewer ran this source comparison:
+
+```text
+git range-diff 83edd491e3024ae5e50393d62877b8897da1cccd..ada251c5e99cdb753de8bf72d5d1f307d474518f f523504ea5c9f41d150d1eb93cc7a748b90f9361..3f8eb6810bb673aa782b047de21783ac81fb1121
+```
+
+All 22 commit pairs have `=` identity. The old patch corrections remain separate and map to the sync record.
+`git diff ada251c5e 3f8eb6810` changes only `macos/Sources/Features/Terminal/TerminalController.swift` (+11, -6).
+The libghostty-vt sources, `build.zig.zon`, and terminfo are unchanged.
+The earlier scoped approvals for patches 0–11 therefore carry to their corresponding commits in the new stack.
+
+Patch 12 (`d5bebc7e244b8968534c2be32323ca421b3edca5`) uses the existing `kpKeys` helper for `numpad_equal`.
+The helper selects the numeric or application keypad result through the existing encoder path.
+Its test checks both modes. Lead ruling P35 permits the literal expectations inside the fork's oracle tests.
+**P35 closes by that ruling. Patch 12 needs no change.**
+
+Patch 13 (`3f8eb6810bb673aa782b047de21783ac81fb1121`) adds decoder option 3 with a `uint64_t` value.
+The C decoder passes the configured limit to `Decoder.ready`.
+The decoder applies that limit to every decoded screen before `fromDecoded` replays continuation.
+An omitted option retains the library default. The snapshot format remains unchanged and excludes graphics state.
+The binding declarations agree with the native header.
+
+The source logic of patches 12–13 is accepted at the exact fork head.
+This scoped acceptance does not make the binding CLEAN or close P32.
+
+### Binding merge and build review
+
+- `f711184` moves all six workspace contract dependencies and their lock entries to `contracts-v0.1.13`.
+- Merge `654b5914f949629229e943783ade9827a85c3ee8` has parents `f711184` and `f96a9df`.
+  The merge changes no binding crate file. Its `ci/remote` files equal those on the second parent.
+  The fetch path stages the pinned submodule and Zig packages before the gate container runs without network.
+- `2855690` moves the submodule, branch name, and audit record together.
+  Audit revision 10 records upstream base `f523504ea`, all 22 new patch SHAs, and ruling P35.
+- `91dfcf9` restricts the prefetch extraction to `pub const ZIG_PACKAGES: `.
+  `build_data.rs` has seven packages. The old pattern also read two entries in `ZIG_PACKAGES_IN_ZON`, producing nine entries.
+  The remote fetch script removes duplicates with `sort -u`, so it still selects the same seven packages.
+  The implementer reports an empty-cache native build fetched those seven hashes at the new pin.
+
+### Closed findings at this binding head
+
+- **P25 closes.** `Drained.clipboard_acks` preserves each native acknowledgement outside the bounded event buffer.
+  The callback captures the complete synchronous reply without truncation and queues replies in order.
+  `vt_write_until_query` refuses another step when the undrained backlog exceeds the configured limit.
+  One supplied chunk can exceed the limit; the caller must supply bounded chunks and drain between steps.
+  The full-buffer regression checks that a dropped clipboard event still leaves its acknowledgement available.
+  P36 below concerns the order test's expected bytes, not this source correction.
+- **P27 closes.** `pixel_is_representable` checks exact `f32` representation and the native `i32` range.
+  The binding permits exact values above 2^24 and refuses rounded values or integer overflow, including releases.
+  Tests check each axis, 2^24+1, 2^24+2, larger exact values, and the native range boundary.
+- **P33 closes.** The audit uses unique G13–G18 identifiers and distinguishes typed OSC 52 reads from untyped native clipboard reads.
+  Its status table keeps P32 pending and does not claim that the pending review findings are closed.
+- **P34 closes.** Resume step 4 places the native image-resume proof in the binding and requires no fork change.
+  This instruction replaces the checkpoint's request for another Zig image test.
+  The new test calls the real native decoder and reads native image storage through `ghostty_kitty_graphics_image`.
+  At every byte offset, the zero-limit restore takes the suffix and stores neither direct nor chunked images.
+  A default-limit control stores image 1 when the native prefix reference has not yet stored it.
+  The control also stores image 2 when its complete input follows the cut.
+  Both controls accept images on the alternate screen; the zero-limit restore rejects them there.
+  Existing every-offset coverage checks the storage limit before and after the suffix and compares native snapshots.
+  These checks distinguish policy preservation from a vacuous image stimulus, including pending continuation.
+  `snapshot_graphics` remains absent, and `snapshot_format` states the image exclusion.
+
+### P32 remains HIGH — exact-head Linux evidence is absent
+
+The sync's recorded Linux job 8059 shows no defined allocator symbols at the new fork head.
+Its Rust link program passes at optimization levels 0 and 3; the pre-patch archive aborts at level 0.
+This supports the already accepted native source correction.
+It is not a binding gate on `ce9b0fe8609cf9d958c595d52a3208fbea5bdde7`.
+P32 closes only after a green Linux gate on the exact reviewed binding head.
+
+### P36 — MEDIUM — The binding order test constructs an expected protocol field
+
+**Evidence:** `crates/botster-terminal-ghostty/src/tests.rs:351` uses `format!("id={id}")` as an expected substring of each native acknowledgement.
+The test `acknowledgements_come_in_the_order_of_their_writes_and_a_backlog_stops_the_write` constructs terminal protocol bytes in a Botster repository.
+BUILD.md architecture rule 2 still applies there.
+Lead ruling P35 permits literals inside the fork's own Zig tests; it does not permit this binding expectation.
+The pause handoff identified both cases. P35 is closed under the ruling; this separate binding case remains open as P36.
+The earlier P30 closure remains valid at its stated head.
+
+**Required change:** compare each queued acknowledgement with the native acknowledgement from an isolated write using the same stimulus and id.
+Use a fresh terminal for each isolated write.
+Do not construct or parse expected protocol framing in this order assertion.
+Keep the backlog and full-buffer regressions.
+
+VERDICT: NOT CLEAN (2 open: P32, P36) at binding head `ce9b0fe8609cf9d958c595d52a3208fbea5bdde7`.
