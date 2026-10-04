@@ -2,7 +2,7 @@
 
 Current restack verdict: NOT CLEAN (F13 open after the mutation gate).
 Reviewed head: `2e9811ca0b1c8a790698999efc24c538b5e755d7`, branch `stage1/p3-m1-v1`.
-Round 24 reviews worker binding tests. F13 remains open for 118 entries.
+Round 25 closes 22 worker binding mutant entries. F13 remains open for 96 entries.
 The CLEAN below applies only to the old M2a head that it names.
 
 VERDICT: CLEAN
@@ -925,3 +925,25 @@ No entry closes in this source-only round. The five worker-core and 44 testkit c
 The reviewer ran no tests or gate.
 
 VERDICT: NOT CLEAN (F13 open; 118 mutant entries remain) on `2e9811ca0b1c8a790698999efc24c538b5e755d7`.
+
+## Round 25 — Verified worker binding mutation closures
+
+Evidence head: `2e9811ca0b1c8a790698999efc24c538b5e755d7`.
+The reviewer read the focused log and outcomes.json. The header names this exact head and `botster-core-testkit/src/worker.rs`.
+Log: `~/botster-sessions/gates/botster-core-stage1-p3-m1-v1-2e9811ca-linux-20261004-134928-47783.log`.
+Artifacts: `~/botster-sessions/gates/artifacts-trybotster_botster_core_stage1_p3_m1_v1-bcb322fa-20261004134928-47783/target-mutants.out/`.
+The job reports 100 tested: 60 caught, 4 missed, 36 unviable, and 0 timeouts. The baseline passed.
+This is a failed focused mutation job, not a full green gate.
+
+The reviewer matched the original worker.rs misses by exact mutant name.
+Thirty-eight are now `CaughtMutant`; sixteen already closed in round 22.
+The other 22 are now CLOSED under F13.
+Their names are preserved in `verdicts/p3-worker-mutants-2e9811c-caught.txt`.
+No original worker.rs entry became unviable.
+
+Four worker.rs entries remain `MissedMutant`: READ_CHUNK arithmetic, the write-interest negation in ready, release, and release_owner.
+The core.rs capacity arithmetic entry also remains open.
+Earlier closures remain preserved. F13 remains OPEN for 96 entries: 5 testkit, 26 payload edge, and 65 real worker driver entries.
+The reviewer ran no tests or gate. No new source delta accompanies this evidence.
+
+VERDICT: NOT CLEAN (F13 open; 96 mutant entries remain) on `2e9811ca0b1c8a790698999efc24c538b5e755d7`.
