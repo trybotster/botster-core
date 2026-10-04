@@ -261,3 +261,147 @@ impl Drop for Render {
         unsafe { sys::ghostty_render_state_free(self.0) };
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use botster_core_contract::prelude::{History, Size};
+
+    #[test]
+    fn native_cell_fields_and_dynamic_colors_match_the_public_reads() {
+        let mut terminal = Terminal::new(
+            &Size {
+                rows: 3,
+                cols: 10,
+                cell_px: None,
+            },
+            History::On,
+        )
+        .unwrap();
+        for input in [
+            &b"\x1b[1\"q\x1b[1;44mX"[..],
+            &b"\x1b[0m\x1b[48;5;123m\x1b[2K"[..],
+            &b"\x1b[48;2;11;22;33m\x1b[2K"[..],
+            &b"\x1b]10;rgb:34/56/78\x1b\\\x1b]11;rgb:45/67/89\x1b\\\x1b]12;rgb:56/78/9a\x1b\\"[..],
+        ] {
+            terminal.vt_write(input);
+            let reference =
+                reads::grid_ref(terminal.handle.as_ptr(), sys::point_tag::ACTIVE, 0, 0).unwrap();
+            let mut cell = 0;
+            // SAFETY: each field uses the output type from the pinned C header.
+            unsafe {
+                crate::check(sys::ghostty_grid_ref_cell(&reference, &mut cell)).unwrap();
+                let attrs = terminal.cell_attributes(0, 0, false).unwrap();
+                let mut wide = 0i32;
+                let mut text = false;
+                let mut protected = false;
+                let mut semantic = 0i32;
+                crate::check(sys::ghostty_cell_get(
+                    cell,
+                    sys::cell_data::WIDE,
+                    (&mut wide as *mut i32).cast(),
+                ))
+                .unwrap();
+                crate::check(sys::ghostty_cell_get(
+                    cell,
+                    sys::cell_data::HAS_TEXT,
+                    (&mut text as *mut bool).cast(),
+                ))
+                .unwrap();
+                crate::check(sys::ghostty_cell_get(
+                    cell,
+                    sys::cell_data::PROTECTED,
+                    (&mut protected as *mut bool).cast(),
+                ))
+                .unwrap();
+                crate::check(sys::ghostty_cell_get(
+                    cell,
+                    sys::cell_data::SEMANTIC_CONTENT,
+                    (&mut semantic as *mut i32).cast(),
+                ))
+                .unwrap();
+                assert_eq!(
+                    (
+                        attrs.wide,
+                        attrs.has_text,
+                        attrs.protected,
+                        attrs.semantic_content
+                    ),
+                    (wide, text, protected, semantic)
+                );
+                let mut tag = 0i32;
+                crate::check(sys::ghostty_cell_get(
+                    cell,
+                    sys::cell_data::CONTENT_TAG,
+                    (&mut tag as *mut i32).cast(),
+                ))
+                .unwrap();
+                match tag {
+                    2 => {
+                        let mut color = 0u8;
+                        crate::check(sys::ghostty_cell_get(
+                            cell,
+                            sys::cell_data::COLOR_PALETTE,
+                            (&mut color as *mut u8).cast(),
+                        ))
+                        .unwrap();
+                        assert_eq!(attrs.cell_background, StyleColor::Palette(color));
+                    }
+                    3 => {
+                        let mut color = sys::ColorRgb { r: 0, g: 0, b: 0 };
+                        crate::check(sys::ghostty_cell_get(
+                            cell,
+                            sys::cell_data::COLOR_RGB,
+                            (&mut color as *mut sys::ColorRgb).cast(),
+                        ))
+                        .unwrap();
+                        assert_eq!(
+                            attrs.cell_background,
+                            StyleColor::Rgb(Rgb {
+                                r: color.r,
+                                g: color.g,
+                                b: color.b
+                            })
+                        );
+                    }
+                    _ => assert_eq!(attrs.cell_background, StyleColor::None),
+                }
+                let colors = terminal.colors().unwrap();
+                for (key, actual) in [
+                    (sys::data::COLOR_FOREGROUND, colors.foreground),
+                    (sys::data::COLOR_BACKGROUND, colors.background),
+                    (sys::data::COLOR_CURSOR, colors.cursor),
+                    (
+                        sys::data::COLOR_FOREGROUND_DEFAULT,
+                        colors.default_foreground,
+                    ),
+                    (
+                        sys::data::COLOR_BACKGROUND_DEFAULT,
+                        colors.default_background,
+                    ),
+                    (sys::data::COLOR_CURSOR_DEFAULT, colors.default_cursor),
+                ] {
+                    let mut color = sys::ColorRgb { r: 0, g: 0, b: 0 };
+                    let result = sys::ghostty_terminal_get(
+                        terminal.handle.as_ptr(),
+                        key,
+                        (&mut color as *mut sys::ColorRgb).cast(),
+                    );
+                    if result == sys::NO_VALUE {
+                        assert_eq!(actual, None);
+                    } else {
+                        crate::check(result).unwrap();
+                        assert_eq!(
+                            actual,
+                            Some(Rgb {
+                                r: color.r,
+                                g: color.g,
+                                b: color.b
+                            })
+                        );
+                    }
+                }
+            }
+        }
+    }
+}

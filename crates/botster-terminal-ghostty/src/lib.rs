@@ -645,3 +645,6 @@ mod tests_color;
 
 #[cfg(test)]
 mod tests_archive;
+
+#[cfg(test)]
+mod tests_allocator;

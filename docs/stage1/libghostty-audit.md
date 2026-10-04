@@ -15,7 +15,7 @@ These APIs add no terminal parser, terminal encoder, or test branch.
 | ST-6b item 3 | `Terminal::cursor_appearance` | `ghostty_render_state_new`, `_update`, `_get`, `_free` | Restore tests compare cursor shape and blink. The read consumes render dirty state but leaves snapshot bytes unchanged. |
 | ST-6b item 4 | `Terminal::cell_hyperlink_uri` | `ghostty_grid_ref_hyperlink_uri` | Tests compare history URIs with their visible source and restored history. |
 | ST-6b, A8-2 pending state | `Terminal::continuation`, `set_continuation_max_bytes` | `ghostty_terminal_continuation_buf`, terminal option `CONTINUATION_MAX_BYTES` | Tests check retained input, ground state, disabled retention, and the configured limit. |
-| ST-6b failure observation | `Terminal::vt_processing_error` | Terminal data key `VT_PROCESSING_ERROR` | Tests check the key against the pinned header and distinguish configured limits from processing errors. |
+| ST-6b failure observation | `Terminal::vt_processing_error` | Terminal data key `VT_PROCESSING_ERROR` | Tests check the key against the pinned header. An injected C allocator failure sets the native flag and public read together. |
 
 The C continuation API reports unavailable input without its length or parser kind.
 It does not distinguish configured overflow from lost retention.
@@ -33,6 +33,13 @@ The lead accepted this classification for `oracle_resume_every_cut` under its no
 Prior art: the decoder reuses this crate's private decoder path from `tests_snapshot.rs`.
 The binding copies the hyperlink URI and continuation bytes from libghostty.
 No old botster-core code was reused.
+
+Mutation follow-up: direct C reads check cell fields, cell backgrounds, and dynamic colors independently of restore equality.
+The allocator fixture uses the existing `GhosttyAllocator` interface only in tests.
+The pinned `src/lib/allocator.zig` passes log2 alignment to each callback.
+The fixture follows that implementation, although the C header describes alignment in byte units.
+The `Render::drop` exclusion covers one cleanup call that only frees a native handle.
+Removing that call leaks memory but changes no public read.
 
 Scope: every Core clause that needs terminal semantics, checked against libghostty.
 Contract: botster-contracts tag `contracts-v0.1.1` (`366bca41da0a6de69cc1ea13b17c773cdfdb75b6`): manifest final14, Core erratum 2 ("E2") and steward ruling R-13.
