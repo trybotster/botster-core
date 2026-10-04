@@ -71,6 +71,8 @@ struct Mock {
     exits: Vec<(ProcessIdentity, ExitStatus)>,
     /// Bytes that arrive on a link when the pump settles the wake: the readiness that the poll reports late.
     late: Vec<(LinkId, Vec<u8>)>,
+    /// The scheduler's choices in the current pump: a pump that never ends fails the test at once (as `World::pump`).
+    choices: u32,
 }
 
 type Shared = Arc<Mutex<Mock>>;
@@ -247,6 +249,10 @@ impl HostEdges for Edges {
     }
 
     fn scheduler(&mut self) -> &mut dyn Scheduler {
+        let mut mock = self.0.lock().unwrap();
+        mock.choices += 1;
+        assert!(mock.choices < 10_000, "the pump does not settle");
+        drop(mock);
         &mut *self.1
     }
 }
@@ -279,6 +285,7 @@ impl Rig {
             send_cap: None,
             exits: Vec::new(),
             late: Vec::new(),
+            choices: 0,
         }));
         #[allow(clippy::disallowed_methods)] // a test starts the injected clock at a real instant
         let now = Instant::now();
@@ -291,6 +298,7 @@ impl Rig {
     }
 
     fn pump(&mut self) -> PumpReport {
+        self.mock.lock().unwrap().choices = 0;
         self.driver.pump(Now {
             monotonic: self.now,
             unix: self.unix,

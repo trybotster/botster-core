@@ -137,8 +137,14 @@ fn a_route_event_waits_in_a_full_queue_and_posts_after_a_poll() {
         },
     );
     assert_eq!(w.engine.parked_events_len(), 2, "the close waits too");
+    // Parked work that still finds no room stays parked.
+    w.feed(Input::Run(Work::Parked));
+    assert_eq!(w.engine.parked_events_len(), 2, "the close is kept");
     let first = w.engine.poll_events(64);
     assert_eq!(first.len(), 3);
+    // The close posts in one step of parked work, and it is not parked again.
+    w.feed(Input::Run(Work::Parked));
+    assert_eq!(w.engine.parked_events_len(), 1, "the close posted once");
     for _ in 0..4 {
         w.pump();
     }
