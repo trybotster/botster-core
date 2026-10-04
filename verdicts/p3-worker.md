@@ -2,7 +2,7 @@
 
 Current restack verdict: NOT CLEAN (F13 open after the mutation gate).
 Reviewed head: `fdd2b8e73927d592b75713c55a86c6ea8c60c037`, branch `stage1/p3-m1-v1`.
-Round 18 accepts one equivalent mutant and reviews four proposed tests. F13 remains open.
+Round 19 closes the five worker-core mutant entries. F13 remains open for 162 other entries.
 The CLEAN below applies only to the old M2a head that it names.
 
 VERDICT: CLEAN
@@ -807,3 +807,21 @@ F13 remains OPEN: one accepted equivalent entry, four entries awaiting mutation 
 All earlier findings retain their closures. This round does not grant CLEAN.
 
 VERDICT: NOT CLEAN (F13 open) on `fdd2b8e73927d592b75713c55a86c6ea8c60c037`.
+
+## Round 19 — Worker-core mutation evidence
+
+Evidence head: `fdd2b8e73927d592b75713c55a86c6ea8c60c037`.
+The reviewer read the focused Linux mutation log. The reviewer ran no tests or gate.
+Log: `~/botster-sessions/gates/botster-core-stage1-p3-m1-v1-fdd2b8e7-linux-20261004-132453-37330.log`.
+The header names this exact head and the file `crates/botster-worker-core/src/worker.rs`.
+The job reports exit 0: 110 mutants tested, 103 caught, and 7 unviable.
+The complete counts leave zero missed mutants and zero timeouts.
+This is focused mutation evidence, not a full green gate.
+
+The four worker-core entries reviewed in round 18 are now CLOSED under F13.
+The exact `Worker::report_exit` equivalent entry remains CLOSED by the accepted argument in round 18.
+All five original worker-core misses therefore have recorded closure.
+F13 remains OPEN for the other 162 entries in the preserved list.
+The implementer is continuing the testkit work. No new source delta accompanies this evidence.
+
+VERDICT: NOT CLEAN (F13 open; 162 mutant entries remain) on `fdd2b8e73927d592b75713c55a86c6ea8c60c037`.
