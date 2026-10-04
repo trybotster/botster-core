@@ -321,6 +321,8 @@ The binding also exposes, from the lead's rulings: `set_color_profile`, `shadow_
 
 The commits on the branch are in this order from the base: patches 2 and 3, then 0, 1, 4 to 13. Drop: none; no upstream change covers a patch.
 
+- **Zig packages at the new pin: 7.** A lib-vt build with `GHOSTTY_BUILD_ARGS` and an empty scratch global cache (Zig 0.16.0, macOS, 2026-10-04) fetched exactly the 7 hashes of `ZIG_PACKAGES`, so the list is unchanged. The count of 9 came from the shell extraction: the `sed` range `/pub const ZIG_PACKAGES/` also matched `ZIG_PACKAGES_IN_ZON`, which repeats 2 of the 7 hashes. `ci/remote/fetch-public.sh` removes the duplicates with `sort -u`. `prefetch-zig.sh` printed "9 packages"; its pattern is now `/pub const ZIG_PACKAGES: /`, so it reads the 7 hashes once.
+
 ## Rulings used
 
 - **E2 ruling A:** OSC 1 gives no `TitleChanged`. The bytes stay in `Output`.
