@@ -180,6 +180,9 @@ pub enum WorkerMsg {
         req: u64,
         pages: Vec<Page>,
     },
+    /// A change that the worker saw. The worker sends none before `Launched` (every observation comes from the payload's
+    /// output, its input or its resize). The host reads none while the session's start is not through: the frame stays unread
+    /// on the link, so the observations keep their order and follow `Running` (OR-2, ST-4).
     Observed {
         observation: Observation,
     },

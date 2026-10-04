@@ -266,17 +266,28 @@ fn adopt_all_takes_the_good_rows_and_leaves_the_others() {
     assert_eq!(again.engine.sessions[&sid("b")].admit, Admit::Lost);
 }
 
-/// Core EV-5, A2-1: an observation of the worker that arrives while the start is not through waits until `Running` and the
-/// completion of `Start` are posted; the events of the model come after them, in the order of the observations.
+/// Core OR-2, EV-5, plan 2.5 rule 7: the engine does not take an observation while the start is not through, also while
+/// `Running` waits for mandatory room; it takes it once the room is back and `Start` completed. The driver keeps the frame
+/// unread on its link meanwhile (`driver::observations`).
 #[test]
-fn an_observation_during_the_start_follows_running_and_the_completion() {
-    let mut w = World::default();
+fn an_observation_is_not_taken_while_the_start_is_not_through() {
+    use crate::flow::Flow;
+    let mut w = World::new(limits(|l| l.mandatory_events = 1));
     w.autopilot = Autopilot::Silent;
     w.ok(create("s1"));
     let start = w.engine.begin(Op::Start { id: sid("s1") }).unwrap();
     w.pump();
     let link = w.link_of_after_hello("s1");
+    let bell = Input::LinkMsg {
+        link,
+        msg: observation(Observation::Bell),
+    };
+    assert!(!w.engine.can_accept(&bell), "the start is not through");
     w.engine.poll_events(64);
+    // The `Created` of another session fills the mandatory queue (one event; completions use their op's slot, EV-5a), so
+    // `Running` waits for room after the launch.
+    w.engine.begin(create("x")).unwrap();
+    w.pump();
     w.feed(Input::LinkMsg {
         link,
         msg: WorkerMsg::Launched {
@@ -289,50 +300,11 @@ fn an_observation_during_the_start_follows_running_and_the_completion() {
             },
         },
     });
-    let mut modes = terminal_state().modes.clone();
-    modes.alt_screen = !modes.alt_screen;
-    w.feed(Input::LinkMsg {
-        link,
-        msg: observation(Observation::Modes {
-            flags: modes.clone(),
-            model_rev: ModelRev(9),
-        }),
-    });
-    w.feed(Input::LinkMsg {
-        link,
-        msg: observation(Observation::Title {
-            title: "t".into(),
-            model_rev: ModelRev(10),
-        }),
-    });
-    let mut events = Vec::new();
-    for _ in 0..10 {
-        w.pump();
-        events.extend(w.engine.poll_events(64));
-    }
-    let names: Vec<&str> = events
-        .iter()
-        .map(|e| match e {
-            Event::SessionState {
-                state: SessionState::Running,
-                ..
-            } => "running",
-            Event::Completed { op, .. } if *op == start => "completed",
-            Event::ModesChanged { .. } => "modes",
-            Event::TitleChanged { .. } => "title",
-            _ => "other",
-        })
-        .collect();
-    assert_eq!(
-        names,
-        ["running", "completed", "modes", "title"],
-        "{events:?}"
-    );
-    assert_eq!(
-        w.engine.terminal_state(&sid("s1")).unwrap().modes,
-        modes,
-        "the cache follows the observation after the start"
-    );
+    w.pump();
+    assert!(matches!(w.engine.sessions[&sid("s1")].flow, Flow::Start(_)));
+    assert!(!w.engine.can_accept(&bell), "`Running` waits for room");
+    w.complete(start);
+    assert!(w.engine.can_accept(&bell), "the start is through");
 }
 
 /// Core DP-7, EV-5(b): a failed handoff closes its route once, posts nothing for a route that is gone, and parks only a close

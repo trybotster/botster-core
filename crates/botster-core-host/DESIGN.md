@@ -43,6 +43,7 @@ Package P1 (session registry and lifecycle) of Stage 1. Plan pin `555bc433`, con
 | The input lane of a session is released when the host polls the write's `Completed`. | AM-4, EV-5a. |
 | `cancel` keeps the exact set of op ids of removed instances as ranges, for the life of the handle. | ID-1 and IN-6 give no window. |
 | A frame that needs mandatory room is held unread on its link with the read interest off; the pump bounds events and bytes per link, a due deadline runs first, and sessions are visited round-robin. | EV-5b, plan 2.4, 2.5 rule 7, 9B. |
+| A worker observation is held unread on its link while the session's start is not through (the engine does not accept it), and the driver retries a held frame each time it services the link, before the link's later frames. The host keeps no queue of observations. | OR-2 and EV-5: the events of the model follow `Running` and `Completed{Start}`; ST-4, EV-6: the worker's order is kept; EV-2 and plan 2.5 rule 7: what waits is bounded by one held frame and one read chunk (review findings F21, F22). |
 | `RemoveReport` is built through its JSON form. | The type is `#[non_exhaustive]` and `contracts-v0.1.2` gives it no constructor. A constructor in the next tag removes the workaround. |
 | The registry key of a session is `session/<id>`; the real `Storage` names the file by the SHA-256 of the key. | Any id is a valid key, and the file name stays short. |
 

@@ -136,7 +136,7 @@ impl HostEngine {
             }
         }
         for (id, s) in &self.sessions {
-            if s.metadata_pending || (!s.held_obs.is_empty() && !matches!(s.flow, Flow::Start(_))) {
+            if s.metadata_pending {
                 out.push(Work::Session(id.clone()));
                 continue;
             }
