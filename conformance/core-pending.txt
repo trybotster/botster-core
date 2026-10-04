@@ -69,7 +69,7 @@ conf::a2_7_pump_report_fields
 conf::a2_7_set_silence_threshold_errors
 # TI-1: waits for spawn_record (M2a).
 conf::a2_8_core_sets_no_term_in_the_session_env
-# TI-1: testkit proof added; waits for its Linux result and RealCoreHarness.
+# TI-1: testkit passes; waits for RealCoreHarness.
 conf::a2_8_terminal_identity_names_the_entry
 # TI-1: waits for tic_compile (slow tier, real process).
 conf::a2_8_terminfo_source_compiles_with_tic

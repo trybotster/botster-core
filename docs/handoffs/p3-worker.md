@@ -8,6 +8,12 @@
   PR #137 gives real Core the pinned binding identity.
   The M1 follow-up also gives TestkitCore that identity.
   The TI-1 identity transcript joins the M1 proof list. Its id remains pending for real-harness proof.
+  All three a2_8 ids remain pending under the lead's confirmed rule.
+  The environment id waits for spawn_record in M2a. The tic id waits for the slow-tier process control.
+- Focused TI-1 Linux job at code head `9a6099d4125bdf2a23db0290c506507fc0f3509f`: exit 0.
+  Log: `~/botster-sessions/gates/botster-core-stage1-p3-m1-v1-9a6099d4-linux-20261004-125359-14517.log`.
+  The identity transcript and five M1 lifecycle transcripts passed.
+  The following commits change only pending-list comments and this handoff.
 - Reviewer: `sess-1791142479-0100-7411ff7507ce89a5e7416311610290d3`.
 - The lead will staff the integration reviewer when M1 enters review.
 - P1 wiring `befe0ff`, the M1 commits, `f60e7d9`, and the lock fix `46b1694` applied without conflicts.
