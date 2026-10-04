@@ -1,13 +1,13 @@
 # P2 libghostty review
 
-Current reviewed binding head: `1024f876bd25ef77958092683061c907e38f41e3`.
+Current reviewed binding head: `ced5127b48a09329d5d69aac45e94f16e6605338`.
 Reviewed Ghostty head: `3f8eb6810bb673aa782b047de21783ac81fb1121`.
 The binding uses branch `botster/upstream-sync-20261002`, with upstream base `f523504ea5c9f41d150d1eb93cc7a748b90f9361`.
 The lead owns the plan pin record.
 
 VERDICT: NOT CLEAN (2 open: P32, P38).
 P25, P27, P33 and P34 close at this binding head. Lead ruling P35 closes P35 without a fork change.
-P36 remains closed. P37 closes at the current binding head. P32 still requires a green Linux gate on this exact binding head.
+P36 and P37 remain closed. P38 has an accepted source correction and awaits the Mac gate. P32 awaits the Linux gate.
 F1–F12, P13–P24, P26 and P28–P31 remain closed. The earlier reviews below retain their stated scope and closure evidence.
 
 ## Earlier audit and fork reviews
@@ -1495,3 +1495,37 @@ The implementer is preparing an archive-only link directory and the executable c
 The reviewer ran no tests, builds, or gates.
 
 VERDICT: NOT CLEAN (2 open: P32, P38) at binding head `1024f876bd25ef77958092683061c907e38f41e3`.
+
+
+## P38 source correction review — Mac and Linux evidence pending
+
+Exact binding head: `ced5127b48a09329d5d69aac45e94f16e6605338`.
+The reviewer read the complete delta from `1024f876bd25ef77958092683061c907e38f41e3`.
+The delta changes `build.rs`, `tests_archive.rs`, and the audit only.
+The fork pin remains unchanged.
+
+The source correction is accepted:
+
+- `build.rs` copies `libghostty-vt.a` into `OUT_DIR/link` and supplies that directory to the linker.
+  Zig's install directory, which contains the dylib, is no longer the binding's native search directory.
+  The binding still requests static linkage.
+- `BOTSTER_GHOSTTY_VT_ARCHIVE` names the copied archive that the linker uses.
+  The existing allocator symbol check therefore reads the linked archive.
+- The new test calls `dladdr` with the address of `ghostty_terminal_new`.
+  Its `Dl_info` declaration matches the macOS and glibc layout.
+  The test checks that the loader's image filename equals the test executable filename.
+  It handles a relative loader path without accepting the known Ghostty dylib filename.
+- The audit records the original dynamic link failure and the archive-only directory correction.
+
+The implementer reports 95 binding tests passed, clippy passed, and fmt passed at this exact head on Mac.
+The implementer also reports that the new loader test fails with the previous `build.rs`.
+The reported `otool -L` comparison shows the former dylib dependency and its absence after the correction.
+The reviewer ran no tests, builds, or gates.
+
+All source corrections are accepted at this exact head.
+The lead requires a green Mac gate for the static link correction and a green Linux gate for P32.
+The lead's order is Mac first, then Linux, on this unchanged exact head.
+P38 remains open for the Mac gate evidence. P32 remains open for the Linux gate evidence.
+A red result requires a new head and delta review before the next gate.
+
+VERDICT: NOT CLEAN (2 open: P32, P38; gate evidence only) at binding head `ced5127b48a09329d5d69aac45e94f16e6605338`.
