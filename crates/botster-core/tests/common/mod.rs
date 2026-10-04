@@ -7,9 +7,10 @@ use std::path::{Path, PathBuf};
 
 /// Waits without using the CPU and ends when the test process, the worker's parent, is gone: a test that is killed runs no
 /// guard, and nothing may outlive it. Each `sleep` is a background job that `wait` waits for, so a signal ends the wait at
-/// once. The interval of 1 s bounds how long a worker outlives its parent; it is not a timeout of a test.
+/// once. The interval of 1 s bounds how long a worker outlives its parent; it is not a timeout of a test. A `$PPID` of 1 means
+/// that the parent was gone before the worker started.
 pub const WAIT_WHILE_THE_PARENT_LIVES: &str =
-    "while kill -0 $PPID 2>/dev/null; do /bin/sleep 1 >/dev/null 2>&1 & wait $!; done";
+    "while [ \"$PPID\" != 1 ] && kill -0 $PPID 2>/dev/null; do /bin/sleep 1 >/dev/null 2>&1 & wait $!; done";
 
 /// Makes a FIFO. The worker scripts use FIFOs with external commands (`/bin/echo`, `/usr/bin/tee`), never with shell
 /// builtins.
