@@ -78,6 +78,7 @@ impl Core {
             names: BTreeSet::from([Feature::Silence, Feature::NotificationPolicy]),
             service_preamble_versions: vec![1],
         };
+        let identity = botster_terminal_ghostty::terminal_identity();
         let cfg = EngineConfig {
             limits: config.limits,
             features,
@@ -86,11 +87,8 @@ impl Core {
             worker_protocol: WORKER_PROTOCOL,
             shadow_answerable: Vec::new(),
             terminal_identity: TerminalIdentity {
-                term: "xterm-ghostty".to_string(),
-                // PLACEHOLDER (Core TI-1, A2-8): the terminfo source of the pinned emulator comes from P2's binding
-                // (`botster-terminal-ghostty`), which is not on `v1` yet. Core must not invent it. The follow-up PR wires
-                // `botster_terminal_ghostty::terminal_identity()` and removes this value; the a2_8 ids stay pending until then.
-                terminfo_source: String::new(),
+                term: identity.term,
+                terminfo_source: identity.terminfo_source,
             },
         };
         Ok(Core {
@@ -287,6 +285,11 @@ mod slow_tests {
         );
         assert!(core.features().names.contains(&Feature::Silence));
         assert_eq!(core.terminal_identity().term, "xterm-ghostty");
+        let identity = botster_terminal_ghostty::terminal_identity();
+        assert_eq!(
+            core.terminal_identity().terminfo_source,
+            identity.terminfo_source
+        );
         assert!(core.list().is_empty());
         assert!(core.status().sessions.is_empty());
         assert_eq!(core.diagnostics()["sessions"], 0);

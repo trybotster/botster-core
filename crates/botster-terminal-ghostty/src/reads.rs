@@ -1,7 +1,53 @@
 //! The reads of the model (ST-2, ST-3): the screen text, the cursor and the cells of a row. Every value comes from
 //! libghostty; this module only copies it.
 
-use crate::sys;
+use crate::{sys, Error, Terminal};
+
+impl Terminal {
+    /// Read the OSC 8 URI of a visible cell through libghostty (Core EV-7 and ST-6b).
+    /// An empty URI means that the cell has no hyperlink. An invalid cell returns `Error::InvalidValue`.
+    pub fn hyperlink_uri(&self, row: u32, col: u32) -> Result<String, Error> {
+        self.cell_hyperlink_uri(row, col, false)
+    }
+
+    /// Read a cell URI (Core ST-6b item 4). With `history`, row zero starts at the oldest scrollback row.
+    pub fn cell_hyperlink_uri(&self, row: u32, col: u32, history: bool) -> Result<String, Error> {
+        let x = u16::try_from(col).map_err(|_| Error::InvalidValue)?;
+        let tag = if history {
+            sys::point_tag::SCREEN
+        } else {
+            sys::point_tag::ACTIVE
+        };
+        let reference = grid_ref(self.handle.as_ptr(), tag, x, row).ok_or(Error::InvalidValue)?;
+        let mut needed = 0;
+        // SAFETY: the reference is valid until the next mutation. A null buffer asks for the size.
+        let code = unsafe {
+            sys::ghostty_grid_ref_hyperlink_uri(&reference, std::ptr::null_mut(), 0, &mut needed)
+        };
+        if code == sys::SUCCESS {
+            return Ok(String::new());
+        }
+        if code != sys::OUT_OF_SPACE {
+            return Err(Error::from_code(code));
+        }
+        let mut bytes = Vec::new();
+        bytes
+            .try_reserve_exact(needed)
+            .map_err(|_| Error::OutOfMemory)?;
+        bytes.resize(needed, 0);
+        // SAFETY: the buffer holds the required size. No mutation invalidated the reference.
+        crate::check(unsafe {
+            sys::ghostty_grid_ref_hyperlink_uri(
+                &reference,
+                bytes.as_mut_ptr(),
+                bytes.len(),
+                &mut needed,
+            )
+        })?;
+        bytes.truncate(needed);
+        Ok(String::from_utf8_lossy(&bytes).into_owned())
+    }
+}
 
 /// The text of the screen (ST-2).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -38,7 +84,7 @@ pub(crate) fn cursor(terminal: sys::Terminal) -> CursorCell {
     }
 }
 
-fn grid_ref(terminal: sys::Terminal, tag: i32, x: u16, y: u32) -> Option<sys::GridRef> {
+pub(crate) fn grid_ref(terminal: sys::Terminal, tag: i32, x: u16, y: u32) -> Option<sys::GridRef> {
     let mut grid_ref = sys::GridRef::empty();
     // SAFETY: the terminal is live and `grid_ref` is a valid out pointer with its size set.
     let code = unsafe {
