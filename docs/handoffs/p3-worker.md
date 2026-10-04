@@ -469,3 +469,19 @@ Both fixtures use the same session tests, control codec, payload guard, and work
 The observer's launch data matches the fixture. No production test branch or second worker machine exists.
 The fixture move preserves the real worker tests. It does not establish mutation closure by itself.
 Next: run the slow driver unit baseline on Linux, then inspect its focused mutation results.
+
+## F20 driver-observer lifetime correction (2026-10-04)
+
+The Linux driver unit baseline at `e4593e86` passed all ten tests in 0.214 seconds.
+Log: `~/botster-sessions/gates/botster-core-stage1-p3-m1-v1-e4593e86-linux-20261004-164407-87814.log`.
+Focused driver mutation on that head is active. No second heavy job has started.
+Package review opens F20 because the test observer lacks independent cleanup on parent death.
+The observer now starts in its own group through the existing GroupGuard registration prefix.
+The anchor joins that group before Driver runs. Socket EOF on parent death makes the anchor end the observer group.
+The payload retains its separate guard. Production alone reaps the payload.
+OwnedWorker drops both guards before it retires its retained observer Child handle.
+The prebuilt integration worker launch remains unchanged.
+A new test kills only its retained parent Child and requires observer pipe EOF within ten seconds.
+The parent helper starts a real Driver observer and payload before it reports readiness.
+The test never signals an observer or payload through a cached pid.
+This correction requires source review and an exact-head Linux baseline after the active mutation run ends.
