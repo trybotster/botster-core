@@ -1,8 +1,8 @@
 # P3 worker review
 
-Current restack verdict: NOT CLEAN (1 open finding, F12).
-Reviewed head: `049751aed4b97fc7b817c0201119c0e363a73935`, branch `stage1/p3-m1-v1`.
-Round 12 covers the M1 delta from `46b16945`. All earlier verdicts and closures remain historical evidence.
+Current restack verdict: CLEAN (P3 package scope, M1 only).
+Reviewed head: `ed92707f51f80ddd31f3b3c9fb88f4151e94cdbb`, branch `stage1/p3-m1-v1`.
+Round 13 closes F12. All earlier verdicts and closures remain historical evidence.
 The CLEAN below applies only to the old M2a head that it names.
 
 VERDICT: CLEAN
@@ -624,3 +624,35 @@ This verdict covers P3's package scope. M1 also requires the integration reviewe
 
 VERDICT: NOT CLEAN (1 open finding) on the exact M1 head above.
 Every finding, including LOW findings, must close before CLEAN.
+
+## Round 13 — Closure of F12
+
+Reviewed head: `ed92707f51f80ddd31f3b3c9fb88f4151e94cdbb`, PR #136.
+Previous reviewed head: `049751aed4b97fc7b817c0201119c0e363a73935`.
+The complete delta changes the guard's signal handlers, the broken-cleanup test, and the handoff.
+
+F12 status: CLOSED at this head.
+The member registers handlers for both SIGHUP and SIGTERM before it connects and registers with the guard.
+The shell waits for registration before it runs the payload script.
+A graceful SIGTERM therefore does not remove the member that performs independent cleanup.
+The member still signals its own current group on socket EOF. The guard does not reap the production payload.
+
+The broken-cleanup test installs HUP and TERM traps in the payload and waits for the payload's FIFO readiness message.
+The test sends `Op::Signal(Term)` and requires its successful `Done` report.
+The test then kills the worker with SIGKILL and waits for the worker's exit.
+The FIFO remains held before cleanup. A caught panic drops the guard, and FIFO EOF proves that the payload released the FIFO.
+The test retains its marked deadline. No child busy-spin or cached group signal is added.
+
+The handoff distinguishes the failed first focused job from the corrected job on the previous head.
+The implementer reports 37 worker-core units, five M1 transcript ids, five slow_payload entries, and nine slow_session entries passing at `049751a`.
+That evidence predates this fix. The implementer later reports five slow_payload entries and nine slow_session entries passing on this exact head.
+The reported entries include the graceful SIGTERM, worker SIGKILL, and panic case.
+Reported log: `~/botster-sessions/gates/botster-core-stage1-p3-m1-v1-ed92707f-linux-20261004-124906-8719.log`.
+The reviewer inspected logic only and ran no tests or gate. This verdict does not establish test success or a green gate.
+
+No new finding exists. F1 through F12 are CLOSED at their recorded scope and heads.
+This CLEAN covers P3's package scope for restacked M1 only. The integration reviewer must also clear this exact head.
+M2a, the terminal model, the remaining M2 features, and the same-suite real-process proof remain later work.
+
+VERDICT: CLEAN on `ed92707f51f80ddd31f3b3c9fb88f4151e94cdbb`.
+Any later commit requires a delta review before this verdict applies to that head.
