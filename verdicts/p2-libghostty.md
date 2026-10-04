@@ -5,7 +5,7 @@ Reviewed Ghostty head: `3f8eb6810bb673aa782b047de21783ac81fb1121`.
 The binding uses branch `botster/upstream-sync-20261002`, with upstream base `f523504ea5c9f41d150d1eb93cc7a748b90f9361`.
 The lead owns the plan pin record.
 
-VERDICT: NOT CLEAN (1 open: P32).
+VERDICT: NOT CLEAN (2 open: P32, P37).
 P25, P27, P33 and P34 close at this binding head. Lead ruling P35 closes P35 without a fork change.
 P36 closes at the current binding head. P32 still requires a green Linux gate on this exact binding head.
 F1–F12, P13–P24, P26 and P28–P31 remain closed. The earlier reviews below retain their stated scope and closure evidence.
@@ -1399,3 +1399,34 @@ P32 requires a green Linux gate on `bd94cb61eefd026db41f3d3b14cf464b9d3e7bb8`.
 A gate on a different head cannot close P32 for this head.
 
 VERDICT: NOT CLEAN (1 open: P32) at binding head `bd94cb61eefd026db41f3d3b14cf464b9d3e7bb8`.
+
+
+## Linux gate result — P32 remains open; P37 records the list failure
+
+Exact binding head: `bd94cb61eefd026db41f3d3b14cf464b9d3e7bb8`.
+The lead authorized the implementer to run the Linux gate before P32 closure.
+The reviewer read this log:
+
+```text
+~/botster-sessions/gates/botster-core-stage1-p2-libghostty-bd94cb61-linux-20261004-004350-76462.log
+```
+
+The gate exits 1. Fmt, clippy, and taint pass. The conformance list check fails with three errors.
+All later steps, including tests, are NOT RUN. This result does not close P32.
+The earlier statement that all code and test findings were closed predates this gate result.
+
+### P37 — MEDIUM — The contract pin move leaves invalid conformance lists
+
+**Evidence:** the exact-head Linux gate reports these errors:
+
+- `conformance/contracts-withdrawn.txt` differs from the withdrawn file of the pinned contracts tag.
+- `conformance/core-ledger-ids.txt` contains 643 ids; the pinned Core ledger contains 654 ids.
+- The withdrawn check rejects `conf::wp_3_served_code_is_trusted_not_claimed_otherwise` because it is not a Core ledger id.
+
+**Required change:** regenerate the lists from the pinned contracts tag.
+Correct the withdrawn check to preserve the pinned withdrawn record while checking the proper ledger scope.
+Do not bypass the list check or remove a valid pinned withdrawal to make the gate pass.
+Send the new exact head for delta review before another gate, under the lead's stated order.
+The implementer has asked the lead for the withdrawn-check decision.
+
+VERDICT: NOT CLEAN (2 open: P32, P37) at binding head `bd94cb61eefd026db41f3d3b14cf464b9d3e7bb8`.
