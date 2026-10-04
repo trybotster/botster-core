@@ -103,8 +103,8 @@ pub fn check_open(config: &OpenConfig) -> Result<PathBuf, CoreError> {
     })
 }
 
-/// The first byte count that a link read asks for.
-const READ_CHUNK: usize = 16 * 1024;
+/// The first byte count that a link read asks for (16 KiB).
+const READ_CHUNK: usize = 16_384;
 
 #[derive(Debug)]
 struct LinkState {

@@ -102,6 +102,16 @@ impl WakeEdge for PollWake {
     }
 }
 
+/// Calls `call` again while the kernel interrupts it (`EINTR`), and returns its first other result.
+fn retry_interrupted<T>(mut call: impl FnMut() -> io::Result<T>) -> io::Result<T> {
+    loop {
+        match call() {
+            Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
+            other => return other,
+        }
+    }
+}
+
 /// What a wait that ended means (TH-2): an event or the flag is a wake; a timeout with neither is `TimedOut`; a failed wait
 /// (an interrupted one) is a spurious wake, which TH-2 allows.
 fn wake_after(polled_ok: bool, any_event: bool, flagged: bool) -> Wake {
@@ -285,7 +295,7 @@ impl HostEdges for RealEdges {
 
     fn accept_link(&mut self) -> Option<LinkId> {
         loop {
-            match self.listener.accept() {
+            match retry_interrupted(|| self.listener.accept()) {
                 Ok((mut stream, _)) => {
                     let link = LinkId(self.next_link);
                     self.next_link += 1;
@@ -307,7 +317,6 @@ impl HostEdges for RealEdges {
                         return Some(link);
                     }
                 }
-                Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
                 Err(_) => return None,
             }
         }
@@ -384,6 +393,23 @@ fn _source_fd(fd: &RawFd) -> SourceFd<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A call that the kernel interrupts is made again; any other result, an error included, is returned at once.
+    #[test]
+    fn an_interrupted_call_is_made_again_and_other_results_return() {
+        let mut calls = 0;
+        let result: io::Result<()> = retry_interrupted(|| {
+            calls += 1;
+            match calls {
+                1 => Err(io::Error::from(io::ErrorKind::Interrupted)),
+                2 => Err(io::Error::from(io::ErrorKind::WouldBlock)),
+                _ => panic!("called again after an error that is not an interruption"),
+            }
+        });
+        assert_eq!(result.unwrap_err().kind(), io::ErrorKind::WouldBlock);
+        assert_eq!(calls, 2);
+        assert_eq!(retry_interrupted(|| Ok::<u8, io::Error>(7)).unwrap(), 7);
+    }
 
     /// TH-2: a wait is a wake when it was interrupted, when an event came, or when the flag is set; only a quiet timeout is
     /// `TimedOut`.
