@@ -1,13 +1,13 @@
 # P2 libghostty review
 
-Current reviewed binding head: `bd94cb61eefd026db41f3d3b14cf464b9d3e7bb8`.
+Current reviewed binding head: `1024f876bd25ef77958092683061c907e38f41e3`.
 Reviewed Ghostty head: `3f8eb6810bb673aa782b047de21783ac81fb1121`.
 The binding uses branch `botster/upstream-sync-20261002`, with upstream base `f523504ea5c9f41d150d1eb93cc7a748b90f9361`.
 The lead owns the plan pin record.
 
-VERDICT: NOT CLEAN (2 open: P32, P37).
+VERDICT: NOT CLEAN (1 open: P32).
 P25, P27, P33 and P34 close at this binding head. Lead ruling P35 closes P35 without a fork change.
-P36 closes at the current binding head. P32 still requires a green Linux gate on this exact binding head.
+P36 remains closed. P37 closes at the current binding head. P32 still requires a green Linux gate on this exact binding head.
 F1–F12, P13–P24, P26 and P28–P31 remain closed. The earlier reviews below retain their stated scope and closure evidence.
 
 ## Earlier audit and fork reviews
@@ -1430,3 +1430,34 @@ Send the new exact head for delta review before another gate, under the lead's s
 The implementer has asked the lead for the withdrawn-check decision.
 
 VERDICT: NOT CLEAN (2 open: P32, P37) at binding head `bd94cb61eefd026db41f3d3b14cf464b9d3e7bb8`.
+
+
+## P37 correction review — merged tool and regenerated lists
+
+Exact binding head: `1024f876bd25ef77958092683061c907e38f41e3`.
+The reviewer read the complete delta from `bd94cb61eefd026db41f3d3b14cf464b9d3e7bb8`.
+
+Merge `76f9b63ad4db2fc68a1347fd3a15bcb2f808fce8` has parents `bd94cb61` and `e43225fbf898947caa942f9689a02124343893c3`.
+Its tool correction equals `d716a250245ee90129744527b01cdfc50e16f672:xtask/src/lists.rs` byte for byte.
+The separate CLEAN verdict for that correction is `b6d207fc80e0a167f442207f262af81d6b810252`, in `verdicts/lists-withdrawn-scope.md`.
+The remaining delta changes only the two Core lists, the withdrawn copy, and the test of pinned status files.
+
+**P37 closes.** The reviewer compared the files with contracts commit `a8db5c9a0f43fc440564989fd38a55121fdda38b`:
+
+- `core-ledger-ids.txt` equals the 654 Core IDs of the pinned ledger.
+- The ledger adds exactly 11 A13 IDs. The pending list adds exactly those same IDs and removes none.
+  The pending list contains 650 IDs. These entries remain pending for P3; this change claims no passing conformance proof.
+- Both shared status copies equal the pinned contracts files byte for byte.
+  The withdrawn copy includes the valid HP withdrawal with no replacement.
+- The deferred file remains unchanged.
+- The status parser remains unchanged. Its pinned-file test now expects three withdrawals, including one with no replacement.
+  The lead accepted this test change within P2's PR.
+
+The implementer reports fmt, lists, five testkit status tests, and testkit clippy passed on the same tree.
+The reviewer ran source data comparisons, but no tests, builds, or gates.
+The binding crate and fork pin remain unchanged, so their earlier source acceptance carries to this exact head.
+All code and test findings are closed. P32 remains open for exact-head Linux evidence only.
+
+VERDICT: NOT CLEAN (1 open: P32) at binding head `1024f876bd25ef77958092683061c907e38f41e3`.
+The lead's gate order permits the implementer to gate a new head after its delta review.
+A green Linux gate on this exact head closes P32; a result from an earlier head cannot close it here.
