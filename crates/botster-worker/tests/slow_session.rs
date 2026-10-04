@@ -431,7 +431,7 @@ fn a_panic_after_worker_sigkill_ends_the_payload_group() {
     session.signal_worker(rustix::process::Signal::KILL);
     session.worker.worker.wait().unwrap();
     let mut fds = [rustix::event::PollFd::new(
-        &reader,
+        reader.get_ref(),
         rustix::event::PollFlags::IN,
     )];
     assert_eq!(

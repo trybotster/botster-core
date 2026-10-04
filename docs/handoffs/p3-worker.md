@@ -1,5 +1,34 @@
 # P3 handoff: session worker, PTY and terminal (Stage 1 Core)
 
+## Resume on 2026-10-04: M1
+
+- Worktree: `~/botster-sessions/trybotster-botster-core-stage1-p3-m1-v1`.
+- Branch: `stage1/p3-m1-v1`, based on merged P1 `1d25d093301072bd0c13a122c68d8f1b1ca0815c`.
+- Reviewer: `sess-1791142479-0100-7411ff7507ce89a5e7416311610290d3`.
+- The lead will staff the integration reviewer when M1 enters review.
+- P1 wiring `befe0ff`, the M1 commits, `f60e7d9`, and the lock fix `46b1694` applied without conflicts.
+- The restack keeps `pub mod candidate`, `RefusalLayer`, and P1's merged host fixes.
+- The contracts pin remains `contracts-v0.1.13`. The binding remains v1's P2 binding on Ghostty `3f8eb68`.
+- The old pushed branches remain unchanged.
+- M1 now has an independent test guard for each PTY payload group.
+  A member starts inside the payload session before the shell body runs.
+  That member kills its current group on socket EOF.
+  The test closes the socket on Drop and panic. Production alone reaps the payload.
+  The guard holds group membership after a natural leader exit and never signals a cached group id.
+- The broken-cleanup test kills the worker with SIGKILL before a test panic.
+  The test checks that the payload still holds its FIFO before guard cleanup.
+  The test then requires FIFO EOF after guard cleanup.
+- Focused Linux job: head `88f7bfecce6187a0084df4ca7b0f1104e08dae81`.
+  Log: `~/botster-sessions/gates/botster-core-stage1-p3-m1-v1-88f7bfec-linux-20261004-124221-89834.log`.
+  The job builds the candidate and runs worker-core units, M1 transcripts, slow_payload, and slow_session.
+  The result is pending. A later delta borrows the FIFO's File descriptor directly.
+- Open review findings: none received on this restack. The new guard needs review.
+- Next: finish focused verification, obtain both exact-head CLEAN verdicts, and run one full Linux gate.
+- M2a and M2b remain separate PRs after M1 merges. The pause record below lists their remaining scope.
+
+## Pause record (2026-10-02; historical pins and contacts)
+
+
 Written 2026-10-02 at the lead's PAUSE. The package is paused at a clean point. No gate runs. Nothing is uncommitted.
 
 ## Contacts and rules
