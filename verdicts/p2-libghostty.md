@@ -5,10 +5,12 @@ Reviewed Ghostty head: `3f8eb6810bb673aa782b047de21783ac81fb1121`.
 The binding uses branch `botster/upstream-sync-20261002`, with upstream base `f523504ea5c9f41d150d1eb93cc7a748b90f9361`.
 The lead owns the plan pin record.
 
-VERDICT: NOT CLEAN (2 open: P32, P38).
-P25, P27, P33 and P34 close at this binding head. Lead ruling P35 closes P35 without a fork change.
-P36 and P37 remain closed. P39 closes at the current head. P38 awaits the Mac gate. P32 awaits the Linux gate.
-F1–F12, P13–P24, P26 and P28–P31 remain closed. The earlier reviews below retain their stated scope and closure evidence.
+VERDICT: CLEAN (0 open) at this exact binding head.
+Every finding is closed: F1–F12 and P13–P39, including the LOW findings.
+P32 closes with the exact-head green Linux gate. P38 closes with the exact-head green Mac gate.
+The earlier reviews below retain every finding, its stated scope, and its closure evidence.
+This verdict does not claim that pending conformance IDs pass or that the package has merged.
+A later binding commit requires a delta review.
 
 ## Earlier audit and fork reviews
 
@@ -1660,3 +1662,52 @@ P32 remains open for the complete green Linux gate on this exact head.
 The gate order remains Mac first, then Linux, with the head unchanged.
 
 VERDICT: NOT CLEAN (2 open: P32, P38; gate evidence only) at binding head `ff603fe3603275c4c02c173605a817aa9949960b`.
+
+
+## Exact-head gate evidence — P32 and P38 closed; CLEAN
+
+Exact binding head: `ff603fe3603275c4c02c173605a817aa9949960b`.
+Exact Ghostty pin: `3f8eb6810bb673aa782b047de21783ac81fb1121`.
+The reviewer read both gate headers, failure checks, test records, mutation results, and summaries.
+Both headers name the exact binding head and base `e43225fbf898947caa942f9689a02124343893c3`.
+The implementer ran Mac first, then Linux, as the lead required.
+The reviewer ran no gates.
+
+### Mac evidence
+
+```text
+~/botster-sessions/gates/botster-core-stage1-p2-libghostty-ff603fe3-mac-20261004-021429-15568.log
+```
+
+The forced Mac gate exits 0 after 777 seconds.
+Every step passes: fmt, clippy, taint, lists, public-api, prebuild-worker, test-budget, slow, mutants, and fuzz.
+All 114 binding tests pass, including the loader check and allocator symbol check.
+The default test tier reports 393 passed and 654 skipped. The slow tier reports four passed and zero skipped.
+Mutation testing reports 387 tested: 367 caught, 20 unviable, zero missed, and zero timeouts.
+The fuzz step passes because the diff changes no crate with a decoder harness; it does not claim a new fuzz campaign.
+
+**P38 closes.** The complete Mac gate is green on the corrected static-link head.
+The loader check confirms that `ghostty_terminal_new` belongs to the test executable, not the Ghostty dylib.
+The earlier source correction and its failing-before evidence remain recorded above.
+
+### Linux evidence
+
+```text
+~/botster-sessions/gates/botster-core-stage1-p2-libghostty-ff603fe3-linux-20261004-022737-99352.log
+```
+
+The forced Linux gate exits 0 after 651 seconds, in job 540 on the gate host.
+Every step passes: fmt, clippy, taint, lists, public-api, prebuild-worker, test-budget, slow, mutants, and fuzz.
+All 114 binding tests pass, including `the_native_archive_defines_no_libc_allocator_symbol` and the loader check.
+The default test tier reports 393 passed and 654 skipped. The slow tier reports four passed and zero skipped.
+Mutation testing reports 387 tested: 367 caught, 20 unviable, zero missed, and zero timeouts.
+The fuzz step passes with the same decoder-harness scope stated for Mac.
+
+**P32 closes.** The required binding Linux gate is green on the exact reviewed head.
+The linked native archive passes the allocator-symbol check, and the binding tests complete without the earlier allocator aborts.
+The fork's earlier native evidence supports this result but does not replace this exact-head gate.
+
+P39 remains closed; both gates confirm zero surviving non-excluded mutants with the reviewed exclusion configuration.
+All earlier closures remain valid at this head. No finding, including a LOW finding, remains open.
+
+VERDICT: CLEAN (0 open) at binding head `ff603fe3603275c4c02c173605a817aa9949960b`.
