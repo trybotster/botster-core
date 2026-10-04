@@ -11,65 +11,6 @@
 exclude_globs = ["**/tests/**", "tests/**"]
 
 exclude_re = [
-    # xtask (P0): one entry per function; the reason of each group is on the lines above its entries.
-    # fsutil: wrappers of `git` and `cargo metadata` and of one environment variable. They return the data that the pure checks judge; a
-    # replaced body is seen by a real `cargo xtask ci` run, not by a unit test. The decision `base_ref_from` is mutation-tested.
-    'xtask/src/fsutil\.rs:\d+:\d+: (replace repo_root( ->| with)|.* in repo_root$)',
-    'xtask/src/fsutil\.rs:\d+:\d+: (replace tracked_files( ->| with)|.* in tracked_files$)',
-    'xtask/src/fsutil\.rs:\d+:\d+: (replace git_show( ->| with)|.* in git_show$)',
-    'xtask/src/fsutil\.rs:\d+:\d+: (replace resolves( ->| with)|.* in resolves$)',
-    'xtask/src/fsutil\.rs:\d+:\d+: (replace metadata( ->| with)|.* in metadata$)',
-    'xtask/src/fsutil\.rs:\d+:\d+: (replace base_ref( ->| with)|.* in base_ref$)',
-    # tools: process spawning (cargo, rustup) with inherited output. No decision is in them; `caps::apply` (tested) caps every cargo child.
-    'xtask/src/tools\.rs:\d+:\d+: (replace run( ->| with)|.* in run$)',
-    'xtask/src/tools\.rs:\d+:\d+: (replace cargo( ->| with)|.* in cargo$)',
-    'xtask/src/tools\.rs:\d+:\d+: (replace cargo_nightly( ->| with)|.* in cargo_nightly$)',
-    'xtask/src/tools\.rs:\d+:\d+: (replace ensure_nightly( ->| with)|.* in ensure_nightly$)',
-    'xtask/src/tools\.rs:\d+:\d+: (replace require_cargo_tool( ->| with)|.* in require_cargo_tool$)',
-    # main: the dispatch of command names to functions, and the process exit.
-    'xtask/src/main\.rs:\d+:\d+: (replace main( ->| with)|.* in main$)',
-    'xtask/src/main\.rs:\d+:\d+: (replace run( ->| with)|.* in run$)',
-    # caps::require: reads two environment variables. The decision is `problems` and `refusal`, which are mutation-tested.
-    'xtask/src/caps\.rs:\d+:\d+: (replace require( ->| with)|.* in require$)',
-    # ci: each step function starts one tool (cargo, git, nextest, mutants, bolero) and passes its status on, and `command` prints.
-    # The decisions are mutation-tested: `run_steps` (order, stop, keep-going, one step), `summary_line`, `parse_options`,
-    # `changed_crates`, `harnesses_to_run`, `passed_count`, `parse_outcomes`.
-    'xtask/src/ci\.rs:\d+:\d+: (replace fmt_job( ->| with)|.* in fmt_job$)',
-    'xtask/src/ci\.rs:\d+:\d+: (replace clippy_job( ->| with)|.* in clippy_job$)',
-    'xtask/src/ci\.rs:\d+:\d+: (replace taint_job( ->| with)|.* in taint_job$)',
-    'xtask/src/ci\.rs:\d+:\d+: (replace lists_job( ->| with)|.* in lists_job$)',
-    'xtask/src/ci\.rs:\d+:\d+: (replace conformance_report( ->| with)|.* in conformance_report$)',
-    'xtask/src/ci\.rs:\d+:\d+: (replace public_api_job( ->| with)|.* in public_api_job$)',
-    'xtask/src/ci\.rs:\d+:\d+: (replace prebuild_job( ->| with)|.* in prebuild_job$)',
-    'xtask/src/ci\.rs:\d+:\d+: (replace test_budget_job( ->| with)|.* in test_budget_job$)',
-    'xtask/src/ci\.rs:\d+:\d+: (replace slow_job( ->| with)|.* in slow_job$)',
-    'xtask/src/ci\.rs:\d+:\d+: (replace changed_paths( ->| with)|.* in changed_paths$)',
-    'xtask/src/ci\.rs:\d+:\d+: (replace base( ->| with)|.* in base$)',
-    'xtask/src/ci\.rs:\d+:\d+: (replace mutants_job( ->| with)|.* in mutants_job$)',
-    'xtask/src/ci\.rs:\d+:\d+: (replace fuzz_job( ->| with)|.* in fuzz_job$)',
-    'xtask/src/ci\.rs:\d+:\d+: (replace command( ->| with)|.* in command$)',
-    # lists: reads the three files, the pinned ledger and the base ref, then prints. Every decision is in `check`, `pin_moved`, `report`,
-    # `ledger_text`, `contracts_tag` and the parsers, which are mutation-tested.
-    'xtask/src/lists\.rs:\d+:\d+: (replace command( ->| with)|.* in command$)',
-    'xtask/src/lists\.rs:\d+:\d+: (replace ledger_ids_command( ->| with)|.* in ledger_ids_command$)',
-    # taint: reads the tracked files and prints. The decisions are `hits_in_line` and `scan_files`, which are mutation-tested.
-    'xtask/src/taint\.rs:\d+:\d+: (replace command( ->| with)|.* in command$)',
-    # timers: reads the tracked files and prints. The decisions are `scan`, `scan_files`, `test_lines` and `marked`, which are mutation-tested.
-    'xtask/src/timers\.rs:\d+:\d+: (replace command( ->| with)|.* in command$)',
-    # prebuild: runs `cargo build` and `cargo install` and copies the result. The decisions are mutation-tested: `has_worker_binary`,
-    # `install_executable`, `contracts_source`, `manifest_text`, `sha256_hex`.
-    'xtask/src/prebuild\.rs:\d+:\d+: (replace build_worker( ->| with)|.* in build_worker$)',
-    'xtask/src/prebuild\.rs:\d+:\d+: (replace build_probe( ->| with)|.* in build_probe$)',
-    'xtask/src/prebuild\.rs:\d+:\d+: (replace command( ->| with)|.* in command$)',
-    # public_api: runs `cargo public-api` and reads one file. The decision `first_difference` is mutation-tested.
-    'xtask/src/public_api\.rs:\d+:\d+: (replace command( ->| with)|.* in command$)',
-    # test_budget: starts nextest in its own process group, tracks and kills its processes, and prints. The decisions are mutation-tested:
-    # `exit_failures`, `budget_failures`, `doublings`, `parse_junit`, `parse_options`, `parse_duration`, `selection`, `tier_env`.
-    'xtask/src/test_budget\.rs:\d+:\d+: (replace run_nextest( ->| with)|.* in run_nextest$)',
-    'xtask/src/test_budget\.rs:\d+:\d+: (replace clean_up( ->| with)|.* in clean_up$)',
-    'xtask/src/test_budget\.rs:\d+:\d+: (replace kill( ->| with)|.* in kill$)',
-    'xtask/src/test_budget\.rs:\d+:\d+: (replace command( ->| with)|.* in command$)',
-    'xtask/src/test_budget\.rs:\d+:\d+: (replace analyse( ->| with)|.* in analyse$)',
     # botster-core-testkit process_group (P6): process glue of a real process group (BUILD.md testing rule 10), one entry per
     # function. They start or signal real processes, which the default tier never does; the proof is the slow tier,
     # `tests/slow_process_group.rs`: `dropping_the_guard_ends_the_whole_group` (spawn, pid, take_stdout, drop),
@@ -166,10 +107,6 @@ exclude_re = [
     # process.rs `exit_status`: the code `-1` is for a reaped child with neither an exit code nor a signal, which a wait
     # status cannot be (a process ends by `exit` or by a signal).
     'crates/botster-core-sys/src/process\.rs:\d+:\d+: delete - in exit_status$',
-    # process.rs `Children::spawn`: the code `-1` is for a failed `Child::wait` in the reaper thread. It cannot fail: the
-    # standard library retries `EINTR`, the child is unreaped and only this thread waits for it (no `ECHILD`), and the wait
-    # options are fixed (no `EINVAL`).
-    'crates/botster-core-sys/src/process\.rs:\d+:\d+: delete - in Children::spawn$',
     # botster-core-sys storage (P1): the registry on a real disk (AD-7, LC-2, DP-8). A real fsync takes the time of the disk
     # of the host, so these tests run in the slow tier (BUILD.md testing rule 2), storage.rs `slow_tests` (slow-tier mutation
     # run of 2026-10-04: every mutant of these functions is caught there): `a_written_row_reads_back_and_a_missing_row_is_none`,

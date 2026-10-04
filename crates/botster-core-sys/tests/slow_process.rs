@@ -2,7 +2,7 @@
 //! group, and ends it on every exit path.
 //!
 //! The tests never wait through the code that they test: the guard kills a group with its own call, and an exit is awaited
-//! through the notifier with a deadline. So a defect in `Children` fails a test; it never hangs one.
+//! through the notifier with a deadline. The anchor owns the group independently of `Children`.
 //!
 //! Clause: Core AD-6 (identity by pid and start time; a reused pid is never signalled), Core LC-5 and SV-9 (the kill of a
 //! group), Core TM-6 (the reaper's notifier).
@@ -12,7 +12,10 @@ use botster_core_edges::edges::{
     ExitStatus, GroupSignal, IdentityState, ProcessIdentity, SpawnSpec,
 };
 use botster_core_sys::process::{identity_state, start_time, Children};
-use rustix::process::{kill_process_group, test_kill_process, waitpid, Pid, Signal, WaitOptions};
+use rustix::process::{test_kill_process, Pid};
+
+#[path = "common/process_guard.rs"]
+mod process_guard;
 use std::sync::mpsc::Receiver;
 use std::sync::Arc;
 use std::time::Duration;
@@ -55,31 +58,29 @@ fn next_exit(children: &mut Children, woken: &Receiver<()>) -> (ProcessIdentity,
 const WAITING_CHILD: &str =
     "while [ \"$PPID\" != 1 ] && kill -0 $PPID 2>/dev/null; do /bin/sleep 1 >/dev/null 2>&1 & wait $!; done";
 
-/// Owns a child's process group in test code, so that a defect in `Children` cannot leave the child behind: on drop,
-/// panics included, it kills the group and reaps the leader itself (a `waitpid` that the reaper thread may win; then the
-/// leader is reaped already). A test disarms it once the child has ended and was reaped.
+/// The anchor owns group membership before the child body can run.
 struct Guard {
-    pid: u32,
-    armed: bool,
+    _group: process_guard::GroupGuard,
+    _dir: tempfile::TempDir,
 }
 
-impl Guard {
-    fn new(identity: ProcessIdentity) -> Guard {
-        Guard {
-            pid: identity.pid,
-            armed: true,
-        }
-    }
-}
-
-impl Drop for Guard {
-    fn drop(&mut self) {
-        let pid = i32::try_from(self.pid).ok().and_then(Pid::from_raw);
-        if let (true, Some(pid)) = (self.armed, pid) {
-            let _ = kill_process_group(pid, Signal::KILL);
-            let _ = waitpid(Some(pid), WaitOptions::empty());
-        }
-    }
+fn spawn(children: &mut Children, original: SpawnSpec) -> (ProcessIdentity, Guard) {
+    let dir = tempfile::tempdir().unwrap();
+    let group = process_guard::GroupGuard::new(dir.path());
+    let mut wrapped = spec(
+        "/bin/sh",
+        &["-c", &format!("{}exec \"$@\"", group.prefix()), "guard"],
+    );
+    wrapped.args.push(original.program.into());
+    wrapped.args.extend(original.args);
+    wrapped.env = original.env;
+    wrapped.cwd = original.cwd;
+    let guard = Guard {
+        _group: group,
+        _dir: dir,
+    };
+    let identity = children.spawn(&wrapped).expect("spawn");
+    (identity, guard)
 }
 
 fn alive(pid: u32) -> bool {
@@ -93,10 +94,7 @@ fn alive(pid: u32) -> bool {
 #[test]
 fn a_spawned_child_matches_its_identity_and_dies_by_the_group_kill() {
     let (mut children, woken) = children();
-    let identity = children
-        .spawn(&spec("/bin/sh", &["-c", WAITING_CHILD]))
-        .expect("spawn");
-    let mut guard = Guard::new(identity);
+    let (identity, _guard) = spawn(&mut children, spec("/bin/sh", &["-c", WAITING_CHILD]));
     assert_eq!(identity_state(identity), IdentityState::Matches);
     assert_eq!(start_time(identity.pid), Some(identity.start_time));
     children.signal_group(identity, GroupSignal::Kill);
@@ -104,17 +102,13 @@ fn a_spawned_child_matches_its_identity_and_dies_by_the_group_kill() {
         next_exit(&mut children, &woken),
         (identity, ExitStatus::Signal(9))
     );
-    guard.armed = false;
 }
 
 /// Core AD-6: a process that does not match its identity is never signalled.
 #[test]
 fn a_reused_identity_is_never_signalled() {
     let (mut children, _woken) = children();
-    let identity = children
-        .spawn(&spec("/bin/sh", &["-c", WAITING_CHILD]))
-        .expect("spawn");
-    let _guard = Guard::new(identity);
+    let (identity, _guard) = spawn(&mut children, spec("/bin/sh", &["-c", WAITING_CHILD]));
     let stale = ProcessIdentity {
         pid: identity.pid,
         start_time: identity.start_time + 1,
@@ -137,30 +131,22 @@ fn a_missing_program_is_a_spawn_error_and_an_exit_code_is_reported() {
         .spawn(&spec("/botster-no-such-program", &[]))
         .expect_err("refused");
     assert_eq!(error.errno, 2, "ENOENT");
-    let identity = children
-        .spawn(&spec("/bin/sh", &["-c", "exit 3"]))
-        .expect("spawn");
-    let mut guard = Guard::new(identity);
+    let (identity, _guard) = spawn(&mut children, spec("/bin/sh", &["-c", "exit 3"]));
     assert_eq!(
         next_exit(&mut children, &woken),
         (identity, ExitStatus::Code(3))
     );
-    guard.armed = false;
 }
 
 /// Core A2-1: the child has exactly the environment that it was given.
 #[test]
 fn the_child_environment_is_exact() {
     let (mut children, woken) = children();
-    let identity = children
-        .spawn(&spec(
-            "/bin/sh",
-            &["-c", "test \"$A\" = 1 && test -z \"$HOME\""],
-        ))
-        .expect("spawn");
-    let mut guard = Guard::new(identity);
+    let (_identity, _guard) = spawn(
+        &mut children,
+        spec("/bin/sh", &["-c", "test \"$A\" = 1 && test -z \"$HOME\""]),
+    );
     let exit = next_exit(&mut children, &woken);
-    guard.armed = false;
     assert_eq!(exit.1, ExitStatus::Code(0), "nothing is inherited");
 }
 
@@ -178,13 +164,13 @@ fn the_worker_control_signal_reaches_the_worker_handler() {
     assert!(made.success());
     let (mut children, woken) = children();
     let script = format!("trap 'exit 7' USR1; /bin/echo ready > \"$0\"; {WAITING_CHILD}");
-    let identity = children
-        .spawn(&spec(
+    let (identity, _guard) = spawn(
+        &mut children,
+        spec(
             "/bin/sh",
             &["-c", &script, ready.to_str().expect("a temp path is UTF-8")],
-        ))
-        .expect("spawn");
-    let mut guard = Guard::new(identity);
+        ),
+    );
     let (told, heard) = std::sync::mpsc::channel();
     let fifo = ready.clone();
     std::thread::spawn(move || {
@@ -198,7 +184,6 @@ fn the_worker_control_signal_reaches_the_worker_handler() {
     children.signal_group(identity, GroupSignal::EndPayload);
     children.signal_group(identity, GroupSignal::EndPayload);
     let exit = next_exit(&mut children, &woken);
-    guard.armed = false;
     assert_eq!(exit, (identity, ExitStatus::Code(7)), "the handler ran");
 }
 
@@ -207,9 +192,7 @@ fn the_worker_control_signal_reaches_the_worker_handler() {
 #[test]
 fn a_child_exit_calls_the_notifier_and_is_polled() {
     let (mut children, woken) = children();
-    let identity = children
-        .spawn(&spec("/bin/sh", &["-c", "exit 3"]))
-        .expect("spawn");
+    let (identity, _guard) = spawn(&mut children, spec("/bin/sh", &["-c", "exit 3"]));
     woken
         // timer: deadline — bounds the wait for the notifier's event
         .recv_timeout(Duration::from_secs(10))
@@ -229,14 +212,8 @@ fn a_child_exit_calls_the_notifier_and_is_polled() {
 #[test]
 fn wait_exit_takes_the_exit_of_its_own_child() {
     let (mut children, woken) = children();
-    let first = children
-        .spawn(&spec("/bin/sh", &["-c", "exit 3"]))
-        .expect("spawn");
-    let mut first_guard = Guard::new(first);
-    let second = children
-        .spawn(&spec("/bin/sh", &["-c", "exit 4"]))
-        .expect("spawn");
-    let mut second_guard = Guard::new(second);
+    let (first, _first_guard) = spawn(&mut children, spec("/bin/sh", &["-c", "exit 3"]));
+    let (second, _second_guard) = spawn(&mut children, spec("/bin/sh", &["-c", "exit 4"]));
     // Both exits are queued before `wait_exit` runs, so it never blocks here.
     for _ in 0..2 {
         woken
@@ -244,8 +221,6 @@ fn wait_exit_takes_the_exit_of_its_own_child() {
             .recv_timeout(Duration::from_secs(10))
             .expect("a child ended");
     }
-    first_guard.armed = false;
-    second_guard.armed = false;
     assert_eq!(
         children.wait_exit(second.pid),
         Some((second, ExitStatus::Code(4)))
@@ -258,63 +233,18 @@ fn wait_exit_takes_the_exit_of_its_own_child() {
     assert_eq!(children.wait_exit(u32::MAX - 1), None, "not a child");
 }
 
-/// Plan R12, testing rule 10 (review finding F28): no child is left when a test's cleanup fails.
-/// - The test's cleanup through `Children` never runs (as when a defect or a mutant breaks it): the guard in test code still
-///   kills the group and reaps the leader.
-/// - The test process is gone, so no guard runs (a test that nextest kills): the child ends by itself, because it watches
-///   its parent. Here the parent is a shell that exits at once; the child holds the write end of a pipe, and the pipe ends
-///   when the child is gone.
+/// Plan R12 and testing rule 10: the anchor ends the group without production cleanup.
+/// The production reaper still owns the child wait. The test never competes for that wait.
 #[test]
 fn no_child_is_left_when_the_cleanup_of_a_test_fails() {
-    use std::io::BufRead;
-    use std::os::unix::process::CommandExt;
     // The cleanup of `Children` is skipped: only the guard ends the child.
     let (mut children, _woken) = children();
-    let identity = children
-        .spawn(&spec("/bin/sh", &["-c", WAITING_CHILD]))
-        .expect("spawn");
+    let (identity, _guard) = spawn(&mut children, spec("/bin/sh", &["-c", WAITING_CHILD]));
     assert!(alive(identity.pid));
-    drop(Guard::new(identity));
+    drop(_guard);
+    next_exit(&mut children, &_woken);
     assert!(
         !alive(identity.pid),
-        "the guard killed and reaped the child"
+        "the anchor killed the child and the production reaper reaped it"
     );
-
-    // The parent is gone: the child ends by itself. The parent is a shell that waits for the child; the child says its pid
-    // when it runs, and then the test kills the parent, as nextest kills a test process.
-    let mut parent = std::process::Command::new("/bin/sh")
-        .args([
-            "-c",
-            &format!("/bin/sh -c 'echo $$; {WAITING_CHILD}' & wait"),
-        ])
-        .stdout(std::process::Stdio::piped())
-        .process_group(0)
-        .spawn()
-        .expect("spawn");
-    // The group of the parent holds the child: the guard ends it if this test fails.
-    let _group = Guard {
-        pid: parent.id(),
-        armed: true,
-    };
-    let stdout = parent.stdout.take().unwrap();
-    let (said, heard) = std::sync::mpsc::channel();
-    std::thread::spawn(move || {
-        let mut lines = std::io::BufReader::new(stdout).lines();
-        let _ = said.send(lines.next());
-        // Then the end of the pipe.
-        let _ = said.send(lines.next());
-    });
-    let child = heard
-        // timer: deadline — bounds the wait for the child's start
-        .recv_timeout(Duration::from_secs(10))
-        .expect("the child runs");
-    assert!(child.is_some_and(|line| line.is_ok_and(|pid| pid.trim().parse::<u32>().is_ok())));
-    parent.kill().unwrap();
-    parent.wait().unwrap();
-    // The end of the pipe is the child's exit (its `sleep` jobs write nowhere): init reaps the orphan.
-    let end = heard
-        // timer: deadline — bounds the wait for the orphan's own exit (about one interval of the child)
-        .recv_timeout(Duration::from_secs(10))
-        .expect("the child ended by itself");
-    assert!(end.is_none(), "the child wrote nothing more: {end:?}");
 }

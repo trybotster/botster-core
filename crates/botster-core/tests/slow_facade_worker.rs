@@ -189,7 +189,7 @@ fn the_facade_reaches_a_host_with_a_worker_on_a_real_link() {
     common::mkfifo(&launch);
     // The worker process hands its launch (token, then arguments) to the test with external commands, then waits, without
     // the CPU, until a signal ends it or the test process is gone.
-    let mut worker = common::ScriptWorker::new(
+    let worker = common::ScriptWorker::new(
         tmp.path(),
         &format!(
             "/bin/echo \"$BOTSTER_WORKER_TOKEN\" \"$@\" | /usr/bin/tee '{}' >/dev/null\n{}",
@@ -305,6 +305,4 @@ fn the_facade_reaches_a_host_with_a_worker_on_a_real_link() {
         SessionState::Lost(LostReason::WorkerGone),
         "{events:?}"
     );
-    // The worker process has ended, and its reaper reaped it.
-    worker.disarm();
 }
