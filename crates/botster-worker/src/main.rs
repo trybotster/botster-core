@@ -14,12 +14,15 @@
 //! The host starts it with the arguments and the environment of `botster_core_link::launch::WorkerLaunch` (AD-6: the token is
 //! in the environment only).
 
+mod io_decisions;
+
 use botster_core_edges::Machine;
 use botster_core_link::launch::{WorkerLaunch, TOKEN_VAR};
 use botster_core_link::msg::PayloadId;
 use botster_core_sys::payload::{self, Payload, PayloadCommand};
 use botster_core_sys::process::start_time;
 use botster_worker_core::{Action, Input, PayloadSpec, SpawnFailure, Worker, WorkerConfig};
+use io_decisions::{IoFailure, ReadyState};
 use mio::net::UnixStream;
 use mio::unix::SourceFd;
 use mio::{Events, Interest, Poll, Token, Waker};
@@ -143,11 +146,7 @@ impl Driver {
             if self.exit {
                 return Ok(());
             }
-            if self
-                .worker
-                .next_deadline()
-                .is_some_and(|at| at <= Instant::now())
-            {
+            if io_decisions::due(self.worker.next_deadline(), Instant::now()) {
                 self.inputs.push_back(Input::Timer);
             }
             self.read_pty_chunk();
@@ -155,29 +154,32 @@ impl Driver {
             if self.exit {
                 return Ok(());
             }
-            // Ready work left: collect new readiness without waiting. Otherwise wait for readiness or the next deadline.
-            let busy = (self.link_open && self.control_readable)
-                || (self.pty_registered && self.pty_readable)
-                || self.drain_left.is_some()
-                || !self.inputs.is_empty();
-            let timeout = if busy {
-                Some(std::time::Duration::ZERO)
-            } else {
-                self.worker
-                    .next_deadline()
-                    .map(|at| at.saturating_duration_since(Instant::now()))
-            };
-            match self.poll.poll(&mut events, timeout) {
-                Ok(()) => {}
-                Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
-                Err(e) => return Err(e),
+            let timeout = ReadyState {
+                link_open: self.link_open,
+                control_readable: self.control_readable,
+                pty_registered: self.pty_registered,
+                pty_readable: self.pty_readable,
+                draining: self.drain_left,
+                queued_inputs: self.inputs.len(),
+            }
+            .timeout(self.worker.next_deadline(), Instant::now());
+            if io_decisions::poll_interrupted(self.poll.poll(&mut events, timeout))? {
+                continue;
             }
             for event in &events {
                 match event.token() {
                     CONTROL => {
-                        self.control_readable |=
-                            event.is_readable() || event.is_read_closed() || event.is_error();
-                        self.control_writable |= event.is_writable() || event.is_error();
+                        self.control_readable = io_decisions::control_ready(
+                            self.control_readable,
+                            event.is_readable(),
+                            event.is_read_closed(),
+                            event.is_error(),
+                        );
+                        self.control_writable = io_decisions::writable_ready(
+                            self.control_writable,
+                            event.is_writable(),
+                            event.is_error(),
+                        );
                     }
                     PTY => self.pty_readable = true,
                     SIGNALS => {
@@ -318,7 +320,7 @@ impl Driver {
             self.inputs.push_back(Input::PtyDrained);
             return;
         }
-        if !(self.pty_registered && self.pty_readable) && draining.is_none() {
+        if !io_decisions::read_pty(self.pty_registered, self.pty_readable, draining) {
             return;
         }
         let want = draining.map_or(READ_CHUNK, |left| left.min(READ_CHUNK));
@@ -332,14 +334,16 @@ impl Driver {
                     *left = left.saturating_sub(n);
                 }
             }
-            Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
-            Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
-                self.pty_readable = false;
-                if self.drain_left.is_some() {
-                    self.drain_left = Some(0);
+            Err(error) => match io_decisions::failure(&error) {
+                IoFailure::Retry => {}
+                IoFailure::Blocked => {
+                    self.pty_readable = false;
+                    if self.drain_left.is_some() {
+                        self.drain_left = Some(0);
+                    }
                 }
-            }
-            Err(_) => ended = true,
+                IoFailure::Closed => ended = true,
+            },
         }
         if ended {
             // The output ended: the descriptor would stay readable, so it leaves the loop.
@@ -355,27 +359,29 @@ impl Driver {
 
     /// At most one chunk of the control socket.
     fn read_control(&mut self) {
-        if !(self.link_open && self.control_readable) {
+        if !io_decisions::read_control(self.link_open, self.control_readable) {
             return;
         }
         let mut buf = vec![0u8; READ_CHUNK];
         match self.control.read(&mut buf) {
             Ok(0) => self.link_lost(),
             Ok(n) => self.inputs.push_back(Input::LinkBytes(buf[..n].to_vec())),
-            Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
-            Err(e) if e.kind() == io::ErrorKind::WouldBlock => self.control_readable = false,
-            Err(_) => self.link_lost(),
+            Err(error) => match io_decisions::failure(&error) {
+                IoFailure::Retry => {}
+                IoFailure::Blocked => self.control_readable = false,
+                IoFailure::Closed => self.link_lost(),
+            },
         }
     }
 
     /// Writes what the socket takes now, without blocking, and tells the machine how many bytes are written in all
     /// (`LinkWritten`). Write interest follows the outbound queue (plan 2.5).
     fn flush(&mut self) -> io::Result<()> {
-        if !self.link_open || self.outbound.is_empty() {
+        if !io_decisions::flush(self.link_open, self.outbound.len()) {
             return Ok(());
         }
         let before = self.written;
-        while self.control_writable && !self.outbound.is_empty() {
+        while io_decisions::keep_writing(self.control_writable, self.outbound.len()) {
             let (head, _) = self.outbound.as_slices();
             match self.control.write(head) {
                 Ok(0) => self.control_writable = false,
@@ -383,13 +389,14 @@ impl Driver {
                     self.outbound.drain(..n);
                     self.written += n as u64;
                 }
-                Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
-                Err(e) if e.kind() == io::ErrorKind::WouldBlock => self.control_writable = false,
-                Err(_) => {
-                    // A failed transport, not a full one: the link is gone, and the bytes with it.
-                    self.link_lost();
-                    return Ok(());
-                }
+                Err(error) => match io_decisions::failure(&error) {
+                    IoFailure::Retry => {}
+                    IoFailure::Blocked => self.control_writable = false,
+                    IoFailure::Closed => {
+                        self.link_lost();
+                        return Ok(());
+                    }
+                },
             }
         }
         if self.written != before {

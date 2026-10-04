@@ -485,3 +485,22 @@ A new test kills only its retained parent Child and requires observer pipe EOF w
 The parent helper starts a real Driver observer and payload before it reports readiness.
 The test never signals an observer or payload through a cached pid.
 This correction requires source review and an exact-head Linux baseline after the active mutation run ends.
+
+## Driver decisions and Mac diagnostic release (2026-10-04)
+
+Package verdict `344e35f5de499153fd3f9352e558019403913e15` closes F20 with exact-head runtime evidence.
+Integration verdict `80dc9ed183c8db9ab125dc5b106e7a2344ddaa57` confirms that closure.
+F13 retains 60 entries from the earlier driver run: 41 misses and 19 timeouts.
+The failed mutation log is `~/botster-sessions/gates/botster-core-stage1-p3-m1-v1-e4593e86-linux-20261004-164448-88453.log`.
+The run tested 69 mutants: five caught, 41 missed, four unviable, and 19 timed out.
+No timeout counts as caught. Code deadlines remain unchanged.
+
+The Driver now calls pure functions in `src/io_decisions.rs` for readiness, deadline selection, and error classification.
+Default tests exercise all readiness combinations, deadline boundaries, and interrupted, blocked, and failed I/O results.
+The real Driver remains the only adapter. The refactor preserves its previous decisions and the shared Worker machine.
+No exclusion was added. Original mutant relocation and the changed code still require independent review and mutation evidence.
+
+The lead lifted the Mac hold and authorized the queued payload diagnostic once with a twenty-minute job deadline.
+The diagnostic uses the current corrected FIFO, panic-cleanup, and process-state tests.
+A hang remains a finding. The code test deadlines remain ten seconds.
+Next: run that Mac diagnostic before the next Linux driver job.
