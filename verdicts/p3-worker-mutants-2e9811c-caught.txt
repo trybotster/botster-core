@@ -1,0 +1,22 @@
+crates/botster-core-testkit/src/worker.rs:66:9: replace Processes::end with ()
+crates/botster-core-testkit/src/worker.rs:68:16: delete ! in Processes::end
+crates/botster-core-testkit/src/worker.rs:84:9: replace Pids::next -> u32 with 0
+crates/botster-core-testkit/src/worker.rs:84:9: replace Pids::next -> u32 with 1
+crates/botster-core-testkit/src/worker.rs:84:19: replace += with -= in Pids::next
+crates/botster-core-testkit/src/worker.rs:84:19: replace += with *= in Pids::next
+crates/botster-core-testkit/src/worker.rs:99:9: replace <impl std::fmt::Debug for Workers>::fmt -> std::fmt::Result with Ok(Default::default())
+crates/botster-core-testkit/src/worker.rs:138:9: replace Workers::next_deadline -> Option<Instant> with None
+crates/botster-core-testkit/src/worker.rs:207:9: replace <impl Spawner for WorkerSpawner>::signal_group with ()
+crates/botster-core-testkit/src/worker.rs:212:24: delete ! in <impl Spawner for WorkerSpawner>::signal_group
+crates/botster-core-testkit/src/worker.rs:220:24: delete ! in <impl Spawner for WorkerSpawner>::signal_group
+crates/botster-core-testkit/src/worker.rs:230:9: replace <impl Spawner for WorkerSpawner>::poll_exit -> Option<(ProcessIdentity, ExitStatus)> with None
+crates/botster-core-testkit/src/worker.rs:282:9: replace WorkerEdges::ended with ()
+crates/botster-core-testkit/src/worker.rs:325:27: replace match guard e.kind() == io::ErrorKind::WouldBlock with true in WorkerEdges::flush
+crates/botster-core-testkit/src/worker.rs:325:27: replace match guard e.kind() == io::ErrorKind::WouldBlock with false in WorkerEdges::flush
+crates/botster-core-testkit/src/worker.rs:323:34: replace += with *= in WorkerEdges::flush
+crates/botster-core-testkit/src/worker.rs:325:36: replace == with != in WorkerEdges::flush
+crates/botster-core-testkit/src/worker.rs:374:16: delete ! in <impl Binding<Worker> for WorkerEdges>::ready
+crates/botster-core-testkit/src/worker.rs:399:30: replace match guard n > 0 with true in <impl Binding<Worker> for WorkerEdges>::take
+crates/botster-core-testkit/src/worker.rs:399:32: replace > with >= in <impl Binding<Worker> for WorkerEdges>::take
+crates/botster-core-testkit/src/worker.rs:416:30: replace match guard n > 0 with false in <impl Binding<Worker> for WorkerEdges>::take
+crates/botster-core-testkit/src/worker.rs:416:32: replace > with < in <impl Binding<Worker> for WorkerEdges>::take
