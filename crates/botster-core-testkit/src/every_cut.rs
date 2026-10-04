@@ -439,6 +439,9 @@ mod tests {
             known["mismatches"].as_array().unwrap().len(),
             known["cuts_checked"].as_u64().unwrap() as usize
         );
+        for mismatch in known["mismatches"].as_array().unwrap() {
+            assert_eq!(mismatch["reason"], "refused within limit");
+        }
     }
 
     #[test]
