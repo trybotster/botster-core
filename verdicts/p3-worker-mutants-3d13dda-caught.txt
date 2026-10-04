@@ -1,0 +1,2 @@
+crates/botster-core-sys/src/payload.rs:132:9: replace Payload::read -> io::Result<usize> with Ok(0)
+crates/botster-core-sys/src/payload.rs:198:9: replace <impl Drop for Payload>::drop with ()
