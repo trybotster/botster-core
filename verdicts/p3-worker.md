@@ -1616,3 +1616,18 @@ F20 remains OPEN. All earlier findings and closures remain preserved.
 The reviewer inspected logic only and ran no tests or gate.
 
 VERDICT: NOT CLEAN (F13: 65 entries; F18, F19, and F20 open) on `e4593e86feab06da3711bef9d3ac06bb7e20be38`.
+
+
+## Round 48 — Shared driver fixture baseline
+
+Reviewed and evidence head: `e4593e86feab06da3711bef9d3ac06bb7e20be38`.
+Log: `~/botster-sessions/gates/botster-core-stage1-p3-m1-v1-e4593e86-linux-20261004-164407-87814.log`.
+The reviewer read the exact-head Linux binary-unit nextest log with --bin botster-worker and the slow profile.
+All ten tests pass with zero skipped in 0.214 seconds. The job exits zero after ten seconds.
+This supplies compilation and baseline evidence for the shared Driver observer fixture.
+It does not exercise parent death while a mutation disables production cleanup, so F20 remains OPEN.
+No mutant runs in this baseline. F13 retains 65 original driver entries.
+F18 and F19 remain OPEN for corrected-source Mac evidence.
+All earlier findings and closures remain preserved. The reviewer ran no tests or gate.
+
+VERDICT: NOT CLEAN (F13: 65 entries; F18, F19, and F20 open) on `e4593e86feab06da3711bef9d3ac06bb7e20be38`.
