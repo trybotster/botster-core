@@ -49,4 +49,25 @@ exclude_re = [
     # `kill` and `drop`; `take_stdin` and `take_stderr` are the same one-line `Option::take` as `take_stdout` and no slow test calls
     # them. A pure decision added to this file later is not covered by this entry: it must be tested in the default tier.
     'crates/botster-core-testkit/src/process_group\.rs:\d+:\d+: (replace OwnedGroup::(spawn|pid|take_stdin|take_stdout|take_stderr|leader_exited|wait_for_leader_exit|is_active|kill)( ->| with)|.* in OwnedGroup::(spawn|pid|take_stdin|take_stdout|take_stderr|leader_exited|wait_for_leader_exit|is_active|kill)$|replace <impl Drop for OwnedGroup>::drop)',
+    # botster-terminal-ghostty (review finding P39). Each entry names one function and the mutation that cannot change
+    # behavior, with the argument; every other mutant of the crate is caught by a test.
+    # Drop bodies that only free a native handle: leak only, not observable through the API. Each body is one call of the
+    # library's free function, and nothing else.
+    'crates/botster-terminal-ghostty/src/encode\.rs:\d+:\d+: replace <impl Drop for KeyEncoder>::drop with \(\)$',
+    'crates/botster-terminal-ghostty/src/encode\.rs:\d+:\d+: replace <impl Drop for KeyEventHandle>::drop with \(\)$',
+    'crates/botster-terminal-ghostty/src/encode\.rs:\d+:\d+: replace <impl Drop for MouseEncoder>::drop with \(\)$',
+    'crates/botster-terminal-ghostty/src/encode\.rs:\d+:\d+: replace <impl Drop for MouseEventHandle>::drop with \(\)$',
+    # Terminal::drop frees the native terminal and then the event buffer that its callbacks write (a `Box` this crate
+    # leaked for them). Leak only, not observable through the API: no reference to either survives the drop.
+    'crates/botster-terminal-ghostty/src/lib\.rs:\d+:\d+: replace <impl Drop for Terminal>::drop with \(\)$',
+    # key_event: `CTRL | ALT` joins disjoint bits (sys::mods::CTRL = 1 << 1, ALT = 1 << 2), so `^` gives the same value.
+    'crates/botster-terminal-ghostty/src/encode\.rs:\d+:\d+: replace \| with \^ in key_event$',
+    # encode_mouse: `SHIFT | ALT | CTRL` joins disjoint bits (1 << 0, 1 << 2, 1 << 1), so `^` gives the same value.
+    'crates/botster-terminal-ghostty/src/encode\.rs:\d+:\d+: replace \| with \^ in encode_mouse$',
+    # sys::mode_new: `(value & 0x7FFF) | (ansi << 15)` joins disjoint bits (bits 0 to 14, and bit 15), so `^` is equal.
+    'crates/botster-terminal-ghostty/src/sys\.rs:\d+:\d+: replace \| with \^ in mode_new$',
+    # set_query_request_limit_default: the library's own default (terminal.zig `default_query_max_bytes`) is 4096, the
+    # value that this call sets (`DEFAULT_QUERY_REQUEST_BYTES`, `CoreLimits.max_query_bytes`, tested). Skipping the call
+    # changes nothing at this pin; the call keeps Core's limit when an upstream default changes.
+    'crates/botster-terminal-ghostty/src/lib\.rs:\d+:\d+: replace Terminal::set_query_request_limit_default -> Result<\(\), Error> with Ok\(\(\)\)$',
 ]
