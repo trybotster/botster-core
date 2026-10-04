@@ -1,9 +1,9 @@
 # Stage 1 plan revision 21 review
 
-Exact reviewed head: `71b765e09f1795fd284644a20ce7fde60fa9ac80`.
+Exact reviewed head: `ad03636ffbd68048f9f07faf176986f004d5e516`.
 Review scope: `27ffaa4..71b765e`, `docs/stage1-plan.md` only, and consistency of that delta with the plan and BUILD.md.
 
-VERDICT: NOT CLEAN (1 open: R21-F1).
+VERDICT: CLEAN (0 open). R21-F1 closes at the current reviewed head.
 
 ## Review inputs and accepted facts
 
@@ -50,3 +50,25 @@ Retain the gate container's network denial and the infra engineer's ownership.
 Send the exact corrected plan head and hash-verified pin for delta review.
 
 VERDICT: NOT CLEAN (1 open: R21-F1) at plan head `71b765e09f1795fd284644a20ce7fde60fa9ac80`.
+
+
+## R21-F1 correction review — CLEAN
+
+Exact corrected head: `ad03636ffbd68048f9f07faf176986f004d5e516`.
+The reviewer read the complete delta from `71b765e09f1795fd284644a20ce7fde60fa9ac80`.
+Only the section 8 gate paragraph and revision 21 history row change.
+
+Corrected read-only pin: `~/botster-sessions/pins/stage1-plan.bdda2359.md`.
+The pin and committed plan both have SHA-256 `bdda23593c29e3cc654acf0a5a98eee43f218b119ff2cd530cbd31d6b2cff9ac`.
+
+**R21-F1 closes.** Section 8 now distinguishes Cargo dependency resolution with the token from public source fetching without the token.
+It assigns the Ghostty submodule and Zig packages to `fetch-public.sh` and states that Mac runs this step inside the exclusive job.
+It retains the gate container's network denial and the infra engineer's ownership of both scripts.
+The revision 21 row records the correction.
+Section 8 now agrees with the revised section 0 Zig row and the merged gate scripts.
+All earlier accepted facts remain unchanged and valid.
+
+The reviewer ran no tests, builds, or gates for this document correction.
+Every finding, including the LOW finding, is closed within the assigned revision 21 review scope.
+
+VERDICT: CLEAN (0 open) at plan head `ad03636ffbd68048f9f07faf176986f004d5e516`.
