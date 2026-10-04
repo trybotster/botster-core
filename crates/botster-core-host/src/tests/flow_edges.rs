@@ -409,6 +409,81 @@ fn a_link_closing_during_the_remove_teardown_leaves_the_uploads_unknown() {
     }
 }
 
+/// Core AM-3, IN-7, A2-1, A5-2: the scheduler may run a session's work before an op's (OR-3), so a `Remove` can retire ops
+/// that never ran. Each keeps the result of its own row: a write that was never forwarded is `NotWritten(SessionEnded)`, and
+/// a `Detach` whose route the `Remove` closed completes with unit.
+#[test]
+fn ops_that_never_ran_before_the_remove_retired_them_keep_their_own_results() {
+    let mut w = World::default();
+    w.autopilot = Autopilot::Silent;
+    w.running("s1");
+    let route = super::losses::attach(&mut w);
+    w.worker_says(
+        "s1",
+        WorkerMsg::Exited {
+            code: Some(0),
+            signal: None,
+        },
+    );
+    w.pump();
+    w.engine.poll_events(64);
+    let write = w
+        .engine
+        .begin(Op::WriteInput {
+            session: sid("s1"),
+            payload: InputPayload::Text { text: "x".into() },
+            guard: None,
+        })
+        .unwrap();
+    let detach = w
+        .engine
+        .begin(Op::Detach {
+            route,
+            reason: DetachReason::Detached,
+        })
+        .unwrap();
+    w.engine.begin(Op::Remove { id: sid("s1") }).unwrap();
+    // Only the session's work runs, until the teardown waits for the worker: the write and the detach never run.
+    let mut guard = 0;
+    while let Some(work) = w
+        .engine
+        .ready()
+        .into_iter()
+        .find(|work| matches!(work, Work::Session(_)))
+    {
+        w.feed(Input::Run(work));
+        guard += 1;
+        assert!(guard < 50);
+    }
+    assert!(matches!(
+        &w.engine.sessions[&sid("s1")].flow,
+        Flow::Remove(f) if f.phase == RemovePhase::AwaitTeardown
+    ));
+    w.pump();
+    let events = w.engine.poll_events(64);
+    let result = |op: OpId| {
+        events.iter().find_map(|e| match e {
+            Event::Completed { op: o, result } if *o == op => Some(result.clone()),
+            _ => None,
+        })
+    };
+    assert_eq!(
+        result(write),
+        Some(OpResult::Ok(OpOutput::Input(InputResult {
+            outcome: WriteOutcome::NotWritten(NotWrittenReason::SessionEnded),
+            payload_bytes_written: 0,
+            pty_bytes_written: 0,
+            detail: "the session ended".into(),
+        }))),
+        "{events:?}"
+    );
+    assert_eq!(
+        result(detach),
+        Some(OpResult::Ok(OpOutput::Unit)),
+        "{events:?}"
+    );
+}
+
 /// Core LC-4, AD-2: a link that closes while `Running` is still being posted does not fail the start, and a worker exit that
 /// comes after a failed start does not change how it failed.
 #[test]

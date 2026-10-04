@@ -4,7 +4,7 @@
 use super::*;
 use botster_core_edges::edges::GroupSignal;
 
-fn attach(w: &mut World) -> RouteId {
+pub(super) fn attach(w: &mut World) -> RouteId {
     w.engine
         .attach(
             ClientId("c".into()),
