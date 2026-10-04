@@ -367,6 +367,19 @@ impl<E: HostEdges> HostDriver<E> {
         }
     }
 
+    /// Gives the engine the exits that the process edge reaped, while the pump has budget (9B `pump_events`).
+    fn take_exits(&mut self, now: Instant, budget: &mut Budget) {
+        while !budget.exhausted() {
+            let Some((identity, status)) = self.edges.poll_process_exit() else {
+                return;
+            };
+            self.feed(now, Input::ProcessExited { identity, status });
+            budget.account(&mut self.engine);
+        }
+        // An exit may stay in the edge for the next pump; the host must call again.
+        budget.more_input = true;
+    }
+
     /// Delivers the frame that the engine could not take before, as soon as it can (EV-5d): it runs whenever the link is
     /// serviced, so a frame held behind a step (the end of a start) goes in after that step, before any later frame.
     fn retry_held(&mut self, link: LinkId, now: Instant, budget: &mut Budget) {
@@ -566,17 +579,7 @@ impl<E: HostEdges> CoreApi for HostDriver<E> {
             self.feed(now.monotonic, Input::Run(Work::Silent));
             budget.account(&mut self.engine);
         }
-        while !budget.exhausted() {
-            let Some((identity, status)) = self.edges.poll_process_exit() else {
-                break;
-            };
-            self.feed(now.monotonic, Input::ProcessExited { identity, status });
-            budget.account(&mut self.engine);
-        }
-        // An exit that stays in the edge is for the next pump; the host must call again.
-        if budget.exhausted() {
-            budget.more_input = true;
-        }
+        self.take_exits(now.monotonic, &mut budget);
         // Each link's held frame goes first, before the link's later frames (`service_links`).
         self.service_links(&mut budget);
         self.perform_counted(&mut budget);
@@ -620,6 +623,9 @@ impl<E: HostEdges> CoreApi for HostDriver<E> {
         let mut more = self.engine.runnable() || budget.more_input;
         if !more {
             self.edges.settle_wake();
+            // A reaper may have queued an exit after the exits were taken above, and the settle consumed its wake: the exits
+            // are taken again after the settle, so that none waits in the edge without a wake (TM-6).
+            self.take_exits(now.monotonic, &mut budget);
             self.service_links(&mut budget);
             self.perform_counted(&mut budget);
             more = self.engine.runnable() || budget.more_input;

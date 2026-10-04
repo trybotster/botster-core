@@ -786,3 +786,30 @@ fn the_pump_settles_the_wake_only_when_it_has_no_work_and_looks_again_after() {
     let report = rig.pump();
     assert!(report.more, "the late exit is work");
 }
+
+/// TM-6, AD-2: an exit that the process edge queues while the pump ends, and whose wake the settle consumes, is taken in that
+/// pump, which then reports more work with the wake set: nothing waits in the edge without a wake, and the next pump ends the
+/// session `Lost(WorkerGone)`.
+#[test]
+fn an_exit_reaped_while_the_pump_settles_is_taken_in_that_pump() {
+    let mut rig = Rig::new(CoreLimits::default());
+    run_session(&mut rig, "s1", LinkId(1));
+    rig.mock.lock().unwrap().late_exits.push((
+        ProcessIdentity {
+            pid: 500,
+            start_time: 1,
+        },
+        ExitStatus::Code(0),
+    ));
+    let report = rig.pump();
+    assert!(
+        rig.mock.lock().unwrap().exits.is_empty(),
+        "the exit was taken"
+    );
+    assert!(report.more && rig.wake_set(), "the host pumps again");
+    rig.pump();
+    assert_eq!(
+        rig.driver.get(&sid("s1")).unwrap().state,
+        SessionState::Lost(LostReason::WorkerGone)
+    );
+}
