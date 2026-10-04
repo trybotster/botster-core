@@ -24,10 +24,12 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-/// The token of the self-pipe (TM-6).
+/// The token of the self-pipe (TM-6). The tokens only register descriptors: no event is dispatched by its token (`wait`
+/// takes any event as a wake, and `pump` services the listener and every link). They are still distinct: the listener is
+/// 0, a link is its number (from 1), and the self-pipe is the last token.
 const WAKER: Token = Token(usize::MAX);
 /// The token of the control listener.
-const LISTENER: Token = Token(usize::MAX - 1);
+const LISTENER: Token = Token(0);
 
 /// The wake object: a `mio` poll over every descriptor that can bring host work, plus a self-pipe for runnable work
 /// (plan 2.5). It starts no thread. `wait` may run on any thread while the owner thread registers descriptors (TH-2), because

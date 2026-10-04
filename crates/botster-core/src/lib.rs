@@ -272,8 +272,13 @@ mod slow_tests {
     #[test]
     fn every_call_reaches_the_driver() {
         let tmp = tempfile::tempdir().unwrap();
-        let mut core = Core::open(config(tmp.path())).expect("open");
-        assert_eq!(core.limits(), CoreLimits::default());
+        // Limits that are not the defaults: `limits` returns the ones that the host opened with.
+        let mut open = config(tmp.path());
+        open.limits.pump_events += 1;
+        let limits = open.limits.clone();
+        let mut core = Core::open(open).expect("open");
+        assert_eq!(core.limits(), limits);
+        assert_ne!(core.limits(), CoreLimits::default());
         assert_eq!(core.worker_protocol(), WORKER_PROTOCOL);
         assert!(core.adoptable_worker_protocols().contains(&WORKER_PROTOCOL));
         assert_eq!(
