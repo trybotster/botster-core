@@ -136,11 +136,9 @@ pub fn snapshot_unsupported_version(pages: &CapturePages<'_>) -> Result<Value, C
     let envelope = bytes.get_mut(8..10).ok_or(CaptureError::InvalidEnvelope)?;
     envelope.copy_from_slice(&version.to_le_bytes());
     match Terminal::from_snapshot(&bytes, pages.history, pages.cell_px) {
-        Err(SnapshotDecodeError::UnsupportedVersion { version: refused }) if refused == version => {
-            Ok(
-                json!({"version": version, "supported": false, "refused": true, "error": "UnsupportedVersion"}),
-            )
-        }
+        Err(SnapshotDecodeError::UnsupportedVersion { version }) => Ok(
+            json!({"version": version, "supported": false, "refused": true, "error": "UnsupportedVersion"}),
+        ),
         Err(error) => Err(CaptureError::Decode(error)),
         Ok(_) => {
             Ok(json!({"version": version, "supported": false, "refused": false, "error": null}))
@@ -237,6 +235,27 @@ mod tests {
         assert_eq!(result["screen_equal"], false);
         assert_eq!(result["hyperlinks_equal"], false);
         assert_eq!(result["palette_equal"], true);
+    }
+
+    #[test]
+    fn equal_text_does_not_hide_different_cell_attributes() {
+        let mut source = model();
+        source.vt_write(b"A");
+        let bytes = source.snapshot().unwrap();
+        source.vt_write(b"\r\x1b[1mA");
+        let restored = pages(&bytes).restore().unwrap();
+        assert_eq!(
+            source.screen_text(true).unwrap(),
+            restored.screen_text(true).unwrap()
+        );
+        assert_ne!(
+            source.cell_attributes(0, 0, true).unwrap(),
+            restored.cell_attributes(0, 0, true).unwrap()
+        );
+        assert_eq!(
+            oracle_restore(&mut source, &pages(&bytes)).unwrap()["screen_equal"],
+            false
+        );
     }
 
     #[test]
