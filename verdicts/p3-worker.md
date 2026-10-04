@@ -2,7 +2,7 @@
 
 Current restack verdict: NOT CLEAN (F13 open; F14 closed).
 Reviewed head: `4960d73873d8301575e312f8fbc596059300c813`, branch `stage1/p3-m1-v1`.
-Round 31 accepts the constant-name pattern correction. F13 retains 93 open entries pending evidence.
+Round 32 accepts both tuning exclusions with evidence. F13 retains 91 open real-process entries.
 The CLEAN below applies only to the old M2a head that it names.
 
 VERDICT: CLEAN
@@ -1088,3 +1088,29 @@ No additional original entry closes in this round. F13 retains 93 open entries; 
 The reviewer inspected logic only and ran no tests or gate.
 
 VERDICT: NOT CLEAN (F13 open; 93 mutant entries remain) on `4960d73873d8301575e312f8fbc596059300c813`.
+
+## Round 32 — Corrected-head testkit proof
+
+Evidence head: `4960d73873d8301575e312f8fbc596059300c813`.
+The reviewer read the focused Linux log. Its header names this exact head and all three changed testkit files.
+Log: `~/botster-sessions/gates/botster-core-stage1-p3-m1-v1-4960d738-linux-20261004-141936-76354.log`.
+The baseline passes. The job reports exit 0: 176 tested, 119 caught, 57 unviable, zero missed, and zero timeouts.
+The baseline includes the reviewed parameterized tests and both zero-bound tests.
+The focused run therefore supplies corrected-head evidence for the source review in rounds 29 through 31.
+
+Both tuning exclusions are now ACCEPTED under the lead's four-condition rule.
+No clause fixes the two positive values, and the comments cite partial progress and decoder retention.
+The named tests prove retention, ordering, and complete frames at 65536, 1088, and 1.
+The shared Worker/TestkitCore test proves complete lifecycle operations through the same edge code at those bounds.
+All-build assertions enforce the positive lower bound. The named zero-bound tests prove rejection.
+The exact-location patterns cover only LINK_CAPACITY and READ_CHUNK, one declaration per entry.
+The two original arithmetic entries are CLOSED under F13 by this accepted contract-equivalence argument and proof.
+Recheck the exclusion locations and arguments when those declarations, callers, or contract requirements change.
+
+All 71 original testkit entries now have recorded closure: 69 caught and 2 accepted tuning exclusions.
+The five worker-core entries remain closed: four caught and one accepted equivalent entry.
+F13 remains OPEN for 91 original real-process entries: 26 payload edge entries and 65 real worker driver entries.
+F14 remains CLOSED. No new source delta accompanies this evidence.
+The reviewer ran no tests or gate. This focused result does not establish a full green gate.
+
+VERDICT: NOT CLEAN (F13 open; 91 mutant entries remain) on `4960d73873d8301575e312f8fbc596059300c813`.
