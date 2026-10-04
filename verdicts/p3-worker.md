@@ -2,7 +2,7 @@
 
 Current restack verdict: NOT CLEAN (F13, F18, and F19 open; F14, F15, F16, F17, and F20 closed in source).
 Reviewed head: `7efe4553d290cd6f76befc0d50ed7b5206b0ea0e`, branch `stage1/p3-m1-v1`.
-Round 50 closes five driver mutant entries. F13 retains 60 entries: 41 missed and 19 timed out. F18/F19 remain open.
+Round 51 verifies F20 regression evidence. F13 retains 60 entries: 41 missed and 19 timed out. F18/F19 remain open.
 The CLEAN below applies only to the old M2a head that it names.
 
 VERDICT: CLEAN
@@ -1693,6 +1693,28 @@ No driver exclusion is proposed in this round.
 F13 retains 60 original driver entries: 41 missed and 19 timed out.
 F18 and F19 remain OPEN for corrected-source Mac evidence.
 F20 remains CLOSED in source, with corrected-head evidence pending.
+All earlier findings and closures remain preserved. The reviewer ran no tests or gate.
+
+VERDICT: NOT CLEAN (F13: 60 entries; F18 and F19 open) on `7efe4553d290cd6f76befc0d50ed7b5206b0ea0e`.
+
+
+## Round 51 — Exact-head driver observer cleanup evidence
+
+Reviewed and evidence head: `7efe4553d290cd6f76befc0d50ed7b5206b0ea0e`.
+Log: `~/botster-sessions/gates/botster-core-stage1-p3-m1-v1-7efe4553-linux-20261004-165400-93593.log`.
+The reviewer read the exact-head Linux binary-unit nextest log with the slow profile.
+All 18 tests pass with zero skipped in 0.215 seconds. The job exits zero after ten seconds.
+The parent_death_ends_the_driver_observer regression passes in 0.007 seconds.
+This supplies compilation and runtime evidence for the F20 correction accepted in round 49.
+F20 remains CLOSED, with exact-head regression evidence now verified.
+
+The implementer proposes pure readiness, deadline, and I/O error decisions used by the existing Driver.
+That proposal is not yet a source delta and supplies no mutation closure.
+Any extracted decision must remain on the actual Driver path and preserve one Worker machine and independent process cleanup.
+The reviewer will inspect the exact source and relocation mapping when the implementer submits that head.
+
+No mutant runs in this plain baseline. F13 retains 60 original driver entries: 41 missed and 19 timed out.
+F18 and F19 remain OPEN for corrected-source Mac evidence.
 All earlier findings and closures remain preserved. The reviewer ran no tests or gate.
 
 VERDICT: NOT CLEAN (F13: 60 entries; F18 and F19 open) on `7efe4553d290cd6f76befc0d50ed7b5206b0ea0e`.
