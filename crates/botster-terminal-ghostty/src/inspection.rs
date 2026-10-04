@@ -99,6 +99,34 @@ fn cell_field<T: Default>(cell: sys::Cell, key: i32) -> Result<T, Error> {
 }
 
 impl Terminal {
+    /// Read the active screen's native image storage limit (Core ST-6b graphics).
+    pub fn image_storage_limit(&self) -> Result<u64, Error> {
+        let mut limit = 0u64;
+        // SAFETY: the data key writes a uint64_t into this live output pointer.
+        crate::check(unsafe {
+            sys::ghostty_terminal_get(
+                self.handle.as_ptr(),
+                sys::data::KITTY_IMAGE_STORAGE_LIMIT,
+                (&mut limit as *mut u64).cast(),
+            )
+        })?;
+        Ok(limit)
+    }
+
+    /// Ask libghostty whether the active screen stores the given image (Core ST-6b graphics).
+    pub fn has_image(&self, id: u32) -> Result<bool, Error> {
+        let mut graphics = std::ptr::null_mut();
+        // SAFETY: the data key writes a borrowed graphics handle, used before any terminal mutation.
+        unsafe {
+            crate::check(sys::ghostty_terminal_get(
+                self.handle.as_ptr(),
+                sys::data::KITTY_GRAPHICS,
+                (&mut graphics as *mut sys::KittyGraphics).cast(),
+            ))?;
+            Ok(!sys::ghostty_kitty_graphics_image(graphics, id).is_null())
+        }
+    }
+
     /// Read the attributes of a cell (Core ST-6b item 1).
     /// With `history`, row zero starts at the oldest scrollback row. Otherwise it starts at the visible screen.
     pub fn cell_attributes(
