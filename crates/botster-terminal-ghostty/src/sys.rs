@@ -75,6 +75,7 @@ pub mod data {
     pub const KITTY_IMAGE_STORAGE_LIMIT: i32 = 26;
     pub const KITTY_GRAPHICS: i32 = 30;
     pub const SCROLLBACK_MAX_BYTES: i32 = 34;
+    pub const VT_PROCESSING_ERROR: i32 = 33;
     pub const MOUSE_FORMAT: i32 = 44;
 }
 
@@ -577,6 +578,18 @@ extern "C" {
         buf: *mut u32,
         buf_len: usize,
         out_len: *mut usize,
+    ) -> Result;
+    pub fn ghostty_grid_ref_hyperlink_uri(
+        grid_ref: *const GridRef,
+        buf: *mut u8,
+        buf_len: usize,
+        out_len: *mut usize,
+    ) -> Result;
+    pub fn ghostty_terminal_continuation_buf(
+        terminal: Terminal,
+        buf: *mut u8,
+        buf_len: usize,
+        out_written: *mut usize,
     ) -> Result;
     pub fn ghostty_cell_get(cell: Cell, data: i32, out: *mut c_void) -> Result;
     pub fn ghostty_formatter_terminal_new(

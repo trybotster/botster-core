@@ -19,12 +19,13 @@ fn terminal() -> Terminal {
 
 /// A terminal that the library's decoder restored from a snapshot. It keeps the unfinished parser input, so that it
 /// takes the rest of the program's output as the original terminal would.
-struct Restored(sys::Terminal);
+struct Restored(sys::Terminal, Option<Terminal>);
 
 impl Restored {
     /// A restore with the session's image storage limit (zero): the restored model ignores image sequences too.
     fn from(bytes: &[u8]) -> Self {
-        Self::decode(bytes, Some(0))
+        let terminal = Terminal::from_snapshot(bytes, History::On, None).unwrap();
+        Self(terminal.handle.as_ptr(), Some(terminal))
     }
 
     /// A restore that leaves the image storage limit at the library default. It is the control of the image-resume test:
@@ -81,7 +82,7 @@ impl Restored {
             );
             sys::ghostty_snapshot_decoder_free(decoder);
         }
-        Self(restored)
+        Self(restored, None)
     }
 
     /// The Kitty image storage limit of the active screen of the restored terminal.
@@ -131,7 +132,9 @@ impl Restored {
 impl Drop for Restored {
     fn drop(&mut self) {
         // SAFETY: the handle is live and freed once.
-        unsafe { sys::ghostty_terminal_free(self.0) }
+        if self.1.is_none() {
+            unsafe { sys::ghostty_terminal_free(self.0) }
+        }
     }
 }
 
@@ -157,6 +160,96 @@ fn stores_image(terminal: sys::Terminal, id: u32) -> bool {
 /// Restore `bytes` with the library's decoder and encode the result again.
 fn restore_and_encode(bytes: &[u8]) -> Vec<u8> {
     Restored::from(bytes).snapshot()
+}
+
+#[test]
+fn the_public_decoder_keeps_state_and_registered_callbacks() {
+    let mut source = terminal();
+    source.vt_write(
+        b"\x1b[?1049h\x1b[?25l\x1b[?1h\x1b]2;title\x07\x1b]7;file:///tmp\x07\x1b[32mtext",
+    );
+    let snapshot = source.snapshot().unwrap();
+    let mut restored = Terminal::from_snapshot(&snapshot, History::On, None).unwrap();
+    assert_eq!(restored.snapshot().unwrap(), snapshot);
+    assert_eq!(
+        restored.screen_text(true).unwrap(),
+        source.screen_text(true).unwrap()
+    );
+    assert_eq!(restored.modes(), source.modes());
+    assert_eq!(restored.cursor(), source.cursor());
+    assert_eq!(restored.title(), source.title());
+    assert_eq!(restored.cwd(), source.cwd());
+    source.drain_events();
+    let suffix = b"\x1b]2;changed\x07\x1b]777;notify;t;b\x07\x07";
+    source.vt_write(suffix);
+    restored.vt_write(suffix);
+    assert_eq!(restored.drain_events(), source.drain_events());
+    assert_eq!(restored.snapshot().unwrap(), source.snapshot().unwrap());
+}
+
+#[test]
+fn the_public_decoder_returns_typed_errors() {
+    let mut bytes = terminal().snapshot().unwrap();
+    let version = u16::try_from(snapshot_format().version)
+        .unwrap()
+        .wrapping_add(1);
+    bytes[8..10].copy_from_slice(&version.to_le_bytes());
+    assert!(matches!(Terminal::from_snapshot(&bytes, History::On, None),
+        Err(SnapshotDecodeError::UnsupportedVersion { version: actual }) if actual == version));
+    for bytes in [Vec::new(), bytes[..8].to_vec(), vec![0; bytes.len()]] {
+        assert!(matches!(
+            Terminal::from_snapshot(&bytes, History::On, None),
+            Err(SnapshotDecodeError::Library(Error::InvalidValue))
+        ));
+    }
+}
+
+#[test]
+fn continuation_and_processing_status_come_from_the_library() {
+    let mut source = terminal();
+    assert!(
+        matches!(source.continuation().unwrap(), Continuation::Retained(bytes) if bytes.is_empty())
+    );
+    source.vt_write(b"\x1b]2;unfinished");
+    let pending = source.continuation().unwrap();
+    assert!(matches!(&pending, Continuation::Retained(bytes) if !bytes.is_empty()));
+    let snapshot = source.snapshot().unwrap();
+    let restored = Terminal::from_snapshot(&snapshot, History::On, None).unwrap();
+    assert_eq!(restored.continuation().unwrap(), pending);
+    assert!(!source.vt_processing_error().unwrap());
+    source.set_continuation_max_bytes(0).unwrap();
+    assert_eq!(source.continuation().unwrap(), Continuation::Unavailable);
+    source.vt_write(b"\x07");
+    source
+        .set_continuation_max_bytes(CONTINUATION_LIMIT)
+        .unwrap();
+    assert!(
+        matches!(source.continuation().unwrap(), Continuation::Retained(bytes) if bytes.is_empty())
+    );
+    source.set_continuation_max_bytes(8).unwrap();
+    source.vt_write(b"\x1b]2;more-than-eight");
+    assert_eq!(source.continuation().unwrap(), Continuation::Unavailable);
+    assert!(
+        !source.vt_processing_error().unwrap(),
+        "a configured limit is not a processing error"
+    );
+}
+
+#[test]
+fn hyperlink_reads_match_the_library_before_and_after_restore() {
+    let mut source = terminal();
+    source.vt_write(b"\x1b]8;;https://example.com\x1b\\link\x1b]8;;\x1b\\ plain");
+    let restored = Terminal::from_snapshot(&source.snapshot().unwrap(), History::On, None).unwrap();
+    let uri = source.hyperlink_uri(0, 0).unwrap();
+    assert!(!uri.is_empty());
+    for col in 0..4 {
+        assert_eq!(source.hyperlink_uri(0, col).unwrap(), uri);
+        assert_eq!(restored.hyperlink_uri(0, col).unwrap(), uri);
+    }
+    assert!(source.hyperlink_uri(0, 5).unwrap().is_empty());
+    for (row, col) in [(u32::MAX, 0), (0, u32::MAX), (0, u32::from(source.cols()))] {
+        assert_eq!(source.hyperlink_uri(row, col), Err(Error::InvalidValue));
+    }
 }
 
 #[test]

@@ -31,7 +31,8 @@ pub use query::{Query, QueryKind, QueryStep, Terminator, MAX_SHADOW_REPLY_BYTES}
 pub use reads::{CursorCell, ScreenText};
 pub use reply::{ReplyError, MAX_REPLY_BYTES};
 pub use snapshot::{
-    snapshot_format, terminal_identity, SnapshotError, TerminalIdentityParts, CONTINUATION_LIMIT,
+    snapshot_format, terminal_identity, Continuation, SnapshotDecodeError, SnapshotError,
+    TerminalIdentityParts, CONTINUATION_LIMIT,
 };
 
 /// The default bytes of undrained clipboard acknowledgements that `vt_write_until_query` accepts.
