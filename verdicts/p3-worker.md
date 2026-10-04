@@ -1,8 +1,8 @@
 # P3 worker review
 
-Current restack verdict: NOT CLEAN (F13 and F17 open; F14, F15, and F16 closed).
-Reviewed head: `3d13dda8fb2baad575495501a083d0244eb726ce`, branch `stage1/p3-m1-v1`.
-Round 35 closes F15 and F16 in source and opens F17. F13 retains 71 entries pending corrected mutation evidence.
+Current restack verdict: NOT CLEAN (F13 open; F14, F15, F16, and F17 closed).
+Reviewed head: `ebed1022a1f3804712342f8288902f42ef1db159`, branch `stage1/p3-m1-v1`.
+Round 36 closes F17 in source and accepts three exact-function equivalence entries. F13 retains 68 entries.
 The CLEAN below applies only to the old M2a head that it names.
 
 VERDICT: CLEAN
@@ -1236,3 +1236,48 @@ Authority: the user's real-process rule that children exit when their parent is 
 F13 retains 71 entries. F17 remains open. All earlier findings and closures remain preserved.
 
 VERDICT: NOT CLEAN (F13: 71 entries; F17 open) on `3d13dda8fb2baad575495501a083d0244eb726ce`.
+
+
+## Round 36 — Observer ownership and three payload exclusions
+
+Reviewed head: `ebed1022a1f3804712342f8288902f42ef1db159`.
+The complete delta from `3d13dda` changes observer startup, one reap caller, the exit-wait loop, three exclusions, and the handoff.
+No conflict resolution accompanies this delta. The reviewer inspected all four changed files and the existing GroupGuard implementation.
+The reviewer ran no tests or gate. The pending job at `3d13dda` cannot prove this later source delta.
+
+F17 is CLOSED in source.
+The outer test creates GroupGuard before it starts the observer shell in a new process group.
+The shell waits for the independent anchor to join that group before exec starts the observer.
+Parent death closes the anchor's control socket. The anchor then kills its owned observer group.
+Observer death closes the separate payload-guard connection, so the payload anchor ends its own payload group.
+GroupGuard reaps only its own anchor. Observer reaps only its observer child. Production alone reaps the payload.
+The observer has no other direct child during the retired-payload query; the outer test owns the observer anchor.
+The registration helper exits and the shell waits for it before exec starts the observer.
+The NOWAIT|NOHANG query and the isolated ownership proof remain intact. F16 remains CLOSED in source.
+
+The three new exclusions are ACCEPTED under F13.
+Each pattern identifies one exact mutation in one named function and matches one original missed entry.
+Their original names are preserved in `verdicts/p3-worker-mutants-ebed102-equivalent.txt`.
+
+- Payload::reap no-op: each current caller observes the leader's exit and sends group SIGKILL before consuming Payload.
+  The corrected TERM test now follows that order. Production requires killed && exit_drained before ReapPayload.
+  A no-op runs Drop, which sends a redundant SIGKILL while the same leader remains unreaped, then waits for that leader.
+  The reserved group id prevents a signal to a reused group. The reported leader exit cannot change.
+  The argument permits the first SIGKILL to remain pending. Recheck callers and Drop when either changes.
+- wait_unreaped OR-to-XOR: EXITED and NOWAIT are disjoint flags, so both operations produce the same options.
+  The pattern covers only that operation in wait_unreaped. Recheck the options and pinned rustix when either changes.
+- set_nonblocking OR-to-XOR: its sole current caller passes a fresh blocking PTY from pinned pty-process 0.5.3.
+  The dependency's blocking open path leaves NONBLOCK clear. Both operations therefore set the same bit.
+  Recheck the caller and the pinned PTY dependency when either changes.
+
+The exit-watch change extracts the existing decision loop into wait_unreaped_with with an injected wait operation.
+Production supplies the same waitid(P_PID, EXITED|NOWAIT) operation. The default test supplies EINTR followed by ECHILD.
+Production and the test use one loop, with no production test branch.
+The test checks the retry and negative fallback code. No exclusion covers that fallback.
+Mutation evidence must identify the relocated fallback-sign entry in wait_unreaped_with before its original entry can close.
+
+F13 retains 68 entries: 65 real driver entries and three payload entries.
+The payload entries are Payload::drop, Payload::read -> Ok(0), and the relocated fallback sign.
+All other findings remain CLOSED. All earlier findings and closures remain preserved.
+
+VERDICT: NOT CLEAN (F13: 68 entries open) on `ebed1022a1f3804712342f8288902f42ef1db159`.
