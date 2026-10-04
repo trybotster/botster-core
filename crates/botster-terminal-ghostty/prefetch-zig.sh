@@ -19,7 +19,7 @@ trap 'rm -rf "$scratch"' EXIT
 
 # The build arguments and the package list come from build_data.rs, so there is one list.
 args=$(sed -n '/pub const GHOSTTY_BUILD_ARGS/,/^];/p' "$here/build_data.rs" | sed -n 's/^ *"\(.*\)",$/\1/p')
-packages=$(sed -n '/pub const ZIG_PACKAGES/,/^];/p' "$here/build_data.rs" | sed -n 's/^ *"\(.*\)",$/\1/p')
+packages=$(sed -n '/pub const ZIG_PACKAGES: /,/^];/p' "$here/build_data.rs" | sed -n 's/^ *"\(.*\)",$/\1/p')
 
 (cd "$ghostty" && $zig $args --cache-dir "$scratch/local" --global-cache-dir "$scratch/global" --prefix "$scratch/prefix")
 
