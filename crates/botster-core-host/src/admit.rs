@@ -395,6 +395,16 @@ impl HostEngine {
         Ok(())
     }
 
+    /// Whether a `Resize` of the session can still change its size: it is admitted and has not completed, and it is not a
+    /// `Resize` that completes with no effect (SZ-2, SZ-3).
+    fn resize_in_flight(&self, session: &SessionId) -> bool {
+        self.ops.values().any(|p| {
+            p.session.as_ref() == Some(session)
+                && matches!(p.op, Op::Resize { .. })
+                && !matches!(p.step, Step::Done | Step::Ready(Next::Complete(_)))
+        })
+    }
+
     /// The most encoded bytes that a write can put on the PTY (IN-9): the payload bytes, or the worst case of one sequence
     /// for each repeat or notch. It counts against `input_retained_bytes` (IN-5), and it bounds an `Unknown` write (IN-7).
     pub(crate) fn held_bytes(payload: &InputPayload) -> u64 {
@@ -714,8 +724,12 @@ impl HostEngine {
             Op::Resize { session, size } => {
                 let instance = instance_of(self, &session);
                 let admit = self.sessions[&session].admit;
-                // SZ-2, R-20: a `Resize` to the current size is `Applied` with no `SizeChanged`, in the next `pump`.
-                let same_size = admit == Admit::Running && self.sessions[&session].size == size;
+                // SZ-2, R-20: a `Resize` to the current size is `Applied` with no `SizeChanged`, in the next `pump`. While
+                // another `Resize` of the session is in flight, the current size is not known yet (the in-flight one applies
+                // later, SZ-3), so the resize goes to the worker.
+                let same_size = admit == Admit::Running
+                    && self.sessions[&session].size == size
+                    && !self.resize_in_flight(&session);
                 let step = if admit == Admit::Created {
                     self.sessions
                         .get_mut(&session)

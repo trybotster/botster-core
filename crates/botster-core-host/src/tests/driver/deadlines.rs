@@ -614,6 +614,94 @@ fn writes_of_one_session_reach_the_worker_in_begin_order() {
     assert_eq!(sent, ["a", "b", "c", "d"]);
 }
 
+/// The sizes of the `Resize` ops that the host sent to the worker, in the order sent.
+fn sent_resizes(rig: &Rig, link: LinkId) -> Vec<Size> {
+    rig.host_frames(link)
+        .iter()
+        .filter_map(|(k, p)| match HostMsg::decode(p) {
+            Ok(HostMsg::Op {
+                op: Op::Resize { size, .. },
+                ..
+            }) if *k == FrameType::HOST_MSG => Some(size),
+            _ => None,
+        })
+        .collect()
+}
+
+fn rows(rows: u32) -> Size {
+    Size {
+        rows,
+        cols: 80,
+        cell_px: None,
+    }
+}
+
+/// Core SZ-3, OR-1: the resizes of one session reach the worker in `begin` order, whatever the scheduler defers, so the last
+/// resize begun is the one applied.
+#[test]
+fn resizes_of_one_session_reach_the_worker_in_begin_order() {
+    let mut rig = Rig::with_scheduler(
+        CoreLimits::default(),
+        Box::new(AlwaysDefer(Production::new(), 0)),
+    );
+    run_session(&mut rig, "s1", LinkId(1));
+    let sizes = [rows(30), rows(31), rows(32)];
+    for size in sizes {
+        rig.driver
+            .begin(Op::Resize {
+                session: sid("s1"),
+                size,
+            })
+            .unwrap();
+    }
+    for _ in 0..20 {
+        rig.pump();
+        rig.drain_events();
+    }
+    assert_eq!(sent_resizes(&rig, LinkId(1)), sizes);
+}
+
+/// Core SZ-2, SZ-3: a `Resize` back to the current size while another `Resize` is in flight is not the same-size case: the
+/// in-flight one applies later, so this one goes to the worker after it and does not complete at once.
+#[test]
+fn a_resize_to_the_current_size_waits_for_a_resize_in_flight() {
+    let mut rig = Rig::new(CoreLimits::default());
+    run_session(&mut rig, "s1", LinkId(1));
+    let current = rig.driver.get(&sid("s1")).unwrap().size;
+    let other = Size {
+        rows: current.rows + 1,
+        ..current
+    };
+    rig.driver
+        .begin(Op::Resize {
+            session: sid("s1"),
+            size: other,
+        })
+        .unwrap();
+    rig.pump();
+    rig.drain_events();
+    let back = rig
+        .driver
+        .begin(Op::Resize {
+            session: sid("s1"),
+            size: current,
+        })
+        .unwrap();
+    let mut completed = false;
+    for _ in 0..10 {
+        rig.pump();
+        completed |= rig
+            .drain_events()
+            .iter()
+            .any(|e| matches!(e, Event::Completed { op, .. } if *op == back));
+    }
+    assert_eq!(sent_resizes(&rig, LinkId(1)), [other, current]);
+    assert!(
+        !completed,
+        "the resize back completes only after the worker answers"
+    );
+}
+
 /// A5-2: the scheduler defers the progress of an operation, not the transition that an edge report causes: when the process
 /// edge reports the exit of a worker, the session is `Lost` in the pump that takes the report, whatever the scheduler defers.
 #[test]

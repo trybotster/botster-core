@@ -12,6 +12,7 @@ use botster_core_contract::prelude::*;
 use botster_core_edges::edges::{GroupSignal, StorageError};
 use botster_core_link::msg::{HostMsg, LaunchSpec};
 use std::collections::BTreeSet;
+use std::mem::{discriminant, Discriminant};
 use std::time::Instant;
 
 /// A deadline that the engine owns (TM-3).
@@ -110,24 +111,25 @@ impl HostEngine {
         if self.due_deadline(true).is_some() {
             out.push(Work::Silent);
         }
-        // The writes of one session reach its worker in `begin` order (AM-2): only the first write of a session that is not
-        // forwarded yet is offered.
-        let mut unsent_write: BTreeSet<&SessionId> = BTreeSet::new();
+        // The ops of one kind for one session reach its worker in `begin` order: the writes (AM-2), and the resizes, so that
+        // the last one begun is the one applied (SZ-3, OR-1). Only the first op of each kind and session that is not forwarded
+        // yet is offered. The order across kinds is left to the scheduler (OR-3).
+        let mut unsent: Vec<(&SessionId, Discriminant<Op>)> = Vec::new();
         for (id, p) in &self.ops {
-            match &p.step {
-                Step::Ready(Next::Forward) if matches!(p.op, Op::WriteInput { .. }) => {
-                    if let Some(session) = &p.session {
-                        if unsent_write.insert(session) {
-                            out.push(Work::Op(*id));
-                        }
+            match (&p.step, &p.session) {
+                (Step::Ready(Next::Forward), Some(session)) => {
+                    let key = (session, discriminant(&p.op));
+                    if !unsent.contains(&key) {
+                        unsent.push(key);
+                        out.push(Work::Op(*id));
                     }
                 }
-                Step::Ready(next) => {
+                (Step::Ready(next), _) => {
                     if !self.step_needs_room(next) || room {
                         out.push(Work::Op(*id));
                     }
                 }
-                Step::Await(Wait::StopAll(targets)) if self.stop_all_done(targets) => {
+                (Step::Await(Wait::StopAll(targets)), _) if self.stop_all_done(targets) => {
                     out.push(Work::Op(*id));
                 }
                 _ => {}
