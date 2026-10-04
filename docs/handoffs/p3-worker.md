@@ -444,3 +444,12 @@ Diagnostics only read process state. They never signal or reap a process.
 The diagnostic labels the recorded payload pid without claiming that ownership still exists after cleanup starts.
 The queued-output failure prints its observed count before the assertion without a blocking process query.
 No production source changed. These diagnostics still require source review and compilation.
+
+## GHOSTSNP specification merge (2026-10-04)
+
+P3 merged origin/v1 at `a3b8af5be21389423439fb3c09d6a81d924c987d` without conflicts.
+PR #139 adds the GHOSTSNP specification and four lines of binding rustdoc.
+No production code or P3 exclusion changed. Both reviewers must review this documentation delta.
+P3 read the specification. Its Worker paging section remains pending until M2b implements CaptureSnapshot.
+The specification counts host metadata outside page bytes and requires M2b to specify worker framing independently.
+The next full M1 gate must use this current-v1 tree.
