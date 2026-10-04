@@ -1,0 +1,20 @@
+crates/botster-core-sys/src/payload.rs:56:5: replace errno_of -> i32 with 0
+crates/botster-core-sys/src/payload.rs:56:5: replace errno_of -> i32 with 1
+crates/botster-core-sys/src/payload.rs:56:5: replace errno_of -> i32 with -1
+crates/botster-core-sys/src/payload.rs:72:9: replace <impl std::fmt::Debug for Payload>::fmt -> std::fmt::Result with Ok(Default::default())
+crates/botster-core-sys/src/payload.rs:85:12: delete ! in Payload::spawn
+crates/botster-core-sys/src/payload.rs:118:9: replace Payload::pid -> u32 with 0
+crates/botster-core-sys/src/payload.rs:118:9: replace Payload::pid -> u32 with 1
+crates/botster-core-sys/src/payload.rs:132:9: replace Payload::read -> io::Result<usize> with Ok(1)
+crates/botster-core-sys/src/payload.rs:134:23: replace match guard e.raw_os_error() == Some(rustix::io::Errno::IO.raw_os_error()) with true in Payload::read
+crates/botster-core-sys/src/payload.rs:134:23: replace match guard e.raw_os_error() == Some(rustix::io::Errno::IO.raw_os_error()) with false in Payload::read
+crates/botster-core-sys/src/payload.rs:134:40: replace == with != in Payload::read
+crates/botster-core-sys/src/payload.rs:144:9: replace Payload::pending_output -> io::Result<usize> with Ok(0)
+crates/botster-core-sys/src/payload.rs:144:9: replace Payload::pending_output -> io::Result<usize> with Ok(1)
+crates/botster-core-sys/src/payload.rs:153:9: replace Payload::write -> io::Result<usize> with Ok(0)
+crates/botster-core-sys/src/payload.rs:153:9: replace Payload::write -> io::Result<usize> with Ok(1)
+crates/botster-core-sys/src/payload.rs:163:9: replace Payload::watch_exit -> io::Result<()> with Ok(())
+crates/botster-core-sys/src/payload.rs:174:9: replace Payload::signal_group with ()
+crates/botster-core-sys/src/payload.rs:212:35: replace | with & in wait_unreaped
+crates/botster-core-sys/src/payload.rs:230:5: replace set_nonblocking -> io::Result<()> with Ok(())
+crates/botster-core-sys/src/payload.rs:231:39: replace | with & in set_nonblocking
