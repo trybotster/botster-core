@@ -13,6 +13,7 @@ fn edges(seed: u64) -> SimEdges {
         pending: VecDeque::new(),
         links: BTreeMap::new(),
         next_link: 1,
+        link_capacity: LINK_CAPACITY,
     }
 }
 
@@ -194,14 +195,10 @@ fn each_spawn_has_its_own_link_and_process_events_reach_the_spawner() {
     let links: Vec<_> = std::iter::from_fn(|| edges.accept_link()).collect();
     assert_eq!(links, vec![LinkId(1), LinkId(2), LinkId(3)]);
     for (index, &link) in links.iter().enumerate() {
-        let bytes = vec![index as u8; 8192];
-        assert_eq!(edges.link_send(link, &bytes).unwrap(), bytes.len());
-        let mut received = vec![0; bytes.len()];
-        assert_eq!(
-            lock(&log).peers[index].recv(&mut received).unwrap(),
-            bytes.len()
-        );
-        assert_eq!(received, bytes);
+        edges.link_send(link, &[index as u8]).unwrap();
+        let mut byte = [0];
+        assert_eq!(lock(&log).peers[index].recv(&mut byte).unwrap(), 1);
+        assert_eq!(byte, [index as u8]);
     }
     edges.signal_group(ids[1], GroupSignal::EndPayload);
     assert_eq!(lock(&log).signals, vec![(ids[1], GroupSignal::EndPayload)]);
@@ -595,4 +592,172 @@ fn the_testkit_facade_releases_captures_by_id_and_owner() {
         core.read_page(captures[1], 0).unwrap_err().code,
         ErrorCode::UnknownCapture
     );
+}
+
+/// Plan 2.5 rule 7 and A5-2: queue capacity changes partial progress, not retained bytes or complete-frame order.
+#[test]
+fn spawned_links_retain_frames_at_each_queue_capacity() {
+    use botster_core_link::frame::{encode_frame, FrameDecoder, FrameType};
+    for capacity in [65_536, 1_088, 1] {
+        let log = Arc::new(Mutex::new(ProcessLog::default()));
+        let mut edges = edges(9).with_spawner(Box::new(RecordedSpawner(log.clone())));
+        edges.link_capacity = capacity;
+        edges
+            .spawn_worker(&WorkerSpawn {
+                program: "worker".into(),
+                instance: InstanceId("1-1".into()),
+                token: [9; 32],
+                host_epoch: 1,
+            })
+            .unwrap();
+        let link = edges.accept_link().unwrap();
+        let payloads = [vec![7; 8192], vec![8; 2048], vec![9; 64]];
+        let mut bytes = Vec::new();
+        for payload in &payloads {
+            encode_frame(FrameType::HOST_MSG, payload, 65536, &mut bytes).unwrap();
+        }
+        let mut sent = 0;
+        let mut received = Vec::new();
+        let mut buf = [0; 65536];
+        while sent < bytes.len() {
+            let n = edges.link_send(link, &bytes[sent..]).unwrap();
+            assert!(n > 0);
+            sent += n;
+            let n = lock(&log).peers[0].recv(&mut buf).unwrap();
+            assert!(n > 0);
+            received.extend_from_slice(&buf[..n]);
+        }
+        assert_eq!(received, bytes);
+        let mut decoder = FrameDecoder::new(65536);
+        let mut rest = received.as_slice();
+        let mut decoded = Vec::new();
+        while !rest.is_empty() {
+            let n = decoder.push(rest);
+            rest = &rest[n..];
+            while let Some(frame) = decoder.next_frame().unwrap() {
+                assert_eq!(frame.kind, FrameType::HOST_MSG);
+                decoded.push(frame.payload);
+            }
+        }
+        assert_eq!(decoded, payloads);
+    }
+}
+
+/// A zero queue capacity cannot make progress and is outside the internal parameter's range.
+#[test]
+#[should_panic(expected = "a link needs a positive queue capacity")]
+fn a_spawn_refuses_zero_queue_capacity() {
+    let mut edges = edges(9).with_spawner(Box::new(RecordedSpawner(Arc::default())));
+    edges.link_capacity = 0;
+    edges
+        .spawn_worker(&WorkerSpawn {
+            program: "worker".into(),
+            instance: InstanceId("1-1".into()),
+            token: [9; 32],
+            host_epoch: 1,
+        })
+        .unwrap();
+}
+
+/// A5-1, A5-2, LC-3, LC-6, and LC-7: the same worker completes the lifecycle at every legal buffer bound.
+#[test]
+#[allow(clippy::disallowed_methods)] // The test initializes the injected clock once.
+fn the_worker_keeps_complete_operations_at_each_buffer_bound() {
+    for bound in [65_536, 1_088, 1] {
+        let start = Instant::now();
+        let scheduler = SchedulerHandle::with_seed(11);
+        scheduler.with(|s| {
+            s.overrides_mut().no_spurious_wakes = true;
+        });
+        let workers = crate::worker::Workers::with_read_chunk(scheduler.clone(), start, bound);
+        let mut dirs = Directories::default();
+        let mut opened = dirs
+            .open(
+                "buffers",
+                &OpenConfig {
+                    data_dir: "buffers".into(),
+                    worker_path: Some("worker".into()),
+                    limits: CoreLimits::default(),
+                },
+                RunInputs {
+                    seed: 11,
+                    scheduler,
+                    start,
+                },
+                core_features(),
+                Some(Box::new(workers.spawner())),
+            )
+            .unwrap();
+        opened.driver.edges().link_capacity = bound;
+        let mut core = crate::worker::TestkitCore::new(opened.driver, opened.wake, workers);
+        let session = SessionId("s".into());
+        let create = core
+            .begin(Op::Create {
+                session: session.clone(),
+                request: SpawnRequest {
+                    argv: vec!["program".into()],
+                    env: BTreeMap::from([("LARGE".into(), "x".repeat(8192))]),
+                    cwd: "/".into(),
+                    size: Size {
+                        rows: 24,
+                        cols: 80,
+                        cell_px: None,
+                    },
+                    labels: BTreeMap::new(),
+                    color_profile: None,
+                    notification_policy: None,
+                    size_policy: None,
+                },
+            })
+            .unwrap();
+        let mut events = settle_partial(&mut core, start);
+        let launch = core
+            .begin(Op::Start {
+                id: session.clone(),
+            })
+            .unwrap();
+        events.extend(settle_partial(&mut core, start));
+        assert_eq!(core.get(&session).unwrap().state, SessionState::Running);
+        let signal = core
+            .begin(Op::Signal {
+                id: session.clone(),
+                sig: Signal::Term,
+            })
+            .unwrap();
+        events.extend(settle_partial(&mut core, start));
+        let remove = core
+            .begin(Op::Remove {
+                id: session.clone(),
+            })
+            .unwrap();
+        events.extend(settle_partial(&mut core, start));
+        assert!(core.list().is_empty());
+        let completions: Vec<_> = events
+            .iter()
+            .filter_map(|event| match event {
+                Event::Completed {
+                    op,
+                    result: OpResult::Ok(_),
+                } => Some(*op),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(completions, vec![create, launch, signal, remove]);
+    }
+}
+
+fn settle_partial(core: &mut crate::worker::TestkitCore, start: Instant) -> Vec<Event> {
+    let mut events = Vec::new();
+    // Each pump advances ready in-process work. The bound detects a failure to retain or complete a frame.
+    for _ in 0..65_536 {
+        let report = core.pump(Now {
+            monotonic: start,
+            unix: 1_000_000,
+        });
+        events.extend(core.poll_events(64));
+        if !report.more {
+            return events;
+        }
+    }
+    panic!("partial progress did not complete the operation");
 }

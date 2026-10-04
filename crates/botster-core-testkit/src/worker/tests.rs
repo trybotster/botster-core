@@ -31,6 +31,7 @@ fn fixture(capacity: usize) -> (WorkerEdges, LinkEnd, Worker, Instant) {
         output_ended: false,
         drain: false,
         ready: Vec::new(),
+        read_chunk: READ_CHUNK,
     };
     let worker = Worker::new(WorkerConfig::new(
         InstanceId("1-1".into()),
@@ -227,16 +228,75 @@ fn workers_expose_the_payload_grace_deadline() {
     );
 }
 
-/// Plan 2.5: a ready read takes a control frame within the edge's read bound in one input.
+/// Plan 2.5 rule 7 and A5-2: positive read bounds retain control bytes and complete frames in order.
 #[test]
-fn a_large_control_frame_is_one_ready_input() {
-    use botster_core_link::frame::{encode_frame, FrameType};
-    let (mut edges, mut peer, worker, now) = fixture(65536);
-    let payload = vec![7; 8192];
-    let mut bytes = Vec::new();
-    encode_frame(FrameType::HOST_MSG, &payload, 65536, &mut bytes).unwrap();
-    assert_eq!(peer.send(&bytes).unwrap(), bytes.len());
-    assert_eq!(edges.ready(now, &worker), 1);
-    assert_eq!(edges.take(now, &worker, 0), Input::LinkBytes(bytes));
-    assert_eq!(edges.ready(now, &worker), 0);
+fn control_reads_retain_frames_at_each_read_bound() {
+    use botster_core_link::frame::{encode_frame, FrameDecoder, FrameType};
+    for bound in [65_536, 1_088, 1] {
+        let (mut edges, mut peer, worker, now) = fixture(65536);
+        edges.read_chunk = bound;
+        let payloads = [vec![7; 8192], vec![8; 2048], vec![9; 64]];
+        let mut bytes = Vec::new();
+        for payload in &payloads {
+            encode_frame(FrameType::HOST_MSG, payload, 65536, &mut bytes).unwrap();
+        }
+        let mut sent = 0;
+        while sent < bytes.len() {
+            sent += peer.send(&bytes[sent..]).unwrap();
+        }
+        let mut received = Vec::new();
+        let mut decoder = FrameDecoder::new(65536);
+        let mut decoded = Vec::new();
+        while edges.ready(now, &worker) != 0 {
+            let Input::LinkBytes(chunk) = edges.take(now, &worker, 0) else {
+                panic!("the ready input must carry control bytes");
+            };
+            assert!(!chunk.is_empty());
+            assert!(chunk.len() <= bound);
+            received.extend_from_slice(&chunk);
+            let mut rest = chunk.as_slice();
+            while !rest.is_empty() {
+                let n = decoder.push(rest);
+                rest = &rest[n..];
+                while let Some(frame) = decoder.next_frame().unwrap() {
+                    assert_eq!(frame.kind, FrameType::HOST_MSG);
+                    decoded.push(frame.payload);
+                }
+            }
+        }
+        assert_eq!(received, bytes);
+        assert_eq!(decoded, payloads);
+    }
+}
+
+/// A5-2 and EV-4: program bytes keep their order at the same positive read bounds.
+#[test]
+fn program_reads_retain_output_at_each_read_bound() {
+    for bound in [65_536, 1_088, 1] {
+        let (mut edges, _peer, worker, now) = fixture(8);
+        edges.read_chunk = bound;
+        let script = serde_json::from_value(serde_json::json!({"program": [
+            {"print": {"bytes_hex": "61".repeat(8192)}}, {"hold": {}}
+        ]}))
+        .unwrap();
+        edges.payload = Some(ScriptedProgram::new(&script, false, &edges.scheduler).unwrap());
+        let mut received = Vec::new();
+        while edges.ready(now, &worker) != 0 {
+            let Input::PtyOutput(chunk) = edges.take(now, &worker, 0) else {
+                panic!("the ready input must carry program output");
+            };
+            assert!(!chunk.is_empty());
+            assert!(chunk.len() <= bound);
+            received.extend_from_slice(&chunk);
+        }
+        assert_eq!(received, vec![b'a'; 8192]);
+    }
+}
+
+/// A zero read bound cannot make progress and is outside the internal parameter's range.
+#[test]
+#[should_panic(expected = "a worker needs a positive read bound")]
+#[allow(clippy::disallowed_methods)] // The test initializes the injected clock once.
+fn a_worker_refuses_zero_read_bound() {
+    Workers::with_read_chunk(SchedulerHandle::with_seed(1), Instant::now(), 0);
 }
