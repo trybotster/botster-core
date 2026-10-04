@@ -183,3 +183,24 @@ fn parent_exit_without_cleanup_ends_the_child() {
     drop(group);
     assert!(!alive(pid));
 }
+
+/// The standard streams of the leader are the caller's: `take_stdin` gives the writing end of its input and `take_stderr`
+/// the reading end of its errors. The shell echoes its input line to its errors.
+#[test]
+fn the_leader_streams_are_taken_by_the_caller() {
+    let mut command = Command::new("/bin/sh");
+    command
+        .args(["-c", "read line; echo \"$line\" >&2"])
+        .stdin(Stdio::piped())
+        .stderr(Stdio::piped());
+    let mut group = OwnedGroup::spawn(command).unwrap();
+    let mut stdin = group.take_stdin().expect("the input is piped");
+    stdin.write_all(b"hello\n").unwrap();
+    drop(stdin);
+    let mut stderr = group.take_stderr().expect("the errors are piped");
+    let mut said = String::new();
+    // The end of the pipe comes when the shell exits.
+    stderr.read_to_string(&mut said).unwrap();
+    assert_eq!(said, "hello\n");
+    assert!(group.take_stdin().is_none(), "taken once");
+}
