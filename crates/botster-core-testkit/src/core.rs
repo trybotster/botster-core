@@ -392,3 +392,6 @@ pub fn core_features() -> Features {
         service_preamble_versions: vec![1],
     }
 }
+
+#[cfg(test)]
+mod tests;

@@ -212,3 +212,15 @@ The tests cover a wrong frame kind, an early PTY drain, EndPayload after Kill, a
 One exact mutant in Worker::report_exit has an equivalence argument in `.cargo/mutants.toml`.
 The package reviewer must judge that argument. Focused Linux mutation verification is next.
 Testkit and real process findings remain open. Both exact-head reviews and a full gate remain required.
+
+## Worker-core mutation proof and testkit correction (2026-10-04)
+
+Focused Linux mutation at `fdd2b8e73927d592b75713c55a86c6ea8c60c037` passed: 110 tested, 103 caught, 7 unviable, 0 missed, and 0 timeouts.
+Log: `~/botster-sessions/gates/botster-core-stage1-p3-m1-v1-fdd2b8e7-linux-20261004-132453-37330.log`.
+Package verdict `df642bba601b71b7b228bbe197dc19f013732417` closes all five worker-core entries.
+F13 remains open for 162 other entries. Integration verdict `a9252300a17c492301f1d4ebb22856b2c7f22441` also keeps F13 open.
+
+The next correction adds checks of the injected host edges and testkit facade.
+The checks cover rows, seeded choices, wake deadlines, links, process events, directory reopen, and facade forwarding.
+The named-worker check covers the worker_named forwarding method.
+These tests await Linux compilation and focused mutation evidence. No other entry has a closure yet.

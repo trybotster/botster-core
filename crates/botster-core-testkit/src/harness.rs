@@ -268,6 +268,13 @@ mod tests {
             })
         );
         assert_eq!(harness.worker(WorkerBuild::Previous), None);
+        assert_eq!(
+            harness.worker_named("renamed-worker"),
+            Some(WorkerRef {
+                build: WorkerBuild::Current,
+                file_name: Some("renamed-worker".into()),
+            })
+        );
     }
 
     #[test]
