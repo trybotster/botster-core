@@ -46,6 +46,7 @@ fn partial_writes_keep_bytes_and_a_broken_link_discards_them() {
     let (mut edges, mut peer, worker, now) = fixture(4);
     edges.perform(now, Action::LinkSend(b"abcdef".to_vec()));
     assert_eq!(edges.ready(now, &worker), 1);
+    assert!(edges.link.end().interest().write);
     assert_eq!(edges.take(now, &worker, 0), Input::LinkWritten { total: 4 });
     let mut bytes = [0; 4];
     assert_eq!(peer.recv(&mut bytes).unwrap(), 4);
@@ -55,6 +56,7 @@ fn partial_writes_keep_bytes_and_a_broken_link_discards_them() {
     assert_eq!(peer.recv(&mut bytes).unwrap(), 2);
     assert_eq!(&bytes[..2], b"ef");
     assert_eq!(edges.ready(now, &worker), 0);
+    assert!(!edges.link.end().interest().write);
     peer.close();
     edges.perform(now, Action::LinkSend(b"lost".to_vec()));
     assert_eq!(edges.ready(now, &worker), 2);
@@ -223,4 +225,18 @@ fn workers_expose_the_payload_grace_deadline() {
         workers.next_deadline(),
         Some(now + Duration::from_millis(250))
     );
+}
+
+/// Plan 2.5: a ready read takes a control frame within the edge's read bound in one input.
+#[test]
+fn a_large_control_frame_is_one_ready_input() {
+    use botster_core_link::frame::{encode_frame, FrameType};
+    let (mut edges, mut peer, worker, now) = fixture(65536);
+    let payload = vec![7; 8192];
+    let mut bytes = Vec::new();
+    encode_frame(FrameType::HOST_MSG, &payload, 65536, &mut bytes).unwrap();
+    assert_eq!(peer.send(&bytes).unwrap(), bytes.len());
+    assert_eq!(edges.ready(now, &worker), 1);
+    assert_eq!(edges.take(now, &worker, 0), Input::LinkBytes(bytes));
+    assert_eq!(edges.ready(now, &worker), 0);
 }

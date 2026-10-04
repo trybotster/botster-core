@@ -145,6 +145,7 @@ fn links_forward_bytes_descriptors_interests_and_close() {
 #[derive(Default)]
 struct ProcessLog {
     peers: Vec<LinkEnd>,
+    spawns: Vec<WorkerSpawn>,
     signals: Vec<(ProcessIdentity, GroupSignal)>,
     exits: VecDeque<(ProcessIdentity, ExitStatus)>,
 }
@@ -159,6 +160,7 @@ impl Spawner for RecordedSpawner {
     ) -> Result<ProcessIdentity, SpawnError> {
         let mut log = lock(&self.0);
         log.peers.push(connect());
+        log.spawns.push(_spec.clone());
         Ok(ProcessIdentity {
             pid: log.peers.len() as u32,
             start_time: 1,
@@ -192,10 +194,14 @@ fn each_spawn_has_its_own_link_and_process_events_reach_the_spawner() {
     let links: Vec<_> = std::iter::from_fn(|| edges.accept_link()).collect();
     assert_eq!(links, vec![LinkId(1), LinkId(2), LinkId(3)]);
     for (index, &link) in links.iter().enumerate() {
-        edges.link_send(link, &[index as u8]).unwrap();
-        let mut byte = [0];
-        assert_eq!(lock(&log).peers[index].recv(&mut byte).unwrap(), 1);
-        assert_eq!(byte, [index as u8]);
+        let bytes = vec![index as u8; 8192];
+        assert_eq!(edges.link_send(link, &bytes).unwrap(), bytes.len());
+        let mut received = vec![0; bytes.len()];
+        assert_eq!(
+            lock(&log).peers[index].recv(&mut received).unwrap(),
+            bytes.len()
+        );
+        assert_eq!(received, bytes);
     }
     edges.signal_group(ids[1], GroupSignal::EndPayload);
     assert_eq!(lock(&log).signals, vec![(ids[1], GroupSignal::EndPayload)]);
@@ -361,4 +367,232 @@ fn the_testkit_facade_forwards_configuration_and_typed_failures() {
     assert_eq!(core.list()[0].id, session);
     assert_eq!(core.status().sessions.len(), 1);
     assert_eq!(core.diagnostics()["sessions"], 1);
+}
+
+fn pump_core(core: &mut crate::worker::TestkitCore, start: Instant) -> Vec<Event> {
+    let mut events = Vec::new();
+    for _ in 0..128 {
+        let report = core.pump(Now {
+            monotonic: start,
+            unix: 1_000_000,
+        });
+        events.extend(core.poll_events(64));
+        if !report.more {
+            return events;
+        }
+    }
+    panic!("the host did not settle");
+}
+
+fn say(log: &Arc<Mutex<ProcessLog>>, msg: &botster_core_link::msg::WorkerMsg) {
+    let mut payload = Vec::new();
+    msg.encode(&mut payload);
+    let mut bytes = Vec::new();
+    botster_core_link::frame::encode_frame(
+        botster_core_link::frame::FrameType::WORKER_MSG,
+        &payload,
+        65536,
+        &mut bytes,
+    )
+    .unwrap();
+    assert_eq!(lock(log).peers[0].send(&bytes).unwrap(), bytes.len());
+}
+
+fn host_messages(log: &Arc<Mutex<ProcessLog>>) -> Vec<botster_core_link::msg::HostMsg> {
+    use botster_core_link::frame::{FrameDecoder, FrameType};
+    let mut bytes = [0; 65536];
+    let n = lock(log).peers[0].recv(&mut bytes).unwrap();
+    let mut decoder = FrameDecoder::new(65536);
+    let mut rest = &bytes[..n];
+    let mut messages = Vec::new();
+    while !rest.is_empty() {
+        let took = decoder.push(rest);
+        rest = &rest[took..];
+        while let Some(frame) = decoder.next_frame().unwrap() {
+            if frame.kind == FrameType::HOST_MSG {
+                messages.push(botster_core_link::msg::HostMsg::decode(&frame.payload).unwrap());
+            }
+        }
+    }
+    messages
+}
+
+/// ST-6a: the facade releases live captures by id and owner. Libghostty supplies every snapshot byte.
+#[test]
+#[allow(clippy::disallowed_methods)] // The test initializes the injected clock once.
+fn the_testkit_facade_releases_captures_by_id_and_owner() {
+    use botster_core_link::frame::{encode_frame, FrameType};
+    use botster_core_link::hello::Hello;
+    use botster_core_link::msg::{HostMsg, PayloadId, WorkerMsg};
+    use botster_core_link::proof::token_proof;
+    use botster_terminal_ghostty::{History, Terminal};
+
+    let start = Instant::now();
+    let scheduler = SchedulerHandle::with_seed(7);
+    scheduler.with(|s| {
+        s.overrides_mut().defer_operations = Some(false);
+        s.overrides_mut().work_limit = Some(1024);
+        s.overrides_mut().poll_batch = Some(64);
+        s.overrides_mut().no_spurious_wakes = true;
+    });
+    let workers = crate::worker::Workers::new(scheduler.clone(), start);
+    let log = Arc::new(Mutex::new(ProcessLog::default()));
+    let mut dirs = Directories::default();
+    let opened = dirs
+        .open(
+            "captures",
+            &OpenConfig {
+                data_dir: "captures".into(),
+                worker_path: Some("worker".into()),
+                limits: CoreLimits::default(),
+            },
+            RunInputs {
+                seed: 7,
+                scheduler,
+                start,
+            },
+            core_features(),
+            Some(Box::new(RecordedSpawner(log.clone()))),
+        )
+        .unwrap();
+    let mut core = crate::worker::TestkitCore::new(opened.driver, opened.wake, workers);
+    let session = SessionId("s".into());
+    let size = Size {
+        rows: 24,
+        cols: 80,
+        cell_px: None,
+    };
+    core.begin(Op::Create {
+        session: session.clone(),
+        request: SpawnRequest {
+            argv: vec!["program".into()],
+            env: BTreeMap::new(),
+            cwd: "/".into(),
+            size,
+            labels: BTreeMap::new(),
+            color_profile: None,
+            notification_policy: None,
+            size_policy: None,
+        },
+    })
+    .unwrap();
+    pump_core(&mut core, start);
+    core.begin(Op::Start {
+        id: session.clone(),
+    })
+    .unwrap();
+    pump_core(&mut core, start);
+    let spawn = lock(&log).spawns[0].clone();
+    let hello = Hello {
+        protocol: 1,
+        instance: spawn.instance.clone(),
+        host_epoch: spawn.host_epoch,
+        proof: token_proof(&spawn.token, &spawn.instance, spawn.host_epoch),
+    };
+    let mut payload = Vec::new();
+    hello.encode(&mut payload).unwrap();
+    let mut bytes = Vec::new();
+    encode_frame(FrameType::HELLO, &payload, 65536, &mut bytes).unwrap();
+    assert_eq!(lock(&log).peers[0].send(&bytes).unwrap(), bytes.len());
+    pump_core(&mut core, start);
+    assert!(host_messages(&log)
+        .iter()
+        .any(|msg| matches!(msg, HostMsg::Launch(_))));
+    let mut terminal = Terminal::new(&size, History::Off).unwrap();
+    terminal.vt_write(b"capture");
+    let snapshot = terminal.snapshot().unwrap();
+    say(
+        &log,
+        &WorkerMsg::Launched {
+            features: BTreeSet::new(),
+            formats: vec![botster_terminal_ghostty::snapshot_format()],
+            payload: PayloadId {
+                pid: 900,
+                start_time: 1,
+            },
+            terminal: TerminalState {
+                size,
+                modes: terminal.modes(),
+                title: Some(terminal.title()),
+                cwd: Some(terminal.cwd()),
+                last_output_at: None,
+                focused: None,
+                model_rev: ModelRev(1),
+                input_rev: InputRevs {
+                    client: InputRev(0),
+                    host: InputRev(0),
+                },
+            },
+        },
+    );
+    pump_core(&mut core, start);
+    assert_eq!(core.get(&session).unwrap().state, SessionState::Running);
+    let owner = ClientId("owner".into());
+    let mut captures = Vec::new();
+    for _ in 0..2 {
+        let op = core
+            .begin(Op::CaptureSnapshot {
+                session: session.clone(),
+                owner: owner.clone(),
+            })
+            .unwrap();
+        pump_core(&mut core, start);
+        let req = host_messages(&log)
+            .into_iter()
+            .find_map(|msg| match msg {
+                HostMsg::Op {
+                    req,
+                    op: Op::CaptureSnapshot { .. },
+                } => Some(req),
+                _ => None,
+            })
+            .expect("the host forwarded the capture");
+        say(
+            &log,
+            &WorkerMsg::Pages {
+                req,
+                pages: vec![Page {
+                    index: 0,
+                    last: true,
+                    bytes: botster_route_codec::prelude::HexBytes(snapshot.clone()),
+                }],
+            },
+        );
+        say(
+            &log,
+            &WorkerMsg::Done {
+                req,
+                result: OpResult::Ok(OpOutput::Capture(Capture {
+                    capture: CaptureId(0),
+                    page_count: 1,
+                    total_bytes: snapshot.len() as u64,
+                    model_rev: ModelRev(1),
+                })),
+            },
+        );
+        let events = pump_core(&mut core, start);
+        let capture = events
+            .into_iter()
+            .find_map(|event| match event {
+                Event::Completed {
+                    op: completed,
+                    result: OpResult::Ok(OpOutput::Capture(capture)),
+                } if completed == op => Some(capture.capture),
+                _ => None,
+            })
+            .expect("the capture completed");
+        assert_eq!(core.read_page(capture, 0).unwrap().bytes.0, snapshot);
+        captures.push(capture);
+    }
+    core.release(captures[0]);
+    assert_eq!(
+        core.read_page(captures[0], 0).unwrap_err().code,
+        ErrorCode::UnknownCapture
+    );
+    assert!(core.read_page(captures[1], 0).is_ok());
+    core.release_owner(&owner);
+    assert_eq!(
+        core.read_page(captures[1], 0).unwrap_err().code,
+        ErrorCode::UnknownCapture
+    );
 }

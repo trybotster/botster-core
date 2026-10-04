@@ -244,3 +244,19 @@ The next correction adds binding checks for partial writes, EOF, output drains, 
 The new checks await Linux mutation evidence. release and release_owner remain open.
 Two exact arithmetic equivalence arguments await review: control link capacity and worker READ_CHUNK.
 No exclusion for either argument exists yet. The remaining real process findings are still open.
+
+## Final testkit findings (2026-10-04)
+
+Focused worker.rs mutation at `2e9811ca0b1c8a790698999efc24c538b5e755d7` tested 100 mutants.
+Result: 60 caught, 4 missed, 36 unviable, and 0 timeouts. Baseline passed.
+Log: `~/botster-sessions/gates/botster-core-stage1-p3-m1-v1-2e9811ca-linux-20261004-134928-47783.log`.
+Artifacts: `~/botster-sessions/gates/artifacts-trybotster_botster_core_stage1_p3_m1_v1-bcb322fa-20261004134928-47783/target-mutants.out/`.
+Package verdict `c70c0b288ccbf98da7333b53389cdfdf4230760f` closes 22 additional worker.rs entries.
+F13 has 96 open entries: five testkit entries and 91 real process entries.
+The reviewer rejected both arithmetic equivalence arguments because readiness and scheduling can change.
+
+The correction tests large control reads, large writes on spawned links, and write interest while output waits.
+A separate facade test injects worker reports through the host edge and checks capture release by id and owner.
+Libghostty produces the terminal state and every snapshot byte for that test.
+The injected reports test facade forwarding. They do not supply worker conformance proof or close any pending id.
+No new exclusions exist. Linux compilation and focused mutation evidence remain required.
