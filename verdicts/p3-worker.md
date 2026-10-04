@@ -2,7 +2,7 @@
 
 Current restack verdict: NOT CLEAN (F13 open; F14, F15, F16, and F17 closed).
 Reviewed head: `ebed1022a1f3804712342f8288902f42ef1db159`, branch `stage1/p3-m1-v1`.
-Round 36 closes F17 in source and accepts three exact-function equivalence entries. F13 retains 68 entries.
+Round 37 closes two payload mutant entries. F13 retains 66 entries; current-head payload evidence remains pending.
 The CLEAN below applies only to the old M2a head that it names.
 
 VERDICT: CLEAN
@@ -1281,3 +1281,28 @@ The payload entries are Payload::drop, Payload::read -> Ok(0), and the relocated
 All other findings remain CLOSED. All earlier findings and closures remain preserved.
 
 VERDICT: NOT CLEAN (F13: 68 entries open) on `ebed1022a1f3804712342f8288902f42ef1db159`.
+
+
+## Round 37 — Corrected EOF and reaping mutation evidence
+
+Current reviewed head remains `ebed1022a1f3804712342f8288902f42ef1db159`.
+Evidence head: `3d13dda8fb2baad575495501a083d0244eb726ce`.
+The reviewer read the exact-head Linux log and actual outcomes.json.
+Log: `~/botster-sessions/gates/botster-core-stage1-p3-m1-v1-3d13dda8-linux-20261004-144102-7257.log`.
+Artifacts: `~/botster-sessions/gates/artifacts-trybotster_botster_core_stage1_p3_m1_v1-bcb322fa-20261004144102-7257/target-mutants.out/`.
+
+The baseline passes. The job reports 30 tested: 22 caught, four missed, four unviable, and zero timeouts.
+The original Payload::read -> Ok(0) and Payload::drop no-op entries are both CaughtMutant in the actual outcomes.
+These two original entries are now CLOSED under F13.
+Their names are preserved in `verdicts/p3-worker-mutants-3d13dda-caught.txt`.
+The EOF test now fails rather than loops. The isolated reaping assertion has the child-ownership proof accepted in round 35.
+The later observer startup delta preserves that assertion and improves independent cleanup.
+This earlier run does not prove the later observer guard or the relocated fallback-sign test.
+
+The four missed entries are the three equivalence entries accepted in round 36 and the fallback sign.
+The fallback-sign entry remains open until evidence covers its relocation to wait_unreaped_with.
+F13 retains 66 original entries: 65 real worker driver entries and one payload fallback-sign entry.
+Current-head payload evidence remains pending. No full green gate is established by this focused result.
+All earlier findings and closures remain preserved. The reviewer ran no tests or gate.
+
+VERDICT: NOT CLEAN (F13: 66 entries open) on `ebed1022a1f3804712342f8288902f42ef1db159`.
