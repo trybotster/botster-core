@@ -471,8 +471,8 @@ fn a_panic_after_worker_sigkill_ends_the_payload_group() {
         let mut rest = Vec::new();
         let _ = sent.send(reader.read_to_end(&mut rest));
     });
-    // timer: deadline — the payload must release the FIFO after test cleanup.
     received
+        // timer: deadline — the payload must release the FIFO after test cleanup.
         .recv_timeout(Duration::from_secs(10))
         .expect("the payload group ended")
         .unwrap();

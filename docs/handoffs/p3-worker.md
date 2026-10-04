@@ -40,7 +40,13 @@
   This result precedes the F12 fix and does not prove that fix.
 - PR: https://github.com/trybotster/botster-core/pull/136.
 - Integration reviewer: `sess-1791143089-0101-8ce5f4942328f5697c410ea4da89c466`.
-- No full gate has run.
+- Full Linux gate at `0044bf7346ca486bf09b5265dbfc0c75f93dd978`: exit 1.
+  Package CLEAN: `9aa2f82919dc03b9eb5c880602f932466aab2052`.
+  Integration CLEAN: `9cb4de0a3682d50ddb6e9bd5e51866945c11fb80`.
+  Log: `~/botster-sessions/gates/botster-core-stage1-p3-m1-v1-0044bf73-linux-20261004-130018-20279.log`.
+  Formatting and clippy passed. The timer check failed at slow_session.rs recv_timeout.
+  The deadline comment was two lines before the call. The correction moves it next to the call.
+  Tests, mutation, and fuzz did not run in this gate. Both reviewers must review the correction.
 - Package reviewer cleared `ed92707f51f80ddd31f3b3c9fb88f4151e94cdbb`.
   Verdict: `51216ed44581d639c4cf0ac94a19c5242630764f`. F12 is CLOSED.
   The guard registers SIGTERM before registration.
@@ -60,7 +66,13 @@
   slow_payload: 5 entries passed. slow_session: 9 entries passed. Each includes 2 helper entries.
 - PR: https://github.com/trybotster/botster-core/pull/136.
 - Integration reviewer: `sess-1791143089-0101-8ce5f4942328f5697c410ea4da89c466`.
-- No full gate has run.
+- Full Linux gate at `0044bf7346ca486bf09b5265dbfc0c75f93dd978`: exit 1.
+  Package CLEAN: `9aa2f82919dc03b9eb5c880602f932466aab2052`.
+  Integration CLEAN: `9cb4de0a3682d50ddb6e9bd5e51866945c11fb80`.
+  Log: `~/botster-sessions/gates/botster-core-stage1-p3-m1-v1-0044bf73-linux-20261004-130018-20279.log`.
+  Formatting and clippy passed. The timer check failed at slow_session.rs recv_timeout.
+  The deadline comment was two lines before the call. The correction moves it next to the call.
+  Tests, mutation, and fuzz did not run in this gate. Both reviewers must review the correction.
 - Next: finish focused verification, obtain both exact-head CLEAN verdicts, and run one full Linux gate.
 - M2a and M2b remain separate PRs after M1 merges. The pause record below lists their remaining scope.
 
