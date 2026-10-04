@@ -187,14 +187,14 @@ fn the_facade_reaches_a_host_with_a_worker_on_a_real_link() {
     let tmp = tempfile::tempdir().unwrap();
     let launch = tmp.path().join("launch");
     common::mkfifo(&launch);
-    // The worker process hands its launch (token, then arguments) to the test with external commands, then waits until a
-    // signal ends it. The 300 s are a bound, not a wait of the test: a test process that is killed before its guard runs
-    // leaves this worker for at most that long.
+    // The worker process hands its launch (token, then arguments) to the test with external commands, then waits, without
+    // the CPU, until a signal ends it or the test process is gone.
     let mut worker = common::ScriptWorker::new(
         tmp.path(),
         &format!(
-            "/bin/echo \"$BOTSTER_WORKER_TOKEN\" \"$@\" | /usr/bin/tee '{}' >/dev/null\nexec /bin/sleep 300",
+            "/bin/echo \"$BOTSTER_WORKER_TOKEN\" \"$@\" | /usr/bin/tee '{}' >/dev/null\n{}",
             launch.display(),
+            common::WAIT_WHILE_THE_PARENT_LIVES
         ),
     );
     let mut core = Core::open(OpenConfig {

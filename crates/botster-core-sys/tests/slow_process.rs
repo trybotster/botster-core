@@ -12,7 +12,7 @@ use botster_core_edges::edges::{
     ExitStatus, GroupSignal, IdentityState, ProcessIdentity, SpawnSpec,
 };
 use botster_core_sys::process::{identity_state, start_time, Children};
-use rustix::process::{kill_process_group, Pid, Signal};
+use rustix::process::{kill_process_group, test_kill_process, waitpid, Pid, Signal, WaitOptions};
 use std::sync::mpsc::Receiver;
 use std::sync::Arc;
 use std::time::Duration;
@@ -48,8 +48,16 @@ fn next_exit(children: &mut Children, woken: &Receiver<()>) -> (ProcessIdentity,
     }
 }
 
-/// Kills the child's group on every exit path, panics included, with its own call (the reaper thread reaps the child). A
-/// test disarms it once the child has ended, so it never signals a group whose pid may be reused.
+/// A child that waits without using the CPU and ends by itself when the test process is gone (plan R12): a killed test runs
+/// no guard, and nothing may outlive it. Each `sleep` is a background job that `wait` waits for, so a trapped signal
+/// interrupts the wait at once. The interval of 1 s bounds how long the child outlives its parent; it is not a timeout of a
+/// test.
+const WAITING_CHILD: &str =
+    "while kill -0 $PPID 2>/dev/null; do /bin/sleep 1 >/dev/null 2>&1 & wait $!; done";
+
+/// Owns a child's process group in test code, so that a defect in `Children` cannot leave the child behind: on drop,
+/// panics included, it kills the group and reaps the leader itself (a `waitpid` that the reaper thread may win; then the
+/// leader is reaped already). A test disarms it once the child has ended and was reaped.
 struct Guard {
     pid: u32,
     armed: bool,
@@ -69,15 +77,25 @@ impl Drop for Guard {
         let pid = i32::try_from(self.pid).ok().and_then(Pid::from_raw);
         if let (true, Some(pid)) = (self.armed, pid) {
             let _ = kill_process_group(pid, Signal::KILL);
+            let _ = waitpid(Some(pid), WaitOptions::empty());
         }
     }
+}
+
+fn alive(pid: u32) -> bool {
+    i32::try_from(pid)
+        .ok()
+        .and_then(Pid::from_raw)
+        .is_some_and(|pid| test_kill_process(pid).is_ok())
 }
 
 /// Core AD-6: a spawned child has an identity that matches while it lives, and the kill of its group ends it with the signal.
 #[test]
 fn a_spawned_child_matches_its_identity_and_dies_by_the_group_kill() {
     let (mut children, woken) = children();
-    let identity = children.spawn(&spec("/bin/sleep", &["30"])).expect("spawn");
+    let identity = children
+        .spawn(&spec("/bin/sh", &["-c", WAITING_CHILD]))
+        .expect("spawn");
     let mut guard = Guard::new(identity);
     assert_eq!(identity_state(identity), IdentityState::Matches);
     assert_eq!(start_time(identity.pid), Some(identity.start_time));
@@ -93,7 +111,9 @@ fn a_spawned_child_matches_its_identity_and_dies_by_the_group_kill() {
 #[test]
 fn a_reused_identity_is_never_signalled() {
     let (mut children, _woken) = children();
-    let identity = children.spawn(&spec("/bin/sleep", &["30"])).expect("spawn");
+    let identity = children
+        .spawn(&spec("/bin/sh", &["-c", WAITING_CHILD]))
+        .expect("spawn");
     let _guard = Guard::new(identity);
     let stale = ProcessIdentity {
         pid: identity.pid,
@@ -157,14 +177,11 @@ fn the_worker_control_signal_reaches_the_worker_handler() {
         .expect("mkfifo runs");
     assert!(made.success());
     let (mut children, woken) = children();
+    let script = format!("trap 'exit 7' USR1; /bin/echo ready > \"$0\"; {WAITING_CHILD}");
     let identity = children
         .spawn(&spec(
             "/bin/sh",
-            &[
-                "-c",
-                "trap 'exit 7' USR1; /bin/echo ready > \"$0\"; while :; do :; done",
-                ready.to_str().expect("a temp path is UTF-8"),
-            ],
+            &["-c", &script, ready.to_str().expect("a temp path is UTF-8")],
         ))
         .expect("spawn");
     let mut guard = Guard::new(identity);
@@ -239,4 +256,57 @@ fn wait_exit_takes_the_exit_of_its_own_child() {
     );
     assert_eq!(children.wait_exit(first.pid), None, "taken once");
     assert_eq!(children.wait_exit(u32::MAX - 1), None, "not a child");
+}
+
+/// Plan R12, testing rule 10 (review finding F28): no child is left when a test's cleanup fails.
+/// - The test's cleanup through `Children` never runs (as when a defect or a mutant breaks it): the guard in test code still
+///   kills the group and reaps the leader.
+/// - The test process is gone, so no guard runs (a test that nextest kills): the child ends by itself, because it watches
+///   its parent. Here the parent is a shell that exits at once; the child holds the write end of a pipe, and the pipe ends
+///   when the child is gone.
+#[test]
+fn no_child_is_left_when_the_cleanup_of_a_test_fails() {
+    use std::io::Read;
+    use std::os::unix::process::CommandExt;
+    // The cleanup of `Children` is skipped: only the guard ends the child.
+    let (mut children, _woken) = children();
+    let identity = children
+        .spawn(&spec("/bin/sh", &["-c", WAITING_CHILD]))
+        .expect("spawn");
+    assert!(alive(identity.pid));
+    drop(Guard::new(identity));
+    assert!(
+        !alive(identity.pid),
+        "the guard killed and reaped the child"
+    );
+
+    // The parent is gone: the child ends by itself.
+    let mut parent = std::process::Command::new("/bin/sh")
+        .args(["-c", &format!("/bin/sh -c '{WAITING_CHILD}' & echo $!")])
+        .stdout(std::process::Stdio::piped())
+        .process_group(0)
+        .spawn()
+        .expect("spawn");
+    // The group of the parent holds the child: the guard ends it if this test fails.
+    let _group = Guard {
+        pid: parent.id(),
+        armed: true,
+    };
+    let mut stdout = parent.stdout.take().unwrap();
+    assert!(parent.wait().unwrap().success(), "the parent is gone");
+    let (ended, heard) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let mut said = String::new();
+        let _ = stdout.read_to_string(&mut said);
+        let _ = ended.send(said);
+    });
+    // The end of the pipe is the child's exit (its `sleep` jobs write nowhere): init reaps the orphan.
+    let said = heard
+        // timer: deadline — bounds the wait for the orphan's own exit (about one interval of the child)
+        .recv_timeout(Duration::from_secs(10))
+        .expect("the child ended by itself");
+    assert!(
+        said.trim().parse::<u32>().is_ok(),
+        "the child's pid: {said}"
+    );
 }
