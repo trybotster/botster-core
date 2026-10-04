@@ -345,11 +345,19 @@ fn acknowledgements_come_in_the_order_of_their_writes_and_a_backlog_stops_the_wr
     terminal.vt_write(input.as_bytes());
     let acks = terminal.drain_events().clipboard_acks;
     assert_eq!(acks.len(), 3);
-    // Each acknowledgement echoes the id of its write.
-    for (ack, id) in acks.iter().zip(1..) {
-        let text = String::from_utf8_lossy(ack);
-        assert!(text.contains(&format!("id={id}")), "{text}");
-    }
+    // Each acknowledgement is the library's answer to its own write: the one that a fresh terminal gives to that write
+    // alone. The three answers differ, so the comparison also checks the order.
+    let isolated: Vec<Vec<u8>> = (1..=3)
+        .map(|id| {
+            let mut fresh = self::terminal();
+            fresh.vt_write(commit(id).as_bytes());
+            let mut alone = fresh.drain_events().clipboard_acks;
+            assert_eq!(alone.len(), 1);
+            alone.remove(0)
+        })
+        .collect();
+    assert!(isolated[0] != isolated[1] && isolated[1] != isolated[2] && isolated[0] != isolated[2]);
+    assert_eq!(acks, isolated);
 
     // Past the backlog limit, the PTY write path refuses until the caller drains.
     terminal.set_ack_backlog_limit(10);
