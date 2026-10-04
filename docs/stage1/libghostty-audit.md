@@ -10,6 +10,10 @@ These APIs add no terminal parser, terminal encoder, or test branch.
 | ST-6, ST-6b | `Terminal::from_snapshot` | `ghostty_snapshot_decoder_new_buf`, `_set`, `_decode`, `_free` | The existing every-cut resume tests use the public decoder. A rejected envelope version returns `SnapshotDecodeError::UnsupportedVersion`. |
 | ST-6b graphics | `Terminal::from_snapshot` | Decoder option `KITTY_IMAGE_STORAGE_LIMIT` from patch 13 | The decoder sets the limit to zero before restore. Existing image-resume tests check both screens. |
 | EV-7, ST-6b hyperlinks | `Terminal::hyperlink_uri` | `ghostty_grid_ref_hyperlink_uri` | Tests compare cell URIs before and after restore. |
+| ST-6b item 1 | `Terminal::cell_attributes` | `ghostty_grid_ref_cell`, `ghostty_grid_ref_style`, `ghostty_cell_get` | Restore tests compare styled, wide, protected, and background cells. History reads use the library's screen coordinates. |
+| ST-6b item 2 | `Terminal::colors` | `ghostty_terminal_get` color keys 18 through 25 | Restore tests compare current and default palettes and dynamic colors. A palette change leaves cursor and cell reads unchanged. |
+| ST-6b item 3 | `Terminal::cursor_appearance` | `ghostty_render_state_new`, `_update`, `_get`, `_free` | Restore tests compare cursor shape and blink. The read consumes render dirty state but leaves snapshot bytes unchanged. |
+| ST-6b item 4 | `Terminal::cell_hyperlink_uri` | `ghostty_grid_ref_hyperlink_uri` | Tests compare history URIs with their visible source and restored history. |
 | ST-6b, A8-2 pending state | `Terminal::continuation`, `set_continuation_max_bytes` | `ghostty_terminal_continuation_buf`, terminal option `CONTINUATION_MAX_BYTES` | Tests check retained input, ground state, disabled retention, and the configured limit. |
 | ST-6b failure observation | `Terminal::vt_processing_error` | Terminal data key `VT_PROCESSING_ERROR` | Tests check the key against the pinned header and distinguish configured limits from processing errors. |
 

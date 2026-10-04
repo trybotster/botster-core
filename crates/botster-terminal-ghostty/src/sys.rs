@@ -76,6 +76,14 @@ pub mod data {
     pub const KITTY_GRAPHICS: i32 = 30;
     pub const SCROLLBACK_MAX_BYTES: i32 = 34;
     pub const VT_PROCESSING_ERROR: i32 = 33;
+    pub const COLOR_FOREGROUND: i32 = 18;
+    pub const COLOR_BACKGROUND: i32 = 19;
+    pub const COLOR_CURSOR: i32 = 20;
+    pub const COLOR_PALETTE: i32 = 21;
+    pub const COLOR_FOREGROUND_DEFAULT: i32 = 22;
+    pub const COLOR_BACKGROUND_DEFAULT: i32 = 23;
+    pub const COLOR_CURSOR_DEFAULT: i32 = 24;
+    pub const COLOR_PALETTE_DEFAULT: i32 = 25;
     pub const MOUSE_FORMAT: i32 = 44;
 }
 
@@ -316,8 +324,13 @@ pub type Cell = u64;
 
 /// `GhosttyCellData` keys that this crate reads.
 pub mod cell_data {
+    pub const CONTENT_TAG: i32 = 2;
     pub const WIDE: i32 = 3;
     pub const HAS_TEXT: i32 = 4;
+    pub const PROTECTED: i32 = 8;
+    pub const SEMANTIC_CONTENT: i32 = 9;
+    pub const COLOR_PALETTE: i32 = 10;
+    pub const COLOR_RGB: i32 = 11;
 }
 
 /// `GhosttyCellWide`.
@@ -585,6 +598,11 @@ extern "C" {
         buf_len: usize,
         out_len: *mut usize,
     ) -> Result;
+    pub fn ghostty_grid_ref_style(grid_ref: *const GridRef, out: *mut Style) -> Result;
+    pub fn ghostty_render_state_new(allocator: *const c_void, state: *mut RenderState) -> Result;
+    pub fn ghostty_render_state_update(state: RenderState, terminal: Terminal) -> Result;
+    pub fn ghostty_render_state_get(state: RenderState, data: i32, out: *mut c_void) -> Result;
+    pub fn ghostty_render_state_free(state: RenderState);
     pub fn ghostty_terminal_continuation_buf(
         terminal: Terminal,
         buf: *mut u8,
@@ -711,3 +729,40 @@ pub struct ColorRgb {
     pub g: u8,
     pub b: u8,
 }
+
+/// `GhosttyStyleColorValue`.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub union StyleColorValue {
+    pub palette: u8,
+    pub rgb: ColorRgb,
+    pub padding: u64,
+}
+
+/// `GhosttyStyleColor`.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct StyleColor {
+    pub tag: i32,
+    pub value: StyleColorValue,
+}
+
+/// `GhosttyStyle`.
+#[repr(C)]
+pub struct Style {
+    pub size: usize,
+    pub fg_color: StyleColor,
+    pub bg_color: StyleColor,
+    pub underline_color: StyleColor,
+    pub bold: bool,
+    pub italic: bool,
+    pub faint: bool,
+    pub blink: bool,
+    pub inverse: bool,
+    pub invisible: bool,
+    pub strikethrough: bool,
+    pub overline: bool,
+    pub underline: i32,
+}
+
+pub type RenderState = *mut c_void;

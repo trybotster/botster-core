@@ -17,6 +17,80 @@ fn terminal() -> Terminal {
     .unwrap()
 }
 
+#[test]
+fn restored_cell_attributes_colors_and_cursor_appearance_match_the_source() {
+    let mut source = terminal();
+    for input in [
+        &b"\x1b[1;3;4;5;7;8;9;53;38;2;11;22;33;48;5;123;58;2;44;55;66mA"[..],
+        &b"\x1b[0;2;4:3;38;5;45;48;2;77;88;99mB\x1b[0m"[..],
+        "界".as_bytes(),
+        &b"\x1b[1\"qP\x1b[0\"q\x1b]4;2;rgb:12/34/56\x1b\\"[..],
+        &b"\x1b]10;rgb:34/56/78\x1b\\\x1b]11;rgb:45/67/89\x1b\\\x1b]12;rgb:56/78/9a\x1b\\"[..],
+        &b"\x1b[5 q"[..],
+        &b"\x1b[2 q"[..],
+        &b"\x1b[3 q\x1b[44m\x1b[K"[..],
+    ] {
+        source.vt_write(input);
+        let before = source.snapshot().unwrap();
+        let mut restored = Terminal::from_snapshot(&before, History::On, None).unwrap();
+        assert_eq!(source.colors().unwrap(), restored.colors().unwrap());
+        assert_eq!(
+            source.cursor_appearance().unwrap(),
+            restored.cursor_appearance().unwrap()
+        );
+        for row in 0..10 {
+            for col in 0..40 {
+                assert_eq!(
+                    source.cell_attributes(row, col, false).unwrap(),
+                    restored.cell_attributes(row, col, false).unwrap()
+                );
+            }
+        }
+        assert_eq!(source.snapshot().unwrap(), before);
+        assert_eq!(restored.snapshot().unwrap(), before);
+    }
+    for (row, col) in [(10, 0), (0, 40), (0, u32::MAX)] {
+        assert_eq!(
+            source.cell_attributes(row, col, false),
+            Err(Error::InvalidValue)
+        );
+    }
+}
+
+#[test]
+fn color_and_cursor_reads_change_independently() {
+    let mut source = terminal();
+    let cell = source.cell_attributes(0, 0, false).unwrap();
+    let colors = source.colors().unwrap();
+    let cursor = source.cursor_appearance().unwrap();
+    source.vt_write(b"\x1b]4;2;rgb:12/34/56\x1b\\");
+    assert_ne!(source.colors().unwrap(), colors);
+    assert_eq!(source.cursor_appearance().unwrap(), cursor);
+    assert_eq!(source.cell_attributes(0, 0, false).unwrap(), cell);
+    let colors = source.colors().unwrap();
+    source.vt_write(b"\x1b[5 q");
+    assert_ne!(source.cursor_appearance().unwrap(), cursor);
+    assert_eq!(source.colors().unwrap(), colors);
+    assert_eq!(source.cell_attributes(0, 0, false).unwrap(), cell);
+}
+
+#[test]
+fn history_cell_reads_match_the_restored_history() {
+    let mut source = terminal();
+    source
+        .vt_write(b"\x1b]8;;https://example.test/history\x1b\\\x1b[1mhistory\x1b]8;;\x1b\\\x1b[0m");
+    let uri = source.hyperlink_uri(0, 0).unwrap();
+    let attributes = source.cell_attributes(0, 0, false).unwrap();
+    for _ in 0..12 {
+        source.vt_write(b"\r\n");
+    }
+    let restored = Terminal::from_snapshot(&source.snapshot().unwrap(), History::On, None).unwrap();
+    assert_eq!(source.cell_hyperlink_uri(0, 0, true).unwrap(), uri);
+    assert_eq!(restored.cell_hyperlink_uri(0, 0, true).unwrap(), uri);
+    assert_eq!(source.cell_attributes(0, 0, true).unwrap(), attributes);
+    assert_eq!(restored.cell_attributes(0, 0, true).unwrap(), attributes);
+}
+
 /// A terminal that the library's decoder restored from a snapshot. It keeps the unfinished parser input, so that it
 /// takes the rest of the program's output as the original terminal would.
 struct Restored(sys::Terminal, Option<Terminal>);
