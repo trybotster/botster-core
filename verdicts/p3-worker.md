@@ -1,8 +1,8 @@
 # P3 worker review
 
-Current restack verdict: NOT CLEAN (F13, F18, and F19 open; F14, F15, F16, and F17 closed).
-Reviewed head: `39a55c9e8fd8ecc6d4678ba952a363d99fa04139`, branch `stage1/p3-m1-v1`.
-Round 46 closes the relocated fallback-sign entry. F13 retains 65 driver entries; F18/F19 remain open.
+Current restack verdict: NOT CLEAN (F13, F18, F19, and F20 open; F14, F15, F16, and F17 closed).
+Reviewed head: `e4593e86feab06da3711bef9d3ac06bb7e20be38`, branch `stage1/p3-m1-v1`.
+Round 47 reviews the shared real-driver fixture and opens F20. F13 retains 65 driver entries; F18/F19 remain open.
 The CLEAN below applies only to the old M2a head that it names.
 
 VERDICT: CLEAN
@@ -1575,3 +1575,44 @@ F18 and F19 remain OPEN for corrected-source Mac evidence. This Linux result doe
 All earlier findings and closures remain preserved. The reviewer ran no tests or gate.
 
 VERDICT: NOT CLEAN (F13: 65 entries; F18 and F19 open) on `39a55c9e8fd8ecc6d4678ba952a363d99fa04139`.
+
+
+## Round 47 — Shared fixture for the mutated real driver
+
+Reviewed head: `e4593e86feab06da3711bef9d3ac06bb7e20be38`.
+The complete delta from `39a55c9` adds a shared session fixture, imports it into slow binary unit tests, and updates the handoff.
+The integration test still launches the prebuilt candidate binary.
+The unit fixture launches an exact test observer in current_exe, which cargo-mutants rebuilds with the changed Driver.
+The observer supplies the fixture's instance, epoch, token, and control path to Driver::start, then calls Driver::run.
+The same production functions install readiness and signal handling in both modes.
+No production test branch, second Worker machine, behavior change, or exclusion accompanies the delta.
+
+The reviewer compared the complete old fixture with the new shared file.
+Apart from documentation, its guard module path, and executable selection, the session tests remain unchanged.
+Both modes use the same control codec, payload guard, OwnedWorker cleanup, and operation assertions.
+The helper module paths retain the exact names needed by the payload anchor and registration helper.
+The fixture move can supply driver mutation evidence, but supplies no closure before that evidence exists.
+
+### F20 — MEDIUM — The driver observer has no independent parent-death guard
+
+Status: OPEN at this head.
+Evidence: tests/common/session.rs, Session::launch and OwnedWorker; main.rs, driver_observer.
+
+The unit fixture starts another test executable that runs the mutated Driver.
+OwnedWorker::drop ends that observer on unwind, but outer test-process death does not run Drop.
+PayloadGuard owns only the payload group, not the observer process.
+The observer has no independent parent-lifetime mechanism or owned observer group.
+A mutant that disables control reads or driver cleanup can leave the observer alive after its test parent dies.
+The cleanup rule must not depend on the production function under mutation.
+This is the same parent-death requirement retained in F17 for the payload reaping observer.
+
+Required change: Give the driver observer an independent parent-lifetime guard that ends its owned group when the outer test dies.
+Preserve retained worker ownership through its last signal and reap.
+Preserve the independent payload group guard. The test guard must not reap the production payload.
+Authority: the user's real-process rule that children exit when their parent is gone and guard cleanup remains independent of production.
+
+F13 retains 65 original driver entries. F18 and F19 remain OPEN for corrected-source Mac evidence.
+F20 remains OPEN. All earlier findings and closures remain preserved.
+The reviewer inspected logic only and ran no tests or gate.
+
+VERDICT: NOT CLEAN (F13: 65 entries; F18, F19, and F20 open) on `e4593e86feab06da3711bef9d3ac06bb7e20be38`.
