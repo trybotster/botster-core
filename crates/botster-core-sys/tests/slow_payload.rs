@@ -204,40 +204,79 @@ fn a_group_signal_ends_the_leader_and_its_group() {
     p.reap();
 }
 
-/// A2-1 and plan 2.3: the PTY exposes pending program output and takes the program's input bytes.
-#[test]
-fn the_pty_counts_output_and_delivers_input_to_the_program() {
-    let p = spawn(
-        &[
-            "/bin/sh",
-            "-c",
-            "stty -echo; printf ready; read answer; printf '%s' \"$answer\"",
-        ],
-        "/",
-    )
-    .unwrap();
+/// The program writes its marker only after its PTY output is queued.
+fn payload_waiting_for_input() -> (GuardedPayload, tempfile::TempDir) {
+    use std::io::Read;
+    use std::os::fd::AsFd;
+
+    let root = tempfile::Builder::new()
+        .prefix("queued")
+        .tempdir_in("/tmp")
+        .unwrap();
+    let ready = root.path().join("ready");
+    assert!(std::process::Command::new("/usr/bin/mkfifo")
+        .arg(&ready)
+        .status()
+        .unwrap()
+        .success());
+    let mut reader = std::fs::File::from(
+        rustix::fs::open(
+            &ready,
+            rustix::fs::OFlags::RDWR | rustix::fs::OFlags::NONBLOCK,
+            rustix::fs::Mode::empty(),
+        )
+        .unwrap(),
+    );
+    let script = format!(
+        "stty -echo; printf ready; /bin/echo queued > '{}'; read answer; printf '%s' \"$answer\"",
+        ready.display()
+    );
+    let p = spawn(&["/bin/sh", "-c", &script], "/").unwrap();
     let mut fds = [rustix::event::PollFd::from_borrowed_fd(
-        p.master(),
+        reader.as_fd(),
         rustix::event::PollFlags::IN,
     )];
-    // timer: deadline — wait for the program's output before checking the pending byte count.
+    // timer: deadline — bounds the wait for the program's FIFO marker.
     let limit = rustix::event::Timespec {
         tv_sec: 10,
         tv_nsec: 0,
     };
-    // Readiness can arrive before the complete readiness word.
-    // timer: deadline — bounds the wait for more than one program byte.
-    let deadline = std::time::Instant::now() + Duration::from_secs(10);
-    while p.pending_output().unwrap() <= 1 {
-        assert!(std::time::Instant::now() < deadline, "no program output");
-        assert!(rustix::event::poll(&mut fds, Some(&limit)).unwrap() > 0);
-    }
+    assert!(rustix::event::poll(&mut fds, Some(&limit)).unwrap() > 0);
+    assert!(fds[0].revents().contains(rustix::event::PollFlags::IN));
+    let mut marker = [0; 64];
+    let count = reader.read(&mut marker).unwrap();
+    assert_eq!(&marker[..count], b"queued\n");
+    (p, root)
+}
+
+/// A2-1 and plan 2.3: the PTY counts queued program output and takes program input.
+#[test]
+fn the_pty_counts_output_and_delivers_input_to_the_program() {
+    let (p, _root) = payload_waiting_for_input();
+    assert!(p.pending_output().unwrap() > 1);
     assert_eq!(p.write(b"input\n").unwrap(), 6);
-    let bytes = read_all(&p);
-    assert_eq!(bytes, b"readyinput");
+    assert_eq!(read_all(&p), b"readyinput");
     assert_eq!(exit_of(&p), ExitStatus::Code(0));
     p.signal_group(9);
     p.reap();
+}
+
+/// The independent guard ends a payload that waits for input when the test panics.
+#[test]
+fn a_panic_ends_the_payload_while_it_waits_for_input() {
+    let (p, root) = payload_waiting_for_input();
+    let (done, result) = mpsc::channel();
+    let thread = std::thread::spawn(move || {
+        let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
+            let _payload = p;
+            let _root = root;
+            panic!("test cleanup while the payload waits for input");
+        }));
+        done.send(outcome.is_err()).unwrap();
+    });
+    // timer: deadline — the independent guard and production reaper must finish.
+    assert!(result.recv_timeout(Duration::from_secs(10)).unwrap());
+    thread.join().unwrap();
 }
 
 /// LC-5 and the payload ownership rule: dropping an unreaped payload retires its leader.

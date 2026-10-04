@@ -385,3 +385,17 @@ Package verdict `5297f096118cdbbb396b324018519022bc3b0b6a` keeps F13, F18, and F
 Integration record `ae4b728d2f725e7defbae71fd67d918ff7794ca9` records the same findings.
 F18 requires a queued-output synchronization proof. F19 requires finite Mac panic cleanup with a payload waiting for input.
 The current Mac baseline result remains pending.
+
+## Queued output and panic-cleanup proof (2026-10-04)
+
+Package verdict `8d0bab64f290c2784213b856b92bab22d373f265` finds no new P3 issue in the v1 merge.
+Integration record `d843a2804c3022623c5d427498b4f9f798d73b66` also accepts the merge delta.
+F13, F18, and F19 remain open. Neither reviewer ran gates.
+The input test now uses a FIFO marker after the program writes its PTY output.
+The test waits once for FIFO readability, checks IN, and consumes the marker.
+The production pending-output assertion remains. It can now distinguish the query failure from incomplete program output.
+The test no longer repeats readiness events without consuming data.
+A separate test panics after the marker while the payload waits for input.
+The test requires independent guard cleanup and production reaping to finish within ten seconds.
+The guard never reaps the production payload. No production source changed.
+The active Mac baseline uses the earlier head. These new proofs still require a run.
