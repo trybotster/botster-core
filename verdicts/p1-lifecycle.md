@@ -1,8 +1,14 @@
 # P1 lifecycle review
 
-VERDICT: CLEAN
+VERDICT: NOT CLEAN (7 open)
 
-Reviewed head: `2016886ffda434bee0e87242d85e36ecc43ec212` on `stage1/p1-lifecycle`.
+Current reviewed head: `8c3899155b45101d922d2c38e100d0ebcd4dba83` on `stage1/p1-lifecycle`.
+Current open findings: F21, F22, F23, F24, F25, F26, F27.
+The Round 9 section below records the current review.
+The earlier CLEAN and all earlier findings and closure evidence remain historical evidence.
+
+Historical checkpoint verdict: CLEAN.
+Last CLEAN head: `2016886ffda434bee0e87242d85e36ecc43ec212` on `stage1/p1-lifecycle`.
 Round 7 head: `0ac2b84d38a8e3a3a1667eec172985cd0284dc90`.
 Round 6 head: `40117af8398c292e8763d04beca875466bd276ef`.
 Round 5 head: `154f0109e8809536a30340cda89198fa34259db5`.
@@ -32,7 +38,7 @@ Those ids remain pending until both harnesses prove them.
 The delta adds A8-1 capture reservations. I found no additional defect in that reservation change.
 The Round 1 pin delta did not close F1 through F15. F16 also applies under Amendment 7.
 
-Current open findings: none.
+Open findings at the last CLEAN checkpoint: none.
 Closed findings: F1, F2, F3, F4, F5, F6, F7, F8, F9, F10, F11, F12, F13, F15, F16, F17, F18, F19, F20.
 F14 has an authorized scope deferral. It is not satisfied as a TI-1 requirement.
 This CLEAN verdict applies to the reviewed P1 host-side checkpoint only.
@@ -790,3 +796,199 @@ EV-8(b) and A7-1 require a minimum of 1 ms.
 
 Required change: Refuse every duration below 1 ms before reserving the route.
 Accept exactly 1 ms and exactly the configured maximum.
+
+## Round 9: resumed delta review
+
+VERDICT: NOT CLEAN (7 open)
+
+Reviewed head: `8c3899155b45101d922d2c38e100d0ebcd4dba83`.
+Last CLEAN head: `2016886ffda434bee0e87242d85e36ecc43ec212`.
+Authority: resume brief step 4, plan pin `bdda2359`, and BUILD.md at `contracts-v0.1.13`.
+The contract tag resolves to `a8db5c9a0f43fc440564989fd38a55121fdda38b`.
+All references in this section use the reviewed head.
+I reviewed source logic and test assertions. I ran no tests, builds, mutation runs, or gates.
+The implementer's READY reports 968 mutants, zero missed, and zero timeouts after its fixes.
+Those reported counts do not validate an exclusion or replace the exact-head gate.
+
+The delta includes rebased copies of previously reviewed commits and changes already merged into `origin/v1`.
+I checked P1's resulting integration and its changes after the last CLEAN.
+The merged P2 binding and P6 infrastructure retain their separate package reviews.
+This verdict does not grant new acceptance to those packages or to the pending conformance ids.
+F1-F13 and F15-F20 retain their earlier closure evidence.
+F14 retains the authorized follow-up scope from the resume brief.
+P2 is now merged. The TI-1 follow-up remains required after this PR merges.
+
+### Accepted changes and mutation closure evidence
+
+| Item | Review result |
+|---|---|
+| Resize forwarding order | `ready()` offers only the first unsent Forward operation of each kind and session. A deferred Resize blocks later Forward Resizes. The new driver test checks the transmitted order of three sizes. |
+| Resize same-size shortcut | `resize_in_flight()` prevents the shortcut while another effectful Resize is pending. The regression checks that the resize back goes to the worker and waits for its result. |
+| Merge and contracts pin | Merge `c923841` includes `origin/v1` `38e6989`. Cargo.toml and Cargo.lock use v0.1.13. New A13 ids remain pending. No previously pending id is claimed as passed. |
+| R-15 and R-16 | Remove still closes routes before capture release and teardown. StopAll still proceeds after failed or uncertain Stopping-row writes. Plain Stop keeps RegistryFailed. |
+| R-19 | The engine checks refusal conditions before consuming the transport. HostDriver and the facade return AttachRefused. The public API snapshot records that signature. |
+| R-20 | The driver checks `never_deferred()` before OperationDeferral. Created Resize, same-size Resize, and Stop of an ended session set fixed_timing. Reported payload ends also bypass operation deferral. |
+| Erratum 3 | The delta retains separate Deadline and Silent work. The driver processes carried Silent work before newer input. Event-less deadlines remain eligible after event-budget exhaustion. |
+| AM-2 | Forward selection preserves host-write begin order under operation deferral. Worker transaction continuity and cross-source admission remain P3 proofs. |
+| F7 interface | EndPayload still means SIGUSR1 to the identity-verified worker process alone. The worker retains responsibility for payload-group control and final-model survival. No new bare payload-group fallback appears. |
+| RowIdentity TIMEOUT | The Rig scheduler now fails after 10,000 scheduler accesses per pump. Removing the successful identity-row arm leaves runnable RowIdentity work and reaches that failure. This replaces an unbounded test pump with a finite failure. |
+| `run_parked` MISSED | The regression checks both outcomes: no room retains the close; successful publication removes parked work. |
+| Remove-link MISSED | I accept removal of the redundant Flow::Remove arm. Link closure removes the session's only link. Worker exit or grace records OutcomeUnknown if no trusted result exists. A prior complete result stays unchanged. |
+| Detach arm MISSED | Folding Detached into the required wildcard preserves the result for Detached and future unknown variants. |
+
+### F21 — HIGH: Held observations have no queue bound
+
+Evidence: `crates/botster-core-host/src/session.rs:240`, `src/inbound.rs:376`, and `src/engine.rs:233`.
+
+`observe()` appends every observation to `Session.held_obs` while Flow::Start is active.
+The VecDeque has no count or byte bound.
+`can_accept()` does not check held-observation capacity.
+The driver can therefore consume more observation frames in each pump while the scheduler defers Start progress.
+Queue pressure can also delay PostRunning or Finish.
+The per-pump byte limit limits one pump, not retained memory across pumps.
+Class D observations bypass the event queue's drop-and-loss policy while they remain in held_obs.
+Class K observations also accumulate individually instead of remaining bounded by their keys.
+
+Required change: Bound retained observations and stop link consumption when the retention bound is reached.
+Preserve the event-class rules and the required Running/Start ordering.
+Prove repeated input while Start progress is deferred and while Running publication waits for mandatory room.
+Check retained memory, read-interest removal, and progress after room returns.
+Authority: EV-2, EV-5, EV-6, and plan 2.5 rules 7 and 8.
+
+### F22 — HIGH: New observations overtake held observations
+
+Evidence: `crates/botster-core-host/src/inbound.rs:376`, `src/flows.rs:48`, and `src/driver.rs:615`.
+
+The hold condition checks only whether Flow::Start is active.
+After Finish clears that flow, new observations apply immediately even when held_obs still contains older observations.
+The driver services links after each engine step and before the next session step.
+Thus a new Modes observation can update the cache before an older held Modes observation.
+The next session step applies the older value and replaces the newer keyed event.
+The same path can move model_rev backwards and replace newer title, size, or revision values.
+Droppable observations can also enter the event queue in reverse worker order.
+
+Required change: Preserve worker observation order across the end of Start and the draining of held observations.
+Do not let new observations bypass older retained observations.
+Prove an older held mode or size followed by a newer observation immediately after Start completion.
+Check the final cache, model_rev, and polled keyed value.
+Also prove ordered delivery for two droppable observations across this boundary.
+Authority: ST-4, EV-6, OR-2, and the one ordered event queue.
+
+### F23 — MEDIUM: Failed reaper creation leaves an unreaped child
+
+Evidence: `crates/botster-core-sys/src/process.rs:124` and `:141`.
+
+The closure passed to `Builder::spawn` owns Child.
+If thread creation fails, Rust drops that closure and its Child.
+Dropping Child does not wait for or reap the process.
+The error path sends a group kill and returns SpawnError without retaining a handle or waiting for exit.
+No reaper thread exists on that path.
+The child can remain a zombie until the host exits.
+The exclusion comment describes this path as an out-of-memory condition, but thread creation can fail for other resource limits.
+
+Required change: Retain child ownership until reaper creation succeeds.
+On failure, end and reap the child before discarding its ownership.
+Keep identity-safe group control and typed SpawnError reporting.
+Use dependency injection or an ownership design that proves the failure path without a production test branch.
+Authority: BUILD.md hygiene rule 10 and the process edge's no-zombie requirement.
+
+### F24 — MEDIUM: Mutation exclusions do not meet the one-function rule
+
+Evidence: `.cargo/mutants.toml:16-50`, `:56`, `:66`, `:71`, `:80`, `:94`, `:122`, and `:134-135`.
+
+Multiple entries match lists of functions, complete trait implementations, or method prefixes.
+The facade entry covers every CoreApi method, including future methods.
+The real-edge entry covers complete implementations of HostEdges, WakeHandle, WakeEdge, and Drop.
+The storage entries cover all FileStorage and DataDir methods, including future decisions.
+The arithmetic entries at lines 71 and 94 do not name a function or an exact source location.
+Inherited xtask and testkit entries also combine multiple functions.
+These entries violate the explicit instruction to review every exclusion as one function, with no broad regex.
+
+The facade proof comment also overstates its named test.
+`every_call_reaches_the_driver` does not call attach or wake_handle.
+Its release and release_owner calls use no live capture, so those calls do not prove release effects.
+The accept Interrupted exclusion gives neither a named slow test nor an equivalence argument.
+Changing that branch changes retry behavior; inability to force EINTR is not equivalence.
+
+Required change: Replace grouped and prefix exclusions with exact entries for individual functions or exact mutants.
+Give each entry a specific reason and a named slow test that exercises its behavior, or a valid written equivalence argument.
+Remove unnecessary test-helper exclusions now that slow_tests uses cfg(test).
+Keep future methods and unrelated arithmetic eligible for mutation.
+Map each remaining entry to its proof. Do not claim that an unexercised path has slow-test coverage.
+Authority: the user's mutation-exclusion rule and resume brief step 3.
+
+### F25 — MEDIUM: The ended_result equivalence argument assumes a forbidden scheduler order
+
+Evidence: `.cargo/mutants.toml:108-119`, `src/flows.rs:516`, `src/run.rs:549`, and `src/driver.rs:595`.
+
+The argument says writes complete before Remove because operations run before flows.
+The injected scheduler does not guarantee that order.
+It can select session work before operation work, or defer a Forward operation.
+For example, admit WriteInput on an Exited session, then admit Remove before pumping.
+Select the Remove flow through SendRemove while the write remains unforwarded.
+`retire_session_ops()` then calls ended_result for that write.
+The original arm returns NotWritten(SessionEnded); deleting it returns WorkerLinkFailed from the wildcard.
+These results differ, so the mutant is not equivalent.
+
+The Detach argument also covers only operations already waiting for a route.
+`close_route()` completes Step::Await(Wait::Route) operations.
+A deferred Step::Ready(Next::Detach) can remain until retirement and use the Detach arm of ended_result.
+Deleting that arm changes Unit to WorkerLinkFailed.
+
+Required change: Remove these two exclusions and add scheduler-controlled retirement tests that kill both mutants.
+Alternatively, prove an invariant that makes both paths unreachable under every permitted scheduler choice.
+Operation-list position is not that proof.
+Authority: AM-3, IN-7, A2-1, A5-2, and the mutation policy.
+
+### F26 — LOW: The notifier test polls an atomic flag
+
+Evidence: `crates/botster-core-sys/tests/slow_process.rs:146`.
+
+The new notifier test repeatedly reads AtomicBool and calls yield_now until a deadline.
+The deadline bounds the loop but does not make polling an event wait.
+BUILD.md prohibits polling and requires the test to wait on the real event.
+
+Required change: Make the notifier send an explicit event to the test.
+Wait for that event with a deadline, then check poll_exit and exact-once removal.
+Authority: BUILD.md testing rule 5.
+
+### F27 — MEDIUM: The real worker-exit test can pass without an exit wake
+
+Evidence: `crates/botster-core/tests/slow_real_core.rs:204-212` and `.cargo/mutants.toml:63-66`.
+
+The test ignores the result of `wake.wait(500 ms)` and pumps again after each timeout.
+If the reaper queues the exit but never signals the wake, the next timed pump still observes the exit.
+The test can therefore pass without proving its stated TM-6 behavior.
+The exclusion uses this test as proof of the reaper wake.
+The direct Children notifier test does not prove RealEdges' wiring to PollWake.
+
+Required change: Make the test depend on a real exit wake after the host reaches its waiting state.
+Do not use repeated wait timeouts to drive progress.
+Prove that removing RealEdges' reaper wake callback makes the test fail.
+Retain the far startup deadline and process cleanup.
+Authority: TM-6, BUILD.md testing rule 5, and the named slow-test exclusion policy.
+
+### Mutation exclusion audit disposition
+
+| Exclusion group | Disposition |
+|---|---|
+| xtask and testkit process wrappers | Existing proof explanations remain historical evidence. Grouped entries need individual function entries under F24. |
+| Facade forwarding and real descriptors | Slow-tier placement is appropriate. Prefix breadth and inaccurate proof claims remain open under F24 and F27. |
+| Children exit and signal wrappers | Named real-process tests support slow-tier placement. Split entries under F24. Fix the new failure path under F23. |
+| macOS start_time arithmetic | The named macOS slow test is relevant. Linux does not prove this path. The entry stays restricted to start_time arithmetic. |
+| Focus, mandatory classification, Output key, no_worker | The deleted arm or replacement has the same fallback value. I accept these equivalence arguments. |
+| flow_row phase guards and on_process_exited Create | The ticket owner and flow phase constrain the row-result path. Create has no shown process state. I accept these stated invariants. |
+| EventQueue::remove and link_frame_bound | Retirement removes K, D, or L events. The frame-bound conversion follows min. I accept these arguments for the specified mutants. |
+| commit Starting guard, forward, stop_all_start | I found no counterexample to the stated flow invariants in this delta. These remain restricted to their specified mutants. |
+| READ_CHUNK and listener-token arithmetic | The stated target can have the stated effect, but the regex covers unrelated arithmetic. F24 requires an exact target. |
+| ended_result WriteInput and Detach | Rejected under F25. |
+| exit_status and spawn negative literals | The no-code/no-signal exit fallback is an unreachable status argument. The spawn failure branch is reachable and has F23. Split the entry under F24. |
+| FileStorage, DataDir, check_safe | Named slow tests justify real-disk placement. Whole-implementation matching remains open under F24. |
+| slow_tests helper regex | cfg(test) already identifies test code. Remove the broad helper entry under F24. |
+| P2 native-handle drops | The entries name individual functions and explain that the mutation leaks handles without changing the surviving API value. They retain P2's accepted P39 disposition. |
+| P2 disjoint flag XORs | Each entry names one function and disjoint bits. I accept the written equivalence arguments. |
+| P2 default query limit | The entry names one exact mutant and the equal pinned default of 4096. I accept the pin-specific equivalence argument. |
+
+Every Round 9 finding, including LOW, must close before CLEAN.
+Any fix creates a new head that requires a delta review.
+The implementer must run the gate only after CLEAN on that exact head.
