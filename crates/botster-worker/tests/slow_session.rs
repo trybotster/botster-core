@@ -3,12 +3,15 @@
 //!
 //! The binary is the prebuilt one (`cargo xtask prebuild-worker` puts it in `target/candidate/`); a test never builds it.
 //! Each test starts its worker itself and speaks the control link with the link's own codec, checking only what the worker
-//! sends. So every worker is an unreaped child of the test and of nothing else, and [`OwnedWorker`] ends it on every exit
-//! path, panics included: `SIGTERM` makes the worker end the payload group that it still holds, then itself. No test signals
-//! a payload id. (Real Core with real workers is the real-process harness's suite, plan 4.2.)
+//! sends. Each worker is an unreaped child of the test. A separate guard ends the payload group on Drop and panic.
+//! The guard keeps a member in the payload session. That member kills its current group on socket EOF.
+//! Production alone reaps the payload. [`OwnedWorker`] ends and reaps the worker. (Real Core with real workers is the real-process harness's suite, plan 4.2.)
 //!
 //! Clause: Core EV-4, Core LC-5, Core LC-6, Core LC-7, Core AD-6, Core AD-7.
 #![cfg(feature = "slow")]
+
+#[path = "../../botster-core-sys/tests/common/payload_guard.rs"]
+mod payload_guard;
 
 use botster_core_contract::prelude::*;
 use botster_core_link::frame::{encode_frame, FrameDecoder, FrameType};
@@ -16,6 +19,7 @@ use botster_core_link::hello::Hello;
 use botster_core_link::launch::WorkerLaunch;
 use botster_core_link::msg::{HostMsg, LaunchSpec, WorkerMsg};
 use botster_core_link::proof::token_proof;
+use payload_guard::PayloadGuard;
 use std::collections::BTreeMap;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
@@ -60,12 +64,14 @@ fn fifo(root: &Path, name: &str) -> PathBuf {
 /// A worker that a test starts itself.
 struct OwnedWorker {
     worker: Child,
+    payload_guard: Option<PayloadGuard>,
 }
 
 impl Drop for OwnedWorker {
     /// Through the worker, never a payload id (lead ruling on P1 F7): while the worker is our unreaped child, `SIGTERM`
     /// makes it end the payload group that it still holds, then itself.
     fn drop(&mut self) {
+        drop(self.payload_guard.take());
         if let Ok(None) = self.worker.try_wait() {
             if let Some(pid) =
                 rustix::process::Pid::from_raw(i32::try_from(self.worker.id()).unwrap_or(0))
@@ -162,6 +168,8 @@ struct Session {
 impl Session {
     /// Starts a worker, proves the hello both ways (AD-6), and launches `sh -c script` (AD-7 step 4).
     fn launch(root: &Path, script: &str, stop_grace_ms: u64) -> Session {
+        let payload_guard = PayloadGuard::new(root);
+        let script = format!("{}{script}", payload_guard.prefix());
         let socket = root.join("c");
         let listener = UnixListener::bind(&socket).unwrap();
         let launch = WorkerLaunch {
@@ -174,6 +182,7 @@ impl Session {
         command.args(launch.args()).env_clear().envs(launch.env());
         let worker = OwnedWorker {
             worker: command.spawn().unwrap(),
+            payload_guard: Some(payload_guard),
         };
         let (stream, _) = listener.accept().unwrap();
         // timer: deadline — the limit of a wait for a real worker's frame; not a contract value.
@@ -404,4 +413,52 @@ fn the_link_helper_keeps_every_frame_of_one_read() {
     assert_eq!(link.frame().1, b"two");
     peer.write_all(&wire[split..]).unwrap();
     assert_eq!(link.frame().1, b"three");
+}
+
+/// BUILD.md rule 10: a panic still ends the payload after worker cleanup cannot run.
+#[test]
+fn a_panic_after_worker_sigkill_ends_the_payload_group() {
+    let root = temp_root();
+    let held = fifo(root.path(), "f");
+    let script = format!(
+        "trap '' HUP; exec 3> {}; /bin/echo up >&3; exec sleep 30",
+        held.display()
+    );
+    let mut session = Session::launch(root.path(), &script, 5000);
+    let (mut reader, line) = first_line(&held);
+    assert_eq!(line, "up\n");
+    // SIGKILL prevents every production cleanup action in the worker.
+    session.signal_worker(rustix::process::Signal::KILL);
+    session.worker.worker.wait().unwrap();
+    let mut fds = [rustix::event::PollFd::new(
+        &reader,
+        rustix::event::PollFlags::IN,
+    )];
+    assert_eq!(
+        rustix::event::poll(
+            &mut fds,
+            Some(&rustix::event::Timespec {
+                tv_sec: 0,
+                tv_nsec: 0
+            })
+        )
+        .unwrap(),
+        0,
+        "the payload still holds the FIFO before test cleanup"
+    );
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
+        let _session = session;
+        panic!("the test failed after the worker died");
+    }));
+    assert!(result.is_err());
+    let (sent, received) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let mut rest = Vec::new();
+        let _ = sent.send(reader.read_to_end(&mut rest));
+    });
+    // timer: deadline — the payload must release the FIFO after test cleanup.
+    received
+        .recv_timeout(Duration::from_secs(10))
+        .expect("the payload group ended")
+        .unwrap();
 }
