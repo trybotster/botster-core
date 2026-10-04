@@ -985,3 +985,21 @@ The focused mutation job is pending. No F13 entry closes in this round.
 The five worker-core and 66 testkit closures remain preserved.
 
 VERDICT: NOT CLEAN (F13 open with 96 entries; F14 open) on `91b58e2c8a8f7d198484e8019f08c50aae0e6dd4`.
+
+## Round 27 — Lead ruling on pure tuning constants
+
+The lead supplied a review rule for the capacity and READ_CHUNK arithmetic entries.
+The lead accepts contract equivalence for pure tuning constants only when each entry satisfies all four conditions:
+
+1. The entry cites that no clause fixes the value.
+2. A test proves retention, order, and complete frames at the default, at 1088, and at the smallest legal value.
+3. The code enforces any lower bound implied by the contract. A mutant below that bound must be killed.
+4. Each entry names one function or constant and includes the argument and the names of its proving tests.
+
+This rule permits a conditional disposition beyond the behavior-identity argument reviewed in round 23.
+The supplied round 23 arguments alone still do not satisfy this rule.
+F14's rejection of one-call 8192-byte assertions remains in force, as the lead explicitly confirms.
+No source delta, qualifying test evidence, or proposed exclusion accompanies the ruling.
+Both arithmetic entries remain OPEN under F13. F13 retains 96 open entries, and F14 remains OPEN.
+The reviewer will apply all four conditions to the proposed correction and exclusions.
+The reviewer ran no tests or gate.
