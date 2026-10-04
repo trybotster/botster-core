@@ -1,0 +1,167 @@
+crates/botster-core-sys/src/payload.rs:56:5: replace errno_of -> i32 with 0
+crates/botster-core-sys/src/payload.rs:56:5: replace errno_of -> i32 with 1
+crates/botster-core-sys/src/payload.rs:56:5: replace errno_of -> i32 with -1
+crates/botster-core-sys/src/payload.rs:72:9: replace <impl std::fmt::Debug for Payload>::fmt -> std::fmt::Result with Ok(Default::default())
+crates/botster-core-sys/src/payload.rs:85:12: delete ! in Payload::spawn
+crates/botster-core-sys/src/payload.rs:118:9: replace Payload::pid -> u32 with 0
+crates/botster-core-sys/src/payload.rs:118:9: replace Payload::pid -> u32 with 1
+crates/botster-core-sys/src/payload.rs:132:9: replace Payload::read -> io::Result<usize> with Ok(0)
+crates/botster-core-sys/src/payload.rs:132:9: replace Payload::read -> io::Result<usize> with Ok(1)
+crates/botster-core-sys/src/payload.rs:134:23: replace match guard e.raw_os_error() == Some(rustix::io::Errno::IO.raw_os_error()) with true in Payload::read
+crates/botster-core-sys/src/payload.rs:134:23: replace match guard e.raw_os_error() == Some(rustix::io::Errno::IO.raw_os_error()) with false in Payload::read
+crates/botster-core-sys/src/payload.rs:134:40: replace == with != in Payload::read
+crates/botster-core-sys/src/payload.rs:144:9: replace Payload::pending_output -> io::Result<usize> with Ok(0)
+crates/botster-core-sys/src/payload.rs:144:9: replace Payload::pending_output -> io::Result<usize> with Ok(1)
+crates/botster-core-sys/src/payload.rs:153:9: replace Payload::write -> io::Result<usize> with Ok(0)
+crates/botster-core-sys/src/payload.rs:153:9: replace Payload::write -> io::Result<usize> with Ok(1)
+crates/botster-core-sys/src/payload.rs:163:9: replace Payload::watch_exit -> io::Result<()> with Ok(())
+crates/botster-core-sys/src/payload.rs:174:9: replace Payload::signal_group with ()
+crates/botster-core-sys/src/payload.rs:189:9: replace Payload::reap with ()
+crates/botster-core-sys/src/payload.rs:198:9: replace <impl Drop for Payload>::drop with ()
+crates/botster-core-sys/src/payload.rs:212:35: replace | with & in wait_unreaped
+crates/botster-core-sys/src/payload.rs:212:35: replace | with ^ in wait_unreaped
+crates/botster-core-sys/src/payload.rs:224:47: delete - in wait_unreaped
+crates/botster-core-sys/src/payload.rs:230:5: replace set_nonblocking -> io::Result<()> with Ok(())
+crates/botster-core-sys/src/payload.rs:231:39: replace | with & in set_nonblocking
+crates/botster-core-sys/src/payload.rs:231:39: replace | with ^ in set_nonblocking
+crates/botster-core-testkit/src/core.rs:68:54: delete ! in <impl botster_core_contract::prelude::WakeHandle for SimHostWake>::wait
+crates/botster-core-testkit/src/core.rs:79:9: replace <impl botster_core_contract::prelude::WakeHandle for SimHostWake>::fd -> std::os::fd::RawFd with Default::default()
+crates/botster-core-testkit/src/core.rs:79:9: delete - in <impl botster_core_contract::prelude::WakeHandle for SimHostWake>::fd
+crates/botster-core-testkit/src/core.rs:85:9: replace <impl WakeEdge for SimHostWake>::signal with ()
+crates/botster-core-testkit/src/core.rs:90:9: replace <impl WakeEdge for SimHostWake>::drain with ()
+crates/botster-core-testkit/src/core.rs:115:9: replace <impl Scheduler for HandleScheduler>::pick -> usize with 0
+crates/botster-core-testkit/src/core.rs:119:9: replace <impl Scheduler for HandleScheduler>::bound -> usize with 1
+crates/botster-core-testkit/src/core.rs:144:9: replace SimEdges::faults -> Arc<Mutex<Faults>> with Arc::new(Mutex::new(Default::default()))
+crates/botster-core-testkit/src/core.rs:157:9: replace <impl HostEdges for SimEdges>::fill_random with ()
+crates/botster-core-testkit/src/core.rs:161:9: replace <impl HostEdges for SimEdges>::write_row -> Result<(), StorageError> with Ok(())
+crates/botster-core-testkit/src/core.rs:171:9: replace <impl HostEdges for SimEdges>::delete_row -> Result<(), StorageError> with Ok(())
+crates/botster-core-testkit/src/core.rs:179:9: replace <impl HostEdges for SimEdges>::read_rows -> Result<Vec<(String, Vec<u8>)>, StorageError> with Ok(vec![])
+crates/botster-core-testkit/src/core.rs:179:9: replace <impl HostEdges for SimEdges>::read_rows -> Result<Vec<(String, Vec<u8>)>, StorageError> with Ok(vec![(String::new(), vec![])])
+crates/botster-core-testkit/src/core.rs:179:9: replace <impl HostEdges for SimEdges>::read_rows -> Result<Vec<(String, Vec<u8>)>, StorageError> with Ok(vec![(String::new(), vec![0])])
+crates/botster-core-testkit/src/core.rs:179:9: replace <impl HostEdges for SimEdges>::read_rows -> Result<Vec<(String, Vec<u8>)>, StorageError> with Ok(vec![(String::new(), vec![1])])
+crates/botster-core-testkit/src/core.rs:179:9: replace <impl HostEdges for SimEdges>::read_rows -> Result<Vec<(String, Vec<u8>)>, StorageError> with Ok(vec![("xyzzy".into(), vec![])])
+crates/botster-core-testkit/src/core.rs:179:9: replace <impl HostEdges for SimEdges>::read_rows -> Result<Vec<(String, Vec<u8>)>, StorageError> with Ok(vec![("xyzzy".into(), vec![0])])
+crates/botster-core-testkit/src/core.rs:179:9: replace <impl HostEdges for SimEdges>::read_rows -> Result<Vec<(String, Vec<u8>)>, StorageError> with Ok(vec![("xyzzy".into(), vec![1])])
+crates/botster-core-testkit/src/core.rs:196:59: replace * with + in <impl HostEdges for SimEdges>::spawn_worker
+crates/botster-core-testkit/src/core.rs:198:24: replace += with *= in <impl HostEdges for SimEdges>::spawn_worker
+crates/botster-core-testkit/src/core.rs:206:9: replace <impl HostEdges for SimEdges>::signal_group with ()
+crates/botster-core-testkit/src/core.rs:212:9: replace <impl HostEdges for SimEdges>::poll_process_exit -> Option<(ProcessIdentity, ExitStatus)> with None
+crates/botster-core-testkit/src/core.rs:236:9: replace <impl HostEdges for SimEdges>::link_close with ()
+crates/botster-core-testkit/src/core.rs:242:9: replace <impl HostEdges for SimEdges>::set_write_interest with ()
+crates/botster-core-testkit/src/core.rs:250:9: replace <impl HostEdges for SimEdges>::set_read_interest with ()
+crates/botster-core-testkit/src/core.rs:265:9: replace <impl HostEdges for SimEdges>::handoff_route -> Result<(), HandoffError> with Ok(())
+crates/botster-core-testkit/src/core.rs:347:34: replace + with * in Directories::open
+crates/botster-core-testkit/src/core.rs:390:5: replace core_features -> Features with Default::default()
+crates/botster-core-testkit/src/harness.rs:156:9: replace <impl CoreHarness for TestkitHarness>::worker_named -> Option<WorkerRef> with None
+crates/botster-core-testkit/src/worker.rs:38:30: replace * with +
+crates/botster-core-testkit/src/worker.rs:66:9: replace Processes::end with ()
+crates/botster-core-testkit/src/worker.rs:68:16: delete ! in Processes::end
+crates/botster-core-testkit/src/worker.rs:84:9: replace Pids::next -> u32 with 0
+crates/botster-core-testkit/src/worker.rs:84:9: replace Pids::next -> u32 with 1
+crates/botster-core-testkit/src/worker.rs:84:19: replace += with -= in Pids::next
+crates/botster-core-testkit/src/worker.rs:84:19: replace += with *= in Pids::next
+crates/botster-core-testkit/src/worker.rs:99:9: replace <impl std::fmt::Debug for Workers>::fmt -> std::fmt::Result with Ok(Default::default())
+crates/botster-core-testkit/src/worker.rs:138:9: replace Workers::next_deadline -> Option<Instant> with None
+crates/botster-core-testkit/src/worker.rs:207:9: replace <impl Spawner for WorkerSpawner>::signal_group with ()
+crates/botster-core-testkit/src/worker.rs:212:24: delete ! in <impl Spawner for WorkerSpawner>::signal_group
+crates/botster-core-testkit/src/worker.rs:220:24: delete ! in <impl Spawner for WorkerSpawner>::signal_group
+crates/botster-core-testkit/src/worker.rs:230:9: replace <impl Spawner for WorkerSpawner>::poll_exit -> Option<(ProcessIdentity, ExitStatus)> with None
+crates/botster-core-testkit/src/worker.rs:282:9: replace WorkerEdges::ended with ()
+crates/botster-core-testkit/src/worker.rs:325:27: replace match guard e.kind() == io::ErrorKind::WouldBlock with true in WorkerEdges::flush
+crates/botster-core-testkit/src/worker.rs:325:27: replace match guard e.kind() == io::ErrorKind::WouldBlock with false in WorkerEdges::flush
+crates/botster-core-testkit/src/worker.rs:323:34: replace += with *= in WorkerEdges::flush
+crates/botster-core-testkit/src/worker.rs:325:36: replace == with != in WorkerEdges::flush
+crates/botster-core-testkit/src/worker.rs:357:24: delete ! in <impl Binding<Worker> for WorkerEdges>::ready
+crates/botster-core-testkit/src/worker.rs:374:16: delete ! in <impl Binding<Worker> for WorkerEdges>::ready
+crates/botster-core-testkit/src/worker.rs:399:30: replace match guard n > 0 with true in <impl Binding<Worker> for WorkerEdges>::take
+crates/botster-core-testkit/src/worker.rs:399:32: replace > with >= in <impl Binding<Worker> for WorkerEdges>::take
+crates/botster-core-testkit/src/worker.rs:416:30: replace match guard n > 0 with false in <impl Binding<Worker> for WorkerEdges>::take
+crates/botster-core-testkit/src/worker.rs:416:32: replace > with < in <impl Binding<Worker> for WorkerEdges>::take
+crates/botster-core-testkit/src/worker.rs:543:9: replace <impl CoreApi for TestkitCore>::list -> Vec<SessionRecord> with vec![]
+crates/botster-core-testkit/src/worker.rs:547:9: replace <impl CoreApi for TestkitCore>::status -> Status with Default::default()
+crates/botster-core-testkit/src/worker.rs:551:9: replace <impl CoreApi for TestkitCore>::diagnostics -> serde_json::Value with Default::default()
+crates/botster-core-testkit/src/worker.rs:563:9: replace <impl CoreApi for TestkitCore>::release with ()
+crates/botster-core-testkit/src/worker.rs:567:9: replace <impl CoreApi for TestkitCore>::release_owner with ()
+crates/botster-core-testkit/src/worker.rs:571:9: replace <impl CoreApi for TestkitCore>::snapshot_formats -> Result<Vec<SnapshotFormat>, CoreError> with Ok(vec![])
+crates/botster-core-testkit/src/worker.rs:575:9: replace <impl CoreApi for TestkitCore>::shadow_answerable_kinds -> Vec<QueryKind> with vec![]
+crates/botster-core-testkit/src/worker.rs:597:9: replace <impl CoreApi for TestkitCore>::set_silence_threshold -> Result<(), CoreError> with Ok(())
+crates/botster-core-testkit/src/worker.rs:606:9: replace <impl CoreApi for TestkitCore>::service_send -> Result<(), SendError> with Ok(())
+crates/botster-core-testkit/src/worker.rs:610:9: replace <impl CoreApi for TestkitCore>::service_recv -> Result<Option<Frame>, RecvError> with Ok(None)
+crates/botster-core-testkit/src/worker.rs:614:9: replace <impl CoreApi for TestkitCore>::service_report -> Result<SpawnReport, CoreError> with Ok(Default::default())
+crates/botster-core-testkit/src/worker.rs:618:9: replace <impl CoreApi for TestkitCore>::service_log_tail -> Result<Vec<u8>, CoreError> with Ok(vec![])
+crates/botster-core-testkit/src/worker.rs:618:9: replace <impl CoreApi for TestkitCore>::service_log_tail -> Result<Vec<u8>, CoreError> with Ok(vec![0])
+crates/botster-core-testkit/src/worker.rs:618:9: replace <impl CoreApi for TestkitCore>::service_log_tail -> Result<Vec<u8>, CoreError> with Ok(vec![1])
+crates/botster-core-testkit/src/worker.rs:622:9: replace <impl CoreApi for TestkitCore>::features -> Features with Default::default()
+crates/botster-core-testkit/src/worker.rs:626:9: replace <impl CoreApi for TestkitCore>::limits -> CoreLimits with Default::default()
+crates/botster-core-testkit/src/worker.rs:630:9: replace <impl CoreApi for TestkitCore>::worker_protocol -> u8 with 0
+crates/botster-core-testkit/src/worker.rs:630:9: replace <impl CoreApi for TestkitCore>::worker_protocol -> u8 with 1
+crates/botster-worker/src/main.rs:42:30: replace * with +
+crates/botster-worker/src/main.rs:42:30: replace * with /
+crates/botster-worker/src/main.rs:45:5: replace main -> ExitCode with Default::default()
+crates/botster-worker/src/main.rs:133:9: replace Driver::run -> io::Result<()> with Ok(())
+crates/botster-worker/src/main.rs:149:38: replace <= with > in Driver::run
+crates/botster-worker/src/main.rs:162:17: replace || with && in Driver::run
+crates/botster-worker/src/main.rs:161:17: replace || with && in Driver::run
+crates/botster-worker/src/main.rs:160:17: replace || with && in Driver::run
+crates/botster-worker/src/main.rs:159:40: replace && with || in Driver::run
+crates/botster-worker/src/main.rs:160:41: replace && with || in Driver::run
+crates/botster-worker/src/main.rs:162:20: delete ! in Driver::run
+crates/botster-worker/src/main.rs:172:27: replace match guard e.kind() == io::ErrorKind::Interrupted with true in Driver::run
+crates/botster-worker/src/main.rs:172:27: replace match guard e.kind() == io::ErrorKind::Interrupted with false in Driver::run
+crates/botster-worker/src/main.rs:172:36: replace == with != in Driver::run
+crates/botster-worker/src/main.rs:177:21: delete match arm CONTROL in Driver::run
+crates/botster-worker/src/main.rs:182:21: delete match arm PTY in Driver::run
+crates/botster-worker/src/main.rs:183:21: delete match arm SIGNALS in Driver::run
+crates/botster-worker/src/main.rs:192:21: delete match arm EXIT in Driver::run
+crates/botster-worker/src/main.rs:178:47: replace |= with &= in Driver::run
+crates/botster-worker/src/main.rs:179:75: replace || with && in Driver::run
+crates/botster-worker/src/main.rs:179:49: replace || with && in Driver::run
+crates/botster-worker/src/main.rs:180:47: replace |= with &= in Driver::run
+crates/botster-worker/src/main.rs:180:70: replace || with && in Driver::run
+crates/botster-worker/src/main.rs:185:61: replace == with != in Driver::run
+crates/botster-worker/src/main.rs:205:9: replace Driver::settle -> io::Result<()> with Ok(())
+crates/botster-worker/src/main.rs:217:9: replace Driver::perform -> io::Result<()> with Ok(())
+crates/botster-worker/src/main.rs:298:9: replace Driver::deregister_pty with ()
+crates/botster-worker/src/main.rs:309:9: replace Driver::read_pty_chunk with ()
+crates/botster-worker/src/main.rs:316:21: replace == with != in Driver::read_pty_chunk
+crates/botster-worker/src/main.rs:321:56: replace && with || in Driver::read_pty_chunk
+crates/botster-worker/src/main.rs:321:12: delete ! in Driver::read_pty_chunk
+crates/botster-worker/src/main.rs:321:34: replace && with || in Driver::read_pty_chunk
+crates/botster-worker/src/main.rs:335:23: replace match guard e.kind() == io::ErrorKind::Interrupted with true in Driver::read_pty_chunk
+crates/botster-worker/src/main.rs:335:23: replace match guard e.kind() == io::ErrorKind::Interrupted with false in Driver::read_pty_chunk
+crates/botster-worker/src/main.rs:336:23: replace match guard e.kind() == io::ErrorKind::WouldBlock with true in Driver::read_pty_chunk
+crates/botster-worker/src/main.rs:336:23: replace match guard e.kind() == io::ErrorKind::WouldBlock with false in Driver::read_pty_chunk
+crates/botster-worker/src/main.rs:335:32: replace == with != in Driver::read_pty_chunk
+crates/botster-worker/src/main.rs:336:32: replace == with != in Driver::read_pty_chunk
+crates/botster-worker/src/main.rs:358:9: replace Driver::read_control with ()
+crates/botster-worker/src/main.rs:358:12: delete ! in Driver::read_control
+crates/botster-worker/src/main.rs:358:29: replace && with || in Driver::read_control
+crates/botster-worker/src/main.rs:365:23: replace match guard e.kind() == io::ErrorKind::Interrupted with true in Driver::read_control
+crates/botster-worker/src/main.rs:365:23: replace match guard e.kind() == io::ErrorKind::Interrupted with false in Driver::read_control
+crates/botster-worker/src/main.rs:366:23: replace match guard e.kind() == io::ErrorKind::WouldBlock with true in Driver::read_control
+crates/botster-worker/src/main.rs:366:23: replace match guard e.kind() == io::ErrorKind::WouldBlock with false in Driver::read_control
+crates/botster-worker/src/main.rs:365:32: replace == with != in Driver::read_control
+crates/botster-worker/src/main.rs:366:32: replace == with != in Driver::read_control
+crates/botster-worker/src/main.rs:374:9: replace Driver::flush -> io::Result<()> with Ok(())
+crates/botster-worker/src/main.rs:374:28: replace || with && in Driver::flush
+crates/botster-worker/src/main.rs:374:12: delete ! in Driver::flush
+crates/botster-worker/src/main.rs:378:37: replace && with || in Driver::flush
+crates/botster-worker/src/main.rs:378:40: delete ! in Driver::flush
+crates/botster-worker/src/main.rs:386:27: replace match guard e.kind() == io::ErrorKind::Interrupted with true in Driver::flush
+crates/botster-worker/src/main.rs:386:27: replace match guard e.kind() == io::ErrorKind::Interrupted with false in Driver::flush
+crates/botster-worker/src/main.rs:387:27: replace match guard e.kind() == io::ErrorKind::WouldBlock with true in Driver::flush
+crates/botster-worker/src/main.rs:387:27: replace match guard e.kind() == io::ErrorKind::WouldBlock with false in Driver::flush
+crates/botster-worker/src/main.rs:384:34: replace += with -= in Driver::flush
+crates/botster-worker/src/main.rs:384:34: replace += with *= in Driver::flush
+crates/botster-worker/src/main.rs:386:36: replace == with != in Driver::flush
+crates/botster-worker/src/main.rs:387:36: replace == with != in Driver::flush
+crates/botster-worker/src/main.rs:395:25: replace != with == in Driver::flush
+crates/botster-worker/src/main.rs:400:20: delete ! in Driver::flush
+crates/botster-worker/src/main.rs:401:17: replace != with == in Driver::flush
+crates/botster-worker/src/main.rs:417:9: replace Driver::link_lost with ()
+crates/botster-worker/src/main.rs:424:9: replace Driver::drop_link with ()
+crates/botster-worker-core/src/worker.rs:342:33: replace match guard kind == FrameType::HOST_MSG with true in Worker::on_frame
+crates/botster-worker-core/src/worker.rs:478:31: replace == with != in Worker::on_op
+crates/botster-worker-core/src/worker.rs:550:32: replace && with || in Worker::on_drained
+crates/botster-worker-core/src/worker.rs:562:31: replace || with && in Worker::report_exit
+crates/botster-worker-core/src/worker.rs:623:31: replace || with && in Worker::on_end_payload
