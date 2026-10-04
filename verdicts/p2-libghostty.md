@@ -1,13 +1,13 @@
 # P2 libghostty review
 
-Current reviewed binding head: `ce9b0fe8609cf9d958c595d52a3208fbea5bdde7`.
+Current reviewed binding head: `bd94cb61eefd026db41f3d3b14cf464b9d3e7bb8`.
 Reviewed Ghostty head: `3f8eb6810bb673aa782b047de21783ac81fb1121`.
 The binding uses branch `botster/upstream-sync-20261002`, with upstream base `f523504ea5c9f41d150d1eb93cc7a748b90f9361`.
 The lead owns the plan pin record.
 
-VERDICT: NOT CLEAN (2 open: P32, P36).
+VERDICT: NOT CLEAN (1 open: P32).
 P25, P27, P33 and P34 close at this binding head. Lead ruling P35 closes P35 without a fork change.
-P32 still requires a green Linux gate on this exact binding head.
+P36 closes at the current binding head. P32 still requires a green Linux gate on this exact binding head.
 F1–F12, P13–P24, P26 and P28–P31 remain closed. The earlier reviews below retain their stated scope and closure evidence.
 
 ## Earlier audit and fork reviews
@@ -1376,3 +1376,26 @@ Do not construct or parse expected protocol framing in this order assertion.
 Keep the backlog and full-buffer regressions.
 
 VERDICT: NOT CLEAN (2 open: P32, P36) at binding head `ce9b0fe8609cf9d958c595d52a3208fbea5bdde7`.
+
+
+## P36 correction review — P32 evidence remains pending
+
+Exact binding head: `bd94cb61eefd026db41f3d3b14cf464b9d3e7bb8`.
+The reviewer read the complete delta from `ce9b0fe8609cf9d958c595d52a3208fbea5bdde7`.
+The delta changes only the acknowledgement order test in `crates/botster-terminal-ghostty/src/tests.rs`.
+
+**P36 closes.** The test removes the constructed expected `id=` field.
+Each fresh terminal receives one isolated write with the same stimulus and id as the corresponding queued write.
+The test gets exactly one native acknowledgement from each isolated write.
+The three native results differ pairwise. The test compares the queued results with those native results in order.
+The test therefore checks order without constructing expected terminal bytes.
+The backlog assertion and full-buffer regression remain unchanged.
+
+The implementer reports 94 binding tests passed, clippy passed, and fmt passed at this exact head.
+The reviewer ran no tests, builds, or gates.
+The fork pin and all other reviewed files remain unchanged, so the earlier source acceptance carries to this head.
+All code and test findings are closed. **P32 remains open for evidence only.**
+P32 requires a green Linux gate on `bd94cb61eefd026db41f3d3b14cf464b9d3e7bb8`.
+A gate on a different head cannot close P32 for this head.
+
+VERDICT: NOT CLEAN (1 open: P32) at binding head `bd94cb61eefd026db41f3d3b14cf464b9d3e7bb8`.
