@@ -399,3 +399,28 @@ A separate test panics after the marker while the payload waits for input.
 The test requires independent guard cleanup and production reaping to finish within ten seconds.
 The guard never reaps the production payload. No production source changed.
 The active Mac baseline uses the earlier head. These new proofs still require a run.
+
+## M2b paging obligation and resource hold (2026-10-04)
+
+Package verdict `1038131d3d1f12bb91d3ec76820e77e0ca0860ea` accepts the FIFO and panic-test source delta.
+F13 retains 66 original entries. F18 and F19 still require corrected-source Mac evidence.
+The lead restored the Mac hold. Future gates and heavy jobs must use Linux, one at a time.
+The already active Mac baseline remains pending. It uses the earlier source and cannot close the new proof requirements.
+
+The lead assigned the R-30 and A8-2 paging obligation to M2b.
+P6 will add `crates/botster-terminal-ghostty/GHOSTSNP.md` through `stage1/p2-ghostsnp-spec`.
+The M2b PR must complete its Worker paging section in the same PR as the paging code and cite that code.
+The recommended design uses contiguous slices of native encoded bytes without in-band framing.
+`Page{index, bytes, last}` carries metadata outside those bytes, so that design adds zero framing bytes.
+If M2b adds in-band framing, the specification must state its exact size.
+P6's every-cut fit check computes its bounds from that section.
+
+## Second Mac baseline result (2026-10-04)
+
+The `a532a729` Mac baseline ended with exit 124 after 2700 seconds.
+It ran 14 tests: 13 passed. The input test reported no program output after its ten-second wait.
+Cleanup then blocked until the job deadline terminated the test after 2688.563 seconds.
+Log: `~/botster-sessions/gates/botster-core-stage1-p3-m1-v1-a532a729-mac-20261004-154924-48598.log`.
+Explicit group membership alone did not fix Mac cleanup. F18 and F19 remain open.
+The later FIFO and bounded panic tests were not in that run.
+Next: run those corrected tests on Linux. Corrected-source Mac evidence still requires the lead to lift or except the Mac hold.
