@@ -1,8 +1,8 @@
 # P3 worker review
 
 Current restack verdict: CLEAN (P3 package scope, M1 only).
-Reviewed head: `0044bf7346ca486bf09b5265dbfc0c75f93dd978`, branch `stage1/p3-m1-v1`.
-Round 15 accepts the documentation delta. All earlier verdicts and closures remain historical evidence.
+Reviewed head: `78b88fa99546059dc5d8500af890432edd855537`, branch `stage1/p3-m1-v1`.
+Round 16 accepts the deadline comment correction. All earlier verdicts and closures remain historical evidence.
 The CLEAN below applies only to the old M2a head that it names.
 
 VERDICT: CLEAN
@@ -712,3 +712,23 @@ M2a and M2b remain later reviews. This verdict does not establish a full green g
 
 VERDICT: CLEAN on `0044bf7346ca486bf09b5265dbfc0c75f93dd978`.
 Any later commit requires a delta review before this verdict applies to that head.
+
+## Round 16 — Deadline comment correction
+
+Reviewed head: `78b88fa99546059dc5d8500af890432edd855537`, PR #136.
+Previous reviewed head: `0044bf7346ca486bf09b5265dbfc0c75f93dd978`.
+The complete delta moves the deadline comment immediately before `recv_timeout` and updates the handoff.
+The executable code and ten-second timeout remain unchanged.
+The marked deadline retains its reason: the payload must release the FIFO after test cleanup.
+No new finding exists. All earlier findings and closures remain preserved.
+
+The implementer reports that the full Linux gate on the previous head exited 1 at the timer check.
+Formatting and clippy passed. Tests, mutation, and fuzz did not run in that gate.
+Reported log: `~/botster-sessions/gates/botster-core-stage1-p3-m1-v1-0044bf73-linux-20261004-130018-20279.log`.
+The handoff records that failure and does not claim later gate steps passed.
+The correction addresses the reported comment placement defect in source.
+The reviewer inspected logic only and ran no tests or gate.
+This verdict does not establish a successful timer check or a green gate on the new head.
+
+VERDICT: CLEAN on `78b88fa99546059dc5d8500af890432edd855537`, P3 package scope for M1 only.
+Integration must clear this same exact head. Any later commit requires a delta review.
