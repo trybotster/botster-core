@@ -678,3 +678,222 @@ fn a_grapheme_cluster_is_one_cell_of_text() {
     assert_eq!(cells[0], "e\u{301}");
     assert_eq!(cells[1], "x");
 }
+
+// ---- review finding P39: constants, defaults and the byte accounting of the event buffer ----
+
+/// The value of `#define <name> (1 << n)` or of `<name> = <n>,` in a pinned header.
+fn header_value(header: &str, name: &str) -> i64 {
+    for line in header.lines().map(str::trim) {
+        if let Some(rest) = line.strip_prefix(&format!("#define {name} ")) {
+            let shift = rest
+                .trim()
+                .trim_start_matches("(1 <<")
+                .trim_end_matches(')');
+            return 1 << shift.trim().parse::<u32>().unwrap();
+        }
+        if let Some(rest) = line.strip_prefix(&format!("{name} =")) {
+            return rest.trim().trim_end_matches(',').parse().unwrap();
+        }
+    }
+    panic!("{name} is not in the header");
+}
+
+#[test]
+fn the_declared_result_codes_and_modifier_bits_are_those_of_the_pinned_headers() {
+    let types = include_str!("../vendor/ghostty/include/ghostty/vt/types.h");
+    for (name, value) in [
+        ("GHOSTTY_SUCCESS", sys::SUCCESS),
+        ("GHOSTTY_OUT_OF_MEMORY", sys::OUT_OF_MEMORY),
+        ("GHOSTTY_INVALID_VALUE", sys::INVALID_VALUE),
+        ("GHOSTTY_OUT_OF_SPACE", sys::OUT_OF_SPACE),
+        ("GHOSTTY_NO_VALUE", sys::NO_VALUE),
+    ] {
+        assert_eq!(header_value(types, name), i64::from(value), "{name}");
+    }
+    let key_event = include_str!("../vendor/ghostty/include/ghostty/vt/key/event.h");
+    for (name, value) in [
+        ("GHOSTTY_MODS_SHIFT", sys::mods::SHIFT),
+        ("GHOSTTY_MODS_CTRL", sys::mods::CTRL),
+        ("GHOSTTY_MODS_ALT", sys::mods::ALT),
+        ("GHOSTTY_MODS_SUPER", sys::mods::SUPER),
+        ("GHOSTTY_MODS_CAPS_LOCK", sys::mods::CAPS_LOCK),
+        ("GHOSTTY_MODS_NUM_LOCK", sys::mods::NUM_LOCK),
+        ("GHOSTTY_MODS_HYPER", sys::mods::HYPER),
+        ("GHOSTTY_MODS_META", sys::mods::META),
+    ] {
+        assert_eq!(header_value(key_event, name), i64::from(value), "{name}");
+    }
+}
+
+#[test]
+fn the_defaults_that_the_contract_names_are_its_default_limits() {
+    let limits = botster_core_contract::prelude::CoreLimits::default();
+    assert_eq!(DEFAULT_QUERY_REQUEST_BYTES as u64, limits.max_query_bytes);
+    assert_eq!(DEFAULT_CLIPBOARD_BYTES as u64, limits.clipboard_bytes);
+    assert_eq!(MAX_SHADOW_REPLY_BYTES as u64, limits.max_query_reply_bytes);
+
+    // A new terminal applies the clipboard default: a write one byte over it is too large.
+    let mut terminal = terminal();
+    let base64 = |n: usize| {
+        use base64::Engine;
+        base64::engine::general_purpose::STANDARD.encode(vec![b'x'; n])
+    };
+    let at = clipboard_write_of(
+        &mut terminal,
+        format!("\x1b]52;c;{}\x1b\\", base64(DEFAULT_CLIPBOARD_BYTES)).as_bytes(),
+    );
+    assert!(!at.too_large);
+    let over = clipboard_write_of(
+        &mut terminal,
+        format!("\x1b]52;c;{}\x1b\\", base64(DEFAULT_CLIPBOARD_BYTES + 1)).as_bytes(),
+    );
+    assert!(over.too_large);
+}
+
+fn commit_with_id(id: u32) -> Vec<u8> {
+    format!(
+        "\x1b]5522;type=write:id={id}\x1b\\\x1b]5522;type=wdata:mime=dGV4dC9wbGFpbg==;aGk=\x1b\\\x1b]5522;type=wdata\x1b\\"
+    )
+    .into_bytes()
+}
+
+#[test]
+fn the_default_backlog_takes_many_acknowledgements_and_a_backlog_at_the_limit_is_not_over_it() {
+    // Clipboard writes give one acknowledgement each. Many kilobytes of them stay below the default (1 MiB).
+    let mut terminal = terminal();
+    for id in 0..200 {
+        terminal.vt_write(&commit_with_id(id));
+    }
+    assert!(terminal.vt_write_until_query(b"x").is_ok());
+    let acks = terminal.drain_events().clipboard_acks;
+    assert_eq!(acks.len(), 200);
+    assert!(acks.iter().map(Vec::len).sum::<usize>() > 4096);
+
+    // A backlog exactly at the limit is not over it; one more acknowledgement is.
+    let mut terminal = self::terminal();
+    terminal.vt_write(&commit_with_id(1));
+    let one = terminal.drain_events().clipboard_acks[0].len();
+    terminal.set_ack_backlog_limit(one);
+    terminal.vt_write(&commit_with_id(1));
+    assert!(terminal.vt_write_until_query(b"x").is_ok());
+    terminal.vt_write(&commit_with_id(1));
+    assert_eq!(terminal.vt_write_until_query(b"x"), Err(Error::AckBacklog));
+}
+
+#[test]
+fn the_library_keeps_the_scrollback_limit_of_the_history_setting() {
+    let limit = |history: History| {
+        let terminal = Terminal::new(&size(80, 24), history).unwrap();
+        let mut bytes: usize = usize::MAX;
+        // SAFETY: the handle is live, and the key writes a `size_t`.
+        let code = unsafe {
+            sys::ghostty_terminal_get(
+                terminal.handle.as_ptr(),
+                sys::data::SCROLLBACK_MAX_BYTES,
+                (&mut bytes as *mut usize).cast(),
+            )
+        };
+        assert_eq!(code, sys::SUCCESS);
+        bytes
+    };
+    // `History::On` bounds the scrollback at 16 MiB (`HISTORY_MAX_BYTES`); `Off` keeps none.
+    assert_eq!(limit(History::On), 16 * 1024 * 1024);
+    assert_eq!(limit(History::Off), 0);
+}
+
+#[test]
+fn the_row_after_the_last_has_no_cells() {
+    let terminal = terminal();
+    assert!(terminal.row_cells(23).is_some());
+    assert_eq!(terminal.row_cells(24), None);
+}
+
+/// The bytes that the event buffer counts for an event: the text of a notification (title and body), and the MIME
+/// types and contents of a clipboard write.
+fn counted_bytes(event: &TerminalEvent) -> usize {
+    match event {
+        TerminalEvent::Notification { title, body, .. } => {
+            title.as_ref().map_or(0, String::len) + body.len()
+        }
+        TerminalEvent::ClipboardWrite(write) => {
+            write.selection.as_ref().map_or(0, String::len)
+                + write
+                    .contents
+                    .as_ref()
+                    .map_or(0, |c| c.iter().map(|e| e.mime.len() + e.bytes.len()).sum())
+        }
+        other => panic!("{other:?}"),
+    }
+}
+
+/// An OSC 52 write with no selection that the buffer counts as `n` bytes (its MIME type and its contents).
+fn clipboard_write_counted_as(n: usize) -> Vec<u8> {
+    use base64::Engine;
+    let mime = match &events_of(b"\x1b]52;;aGk=\x1b\\")[0] {
+        TerminalEvent::ClipboardWrite(write) => write.contents.as_ref().unwrap()[0].mime.len(),
+        other => panic!("{other:?}"),
+    };
+    let text = base64::engine::general_purpose::STANDARD.encode(vec![b'x'; n - mime]);
+    format!("\x1b]52;;{text}\x1b\\").into_bytes()
+}
+
+/// Clipboard writes and then `last` make exactly `MAX_BUFFERED_BYTES` in the buffer, and all are kept; a further
+/// notification of one byte is dropped. A notification is at most 2048 bytes (the library's OSC buffer), so the
+/// writes fill the rest.
+fn last_event_fills_the_byte_bound(last: &[u8]) {
+    // The documented bound of the buffer: 16 MiB of event text between two drains.
+    assert_eq!(MAX_BUFFERED_BYTES, 16 * 1024 * 1024);
+    let mut probe = terminal();
+    probe.vt_write(last);
+    let last_size = counted_bytes(&probe.drain_events().events[0]);
+
+    let mut rest = MAX_BUFFERED_BYTES - last_size;
+    let mut input = Vec::new();
+    while rest > 0 {
+        // Pieces of 8 KiB, and a last piece that still holds its MIME type.
+        let piece = if rest >= 16 * 1024 { 8 * 1024 } else { rest };
+        input.extend_from_slice(&clipboard_write_counted_as(piece));
+        rest -= piece;
+    }
+    input.extend_from_slice(last);
+
+    let mut terminal = terminal();
+    terminal.vt_write(&input);
+    let drained = terminal.drain_events();
+    assert_eq!(drained.dropped, 0, "exactly at the bound");
+    assert_eq!(
+        drained.events.iter().map(counted_bytes).sum::<usize>(),
+        MAX_BUFFERED_BYTES
+    );
+    assert!(drained.events.len() < MAX_BUFFERED_EVENTS);
+
+    terminal.vt_write(&input);
+    terminal.vt_write(b"\x1b]9;x\x1b\\");
+    let drained = terminal.drain_events();
+    assert_eq!(drained.dropped, 1, "one byte over the bound");
+    assert!(drained.dropped_kinds.contains(&LostKind::Notification));
+}
+
+#[test]
+fn the_event_buffer_counts_the_bytes_of_notifications_and_clipboard_writes() {
+    // OSC 9: the body. OSC 777: the title and the body. OSC 52 with no selection: the MIME type and the contents.
+    last_event_fills_the_byte_bound(format!("\x1b]9;{}\x1b\\", "x".repeat(1000)).as_bytes());
+    last_event_fills_the_byte_bound(
+        format!("\x1b]777;notify;{};b\x1b\\", "t".repeat(999)).as_bytes(),
+    );
+    last_event_fills_the_byte_bound(&clipboard_write_counted_as(5000));
+}
+
+#[test]
+fn an_invalid_byte_inside_a_reported_string_is_a_replacement_character() {
+    // The library passes the bytes of a notification as they are. A byte that is not UTF-8 inside it becomes U+FFFD
+    // and the rest is kept; only an incomplete character at the end is cut.
+    let body = b"ab\xffcd";
+    let events = events_of(&[&b"\x1b]9;"[..], body, b"\x1b\\"].concat());
+    match &events[..] {
+        [TerminalEvent::Notification { body: text, .. }] => {
+            assert_eq!(text, &String::from_utf8_lossy(body));
+        }
+        other => panic!("{other:?}"),
+    }
+}

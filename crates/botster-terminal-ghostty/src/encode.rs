@@ -181,6 +181,12 @@ fn mod_bits(mods: &[Modifier]) -> u16 {
     })
 }
 
+/// Whether a constructor of the library made its handle. The library stores the handle only on SUCCESS (and fails only
+/// with OUT_OF_MEMORY), so the two checks agree; the null check keeps a broken promise from becoming a null handle.
+fn created(code: sys::Result, handle: *mut c_void) -> bool {
+    code == sys::SUCCESS && !handle.is_null()
+}
+
 struct KeyEncoder(sys::KeyEncoder);
 
 impl KeyEncoder {
@@ -188,7 +194,7 @@ impl KeyEncoder {
         let mut encoder: sys::KeyEncoder = std::ptr::null_mut();
         // SAFETY: a valid out pointer; a null allocator selects the default; the handle is freed in `Drop`.
         let code = unsafe { sys::ghostty_key_encoder_new(std::ptr::null(), &mut encoder) };
-        if code != sys::SUCCESS || encoder.is_null() {
+        if !created(code, encoder) {
             return Err(crate::Error::OutOfMemory);
         }
         Ok(Self(encoder))
@@ -278,7 +284,7 @@ fn key_event(
     let mut event: sys::KeyEvent = std::ptr::null_mut();
     // SAFETY: a valid out pointer; a null allocator selects the default.
     let code = unsafe { sys::ghostty_key_event_new(std::ptr::null(), &mut event) };
-    if code != sys::SUCCESS || event.is_null() {
+    if !created(code, event) {
         return Err(EncodeError::Unsupported(UnsupportedWhat::Other));
     }
     let handle = KeyEventHandle(event);
@@ -393,17 +399,16 @@ pub(crate) fn encode_key(source: Source, input: &KeyInput) -> Result<Vec<u8>, En
     Err(EncodeError::NotReported)
 }
 
-/// Call an encode function with a probe and then with a buffer of the size that it asks for.
+/// Call an encode function with a probe and then with a buffer of the size that it asks for. With an empty buffer, the
+/// library's encoders return SUCCESS when there is nothing to write and OUT_OF_SPACE with the size otherwise.
 fn run_encoder(
     mut call: impl FnMut(*mut u8, usize, *mut usize) -> sys::Result,
 ) -> Result<Vec<u8>, EncodeError> {
     let mut needed: usize = 0;
-    let probe = call(std::ptr::null_mut(), 0, &mut needed);
-    if probe == sys::SUCCESS && needed == 0 {
-        return Ok(Vec::new());
-    }
-    if probe != sys::SUCCESS && probe != sys::OUT_OF_SPACE {
-        return Err(EncodeError::Unsupported(UnsupportedWhat::Other));
+    match call(std::ptr::null_mut(), 0, &mut needed) {
+        sys::SUCCESS => return Ok(Vec::new()),
+        sys::OUT_OF_SPACE => {}
+        _ => return Err(EncodeError::Unsupported(UnsupportedWhat::Other)),
     }
     let mut buffer = vec![0u8; needed];
     let mut written: usize = 0;
@@ -513,9 +518,8 @@ pub(crate) fn encode_mouse(
 
     let mut encoder: sys::MouseEncoder = std::ptr::null_mut();
     // SAFETY: a valid out pointer; a null allocator selects the default.
-    if unsafe { sys::ghostty_mouse_encoder_new(std::ptr::null(), &mut encoder) } != sys::SUCCESS
-        || encoder.is_null()
-    {
+    let code = unsafe { sys::ghostty_mouse_encoder_new(std::ptr::null(), &mut encoder) };
+    if !created(code, encoder) {
         return Err(EncodeError::Unsupported(UnsupportedWhat::Other));
     }
     let encoder = MouseEncoder(encoder);
@@ -552,9 +556,8 @@ pub(crate) fn encode_mouse(
 
     let mut event: sys::MouseEvent = std::ptr::null_mut();
     // SAFETY: a valid out pointer; a null allocator selects the default.
-    if unsafe { sys::ghostty_mouse_event_new(std::ptr::null(), &mut event) } != sys::SUCCESS
-        || event.is_null()
-    {
+    let code = unsafe { sys::ghostty_mouse_event_new(std::ptr::null(), &mut event) };
+    if !created(code, event) {
         return Err(EncodeError::Unsupported(UnsupportedWhat::Other));
     }
     let event = MouseEventHandle(event);
@@ -654,6 +657,9 @@ pub(crate) fn encode_focus(focus_reporting: bool, focused: bool) -> Option<Vec<u
 
 /// The marker bytes around a paste when bracketed paste is on, else `None` (IN-8). The payload is never touched.
 pub(crate) fn paste_frame(bracketed: bool) -> Option<(Vec<u8>, Vec<u8>)> {
+    if !bracketed {
+        return None;
+    }
     let mut frame = sys::PasteFrame {
         prefix: sys::GString {
             ptr: std::ptr::null(),
@@ -665,11 +671,9 @@ pub(crate) fn paste_frame(bracketed: bool) -> Option<(Vec<u8>, Vec<u8>)> {
         },
     };
     // SAFETY: `frame` is a valid out pointer. The library stores strings of static data.
-    unsafe { sys::ghostty_paste_frame(bracketed, &mut frame) };
+    unsafe { sys::ghostty_paste_frame(true, &mut frame) };
     // SAFETY: the strings are static and valid for the life of the process.
-    let (prefix, suffix) =
-        unsafe { (frame.prefix.bytes().to_vec(), frame.suffix.bytes().to_vec()) };
-    (!prefix.is_empty() || !suffix.is_empty()).then_some((prefix, suffix))
+    Some(unsafe { (frame.prefix.bytes().to_vec(), frame.suffix.bytes().to_vec()) })
 }
 
 // A pointer to a `c_void` is the type of every handle above.
