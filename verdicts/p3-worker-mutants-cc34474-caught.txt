@@ -1,0 +1,44 @@
+crates/botster-core-testkit/src/core.rs:68:54: delete ! in <impl botster_core_contract::prelude::WakeHandle for SimHostWake>::wait
+crates/botster-core-testkit/src/core.rs:79:9: replace <impl botster_core_contract::prelude::WakeHandle for SimHostWake>::fd -> std::os::fd::RawFd with Default::default()
+crates/botster-core-testkit/src/core.rs:79:9: delete - in <impl botster_core_contract::prelude::WakeHandle for SimHostWake>::fd
+crates/botster-core-testkit/src/core.rs:85:9: replace <impl WakeEdge for SimHostWake>::signal with ()
+crates/botster-core-testkit/src/core.rs:90:9: replace <impl WakeEdge for SimHostWake>::drain with ()
+crates/botster-core-testkit/src/core.rs:115:9: replace <impl Scheduler for HandleScheduler>::pick -> usize with 0
+crates/botster-core-testkit/src/core.rs:119:9: replace <impl Scheduler for HandleScheduler>::bound -> usize with 1
+crates/botster-core-testkit/src/core.rs:144:9: replace SimEdges::faults -> Arc<Mutex<Faults>> with Arc::new(Mutex::new(Default::default()))
+crates/botster-core-testkit/src/core.rs:157:9: replace <impl HostEdges for SimEdges>::fill_random with ()
+crates/botster-core-testkit/src/core.rs:161:9: replace <impl HostEdges for SimEdges>::write_row -> Result<(), StorageError> with Ok(())
+crates/botster-core-testkit/src/core.rs:171:9: replace <impl HostEdges for SimEdges>::delete_row -> Result<(), StorageError> with Ok(())
+crates/botster-core-testkit/src/core.rs:179:9: replace <impl HostEdges for SimEdges>::read_rows -> Result<Vec<(String, Vec<u8>)>, StorageError> with Ok(vec![])
+crates/botster-core-testkit/src/core.rs:179:9: replace <impl HostEdges for SimEdges>::read_rows -> Result<Vec<(String, Vec<u8>)>, StorageError> with Ok(vec![(String::new(), vec![])])
+crates/botster-core-testkit/src/core.rs:179:9: replace <impl HostEdges for SimEdges>::read_rows -> Result<Vec<(String, Vec<u8>)>, StorageError> with Ok(vec![(String::new(), vec![0])])
+crates/botster-core-testkit/src/core.rs:179:9: replace <impl HostEdges for SimEdges>::read_rows -> Result<Vec<(String, Vec<u8>)>, StorageError> with Ok(vec![(String::new(), vec![1])])
+crates/botster-core-testkit/src/core.rs:179:9: replace <impl HostEdges for SimEdges>::read_rows -> Result<Vec<(String, Vec<u8>)>, StorageError> with Ok(vec![("xyzzy".into(), vec![])])
+crates/botster-core-testkit/src/core.rs:179:9: replace <impl HostEdges for SimEdges>::read_rows -> Result<Vec<(String, Vec<u8>)>, StorageError> with Ok(vec![("xyzzy".into(), vec![0])])
+crates/botster-core-testkit/src/core.rs:179:9: replace <impl HostEdges for SimEdges>::read_rows -> Result<Vec<(String, Vec<u8>)>, StorageError> with Ok(vec![("xyzzy".into(), vec![1])])
+crates/botster-core-testkit/src/core.rs:198:24: replace += with *= in <impl HostEdges for SimEdges>::spawn_worker
+crates/botster-core-testkit/src/core.rs:206:9: replace <impl HostEdges for SimEdges>::signal_group with ()
+crates/botster-core-testkit/src/core.rs:212:9: replace <impl HostEdges for SimEdges>::poll_process_exit -> Option<(ProcessIdentity, ExitStatus)> with None
+crates/botster-core-testkit/src/core.rs:236:9: replace <impl HostEdges for SimEdges>::link_close with ()
+crates/botster-core-testkit/src/core.rs:242:9: replace <impl HostEdges for SimEdges>::set_write_interest with ()
+crates/botster-core-testkit/src/core.rs:250:9: replace <impl HostEdges for SimEdges>::set_read_interest with ()
+crates/botster-core-testkit/src/core.rs:265:9: replace <impl HostEdges for SimEdges>::handoff_route -> Result<(), HandoffError> with Ok(())
+crates/botster-core-testkit/src/core.rs:347:34: replace + with * in Directories::open
+crates/botster-core-testkit/src/core.rs:390:5: replace core_features -> Features with Default::default()
+crates/botster-core-testkit/src/harness.rs:156:9: replace <impl CoreHarness for TestkitHarness>::worker_named -> Option<WorkerRef> with None
+crates/botster-core-testkit/src/worker.rs:543:9: replace <impl CoreApi for TestkitCore>::list -> Vec<SessionRecord> with vec![]
+crates/botster-core-testkit/src/worker.rs:547:9: replace <impl CoreApi for TestkitCore>::status -> Status with Default::default()
+crates/botster-core-testkit/src/worker.rs:551:9: replace <impl CoreApi for TestkitCore>::diagnostics -> serde_json::Value with Default::default()
+crates/botster-core-testkit/src/worker.rs:571:9: replace <impl CoreApi for TestkitCore>::snapshot_formats -> Result<Vec<SnapshotFormat>, CoreError> with Ok(vec![])
+crates/botster-core-testkit/src/worker.rs:575:9: replace <impl CoreApi for TestkitCore>::shadow_answerable_kinds -> Vec<QueryKind> with vec![]
+crates/botster-core-testkit/src/worker.rs:597:9: replace <impl CoreApi for TestkitCore>::set_silence_threshold -> Result<(), CoreError> with Ok(())
+crates/botster-core-testkit/src/worker.rs:606:9: replace <impl CoreApi for TestkitCore>::service_send -> Result<(), SendError> with Ok(())
+crates/botster-core-testkit/src/worker.rs:610:9: replace <impl CoreApi for TestkitCore>::service_recv -> Result<Option<Frame>, RecvError> with Ok(None)
+crates/botster-core-testkit/src/worker.rs:614:9: replace <impl CoreApi for TestkitCore>::service_report -> Result<SpawnReport, CoreError> with Ok(Default::default())
+crates/botster-core-testkit/src/worker.rs:618:9: replace <impl CoreApi for TestkitCore>::service_log_tail -> Result<Vec<u8>, CoreError> with Ok(vec![])
+crates/botster-core-testkit/src/worker.rs:618:9: replace <impl CoreApi for TestkitCore>::service_log_tail -> Result<Vec<u8>, CoreError> with Ok(vec![0])
+crates/botster-core-testkit/src/worker.rs:618:9: replace <impl CoreApi for TestkitCore>::service_log_tail -> Result<Vec<u8>, CoreError> with Ok(vec![1])
+crates/botster-core-testkit/src/worker.rs:622:9: replace <impl CoreApi for TestkitCore>::features -> Features with Default::default()
+crates/botster-core-testkit/src/worker.rs:626:9: replace <impl CoreApi for TestkitCore>::limits -> CoreLimits with Default::default()
+crates/botster-core-testkit/src/worker.rs:630:9: replace <impl CoreApi for TestkitCore>::worker_protocol -> u8 with 0
+crates/botster-core-testkit/src/worker.rs:630:9: replace <impl CoreApi for TestkitCore>::worker_protocol -> u8 with 1
