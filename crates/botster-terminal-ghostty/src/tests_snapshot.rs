@@ -22,7 +22,18 @@ fn terminal() -> Terminal {
 struct Restored(sys::Terminal);
 
 impl Restored {
+    /// A restore with the session's image storage limit (zero): the restored model ignores image sequences too.
     fn from(bytes: &[u8]) -> Self {
+        Self::decode(bytes, Some(0))
+    }
+
+    /// A restore that leaves the image storage limit at the library default. It is the control of the image-resume test:
+    /// it shows that the restored model stores images unless the decoder takes the session's limit.
+    fn with_the_library_default_image_limit(bytes: &[u8]) -> Self {
+        Self::decode(bytes, None)
+    }
+
+    fn decode(bytes: &[u8], image_limit: Option<u64>) -> Self {
         let mut decoder: sys::SnapshotDecoder = std::ptr::null_mut();
         let mut restored: sys::Terminal = std::ptr::null_mut();
         let (limit, retain) = (CONTINUATION_LIMIT, true);
@@ -54,16 +65,16 @@ impl Restored {
                 ),
                 sys::SUCCESS
             );
-            // The session turned image storage off, so the restored model must ignore image sequences too.
-            let no_images: u64 = 0;
-            assert_eq!(
-                sys::ghostty_snapshot_decoder_set(
-                    decoder,
-                    sys::snapshot_opt::KITTY_IMAGE_STORAGE_LIMIT,
-                    (&no_images as *const u64).cast()
-                ),
-                sys::SUCCESS
-            );
+            if let Some(image_limit) = image_limit {
+                assert_eq!(
+                    sys::ghostty_snapshot_decoder_set(
+                        decoder,
+                        sys::snapshot_opt::KITTY_IMAGE_STORAGE_LIMIT,
+                        (&image_limit as *const u64).cast()
+                    ),
+                    sys::SUCCESS
+                );
+            }
             assert_eq!(
                 sys::ghostty_snapshot_decoder_decode(decoder, &mut restored),
                 sys::SUCCESS
@@ -86,6 +97,10 @@ impl Restored {
         };
         assert_eq!(code, sys::SUCCESS);
         limit
+    }
+
+    fn stores_image(&self, id: u32) -> bool {
+        stores_image(self.0, id)
     }
 
     fn write(&mut self, bytes: &[u8]) {
@@ -117,6 +132,25 @@ impl Drop for Restored {
     fn drop(&mut self) {
         // SAFETY: the handle is live and freed once.
         unsafe { sys::ghostty_terminal_free(self.0) }
+    }
+}
+
+/// Whether the image storage of the active screen holds an image with this id, from the library.
+fn stores_image(terminal: sys::Terminal, id: u32) -> bool {
+    let mut graphics: sys::KittyGraphics = std::ptr::null_mut();
+    // SAFETY: the handle is live, the key writes a `GhosttyKittyGraphics`, and the borrowed storage is read before the
+    // next call that changes the terminal.
+    unsafe {
+        assert_eq!(
+            sys::ghostty_terminal_get(
+                terminal,
+                sys::data::KITTY_GRAPHICS,
+                (&mut graphics as *mut sys::KittyGraphics).cast()
+            ),
+            sys::SUCCESS,
+            "the library is built with Kitty graphics"
+        );
+        !sys::ghostty_kitty_graphics_image(graphics, id).is_null()
     }
 }
 
@@ -206,6 +240,11 @@ fn the_identity_comes_from_the_library_and_tic_compiles_it() {
     );
 }
 
+/// Kitty graphics input: image 1 in one command, then image 2 in two chunks, with text between. The session has image
+/// storage off, so neither leaves any state, before or after a restore.
+const IMAGES: &[u8] =
+    b"top\x1b_Ga=T,f=24,s=1,v=1,i=1;AAAA\x1b\\mid\x1b_Ga=t,f=24,s=1,v=1,i=2,m=1;AAAA\x1b\\\x1b_Gm=0;\x1b\\end";
+
 /// A small corpus that stops inside every kind of unfinished input (a CSI, an OSC, a DCS, a UTF-8 sequence, a string
 /// that ends with an ESC) and sets the saved state that a snapshot must carry: the saved cursor, tab stops, margins and
 /// the character sets.
@@ -224,10 +263,7 @@ fn corpus() -> Vec<Vec<u8>> {
         b"\x1b[3g\x1b[1;7H\x1bH\x1b[1;19H\x1bH\r\tA\tB\tC".to_vec(),
         // Margins: top and bottom, then left and right, then text and a scroll inside them.
         b"\x1b[2;8r\x1b[?69h\x1b[5;30s\x1b[2;5Hinside\nmargins\n\n\n\n\n\n\nscrolled".to_vec(),
-        // Kitty graphics input: a direct image in one command, then a chunked one, with text between. The session has
-        // image storage off, so neither leaves any state, before or after a restore.
-        b"top\x1b_Ga=T,f=24,s=1,v=1,i=1;AAAA\x1b\\mid\x1b_Ga=t,f=24,s=1,v=1,i=2,m=1;AAAA\x1b\\\x1b_Gm=0;\x1b\\end"
-            .to_vec(),
+        IMAGES.to_vec(),
         // Character sets: DEC graphics in G0, shifted out to G1, and back.
         b"\x1b(0lqk\x1b)B\x0eabc\x0f\x1b(Bxyz".to_vec(),
     ]
@@ -298,5 +334,64 @@ fn a_restored_terminal_takes_the_rest_of_the_output_at_every_byte_offset_like_th
                 "corpus {index}, offset {offset} on the alternate screen"
             );
         }
+    }
+}
+
+#[test]
+fn a_restored_terminal_stores_no_image_at_any_byte_offset_where_a_default_restore_stores_one() {
+    // The session's model stores neither image.
+    let mut whole = terminal();
+    whole.vt_write(IMAGES);
+    assert!(!stores_image(whole.handle.as_ptr(), 1) && !stores_image(whole.handle.as_ptr(), 2));
+
+    // The input of image 2 starts after this offset (the stimulus is `...mid` and then image 2).
+    let image_2_start = IMAGES.windows(3).position(|bytes| bytes == b"mid").unwrap() + 3;
+    let empty_session = terminal().snapshot().unwrap();
+
+    for offset in 0..=IMAGES.len() {
+        let mut before = terminal();
+        before.vt_write(&IMAGES[..offset]);
+        let snapshot = before
+            .snapshot()
+            .unwrap_or_else(|e| panic!("offset {offset}: {e:?}"));
+
+        // The restore with the session's limit takes the rest of the input and stores no image, on either screen.
+        let mut restored = Restored::from(&snapshot);
+        restored.write(&IMAGES[offset..]);
+        assert!(!restored.stores_image(1), "offset {offset}");
+        assert!(!restored.stores_image(2), "offset {offset}");
+        restored.write(b"\x1b[?1049h");
+        restored.write(IMAGES);
+        assert!(
+            !restored.stores_image(1),
+            "offset {offset}, alternate screen"
+        );
+        assert!(
+            !restored.stores_image(2),
+            "offset {offset}, alternate screen"
+        );
+
+        // The control: a restore at the library default limit stores the images that it completes after the restore.
+        // The snapshot carries no image state, so an image that the session completed before the offset leaves
+        // nothing. Where the library completes image 1 is the library's: a model at the default limit that takes only
+        // the prefix has stored it exactly when the session completed it before the offset.
+        let mut reference = Restored::with_the_library_default_image_limit(&empty_session);
+        reference.write(&IMAGES[..offset]);
+        let mut control = Restored::with_the_library_default_image_limit(&snapshot);
+        control.write(&IMAGES[offset..]);
+        assert_eq!(
+            control.stores_image(1),
+            !reference.stores_image(1),
+            "offset {offset}"
+        );
+        if offset <= image_2_start {
+            assert!(control.stores_image(2), "offset {offset}");
+        }
+        control.write(b"\x1b[?1049h");
+        control.write(IMAGES);
+        assert!(
+            control.stores_image(1) && control.stores_image(2),
+            "offset {offset}, alternate screen"
+        );
     }
 }
