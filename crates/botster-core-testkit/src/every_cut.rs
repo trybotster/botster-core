@@ -22,6 +22,7 @@ pub trait CutSession {
     fn no_injected_failure(&self) -> bool;
     fn format(&self) -> SnapshotFormat;
     fn max_snapshot_bytes(&self) -> usize;
+    fn history(&self) -> History;
     /// Write the program output, run the fence, and return the exact consumed chunks in order.
     fn write_and_fence(&mut self, bytes: &[u8]) -> Result<Vec<Vec<u8>>, ControlError>;
     /// Run real `CaptureSnapshot` to its completion and read every offered page.
@@ -74,6 +75,14 @@ pub fn oracle_resume_every_cut(
                     "every-cut requires no injected resource failure".into(),
                 ));
             }
+            if u32::from(subject.model().rows()) != input.size.rows
+                || u32::from(subject.model().cols()) != input.size.cols
+                || subject.history() != input.history
+            {
+                return Err(ControlError::Bad(
+                    "every-cut subject configuration differs".into(),
+                ));
+            }
             let mut oracle = Terminal::new(&input.size, input.history).map_err(library_error)?;
             oracle
                 .set_continuation_max_bytes(bytes.len())
@@ -86,6 +95,9 @@ pub fn oracle_resume_every_cut(
             };
             let format = subject.format();
             let fits = fit(&oracle, &format, framing, subject.max_snapshot_bytes());
+            if fits.is_none() {
+                inconclusive = true;
+            }
             let semantic_failure = subject
                 .model()
                 .vt_processing_error()
@@ -196,4 +208,217 @@ fn beyond_limit(kind: &str) -> Result<Vec<u8>, ControlError> {
     bytes.resize(CONTINUATION_LIMIT + 16, b'x');
     bytes.extend_from_slice(b"\x1b\\");
     Ok(bytes)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::cell::RefCell;
+    use std::rc::Rc;
+
+    struct NativeSession {
+        terminal: Terminal,
+        history: History,
+        refuse: bool,
+        corrupt: bool,
+        fault: bool,
+        trace: Rc<RefCell<Vec<&'static str>>>,
+    }
+
+    impl CutSession for NativeSession {
+        fn no_injected_failure(&self) -> bool {
+            !self.fault
+        }
+        fn format(&self) -> SnapshotFormat {
+            snapshot_format()
+        }
+        fn max_snapshot_bytes(&self) -> usize {
+            usize::MAX
+        }
+        fn history(&self) -> History {
+            self.history
+        }
+        fn write_and_fence(&mut self, bytes: &[u8]) -> Result<Vec<Vec<u8>>, ControlError> {
+            self.trace.borrow_mut().push("write/fence");
+            self.terminal.vt_write(bytes);
+            Ok(vec![bytes.to_vec()])
+        }
+        fn capture(&mut self) -> Result<CutCapture, ControlError> {
+            self.trace.borrow_mut().push("capture/pages");
+            if self.refuse {
+                return Ok(CutCapture::SnapshotTooLarge);
+            }
+            if self.corrupt {
+                return Ok(CutCapture::Offered(Vec::new()));
+            }
+            Ok(CutCapture::Offered(self.terminal.snapshot().unwrap()))
+        }
+        fn model(&self) -> &Terminal {
+            &self.terminal
+        }
+    }
+
+    // This synthetic source tests the measurement interface. It is never conformance fit evidence.
+    struct TestFraming(usize);
+    impl FormatFraming for TestFraming {
+        fn overhead(&self, _: &SnapshotFormat, _: usize) -> Option<usize> {
+            Some(self.0)
+        }
+    }
+
+    fn input() -> EveryCutInput {
+        EveryCutInput {
+            size: Size {
+                rows: 2,
+                cols: 8,
+                cell_px: None,
+            },
+            history: History::On,
+            corpus: vec![b"A\x1b[31mB".to_vec(), b"\x1b]2;t\x1b\\".to_vec()],
+            beyond_limit: Vec::new(),
+        }
+    }
+
+    fn session(
+        size: &Size,
+        history: History,
+        trace: Rc<RefCell<Vec<&'static str>>>,
+    ) -> NativeSession {
+        NativeSession {
+            terminal: Terminal::new(size, history).unwrap(),
+            history,
+            refuse: false,
+            corrupt: false,
+            fault: false,
+            trace,
+        }
+    }
+
+    #[test]
+    fn every_offset_gets_a_fresh_session_and_capture_before_the_suffix() {
+        let input = input();
+        let trace = Rc::new(RefCell::new(Vec::new()));
+        let mut sessions = 0;
+        let result = oracle_resume_every_cut(&input, &TestFraming(0), |size, history| {
+            sessions += 1;
+            Ok(Box::new(session(size, history, trace.clone())))
+        })
+        .unwrap();
+        let cuts = input
+            .corpus
+            .iter()
+            .map(|bytes| bytes.len() + 1)
+            .sum::<usize>();
+        assert_eq!(sessions, cuts);
+        assert_eq!(result["cuts_checked"], cuts);
+        assert_eq!(result["offered"], cuts);
+        assert_eq!(result["refused_beyond_limit"], 0);
+        assert_eq!(result["mismatches"], json!([]));
+        assert_eq!(result["inconclusive"], false);
+        assert_eq!(
+            *trace.borrow(),
+            ["write/fence", "capture/pages", "write/fence"].repeat(cuts)
+        );
+    }
+
+    #[test]
+    fn refusals_need_independent_fit_evidence() {
+        let input = input();
+        let trace = Rc::new(RefCell::new(Vec::new()));
+        let run = |framing: &dyn FormatFraming| {
+            oracle_resume_every_cut(&input, framing, |size, history| {
+                let mut subject = session(size, history, trace.clone());
+                subject.refuse = true;
+                Ok(Box::new(subject))
+            })
+            .unwrap()
+        };
+        let unknown = run(&UnknownFraming);
+        assert_eq!(unknown["inconclusive"], true);
+        assert_eq!(unknown["mismatches"], json!([]));
+        let known = run(&TestFraming(0));
+        assert_eq!(known["inconclusive"], false);
+        assert_eq!(
+            known["mismatches"].as_array().unwrap().len(),
+            known["cuts_checked"].as_u64().unwrap() as usize
+        );
+    }
+
+    #[test]
+    fn malformed_pages_and_injected_failures_do_not_pass() {
+        let input = input();
+        let trace = Rc::new(RefCell::new(Vec::new()));
+        let result = oracle_resume_every_cut(&input, &TestFraming(0), |size, history| {
+            let mut subject = session(size, history, trace.clone());
+            subject.corrupt = true;
+            Ok(Box::new(subject))
+        })
+        .unwrap();
+        assert_eq!(
+            result["mismatches"].as_array().unwrap().len(),
+            result["cuts_checked"].as_u64().unwrap() as usize
+        );
+        assert!(
+            oracle_resume_every_cut(&input, &UnknownFraming, |size, history| {
+                let mut subject = session(size, history, trace.clone());
+                subject.fault = true;
+                Ok(Box::new(subject))
+            })
+            .is_err()
+        );
+        assert!(
+            oracle_resume_every_cut(&input, &UnknownFraming, |_, _| Err(ControlError::Bad(
+                "factory failed".into()
+            )))
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn fit_counts_native_bytes_and_independent_framing_at_the_boundary() {
+        let input = input();
+        let oracle = Terminal::new(&input.size, input.history).unwrap();
+        let native_bytes = oracle.snapshot().unwrap().len();
+        let format = snapshot_format();
+        assert_eq!(
+            fit(&oracle, &format, &TestFraming(7), native_bytes + 7),
+            Some(true)
+        );
+        assert_eq!(
+            fit(&oracle, &format, &TestFraming(7), native_bytes + 6),
+            Some(false)
+        );
+        assert_eq!(
+            fit(&oracle, &format, &TestFraming(usize::MAX), usize::MAX),
+            None
+        );
+        assert_eq!(fit(&oracle, &format, &UnknownFraming, usize::MAX), None);
+        let mut unknown = format.clone();
+        unknown.version += 1;
+        assert_eq!(fit(&oracle, &unknown, &TestFraming(0), usize::MAX), None);
+        unknown = format;
+        unknown.name.push('x');
+        assert_eq!(fit(&oracle, &unknown, &TestFraming(0), usize::MAX), None);
+    }
+
+    #[test]
+    fn generated_strings_exceed_the_native_continuation_limit() {
+        let input = input();
+        for kind in ["osc", "dcs", "apc"] {
+            let bytes = beyond_limit(kind).unwrap();
+            let mut oracle = Terminal::new(&input.size, input.history).unwrap();
+            oracle.set_continuation_max_bytes(bytes.len()).unwrap();
+            oracle.vt_write(&bytes[..bytes.len() - 2]);
+            match oracle.continuation().unwrap() {
+                Continuation::Retained(pending) => assert!(pending.len() > CONTINUATION_LIMIT),
+                Continuation::Unavailable => panic!("diagnostic oracle lost continuation"),
+            }
+            oracle.vt_write(&bytes[bytes.len() - 2..]);
+            assert_eq!(
+                oracle.continuation().unwrap(),
+                Continuation::Retained(Vec::new())
+            );
+        }
+        assert!(beyond_limit("unknown").is_err());
+    }
 }
