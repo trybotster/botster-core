@@ -1,10 +1,10 @@
 # P1 lifecycle review
 
-VERDICT: NOT CLEAN (2 open)
+VERDICT: CLEAN
 
-Current reviewed head: `c22b324550cb1c7612e92a7c6cd91cda240ac409` on `stage1/p1-lifecycle`.
-Current open findings: F24, F28.
-The Round 10 section below records the current review.
+Current reviewed head: `048b277f85c942dca5deaee2ffbd4ffa290f6b6c` on `stage1/p1-lifecycle`.
+Current open findings: none.
+The Round 11 section below records the current review.
 The earlier CLEAN and all earlier findings and closure evidence remain historical evidence.
 
 Historical checkpoint verdict: CLEAN.
@@ -1155,3 +1155,98 @@ Prove the failure cases on the exact reviewed fix head.
 All earlier findings and closure evidence remain in this file.
 F24 and F28 must close before CLEAN.
 Any further commit requires a delta review before the full gate.
+
+
+## Round 11: independent process-group ownership and exclusion repair
+
+Reviewed head: `048b277f85c942dca5deaee2ffbd4ffa290f6b6c`.
+Reviewed delta: `c22b324550cb1c7612e92a7c6cd91cda240ac409..048b277f85c942dca5deaee2ffbd4ffa290f6b6c`.
+I reviewed all six changed files and the complete mutation exclusion file.
+This delta changes test cleanup and mutation exclusions. It changes no production code or contracts pin.
+The earlier review dispositions remain valid under `contracts-v0.1.13` at `a8db5c9a0f43fc440564989fd38a55121fdda38b`.
+I ran no test or gate in this round.
+
+### F24: CLOSED
+
+The implementer removed every xtask exclusion.
+Those functions now remain subject to mutation testing.
+The remaining exclusions retain individual function or exact mutant boundaries.
+Their named slow tests and equivalence arguments retain the Round 10 dispositions.
+
+The Children::spawn sign equivalence now states the actual ownership rules.
+Only the production reaper waits for the worker.
+The independent test guard waits for a separate anchor process.
+The guard no longer calls waitpid for the worker.
+Child::wait retries EINTR, and the worker has one reaper with fixed wait options.
+The earlier competing-reaper counterexample therefore no longer applies.
+I accept the equivalence argument for this exact negative-literal mutant.
+
+### F28: CLOSED under the lead's ownership ruling
+
+Evidence: `crates/botster-core-sys/tests/common/process_guard.rs`,
+`crates/botster-core-sys/tests/slow_process.rs`, and `crates/botster-core/tests/common/mod.rs`.
+
+GroupGuard starts a separate anchor before the production spawn.
+The worker shell registers its group through a Unix socket before its body starts.
+The anchor joins that group before it acknowledges registration.
+The worker cannot reach its pid file, readiness FIFO, or launch FIFO before the acknowledgement.
+
+The anchor retains group membership after the production reaper reaps the worker leader.
+The group identity therefore remains valid until the anchor performs its final group kill.
+The guard does not signal a saved pid after another reaper releases that pid.
+
+Guard Drop shuts down the control stream and reaps the anchor.
+Test-process death also closes the control stream.
+The anchor then kills its group, including itself.
+This path does not depend on a worker parent-watch loop reaching a blocking FIFO.
+The scripts use quiet waits instead of the former busy loops.
+If Drop precedes registration, the worker cannot obtain acknowledgement and its body does not start.
+
+The sys and Core real-process tests use this guard before worker startup.
+The facade test also checks that the registered worker identity exists.
+The helper tests prove these failure cases:
+
+- `a_panic_before_ready_ends_the_child` proves cleanup before a readiness indication.
+- `an_early_exit_keeps_the_group_owned_until_cleanup` proves cleanup after another owner reaps the leader.
+- `parent_dies_before_fifo_reader` kills the test parent before a reader opens either the readiness or launch FIFO.
+- `no_child_is_left_when_the_cleanup_of_a_test_fails` proves sys cleanup without a production group-kill call.
+- `a_worker_is_not_left_when_the_cleanup_of_a_test_fails` supplies the corresponding Core check.
+
+I found no remaining cleanup defect in this design.
+I asked the lead to resolve the original requirement that the guard itself reap the worker.
+Question: `msg_plugin-w_1791139557_60a55e`.
+The lead accepted this ownership design in `msg_plugin-w_1791139574_de2bcb`.
+The lead requires these facts in the closure record:
+
+- The anchor kills the group independently of production code.
+- The guard reaps only its own anchor. The production reaper alone reaps the worker.
+- If a mutant breaks the production reaper, a killed worker can remain a zombie until the test process exits.
+  A zombie uses no CPU. Nextest runs one process per test, and init reaps the zombie after that process exits.
+
+The reviewed implementation and exact-head Linux evidence satisfy the ruling.
+The guard does not steal the worker exit status from the production reaper.
+F28 is closed for P1 at this exact head.
+The P6 testkit scope transfer remains in force and does not block P1 closure.
+
+### Exact-head evidence and limits
+
+I inspected these implementer logs:
+
+- `~/botster-sessions/gates/botster-core-stage1-p1-lifecycle-048b277f-linux-20261004-113948-33395.log`.
+  The log records successful fmt and clippy checks and 36 passing tests, with zero skipped tests.
+  It includes the failure-case tests above in the sys, real Core, and facade test binaries.
+  Helper entry tests also appear in this count; those entries return when their helper environment is absent.
+- `~/botster-sessions/gates/botster-core-stage1-p1-lifecycle-048b277f-linux-20261004-114033-33670.log`.
+  The delta mutation command reports `No mutants to filter` and exits zero.
+  This result does not prove that the newly unexcluded xtask functions have no missed mutants.
+  The required full gate must check those functions after an exact-head CLEAN verdict.
+
+Neither log is the required full gate.
+All earlier findings and closure evidence remain in this file.
+No new finding arose in this delta.
+Current verdict: CLEAN on `048b277f85c942dca5deaee2ffbd4ffa290f6b6c` only.
+Every P1 review finding, including LOW findings, is closed or retains its explicit prior scope disposition.
+F14 retains its authorized stacked follow-up disposition. The P6 cleanup repair retains its transferred owner.
+These scope dispositions do not establish the pending conformance ids.
+The implementer must run the required full gate once on this exact head before reporting DONE.
+Any further code commit requires a delta review before the next full gate.
