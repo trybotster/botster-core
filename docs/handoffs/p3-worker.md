@@ -312,3 +312,8 @@ The reaping test only queries waitid with WNOWAIT. Production alone reaps the pa
 Test readers cap output from bounded scripts, so a false read count fails an assertion instead of looping without end.
 The existing independent group guard remains on every exit path.
 Next: focused Linux payload.rs mutation in the slow profile. No real-process exclusion has been added.
+
+The focused payload job at `5172a53553636dc94d9c86c98b0969499b1955dd` failed baseline compilation.
+The test used Errno::ACCES, but rustix names the constant Errno::ACCESS. The correction changes only that name.
+Log: `~/botster-sessions/gates/botster-core-stage1-p3-m1-v1-5172a535-linux-20261004-143306-97940.log`.
+No mutant ran. This job supplies no mutation evidence. The corrected Linux job is next.

@@ -246,7 +246,7 @@ mod tests {
             SpawnFailure::Exec { errno: 28 }
         );
         assert_eq!(
-            exec_failure(pty_process::Error::Rustix(rustix::io::Errno::ACCES)),
+            exec_failure(pty_process::Error::Rustix(rustix::io::Errno::ACCESS)),
             SpawnFailure::Exec { errno: 13 }
         );
     }
