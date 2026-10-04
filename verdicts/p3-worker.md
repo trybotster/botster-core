@@ -1,8 +1,8 @@
 # P3 worker review
 
-Current restack verdict: NOT CLEAN (F13, F18, F19, and F20 open; F14, F15, F16, and F17 closed).
-Reviewed head: `e4593e86feab06da3711bef9d3ac06bb7e20be38`, branch `stage1/p3-m1-v1`.
-Round 47 reviews the shared real-driver fixture and opens F20. F13 retains 65 driver entries; F18/F19 remain open.
+Current restack verdict: NOT CLEAN (F13, F18, and F19 open; F14, F15, F16, F17, and F20 closed in source).
+Reviewed head: `7efe4553d290cd6f76befc0d50ed7b5206b0ea0e`, branch `stage1/p3-m1-v1`.
+Round 49 closes F20 in source. F13 retains 65 driver entries; F18/F19 remain open.
 The CLEAN below applies only to the old M2a head that it names.
 
 VERDICT: CLEAN
@@ -1631,3 +1631,35 @@ F18 and F19 remain OPEN for corrected-source Mac evidence.
 All earlier findings and closures remain preserved. The reviewer ran no tests or gate.
 
 VERDICT: NOT CLEAN (F13: 65 entries; F18, F19, and F20 open) on `e4593e86feab06da3711bef9d3ac06bb7e20be38`.
+
+
+## Round 49 — Independent lifetime guard for the driver observer
+
+Reviewed head: `7efe4553d290cd6f76befc0d50ed7b5206b0ea0e`.
+The complete delta from `e4593e8` changes the shared session fixture and its handoff.
+No production Driver code, worker path, exclusion, dependency, or conflict resolution changes.
+The integration candidate launch remains unchanged.
+
+F20 is CLOSED in source.
+The unit fixture creates GroupGuard before it spawns the observer shell in its own process group.
+The shell waits for registration before exec starts the Driver observer.
+The independent anchor joins the observer group before registration completes.
+Parent death closes the anchor's control socket, so the anchor kills the observer group without running mutated Driver cleanup.
+The payload keeps its separate PayloadGuard and production-only reaping.
+OwnedWorker drops both guards before it queries or retires its retained worker Child.
+Its last worker signal still occurs only while that child remains unreaped.
+
+The new parent-death test starts a helper parent that launches a real Driver observer and payload.
+It waits for that parent to report observer readiness, kills only the retained parent Child, and reaps that parent.
+It then requires EOF on the inherited observer pipe within ten seconds.
+The test never signals the recorded observer or payload PID.
+The inherited pipe closes only when the observer and its inheriting descendants end.
+The existing payload anchor control connection provides independent cleanup of the separately created payload group.
+The parent-death test and correction still need exact-head compilation and runtime evidence.
+Earlier-head mutation results cannot prove this new guard or regression test.
+
+F13 retains 65 original driver entries pending mutation evidence.
+F18 and F19 remain OPEN for corrected-source Mac evidence.
+All earlier findings and closures remain preserved. The reviewer ran no tests or gate.
+
+VERDICT: NOT CLEAN (F13: 65 entries; F18 and F19 open) on `7efe4553d290cd6f76befc0d50ed7b5206b0ea0e`.
