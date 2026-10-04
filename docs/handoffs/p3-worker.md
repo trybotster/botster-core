@@ -336,3 +336,20 @@ The payload group still has its independent guard, including on observer death.
 Three exact equivalence arguments await package review; no payload exclusion exists yet.
 The wait_unreaped fallback-sign argument remains incomplete because spawn-error cleanup can race the exit watch.
 Next: corrected Linux slow mutation. F13, F15, and F16 remain open pending review and evidence.
+
+## Observer lifetime and exit-watch correction (2026-10-04)
+
+Package verdict `0dd5ba819ab6d73ef9cc749e53163b865e48a14e` closes F15 and F16 in source and opens F17.
+F17 requires the observer to end when the outer test process dies.
+The observer now starts through the existing GroupGuard registration prefix in its own process group.
+The outer test owns the group's anchor. Socket EOF on parent death makes that anchor kill the observer group.
+The observer's independent PayloadGuard then ends the payload group on observer death.
+The observer still owns no other direct child while it queries the retired payload PID.
+
+The TERM-only slow caller now sends SIGKILL after observing the exit and before reap.
+Three exact-function exclusions record the reviewed reap and bitwise equivalence arguments with recheck conditions.
+No function-wide process-glue exclusion exists yet.
+The exit-watch decision now uses an injected wait operation. Production and the error test use the same loop.
+A default test supplies EINTR then ECHILD and checks retry plus the negative unknown-exit code.
+This tests the fallback-sign mutant instead of asserting that the error path is unreachable.
+The `3d13dda` Linux job remains pending. It does not prove this later correction.

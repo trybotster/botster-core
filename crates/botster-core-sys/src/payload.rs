@@ -206,11 +206,20 @@ impl Drop for Payload {
 
 /// Blocks until `pid` can be reaped, and returns its status without reaping it.
 fn wait_unreaped(pid: Pid) -> ExitStatus {
-    loop {
-        match waitid(
+    wait_unreaped_with(|| {
+        waitid(
             WaitId::Pid(pid),
             WaitIdOptions::EXITED | WaitIdOptions::NOWAIT,
-        ) {
+        )
+    })
+}
+
+/// The exit-watch decision uses an injected wait operation. The production operation leaves the leader unreaped.
+fn wait_unreaped_with(
+    mut wait: impl FnMut() -> rustix::io::Result<Option<rustix::process::WaitIdStatus>>,
+) -> ExitStatus {
+    loop {
+        match wait() {
             Ok(Some(status)) => {
                 if let Some(signal) = status.terminating_signal() {
                     return ExitStatus::Signal(signal);
@@ -249,5 +258,19 @@ mod tests {
             exec_failure(pty_process::Error::Rustix(rustix::io::Errno::ACCESS)),
             SpawnFailure::Exec { errno: 13 }
         );
+    }
+
+    /// EV-4: a failed exit watch has an unknown exit code; an interrupted wait retries the same operation.
+    #[test]
+    fn an_interrupted_watch_retries_and_a_failed_watch_reports_unknown_exit() {
+        let mut outcomes = std::collections::VecDeque::from([
+            Err(rustix::io::Errno::INTR),
+            Err(rustix::io::Errno::CHILD),
+        ]);
+        assert_eq!(
+            wait_unreaped_with(|| outcomes.pop_front().expect("the watch made an extra wait")),
+            ExitStatus::Code(-1)
+        );
+        assert!(outcomes.is_empty());
     }
 }
