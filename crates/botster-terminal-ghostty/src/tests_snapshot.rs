@@ -17,14 +17,89 @@ fn terminal() -> Terminal {
     .unwrap()
 }
 
+#[test]
+fn restored_cell_attributes_colors_and_cursor_appearance_match_the_source() {
+    let mut source = terminal();
+    for input in [
+        &b"\x1b[1;3;4;5;7;8;9;53;38;2;11;22;33;48;5;123;58;2;44;55;66mA"[..],
+        &b"\x1b[0;2;4:3;38;5;45;48;2;77;88;99mB\x1b[0m"[..],
+        "界".as_bytes(),
+        &b"\x1b[1\"qP\x1b[0\"q\x1b]4;2;rgb:12/34/56\x1b\\"[..],
+        &b"\x1b]10;rgb:34/56/78\x1b\\\x1b]11;rgb:45/67/89\x1b\\\x1b]12;rgb:56/78/9a\x1b\\"[..],
+        &b"\x1b[5 q"[..],
+        &b"\x1b[2 q"[..],
+        &b"\x1b[3 q\x1b[44m\x1b[K"[..],
+    ] {
+        source.vt_write(input);
+        let before = source.snapshot().unwrap();
+        let mut restored = Terminal::from_snapshot(&before, History::On, None).unwrap();
+        assert_eq!(source.colors().unwrap(), restored.colors().unwrap());
+        assert_eq!(
+            source.cursor_appearance().unwrap(),
+            restored.cursor_appearance().unwrap()
+        );
+        for row in 0..10 {
+            for col in 0..40 {
+                assert_eq!(
+                    source.cell_attributes(row, col, false).unwrap(),
+                    restored.cell_attributes(row, col, false).unwrap()
+                );
+            }
+        }
+        assert_eq!(source.snapshot().unwrap(), before);
+        assert_eq!(restored.snapshot().unwrap(), before);
+    }
+    for (row, col) in [(10, 0), (0, 40), (0, u32::MAX)] {
+        assert_eq!(
+            source.cell_attributes(row, col, false),
+            Err(Error::InvalidValue)
+        );
+    }
+}
+
+#[test]
+fn color_and_cursor_reads_change_independently() {
+    let mut source = terminal();
+    let cell = source.cell_attributes(0, 0, false).unwrap();
+    let colors = source.colors().unwrap();
+    let cursor = source.cursor_appearance().unwrap();
+    source.vt_write(b"\x1b]4;2;rgb:12/34/56\x1b\\");
+    assert_ne!(source.colors().unwrap(), colors);
+    assert_eq!(source.cursor_appearance().unwrap(), cursor);
+    assert_eq!(source.cell_attributes(0, 0, false).unwrap(), cell);
+    let colors = source.colors().unwrap();
+    source.vt_write(b"\x1b[5 q");
+    assert_ne!(source.cursor_appearance().unwrap(), cursor);
+    assert_eq!(source.colors().unwrap(), colors);
+    assert_eq!(source.cell_attributes(0, 0, false).unwrap(), cell);
+}
+
+#[test]
+fn history_cell_reads_match_the_restored_history() {
+    let mut source = terminal();
+    source
+        .vt_write(b"\x1b]8;;https://example.test/history\x1b\\\x1b[1mhistory\x1b]8;;\x1b\\\x1b[0m");
+    let uri = source.hyperlink_uri(0, 0).unwrap();
+    let attributes = source.cell_attributes(0, 0, false).unwrap();
+    for _ in 0..12 {
+        source.vt_write(b"\r\n");
+    }
+    let restored = Terminal::from_snapshot(&source.snapshot().unwrap(), History::On, None).unwrap();
+    assert_eq!(source.cell_hyperlink_uri(0, 0, true).unwrap(), uri);
+    assert_eq!(restored.cell_hyperlink_uri(0, 0, true).unwrap(), uri);
+    assert_eq!(source.cell_attributes(0, 0, true).unwrap(), attributes);
+    assert_eq!(restored.cell_attributes(0, 0, true).unwrap(), attributes);
+}
+
 /// A terminal that the library's decoder restored from a snapshot. It keeps the unfinished parser input, so that it
 /// takes the rest of the program's output as the original terminal would.
-struct Restored(sys::Terminal);
+struct Restored(sys::Terminal, Option<Terminal>);
 
 impl Restored {
     /// A restore with the session's image storage limit (zero): the restored model ignores image sequences too.
     fn from(bytes: &[u8]) -> Self {
-        Self::decode(bytes, Some(0))
+        let terminal = Terminal::from_snapshot(bytes, History::On, None).unwrap();
+        Self(terminal.handle.as_ptr(), Some(terminal))
     }
 
     /// A restore that leaves the image storage limit at the library default. It is the control of the image-resume test:
@@ -81,7 +156,7 @@ impl Restored {
             );
             sys::ghostty_snapshot_decoder_free(decoder);
         }
-        Self(restored)
+        Self(restored, None)
     }
 
     /// The Kitty image storage limit of the active screen of the restored terminal.
@@ -131,7 +206,9 @@ impl Restored {
 impl Drop for Restored {
     fn drop(&mut self) {
         // SAFETY: the handle is live and freed once.
-        unsafe { sys::ghostty_terminal_free(self.0) }
+        if self.1.is_none() {
+            unsafe { sys::ghostty_terminal_free(self.0) }
+        }
     }
 }
 
@@ -157,6 +234,96 @@ fn stores_image(terminal: sys::Terminal, id: u32) -> bool {
 /// Restore `bytes` with the library's decoder and encode the result again.
 fn restore_and_encode(bytes: &[u8]) -> Vec<u8> {
     Restored::from(bytes).snapshot()
+}
+
+#[test]
+fn the_public_decoder_keeps_state_and_registered_callbacks() {
+    let mut source = terminal();
+    source.vt_write(
+        b"\x1b[?1049h\x1b[?25l\x1b[?1h\x1b]2;title\x07\x1b]7;file:///tmp\x07\x1b[32mtext",
+    );
+    let snapshot = source.snapshot().unwrap();
+    let mut restored = Terminal::from_snapshot(&snapshot, History::On, None).unwrap();
+    assert_eq!(restored.snapshot().unwrap(), snapshot);
+    assert_eq!(
+        restored.screen_text(true).unwrap(),
+        source.screen_text(true).unwrap()
+    );
+    assert_eq!(restored.modes(), source.modes());
+    assert_eq!(restored.cursor(), source.cursor());
+    assert_eq!(restored.title(), source.title());
+    assert_eq!(restored.cwd(), source.cwd());
+    source.drain_events();
+    let suffix = b"\x1b]2;changed\x07\x1b]777;notify;t;b\x07\x07";
+    source.vt_write(suffix);
+    restored.vt_write(suffix);
+    assert_eq!(restored.drain_events(), source.drain_events());
+    assert_eq!(restored.snapshot().unwrap(), source.snapshot().unwrap());
+}
+
+#[test]
+fn the_public_decoder_returns_typed_errors() {
+    let mut bytes = terminal().snapshot().unwrap();
+    let version = u16::try_from(snapshot_format().version)
+        .unwrap()
+        .wrapping_add(1);
+    bytes[8..10].copy_from_slice(&version.to_le_bytes());
+    assert!(matches!(Terminal::from_snapshot(&bytes, History::On, None),
+        Err(SnapshotDecodeError::UnsupportedVersion { version: actual }) if actual == version));
+    for bytes in [Vec::new(), bytes[..8].to_vec(), vec![0; bytes.len()]] {
+        assert!(matches!(
+            Terminal::from_snapshot(&bytes, History::On, None),
+            Err(SnapshotDecodeError::Library(Error::InvalidValue))
+        ));
+    }
+}
+
+#[test]
+fn continuation_and_processing_status_come_from_the_library() {
+    let mut source = terminal();
+    assert!(
+        matches!(source.continuation().unwrap(), Continuation::Retained(bytes) if bytes.is_empty())
+    );
+    source.vt_write(b"\x1b]2;unfinished");
+    let pending = source.continuation().unwrap();
+    assert!(matches!(&pending, Continuation::Retained(bytes) if !bytes.is_empty()));
+    let snapshot = source.snapshot().unwrap();
+    let restored = Terminal::from_snapshot(&snapshot, History::On, None).unwrap();
+    assert_eq!(restored.continuation().unwrap(), pending);
+    assert!(!source.vt_processing_error().unwrap());
+    source.set_continuation_max_bytes(0).unwrap();
+    assert_eq!(source.continuation().unwrap(), Continuation::Unavailable);
+    source.vt_write(b"\x07");
+    source
+        .set_continuation_max_bytes(CONTINUATION_LIMIT)
+        .unwrap();
+    assert!(
+        matches!(source.continuation().unwrap(), Continuation::Retained(bytes) if bytes.is_empty())
+    );
+    source.set_continuation_max_bytes(8).unwrap();
+    source.vt_write(b"\x1b]2;more-than-eight");
+    assert_eq!(source.continuation().unwrap(), Continuation::Unavailable);
+    assert!(
+        !source.vt_processing_error().unwrap(),
+        "a configured limit is not a processing error"
+    );
+}
+
+#[test]
+fn hyperlink_reads_match_the_library_before_and_after_restore() {
+    let mut source = terminal();
+    source.vt_write(b"\x1b]8;;https://example.com\x1b\\link\x1b]8;;\x1b\\ plain");
+    let restored = Terminal::from_snapshot(&source.snapshot().unwrap(), History::On, None).unwrap();
+    let uri = source.hyperlink_uri(0, 0).unwrap();
+    assert!(!uri.is_empty());
+    for col in 0..4 {
+        assert_eq!(source.hyperlink_uri(0, col).unwrap(), uri);
+        assert_eq!(restored.hyperlink_uri(0, col).unwrap(), uri);
+    }
+    assert!(source.hyperlink_uri(0, 5).unwrap().is_empty());
+    for (row, col) in [(u32::MAX, 0), (0, u32::MAX), (0, u32::from(source.cols()))] {
+        assert_eq!(source.hyperlink_uri(row, col), Err(Error::InvalidValue));
+    }
 }
 
 #[test]
@@ -244,6 +411,67 @@ fn the_identity_comes_from_the_library_and_tic_compiles_it() {
 /// storage off, so neither leaves any state, before or after a restore.
 const IMAGES: &[u8] =
     b"top\x1b_Ga=T,f=24,s=1,v=1,i=1;AAAA\x1b\\mid\x1b_Ga=t,f=24,s=1,v=1,i=2,m=1;AAAA\x1b\\\x1b_Gm=0;\x1b\\end";
+
+#[test]
+fn public_graphics_reads_match_the_native_storage_with_and_without_images() {
+    let mut source = terminal();
+    let limit = 1024 * 1024u64;
+    // SAFETY: the option takes a uint64_t and the terminal handle is live.
+    unsafe {
+        check(sys::ghostty_terminal_set(
+            source.handle.as_ptr(),
+            sys::opt::KITTY_IMAGE_STORAGE_LIMIT,
+            (&limit as *const u64).cast(),
+        ))
+        .unwrap();
+    }
+    source.vt_write(IMAGES);
+    assert!(stores_image(source.handle.as_ptr(), 1));
+    let restored = Terminal::from_snapshot(&source.snapshot().unwrap(), History::On, None).unwrap();
+    for model in [&source, &restored] {
+        let mut native_limit = u64::MAX;
+        // SAFETY: the data key writes a uint64_t into this live output pointer.
+        unsafe {
+            check(sys::ghostty_terminal_get(
+                model.handle.as_ptr(),
+                sys::data::KITTY_IMAGE_STORAGE_LIMIT,
+                (&mut native_limit as *mut u64).cast(),
+            ))
+            .unwrap();
+        }
+        assert_eq!(model.image_storage_limit().unwrap(), native_limit);
+        for id in [0, 1, 2, 3, u32::MAX] {
+            assert_eq!(
+                model.has_image(id).unwrap(),
+                stores_image(model.handle.as_ptr(), id)
+            );
+        }
+    }
+    assert_ne!(
+        source.image_storage_limit().unwrap(),
+        restored.image_storage_limit().unwrap()
+    );
+}
+
+#[test]
+fn both_public_constructors_reject_image_storage_before_any_input() {
+    let fresh = terminal();
+    let restored = Terminal::from_snapshot(&fresh.snapshot().unwrap(), History::On, None).unwrap();
+    for mut model in [fresh, restored] {
+        assert_eq!(model.image_storage_limit().unwrap(), 0);
+        model.vt_write(IMAGES);
+        for id in [1, 2] {
+            assert!(!model.has_image(id).unwrap());
+            assert!(!stores_image(model.handle.as_ptr(), id));
+        }
+        model.vt_write(b"\x1b[?1049h");
+        assert_eq!(model.image_storage_limit().unwrap(), 0);
+        model.vt_write(IMAGES);
+        for id in [1, 2] {
+            assert!(!model.has_image(id).unwrap());
+        }
+    }
+}
 
 /// A small corpus that stops inside every kind of unfinished input (a CSI, an OSC, a DCS, a UTF-8 sequence, a string
 /// that ends with an ESC) and sets the saved state that a snapshot must carry: the saved cursor, tab stops, margins and
