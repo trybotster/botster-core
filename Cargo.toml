@@ -47,6 +47,7 @@ botster-core-link = { path = "crates/botster-core-link" }
 botster-core-sys = { path = "crates/botster-core-sys" }
 botster-core-testkit = { path = "crates/botster-core-testkit" }
 botster-worker-core = { path = "crates/botster-worker-core" }
+botster-terminal-ghostty = { path = "crates/botster-terminal-ghostty" }
 
 # The profile that `cargo bolero test` builds with: the landing fuzz step.
 [profile.fuzz]
