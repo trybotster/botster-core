@@ -3,11 +3,13 @@
 Scope: every Core clause that needs terminal semantics, checked against libghostty.
 Contract: botster-contracts tag `contracts-v0.1.1` (`366bca41da0a6de69cc1ea13b17c773cdfdb75b6`): manifest final14, Core erratum 2 ("E2") and steward ruling R-13.
 Plan pin: `stage1-plan.555bc433` (sha256 `555bc4337fe72e9fad833fe330d43e8147a39569cb14291734f34847f56596d7`), sections 0, 6.1, 6.3, 7.1, 8, 9 (Q1) and 10 (R1).
-Revision 9 of this audit. Revision 9 answers the binding review findings P24 to P34 with fork patches 9 to 13 and binding changes (section "Revision 9"); the status of each finding is in that section, and a finding is closed only when the reviewer and the required evidence say so. Core Amendment 13 (final, candidate 5: contracts `627d507`, manifest final30, `frozen/current/core-contract-v1.17-amendment-13-candidate5.md`) is the clipboard contract.
+Revision 10 of this audit. Revision 10 moves the Ghostty pin to the upstream sync of 2026-10-02 (section "Revision 10"); it changes no audit row, because the libghostty-vt sources are byte-identical between the old and the new fork head.
+Revision 9 answers the binding review findings P24 to P34 with fork patches 9 to 13 and binding changes (section "Revision 9"); the status of each finding is in that section, and a finding is closed only when the reviewer and the required evidence say so. Core Amendment 13 (final, candidate 5: contracts `627d507`, manifest final30, `frozen/current/core-contract-v1.17-amendment-13-candidate5.md`) is the clipboard contract.
 Revision 3 of this audit. Revision 2 closed findings F1 to F8. Revision 3 closes F9 to F12 of the reviewer verdict `3b2acb3`: the per-commit mapping of the nine removed commits (F9), the offline build prerequisite (F10), the UP clipboard-write callback (F11) and the snapshot rule at every cut (F12). R-13 closes the SGR-pixels question (old Q5).
 
 ## Method and revisions
 
+- **Ghostty pin (revision 10):** `trybotster/ghostty` branch `botster/upstream-sync-20261002` at `3f8eb6810bb673aa782b047de21783ac81fb1121`, on upstream `ghostty-org/ghostty` `main` `f523504ea5c9f41d150d1eb93cc7a748b90f9361`. The patch list with commit SHAs is in section "Revision 10". The rows below were written against PIN and UP and are unchanged at this pin.
 - **Pinned fork:** `trybotster/ghostty` at `eb72ec61304ea256be1d86ed8fa961c84e43ecbd` ("PIN").
 - **Upstream main:** `ghostty-org/ghostty` at `83edd491e3024ae5e50393d62877b8897da1cccd` ("UP"), fetched 2026-10-01. The lead approved UP as the base of the new fork branch.
 - Headers are under `include/ghostty/vt/`. Zig sources are under `src/`. All reads are `git show <sha>:<path>`, or reads in a checkout of UP.
@@ -278,11 +280,46 @@ Native patches 9 to 13 are on `trybotster/ghostty` branch `botster/vt-core-stage
 | P31 | The typed `Clipboard` reply is decoded with the `base64` crate (`STANDARD`). | `reply.rs` | closed by the reviewer |
 | P32 (G16) | The vendored wuffs C code calls `calloc`; a module that does not link libc makes Zig compile its own `malloc.zig` into the archive, which defines `calloc` and `free` (weak) and leaves `malloc` and `realloc` to the host. Patch 10 links libc on Linux (`nm` on an `x86_64-linux-gnu` build: before, `calloc` and `free` defined; after, none defined). Test: `nm` on the archive must list no libc allocator symbol. | patch 10, `tests_archive.rs` | source fix reviewed CLEAN; **pending the Linux gate** |
 | P33 | Unique gap identifiers (G13 to G18); the typed OSC 52 rule and the untyped read rule are stated below. | this file | corrected, pending review |
-| IN-9 keypad (G18) | The key encoder had no entry for the keypad equals key, so it encoded to nothing in both keypad modes (xterm sends SS3 X in application keypad mode). Patch 12 adds it. The binding's result for a key that still gives no bytes stays `NotReported`, or `Unsupported` where a ruling names the case. | patch 12 | corrected, pending review |
+| IN-9 keypad (G18) | The key encoder had no entry for the keypad equals key, so it encoded to nothing in both keypad modes (xterm sends SS3 X in application keypad mode). Patch 12 adds it. The binding's result for a key that still gives no bytes stays `NotReported`, or `Unsupported` where a ruling names the case. Patch 12's Zig test keeps its literal expected bytes under lead ruling P35 (see "Revision 10"). | patch 12 | corrected, pending review |
 
 **Clipboard reads.** Only the typed `ClipboardRead{selection}` label is OSC 52 only (selection `s0` when empty). Every other native clipboard read (OSC 5522, and any other protocol that the model reports) reaches the client as an untyped query with no shadow answer (frozen A13): the binding's query kind for them is `KittyClipboardRead` and its label is `None`.
 
 The binding also exposes, from the lead's rulings: `set_color_profile`, `shadow_answerable_kinds`, `snapshot_format`, and a plain `vt_write` that counts the queries it meets in `Drained::unrouted_queries` and buffers none (PTY output goes only through `vt_write_until_query`, EV-8(d)).
+
+## Revision 10: upstream sync and pin move
+
+- **Sync record:** botster-contracts `docs/ghostty/upstream-sync-20261002.md` (`main` `8ee672a8442758da31665434ebd55059eaa9a876`), with its `docs/ghostty/evidence-20261002/`. The sync obeys the BUILD.md "Ghostty fork policy".
+- **Old pin:** branch `botster/vt-core-stage1-c` at `ada251c5e99cdb753de8bf72d5d1f307d474518f`, on upstream `83edd491e3024ae5e50393d62877b8897da1cccd`.
+- **New pin:** branch `botster/upstream-sync-20261002` at `3f8eb6810bb673aa782b047de21783ac81fb1121`, on upstream `main` `f523504ea5c9f41d150d1eb93cc7a748b90f9361`.
+- **What changed:** `git range-diff` shows all 22 commits as identical patches. `git diff ada251c5e 3f8eb6810` lists only `macos/Sources/Features/Terminal/TerminalController.swift`, which libghostty-vt does not build. The libghostty-vt sources, `build.zig.zon` and the terminfo are byte-identical, so no audit row changes.
+- **Patch 12 test (lead ruling P35):** KEEP the literal expected bytes. BUILD.md rule 2 binds tests in Botster repositories, where libghostty is the oracle. Inside the fork, libghostty's own Zig tests define the oracle's behavior, and the upstream neighbor tests use literal bytes too. A test that derives the expected value from the `kpKeys` table checks the table against itself, so it cannot catch the missing table entry that patch 12 fixes.
+
+| # | Commit at the new pin | Commit at the old pin | Subject | Decision |
+|---|---|---|---|---|
+| 0 | `ee1875dd3` | `ea5a1e297` | own startHyperlink uri and id across capacity retries | KEEP |
+| 1 | `bcdcad95b` | `6495721bb` | report every query with its exact bytes and stop after it | KEEP |
+| 1 | `79ae024c3` | `38599d320` | track query request boundaries; add CSI 14;2 t and 13;2 t | KEEP |
+| 1 | `303013782` | `b60d00542` | apply R-17 to every executed C0 control; restart at a C1 CSI introducer | KEEP |
+| 1 | `99ceb84cc` | `56b54e923` | test that a C1 byte inside a string sequence is payload | KEEP |
+| 1 | `50d8494c5` | `72902b1b7` | a C1 introducer ends an APC string in the query request tracking | KEEP |
+| 2 | `d9531aca1` | `7afa387dd` | report the notification source (OSC 9 or OSC 777) | KEEP |
+| 3 | `51c80ac71` | `970a1c9df` | paste marker frame without payload rewrite | KEEP |
+| 4 | `fddc30c7c` | `50569efc8` | key events carry hyper, meta, shifted and base layout keys and F26 to F35 | KEEP |
+| 4 | `1bef3ee4a` | `22035f7c2` | legacy Shift with no text; key tests use the structured sequence encoder | KEEP |
+| 4 | `ec9a95861` | `3f28780d2` | the legacy Alt test compares with the real base-character result | KEEP |
+| 5 | `9f476b148` | `da42a8ac0` | export the xterm-ghostty terminfo name and source | KEEP |
+| 6 | `f8aa86979` | `b59b1f47b` | mouse cells as given, and getters for the active mouse enums | KEEP |
+| 7 | `72d54d39e` | `05540bd69` | encode the typed replies to terminal queries | KEEP |
+| 7 | `49e68f944` | `96b4f3f4f` | query reply encoders check their enums, use unsigned positions and parse in tests | KEEP |
+| 8 | `41024b252` | `d27593e55` | report the OSC 52 selection and terminator on clipboard requests | KEEP |
+| 8 | `cfcd2c21c` | `85a8d8eb1` | the OSC 52 parser reads the whole selection | KEEP |
+| 9 | `eafd0967b` | `468268e5c` | terminal data getters for modifyOtherKeys state 2 and XTSHIFTESCAPE | KEEP |
+| 10 | `f0d70e3f1` | `92d13482a` | link libc on Linux so the static archive defines no allocator symbol | KEEP |
+| 11 | `1eb68104a` | `170d6faf8` | the OSC 5522 write acknowledgement is written with the host's reply | KEEP |
+| 12 | `d5bebc7e2` | `f71c7651f` | the keypad equals key has an application keypad sequence | KEEP (ruling P35) |
+| 13 | `3f8eb6810` | `ada251c5e` | the snapshot decoder takes the host's Kitty image storage limit | KEEP |
+
+The commits on the branch are in this order from the base: patches 2 and 3, then 0, 1, 4 to 13. Drop: none; no upstream change covers a patch.
 
 ## Rulings used
 
