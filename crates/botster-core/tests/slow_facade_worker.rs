@@ -227,6 +227,10 @@ fn the_facade_reaches_a_host_with_a_worker_on_a_real_link() {
     pump_until(&mut core, |_| true);
     // Opening the FIFO waits for the worker's `tee`; the read ends when `tee` closes it.
     let text = std::fs::read_to_string(&launch).unwrap();
+    assert!(
+        worker.pid().is_some(),
+        "the registered worker recorded its PID"
+    );
     let mut words = text.split_whitespace();
     let token = words.next().expect("the token");
     let args: Vec<&str> = words.collect();
