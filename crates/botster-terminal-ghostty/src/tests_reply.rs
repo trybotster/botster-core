@@ -263,3 +263,37 @@ fn base64_decoding_follows_the_rfc_4648_vectors_and_rejects_the_rest() {
         assert_eq!(base64_decode(bad), Err(ReplyError::Invalid), "{bad}");
     }
 }
+
+// ---- review finding P39 ----
+
+#[test]
+fn a_reply_of_exactly_the_reply_limit_is_written_and_a_longer_one_is_refused() {
+    use base64::Engine;
+    let encode = |n: usize| base64::engine::general_purpose::STANDARD.encode(vec![b'x'; n]);
+    // The length of a clipboard reply is its frame plus four bytes for every three bytes of data. The library gives
+    // the frame: the reply to three bytes, less four. The request whose frame leaves a multiple of four is used.
+    for request in [
+        &b"\x1b]52;c;?\x07"[..],
+        b"\x1b]52;c;?\x1b\\",
+        b"\x1b]52;cp;?\x07",
+        b"\x1b]52;cp;?\x1b\\",
+    ] {
+        let q = query(request);
+        let selection = q.selection.clone().unwrap();
+        let reply = |n: usize| {
+            q.reply_bytes(&QueryReply::Clipboard {
+                selection: selection.clone(),
+                data_base64: encode(n),
+            })
+        };
+        let frame = reply(3).unwrap().len() - 4;
+        if !(MAX_REPLY_BYTES - frame).is_multiple_of(4) {
+            continue;
+        }
+        let data = (MAX_REPLY_BYTES - frame) / 4 * 3;
+        assert_eq!(reply(data).unwrap().len(), MAX_REPLY_BYTES);
+        assert_eq!(reply(data + 1), Err(ReplyError::Invalid));
+        return;
+    }
+    panic!("no request gave a frame that fits the limit exactly");
+}

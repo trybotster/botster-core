@@ -395,3 +395,30 @@ fn a_restored_terminal_stores_no_image_at_any_byte_offset_where_a_default_restor
         );
     }
 }
+
+// ---- review finding P39 ----
+
+#[test]
+fn the_identity_is_the_first_name_of_a_whole_terminfo_entry() {
+    let identity = terminal_identity();
+    // The entry starts with its names, separated by `|`; `term` is the first one.
+    let names = identity
+        .terminfo_source
+        .lines()
+        .find(|line| !line.starts_with('#') && !line.trim().is_empty())
+        .unwrap();
+    assert_eq!(names.split('|').next().unwrap(), identity.term);
+    // The entry lists capabilities, one per line after the names.
+    assert!(identity.terminfo_source.lines().count() > 20);
+}
+
+#[test]
+fn an_unfinished_sequence_of_half_the_continuation_limit_is_in_the_snapshot() {
+    // `CONTINUATION_LIMIT` is 1 MiB (A8-2): half a mebibyte of an unfinished DCS still has a snapshot that restores.
+    let mut terminal = terminal();
+    let mut input = b"\x1bP".to_vec();
+    input.resize(512 * 1024, b'a');
+    terminal.vt_write(&input);
+    let snapshot = terminal.snapshot().unwrap();
+    assert_eq!(restore_and_encode(&snapshot), snapshot);
+}

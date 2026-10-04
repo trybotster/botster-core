@@ -759,3 +759,275 @@ fn a_modifier_key_alone_is_a_named_key_refusal_unless_kitty_flag_8_is_on() {
         Err(EncodeError::Unsupported(UnsupportedWhat::NamedKey))
     );
 }
+
+// ---- review finding P39: every decision of the encoders is checked ----
+
+#[test]
+fn a_modifier_listed_twice_is_one_modifier() {
+    // Core may list a modifier twice; it is still pressed, not cancelled (IN-9).
+    let kitty = terminal_with(b"\x1b[>1u");
+    assert_eq!(
+        kitty.encode_key(&character('a', &[Modifier::Ctrl, Modifier::Ctrl])),
+        kitty.encode_key(&character('a', &[Modifier::Ctrl]))
+    );
+}
+
+#[test]
+fn the_text_of_a_key_consumes_shift_and_no_other_modifier() {
+    let with_text = |mods: &[Modifier], text: &str| {
+        let mut input = character('a', mods);
+        input.text = Some(text.to_owned());
+        input
+    };
+    // Kitty disambiguation: Ctrl with the text of the key is still a Ctrl key, not the plain text.
+    let flag_one = terminal_with(b"\x1b[>1u");
+    assert_ne!(
+        flag_one.encode_key(&with_text(&[Modifier::Ctrl], "a")),
+        flag_one.encode_key(&with_text(&[], "a"))
+    );
+    // With event types (flags 1 and 2), Shift that produced the text is consumed: the key is its text, as if no
+    // modifier were pressed.
+    let flags_three = terminal_with(b"\x1b[>3u");
+    assert_eq!(
+        flags_three.encode_key(&with_text(&[Modifier::Shift], "A")),
+        flags_three.encode_key(&with_text(&[], "A"))
+    );
+}
+
+#[test]
+fn a_legacy_release_of_a_character_with_no_text_is_not_reported() {
+    // R-28: a legacy release is not reported, also for a character key with no text, with or without Shift. Only a
+    // press or a repeat with Shift and no text is the "produced text" refusal (5.1A legacy rule iii).
+    let legacy = terminal();
+    for mods in [&[][..], &[Modifier::Shift]] {
+        let mut release = character('a', mods);
+        release.event = KeyEvent::Release;
+        assert_eq!(
+            legacy.encode_key(&release),
+            Err(EncodeError::NotReported),
+            "{mods:?}"
+        );
+    }
+    // A press of a character key with no text and no modifier gives no bytes and is not reported either.
+    assert_eq!(
+        legacy.encode_key(&character('a', &[])),
+        Err(EncodeError::NotReported)
+    );
+}
+
+#[test]
+fn sgr_pixels_needs_both_pixel_coordinates() {
+    let modes = mouse_modes(MouseTracking::Normal, MouseEncoding::SgrPixels);
+    for (x, y) in [(Some(5), None), (None, Some(5))] {
+        let mut input = mouse(MouseAction::Press, MouseButton::Left, 0, 0);
+        input.x = x;
+        input.y = y;
+        assert_eq!(
+            encode_mouse_with_modes(&modes, &size(80, 24), &input),
+            Err(EncodeError::Unsupported(UnsupportedWhat::PixelPosition)),
+            "{x:?} {y:?}"
+        );
+    }
+}
+
+#[test]
+fn with_a_cell_size_a_pixel_outside_the_screen_follows_the_library_viewport_rule() {
+    // The screen is 80 x 24 cells of 10 x 20 pixels. The library reports an event outside it only for a release, or
+    // for motion while a button is pressed (in a motion tracking mode).
+    let screen = Size {
+        rows: 24,
+        cols: 80,
+        cell_px: Some(CellPx {
+            width: 10,
+            height: 20,
+        }),
+    };
+    let at = |modes: &ModeFlags, action, button, x| {
+        let mut input = mouse(action, button, 0, 0);
+        input.x = Some(x);
+        input.y = Some(5);
+        encode_mouse_with_modes(modes, &screen, &input)
+    };
+    let normal = mouse_modes(MouseTracking::Normal, MouseEncoding::SgrPixels);
+    assert!(!at(&normal, MouseAction::Press, MouseButton::Left, 5)
+        .unwrap()
+        .is_empty());
+    assert_eq!(
+        at(&normal, MouseAction::Press, MouseButton::Left, 5_000),
+        Err(EncodeError::NotReported)
+    );
+    assert!(!at(&normal, MouseAction::Release, MouseButton::Left, 5_000)
+        .unwrap()
+        .is_empty());
+
+    let any = mouse_modes(MouseTracking::AnyEvent, MouseEncoding::SgrPixels);
+    assert!(!at(&any, MouseAction::Move, MouseButton::Left, 5_000)
+        .unwrap()
+        .is_empty());
+    assert_eq!(
+        at(&any, MouseAction::Move, MouseButton::None, 5_000),
+        Err(EncodeError::NotReported)
+    );
+}
+
+/// The library's mouse encoder, called directly with the given modifier bits: the oracle for the modifiers that the
+/// binding passes. The other options are the ones that the binding sets for SGR with normal tracking.
+fn raw_sgr_press(mods: u16, col: u32, row: u32) -> Vec<u8> {
+    let size = sys::MouseEncoderSize {
+        size: std::mem::size_of::<sys::MouseEncoderSize>(),
+        screen_width: 80,
+        screen_height: 24,
+        cell_width: 1,
+        cell_height: 1,
+        padding_top: 0,
+        padding_bottom: 0,
+        padding_right: 0,
+        padding_left: 0,
+    };
+    let (event_mode, format, pressed) = (sys::mouse_event::NORMAL, sys::mouse_format::SGR, true);
+    let mut buf = vec![0u8; 64];
+    let mut written = 0usize;
+    // SAFETY: valid out pointers; each option takes the type that is passed; both handles are freed here.
+    unsafe {
+        let mut encoder: sys::MouseEncoder = std::ptr::null_mut();
+        assert_eq!(
+            sys::ghostty_mouse_encoder_new(std::ptr::null(), &mut encoder),
+            sys::SUCCESS
+        );
+        sys::ghostty_mouse_encoder_setopt(
+            encoder,
+            sys::mouse_opt::EVENT,
+            (&event_mode as *const i32).cast(),
+        );
+        sys::ghostty_mouse_encoder_setopt(
+            encoder,
+            sys::mouse_opt::FORMAT,
+            (&format as *const i32).cast(),
+        );
+        sys::ghostty_mouse_encoder_setopt(
+            encoder,
+            sys::mouse_opt::SIZE,
+            (&size as *const sys::MouseEncoderSize).cast(),
+        );
+        sys::ghostty_mouse_encoder_setopt(
+            encoder,
+            sys::mouse_opt::ANY_BUTTON_PRESSED,
+            (&pressed as *const bool).cast(),
+        );
+        let mut event: sys::MouseEvent = std::ptr::null_mut();
+        assert_eq!(
+            sys::ghostty_mouse_event_new(std::ptr::null(), &mut event),
+            sys::SUCCESS
+        );
+        sys::ghostty_mouse_event_set_action(event, sys::mouse_action::PRESS);
+        sys::ghostty_mouse_event_set_button(event, sys::mouse_button::LEFT);
+        sys::ghostty_mouse_event_set_mods(event, mods);
+        sys::ghostty_mouse_event_set_cell(event, sys::MouseCell { col, row });
+        assert_eq!(
+            sys::ghostty_mouse_encoder_encode(
+                encoder,
+                event,
+                buf.as_mut_ptr(),
+                buf.len(),
+                &mut written
+            ),
+            sys::SUCCESS
+        );
+        sys::ghostty_mouse_event_free(event);
+        sys::ghostty_mouse_encoder_free(encoder);
+    }
+    buf.truncate(written);
+    buf
+}
+
+#[test]
+fn a_mouse_report_carries_shift_alt_and_ctrl_and_no_other_modifier() {
+    let modes = mouse_modes(MouseTracking::Normal, MouseEncoding::Sgr);
+    let press = |mods: &[Modifier]| {
+        let mut input = mouse(MouseAction::Press, MouseButton::Left, 3, 4);
+        input.mods = mods.to_vec();
+        encode_mouse_with_modes(&modes, &size(80, 24), &input).unwrap()
+    };
+    use sys::mods::{ALT, CTRL, SHIFT};
+    assert_eq!(press(&[]), raw_sgr_press(0, 3, 4));
+    assert_eq!(press(&[Modifier::Shift]), raw_sgr_press(SHIFT, 3, 4));
+    assert_eq!(press(&[Modifier::Alt]), raw_sgr_press(ALT, 3, 4));
+    assert_eq!(press(&[Modifier::Ctrl]), raw_sgr_press(CTRL, 3, 4));
+    assert_eq!(
+        press(&[Modifier::Shift, Modifier::Alt, Modifier::Ctrl]),
+        raw_sgr_press(SHIFT | ALT | CTRL, 3, 4)
+    );
+    for other in [
+        Modifier::Super,
+        Modifier::Meta,
+        Modifier::Hyper,
+        Modifier::CapsLock,
+        Modifier::NumLock,
+    ] {
+        assert_eq!(press(&[other]), raw_sgr_press(0, 3, 4), "{other:?}");
+    }
+}
+
+#[test]
+fn an_unreported_event_at_an_expressible_cell_is_not_a_coordinate_refusal() {
+    // Motion under normal tracking is not reported. At the last cell that a format expresses (X10: 222, UTF-8: 2014),
+    // and well inside it, that is `NotReported`; one cell past it, the zero result is a coordinate refusal.
+    let x10 = mouse_modes(MouseTracking::Normal, MouseEncoding::X10);
+    let utf8 = mouse_modes(MouseTracking::Normal, MouseEncoding::Utf8);
+    let motion = |modes: &ModeFlags, col, row| {
+        encode_mouse_with_modes(
+            modes,
+            &size(80, 24),
+            &mouse(MouseAction::Move, MouseButton::None, col, row),
+        )
+    };
+    for (modes, edge) in [(&x10, 222), (&utf8, 2014)] {
+        for (col, row) in [(edge, 0), (0, edge), (5, 5)] {
+            assert_eq!(
+                motion(modes, col, row),
+                Err(EncodeError::NotReported),
+                "{edge}: {col}, {row}"
+            );
+        }
+        for (col, row) in [(edge + 1, 0), (0, edge + 1)] {
+            assert_eq!(
+                motion(modes, col, row),
+                Err(EncodeError::Unsupported(UnsupportedWhat::Coordinate)),
+                "{edge}: {col}, {row}"
+            );
+        }
+    }
+    // With tracking off nothing is reported, whatever the cell.
+    let off = mouse_modes(MouseTracking::None, MouseEncoding::X10);
+    assert_eq!(
+        encode_mouse_with_modes(
+            &off,
+            &size(80, 24),
+            &mouse(MouseAction::Press, MouseButton::Left, 300, 0)
+        ),
+        Err(EncodeError::NotReported)
+    );
+}
+
+#[test]
+fn the_explicit_modes_give_the_focus_and_paste_bytes_of_the_terminal() {
+    for setup in [&b""[..], b"\x1b[?1004h\x1b[?2004h"] {
+        let terminal = terminal_with(setup);
+        let modes = terminal.modes();
+        for focused in [true, false] {
+            assert_eq!(
+                encode_focus_with_modes(&modes, focused),
+                terminal.encode_focus(focused),
+                "{setup:?}"
+            );
+        }
+        assert_eq!(
+            paste_frame_with_modes(&modes),
+            terminal.paste_frame(),
+            "{setup:?}"
+        );
+    }
+    // The terminal with both modes on gives bytes, so the comparison above is not between two `None`.
+    let on = terminal_with(b"\x1b[?1004h\x1b[?2004h");
+    assert!(on.encode_focus(true).is_some() && on.paste_frame().is_some());
+}

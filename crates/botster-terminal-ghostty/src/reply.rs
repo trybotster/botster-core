@@ -47,10 +47,9 @@ fn blank(kind: i32) -> sys::QueryReply {
 /// Run one of the library's size-then-fill encoders.
 fn fill(call: impl Fn(*mut u8, usize, *mut usize) -> sys::Result) -> Result<Vec<u8>, ReplyError> {
     let mut written = 0usize;
-    match call(std::ptr::null_mut(), 0, &mut written) {
-        sys::SUCCESS => return Ok(Vec::new()),
-        sys::OUT_OF_SPACE => {}
-        _ => return Err(ReplyError::Invalid),
+    // Every reply writes at least its introducer, so a valid reply makes the empty probe say OUT_OF_SPACE.
+    if call(std::ptr::null_mut(), 0, &mut written) != sys::OUT_OF_SPACE {
+        return Err(ReplyError::Invalid);
     }
     if written > MAX_REPLY_BYTES {
         return Err(ReplyError::Invalid);

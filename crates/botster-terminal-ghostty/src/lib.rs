@@ -37,8 +37,9 @@ pub use snapshot::{
 /// The default bytes of undrained clipboard acknowledgements that `vt_write_until_query` accepts.
 pub const DEFAULT_ACK_BACKLOG_BYTES: usize = 1024 * 1024;
 
-/// The default limit of one clipboard write, in bytes of all representations (`CoreLimits.clipboard_bytes`).
-pub const DEFAULT_CLIPBOARD_BYTES: usize = MAX_BUFFERED_BYTES;
+/// The default limit of one clipboard write, in bytes of all representations (`CoreLimits.clipboard_bytes`, default
+/// 1 MiB).
+pub const DEFAULT_CLIPBOARD_BYTES: usize = 1024 * 1024;
 
 /// The default limit, in bytes, of the request that a query reports (`CoreLimits.max_query_bytes`, EV-8).
 pub const DEFAULT_QUERY_REQUEST_BYTES: usize = 4096;
@@ -499,7 +500,8 @@ impl Terminal {
     /// the second cell of a wide character. `None` when the row is outside the screen. The caller applies the trim
     /// rules of ST-3 to this raw text.
     pub fn row_cells(&self, row: u32) -> Option<Vec<String>> {
-        let row = u16::try_from(row).ok().filter(|row| *row < self.rows())?;
+        // A row past the screen has no cell: the library refuses its grid reference.
+        let row = u16::try_from(row).ok()?;
         (0..self.cols())
             .map(|x| reads::cell_text(self.handle.as_ptr(), x, row))
             .collect()
@@ -571,16 +573,11 @@ impl Terminal {
     }
 }
 
-/// The dimensions of a size as the library takes them.
+/// The dimensions of a size as the library takes them. A dimension above 65535 does not fit the library's type; the
+/// library itself refuses zero (`InvalidValue`) in `new` and in `resize`.
 fn cell_dimensions(size: &Size) -> Result<(u16, u16), Error> {
-    let cols = u16::try_from(size.cols)
-        .ok()
-        .filter(|cols| *cols > 0)
-        .ok_or(Error::InvalidValue)?;
-    let rows = u16::try_from(size.rows)
-        .ok()
-        .filter(|rows| *rows > 0)
-        .ok_or(Error::InvalidValue)?;
+    let cols = u16::try_from(size.cols).map_err(|_| Error::InvalidValue)?;
+    let rows = u16::try_from(size.rows).map_err(|_| Error::InvalidValue)?;
     Ok((cols, rows))
 }
 

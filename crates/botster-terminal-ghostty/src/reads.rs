@@ -84,7 +84,8 @@ pub(crate) fn cell_text(terminal: sys::Terminal, x: u16, row: u16) -> Option<Str
     // SAFETY: a null buffer with length 0 asks for the length.
     let code =
         unsafe { sys::ghostty_grid_ref_graphemes(&reference, std::ptr::null_mut(), 0, &mut len) };
-    if code != sys::SUCCESS && code != sys::OUT_OF_SPACE {
+    // The cell has text, so the length is at least one and the probe says OUT_OF_SPACE.
+    if code != sys::OUT_OF_SPACE {
         return None;
     }
     let mut codepoints = vec![0u32; len];

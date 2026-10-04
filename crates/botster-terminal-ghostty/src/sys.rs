@@ -74,6 +74,7 @@ pub mod data {
     pub const MOUSE_SHIFT_CAPTURE: i32 = 46;
     pub const KITTY_IMAGE_STORAGE_LIMIT: i32 = 26;
     pub const KITTY_GRAPHICS: i32 = 30;
+    pub const SCROLLBACK_MAX_BYTES: i32 = 34;
     pub const MOUSE_FORMAT: i32 = 44;
 }
 
@@ -377,7 +378,7 @@ pub type Formatter = *mut c_void;
 
 /// `GhosttyMods` bits.
 pub mod mods {
-    pub const SHIFT: u16 = 1 << 0;
+    pub const SHIFT: u16 = 1;
     pub const CTRL: u16 = 1 << 1;
     pub const ALT: u16 = 1 << 2;
     pub const SUPER: u16 = 1 << 3;
