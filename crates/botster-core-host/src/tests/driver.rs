@@ -72,6 +72,9 @@ struct Mock {
     exits: Vec<(ProcessIdentity, ExitStatus)>,
     /// Bytes that arrive on a link when the pump settles the wake: the readiness that the poll reports late.
     late: Vec<(LinkId, Vec<u8>)>,
+    /// Exits that the process edge reports when the pump settles the wake: a reaper that queued an exit after the pump took
+    /// the exits, and whose wake the settle consumed.
+    late_exits: Vec<(ProcessIdentity, ExitStatus)>,
     /// The scheduler's choices in the current pump: a pump that never ends fails the test at once (as `World::pump`).
     choices: u32,
 }
@@ -247,6 +250,8 @@ impl HostEdges for Edges {
                 l.to_host.extend_from_slice(&bytes);
             }
         }
+        let late_exits = std::mem::take(&mut mock.late_exits);
+        mock.exits.extend(late_exits);
     }
 
     fn scheduler(&mut self) -> &mut dyn Scheduler {
@@ -286,6 +291,7 @@ impl Rig {
             send_cap: None,
             exits: Vec::new(),
             late: Vec::new(),
+            late_exits: Vec::new(),
             choices: 0,
         }));
         #[allow(clippy::disallowed_methods)] // a test starts the injected clock at a real instant
