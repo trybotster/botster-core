@@ -1,8 +1,8 @@
 # P3 worker review
 
-Current restack verdict: NOT CLEAN (F13 open; F14, F15, F16, and F17 closed).
+Current restack verdict: NOT CLEAN (F13, F18, and F19 open; F14, F15, F16, and F17 closed).
 Reviewed head: `ebed1022a1f3804712342f8288902f42ef1db159`, branch `stage1/p3-m1-v1`.
-Round 37 closes two payload mutant entries. F13 retains 66 entries; current-head payload evidence remains pending.
+Round 38 records a failed Mac baseline and opens F18/F19. F13 retains 66 entries.
 The CLEAN below applies only to the old M2a head that it names.
 
 VERDICT: CLEAN
@@ -1306,3 +1306,57 @@ Current-head payload evidence remains pending. No full green gate is established
 All earlier findings and closures remain preserved. The reviewer ran no tests or gate.
 
 VERDICT: NOT CLEAN (F13: 66 entries open) on `ebed1022a1f3804712342f8288902f42ef1db159`.
+
+
+## Round 38 — Mac baseline failure before mutation
+
+Reviewed and evidence head: `ebed1022a1f3804712342f8288902f42ef1db159`.
+The reviewer read the exact-head Mac log and actual baseline.log in the gate worktree.
+Log: `~/botster-sessions/gates/botster-core-stage1-p3-m1-v1-ebed1022-mac-20261004-150213-23937.log`.
+Baseline: `~/botster-sessions/gate-trees/botster-core-trybotster_botster_core_stage1_p3_m1_v1-bcb322fa/target/mutants.out/log/baseline.log`.
+The job exits 124 after 2701 seconds at its 45-minute deadline. No mutant runs.
+The baseline reports 59 passing tests and one test terminated after 2686.817 seconds.
+The failing test is the_pty_counts_output_and_delivers_input_to_the_program.
+Its stderr reports the pending_output > 1 assertion failure at slow_payload.rs:229.
+The test then remains alive until the job sends SIGTERM.
+The observer test passes in this baseline, but a failed baseline supplies no mutation closure.
+
+### F18 — MEDIUM — The pending-output test fails on Mac
+
+Status: OPEN at this head.
+Evidence: slow_payload.rs, the_pty_counts_output_and_delivers_input_to_the_program, and the exact-head Mac baseline.
+
+The test polls the PTY, checks only that poll returns a positive count, and requires pending_output > 1 immediately.
+A positive poll count does not prove that the program has completed its setup and queued the expected output.
+The Mac baseline reaches the assertion and fails it.
+The evidence does not yet distinguish a test readiness error from an incorrect production pending-output query.
+Production uses pending_output as the bound for its drain after exit, so the distinction matters to EV-4.
+
+Required change: Establish the failure's cause and correct the readiness proof or production query as needed.
+Prove that the query counts queued program output on Mac with a bounded readiness sequence.
+Check the relevant readiness event. Keep the input-delivery and output-retention assertions.
+Do not weaken the assertion to hide an incorrect production drain bound.
+Authority: EV-4, A2-1, BUILD.md's deterministic test rule, and the real-process review scope.
+
+### F19 — HIGH — Panic cleanup blocks while the payload waits for input
+
+Status: OPEN at this head.
+Evidence: the same Mac baseline and GuardedPayload/ PayloadGuard cleanup.
+
+The input test panics before it writes the input line.
+The payload program can still wait in read at that point.
+GuardedPayload::drop must end its group before production can block in its reaper.
+Instead, the test remains alive for 2686.817 seconds until the external deadline sends SIGTERM.
+The log does not identify the blocking cleanup operation or prove the anchor's group membership on Mac.
+A passing observer test does not prove this payload-panic path.
+
+Required change: Make cleanup end the owned payload group on this panic path on Mac.
+Prove independent anchor membership and finite cleanup while the payload waits for input.
+Keep the guard independent of mutated payload functions. The guard must not reap the production payload.
+Retain parent-death cleanup and prevent signals to a group whose ownership has ended.
+Authority: the user's real-process ownership rules and BUILD.md's cleanup-on-failure requirement.
+
+F13 retains 66 original entries. F18 and F19 remain OPEN.
+All earlier findings and closures remain preserved. The reviewer ran no tests or gate.
+
+VERDICT: NOT CLEAN (F13: 66 entries; F18 and F19 open) on `ebed1022a1f3804712342f8288902f42ef1db159`.
