@@ -1,8 +1,8 @@
 # P3 worker review
 
-Current restack verdict: NOT CLEAN (F13 open; F14 closed).
-Reviewed head: `4960d73873d8301575e312f8fbc596059300c813`, branch `stage1/p3-m1-v1`.
-Round 32 accepts both tuning exclusions with evidence. F13 retains 91 open real-process entries.
+Current restack verdict: NOT CLEAN (F13, F15, and F16 open; F14 closed).
+Reviewed head: `5172a53553636dc94d9c86c98b0969499b1955dd`, branch `stage1/p3-m1-v1`.
+Round 33 reviews payload coverage and records two test failure paths. F13 retains 91 entries.
 The CLEAN below applies only to the old M2a head that it names.
 
 VERDICT: CLEAN
@@ -1114,3 +1114,49 @@ F14 remains CLOSED. No new source delta accompanies this evidence.
 The reviewer ran no tests or gate. This focused result does not establish a full green gate.
 
 VERDICT: NOT CLEAN (F13 open; 91 mutant entries remain) on `4960d73873d8301575e312f8fbc596059300c813`.
+
+## Round 33 — Proposed real payload coverage
+
+Reviewed head: `5172a53553636dc94d9c86c98b0969499b1955dd`.
+The complete delta from `4960d73` adds error mapping tests, extends real PTY tests, adds Drop/reap proof, and updates the handoff.
+The independent payload guard remains. The delta adds no real-process exclusion or production behavior branch.
+The new tests cover nonblocking flags, payload identity, pending output, and input delivery.
+The source additions also expose two test failure paths below.
+Focused slow-tier mutation evidence is pending. No F13 entry closes in this round.
+
+### F15 — MEDIUM — The readiness reader still loops on EOF
+
+Status: OPEN at this head.
+Evidence: `crates/botster-core-sys/tests/slow_payload.rs`, the changed read loop in `a_group_signal_ends_the_leader_and_its_group`.
+
+The loop waits until its collected bytes contain `up`.
+Its `Ok(n)` arm accepts `n == 0`, appends no bytes, and repeats the loop.
+A payload that exits before the readiness text, or a mutant that returns EOF, makes the loop repeat without a readiness wait.
+The new retained-byte bound does not detect that path because the byte count stays unchanged.
+The test cannot fail or drop its independent guard through this loop.
+
+Required change: Fail on EOF before the expected readiness text. Keep the independent guard active through that failure.
+The test must reach a finite failure when no further byte can arrive.
+Authority: BUILD.md testing rules 5 and 10, and the restack brief's cleanup-on-panic requirement.
+
+### F16 — LOW — The reap assertion can wait on a reused child PID
+
+Status: OPEN at this head.
+Evidence: `crates/botster-core-sys/tests/slow_payload.rs`, `dropping_the_payload_reaps_its_leader`.
+
+The test caches the leader PID, drops the production owner, and calls blocking `waitid(EXITED | NOWAIT)` on that PID.
+Production has already reaped the leader on the expected path, so its PID is no longer reserved.
+Another concurrently running test can own a child that receives that PID.
+The query does not reap that child, but it can wait for that child's exit or report its status instead of ECHILD.
+The cached PID alone does not prove that the query still addresses this test's payload.
+
+Required change: Use a reap observation tied to this test's child ownership, without reaping the production payload.
+The check must not block on or inspect another test's child after PID reuse.
+An isolated helper with no other child owner is one possible approach.
+Preserve the independent group guard and production-only reaping.
+Authority: the real-process ownership rule, BUILD.md's independent-test rules, and the PID reservation principle retained in F7.
+
+The reviewer inspected logic only and ran no tests or gate.
+All previous closures remain preserved. F13 retains 91 open entries.
+
+VERDICT: NOT CLEAN (F13: 91 entries; F15 and F16 open) on `5172a53553636dc94d9c86c98b0969499b1955dd`.
