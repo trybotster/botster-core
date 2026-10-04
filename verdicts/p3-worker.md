@@ -1,8 +1,8 @@
 # P3 worker review
 
-Current restack verdict: CLEAN (P3 package scope, M1 only).
+Current restack verdict: NOT CLEAN (F13 open after the mutation gate).
 Reviewed head: `78b88fa99546059dc5d8500af890432edd855537`, branch `stage1/p3-m1-v1`.
-Round 16 accepts the deadline comment correction. All earlier verdicts and closures remain historical evidence.
+Round 17 records 167 missed mutants. All earlier verdicts and closures remain historical evidence.
 The CLEAN below applies only to the old M2a head that it names.
 
 VERDICT: CLEAN
@@ -732,3 +732,45 @@ This verdict does not establish a successful timer check or a green gate on the 
 
 VERDICT: CLEAN on `78b88fa99546059dc5d8500af890432edd855537`, P3 package scope for M1 only.
 Integration must clear this same exact head. Any later commit requires a delta review.
+
+## Round 17 — Mutation gate findings
+
+Reviewed head: `78b88fa99546059dc5d8500af890432edd855537`, PR #136.
+The implementer reports a failed full Linux gate and has not requested a new source review.
+The reviewer read the gate summary, outcomes.json, and missed.txt. The reviewer ran no gate.
+
+### F13 — MEDIUM — The mutation gate leaves 167 mutants unclosed
+
+Status: OPEN on the reviewed head. This finding supersedes round 16's CLEAN.
+F1 through F12 retain their recorded closures.
+
+Evidence: gate log `~/botster-sessions/gates/botster-core-stage1-p3-m1-v1-78b88fa9-linux-20261004-130525-23750.log`.
+Artifact root: `~/botster-sessions/gates/artifacts-trybotster_botster_core_stage1_p3_m1_v1-bcb322fa-20261004130525-23750/target-mutants.out/`.
+The complete missed list is preserved in `verdicts/p3-worker-mutants-78b88fa.txt`.
+Every entry in that list requires closure under F13.
+
+The result contains 376 mutants: 139 caught, 167 missed, 0 timeouts, and 70 unviable.
+The missed mutants are distributed as follows:
+
+- `botster-worker-core/src/worker.rs`: 5.
+- `botster-worker/src/main.rs`: 65.
+- `botster-core-sys/src/payload.rs`: 26.
+- `botster-core-testkit/src/core.rs`: 28.
+- `botster-core-testkit/src/harness.rs`: 1.
+- `botster-core-testkit/src/worker.rs`: 42.
+
+The gate reports PASS for formatting, clippy, taint, lists, public-api, worker prebuild, default test budget, and slow tests.
+Mutation reports FAIL. Fuzz reports NOT RUN because mutation failed.
+Passing earlier stages does not close a missed mutant.
+
+Required change: Close every missed mutant with a test or a reviewed equivalent-mutant argument.
+Each proposed exclusion must cover one function and give its reason.
+A claim that real-process code needs slow-tier proof must name the proof and its result.
+Retain the independent group guards and production reaper ownership when adding that proof.
+Keep F13 open until every listed miss has a recorded disposition and the required mutation evidence supports closure.
+
+Authority: BUILD.md's mutation rule, plan section 8, and the restack brief's per-file mutation and exclusion rules.
+The implementer plans worker-core coverage first, then testkit coverage and slow-tier mutation proof for real-process functions.
+No proposed fix or exclusion has received review in this round.
+
+VERDICT: NOT CLEAN (F13 open; 167 mutant entries require closure) on `78b88fa99546059dc5d8500af890432edd855537`.
