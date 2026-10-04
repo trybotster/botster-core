@@ -2,7 +2,7 @@
 
 Current restack verdict: NOT CLEAN (F13, F18, and F19 open; F14, F15, F16, F17, and F20 closed in source).
 Reviewed head: `7efe4553d290cd6f76befc0d50ed7b5206b0ea0e`, branch `stage1/p3-m1-v1`.
-Round 49 closes F20 in source. F13 retains 65 driver entries; F18/F19 remain open.
+Round 50 closes five driver mutant entries. F13 retains 60 entries: 41 missed and 19 timed out. F18/F19 remain open.
 The CLEAN below applies only to the old M2a head that it names.
 
 VERDICT: CLEAN
@@ -1663,3 +1663,36 @@ F18 and F19 remain OPEN for corrected-source Mac evidence.
 All earlier findings and closures remain preserved. The reviewer ran no tests or gate.
 
 VERDICT: NOT CLEAN (F13: 65 entries; F18 and F19 open) on `7efe4553d290cd6f76befc0d50ed7b5206b0ea0e`.
+
+
+## Round 50 — First direct-driver mutation evidence
+
+Current reviewed head remains `7efe4553d290cd6f76befc0d50ed7b5206b0ea0e`.
+Evidence head: `e4593e86feab06da3711bef9d3ac06bb7e20be38`.
+Log: `~/botster-sessions/gates/botster-core-stage1-p3-m1-v1-e4593e86-linux-20261004-164448-88453.log`.
+Artifacts: `~/botster-sessions/gates/artifacts-trybotster_botster_core_stage1_p3_m1_v1-bcb322fa-20261004164448-88453/target-mutants.out/`.
+The reviewer read the exact-head log and actual outcomes.json.
+
+The baseline result is Success. The job exits three after 481 seconds.
+It tests 69 mutants: five caught, 41 missed, four unviable, and 19 timeouts.
+All 65 original driver entries match exact names in these outcomes: five caught, 41 missed, and 19 timeouts.
+The five caught entries are now CLOSED under F13.
+Their names are preserved in `verdicts/p3-worker-mutants-e4593e8-caught.txt`.
+They cover the zero read-chunk arithmetic, Driver::run no-op, two WouldBlock handling changes, and the flush counter subtraction.
+The shared session assertions exercise the rebuilt Driver executable rather than an unchanged candidate.
+The later observer guard preserves those assertions and improves independent cleanup.
+This earlier run does not prove that later guard or its parent-death test.
+
+The mutation tool sets a 20-second test budget, equal to the fixture's socket-read deadline.
+A bounded fixture failure can therefore reach the external mutation budget before it reports its assertion failure.
+The evidence does not classify any timeout as caught, and the reviewer accepts no timeout as closure.
+The implementer must provide caught evidence or an accepted exact-function argument for each remaining entry.
+Increasing an external mutation budget must not weaken the code test deadlines or conceal blocked cleanup.
+No driver exclusion is proposed in this round.
+
+F13 retains 60 original driver entries: 41 missed and 19 timed out.
+F18 and F19 remain OPEN for corrected-source Mac evidence.
+F20 remains CLOSED in source, with corrected-head evidence pending.
+All earlier findings and closures remain preserved. The reviewer ran no tests or gate.
+
+VERDICT: NOT CLEAN (F13: 60 entries; F18 and F19 open) on `7efe4553d290cd6f76befc0d50ed7b5206b0ea0e`.

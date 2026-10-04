@@ -1,0 +1,5 @@
+crates/botster-worker/src/main.rs:42:30: replace * with /
+crates/botster-worker/src/main.rs:133:9: replace Driver::run -> io::Result<()> with Ok(())
+crates/botster-worker/src/main.rs:366:23: replace match guard e.kind() == io::ErrorKind::WouldBlock with false in Driver::read_control
+crates/botster-worker/src/main.rs:366:32: replace == with != in Driver::read_control
+crates/botster-worker/src/main.rs:384:34: replace += with -= in Driver::flush
