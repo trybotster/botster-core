@@ -5,6 +5,7 @@
 
 pub mod candidate;
 pub mod entropy;
+pub mod every_cut;
 pub mod harness;
 pub mod net;
 pub mod oracle;
