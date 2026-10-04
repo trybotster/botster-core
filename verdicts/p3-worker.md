@@ -1,8 +1,8 @@
 # P3 worker review
 
 Current restack verdict: NOT CLEAN (F13, F18, and F19 open; F14, F15, F16, and F17 closed).
-Reviewed head: `4b1d39cb294dfc4308dae1ddb0f2ce4f6274170a`, branch `stage1/p3-m1-v1`.
-Round 43 verifies corrected-source Linux tests. F13 retains 66 entries; F18/F19 remain open for Mac evidence.
+Reviewed head: `0e66b74f97d2f6b7665fcff1310f83bfd0bca4b2`, branch `stage1/p3-m1-v1`.
+Round 44 reviews failure diagnostics and the mutation summary. F13 retains 66 entries pending raw fallback evidence; F18/F19 remain open.
 The CLEAN below applies only to the old M2a head that it names.
 
 VERDICT: CLEAN
@@ -1492,3 +1492,30 @@ F13 retains 66 original entries. F18 and F19 remain OPEN for corrected-source Ma
 All earlier findings and closures remain preserved. The reviewer ran no tests or gate.
 
 VERDICT: NOT CLEAN (F13: 66 entries; F18 and F19 open) on `4b1d39cb294dfc4308dae1ddb0f2ce4f6274170a`.
+
+
+## Round 44 — Failure diagnostics and payload mutation summary
+
+Reviewed head: `0e66b74f97d2f6b7665fcff1310f83bfd0bca4b2`.
+The complete delta from `4b1d39c` adds test failure diagnostics and the handoff evidence.
+No production path, exclusion, or dependency changes.
+The query test prints its pending count only on failure, before its assertion and guard Drop.
+The panic test starts independent cleanup in its own thread before the main test can start a process-state diagnostic.
+The diagnostic reads ps output and filters by the test and recorded payload ids. It never signals or reaps those processes.
+The label identifies the payload PID as recorded before cleanup; the diagnostic does not reserve that PID after production reap.
+The code test deadlines remain ten seconds. No new source finding exists in this delta.
+
+Mutation evidence head: `4b1d39cb294dfc4308dae1ddb0f2ce4f6274170a`.
+Log: `~/botster-sessions/gates/botster-core-stage1-p3-m1-v1-4b1d39cb-linux-20261004-163631-78503.log`.
+The reviewer read the exact-head focused Linux mutation log.
+The baseline passes. The summary reports 28 tested: 23 caught, five unviable, zero missed, and zero timeouts.
+The successful job has no locally collected raw outcomes available to the reviewer.
+The reviewer requested retrieval of the existing outcomes.json and caught.txt without a rerun.
+The relocated fallback-sign entry remains open until its exact outcome is verified.
+The summary alone does not map that original entry to a caught result.
+
+F13 retains 66 original entries pending the raw fallback evidence.
+F18 and F19 remain OPEN for corrected-source Mac evidence. The Mac hold still applies.
+All earlier findings and closures remain preserved. The reviewer ran no tests or gate.
+
+VERDICT: NOT CLEAN (F13: 66 entries; F18 and F19 open) on `0e66b74f97d2f6b7665fcff1310f83bfd0bca4b2`.
