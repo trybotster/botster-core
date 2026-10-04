@@ -205,6 +205,8 @@ exclude_re = [
     'crates/botster-terminal-ghostty/src/encode\.rs:\d+:\d+: replace <impl Drop for KeyEventHandle>::drop with \(\)$',
     'crates/botster-terminal-ghostty/src/encode\.rs:\d+:\d+: replace <impl Drop for MouseEncoder>::drop with \(\)$',
     'crates/botster-terminal-ghostty/src/encode\.rs:\d+:\d+: replace <impl Drop for MouseEventHandle>::drop with \(\)$',
+    # Render::drop only frees the native render state. Removing it leaks memory but changes no public read.
+    'crates/botster-terminal-ghostty/src/inspection\.rs:\d+:\d+: replace <impl Drop for Render>::drop with \(\)$',
     # Terminal::drop frees the native terminal and then the event buffer that its callbacks write (a `Box` this crate
     # leaked for them). Leak only, not observable through the API: no reference to either survives the drop.
     'crates/botster-terminal-ghostty/src/lib\.rs:\d+:\d+: replace <impl Drop for Terminal>::drop with \(\)$',

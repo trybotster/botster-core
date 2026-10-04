@@ -8,6 +8,7 @@
 
 mod encode;
 mod events;
+mod inspection;
 mod modes;
 mod query;
 mod reads;
@@ -27,11 +28,13 @@ pub use events::{
     ClipboardEntry, ClipboardLocation, ClipboardWrite, Drained, TerminalEvent, MAX_BUFFERED_BYTES,
     MAX_BUFFERED_EVENTS,
 };
+pub use inspection::{CellAttributes, CellStyle, Colors, CursorAppearance, Rgb, StyleColor};
 pub use query::{Query, QueryKind, QueryStep, Terminator, MAX_SHADOW_REPLY_BYTES};
 pub use reads::{CursorCell, ScreenText};
 pub use reply::{ReplyError, MAX_REPLY_BYTES};
 pub use snapshot::{
-    snapshot_format, terminal_identity, SnapshotError, TerminalIdentityParts, CONTINUATION_LIMIT,
+    snapshot_format, terminal_identity, Continuation, SnapshotDecodeError, SnapshotError,
+    TerminalIdentityParts, CONTINUATION_LIMIT,
 };
 
 /// The default bytes of undrained clipboard acknowledgements that `vt_write_until_query` accepts.
@@ -642,3 +645,6 @@ mod tests_color;
 
 #[cfg(test)]
 mod tests_archive;
+
+#[cfg(test)]
+mod tests_allocator;
