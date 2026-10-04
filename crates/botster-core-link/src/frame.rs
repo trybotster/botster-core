@@ -21,6 +21,10 @@ pub struct FrameType(pub u8);
 impl FrameType {
     /// The first frame of every link (see [`crate::hello`]).
     pub const HELLO: FrameType = FrameType(0x01);
+    /// A request of the host after the hello (see [`crate::msg::HostMsg`]).
+    pub const HOST_MSG: FrameType = FrameType(0x10);
+    /// A report of the worker after the hello (see [`crate::msg::WorkerMsg`]).
+    pub const WORKER_MSG: FrameType = FrameType(0x11);
 }
 
 /// One frame.
