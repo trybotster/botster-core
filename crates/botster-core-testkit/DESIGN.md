@@ -50,6 +50,34 @@ Oracle unit tests cannot prove conformance dispatch while the harness cannot ope
 The terminal snapshot controls also depend on the separate P2 API PR.
 The acceptance check remains the conformance transcript through real Core after dispatch lands.
 
+The P2 API and GHOSTSNP spec PRs have merged.
+`snapshot_controls::CapturePages` receives all Core `read_page` bytes in page order and the source configuration.
+The adapter passes the actual session terminal at the capture revision to `oracle_restore`.
+Each restore field checks its own state group, including history attributes and hyperlinks.
+The adapter records every output chunk consumed after that revision for `oracle_resume`.
+The resume comparison uses native snapshot bytes, including pending parser input and saved state.
+The version control changes only the native envelope version and invokes the typed decoder.
+The graphics control reads the native limit on the actual model and restored instance.
+Both constructors set that limit to zero before input. Libghostty enforces it.
+Constructor tests in P2 check native image lookup after image stimuli on both screens.
+
+`every_cut::CutSession` separates the helper from the protected dispatch files.
+The adapter creates a fresh real Core session for each offset, writes the prefix, runs the fence, captures, and reads all pages.
+It then writes the suffix and returns the exact consumed chunks in order.
+The adapter must verify that no resource failure or held snapshot is injected.
+The helper checks the session size and history configuration.
+It reads the actual model's semantic failure and continuation status at every cut.
+A separate diagnostic terminal retains at least the full input length and measures pending input.
+
+Steward ruling R-30 permits native encoded length plus independent format framing as fit evidence.
+The framing source must count each per-capture field at its largest allowed size.
+It must obtain these sizes from the GHOSTSNP spec, never from Core's capture.
+The native measurement uses the same format, version, size, history setting, and zero image limit.
+`UnknownFraming` is the current dispatch source because the spec's worker paging section remains pending P3 M2b.
+Every unknown fit sets `inconclusive: true`.
+The every-cut id remains pending for worker paging and real Core dispatch.
+Unit adapters and synthetic framing in tests prove helper behavior only.
+
 The slow process-group tests retain `OwnedGroup` for every spawned group.
 Their children block on a pipe held by the test.
 Closing that pipe ends the child without a timer or CPU loop.
