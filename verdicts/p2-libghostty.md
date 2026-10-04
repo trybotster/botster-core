@@ -1,6 +1,6 @@
 # P2 libghostty review
 
-Current reviewed binding head: `ced5127b48a09329d5d69aac45e94f16e6605338`.
+Current reviewed binding head: `7ef7e3aa578b43cc71ea64ef555d485ccc99e17b`.
 Reviewed Ghostty head: `3f8eb6810bb673aa782b047de21783ac81fb1121`.
 The binding uses branch `botster/upstream-sync-20261002`, with upstream base `f523504ea5c9f41d150d1eb93cc7a748b90f9361`.
 The lead owns the plan pin record.
@@ -1574,3 +1574,60 @@ The implementer is preparing those changes.
 The reviewer ran no tests, builds, or gates.
 
 VERDICT: NOT CLEAN (3 open: P32, P38, P39) at binding head `ced5127b48a09329d5d69aac45e94f16e6605338`.
+
+
+## P39 correction review — one non-equivalent exclusion remains
+
+Exact binding head: `7ef7e3aa578b43cc71ea64ef555d485ccc99e17b`.
+The reviewer read the complete delta from `ced5127b48a09329d5d69aac45e94f16e6605338`.
+The reviewer checked the removed native-rule conditions against the pinned Ghostty source.
+The reviewer ran no tests, builds, mutation runs, or gates.
+
+### Accepted source and test changes
+
+`DEFAULT_CLIPBOARD_BYTES` now equals the contract default of 1 MiB instead of the event buffer's 16 MiB bound.
+The new test compares the default with `CoreLimits::default()` and checks native writes at and above the limit.
+This corrects a real binding defect that the mutation review exposed.
+
+The native library refuses zero dimensions, refuses grid references outside the screen, and supplies the probe results used by the simplified callers.
+`cell_text` checks native text presence before its probe; a text-bearing cell needs at least one codepoint.
+`run_encoder` accepts a successful empty probe as empty output; replies always write framing and need an OUT_OF_SPACE probe result.
+The paste helper retains native marker bytes and returns None for the disabled mode.
+The common constructor predicate preserves the original success and non-null checks in the unmutated source.
+These changes retain libghostty as the terminal semantics owner.
+
+The new tests cover the contract defaults, native header values, buffer byte admission, reply and continuation limits, and native state reads.
+The input tests cover modifier handling, zero-output classification, pixel viewport behavior, and explicit-mode wrappers.
+The mouse modifier test compares with a direct native encoder call.
+The reply boundary test measures its frame through the native reply encoder.
+No new assertion constructs expected terminal protocol bytes.
+
+### Exclusion review
+
+The exact `|` to `^` exclusions are valid at this pin because the operands contain disjoint bits.
+The `created` `&&` to `||` mutation is equivalent for the four native constructors at this pin.
+Each constructor stores a non-null handle only on SUCCESS; allocation failure leaves the initialized null handle unchanged.
+The default-query setter exclusion preserves the pinned native default of 4096.
+The five exact no-op Drop exclusions cover only the native free calls and Terminal's callback-buffer free.
+They are narrow cleanup coverage exclusions, not proof that a resource leak is equivalent to correct cleanup.
+The unmutated destructors retain the reviewed frees. The exclusions do not cover other decisions in those functions.
+
+**P39 remains open:** `.cargo/mutants.toml` also excludes `replace created -> bool with true`.
+Its own comment says this mutation changes allocation-failure behavior.
+With `(OUT_OF_MEMORY, null)`, the unmutated predicate returns false and each caller returns its typed error.
+The mutation returns true, permits a null handle, and lets later native operations use that handle.
+This is not an equivalent mutation. A test's inability to force default-allocator failure does not make it equivalent.
+
+**Required change:** remove the `created -> true` exclusion and cover rejection of a failed constructor result.
+Keep the equivalent `&&` to `||` exclusion if desired.
+Do not weaken constructor failure checks to obtain a passing mutation result.
+Update the audit so it does not classify this mutation as equivalent.
+Send the new exact head for delta review before the next gate.
+
+The implementer reports 113 crate tests, clippy, and fmt passed on this tree.
+The implementer also reports a focused mutation run: 385 tested, 365 caught, 20 unviable, zero missed or timeouts.
+That run used the exclusion rejected above and therefore does not close P39.
+It is not the complete Mac or Linux gate required by the lead.
+P38 remains pending a green Mac gate. P32 remains pending a green Linux gate on the exact reviewed head.
+
+VERDICT: NOT CLEAN (3 open: P32, P38, P39) at binding head `7ef7e3aa578b43cc71ea64ef555d485ccc99e17b`.
