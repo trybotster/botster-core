@@ -2,9 +2,9 @@
 
 VERDICT: CLEAN
 
-Current reviewed head: `048b277f85c942dca5deaee2ffbd4ffa290f6b6c` on `stage1/p1-lifecycle`.
+Current reviewed head: `96fbb933d13270c25c6133efd546b11f40cfeb88` on `stage1/p1-ti1`.
 Current open findings: none.
-The Round 11 section below records the current review.
+The Round 12 section below records the current review.
 The earlier CLEAN and all earlier findings and closure evidence remain historical evidence.
 
 Historical checkpoint verdict: CLEAN.
@@ -1273,3 +1273,55 @@ https://github.com/trybotster/botster-core/pull/135.
 The implementer sent READY to the lead.
 CLEAN remains valid on the exact head above.
 All prior scope dispositions and closure evidence remain unchanged.
+
+
+## Round 12: TI-1 follow-up and F14 closure
+
+VERDICT: CLEAN on `96fbb933d13270c25c6133efd546b11f40cfeb88` on `stage1/p1-ti1`.
+Base: P1 merge `1d25d093301072bd0c13a122c68d8f1b1ca0815c` on origin/v1.
+I reviewed the complete five-file delta from that base to the exact READY head.
+The resume brief authorizes this stacked follow-up after the P1 merge.
+The implementer also cites lead authorization `msg_plugin-w_1791142424_37027d` in READY `msg_plugin-w_1791142957_5d62af`.
+The contracts pin remains `contracts-v0.1.13` at `a8db5c9a0f43fc440564989fd38a55121fdda38b`.
+I ran no test or gate.
+
+### F14: CLOSED for the implementation defect
+
+Core::open now calls `botster_terminal_ghostty::terminal_identity()`.
+It copies both `term` and `terminfo_source` into EngineConfig.
+The binding reads both strings from the pinned library through its existing exported functions.
+Core's synchronous terminal_identity read returns the configured identity through HostDriver.
+The empty source placeholder is removed.
+This change starts no session and installs no terminfo entry.
+It changes no session environment code.
+
+The facade slow test compares the source with the binding's source and checks `xterm-ghostty` as the terminal name.
+The binding test checks that its source starts with the terminal name and passes the source to real `tic -x -c`.
+The manifest and lock changes add only the existing local binding dependency.
+No dependency version, contracts pin, transcript, or mutation exclusion changes.
+I found no defect in this delta.
+
+The three `conf::a2_8_*` ids remain pending.
+TestkitHarness::open still returns its no-Core error in `crates/botster-core-testkit/src/harness.rs`.
+The pending comment now states that harness proof awaits the testkit wiring with P3.
+This is an accurate remaining proof limit. It does not reopen the empty-source implementation defect.
+This review does not establish the pending conformance ids.
+Every earlier finding and its closure or scope evidence remains in this file.
+
+### Exact-head evidence and limits
+
+I inspected `~/botster-sessions/gates/botster-core-stage1-p1-ti1-96fbb933-linux-20261004-123609-84813.log`.
+The log identifies the exact READY head and merge base above.
+Fmt and clippy with `-D warnings` pass.
+Both selected tests pass: `every_call_reaches_the_driver` and `the_identity_comes_from_the_library_and_tic_compiles_it`.
+The delta mutation run passes its baseline and reports one unviable mutant, zero missed mutants, and zero timeouts.
+No viable mutant was tested in that run.
+
+I also inspected `~/botster-sessions/gates/botster-core-stage1-p1-ti1-96fbb933-linux-20261004-124146-89313.log`.
+Its raw mutant log shows `Core::open -> Ok(Default::default())` fails with E0277 because Core has no Default implementation.
+That compile failure explains the unviable result. It is not a caught mutant or an equivalence exclusion.
+
+These logs contain focused checks, not the required full gate.
+The implementer must run one full gate on this exact CLEAN head.
+A further code commit requires a delta review before the next gate.
+Current open findings: none.
