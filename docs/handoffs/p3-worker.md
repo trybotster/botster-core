@@ -198,3 +198,17 @@ These two wait for the new binding pin:
 
 - M1 and M2a: none (both CLEAN).
 - M2b: not reviewed yet.
+
+## Mutation findings at 78b88fa (2026-10-04)
+
+The full Linux gate passed formatting, clippy, taint, lists, API checks, prebuild, default tests, and slow tests.
+Mutation testing failed: 376 tested, 139 caught, 167 missed, 70 unviable, and 0 timeouts.
+Fuzz did not run. This head is not READY.
+Log: `~/botster-sessions/gates/botster-core-stage1-p3-m1-v1-78b88fa9-linux-20261004-130525-23750.log`.
+Artifacts: `~/botster-sessions/gates/artifacts-trybotster_botster_core_stage1_p3_m1_v1-bcb322fa-20261004130525-23750/target-mutants.out`.
+
+The first correction adds four worker-core lifecycle tests through inputs and actions.
+The tests cover a wrong frame kind, an early PTY drain, EndPayload after Kill, and Signal::Kill after a drained exit.
+One exact mutant in Worker::report_exit has an equivalence argument in `.cargo/mutants.toml`.
+The package reviewer must judge that argument. Focused Linux mutation verification is next.
+Testkit and real process findings remain open. Both exact-head reviews and a full gate remain required.

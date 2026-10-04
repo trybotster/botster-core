@@ -11,6 +11,12 @@
 exclude_globs = ["**/tests/**", "tests/**"]
 
 exclude_re = [
+    # P3 M1, Worker::report_exit: replacing `exit_reported || !exit_drained` with `&&` is equivalent at this milestone.
+    # Only on_host_hello and on_drained call this function. The first hello precedes Launch, so no exit exists there.
+    # on_drained calls it only for the first drain after an exit: exit_drained is true and exit_reported is false.
+    # Both guards are false for that call. Later drains do not call report_exit. The worker cannot reconnect at M1.
+    # Recheck this entry when M2 adds callers or a reconnect path.
+    'crates/botster-worker-core/src/worker\.rs:\d+:\d+: replace \|\| with && in Worker::report_exit$',
     # botster-core-testkit process_group (P6): process glue of a real process group (BUILD.md testing rule 10), one entry per
     # function. They start or signal real processes, which the default tier never does; the proof is the slow tier,
     # `tests/slow_process_group.rs`: `dropping_the_guard_ends_the_whole_group` (spawn, pid, take_stdout, drop),
