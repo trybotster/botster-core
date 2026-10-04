@@ -10,7 +10,12 @@ use serde_json::{json, Value};
 
 /// The adapter reads every Core capture page before it returns `Offered`.
 pub enum CutCapture {
-    Offered(Vec<u8>),
+    /// Include consumed output after the snapshot revision but before the suffix write.
+    /// This also supports a worker that chooses a preceding ground state and replays pending output.
+    Offered {
+        pages: Vec<u8>,
+        after_capture: Vec<Vec<u8>>,
+    },
     SnapshotTooLarge,
     Other(String),
 }
@@ -115,10 +120,13 @@ pub fn oracle_resume_every_cut(
                 continue;
             }
             match capture {
-                CutCapture::Offered(bytes) => {
+                CutCapture::Offered {
+                    pages,
+                    after_capture,
+                } => {
                     offered += 1;
                     let mut restored = match Terminal::from_snapshot(
-                        &bytes,
+                        &pages,
                         input.history,
                         input.size.cell_px,
                     ) {
@@ -128,8 +136,22 @@ pub fn oracle_resume_every_cut(
                             continue;
                         }
                     };
+                    feed(&mut restored, &after_capture);
                     let consumed_after = subject.write_and_fence(&corpus[item][offset..])?;
                     feed(&mut restored, &consumed_after);
+                    if !subject.no_injected_failure() {
+                        return Err(ControlError::Bad(
+                            "every-cut resource conditions changed during suffix".into(),
+                        ));
+                    }
+                    if subject
+                        .model()
+                        .vt_processing_error()
+                        .map_err(library_error)?
+                    {
+                        mismatches.push(json!({"item": item, "offset": offset, "reason": "semantic failure after suffix"}));
+                        continue;
+                    }
                     match (restored.snapshot(), subject.model().snapshot()) {
                         (Ok(actual), Ok(expected)) if actual == expected => {}
                         _ => mismatches.push(
@@ -222,6 +244,8 @@ mod tests {
         refuse: bool,
         corrupt: bool,
         fault: bool,
+        at_ground: bool,
+        prefix: Vec<u8>,
         trace: Rc<RefCell<Vec<&'static str>>>,
     }
 
@@ -241,6 +265,7 @@ mod tests {
         fn write_and_fence(&mut self, bytes: &[u8]) -> Result<Vec<Vec<u8>>, ControlError> {
             self.trace.borrow_mut().push("write/fence");
             self.terminal.vt_write(bytes);
+            self.prefix.extend_from_slice(bytes);
             Ok(vec![bytes.to_vec()])
         }
         fn capture(&mut self) -> Result<CutCapture, ControlError> {
@@ -249,9 +274,22 @@ mod tests {
                 return Ok(CutCapture::SnapshotTooLarge);
             }
             if self.corrupt {
-                return Ok(CutCapture::Offered(Vec::new()));
+                return Ok(CutCapture::Offered {
+                    pages: Vec::new(),
+                    after_capture: Vec::new(),
+                });
             }
-            Ok(CutCapture::Offered(self.terminal.snapshot().unwrap()))
+            if self.at_ground {
+                let model = Terminal::new(&input().size, self.history).unwrap();
+                return Ok(CutCapture::Offered {
+                    pages: model.snapshot().unwrap(),
+                    after_capture: vec![self.prefix.clone()],
+                });
+            }
+            Ok(CutCapture::Offered {
+                pages: self.terminal.snapshot().unwrap(),
+                after_capture: Vec::new(),
+            })
         }
         fn model(&self) -> &Terminal {
             &self.terminal
@@ -290,6 +328,8 @@ mod tests {
             refuse: false,
             corrupt: false,
             fault: false,
+            at_ground: false,
+            prefix: Vec::new(),
             trace,
         }
     }
@@ -342,6 +382,20 @@ mod tests {
             known["mismatches"].as_array().unwrap().len(),
             known["cuts_checked"].as_u64().unwrap() as usize
         );
+    }
+
+    #[test]
+    fn a_ground_cut_replays_consumed_output_after_the_capture_revision() {
+        let input = input();
+        let trace = Rc::new(RefCell::new(Vec::new()));
+        let result = oracle_resume_every_cut(&input, &TestFraming(0), |size, history| {
+            let mut subject = session(size, history, trace.clone());
+            subject.at_ground = true;
+            Ok(Box::new(subject))
+        })
+        .unwrap();
+        assert_eq!(result["mismatches"], json!([]));
+        assert_eq!(result["inconclusive"], false);
     }
 
     #[test]

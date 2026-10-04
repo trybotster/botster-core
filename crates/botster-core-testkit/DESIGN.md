@@ -64,6 +64,8 @@ Constructor tests in P2 check native image lookup after image stimuli on both sc
 `every_cut::CutSession` separates the helper from the protected dispatch files.
 The adapter creates a fresh real Core session for each offset, writes the prefix, runs the fence, captures, and reads all pages.
 It then writes the suffix and returns the exact consumed chunks in order.
+An offered capture also returns consumed chunks after its revision and before the suffix.
+The helper replays those chunks first, so a preceding ground-state cut can meet the same resume invariant.
 The adapter must verify that no resource failure or held snapshot is injected.
 The helper checks the session size and history configuration.
 It reads the actual model's semantic failure and continuation status at every cut.
