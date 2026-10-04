@@ -1,8 +1,8 @@
 # P3 worker review
 
-Current restack verdict: NOT CLEAN (F13 open after the mutation gate).
-Reviewed head: `2e9811ca0b1c8a790698999efc24c538b5e755d7`, branch `stage1/p3-m1-v1`.
-Round 25 closes 22 worker binding mutant entries. F13 remains open for 96 entries.
+Current restack verdict: NOT CLEAN (F13 and F14 open).
+Reviewed head: `91b58e2c8a8f7d198484e8019f08c50aae0e6dd4`, branch `stage1/p3-m1-v1`.
+Round 26 reviews remaining testkit coverage and opens F14. F13 retains 96 open entries.
 The CLEAN below applies only to the old M2a head that it names.
 
 VERDICT: CLEAN
@@ -947,3 +947,41 @@ Earlier closures remain preserved. F13 remains OPEN for 96 entries: 5 testkit, 2
 The reviewer ran no tests or gate. No new source delta accompanies this evidence.
 
 VERDICT: NOT CLEAN (F13 open; 96 mutant entries remain) on `2e9811ca0b1c8a790698999efc24c538b5e755d7`.
+
+## Round 26 — Remaining testkit coverage
+
+Reviewed head: `91b58e2c8a8f7d198484e8019f08c50aae0e6dd4`.
+The complete delta from `2e9811c` extends link tests, checks write interest, adds live-capture release tests, and updates the handoff.
+The facade release test injects worker reports through the host edge.
+Libghostty supplies the terminal modes, title, cwd, and every snapshot byte.
+The fixture assigns revisions for its injected reports. It does not claim worker revision or snapshot conformance.
+The release assertions check capture retirement through the real host driver.
+The reviewer accepts the release and write-interest test designs. Their mutation evidence remains pending.
+The delta adds no production behavior branch or mutation exclusion.
+
+### F14 — LOW — The new bulk tests require implementation-specific single-call progress
+
+Status: OPEN at this head.
+
+Evidence: `core/tests.rs`, `each_spawn_has_its_own_link_and_process_events_reach_the_spawner`;
+`worker/tests.rs`, `a_large_control_frame_is_one_ready_input`.
+
+The spawn test requires all 8192 bytes to pass through one send and one receive.
+The new read test requires an 8192-byte control payload to arrive in one Binding::take input.
+A5-2 permits partial progress and varied chunk sizes. Plan 2.5 does not require one-call progress for this payload size.
+These assertions check the current capacity and READ_CHUNK choices rather than a clause or a real bug.
+A smaller positive bound can split valid frames while preserving their bytes and decoded messages.
+The test description cites plan 2.5, but that section does not fix the asserted one-input behavior.
+
+Required change: Replace these assertions with clause-based proof of byte retention, ordering, and complete frame delivery under partial progress.
+Do not add an arbitrary minimum chunk or capacity requirement solely to catch a tuning mutant.
+Keep both arithmetic entries under F13 until their disposition satisfies the mutation rules and the test rules.
+The rejected equivalence arguments in round 23 remain rejected as supplied.
+
+Authority: BUILD.md testing rule 3, its rule against testing helper internals, and A5-2.
+
+The reviewer inspected logic only and ran no tests or gate.
+The focused mutation job is pending. No F13 entry closes in this round.
+The five worker-core and 66 testkit closures remain preserved.
+
+VERDICT: NOT CLEAN (F13 open with 96 entries; F14 open) on `91b58e2c8a8f7d198484e8019f08c50aae0e6dd4`.
