@@ -34,7 +34,9 @@ pub enum SnapshotError {
     Library(Error),
 }
 
-/// The snapshot format that this binding writes. **The snapshot holds no Kitty graphics state** (no image and no
+/// The snapshot format that this binding writes. The [GHOSTSNP spec](../GHOSTSNP.md) states its layout, continuation limit,
+/// exclusions, refusal rules, and current paging status.
+/// **The snapshot holds no Kitty graphics state** (no image and no
 /// placement), and `snapshot_graphics` is absent from the worker's feature list. To keep that true after a restore, the
 /// model turns image storage off before any write, and a restore must set the decoder's
 /// `GHOSTTY_SNAPSHOT_DECODER_OPT_KITTY_IMAGE_STORAGE_LIMIT` to zero, so that the restored model ignores image sequences
