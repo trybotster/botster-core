@@ -14,6 +14,9 @@
 #[path = "../../../botster-core-sys/tests/common/payload_guard.rs"]
 mod payload_guard;
 
+#[path = "../../../botster-core-sys/tests/common/process_guard.rs"]
+mod process_guard;
+
 use botster_core_contract::prelude::*;
 use botster_core_link::frame::{encode_frame, FrameDecoder, FrameType};
 use botster_core_link::hello::Hello;
@@ -66,6 +69,7 @@ fn fifo(root: &Path, name: &str) -> PathBuf {
 struct OwnedWorker {
     worker: Child,
     payload_guard: Option<PayloadGuard>,
+    observer_guard: Option<process_guard::GroupGuard>,
 }
 
 impl Drop for OwnedWorker {
@@ -73,6 +77,7 @@ impl Drop for OwnedWorker {
     /// makes it end the payload group that it still holds, then itself.
     fn drop(&mut self) {
         drop(self.payload_guard.take());
+        drop(self.observer_guard.take());
         if let Ok(None) = self.worker.try_wait() {
             if let Some(pid) =
                 rustix::process::Pid::from_raw(i32::try_from(self.worker.id()).unwrap_or(0))
@@ -179,12 +184,21 @@ impl Session {
             host_epoch: 1,
             token: [5; 32],
         };
+        let observer_guard = crate::DRIVER_OBSERVER.map(|_| process_guard::GroupGuard::new(root));
         let mut command = if let Some(observer) = crate::DRIVER_OBSERVER {
-            let mut command = Command::new(std::env::current_exe().unwrap());
+            use std::os::unix::process::CommandExt;
+            let mut command = Command::new("/bin/sh");
+            command.args([
+                "-c",
+                &format!("{}exec \"$@\"", observer_guard.as_ref().unwrap().prefix()),
+                "observer",
+            ]);
+            command.arg(std::env::current_exe().unwrap());
             command.args(["--exact", observer, "--nocapture"]);
             command
                 .env_clear()
-                .env("BOTSTER_DRIVER_CONTROL", &launch.control);
+                .env("BOTSTER_DRIVER_CONTROL", &launch.control)
+                .process_group(0);
             command
         } else {
             let mut command = Command::new(worker_binary());
@@ -194,6 +208,7 @@ impl Session {
         let worker = OwnedWorker {
             worker: command.spawn().unwrap(),
             payload_guard: Some(payload_guard),
+            observer_guard,
         };
         let (stream, _) = listener.accept().unwrap();
         // timer: deadline — the limit of a wait for a real worker's frame; not a contract value.
@@ -487,4 +502,70 @@ fn a_panic_after_worker_sigkill_ends_the_payload_group() {
         .recv_timeout(Duration::from_secs(10))
         .expect("the payload group ended")
         .unwrap();
+}
+
+/// The driver observer ends when its test parent dies without running Drop.
+#[test]
+fn parent_death_ends_the_driver_observer() {
+    if crate::DRIVER_OBSERVER.is_none() {
+        return;
+    }
+    let root = temp_root();
+    let name = format!(
+        "{}::observer_parent",
+        module_path!().split_once("::").unwrap().1
+    );
+    let mut parent = ObserverParent(Some(
+        Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", &name, "--nocapture"])
+            .env("BOTSTER_DRIVER_PARENT_ROOT", root.path())
+            .stdin(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::null())
+            .spawn()
+            .unwrap(),
+    ));
+    let child = parent.0.as_mut().unwrap();
+    let mut reader = BufReader::new(child.stderr.take().unwrap());
+    let mut ready = String::new();
+    reader.read_line(&mut ready).unwrap();
+    assert!(
+        ready.trim().parse::<u32>().is_ok(),
+        "observer ready: {ready}"
+    );
+    child.kill().unwrap();
+    drop(parent);
+    let (done, result) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let mut rest = Vec::new();
+        let _ = done.send(reader.read_to_end(&mut rest));
+    });
+    result
+        // timer: deadline — the observer must close the inherited pipe after parent death.
+        .recv_timeout(Duration::from_secs(10))
+        .expect("the observer ended after its test parent died")
+        .unwrap();
+}
+
+struct ObserverParent(Option<Child>);
+
+impl Drop for ObserverParent {
+    fn drop(&mut self) {
+        if let Some(mut child) = self.0.take() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+    }
+}
+
+#[test]
+fn observer_parent() {
+    let Some(root) = std::env::var_os("BOTSTER_DRIVER_PARENT_ROOT") else {
+        return;
+    };
+    let session = Session::launch(Path::new(&root), "exec sleep 30", 5000);
+    eprintln!("{}", session.worker.worker.id());
+    let mut input = String::new();
+    std::io::stdin().read_line(&mut input).unwrap();
+    drop(session);
 }
