@@ -13,6 +13,7 @@ pub mod program;
 pub mod refusal;
 pub mod scheduler;
 pub mod sim;
+pub mod snapshot_controls;
 pub mod statement_runs;
 pub mod statements;
 pub mod status;
