@@ -333,38 +333,34 @@ impl HostEdges for RealEdges {
     }
 
     fn accept_link(&mut self) -> Option<LinkId> {
-        loop {
-            match retry_interrupted(|| self.listener.accept()) {
-                Ok((mut stream, _)) => {
-                    let link = LinkId(self.next_link);
-                    self.next_link += 1;
-                    let registered = self.wake.registry.register(
-                        &mut stream,
-                        Token(link.0 as usize),
-                        Interest::READABLE,
-                    );
-                    // A link that the poll does not take is accepted broken: its first read fails, and the driver closes it
-                    // and records why.
-                    self.streams.insert(
-                        link,
-                        LinkIo {
-                            stream,
-                            read: true,
-                            write: false,
-                            registered: registered.is_ok(),
-                            broken: registered.err().map(|e| e.kind()),
-                        },
-                    );
-                    return Some(link);
-                }
-                Err(error) if error.kind() == io::ErrorKind::WouldBlock => return None,
-                Err(error) => {
-                    self.accept_failures += 1;
-                    self.last_accept_error = Some(error.to_string());
-                    return None;
-                }
+        let mut stream = match retry_interrupted(|| self.listener.accept()) {
+            Ok((stream, _)) => stream,
+            Err(error) if error.kind() == io::ErrorKind::WouldBlock => return None,
+            Err(error) => {
+                self.accept_failures += 1;
+                self.last_accept_error = Some(error.to_string());
+                return None;
             }
-        }
+        };
+        let link = LinkId(self.next_link);
+        self.next_link += 1;
+        let registered =
+            self.wake
+                .registry
+                .register(&mut stream, Token(link.0 as usize), Interest::READABLE);
+        // A link that the poll does not take is accepted broken: its first read fails, and the driver closes it and records
+        // why.
+        self.streams.insert(
+            link,
+            LinkIo {
+                stream,
+                read: true,
+                write: false,
+                registered: registered.is_ok(),
+                broken: registered.err().map(|e| e.kind()),
+            },
+        );
+        Some(link)
     }
 
     fn link_recv(&mut self, link: LinkId, buf: &mut [u8]) -> io::Result<usize> {
