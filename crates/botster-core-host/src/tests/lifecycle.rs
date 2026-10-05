@@ -1076,9 +1076,21 @@ fn a_write_in_flight_when_the_link_fails_is_unknown() {
     w.pump();
     let link = w.link_of("s1");
     w.feed(Input::LinkClosed { link });
+    // Both writes complete; one poll can hold both completions, so they are collected together.
+    let mut left = 2;
+    let events = w.until(|e| {
+        if matches!(e, Event::Completed { op, .. } if *op == bytes || *op == keys) {
+            left -= 1;
+        }
+        left == 0
+    });
     for (write, max_payload_bytes) in [(bytes, 3), (keys, key_bound)] {
-        match w.complete(write) {
-            OpResult::Ok(OpOutput::Input(r)) => {
+        let result = events.iter().find_map(|e| match e {
+            Event::Completed { op, result } if *op == write => Some(result),
+            _ => None,
+        });
+        match result {
+            Some(OpResult::Ok(OpOutput::Input(r))) => {
                 assert_eq!(r.outcome, WriteOutcome::Unknown { max_payload_bytes })
             }
             other => panic!("{other:?}"),

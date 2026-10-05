@@ -306,15 +306,29 @@ fn cleanup_state(payload_pid: u32) {
     }
 }
 
-/// A2-1 and plan 2.3: the PTY counts queued program output and takes program input.
+/// A2-1 and plan 2.3: the PTY counts queued program output and takes program input. The count is taken once the master
+/// is readable: on Linux, output that the terminal has not moved to its read buffer yet is not counted (A31), and the
+/// master is readable only after the move.
 #[test]
 fn the_pty_counts_output_and_delivers_input_to_the_program() {
+    use std::os::fd::AsFd;
     let (p, _root) = payload_waiting_for_input();
+    let queued = b"ready".len();
+    let mut fds = [rustix::event::PollFd::from_borrowed_fd(
+        p.master().as_fd(),
+        rustix::event::PollFlags::IN,
+    )];
+    // timer: deadline — the program wrote its output before its marker; bounds the wait for the PTY to show it.
+    let limit = rustix::event::Timespec {
+        tv_sec: 10,
+        tv_nsec: 0,
+    };
+    assert_eq!(rustix::event::poll(&mut fds, Some(&limit)).unwrap(), 1);
     let pending = p.pending_output().unwrap();
-    if pending <= 1 {
-        eprintln!("queued-output marker arrived; pending_output={pending}");
-    }
-    assert!(pending > 1);
+    assert!(
+        (1..=queued).contains(&pending),
+        "the count of readable output, at most what the program wrote: {pending}"
+    );
     assert_eq!(
         p.pending_output().unwrap(),
         pending,
