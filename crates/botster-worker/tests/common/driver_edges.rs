@@ -1,9 +1,7 @@
 //! Direct checks of the real driver's descriptor state and byte accounting.
 #![cfg(feature = "slow")]
 
-#[path = "../../../botster-core-sys/tests/common/payload_guard.rs"]
-mod payload_guard;
-
+use super::slow_driver::payload_guard;
 use super::*;
 use botster_core_contract::prelude::{InstanceId, Size};
 use std::os::fd::AsFd;
@@ -339,17 +337,20 @@ fn pty_events_resume_reads_after_would_block() {
         })
         .unwrap();
     let marker = |reader: &mut std::fs::File, expected: &[u8]| {
-        let mut fds = [rustix::event::PollFd::new(
-            &*reader,
-            rustix::event::PollFlags::IN,
-        )];
         // timer: deadline — bounds the program's FIFO progress marker.
         let limit = rustix::event::Timespec {
             tv_sec: 10,
             tv_nsec: 0,
         };
-        assert!(rustix::event::poll(&mut fds, Some(&limit)).unwrap() > 0);
-        drop(fds);
+        // The poll borrows the reader only within this block, so the read below can take it.
+        let ready = {
+            let mut fds = [rustix::event::PollFd::new(
+                &*reader,
+                rustix::event::PollFlags::IN,
+            )];
+            rustix::event::poll(&mut fds, Some(&limit)).unwrap()
+        };
+        assert!(ready > 0);
         let mut bytes = [0; 64];
         let count = reader.read(&mut bytes).unwrap();
         assert_eq!(&bytes[..count], expected);
