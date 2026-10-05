@@ -1,8 +1,8 @@
 # P3 worker review
 
-Current restack verdict: NOT CLEAN (F13, F18, F19, and F21 open; F14, F15, F16, F17, and F20 closed).
+Current restack verdict: NOT CLEAN (F13 and F21 open; F14, F15, F16, F17, F18, F19, and F20 closed).
 Reviewed head: `e9efad5e788754bfc3c545b3bdfbfc5333238130`, branch `stage1/p3-m1-v1`.
-Round 54 reviews the Mac PTY correction and opens F21 in the partial-write test. F13 retains 60 entries; F18/F19 await corrected Mac proof.
+Round 55 closes F18/F19 with exact-head Mac evidence. F13 retains 60 entries; F21 remains open.
 The CLEAN below applies only to the old M2a head that it names.
 
 VERDICT: CLEAN
@@ -1850,3 +1850,33 @@ F13 retains 60 original driver entries. F18, F19, and F21 remain OPEN.
 All earlier findings and closures remain preserved. The reviewer ran no tests or gate.
 
 VERDICT: NOT CLEAN (F13: 60 entries; F18, F19, and F21 open) on `e9efad5e788754bfc3c545b3bdfbfc5333238130`.
+
+
+## Round 55 — Corrected Mac query and panic cleanup pass
+
+Reviewed and evidence head: `e9efad5e788754bfc3c545b3bdfbfc5333238130`.
+Log: `~/botster-sessions/gates/botster-core-stage1-p3-m1-v1-e9efad5e-mac-20261004-173007-13507.log`.
+The reviewer read the exact-head corrected Mac slow_payload nextest log.
+All 15 tests pass, zero skipped, in 0.089 seconds. The job exits zero after four seconds.
+The Mac-only kqueue path compiles and runs in this proof.
+
+F18 is CLOSED on this exact head.
+The FIFO-synchronized queued-output query/input test passes in 0.027 seconds.
+It checks a positive queued count, repeats the query without consuming output, delivers input, and retains complete program output.
+The query now uses the Mac master-read filter instead of the input-queue ioctl.
+The source and this runtime proof establish the correction of the observed Mac query failure.
+
+F19 is CLOSED on this exact head.
+The panic-while-waiting-for-input test passes in 0.034 seconds within its unchanged ten-second deadline.
+The independent guard returns after its cleanup request, then production closes the master before waiting for its leader.
+The isolated payload reaping test passes in 0.040 seconds.
+These results establish finite cleanup and production-only reaping on the observed Mac failure path.
+The independent anchors retain group ownership and parent-death cleanup.
+The three payload equivalence arguments remain ACCEPTED after the source recheck in round 54.
+
+This plain baseline supplies no original driver mutation closure.
+F13 retains 60 original driver entries. F21 remains OPEN in the partial-write test.
+New query/cleanup code still requires mutation accounting in the applicable gate.
+All earlier findings and closures remain preserved. The reviewer ran no tests or gate.
+
+VERDICT: NOT CLEAN (F13: 60 entries; F21 open) on `e9efad5e788754bfc3c545b3bdfbfc5333238130`.
