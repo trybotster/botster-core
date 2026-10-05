@@ -75,6 +75,11 @@ impl Processes {
     }
 }
 
+/// Every worker process of a run, by identity, with the table of the handle that spawned it: one operating system for every
+/// handle of the run. A handle's identity probe and signals reach a worker of an earlier handle, as the real ones do (AD-6,
+/// LC-12), and the exit of a worker goes to the handle that spawned it only, as a real reaper's does.
+type RunProcesses = BTreeMap<ProcessIdentity, (Arc<Mutex<ProcessCell>>, Arc<Mutex<Processes>>)>;
+
 /// The numbers of the in-process processes: workers and payloads share one counter, so every identity is distinct.
 #[derive(Debug)]
 struct Pids {
@@ -93,6 +98,7 @@ impl Pids {
 pub struct Workers {
     sim: Arc<Mutex<Sim>>,
     pids: Arc<Mutex<Pids>>,
+    run_processes: Arc<Mutex<RunProcesses>>,
     scheduler: SchedulerHandle,
     read_chunk: usize,
 }
@@ -124,6 +130,7 @@ impl Workers {
         Workers {
             sim: Arc::new(Mutex::new(Sim::with_scheduler(scheduler.clone(), start))),
             pids: Arc::new(Mutex::new(Pids { next: 1000 })),
+            run_processes: Arc::default(),
             scheduler,
             read_chunk,
         }
@@ -180,6 +187,8 @@ impl Spawner for WorkerSpawner {
         };
         let cell = Arc::new(Mutex::new(ProcessCell::default()));
         lock(&self.processes).cells.insert(id, Arc::clone(&cell));
+        lock(&self.workers.run_processes)
+            .insert(id, (Arc::clone(&cell), Arc::clone(&self.processes)));
         let link = connect();
         let worker = Worker::new(WorkerConfig::new(
             spec.instance.clone(),
@@ -217,34 +226,33 @@ impl Spawner for WorkerSpawner {
     }
 
     /// `EndPayload` and `Term` reach the worker's handlers: the worker takes them as inputs. A `Kill` ends the worker
-    /// process, and its exit is reported to the host.
+    /// process, and its exit is reported to the handle that spawned it. A worker of an earlier handle of the run is reached
+    /// too: the signal goes to a process, not to a handle.
     fn signal_group(&mut self, identity: ProcessIdentity, signal: GroupSignal) {
-        let mut processes = lock(&self.processes);
+        let Some((cell, owner)) = lock(&self.workers.run_processes).get(&identity).cloned() else {
+            return;
+        };
         match signal {
             GroupSignal::EndPayload => {
-                if let Some(cell) = processes.cells.get(&identity) {
-                    let mut cell = lock(cell);
-                    if !cell.ended {
-                        cell.end_payload = true;
-                    }
+                let mut cell = lock(&cell);
+                if !cell.ended {
+                    cell.end_payload = true;
                 }
             }
             GroupSignal::Term => {
-                if let Some(cell) = processes.cells.get(&identity) {
-                    let mut cell = lock(cell);
-                    if !cell.ended {
-                        cell.terminate = true;
-                    }
+                let mut cell = lock(&cell);
+                if !cell.ended {
+                    cell.terminate = true;
                 }
             }
-            GroupSignal::Kill => processes.end(identity, ExitStatus::Signal(9)),
+            GroupSignal::Kill => lock(&owner).end(identity, ExitStatus::Signal(9)),
         }
     }
 
-    /// A worker of this host matches until it ended. A process that this host did not spawn is not in its table.
+    /// A worker of any handle of the run matches until it ended.
     fn identity_state(&self, identity: ProcessIdentity) -> IdentityState {
-        match lock(&self.processes).cells.get(&identity) {
-            Some(cell) if !lock(cell).ended => IdentityState::Matches,
+        match lock(&self.workers.run_processes).get(&identity) {
+            Some((cell, _)) if !lock(cell).ended => IdentityState::Matches,
             _ => IdentityState::Absent,
         }
     }

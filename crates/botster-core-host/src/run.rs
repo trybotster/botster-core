@@ -639,10 +639,14 @@ impl HostEngine {
     /// AD-1: recovers the row of `id` as a session of this handle, and posts its one `SessionState` (LC-11). A row that
     /// Core's decoder rejects is `Lost(RegistryCorrupt)` (AD-2, A10-2): it keeps its id in use until `Remove` (AD-2).
     ///
-    /// A session that this handle holds already made the row itself, and its state events were posted: it is not recovered
-    /// again.
+    /// A session that this handle holds already made the row itself: it keeps its instance and its state, and the row posts
+    /// that state (LC-11: one `SessionState` for every row). A session whose `Created` is not shown yet posts it through its
+    /// create, which is that row's one state.
     fn adopt_row(&mut self, id: SessionId, bytes: &[u8]) {
-        if self.sessions.contains_key(&id) {
+        if let Some(session) = self.sessions.get(&id) {
+            if let Some(state) = session.shown {
+                self.post_state(&id, state);
+            }
             return;
         }
         self.unadopted.remove(&id);

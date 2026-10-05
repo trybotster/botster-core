@@ -200,3 +200,32 @@ fn remove_of_an_adopted_session_whose_worker_is_gone_signals_nothing() {
         again.ok(create("s1"));
     }
 }
+
+/// Core LC-11, AD-1, ID-2: a row of a session that this handle holds already posts that session's state once more, with its
+/// own instance; the session is not replaced.
+#[test]
+fn a_row_of_a_session_of_this_handle_posts_its_state_with_its_instance() {
+    let mut w = World::default();
+    let create = w.engine.begin(create("own")).unwrap();
+    let made = w.until(|e| matches!(e, Event::Completed { op, .. } if *op == create));
+    let instance = made
+        .iter()
+        .find_map(|e| match e {
+            Event::SessionState { instance, .. } => Some(instance.clone()),
+            _ => None,
+        })
+        .expect("Created was posted");
+    let events = adopt_all(&mut w);
+    let own: Vec<(&InstanceId, &SessionState)> = events
+        .iter()
+        .filter_map(|e| match e {
+            Event::SessionState {
+                id,
+                instance,
+                state,
+            } if *id == sid("own") => Some((instance, state)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(own, vec![(&instance, &SessionState::Created)]);
+}
