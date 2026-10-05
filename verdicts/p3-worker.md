@@ -2227,3 +2227,27 @@ F21 and F22 remain CLOSED. All earlier findings and closures remain preserved.
 The reviewer ran no tests, builds, or gates.
 
 VERDICT: NOT CLEAN (F13: native query-helper accounting pending) on `63b5c1db6cec74b27c7b10d34cbbb37e99e60986`.
+
+## Round 66 — Library-inclusive Linux payload proof
+
+Reviewed and evidence head: `63b5c1db6cec74b27c7b10d34cbbb37e99e60986`.
+Log: `~/botster-sessions/gates/botster-core-stage1-p3-m1-v1-63b5c1db-linux-20261004-181046-41087.log`.
+Raw evidence: `/private/tmp/p3-payload-corrected-linux-evidence/`, copied from the completed volume without a rerun.
+The reviewer read the exact-head log, outcomes.json, baseline log, and fallback mutation failure log.
+
+The corrected command selects library tests and slow_payload. Its temporary filter omits only the inactive Mac helper at payload.rs:230:5.
+The baseline passes 47 tests, zero skipped, in 0.062 seconds.
+The job tests 30 mutations: 25 caught, five unviable, zero missed, and zero timeouts. The job exits zero.
+The fallback-minus deletion at wait_unreaped_with:279:47 is CaughtMutant.
+The library test an_interrupted_watch_retries_and_a_failed_watch_reports_unknown_exit fails its status assertion in 0.003 seconds, with Failure(100).
+This repeats the preserved original fallback closure at the current head and resolves the omitted-selection evidence gap.
+Both non-Mac helper replacements, both Payload::pending_output replacements, and the Payload::drop replacement remain caught in the raw outcomes.
+The Linux query/cleanup accounting reviewed in round 64 is therefore verified at this exact head.
+
+The temporary Linux filter grants no config exclusion or native coverage.
+F13 remains OPEN only for the later Mac query helper's two generated replacements.
+The lead-authorized native job is pending. The reviewer does not request or run a gate.
+All 167 original-entry dispositions and all earlier findings and closures remain preserved.
+The reviewer ran no tests, builds, or gates.
+
+VERDICT: NOT CLEAN (F13: native query-helper accounting pending) on `63b5c1db6cec74b27c7b10d34cbbb37e99e60986`.
