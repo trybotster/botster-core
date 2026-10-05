@@ -29,7 +29,8 @@ pub enum Command {
     Remove,
 }
 
-/// The guardian's observed state, retained across host loss (SV-5, SV-8). The guardian sends it after each authentication.
+/// The guardian's observed state, retained across host loss (SV-5, SV-8). After each authentication the guardian sends its
+/// retained log ring and then this status, so a host that has read it holds the whole tail (SV-9).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Status {
     pub service: ServiceId,

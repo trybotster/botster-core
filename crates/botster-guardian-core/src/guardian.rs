@@ -173,6 +173,7 @@ struct Spawn {
     startup: Duration,
     stop_grace: Duration,
     exited: Option<ExitStatus>,
+    cause_byte: Option<u8>,
     pending: Option<Teardown>,
 }
 
@@ -301,11 +302,13 @@ impl Guardian {
         match self.link.state {
             LinkState::AwaitHello => {
                 if self.link.authenticate(&self.cfg, &frame) {
+                    // The retained ring goes first and `Status` last. The link is ordered, so a host that has read
+                    // `Status` holds the whole tail, and adoption can complete on it (SV-9: the tail survives adoption).
                     self.orphan = None;
-                    self.report(Report::Status(self.status()));
                     self.log_sent = 0;
                     self.log_batch_end = 0;
                     self.flush_log();
+                    self.report(Report::Status(self.status()));
                 } else {
                     self.on_closed(now);
                 }
@@ -364,6 +367,7 @@ impl Guardian {
                         startup: spec.limits.startup,
                         stop_grace: spec.limits.stop_grace,
                         exited: None,
+                        cause_byte: None,
                         pending: None,
                     });
                     self.actions.push_back(Action::SpawnService(spec));
@@ -416,7 +420,7 @@ impl Guardian {
                 self.payload = Some(payload);
                 self.spawn_report = Some(report.clone());
                 self.report(Report::Started { payload, report });
-                let mut leader = Leader::new(payload, spawn.stop_grace);
+                let mut leader = Leader::new(payload, spawn.stop_grace, spawn.cause_byte);
                 let out = &mut self.actions;
                 match (spawn.exited, spawn.pending) {
                     (Some(status), _) => leader.on_exit(status, out),
@@ -490,7 +494,7 @@ impl Guardian {
 }
 
 impl Leader {
-    fn new(id: PayloadId, stop_grace: Duration) -> Self {
+    fn new(id: PayloadId, stop_grace: Duration, cause_byte: Option<u8>) -> Self {
         Leader {
             id,
             stop_grace,
@@ -498,7 +502,7 @@ impl Leader {
             exit: Exit::Running,
             signals: Signals::Idle,
             known: Vec::new(),
-            cause_byte: None,
+            cause_byte,
             signalled: None,
         }
     }
@@ -703,7 +707,12 @@ impl Machine for Guardian {
                 }
                 self.with_leader(|leader, out| leader.on_exit(status, out));
             }
-            Input::Cause(byte) => self.with_leader(|leader, _| leader.on_cause(byte)),
+            Input::Cause(byte) => {
+                if let Service::Spawning(Spawn { cause_byte, .. }) = &mut self.service {
+                    cause_byte.get_or_insert(byte);
+                }
+                self.with_leader(|leader, _| leader.on_cause(byte));
+            }
             Input::LogsDrained => self.with_leader(|leader, _| leader.on_drained()),
             Input::Descendants(known) => {
                 self.with_leader(|leader, out| leader.on_census(known, out))
