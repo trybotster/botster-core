@@ -27,3 +27,4 @@ tempfile.workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]
 libproc = "0.14"
+kqueue = "1.2.1"

@@ -25,4 +25,5 @@ signal-hook.workspace = true
 signal-hook-mio.workspace = true
 
 [dev-dependencies]
+rustix = { workspace = true, features = ["net"] }
 tempfile.workspace = true

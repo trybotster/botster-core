@@ -230,10 +230,10 @@ impl Driver {
                 self.inputs.push_back(Input::Spawned(result));
             }
             Action::DrainPty => {
-                let left = self
-                    .payload
-                    .as_ref()
-                    .map_or(0, |p| p.pending_output().unwrap_or(0));
+                let left = match self.payload.as_ref() {
+                    Some(payload) => payload.pending_output()?,
+                    None => 0,
+                };
                 self.drain_left = Some(left);
             }
             Action::SignalPayload(signal) => {
@@ -460,3 +460,7 @@ fn driver_observer() {
     };
     Driver::start(&launch).and_then(Driver::run).unwrap();
 }
+
+#[cfg(all(test, feature = "slow"))]
+#[path = "../tests/common/driver_edges.rs"]
+mod slow_edges;

@@ -293,6 +293,11 @@ fn the_pty_counts_output_and_delivers_input_to_the_program() {
         eprintln!("queued-output marker arrived; pending_output={pending}");
     }
     assert!(pending > 1);
+    assert_eq!(
+        p.pending_output().unwrap(),
+        pending,
+        "the query retains queued bytes"
+    );
     assert_eq!(p.write(b"input\n").unwrap(), 6);
     assert_eq!(read_all(&p), b"readyinput");
     assert_eq!(exit_of(&p), ExitStatus::Code(0));

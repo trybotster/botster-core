@@ -504,3 +504,38 @@ The lead lifted the Mac hold and authorized the queued payload diagnostic once w
 The diagnostic uses the current corrected FIFO, panic-cleanup, and process-state tests.
 A hang remains a finding. The code test deadlines remain ten seconds.
 Next: run that Mac diagnostic before the next Linux driver job.
+
+## Confirmed Mac defects and correction (2026-10-04)
+
+The authorized Mac diagnostic at `7b541365` ended with exit 124 after 1201 seconds.
+It ran 15 tests: 13 passed and two failed. Compilation took 1.19 seconds.
+Log: `~/botster-sessions/gates/botster-core-stage1-p3-m1-v1-7b541365-mac-20261004-165836-99257.log`.
+The FIFO marker arrived before pending_output returned zero. F18 is a production-query finding.
+The panic test failed after 10.127 seconds. The leader and anchor both had PGID 99486 and states ?Es and ?E.
+The query test then blocked until external SIGTERM after 1197.209 seconds.
+Package verdict `7f675b347ce2265f89bd1bdbe9e9e0baba496c43` and integration verdict `6b4bbe36442a2e66984a374152d217a922548349` retain F18 and F19.
+
+Apple's tty.c implements FIONREAD through ttnread, which counts canonical and raw input queues.
+Its TIOCOUTQ counts the output queue. tty_ptmx.c supplies that output count through EVFILT_READ.
+Apple's kern_exit.c calls ttywait for a controlling-session leader before it revokes the terminal.
+Apple's ps formatter uses E for P_WEXIT before the process reaches SZOMB.
+These source facts explain the query failure and support a tty-drain hypothesis for cleanup. Runtime correction proof remains pending.
+Sources: apple-oss-distributions/xnu bsd/kern/{tty.c,tty_ptmx.c,tty_dev.c,kern_exit.c}; adv_cmds ps/print.c.
+Local source copies are in `/private/tmp/p3-*.c`.
+
+Mac pending_output now uses a fresh safe kqueue Watcher and a zero-wait EVFILT_READ event count.
+The query reads no PTY bytes. A repeated-count assertion preserves the queued-output proof.
+The Mac-only dependency resolves to kqueue 1.2.1. Its published source was inspected under `/private/tmp/p3-kqueue-source/`.
+No unsafe code or terminal parser was added.
+Driver now returns a query error instead of treating it as a zero-byte drain.
+Payload Drop closes the PTY master after group SIGKILL and before waiting for its leader.
+Payload reap also closes the master before its wait. Every current caller still observes exit and kills the group first.
+The payload guard requests anchor cleanup, then returns without waiting for anchor EOF.
+This lets the production owner close the master. The anchor still signals only its own current group and never reaps the payload.
+The three earlier payload equivalence exclusions require review because Drop and reap changed.
+
+Direct slow driver tests now check control readiness/EOF, idempotent link loss, partial writes, totals, and write interest.
+They also check PTY readiness, bounded drain completion, and deregistration through the production ReapPayload action.
+Their payload guard releases before production cleanup. No payload is taken into an unguarded local owner.
+The tests enable rustix net only as a dev dependency for the socket send-buffer bound.
+Next: source review and Linux compilation/baseline. A corrected Mac diagnostic needs fresh authorization after the once-authorized run.
