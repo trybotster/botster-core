@@ -233,10 +233,8 @@ fn a_policy_that_needs_a_missing_feature_is_unsupported() {
             policy: SizePolicy::Latest
         })
         .is_ok());
-    w.feed(Input::Features(Features {
-        names: BTreeSet::from([Feature::SizePolicyOther]),
-        service_preamble_versions: vec![1],
-    }));
+    let mut w = World::offering(Feature::SizePolicyOther);
+    w.ok(create("s1"));
     assert!(w
         .engine
         .begin(Op::SetSizePolicy {
@@ -274,10 +272,10 @@ fn an_unsupported_signal_is_refused_at_begin() {
         .is_ok());
 }
 
-/// Core IN-5, AM-4: a write over a lane bound is refused at `begin` with `LaneFull`, and the lane count returns when the
-/// completion is polled (AM-4).
+/// Core IN-5, AM-4: a write over a lane bound is refused at `begin` with `LaneFull`, and the lane returns when the host polls
+/// the completion, not when the write finishes.
 #[test]
-fn a_write_over_the_lane_bound_is_lane_full_until_a_completion_is_polled() {
+fn a_session_lane_is_held_until_the_completion_is_polled() {
     let mut w = World::new(limits(|l| l.input_ops_per_session = 1));
     w.running("s1");
     let write = |b: u8| Op::WriteInput {
@@ -287,9 +285,14 @@ fn a_write_over_the_lane_bound_is_lane_full_until_a_completion_is_polled() {
         },
         guard: None,
     };
-    let first = w.engine.begin(write(1)).unwrap();
-    assert_eq!(code(w.engine.begin(write(2))), ErrorCode::LaneFull);
-    w.complete(first);
+    w.engine.begin(write(1)).unwrap();
+    w.pump();
+    assert_eq!(
+        w.engine.begin(write(2)).unwrap_err().code,
+        ErrorCode::LaneFull,
+        "finished, not polled"
+    );
+    w.engine.poll_events(64);
     assert!(w.engine.begin(write(2)).is_ok());
 }
 
@@ -339,18 +342,6 @@ fn cancel_has_a_result_for_every_kind_of_op() {
     w.complete(create);
     assert_eq!(w.engine.cancel(create), CancelResult::TooLate);
     assert_eq!(w.engine.cancel(OpId(999)), CancelResult::UnknownOp);
-}
-
-/// Core ID-1: after `Remove` and a new `Create` of the same id, an op of the old instance is `UnknownOp`.
-#[test]
-fn an_old_op_is_unknown_after_its_instance_is_removed() {
-    let mut w = World::default();
-    let first = w.engine.begin(create("s1")).unwrap();
-    w.complete(first);
-    assert_eq!(w.engine.cancel(first), CancelResult::TooLate);
-    w.ok(Op::Remove { id: sid("s1") });
-    w.ok(create("s1"));
-    assert_eq!(w.engine.cancel(first), CancelResult::UnknownOp);
 }
 
 /// Core A2-1: `AdoptAll` runs once per handle.

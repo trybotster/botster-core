@@ -73,12 +73,7 @@ impl HostEngine {
 
     fn write_session_row(&mut self, id: &SessionId, state: SessionState) {
         let row = self.row_of(id, state);
-        let ticket = self.ticket(Owner::Session(id.clone()));
-        self.act(Action::WriteRow {
-            ticket,
-            key: crate::session::row_key(id),
-            bytes: serde_json::to_vec(&row).expect("a row is JSON"),
-        });
+        let ticket = self.write_row(Owner::Session(id.clone()), &row);
         self.await_ticket(id, ticket);
     }
 
@@ -135,7 +130,7 @@ impl HostEngine {
                 signal: GroupSignal::Kill,
             });
         }
-        self.close_worker_link(id);
+        self.close_worker_link(id, "the start passed its startup deadline (LC-4)");
         self.fail_start(
             id,
             StartFailReason::StartupTimeout,
@@ -143,12 +138,11 @@ impl HostEngine {
         );
     }
 
-    pub(crate) fn close_worker_link(&mut self, id: &SessionId) {
-        if let Some(s) = self.sessions.get_mut(id) {
-            if let Some(link) = s.worker.link.take() {
-                self.links.remove(&link);
-                self.act(Action::CloseLink { link });
-            }
+    /// Closes the link of the session's worker, if it has one, and records why.
+    pub(crate) fn close_worker_link(&mut self, id: &SessionId, why: &str) {
+        if let Some(link) = self.sessions.get_mut(id).and_then(|s| s.worker.link.take()) {
+            self.links.remove(&link);
+            self.close_link(link, why);
         }
     }
 
@@ -221,7 +215,7 @@ impl HostEngine {
                         }
                         _ => s.admit = Admit::Lost,
                     }
-                    self.write_row_ignored(id, failure.state);
+                    self.write_final_row(id, failure.state);
                     self.set_start_phase(id, StartPhase::Finish);
                 }
             }
@@ -258,7 +252,7 @@ impl HostEngine {
                 // The payload ended while the start was finishing: the exit is applied now, after `Running` (OR-2).
                 self.begin_end_flow(id, end);
             } else if stop_after {
-                self.start_stop_flow(id);
+                self.request_stop(id);
             }
         } else {
             // The start failed: a `Stop` that waited ends with the state that the failure reached.
@@ -273,16 +267,24 @@ impl HostEngine {
 
     // ---- stop (LC-5) ----
 
-    /// Begins the stop of a `Running` session. The waiters (`Stop` ops) are already in the list.
-    fn start_stop_flow(&mut self, id: &SessionId) {
-        let s = self.sessions.get_mut(id).expect("a flow has a session");
+    /// The one entry of a stop (LC-5, LC-12), for `Stop`, `StopAll` and a stop that waited for its start. The session is
+    /// `Stopping` from here (AM-1). A stop joins an end that is being posted; it waits for a start or a create that is still
+    /// running (`stop_after_start`); otherwise it begins now. The waiters (`Stop` ops) are the caller's.
+    pub(crate) fn request_stop(&mut self, id: &SessionId) {
+        let s = self.sessions.get_mut(id).expect("a stop has a session");
         s.admit = Admit::Stopping;
-        s.host_ended = true;
-        s.flow = Flow::Stop(StopFlow {
-            phase: StopPhase::RowWrite,
-            deadline: None,
-            end: None,
-        });
+        match s.flow {
+            Flow::Stop(_) => {}
+            Flow::Start(_) | Flow::Create(_) => s.stop_after_start = true,
+            _ => {
+                s.host_ended = true;
+                s.flow = Flow::Stop(StopFlow {
+                    phase: StopPhase::RowWrite,
+                    deadline: None,
+                    end: None,
+                });
+            }
+        }
     }
 
     /// The payload ended, or the worker was lost: the session reaches `end` (EV-4, AD-2).
@@ -364,7 +366,7 @@ impl HostEngine {
                         }
                         _ => s.admit = Admit::Lost,
                     }
-                    self.write_row_ignored(id, state);
+                    self.write_final_row(id, state);
                     if let Some(f) = self.stop_flow(id) {
                         f.phase = StopPhase::Finish;
                     }
@@ -647,11 +649,8 @@ impl HostEngine {
         self.queue
             .post_mandatory(event)
             .expect("the room was checked above");
-        let mut session = self.sessions.remove(id).expect("a flow has a session");
-        if let Some(link) = session.worker.link.take() {
-            self.links.remove(&link);
-            self.act(Action::CloseLink { link });
-        }
+        self.close_worker_link(id, "the session was removed (LC-7)");
+        let session = self.sessions.remove(id).expect("a flow has a session");
         self.retired_ops.extend(&session.ops);
         let uploads = f
             .uploads
@@ -738,7 +737,7 @@ impl HostEngine {
                             signal: GroupSignal::Kill,
                         });
                     }
-                    self.close_worker_link(id);
+                    self.close_worker_link(id, "the worker's identity row was not written (AD-7)");
                     if let Some(flow) = self.start_flow(id) {
                         flow.error = Some(registry_failed(e));
                     }
@@ -780,7 +779,7 @@ impl HostEngine {
                 }
                 if by_stop_all {
                     // The `StopAll` still stops the target, without waiting for the row (R-16).
-                    self.start_stop_flow(id);
+                    self.request_stop(id);
                     if let Some(flow) = self.stop_flow(id) {
                         flow.phase = StopPhase::SendStop;
                     }

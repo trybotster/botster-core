@@ -15,7 +15,6 @@ use botster_core_sys::entropy::OsEntropy;
 use botster_core_sys::process::Children;
 use botster_core_sys::storage::{DataDir, FileStorage};
 use mio::net::{UnixListener, UnixStream};
-use mio::unix::SourceFd;
 use mio::{Events, Interest, Poll, Registry, Token, Waker};
 use std::collections::BTreeMap;
 use std::io::{self, Read, Write};
@@ -159,6 +158,25 @@ fn socket_path(data_dir: &Path) -> PathBuf {
     data_dir.join("c")
 }
 
+/// The control socket of `data_dir` must fit a Unix socket address. `open` checks it before it touches the directory or
+/// the host epoch, and a directory whose socket cannot be bound is a configuration error of `data_dir`.
+pub(crate) fn check_socket_path(data_dir: &Path) -> Result<(), CoreError> {
+    let socket = socket_path(data_dir);
+    std::os::unix::net::SocketAddr::from_pathname(&socket)
+        .map(drop)
+        .map_err(|error| {
+            CoreError::new(
+                ErrorCode::InvalidConfig {
+                    field: "data_dir".into(),
+                },
+                format!(
+                    "the control socket {} cannot be bound: {error}",
+                    socket.display()
+                ),
+            )
+        })
+}
+
 /// One accepted control link and what is registered for it (plan 2.5: read interest follows what the engine can take, write
 /// interest follows the outbound buffer).
 struct LinkIo {
@@ -166,25 +184,38 @@ struct LinkIo {
     read: bool,
     write: bool,
     registered: bool,
+    /// The poll registration failed: the link can no longer wake the host, so its next read or write fails with this error,
+    /// and the driver closes it (audit A28).
+    broken: Option<io::ErrorKind>,
 }
 
 impl LinkIo {
-    fn apply(&mut self, registry: &Registry, link: LinkId) {
+    /// Makes the registration follow the interest. Returns false when the poll refused it: the link is then broken.
+    fn apply(&mut self, registry: &Registry, link: LinkId) -> bool {
         let token = Token(link.0 as usize);
-        match registration(interest_of(self.read, self.write), self.registered) {
-            Registration::Reregister(i) => {
-                let _ = registry.reregister(&mut self.stream, token, i);
-            }
-            Registration::Register(i) => {
-                if registry.register(&mut self.stream, token, i).is_ok() {
-                    self.registered = true;
-                }
-            }
-            Registration::Deregister => {
-                let _ = registry.deregister(&mut self.stream);
+        let result = match registration(interest_of(self.read, self.write), self.registered) {
+            Registration::Reregister(i) => registry.reregister(&mut self.stream, token, i),
+            Registration::Register(i) => registry.register(&mut self.stream, token, i).map(|()| {
+                self.registered = true;
+            }),
+            Registration::Deregister => registry.deregister(&mut self.stream).map(|()| {
                 self.registered = false;
-            }
-            Registration::Keep => {}
+            }),
+            Registration::Keep => Ok(()),
+        };
+        if let Err(error) = result {
+            self.broken = Some(error.kind());
+        }
+        self.broken.is_none()
+    }
+
+    fn check(&self) -> io::Result<()> {
+        match self.broken {
+            Some(kind) => Err(io::Error::new(
+                kind,
+                "the poll registration of the link failed",
+            )),
+            None => Ok(()),
         }
     }
 }
@@ -200,6 +231,9 @@ pub struct RealEdges {
     socket: PathBuf,
     streams: BTreeMap<LinkId, LinkIo>,
     next_link: u64,
+    /// Accepts that failed with something other than "no client waits" (for example `EMFILE`), and the last error.
+    accept_failures: u64,
+    last_accept_error: Option<String>,
     /// Files of the registry directory that are not rows, at the last read of the rows.
     foreign_registry_files: usize,
     wake: Arc<PollWake>,
@@ -231,6 +265,8 @@ impl RealEdges {
                 socket,
                 streams: BTreeMap::new(),
                 next_link: 1,
+                accept_failures: 0,
+                last_accept_error: None,
                 foreign_registry_files: 0,
                 wake,
                 scheduler: Production::new(),
@@ -247,17 +283,13 @@ impl Drop for RealEdges {
     }
 }
 
-fn map_storage<T>(result: Result<T, StorageError>) -> Result<T, StorageError> {
-    result
-}
-
 impl HostEdges for RealEdges {
     fn fill_random(&mut self, buf: &mut [u8]) {
         self.entropy.fill(buf);
     }
 
     fn write_row(&mut self, key: &str, bytes: &[u8]) -> Result<(), StorageError> {
-        map_storage(self.storage.write_row(key, bytes))
+        self.storage.write_row(key, bytes)
     }
 
     fn delete_row(&mut self, key: &str) -> Result<(), StorageError> {
@@ -307,44 +339,52 @@ impl HostEdges for RealEdges {
     }
 
     fn accept_link(&mut self) -> Option<LinkId> {
-        loop {
-            match retry_interrupted(|| self.listener.accept()) {
-                Ok((mut stream, _)) => {
-                    let link = LinkId(self.next_link);
-                    self.next_link += 1;
-                    let registered = self.wake.registry.register(
-                        &mut stream,
-                        Token(link.0 as usize),
-                        Interest::READABLE,
-                    );
-                    if registered.is_ok() {
-                        self.streams.insert(
-                            link,
-                            LinkIo {
-                                stream,
-                                read: true,
-                                write: false,
-                                registered: true,
-                            },
-                        );
-                        return Some(link);
-                    }
-                }
-                Err(_) => return None,
+        let mut stream = match retry_interrupted(|| self.listener.accept()) {
+            Ok((stream, _)) => stream,
+            Err(error) if error.kind() == io::ErrorKind::WouldBlock => return None,
+            Err(error) => {
+                self.accept_failures += 1;
+                self.last_accept_error = Some(error.to_string());
+                return None;
             }
-        }
+        };
+        let link = LinkId(self.next_link);
+        self.next_link += 1;
+        let registered =
+            self.wake
+                .registry
+                .register(&mut stream, Token(link.0 as usize), Interest::READABLE);
+        // A link that the poll does not take is accepted broken: its first read fails, and the driver closes it and records
+        // why.
+        self.streams.insert(
+            link,
+            LinkIo {
+                stream,
+                read: true,
+                write: false,
+                registered: registered.is_ok(),
+                broken: registered.err().map(|e| e.kind()),
+            },
+        );
+        Some(link)
     }
 
     fn link_recv(&mut self, link: LinkId, buf: &mut [u8]) -> io::Result<usize> {
         match self.streams.get_mut(&link) {
-            Some(io) => io.stream.read(buf),
+            Some(io) => {
+                io.check()?;
+                io.stream.read(buf)
+            }
             None => Ok(0),
         }
     }
 
     fn link_send(&mut self, link: LinkId, bytes: &[u8]) -> io::Result<usize> {
         match self.streams.get_mut(&link) {
-            Some(io) => io.stream.write(bytes),
+            Some(io) => {
+                io.check()?;
+                io.stream.write(bytes)
+            }
             None => Err(io::ErrorKind::BrokenPipe.into()),
         }
     }
@@ -360,14 +400,19 @@ impl HostEdges for RealEdges {
     fn set_write_interest(&mut self, link: LinkId, on: bool) {
         if let Some(io) = self.streams.get_mut(&link) {
             io.write = on;
-            io.apply(&self.wake.registry, link);
+            if !io.apply(&self.wake.registry, link) {
+                // The link cannot wake the host any more: the host pumps now and finds it broken.
+                WakeEdge::signal(&*self.wake);
+            }
         }
     }
 
     fn set_read_interest(&mut self, link: LinkId, on: bool) {
         if let Some(io) = self.streams.get_mut(&link) {
             io.read = on;
-            io.apply(&self.wake.registry, link);
+            if !io.apply(&self.wake.registry, link) {
+                WakeEdge::signal(&*self.wake);
+            }
         }
     }
 
@@ -396,15 +441,12 @@ impl HostEdges for RealEdges {
     }
 
     fn diagnostics(&self) -> serde_json::Value {
-        serde_json::json!({ "foreign_registry_files": self.foreign_registry_files })
+        serde_json::json!({
+            "accept_failures": self.accept_failures,
+            "last_accept_error": self.last_accept_error,
+            "foreign_registry_files": self.foreign_registry_files,
+        })
     }
-}
-
-// `SourceFd` is part of the registration of a descriptor that `mio` does not own; it is kept in the imports for the
-// registrations that P3 and P7 add (exit watches, lanes).
-#[allow(dead_code)]
-fn _source_fd(fd: &RawFd) -> SourceFd<'_> {
-    SourceFd(fd)
 }
 
 #[cfg(test)]

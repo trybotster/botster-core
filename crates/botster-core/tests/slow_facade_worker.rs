@@ -196,7 +196,7 @@ fn the_facade_reaches_a_host_with_a_worker_on_a_real_link() {
         &format!(
             "/bin/echo \"$BOTSTER_WORKER_TOKEN\" \"$@\" | /usr/bin/tee '{}' >/dev/null\n{}",
             launch.display(),
-            common::WAIT_WHILE_THE_PARENT_LIVES
+            common::wait_for_a_signal(tmp.path())
         ),
     );
     let mut core = Core::open(OpenConfig {
@@ -227,8 +227,18 @@ fn the_facade_reaches_a_host_with_a_worker_on_a_real_link() {
     pump_until(&mut core, |e| completed(e, create).is_some());
     let start = core.begin(Op::Start { id: sid("s1") }).unwrap();
     pump_until(&mut core, |_| true);
-    // Opening the FIFO waits for the worker's `tee`; the read ends when `tee` closes it.
-    let text = std::fs::read_to_string(&launch).unwrap();
+    // Opening the FIFO waits for the worker's `tee`; the read ends when `tee` closes it. A worker that never runs fails the
+    // test at the deadline instead of hanging it.
+    let (told, heard) = std::sync::mpsc::channel();
+    let fifo = launch.clone();
+    std::thread::spawn(move || {
+        let _ = told.send(std::fs::read_to_string(fifo));
+    });
+    let text = heard
+        // timer: deadline — bounds the wait for the worker's launch
+        .recv_timeout(Duration::from_secs(10))
+        .expect("the worker handed its launch over")
+        .unwrap();
     assert!(
         worker.pid().is_some(),
         "the registered worker recorded its PID"
@@ -239,7 +249,11 @@ fn the_facade_reaches_a_host_with_a_worker_on_a_real_link() {
     let parsed = WorkerLaunch::parse(&args, Some(token)).expect("a launch");
     let stream = UnixStream::connect(&parsed.control).expect("the host listens");
     let link = stream.try_clone().unwrap();
-    let peer = std::thread::spawn(move || stand_in_worker(stream, parsed));
+    let (finished, peer) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        stand_in_worker(stream, parsed);
+        let _ = finished.send(());
+    });
     let events = pump_until(&mut core, |e| completed(e, start).is_some());
     assert!(
         matches!(completed(&events, start), Some(OpResult::Ok(_))),
@@ -304,7 +318,10 @@ fn the_facade_reaches_a_host_with_a_worker_on_a_real_link() {
     let stop = core.begin(Op::Stop { id: sid("s1") }).unwrap();
     pump_until(&mut core, |_| true);
     link.shutdown(std::net::Shutdown::Both).unwrap();
-    peer.join().unwrap();
+    peer
+        // timer: deadline — a stand-in that does not see the closed link fails the test instead of hanging it
+        .recv_timeout(Duration::from_secs(10))
+        .expect("the stand-in worker saw the link close");
     let events = pump_until(&mut core, |e| completed(e, stop).is_some());
     assert_eq!(
         core.get(&sid("s1")).unwrap().state,
