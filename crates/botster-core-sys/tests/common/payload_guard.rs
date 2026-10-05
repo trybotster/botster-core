@@ -1,14 +1,21 @@
 //! The test owns payload cleanup through a member of the payload's session.
-//! The member kills its own group on socket EOF. Production alone reaps the payload.
+//! The member ends its own group on socket EOF, with the rounds of `process_guard`, and reports the outcome to its guard.
+//! Production alone reaps the payload.
+//!
+//! An owner calls [`PayloadGuard::release`] before production's cleanup, and drops the guard after it: on macOS the
+//! member's rounds can wait in a tty drain until production closes the PTY master, so the guard reads the member's report
+//! only after that.
 
-use std::io::{Read, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 
 pub struct PayloadGuard {
     control: UnixStream,
-    thread: Option<std::thread::JoinHandle<()>>,
+    /// The member's report: `ok`, `fail: <why>`, or nothing when the member ended with its group before it reported.
+    thread: Option<std::thread::JoinHandle<String>>,
     socket: PathBuf,
+    released: bool,
 }
 
 fn helper(name: &str) -> String {
@@ -30,34 +37,51 @@ impl PayloadGuard {
             let mut ready = None;
             for _ in 0..2 {
                 let Ok((mut stream, _)) = listener.accept() else {
-                    return;
+                    return String::new();
                 };
                 let mut tag = [0];
                 if stream.read_exact(&mut tag).is_err() {
-                    return;
+                    return String::new();
                 }
                 match tag[0] {
                     1 => anchor = Some(stream),
                     2 => ready = Some(stream),
-                    _ => return,
+                    _ => return String::new(),
                 }
             }
             let (Some(mut anchor), Some(mut ready)) = (anchor, ready) else {
-                return;
+                return String::new();
             };
             let _ = anchor.write_all(&[1]);
             let _ = ready.write_all(&[1]);
             let mut rest = Vec::new();
             let _ = receiver.read_to_end(&mut rest);
             let _ = anchor.shutdown(std::net::Shutdown::Write);
-            // Return after the cleanup request. The production owner can then close the PTY master.
-            // macOS can hold an exiting anchor in tty drain until that master closes.
-            // The anchor still owns its current group through its final signal.
+            // The cleanup request is sent. The member reports when its rounds end.
+            let mut report = String::new();
+            let _ = BufReader::new(anchor).read_line(&mut report);
+            report
         });
         Self {
             control,
             thread: Some(thread),
             socket,
+            released: false,
+        }
+    }
+
+    /// Sends the cleanup request to the member, and returns at once. The owner calls it before production's cleanup.
+    pub fn release(&mut self) {
+        if self.released {
+            return;
+        }
+        self.released = true;
+        let _ = self.control.shutdown(std::net::Shutdown::Write);
+        // Release either accept if the payload never reached registration.
+        for _ in 0..2 {
+            if let Ok(stream) = UnixStream::connect(&self.socket) {
+                let _ = stream.shutdown(std::net::Shutdown::Both);
+            }
         }
     }
 
@@ -74,16 +98,21 @@ impl PayloadGuard {
 }
 
 impl Drop for PayloadGuard {
+    /// Reads the member's report, and fails the test when the member could not end the group (or reports it when the
+    /// test already panics). No report means that the member ended with its group, by production's group kill.
     fn drop(&mut self) {
-        let _ = self.control.shutdown(std::net::Shutdown::Write);
-        // Release either accept if the payload never reached registration.
-        for _ in 0..2 {
-            if let Ok(stream) = UnixStream::connect(&self.socket) {
-                let _ = stream.shutdown(std::net::Shutdown::Both);
+        self.release();
+        let Some(thread) = self.thread.take() else {
+            return;
+        };
+        let report = thread.join().unwrap_or_default();
+        if let Some(why) = report.trim().strip_prefix("fail: ") {
+            let report = format!("the payload guard's cleanup failed: {why}");
+            if std::thread::panicking() {
+                eprintln!("{report}");
+            } else {
+                panic!("{report}");
             }
-        }
-        if let Some(thread) = self.thread.take() {
-            let _ = thread.join();
         }
     }
 }
@@ -118,10 +147,16 @@ fn payload_anchor() {
         let mut rest = Vec::new();
         let _ = stream.read_to_end(&mut rest);
     }
-    // Every member of its group, then it ends (the rounds of `process_guard`). A failure is reported on its stderr.
-    if let Err(report) = super::process_guard::end_group(rustix::process::getpgrp()) {
-        let _ = writeln!(std::io::stderr(), "{report}");
-        std::process::exit(1);
+    // Every member of its group, then it ends (the rounds of `process_guard`), and reports the outcome to its guard.
+    match super::process_guard::end_group(rustix::process::getpgrp(), super::process_guard::CLEANUP)
+    {
+        Ok(()) => {
+            let _ = writeln!(stream, "ok");
+        }
+        Err(report) => {
+            let _ = writeln!(stream, "fail: {}", report.replace('\n', " "));
+            std::process::exit(1);
+        }
     }
 }
 

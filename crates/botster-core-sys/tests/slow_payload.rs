@@ -49,7 +49,12 @@ impl GuardedPayload {
 
 impl Drop for GuardedPayload {
     fn drop(&mut self) {
-        // The test ends the group before production can block in its reaper.
+        // The guard's member starts ending the group before production can block in its reaper; its report is read after
+        // production closed the PTY master (see `PayloadGuard::release`).
+        if let Some(guard) = self.guard.as_mut() {
+            guard.release();
+        }
+        drop(self.payload.take());
         drop(self.guard.take());
     }
 }

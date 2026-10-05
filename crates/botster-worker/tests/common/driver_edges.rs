@@ -9,10 +9,11 @@ use std::os::unix::net::{UnixListener, UnixStream as StdStream};
 use std::time::Duration;
 
 struct Harness {
-    // Field order releases independent ownership before the production reaper.
-    guard: Option<payload_guard::PayloadGuard>,
+    // Field order: the driver drops first, and its payload's drop ends the payload group (the guard's member with it);
+    // then the guard reads its member's report (see `PayloadGuard::release`).
     driver: Driver,
     peer: StdStream,
+    guard: Option<payload_guard::PayloadGuard>,
     root: tempfile::TempDir,
 }
 
