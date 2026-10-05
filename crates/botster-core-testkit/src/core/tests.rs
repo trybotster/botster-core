@@ -777,7 +777,7 @@ fn a_reopened_handle_sees_and_ends_the_worker_of_the_earlier_handle() {
         worker_path: Some("worker".into()),
         limits: CoreLimits::default(),
     };
-    let mut open = |dirs: &mut Directories| {
+    let open = |dirs: &mut Directories| {
         let opened = dirs
             .open(
                 "reopen",
