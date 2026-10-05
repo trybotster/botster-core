@@ -80,7 +80,7 @@ It reads both statuses again after capture and before the suffix.
 Unavailable retention within the independently measured limit remains a mismatch even when a ground-state offer resumes correctly.
 A separate diagnostic terminal retains at least the full input length and measures pending input.
 
-Steward ruling R-30 (contracts-v0.1.16) permits native encoded length plus independent format framing as fit evidence.
+Steward ruling R-30 (contracts-v0.1.17) permits native encoded length plus independent format framing as fit evidence.
 The framing source must count each per-capture field at its largest allowed size.
 It must obtain these sizes from the GHOSTSNP spec, never from Core's capture.
 The native measurement uses the same format, version, size, history setting, and zero image limit.
