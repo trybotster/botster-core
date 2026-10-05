@@ -1,11 +1,16 @@
 # P3 worker review
 
-Current verdict: NOT CLEAN for PR #163. F28 is OPEN for native mutation evidence. F33 is OPEN for landing collection of the required driver tests. All earlier closures remain preserved. All findings F1 through F24 remain CLOSED at their recorded heads and scopes.
-Reviewed head: `ccba0504b8f0e18d274132e0b88b80b2e364becd`, branch `stage1/p3-audit-fixes`.
-Round 79 records the completed red Mac gate and opens F33. The native PTY baseline passes; native mutation evidence remains pending.
-The cross-package PR also requires the integration reviewer's exact-head CLEAN and the implementer's landing gate.
+Current verdict: NOT CLEAN for two separate review units.
+PR #163 at `40b63dceb6e3f3d7be69a1488ac77eccc121a071` has F28 and F33 OPEN for completed evidence.
+PR #165 at `36702023b8a36876ad226ac61adb63723511f28e` has F35 through F38 OPEN.
+F39 is OPEN for the later #163 merge delta. It does not belong to #165's current source scope.
+Rounds 80 and 81 record the latest reviews. All earlier findings and closures remain preserved.
+F1 through F27 and F29 through F32 remain CLOSED at their recorded heads and scopes.
+F34 records the earlier unsafe PID signals and their source correction at `81ccd17`.
+Each cross-package PR also requires the integration reviewer's exact-head CLEAN and the implementer's landing gate.
 Round 73's CLEAN remains preserved for M1 at `da2b0494bbda711e5a67cb180ddf05c607784635`.
-M2a at `a7f4a386593457e3b30f03b56938092de9b060a3` has no restack verdict. The earlier M2a CLEAN below applies only to its named old head.
+M2a at `a7f4a386593457e3b30f03b56938092de9b060a3` has no restack verdict.
+The earlier M2a CLEAN below applies only to its named old head.
 
 VERDICT: CLEAN
 
@@ -3161,3 +3166,208 @@ All earlier findings, closures, and verdict rounds remain preserved.
 The reviewer ran no tests, builds, measurements, mutants, or gates.
 
 VERDICT: NOT CLEAN (2 open findings) on `ccba0504b8f0e18d274132e0b88b80b2e364becd`.
+
+
+## Round 80 — Slow selection at every module depth
+
+Reviewed head: `40b63dceb6e3f3d7be69a1488ac77eccc121a071`, PR #163, branch `stage1/p3-audit-fixes`.
+Base: `144b0234fb632bcbb5176b17c2fe55f3239405df`.
+Reviewed delta: `ccba050..40b63dc`, three commits, only `xtask/src/test_budget.rs`.
+The reviewer read the complete delta and the completed native Mac collection log:
+`~/botster-sessions/gates/botster-core-stage1-p3-audit-fixes-40b63dce-mac-20261004-215438-84612.log`.
+
+### F33 — MEDIUM — OPEN: source and collection corrected; execution pending
+
+The intermediate `1a13fd1` filter selected only root slow modules in binary targets.
+The intermediate `0110caa` filter removed the target restriction but still matched only the start of a test path.
+It omitted nested library modules such as storage::slow_tests and real::slow_tests.
+The reviewer reported this omission to both reviewers. The integration reviewer reopened I7 at verdict commit `fa34b7d`.
+
+The current filter is `binary(/^slow/) | test(/(^|::)slow_/)`.
+It matches a slow module at the start of the path or after a module separator.
+The completed collection uses the slow packages, features, and this exact filter on the reviewed head.
+It names the nested storage::slow_tests and real::slow_tests tests, the root slow_tests test, and the worker slow_driver tests.
+It also names slow_edges::a_failed_exit_watch_ends_the_worker_with_a_failure.
+The collection log reports 130 selected entries and exits 0 after five seconds.
+This is actual collection evidence. The existing literal argv assertion supplies no collection proof.
+
+The source requirement and collection requirement are satisfied.
+F33 remains OPEN only for completed execution of the required failed-watch proof in the corrected landing selection.
+The focused #165 log uses a different branch and does not contain this #163 test.
+Its passing results do not close F33.
+The implementer plans the #163 Mac gate after the guard PR and the required merge review.
+
+### F28 — MEDIUM — OPEN: native mutation evidence remains pending
+
+Round 79's native baseline remains recorded.
+This filter change supplies no native Ok(0) or Ok(1) mutation outcome for pending_output.
+F28 remains OPEN under its recorded requirements.
+
+### Verdict
+
+F28 and F33 are evidence findings on this source head.
+They do not block permitted verification under the lead's gate-evidence closure rule.
+Any source change requires a new delta review before execution.
+The previous red gate and its assigned corrections remain recorded.
+All earlier findings and closures remain preserved.
+The reviewer ran no tests, builds, measurements, mutants, or gates.
+
+VERDICT: NOT CLEAN (2 open evidence findings) on `40b63dceb6e3f3d7be69a1488ac77eccc121a071`.
+
+
+## Round 81 — Shared guard correction, PR #165
+
+Reviewed head: `36702023b8a36876ad226ac61adb63723511f28e`, branch `stage1/p3-guard-macos`.
+Base and merge base: `144b0234fb632bcbb5176b17c2fe55f3239405df`.
+The lead's later ruling assigns the shared Mac guard correction to P3. It supersedes round 79's P5 assignment.
+The lead requires the root-cause correction, a deterministic proof, and no timeout increase.
+The reviewer read all eight changed files, the intermediate guard heads, and the PR description.
+The review includes the `81ccd17..3670202` correction in process_guard.rs and payload_guard.rs.
+This PR changes shared test infrastructure. It changes no production terminal or worker semantics.
+
+### Accepted corrections and completed evidence
+
+The anchor starts /usr/bin/true in the guarded group and keeps that child unreaped.
+The anchor moves to its own group, then sends group signals while the reservation remains unreaped.
+The anchor reaps only its reservation. It does not reap the production worker or payload.
+Both guard types call the same end_group implementation.
+The PR's Prior art section names libproc, kqueue, libc, and the rejected alternatives.
+
+The current rounds use list, kill, then wait.
+This order corrects the intermediate kill-before-list defect reported as integration G3.
+The ForkRace decision model now ends members through the injected kill effect.
+Its wait requires each listed member to have ended, so the old order fails this model.
+This is a meaningful decision proof; the older helper call-count proof was insufficient.
+
+The deadline now returns Failure::Left with the listed members.
+A top-level listing error and a wait-setup error now return Failure::Error.
+GroupGuard checks the anchor status and reports failure, including during an existing panic.
+These changes correct part of integration G1 and G4. The remaining paths appear below.
+
+The reviewer read the completed native Mac log:
+`~/botster-sessions/gates/botster-core-stage1-p3-guard-macos-36702023-mac-20261004-215726-95373.log`.
+The log names this exact head and base, slow clippy, worker prebuild, and two focused nextest commands.
+It exits 0 after 11 seconds. The first command passes 132 tests; the second passes nine guard tests and skips nine other tests.
+The previously failing slow_process::process_guard::parent_dies_before_fifo_reader passes in 0.044 seconds.
+The same guard regression also passes in the selected worker and core test binaries.
+This is a focused Mac proof, not a full landing gate or Linux evidence.
+
+### F34 — HIGH — CLOSED at 81ccd17: signals no longer use an unowned PID
+
+The reviewer reported this finding on `c5ba07e` before the formal verdict.
+The initial implementation listed numeric member PIDs and then sent each PID a signal.
+A member could exit, be reaped, and have its PID reused before the signal.
+The anchor owned the group identity; it did not own each listed process identity.
+The intermediate `e0514aa` corrected Linux with pidfds but retained a Mac check-before-kill window.
+The reviewer did not accept that Mac window as ownership proof.
+
+At `81ccd17`, every signal targets the group while the unreaped reservation keeps its identity.
+The current head retains this correction. No member receives a signal by a bare PID.
+This closes the unsafe signal source path.
+F38 records the remaining test requirement for the new reservation behavior.
+
+### F35 — MEDIUM — OPEN: member inspection and signal errors remain hidden
+
+Evidence: `crates/botster-core-sys/tests/common/process_guard.rs:147-150,297-315,323-353` at the reviewed head.
+
+The Mac listing propagates pids_by_type errors but discards every pidinfo error with .ok().
+The Linux listing propagates directory errors but discards every process stat read error.
+Both paths treat an inspection failure as proof that the member has ended.
+A permission error or another inspection error can therefore remove a live member from the list.
+If all inspections fail, end_members reports success without a group signal.
+The comments claim that these failures mean the process ended; the code does not establish that condition.
+The group signal also discards every kill_process_group error.
+
+Required change: Omit a member only when the edge proves disappearance or another accepted non-live state.
+Report other inspection and signal errors through the cleanup result.
+Keep the reservation owned through every signal and the final cleanup decision.
+Prove the inspection-error outcome through injected edges used by the actual cleanup path.
+Do not add sleeps, active retry loops, or a separate test implementation.
+
+Authority: group ownership, reported cleanup failures, and BUILD.md testing rules 3 and 5.
+
+### F36 — MEDIUM — OPEN: the Mac wait can still cause an active retry loop
+
+Evidence: `process_guard.rs:247-262` and `end_members:209-220` at the reviewed head.
+
+The Mac wait discards the complete Watcher::poll result and returns Ok(()).
+The local kqueue 1.2.1 source returns EventData::Error for a failed syscall and None for a timeout.
+The guard ignores both outcomes and every event's identity and data.
+A repeatable wait error can therefore return immediately while the member remains listed.
+The next round repeats listing, signaling, and waiting without a blocking event until the deadline.
+
+The watch ESRCH path also returns Ok(()) without proving that live_members will stop listing that member.
+A member in exit can remain non-zombie in the listing while the watch cannot attach.
+The integration reviewer records this remaining case as G5 at verdict commits `2722ce0` and `6b3bb0d`.
+
+Required change: Inspect the wait outcome and preserve errors.
+Distinguish an exit event, a deadline, and an observation failure.
+Do not repeatedly treat an unwatchable listed member as completed progress.
+Prove the error and ESRCH paths with the real cleanup decision and injected observation edges.
+The proof must check the outcome and absence of active retries, not a fixed helper call count.
+
+Authority: BUILD.md rule 5 and the user's prohibition on busy-spinning children.
+
+### F37 — MEDIUM — OPEN: the payload guard still hides its cleanup failure
+
+Evidence: `payload_guard.rs:48-68,79-83,121-126` at the reviewed head.
+
+The payload anchor now returns a failure status and writes its report to stderr.
+The shell prefix redirects that stderr to /dev/null.
+PayloadGuard::drop waits only for its request thread. It does not observe the anchor's cleanup outcome.
+Thus a returned inspection, wait, or deadline failure does not reach the test through this guard.
+The PR discloses this limitation and cites test EOF checks.
+Those checks can show a retained writer, but they do not report every guard error or the remaining members.
+
+Required change: Make the payload guard's cleanup failure observable to its owner.
+Preserve production ownership of payload reaping and the existing PTY-drain ordering.
+Prove that a cleanup failure reaches the test with its cause during normal Drop and panic cleanup.
+Use the shared cleanup path and injected edges. Do not add a second cleanup implementation.
+
+Authority: independent test ownership, reported cleanup failures, and the user's actual-behavior test requirement.
+
+### F38 — MEDIUM — OPEN: the new ownership and failure proofs remain incomplete
+
+Evidence: `process_guard.rs:375-423` and the unchanged real guard fixtures at the reviewed head.
+
+The new ForkRace model corrects the old order proof.
+The native regression proves successful cleanup for the observed fork race.
+The real early-leader-exit test checks the anchor's group before cleanup starts.
+It does not check the reservation after the anchor leaves that group, through the later group signals.
+The deadline and error tests call end_members directly.
+They do not prove the guard's failure report or the native inspection and wait adapters.
+The ForkRace test also asserts the literal ended list [1, 2] instead of deriving the expected members from its setup.
+
+Required change: Prove ownership across the anchor's group change and all later group signals.
+Use owned processes for the native ownership fact and injected edges for controlled cleanup failures.
+Check the guard's visible cleanup result and the actual process effects.
+Derive expected member values from the test setup.
+Retain the completed native regression and the meaningful ForkRace decision proof.
+Do not add tests that only inspect helper counters or exist only to kill a mutant.
+
+Authority: the user's test-quality requirements and BUILD.md testing rule 3.
+
+### F39 — LOW — OPEN in #163's later merge scope: equal cleanup deadlines
+
+The integration reviewer assigns G2 to the #163 merge delta, because the guard PR lands first.
+PR #163 bounds its outer anchor wait at ten seconds.
+PR #165 permits the anchor's inner cleanup to use the same ten seconds.
+The outer deadline can expire before the anchor returns its legitimate failure report.
+
+Required change: Resolve the outer allowance when #163 incorporates the guard.
+Derive the allowance from the shared cleanup bound with enough time for the report and owner wait.
+Review the actual merge resolution before its gate.
+This requirement does not increase the inner cleanup timeout and does not block #165 for an absent merge delta.
+
+### Verdict
+
+PR #165 is NOT CLEAN for F35, F36, F37, and F38 on this exact head.
+F34 is CLOSED at its recorded correction head.
+F39 remains OPEN for the later #163 merge delta.
+PR #163 separately retains F28 and F33 from round 80.
+The integration reviewer's G1, G3, and G4 closures do not close this reviewer's remaining source paths.
+All earlier findings, closures, and verdict rounds remain preserved.
+M2a, M2b, mutation, and conformance duties remain unchanged.
+The reviewer ran no tests, builds, measurements, mutants, or gates.
+
+VERDICT: NOT CLEAN (4 open findings in PR #165) on `36702023b8a36876ad226ac61adb63723511f28e`.
