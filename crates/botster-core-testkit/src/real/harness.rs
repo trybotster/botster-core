@@ -64,7 +64,9 @@ impl RealCoreHarness {
         if let Some(path) = self.workers.get(&key) {
             return Ok(path.clone());
         }
-        let path = self.guard.wrapper(file_name, &self.candidate.worker, grace)?;
+        let path = self
+            .guard
+            .wrapper(file_name, &self.candidate.worker, grace)?;
         self.workers.insert(key, path.clone());
         Ok(path)
     }

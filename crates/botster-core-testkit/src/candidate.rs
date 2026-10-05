@@ -94,7 +94,9 @@ impl Candidate {
         exe.ancestors()
             .nth(3)
             .map(|target| target.join("candidate"))
-            .ok_or_else(|| io::Error::other(format!("{} is not in target/<profile>/deps", exe.display())))
+            .ok_or_else(|| {
+                io::Error::other(format!("{} is not in target/<profile>/deps", exe.display()))
+            })
     }
 
     /// Verifies the binaries of `dir` (`target/candidate`) against its `manifest.json`.

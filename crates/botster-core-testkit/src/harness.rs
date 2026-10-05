@@ -61,7 +61,6 @@ impl TestkitHarness {
     pub(crate) fn refusal_script(&mut self, handle: &str) -> RefusalHandle {
         self.refusals.entry(handle.to_string()).or_default().clone()
     }
-
 }
 
 /// The `CoreLimits` of an `OpenSpec` (Core 9B). Both harnesses read them the same way.

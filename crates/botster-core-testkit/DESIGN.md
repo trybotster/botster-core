@@ -201,3 +201,62 @@ An oracle read does not pump the subject.
 PTY reads do not prove that the model consumed those bytes.
 The every-cut adapter uses a fresh subject session, actual program writes, the quiet fence, and actual `CaptureSnapshot` results.
 The observer adds no terminal semantics and no test branch to the production worker.
+
+# RealCoreHarness (plan 4.2, the real-process tier)
+
+Lead ruling (2026-10-04): the harness owns real processes through public launch inputs only, with no injection seam and no
+test branch in a production crate. `RealCoreHarness` (`real/harness.rs`, `slow` feature) opens the real `Core::open` over a
+real data directory. Its `OpenConfig.worker_path` and the `argv[0]` of every session program (`probe_binary`) are wrappers
+that exec the verified prebuilt `botster-worker` and `botster-conformance-probe`. `cargo xtask prebuild-worker` builds the
+wrapper, `botster-test-anchor`, into the same sha256 manifest, and `Candidate::locate` verifies all three.
+
+## The anchor (`src/bin/botster-test-anchor.rs`, protocol in `anchor.rs`)
+
+1. **wrap.** The wrapper is a symbolic link to the anchor binary in a directory of the guard, with `anchor.json` beside it
+   (socket, grace, binary). It finds the file from `argv[0]`. Neither the environment (A2-1: exact) nor the arguments carry it.
+   It connects to the guard, starts the intermediate stage, reaps only that child, reads the anchor's `ready`, and execs the
+   real binary with the same arguments. The pid, start time, group, session, environment, signal dispositions and exit path
+   stay those of the process that Core or the worker started.
+2. **intermediate.** It starts the anchor and exits. The anchor is no child of the real binary, so the worker's and Core's
+   reapers never see it.
+3. **anchor.** It inherits the group and holds the guard connection as fds 0 and 2. It survives `TERM` (Core's group signal),
+   `HUP` (the end of the payload, its session's leader) and the terminal's job-control and keyboard signals. It writes its
+   report (its identity, the group, the leader's identity, the binary), then `ready`, then blocks on the guard connection.
+   At the end of the connection, or at its reset, it verifies, sends `TERM` to the group, waits the grace, verifies again and
+   sends `KILL` to the group as its last act. The grace is the `stop_grace` of the limits that the harness opened with.
+4. **Verification.** A group id cannot be reused while a member lives, and the anchor is a member until its `KILL`. If the
+   leader still lives in another group, the anchor reports `refused` and signals nothing (ruling item 13).
+
+The stages are chosen by `argv[0]` (`botster-test-anchor:intermediate`, `botster-test-anchor:anchor`), so no argument of the
+real program can select one. A wrapper's failure is reported on the guard connection when it has one and exits 127. Its
+stderr may be the payload's terminal, so it writes nothing there.
+
+## The guard (`real/guard.rs`)
+
+`AnchorGuard` owns the listener and a short canonical root (`botster_test_support::tempdir::TempRoot`). It accepts without
+blocking when asked for reports, so a connection is registered lazily. `finish` half-closes every connection and reads each
+one to its end: an anchor's end comes only with its death after `KILL`, or after its refusal. The drop calls `finish`. The
+death of the test closes the connections in the kernel; a connection that was never accepted is reset when the listener
+closes. Every read has a deadline (`SETTLE`, plus the longest grace for an end), so a stuck anchor fails the call instead of
+hanging the run (audit A11).
+
+Linux uses no subreaper. On both platforms init (tini in the gate container, launchd on the Mac) reaps the detached anchors
+and the orphans that a `KILL` leaves, so one code path serves both.
+
+## What the harness does not do yet
+
+- It builds no control. Each gives `unsupported_control`, which is never a pass. Every id stays pending.
+- `SIGUSR1` delivery (ruling item 15) needs a stop whose control link is broken, which needs `break_control` on the real
+  harness. The proof is pending with that control.
+- `slow_conformance` (botster-core, `slow` feature) runs the same trials as `conformance` on `RealCoreHarness`, through the
+  shared runner `tests/suite`.
+
+## Prior art
+
+- P1's slow-test `GroupGuard` (`crates/botster-core-sys/tests/common/process_guard.rs`): a test-child anchor that joins the
+  worker's group with `setpgid`. It cannot join a payload's group, which is in another session, so the anchor here is forked
+  from inside the group. Its EOF-as-cleanup idea is kept.
+- The old `script/prebuild-worker` and `real_worker.rs` (old botster-core `72b2e335`): the manifest check, reused as
+  `Candidate`.
+- Hand-rolled: the wrapper. No maintained crate wraps an exec while holding the group from a detached process. `signal-hook`
+  holds the signals (the workspace forbids `unsafe`), and the exit watch of the tests uses `pidfd` (rustix) and `kqueue`.

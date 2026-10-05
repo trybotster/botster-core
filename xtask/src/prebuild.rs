@@ -5,6 +5,8 @@
 //! - `botster-worker`: built from this workspace once a package of that name has a binary (P3). Until then nothing is built.
 //! - `botster-conformance-probe`: the program of the real-process tier, built from the pinned botster-contracts tag with
 //!   `cargo install --git`.
+//! - `botster-test-anchor`: the guarded launch wrapper of `RealCoreHarness`, built from `botster-core-testkit` with its `slow`
+//!   feature (lead ruling 2026-10-04: in the same manifest as the binaries that it wraps).
 
 use crate::fsutil::{metadata, Meta};
 use crate::tools::{cargo, run};
@@ -14,6 +16,8 @@ use std::path::{Path, PathBuf};
 
 const PROBE: &str = "botster-conformance-probe";
 const WORKER: &str = "botster-worker";
+const ANCHOR: &str = "botster-test-anchor";
+const TESTKIT: &str = "botster-core-testkit";
 
 /// The git url and the tag of the contracts dependency in the root `Cargo.toml`.
 fn contracts_source(cargo_toml: &str) -> Result<(String, String)> {
@@ -77,10 +81,31 @@ fn build_worker(root: &Path, meta: &Meta, candidate: &Path) -> Result<Option<(St
     let mut build = cargo(root);
     build.args(["build", "-p", WORKER, "--locked"]);
     run(build)?;
-    let built = meta.target_dir.join("debug").join(WORKER);
-    let target = candidate.join(WORKER);
+    install_built(meta, candidate, WORKER).map(Some)
+}
+
+/// Installs the debug build of the binary `name` into the candidate directory, and returns its manifest entry.
+fn install_built(meta: &Meta, candidate: &Path, name: &str) -> Result<(String, String)> {
+    let built = meta.target_dir.join("debug").join(name);
+    let target = candidate.join(name);
     install_executable(&built, &target)?;
-    Ok(Some((WORKER.to_string(), sha256_hex(&target)?)))
+    Ok((name.to_string(), sha256_hex(&target)?))
+}
+
+fn build_anchor(root: &Path, meta: &Meta, candidate: &Path) -> Result<(String, String)> {
+    let mut build = cargo(root);
+    build.args([
+        "build",
+        "-p",
+        TESTKIT,
+        "--features",
+        "slow",
+        "--bin",
+        ANCHOR,
+        "--locked",
+    ]);
+    run(build)?;
+    install_built(meta, candidate, ANCHOR)
 }
 
 fn build_probe(root: &Path, meta: &Meta, candidate: &Path) -> Result<(String, String)> {
@@ -117,6 +142,7 @@ pub fn command(root: &Path, args: &[String]) -> Result<()> {
     let mut entries = Vec::new();
     entries.extend(build_worker(root, &meta, &candidate)?);
     entries.push(build_probe(root, &meta, &candidate)?);
+    entries.push(build_anchor(root, &meta, &candidate)?);
     std::fs::write(&manifest, manifest_text(&entries))?;
     println!(
         "prebuild-worker: wrote {} ({} binaries)",
