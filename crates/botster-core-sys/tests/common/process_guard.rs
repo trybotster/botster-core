@@ -9,6 +9,11 @@ use std::process::{Child, Command, Stdio};
 /// The anchor joins the worker's group before the worker body runs.
 /// The anchor stays alive after the production reaper reaps the worker.
 /// Closing the control stream makes the anchor kill its group, including itself.
+///
+/// Precondition of every user: kill only a quiet group. On macOS a group kill is not atomic against a `fork`: a child whose
+/// fork completes after the kill listed the members escapes it, keeps the descriptors that it inherited, and outlives the
+/// test (Linux closes this window in the kernel). So a fixture script starts its last process before it says that it is
+/// ready, and says so with a shell builtin, which forks nothing; a test kills only after it read that line.
 pub struct GroupGuard {
     control: UnixStream,
     anchor: Child,
@@ -187,11 +192,22 @@ fn parent_dies_before_fifo_reader() {
         ));
         let child = parent.0.as_mut().unwrap();
         let mut reader = BufReader::new(child.stderr.take().unwrap());
-        let mut pid = String::new();
-        reader.read_line(&mut pid).unwrap();
-        assert!(
-            pid.trim().parse::<u32>().is_ok(),
-            "the worker reached its FIFO: {pid}"
+        let mut line = String::new();
+        reader.read_line(&mut line).unwrap();
+        let pids: Vec<i32> = line
+            .split_whitespace()
+            .map(|p| p.parse().expect("a pid"))
+            .collect();
+        let [group, blocked] = pids[..] else {
+            panic!("the worker reached its FIFO: {line}")
+        };
+        // The group is quiet: the process that blocks on the FIFO exists, in the group, before the kill (see the
+        // precondition on `GroupGuard`), so the group kill reaches it.
+        let blocked = rustix::process::Pid::from_raw(blocked).unwrap();
+        assert_eq!(
+            rustix::process::getpgid(Some(blocked)).unwrap(),
+            rustix::process::Pid::from_raw(group).unwrap(),
+            "the blocked process is in the guarded group"
         );
         child.kill().unwrap();
         // Drop reaps only the parent. The parent cannot run its group guard.
@@ -216,8 +232,12 @@ fn blocked_parent() {
     } else {
         format!("/bin/echo ready > {}", quoted(&dir.join("fifo")))
     };
+    // The blocking command starts first; then a builtin `echo`, which forks nothing, names the group and the blocked process.
     let mut worker = Command::new("/bin/sh")
-        .args(["-c", &format!("{}echo $$ >&2; {write}", guard.prefix())])
+        .args([
+            "-c",
+            &format!("{}{write} & echo $$ $! >&2; wait", guard.prefix()),
+        ])
         .process_group(0)
         .spawn()
         .unwrap();
