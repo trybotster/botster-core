@@ -1,8 +1,8 @@
 # P3 worker review
 
-Current restack verdict: NOT CLEAN. F1 through F22 remain CLOSED; F23 LOW is OPEN.
-Reviewed head: `3f9fe56ed466bf9f3ed7fde827a80168b69c3046`, branch `stage1/p3-m1-v1`.
-Round 67 closes F13. Round 69 supersedes round 68's CLEAN after integration I4 identifies incomplete test names in exclusion comments.
+Current restack verdict: NOT CLEAN. F1 through F23 are CLOSED; F24 LOW is OPEN.
+Reviewed head: `533fd3a44d6d14a26702ad3796290ee2fafebefd`, branch `stage1/p3-m1-v1`.
+Round 70 closes F23 and records missing text in two existing equivalence reasons.
 This cross-package PR also requires the integration reviewer's CLEAN. The restack plan requires the implementer's gate after both exact-head verdicts.
 The earlier CLEAN below applies only to the old M2a head that it names.
 
@@ -2348,3 +2348,34 @@ F1 through F22 remain CLOSED. All earlier findings, closures, and evidence remai
 The reviewer ran no tests, builds, or gates.
 
 VERDICT: NOT CLEAN (F23 LOW open) on `3f9fe56ed466bf9f3ed7fde827a80168b69c3046`.
+
+
+## Round 70 — Concrete test names and removed equivalence reasons
+
+Reviewed head: `533fd3a44d6d14a26702ad3796290ee2fafebefd`.
+The complete delta changes only exclusion comments and the handoff.
+The reviewer parsed both TOML versions and verified that all exclusion patterns remain identical.
+Production and test source remain unchanged.
+
+F23 is CLOSED. The affected OS adapter comments now name concrete proving test functions.
+The reviewer checked the named payload and Driver test definitions against the recorded proof.
+
+### F24 LOW — The comment correction removes existing equivalence arguments
+
+Status: OPEN.
+Location: the existing wait_unreaped OR-to-XOR and set_nonblocking OR-to-XOR exclusion comments in .cargo/mutants.toml.
+The correction replaces the wait_unreaped argument about disjoint EXITED and NOWAIT bits with test names.
+The remaining comment requests a dependency recheck but no longer states why OR and XOR are equivalent.
+The correction also removes set_nonblocking's statement that its sole caller supplies a fresh blocking PTY from pinned pty-process 0.5.3.
+The remaining description of Pty::open no longer states that caller premise explicitly.
+Concrete test names supplement an equivalence argument; they do not replace its premises.
+
+Required change: Restore the disjoint-option-bits argument for wait_unreaped beside the new test names.
+Restore set_nonblocking's sole-caller, fresh-blocking-PTY premise and pinned dependency beside its new test name.
+Keep the patterns and all new concrete proof names unchanged.
+This correction requires no new execution proof. The accepted source equivalence arguments remain preserved in earlier rounds.
+
+F1 through F23 are CLOSED. Every earlier finding and closure remains preserved.
+The reviewer ran no tests, builds, or gates.
+
+VERDICT: NOT CLEAN (F24 LOW open) on `533fd3a44d6d14a26702ad3796290ee2fafebefd`.
