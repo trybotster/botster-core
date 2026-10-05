@@ -62,7 +62,11 @@ impl Drop for OwnedWorker {
     /// Through the worker, never a payload id (lead ruling on P1 F7): while the worker is our unreaped child, `SIGTERM`
     /// makes it end the payload group that it still holds, then itself.
     fn drop(&mut self) {
-        drop(self.payload_guard.take());
+        // The payload guard's member starts ending the payload group; its report is read once the worker, which holds the
+        // PTY master, has ended (see `PayloadGuard::release`).
+        if let Some(guard) = self.payload_guard.as_mut() {
+            guard.release();
+        }
         drop(self.observer_guard.take());
         if let Ok(None) = self.worker.try_wait() {
             if let Some(pid) =
@@ -71,6 +75,7 @@ impl Drop for OwnedWorker {
                 end_child_worker(pid);
             }
         }
+        drop(self.payload_guard.take());
     }
 }
 

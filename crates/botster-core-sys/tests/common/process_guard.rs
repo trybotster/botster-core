@@ -28,6 +28,11 @@ fn quoted(path: &Path) -> String {
 impl GroupGuard {
     /// Creates ownership before the production spawn can run.
     pub fn new(dir: &Path) -> Self {
+        Self::with_cleanup(dir, CLEANUP)
+    }
+
+    /// A guard whose anchor ends the group within `cleanup` (the failure test gives it no time).
+    pub fn with_cleanup(dir: &Path, cleanup: std::time::Duration) -> Self {
         let socket = dir.join("guard.sock");
         let listener = UnixListener::bind(&socket).unwrap();
         let (control, child_control) = UnixStream::pair().unwrap();
@@ -36,6 +41,10 @@ impl GroupGuard {
         let anchor = Command::new(std::env::current_exe().unwrap())
             .args(["--exact", &helper("anchor_process"), "--nocapture"])
             .env("BOTSTER_TEST_ANCHOR", "1")
+            .env(
+                "BOTSTER_TEST_ANCHOR_CLEANUP_MS",
+                cleanup.as_millis().to_string(),
+            )
             .stdin(Stdio::from(input))
             .stderr(Stdio::from(output))
             .stdout(Stdio::null())
@@ -124,17 +133,22 @@ fn anchor_process() {
     // EOF is the test's Drop or death. No timer or parent-PID check is needed.
     let mut remaining = Vec::new();
     let _ = input.read_to_end(&mut remaining);
-    if let Err(report) = end_group(group) {
+    let cleanup = std::env::var("BOTSTER_TEST_ANCHOR_CLEANUP_MS")
+        .ok()
+        .and_then(|ms| ms.parse().ok())
+        .map_or(CLEANUP, std::time::Duration::from_millis);
+    if let Err(report) = end_group(group, cleanup) {
         let _ = writeln!(std::io::stderr(), "{report}");
         std::process::exit(1);
     }
 }
 
 /// The limit of the anchor's cleanup: the guards' cleanup limit. Not a contract value.
-const CLEANUP: std::time::Duration = std::time::Duration::from_secs(10);
+pub(crate) const CLEANUP: std::time::Duration = std::time::Duration::from_secs(10);
 
-/// Ends every member of `group`, the group of this process. One kill of the group is not enough: on macOS a child whose
-/// fork completes after the kill escapes it and stays in the group. So the kill is repeated until no live member is left.
+/// Ends every member of `group`, the group of this process, within `cleanup`. One kill of the group is not enough: on
+/// macOS a child whose fork completes after the kill escapes it and stays in the group. So the kill is repeated until no
+/// live member is left.
 ///
 /// Each kill is a signal to the group, never to a pid, so it reaches members only. The group id stays reserved through
 /// every signal: a child of this process stays in the group, unreaped, while this process leaves the group and signals it
@@ -143,11 +157,11 @@ const CLEANUP: std::time::Duration = std::time::Duration::from_secs(10);
 /// for; the system does not reuse a process group ID during its lifetime.)
 ///
 /// # Errors
-/// What was left: the members still live at the deadline, or why they could not be listed or awaited.
-pub(crate) fn end_group(group: rustix::process::Pid) -> Result<(), String> {
-    let kill = || {
-        let _ = rustix::process::kill_process_group(group, rustix::process::Signal::KILL);
-    };
+/// What was left: the members still live at the deadline, or why they could not be signalled, listed or awaited.
+pub(crate) fn end_group(
+    group: rustix::process::Pid,
+    cleanup: std::time::Duration,
+) -> Result<(), String> {
     // The reserve inherits this process's group. Without it, the one kill left also ends this process, after the report.
     let reserve = std::process::Command::new("/usr/bin/true")
         .spawn()
@@ -159,72 +173,119 @@ pub(crate) fn end_group(group: rustix::process::Pid) -> Result<(), String> {
     let mut reserve = match reserve {
         Ok(reserve) => reserve,
         Err(error) => {
-            let _ = writeln!(
-                std::io::stderr(),
-                "the group guard cannot reserve the group: {error}"
-            );
-            kill();
-            return Err(format!("the group guard cannot reserve the group: {error}"));
+            let report = format!("the group guard cannot reserve the group: {error}");
+            let _ = writeln!(std::io::stderr(), "{report}");
+            let _ = rustix::process::kill_process_group(group, rustix::process::Signal::KILL);
+            return Err(report);
         }
     };
+    let reserve_pid = rustix::process::Pid::from_raw(reserve.id() as i32).expect("a child pid");
+    // Every kill first checks the reservation: the reserve is an unreaped child of this process, so its pid is its own, and
+    // while it is in `group`, the group exists and no other group has the id.
+    let kill = || {
+        let owner = rustix::process::getpgid(Some(reserve_pid))?;
+        if owner != group {
+            return Err(std::io::Error::other(format!(
+                "the reserve {} is in group {}, not {}",
+                reserve_pid.as_raw_nonzero(),
+                owner.as_raw_nonzero(),
+                group.as_raw_nonzero()
+            )));
+        }
+        rustix::process::kill_process_group(group, rustix::process::Signal::KILL)
+            .map_err(Into::into)
+    };
     // timer: deadline — bounds the anchor's cleanup; a member that never ends cannot hold the anchor forever.
-    let deadline = std::time::Instant::now() + CLEANUP;
+    let deadline = std::time::Instant::now() + cleanup;
     let ended = end_members(
         kill,
         || live_members(group),
         |member| await_end(member.pid, deadline),
         || std::time::Instant::now() >= deadline,
     );
-    // The reserve is a zombie of this process now; its reap gives the id back.
+    // The reserve has ended (by itself or by a kill); its reap gives the id back.
     let _ = reserve.wait();
     ended.map_err(|failure| match failure {
         Failure::Left(members) => {
             let left: Vec<String> = members.iter().map(ToString::to_string).collect();
-            format!("members left after {CLEANUP:?}: {}", left.join(", "))
+            format!("members left after {cleanup:?}: {}", left.join(", "))
         }
-        Failure::Error(error) => format!("the members could not be listed or awaited: {error}"),
+        Failure::Error(error) => {
+            format!("the members could not be signalled, listed or awaited: {error}")
+        }
     })
 }
 
 /// Why `end_members` stopped before the group was empty.
 #[derive(Debug)]
 enum Failure<M> {
-    /// The members that were still live at the deadline.
+    /// The members that were still live at the deadline, or a member that a wait called gone while a listing still
+    /// called it live.
     Left(Vec<M>),
-    /// A listing or a wait failed, so the rounds cannot go on without spinning.
+    /// A kill, a listing or a wait failed, so the rounds cannot go on.
     Error(std::io::Error),
+}
+
+/// How a wait for a member's end came out.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Waited {
+    /// Its exit event came.
+    Exited,
+    /// It was gone before the wait began.
+    Gone,
+    /// The deadline came first.
+    Deadline,
 }
 
 /// The decision of `end_group`: each round lists the live members, kills the group and waits for the ends of the listed
 /// members, so every awaited member was live at its listing and the kill came after it. A round that lists none is final,
 /// because only a live member can fork a new one; a member that joins after a kill (a fork that completed after it) is in
-/// the next round's list, and that round's kill reaches it. It stops at `expired` with the members left, and at a failed
-/// listing or wait with its error, so it never spins and never reports an end that did not happen.
-fn end_members<M>(
-    mut kill: impl FnMut(),
+/// the next round's list, and that round's kill reaches it.
+///
+/// No round repeats without a blocking wait or a change in the live set: a member that a wait calls gone twice while the
+/// listings still call it live is reported as left. It stops at `expired` with the members left (after one last kill), and
+/// at a failed kill, listing or wait with its error, so it never spins and never reports an end that did not happen.
+fn end_members<M: PartialEq + Clone>(
+    mut kill: impl FnMut() -> std::io::Result<()>,
     mut members: impl FnMut() -> std::io::Result<Vec<M>>,
-    mut await_end: impl FnMut(&M) -> std::io::Result<()>,
+    mut await_end: impl FnMut(&M) -> std::io::Result<Waited>,
     mut expired: impl FnMut() -> bool,
 ) -> Result<(), Failure<M>> {
+    let mut gone_before = Vec::new();
     loop {
         let live = members().map_err(Failure::Error)?;
         if live.is_empty() {
             return Ok(());
         }
         if expired() {
+            let _ = kill();
             return Err(Failure::Left(live));
         }
-        kill();
+        kill().map_err(Failure::Error)?;
+        let mut gone = Vec::new();
         for member in &live {
-            await_end(member).map_err(Failure::Error)?;
+            if await_end(member).map_err(Failure::Error)? == Waited::Gone {
+                if gone_before.contains(member) {
+                    return Err(Failure::Left(vec![member.clone()]));
+                }
+                gone.push(member.clone());
+            }
         }
+        gone_before = gone;
     }
 }
 
-/// A live member of the group, with its state for a report.
+/// A live member of the group, with its state for a report. Two are the same member when their pids are the same.
+#[derive(Clone)]
 struct Member {
     pid: rustix::process::Pid,
     state: String,
+}
+
+impl PartialEq for Member {
+    fn eq(&self, other: &Self) -> bool {
+        self.pid == other.pid
+    }
 }
 
 impl std::fmt::Display for Member {
@@ -233,18 +294,18 @@ impl std::fmt::Display for Member {
     }
 }
 
-/// Whether an error says that the process is gone: then it has ended.
+/// Whether an error proves that the process is gone (ESRCH).
 fn gone(error: &std::io::Error) -> bool {
     error.raw_os_error() == Some(rustix::io::Errno::SRCH.raw_os_error())
 }
 
-/// Waits for the exit event of `pid` (it may stay a zombie), at most until `deadline`. A process that is already gone has
-/// ended. It only observes: a pid that was reused meanwhile can make it wait for another process, within the deadline.
+/// Waits for the exit event of `pid` (it may stay a zombie), at most until `deadline`. It only observes: a pid that was
+/// reused meanwhile can make it wait for another process, within the deadline.
 ///
 /// # Errors
-/// The wait could not be set up.
+/// The wait could not be set up, or it failed.
 #[cfg(target_os = "macos")]
-fn await_end(pid: rustix::process::Pid, deadline: std::time::Instant) -> std::io::Result<()> {
+fn await_end(pid: rustix::process::Pid, deadline: std::time::Instant) -> std::io::Result<Waited> {
     let mut watcher = kqueue::Watcher::new()?;
     watcher.add_pid(
         pid.as_raw_nonzero().get(),
@@ -252,44 +313,55 @@ fn await_end(pid: rustix::process::Pid, deadline: std::time::Instant) -> std::io
         kqueue::FilterFlag::NOTE_EXIT,
     )?;
     match watcher.watch() {
-        Err(error) if gone(&error) => return Ok(()),
+        Err(error) if gone(&error) => return Ok(Waited::Gone),
         other => other?,
     }
     // timer: deadline — bounds the wait for a killed member's exit event.
-    let _ = watcher.poll(Some(
+    match watcher.poll(Some(
         deadline.saturating_duration_since(std::time::Instant::now()),
-    ));
-    Ok(())
+    )) {
+        None => Ok(Waited::Deadline),
+        Some(kqueue::Event {
+            data: kqueue::EventData::Error(error),
+            ..
+        }) => Err(error),
+        Some(_) => Ok(Waited::Exited),
+    }
 }
 
-/// Waits for the exit event of `pid` (it may stay a zombie), at most until `deadline`. A process that is already gone has
-/// ended. It only observes: a pid that was reused meanwhile can make it wait for another process, within the deadline.
+/// Waits for the exit event of `pid` (it may stay a zombie), at most until `deadline`. It only observes: a pid that was
+/// reused meanwhile can make it wait for another process, within the deadline.
 ///
 /// # Errors
-/// The wait could not be set up or failed.
+/// The wait could not be set up, or it failed.
 #[cfg(target_os = "linux")]
-fn await_end(pid: rustix::process::Pid, deadline: std::time::Instant) -> std::io::Result<()> {
+fn await_end(pid: rustix::process::Pid, deadline: std::time::Instant) -> std::io::Result<Waited> {
     let pidfd = match rustix::process::pidfd_open(pid, rustix::process::PidfdFlags::empty()) {
-        Err(rustix::io::Errno::SRCH) => return Ok(()),
+        Err(rustix::io::Errno::SRCH) => return Ok(Waited::Gone),
         other => other?,
     };
-    let left = deadline.saturating_duration_since(std::time::Instant::now());
-    // timer: deadline — bounds the wait for a killed member's exit event.
-    let limit = rustix::event::Timespec {
-        tv_sec: left.as_secs() as i64,
-        tv_nsec: left.subsec_nanos().into(),
-    };
-    let mut fds = [rustix::event::PollFd::new(
-        &pidfd,
-        rustix::event::PollFlags::IN,
-    )];
-    match rustix::event::poll(&mut fds, Some(&limit)) {
-        Ok(_) | Err(rustix::io::Errno::INTR) => Ok(()),
-        Err(error) => Err(error.into()),
+    loop {
+        let left = deadline.saturating_duration_since(std::time::Instant::now());
+        // timer: deadline — bounds the wait for a killed member's exit event.
+        let limit = rustix::event::Timespec {
+            tv_sec: left.as_secs() as i64,
+            tv_nsec: left.subsec_nanos().into(),
+        };
+        let mut fds = [rustix::event::PollFd::new(
+            &pidfd,
+            rustix::event::PollFlags::IN,
+        )];
+        match rustix::event::poll(&mut fds, Some(&limit)) {
+            Ok(0) => return Ok(Waited::Deadline),
+            Ok(_) => return Ok(Waited::Exited),
+            Err(rustix::io::Errno::INTR) => continue,
+            Err(error) => return Err(error.into()),
+        }
     }
 }
 
-/// The live members of `group`, with their states. A zombie is not live: it cannot fork, and its parent reaps it.
+/// The live members of `group`, with their states. A zombie is not live: it cannot fork, and its parent reaps it. A
+/// process whose information cannot be read is left out only when it is proved gone (ESRCH).
 ///
 /// # Errors
 /// The process table could not be read.
@@ -298,24 +370,31 @@ fn live_members(group: rustix::process::Pid) -> std::io::Result<Vec<Member>> {
     use libproc::bsd_info::BSDInfo;
     use libproc::proc_pid::pidinfo;
     use libproc::processes::{pids_by_type, ProcFilter};
-    let group = group.as_raw_nonzero().get() as u32;
-    let members = pids_by_type(ProcFilter::ByProgramGroup { pgrpid: group })?
-        .into_iter()
-        .filter(|&pid| pid != 0)
-        // A process that ended since the listing has no information left: it is not live.
-        .filter_map(|pid| Some((pid, pidinfo::<BSDInfo>(pid as i32, 0).ok()?)))
-        .filter(|(_, info)| info.pbi_pgid == group && info.pbi_status != libc::SZOMB)
-        .filter_map(|(pid, info)| {
-            Some(Member {
-                pid: rustix::process::Pid::from_raw(pid as i32)?,
+    let group_id = group.as_raw_nonzero().get() as u32;
+    let mut members = Vec::new();
+    for pid in pids_by_type(ProcFilter::ByProgramGroup { pgrpid: group_id })? {
+        let Some(process) = rustix::process::Pid::from_raw(pid as i32) else {
+            continue;
+        };
+        let info = match pidinfo::<BSDInfo>(pid as i32, 0) {
+            Ok(info) => info,
+            Err(error) => match rustix::process::test_kill_process(process) {
+                Err(rustix::io::Errno::SRCH) => continue,
+                _ => return Err(std::io::Error::other(format!("process {pid}: {error}"))),
+            },
+        };
+        if info.pbi_pgid == group_id && info.pbi_status != libc::SZOMB {
+            members.push(Member {
+                pid: process,
                 state: format!("status {}", info.pbi_status),
-            })
-        })
-        .collect();
+            });
+        }
+    }
     Ok(members)
 }
 
-/// The live members of `group`, with their states. A zombie is not live: it cannot fork, and its parent reaps it.
+/// The live members of `group`, with their states. A zombie is not live: it cannot fork, and its parent reaps it. A
+/// process whose information cannot be read is left out only when it is proved gone.
 ///
 /// # Errors
 /// The process table could not be read.
@@ -330,16 +409,20 @@ fn live_members(group: rustix::process::Pid) -> std::io::Result<Vec<Member>> {
         else {
             continue;
         };
-        // A process that ended since the listing has no stat left: it is not live.
-        let Ok(stat) = std::fs::read_to_string(format!("/proc/{pid}/stat")) else {
-            continue;
+        let stat = match std::fs::read_to_string(format!("/proc/{pid}/stat")) {
+            Ok(stat) => stat,
+            // The process ended since the listing: its directory is gone.
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound || gone(&error) => continue,
+            Err(error) => return Err(error),
         };
         // The fields after the command name: state, ppid, pgrp.
         let fields: Vec<&str> = stat
             .rsplit_once(") ")
             .map_or(Vec::new(), |(_, rest)| rest.split_whitespace().collect());
         let (Some(&state), Some(pgrp)) = (fields.first(), fields.get(2)) else {
-            continue;
+            return Err(std::io::Error::other(format!(
+                "process {pid}: an unreadable stat"
+            )));
         };
         if state != "Z" && pgrp.parse::<i32>().ok() == Some(group.as_raw_nonzero().get()) {
             if let Some(pid) = rustix::process::Pid::from_raw(pid) {
@@ -373,57 +456,150 @@ impl ForkRace {
 /// lists, kills, then awaits).
 #[test]
 fn a_member_that_joins_after_the_first_kill_still_ends() {
+    let (first, joiner) = (1, 2);
     let group = std::cell::RefCell::new(ForkRace {
-        members: vec![1],
+        members: vec![first],
         ended: Vec::new(),
-        escaping: Some(2),
+        escaping: Some(joiner),
     });
     let ended = end_members(
-        || group.borrow_mut().kill(),
+        || {
+            group.borrow_mut().kill();
+            Ok(())
+        },
         || Ok(group.borrow().members.clone()),
         |pid: &i32| {
             assert!(
                 group.borrow().ended.contains(pid),
                 "member {pid} was awaited with no kill after its listing"
             );
-            Ok(())
+            Ok(Waited::Exited)
         },
         || false,
     );
     assert!(ended.is_ok());
     let group = group.into_inner();
     assert!(group.members.is_empty());
-    assert_eq!(group.ended, [1, 2]);
+    assert_eq!(group.ended, [first, joiner]);
 }
 
-/// At the deadline the rounds stop with the members that are left, never as a success.
+/// At the deadline the rounds stop with the members that are left, after one last kill, never as a success.
 #[test]
 fn the_rounds_stop_at_the_deadline_with_the_members_left() {
+    let (member, rounds) = (7, 2);
     let mut checks = 0;
+    let mut kills = 0;
     let ended = end_members(
-        || {},
-        || Ok(vec![7]),
-        |_: &i32| Ok(()),
+        || {
+            kills += 1;
+            Ok(())
+        },
+        || Ok(vec![member]),
+        |_: &i32| Ok(Waited::Deadline),
         || {
             checks += 1;
-            checks > 2
+            checks > rounds
         },
     );
-    assert!(matches!(ended, Err(Failure::Left(left)) if left == [7]));
+    assert!(matches!(ended, Err(Failure::Left(left)) if left == [member]));
+    assert_eq!(kills, rounds + 1, "each round's kill and the last kill");
 }
 
-/// A listing or a wait that fails stops the rounds with its error: they never spin and never report an end.
+/// A kill, a listing or a wait that fails stops the rounds with its error: they never spin and never report an end.
 #[test]
-fn a_failed_listing_or_wait_stops_the_rounds_with_its_error() {
+fn a_failed_kill_listing_or_wait_stops_the_rounds_with_its_error() {
     let failed = || std::io::Error::from(std::io::ErrorKind::PermissionDenied);
-    let listing: Result<(), Failure<i32>> =
-        end_members(|| {}, || Err(failed()), |_| Ok(()), || false);
+    let kill: Result<(), Failure<i32>> = end_members(
+        || Err(failed()),
+        || Ok(vec![7]),
+        |_| Ok(Waited::Exited),
+        || false,
+    );
+    assert!(matches!(kill, Err(Failure::Error(_))));
+    let listing: Result<(), Failure<i32>> = end_members(
+        || Ok(()),
+        || Err(failed()),
+        |_| Ok(Waited::Exited),
+        || false,
+    );
     assert!(matches!(listing, Err(Failure::Error(_))));
-    let wait = end_members(|| {}, || Ok(vec![7]), |_: &i32| Err(failed()), || false);
+    let wait = end_members(|| Ok(()), || Ok(vec![7]), |_: &i32| Err(failed()), || false);
     assert!(matches!(wait, Err(Failure::Error(_))));
 }
 
-/// A shell cannot start its body until the anchor holds its group.
+/// A member that a wait calls gone while the listings still call it live (a process held in its exit) does not make the
+/// rounds spin: the second time, the rounds stop and report it as left.
+#[test]
+fn a_member_gone_to_its_wait_but_still_listed_is_left() {
+    let held = 7;
+    let mut rounds = 0;
+    let ended = end_members(
+        || Ok(()),
+        || {
+            rounds += 1;
+            assert!(rounds <= 2, "a third round would spin");
+            Ok(vec![held])
+        },
+        |_: &i32| Ok(Waited::Gone),
+        || false,
+    );
+    assert!(matches!(ended, Err(Failure::Left(left)) if left == [held]));
+}
+
+/// A cleanup that cannot finish fails the test through the real guard: with no time for its rounds, the anchor reports
+/// the live member, and the guard's drop fails with that report. The member still ends, by the anchor's last kill.
+#[test]
+fn a_cleanup_that_cannot_finish_fails_through_the_guard() {
+    use std::os::unix::process::CommandExt;
+    let dir = tempfile::tempdir().unwrap();
+    let never = dir.path().join("never");
+    assert!(Command::new("/usr/bin/mkfifo")
+        .arg(&never)
+        .status()
+        .unwrap()
+        .success());
+    let guard = GroupGuard::with_cleanup(dir.path(), std::time::Duration::ZERO);
+    // The member blocks without CPU on a FIFO that nothing opens for writing, and holds the pipe until it ends.
+    let mut child = Command::new("/bin/sh")
+        .args([
+            "-c",
+            &format!(
+                "{}/bin/echo up; exec /bin/cat {} >/dev/null",
+                guard.prefix(),
+                quoted(&never)
+            ),
+        ])
+        .stdout(Stdio::piped())
+        .process_group(0)
+        .spawn()
+        .unwrap();
+    let pipe = child.stdout.take().unwrap();
+    let (pipe, line) = first_line(pipe);
+    assert_eq!(line, "up\n");
+    let failed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || drop(guard)))
+        .expect_err("the guard reports the cleanup failure");
+    let report = failed.downcast_ref::<String>().expect("a report").clone();
+    assert!(report.contains("members left"), "{report}");
+    eof(pipe);
+    child.wait().unwrap();
+}
+
+/// The first line of `reader`, read with the cleanup deadline.
+fn first_line(reader: impl Read + Send + 'static) -> (BufReader<Box<dyn Read + Send>>, String) {
+    let (sent, received) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let mut reader = BufReader::new(Box::new(reader) as Box<dyn Read + Send>);
+        let mut line = String::new();
+        let result = reader.read_line(&mut line).map(|_| (reader, line));
+        let _ = sent.send(result);
+    });
+    received
+        // timer: deadline — bounds the wait for a member's first line.
+        .recv_timeout(CLEANUP)
+        .expect("the member wrote its first line")
+        .unwrap()
+}
+
 #[test]
 fn register_worker() {
     let Some(socket) = std::env::var_os("BOTSTER_TEST_GROUP_SOCKET") else {
