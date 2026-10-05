@@ -6,13 +6,17 @@
 pub mod candidate;
 pub mod core;
 pub mod entropy;
+pub mod every_cut;
 pub mod harness;
 pub mod net;
+pub mod oracle;
 pub mod process_group;
 pub mod program;
 pub mod refusal;
 pub mod scheduler;
 pub mod sim;
+pub mod snapshot_controls;
+pub mod statement_runs;
 pub mod statements;
 pub mod status;
 pub mod wake;

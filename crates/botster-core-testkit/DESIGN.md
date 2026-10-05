@@ -1,5 +1,109 @@
 # botster-core-testkit: M0b design note
 
+## P6 oracle controls: current phase
+
+Scope: `brief-p6-oracle.md`, plan pin `bdda2359`, contracts `contracts-v0.1.13`.
+The testkit owns the oracle handles, the control reports, and the statement reports.
+P2 owns terminal semantics and snapshot decoding in `botster-terminal-ghostty`.
+P1 and P3 own harness dispatch and worker integration.
+This phase does not edit `harness.rs`, `program.rs`, `core.rs`, or `worker.rs`.
+
+`OracleHandle` owns a separate libghostty terminal behind a retained handle.
+The driver feeds `consumed_output` after each completed worker model step.
+The driver supplies only the consumed prefix, including a query when the step ends at a query.
+The oracle uses `vt_write_until_query` and drains its callbacks after that step.
+A different consumption count or lost callbacks produces an error.
+The driver applies each accepted resize through `OracleHandle::resize`.
+The oracle never reads the subject's cached modes, text, title, cwd, or notification.
+
+Planned dispatch after the stacked P1/P3 PR lands:
+
+1. Create one `OracleHandle` with each session's size and history configuration.
+2. Retain a clone in the harness's session map.
+3. Feed consumed output at the worker model boundary, after each model step.
+4. Apply accepted resize and terminal configuration changes at that boundary.
+5. Dispatch `oracle_state`, `oracle_modes`, `oracle_screen`, `oracle_cursor`, and `oracle_notification` through the retained handle.
+6. Parse `oracle_encode` input into the contract's key or mouse type.
+7. Pass explicit modes to the binding when the control supplies them.
+8. Otherwise use the oracle's current modes.
+9. Convert binding output bytes into the control's JSON result with the contract codec.
+10. Keep the binding's typed zero result when the encoder produces no output.
+
+For `oracle_query_reply`, resolve the session size and decode the optional prefix and request with the contract codec.
+Call the public helper with the optional host color profile.
+The helper uses a fresh libghostty shadow and reports its answerability and encoded reply.
+For `oracle_hyperlinks`, read all Core capture pages or decode the route baseline's screen payload.
+Pass the native snapshot bytes and source configuration to the public helper.
+The helper restores the bytes through libghostty and reads cell URIs, including history.
+
+Key repetition remains a transaction concern of the dispatch adapter.
+The key encoder returns one event's encoding, as P2 specifies.
+Focus reports and paste markers also come from libghostty.
+
+`statement_runs::run_deterministic` calls `run_script_events` with a fresh harness for every requested run.
+The factory must reuse the seed and configuration.
+The helper preserves event order and instance values.
+The conformance driver checks normalized equality and session identity.
+
+`statement_runs::error_codes_reachable` validates every scripted sync case against `refusal::ROWS`.
+The dispatch adapter must execute each probe through real Core or its refusal layer.
+The adapter returns true only after it observes the requested code at the requested timing.
+A table entry alone never proves reachability.
+The helper reports every missing probe in `not_reached`.
+The helper reports the statement's explicit exclusions without treating those exclusions as reached codes.
+
+All existing pending ids remain pending.
+Oracle unit tests cannot prove conformance dispatch while the harness cannot open Core.
+The terminal snapshot controls also depend on the separate P2 API PR.
+The acceptance check remains the conformance transcript through real Core after dispatch lands.
+
+The P2 API and GHOSTSNP spec PRs have merged.
+`snapshot_controls::CapturePages` receives all Core `read_page` bytes in page order and the source configuration.
+The adapter passes the actual session terminal at the capture revision to `oracle_restore`.
+Each restore field checks its own state group, including history attributes and hyperlinks.
+The adapter records every output chunk consumed after that revision for `oracle_resume`.
+The resume comparison uses native snapshot bytes, including pending parser input and saved state.
+The version control changes only the native envelope version and invokes the typed decoder.
+The graphics control reads the native limit on the actual model and restored instance.
+Both constructors set that limit to zero before input. Libghostty enforces it.
+Constructor tests in P2 check native image lookup after image stimuli on both screens.
+
+`every_cut::CutSession` separates the helper from the protected dispatch files.
+The adapter creates a fresh real Core session for each offset, writes the prefix, runs the fence, captures, and reads all pages.
+It then writes the suffix and returns the exact consumed chunks in order.
+An offered capture also returns consumed chunks after its revision and before the suffix.
+The helper replays those chunks first, so a preceding ground-state cut can meet the same resume invariant.
+The adapter must verify that no resource failure or held snapshot is injected.
+The helper checks the session size and history configuration.
+It reads the actual model's semantic failure and continuation status at every cut.
+It reads both statuses again after capture and before the suffix.
+Unavailable retention within the independently measured limit remains a mismatch even when a ground-state offer resumes correctly.
+A separate diagnostic terminal retains at least the full input length and measures pending input.
+
+Steward ruling R-30 permits native encoded length plus independent format framing as fit evidence.
+The framing source must count each per-capture field at its largest allowed size.
+It must obtain these sizes from the GHOSTSNP spec, never from Core's capture.
+The native measurement uses the same format, version, size, history setting, and zero image limit.
+`UnknownFraming` is the current dispatch source because the spec's worker paging section remains pending P3 M2b.
+Every unknown fit sets `inconclusive: true`.
+Every known non-fitting cut also sets `inconclusive: true` because the corpus prerequisite fails.
+An offered capture whose independently framed size exceeds the maximum adds a mismatch.
+The every-cut id remains pending for worker paging and real Core dispatch.
+Unit adapters and synthetic framing in tests prove helper behavior only.
+
+The slow process-group tests retain `OwnedGroup` for every spawned group.
+Their children block on a pipe held by the test.
+Closing that pipe ends the child without a timer or CPU loop.
+Drop and panic still kill the owned group and reap its leader.
+The parent-exit regression starts a fixture in the outer test's owned group.
+The fixture starts a child in that group, holds its input pipe, and exits without running Rust cleanup.
+The outer test waits for EOF before it drops its group guard.
+EOF proves that the child closed its inherited output after the parent exited.
+
+Prior art: P2 provides every terminal read and encoder.
+No old botster-core source or test was copied.
+The new testkit code keeps handles and forms reports; it implements no terminal semantics.
+
 Scope: P6 milestone M0b (plan 6.2). Plan pin `555bc433`, contracts `contracts-v0.1.1`. The `RefusalScript` layer, `RealCoreHarness`
 and the controls that need real Core come later.
 
