@@ -2132,3 +2132,38 @@ F21 remains CLOSED. All earlier findings and closures remain preserved.
 The reviewer ran no tests, builds, or gates.
 
 VERDICT: NOT CLEAN (F13: two original entries) on `3fd4144515e8e903d6417adf56d12b7f038d8b70`.
+
+## Round 63 — Guarded baseline and proposed exact exclusions
+
+Reviewed and evidence head: `3fd4144515e8e903d6417adf56d12b7f038d8b70`.
+The reviewer read the exact-head Linux log:
+`~/botster-sessions/gates/botster-core-stage1-p3-m1-v1-3fd41445-linux-20261004-180554-37672.log`.
+The job prebuilds the candidate at that head, then runs the worker binary tests and slow_cli.
+All 41 selected tests pass, zero skipped, in 0.229 seconds. The job exits zero.
+Both guarded prebuilt CLI status tests pass in 0.005 seconds.
+The guard's panic, parent-death, and retained-group tests pass in this selection.
+The three-bound retention test passes in 0.012 seconds. PTY readiness and retirement pass in 0.014 seconds.
+F22's corrected guarded execution is now verified. F22 remains CLOSED.
+
+The reviewer conditionally accepts the proposed READ_CHUNK tuning classification under the lead's round 27 rule.
+No contract clause fixes a control or PTY read to 65536 bytes or requires a frame in one read.
+The same Driver code now proves retention, ordering, and complete control frames at 65536, 1088, and the legal minimum 1.
+NonZeroUsize enforces the positive lower bound in every build.
+The proposed exclusion must name only this constant's verified arithmetic expression.
+Its reason must cite the absence of a fixed contract value, positive bounds, and control_and_pty_reads_retain_bytes_at_each_positive_bound.
+A file-wide unnamed arithmetic pattern would remain unacceptable.
+
+The reviewer conditionally accepts main as process glue at this exact head.
+Main reads process arguments and the token environment, supplies the real Driver call, prints errors, and returns the selected status.
+WorkerLaunch::parse still owns parsing. command_line::execute owns refusal and status decisions and remains mutation-tested.
+The raw execute evidence catches all three generated replacements through actual assertions.
+The exact-head prebuilt tests verify usage status 2 and connection-failure status 1.
+The unchanged real Driver session path also passes successful retirement with status 0 in this baseline.
+An exclusion must name main alone and record this division and these proving tests.
+This classification does not apply to Driver, command_line::execute, or another function in main.rs.
+
+Neither exclusion exists yet. Both original entries remain OPEN under F13 until their exact entries and reasons are reviewed.
+New query/cleanup code still requires mutation accounting in the applicable gate.
+All earlier findings and closures remain preserved. The reviewer ran no tests, builds, or gates.
+
+VERDICT: NOT CLEAN (F13: two original entries) on `3fd4144515e8e903d6417adf56d12b7f038d8b70`.
