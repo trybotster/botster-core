@@ -111,3 +111,23 @@ same head. Most commit subjects in the delta start with "wip:". That is not a fi
 the merge description should say what landed.
 
 VERDICT: NOT CLEAN (2 open: K2, K3)
+
+## Round 3 — Head 26c4c2e
+
+Reviewed head: `26c4c2ef58d7ac20b059487013da760bf34911eb`. Delta `e6d9f48..26c4c2e`, one commit: botster-core-sys
+`storage.rs` and botster-core `real.rs`. The base is still current v1 `144b023`. This reviewer ran no build, test or gate.
+
+- **K3 CLOSED.** `storage::errno` keeps an OS errno and maps an error that has none to `EIO`, never 0. `FileStorage::scan`
+  returns `StorageError` itself, so `real.rs` `read_rows` maps nothing (`self.storage.scan()?`). The rule matches P3's A52
+  constant. `an_errno_is_kept_and_a_missing_one_is_eio` is a small mapping test. Its expected values come from its inputs
+  and from the stated rule.
+- **K2 CLOSED.** The Prior art note now names:
+  - `data-encoding` as added (lowercase base32, no padding);
+  - `atomic-write-file` as removed, because it takes a path and the A1 ruling requires dirfd-relative steps;
+  - the hand-rolled atomic write and directory walk, each with its reason.
+- Implementer evidence: `~/botster-sessions/gates/botster-core-stage1-p5-audit-contract-26c4c2ef-mac-20261004-220225-16996.log`.
+  It is a focused Mac run, not the landing gate.
+
+Integration findings: none open. Still needed for CLEAN: the P5 package verdict on `26c4c2e`.
+
+VERDICT: NOT CLEAN (1 open: package verdict pending; 0 integration findings open)
