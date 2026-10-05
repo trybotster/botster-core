@@ -554,10 +554,10 @@ impl HostEngine {
         };
         match &pending.op {
             // A write that was sent and not acknowledged is `Unknown`; one that was never sent is a certain zero (IN-7).
-            Op::WriteInput { payload, .. } => OpResult::Ok(OpOutput::Input(InputResult {
+            Op::WriteInput { .. } => OpResult::Ok(OpOutput::Input(InputResult {
                 outcome: if pending.req.is_some() {
                     WriteOutcome::Unknown {
-                        max_payload_bytes: Self::held_bytes(payload),
+                        max_payload_bytes: pending.held_bytes,
                     }
                 } else {
                     WriteOutcome::NotWritten(NotWrittenReason::SessionEnded)

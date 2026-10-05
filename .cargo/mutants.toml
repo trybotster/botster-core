@@ -251,11 +251,9 @@ exclude_re = [
     'crates/botster-core-sys/src/storage\.rs:\d+:\d+: (replace DataDir::epoch( ->| with)|.* in DataDir::epoch$)',
     'crates/botster-core-sys/src/storage\.rs:\d+:\d+: (replace check_safe( ->| with)|.* in check_safe$)',
     # Equivalent mutants of `botster-core-host`: a change that no behavior can show.
-    # - `check_payload`: the `Focus` arm is `{}`, the same as the arm for every other kind (`_ => {}`).
     # - `commit`: `Stop` of a session that is `Starting` while its flow is idle, and `Flow::Create | Flow::Start` are the only
     #   flows that a `Starting` session has, so the guard `s.admit == Admit::Starting` of the last arms is never the deciding
     #   one: a `Starting` session always has a start or a create flow.
-    'crates/botster-core-host/src/admit\.rs:\d+:\d+: delete match arm InputPayload::Focus\{\.\.\} in HostEngine::check_payload$',
     'crates/botster-core-host/src/admit\.rs:\d+:\d+: replace match guard s\.admit == Admit::Starting with false in HostEngine::commit$',
     # More equivalent mutants of `botster-core-host`; each is a change that no behavior can show, for the reason given.
     # - `class_of`: the arm of the mandatory kinds. A kind without an arm is mandatory (`_ => Class::Mandatory`).
