@@ -2133,36 +2133,6 @@ The reviewer ran no tests, builds, or gates.
 
 VERDICT: NOT CLEAN (F13: two original entries) on `3fd4144515e8e903d6417adf56d12b7f038d8b70`.
 
-## Round 64 — Linux query and cleanup mutation accounting
-
-Reviewed and evidence head: `3fd4144515e8e903d6417adf56d12b7f038d8b70`.
-Log: `~/botster-sessions/gates/botster-core-stage1-p3-m1-v1-3fd41445-linux-20261004-180653-38263.log`.
-Raw evidence: `~/botster-sessions/gates/artifacts-trybotster_botster_core_stage1_p3_m1_v1-bcb322fa-20261004180653-38263/target-mutants.out/`.
-The reviewer read the exact-head log and raw outcomes, plus the query-helper and Drop failure logs.
-
-The Linux baseline passes. The job tests 32 mutations: 24 caught, five unviable, three missed, zero timeouts.
-Both replacements of the new non-Mac pending_output helper at payload.rs:224:5 are CaughtMutant.
-Ok(0) and Ok(1) each fail the pending > 1 assertion in the real PTY test in 0.005 seconds.
-The current Payload::pending_output replacements are also caught.
-The current Payload::drop replacement at payload.rs:210:9 is caught by the isolated production-reap observer in 0.007 seconds.
-Its failure log contains actual waitid and observer-success assertion failures, with Failure(100).
-These results account for the Linux query helper and confirm the existing Drop closure after the master-close change.
-The three exact-function payload equivalence arguments remain as reviewed in rounds 54 and 55.
-
-Two misses replace the Mac-only pending_output helper at payload.rs:230:5 with Ok(0) or Ok(1).
-The Linux build does not compile that helper, so these results establish no native helper coverage.
-Both native entries remain pending Mac mutation evidence. Omitting inactive entries from a focused Linux command grants no config exclusion.
-The third miss deletes the fallback minus at wait_unreaped_with:279:47.
-The focused command selects slow_payload and omits the library test that caught this unchanged fallback in round 46.
-The earlier original-entry closure remains preserved. This selection does not repeat its proof at the current head.
-The implementer proposes a library-inclusive Linux selection and native Mac evidence. Those results remain pending.
-
-F13 retains the two original driver entries pending exact exclusions, plus the native query-helper accounting described above.
-F21 and F22 remain CLOSED. All earlier findings and closures remain preserved.
-The reviewer ran no tests, builds, or gates.
-
-VERDICT: NOT CLEAN on `3fd4144515e8e903d6417adf56d12b7f038d8b70`.
-
 ## Round 63 — Guarded baseline and proposed exact exclusions
 
 Reviewed and evidence head: `3fd4144515e8e903d6417adf56d12b7f038d8b70`.
@@ -2197,3 +2167,33 @@ New query/cleanup code still requires mutation accounting in the applicable gate
 All earlier findings and closures remain preserved. The reviewer ran no tests, builds, or gates.
 
 VERDICT: NOT CLEAN (F13: two original entries) on `3fd4144515e8e903d6417adf56d12b7f038d8b70`.
+
+## Round 64 — Linux query and cleanup mutation accounting
+
+Reviewed and evidence head: `3fd4144515e8e903d6417adf56d12b7f038d8b70`.
+Log: `~/botster-sessions/gates/botster-core-stage1-p3-m1-v1-3fd41445-linux-20261004-180653-38263.log`.
+Raw evidence: `~/botster-sessions/gates/artifacts-trybotster_botster_core_stage1_p3_m1_v1-bcb322fa-20261004180653-38263/target-mutants.out/`.
+The reviewer read the exact-head log and raw outcomes, plus the query-helper and Drop failure logs.
+
+The Linux baseline passes. The job tests 32 mutations: 24 caught, five unviable, three missed, zero timeouts.
+Both replacements of the new non-Mac pending_output helper at payload.rs:224:5 are CaughtMutant.
+Ok(0) and Ok(1) each fail the pending > 1 assertion in the real PTY test in 0.005 seconds.
+The current Payload::pending_output replacements are also caught.
+The current Payload::drop replacement at payload.rs:210:9 is caught by the isolated production-reap observer in 0.007 seconds.
+Its failure log contains actual waitid and observer-success assertion failures, with Failure(100).
+These results account for the Linux query helper and confirm the existing Drop closure after the master-close change.
+The three exact-function payload equivalence arguments remain as reviewed in rounds 54 and 55.
+
+Two misses replace the Mac-only pending_output helper at payload.rs:230:5 with Ok(0) or Ok(1).
+The Linux build does not compile that helper, so these results establish no native helper coverage.
+Both native entries remain pending Mac mutation evidence. Omitting inactive entries from a focused Linux command grants no config exclusion.
+The third miss deletes the fallback minus at wait_unreaped_with:279:47.
+The focused command selects slow_payload and omits the library test that caught this unchanged fallback in round 46.
+The earlier original-entry closure remains preserved. This selection does not repeat its proof at the current head.
+The implementer proposes a library-inclusive Linux selection and native Mac evidence. Those results remain pending.
+
+F13 retains the two original driver entries pending exact exclusions, plus the native query-helper accounting described above.
+F21 and F22 remain CLOSED. All earlier findings and closures remain preserved.
+The reviewer ran no tests, builds, or gates.
+
+VERDICT: NOT CLEAN on `3fd4144515e8e903d6417adf56d12b7f038d8b70`.
