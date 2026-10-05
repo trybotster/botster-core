@@ -46,7 +46,7 @@ Scope of this review:
 
 ### Findings
 
-#### I1 [HIGH] OPEN — A failed exit watch now hangs the worker; the comment says the worker ends
+#### I1 [HIGH, lowered to MEDIUM in the round 1 addendum] OPEN — A failed exit watch now hangs the worker; the comment says the worker ends
 
 - Location: `crates/botster-core-sys/src/payload.rs` `wait_unreaped_with` (the new `panic!`) and `watch_exit`
   (`.spawn(move || on_exit(wait_unreaped(pid))).map(|_| ())`); `crates/botster-worker/src/main.rs` `exits` channel and the
@@ -146,5 +146,20 @@ Scope of this review:
 
 - `slow_payload` and clippy with `slow` have not run on this head because of the HOLD. The single gate on the CLEAN head
   covers them, under the lead's gate-evidence closure rule.
+
+VERDICT: NOT CLEAN (6 open)
+
+## Round 1 addendum — I1 severity and the lead's A52 ruling (same head `0403470`)
+
+- The lead's A52 ruling (state log, 2026-10-04) makes the unreachable `Code(-1)` a panic that names the errno and the invariant.
+  The package reviewer's F25 (round 74, `9735723`) reports the same facts as I1, rated LOW, and requires a comment correction.
+- The wait fails only if the invariant breaks, for example a second reaper in the worker process. So this reviewer lowers I1
+  from HIGH to MEDIUM. The finding stays OPEN with the same required behavior.
+- The fix keeps the ruling: keep the panic, and give it the effect that the ruling's comment states. A comment-only fix that
+  documents a silent hang does not close I1. A52 asked that a failure be visible to the host, and a silent hang hides it.
+  One possible way:
+  - the driver keeps no sender of its own;
+  - a guard in the watch closure wakes the driver when the thread ends;
+  - the driver treats a disconnected exit channel as a fatal failure: it ends the payload group and exits with a failure status.
 
 VERDICT: NOT CLEAN (6 open)
