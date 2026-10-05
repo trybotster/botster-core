@@ -54,6 +54,11 @@ impl RealCoreHarness {
         self.guard.reports()
     }
 
+    /// The reports, once at least `count` processes have started (`AnchorGuard::await_reports`).
+    pub fn await_anchors(&mut self, count: usize) -> io::Result<Vec<Report>> {
+        self.guard.await_reports(count)
+    }
+
     /// Ends every group now and returns what each anchor did. The drop does the same.
     pub fn finish(&mut self) -> io::Result<Vec<Finished>> {
         self.guard.finish()

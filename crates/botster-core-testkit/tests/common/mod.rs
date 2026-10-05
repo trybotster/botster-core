@@ -191,6 +191,9 @@ pub fn wait_exit(identity: ProcessIdentity, deadline: Duration) -> Result<(), St
         let fd = match pidfd_open(pid, PidfdFlags::empty()) {
             Ok(fd) => Some(fd),
             Err(rustix::io::Errno::SRCH) => None,
+            // EINVAL: the pid has no task left while its reap releases it. Accepted only when `/proc` shows no running
+            // process of this identity.
+            Err(rustix::io::Errno::INVAL) if !running_on_linux(identity) => None,
             Err(error) => return Err(format!("pidfd_open {}: {error}", identity.pid)),
         };
         if ended(fd.is_some()) {
@@ -226,6 +229,21 @@ pub fn wait_exit(identity: ProcessIdentity, deadline: Duration) -> Result<(), St
             None => Err(format!("{identity:?} still runs after {deadline:?}")),
         }
     }
+}
+
+/// Whether `/proc` shows the process of `identity` as running: present, with its start time, and neither a zombie nor dead.
+#[cfg(target_os = "linux")]
+fn running_on_linux(identity: ProcessIdentity) -> bool {
+    let Ok(stat) = std::fs::read_to_string(format!("/proc/{}/stat", identity.pid)) else {
+        return false;
+    };
+    let Some((_, after)) = stat.rsplit_once(") ") else {
+        return false;
+    };
+    let mut fields = after.split_whitespace();
+    let state = fields.next().unwrap_or("");
+    let start: Option<u64> = fields.nth(18).and_then(|f| f.parse().ok());
+    start == Some(identity.start_time) && !matches!(state, "Z" | "X")
 }
 
 /// Reads lines of `reader` on a helper thread until `stop` holds for one, within `deadline`. The lines, in order.

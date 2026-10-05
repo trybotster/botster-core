@@ -72,7 +72,7 @@ fn core_observes_the_real_worker_and_probe_through_the_wrappers() {
     let code = 7;
 
     let events = common::start(&harness, core.as_mut(), "a", vec![Step::Exit { code }]);
-    let reports_a = harness.anchors().unwrap();
+    let reports_a = harness.await_anchors(2).unwrap();
     let ended = pumped_to(core.as_mut(), events, &sid("a"), |s| {
         matches!(s, SessionState::Exited(_))
     });
@@ -106,9 +106,9 @@ fn core_observes_the_real_worker_and_probe_through_the_wrappers() {
     };
     assert_eq!(exit.signal, Some(Signal::TERM.as_raw()), "{exit:?}");
 
-    let before = harness.anchors().unwrap();
+    let before = harness.await_anchors(4).unwrap();
     let events = common::start(&harness, core.as_mut(), "c", vec![Step::Hold {}]);
-    let reports_c = new_reports(harness.anchors().unwrap(), &before);
+    let reports_c = new_reports(harness.await_anchors(6).unwrap(), &before);
     let worker = reports_c
         .iter()
         .find(|r| r.binary == candidate.worker)
@@ -125,7 +125,7 @@ fn core_observes_the_real_worker_and_probe_through_the_wrappers() {
         assert!(matches!(removed, OpResult::Ok(_)), "{id}: {removed:?}");
     }
     drop(core);
-    let reports = harness.anchors().unwrap();
+    let reports = harness.await_anchors(6).unwrap();
     assert_eq!(reports.len(), 6, "a worker and a payload for each session");
     let finished = harness.finish().unwrap();
     assert_eq!(finished.len(), reports.len());
@@ -144,7 +144,7 @@ fn a_panic_ends_every_group_of_the_harness() {
         let mut harness = common::harness();
         let mut core = common::open(&mut harness);
         common::start(&harness, core.as_mut(), "s", common::stubborn(None));
-        reports = harness.anchors().unwrap();
+        reports = harness.await_anchors(2).unwrap();
         panic!("the test failed while its session ran");
     }));
     assert!(unwound.is_err());
