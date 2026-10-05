@@ -438,3 +438,77 @@ fn pty_reads_clear_readiness_and_finish_a_bounded_drain() {
     assert!(h.driver.payload.is_none());
     assert!(h.driver.drain.is_none());
 }
+
+/// Lead ruling on audit finding A52 (Core EV-4, AD-2): a failed exit watch is never an exit. Through the real driver and
+/// `main`'s `execute`, the failure ends `Driver::run` with its errno and the invariant, the worker's status is a failure,
+/// the payload's whole group ends, and the host's link closes, so the host sees a lost worker.
+#[test]
+fn a_failed_exit_watch_ends_the_worker_with_a_failure() {
+    use super::slow_driver::{fifo, first_line, within, WORKER_CLEANUP};
+    use botster_core_sys::payload::ExitWatchFailed;
+    let mut h = Harness::new();
+    // A background member of the payload's group holds the FIFO, so its end of file shows that the whole group ended.
+    let held = fifo(h.root.path(), "held");
+    let guard = payload_guard::PayloadGuard::new(h.root.path());
+    let script = format!(
+        "{}exec 3> '{}'; sleep 30 & /bin/echo up >&3; wait",
+        guard.prefix(),
+        held.display()
+    );
+    h.guard = Some(guard);
+    h.driver
+        .spawn(&PayloadSpec {
+            argv: vec!["/bin/sh".into(), "-c".into(), script],
+            env: std::collections::BTreeMap::from([("PATH".into(), "/usr/bin:/bin".into())]),
+            cwd: "/".into(),
+            size: Size {
+                rows: 24,
+                cols: 80,
+                cell_px: None,
+            },
+        })
+        .unwrap();
+    let (reader, line) = first_line(&held);
+    assert_eq!(line, "up\n");
+    let failure = ExitWatchFailed {
+        errno: rustix::io::Errno::CHILD,
+    };
+    h.driver.exits.0.send(Err(failure.into())).unwrap();
+    h.driver.waker.wake().unwrap();
+    let launch = WorkerLaunch {
+        control: h.root.path().join("c"),
+        instance: InstanceId("1-1".into()),
+        host_epoch: 1,
+        token: [5; 32],
+    };
+    let args: Vec<std::ffi::OsString> = launch.args();
+    let token = launch.env()[0].1.clone().into_string().unwrap();
+    let driver = h.driver;
+    let (code, message) = within(
+        WORKER_CLEANUP,
+        "the worker ends on the failed watch",
+        move || command_line::execute(&args, Some(&token), move |_| driver.run()),
+    );
+    assert_eq!(code, std::process::ExitCode::FAILURE);
+    let message = message.expect("the failure is reported");
+    assert!(message.contains(&failure.errno.to_string()), "{message}");
+    assert!(
+        message.contains("the Payload holds the unreaped leader"),
+        "{message}"
+    );
+    within(WORKER_CLEANUP, "the payload's group ends", move || {
+        let mut reader = reader;
+        reader.read_to_end(&mut Vec::new())
+    })
+    .unwrap();
+    // The host's end reads what the worker sent, then the end of the link.
+    let mut peer = h.peer;
+    let mut buf = [0u8; 4096];
+    loop {
+        match peer.read(&mut buf) {
+            Ok(0) => break,
+            Ok(_) => {}
+            Err(error) => panic!("the link must be closed: {error}"),
+        }
+    }
+}

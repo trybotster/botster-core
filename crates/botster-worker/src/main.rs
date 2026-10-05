@@ -201,10 +201,10 @@ impl Driver {
                     }
                     EXIT => {
                         while let Ok(watched) = self.exits.1.try_recv() {
-                            // A failed watch ends the worker with its error. Dropping the driver drops the payload,
-                            // whose drop ends its group; the host then sees a lost worker, not a session that never
-                            // exits.
-                            self.inputs.push_back(io_decisions::exit_input(watched)?);
+                            // A failed watch (`ExitWatchFailed`) is not an exit: it ends the worker with its error.
+                            // Dropping the driver drops the payload, whose drop ends its group, and the worker exits
+                            // with a failure status, so the host sees a lost worker.
+                            self.inputs.push_back(Input::PayloadExited(watched?));
                         }
                     }
                     _ => {}

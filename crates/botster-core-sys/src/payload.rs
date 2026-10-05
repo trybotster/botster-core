@@ -166,8 +166,8 @@ impl Payload {
     }
 
     /// Starts the exit watch: a thread that calls `on_exit` once with the leader's status, when the leader can be reaped. The
-    /// leader stays unreaped. The watch never invents an exit: a wait that fails gives its OS error, which means that the
-    /// Payload no longer holds the unreaped leader.
+    /// leader stays unreaped. The watch never invents an exit: a wait that fails gives an [`ExitWatchFailed`] with its
+    /// errno.
     ///
     /// # Errors
     /// The thread could not be started.
@@ -252,7 +252,37 @@ fn pending_output(master: BorrowedFd<'_>) -> io::Result<usize> {
     }
 }
 
-/// Blocks until `pid` can be reaped, and returns its status without reaping it, or the OS error of a wait that failed.
+/// The exit watch could not wait for the payload leader. The Payload holds the unreaped leader, so a failed wait means that
+/// this invariant broke; no exit status is invented for it (lead ruling on audit finding A52).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ExitWatchFailed {
+    /// The error of the wait.
+    pub errno: rustix::io::Errno,
+}
+
+impl std::fmt::Display for ExitWatchFailed {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "the exit watch cannot wait for the payload leader ({}): the Payload holds the unreaped leader",
+            self.errno
+        )
+    }
+}
+
+impl std::error::Error for ExitWatchFailed {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(&self.errno)
+    }
+}
+
+impl From<ExitWatchFailed> for io::Error {
+    fn from(failed: ExitWatchFailed) -> io::Error {
+        io::Error::new(io::Error::from(failed.errno).kind(), failed)
+    }
+}
+
+/// Blocks until `pid` can be reaped, and returns its status without reaping it, or the failure of a wait that failed.
 fn wait_unreaped(pid: Pid) -> io::Result<ExitStatus> {
     wait_unreaped_with(|| {
         waitid(
@@ -279,7 +309,7 @@ fn wait_unreaped_with(
             Err(rustix::io::Errno::INTR) | Ok(None) => {}
             // The Payload holds the unreaped leader, so its wait does not fail while that holds. A failure is given to the
             // caller as it is; no exit is invented.
-            Err(errno) => return Err(errno.into()),
+            Err(errno) => return Err(ExitWatchFailed { errno }.into()),
         }
     }
 }
@@ -317,10 +347,16 @@ mod tests {
             std::collections::VecDeque::from([Err(rustix::io::Errno::INTR), Err(failure)]);
         let watched =
             wait_unreaped_with(|| outcomes.pop_front().expect("the watch made an extra wait"));
+        let error = watched.unwrap_err();
         assert_eq!(
-            watched.unwrap_err().raw_os_error(),
-            Some(failure.raw_os_error())
+            error
+                .get_ref()
+                .and_then(|e| e.downcast_ref::<ExitWatchFailed>()),
+            Some(&ExitWatchFailed { errno: failure })
         );
+        assert!(error
+            .to_string()
+            .contains("the Payload holds the unreaped leader"));
         assert!(outcomes.is_empty(), "the interrupted wait was retried");
     }
 }

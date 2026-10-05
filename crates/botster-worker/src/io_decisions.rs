@@ -1,7 +1,5 @@
 //! Pure decisions of the real I/O adapter. The Driver uses these decisions for every real edge.
 
-use botster_core_edges::edges::ExitStatus;
-use botster_worker_core::Input;
 use std::io;
 use std::time::{Duration, Instant};
 
@@ -26,12 +24,6 @@ pub fn poll_interrupted(result: io::Result<()>) -> io::Result<bool> {
         Err(error) if error.kind() == io::ErrorKind::Interrupted => Ok(true),
         Err(error) => Err(error),
     }
-}
-
-/// The input of an exit-watch result: the leader's status is the machine's `PayloadExited`. A wait that failed is not an
-/// exit: the error ends the worker, never an invented status.
-pub fn exit_input(watched: io::Result<ExitStatus>) -> io::Result<Input> {
-    watched.map(Input::PayloadExited)
 }
 
 pub fn due(deadline: Option<Instant>, now: Instant) -> bool {
@@ -104,19 +96,6 @@ mod tests {
         for kind in [io::ErrorKind::WouldBlock, io::ErrorKind::BrokenPipe] {
             assert_eq!(poll_interrupted(Err(kind.into())).unwrap_err().kind(), kind);
         }
-    }
-
-    /// EV-4: an exit-watch status is the machine's exit; a failed watch is an error with its errno, never an exit.
-    #[test]
-    fn a_failed_exit_watch_is_an_error_and_never_an_exit() {
-        let status = ExitStatus::Signal(9);
-        assert_eq!(
-            exit_input(Ok(status)).unwrap(),
-            Input::PayloadExited(status)
-        );
-        let errno = 10;
-        let failed = exit_input(Err(io::Error::from_raw_os_error(errno))).unwrap_err();
-        assert_eq!(failed.raw_os_error(), Some(errno));
     }
 
     #[test]
