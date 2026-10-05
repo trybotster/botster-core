@@ -1,3 +1,42 @@
+# PR #161 latest round: contracts-v0.1.16
+
+VERDICT: CLEAN
+
+Implementation head: `257d2ed31dbb5af06551de463091e110eabcc06d`.
+Reviewed delta: `b27fdacfad36149cc194a3e60416a03fd0e134af..257d2ed31dbb5af06551de463091e110eabcc06d`.
+Open findings for this pin move: 0, including LOW findings.
+
+## Delta review
+
+The lead retargeted PR #161 to `contracts-v0.1.16` in the shared lead handoff.
+The reviewer confirmed GitHub's exact PR head and read the updated PR body, including its Prior art note.
+
+- The tag resolves to `7778b1e13bc0328b145434725934849d786cff4a`.
+- Manifest final34 includes accepted Core Amendment 16, candidate 3. Core Amendment 14 remains included.
+- R-33 excludes MIME data that libghostty ignores from the decoded size. R-30 through R-32 remain included.
+- All six workspace dependencies use the new tag. All nine contracts lockfile entries use its exact commit.
+- Only those source entries change in Cargo.lock. No contract crate or BUILD.md changes between the tags.
+- The generated Core ledger matches the pinned ledger, byte for byte: 671 IDs, up from 664.
+- Exactly seven `conf::a16_1_*` IDs join the ledger and pending list. No existing ID leaves either list.
+- The new header gives the lead's reason: `A16: P7 services`.
+- Removing only the seven new pending lines and their header restores the previous pending file, byte for byte.
+- Both copied contracts status files match the new tag, byte for byte. The Core deferred table remains unchanged.
+- The three citation changes name the new tag. No executable Rust statement changes.
+
+A16 changes StopService results and the handling of Lost services. This PR records its seven IDs as pending under P7.
+This verdict does not prove A14 or A16 behavior, close other packages' findings, or review the RealCoreHarness scaffold.
+All earlier verdict rounds remain below without changes.
+
+## Gate boundary
+
+The reviewer ran no tests, mutation jobs, builds, or gates.
+Direct Git and Python comparisons establish the artifact checks above.
+The gate remains parked behind the lead's merge order: the P3 guard fix, #162, #163, #142, then #161.
+The future v1 merge requires a delta review. Merge requires a green gate on the final exact CLEAN head.
+The earlier red gate remains red evidence. This verdict does not close or waive its failures.
+
+---
+
 # PR #161 latest round: contracts-v0.1.15
 
 VERDICT: CLEAN
