@@ -26,12 +26,8 @@ impl HostEngine {
                 match self.take_ticket(ticket) {
                     Some(Owner::Session(id)) => self.flow_row(&id, result),
                     Some(Owner::Op(op)) => self.op_row(op, result),
-                    Some(Owner::FinalRow) => {
-                        if result.is_err() {
-                            self.final_row_failures += 1;
-                        }
-                    }
-                    None => {}
+                    Some(Owner::FinalRow) if result.is_err() => self.final_row_failures += 1,
+                    Some(Owner::FinalRow) | None => {}
                 }
             }
             Input::Spawned { ticket, result } => {
