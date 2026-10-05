@@ -77,9 +77,7 @@ fn program_control(
     };
     match op {
         "pty_input" => {
-            return Ok(
-                json!({ "bytes": { "$bytes_hex": HexBytes(control.input_log()).to_hex() } }),
-            )
+            return Ok(json!({ "bytes": { "$bytes_hex": HexBytes(control.input_log()).to_hex() } }))
         }
         "pty_output_unread" => return Ok(json!({ "bytes": control.output_unread() })),
         // `scripted` holds facts for a fake that has no terminal; the real model derives them (R-7), so it is not read.
@@ -120,9 +118,7 @@ fn worker_control(
         // A live worker whose link is withheld (`Lost(WorkerUnreachable)`) is the process edge's `withhold_control_link`
         // (P6); ending the worker would give the other state, so it is not offered here.
         ("lose_worker", Some("worker_unreachable")) => return Err(ControlError::Unsupported),
-        (_, Some(other)) => {
-            return Err(ControlError::Bad(format!("{op}: unknown reason {other}")))
-        }
+        (_, Some(other)) => return Err(ControlError::Bad(format!("{op}: unknown reason {other}"))),
         _ => return Err(ControlError::Unsupported),
     };
     if done {
@@ -134,7 +130,6 @@ fn worker_control(
         )))
     }
 }
-
 
 #[cfg(test)]
 mod tests {
