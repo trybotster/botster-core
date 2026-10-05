@@ -6,7 +6,7 @@ use std::io::Write;
 #[path = "guard_platform.rs"]
 pub(crate) mod platform;
 
-use platform::{await_end, gone, live_members, Member, Waited};
+use platform::{await_end, gone, live_members, Waited};
 
 /// The limit of the anchor's cleanup: the guards' cleanup limit. Not a contract value.
 pub(crate) const CLEANUP: std::time::Duration = std::time::Duration::from_secs(10);
