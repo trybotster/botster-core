@@ -742,3 +742,55 @@ K4 prevents a CLEAN verdict until the remaining access rule closes.
 The reviewer does not close the other P5 audit deliverables or P5 adoption.
 
 VERDICT: NOT CLEAN (1 open)
+
+## PR #164 — Round 5
+
+- Exact head: `428c783967ca6e67d7cccb36db8336eb96aef004`.
+- Base: `144b0234fb632bcbb5176b17c2fe55f3239405df`.
+- Scope: `1b1340cf..428c7839` and the lead's K4 durability-boundary ruling.
+- The reviewer ran no builds, tests, mutation jobs, or gates.
+
+### Integration K4 — LOW — The lead replaced this head's writable-ancestor rule
+
+The revision injects both the write-access check and the directory sync.
+It stops the ancestor walk at the first directory that the host cannot write.
+Its tests check an inaccessible ancestor above that boundary and an error below it.
+The integration reviewer accepted that rule at this head, verdict commit `87ed24c`.
+
+The lead then issued a different boundary in message `msg_plugin-w_1791177356_457755`.
+That ruling supersedes both the full ancestor walk and this writable-ancestor walk:
+
+1. Core creates at most the final `data_dir` component through a non-recursive mkdir.
+2. A missing parent fails open with the existing typed registry I/O error.
+3. Core syncs `data_dir` and its immediate parent on every open.
+4. Core syncs no other ancestor. The host provides those ancestors and owns their durability.
+5. The immediate parent must be openable for the required sync. Otherwise open fails and claims no durability.
+
+This head still creates ancestors recursively and uses write access to select which ancestors to sync.
+It therefore does not implement the new ruling.
+The reviewer relayed the exact boundary to the implementer and integration reviewer.
+No earlier finding is waived. The ruling narrows the directory creation responsibility and removes the ancestor ambiguity.
+
+**Required change:** Implement the lead's boundary through the same injected production path.
+Document the parent existence and access requirements in rustdoc and DESIGN.md.
+Use the existing typed I/O error; ask the lead if no existing code fits.
+Test a missing parent, an unreadable immediate parent, and a retry after a failed parent sync.
+Observe the retry's parent sync through the injected edge.
+Also test a nested data directory below an execute-only grandparent.
+Obtain both reviews on the revised exact head.
+
+Status: OPEN (lead ruling pending implementation).
+
+### Evidence and scope limits
+
+The reviewer read the raw exact-head Mac log:
+`~/botster-sessions/gates/botster-core-stage1-p5-audit-contract-428c7839-mac-20261004-221459-45851.log`.
+It reports 487 default-tier tests passed, with 654 skipped.
+The selected slow targets report 58 passed, zero skipped, and exit 0.
+The two ancestor tests passed. These results cover the superseded rule and are not proof of the lead's new boundary.
+The selected result is not a full gate. The known A10 and shared guard dependencies still require their merge sequence.
+
+P5-F5 through P5-F10 remain CLOSED for the unchanged source in this head.
+The remaining K4 boundary prevents CLEAN. The rest of P5 deliverable 1 and P5 adoption remain separate work.
+
+VERDICT: NOT CLEAN (1 open)
