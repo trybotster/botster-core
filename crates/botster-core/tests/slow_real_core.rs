@@ -210,7 +210,7 @@ fn a_worker_that_exits_before_it_connects_ends_the_start_at_once() {
         &format!(
             "/bin/echo ready > '{}'\n{}",
             ready.display(),
-            common::WAIT_WHILE_THE_PARENT_LIVES
+            common::wait_for_a_signal(tmp.path())
         ),
     );
     let mut open = config(tmp.path());
@@ -334,7 +334,7 @@ fn a_worker_is_not_left_when_the_cleanup_of_a_test_fails() {
         &format!(
             "/bin/echo ready > '{}'\n{}",
             ready.display(),
-            common::WAIT_WHILE_THE_PARENT_LIVES
+            common::wait_for_a_signal(tmp.path())
         ),
     );
     let mut open = config(tmp.path());
