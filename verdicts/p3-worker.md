@@ -1,8 +1,8 @@
 # P3 worker review
 
-Current verdict: NOT CLEAN for PR #163. F28 is OPEN only for completed native evidence. F25 is CLOSED at the head below. All other findings retain their recorded closures. All findings F1 through F24 remain CLOSED at their recorded heads and scopes.
+Current verdict: NOT CLEAN for PR #163. F28 is OPEN for native mutation evidence. F33 is OPEN for landing collection of the required driver tests. All earlier closures remain preserved. All findings F1 through F24 remain CLOSED at their recorded heads and scopes.
 Reviewed head: `ccba0504b8f0e18d274132e0b88b80b2e364becd`, branch `stage1/p3-audit-fixes`.
-Round 78 closes F25. All source findings are closed. The HOLD still prevents the verification required for F28.
+Round 79 records the completed red Mac gate and opens F33. The native PTY baseline passes; native mutation evidence remains pending.
 The cross-package PR also requires the integration reviewer's exact-head CLEAN and the implementer's landing gate.
 Round 73's CLEAN remains preserved for M1 at `da2b0494bbda711e5a67cb180ddf05c607784635`.
 M2a at `a7f4a386593457e3b30f03b56938092de9b060a3` has no restack verdict. The earlier M2a CLEAN below applies only to its named old head.
@@ -3074,3 +3074,90 @@ All earlier findings, closures, and verdict rounds remain preserved.
 The reviewer ran no tests, builds, measurements, mutants, or gates.
 
 VERDICT: NOT CLEAN (1 open evidence finding) on `ccba0504b8f0e18d274132e0b88b80b2e364becd`.
+
+
+## Round 79 — Completed Mac gate and missing driver collection
+
+Reviewed head: `ccba0504b8f0e18d274132e0b88b80b2e364becd`, branch `stage1/p3-audit-fixes`.
+There is no new source delta.
+The reviewer read the completed log:
+`~/botster-sessions/gates/botster-core-stage1-p3-audit-fixes-ccba0504-mac-20261004-212806-3319.log`.
+The log names this exact head, base `144b0234fb632bcbb5176b17c2fe55f3239405df`, and native Mac execution.
+The job exits 1 after 773 seconds. This is not a passing landing gate.
+
+### Completed evidence
+
+Format, default clippy, taint, lists, public API, and worker prebuild pass.
+The default tier runs 758 tests and all 758 pass. Its nextest report also names 654 skipped entries.
+The default nextest run takes 3.181 seconds.
+The slow tier runs 85 tests: 83 pass, two fail, and zero selected tests are skipped.
+The slow tier selects seven binaries and skips seven binaries.
+Mutation and fuzz do not run because the slow step fails.
+
+All selected slow_payload tests pass natively.
+The corrected PTY count test passes in 0.030 seconds.
+The blocked-cleanup regression passes in 0.075 seconds.
+The expected-panic cleanup regression passes in 0.030 seconds.
+The selected slow_session and slow_cli tests also pass.
+
+Two tests fail:
+
+- slow_real_core::a_worker_is_not_left_when_the_cleanup_of_a_test_fails fails its cleanup assertion in 0.201 seconds.
+- slow_process::process_guard::parent_dies_before_fifo_reader fails its FIFO EOF deadline in 10.048 seconds.
+
+The second failure reports "all descendants closed the pipe: Timeout".
+It is a bounded failure, so this result does not reopen F26's unbounded-cleanup finding.
+The reviewer also read the completed P5 and P7 Mac logs at heads `1a96eee7` and `6e8d5b34`.
+Both use base `144b023` and record the same slow_process failure in the earlier shared guard.
+The lead assigns its root-cause correction to P5 PR #162 in the state log dated 2026-10-04.
+The lead requires no rerun, no timeout change, a root-cause correction, and a deterministic proof.
+Audit A10's slow_real_core correction is also P5 work.
+These failures remain landing blockers; this review does not dismiss them as harmless or authorize a rerun.
+
+### F28 — MEDIUM — OPEN: native baseline passes; mutation evidence pending
+
+The native count test now has a completed passing baseline on this exact head.
+The gate does not renew the native mutation proof from round 67.
+The normal mutation configuration excludes pending_output and the normal mutation step uses the default tier.
+In this completed job, that step does not run at all.
+The updated real-PTY test still requires the applicable native Ok(0) and Ok(1) mutation evidence.
+F28 remains OPEN until that completed evidence arrives and the reviewer checks the actual outcomes.
+The implementer reports that the focused native job waits for capacity.
+The reviewer requests no parallel jobs and runs no job.
+
+### F33 — MEDIUM — The landing slow selection omits this PR's required driver proof
+
+Status: OPEN.
+Evidence: `xtask/src/test_budget.rs:169-189`;
+`crates/botster-worker/src/main.rs`, slow_driver, driver_observer, and slow_edges test modules;
+the completed Mac log's selected binaries and test names.
+
+The slow selection enables each package's slow feature, then filters binaries with `binary(/^slow/)`.
+The worker's feature-gated driver tests live in the botster-worker unit binary.
+That binary name does not match the filter.
+The default tier does not enable the slow feature, so it also omits those tests.
+The new a_failed_exit_watch_ends_the_worker_with_a_failure therefore runs in neither landing tier.
+The observer copy of the session tests and the other real-driver edge tests are also absent.
+The completed gate log contains no execution of the required F25 proof.
+The implementer corrected its initial claim that those tests passed in this gate.
+
+Required change: Register the feature-gated worker driver tests in the landing slow selection.
+Retain the existing slow integration tests and their independent process ownership.
+Use the production driver path. Do not add a production test branch or a duplicate test implementation.
+Show completed collection and execution of the new failed-watch test on the corrected reviewed head.
+A focused run can supply interim evidence, but it does not correct the landing selection.
+The broader A32/A33 test rewrite remains separate assigned work.
+Do not defer collection of this PR's required proof to that later rewrite.
+
+Authority: BUILD.md testing rules 2 and 3, the lead's A52 actual-path proof condition, and the exact-head landing requirements.
+
+### Verdict
+
+F1 through F27 and F29 through F32 retain their recorded closures.
+F28 remains OPEN for native mutation evidence. F33 is OPEN for the landing collection correction above.
+Round 78's statement that all source findings were closed is superseded by F33.
+The gate is red, and its two failing shared tests remain assigned to the lead's stated owners.
+All earlier findings, closures, and verdict rounds remain preserved.
+The reviewer ran no tests, builds, measurements, mutants, or gates.
+
+VERDICT: NOT CLEAN (2 open findings) on `ccba0504b8f0e18d274132e0b88b80b2e364becd`.
