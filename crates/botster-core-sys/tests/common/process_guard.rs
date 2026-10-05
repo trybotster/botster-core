@@ -361,13 +361,16 @@ fn await_end(pid: rustix::process::Pid, deadline: std::time::Instant) -> std::io
 }
 
 /// The live members of `group`, with their states. A process is left out only when it is proved not live: a zombie (it
-/// cannot fork, and its parent reaps it), or a process that is gone. macOS refuses the information of both with ESRCH;
-/// any other refusal fails the listing.
+/// cannot fork, and its parent reaps it) or a process that is gone. macOS refuses the information of a zombie, so a
+/// refused process is checked with the process filter of kqueue, which refuses a process that is exiting or gone with
+/// ESRCH; a live process whose information is refused fails the listing.
 ///
 /// # Errors
 /// The process table could not be read.
 #[cfg(target_os = "macos")]
 fn live_members(group: rustix::process::Pid) -> std::io::Result<Vec<Member>> {
+    use libproc::bsd_info::BSDInfo;
+    use libproc::proc_pid::pidinfo;
     use libproc::processes::{pids_by_type, ProcFilter};
     let group_id = group.as_raw_nonzero().get() as u32;
     let mut members = Vec::new();
@@ -375,27 +378,15 @@ fn live_members(group: rustix::process::Pid) -> std::io::Result<Vec<Member>> {
         let Some(process) = rustix::process::Pid::from_raw(pid as i32) else {
             continue;
         };
-        let size = std::mem::size_of::<libc::proc_bsdinfo>();
-        let mut info = std::mem::MaybeUninit::<libc::proc_bsdinfo>::zeroed();
-        // SAFETY: the buffer is a `proc_bsdinfo` of `size` bytes, as the flavor PROC_PIDTBSDINFO asks.
-        let written = unsafe {
-            libc::proc_pidinfo(
-                pid as i32,
-                libc::PROC_PIDTBSDINFO,
-                0,
-                info.as_mut_ptr().cast(),
-                size as i32,
-            )
-        };
-        if written <= 0 {
-            let error = std::io::Error::last_os_error();
-            if gone(&error) {
-                continue;
+        let info = match pidinfo::<BSDInfo>(pid as i32, 0) {
+            Ok(info) => info,
+            Err(refused) => {
+                if exiting_or_gone(process)? {
+                    continue;
+                }
+                return Err(std::io::Error::other(format!("process {pid}: {refused}")));
             }
-            return Err(std::io::Error::other(format!("process {pid}: {error}")));
-        }
-        // SAFETY: proc_pidinfo wrote the whole structure (it returns the bytes it wrote, at most `size`).
-        let info = unsafe { info.assume_init() };
+        };
         if info.pbi_pgid == group_id && info.pbi_status != libc::SZOMB {
             members.push(Member {
                 pid: process,
@@ -404,6 +395,25 @@ fn live_members(group: rustix::process::Pid) -> std::io::Result<Vec<Member>> {
         }
     }
     Ok(members)
+}
+
+/// Whether `pid` is exiting (a zombie included) or gone: the process filter of kqueue refuses such a process with ESRCH.
+///
+/// # Errors
+/// The filter could not be set up for another reason.
+#[cfg(target_os = "macos")]
+fn exiting_or_gone(pid: rustix::process::Pid) -> std::io::Result<bool> {
+    let mut watcher = kqueue::Watcher::new()?;
+    watcher.add_pid(
+        pid.as_raw_nonzero().get(),
+        kqueue::EventFilter::EVFILT_PROC,
+        kqueue::FilterFlag::NOTE_EXIT,
+    )?;
+    match watcher.watch() {
+        Ok(()) => Ok(false),
+        Err(error) if gone(&error) => Ok(true),
+        Err(error) => Err(error),
+    }
 }
 
 /// The live members of `group`, with their states. A zombie is not live: it cannot fork, and its parent reaps it. A
