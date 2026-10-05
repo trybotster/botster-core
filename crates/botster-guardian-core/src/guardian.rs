@@ -44,14 +44,19 @@ impl std::fmt::Debug for GuardianConfig {
 }
 
 /// A process edge result. Success means that `exec` succeeded (SV-1, SV-4).
+///
+/// Every launch failure is an exec failure with its errno, including a required bound that the OS refuses before `exec`
+/// and a missing `cwd`: A2-1 gives `SpawnService` no other async start failure. `BoundUnavailable` is the host's sync
+/// refusal against `features()`, and `GuardianFailed` is what the host observes of the guardian itself.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SpawnResult {
     Started {
         payload: PayloadId,
         report: SpawnReport,
     },
-    Failed(StartFailReason),
-    BoundUnavailable(Bound),
+    ExecFailed {
+        errno: i32,
+    },
 }
 
 /// Inputs from either driver. No input reads a clock or performs I/O.
@@ -426,8 +431,7 @@ impl Guardian {
                 }
                 self.service = Service::Live(leader);
             }
-            SpawnResult::Failed(reason) => self.report(Report::StartFailed { reason }),
-            SpawnResult::BoundUnavailable(bound) => self.report(Report::BoundUnavailable { bound }),
+            SpawnResult::ExecFailed { errno } => self.report(Report::ExecFailed { errno }),
         }
         self.try_finish();
     }
