@@ -736,7 +736,9 @@ Log: `~/botster-sessions/gates/botster-core-stage1-p3-m1-v1-b77038ac-linux-20261
 Format, clippy, taint, lists, public-api, prebuild, default tests, and slow tests pass.
 Mutation tests 329 entries: 261 caught, 67 unviable, one missed, zero timed out. Fuzz did not run.
 The survivor replaces Payload's Debug formatter with an empty successful formatting result.
-The formatter prints the Payload label and actual leader id through Payload::pid. It owns no state or decision.
+The formatter prints the Payload label, stored pid, child.is_none() as reaped, and a non-exhaustive marker.
+It reads diagnostic state but changes no runtime state and controls no runtime decision.
+The formatter does not call Payload::pid.
 The existing slow test the_payload_runs_on_the_pty_with_the_exact_environment checks both label and actual id.
 A new function-specific printing-glue entry records that proof. All pure decision coverage and existing scopes remain.
 The earlier library-inclusive payload mutation run includes this formatter and catches its replacement.
