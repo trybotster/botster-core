@@ -74,11 +74,12 @@ fn a_control_link_eof_closes_the_link() {
     assert_eq!(edges.ready(now, &worker), 0);
 }
 
-/// EV-4, `Action::DrainPty`: the edge offers no output before the spawn answer, and output precedes its drain. A drain is
-/// bounded by the output that the program held when it was asked, as the real driver's (A30), and `PtyDrained` answers
+/// EV-4, `Action::DrainPty`: the edge offers no output before the spawn answer, and output precedes its drain. The drain
+/// is the real driver's (`Drain`): the count that the program held when it was asked, then one flushing read, then at
+/// most the count measured once after that read. A writer that keeps writing cannot extend it, and `PtyDrained` answers
 /// only an asked drain.
 #[test]
-fn a_drain_reads_what_the_program_held_when_it_was_asked() {
+fn the_edge_drains_as_the_real_driver_does() {
     let (mut edges, _peer, worker, now) = fixture(8);
     let script = serde_json::from_value(serde_json::json!({"program": [
         {"print": {"bytes_hex": "616263"}}, {"hold": {}}
@@ -95,36 +96,37 @@ fn a_drain_reads_what_the_program_held_when_it_was_asked() {
     edges.spawned = Some(Ok(id));
     assert_eq!(edges.ready(now, &worker), 1);
     assert_eq!(edges.take(now, &worker, 0), Input::Spawned(Ok(id)));
-    // No drain is asked: the edge reads output while it waits, and offers nothing once it is read.
+    // No drain is asked: the edge reads output while it waits.
     assert_eq!(edges.ready(now, &worker), 1);
-    let first = edges.take(now, &worker, 0);
-    assert!(matches!(first, Input::PtyOutput(_)));
-    // A drain is asked while output waits; output written after that is not part of its bound.
+    assert!(matches!(edges.take(now, &worker, 0), Input::PtyOutput(_)));
+    // The drain is asked while output waits. Output that comes before the flushing read is found by it; output that comes
+    // after the count measured once after that read waits.
     let held = control.output_unread();
     edges.perform(now, Action::DrainPty);
     control.write_once(b"later");
     let mut drained = Vec::new();
+    let mut after_flush = false;
     loop {
         assert_eq!(edges.ready(now, &worker), 1);
         match edges.take(now, &worker, 0) {
-            Input::PtyOutput(bytes) => drained.extend(bytes),
+            Input::PtyOutput(bytes) => {
+                drained.extend(bytes);
+                if drained.len() > held && !after_flush {
+                    after_flush = true;
+                    control.write_once(b"more");
+                }
+            }
             Input::PtyDrained => break,
             other => panic!("{other:?}"),
         }
     }
-    assert_eq!(
-        drained.len(),
-        held,
-        "the drain read exactly what was held when it was asked"
-    );
+    assert_eq!(drained.len(), held + b"later".len());
     assert_eq!(
         control.output_unread(),
-        b"later".len(),
-        "later output waits"
+        b"more".len(),
+        "a writer cannot extend the drain"
     );
-    // The later output is read with no drain, and no `PtyDrained` follows it.
-    assert_eq!(edges.ready(now, &worker), 1);
-    assert!(matches!(edges.take(now, &worker, 0), Input::PtyOutput(_)));
+    // The rest is read with no drain, and no `PtyDrained` follows it.
     while control.output_unread() > 0 {
         assert_eq!(edges.ready(now, &worker), 1);
         assert!(matches!(edges.take(now, &worker, 0), Input::PtyOutput(_)));

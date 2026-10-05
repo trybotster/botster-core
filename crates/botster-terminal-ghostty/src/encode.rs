@@ -686,18 +686,20 @@ const KEY_MODE_BITS: u32 = 6;
 
 impl EncoderState {
     /// Every state that the key encoder reads: each of the six key modes on and off, with each of the 32 kitty flag
-    /// combinations (5.1A: "any legacy or kitty flag combination").
+    /// combinations (5.1A: "any legacy or kitty flag combination"). The kitty flags are the low bits, so each run of 32
+    /// states holds every flag combination, and a key whose associated text is over a limit reaches a state that reports
+    /// it within the first run.
     fn every_key_state() -> impl Iterator<Item = EncoderState> {
         (0u32..1 << (KEY_MODE_BITS + KITTY_FLAG_BITS)).map(|bits| {
-            let on = |bit: u32| bits & (1 << bit) != 0;
+            let mode = |bit: u32| bits & (1 << (KITTY_FLAG_BITS + bit)) != 0;
             EncoderState {
-                cursor_key_application: on(0),
-                keypad_key_application: on(1),
-                ignore_keypad_with_numlock: on(2),
-                alt_esc_prefix: on(3),
-                modify_other_keys_state_2: on(4),
-                backarrow_key_mode: on(5),
-                kitty_flags: (bits >> KEY_MODE_BITS) as u8,
+                cursor_key_application: mode(0),
+                keypad_key_application: mode(1),
+                ignore_keypad_with_numlock: mode(2),
+                alt_esc_prefix: mode(3),
+                modify_other_keys_state_2: mode(4),
+                backarrow_key_mode: mode(5),
+                kitty_flags: (bits & ((1 << KITTY_FLAG_BITS) - 1)) as u8,
                 mouse_event: sys::mouse_event::NONE,
                 mouse_format: sys::mouse_format::X10,
             }

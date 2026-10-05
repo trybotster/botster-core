@@ -22,8 +22,8 @@ use botster_core_link::launch::{WorkerLaunch, TOKEN_VAR};
 use botster_core_link::msg::PayloadId;
 use botster_core_sys::payload::{self, Payload, PayloadCommand};
 use botster_core_sys::process::start_time;
-use botster_worker_core::{Action, Input, PayloadSpec, SpawnFailure, Worker, WorkerConfig};
-use io_decisions::{Drain, IoFailure, ReadyState};
+use botster_worker_core::{Action, Drain, Input, PayloadSpec, SpawnFailure, Worker, WorkerConfig};
+use io_decisions::{IoFailure, ReadyState};
 use mio::net::UnixStream;
 use mio::unix::SourceFd;
 use mio::{Events, Interest, Poll, Token, Waker};
@@ -83,9 +83,10 @@ struct Driver {
     /// The drain that a `DrainPty` asked for; `None` when no drain is asked.
     drain: Option<Drain>,
     waker: Arc<Waker>,
+    /// The results of the exit watch: the leader's status, or the error of a wait that failed.
     exits: (
-        mpsc::Sender<botster_core_edges::edges::ExitStatus>,
-        mpsc::Receiver<botster_core_edges::edges::ExitStatus>,
+        mpsc::Sender<io::Result<botster_core_edges::edges::ExitStatus>>,
+        mpsc::Receiver<io::Result<botster_core_edges::edges::ExitStatus>>,
     ),
     /// Inputs of the current turn; the machine handles them before the next one.
     inputs: VecDeque<Input>,
@@ -199,8 +200,11 @@ impl Driver {
                         }
                     }
                     EXIT => {
-                        while let Ok(status) = self.exits.1.try_recv() {
-                            self.inputs.push_back(Input::PayloadExited(status));
+                        while let Ok(watched) = self.exits.1.try_recv() {
+                            // A failed watch ends the worker with its error. Dropping the driver drops the payload,
+                            // whose drop ends its group; the host then sees a lost worker, not a session that never
+                            // exits.
+                            self.inputs.push_back(io_decisions::exit_input(watched)?);
                         }
                     }
                     _ => {}
@@ -349,10 +353,7 @@ impl Driver {
             },
         }
         if let Some(drain) = self.drain {
-            self.drain = Some(match found {
-                0 => Drain::Done,
-                n => drain.after_read(n, || payload.pending_output())?,
-            });
+            self.drain = Some(drain.after_read(found, || payload.pending_output())?);
         }
         if ended {
             // The output ended: the descriptor would stay readable, so it leaves the loop.
