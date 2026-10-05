@@ -712,3 +712,19 @@ That edit also replaced the wait_unreaped option-bit explanation and set_nonbloc
 The correction restores EXITED/NOWAIT disjointness and the pinned pty-process 0.5.3 fresh blocking descriptor fact.
 It retains the concrete test names, NONBLOCK/OR/XOR facts, and recheck conditions.
 Patterns, source, and tests remain unchanged. Both reviewers must review the restored equivalence record before the gate.
+
+## Landing gate failure and working-harness test correction (2026-10-04)
+
+Package CLEAN at `9eb9a59f`: `f3b9eaa89abce4fb244e4fddf6eafd7032ad948c`.
+Integration CLEAN at that head: `700d993be69ead30a42cfba41c190f2a4bea0323`.
+The required Linux landing gate ended with exit 1 after 31 seconds.
+Log: `~/botster-sessions/gates/botster-core-stage1-p3-m1-v1-9eb9a59f-linux-20261004-182418-50922.log`.
+Format, clippy, taint, lists, public-api, and candidate prebuild passed.
+Default tests ran 750 entries: 749 passed, one failed; 654 entries were outside that tier.
+The failed P6 test is statement_runs::tests::deterministic_runs_reject_invalid_specs_and_propagate_failure.
+It expects an empty open specification to fail. P3's working TestkitHarness accepts that valid specification.
+The test's failure-propagation invariant remains required. The correction explicitly sets worker to null.
+Core LC-1 requires MissingWorkerPath for that specification; the driver propagates its unexpected error through run_deterministic.
+Only this test input and its clause comment changed. Production and mutation patterns are unchanged.
+Slow, mutation, and fuzz did not run in the failed gate. No readiness claim follows from it.
+Next: focused Linux regression, both delta reviews, then one new exact-head landing gate.
