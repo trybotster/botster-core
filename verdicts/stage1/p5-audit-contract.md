@@ -171,3 +171,31 @@ slow test, and the host `DESIGN.md`. The base is still current v1 `144b023`. Thi
 Package verdict: pending on this head.
 
 VERDICT: NOT CLEAN (1 open: K4; package verdict pending)
+
+## Round 6 — Head 428c783 (K4 fix)
+
+Reviewed head: `428c783967ca6e67d7cccb36db8336eb96aef004`. Delta `1b1340c..428c783`, one commit: sys `storage.rs` and host
+`DESIGN.md`. The base is still current v1 `144b023`. This reviewer ran no build, test or gate. The implementer reports a Mac
+run: fmt and clippy clean, 487 unit and 58 slow tests pass
+(`~/botster-sessions/gates/botster-core-stage1-p5-audit-contract-428c7839-mac-20261004-221459-45851.log`).
+
+- **K4 CLOSED.** `create_durably` syncs the ancestors going up. It stops at the first ancestor that the host cannot write
+  (`access(W_OK)`). Below that point, any sync error fails the open.
+  - This meets the rule that the P5 reviewer and this reviewer agreed. The host can create a directory only in a directory
+    that it can write, so every directory that Core may have created, in this open or in an earlier failed one, has a parent
+    in the synced chain. An execute-only (`0711`) ancestor above the chain is never opened.
+  - `DirEdges` injects the sync and the write check as private parameters. That is not a production test branch.
+  - Test `an_unreadable_ancestor_fails_the_open_only_below_the_first_unwritable_one` checks two cases. An `EACCES` above the
+    writable chain still opens, and only the writable ancestor is synced. An `EACCES` on the parent of a created directory
+    fails `PermissionDenied`. The expected values come from the injected layout. The retry test is kept.
+  - `DESIGN.md` records the rule and its reason.
+- **Remaining limit, for the lead's ruling.** The write check runs at the time of the retry. Suppose an ancestor's write
+  permission is removed after a failed open created a directory in it. Then the retry stops below that ancestor, and that
+  entry's parent is not synced. This needs a permission change between two opens of the same data directory. This reviewer
+  accepts the limit if it is recorded in `DESIGN.md`. If the lead's ruling on the access and durability boundary differs, a
+  new head gets a delta review here.
+
+Integration findings: none open. The P5 package verdict on `428c783` is still needed. Round 4 of that review (`fe85b42d`, at
+`1b1340c`) kept only K4 open, and it asked the lead for a ruling.
+
+VERDICT: NOT CLEAN (1 open: package verdict pending; 0 integration findings open)
