@@ -1,0 +1,55 @@
+crates/botster-worker/src/main.rs:149:38: replace <= with > in Driver::run
+crates/botster-worker/src/main.rs:162:17: replace || with && in Driver::run
+crates/botster-worker/src/main.rs:161:17: replace || with && in Driver::run
+crates/botster-worker/src/main.rs:160:17: replace || with && in Driver::run
+crates/botster-worker/src/main.rs:159:40: replace && with || in Driver::run
+crates/botster-worker/src/main.rs:160:41: replace && with || in Driver::run
+crates/botster-worker/src/main.rs:162:20: delete ! in Driver::run
+crates/botster-worker/src/main.rs:172:27: replace match guard e.kind() == io::ErrorKind::Interrupted with true in Driver::run
+crates/botster-worker/src/main.rs:172:27: replace match guard e.kind() == io::ErrorKind::Interrupted with false in Driver::run
+crates/botster-worker/src/main.rs:172:36: replace == with != in Driver::run
+crates/botster-worker/src/main.rs:177:21: delete match arm CONTROL in Driver::run
+crates/botster-worker/src/main.rs:183:21: delete match arm SIGNALS in Driver::run
+crates/botster-worker/src/main.rs:192:21: delete match arm EXIT in Driver::run
+crates/botster-worker/src/main.rs:178:47: replace |= with &= in Driver::run
+crates/botster-worker/src/main.rs:179:75: replace || with && in Driver::run
+crates/botster-worker/src/main.rs:179:49: replace || with && in Driver::run
+crates/botster-worker/src/main.rs:180:47: replace |= with &= in Driver::run
+crates/botster-worker/src/main.rs:180:70: replace || with && in Driver::run
+crates/botster-worker/src/main.rs:185:61: replace == with != in Driver::run
+crates/botster-worker/src/main.rs:205:9: replace Driver::settle -> io::Result<()> with Ok(())
+crates/botster-worker/src/main.rs:217:9: replace Driver::perform -> io::Result<()> with Ok(())
+crates/botster-worker/src/main.rs:298:9: replace Driver::deregister_pty with ()
+crates/botster-worker/src/main.rs:309:9: replace Driver::read_pty_chunk with ()
+crates/botster-worker/src/main.rs:316:21: replace == with != in Driver::read_pty_chunk
+crates/botster-worker/src/main.rs:321:56: replace && with || in Driver::read_pty_chunk
+crates/botster-worker/src/main.rs:321:12: delete ! in Driver::read_pty_chunk
+crates/botster-worker/src/main.rs:321:34: replace && with || in Driver::read_pty_chunk
+crates/botster-worker/src/main.rs:335:23: replace match guard e.kind() == io::ErrorKind::Interrupted with true in Driver::read_pty_chunk
+crates/botster-worker/src/main.rs:335:23: replace match guard e.kind() == io::ErrorKind::Interrupted with false in Driver::read_pty_chunk
+crates/botster-worker/src/main.rs:336:23: replace match guard e.kind() == io::ErrorKind::WouldBlock with true in Driver::read_pty_chunk
+crates/botster-worker/src/main.rs:336:23: replace match guard e.kind() == io::ErrorKind::WouldBlock with false in Driver::read_pty_chunk
+crates/botster-worker/src/main.rs:335:32: replace == with != in Driver::read_pty_chunk
+crates/botster-worker/src/main.rs:336:32: replace == with != in Driver::read_pty_chunk
+crates/botster-worker/src/main.rs:358:9: replace Driver::read_control with ()
+crates/botster-worker/src/main.rs:358:12: delete ! in Driver::read_control
+crates/botster-worker/src/main.rs:358:29: replace && with || in Driver::read_control
+crates/botster-worker/src/main.rs:365:23: replace match guard e.kind() == io::ErrorKind::Interrupted with true in Driver::read_control
+crates/botster-worker/src/main.rs:365:23: replace match guard e.kind() == io::ErrorKind::Interrupted with false in Driver::read_control
+crates/botster-worker/src/main.rs:366:23: replace match guard e.kind() == io::ErrorKind::WouldBlock with true in Driver::read_control
+crates/botster-worker/src/main.rs:365:32: replace == with != in Driver::read_control
+crates/botster-worker/src/main.rs:374:9: replace Driver::flush -> io::Result<()> with Ok(())
+crates/botster-worker/src/main.rs:374:28: replace || with && in Driver::flush
+crates/botster-worker/src/main.rs:374:12: delete ! in Driver::flush
+crates/botster-worker/src/main.rs:378:37: replace && with || in Driver::flush
+crates/botster-worker/src/main.rs:378:40: delete ! in Driver::flush
+crates/botster-worker/src/main.rs:386:27: replace match guard e.kind() == io::ErrorKind::Interrupted with true in Driver::flush
+crates/botster-worker/src/main.rs:386:27: replace match guard e.kind() == io::ErrorKind::Interrupted with false in Driver::flush
+crates/botster-worker/src/main.rs:387:27: replace match guard e.kind() == io::ErrorKind::WouldBlock with true in Driver::flush
+crates/botster-worker/src/main.rs:387:27: replace match guard e.kind() == io::ErrorKind::WouldBlock with false in Driver::flush
+crates/botster-worker/src/main.rs:386:36: replace == with != in Driver::flush
+crates/botster-worker/src/main.rs:387:36: replace == with != in Driver::flush
+crates/botster-worker/src/main.rs:400:20: delete ! in Driver::flush
+crates/botster-worker/src/main.rs:401:17: replace != with == in Driver::flush
+crates/botster-worker/src/main.rs:417:9: replace Driver::link_lost with ()
+crates/botster-worker/src/main.rs:424:9: replace Driver::drop_link with ()
