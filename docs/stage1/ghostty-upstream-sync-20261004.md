@@ -14,13 +14,13 @@ The format follows botster-contracts `docs/ghostty/upstream-sync-20261002.md`.
 | Old stack head | `botster/upstream-sync-20261002` = `3f8eb6810bb673aa782b047de21783ac81fb1121` (the pin of botster-core `v1` `144b023`) |
 | New base | upstream `main` = `5dc28bb8eebaf57a6c793a406bfea8c632d4fa94` (#14509), fetched 2026-10-04 |
 | Synced stack head | `c370ef4d9910f9c8944c23207bdc3b425dbdaab2` (the 22 rebased commits) |
-| New stack head (pin candidate) | `botster/upstream-sync-20261004` = `779907e0ec389c0a04de81dd4c092fda92b8325f` (patch 14 on the synced stack) |
-| Patches | 23 commits in 15 patch groups (0 to 14). KEEP 21, REWORK 1 (patch 1, option numbers), NEW 1 (patch 14), DROP 0 |
+| New stack head (pin candidate) | `botster/upstream-sync-20261004` = `0bfddc16fdf1e9b71f7662fbfa8314cd497fd92a` (patch 14, two commits, on the synced stack) |
+| Patches | 24 commits in 15 patch groups (0 to 14). KEEP 21, REWORK 1 (patch 1, option numbers), NEW 2 (patch 14 and its R-33 tests), DROP 0 |
 | Conflicts | One, in patch 1 (`bcdcad95b`): upstream took terminal options 44 and 45 |
 | Zig | 0.16.0, unchanged (`minimum_zig_version`) |
 | Zig packages | One hash changed: `iterm2_themes` (see "Zig packages") |
 | `xterm-ghostty` terminfo | Unchanged (no change under `src/terminfo/`) |
-| Snapshot sources | Unchanged (`git diff 3f8eb6810 779907e0e -- src/terminal/snapshot include/ghostty/vt/snapshot.h src/terminal/c/snapshot.zig src/terminal/stream_continuation.zig` is empty) |
+| Snapshot sources | Unchanged (`git diff 3f8eb6810 0bfddc16f -- src/terminal/snapshot include/ghostty/vt/snapshot.h src/terminal/c/snapshot.zig src/terminal/stream_continuation.zig` is empty) |
 
 ## What upstream changed since our base
 
@@ -104,6 +104,7 @@ patch 1's first commit (the conflict) and patch 8's first commit (a context line
 | 12 | `bed0c871a` | `d5bebc7e2` | the keypad equals key has an application keypad sequence | KEEP | IN-9; test kept under P35. |
 | 13 | `c370ef4d9` | `3f8eb6810` | the snapshot decoder takes the host's Kitty image storage limit | KEEP | ST-6b, P34. |
 | 14 | `779907e0e` | none | an OSC 5522 write over the transaction limit reaches the callback with its size | NEW | Audit A6, R-32 (below). |
+| 14 | `0bfddc16f` | none | tests that ignored MIME types stay outside the over-limit size | NEW | Review finding F-A6-01, R-33 (below). |
 
 No upstream change covers a patch, so nothing is dropped.
 
@@ -140,18 +141,29 @@ the only acknowledger).
 - `c/terminal.zig` "clipboard write over the max bytes reaches the callback with its length": with a limit of 5, a
   write of 5 bytes is delivered and the only bytes on the pty are the reply's `DONE`, written during the reply. A write
   whose chunks go over the limit answers nothing when it goes over; at the commit the callback gets `too_large`, no
-  contents and `total_len` 11 (a replaced `text/plain` region included; the final contents "Hi" and "<b>" would be 5,
-  at the limit), and the only bytes on the pty are the reply's `EIO`, written during the reply. The next transaction
+  contents and `total_len` 11 (a replaced `text/plain` region included, the alias adds nothing; the final contents
+  "Hi", "<b>" and the alias "Hi" would be 7), and the only bytes on the pty are the reply's `EIO`, written during the reply. The next transaction
   is delivered normally.
 
 **Binding.** `on_clipboard_write` reads `too_large` and `total_len` when `size` covers them, and posts
 `ClipboardWrite{contents: None, total_bytes: <decoded size>, too_large: true}` with the IO_ERROR reply. The public type
 is unchanged, so the worker's use of it is unchanged.
 
-**Open part of A6.** Native memory up to 64 MiB per transaction remains. The binding leaves option 39 at libghostty's
-default (lead decision, 2026-10-04): A13-1 and A13-1b decide on the final sum today. Core Amendment 14 candidate 1
-(contracts `0d2fa62`, pending, not final) would make `clipboard_bytes` a bound on the decoded size and allow
-option 39 = `clipboard_bytes`. That is a follow-up PR after A14 is final.
+**Core A14 (final33, contracts main `69327d5`).** A14-1 defines the decoded size (payload bytes that the model decodes,
+replaced regions included, aliases excluded) and the contents size (each alias entry at its full length). A14-2
+decides in two steps: the decoded size first (patch 14's report), then the contents size. A14-3 requires the model's
+decode limit to equal `clipboard_bytes`, so the binding now sets option 39 (`CLIPBOARD_WRITE_MAX_BYTES`) from
+`set_clipboard_limit`, wherever it creates a terminal (`Terminal::new` and the snapshot restore both call it). The
+native memory part of A6 is therefore closed: the model holds at most `clipboard_bytes` of payload for one write.
+
+**R-33 (contracts main `14c86ab`): ignored MIME types.** The model ignores the data of MIME types past its count limit
+(64 per write) and never decodes it. That data is not in the decoded size and does not count against the limit; a
+write whose kept types are within the bound is not `TooLarge` because of ignored types; their bytes stay in `Output`
+(OU-12); invalid base64 in them is not counted. Patch 14 already behaves so (the ignored-type path returns before any
+decode); review finding F-A6-01 asked for the opposite, and R-33 settles it. The second commit `0bfddc16f` adds the
+tests: 64 kept types at the limit plus a valid and an invalid ignored type deliver the 64 kept types; over the limit,
+ignored types add nothing (64 one-byte kept types report 64). The C API test also gained an alias, which adds nothing
+to the decoded size.
 
 ## Test results
 
@@ -162,7 +174,7 @@ Raw logs and scripts are in `docs/stage1/ghostty-upstream-sync-20261004/` (its `
 - Synced stack `c370ef4d9`, 0 tracked changes (`mac-sync-c370ef4d9.log`): `zig build test-lib-vt --summary all`
   exit 0, and the library build with the binding's `GHOSTTY_BUILD_ARGS` exit 0 (`libghostty-vt.a`, 10189944 bytes).
   The log kept only the end of the test output, so it has no Build Summary line; the recorded run repeats it.
-- PENDING (lead HOLD on all heavy jobs, 2026-10-04): the recorded runs of `779907e0e` and `c370ef4d9` with their Build
+- PENDING (lead HOLD on all heavy jobs, 2026-10-04): the recorded runs of `0bfddc16f` and `c370ef4d9` with their Build
   Summary, and the Zig package list from an empty cache.
 
 ### Linux
@@ -175,16 +187,16 @@ fetch step has the new fork commit and the new `iterm2_themes` package.
 
 - Fork branch: `botster/upstream-sync-20261004` on trybotster/ghostty (a new branch; no existing `botster/*` branch
   was changed: `botster/upstream-sync-20261002` is still `3f8eb6810`).
-- Head: `779907e0ec389c0a04de81dd4c092fda92b8325f`.
+- Head: `0bfddc16fdf1e9b71f7662fbfa8314cd497fd92a`.
 - Upstream base: `5dc28bb8eebaf57a6c793a406bfea8c632d4fa94`.
 
 ## What the P2-crate PR changes (branch `stage1/p2-fork-a6`)
 
-1. The submodule `crates/botster-terminal-ghostty/vendor/ghostty` moves from `3f8eb6810` to `779907e0e`, and the
+1. The submodule `crates/botster-terminal-ghostty/vendor/ghostty` moves from `3f8eb6810` to `0bfddc16f`, and the
    `.gitmodules` branch from `botster/upstream-sync-20261002` to `botster/upstream-sync-20261004`.
 2. `sys.rs`: `opt::QUERY` 46 and `opt::QUERY_MAX_BYTES` 47; `ClipboardWrite` gains `too_large` and `total_len`;
    `opt::CLIPBOARD_WRITE_MAX_BYTES` (39) for the test only.
-3. `events.rs`: the over-limit report (above). `lib.rs`: documentation.
+3. `events.rs`: the over-limit report (above). `lib.rs`: `set_clipboard_limit` also sets option 39 (A14-3).
 4. `build_data.rs`: the new `iterm2_themes` hash.
 5. `docs/stage1/libghostty-audit.md` revision 11. GHOSTSNP.md: no snapshot fact changed.
 6. The lead records the new pin, the upstream SHA and this patch list in the plan and the state log (BUILD.md fork
@@ -194,6 +206,6 @@ fetch step has the new fork commit and the new `iterm2_themes` package.
 
 | Repository or host | Action |
 |---|---|
-| trybotster/ghostty | One push: `git push origin botster/upstream-sync-20261004:refs/heads/botster/upstream-sync-20261004` (a new branch, `779907e0e`), after `git remote get-url origin` showed `git@github.com:trybotster/ghostty.git`. No force-push. Afterwards `git ls-remote origin 'refs/heads/botster/*'` shows the earlier branches at their earlier heads: `upstream-sync-20261002` `3f8eb6810`, `vt-core-stage1-c` `ada251c5e`, `vt-core-stage1-b` `85a8d8eb1`, `vt-core-stage1` `c78b4beb4`, `p2-old-stack-backup` `1fd093bd3`. |
+| trybotster/ghostty | Two pushes of `git push origin botster/upstream-sync-20261004:refs/heads/botster/upstream-sync-20261004`: the new branch at `779907e0e`, then a fast-forward to `0bfddc16f`. An unpushed local commit for reading (b) was dropped before any push when R-33 chose reading (a). Each push followed `git remote get-url origin` showed `git@github.com:trybotster/ghostty.git`. No force-push. Afterwards `git ls-remote origin 'refs/heads/botster/*'` shows the earlier branches at their earlier heads: `upstream-sync-20261002` `3f8eb6810`, `vt-core-stage1-c` `ada251c5e`, `vt-core-stage1-b` `85a8d8eb1`, `vt-core-stage1` `c78b4beb4`, `p2-old-stack-backup` `1fd093bd3`. |
 | ghostty-org/ghostty (upstream) | `git fetch ghostty-org` only. No `gh` command, no API call, no PR, issue, comment or reaction. |
 | trybotster/botster-core | Branch `stage1/p2-fork-a6` (this PR). |
