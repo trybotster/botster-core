@@ -1,10 +1,11 @@
 # P3 worker review
 
-Current restack verdict: CLEAN for P3's M1 package scope. All findings F1 through F24 are CLOSED.
-Reviewed head: `da2b0494bbda711e5a67cb180ddf05c607784635`, branch `stage1/p3-m1-v1`.
-Round 73 accepts the exact Payload diagnostic formatter exclusion with its recorded slow mutation proof.
-This cross-package PR also requires the integration reviewer's CLEAN. The restack plan requires the implementer's gate after both exact-head verdicts.
-The earlier CLEAN below applies only to the old M2a head that it names.
+Current verdict: NOT CLEAN for PR #163. Findings F25 through F28 are OPEN. All findings F1 through F24 remain CLOSED at their recorded heads and scopes.
+Reviewed head: `0403470b8a08bdcbb6d89aab2a98ca3242c8e37b`, branch `stage1/p3-audit-fixes`.
+Round 74 reviews the fixes for audit findings A3, A8, A11, A30, A31, A52, and A53.
+The cross-package PR also requires the integration reviewer's exact-head CLEAN and the implementer's landing gate.
+Round 73's CLEAN remains preserved for M1 at `da2b0494bbda711e5a67cb180ddf05c607784635`.
+M2a at `a7f4a386593457e3b30f03b56938092de9b060a3` has no restack verdict. The earlier M2a CLEAN below applies only to its named old head.
 
 VERDICT: CLEAN
 
@@ -2470,3 +2471,187 @@ This CLEAN covers P3's M1 package scope. The cross-package PR still requires int
 The reviewer ran no tests, builds, or gates.
 
 VERDICT: CLEAN (P3 M1 package scope) on `da2b0494bbda711e5a67cb180ddf05c607784635`.
+
+
+## Round 74 — PR #163: fixes for the merged-code audit
+
+Reviewed head: `0403470b8a08bdcbb6d89aab2a98ca3242c8e37b`.
+Branch: `stage1/p3-audit-fixes`. PR: https://github.com/trybotster/botster-core/pull/163.
+Base: `144b0234fb632bcbb5176b17c2fe55f3239405df`.
+The reviewer read all 24 changed files and the PR's Prior art note.
+The reviewer read the relevant findings in audit `02acc4b:audits/v1-pr134-141.md`.
+Seven commits follow the base. No merge or conflict resolution appears in this delta.
+This review precedes M2a under the lead's audit-fix order.
+
+### Accepted source changes and scope
+
+A3: The host removes the fixed 64-byte estimate.
+The binding asks libghostty's key encoder for lengths across the six key options and 32 kitty flag combinations.
+The mouse bound uses the native encoder across the tracking modes and formats.
+The focus bound uses the native focus encoder.
+The host checks arguments before division by the validated repeat count.
+The host computes the reservation once and stores it for lane accounting and an unacknowledged write's `Unknown` bound.
+The tests derive sizes from the binding and exercise admission and link failure through the host machine.
+The separate binding tests compare length probes with completed encoding calls through explicit modes.
+The new code writes no terminal bytes and copies no terminal encoding table.
+Bytes, Text, and Paste retain their payload-byte accounting. No contract value changes.
+
+A8: Both session launch paths now use the existing GroupGuard prefix and a separate worker process group.
+The guard's anchor retains group membership. The guard does not reap the production payload.
+The separate PayloadGuard retains its existing ownership and cleanup path.
+The new launch path addresses the unowned prebuilt-worker source defect.
+F26 below keeps the complete cleanup-deadline claim open.
+
+A30: The testkit measures unread program output when DrainPty arrives.
+It limits reads to that count and emits PtyDrained only for a requested drain.
+The changed test exercises output before, during, and after that drain.
+The scripted program has no kernel flip buffer, so its unread count includes its available output directly.
+
+A31: The real driver reads the initial count, makes one flushing read, and measures the remaining count once after that read.
+The new Drain decision limits subsequent reads to that second count.
+Interrupted reads retain the drain for the next turn. Empty, blocked, and ended reads finish it.
+The driver retains its bounded turns and control-first order.
+This matches the lead's recorded A31 ruling in the state log.
+The scripted-reader tests check omitted output and a writer that continues after the drain bound.
+No race campaign or new tuning constant appears.
+F28 below concerns the changed native-count proof, not this accepted drain algorithm.
+
+A52: The injected wait decision now panics with the errno instead of producing Code(-1).
+The lead explicitly accepted this invariant-failure policy and the documented start_time 0 sentinel.
+The live-process identity test checks that the sentinel does not match the current process.
+The link type remains unchanged. F25 below concerns the false claim about the panic's effect on the worker.
+
+A53: Payload::reap now consumes self through drop(self).
+Its no-op mutation remains equivalent because an empty consuming body also drops self at its end.
+The updated exclusion states that exact reason.
+The worker removes the unreachable hello-time exit report and exit_reported.
+The first requested drain after an exit reports that exit once through on_drained.
+The obsolete report_exit and Focus-arm exclusions are removed.
+No new mutation exclusion appears in this PR.
+
+The lead deferred A36 to M2b and A32/A33 to `stage1/p3-driver-mutation`.
+This review does not close those audit findings or grant a new blanket driver exclusion.
+The earlier per-function mutation reasons require fresh review when their bodies, callers, or proving tests change.
+M2b, the snapshot paging documentation, A13, and both-harness conformance proof remain separate work.
+The conformance pending list does not change.
+
+### F25 — LOW — An exit-watch panic does not end the worker as documented
+
+Status: OPEN.
+Evidence: `crates/botster-core-sys/src/payload.rs:173-179,276-280`;
+`crates/botster-worker/src/main.rs:85-89,201-204,281-285`.
+
+The new comment says that a failed wait ends the worker and makes the host observe a lost worker.
+Production runs wait_unreaped in a detached payload-exit thread.
+The workspace does not select panic=abort. A panic unwinds that thread and skips on_exit.
+The callback therefore sends no status and wakes no driver.
+The driver retains its original channel sender, so the thread's exit also cannot disconnect that channel.
+The worker's main thread continues. The comment describes an effect that this path does not provide.
+The unit test catches a panic from a direct helper call. It supplies no evidence of worker termination.
+
+Required change: Make the documented failure effect accurate under the lead's accepted panic policy.
+Remove the worker-termination claim if thread failure alone is the intended effect.
+If worker termination remains the intended effect, propagate the failure to the driver and prove that effect through the real path.
+Do not invent an exit status or change the public link protocol to correct this comment.
+
+Authority: the lead's A52 ruling and the requirement for accurate failure reporting and comments.
+
+### F26 — HIGH — A11 still leaves test cleanup outside a deadline
+
+Status: OPEN. This keeps audit A11's complete cleanup claim open.
+Evidence: `crates/botster-worker/tests/common/session.rs:124-142`;
+`crates/botster-core-sys/tests/slow_payload.rs:51-56,370-388,416-430`;
+`crates/botster-core-sys/tests/common/process_guard.rs:90-104`;
+`crates/botster-core-sys/tests/common/payload_guard.rs:82-96`.
+
+The session cleanup waits with a deadline for TERM, sends KILL on timeout, then calls blocking waitpid without a deadline.
+A process that still cannot become waitable therefore holds the test in the same final-wait failure that A11 identifies.
+Sending KILL does not establish that the final wait has completed.
+The slow payload Observer::wait and Observer::drop also still call Child::wait without a deadline.
+The reap-observer test reaches those calls directly.
+
+The new finish_within deadline starts only after GuardedPayload::drop drops its PayloadGuard.
+That guard joins its registration thread without a deadline.
+The session fixture also drops both guards before its bounded worker observation.
+GroupGuard::drop joins its registration thread and waits for its anchor without a deadline.
+A stuck registration or anchor therefore bypasses the newly added timeout helpers.
+The PR's statement that every fixture wait has a deadline is not yet true.
+
+Required change: Bound the complete test cleanup path, including guard completion and the final worker or observer wait.
+Preserve group ownership until the last signal. Preserve production ownership of the payload reap.
+Keep production Payload::drop unchanged, as the audit and lead require.
+Prove a bounded failure when a child or cleanup step does not complete.
+Use event waits and marked deadlines. Do not add polling or a global lock.
+
+Authority: BUILD.md testing rules 5 and 10, audit A11, and the user's real-process ownership requirement.
+
+### F27 — MEDIUM — Cleanup timeout can become a successful expected-panic test
+
+Status: OPEN.
+Evidence: `crates/botster-core-sys/tests/slow_payload.rs:63-76,345-365`.
+
+finish_within logs a timeout but returns normally when the caller is already unwinding.
+The expected-panic test catches that original panic and sends only outcome.is_err().
+That boolean is true whether production cleanup completed or its new helper timed out.
+The outer and inner waits both use ten seconds. Their start order depends on thread scheduling.
+If the cleanup wait starts first, its timeout can return before the outer deadline expires.
+The test then accepts the expected panic while the detached thread still waits in production cleanup.
+The outer deadline therefore does not reliably close this false-success path.
+
+Required change: Report cleanup completion separately from the expected panic.
+Require the test to observe successful cleanup before it passes.
+Preserve a failure result during unwinding without causing an uncontrolled second panic.
+Do not rely on the relative start times of two equal deadline timers.
+Use the existing cleanup regression to prove this real failure behavior.
+
+Authority: BUILD.md testing rules 3, 9, and 10; audit A11's bounded-failure requirement.
+
+### F28 — MEDIUM — The native PTY count test no longer proves a changing count
+
+Status: OPEN.
+Evidence: `crates/botster-core-sys/tests/slow_payload.rs:313-340`;
+rounds 65-67 of this verdict and their native pending_output proof.
+
+Waiting for master readability addresses the fixture's known Linux race.
+The replacement assertion accepts every count from one to the number of queued bytes.
+The next assertion compares two calls to pending_output without changing the queue.
+The test then reads the bytes but never checks the count after a read.
+A helper that always returns Ok(1) satisfies both count assertions and does not affect the later writes or reads.
+The test therefore proves neither the actual readable count nor its change when the queue is consumed.
+This is a source comparison, not a claim that the reviewer ran a mutant.
+
+The earlier native evidence rejected Ok(1) through pending > 1 in this same test.
+That assertion is removed, so the earlier failure log no longer proves the current test's coverage.
+The function exclusion still names this test and the retained native evidence.
+
+Required change: Check the count against actual byte consumption in the existing real-PTY test.
+Include the quiet queue after consumption, before the program writes more output.
+Derive expected values from the program bytes and reads. Keep the master-readiness wait.
+Refresh the applicable native proof when execution is permitted.
+Do not add a separate test whose only purpose is to reject a constant-return mutant.
+
+Authority: BUILD.md testing rule 3, the user's behavior-test requirement, and the native mutation-evidence ruling.
+
+### Completed evidence and verdict
+
+The reviewer read the completed log at `1060fca6560337625f7cf309d3ba27c32adf419b`:
+`~/botster-sessions/gates/botster-core-stage1-p3-audit-fixes-1060fca6-linux-20261004-203837-38920.log`.
+The selected format, default clippy, taint, prebuild, and default test steps pass.
+The default report counts 758 tests. Its recorded wall time is 2.6 seconds.
+The selected worker tests count 52 passes, including helper entries, with zero skips.
+slow_payload then fails compilation at the temporary borrowed descriptor.
+The job ends with exit 101. It is not a passing landing gate.
+
+The reviewer also read the completed `fb36ff89` log.
+Its slow-feature clippy check fails on the duplicate module, redundant conversion, and explicit drop of the PollFd array.
+Commit 0403470 fixes those three source issues. The reviewer inspected that complete delta.
+No successful corrected-head slow_payload, slow-feature clippy, or mutation result is supplied.
+The full HOLD prevents new heavy jobs. The reviewer requests no job during that HOLD.
+Completed results from an earlier head do not clear the four source findings above.
+
+All earlier findings, closures, and mutation dispositions remain preserved.
+F1 through F24 remain CLOSED at their recorded heads and scopes.
+F25 through F28 are OPEN on this submitted head.
+The reviewer ran no tests, builds, or gates.
+
+VERDICT: NOT CLEAN (4 open findings) on `0403470b8a08bdcbb6d89aab2a98ca3242c8e37b`.
