@@ -170,3 +170,40 @@ Note on G2: at this head, #165 alone has no outer wait. The equal deadlines appe
 guard. So G2 moves to #163's review and does not block #165. Open for #165: G5 only.
 
 VERDICT: NOT CLEAN (1 open: G5)
+
+## Round 4 — PR #165, head acd05de6
+
+Reviewed head: `acd05de6d14ca46c2e7cbfab3d9e379d6fa469a7`. Delta `3670202..acd05de6`, four commits, 5 files (the two guard
+modules, `slow_payload.rs`, and the worker fixtures `driver_edges.rs` and `session.rs`). The base is still current v1
+`144b023`. This reviewer ran no build, test or gate. The implementer reports a focused Mac run: 142 and 11 slow tests pass
+(log `…guard-macos-acd05de6-mac-20261004-220807-29615.log`).
+
+- **G5 CLOSED.** `await_end` returns `Exited`, `Gone` (`ESRCH` at setup) or `Deadline`. A member that waits call `Gone` in
+  two rounds in a row, while the listings still call it live, ends the rounds with `Left([member])`. So the rounds repeat at
+  most once with no blocking wait. The scripted test `a_member_gone_to_its_wait_but_still_listed_is_left` covers it.
+- Other changes answer the package reviewer's F35 to F38, which are its scope:
+  - a failed kill is a failure;
+  - at the deadline there is one last kill, then `Left`;
+  - each kill first checks that the reserve is still an unreaped child (`waitid` with `NOWAIT | NOHANG`);
+  - the payload member's report reaches its guard;
+  - a real guard-path failure test.
+  The worker fixtures change only to call the payload guard's new release and report check. No production code and no
+  interface between packages changes.
+
+#### G6 [LOW] OPEN — A member that exits between the listing and the kill can turn a correct cleanup into a reported failure
+
+- Location: `end_group`'s `kill` closure (`kill_process_group(...).map_err(Into::into)`) and `end_members`
+  (`kill().map_err(Failure::Error)?`).
+- Evidence: a round kills only after a listing has found a live member. Suppose that member exits by itself after the listing
+  and before `killpg`, for example a payload that ends at cleanup. Then the group can hold only zombies: the reserve and
+  members that are not reaped. Linux delivers a group signal to zombie members without error. BSD-derived kernels skip
+  zombies when they look for a target and return `ESRCH` when none is found. This reviewer has not proved that on the
+  pinned macOS. If XNU does this, the round ends with `Failure::Error` and the guard fails a test whose cleanup was correct.
+  The reservation check has already proved that the group id is still held at that moment.
+- Required: when the reservation check passes, treat `ESRCH` from `killpg` as "no member left to signal". Let the next
+  listing decide; an empty listing means success. Any other `killpg` error stays a failure. Add one scripted
+  `end_members` case: the kill reports `ESRCH` and the next listing is empty, so the result is `Ok`.
+
+G2 stays with #163's merge delta.
+
+VERDICT: NOT CLEAN (1 open: G6)
