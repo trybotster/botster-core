@@ -1,4 +1,4 @@
 [submodule "crates/botster-terminal-ghostty/vendor/ghostty"]
 	path = crates/botster-terminal-ghostty/vendor/ghostty
 	url = https://github.com/trybotster/ghostty.git
-	branch = botster/upstream-sync-20261002
+	branch = botster/upstream-sync-20261004
