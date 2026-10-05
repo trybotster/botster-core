@@ -222,7 +222,7 @@ impl Session {
         .unwrap();
         link.send(FrameType::HELLO, &reply);
         link.msg(&HostMsg::Launch(Box::new(LaunchSpec {
-            argv: vec!["/bin/sh".into(), "-c".into(), script.into()],
+            argv: vec!["/bin/sh".into(), "-c".into(), script],
             env: BTreeMap::from([("PATH".to_string(), "/usr/bin:/bin".to_string())]),
             cwd: "/".into(),
             size: Size {
