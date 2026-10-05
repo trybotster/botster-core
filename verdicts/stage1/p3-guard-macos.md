@@ -207,3 +207,24 @@ modules, `slow_payload.rs`, and the worker fixtures `driver_edges.rs` and `sessi
 G2 stays with #163's merge delta.
 
 VERDICT: NOT CLEAN (1 open: G6)
+
+## Round 5 — PR #165, head 97b8e947
+
+Reviewed head: `97b8e94767e862b7349d8542306f91c9bed45bb0`. Delta `acd05de6..97b8e947`, one commit, `process_guard.rs`.
+The base is still current v1 `144b023`. This reviewer ran no build, test or gate.
+
+- **G6 CLOSED.** In `end_members`, a kill error that `gone()` classifies as `ESRCH` no longer stops the rounds. The next
+  listing decides. Any other kill error is still `Failure::Error`.
+  - A failed reservation check is built with `io::Error::other`, so it carries no errno and can never be taken as `ESRCH`.
+    It stays a failure.
+  - If a live member exists, `killpg` finds it, so a tolerated `ESRCH` cannot hide a member. The next listing would show it.
+  - Scripted case `a_kill_that_finds_no_member_lets_the_next_listing_decide`: listings `[7]` then `[]`, the kill gives
+    `ESRCH`, and the result is `Ok`.
+- Implementer evidence: `~/botster-sessions/gates/botster-core-stage1-p3-guard-macos-97b8e947-mac-20261004-220951-33326.log`.
+  It is a `botster-gate --on mac` focused run at this exact head. 147 and 12 tests pass, and it exits 0. This reviewer read
+  its summary lines.
+
+Integration findings on #165: none open. G2 is tracked in #163's merge delta. Still needed for CLEAN: the P3 package
+verdict on `97b8e947` (F35 to F38).
+
+VERDICT: NOT CLEAN (1 open: package verdict pending; 0 integration findings open)
