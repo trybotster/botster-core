@@ -1,29 +1,42 @@
 //! The registry on disk, and the data directory that owns it (plan 2.3, `Storage`; Core LC-2, AD-6, AD-7, DP-8).
 //!
-//! One file per row, written with `atomic-write-file` (a temporary file in the same directory, `fsync`, `rename`) and followed
-//! by an `fsync` of the directory, so that a row that `write_row` returned `Ok` for survives a crash (AD-7). Opening or writing
-//! the temporary file fails with no effect (`StorageError::Failed`). The library's `commit` renames and syncs the directory and
-//! reports one error for both, so a commit error, and a failure of our own directory sync, leave a row whose effect is unknown
-//! (`StorageError::Uncertain`, which the host reports as `RegistryFailed{uncertain: true}`).
+//! One file per row, at a path that names its key ([`row_path`]): `<kind>/<components of the encoded id>.row`. A row's key
+//! is never stored inside the file, so a damaged file still names its row (AD-1, AD-2: `RegistryCorrupt`), and a file whose
+//! path does not decode was not written by Core: it is foreign, counted, and left alone.
 //!
-//! A row file is named by the SHA-256 of its key, so any key is a valid file name, and holds `[u32 LE key length][key][value]`,
-//! so `list_rows` returns the keys. The directory is the host's alone: mode `0700`, owned by the host's uid (AD-6), and held
-//! under an exclusive lock for as long as the [`DataDir`] lives (LC-2).
+//! Every operation walks the path one component at a time, on directory descriptors (`openat`, `mkdirat`), so no joined
+//! path is ever formed and no path length limit applies, whatever the id's length. A write is atomic: a temporary file in
+//! the row's directory, `fsync`, `renameat` over the row, then an `fsync` of the directory; a directory that a write
+//! creates is synced in its parent (AD-7). An error before the rename has no effect (`StorageError::Failed`). An error of
+//! the last directory sync leaves a row whose effect is unknown (`StorageError::Uncertain`, which the host reports as
+//! `RegistryFailed{uncertain: true}`). A delete removes the row, then the directories that became empty, best effort.
+//!
+//! The directory is the host's alone: mode `0700`, owned by the host's uid (AD-6), and held under an exclusive lock for as
+//! long as the [`DataDir`] lives (LC-2).
+
+mod row_path;
 
 use crate::lock::{LockError, LockFile};
-use atomic_write_file::AtomicWriteFile;
 use botster_core_edges::edges::{Storage, StorageError};
-use rustix::fs::{fstat, Mode};
-use sha2::{Digest, Sha256};
+use row_path::{is_dir_component, key_of, row_path, valid_kind, RowPath};
+use rustix::fs::{
+    fstat, mkdirat, openat, renameat, statat, unlinkat, AtFlags, Dir, FileType, Mode, OFlags,
+};
 use std::fs::{self, File};
 use std::io::{self, Read, Write};
+use std::os::fd::{AsFd, BorrowedFd, OwnedFd};
 use std::os::unix::fs::DirBuilderExt;
-use std::path::{Path, PathBuf};
+use std::path::Path;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 /// The key of the host epoch row (DP-8).
 const EPOCH_KEY: &str = "meta/host-epoch";
 
-const ROW_EXTENSION: &str = "row";
+/// The prefix of a temporary file of a write. A name with it never decodes as a row (`row_path::key_of`).
+const TEMP_PREFIX: &str = ".tmp.";
+
+/// Numbers the temporary files of this process; `O_EXCL` refuses a name that an earlier process left.
+static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 /// Why a data directory was not opened.
 #[derive(Debug)]
@@ -61,114 +74,212 @@ fn errno(error: &io::Error) -> i32 {
     error.raw_os_error().unwrap_or(0)
 }
 
-fn key_hash(key: &str) -> String {
-    Sha256::digest(key.as_bytes())
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect()
+fn failed(error: impl Into<io::Error>) -> StorageError {
+    StorageError::Failed {
+        errno: errno(&error.into()),
+    }
 }
 
-fn encode(key: &str, value: &[u8]) -> Vec<u8> {
-    let mut out = Vec::with_capacity(4 + key.len() + value.len());
-    out.extend_from_slice(&(key.len() as u32).to_le_bytes());
-    out.extend_from_slice(key.as_bytes());
-    out.extend_from_slice(value);
-    out
+fn uncertain(error: impl Into<io::Error>) -> StorageError {
+    StorageError::Uncertain {
+        errno: errno(&error.into()),
+    }
 }
 
-/// The key and the value of a row file, or `None` when the bytes are not a row.
-fn decode(bytes: &[u8]) -> Option<(String, Vec<u8>)> {
-    let len = u32::from_le_bytes(bytes.get(..4)?.try_into().ok()?) as usize;
-    let key = std::str::from_utf8(bytes.get(4..4 + len)?).ok()?;
-    Some((key.to_string(), bytes[4 + len..].to_vec()))
+fn open_dir(parent: BorrowedFd<'_>, name: &str) -> io::Result<OwnedFd> {
+    Ok(openat(
+        parent,
+        name,
+        OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+        Mode::empty(),
+    )?)
 }
 
-fn sync_directory(dir: &Path) -> io::Result<()> {
-    File::open(dir)?.sync_all()
+/// Opens the directory `name` of `parent`, and creates it first when `create` is set. A directory that this call created is
+/// synced in its parent, so that the row below it survives a crash (AD-7). `None` when it does not exist and `create` is not
+/// set.
+fn child_dir(parent: BorrowedFd<'_>, name: &str, create: bool) -> io::Result<Option<OwnedFd>> {
+    if create {
+        match mkdirat(parent, name, Mode::from_raw_mode(0o700)) {
+            Ok(()) => rustix::fs::fsync(parent)?,
+            Err(rustix::io::Errno::EXIST) => {}
+            Err(error) => return Err(error.into()),
+        }
+    }
+    match open_dir(parent, name) {
+        Ok(fd) => Ok(Some(fd)),
+        Err(error) if !create && error.kind() == io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error),
+    }
+}
+
+/// What a walk of the registry found: the keys of the rows, and the names that are not rows (foreign files).
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct Scan {
+    pub keys: Vec<String>,
+    pub foreign: usize,
 }
 
 /// The registry rows of one directory.
 #[derive(Debug)]
 pub struct FileStorage {
-    dir: PathBuf,
+    dir: OwnedFd,
 }
 
 impl FileStorage {
-    fn path(&self, key: &str) -> PathBuf {
-        self.dir.join(format!("{}.{ROW_EXTENSION}", key_hash(key)))
+    /// The directories of `path`, from the kind down to the row's own directory. `None` when one is missing and `create` is
+    /// not set.
+    fn chain(&self, path: &RowPath, create: bool) -> io::Result<Option<Vec<OwnedFd>>> {
+        let mut chain: Vec<OwnedFd> = Vec::with_capacity(path.dirs.len() + 1);
+        for name in std::iter::once(&path.kind).chain(&path.dirs) {
+            let parent = chain.last().map_or(self.dir.as_fd(), AsFd::as_fd);
+            match child_dir(parent, name, create)? {
+                Some(fd) => chain.push(fd),
+                None => return Ok(None),
+            }
+        }
+        Ok(Some(chain))
     }
 
-    fn read_file(&self, path: &Path) -> io::Result<Option<(String, Vec<u8>)>> {
-        let mut file = match File::open(path) {
-            Ok(file) => file,
-            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
-            Err(error) => return Err(error),
-        };
-        let mut bytes = Vec::new();
-        file.read_to_end(&mut bytes)?;
-        Ok(decode(&bytes))
+    /// Walks the registry: every path that decodes is a row, and every other name is foreign. The walk descends only into
+    /// kind directories and full components, and never follows a link.
+    pub fn scan(&self) -> io::Result<Scan> {
+        let mut scan = Scan::default();
+        for (name, kind) in entries(self.dir.as_fd())? {
+            match kind {
+                FileType::Directory if valid_kind(&name) => {
+                    let fd = open_dir(self.dir.as_fd(), &name)?;
+                    walk(fd.as_fd(), &name, &mut Vec::new(), &mut scan)?;
+                }
+                _ => scan.foreign += 1,
+            }
+        }
+        scan.keys.sort();
+        Ok(scan)
     }
+}
+
+/// The names in a directory, with their types, not following links. `.` and `..` are left out.
+fn entries(dir: BorrowedFd<'_>) -> io::Result<Vec<(String, FileType)>> {
+    let mut out = Vec::new();
+    for entry in Dir::read_from(dir)? {
+        let entry = entry?;
+        let Ok(name) = entry.file_name().to_str() else {
+            out.push((String::new(), FileType::Unknown));
+            continue;
+        };
+        if name == "." || name == ".." {
+            continue;
+        }
+        let kind = FileType::from_raw_mode(statat(dir, name, AtFlags::SYMLINK_NOFOLLOW)?.st_mode);
+        out.push((name.to_string(), kind));
+    }
+    Ok(out)
+}
+
+fn walk(
+    dir: BorrowedFd<'_>,
+    kind: &str,
+    dirs: &mut Vec<String>,
+    scan: &mut Scan,
+) -> io::Result<()> {
+    for (name, file_type) in entries(dir)? {
+        match file_type {
+            FileType::Directory if is_dir_component(&name) => {
+                let fd = open_dir(dir, &name)?;
+                dirs.push(name);
+                walk(fd.as_fd(), kind, dirs, scan)?;
+                dirs.pop();
+            }
+            FileType::RegularFile => {
+                let path: Vec<&str> = dirs.iter().map(String::as_str).collect();
+                match key_of(kind, &path, &name) {
+                    Some(key) => scan.keys.push(key),
+                    None => scan.foreign += 1,
+                }
+            }
+            _ => scan.foreign += 1,
+        }
+    }
+    Ok(())
 }
 
 impl Storage for FileStorage {
     fn write_row(&mut self, key: &str, bytes: &[u8]) -> Result<(), StorageError> {
-        let failed = |error: io::Error| StorageError::Failed {
-            errno: errno(&error),
+        let path = row_path(key).ok_or_else(|| failed(rustix::io::Errno::INVAL))?;
+        let chain = self.chain(&path, true).map_err(failed)?.expect("created");
+        let dir = chain.last().expect("a kind directory at least").as_fd();
+        let (temp, fd) = loop {
+            let name = format!(
+                "{TEMP_PREFIX}{}.{}",
+                std::process::id(),
+                TEMP_COUNTER.fetch_add(1, Ordering::Relaxed)
+            );
+            let flags =
+                OFlags::WRONLY | OFlags::CREATE | OFlags::EXCL | OFlags::NOFOLLOW | OFlags::CLOEXEC;
+            match openat(dir, name.as_str(), flags, Mode::from_raw_mode(0o600)) {
+                Ok(fd) => break (name, fd),
+                Err(rustix::io::Errno::EXIST) => continue,
+                Err(error) => return Err(failed(error)),
+            }
         };
-        let mut file = AtomicWriteFile::open(self.path(key)).map_err(failed)?;
-        file.write_all(&encode(key, bytes)).map_err(failed)?;
-        // `atomic-write-file` renames the temporary file and then syncs the directory inside `commit`, and its error does not say
-        // which step failed. So an error here may come after the replacement: the effect is unknown (AD-7).
-        file.commit().map_err(|error| StorageError::Uncertain {
-            errno: errno(&error),
-        })?;
-        // The row is in place. If the directory entry is not durable, the effect is unknown (AD-7).
-        sync_directory(&self.dir).map_err(|error| StorageError::Uncertain {
-            errno: errno(&error),
-        })
+        let mut file = File::from(fd);
+        let written = file.write_all(bytes).and_then(|()| file.sync_all());
+        let renamed =
+            written.and_then(|()| Ok(renameat(dir, temp.as_str(), dir, path.file.as_str())?));
+        if let Err(error) = renamed {
+            let _: rustix::io::Result<()> = unlinkat(dir, temp.as_str(), AtFlags::empty());
+            return Err(failed(error));
+        }
+        // The row is in place. If its directory entry is not durable, the effect is unknown (AD-7).
+        rustix::fs::fsync(dir).map_err(uncertain)
     }
 
     fn read_row(&self, key: &str) -> Result<Option<Vec<u8>>, StorageError> {
-        match self.read_file(&self.path(key)) {
-            Ok(Some((stored, value))) if stored == key => Ok(Some(value)),
-            Ok(_) => Ok(None),
-            Err(error) => Err(StorageError::Failed {
-                errno: errno(&error),
-            }),
-        }
+        let Some(path) = row_path(key) else {
+            return Ok(None);
+        };
+        let Some(chain) = self.chain(&path, false).map_err(failed)? else {
+            return Ok(None);
+        };
+        let dir = chain.last().expect("a kind directory at least").as_fd();
+        let flags = OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::CLOEXEC;
+        let fd = match openat(dir, path.file.as_str(), flags, Mode::empty()) {
+            Ok(fd) => fd,
+            Err(rustix::io::Errno::NOENT) => return Ok(None),
+            Err(error) => return Err(failed(error)),
+        };
+        let mut bytes = Vec::new();
+        File::from(fd).read_to_end(&mut bytes).map_err(failed)?;
+        Ok(Some(bytes))
     }
 
     fn delete_row(&mut self, key: &str) -> Result<(), StorageError> {
-        match fs::remove_file(self.path(key)) {
-            Ok(()) => {}
-            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
-            Err(error) => {
-                return Err(StorageError::Failed {
-                    errno: errno(&error),
-                })
-            }
+        let Some(path) = row_path(key) else {
+            return Ok(());
+        };
+        let Some(chain) = self.chain(&path, false).map_err(failed)? else {
+            return Ok(());
+        };
+        let dir = chain.last().expect("a kind directory at least").as_fd();
+        match unlinkat(dir, path.file.as_str(), AtFlags::empty()) {
+            Ok(()) | Err(rustix::io::Errno::NOENT) => {}
+            Err(error) => return Err(failed(error)),
         }
-        sync_directory(&self.dir).map_err(|error| StorageError::Uncertain {
-            errno: errno(&error),
-        })
+        rustix::fs::fsync(dir).map_err(uncertain)?;
+        // The directories that became empty go too, deepest first, best effort: a leftover directory is not a row.
+        for (depth, name) in path.dirs.iter().enumerate().rev() {
+            let parent = chain[depth].as_fd();
+            if unlinkat(parent, name.as_str(), AtFlags::REMOVEDIR).is_err() {
+                break;
+            }
+            let _: rustix::io::Result<()> = rustix::fs::fsync(parent);
+        }
+        Ok(())
     }
 
     fn list_rows(&self) -> Result<Vec<String>, StorageError> {
-        let failed = |error: io::Error| StorageError::Failed {
-            errno: errno(&error),
-        };
-        let mut keys = Vec::new();
-        for entry in fs::read_dir(&self.dir).map_err(failed)? {
-            let path = entry.map_err(failed)?.path();
-            if path.extension().and_then(|e| e.to_str()) != Some(ROW_EXTENSION) {
-                continue;
-            }
-            if let Some((key, _)) = self.read_file(&path).map_err(failed)? {
-                keys.push(key);
-            }
-        }
-        keys.sort();
-        Ok(keys)
+        self.scan().map(|scan| scan.keys).map_err(failed)
     }
 }
 
@@ -205,7 +316,8 @@ impl DataDir {
             Err(error) => return Err(error.into()),
         }
         check_safe(&rows)?;
-        let mut storage = FileStorage { dir: rows };
+        let dir = File::open(&rows)?.into();
+        let mut storage = FileStorage { dir };
         let previous = match storage.read_row(EPOCH_KEY) {
             Ok(Some(bytes)) => std::str::from_utf8(&bytes)
                 .ok()
@@ -273,36 +385,6 @@ fn check_safe(path: &Path) -> Result<(), OpenError> {
 mod tests {
     use super::*;
 
-    #[test]
-    fn the_wire_form_is_length_key_value() {
-        assert_eq!(encode("ab", b"cd"), [2, 0, 0, 0, b'a', b'b', b'c', b'd']);
-        assert_eq!(
-            decode(&encode("ab", b"cd")),
-            Some(("ab".to_string(), b"cd".to_vec()))
-        );
-        assert_eq!(decode(&[9, 0, 0, 0, 1]), None);
-        assert_eq!(decode(&[1]), None);
-    }
-
-    /// One file per row (AD-7): each key has a file name of its own, and the name is a safe file name whatever the key
-    /// holds (64 lowercase hex digits of its SHA-256).
-    #[test]
-    fn each_key_has_its_own_safe_file_name() {
-        let names: Vec<String> = ["session/a", "session/b", "", "../x"]
-            .iter()
-            .map(|k| key_hash(k))
-            .collect();
-        for (i, name) in names.iter().enumerate() {
-            assert_eq!(name.len(), 64, "{name}");
-            assert!(
-                name.bytes()
-                    .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)),
-                "{name}"
-            );
-            assert!(!names[..i].contains(name), "{name} is not unique");
-        }
-    }
-
     /// The errno of an OS error is kept, and an error with none is 0.
     #[test]
     fn an_errno_is_kept() {
@@ -329,12 +411,6 @@ mod tests {
             "the host epoch row is not a number"
         );
     }
-
-    /// A directory that does not exist cannot be synced.
-    #[test]
-    fn a_missing_directory_cannot_be_synced() {
-        assert!(sync_directory(std::path::Path::new("/nonexistent-botster-dir")).is_err());
-    }
 }
 
 /// The tests that write to a real disk (the fsync of a row, the lock, the epoch) run in the slow tier (BUILD.md testing rule 2):
@@ -344,12 +420,23 @@ mod tests {
 mod slow_tests {
     use super::*;
     use std::os::unix::fs::PermissionsExt;
+    use std::path::PathBuf;
 
     fn dir() -> tempfile::TempDir {
         tempfile::tempdir().unwrap()
     }
 
-    /// AD-7: a row that was written reads back, and the key is part of the row.
+    /// The joined path of a row, for a test that damages or inspects the file itself (the storage never joins paths).
+    fn file_of(rows: &Path, key: &str) -> PathBuf {
+        let path = row_path(key).unwrap();
+        let mut out = rows.join(&path.kind);
+        for dir in &path.dirs {
+            out.push(dir);
+        }
+        out.join(&path.file)
+    }
+
+    /// AD-7: a row that was written reads back, and a missing row is none.
     #[test]
     fn a_written_row_reads_back_and_a_missing_row_is_none() {
         let tmp = dir();
@@ -369,48 +456,63 @@ mod slow_tests {
         let tmp = dir();
         let mut data = DataDir::open(&tmp.path().join("d")).unwrap();
         let storage = data.storage();
-        storage.write_row("k", b"a long first value").unwrap();
-        storage.write_row("k", b"b").unwrap();
-        assert_eq!(storage.read_row("k").unwrap(), Some(b"b".to_vec()));
+        storage
+            .write_row("session/k", b"a long first value")
+            .unwrap();
+        storage.write_row("session/k", b"b").unwrap();
+        assert_eq!(storage.read_row("session/k").unwrap(), Some(b"b".to_vec()));
     }
 
-    /// Any key is a valid name: a long id, a slash, a dot-dot and a NUL-free odd string all work, and they list back.
+    /// Lead ruling on A1: any id is a row, whatever its length: an id of 128 bytes (the default `max_session_id_bytes`)
+    /// and ids far above it, whose paths take several directories and exceed `PATH_MAX`, write, read back and list back
+    /// sorted, and the listing finds nothing foreign.
     #[test]
-    fn any_key_is_a_valid_row_name_and_lists_back_sorted() {
+    fn any_id_is_a_row_and_lists_back_sorted() {
         let tmp = dir();
         let mut data = DataDir::open(&tmp.path().join("d")).unwrap();
         let storage = data.storage();
-        let long = format!("session/{}", "x".repeat(128));
-        for key in [long.as_str(), "session/../etc", "session/a/b", "session/é"] {
+        let keys: Vec<String> = [0usize, 128, 129, 1000, 8192]
+            .iter()
+            .map(|n| format!("session/{}", "x".repeat(*n)))
+            .chain(["session/../etc".to_string(), "session/é".to_string()])
+            .collect();
+        for key in &keys {
             storage.write_row(key, key.as_bytes()).unwrap();
         }
-        let keys = storage.list_rows().unwrap();
-        assert!(keys.windows(2).all(|w| w[0] <= w[1]), "ascending");
-        assert!(keys.contains(&long) && keys.contains(&"session/../etc".to_string()));
+        let scan = storage.scan().unwrap();
+        assert_eq!(scan.foreign, 0);
+        let mut expected = keys.clone();
+        expected.push(EPOCH_KEY.to_string());
+        expected.sort();
+        assert_eq!(scan.keys, expected);
         for key in &keys {
-            if key != EPOCH_KEY {
-                assert_eq!(
-                    storage.read_row(key).unwrap(),
-                    Some(key.as_bytes().to_vec())
-                );
-            }
+            assert_eq!(
+                storage.read_row(key).unwrap(),
+                Some(key.as_bytes().to_vec())
+            );
         }
     }
 
-    /// LC-7 step 4: a deleted row is gone, and deleting a missing row is not an error.
+    /// LC-7 step 4: a deleted row is gone, the directories of its path that became empty go too, and deleting a missing
+    /// row is not an error.
     #[test]
-    fn delete_removes_the_row_and_is_idempotent() {
+    fn delete_removes_the_row_and_its_empty_directories() {
         let tmp = dir();
+        let rows = tmp.path().join("d").join("rows");
         let mut data = DataDir::open(&tmp.path().join("d")).unwrap();
         let storage = data.storage();
-        storage.write_row("session/a", b"x").unwrap();
-        storage.delete_row("session/a").unwrap();
-        storage.delete_row("session/a").unwrap();
-        assert_eq!(storage.read_row("session/a").unwrap(), None);
-        assert!(!storage
-            .list_rows()
+        let long = format!("session/{}", "y".repeat(1000));
+        storage.write_row(&long, b"x").unwrap();
+        storage.write_row("session/short", b"x").unwrap();
+        storage.delete_row(&long).unwrap();
+        storage.delete_row(&long).unwrap();
+        assert_eq!(storage.read_row(&long).unwrap(), None);
+        // Only the short row's file is left in the kind directory: no directory of the long path remains.
+        let left: Vec<String> = fs::read_dir(rows.join("session"))
             .unwrap()
-            .contains(&"session/a".to_string()));
+            .map(|e| e.unwrap().file_name().into_string().unwrap())
+            .collect();
+        assert_eq!(left, vec![row_path("session/short").unwrap().file]);
     }
 
     /// LC-2: a second open of one directory is refused while the first is open, and works after it is dropped.
@@ -435,8 +537,7 @@ mod slow_tests {
         assert_eq!(epochs, [1, 2, 3]);
     }
 
-    /// AD-6: a directory that others can read or enter is refused, a directory of another user is refused, and a new one is
-    /// created with mode 0700.
+    /// AD-6: a directory that others can read or enter is refused, and a new one is created with mode 0700.
     #[test]
     fn an_unsafe_directory_is_refused_and_a_new_one_is_private() {
         let tmp = dir();
@@ -446,49 +547,59 @@ mod slow_tests {
         assert!(matches!(DataDir::open(&open), Err(OpenError::Unsafe(_))));
         let fresh = tmp.path().join("fresh");
         DataDir::open(&fresh).unwrap();
-        assert_eq!(
-            fs::metadata(&fresh).unwrap().permissions().mode() & 0o777,
-            0o700
-        );
-        assert_eq!(
-            fs::metadata(fresh.join("rows"))
-                .unwrap()
-                .permissions()
-                .mode()
-                & 0o777,
-            0o700
-        );
+        for path in [fresh.clone(), fresh.join("rows")] {
+            assert_eq!(
+                fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+                0o700
+            );
+        }
     }
 
-    /// A row whose bytes are not a row is skipped by the listing and read as missing, never trusted.
+    /// AD-1, AD-2, A10-2: a damaged row file is still the row of the key that its path names: it lists, and it reads back
+    /// as the damaged bytes, for the host's decoder to refuse.
     #[test]
-    fn a_damaged_row_file_is_not_a_row() {
+    fn a_damaged_row_is_still_named_by_its_path() {
         let tmp = dir();
+        let rows = tmp.path().join("d").join("rows");
         let mut data = DataDir::open(&tmp.path().join("d")).unwrap();
         let storage = data.storage();
-        storage.write_row("session/a", b"x").unwrap();
-        let path = storage.path("session/a");
-        fs::write(&path, [255, 255, 255, 255, 1]).unwrap();
-        assert_eq!(storage.read_row("session/a").unwrap(), None);
-        assert!(!storage
+        storage.write_row("session/a", b"a row").unwrap();
+        fs::write(file_of(&rows, "session/a"), [255, 0, 1]).unwrap();
+        assert!(storage
             .list_rows()
             .unwrap()
             .contains(&"session/a".to_string()));
+        assert_eq!(
+            storage.read_row("session/a").unwrap(),
+            Some(vec![255, 0, 1])
+        );
     }
 
-    /// A row file of another key under a colliding name is not returned for this key.
+    /// Lead ruling on A1: a name that does not decode was not written by Core: it is counted as foreign, left on disk, and
+    /// not listed; the rows around it list as before.
     #[test]
-    fn a_row_is_found_only_under_its_own_key() {
+    fn a_foreign_file_is_counted_untouched_and_not_listed() {
         let tmp = dir();
+        let rows = tmp.path().join("d").join("rows");
         let mut data = DataDir::open(&tmp.path().join("d")).unwrap();
         let storage = data.storage();
-        storage.write_row("session/a", b"x").unwrap();
-        fs::copy(storage.path("session/a"), storage.path("session/b")).unwrap();
+        storage.write_row("session/a", b"a row").unwrap();
+        let foreign = [
+            rows.join("notes.txt"),
+            rows.join("session").join("NOT-BASE32.row"),
+        ];
+        for path in &foreign {
+            fs::write(path, b"someone else's").unwrap();
+        }
+        let scan = storage.scan().unwrap();
+        assert_eq!(scan.foreign, foreign.len());
         assert_eq!(
-            storage.read_row("session/b").unwrap(),
-            None,
-            "the stored key differs"
+            scan.keys,
+            vec![EPOCH_KEY.to_string(), "session/a".to_string()]
         );
+        for path in &foreign {
+            assert_eq!(fs::read(path).unwrap(), b"someone else's");
+        }
     }
 
     /// A corrupt epoch row refuses the open: the registry is not guessed at.
@@ -497,48 +608,48 @@ mod slow_tests {
         let tmp = dir();
         let path = tmp.path().join("d");
         drop(DataDir::open(&path).unwrap());
-        let epoch = FileStorage {
-            dir: path.join("rows"),
-        }
-        .path(EPOCH_KEY);
-        fs::write(epoch, encode(EPOCH_KEY, b"not a number")).unwrap();
+        fs::write(file_of(&path.join("rows"), EPOCH_KEY), b"not a number").unwrap();
         assert!(matches!(DataDir::open(&path), Err(OpenError::CorruptEpoch)));
     }
 
-    /// AD-7: a write that cannot even open its temporary file has no effect and says so (`Failed`), while a commit error is
-    /// `Uncertain`, because the library's `commit` renames and syncs the directory and does not say which step failed.
+    /// AD-7: a write that cannot create its temporary file has no effect and says so (`Failed`).
     #[test]
     fn a_write_that_cannot_start_is_failed_with_no_effect() {
         let tmp = dir();
-        let mut storage = FileStorage {
-            dir: tmp.path().join("missing"),
-        };
-        assert!(matches!(
-            storage.write_row("k", b"v"),
-            Err(StorageError::Failed { errno }) if errno != 0
-        ));
-        assert_eq!(storage.read_row("k").unwrap(), None);
+        let rows = tmp.path().join("d").join("rows");
+        let mut data = DataDir::open(&tmp.path().join("d")).unwrap();
+        let storage = data.storage();
+        storage.write_row("session/a", b"old").unwrap();
+        fs::set_permissions(rows.join("session"), fs::Permissions::from_mode(0o500)).unwrap();
+        let result = storage.write_row("session/a", b"new");
+        fs::set_permissions(rows.join("session"), fs::Permissions::from_mode(0o700)).unwrap();
+        match result {
+            Err(StorageError::Failed { errno }) => assert_ne!(errno, 0),
+            // A user that ignores permissions (root) writes the row.
+            Ok(()) => return,
+            Err(other) => panic!("{other:?}"),
+        }
+        assert_eq!(
+            storage.read_row("session/a").unwrap(),
+            Some(b"old".to_vec())
+        );
     }
 
-    /// An error that is not "not found" is an error: a row path under a file, and a row path that is a directory.
+    /// An error that is not "not found" is an error: a row path that is a directory cannot be read or deleted; a missing
+    /// row is `None`, and its delete is quiet.
     #[test]
     fn only_a_missing_row_is_none_or_deleted_quietly() {
         let tmp = dir();
+        let rows = tmp.path().join("d").join("rows");
         let mut data = DataDir::open(&tmp.path().join("d")).unwrap();
         let storage = data.storage();
-        // The row path is a directory: reading it fails, and deleting it fails.
-        let path = storage.path("session/x");
-        fs::create_dir(&path).unwrap();
-        assert!(storage.read_file(&path).is_err() || storage.read_row("session/x").is_err());
+        storage.write_row("session/other", b"x").unwrap();
+        fs::create_dir(file_of(&rows, "session/x")).unwrap();
+        assert!(storage.read_row("session/x").is_err());
         assert!(matches!(
             storage.delete_row("session/x"),
             Err(StorageError::Failed { .. })
         ));
-        // A path below a file is not "not found" either.
-        let file = tmp.path().join("plain");
-        fs::write(&file, b"x").unwrap();
-        assert!(storage.read_file(&file.join("child")).is_err());
-        // A row that is not there is `None`, and its delete is quiet.
         assert_eq!(storage.read_row("session/none").unwrap(), None);
         assert!(storage.delete_row("session/none").is_ok());
     }
@@ -587,12 +698,5 @@ mod slow_tests {
         fs::DirBuilder::new().mode(0o700).create(&base).unwrap();
         fs::write(base.join("rows"), b"x").unwrap();
         assert!(matches!(DataDir::open(&base), Err(OpenError::Unsafe(_))));
-    }
-
-    /// Plan 2.3: a directory that exists can be synced.
-    #[test]
-    fn an_existing_directory_can_be_synced() {
-        let tmp = dir();
-        assert!(sync_directory(tmp.path()).is_ok());
     }
 }

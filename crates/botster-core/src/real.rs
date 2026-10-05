@@ -234,6 +234,8 @@ pub struct RealEdges {
     /// Accepts that failed with something other than "no client waits" (for example `EMFILE`), and the last error.
     accept_failures: u64,
     last_accept_error: Option<String>,
+    /// Files of the registry directory that are not rows, at the last read of the rows.
+    foreign_registry_files: usize,
     wake: Arc<PollWake>,
     scheduler: Production,
 }
@@ -265,6 +267,7 @@ impl RealEdges {
                 next_link: 1,
                 accept_failures: 0,
                 last_accept_error: None,
+                foreign_registry_files: 0,
                 wake,
                 scheduler: Production::new(),
             },
@@ -294,8 +297,13 @@ impl HostEdges for RealEdges {
     }
 
     fn read_rows(&mut self, prefix: &str) -> Result<Vec<(String, Vec<u8>)>, StorageError> {
+        let scan = self.storage.scan().map_err(|error| StorageError::Failed {
+            errno: error.raw_os_error().unwrap_or(0),
+        })?;
+        // A file that Core did not write is not a row: it is counted and left alone (lead ruling on audit A1).
+        self.foreign_registry_files = scan.foreign;
         let mut rows = Vec::new();
-        for key in self.storage.list_rows()? {
+        for key in scan.keys {
             if key.starts_with(prefix) {
                 if let Some(bytes) = self.storage.read_row(&key)? {
                     rows.push((key, bytes));
@@ -438,6 +446,7 @@ impl HostEdges for RealEdges {
         serde_json::json!({
             "accept_failures": self.accept_failures,
             "last_accept_error": self.last_accept_error,
+            "foreign_registry_files": self.foreign_registry_files,
         })
     }
 }
