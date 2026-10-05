@@ -176,3 +176,28 @@ Plan pin `c43693ff`, contracts `contracts-v0.1.7` (`f14c895`, manifest final21).
   (`base: <ref> = <sha>`), and returns it to every check. The mutation diff and the pending-list check both use it.
 - **Nightly.** `ensure_nightly` runs `rustup run nightly-2026-09-30 rustc --version` with auto-install off and fails with
   `missing prerequisite: nightly-2026-09-30`. The `rustup toolchain install` fallback is gone.
+# Integration after P3 M1
+
+The registry collects controls from their owning modules.
+The harness uses the registry for discovery and dispatch.
+P3 M1 has no terminal model. It discards PTY output and returns placeholder terminal state.
+Live oracle controls wait for P3 M2b. P6 makes no production model change.
+No pending id leaves the list during this integration phase.
+
+## Required M2b observation boundary
+
+1. Identify each session by its data directory and `InstanceId`.
+2. Provide the model's `Size` and `History` configuration.
+3. After each completed native model step, provide exactly the consumed output bytes in order.
+4. Preserve unread bytes when query handling stops a model step.
+5. At the same boundary, provide accepted resize and terminal configuration changes in their actual order.
+6. Provide access to the actual `Terminal` for native state comparisons and failure checks.
+7. For each completed capture, provide its model revision and the model at that revision.
+8. Retain every consumed output chunk after the capture revision for resume checks.
+9. Read capture pages through Core's `read_page` path.
+10. Fail the testkit run if an observation fails. Do not discard an observation error.
+
+An oracle read does not pump the subject.
+PTY reads do not prove that the model consumed those bytes.
+The every-cut adapter uses a fresh subject session, actual program writes, the quiet fence, and actual `CaptureSnapshot` results.
+The observer adds no terminal semantics and no test branch to the production worker.
