@@ -1002,3 +1002,26 @@ The two findings above prevent CLEAN on this combined head.
 This verdict does not close PR #164's future merge, the other P5 audit work, or P5 adoption.
 
 VERDICT: NOT CLEAN (2 open)
+
+## PR #162 — Round 7
+
+- Exact head: `59cda32f721f974dee8f8aeea1fef9472afe1d35` (unchanged).
+- Base: `144b0234fb632bcbb5176b17c2fe55f3239405df`.
+- Scope: the revised PR description and correction of the shared guard review status.
+- The reviewer ran no builds, tests, mutation jobs, or gates.
+
+P5-F12 is CLOSED. The reviewer read the full rewritten description and verified its unchanged exact head.
+The description identifies the combined guard scope, merge commit, C1 fix, derived deadline, and panic propagation.
+It identifies the earlier failed Mac result as failed evidence and states that this head has no execution result.
+It also records the remaining P5-F4 / integration C2 finding and P3's assigned fix.
+
+The integration reviewer confirmed that their earlier #165 CLEAN missed P5-F4.
+They opened C2 MEDIUM on this exact combined head, verdict commit `9b9cc72`.
+That correction supersedes the zero-open integration status recorded in Round 6.
+The implementer reports that the lead assigned the fix to P3 in #165.
+PR #162 must merge P3's revised CLEAN head and receive another exact-head review before its combined gate.
+
+C1 and P5-F12 are CLOSED. P5-F4 remains OPEN for the source reasons in Round 6.
+The reviewer does not accept the future merge or close the other P5 work.
+
+VERDICT: NOT CLEAN (1 open)
