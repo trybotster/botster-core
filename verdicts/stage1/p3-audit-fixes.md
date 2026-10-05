@@ -172,3 +172,48 @@ VERDICT: NOT CLEAN (6 open)
 - I6 named no defect, only a preference for the other offered fix. This reviewer withdraws I6. No change is required.
 
 VERDICT: NOT CLEAN (5 open)
+
+## Round 2 — Fixes for I1 to I5
+
+Reviewed head: `82b4269bcb0d1412b94f38c818df5169617570c6`. The base is still current v1 `144b023`.
+Reviewed delta: `0403470..82b4269` (`6770c0c`, `82b4269`), 14 files.
+This reviewer ran no build, test or gate.
+
+- **I1 CLOSED.** `watch_exit` now gives `io::Result<ExitStatus>`, and `wait_unreaped_with` returns the errno; it does not
+  panic. The driver maps the result through `io_decisions::exit_input` and returns the error from `Driver::run`. `run` consumes
+  the driver, so the error drops the `Payload`, and its drop kills the group. `main` then prints the error and exits with the
+  failure code from `command_line::execute`. So the host sees a lost link. No exit status is invented.
+  The default-tier tests cover the watch decision (`an_interrupted_watch_retries_and_a_failed_watch_gives_its_error`) and the
+  driver's mapping (`a_failed_exit_watch_is_an_error_and_never_an_exit`). An error value is better than the panic, because one
+  tested path carries the A52 effect. That fits the lead's A52 ruling: the unreachable case never invents `Code(-1)`.
+- **I2 CLOSED under the lead's ruling** (state log, 2026-10-04: option (b) now; the steward is asked to bound `KeyInput.text`;
+  a follow-up PR adds measurements if the steward rules).
+  - The kitty flags are now the low five index bits, with flag 16 inverted. So the first 16 probes have "report associated
+    text" on. The enumeration still covers all 2048 states.
+  - The early stop is unchanged and stays exact. A key over the limit now stops after at most 16 probes.
+  - The doc of `longest_key_sequence` states the remaining cost of an admitted key, and it is marked
+    "pending steward: KeyInput.text bound".
+  - The binding test compares the result with a maximum over the whole mode cube, so the new order changes no expected value.
+- **I3 CLOSED.** `Drain` moved to `botster-worker-core::drain`. It is pure, so it fits the machine crate. The real driver and
+  the testkit edge now drive the same decision: the testkit uses `ScriptedProgram::unread` as its count, and `after_read` after
+  each read.
+  - The edge offers `PtyDrained` when a drain is `Done`, or when its next read would find nothing. In the real driver, that
+    read returns `EAGAIN` (`found = 0`), so the next step gives `PtyDrained`. The sequence the machine receives is the same.
+  - `the_edge_drains_as_the_real_driver_does` checks behavior: the counted bytes, the flushing read that finds the later
+    output, and the bound against output written after the measured count. The expected counts come from the test's own
+    writes, not from terminal semantics.
+- **I4 CLOSED.** `after_read` returns `Done` for `n == 0` as its first arm. The driver, the testkit edge and the test helper
+  each call it with every read result. No copied branch remains.
+- **I5 CLOSED.** The test is renamed `retirement_keeps_the_result_path_of_a_running_setter`. Its doc names
+  `a_write_in_flight_when_the_link_fails_is_unknown` as the proof of the key bound. The dead `max_key_repeat` setup is deleted.
+- **I6** stays WITHDRAWN (addendum 2).
+
+The changes to `process_guard.rs`, `payload_guard.rs`, `slow_payload.rs` and the bounded cleanup in `session.rs` answer the
+package reviewer's F26 to F28. They are package scope. The shared `GroupGuard` still owns its group and reaps only its anchor,
+so the cross-package ownership rule (BUILD.md testing rule 10) is unchanged.
+
+Integration findings: all closed (I1 to I5 closed, I6 withdrawn).
+Still needed for CLEAN on this head: the P3 package reviewer's verdict on `82b4269`. The gate on the CLEAN head proves the
+pending slow-tier evidence (`slow_payload`, clippy with `slow`, native Mac proof).
+
+VERDICT: NOT CLEAN (1 open: package verdict on 82b4269 pending; 0 integration findings open)
