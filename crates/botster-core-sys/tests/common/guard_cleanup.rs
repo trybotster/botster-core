@@ -67,33 +67,6 @@ pub(crate) fn end_group(
     })
 }
 
-/// Waits until `group` has no live member, within `cleanup`, without a signal: the caller holds no reservation of the
-/// group, so it must not signal it. It is for a group that production has killed: the rounds of `end_members` with no
-/// kill, so a member that is still ending is awaited, never read as left.
-///
-/// # Errors
-/// The members still live at the deadline, or why they could not be listed or awaited.
-pub(crate) fn await_group_end(
-    group: rustix::process::Pid,
-    cleanup: std::time::Duration,
-) -> Result<(), String> {
-    // timer: deadline — bounds the wait for a killed group's last members.
-    let deadline = std::time::Instant::now() + cleanup;
-    end_members(
-        || Ok(()),
-        || live_members(group),
-        |member| await_end(member.pid, deadline),
-        || std::time::Instant::now() >= deadline,
-    )
-    .map_err(|failure| match failure {
-        Failure::Left(members) => {
-            let left: Vec<String> = members.iter().map(ToString::to_string).collect();
-            format!("members left after {cleanup:?}: {}", left.join(", "))
-        }
-        Failure::Error(error) => format!("the members could not be listed or awaited: {error}"),
-    })
-}
-
 /// Kills `group`, but only while `reserve` holds it: the reserve took the group at its fork, nothing can move a zombie to
 /// another group, and while it is an unreaped child of this process (live or a zombie), the group exists and no other
 /// group has the id. (macOS refuses `getpgid` for a zombie, so the check is the wait status, not the group.) Without the
@@ -119,7 +92,7 @@ pub(crate) fn reserved_kill(
 
 /// Why `end_members` stopped before the group was empty.
 #[derive(Debug)]
-enum Failure<M> {
+pub(crate) enum Failure<M> {
     /// The members that were still live at the deadline, or a member that a wait called gone while a listing still
     /// called it live.
     Left(Vec<M>),
@@ -135,7 +108,7 @@ enum Failure<M> {
 /// No round repeats without a blocking wait or a change in the live set: a member that a wait calls gone twice while the
 /// listings still call it live is reported as left. It stops at `expired` with the members left (after one last kill), and
 /// at a failed kill, listing or wait with its error, so it never spins and never reports an end that did not happen.
-fn end_members<M: PartialEq + Clone>(
+pub(crate) fn end_members<M: PartialEq + Clone>(
     mut kill: impl FnMut() -> std::io::Result<()>,
     mut members: impl FnMut() -> std::io::Result<Vec<M>>,
     mut await_end: impl FnMut(&M) -> std::io::Result<Waited>,
