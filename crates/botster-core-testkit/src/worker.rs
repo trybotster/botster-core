@@ -683,8 +683,6 @@ impl CoreApi for TestkitCore {
 
     /// TM-1, plan 4.1: the clock moves to `now`, the workers run their ready work, then the host pumps. A worker that still
     /// has ready work keeps `more` true and the wake set (TM-6), as a real worker's pending bytes would.
-    /// TM-1, plan 4.1: the clock moves to `now`, the workers run their ready work, then the host pumps. A worker that still
-    /// has ready work keeps `more` true and the wake set (TM-6), as a real worker's pending bytes would.
     fn pump(&mut self, now: Now) -> PumpReport {
         self.workers.run(now.monotonic);
         let mut report = self.driver.pump(now);

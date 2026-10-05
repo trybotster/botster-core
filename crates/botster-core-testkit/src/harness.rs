@@ -50,6 +50,11 @@ impl TestkitHarness {
         self.seed
     }
 
+    /// The worker edge supplies the state for controls in the worker module.
+    pub(crate) fn workers(&self) -> &Workers {
+        &self.workers
+    }
+
     /// Puts the refusal layer of the handle in front of its Core. `open` calls this with the Core that it built, so every Core
     /// that a transcript sees can be scripted (Core A5-3 timing 1).
     pub fn with_refusals(&mut self, handle: &str, core: Box<dyn CoreApi>) -> Box<dyn CoreApi> {
@@ -100,12 +105,14 @@ impl CoreHarness for TestkitHarness {
                 start: self.start,
             },
             core_features(),
-            Some(Box::new(self.workers.spawner())),
+            Some(Box::new(self.workers.spawner(&spec.data_dir.0))),
         )?;
         let core = Box::new(TestkitCore::new(
             opened.driver,
             opened.wake,
             self.workers.clone(),
+            &spec.handle,
+            &spec.data_dir.0,
         ));
         Ok(self.with_refusals(&spec.handle, core))
     }
@@ -318,7 +325,7 @@ mod tests {
             );
         }
         assert_eq!(
-            harness.control("h", "lose_worker", &json!({})),
+            harness.control("h", "descendants", &json!({})),
             Err(ControlError::Unsupported)
         );
         let nth = harness.control(

@@ -22,6 +22,7 @@ pub mod statements;
 pub mod status;
 pub mod wake;
 pub mod worker;
+mod worker_controls;
 
 pub use entropy::SeededEntropy;
 pub use harness::TestkitHarness;
