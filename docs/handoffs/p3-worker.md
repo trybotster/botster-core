@@ -774,3 +774,11 @@ worker_controls.rs registers its controls through controls::registered_controls(
 P3 added the agreed workers() accessor and directory-aware open() call sites.
 The prior missing-control assertion now uses descendants, which remains unsupported. lose_worker is an implemented M2a control.
 Next: focused Linux compilation, unit tests, and the testkit transcript proof. M2a reviews and gates remain open.
+
+## M2a first Linux compilation (2026-10-04)
+
+The focused Linux check at 740b587 stops during compilation with seven fixture constructor errors. No tests ran.
+Log: ~/botster-sessions/gates/botster-core-stage1-p3-m2a-v1-740b587a-linux-20261004-194349-96539.log.
+The M1 fixtures still used constructors without M2a directory identity or PTY write state.
+P3 updated the existing fixtures to pass their directory and handle names and initialize the new edge state.
+Their assertions and tested behavior remain unchanged. Next: rerun the focused Linux check.
