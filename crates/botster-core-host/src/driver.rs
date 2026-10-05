@@ -20,7 +20,7 @@ use botster_core_edges::scheduler::{ChoicePoint, Scheduler};
 use botster_core_edges::Machine;
 use botster_core_link::frame::{encode_frame, FrameDecoder, FrameType};
 use botster_core_link::hello::Hello;
-use botster_core_link::msg::{HostMsg, WorkerMsg};
+use botster_core_link::msg::WorkerMsg;
 use botster_core_link::proof::TOKEN_LEN;
 use botster_route_codec::prelude::QueryKind;
 use std::collections::{BTreeMap, BTreeSet};
@@ -215,8 +215,7 @@ impl<E: HostEdges> HostDriver<E> {
         let i = self
             .edges
             .scheduler()
-            .pick(ChoicePoint::Session, sessions.len())
-            .min(sessions.len() - 1);
+            .pick(ChoicePoint::Session, sessions.len());
         sessions[i].clone()
     }
 
@@ -609,8 +608,7 @@ impl<E: HostEdges> CoreApi for HostDriver<E> {
             let at = self
                 .edges
                 .scheduler()
-                .pick(ChoicePoint::ReadyWork, ready.len())
-                .min(ready.len() - 1);
+                .pick(ChoicePoint::ReadyWork, ready.len());
             let work = self.pick_session(&ready, at);
             // A5-2: the scheduler may defer the progress of an operation to a later pump. A deadline is never deferred.
             if !matches!(work, Work::Deadline | Work::Silent)
@@ -795,7 +793,3 @@ impl<E: HostEdges> CoreApi for HostDriver<E> {
         self.engine.terminal_identity()
     }
 }
-
-// The driver sends host messages through the engine's `SendMsg` action: this keeps the type in the public docs.
-#[allow(dead_code)]
-fn _host_msg_is_the_wire(_: &HostMsg) {}

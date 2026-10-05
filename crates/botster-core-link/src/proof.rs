@@ -17,6 +17,29 @@ pub const TOKEN_LEN: usize = 32;
 
 const DOMAIN: &[u8] = b"botster-core-link/v1/hello-proof";
 
+/// A token as 64 lowercase hex digits: its form in the worker's environment and in the registry row (AD-6).
+pub fn token_hex(token: &[u8; TOKEN_LEN]) -> String {
+    token.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+/// The token that `text` holds as 64 lowercase hex digits, or `None` for any other text.
+pub fn token_from_hex(text: &str) -> Option<[u8; TOKEN_LEN]> {
+    let digits = text.as_bytes();
+    if digits.len() != TOKEN_LEN * 2 {
+        return None;
+    }
+    let nibble = |d: u8| match d {
+        b'0'..=b'9' => Some(d - b'0'),
+        b'a'..=b'f' => Some(d - b'a' + 10),
+        _ => None,
+    };
+    let mut out = [0u8; TOKEN_LEN];
+    for (byte, pair) in out.iter_mut().zip(digits.chunks(2)) {
+        *byte = nibble(pair[0])? * 16 + nibble(pair[1])?;
+    }
+    Some(out)
+}
+
 /// The proof of `token` for `instance` at `host_epoch`.
 ///
 /// Clause: Core AD-6, Core DP-8.
@@ -36,6 +59,29 @@ pub fn token_proof(token: &[u8; TOKEN_LEN], instance: &InstanceId, host_epoch: u
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// AD-6: a token survives its hex form; every hex digit decodes to its bytes; a non-digit, an upper-case digit or a short
+    /// text is not a token.
+    #[test]
+    fn a_token_survives_its_hex_form_and_other_text_is_not_a_token() {
+        let token: [u8; TOKEN_LEN] = std::array::from_fn(|i| ((i * 7 + 9) % 256) as u8);
+        assert_eq!(token_from_hex(&token_hex(&token)), Some(token));
+        assert_eq!(
+            token_from_hex(&"09".repeat(TOKEN_LEN)),
+            Some([9u8; TOKEN_LEN])
+        );
+        assert_eq!(
+            token_from_hex(&"90".repeat(TOKEN_LEN)),
+            Some([0x90u8; TOKEN_LEN])
+        );
+        assert_eq!(
+            token_from_hex(&"af".repeat(TOKEN_LEN)),
+            Some([0xAFu8; TOKEN_LEN])
+        );
+        assert_eq!(token_from_hex(&"0g".repeat(TOKEN_LEN)), None);
+        assert_eq!(token_from_hex(&"AF".repeat(TOKEN_LEN)), None);
+        assert_eq!(token_from_hex("00"), None);
+    }
 
     fn instance(text: &str) -> InstanceId {
         InstanceId(text.to_string())

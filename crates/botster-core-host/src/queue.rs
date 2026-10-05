@@ -177,14 +177,6 @@ pub struct QueueBounds {
     pub mandatory: usize,
 }
 
-/// What a poll returned.
-#[derive(Debug)]
-pub struct Polled {
-    pub events: Vec<Event>,
-    /// How many mandatory events (not `Completed`) the poll removed: room that parked work may use (EV-5d).
-    pub freed_mandatory: usize,
-}
-
 /// The one ordered event queue.
 #[derive(Debug)]
 pub struct EventQueue {
@@ -431,9 +423,8 @@ impl EventQueue {
     }
 
     /// Takes at most `max` events from the front, in order (OR-2). It makes no progress.
-    pub fn poll(&mut self, max: usize) -> Polled {
+    pub fn poll(&mut self, max: usize) -> Vec<Event> {
         let mut events = Vec::new();
-        let mut freed_mandatory = 0;
         while events.len() < max {
             let Some((&seq, _)) = self.entries.first_key_value() else {
                 break;
@@ -459,20 +450,14 @@ impl EventQueue {
                         Class::Droppable => {
                             self.droppable.remove(&seq);
                         }
-                        Class::Mandatory => {
-                            self.mandatory -= 1;
-                            freed_mandatory += 1;
-                        }
+                        Class::Mandatory => self.mandatory -= 1,
                         Class::Completed | Class::Lost => {}
                     }
                     events.push(event);
                 }
             }
         }
-        Polled {
-            events,
-            freed_mandatory,
-        }
+        events
     }
 }
 
@@ -540,7 +525,7 @@ mod tests {
     }
 
     fn drain(queue: &mut EventQueue) -> Vec<Event> {
-        queue.poll(usize::MAX).events
+        queue.poll(usize::MAX)
     }
 
     /// Core EV-2, 6.2: the oldest droppable event is dropped first, and the marker takes the position of the first drop.
@@ -693,20 +678,22 @@ mod tests {
         assert!(!queue.has_mandatory_room());
     }
 
-    /// Core EV-5d: a poll reports the mandatory room that it freed, and not the room of a `Completed`.
+    /// Core EV-5d: a poll that takes a mandatory event frees its room; a poll that takes only a `Completed` does not, because
+    /// a `Completed` has its own reserved slot.
     #[test]
-    fn a_poll_reports_the_mandatory_room_that_it_freed() {
+    fn a_poll_frees_the_room_of_the_mandatory_events_that_it_took() {
         let mut queue = EventQueue::new(bounds(4, 2));
+        queue.post_completed(OpId(1), OpResult::Ok(OpOutput::Unit));
         queue
             .post_mandatory(state("a", "ia", SessionState::Created))
             .unwrap();
-        queue.post_completed(OpId(1), OpResult::Ok(OpOutput::Unit));
         queue
             .post_mandatory(state("b", "ib", SessionState::Created))
             .unwrap();
-        let polled = queue.poll(2);
-        assert_eq!(polled.events.len(), 2);
-        assert_eq!(polled.freed_mandatory, 1);
+        assert!(!queue.has_mandatory_room());
+        assert!(matches!(queue.poll(1)[..], [Event::Completed { .. }]));
+        assert!(!queue.has_mandatory_room());
+        assert_eq!(queue.poll(1).len(), 1);
         assert!(queue.has_mandatory_room());
     }
 
@@ -803,13 +790,13 @@ mod tests {
         queue.post_completed(OpId(1), OpResult::Ok(OpOutput::Unit));
         queue.post_completed(OpId(2), OpResult::Ok(OpOutput::Unit));
         queue.post_completed(OpId(3), OpResult::Ok(OpOutput::Unit));
-        let first = queue.poll(2).events;
-        let second = queue.poll(2).events;
+        let first = queue.poll(2);
+        let second = queue.poll(2);
         assert_eq!(first.len(), 2);
         assert_eq!(second.len(), 1);
         assert!(matches!(first[0], Event::Completed { op: OpId(1), .. }));
         assert!(matches!(second[0], Event::Completed { op: OpId(3), .. }));
-        assert!(queue.poll(2).events.is_empty());
+        assert!(queue.poll(2).is_empty());
     }
 
     /// Core TP-1: a worker-reported loss creates the marker, with the dropped tap bytes added up.

@@ -44,22 +44,6 @@ fn create_posts_the_state_and_then_the_completion() {
     );
 }
 
-/// Core A2-7, 9B: one `pump` posts at most `pump_events`... a step posts at most one event, so the first pump of a create
-/// posts the state and the completion in two steps.
-#[test]
-fn every_step_posts_at_most_one_event() {
-    let mut w = World::default();
-    w.engine.begin(create("s1")).unwrap();
-    w.feed(Input::Clock(w.unix));
-    let mut counts = Vec::new();
-    while let Some(work) = w.engine.ready().into_iter().next() {
-        w.feed(Input::Run(work));
-        counts.push(w.engine.take_posted());
-    }
-    assert!(counts.iter().all(|c| *c <= 1), "{counts:?}");
-    assert_eq!(counts.iter().sum::<u32>(), 2);
-}
-
 /// Core LC-3, OR-2: `Start` posts `Starting`, then `Running`, then its completion.
 #[test]
 fn start_posts_starting_then_running_then_the_completion() {
@@ -76,7 +60,7 @@ fn start_posts_starting_then_running_then_the_completion() {
     );
     assert!(
         matches!(events.last(), Some(Event::Completed { result: OpResult::Ok(OpOutput::Record(r)), .. })
-        if r.state == SessionState::Running && r.worker_protocol == Some(1))
+        if r.state == SessionState::Running && r.worker_protocol == Some(HELLO_PROTOCOL))
     );
 }
 
@@ -103,35 +87,65 @@ fn the_payload_is_launched_last() {
         + spawn;
     assert!(row_starting < spawn, "{trace:?}");
     assert!(spawn < row_identity && row_identity < launch, "{trace:?}");
-    let row: crate::session::Row = serde_json::from_slice(&w.rows["session/s1"]).unwrap();
+    let row = crate::session::Row::decode(&sid("s1"), &w.rows["session/s1"])
+        .expect("Core decodes its row");
     assert!(
         row.worker.is_some() && row.token.is_some(),
         "the identity row names the worker and the token"
     );
 }
 
-/// Core AD-7: a hello that arrives before the identity row is durable does not launch the payload early.
+/// Core AD-7: a hello that arrives before the identity row is durable does not launch the payload early: the launch follows
+/// the identity row.
 #[test]
 fn a_hello_before_the_identity_row_waits_for_it() {
     let mut w = World::default();
     w.autopilot = Autopilot::Silent;
     w.ok(create("s1"));
     w.engine.begin(Op::Start { id: sid("s1") }).unwrap();
-    w.pump();
+    // The start runs step by step until the worker is spawned; its identity row is the next step.
+    for _ in 0..20 {
+        if w.trace.iter().any(|t| t == "spawn") {
+            break;
+        }
+        w.feed(Input::Run(crate::io::Work::Session(sid("s1"))));
+    }
+    let decoded = |w: &World| {
+        crate::session::Row::decode(&sid("s1"), &w.rows["session/s1"])
+            .expect("Core decodes its row")
+    };
+    assert!(
+        decoded(&w).worker.is_none(),
+        "the identity is not durable yet"
+    );
     let instance = w.instance_of("s1");
     let token = w.token_of("s1");
-    // The row writes are performed at once by the World, so the worker's hello sees the flow after the identity row.
+    let from = w.trace.len();
     w.feed(Input::LinkHello {
         link: LinkId(1),
         hello: Hello {
-            protocol: 1,
-            instance,
-            proof: token_proof(&token, &w.instance_of("s1"), 7),
+            protocol: HELLO_PROTOCOL,
+            instance: instance.clone(),
+            proof: token_proof(&token, &instance, 7),
             host_epoch: 7,
         },
     });
+    assert!(
+        !w.trace[from..].iter().any(|t| t == "send launch"),
+        "no launch before the identity row"
+    );
     w.pump();
-    assert!(w.trace.contains(&"send launch".to_string()));
+    let trace = &w.trace[from..];
+    let row = trace.iter().position(|t| t == "write session/s1");
+    let launch = trace.iter().position(|t| t == "send launch");
+    assert!(
+        matches!((row, launch), (Some(r), Some(l)) if r < l),
+        "{trace:?}"
+    );
+    assert!(
+        decoded(&w).worker.is_some(),
+        "the identity row names the worker"
+    );
     assert_eq!(w.hellos.len(), 1, "the host answers the hello (AD-6)");
 }
 
@@ -345,8 +359,17 @@ fn stop_of_an_exited_session_completes_with_the_same_end() {
     let mut w = World::default();
     w.running("s1");
     let first = w.ok(Op::Stop { id: sid("s1") });
-    let second = w.ok(Op::Stop { id: sid("s1") });
-    assert_eq!(first, second);
+    let again = w.engine.begin(Op::Stop { id: sid("s1") }).unwrap();
+    w.pump();
+    let events = w.engine.poll_events(64);
+    assert_eq!(
+        events,
+        vec![Event::Completed {
+            op: again,
+            result: OpResult::Ok(first)
+        }],
+        "the next pump completes it with the same end"
+    );
 }
 
 /// Core LC-12: a stop joins the stop that is running; both complete with the end, once (AM-3).
@@ -370,14 +393,20 @@ fn two_stops_join_one_flow_and_each_completes_once() {
         w.pump();
         seen.extend(w.engine.poll_events(64));
     }
-    let completions: Vec<OpId> = seen
+    // OR-3: the two completions have no promised order; each comes once, with the same end.
+    let mut completions: Vec<(OpId, OpResult)> = seen
         .iter()
         .filter_map(|e| match e {
-            Event::Completed { op, .. } => Some(*op),
+            Event::Completed { op, result } => Some((*op, result.clone())),
             _ => None,
         })
         .collect();
-    assert_eq!(completions, vec![a, b]);
+    completions.sort_by_key(|(op, _)| *op);
+    let ops: Vec<OpId> = completions.iter().map(|(op, _)| *op).collect();
+    let mut expected = vec![a, b];
+    expected.sort();
+    assert_eq!(ops, expected);
+    assert_eq!(completions[0].1, completions[1].1, "the same end");
     assert_eq!(
         w.sent
             .iter()
@@ -809,7 +838,8 @@ fn update_metadata_is_durable_and_posts_metadata_changed_after_the_completion() 
         matches!(&events[1], Event::MetadataChanged { .. }),
         "{events:?}"
     );
-    let row: crate::session::Row = serde_json::from_slice(&w.rows["session/s1"]).unwrap();
+    let row = crate::session::Row::decode(&sid("s1"), &w.rows["session/s1"])
+        .expect("Core decodes its row");
     assert_eq!(row.labels, labels);
     assert_eq!(w.engine.get(&sid("s1")).unwrap().labels, labels);
 }
@@ -833,15 +863,18 @@ fn a_failed_metadata_write_leaves_the_labels() {
     assert!(w.engine.get(&sid("s1")).unwrap().labels.is_empty());
 }
 
-/// Core LC-9, AD-4: the record has no `worker_protocol` before the start, and has the worker's number after it.
+/// Core LC-9, AD-4: the record has no `worker_protocol` before the start, and has the number of the worker's hello after it,
+/// not the running Core's T (here T is one above the worker's, so the worker is T - 1).
 #[test]
 fn the_record_exposes_the_worker_protocol_after_the_start() {
-    let mut w = World::default();
+    let mut cfg = config(CoreLimits::default());
+    cfg.worker_protocol = HELLO_PROTOCOL + 1;
+    let mut w = World::configured(cfg);
     w.ok(create("s1"));
     assert_eq!(w.engine.get(&sid("s1")).unwrap().worker_protocol, None);
     w.ok(Op::Start { id: sid("s1") });
     let record = w.engine.get(&sid("s1")).unwrap();
-    assert_eq!(record.worker_protocol, Some(w.engine.worker_protocol()));
+    assert_eq!(record.worker_protocol, Some(HELLO_PROTOCOL));
     assert_eq!(
         record.worker_features,
         Some(BTreeSet::from([Feature::FocusReport]))

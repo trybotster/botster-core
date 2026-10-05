@@ -251,28 +251,23 @@ impl HostEngine {
         row
     }
 
-    fn write_row(&mut self, owner: Owner, row: &Row) {
+    /// One durable write of `row` for `owner`; the answer carries the returned ticket (AD-7).
+    pub(crate) fn write_row(&mut self, owner: Owner, row: &Row) -> crate::io::Ticket {
         let ticket = self.ticket(owner);
         self.act(Action::WriteRow {
             ticket,
             key: crate::session::row_key(&row.id),
             bytes: serde_json::to_vec(row).expect("a row is JSON"),
         });
+        ticket
     }
 
-    /// A best-effort row write whose result nobody needs (the final state of a session).
-    pub(crate) fn write_row_ignored(&mut self, id: &SessionId, state: SessionState) {
-        let Some(s) = self.sessions.get(id) else {
-            return;
-        };
-        let mut row = s.to_row();
-        row.state = state;
-        let ticket = self.ticket(Owner::Ignored);
-        self.act(Action::WriteRow {
-            ticket,
-            key: crate::session::row_key(id),
-            bytes: serde_json::to_vec(&row).expect("a row is JSON"),
-        });
+    /// The row of the state that a session ended in. No operation waits for it; a failure is counted (`FinalRow`).
+    pub(crate) fn write_final_row(&mut self, id: &SessionId, state: SessionState) {
+        if self.sessions.contains_key(id) {
+            let row = self.row_of(id, state);
+            self.write_row(Owner::FinalRow, &row);
+        }
     }
 
     // ---- the steps of the operations ----
@@ -485,31 +480,12 @@ impl HostEngine {
     fn stop_all_start(&mut self, op_id: OpId, targets: BTreeSet<SessionId>) {
         let mut waiting = BTreeSet::new();
         for id in targets {
-            let Some(s) = self.sessions.get_mut(&id) else {
-                continue;
-            };
-            match s.admit {
-                Admit::Running | Admit::Starting => {
-                    s.admit = Admit::Stopping;
-                    match s.flow {
-                        // An exit is being posted, or the start has not ended: the stop follows (LC-12).
-                        Flow::Stop(_) => {}
-                        Flow::Start(_) | Flow::Create(_) => s.stop_after_start = true,
-                        _ if s.queue.iter().any(|f| matches!(f, Flow::Start(_))) => {
-                            s.stop_after_start = true;
-                        }
-                        _ => {
-                            s.host_ended = true;
-                            s.flow = Flow::Stop(StopFlow {
-                                phase: StopPhase::RowWrite,
-                                deadline: None,
-                                end: None,
-                            });
-                        }
-                    }
+            match self.sessions.get(&id).map(|s| s.admit) {
+                Some(Admit::Running | Admit::Starting) => {
+                    self.request_stop(&id);
                     waiting.insert(id);
                 }
-                Admit::Stopping => {
+                Some(Admit::Stopping) => {
                     waiting.insert(id);
                 }
                 // `Created`, `Exited` and `Lost` targets are left as they are (LC-12).
@@ -683,7 +659,7 @@ impl HostEngine {
         session.token = row
             .token
             .as_deref()
-            .and_then(crate::session::token_from_hex);
+            .and_then(botster_core_link::proof::token_from_hex);
         session.worker_protocol = row.worker_protocol;
         session.worker_features = row.worker_features.clone();
         session.worker.identity = row.worker.map(|w| w.identity());

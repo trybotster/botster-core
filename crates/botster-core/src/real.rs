@@ -15,7 +15,6 @@ use botster_core_sys::entropy::OsEntropy;
 use botster_core_sys::process::Children;
 use botster_core_sys::storage::{DataDir, FileStorage};
 use mio::net::{UnixListener, UnixStream};
-use mio::unix::SourceFd;
 use mio::{Events, Interest, Poll, Registry, Token, Waker};
 use std::collections::BTreeMap;
 use std::io::{self, Read, Write};
@@ -244,17 +243,13 @@ impl Drop for RealEdges {
     }
 }
 
-fn map_storage<T>(result: Result<T, StorageError>) -> Result<T, StorageError> {
-    result
-}
-
 impl HostEdges for RealEdges {
     fn fill_random(&mut self, buf: &mut [u8]) {
         self.entropy.fill(buf);
     }
 
     fn write_row(&mut self, key: &str, bytes: &[u8]) -> Result<(), StorageError> {
-        map_storage(self.storage.write_row(key, bytes))
+        self.storage.write_row(key, bytes)
     }
 
     fn delete_row(&mut self, key: &str) -> Result<(), StorageError> {
@@ -388,13 +383,6 @@ impl HostEdges for RealEdges {
     fn scheduler(&mut self) -> &mut dyn Scheduler {
         &mut self.scheduler
     }
-}
-
-// `SourceFd` is part of the registration of a descriptor that `mio` does not own; it is kept in the imports for the
-// registrations that P3 and P7 add (exit watches, lanes).
-#[allow(dead_code)]
-fn _source_fd(fd: &RawFd) -> SourceFd<'_> {
-    SourceFd(fd)
 }
 
 #[cfg(test)]
