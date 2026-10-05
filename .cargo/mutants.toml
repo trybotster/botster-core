@@ -32,21 +32,21 @@ exclude_re = [
     # remain in command_line; the shared Worker's decisions remain in worker-core. All three stay mutation-tested.
     # Slow mutation evidence: e9efad5 Driver run, 1c45103 direct flush run, and e475c284 PTY/flush run.
     # Positive-bound injection moves the same start body into start_with_read_bound; its 3fd41445 baseline passes.
-    # Driver::start: slow_driver lifecycle tests exercise the production start wrapper before every real Driver session.
+    # Driver::start: ev_4_a_real_exit_carries_the_code_or_the_signal exercises the production start wrapper.
     'crates/botster-worker/src/main\.rs:\d+:\d+: (replace Driver::start( ->| with)|.* in Driver::start$)',
     # Driver::start_with_read_bound: control_and_pty_reads_retain_bytes_at_each_positive_bound uses the real constructor at all three bounds.
     'crates/botster-worker/src/main\.rs:\d+:\d+: (replace Driver::start_with_read_bound( ->| with)|.* in Driver::start_with_read_bound$)',
-    # Driver::run: pty_events_resume_reads_after_would_block and slow_driver lifecycle tests exercise the real poll loop.
+    # Driver::run: pty_events_resume_reads_after_would_block exercises the real poll loop after readiness clears.
     'crates/botster-worker/src/main\.rs:\d+:\d+: (replace Driver::run( ->| with)|.* in Driver::run$)',
-    # Driver::settle: slow_driver lifecycle tests require queued machine inputs and actions to reach their real edges.
+    # Driver::settle: ev_4_a_real_exit_carries_the_code_or_the_signal requires queued machine inputs and actions to reach real edges.
     'crates/botster-worker/src/main\.rs:\d+:\d+: (replace Driver::settle( ->| with)|.* in Driver::settle$)',
-    # Driver::perform: slow_driver signal/removal tests and pty_reads_clear_readiness_and_finish_a_bounded_drain exercise real actions.
+    # Driver::perform: lc_6_signal_reaches_the_whole_group checks signals; pty_reads_clear_readiness_and_finish_a_bounded_drain checks ReapPayload.
     'crates/botster-worker/src/main\.rs:\d+:\d+: (replace Driver::perform( ->| with)|.* in Driver::perform$)',
-    # Driver::spawn: slow_driver exit tests require a real PTY/session leader and the real exit watcher.
+    # Driver::spawn: ev_4_a_real_exit_carries_the_code_or_the_signal requires the real PTY, leader, and exit watcher.
     'crates/botster-worker/src/main\.rs:\d+:\d+: (replace Driver::spawn( ->| with)|.* in Driver::spawn$)',
     # Driver::deregister_pty: pty_reads_clear_readiness_and_finish_a_bounded_drain checks registration flags through ReapPayload.
     'crates/botster-worker/src/main\.rs:\d+:\d+: (replace Driver::deregister_pty( ->| with)|.* in Driver::deregister_pty$)',
-    # Driver::read_pty_chunk: the positive-bound and PTY readiness tests check real read bytes, WouldBlock, and drain completion.
+    # Driver::read_pty_chunk: control_and_pty_reads_retain_bytes_at_each_positive_bound checks bytes; pty_reads_clear_readiness_and_finish_a_bounded_drain checks drains.
     'crates/botster-worker/src/main\.rs:\d+:\d+: (replace Driver::read_pty_chunk( ->| with)|.* in Driver::read_pty_chunk$)',
     # Driver::read_control: control_reads_require_readiness_and_report_eof_once and the positive-bound test check real socket reads.
     'crates/botster-worker/src/main\.rs:\d+:\d+: (replace Driver::read_control( ->| with)|.* in Driver::read_control$)',
@@ -61,29 +61,29 @@ exclude_re = [
     # Library-inclusive Linux proof: 63b5c1db, 30 tested, 25 caught, five unviable, no misses/timeouts.
     # Native Mac helper proof at that head: two tested and caught; its baseline runs all 47 selected entries.
     # These are OS glue exceptions, not exclusions inferred from an inactive platform filter.
-    # Payload::spawn: slow_payload checks exec/cwd failures, group identity, and real input/output after spawn.
+    # Payload::spawn: a_payload_that_cannot_start_is_a_typed_failure checks errors; the_payload_runs_on_the_pty_with_the_exact_environment checks successful spawn.
     'crates/botster-core-sys/src/payload\.rs:\d+:\d+: (replace Payload::spawn( ->| with)|.* in Payload::spawn$)',
-    # Payload::pid: slow_payload group-identity and independent-reaping checks retain the actual leader Child.
+    # Payload::pid: the_payload_runs_on_the_pty_with_the_exact_environment checks the leader id; dropping_the_payload_reaps_its_leader checks its retirement.
     'crates/botster-core-sys/src/payload\.rs:\d+:\d+: (replace Payload::pid( ->| with)|.* in Payload::pid$)',
-    # Payload::master: slow_payload checks descriptor flags and real PTY input/output through the retained master.
+    # Payload::master: the_payload_runs_on_the_pty_with_the_exact_environment checks descriptor flags and real PTY output.
     'crates/botster-core-sys/src/payload\.rs:\d+:\d+: (replace Payload::master( ->| with)|.* in Payload::master$)',
-    # Payload::read: the_pty_counts_output_and_delivers_input_to_the_program and finite-output checks use real read readiness.
+    # Payload::read: the_pty_counts_output_and_delivers_input_to_the_program and the_payload_runs_on_the_pty_with_the_exact_environment check real reads.
     'crates/botster-core-sys/src/payload\.rs:\d+:\d+: (replace Payload::read( ->| with)|.* in Payload::read$)',
     # Payload::pending_output: the_pty_counts_output_and_delivers_input_to_the_program checks repeated native counts without consumption.
     'crates/botster-core-sys/src/payload\.rs:\d+:\d+: (replace Payload::pending_output( ->| with)|.* in Payload::pending_output$)',
     # Payload::write: the_pty_counts_output_and_delivers_input_to_the_program delivers real program input through the PTY.
     'crates/botster-core-sys/src/payload\.rs:\d+:\d+: (replace Payload::write( ->| with)|.* in Payload::write$)',
-    # Payload::watch_exit: slow_payload code/signal and isolated production-reaping checks use the real unreaped exit watch.
+    # Payload::watch_exit: the_payload_runs_on_the_pty_with_the_exact_environment checks code; a_group_signal_ends_the_leader_and_its_group checks signal.
     'crates/botster-core-sys/src/payload\.rs:\d+:\d+: (replace Payload::watch_exit( ->| with)|.* in Payload::watch_exit$)',
-    # Payload::signal_group: slow_payload whole-group signal checks retain an independent member and require descendant FIFO EOF.
+    # Payload::signal_group: a_group_signal_ends_the_leader_and_its_group checks group signal and PTY EOF after descendant exit.
     'crates/botster-core-sys/src/payload\.rs:\d+:\d+: (replace Payload::signal_group( ->| with)|.* in Payload::signal_group$)',
-    # <impl Drop for Payload>::drop: bounded panic cleanup and isolated production-reaping checks cover group kill, master close, and leader wait.
+    # <impl Drop for Payload>::drop: a_panic_ends_the_payload_while_it_waits_for_input and dropping_the_payload_reaps_its_leader check cleanup and production reap.
     'crates/botster-core-sys/src/payload\.rs:\d+:\d+: (replace <impl Drop for Payload>::drop( ->| with)|.* in <impl Drop for Payload>::drop$)',
-    # pending_output: the real queued-output test catches native replacements on Linux and Mac without consuming program bytes.
+    # pending_output: the_pty_counts_output_and_delivers_input_to_the_program catches native replacements on Linux and Mac without consuming bytes.
     'crates/botster-core-sys/src/payload\.rs:\d+:\d+: (replace pending_output( ->| with)|.* in pending_output$)',
-    # wait_unreaped: the code/signal watch tests cover its waitid edge; wait_unreaped_with tests cover all pure retry/error decisions.
+    # wait_unreaped: the_payload_runs_on_the_pty_with_the_exact_environment and a_group_signal_ends_the_leader_and_its_group check its waitid edge.
     'crates/botster-core-sys/src/payload\.rs:\d+:\d+: (replace wait_unreaped( ->| with)|.* in wait_unreaped$)',
-    # set_nonblocking: slow_payload descriptor-flag and WouldBlock checks prove native nonblocking setup.
+    # set_nonblocking: the_payload_runs_on_the_pty_with_the_exact_environment checks the native NONBLOCK descriptor flag.
     'crates/botster-core-sys/src/payload\.rs:\d+:\d+: (replace set_nonblocking( ->| with)|.* in set_nonblocking$)',
     # Recheck each glue entry when its body or callers change. New pure decisions require default-tier tests.
     # P3 Payload::reap no-op: every current caller observes the leader's exit and sends group SIGKILL before reap.
@@ -93,10 +93,10 @@ exclude_re = [
     # The first SIGKILL can still be pending; this argument does not require every group member to have exited.
     # Recheck this entry when any reap caller or Payload::drop changes.
     'crates/botster-core-sys/src/payload\.rs:\d+:\d+: replace Payload::reap with \(\)$',
-    # wait_unreaped: EXITED and NOWAIT are disjoint option bits, so OR and XOR give the same wait options.
+    # wait_unreaped: the_payload_runs_on_the_pty_with_the_exact_environment and a_group_signal_ends_the_leader_and_its_group check its waitid edge.
     # Recheck this entry when the options or the pinned rustix dependency change.
     'crates/botster-core-sys/src/payload\.rs:\d+:\d+: replace \| with \^ in wait_unreaped$',
-    # set_nonblocking: its sole caller passes a fresh blocking PTY from pinned pty-process 0.5.3.
+    # set_nonblocking: the_payload_runs_on_the_pty_with_the_exact_environment checks the native NONBLOCK descriptor flag.
     # sys::Pty::open uses RDWR | NOCTTY. blocking::open never sets NONBLOCK, so that bit is clear before this operation.
     # OR and XOR both set the bit. Recheck this entry when the caller or the pinned PTY dependency changes.
     'crates/botster-core-sys/src/payload\.rs:\d+:\d+: replace \| with \^ in set_nonblocking$',

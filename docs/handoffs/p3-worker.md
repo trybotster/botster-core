@@ -700,3 +700,9 @@ Pure command-line, readiness, deadline, errno, launch-error, wait-loop, and Work
 Payload::reap keeps only its earlier exact equivalence entry. No blanket file or crate exclusion is added.
 The entries require exact source/configuration review before CLEAN. They do not replace the completed slow mutation proof.
 Next: both delta reviews, then the exact-head Linux landing gate.
+
+Integration review opens I4 LOW on the OS-glue comments: several entries name suites instead of concrete slow tests.
+The correction names exact test functions for every affected entry. Exclusion patterns and production source are unchanged.
+Examples: Driver::start names ev_4_a_real_exit_carries_the_code_or_the_signal; Payload::spawn names the typed-failure and exact-environment tests.
+Payload Drop names a_panic_ends_the_payload_while_it_waits_for_input and dropping_the_payload_reaps_its_leader.
+The delta needs both reviewers before the landing gate. No tests were rerun for this comment correction.
