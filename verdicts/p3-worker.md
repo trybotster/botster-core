@@ -1,8 +1,8 @@
 # P3 worker review
 
 Current restack verdict: CLEAN for P3's M1 package scope. All findings F1 through F24 are CLOSED.
-Reviewed head: `9eb9a59fcdd798d86cf8a7b96fc2c108e19282dc`, branch `stage1/p3-m1-v1`.
-Round 71 closes F24 after restoration of both equivalence reasons beside the concrete test names.
+Reviewed head: `b77038acb506f804262f3d9c99923aeceefb2683`, branch `stage1/p3-m1-v1`.
+Round 72 reviews the working-harness failure-propagation test correction and its focused passing evidence.
 This cross-package PR also requires the integration reviewer's CLEAN. The restack plan requires the implementer's gate after both exact-head verdicts.
 The earlier CLEAN below applies only to the old M2a head that it names.
 
@@ -2403,3 +2403,37 @@ M2a and M2b review remain separate milestones. The explicit real-harness pending
 The reviewer ran no tests, builds, or gates.
 
 VERDICT: CLEAN (P3 M1 package scope) on `9eb9a59fcdd798d86cf8a7b96fc2c108e19282dc`.
+
+
+## Round 72 — Working-harness failure-propagation test correction
+
+Reviewed head: `b77038acb506f804262f3d9c99923aeceefb2683`.
+The complete delta from 9eb9a59 changes one P6 test input/comment and the handoff.
+Production, mutation patterns, and contract pins remain unchanged. No merge conflict resolution accompanies this delta.
+
+The reviewer read the actual failed landing log at 9eb9a59:
+`~/botster-sessions/gates/botster-core-stage1-p3-m1-v1-9eb9a59f-linux-20261004-182418-50922.log`.
+Default tests run 750 entries: 749 pass and one fails, with 654 entries outside the tier.
+The failed assertion expects run_deterministic with open:{} to return an error.
+The working TestkitHarness accepts that valid default-worker open, so this input no longer exercises failure propagation.
+The failed gate supplies no later slow, mutation, or fuzz evidence.
+
+The correction supplies open:{worker:null} and cites Core LC-1 MissingWorkerPath.
+The reviewer checked the conformance driver's open mapping and the TestkitHarness OpenConfig mapping.
+The driver maps explicit null to no worker. The harness passes no worker_path to Core.
+LC-1 requires MissingWorkerPath. The script does not expect that error, so the runner returns failure through run_deterministic.
+The assertion therefore retains a real failure-propagation check through the working harness.
+It does not replace the harness, invent a refusal, change production behavior, or weaken the asserted error result.
+
+The reviewer read the focused exact-head regression log:
+`~/botster-sessions/gates/botster-core-stage1-p3-m1-v1-b77038ac-linux-20261004-182718-52204.log`.
+The corrected test passes in 0.004 seconds. One test runs, with 195 outside the filter. The job exits zero after ten seconds.
+This verifies the correction and supplies no full landing-gate claim.
+No new finding remains in this package delta.
+
+All findings F1 through F24 remain CLOSED. All earlier findings, closures, and mutation evidence remain preserved.
+This CLEAN covers P3's M1 package scope. The cross-package test correction also requires the integration reviewer's exact-head CLEAN.
+The implementer must then run the restack plan's landing gate at the head cleared by both reviewers.
+The reviewer ran no tests, builds, or gates.
+
+VERDICT: CLEAN (P3 M1 package scope) on `b77038acb506f804262f3d9c99923aeceefb2683`.
