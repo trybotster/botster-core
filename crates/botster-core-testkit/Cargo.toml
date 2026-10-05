@@ -12,7 +12,7 @@ workspace = true
 [features]
 # The real-process tests of this crate (BUILD.md testing rule 2): `cargo xtask slow` runs them.
 # It also builds `botster-test-anchor` and `real::RealCoreHarness` (plan 4.2).
-slow = ["dep:botster-core", "dep:botster-core-sys", "dep:botster-test-support", "dep:signal-hook"]
+slow = ["dep:botster-core", "dep:botster-core-sys", "dep:botster-test-support", "dep:signal-hook", "dep:kqueue"]
 
 [dependencies]
 botster-core = { workspace = true, optional = true }
@@ -40,10 +40,19 @@ botster-conformance.workspace = true
 schemars.workspace = true
 tempfile.workspace = true
 
-[target.'cfg(target_os = "macos")'.dev-dependencies]
-kqueue = "1.2.1"
+# The exit watch of the slow tests and their fixture on macOS (`EVFILT_PROC`); Linux uses `pidfd`.
+[target.'cfg(target_os = "macos")'.dependencies]
+kqueue = { version = "1.2.1", optional = true }
 
 [[bin]]
 name = "botster-test-anchor"
 path = "src/bin/botster-test-anchor.rs"
 required-features = ["slow"]
+test = false
+
+# The fixture processes of `tests/slow_real_harness.rs`: one binary, so that no fixture role counts as a test (audit A51).
+[[bin]]
+name = "botster-test-fixture"
+path = "tests/bin/fixture.rs"
+required-features = ["slow"]
+test = false

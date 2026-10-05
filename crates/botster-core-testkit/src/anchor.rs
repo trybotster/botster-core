@@ -138,7 +138,9 @@ impl Line {
             Line::Term => json!({"kind": "term"}),
             Line::Kill => json!({"kind": "kill"}),
             Line::Refused { reason } => json!({"kind": "refused", "reason": reason}),
-            Line::Error { stage, error } => json!({"kind": "error", "stage": stage, "error": error}),
+            Line::Error { stage, error } => {
+                json!({"kind": "error", "stage": stage, "error": error})
+            }
         }
         .to_string()
     }

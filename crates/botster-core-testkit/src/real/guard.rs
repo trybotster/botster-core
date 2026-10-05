@@ -45,22 +45,29 @@ impl Connection {
         let mut text = String::new();
         match self.reader.read_line(&mut text) {
             Ok(0) => Ok(false),
-            Err(error) if matches!(error.kind(), io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut) => {
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
+                ) =>
+            {
                 Err(io::Error::new(
                     io::ErrorKind::TimedOut,
-                    format!("an anchor wrote nothing within {deadline:?} (lines so far: {:?})", self.lines),
+                    format!(
+                        "an anchor wrote nothing within {deadline:?} (lines so far: {:?})",
+                        self.lines
+                    ),
                 ))
             }
-            Err(error) if error.kind() == io::ErrorKind::Interrupted => self.read_line(deadline),
             // A reset is the end of the connection, as an end of file is.
             Err(_) => Ok(false),
             Ok(_) => {
-                self.lines.push(Line::decode(text.trim_end()).unwrap_or_else(|why| {
-                    Line::Error {
+                self.lines.push(
+                    Line::decode(text.trim_end()).unwrap_or_else(|why| Line::Error {
                         stage: "guard".into(),
                         error: format!("an unreadable line ({why}): {text}"),
-                    }
-                }));
+                    }),
+                );
                 Ok(true)
             }
         }
@@ -128,7 +135,12 @@ impl AnchorGuard {
     }
 
     /// A new wrapper named `file_name` that execs `binary` and gives its group `grace` between `TERM` and `KILL`.
-    pub fn wrapper(&mut self, file_name: &str, binary: &Path, grace: Duration) -> io::Result<PathBuf> {
+    pub fn wrapper(
+        &mut self,
+        file_name: &str,
+        binary: &Path,
+        grace: Duration,
+    ) -> io::Result<PathBuf> {
         self.wrappers += 1;
         self.grace = self.grace.max(grace);
         let dir = self.root.path().join(format!("w{}", self.wrappers));
@@ -138,7 +150,10 @@ impl AnchorGuard {
             grace,
             binary: binary.to_path_buf(),
         };
-        std::fs::write(dir.join(CONFIG_FILE), config.encode().map_err(io::Error::other)?)?;
+        std::fs::write(
+            dir.join(CONFIG_FILE),
+            config.encode().map_err(io::Error::other)?,
+        )?;
         let path = dir.join(file_name);
         std::os::unix::fs::symlink(&self.anchor_binary, &path)?;
         Ok(path)
@@ -174,7 +189,11 @@ impl AnchorGuard {
     /// has its anchor here: the wrapper connected and the anchor reported before the exec.
     pub fn reports(&mut self) -> io::Result<Vec<Report>> {
         self.accept()?;
-        Ok(self.connections.iter().filter_map(Connection::report).collect())
+        Ok(self
+            .connections
+            .iter()
+            .filter_map(Connection::report)
+            .collect())
     }
 
     /// Ends every connection and waits for each anchor's end: its group `KILL`, its refusal or its failure. A wrapper that
