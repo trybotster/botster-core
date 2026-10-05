@@ -333,3 +333,101 @@ The reviewer ran no tests or gates.
 PR 1 remains single-package under the earlier lead ruling.
 
 VERDICT: NOT CLEAN (2 open)
+
+## PR #142 — round 5
+
+Head: `6e8d5b3445352d2653d0fc1469c31fddb899161d`.
+Previous head: `d9ded716cd79e2cbe9f8770c389ab13730dcfea0`.
+PR: https://github.com/trybotster/botster-core/pull/142.
+
+This review covers the complete five-file delta and the submitted mutation evidence.
+F1, F2, F4, and F5 remain CLOSED.
+The accepted `GuardianConfig::fmt` exclusion remains unchanged.
+The delta adds no I/O, test branch, or pending-id change.
+
+### P7-142-R4-F6 — CLOSED
+
+The delta removes the assertion that every nonfinal frame must fill the link bound.
+`wire::log_chunks` now owns the split through one production path.
+The guardian calls this function with `LOG_CHUNK_BYTES`.
+The function accepts a positive injected bound and returns chunks with contiguous offsets.
+
+`log_chunks_carry_every_byte_at_each_chunk_size` uses that same function at three sizes:
+
+- The default `LOG_CHUNK_BYTES`.
+- The excluded mutant's value, `DEFAULT_MAX_PAYLOAD / 8`.
+- The minimum, one byte.
+
+For each size, the test checks positive bounded chunks, contiguous offsets, and all injected bytes in order.
+The test encodes each chunk as a bounded link frame and decodes that frame with the production decoder.
+The expected offsets and complete tail come from the injected offset and bytes.
+The test does not require a fixed chunk count or full frames.
+
+### Mutation exclusion: `LOG_CHUNK_BYTES` — ACCEPTED
+
+The new entry covers only the subtraction in one constant at `wire.rs:80:52`.
+It excludes only replacement of `-` with `/`.
+Its reason names both proving tests and meets the tuning ruling's four conditions:
+
+1. SV-9 fixes retained bytes, not the chunk size.
+2. One behavior test covers the default, mutant, and minimum sizes through the same split and wire path.
+3. `NonZeroUsize` enforces the positive lower bound, including during constant evaluation.
+4. The exact exclusion covers one constant and names its proving tests.
+
+The mutation that replaces `-` with `+` remains tested and caught because its chunks exceed the link bound.
+The minimum does not permit an empty chunk or a non-progressing split.
+This argument accepts changed chunking, not a second production code path.
+
+`a_large_tail_streams_and_replays_before_the_status` also proves the default through the guardian machine.
+It checks bounded live frames and derives complete received bytes from injected output.
+It then reconnects and requires multiple log frames between `Hello` and the final `Status`.
+The decoded replay contains the complete tail with contiguous offsets.
+This test strengthens the F5 proof without fixing frame fullness.
+
+### P7-142-R2-F3 — CLOSED
+
+The Linux log contains all four mutation result lists and per-file counts.
+I independently counted the entries in each list.
+The counts agree with the reported totals:
+
+| File | Caught | Unviable | Missed | Timeouts |
+| --- | ---: | ---: | ---: | ---: |
+| `guardian.rs` | 66 | 8 | 0 | 0 |
+| `link.rs` | 27 | 2 | 0 | 0 |
+| `log.rs` | 17 | 0 | 0 | 0 |
+| `wire.rs` | 6 | 3 | 0 | 0 |
+| Total | 116 | 13 | 0 | 0 |
+
+All 13 unviable mutations fail compilation because of type errors.
+Three attempt to multiply `Instant` by `Duration` (`E0369`).
+Ten require `Default` implementations that their result types do not have (`E0277`).
+Those types are `Status`, `Instant` twice, `ServiceExit`, `Action`, `Frame` twice, `Command`, and `LogChunk` twice.
+The recorded errors correspond to the unviable list.
+They are not missing tests or mutation timeouts.
+The unmutated baseline passes, and the command exits zero.
+
+### Verification and scope
+
+Log: `~/botster-sessions/gates/botster-core-stage1-p7-services-ddc72062-linux-20261004-204542-46552.log`.
+Build-error extract: `~/botster-sessions/gates/botster-core-stage1-p7-services-ddc72062-mutants-unviable-reasons.txt`.
+The log records passing formatting, focused clippy, 24 lifecycle tests, two decoder tests, and one wire test.
+The mutation command covers all four source files from the PR base with `--in-diff`, one job, and nextest.
+
+The tested commit is `ddc720624f615e7570369ebbc47bf6d5844314d8`.
+I confirmed that its tree equals the exact pushed PR head.
+Both trees are `74c68cb611e20c37eb11b4436fc5880f755bba61`.
+`git diff --check` passed for the complete delta.
+The reviewer ran no tests or gates.
+
+Every finding, including LOW findings, is closed on this exact head.
+This CLEAN applies to PR 1's guardian machine, private wire, and tests.
+The host services module, real edges, binary role, and conformance proofs remain later P7 work.
+PR 1 remains single-package under the earlier lead ruling.
+Later cross-package PRs still require integration review.
+
+The focused Linux command is not a full gate.
+The implementer reports a FULL HOLD from the lead.
+The full gate remains pending until the lead lifts that HOLD.
+A later commit requires delta review before CLEAN applies to that new head.
+
+VERDICT: CLEAN
