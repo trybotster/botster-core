@@ -601,7 +601,7 @@ mod tests {
         for field in ["rows", "cols", "history"] {
             assert!(
                 oracle_resume_every_cut(&input, &UnknownFraming, |size, history| {
-                    let mut different = size.clone();
+                    let mut different = *size;
                     let mut history = history;
                     match field {
                         "rows" => different.rows += 1,
