@@ -14,6 +14,7 @@
 //! The host starts it with the arguments and the environment of `botster_core_link::launch::WorkerLaunch` (AD-6: the token is
 //! in the environment only).
 
+mod command_line;
 mod io_decisions;
 
 use botster_core_edges::Machine;
@@ -47,20 +48,13 @@ const READ_CHUNK: usize = 64 * 1024;
 fn main() -> ExitCode {
     let args: Vec<std::ffi::OsString> = std::env::args_os().skip(1).collect();
     let token = std::env::var(TOKEN_VAR).ok();
-    let launch = match WorkerLaunch::parse(&args, token.as_deref()) {
-        Ok(launch) => launch,
-        Err(error) => {
-            eprintln!("botster-worker: {error}");
-            return ExitCode::from(2);
-        }
-    };
-    match Driver::start(&launch).and_then(Driver::run) {
-        Ok(()) => ExitCode::SUCCESS,
-        Err(error) => {
-            eprintln!("botster-worker: {error}");
-            ExitCode::FAILURE
-        }
+    let (code, error) = command_line::execute(&args, token.as_deref(), |launch| {
+        Driver::start(launch).and_then(Driver::run)
+    });
+    if let Some(error) = error {
+        eprintln!("botster-worker: {error}");
     }
+    code
 }
 
 /// The real edges of one worker and the machine they drive.

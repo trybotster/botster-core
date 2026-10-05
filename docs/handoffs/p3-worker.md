@@ -607,3 +607,24 @@ Its driver-retirement channel then timed out after ten seconds. No mutants ran.
 DP-8 requires the worker to remain alive after link closure. The test used the wrong retirement condition.
 The correction sends the authenticated hello through the link codec, then sends Remove after the output-completion marker.
 The adapter proof still starts with a cleared PTY read flag. The independent guard still owns the real payload.
+
+## PTY mutation proof and command-line decisions (2026-10-04)
+
+The corrected PTY/flush job at `e475c284` passed: ten mutants tested, eight caught, and two unviable.
+No mutant was missed or timed out. The baseline runs seven selected entries and skips 23 other entries.
+Log: `~/botster-sessions/gates/botster-core-stage1-p3-m1-v1-e475c284-linux-20261004-175646-27658.log`.
+Completed raw evidence was copied without rerun into `/private/tmp/p3-driver-pty-evidence`.
+PTY-arm deletion fails the done-marker poll assertion after 10.019 seconds, with result Failure(100).
+Package verdict `6bc2b150259bcb85ee3f0647c1addce615738df0` closes F21.
+Integration verdict `d64fcb9bc58b009f569345af102716c97efd3a6a` confirms package closure.
+The remaining original-entry count requires reviewers to account for the new PTY proof.
+
+Main now injects the real Driver into command_line::execute.
+The new function owns the existing parse decision and status mapping. WorkerLaunch still owns the parser.
+Default tests check invalid launch refusal, exact identity delivery, success, driver failure, and missing-token refusal.
+Main only reads arguments and token, calls that function with Driver, prints an error, and returns its status.
+Two slow tests check the prebuilt main boundary: invalid arguments return 2; a missing control socket returns 1.
+The existing session tests still check successful real-driver retirement with code 0.
+Both slow fixtures use one shared helper for the prebuilt candidate path.
+No mutation exclusion was added. Main's process-glue classification requires reviewer approval after runtime proof.
+Next: Linux prebuild, both command-line boundary tests, and default-tier mutation of command_line::execute.
