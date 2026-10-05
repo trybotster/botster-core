@@ -146,3 +146,28 @@ This reviewer ran no build, test or gate.
 Integration findings: none open. Still needed for CLEAN: the P5 package verdict on `737b201`.
 
 VERDICT: NOT CLEAN (1 open: package verdict pending; 0 integration findings open)
+
+## Round 5 — Head 1b1340c
+
+Reviewed head: `1b1340cf80ed1f1aa3b05fba7d2e524c8b30de1a`. Delta `737b201..1b1340c`, one commit: sys `storage.rs`, a facade
+slow test, and the host `DESIGN.md`. The base is still current v1 `144b023`. This reviewer ran no build, test or gate.
+
+- No public signature changes. `create_durably` takes the directory sync as a private function parameter. That is
+  dependency injection for its unit test (`a_retried_open_syncs_the_ancestors_that_a_failed_open_left`), not a test branch.
+
+#### K4 [LOW] OPEN — `Core::open` now opens every ancestor of `data_dir` up to `/` for an fsync, so a parent that cannot be read makes the open fail
+
+- Location: `storage.rs` `create_durably`: `for ancestor in fs::canonicalize(path)?.ancestors().skip(1) { sync(ancestor)? }`
+  with `sync_dir` = `File::open(dir)?.sync_all()`. It runs at every open, even when no directory was created.
+- Evidence: opening a directory for `fsync` needs read permission. An ancestor that the host can pass through but cannot read
+  (mode `0711`, for example a home or shared root on some Linux hosts) gives `EACCES`. Then `Core::open` fails
+  `RegistryFailed` for a `data_dir` that worked before this change. The old code synced only the parents of the directories
+  that it created. This crosses packages because the Hub calls `Core::open`.
+- Required: keep the retry durability that the package reviewer asked for, without a new failure for an ancestor that cannot
+  be read. For example, an `EACCES` or `EPERM` on an ancestor above the first one that this host can write is not a failure.
+  Or stop at a documented root, with the reason. Record the decision in `DESIGN.md`. Add a unit case through the injected
+  `sync`: an `EACCES` above the data directory still opens.
+
+Package verdict: pending on this head.
+
+VERDICT: NOT CLEAN (1 open: K4; package verdict pending)
