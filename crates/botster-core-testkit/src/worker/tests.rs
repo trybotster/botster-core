@@ -115,8 +115,14 @@ fn program_output_waits_for_spawn_and_ends_with_one_drain() {
 #[test]
 fn worker_exit_closes_the_link_and_posts_its_exit_once() {
     let (mut edges, mut peer, worker, now) = fixture(8);
+    let workers = Workers::new(edges.scheduler.clone(), now);
+    // The run's process table knows the worker of this fixture, as a spawn would have recorded it.
+    lock(&workers.run_processes).insert(
+        edges.id,
+        (Arc::clone(&edges.cell), Arc::clone(&edges.processes)),
+    );
     let mut spawner = WorkerSpawner {
-        workers: Workers::new(edges.scheduler.clone(), now),
+        workers,
         processes: Arc::clone(&edges.processes),
     };
     for signal in [GroupSignal::EndPayload, GroupSignal::Term] {
