@@ -52,13 +52,15 @@ The control requires no stimulus record and parses no image bytes.
 Scope: every Core clause that needs terminal semantics, checked against libghostty.
 Contract: botster-contracts tag `contracts-v0.1.1` (`366bca41da0a6de69cc1ea13b17c773cdfdb75b6`): manifest final14, Core erratum 2 ("E2") and steward ruling R-13.
 Plan pin: `stage1-plan.555bc433` (sha256 `555bc4337fe72e9fad833fe330d43e8147a39569cb14291734f34847f56596d7`), sections 0, 6.1, 6.3, 7.1, 8, 9 (Q1) and 10 (R1).
+Revision 11 of this audit. Revision 11 moves the Ghostty pin to the upstream sync of 2026-10-04 and adds fork patch 14 for audit finding A6 (steward ruling R-32): an OSC 5522 write over libghostty's own transaction limit still reaches the clipboard callback (section "Revision 11").
 Revision 10 of this audit. Revision 10 moves the Ghostty pin to the upstream sync of 2026-10-02 (section "Revision 10"); it changes no audit row, because the libghostty-vt sources are byte-identical between the old and the new fork head.
 Revision 9 answers the binding review findings P24 to P34 with fork patches 9 to 13 and binding changes (section "Revision 9"); the status of each finding is in that section, and a finding is closed only when the reviewer and the required evidence say so. Core Amendment 13 (final, candidate 5: contracts `627d507`, manifest final30, `frozen/current/core-contract-v1.17-amendment-13-candidate5.md`) is the clipboard contract.
 Revision 3 of this audit. Revision 2 closed findings F1 to F8. Revision 3 closes F9 to F12 of the reviewer verdict `3b2acb3`: the per-commit mapping of the nine removed commits (F9), the offline build prerequisite (F10), the UP clipboard-write callback (F11) and the snapshot rule at every cut (F12). R-13 closes the SGR-pixels question (old Q5).
 
 ## Method and revisions
 
-- **Ghostty pin (revision 10):** `trybotster/ghostty` branch `botster/upstream-sync-20261002` at `3f8eb6810bb673aa782b047de21783ac81fb1121`, on upstream `ghostty-org/ghostty` `main` `f523504ea5c9f41d150d1eb93cc7a748b90f9361`. The patch list with commit SHAs is in section "Revision 10". The rows below were written against PIN and UP and are unchanged at this pin.
+- **Ghostty pin (revision 11):** `trybotster/ghostty` branch `botster/upstream-sync-20261004` at `779907e0ec389c0a04de81dd4c092fda92b8325f`, on upstream `ghostty-org/ghostty` `main` `5dc28bb8eebaf57a6c793a406bfea8c632d4fa94`. The patch list with commit SHAs is in section "Revision 11". The rows below were written against PIN and UP; section "Revision 11" lists what changed at this pin.
+- **Ghostty pin (revision 10):** `trybotster/ghostty` branch `botster/upstream-sync-20261002` at `3f8eb6810bb673aa782b047de21783ac81fb1121`, on upstream `ghostty-org/ghostty` `main` `f523504ea5c9f41d150d1eb93cc7a748b90f9361`.
 - **Pinned fork:** `trybotster/ghostty` at `eb72ec61304ea256be1d86ed8fa961c84e43ecbd` ("PIN").
 - **Upstream main:** `ghostty-org/ghostty` at `83edd491e3024ae5e50393d62877b8897da1cccd` ("UP"), fetched 2026-10-01. The lead approved UP as the base of the new fork branch.
 - Headers are under `include/ghostty/vt/`. Zig sources are under `src/`. All reads are `git show <sha>:<path>`, or reads in a checkout of UP.
@@ -88,6 +90,7 @@ Revision 3 of this audit. Revision 2 closed findings F1 to F8. Revision 3 closes
 | G16 | Linux static archive defines `calloc` and `free` (P32) | defined | defined | fork patch 10 |
 | G17 | Snapshot decode restores the library default image storage limit (ST-6b, P34) | default limit | same | fork patch 13 |
 | G18 | Keypad equals key has no key table entry (IN-9) | none | none | fork patch 12 |
+| G19 | An OSC 5522 write over libghostty's own transaction limit (64 MiB) gets no callback, and the model answers EFBIG itself (EV-3 as A13 replaces it, A13-1b; audit A6, R-32) | silent, EFBIG | same | fork patch 14 (section "Revision 11") |
 | H1 | Image and placement state in snapshots (ST-6b) | not serialized | same | **configuration, no patch** (see ST-6b graphics row) |
 
 Other findings:
@@ -277,9 +280,9 @@ Tests (P2 supplies the oracle, P3 supplies the worker tests):
 - **Build command at UP** (from the old `build_data.rs`, flags kept): `zig build -Demit-lib-vt -Doptimize=ReleaseFast -Dsimd=false -Dcpu=baseline -Demit-xcframework=false --prefix <OUT_DIR>/...`. Zig is `0.16.0`.
 - **Package dependencies.** The lib-vt build at UP needs seven Zig packages. Zig 0.16 keeps each one as `<global-cache>/p/<hash>.tar.gz` and unpacks it into `<project>/zig-pkg/<hash>` at build time:
   - `aro-0.0.0-JSD1Qk6lNgDdcDV4Vh7Sfy-34m2TluIVOdPzMmj_0BjX`
+  - `N-V-__8AAAfDBACe1jGqjr9jIG3UAK8KbzJKQ7xrzYoau-_a` (revision 11; it was `N-V-__8AAM94BAAFk_hn4UW0x_OBD2g0vOwexeAAyWNNo4eB` until revision 10: upstream updated the `iterm2_themes` package)
   - `N-V-__8AAB0eQwD-0MdOEBmz7intriBReIsIDNlukNVoNu6o`
   - `N-V-__8AADYiAAB_80AWnH1AxXC0tql9thT-R-DYO1gBqTLc`
-  - `N-V-__8AAM94BAAFk_hn4UW0x_OBD2g0vOwexeAAyWNNo4eB`
   - `N-V-__8AAP5JWgCGP_AD0teWpa4krRvE9VPZzvviGdbmN4jI`
   - `translate_c-0.0.0-Q_BUWhVNBwDOEcIqub4VFPJPB6D9dgwzUMHTX5KWr8Xr` (URL `https://codeberg.org/vancluever/translate-c/archive/4e879eb8aba615de112eabd1231ea6e01920cead.tar.gz`; `pkg/translate-c/build.zig.zon`)
   - `uucode-0.2.0-ZZjBPuuFVgC8YZ8eld4fOKsZANLIhTFMzULQxhkLi1C7` (URL `https://github.com/jacobsandlund/uucode/archive/9d55524551411b493cca41ca06363625d90aff1e.tar.gz`; `build.zig.zon`)
@@ -374,6 +377,49 @@ The commits on the branch are in this order from the base: patches 2 and 3, then
 - **Mutation testing (review finding P39).** The first gate that reached `cargo mutants --in-diff` found 92 surviving mutants of this crate. Each one is now caught by a test whose expected value comes from libghostty by another path (a raw library call, a library getter, the pinned headers) or from the contract crate (`CoreLimits` defaults), or it is recorded in `.cargo/mutants.toml` with one function and its equivalence argument (Drop bodies that only free, which are excluded as cleanup that no test observes, not proved equivalent; disjoint-bit `|` and `^`; and a call that sets the library's own default). The constructor check `created` is tested on every combination of result and handle. Code that only repeated a library rule is removed: the zero-size refusal and the out-of-screen row (the library refuses both), and the impossible probe results of the size-then-fill calls. The review found one binding defect: `DEFAULT_CLIPBOARD_BYTES` was 16 MiB, and `CoreLimits.clipboard_bytes` is 1 MiB; it is now 1 MiB and tested against the contract.
 - **Zig packages at the new pin: 7.** A lib-vt build with `GHOSTTY_BUILD_ARGS` and an empty scratch global cache (Zig 0.16.0, macOS, 2026-10-04) fetched exactly the 7 hashes of `ZIG_PACKAGES`, so the list is unchanged. The count of 9 came from the shell extraction: the `sed` range `/pub const ZIG_PACKAGES/` also matched `ZIG_PACKAGES_IN_ZON`, which repeats 2 of the 7 hashes. `ci/remote/fetch-public.sh` removes the duplicates with `sort -u`. `prefetch-zig.sh` printed "9 packages"; its pattern is now `/pub const ZIG_PACKAGES: /`, so it reads the 7 hashes once.
 
+## Revision 11: upstream sync of 2026-10-04 and patch 14 (audit A6, R-32)
+
+- **Sync record:** `docs/stage1/ghostty-upstream-sync-20261004.md` in this repository. The sync obeys the BUILD.md "Ghostty fork policy": it came before patch 14.
+- **Old pin:** branch `botster/upstream-sync-20261002` at `3f8eb6810bb673aa782b047de21783ac81fb1121`, on upstream `f523504ea5c9f41d150d1eb93cc7a748b90f9361`.
+- **New pin:** branch `botster/upstream-sync-20261004` at `779907e0ec389c0a04de81dd4c092fda92b8325f`, on upstream `main` `5dc28bb8eebaf57a6c793a406bfea8c632d4fa94`.
+- **Changes that the binding follows:**
+  - Upstream #14483 (DECRQCRA and XTCHECKSUM) took terminal options 44 and 45. Patch 1's `GHOSTTY_TERMINAL_OPT_QUERY` and `_QUERY_MAX_BYTES` are now 46 and 47; `sys.rs` follows. With the old numbers the binding would set the checksum options.
+  - DECRQCRA is not reported as a query. Before the sync it was an unimplemented `CSI y` and was ignored. The checksum report is off by default (`GHOSTTY_TERMINAL_OPT_XT_CHECKSUM_REPORT`), and the binding does not set it, so the model neither answers DECRQCRA nor takes XTCHECKSUM. Nothing changes for EV-8. If Botster ever enables the option, DECRQCRA needs a query kind first.
+  - The `iterm2_themes` package hash changed (`build_data.rs` `ZIG_PACKAGES`, section "Build notes").
+  - The snapshot sources, the terminfo and the key tables of the patches are unchanged; GHOSTSNP.md needs no change. Upstream #14508 adds a legacy `ctrl+alt+shift+backspace` table entry (IN-9 takes it through the encoder).
+- **Patch 14 (G19).** Through the C API, data past `kitty_clipboard_write_max_bytes` no longer fails the transaction. The model frees the data it buffered, decodes the rest only to count it (a fixed stack buffer; the same base64 validation), and the commit still calls the clipboard callback. The new trailing fields of the sized `GhosttyClipboardWrite` are `too_large` (true) and `total_len`, with no contents. `total_len` is the **decoded size of the whole transaction**: every decoded byte, including the data of a MIME type that a later chunk of the same type replaced (the steward's reading of R-32's "full length"); an alias adds nothing. The model sends no acknowledgement of its own: the callback's reply is the only one (A13-1b). The Zig stream handler keeps the old behavior (EFBIG) for the Ghostty application. Zig tests: `WriteState` counting with a replaced region and an alias, validation and piece boundaries; through the C API, a write at the limit is delivered and only the reply answers it, and a write over it reaches the callback with its decoded size (11, where the final contents would be 5, at the limit), and only the reply's EIO is written.
+- **Binding (G19).** `on_clipboard_write` reads `too_large` and `total_len` when `size` covers them. A write that the model did not keep is posted as `ClipboardWrite{contents: None, total_bytes: <decoded size>, too_large: true}` and answered IO_ERROR. The public type is unchanged, so the worker's use of it is unchanged. Test: `a_write_over_the_models_own_limit_is_reported_with_its_full_length_and_only_the_binding_answers_it` lowers the model's limit through option 39 in the test only; the acknowledgement equals the binding's IO_ERROR acknowledgement of a write that the model kept, and nothing goes to the pty.
+- **Open part of A6:** native memory up to 64 MiB per OSC 5522 transaction. The binding leaves option 39 at libghostty's default (lead decision, 2026-10-04). Under the current text, A13-1 and A13-1b decide on the final sum. Core Amendment 14 candidate 1 (contracts `0d2fa62`, in review, not final) would make `clipboard_bytes` a bound on the decoded size and allow option 39 = `clipboard_bytes`; that is a follow-up after A14 is final.
+- **Invalid base64** still fails the transaction with EINVAL and no callback, as before (A6 calls this case arguable). R-32 does not cover it.
+
+| # | Commit at the new pin | Commit at the old pin | Subject | Decision |
+|---|---|---|---|---|
+| 0 | `cba7ba134` | `ee1875dd3` | own startHyperlink uri and id across capacity retries | KEEP |
+| 1 | `13f66d661` | `bcdcad95b` | report every query with its exact bytes and stop after it | REWORK (options renumbered to 46 and 47) |
+| 1 | `0be524a08` | `79ae024c3` | track query request boundaries; add CSI 14;2 t and 13;2 t | KEEP |
+| 1 | `ed563afdd` | `303013782` | apply R-17 to every executed C0 control; restart at a C1 CSI introducer | KEEP |
+| 1 | `50df7c7e1` | `99ceb84cc` | test that a C1 byte inside a string sequence is payload | KEEP |
+| 1 | `8cea067c1` | `50d8494c5` | a C1 introducer ends an APC string in the query request tracking | KEEP |
+| 2 | `09d186fd6` | `d9531aca1` | report the notification source (OSC 9 or OSC 777) | KEEP |
+| 3 | `c2dc8118c` | `51c80ac71` | paste marker frame without payload rewrite | KEEP |
+| 4 | `cdefd75c3` | `fddc30c7c` | key events carry hyper, meta, shifted and base layout keys and F26 to F35 | KEEP |
+| 4 | `2dba9306f` | `1bef3ee4a` | legacy Shift with no text; key tests use the structured sequence encoder | KEEP |
+| 4 | `6d09770e4` | `ec9a95861` | the legacy Alt test compares with the real base-character result | KEEP |
+| 5 | `7e96afe46` | `9f476b148` | export the xterm-ghostty terminfo name and source | KEEP |
+| 6 | `91b06a537` | `f8aa86979` | mouse cells as given, and getters for the active mouse enums | KEEP |
+| 7 | `786cd9e7b` | `72d54d39e` | encode the typed replies to terminal queries | KEEP |
+| 7 | `1148713f6` | `49e68f944` | query reply encoders check their enums, use unsigned positions and parse in tests | KEEP |
+| 8 | `db6c206a8` | `41024b252` | report the OSC 52 selection and terminator on clipboard requests | KEEP (context only) |
+| 8 | `8da81d4cb` | `cfcd2c21c` | the OSC 52 parser reads the whole selection | KEEP |
+| 9 | `fa481e17b` | `eafd0967b` | terminal data getters for modifyOtherKeys state 2 and XTSHIFTESCAPE | KEEP |
+| 10 | `5aa1e708b` | `f0d70e3f1` | link libc on Linux so the static archive defines no allocator symbol | KEEP |
+| 11 | `c13162d1d` | `1eb68104a` | the OSC 5522 write acknowledgement is written with the host's reply | KEEP |
+| 12 | `bed0c871a` | `d5bebc7e2` | the keypad equals key has an application keypad sequence | KEEP (ruling P35) |
+| 13 | `c370ef4d9` | `3f8eb6810` | the snapshot decoder takes the host's Kitty image storage limit | KEEP |
+| 14 | `779907e0e` | none | an OSC 5522 write over the transaction limit reaches the callback with its size | NEW (R-32) |
+
+The commits on the branch are in the same order as at revision 10, with patch 14 last. Drop: none; no upstream change covers a patch.
+
 ## Rulings used
 
 - **E2 ruling A:** OSC 1 gives no `TitleChanged`. The bytes stay in `Output`.
@@ -382,3 +428,4 @@ The commits on the branch are in this order from the base: patches 2 and 3, then
 - **R-13:** SGR-pixels reports zero-based pixels with no +1; the 5.1A `+1` is for cells only.
 - **R-28 (contracts `bcbd03c`, in `contracts-v0.1.13`):** a legacy key release is `NotWritten(NotReported)` (5.1A rule 1, "not reported"). `release_event` stays a listed `what` value that no v1 stimulus produces. The binding returns `EncodeError::NotReported` for it.
 - **Lead decision:** paste is byte-exact (DP-5, IN-8).
+- **R-32 (contracts main `9a00db8`, in `contracts-v0.1.14`):** an OSC 5522 write over libghostty's own transaction limit still calls the clipboard callback, with no contents and the write's full length; the model sends no acknowledgement of its own (patch 14). The steward reads "full length" as the decoded size of the whole transaction (2026-10-04, through the lead).
