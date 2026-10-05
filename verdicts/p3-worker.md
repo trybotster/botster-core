@@ -1,8 +1,8 @@
 # P3 worker review
 
-Current verdict: NOT CLEAN for PR #163. Findings F25 through F32 are OPEN. All findings F1 through F24 remain CLOSED at their recorded heads and scopes.
-Reviewed head: `0403470b8a08bdcbb6d89aab2a98ca3242c8e37b`, branch `stage1/p3-audit-fixes`.
-Round 75 adds the integration findings to round 74 on the same implementation head.
+Current verdict: NOT CLEAN for PR #163. Findings F25, F26, and F28 are OPEN. Findings F27 and F29 through F32 are CLOSED at the head below. All findings F1 through F24 remain CLOSED at their recorded heads and scopes.
+Reviewed head: `82b4269bcb0d1412b94f38c818df5169617570c6`, branch `stage1/p3-audit-fixes`.
+Round 76 reviews the fixes for F25 through F32. F28 has corrected source but still requires native evidence.
 The cross-package PR also requires the integration reviewer's exact-head CLEAN and the implementer's landing gate.
 Round 73's CLEAN remains preserved for M1 at `da2b0494bbda711e5a67cb180ddf05c607784635`.
 M2a at `a7f4a386593457e3b30f03b56938092de9b060a3` has no restack verdict. The earlier M2a CLEAN below applies only to its named old head.
@@ -2797,3 +2797,154 @@ The earlier completed evidence and all round 74 gate limits remain unchanged.
 The reviewer ran no tests, builds, measurements, mutants, or gates.
 
 VERDICT: NOT CLEAN (8 open findings) on `0403470b8a08bdcbb6d89aab2a98ca3242c8e37b`.
+
+
+## Round 76 — Audit-fix correction delta
+
+Reviewed head: `82b4269bcb0d1412b94f38c818df5169617570c6`, branch `stage1/p3-audit-fixes`.
+Reviewed delta: `0403470..82b4269`, commits `6770c0c0649f5a744b5f192cf031b45642e7661f`
+and `82b4269bcb0d1412b94f38c818df5169617570c6`, 14 files.
+The reviewer read every changed file. This delta contains no merge or conflict resolution.
+The integration reviewer records I1 through I5 closed and I6 withdrawn in verdict commit `149a3ac`.
+Its CLEAN still depends on this package's CLEAN on the same head.
+
+### F25 — MEDIUM — OPEN: invariant context and actual driver proof remain missing
+
+The new watch returns io::Result<ExitStatus> instead of panicking.
+The callback sends that result and wakes the driver.
+Driver::run applies the result with `?`, so a wait error returns from run.
+Run consumes the driver. Returning drops its Payload, which ends the group through the existing production Drop.
+The command-line path converts the error to a failure exit and prints its text.
+This corrects the detached-thread hang by source inspection. No payload exit status is invented.
+
+The reviewer asked the lead whether this error path can replace the explicit A52 panic ruling.
+The lead authorized it in message `msg_plugin-w_1791173754_d79a4c` and superseded the panic wording.
+The lead specified three conditions:
+
+1. The error carries the errno and names the invariant, "the Payload holds the unreaped leader".
+2. No fallback invents an ExitStatus.
+3. The behavior proof shows the error reaches main, the payload group ends, and the worker exit is non-zero.
+
+The current Err(errno.into()) carries the errno but does not name the invariant.
+The new exit_input test checks only Result::map and its input values.
+It never drives the exit channel, Driver::run, Payload::drop, link closure, or the worker's failure exit.
+It therefore does not prove the required behavior through the production path.
+
+Required change: Add the invariant context while preserving the errno.
+Prove the complete failure path with the production driver and its injected exit result.
+Check group cleanup and the worker's non-zero exit. Check the failure that reaches main.
+Replace the map-only proof with that behavior proof. Do not add a production test branch.
+The lead explicitly requires NOT CLEAN until this proof exists.
+
+Evidence: `crates/botster-core-sys/src/payload.rs`, `wait_unreaped_with`;
+`crates/botster-worker/src/main.rs`, the EXIT arm in Driver::run;
+`crates/botster-worker/src/io_decisions.rs:109-120`;
+`crates/botster-worker/src/command_line.rs`, execute.
+
+### F26 — HIGH — OPEN: remaining fixture waits and the bounded-failure proof
+
+The changed GroupGuard registration join and anchor wait now have marked deadlines.
+PayloadGuard's registration join also has a marked deadline.
+GuardedPayload now puts guard cleanup inside its outer deadline.
+The worker cleanup observes the exit with WNOWAIT after the KILL fallback before it reaps.
+Observer::wait and Observer::drop also observe the exit with a deadline before their final reap.
+With exclusive reaping, an observed terminal exit makes those final reaps ready.
+These changes correct the specific waits in round 74's initial source evidence.
+Production Payload::drop remains unchanged, as required.
+
+The complete fixture claim is still not proved.
+`process_guard::Parent::drop` sends KILL then calls Child::wait without a deadline.
+The parent_dies_before_fifo_reader regression reaches that Drop directly.
+The same guard module's regressions still use direct child waits without deadlines.
+The PR also adds no regression that proves bounded failure when cleanup cannot complete.
+The existing expected-panic regression proves successful cleanup during an unwind.
+It does not exercise a cleanup operation that fails to complete.
+
+Required change: Bound the remaining fixture waits and preserve ownership through the final signal.
+Prove that the complete cleanup path reports failure within its deadline when an owned cleanup operation does not complete.
+Keep event waits and marked deadlines. Keep production ownership of the payload reap.
+Do not add polling, a global lock, or a test-side payload reaper.
+All round 74 ownership and deadline requirements remain in effect.
+
+Evidence: `crates/botster-core-sys/tests/common/process_guard.rs:167-175` and its real-process regressions.
+
+### F27 — MEDIUM — CLOSED at 82b4269
+
+GuardedPayload::drop now reports whether its complete cleanup finished.
+The expected-panic test catches the unwind directly and separately requires cleanup_report to return true.
+A cleanup timeout returns false during unwinding, so the original panic cannot make that test pass.
+A panic in the cleanup thread also prevents its completion message and produces failure.
+The test no longer depends on the relative start times of equal outer and inner deadline timers.
+F26 separately retains the missing proof of bounded cleanup failure.
+
+### F28 — MEDIUM — OPEN: source corrected, native evidence pending
+
+The real-PTY test keeps the master-readiness wait.
+It measures the queue, reads until WouldBlock, and compares that count with the number of bytes consumed.
+It checks that the consumed bytes equal the program's output.
+It then checks an empty queue before the program receives input and writes again.
+These assertions derive their values from the program bytes and actual reads.
+A constant Ok(1) no longer satisfies the count and empty-queue checks.
+The subsequent input read also excludes the output already consumed.
+This corrects round 74's source defect.
+
+The implementer reports that neither submitted correction head has compiled under the full HOLD.
+The required native proof is not supplied. The earlier proof does not establish this changed test's behavior.
+F28 stays OPEN only for the applicable completed proof, including the native Mac path.
+The reviewer requests no execution during the HOLD.
+After all other findings close, the lead's gate-evidence closure rule permits the required verification on the reviewed head.
+A passing result then permits closure and CLEAN on that same head.
+A source change after failure requires a new delta review before the next execution.
+
+### F29 — MEDIUM — CLOSED at 82b4269 under the lead's option (b) ruling
+
+The state-log ruling dated 2026-10-04 selects early-stop state ordering in PR #163 now.
+It keeps exact enumeration while the steward seeks a bound for KeyInput.text.
+It assigns measurements and the authorized bound to a later small PR after the HOLD and a final ruling.
+The later A15 entry states that its proposed numbers are rejected pending user authority.
+No pair may select or implement those numbers now.
+
+The new enumeration makes kitty flags the low five index bits and inverts flag 16.
+Its first 16 states enable associated-text reporting.
+The six Boolean modes and all 32 kitty flag sets still occur exactly once across the 2048 states.
+The native probes still compute the exact bound and retain the early refusal.
+The documentation states the remaining admitted-key cost and marks the text bound pending steward.
+This meets the authorized PR scope. It does not prove that the admitted-key cost has been removed.
+The later bound and measurements remain explicitly pending under the ruling.
+
+### F30 — MEDIUM — CLOSED at 82b4269
+
+Drain now lives in botster-worker-core and both drivers use it.
+The scripted edge supplies its unread count and advances the same decision after each read.
+It reads the initial count, performs the flushing read, and respects the count measured after that read.
+The changed edge test writes output after the initial count and after the final measurement.
+It checks that the first output is drained and the later output remains queued.
+The expected counts come from the program's writes.
+The shared decision tests retain the omitted-output and continuing-writer cases.
+No hand-written terminal semantics or expected terminal bytes are added.
+
+### F31 — LOW — CLOSED at 82b4269
+
+Drain::after_read now completes the drain for a zero-byte read.
+The real driver and the decision test helper pass all successful read results through that method.
+Their separate zero-byte branches are removed.
+The documentation and production decision now agree.
+
+### F32 — LOW — CLOSED at 82b4269
+
+The retirement test has a new name that describes its remaining result-path check.
+Its documentation no longer claims the removed repeated-key assertion.
+It names the lifecycle test that checks the key's Unknown bound.
+The unused max_key_repeat setup is removed.
+
+### Verdict
+
+F1 through F24 remain CLOSED at their recorded heads and scopes.
+F27 and F29 through F32 are CLOSED at this head with the scope above.
+F25 and F26 still require source or behavior-proof changes.
+F28 has corrected source and requires completed native evidence.
+All earlier findings, closures, and verdict rounds remain preserved.
+The conformance pending list remains unchanged. M2a and M2b remain separate work.
+The reviewer ran no tests, builds, measurements, mutants, or gates.
+
+VERDICT: NOT CLEAN (3 open findings) on `82b4269bcb0d1412b94f38c818df5169617570c6`.
