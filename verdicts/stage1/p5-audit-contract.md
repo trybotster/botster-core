@@ -280,3 +280,27 @@ Reviewed head: `b8b37a6d1161b83138a5e5e0e73bb68fc57e2db7`. Delta `1bcbb38..b8b37
 Integration findings: none open. Still needed for CLEAN: the P5 package verdict on `b8b37a6`.
 
 VERDICT: NOT CLEAN (1 open: package verdict pending; 0 integration findings open)
+
+## Round 9 — CLEAN on head b8b37a6
+
+Reviewed head: `b8b37a6d1161b83138a5e5e0e73bb68fc57e2db7`, unchanged since round 8. Base and merge base: current v1
+`144b0234fb632bcbb5176b17c2fe55f3239405df`.
+Package verdict: CLEAN on this exact head. P5 reviewer round 7, commit `89893b23ddc24d7c0ff6844a199e745bd52ec942`, file
+`verdicts/p5-adoption.md` on `origin/stage1/review-p5`. It names this head and ends `VERDICT: CLEAN`.
+
+Integration findings, all closed:
+- K1 (round 2): one testkit process table per run, with exits that go to the spawning handle.
+- K2 and K3 (round 3): the Prior art note; `EIO` in place of `errno` 0.
+- K4 (round 7): the lead's ruling on the `data_dir` boundary.
+- K5: moot under that ruling.
+- K6 and K7 (round 8): the facade doc; the test that accepted `Ok`.
+
+Merge checks: `git merge-tree` of this head with each open PR has no conflict.
+- with the guard PR #165 `08fef89d`: tree `f320a02`;
+- with PR #163 `40b63dc`: tree `7a47b67`;
+- with PR #162 `a93a13c`: tree `4e54067`.
+This reviewer ran no gate. Under the lead's rules, the merge still needs one green `botster-gate` on this exact head. A gate
+before the guard PR lands can fail on the shared guard test `parent_dies_before_fifo_reader`, which is not this PR's defect.
+The lead orders the merges.
+
+VERDICT: CLEAN (0 open)
