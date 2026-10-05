@@ -447,13 +447,16 @@ fn a_failed_exit_watch_ends_the_worker_with_a_failure() {
     use super::slow_driver::{fifo, first_line, within, WORKER_CLEANUP};
     use botster_core_sys::payload::ExitWatchFailed;
     let mut h = Harness::new();
-    // A background member of the payload's group holds the FIFO, so its end of file shows that the whole group ended.
+    // A background member of the payload's group holds the FIFO, so its end of file shows that the whole group ended. It
+    // waits without CPU on a FIFO that nothing ever opens for writing, until the group is killed.
     let held = fifo(h.root.path(), "held");
+    let never = fifo(h.root.path(), "never");
     let guard = payload_guard::PayloadGuard::new(h.root.path());
     let script = format!(
-        "{}exec 3> '{}'; sleep 30 & /bin/echo up >&3; wait",
+        "{}exec 3> '{}'; /bin/cat '{}' > /dev/null & /bin/echo up >&3; wait",
         guard.prefix(),
-        held.display()
+        held.display(),
+        never.display()
     );
     h.guard = Some(guard);
     h.driver
