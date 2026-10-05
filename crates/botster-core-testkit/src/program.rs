@@ -826,7 +826,7 @@ mod tests {
         );
         let control = p.control();
         p.control().write_size(Some(1));
-        assert!(p.is_readable());
+        assert!(p.unread() > 0);
         assert_eq!(control.output_unread(), 4);
         p.read(&mut [0u8; 8]).unwrap();
         assert_eq!(control.output_unread(), 3);
@@ -926,7 +926,7 @@ mod tests {
         let mut p = holds();
         let control = p.control();
         control.write_once(b"");
-        assert!(!p.is_readable());
+        assert_eq!(p.unread(), 0);
         assert_eq!(
             p.read(&mut [0u8; 4]).unwrap_err().kind(),
             io::ErrorKind::WouldBlock
