@@ -190,6 +190,14 @@ fn a_cleanup_that_cannot_finish_fails_through_the_guard() {
 pub(crate) fn first_line(
     reader: impl Read + Send + 'static,
 ) -> (BufReader<Box<dyn Read + Send>>, String) {
+    first_line_within(reader, CLEANUP)
+}
+
+/// The first line of `reader`, read within `limit`; a reader that writes nothing fails the test with a clear message.
+fn first_line_within(
+    reader: impl Read + Send + 'static,
+    limit: std::time::Duration,
+) -> (BufReader<Box<dyn Read + Send>>, String) {
     let (sent, received) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
         let mut reader = BufReader::new(Box::new(reader) as Box<dyn Read + Send>);
@@ -199,8 +207,8 @@ pub(crate) fn first_line(
     });
     received
         // timer: deadline — bounds the wait for a member's first line.
-        .recv_timeout(CLEANUP)
-        .expect("the member wrote its first line")
+        .recv_timeout(limit)
+        .unwrap_or_else(|_| panic!("no first line within {limit:?}"))
         .unwrap()
 }
 
@@ -228,17 +236,6 @@ fn register_worker() {
     }
 }
 
-struct Parent(Option<Child>);
-
-impl Drop for Parent {
-    fn drop(&mut self) {
-        if let Some(mut child) = self.0.take() {
-            let _ = child.kill();
-            let _ = child.wait();
-        }
-    }
-}
-
 pub(crate) fn eof(reader: impl Read + Send + 'static) {
     let (sent, received) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
@@ -249,7 +246,7 @@ pub(crate) fn eof(reader: impl Read + Send + 'static) {
     });
     received
         // timer: deadline — bounds cleanup when a guard fails
-        .recv_timeout(std::time::Duration::from_secs(10))
+        .recv_timeout(CLEANUP)
         .expect("all descendants closed the pipe")
         .unwrap();
 }
@@ -265,7 +262,8 @@ fn parent_dies_before_fifo_reader() {
             .status()
             .unwrap()
             .success());
-        let mut parent = Parent(Some(
+        // The test owns the parent: its drop kills and reaps it within the cleanup limit, and reports a failure.
+        let mut parent = cleanup::Owned(
             Command::new(std::env::current_exe().unwrap())
                 .args(["--exact", &helper("blocked_parent"), "--nocapture"])
                 .env("BOTSTER_TEST_PARENT_DIR", dir.path())
@@ -275,11 +273,9 @@ fn parent_dies_before_fifo_reader() {
                 .stdout(Stdio::null())
                 .spawn()
                 .unwrap(),
-        ));
-        let child = parent.0.as_mut().unwrap();
-        let mut reader = BufReader::new(child.stderr.take().unwrap());
-        let mut pid = String::new();
-        reader.read_line(&mut pid).unwrap();
+        );
+        let child = &mut parent.0;
+        let (reader, pid) = first_line(child.stderr.take().unwrap());
         assert!(
             pid.trim().parse::<u32>().is_ok(),
             "the worker reached its FIFO: {pid}"
@@ -372,4 +368,32 @@ fn an_early_exit_keeps_the_group_owned_until_cleanup() {
     assert_eq!(rustix::process::getpgid(Some(anchor)).unwrap(), group);
     drop(guard);
     eof(pipe);
+}
+
+/// A reader that writes nothing fails the test with a clear message within the limit, never a hang. The silent writer
+/// blocks without CPU in the open of a FIFO that nothing writes, and its owner ends it.
+#[test]
+fn a_stuck_reader_fails_with_a_clear_message() {
+    let dir = tempfile::tempdir().unwrap();
+    let never = dir.path().join("never");
+    assert!(Command::new("/usr/bin/mkfifo")
+        .arg(&never)
+        .status()
+        .unwrap()
+        .success());
+    let mut silent = cleanup::Owned(
+        Command::new("/bin/cat")
+            .arg(&never)
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap(),
+    );
+    let output = silent.0.stdout.take().unwrap();
+    let failed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
+        first_line_within(output, std::time::Duration::ZERO)
+    }))
+    .expect_err("a silent reader fails the read");
+    let report = failed.downcast_ref::<String>().expect("a report").clone();
+    assert!(report.contains("no first line within"), "{report}");
+    drop(silent);
 }
