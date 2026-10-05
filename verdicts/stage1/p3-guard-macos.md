@@ -59,3 +59,66 @@ This reviewer ran no build, test or gate. The implementer's focused Mac proof of
   margin), in whichever PR merges second. State that merge step in the PR.
 
 VERDICT: NOT CLEAN (2 open)
+
+## Round 2 — Branch head 81ccd17 (a new design)
+
+Reviewed head: `81ccd175806a71a11b18b79694177207256e9f33`. It supersedes `e0514aa`. Delta `e0514aa..81ccd17`, one commit,
+`process_guard.rs`. No PR number yet. This reviewer ran no build, test or gate.
+
+### The new design, accepted in principle
+
+- At cleanup, the anchor spawns `/usr/bin/true` as a reserve. The reserve inherits the guarded group, and the anchor never
+  reaps it. The anchor then moves to a group of its own and sends group kills from outside. Every kill is `killpg`, never a
+  bare pid, so the round 1 pid-reuse window is gone on both platforms.
+- The unreaped reserve keeps a member in the group, even as a zombie. Neither kernel gives a new process a pid that is an
+  existing group id. So no other group can take the id before the anchor reaps the reserve at the end. This design is
+  simpler than per-pid kills, and a better fit for the problem.
+- `/usr/bin/true` is an external command, so it forks nothing more and exits at once.
+
+### Findings
+
+#### G3 [MEDIUM] OPEN — A kill comes before the listing, so a member that escaped it waits until the deadline
+
+- Location: `end_members`: `loop { kill(); let live = members(); if live.is_empty() || expired() { return } for m in &live { await_end(m) } }`.
+- Evidence: the macOS race is a child whose fork completes after a `killpg` enumerated the group. That child is live and in the
+  group, so the listing right after the kill finds it. Then `await_end` waits for its exit, but nothing has killed it, so the
+  wait lasts until `CLEANUP` (10 s). Only the next round's kill ends it. Each escape costs the whole deadline, and with G2 the
+  outer guard wait expires first.
+- The scripted tests cannot see this: their `await_end` returns at once whether or not a kill came after the listing.
+- Required:
+  1. Order each round as list, kill, wait: every listed member is then hit by a kill that came after its listing, because
+     its fork had completed. A child forked after that kill is in the next round's list.
+  2. Give the decision test a model where a listed member ends only by a kill that comes after its listing. In that model the
+     current order must fail and the fixed order must pass.
+  3. Keep the real Mac proof, `parent_dies_before_fifo_reader`.
+
+#### G4 [MEDIUM] OPEN — A failed wait setup turns the rounds into a busy loop until the deadline
+
+- Location: `await_end` on both platforms returns at once when `kqueue::Watcher::new`, `add_pid`, `watch` or `pidfd_open`
+  fails. `live_members` returns an empty list when the listing fails.
+- Evidence: a member that stays listed but cannot be watched (for example, a pid that ended between the listing and
+  `add_pid`, while another member stays stuck in exit) makes each round kill, list and return at once. So the anchor loops
+  with no wait until `CLEANUP`.
+- A failed listing (`pids_by_type` or `/proc` read error) reads as "no live member". That is a false success.
+- Why: BUILD.md has no busy-spinning children, and A11 and G1 require that failures be visible.
+- Required:
+  - A wait whose setup fails is a reported cleanup failure. It does not mean "ended", and the rounds do not retry it hot.
+    One allowed form: treat a pid that is gone at `add_pid` or `pidfd_open` (`ESRCH`) as ended, and any other error as a failure.
+  - A listing error is a failure, not an empty group.
+
+#### G1 [MEDIUM] OPEN — carried from round 1, extended
+
+- The anchor still ignores the outcome: `end_members` returns `()`, the anchor exits normally, and `GroupGuard::drop` does not
+  check its status. The failures of G4 are hidden in the same way.
+- Required as in round 1. `end_members` returns the outcome (the remaining members, or the failure). The anchor reports it on
+  stderr and exits with a failure. `Drop` checks the status. A scripted test covers the expired outcome and the failure
+  outcome.
+
+#### G2 [LOW] OPEN — carried from round 1
+
+- The outer 10 s wait for the anchor in #163's `Drop` equals `CLEANUP`. It is resolved in the merged tree, as in round 1.
+
+The package reviewer also requires proof by behavior on owned processes, under the user's test-quality rule. G3 item 2 is the
+integration side of that requirement. The package reviewer owns the rest.
+
+VERDICT: NOT CLEAN (4 open: G1, G2, G3, G4)
