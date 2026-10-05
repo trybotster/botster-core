@@ -1,8 +1,8 @@
 # P3 worker review
 
-Current restack verdict: CLEAN for P3's M1 package scope. All findings F1 through F22 are CLOSED.
+Current restack verdict: NOT CLEAN. F1 through F22 remain CLOSED; F23 LOW is OPEN.
 Reviewed head: `3f9fe56ed466bf9f3ed7fde827a80168b69c3046`, branch `stage1/p3-m1-v1`.
-Round 67 closes the final native query-helper accounting under F13. Round 68 accepts the per-function OS adapter exclusions.
+Round 67 closes F13. Round 69 supersedes round 68's CLEAN after integration I4 identifies incomplete test names in exclusion comments.
 This cross-package PR also requires the integration reviewer's CLEAN. The restack plan requires the implementer's gate after both exact-head verdicts.
 The earlier CLEAN below applies only to the old M2a head that it names.
 
@@ -2321,3 +2321,30 @@ This CLEAN covers P3's M1 package delta. The cross-package PR requires the integ
 The reviewer ran no tests, builds, or gates.
 
 VERDICT: CLEAN (P3 M1 package scope) on `3f9fe56ed466bf9f3ed7fde827a80168b69c3046`.
+
+
+## Round 69 — Integration I4 and incomplete exclusion proof names
+
+Reviewed head: `3f9fe56ed466bf9f3ed7fde827a80168b69c3046`.
+The integration reviewer reported I4 LOW after the package issued round 68's CLEAN.
+The finding concerns this package's new exclusion comments, so the package records it as F23.
+Round 68's CLEAN is superseded at this head. Its pattern-scope and completed mutation-evidence conclusions remain preserved.
+
+### F23 LOW — Several new exclusion reasons lack concrete test names
+
+Status: OPEN. Corresponds to integration I4.
+Location: the new Driver and Payload entries in .cargo/mutants.toml.
+Several comments name slow_driver or slow_payload suites, lifecycle/exit tests, or group/descriptor checks instead of concrete test functions.
+Examples include Driver::start, Driver::settle, Driver::spawn, Payload::spawn, Payload::pid, Payload::master, and Payload::watch_exit.
+The integration reviewer cites the plan's requirement for a named slow test where applicable.
+The suite descriptions identify the intended evidence but do not satisfy that concrete-name requirement.
+The package's round 68 statement that every entry has a named proof was too broad for these comments.
+
+Required change: Give the concrete proving test function names in each affected exclusion reason.
+Keep each function-specific pattern, completed evidence reference, and pure-decision mutation coverage unchanged.
+This finding requires no new test or gate. The reviewer will inspect the corrected exact head.
+
+F1 through F22 remain CLOSED. All earlier findings, closures, and evidence remain preserved.
+The reviewer ran no tests, builds, or gates.
+
+VERDICT: NOT CLEAN (F23 LOW open) on `3f9fe56ed466bf9f3ed7fde827a80168b69c3046`.
