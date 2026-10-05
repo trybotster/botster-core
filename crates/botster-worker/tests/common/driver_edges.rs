@@ -145,7 +145,7 @@ fn control_and_pty_reads_retain_bytes_at_each_positive_bound() {
         h.waiting_payload();
         let mut output = Vec::new();
         while output.len() < b"ready".len() {
-            h.driver.read_pty_chunk();
+            h.driver.read_pty_chunk().unwrap();
             let Some(Input::PtyOutput(bytes)) = h.driver.inputs.pop_front() else {
                 panic!("queued program bytes must remain readable at bound {bound}");
             };
@@ -154,7 +154,7 @@ fn control_and_pty_reads_retain_bytes_at_each_positive_bound() {
             assert!(h.driver.inputs.is_empty());
         }
         assert_eq!(output, b"ready");
-        h.driver.read_pty_chunk();
+        h.driver.read_pty_chunk().unwrap();
         assert!(!h.driver.pty_readable);
         assert!(h.driver.inputs.is_empty());
     }
@@ -355,7 +355,7 @@ fn pty_events_resume_reads_after_would_block() {
         assert_eq!(&bytes[..count], expected);
     };
     marker(&mut fifos[0], b"ready\n");
-    h.driver.read_pty_chunk();
+    h.driver.read_pty_chunk().unwrap();
     assert!(!h.driver.pty_readable);
     assert!(h.driver.inputs.is_empty());
     let mut send = |kind, payload: &[u8]| {
@@ -397,30 +397,31 @@ fn pty_events_resume_reads_after_would_block() {
 #[test]
 fn pty_reads_clear_readiness_and_finish_a_bounded_drain() {
     let mut h = Harness::new();
-    h.driver.drain_left = Some(4);
-    h.driver.read_pty_chunk();
+    h.driver.drain = Some(Drain::Counted(4));
+    h.driver.read_pty_chunk().unwrap();
     assert_eq!(h.driver.inputs.pop_front(), Some(Input::PtyDrained));
-    h.driver.read_pty_chunk();
+    h.driver.read_pty_chunk().unwrap();
     assert!(h.driver.inputs.is_empty());
     h.waiting_payload();
     h.driver.pty_readable = false;
-    h.driver.read_pty_chunk();
+    h.driver.read_pty_chunk().unwrap();
     assert!(h.driver.inputs.is_empty());
     h.driver.pty_readable = true;
-    h.driver.read_pty_chunk();
+    h.driver.read_pty_chunk().unwrap();
     assert_eq!(
         h.driver.inputs.pop_front(),
         Some(Input::PtyOutput(b"ready".to_vec()))
     );
-    h.driver.read_pty_chunk();
+    h.driver.read_pty_chunk().unwrap();
     assert!(!h.driver.pty_readable);
     assert!(h.driver.inputs.is_empty());
-    h.driver.drain_left = Some(4);
-    h.driver.read_pty_chunk();
-    assert_eq!(h.driver.drain_left, Some(0));
-    h.driver.read_pty_chunk();
+    // A drain whose read finds nothing is complete; `PtyDrained` follows in the next read step.
+    h.driver.drain = Some(Drain::Counted(4));
+    h.driver.read_pty_chunk().unwrap();
+    assert_eq!(h.driver.drain, Some(Drain::Done));
+    h.driver.read_pty_chunk().unwrap();
     assert_eq!(h.driver.inputs.pop_front(), Some(Input::PtyDrained));
-    assert!(h.driver.drain_left.is_none());
+    assert!(h.driver.drain.is_none());
     h.driver.payload.as_ref().unwrap().signal_group(9);
     h.driver
         .exits
@@ -433,5 +434,5 @@ fn pty_reads_clear_readiness_and_finish_a_bounded_drain() {
     assert!(!h.driver.pty_registered);
     assert!(!h.driver.pty_readable);
     assert!(h.driver.payload.is_none());
-    assert!(h.driver.drain_left.is_none());
+    assert!(h.driver.drain.is_none());
 }
