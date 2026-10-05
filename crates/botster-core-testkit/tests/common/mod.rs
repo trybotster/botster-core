@@ -11,14 +11,27 @@ use botster_probe_script::{Script, Step};
 use std::collections::BTreeMap;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-/// The verified prebuilt binaries (`cargo xtask prebuild-worker`).
+/// The candidate directory of the running test binary (`cargo xtask prebuild-worker`). A fixture receives it as an argument.
+pub fn candidate_dir() -> std::path::PathBuf {
+    Candidate::beside_test_binary().expect("the candidate directory")
+}
+
+/// The verified prebuilt binaries in `dir`.
+pub fn candidate_in(dir: &std::path::Path) -> Candidate {
+    Candidate::locate(dir).unwrap_or_else(|error| panic!("{error}"))
+}
+
+/// The verified prebuilt binaries beside the running test binary.
 pub fn candidate() -> Candidate {
-    let dir = Candidate::beside_test_binary().expect("the candidate directory");
-    Candidate::locate(&dir).unwrap_or_else(|error| panic!("{error}"))
+    candidate_in(&candidate_dir())
+}
+
+pub fn harness_in(dir: &std::path::Path) -> RealCoreHarness {
+    RealCoreHarness::new(candidate_in(dir)).expect("the harness's root and guard")
 }
 
 pub fn harness() -> RealCoreHarness {
-    RealCoreHarness::new(candidate()).expect("the harness's root and guard")
+    harness_in(&candidate_dir())
 }
 
 /// Opens the handle `h` over the directory `d` with the current worker and the default limits.

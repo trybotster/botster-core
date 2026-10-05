@@ -1,5 +1,6 @@
 //! The fixture processes of `tests/slow_real_harness.rs`: one role for each process that a test needs and cannot be itself.
-//! A binary of its own, so that no role is reported as a test (audit A51). `argv[1]` names the role.
+//! A binary of its own, so that no role is reported as a test (audit A51). `argv[1]` names the role. The roles that own a
+//! harness or a guard take the outer test's candidate directory as `argv[2]`.
 //!
 //! - `move-group`: moves itself to a new process group, says `moved`, and waits for the end of its stdin.
 //! - `fds`: prints its open descriptors on one line.
@@ -44,8 +45,15 @@ fn fds() {
     println!("{fds:?}");
 }
 
+fn candidate_dir() -> std::path::PathBuf {
+    std::env::args_os()
+        .nth(2)
+        .expect("the candidate directory as argv[2]")
+        .into()
+}
+
 fn own_harness() {
-    let mut harness = common::harness();
+    let mut harness = common::harness_in(&candidate_dir());
     let mut core = common::open(&mut harness);
     common::start(&harness, core.as_mut(), "s", common::stubborn(None));
     for report in harness.anchors().expect("the anchors") {
@@ -57,7 +65,7 @@ fn own_harness() {
 }
 
 fn own_guard() {
-    let candidate = common::candidate();
+    let candidate = common::candidate_in(&candidate_dir());
     let mut guard = AnchorGuard::new(&candidate.anchor).expect("a guard");
     let wrapper = guard
         .wrapper(PROBE, &candidate.probe, CoreLimits::default().stop_grace)
