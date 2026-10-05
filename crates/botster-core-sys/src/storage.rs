@@ -633,6 +633,19 @@ mod slow_tests {
         }
     }
 
+    /// Asserts that an open was refused with `EACCES`. Root ignores the permission bits that make the refusal, so for root
+    /// the check is skipped, with the reason printed.
+    fn assert_permission_denied(result: Result<DataDir, OpenError>) {
+        if rustix::process::geteuid().is_root() {
+            eprintln!("skipped: root ignores the permission bits of this case");
+            return;
+        }
+        match result {
+            Err(OpenError::Io(error)) => assert_eq!(error.kind(), io::ErrorKind::PermissionDenied),
+            other => panic!("{other:?}"),
+        }
+    }
+
     /// Lead ruling on K4: Core creates only the data directory, so a missing parent fails the open with the I/O error of the
     /// system, and nothing is created.
     #[test]
@@ -656,12 +669,7 @@ mod slow_tests {
         fs::set_permissions(&parent, fs::Permissions::from_mode(0o300)).unwrap();
         let result = DataDir::open(&parent.join("d"));
         fs::set_permissions(&parent, fs::Permissions::from_mode(0o700)).unwrap();
-        match result {
-            Err(OpenError::Io(error)) => assert_eq!(error.kind(), io::ErrorKind::PermissionDenied),
-            // A user that ignores permissions (root) reads the parent.
-            Ok(_) => {}
-            Err(other) => panic!("{other}"),
-        }
+        assert_permission_denied(result);
     }
 
     /// AD-7 (review finding P5-F9, lead ruling on K4): an open whose parent sync fails leaves the data directory that it
@@ -771,12 +779,7 @@ mod slow_tests {
         fs::set_permissions(&locked, fs::Permissions::from_mode(0o500)).unwrap();
         let result = DataDir::open(&locked.join("d"));
         fs::set_permissions(&locked, fs::Permissions::from_mode(0o700)).unwrap();
-        match result {
-            Err(OpenError::Io(error)) => assert_eq!(error.kind(), io::ErrorKind::PermissionDenied),
-            // A user that ignores permissions (root) creates the directory.
-            Ok(_) => {}
-            Err(other) => panic!("{other}"),
-        }
+        assert_permission_denied(result);
     }
 
     /// The rows directory that cannot be created is the I/O error of the system.
@@ -789,11 +792,7 @@ mod slow_tests {
         fs::set_permissions(&base, fs::Permissions::from_mode(0o500)).unwrap();
         let result = DataDir::open(&base);
         fs::set_permissions(&base, fs::Permissions::from_mode(0o700)).unwrap();
-        match result {
-            Err(OpenError::Io(error)) => assert_eq!(error.kind(), io::ErrorKind::PermissionDenied),
-            Ok(_) => {}
-            Err(other) => panic!("{other}"),
-        }
+        assert_permission_denied(result);
         // A rows path that is a file is unsafe.
         let base = tmp.path().join("e");
         fs::DirBuilder::new().mode(0o700).create(&base).unwrap();
