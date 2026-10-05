@@ -336,7 +336,7 @@ fn a_worker_is_not_left_when_the_cleanup_of_a_test_fails() {
         let _ = said.send(stream.read_to_string(&mut rest).map(|_| rest));
     });
     let body = format!(
-        "{{\n/bin/echo ready\n/bin/cat '{}'\n}} > '{}'",
+        "{{\n/bin/cat '{}' &\necho ready\nwait\n}} > '{}'",
         never.display(),
         held.display()
     );
