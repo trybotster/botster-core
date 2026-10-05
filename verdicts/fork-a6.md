@@ -156,3 +156,26 @@ After that evidence is accepted, the record can state that A6 is closed.
   The reviewer found no sign of an upstream push or contact in the inspected delta.
 
 VERDICT: NOT CLEAN (2 open)
+
+## Round 3 — 2026-10-04
+
+- Exact fork head: `0bfddc16fdf1e9b71f7662fbfa8314cd497fd92a` on `botster/upstream-sync-20261004`.
+- Exact botster-core head: `65b2064de09a7a8c72f4edf42d6e1c2f467708ed` on `stage1/p2-fork-a6`.
+- Core delta base: `e676a2d577e07a350f8a85496fdd8e443491f28c`.
+
+The reviewer inspected the complete delta.
+Only the sync record and audit changed.
+The fork head and source code remain unchanged from round 2.
+The reviewer ran no builds, tests, or gates.
+
+**F-A6-03: CLOSED.** The record now states that production code sets option 39.
+Both documents mark A6 as implemented with verification pending.
+
+**F-A6-01 remains CLOSED under R-33.**
+
+**F-A6-02: HIGH, OPEN.** The required test evidence remains pending.
+No source or documentation finding remains open at these exact heads.
+The lead's gate-evidence closure rule applies if completing the evidence requires a gate after the HOLD ends.
+The evidence must still be accepted before CLEAN.
+
+VERDICT: NOT CLEAN (1 open)
