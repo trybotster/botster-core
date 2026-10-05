@@ -1,131 +1,196 @@
-//! Controls for the scripted program edge and the worker process edge (Core A5-1, A5-3).
+//! Controls for the scripted program edge and the worker process edge (Core A5-1, A5-3). Each control acts on the edge of
+//! the session `session` of the handle that it names.
 
 use crate::controls::ControlRegistry;
 use crate::harness::TestkitHarness;
+use crate::program::ProgramControl;
 use botster_core_conformance::ControlError;
 use botster_core_contract::prelude::SessionId;
 use botster_route_codec::prelude::{hex_decode, HexBytes};
 use serde_json::{json, Value};
 
-/// Each control acts on the edge of the session that belongs to the specified handle.
+/// Registers the controls that the worker module owns.
 pub(crate) fn register_controls(registry: &mut ControlRegistry) {
-    registry.register("pty_input", |harness, handle, args| {
-        program_control(harness, handle, "pty_input", args)
-    });
-    registry.register("pty_output", |harness, handle, args| {
-        program_control(harness, handle, "pty_output", args)
-    });
-    registry.register("pty_output_unread", |harness, handle, args| {
-        program_control(harness, handle, "pty_output_unread", args)
-    });
-    registry.register("pty_blocked", |harness, handle, args| {
-        program_control(harness, handle, "pty_blocked", args)
-    });
-    registry.register("pty_chunk", |harness, handle, args| {
-        program_control(harness, handle, "pty_chunk", args)
-    });
-    registry.register("pty_accept", |harness, handle, args| {
-        program_control(harness, handle, "pty_accept", args)
-    });
-    registry.register("pty_fail_after", |harness, handle, args| {
-        program_control(harness, handle, "pty_fail_after", args)
-    });
-    registry.register("program_write_size", |harness, handle, args| {
-        program_control(harness, handle, "program_write_size", args)
-    });
-    registry.register("program_write_once", |harness, handle, args| {
-        program_control(harness, handle, "program_write_once", args)
-    });
-    registry.register("process_end_worker", |harness, handle, args| {
-        worker_control(harness, handle, "process_end_worker", args)
-    });
-    registry.register("lose_worker", |harness, handle, args| {
-        worker_control(harness, handle, "lose_worker", args)
-    });
-    registry.register("break_control", |harness, handle, args| {
-        worker_control(harness, handle, "break_control", args)
-    });
+    registry.register("pty_input", pty_input);
+    registry.register("pty_output", pty_output);
+    registry.register("pty_output_unread", pty_output_unread);
+    registry.register("pty_blocked", pty_blocked);
+    registry.register("pty_chunk", pty_chunk);
+    registry.register("pty_accept", pty_accept);
+    registry.register("pty_fail_after", pty_fail_after);
+    registry.register("program_write_size", program_write_size);
+    registry.register("program_write_once", program_write_once);
+    registry.register("process_end_worker", process_end_worker);
+    registry.register("lose_worker", lose_worker);
+    registry.register("break_control", break_control);
 }
 
-fn program_control(
+/// Every byte of PTY input that the program edge took, in order.
+fn pty_input(
     harness: &mut TestkitHarness,
     handle: &str,
-    op: &str,
     args: &Value,
 ) -> Result<Value, ControlError> {
-    let bad = |why: String| ControlError::Bad(why);
-    let session = args
-        .get("session")
-        .and_then(Value::as_str)
-        .map(|s| SessionId(s.to_string()))
-        .ok_or_else(|| bad(format!("{op} needs 'session'")))?;
-    let control = harness
-        .workers()
-        .program_control(handle, &session)
-        .ok_or_else(|| bad(format!("{op}: session {} has no payload", session.0)))?;
-    let count = |name: &str| {
-        args.get(name)
-            .and_then(Value::as_u64)
-            .and_then(|n| usize::try_from(n).ok())
-            .ok_or_else(|| bad(format!("{op} needs '{name}', a count")))
-    };
-    let hex = |name: &str| {
-        args.get(name)
-            .and_then(Value::as_str)
-            .and_then(|text| hex_decode(text).ok())
-            .ok_or_else(|| bad(format!("{op} needs '{name}', hex bytes")))
-    };
-    match op {
-        "pty_input" => {
-            return Ok(json!({ "bytes": { "$bytes_hex": HexBytes(control.input_log()).to_hex() } }))
-        }
-        "pty_output_unread" => return Ok(json!({ "bytes": control.output_unread() })),
-        // `scripted` holds facts for a fake that has no terminal; the real model derives them (R-7), so it is not read.
-        "pty_output" => control.write_plain(&hex("bytes_hex")?),
-        "program_write_once" => control.write_once(&hex("bytes_hex")?),
-        "pty_blocked" => {
-            control.set_blocked(args.get("on").and_then(Value::as_bool).unwrap_or(true))
-        }
-        "pty_chunk" => control.input_chunk(Some(count("bytes")?)),
-        "pty_accept" => control.accept_at_most(count("bytes")?),
-        "pty_fail_after" => control.fail_after(count("bytes")?),
-        "program_write_size" => control.write_size(Some(count("bytes")?)),
-        _ => return Err(ControlError::Unsupported),
-    }
+    let control = program(harness, handle, args)?;
+    Ok(json!({ "bytes": { "$bytes_hex": HexBytes(control.input_log()).to_hex() } }))
+}
+
+/// The program writes plain bytes. `scripted` holds facts for a fake that has no terminal; the real model derives them
+/// (R-7), so it is not read.
+fn pty_output(
+    harness: &mut TestkitHarness,
+    handle: &str,
+    args: &Value,
+) -> Result<Value, ControlError> {
+    program(harness, handle, args)?.write_plain(&hex(args, "bytes_hex")?);
     Ok(Value::Null)
 }
 
-/// The process controls of a session's worker (Core A5-1, A5-3): `process_end_worker` and FakeCore's `lose_worker` (reason
-/// `worker_gone`, its default) end the worker process at this point; `break_control` breaks its control link while it
-/// lives.
-fn worker_control(
+/// The bytes that the program wrote and the worker has not read.
+fn pty_output_unread(
     harness: &mut TestkitHarness,
     handle: &str,
-    op: &str,
     args: &Value,
 ) -> Result<Value, ControlError> {
-    let session = args
-        .get("session")
+    let control = program(harness, handle, args)?;
+    Ok(json!({ "bytes": control.output_unread() }))
+}
+
+/// The PTY stops taking input, or takes it again with `on: false` (`on` defaults to true, as FakeCore's control does).
+fn pty_blocked(
+    harness: &mut TestkitHarness,
+    handle: &str,
+    args: &Value,
+) -> Result<Value, ControlError> {
+    let on = args.get("on").and_then(Value::as_bool).unwrap_or(true);
+    program(harness, handle, args)?.set_blocked(on);
+    Ok(Value::Null)
+}
+
+fn pty_chunk(
+    harness: &mut TestkitHarness,
+    handle: &str,
+    args: &Value,
+) -> Result<Value, ControlError> {
+    program(harness, handle, args)?.input_chunk(Some(count(args, "bytes")?));
+    Ok(Value::Null)
+}
+
+fn pty_accept(
+    harness: &mut TestkitHarness,
+    handle: &str,
+    args: &Value,
+) -> Result<Value, ControlError> {
+    program(harness, handle, args)?.accept_at_most(count(args, "bytes")?);
+    Ok(Value::Null)
+}
+
+fn pty_fail_after(
+    harness: &mut TestkitHarness,
+    handle: &str,
+    args: &Value,
+) -> Result<Value, ControlError> {
+    program(harness, handle, args)?.fail_after(count(args, "bytes")?);
+    Ok(Value::Null)
+}
+
+fn program_write_size(
+    harness: &mut TestkitHarness,
+    handle: &str,
+    args: &Value,
+) -> Result<Value, ControlError> {
+    program(harness, handle, args)?.write_size(Some(count(args, "bytes")?));
+    Ok(Value::Null)
+}
+
+fn program_write_once(
+    harness: &mut TestkitHarness,
+    handle: &str,
+    args: &Value,
+) -> Result<Value, ControlError> {
+    program(harness, handle, args)?.write_once(&hex(args, "bytes_hex")?);
+    Ok(Value::Null)
+}
+
+/// The process edge ends the session's worker at this point, as a kill does (`Lost(WorkerGone)`).
+fn process_end_worker(
+    harness: &mut TestkitHarness,
+    handle: &str,
+    args: &Value,
+) -> Result<Value, ControlError> {
+    let session = session(args)?;
+    acted(&session, harness.workers().end_worker(handle, &session))
+}
+
+/// FakeCore's `lose_worker`. Its default reason, `worker_gone`, ends the worker process. A live worker whose link is
+/// withheld (`worker_unreachable`) is the process edge's `withhold_control_link` (P6); ending the worker would give the
+/// other state, so that reason is not offered here.
+fn lose_worker(
+    harness: &mut TestkitHarness,
+    handle: &str,
+    args: &Value,
+) -> Result<Value, ControlError> {
+    let session = session(args)?;
+    match args.get("reason").and_then(Value::as_str) {
+        None | Some("worker_gone") => {
+            acted(&session, harness.workers().end_worker(handle, &session))
+        }
+        Some("worker_unreachable") => Err(ControlError::Unsupported),
+        Some(other) => Err(ControlError::Bad(format!("unknown reason {other}"))),
+    }
+}
+
+/// The control link of the session's live worker breaks.
+fn break_control(
+    harness: &mut TestkitHarness,
+    handle: &str,
+    args: &Value,
+) -> Result<Value, ControlError> {
+    let session = session(args)?;
+    acted(&session, harness.workers().break_link(handle, &session))
+}
+
+fn session(args: &Value) -> Result<SessionId, ControlError> {
+    args.get("session")
         .and_then(Value::as_str)
         .map(|s| SessionId(s.to_string()))
-        .ok_or_else(|| ControlError::Bad(format!("{op} needs 'session'")))?;
-    let done = match (op, args.get("reason").and_then(Value::as_str)) {
-        ("break_control", _) => harness.workers().break_link(handle, &session),
-        // FakeCore's default reason: the worker process ends (`Lost(WorkerGone)`).
-        ("process_end_worker", _) | ("lose_worker", None | Some("worker_gone")) => {
-            harness.workers().end_worker(handle, &session)
-        }
-        // A live worker whose link is withheld (`Lost(WorkerUnreachable)`) is the process edge's `withhold_control_link`
-        // (P6); ending the worker would give the other state, so it is not offered here.
-        ("lose_worker", Some("worker_unreachable")) => return Err(ControlError::Unsupported),
-        (_, Some(other)) => return Err(ControlError::Bad(format!("{op}: unknown reason {other}"))),
-        _ => return Err(ControlError::Unsupported),
-    };
-    if done {
+        .ok_or_else(|| ControlError::Bad("needs 'session'".into()))
+}
+
+/// The program edge of the session's payload.
+fn program(
+    harness: &TestkitHarness,
+    handle: &str,
+    args: &Value,
+) -> Result<ProgramControl, ControlError> {
+    let session = session(args)?;
+    harness
+        .workers()
+        .program_control(handle, &session)
+        .ok_or_else(|| ControlError::Bad(format!("session {} has no payload", session.0)))
+}
+
+fn count(args: &Value, name: &str) -> Result<usize, ControlError> {
+    args.get(name)
+        .and_then(Value::as_u64)
+        .and_then(|n| usize::try_from(n).ok())
+        .ok_or_else(|| ControlError::Bad(format!("needs '{name}', a count")))
+}
+
+fn hex(args: &Value, name: &str) -> Result<Vec<u8>, ControlError> {
+    args.get(name)
+        .and_then(Value::as_str)
+        .and_then(|text| hex_decode(text).ok())
+        .ok_or_else(|| ControlError::Bad(format!("needs '{name}', hex bytes")))
+}
+
+/// A process control that found the session's worker succeeded.
+fn acted(session: &SessionId, found: bool) -> Result<Value, ControlError> {
+    if found {
         Ok(Value::Null)
     } else {
         Err(ControlError::Bad(format!(
-            "{op}: session {} has no worker",
+            "session {} has no worker",
             session.0
         )))
     }

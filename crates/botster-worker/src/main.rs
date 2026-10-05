@@ -46,6 +46,9 @@ const EXIT: Token = Token(3);
 /// The bytes of one read of the control socket or the PTY.
 const READ_CHUNK: NonZeroUsize = NonZeroUsize::new(64 * 1024).expect("positive driver read bound");
 
+/// The errno of a PTY that is gone, and of an OS failure that carries no errno.
+const EIO: i32 = rustix::io::Errno::IO.raw_os_error();
+
 fn main() -> ExitCode {
     let args: Vec<std::ffi::OsString> = std::env::args_os().skip(1).collect();
     let token = std::env::var(TOKEN_VAR).ok();
@@ -308,7 +311,7 @@ impl Driver {
             let _ = self.poll.registry().deregister(&mut SourceFd(&fd));
             drop(payload);
             return Err(SpawnFailure::Exec {
-                errno: error.raw_os_error().unwrap_or(5),
+                errno: error.raw_os_error().unwrap_or(EIO),
             });
         }
         self.pty_registered = true;
@@ -332,7 +335,7 @@ impl Driver {
         };
         let result = match self.payload.as_ref() {
             // No PTY any more: the write fails as a write to a closed PTY does.
-            None => Err(5),
+            None => Err(EIO),
             Some(payload) => match payload.write(&bytes) {
                 Ok(n) => Ok(n),
                 Err(e) if e.kind() == io::ErrorKind::Interrupted => {
@@ -340,7 +343,7 @@ impl Driver {
                     return Ok(());
                 }
                 Err(e) if e.kind() == io::ErrorKind::WouldBlock => Ok(0),
-                Err(e) => Err(e.raw_os_error().unwrap_or(5)),
+                Err(e) => Err(e.raw_os_error().unwrap_or(EIO)),
             },
         };
         if result == Ok(0) && !bytes.is_empty() {
