@@ -244,3 +244,30 @@ VERDICT: NOT CLEAN (1 open: package verdict pending; 0 integration findings open
   cleanup path, under the user's rule against oversized modules. A split is a new head and gets an integration delta review.
 
 VERDICT: NOT CLEAN (1 open: the package verdict, which now includes the Harness release HIGH and the module split; 0 separate integration findings open)
+
+## Round 6 — PR #165, head f5f9d0f6
+
+Reviewed head: `f5f9d0f64252d41803dcc1b53ca9b586bb90f5cb`. Delta `97b8e947..f5f9d0f6`, five commits, 6 files. The base is still
+current v1 `144b023`. This reviewer ran no build, test or gate. The implementer reports a focused Mac run where 155 and 13
+slow tests pass (log `…guard-macos-f5f9d0f6-mac-20261004-221717-52020.log`).
+
+This round checks the cross-package parts, because the guard modules are compiled into the tests of three crates.
+- **The module split.** `process_guard.rs` (375 lines) includes `guard_cleanup.rs` (291), which includes `guard_platform.rs`
+  (215). `payload_guard.rs` is 353 lines. Each crate's `#[path]` includes still name only `process_guard.rs` and
+  `payload_guard.rs`, so the inner modules arrive through them. Every user gets the same cleanup path: botster-core-sys
+  `slow_payload` and `slow_process`, botster-core `tests/common`, and botster-worker `session.rs` and `slow_cli.rs`.
+  `session.rs` now makes `process_guard` `pub(crate)`, so that `driver_edges.rs` can reach the one `CLEANUP` constant.
+- **The worker harness order (the package reviewer's F40, which round 4 here missed).** `Harness` fields drop in this order:
+  1. `release` sends the cleanup request first;
+  2. `driver: Bounded<Driver>` runs production's drop on a helper thread under `CLEANUP`;
+  3. the guard reads its member's report.
+  This order holds on every exit path, panics included. In `pty_events_resume_reads_after_would_block`, the driver is taken
+  out to run on a thread. The test drops `release` before `Remove`, and drops the guard only after the driver's result and
+  the thread's join. So the two phases are in the right order.
+- **No production code and no interface between packages changes.**
+
+Integration findings on #165: none open. G2 stays with #163's merge: this PR keeps a direct `anchor.wait()` in
+`GroupGuard::drop`, so the merged tree must make the outer wait longer than `CLEANUP`. The other changes (the payload
+report handling, the proof that a macOS group is empty, the Linux pgrp check) are the package reviewer's scope.
+
+VERDICT: NOT CLEAN (1 open: package verdict pending; 0 integration findings open)
