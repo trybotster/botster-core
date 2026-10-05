@@ -565,3 +565,9 @@ The corrected loop polls peer input and queued control output before each read a
 The poll uses the remaining ten-second deadline. Control writability follows the returned output readiness.
 The test retains complete bytes, cumulative totals, write interest, and the production write path.
 Next: review and Linux proof of F21, then close the remaining Driver entries and new payload mutations.
+
+The branch merged current v1 `e8cf15068825888795f3ff2582d98b5c8e9b09e4` in `2a88d7a`.
+That merge adds P6 oracle controls and process cleanup tests from PR #140.
+Cargo.lock preserves both the P6 sha2 dependency and the P3 worker-core dependency.
+The pending list preserves all ids and P6 snapshot comments. Its TI-1 comment now reflects the completed testkit wiring.
+The merge requires reviewer checks. The next focused job selects direct Driver tests for flush mutations.
