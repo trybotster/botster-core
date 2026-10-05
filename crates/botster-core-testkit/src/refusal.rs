@@ -13,8 +13,11 @@
 //!
 //! Asynchronous failures are never scripted here. Only an edge produces them (A5-3 timing 2).
 
+use crate::controls::ControlRegistry;
+use crate::harness::TestkitHarness;
+use botster_core_conformance::ControlError;
 use botster_core_contract::prelude::*;
-use serde_json::Value;
+use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
@@ -719,6 +722,44 @@ impl CoreApi for RefusalLayer {
 
     fn terminal_identity(&self) -> TerminalIdentity {
         self.inner.terminal_identity()
+    }
+}
+
+/// Registers the controls that the refusal module owns.
+pub(crate) fn register_controls(registry: &mut ControlRegistry) {
+    registry.register("fail_next", fail_next);
+}
+
+/// Refuses the selected call before it reaches Core (Core A5-3).
+/// `target` names the call. `error` gives the refusal. `occurrence` counts from 1 and defaults to 1.
+/// A code outside the call's sync column returns `ControlError::Refused`.
+fn fail_next(
+    harness: &mut TestkitHarness,
+    handle: &str,
+    args: &Value,
+) -> Result<Value, ControlError> {
+    let bad = |why: String| ControlError::Bad(why);
+    let target = args
+        .get("target")
+        .and_then(Value::as_str)
+        .ok_or_else(|| bad("needs 'target': the call".into()))?;
+    let error = args
+        .get("error")
+        .ok_or_else(|| bad("needs 'error'".into()))?;
+    let occurrence = match args.get("occurrence") {
+        None => 1,
+        Some(n) => n
+            .as_u64()
+            .and_then(|n| usize::try_from(n).ok())
+            .ok_or_else(|| bad("'occurrence' is a number".into()))?,
+    };
+    let script = harness.refusal_script(handle);
+    match script.arm(target, occurrence, error) {
+        Ok(()) => Ok(Value::Null),
+        Err(ScriptError::NotInSyncColumn { call, code }) => Err(ControlError::Refused(
+            json!({"call": call, "code": code, "reason": "not_in_sync_column"}),
+        )),
+        Err(other) => Err(bad(format!("{other:?}"))),
     }
 }
 
