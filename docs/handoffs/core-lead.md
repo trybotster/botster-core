@@ -1,5 +1,7 @@
 # Handoff: Botster v1 Stage 1 Core LEAD
 
+> **Reading order at pause #3 (2026-10-05):** the CURRENT state is `docs/stage1-status.md` on `v1` and the dated "Update" sections at the end of this file, newest last. Sections 5 to 7 below are the 2026-10-04 morning snapshot (history); sections 3, 8 and 9, and every "Ruling" line, are still in force.
+
 Written 2026-10-04 by the current lead, a Claude session: `sess-1790903471-008f-8b9f78eef51d48aba5a45748495fd673`, worktree `~/botster-sessions/trybotster-botster-core-stage1-plan`, branch `stage1/plan`. The orchestrator ordered this handoff because the Claude weekly quota is about 97% used (it resets on Oct 8). A new lead, for example a Codex/Sol session, takes over from this file and needs no other context.
 
 Before you act, update this file, or append a dated section at the end, after every merge, spawn, retirement or ruling.
@@ -10,7 +12,7 @@ Before you act, update this file, or append a dated section at the end, after ev
   - Routine merges go only to the state log.
   - Its messages arrive as JSON `{"type":"orchestrator","text":...}` or as plain text.
 - Contract steward: `sess-1790792742-003c-b2e696997f3d2e34d8ee89cb35f04cf9`. Contract rulings (R-n) and amendments come from the steward.
-- Repository: `trybotster/botster-core`. The integration branch is `v1` (head `38e6989be8166ff773c8ad02ac511aa4247448c6` at writing). Never push to `main`.
+- Repository: `trybotster/botster-core`. The integration branch is `v1` (head `144b0234fb632bcbb5176b17c2fe55f3239405df` at pause #3, 2026-10-05; see `docs/stage1-status.md`). Never push to `main`.
 - botster-mcp: `create_agent` ALWAYS takes these fields:
   - `target_id: "tgt_1f7bce66eb304881980f9b4a2a5ae3fe"`
   - `workspace_name: "Botster v1 — Stage 1 Core"`
@@ -37,7 +39,7 @@ Before you act, update this file, or append a dated section at the end, after ev
 - **Merge is automated and done by the lead:**
   - The package reviewer must be CLEAN on the EXACT head.
   - A green `botster-gate` run on that EXACT head is required.
-  - Cross-package or stage-completing PRs also need the integration reviewer's CLEAN. No integration reviewer is staffed now; ask the orchestrator before a PR that needs one.
+  - Cross-package or stage-completing PRs also need the integration reviewer's CLEAN. An Opus integration reviewer is staffed (`sess-1791168757-0109-73d2ca212653045545e7480ab60be9a9`, branch `stage1/integration-review`); it also reviews PRs the lead assigns explicitly.
   - Merge with `gh pr merge <n> -R trybotster/botster-core --merge --match-head-commit <head>`.
   - Then verify that `git rev-parse <merge>^{tree}` equals `<head>^{tree}`.
   - Never force-push, and never merge anything unaccepted.
