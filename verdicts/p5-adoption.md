@@ -70,6 +70,37 @@ This verdict does not establish LC-12 conformance or closure of the other P5 aud
 
 VERDICT: NOT CLEAN (2 open)
 
+## PR #162 — Round 5
+
+- Exact head: `a93a13cb34d295984ca9d1f8767248b719c8a8ee`.
+- Base: `144b0234fb632bcbb5176b17c2fe55f3239405df`.
+- Scope: audit A10 / issue #152 only, under the lead's scope split.
+- This CLEAN covers P5's package scope for this PR only.
+
+The implementer reverted `913594cb`. The reviewer checked both tree objects.
+This head and the Round 3 CLEAN head `1a96eee7` have the same tree:
+`9ca04e1f1a4111ed9319e97e8bcc316fcf7edf52`.
+The diff against the base changes only `crates/botster-core/tests/slow_real_core.rs`.
+The Round 3 source review and focused evidence therefore apply to the unchanged A10 source.
+P5-F1 and P5-F2 remain CLOSED. Audit A10 remains CLOSED for this scope.
+
+The lead's recorded merge order assigns the shared guard fix to P3's `stage1/p3-guard-macos` before #162.
+P5-F3 and P5-F4 follow that shared guard work. They remain unresolved there; they are not waived or claimed fixed here.
+The integration reviewer received both findings and the exact rejected head.
+No finding remains open within the restored A10-only diff.
+
+The reviewer read the updated full PR body. Its reverted-change note records the failed Mac gate and the scope split.
+The implementer's raw diagnostic description establishes one orphaned `tee` observation.
+The implementer explicitly states that the diagnostic did not prove the proposed kill/fork mechanism.
+This verdict makes no kernel-level root-cause claim.
+
+The reviewer ran no builds, tests, mutation jobs, or gates.
+The failed Mac gate on `1a96eee7` remains failed. This CLEAN does not establish a passing full gate.
+After P3's guard fix merges, #162 must merge `origin/v1`, receive an exact-head delta review, and pass its gate.
+This verdict does not accept that future merged head or close the other P5 work.
+
+VERDICT: CLEAN
+
 ## PR #162 — Round 2
 
 - Exact head: `1a96eee7adc240a4ed90835dfc967e2efdd8e6b6`.
