@@ -19,7 +19,7 @@ The state is typed, so impossible combinations cannot exist.
 
 - `Service`: `Unlaunched`, `Spawning`, `Live(Leader)`, `Reaping`, or `Gone`.
   `Gone` never launches again (SV-7).
-- `Spawning` keeps what arrives before the exec result: an exit, and a stop or kill request.
+- `Spawning` keeps what arrives before the exec result: an exit, the first cause byte, and a stop or kill request.
 - A `Leader` has two independent tracks:
   - the exit: `Running`, `Exited(status)` while `DrainLogs` is outstanding, then `Drained(status)`;
   - the signals: `Idle`, `Census`, `Term`, `Grace`, `Killing`, then `Killed`.
@@ -88,7 +88,9 @@ So the guardian pushes its output to the host; the host does not request it.
 - One batch is in flight at a time.
   A new batch waits until the driver reports the previous batch written.
   So the queued log never exceeds the ring.
-- After each authentication, the guardian resends its whole ring.
+- After each authentication, the guardian resends its whole ring, and then `Status`.
+  The link is ordered, so a host that has read `Status` holds the whole retained tail.
+  Adoption completes on `Status`; an empty ring sends `Status` alone.
 - A host that sees an offset other than the end of what it holds keeps only what follows.
   With the same bound, the host's ring then equals the guardian's ring.
 
@@ -97,7 +99,7 @@ So the guardian pushes its output to the host; the host does not request it.
 - `Remove` kills the tree, reports `Removed` once the service is gone, and ends after the driver wrote that report or the link closed.
 - `Terminate` and orphan expiry kill the tree and end without a host.
 - A dying guardian accepts no new connection.
-- The guardian retains its payload identity, spawn report, exit, and log across host loss, and sends them after each authentication.
+- The guardian retains its payload identity, spawn report, exit, and log across host loss, and sends them after each authentication (log first, `Status` last).
 
 ## Prior art
 

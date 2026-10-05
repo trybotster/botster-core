@@ -12,9 +12,7 @@ use botster_core_link::hello::{Hello, HelloError, MAX_INSTANCE_ID_LEN};
 use botster_core_link::msg::PayloadId;
 use botster_core_link::proof::token_proof;
 use botster_guardian_core::guardian::SpawnResult;
-use botster_guardian_core::wire::{
-    Command, LogChunk, Report, ServiceSpec, Status, LOG_CHUNK_BYTES, LOG_FRAME,
-};
+use botster_guardian_core::wire::{Command, LogChunk, Report, ServiceSpec, Status, LOG_FRAME};
 use botster_guardian_core::{Action, Guardian, GuardianConfig, Input};
 use std::collections::BTreeMap;
 use std::time::{Duration, Instant};
@@ -475,15 +473,19 @@ fn the_service_launches_once_and_its_report_is_retained() {
     rig.input(Input::Reaped);
     assert!(rig.command(Command::Launch(Box::new(spec()))).is_empty());
 
-    let status = reports(&rig.reconnect(rig.cfg.host_epoch));
+    // An empty ring sends no log frame: the status follows the hello directly.
+    let greeting = sent(&rig.reconnect(rig.cfg.host_epoch));
     assert_eq!(
-        status,
-        vec![Report::Status(Status {
-            service: rig.cfg.service,
-            payload: Some(LEADER),
-            report: Some(report),
-            exit: Some(exit),
-        })]
+        greeting,
+        vec![
+            Sent::Hello(host_hello(&rig.cfg, rig.cfg.host_epoch)),
+            Sent::Report(Report::Status(Status {
+                service: rig.cfg.service,
+                payload: Some(LEADER),
+                report: Some(report),
+                exit: Some(exit),
+            }))
+        ]
     );
 }
 
@@ -762,6 +764,33 @@ fn an_exit_reports_its_observed_cause() {
     }
 }
 
+/// Core SV-5: a kill that did not reach a live leader claims no cause: it failed, or the leader had already begun to exit.
+#[test]
+fn a_kill_that_misses_the_live_leader_claims_no_cause() {
+    for (leader_signalled, leader_exiting, status, cause) in [
+        (false, false, ExitStatus::Code(0), ServiceExitCause::Normal),
+        (true, true, ExitStatus::Signal(6), ServiceExitCause::Signal),
+    ] {
+        let mut rig = Rig::launched();
+        let due = rig.start + spec().limits.startup;
+        assert_eq!(
+            rig.at(due),
+            vec![Action::KillTree {
+                leader: LEADER,
+                known: vec![]
+            }]
+        );
+        rig.input(Input::TreeKilled {
+            leader_signalled,
+            leader_exiting,
+            descendants_may_remain: false,
+        });
+        rig.input(Input::PayloadExited(status));
+        let exit = exited(&rig.input(Input::LogsDrained)).unwrap();
+        assert_eq!(exit.cause, cause, "{leader_signalled} {leader_exiting}");
+    }
+}
+
 /// Core SV-9: an exit during the census keeps the census for the kill and waits for the drain.
 #[test]
 fn an_exit_during_the_census_keeps_the_descendants_and_waits_for_the_drain() {
@@ -808,6 +837,24 @@ fn an_exit_before_the_exec_result_is_cleaned_up() {
     assert_eq!(
         exited(&rig.input(Input::LogsDrained)).unwrap().code,
         Some(1)
+    );
+}
+
+/// Core SV-5: a cause byte that the service wrote before the exec result arrived is its reported cause.
+#[test]
+fn a_cause_byte_before_the_exec_result_is_kept() {
+    let (byte, code) = (7, 3);
+    let status = ExitStatus::Code(code);
+    let mut rig = Rig::ready();
+    rig.command(Command::Launch(Box::new(spec())));
+    rig.input(Input::Cause(byte));
+    rig.input(Input::PayloadExited(status));
+    rig.started();
+    rig.tree_killed(false, false);
+    let exit = exited(&rig.input(Input::LogsDrained)).unwrap();
+    assert_eq!(
+        (exit.code, exit.cause),
+        (Some(code), ServiceExitCause::ChildReported(byte))
     );
 }
 
@@ -927,23 +974,30 @@ fn the_log_streams_to_the_host_and_a_new_host_gets_the_bounded_tail() {
         }]
     );
 
+    // A new host gets the retained tail before the status, so the status marks a complete tail.
     let written = [first, last].concat();
     let tail = written[written.len() - rig.cfg.log_bytes..].to_vec();
     let offset = (written.len() - tail.len()) as u64;
     assert_eq!(
-        logs(&rig.reconnect(rig.cfg.host_epoch)),
-        vec![LogChunk {
-            offset,
-            bytes: tail
-        }]
+        sent(&rig.reconnect(rig.cfg.host_epoch)),
+        vec![
+            Sent::Hello(host_hello(&rig.cfg, rig.cfg.host_epoch)),
+            Sent::Log(LogChunk {
+                offset,
+                bytes: tail
+            }),
+            Sent::Report(Report::Status(rig.g.status())),
+        ]
     );
 }
 
 /// Core SV-9: a tail larger than one link frame goes out in bounded frames that carry every byte in order.
 #[test]
 fn a_large_tail_fills_bounded_frames_in_order() {
+    // The link's own bound, independent of the guardian's chunk size.
+    let full_frame = HEADER_LEN + DEFAULT_MAX_PAYLOAD as usize;
     let mut rig = Rig::with(GuardianConfig {
-        log_bytes: LOG_CHUNK_BYTES * 2 + 1,
+        log_bytes: full_frame * 2,
         ..config()
     });
     rig.authenticate(rig.cfg.host_epoch);
@@ -951,11 +1005,16 @@ fn a_large_tail_fills_bounded_frames_in_order() {
     let actions = rig.input(Input::Log(bytes.clone()));
     let mut expected = 0u64;
     let mut received = Vec::new();
-    for action in &actions {
+    for (index, action) in actions.iter().enumerate() {
         let Action::LinkSend(frame) = action else {
             panic!("only log frames")
         };
-        assert!(frame.len() <= HEADER_LEN + DEFAULT_MAX_PAYLOAD as usize);
+        // Every frame but the last is full, so the fewest frames carry the tail.
+        if index + 1 < actions.len() {
+            assert_eq!(frame.len(), full_frame);
+        } else {
+            assert!(frame.len() <= full_frame);
+        }
         let chunks = logs(std::slice::from_ref(action));
         let [chunk] = &chunks[..] else {
             panic!("one chunk per frame")
@@ -965,6 +1024,4 @@ fn a_large_tail_fills_bounded_frames_in_order() {
         received.extend_from_slice(&chunk.bytes);
     }
     assert_eq!(received, bytes);
-    // Every frame but the last is full: the fewest frames carry the tail.
-    assert_eq!(actions.len(), bytes.len().div_ceil(LOG_CHUNK_BYTES));
 }
