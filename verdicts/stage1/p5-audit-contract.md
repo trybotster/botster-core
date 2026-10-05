@@ -131,3 +131,18 @@ Reviewed head: `26c4c2ef58d7ac20b059487013da760bf34911eb`. Delta `e6d9f48..26c4c
 Integration findings: none open. Still needed for CLEAN: the P5 package verdict on `26c4c2e`.
 
 VERDICT: NOT CLEAN (1 open: package verdict pending; 0 integration findings open)
+
+## Round 4 — Head 737b201 (package scope only)
+
+Reviewed head: `737b2017df84f2d7fa3641c7e91f065b13ecc6ff`. Delta `26c4c2e..737b201` (`f542a7e9`, `737b2017`), 5 files:
+host `run.rs` and tests, sys `storage.rs`, and a facade slow test. The base is still current v1 `144b023`.
+This reviewer ran no build, test or gate.
+
+- No interface between packages changes. `HostEdges`, `HostDriver::open`, `HostEngine::new`, the testkit edges, and the
+  `Storage` trait are as in round 3. The changes are the `AdoptAll` row ordering (`row_waits_for_its_session`) and the
+  durability of storage directories, which answer the P5 reviewer's round 2.
+- No integration finding is opened. The logic is the P5 reviewer's scope.
+
+Integration findings: none open. Still needed for CLEAN: the P5 package verdict on `737b201`.
+
+VERDICT: NOT CLEAN (1 open: package verdict pending; 0 integration findings open)
