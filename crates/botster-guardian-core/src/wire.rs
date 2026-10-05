@@ -1,6 +1,10 @@
 //! Guardian messages on the private control link (plan 3; Core AD-6, SV-5, SV-9).
+//!
+//! Commands and reports are JSON in `HOST_MSG` and `WORKER_MSG` frames. Log bytes are bulk data, so they travel raw in
+//! [`LOG_FRAME`] frames (plan 3).
 
 use botster_core_contract::prelude::*;
+use botster_core_link::frame::{FrameType, DEFAULT_MAX_PAYLOAD};
 use botster_core_link::msg::PayloadId;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -23,14 +27,9 @@ pub enum Command {
     EpochCommitted,
     Stop,
     Remove,
-    Status,
-    LogTail {
-        req: u64,
-        max: u64,
-    },
 }
 
-/// The guardian's observed state, retained across host loss (SV-5, SV-8).
+/// The guardian's observed state, retained across host loss (SV-5, SV-8). The guardian sends it after each authentication.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Status {
     pub service: ServiceId,
@@ -57,12 +56,6 @@ pub enum Report {
         exit: ServiceExit,
     },
     Status(Status),
-    /// Log chunks are consecutive. Only the last chunk has `last = true`.
-    Log {
-        req: u64,
-        bytes: Vec<u8>,
-        last: bool,
-    },
     Removed,
 }
 
@@ -70,5 +63,42 @@ impl Command {
     /// Unknown fields are readable. An unknown command cannot run.
     pub fn decode(bytes: &[u8]) -> Result<Self, serde_json::Error> {
         serde_json::from_slice(bytes)
+    }
+}
+
+/// The frame type of [`LogChunk`] on a guardian link. Packages name their own frame types (`botster-core-link`).
+pub const LOG_FRAME: FrameType = FrameType(0x20);
+
+/// The bytes of the offset that precedes the log bytes.
+const OFFSET_LEN: usize = 8;
+
+/// The most log bytes that one [`LOG_FRAME`] carries on a link with the default bound.
+pub const LOG_CHUNK_BYTES: usize = DEFAULT_MAX_PAYLOAD as usize - OFFSET_LEN;
+
+/// Captured stdout and stderr bytes, `[u64 LE offset][bytes]` (SV-9).
+///
+/// `offset` counts every byte the service wrote before `bytes`. A receiver that sees an offset other than the end of what
+/// it holds has missed bytes, so it keeps only what follows. The guardian always resends its whole ring after such a gap.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LogChunk {
+    pub offset: u64,
+    pub bytes: Vec<u8>,
+}
+
+impl LogChunk {
+    pub fn encode(&self) -> Vec<u8> {
+        let mut out = Vec::with_capacity(OFFSET_LEN + self.bytes.len());
+        out.extend_from_slice(&self.offset.to_le_bytes());
+        out.extend_from_slice(&self.bytes);
+        out
+    }
+
+    /// `None` when the payload is shorter than the offset.
+    pub fn decode(payload: &[u8]) -> Option<Self> {
+        let (offset, bytes) = payload.split_first_chunk::<OFFSET_LEN>()?;
+        Some(LogChunk {
+            offset: u64::from_le_bytes(*offset),
+            bytes: bytes.to_vec(),
+        })
     }
 }

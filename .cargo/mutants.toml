@@ -13,15 +13,8 @@ exclude_globs = ["**/tests/**", "tests/**"]
 exclude_re = [
     # P7 GuardianConfig::fmt: the debug text has no contract format. An empty successful
     # debug result still omits the service token, which is the only required property.
-    # authentication_controls_launch_and_hides_the_token checks token omission.
+    # only_a_valid_host_hello_authenticates checks token omission.
     'crates/botster-guardian-core/src/guardian\.rs:\d+:\d+: replace <impl std::fmt::Debug for GuardianConfig>::fmt -> std::fmt::Result with Ok\(Default::default\(\)\)$',
-    # P7 Guardian::begin: changing the log chunk bound from (MAX - 128) / 4 to
-    # (MAX / 128) / 4 produces smaller positive chunks. Each frame stays within MAX.
-    # The mutation preserves every byte, request id, order, and terminal last flag.
-    # No clause fixes the number of control frames used for a log tail.
-    # log_reports_split_at_the_link_bound_and_empty_tails_finish checks these properties.
-    # This entry covers only that arithmetic mutation in Guardian::begin.
-    'crates/botster-guardian-core/src/guardian\.rs:\d+:\d+: replace - with / in Guardian::begin$',
     # P3 Driver READ_CHUNK: no clause fixes this positive read bound. Plan 2.5 rule 7 and A5-2 permit partial reads.
     # NonZeroUsize enforces positivity in all builds; a zero default fails const evaluation.
     # control_and_pty_reads_retain_bytes_at_each_positive_bound proves control-frame and program-byte retention
