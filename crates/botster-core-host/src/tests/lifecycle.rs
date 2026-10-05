@@ -1042,32 +1042,46 @@ fn a_lost_worker_completes_the_pending_op_once() {
         .all(|e| !matches!(e, Event::Completed { op, .. } if *op == read)));
 }
 
-/// Core IN-7, A2-2: a write that was sent and not acknowledged when the link fails is `Unknown`, never a certain zero.
+/// Core IN-7, A2-2, 5.1A: a write that was sent and not acknowledged when the link fails is `Unknown`, never a certain
+/// zero. Its bound is the payload's bytes, or for a key the worst-case sequence over every mode times its repeats.
 #[test]
 fn a_write_in_flight_when_the_link_fails_is_unknown() {
+    let key = KeyInput {
+        key: botster_route_codec::prelude::Key::Char('a'.into()),
+        shifted_key: None,
+        base_layout_key: None,
+        mods: vec![],
+        event: botster_route_codec::prelude::KeyEvent::Press,
+        text: None,
+        repeat: Some(3),
+    };
+    let key_bound =
+        3 * botster_terminal_ghostty::longest_key_sequence(&key, u64::MAX).expect("a key encoder");
     let mut w = World::default();
     w.autopilot = Autopilot::Silent;
     w.running("s1");
-    let write = w
-        .engine
-        .begin(Op::WriteInput {
-            session: sid("s1"),
-            payload: InputPayload::Bytes {
-                bytes: botster_route_codec::prelude::HexBytes(vec![1, 2, 3]),
-            },
-            guard: None,
-        })
-        .unwrap();
+    let mut begin = |payload| {
+        w.engine
+            .begin(Op::WriteInput {
+                session: sid("s1"),
+                payload,
+                guard: None,
+            })
+            .unwrap()
+    };
+    let bytes = begin(InputPayload::Bytes {
+        bytes: botster_route_codec::prelude::HexBytes(vec![1, 2, 3]),
+    });
+    let keys = begin(InputPayload::Key(key));
     w.pump();
     let link = w.link_of("s1");
     w.feed(Input::LinkClosed { link });
-    match w.complete(write) {
-        OpResult::Ok(OpOutput::Input(r)) => assert_eq!(
-            r.outcome,
-            WriteOutcome::Unknown {
-                max_payload_bytes: 3
+    for (write, max_payload_bytes) in [(bytes, 3), (keys, key_bound)] {
+        match w.complete(write) {
+            OpResult::Ok(OpOutput::Input(r)) => {
+                assert_eq!(r.outcome, WriteOutcome::Unknown { max_payload_bytes })
             }
-        ),
-        other => panic!("{other:?}"),
+            other => panic!("{other:?}"),
+        }
     }
 }

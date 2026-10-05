@@ -676,6 +676,125 @@ pub(crate) fn paste_frame(bracketed: bool) -> Option<(Vec<u8>, Vec<u8>)> {
     Some(unsafe { (frame.prefix.bytes().to_vec(), frame.suffix.bytes().to_vec()) })
 }
 
+// ---- the worst case over every mode (5.1A) ----
+
+/// The bits of `ModeFlags.kitty_flags` that 5.1A defines (1, 2, 4, 8 and 16).
+const KITTY_FLAG_BITS: u32 = 5;
+
+/// The key modes of `EncoderState` besides the kitty flags.
+const KEY_MODE_BITS: u32 = 6;
+
+impl EncoderState {
+    /// Every state that the key encoder reads: each of the six key modes on and off, with each of the 32 kitty flag
+    /// combinations (5.1A: "any legacy or kitty flag combination").
+    fn every_key_state() -> impl Iterator<Item = EncoderState> {
+        (0u32..1 << (KEY_MODE_BITS + KITTY_FLAG_BITS)).map(|bits| {
+            let on = |bit: u32| bits & (1 << bit) != 0;
+            EncoderState {
+                cursor_key_application: on(0),
+                keypad_key_application: on(1),
+                ignore_keypad_with_numlock: on(2),
+                alt_esc_prefix: on(3),
+                modify_other_keys_state_2: on(4),
+                backarrow_key_mode: on(5),
+                kitty_flags: (bits >> KEY_MODE_BITS) as u8,
+                mouse_event: sys::mouse_event::NONE,
+                mouse_format: sys::mouse_format::X10,
+            }
+        })
+    }
+
+    /// Every state that the mouse encoder reads: each tracking mode with each format (5.1A: "any mouse encoding").
+    fn every_mouse_state() -> impl Iterator<Item = EncoderState> {
+        const EVENTS: [i32; 5] = [
+            sys::mouse_event::NONE,
+            sys::mouse_event::X10,
+            sys::mouse_event::NORMAL,
+            sys::mouse_event::BUTTON,
+            sys::mouse_event::ANY,
+        ];
+        const FORMATS: [i32; 5] = [
+            sys::mouse_format::X10,
+            sys::mouse_format::UTF8,
+            sys::mouse_format::SGR,
+            sys::mouse_format::URXVT,
+            sys::mouse_format::SGR_PIXELS,
+        ];
+        EVENTS.into_iter().flat_map(|mouse_event| {
+            FORMATS.into_iter().map(move |mouse_format| EncoderState {
+                cursor_key_application: false,
+                keypad_key_application: false,
+                ignore_keypad_with_numlock: false,
+                alt_esc_prefix: false,
+                modify_other_keys_state_2: false,
+                backarrow_key_mode: false,
+                kitty_flags: 0,
+                mouse_event,
+                mouse_format,
+            })
+        })
+    }
+}
+
+/// The length that an encode call would write, from its size probe (see `run_encoder`). A call that fails writes nothing.
+fn encoded_len(mut call: impl FnMut(*mut u8, usize, *mut usize) -> sys::Result) -> u64 {
+    let mut needed: usize = 0;
+    match call(std::ptr::null_mut(), 0, &mut needed) {
+        sys::OUT_OF_SPACE => needed as u64,
+        _ => 0,
+    }
+}
+
+/// The longest sequence that libghostty writes for one event of `input` in any state of the key encoder (5.1A: the
+/// worst-case bound, "including every modifier parameter and associated text"). It stops at the first state that
+/// writes more than `limit` and returns that length, so a key that is too large costs no more states.
+pub fn longest_key_sequence(input: &KeyInput, limit: u64) -> Result<u64, crate::Error> {
+    let encoder = KeyEncoder::new()?;
+    let text = input.text.as_deref().unwrap_or("");
+    let mut base_text = [0u8; 4];
+    // A key that has no event is never written in any state.
+    let Ok(event) = key_event(input, text, &mut base_text) else {
+        return Ok(0);
+    };
+    let mut longest = 0;
+    for state in EncoderState::every_key_state() {
+        encoder.configure(Source::State(state));
+        longest = longest.max(encoded_len(|buf, len, written| {
+            // SAFETY: the encoder and the event are live; the buffer holds `len` bytes, or is null with length 0.
+            unsafe { sys::ghostty_key_encoder_encode(encoder.0, event.0, buf, len, written) }
+        }));
+        if longest > limit {
+            break;
+        }
+    }
+    Ok(longest)
+}
+
+/// The longest report that libghostty writes for one notch or one event of `input` in any state of the mouse encoder
+/// (5.1A: "the longest report of any mouse encoding"). The screen is the largest that the encoder takes, so no position
+/// is outside it.
+pub fn longest_mouse_report(input: &MouseInput) -> u64 {
+    let one = MouseInput {
+        notches: None,
+        ..input.clone()
+    };
+    let screen = Size {
+        rows: u32::MAX,
+        cols: u32::MAX,
+        cell_px: None,
+    };
+    EncoderState::every_mouse_state()
+        .filter_map(|state| encode_mouse(Source::State(state), &screen, &one).ok())
+        .map(|bytes| bytes.len() as u64)
+        .max()
+        .unwrap_or(0)
+}
+
+/// The longest report that libghostty writes for a focus event in any mode (it writes one only with focus reporting on).
+pub fn longest_focus_report(focused: bool) -> u64 {
+    encode_focus(true, focused).map_or(0, |bytes| bytes.len() as u64)
+}
+
 // A pointer to a `c_void` is the type of every handle above.
 const _: () = {
     let _ = std::mem::size_of::<*mut c_void>();

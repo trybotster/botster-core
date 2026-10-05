@@ -822,16 +822,4 @@ fn retirement_keeps_the_result_path_and_bounds_a_repeated_key() {
         done.get(&policy)
     );
     assert!(done.contains_key(&remove));
-    assert_eq!(
-        HostEngine::held_bytes(&InputPayload::Key(KeyInput {
-            key: botster_route_codec::prelude::Key::Char('a'.into()),
-            shifted_key: None,
-            base_layout_key: None,
-            mods: vec![],
-            event: botster_route_codec::prelude::KeyEvent::Press,
-            text: None,
-            repeat: Some(100),
-        })),
-        6400
-    );
 }
