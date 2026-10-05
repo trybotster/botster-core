@@ -336,3 +336,19 @@ Integration findings: none open in source. Still needed for CLEAN: the package v
 that shows the lib slow modules collected.
 
 VERDICT: NOT CLEAN (1 open: package verdict pending; I7 gate evidence pending; 0 integration source findings open)
+
+## Round 6 correction — I7 reopened (same head `0110caa`)
+
+- The package reviewer found that this reviewer's suggested filter was wrong. nextest names a test by its full module path.
+  `test(/^slow_/)` matches only a `slow_*` module at the crate root:
+  - it matches botster-core `lib.rs` (`slow_tests::…`) and botster-worker (`slow_driver::…`, `slow_edges::…`);
+  - it misses botster-core-sys `storage::slow_tests::…` and botster-core `real::slow_tests::…`.
+- Round 6 closed I7 on this reviewer's own incorrect proposal. **I7 is OPEN again.**
+- Required: match a `slow_*` module at any module boundary, for example `test(/(^|::)slow_/)`. Then check the selection
+  against what nextest really collects: run `cargo nextest list` with the slow features and that filter, and name these tests
+  in the evidence:
+  - `storage::slow_tests::*`, `real::slow_tests::*` and `slow_tests::*` (botster-core lib);
+  - `slow_edges::a_failed_exit_watch_ends_the_worker_with_a_failure`.
+  The xtask test that compares the filter with a literal string proves only the string, not the collection.
+
+VERDICT: NOT CLEAN (2 open: I7; package verdict pending)
