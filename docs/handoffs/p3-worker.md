@@ -674,3 +674,29 @@ The job must use botster-gate --on mac --deadline 20m and --in-diff.
 It selects only that helper, runs the existing library and slow_payload tests, and preserves every code deadline.
 The resulting log belongs in READY, the PR description, and both reviewer inboxes.
 Linux and Mac heavy jobs remain serial. Next: corrected Linux payload selection, then the authorized Mac job.
+
+## Completed native proof and default-tier glue review (2026-10-04)
+
+The corrected Linux payload job at `63b5c1db` passes: 30 tested, 25 caught, five unviable, zero misses/timeouts.
+Log: `~/botster-sessions/gates/botster-core-stage1-p3-m1-v1-63b5c1db-linux-20261004-181046-41087.log`.
+Its library-inclusive baseline passes 47 selected entries with zero skipped.
+Raw evidence is in `/private/tmp/p3-payload-corrected-linux-evidence`.
+The fallback-minus deletion fails Code(1) versus Code(-1) in 0.003 seconds, with Failure(100).
+Package verdict `3ec9dfafbd1ed930afc3aba851bf35d075ecdb36` and integration verdict `32cd92c1534145fbb2550139291e22ef16715bd0` verify applicable Linux accounting.
+Both reviewers accept the exact main and READ_CHUNK exclusions. All 167 original entries have dispositions.
+
+The once-authorized Mac helper job at `63b5c1db` passes: two tested, both caught, no misses/timeouts/unviable.
+Log: `~/botster-sessions/gates/botster-core-stage1-p3-m1-v1-63b5c1db-mac-20261004-181240-42534.log`.
+The job uses --in-diff and selects only the native helper at payload.rs:230..253.
+Its baseline passes all 47 selected entries. Both Ok(0) and Ok(1) replacements fail pending > 1 in 0.027 seconds.
+The result is Failure(100), not a tool timeout. The job ends with exit zero after 16 seconds.
+Raw evidence is in `/private/tmp/p3-payload-mac-evidence`.
+This log must appear in READY and the PR description. Both reviewers have received it.
+
+The landing mutation step runs the default tier. That tier must not start processes or open real sockets or PTYs.
+New function-specific entries classify the real Driver and Payload adapter functions as OS glue.
+Each entry names one function, its slow proof, and the recorded mutation evidence.
+Pure command-line, readiness, deadline, errno, launch-error, wait-loop, and Worker decisions remain mutation-tested.
+Payload::reap keeps only its earlier exact equivalence entry. No blanket file or crate exclusion is added.
+The entries require exact source/configuration review before CLEAN. They do not replace the completed slow mutation proof.
+Next: both delta reviews, then the exact-head Linux landing gate.
