@@ -2,11 +2,14 @@
 
 use crate::link::{frame, Link, LinkState};
 use crate::log::LogRing;
-use crate::wire::{log_chunks, Command, Report, ServiceSpec, Status, LOG_CHUNK_BYTES, LOG_FRAME};
+use crate::wire::{
+    log_chunks, Command, Report, ServiceSpec, Status, COMMAND_FRAME, LOG_CHUNK_BYTES, LOG_FRAME,
+    REPORT_FRAME,
+};
 use botster_core_contract::prelude::*;
 use botster_core_edges::edges::{ExitStatus, ProcessIdentity};
 use botster_core_edges::Machine;
-use botster_core_link::frame::{Frame, FrameType};
+use botster_core_link::frame::Frame;
 use botster_core_link::hello::HelloError;
 use botster_core_link::msg::PayloadId;
 use botster_core_link::proof::TOKEN_LEN;
@@ -275,7 +278,7 @@ impl Guardian {
     fn report(&mut self, report: Report) {
         if self.link.state == LinkState::Ready {
             let json = serde_json::to_vec(&report).expect("guardian reports serialize");
-            self.emit(frame(FrameType::WORKER_MSG, &json));
+            self.emit(frame(REPORT_FRAME, &json));
         }
     }
 
@@ -313,7 +316,7 @@ impl Guardian {
                     self.on_closed(now);
                 }
             }
-            LinkState::Ready if frame.kind == FrameType::HOST_MSG => {
+            LinkState::Ready if frame.kind == COMMAND_FRAME => {
                 if let Ok(command) = Command::decode(&frame.payload) {
                     self.command(command);
                 }

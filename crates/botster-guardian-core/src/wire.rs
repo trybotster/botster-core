@@ -1,7 +1,8 @@
 //! Guardian messages on the private control link (plan 3; Core AD-6, SV-5, SV-9).
 //!
-//! Commands and reports are JSON in `HOST_MSG` and `WORKER_MSG` frames. Log bytes are bulk data, so they travel raw in
-//! [`LOG_FRAME`] frames (plan 3).
+//! The guardian link uses its own frame types: [`COMMAND_FRAME`], [`REPORT_FRAME`] and [`LOG_FRAME`]. A guardian frame
+//! therefore never decodes as a worker message, whose `t` tags (`launch`, `exited`) overlap these. Commands and reports
+//! are JSON. Log bytes are bulk data, so they travel raw (plan 3).
 
 use botster_core_contract::prelude::*;
 use botster_core_link::frame::{FrameType, DEFAULT_MAX_PAYLOAD};
@@ -68,8 +69,12 @@ impl Command {
     }
 }
 
-/// The frame type of [`LogChunk`] on a guardian link. Packages name their own frame types (`botster-core-link`).
-pub const LOG_FRAME: FrameType = FrameType(0x20);
+/// A [`Command`] from the host, as JSON. Packages name their own frame types (`botster-core-link`).
+pub const COMMAND_FRAME: FrameType = FrameType(0x20);
+/// A [`Report`] from the guardian, as JSON.
+pub const REPORT_FRAME: FrameType = FrameType(0x21);
+/// A [`LogChunk`] from the guardian, raw.
+pub const LOG_FRAME: FrameType = FrameType(0x22);
 
 /// The bytes of the offset that precedes the log bytes.
 const OFFSET_LEN: usize = 8;

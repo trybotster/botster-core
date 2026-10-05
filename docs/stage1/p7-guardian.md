@@ -11,7 +11,7 @@ The host owns lane authentication, epochs, queues, and public events.
 - `guardian.rs`: the lifecycle machine.
 - `link.rs`: the hello, host authentication, and the written-byte count of one connection.
 - `log.rs`: the bounded log ring.
-- `wire.rs`: commands, reports, and the raw log frame.
+- `wire.rs`: commands, reports, log chunks, and the guardian's frame types.
 
 ## State
 
@@ -84,6 +84,9 @@ So the guardian pushes its output to the host; the host does not request it.
 
 - The guardian keeps the newest `log_bytes` bytes (`CoreLimits.service_log_bytes`).
 - Log bytes travel raw in `LOG_FRAME` frames as `[u64 LE offset][bytes]` (plan 3: bulk data is raw).
+- Commands and reports are JSON in `COMMAND_FRAME` and `REPORT_FRAME`.
+  The guardian link never uses the worker's `HOST_MSG` or `WORKER_MSG`: their JSON tags overlap (`launch`, `exited`), so a
+  shared frame type would let a guardian report decode as a worker message. The host driver dispatches on the frame type.
   The offset counts every byte that the service wrote before the chunk.
 - One batch is in flight at a time.
   A new batch waits until the driver reports the previous batch written.
