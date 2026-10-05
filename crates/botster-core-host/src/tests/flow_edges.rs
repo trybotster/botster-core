@@ -432,15 +432,21 @@ fn a_closed_link_after_the_launch_and_an_exit_after_a_failure_change_nothing() {
     });
     w.pump();
     w.feed(Input::LinkClosed { link });
+    let mut events = Vec::new();
     for _ in 0..10 {
-        w.engine.poll_events(64);
+        events.extend(w.engine.poll_events(64));
         w.pump();
     }
     assert_eq!(
         w.engine.get(&sid("s1")).unwrap().state,
         SessionState::Running
     );
-    assert!(matches!(w.complete(start), OpResult::Ok(_)));
+    assert!(
+        events
+            .iter()
+            .any(|e| matches!(e, Event::Completed { op, result: OpResult::Ok(_) } if *op == start)),
+        "the start completed: {events:?}"
+    );
     // The link closes before the launch: the start fails `Exited`; a worker exit while that failure waits for room does not
     // turn it into `Lost`.
     let mut w = World::new(limits(|l| l.mandatory_events = 2));
@@ -643,33 +649,35 @@ fn stop_all_joins_an_end_in_flight() {
 }
 
 /// Core AM-1, AM-3: a failed `Create` ends the ops that were admitted after it, each with the registry failure, and none
-/// stays attached to the session that never existed.
+/// stays attached to the session that never existed: a `Start` with what follows it, and a `Remove`.
 #[test]
 fn a_failed_create_completes_the_ops_admitted_after_it() {
-    let mut w = World::default();
-    w.fail_row = Some(StorageError::Failed { errno: 5 });
-    let ops = [
-        w.engine.begin(create("s1")).unwrap(),
-        w.engine
-            .begin(Op::UpdateMetadata {
-                id: sid("s1"),
-                labels: BTreeMap::new(),
-            })
-            .unwrap(),
-        w.engine.begin(Op::Start { id: sid("s1") }).unwrap(),
-        w.engine.begin(Op::Remove { id: sid("s1") }).unwrap(),
-    ];
-    let results = w.complete_all(&ops);
-    for op in ops {
-        assert!(
-            matches!(&results[&op], OpResult::Err(e) if e.code == ErrorCode::RegistryFailed { uncertain: false }),
-            "{op:?}: {results:?}"
+    let meta = || Op::UpdateMetadata {
+        id: sid("s1"),
+        labels: BTreeMap::new(),
+    };
+    for after in [
+        [meta(), Op::Start { id: sid("s1") }],
+        [meta(), Op::Remove { id: sid("s1") }],
+    ] {
+        let mut w = World::default();
+        w.fail_row = Some(StorageError::Failed { errno: 5 });
+        let mut ops = vec![w.engine.begin(create("s1")).unwrap()];
+        for op in after {
+            ops.push(w.engine.begin(op).unwrap());
+        }
+        let results = w.complete_all(&ops);
+        for op in &ops {
+            assert!(
+                matches!(&results[op], OpResult::Err(e) if e.code == ErrorCode::RegistryFailed { uncertain: false }),
+                "{op:?}: {results:?}"
+            );
+        }
+        assert_eq!(
+            w.engine.get(&sid("s1")).unwrap_err().code,
+            ErrorCode::UnknownSession
         );
     }
-    assert_eq!(
-        w.engine.get(&sid("s1")).unwrap_err().code,
-        ErrorCode::UnknownSession
-    );
 }
 
 /// Core LC-5, AD-6: with the link gone, a stop signals only the verified worker (pid and start time), never a bare

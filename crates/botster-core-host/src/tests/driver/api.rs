@@ -233,7 +233,8 @@ fn io_errors_are_told_apart_by_their_kind() {
         .get_mut(&LinkId(1))
         .unwrap()
         .fail_send
-        .push(io::ErrorKind::WouldBlock);
+        .extend([io::ErrorKind::WouldBlock; 64]);
+    // The link takes nothing for the whole pump: every send of it would block.
     rig.driver.begin(Op::Stop { id: sid("s1") }).unwrap();
     let sent_before = rig.mock.lock().unwrap().links[&LinkId(1)].from_host.len();
     rig.pump();
@@ -244,6 +245,15 @@ fn io_errors_are_told_apart_by_their_kind() {
         assert!(link.write_interest, "the bytes wait with write interest on");
         assert_eq!(link.from_host.len(), sent_before, "nothing was taken");
     }
+    // The link takes bytes again.
+    rig.mock
+        .lock()
+        .unwrap()
+        .links
+        .get_mut(&LinkId(1))
+        .unwrap()
+        .fail_send
+        .clear();
     rig.pump();
     {
         let mock = rig.mock.lock().unwrap();

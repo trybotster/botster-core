@@ -37,10 +37,11 @@ fn a_full_queue_parks_the_transition_and_a_poll_unparks_it() {
     );
     w.engine.poll_events(64);
     w.pump();
+    let shown = states(&w.engine.poll_events(64));
     assert_eq!(
-        w.engine.get(&sid("s2")).unwrap().state,
-        SessionState::Stopping,
-        "EV-5d: the room that a poll frees lets the parked step run"
+        shown.first(),
+        Some(&("s2".to_string(), SessionState::Stopping)),
+        "EV-5d: the room that a poll frees lets the parked step run: {shown:?}"
     );
 }
 
