@@ -2025,3 +2025,29 @@ New query/cleanup code still requires mutation accounting in the applicable gate
 All earlier findings and closures remain preserved. The reviewer ran no tests, builds, or gates.
 
 VERDICT: NOT CLEAN (F13: three original entries) on `e475c2841368c6b71bfaf0497b7d06b4d3e0fab9`.
+
+## Round 60 — PTY readiness assertion catches the original arm deletion
+
+Reviewed and evidence head: `e475c2841368c6b71bfaf0497b7d06b4d3e0fab9`.
+Log: `~/botster-sessions/gates/botster-core-stage1-p3-m1-v1-e475c284-linux-20261004-175646-27658.log`.
+Raw evidence: `/private/tmp/p3-driver-pty-evidence/`, copied from the completed volume without a rerun.
+The reviewer read the exact-head log, outcomes.json, baseline log, and PTY mutation failure log.
+
+The baseline passes all seven selected direct entries. Twenty-three entries lie outside the filter.
+The corrected PTY fixture passes in 0.015 seconds. The partial-write test passes in 0.008 seconds.
+The mutation job tests ten entries: eight caught, two unviable, zero missed, and zero timeouts.
+Its external mutation budget is 120 seconds. The fixture keeps its ten-second progress deadline.
+Deleting the PTY arm at main.rs:184:21 fails the done-marker poll assertion at driver_edges.rs:287 in 10.019 seconds.
+The actual test result is Failure(100), and the raw outcome is CaughtMutant.
+This is a fixture assertion failure after a bounded readiness wait. It is not an external tool timeout.
+
+The original main.rs:182:21 PTY arm deletion is CLOSED under F13.
+The reviewed source maps that original entry to the unchanged PTY readiness assignment at main.rs:184:21.
+Its original name is preserved in `verdicts/p3-worker-mutants-e475c28-caught.txt`.
+The seven caught flush entries repeat existing closures and add no further original-entry closure.
+F13 retains two original entries: READ_CHUNK addition and main no-op.
+New query/cleanup code still requires mutation accounting in the applicable gate.
+F21 remains CLOSED. All earlier findings and closures remain preserved.
+The reviewer ran no tests, builds, or gates.
+
+VERDICT: NOT CLEAN (F13: two original entries) on `e475c2841368c6b71bfaf0497b7d06b4d3e0fab9`.
