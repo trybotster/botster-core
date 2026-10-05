@@ -196,7 +196,7 @@ fn the_facade_reaches_a_host_with_a_worker_on_a_real_link() {
         &format!(
             "/bin/echo \"$BOTSTER_WORKER_TOKEN\" \"$@\" | /usr/bin/tee '{}' >/dev/null\n{}",
             launch.display(),
-            common::WAIT_WHILE_THE_PARENT_LIVES
+            common::wait_for_a_signal(tmp.path())
         ),
     );
     let mut core = Core::open(OpenConfig {
