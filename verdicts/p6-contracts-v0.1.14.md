@@ -1,3 +1,43 @@
+# PR #161 latest round: contracts-v0.1.17
+
+VERDICT: CLEAN
+
+Implementation head: `dea90ed4ee502432a70e19ec93b26c4a81558773`.
+Reviewed delta: `257d2ed31dbb5af06551de463091e110eabcc06d..dea90ed4ee502432a70e19ec93b26c4a81558773`.
+Open findings for this pin move: 0, including LOW findings.
+
+## Delta review
+
+The lead retargeted PR #161 to `contracts-v0.1.17` in the shared lead handoff.
+The reviewer confirmed GitHub's exact PR head and read the updated PR body, including its Prior art note.
+
+- The tag resolves to `1725abf1d95aa880cb38b80a2010470e5abcb98f`.
+- Manifest final35 includes accepted Core Amendment 15, candidate 2. Core Amendments 14 and 16 remain included.
+- R-34 records the authority for A15's default of 256 bytes and configurable range of 1 to 4,096 bytes.
+- All six workspace dependencies use the new tag. All nine contracts lockfile entries use its exact commit.
+- Only those source entries change in Cargo.lock. No contract crate or BUILD.md changes between the tags.
+- The generated Core ledger matches the pinned ledger, byte for byte: 675 IDs, up from 671.
+- Exactly four `conf::a15_1_*` IDs join the ledger and pending list. No existing ID leaves either list.
+- Each new pending ID has the owner comment that the lead assigned.
+- The host refusal belongs to P5 (host), and the configuration refusal belongs to P5 (limits).
+- Admission at the bound belongs to P3 (worker), and the route refusal belongs to P4a (route).
+- Removing only the four new pending IDs and their owner comments restores the previous pending file, byte for byte.
+- Both copied contracts status files match the new tag, byte for byte. The Core deferred table remains unchanged.
+- The three citation changes name the new tag. No executable Rust statement changes.
+
+A15 requires a key text bound before the worst-case encoding check. This PR records the four proof requirements as pending.
+This verdict does not prove A14, A15, or A16 behavior, close other packages' findings, or review the RealCoreHarness scaffold.
+All earlier verdict rounds remain below without changes.
+
+## Gate boundary
+
+The reviewer ran no tests, mutation jobs, builds, or gates.
+Direct Git and Python comparisons establish the artifact checks above.
+The gate remains last in the lead's merge order. The future v1 merge requires a delta review.
+Merge requires a green gate on the final exact CLEAN head. The earlier red gate is not waived.
+
+---
+
 # PR #161 latest round: contracts-v0.1.16
 
 VERDICT: CLEAN
