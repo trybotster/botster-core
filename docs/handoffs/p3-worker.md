@@ -571,3 +571,9 @@ That merge adds P6 oracle controls and process cleanup tests from PR #140.
 Cargo.lock preserves both the P6 sha2 dependency and the P3 worker-core dependency.
 The pending list preserves all ids and P6 snapshot comments. Its TI-1 comment now reflects the completed testkit wiring.
 The merge requires reviewer checks. The next focused job selects direct Driver tests for flush mutations.
+
+The first post-merge focused job at `ae039b52` stopped before tests with exit 101.
+Log: `~/botster-sessions/gates/botster-core-stage1-p3-m1-v1-ae039b52-linux-20261004-174913-23005.log`.
+The automatic manifest merge added a duplicate botster-terminal-ghostty dependency entry.
+The correction keeps the existing workspace dependency and removes the duplicate path entry.
+The job supplies no test or mutation evidence. The corrected focused job must run next.
