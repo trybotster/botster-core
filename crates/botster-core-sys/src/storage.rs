@@ -305,7 +305,6 @@ impl DataDir {
     /// Core syncs `path` and its parent and no other ancestor: the durability of the parent's own entry is the host's.
     pub fn open(path: &Path) -> Result<DataDir, OpenError> {
         create_data_dir(path, &mut sync_dir)?;
-        check_safe(path)?;
         let lock = LockFile::try_exclusive(&path.join("lock")).map_err(|error| match error {
             LockError::Held => OpenError::InUse,
             LockError::Io(error) => OpenError::Io(error),
@@ -361,20 +360,24 @@ impl DataDir {
     }
 }
 
-/// Creates the data directory `path` with mode `0700` when it is missing, then syncs its parent with `sync`, so that the
-/// entry of `path` is durable (AD-7). Only `path` itself is created: a missing parent fails with `NotFound`. The parent is
+/// Creates the data directory `path` with mode `0700` when it is missing, refuses it when it is not safe (AD-6; a file is
+/// unsafe), then syncs its parent with `sync`, so that the entry of `path` is durable (AD-7). Only `path` itself is created: a missing parent fails with `NotFound`. The parent is
 /// synced on every open, whether this open created `path` or an earlier, failed open did. The parent is opened through
 /// `path/..`, so it is the directory that holds the entry, and it must be readable: a parent that cannot be opened fails the
 /// open, which never claims a durability that it does not have. No other ancestor is synced: the host owns them. `sync` is
 /// [`sync_dir`] in production, and an injected one in a test.
-fn create_data_dir(path: &Path, sync: &mut dyn FnMut(&Path) -> io::Result<()>) -> io::Result<()> {
+fn create_data_dir(
+    path: &Path,
+    sync: &mut dyn FnMut(&Path) -> io::Result<()>,
+) -> Result<(), OpenError> {
     match fs::DirBuilder::new().mode(0o700).create(path) {
         // A path that exists as a file is refused by `check_safe`, as unsafe.
         Ok(()) => {}
         Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
-        Err(error) => return Err(error),
+        Err(error) => return Err(error.into()),
     }
-    sync(&path.join(".."))
+    check_safe(path)?;
+    Ok(sync(&path.join(".."))?)
 }
 
 /// Syncs the directory `dir`.
