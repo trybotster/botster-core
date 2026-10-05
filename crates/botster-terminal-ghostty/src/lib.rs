@@ -314,6 +314,9 @@ impl Terminal {
     /// Set the largest clipboard write, in bytes of all representations, that the model is answered SUCCESS for
     /// (`CoreLimits.clipboard_bytes`, A13-1b). A larger write is surfaced as `too_large` without its bytes, and the
     /// model gets IO_ERROR. The decision is made inside the native callback, by size alone.
+    ///
+    /// The model has its own OSC 5522 transaction limit (64 MiB, left at libghostty's default). Over it, the model keeps
+    /// only the decoded size and still reports the write, which is then `too_large` (R-32).
     pub fn set_clipboard_limit(&mut self, bytes: usize) {
         // SAFETY: no callback runs now, so this is the only reference to the buffer.
         unsafe { self.shared.as_mut() }.clipboard_limit = bytes;

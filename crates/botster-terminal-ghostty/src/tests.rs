@@ -311,6 +311,81 @@ fn a_write_over_the_limit_is_surfaced_without_its_bytes_and_the_model_gets_io_er
     assert!(!kitty_write(&mut at_limit).0.too_large);
 }
 
+/// An OSC 5522 write with id 9 of one text/plain chunk of each length in `chunks`, then the commit.
+fn kitty_write_of(chunks: &[usize]) -> Vec<u8> {
+    use base64::Engine;
+    let b64 = |bytes: &[u8]| base64::engine::general_purpose::STANDARD.encode(bytes);
+    let mime = b64(b"text/plain");
+    let mut out = b"\x1b]5522;type=write:id=9\x1b\\".to_vec();
+    for &chunk in chunks {
+        let data = b64(&vec![b'x'; chunk]);
+        out.extend_from_slice(format!("\x1b]5522;type=wdata:mime={mime};{data}\x1b\\").as_bytes());
+    }
+    out.extend_from_slice(b"\x1b]5522;type=wdata\x1b\\");
+    out
+}
+
+/// Lower the model's own OSC 5522 transaction limit (64 MiB by default), so a test can go over it with a small write.
+fn set_model_clipboard_limit(terminal: &mut Terminal, bytes: usize) {
+    // SAFETY: the handle is live, and the option takes a `size_t` pointer.
+    check(unsafe {
+        sys::ghostty_terminal_set(
+            terminal.handle.as_ptr(),
+            sys::opt::CLIPBOARD_WRITE_MAX_BYTES,
+            (&bytes as *const usize).cast(),
+        )
+    })
+    .unwrap();
+}
+
+#[test]
+fn a_write_over_the_models_own_limit_is_reported_with_its_full_length_and_only_the_binding_answers_it(
+) {
+    const MODEL_LIMIT: usize = 30;
+    let mut terminal = terminal();
+    set_model_clipboard_limit(&mut terminal, MODEL_LIMIT);
+
+    // At the model's limit (and within the binding's): the bytes are delivered.
+    let (at_limit, at_limit_acks) =
+        clipboard_write_and_acks(&mut terminal, &kitty_write_of(&[MODEL_LIMIT]));
+    assert!(!at_limit.too_large);
+    assert_eq!(
+        at_limit.contents,
+        Some(vec![entry("text/plain", &[b'x'; MODEL_LIMIT])])
+    );
+    assert_eq!(at_limit_acks.len(), 1);
+
+    // The reference: a write that the model keeps and the binding refuses by its own limit. Its acknowledgement is the
+    // binding's IO_ERROR.
+    let mut reference = self::terminal();
+    reference.set_clipboard_limit(MODEL_LIMIT);
+    let (refused, refused_acks) =
+        clipboard_write_and_acks(&mut reference, &kitty_write_of(&[MODEL_LIMIT + 3]));
+    assert!(refused.too_large);
+    assert_eq!(refused_acks.len(), 1);
+    assert_ne!(refused_acks, at_limit_acks);
+
+    // Over the model's limit, in chunks before and after it: the model keeps no bytes and still reports the write,
+    // with every byte counted. The model answers nothing itself: the only acknowledgement is the binding's IO_ERROR,
+    // the same as the reference's, and nothing goes to the pty.
+    let chunks = [
+        MODEL_LIMIT / 2,
+        MODEL_LIMIT / 2,
+        MODEL_LIMIT / 2,
+        3 * MODEL_LIMIT,
+    ];
+    terminal.vt_write(&kitty_write_of(&chunks));
+    let drained = terminal.drain_events();
+    let [TerminalEvent::ClipboardWrite(over)] = &drained.events[..] else {
+        panic!("expected one clipboard write, got {:?}", drained.events);
+    };
+    assert!(over.too_large);
+    assert_eq!(over.contents, None);
+    assert_eq!(over.total_bytes, chunks.iter().sum::<usize>() as u64);
+    assert_eq!(drained.clipboard_acks, refused_acks);
+    assert!(drained.pty_writes.is_empty());
+}
+
 #[test]
 fn an_acknowledgement_survives_a_full_event_buffer_with_no_host() {
     // The event buffer fills with bells in one model step, and the clipboard write that follows is dropped as an
