@@ -2,7 +2,7 @@
 
 use crate::link::{frame, Link, LinkState};
 use crate::log::LogRing;
-use crate::wire::{Command, LogChunk, Report, ServiceSpec, Status, LOG_CHUNK_BYTES, LOG_FRAME};
+use crate::wire::{log_chunks, Command, Report, ServiceSpec, Status, LOG_CHUNK_BYTES, LOG_FRAME};
 use botster_core_contract::prelude::*;
 use botster_core_edges::edges::{ExitStatus, ProcessIdentity};
 use botster_core_edges::Machine;
@@ -341,14 +341,7 @@ impl Guardian {
         if bytes.is_empty() {
             return;
         }
-        for (offset, chunk) in (from..)
-            .step_by(LOG_CHUNK_BYTES)
-            .zip(bytes.chunks(LOG_CHUNK_BYTES))
-        {
-            let chunk = LogChunk {
-                offset,
-                bytes: chunk.to_vec(),
-            };
+        for chunk in log_chunks(from, &bytes, LOG_CHUNK_BYTES) {
             self.emit(frame(LOG_FRAME, &chunk.encode()));
         }
         self.log_sent = self.log.end();

@@ -991,10 +991,23 @@ fn the_log_streams_to_the_host_and_a_new_host_gets_the_bounded_tail() {
     );
 }
 
-/// Core SV-9: a tail larger than one link frame goes out in bounded frames that carry every byte in order.
+/// The log bytes of consecutive chunks that start at `offset`. Each chunk must start where the previous one ended.
+fn joined(sent: &[Sent], offset: u64) -> Vec<u8> {
+    let mut bytes = Vec::new();
+    for item in sent {
+        let Sent::Log(chunk) = item else {
+            panic!("only log chunks: {item:?}")
+        };
+        assert_eq!(chunk.offset, offset + bytes.len() as u64);
+        bytes.extend_from_slice(&chunk.bytes);
+    }
+    bytes
+}
+
+/// Core SV-9: a tail larger than one link frame streams in bounded frames, and a new host receives every frame of it
+/// before the status.
 #[test]
-fn a_large_tail_fills_bounded_frames_in_order() {
-    // The link's own bound, independent of the guardian's chunk size.
+fn a_large_tail_streams_and_replays_before_the_status() {
     let full_frame = HEADER_LEN + DEFAULT_MAX_PAYLOAD as usize;
     let mut rig = Rig::with(GuardianConfig {
         log_bytes: full_frame * 2,
@@ -1002,26 +1015,22 @@ fn a_large_tail_fills_bounded_frames_in_order() {
     });
     rig.authenticate(rig.cfg.host_epoch);
     let bytes: Vec<u8> = (0..rig.cfg.log_bytes).map(|i| i as u8).collect();
-    let actions = rig.input(Input::Log(bytes.clone()));
-    let mut expected = 0u64;
-    let mut received = Vec::new();
-    for (index, action) in actions.iter().enumerate() {
-        let Action::LinkSend(frame) = action else {
-            panic!("only log frames")
-        };
-        // Every frame but the last is full, so the fewest frames carry the tail.
-        if index + 1 < actions.len() {
-            assert_eq!(frame.len(), full_frame);
-        } else {
-            assert!(frame.len() <= full_frame);
-        }
-        let chunks = logs(std::slice::from_ref(action));
-        let [chunk] = &chunks[..] else {
-            panic!("one chunk per frame")
-        };
-        assert_eq!(chunk.offset, expected);
-        expected += chunk.bytes.len() as u64;
-        received.extend_from_slice(&chunk.bytes);
-    }
-    assert_eq!(received, bytes);
+
+    let streamed = rig.input(Input::Log(bytes.clone()));
+    assert!(streamed
+        .iter()
+        .all(|action| matches!(action, Action::LinkSend(frame) if frame.len() <= full_frame)));
+    assert_eq!(joined(&sent(&streamed), 0), bytes);
+
+    let replay = sent(&rig.reconnect(rig.cfg.host_epoch));
+    let [hello, logs @ .., status] = &replay[..] else {
+        panic!("a hello, the ring and the status: {replay:?}")
+    };
+    assert_eq!(
+        hello,
+        &Sent::Hello(host_hello(&rig.cfg, rig.cfg.host_epoch))
+    );
+    assert!(logs.len() > 1);
+    assert_eq!(joined(logs, 0), bytes);
+    assert_eq!(status, &Sent::Report(Report::Status(rig.g.status())));
 }
