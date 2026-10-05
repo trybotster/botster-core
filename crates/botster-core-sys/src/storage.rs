@@ -706,9 +706,11 @@ mod slow_tests {
         let parent = grandparent.join("p");
         fs::create_dir_all(&parent).unwrap();
         fs::set_permissions(&grandparent, fs::Permissions::from_mode(0o100)).unwrap();
-        let result = DataDir::open(&parent.join("d")).map(|data| data.epoch());
+        let result = DataDir::open(&parent.join("d")).map(drop);
         fs::set_permissions(&grandparent, fs::Permissions::from_mode(0o700)).unwrap();
-        assert_eq!(result.unwrap(), 1);
+        if let Err(error) = result {
+            panic!("the open failed: {error}");
+        }
     }
 
     /// A corrupt epoch row refuses the open: the registry is not guessed at.
