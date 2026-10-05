@@ -242,3 +242,148 @@ After P3's guard fix merges, #162 must merge `origin/v1`, receive an exact-head 
 This verdict does not accept that future merged head or close the other P5 work.
 
 VERDICT: CLEAN
+
+## PR #164 — Round 1
+
+- Exact head: `c4afe5861abe96904ad80f9507b147c2da8ea98e`.
+- Base: `144b0234fb632bcbb5176b17c2fe55f3239405df`.
+- Scope: audit A1, A2, A4, A5, A7, and A9 in P5 deliverable 1.
+- The reviewer ran no builds, tests, mutation jobs, or gates.
+
+### Audit closure at this head
+
+A1 and A2 remain OPEN. P5-F5 and P5-F6 cover the remaining A1 cases.
+P5-F5 also leaves the A2 reservation incomplete for damaged file headers.
+P5-F8 identifies another in-scope durable-row overwrite after an uncertain Create write.
+
+A4 is CLOSED in source. The failed Starting write now completes each waiting Stop with `RegistryFailed`.
+The new test checks both `Failed` and `Uncertain`, with the expected error derived from the injected storage error.
+A5 is CLOSED in source. The driver opens without reading a clock, and only `pump(now)` supplies time to the machine.
+The facade removes its clock read and bans clock reads through Clippy configuration.
+
+A7 is CLOSED in source. The unknown-hello test sends a complete frame and waits for a wake before pumping Core.
+It then observes link EOF through a channel with a marked deadline. It no longer polls a short read timeout.
+
+The host machine closes A9's missing non-child exit observation through an injected identity probe.
+The real edge uses the existing system identity probe. The testkit edge remains incorrect across handles; P5-F7 is OPEN.
+The placeholder worker recovery remains P5 deliverable 2. These tests no longer certify `Lost(Other)` as adoption behavior.
+
+### P5-F5 — CONTRACT — A1 still drops rows with damaged file headers
+
+**Evidence:** `crates/botster-core-sys/src/storage.rs:156-169` lists only files whose header decoder returns a key.
+A damaged key header still causes the storage edge to omit the file.
+`crates/botster-core/src/real.rs:264-272` therefore returns no entry for that row.
+`HostDriver::open` cannot reserve its ID, and `AdoptAll` cannot post its state.
+The hashed filename does not preserve the ID when both the header and value are damaged.
+
+Audit A1 explicitly includes this storage case. AD-1 and LC-11 require a state event for every row.
+AD-2 requires `Lost(RegistryCorrupt)` and continued ID reservation for a corrupt row.
+The new registry tests damage the value in an in-memory map; they retain the key and do not cover this file case.
+
+**Required change:** Preserve each Core row's identity independently of its header and value.
+Pass an attributable damaged row to the host instead of omitting it.
+The host must post `Lost(RegistryCorrupt)` and reject Create for that ID until Remove.
+
+The lead ruled on the storage layout after this review request.
+Use a fixed directory for the kind and a reversible base32 ID split into components of at most 200 characters.
+Traverse and create each component with `openat` and `mkdirat`, without a `PATH_MAX` dependency.
+Fsync each created parent directory. Remove deletes the row, then removes empty directories on a best-effort basis.
+A decodable path identifies a row. Other paths are foreign: count them, leave them unchanged, and do not block adoption.
+Keep the existing configurable ID limit; do not add a fixed cap.
+This ruling specifies the fix. It does not close the finding at this head.
+
+**Closure evidence:** Start with bytes written by Core's own storage encoder.
+Damage the header and value, reopen through the real storage edge, and observe the decoded ID's state event.
+Check `Lost(RegistryCorrupt)`, `IdInUse`, unchanged row bytes after the refused Create, and ID reuse after Remove.
+Derive boundary cases from the configured ID limit and the chosen path component bound.
+Supply a failing baseline that reaches the contract assertion, plus the passing revised result.
+
+Status: OPEN.
+
+### P5-F6 — CONTRACT — A1 still skips a row whose session is already in memory
+
+**Evidence:** `crates/botster-core-host/src/run.rs:645-646` returns immediately when the session table contains the row's ID.
+Create a session, drain its events, and run the handle's first AdoptAll.
+The durable row produces no new `SessionState` during that AdoptAll.
+An earlier Create event does not satisfy AD-1's event for each row read by AdoptAll.
+Audit A1 explicitly names colliding rows, and LC-11 repeats the requirement.
+
+**Required change:** Post one current state for this row during AdoptAll while preserving the existing session instance.
+Do not replace the session or replay earlier lifecycle transitions.
+
+**Closure evidence:** Create through the public operation path on one handle and drain the Create events.
+Run the first AdoptAll on that handle. Check one state event for the row and the successful AdoptAll completion.
+Derive the expected ID and instance from the created session, and check that the instance remains unchanged.
+Supply a failing baseline at the missing state assertion and a passing revised result.
+
+Status: OPEN.
+
+### P5-F7 — MEDIUM — The testkit reports a live worker from an earlier handle as absent
+
+**Evidence:** `crates/botster-core-testkit/src/worker.rs:155-160` allocates a new process table for each spawner.
+The new `identity_state` method at lines 244-249 searches only that table.
+The shared `Workers` simulation retains workers from earlier handles, but a reopened handle cannot find their identities.
+Remove therefore receives `Absent`, completes, and frees the ID while the simulated worker still lives.
+The real edge and the new host unit model instead find the worker and end it.
+The testkit no longer models the same edge facts across handles, despite the shared driver.
+
+The integration reviewer independently reports this defect as K1 at the same head.
+Their NOT CLEAN verdict commit is `3a1aa39`.
+
+**Required change:** Share process identity and signal state across the `Workers` run.
+Keep child exit notifications scoped to the handle that owns those children.
+Do not give a reopened handle another handle's exit notifications.
+
+**Closure evidence:** Drive the actual testkit driver through Start, host drop, reopen, AdoptAll, and Remove.
+Check that Remove ends the earlier worker, reports the contract's unknown upload outcome, and frees the ID.
+Check that identity probes and group signals reach that worker through the injected edges.
+Supply a failing baseline that reaches the live-worker assertion and a passing revised result.
+Obtain the integration review on the revised exact head.
+
+Status: OPEN.
+
+### P5-F8 — CONTRACT — An uncertain Create write can leave a row that a retry overwrites
+
+**Evidence:** `crates/botster-core-host/src/flows.rs:692-700` treats every failed Create write as if no row was written.
+It removes the in-memory session without reserving the ID in `unadopted`.
+That set receives durable IDs only when the driver opens.
+
+The real storage edge can return `Uncertain` after replacement.
+`crates/botster-core-sys/src/storage.rs:118-128` documents this case and returns `Uncertain` after a directory sync error.
+In that case, a retry on the same handle admits Create and replaces the row with a new instance.
+This is an existing flow defect exposed by the A2 reservation review; it is not a regression introduced by this PR.
+
+ID-1 requires uniqueness among registry rows. LC-3 requires `IdInUse` for a duplicate ID.
+AD-7 requires Core to assume neither success nor failure for an uncertain write.
+The current comment explicitly assumes failure.
+The host test edge at `crates/botster-core-host/src/tests.rs:211-220` returns injected errors without applying the write.
+That model cannot exercise a write which takes effect and then reports uncertainty.
+
+**Required change:** Keep the uncertain ID reserved until authoritative registry reconciliation can resolve it.
+Do not allow a same-handle retry to overwrite a row that the uncertain write can have created.
+Keep the `RegistryFailed{uncertain: true}` completion and avoid claiming that the session was durably created.
+
+**Closure evidence:** Inject a storage edge that applies Core's encoded row, then returns `Uncertain`.
+Observe the Create error. Retry the same ID and check `IdInUse` with no second row write.
+Reopen and check recovery from the row that the first write left.
+Derive the expected row and instance from the first encoder output.
+Supply a failing baseline at the duplicate admission assertion and a passing revised result.
+
+Status: OPEN.
+
+### Execution evidence and scope limits
+
+The reviewer read the Linux focused log for `9ac2d6cbe7405541f1bfa1889aad20eb394c4367`:
+`~/botster-sessions/gates/botster-core-stage1-p5-audit-contract-9ac2d6cb-linux-20261004-203844-39095.log`.
+That head and the PR's first commit `4a59761` have the same tree, `883687a115d20d2b752bd88319c5213f7b263982`.
+The log reports 420 passed, 654 skipped, and exit 0. It covers the earlier source changes, before the A7 change.
+
+The reviewer also read the focused Mac log for the exact requested head:
+`~/botster-sessions/gates/botster-core-stage1-p5-audit-contract-c4afe586-mac-20261004-214523-55738.log`.
+It reports 15 passed, zero skipped, and exit 0 for `slow_real_core`, including the revised unknown-hello test.
+These focused results do not establish a passing full gate or close the four source findings.
+The reviewer read the full PR body. Its declared storage and testkit limitations do not waive audit A1 or A9.
+
+This verdict covers this PR's P5 audit scope only. It does not close the remaining deliverable 1 work or P5 adoption.
+
+VERDICT: NOT CLEAN (4 open)
