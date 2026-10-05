@@ -2197,3 +2197,33 @@ F21 and F22 remain CLOSED. All earlier findings and closures remain preserved.
 The reviewer ran no tests, builds, or gates.
 
 VERDICT: NOT CLEAN on `3fd4144515e8e903d6417adf56d12b7f038d8b70`.
+
+## Round 65 — Exact main and READ_CHUNK exclusions
+
+Reviewed head: `63b5c1db6cec74b27c7b10d34cbbb37e99e60986`.
+The complete delta from 3fd41445 changes only .cargo/mutants.toml and the handoff.
+Production and test source remain identical to the passing baseline reviewed in round 63.
+No merge conflict resolution accompanies this delta.
+
+The READ_CHUNK exclusion is ACCEPTED under the lead's four-condition tuning rule.
+Its pattern names only main.rs:47:55 and the multiplication-to-addition mutation.
+The reviewer verified that column 55 is the arithmetic expression in this constant declaration.
+Its reason cites partial reads, all-build positivity, and the named retention test at 65536, 1088, and 1.
+The exact-head source and supplied passing proof satisfy the conditions reviewed in rounds 62 and 63.
+
+The main exclusion is ACCEPTED as exact-function process glue.
+Its pattern matches main replacements and mutations in main, and does not cover Driver or command_line::execute.
+Its reason records parsing and status decisions outside main, caught execute mutations, guarded CLI boundary proof, and successful session retirement.
+The reviewer parsed the TOML and checked both patterns against matching and unrelated example mutation names.
+Both entries have one constant or function, a reason, and named proving tests.
+Both entries require review if their source roles change. No other exclusion changes.
+
+The original READ_CHUNK addition and main no-op entries are now CLOSED under F13.
+All 167 original entries now retain a caught or accepted-equivalence/process-glue disposition in this verdict history.
+This count does not establish native coverage for the later Mac query helper.
+F13 remains OPEN for that new helper's two generated replacements until native mutation evidence arrives.
+The proposed library-inclusive Linux fallback check also remains pending; its earlier original closure is preserved.
+F21 and F22 remain CLOSED. All earlier findings and closures remain preserved.
+The reviewer ran no tests, builds, or gates.
+
+VERDICT: NOT CLEAN (F13: native query-helper accounting pending) on `63b5c1db6cec74b27c7b10d34cbbb37e99e60986`.
