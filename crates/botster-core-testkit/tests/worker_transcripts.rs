@@ -42,7 +42,6 @@ const IDS: &[&str] = &[
     "conf::lc_4_start_failure_is_typed",
     "conf::lc_5_stop_ends_payload",
     "conf::st_7_limits_that_cannot_hold_the_protected_records_are_invalid_config",
-
 ];
 
 #[test]
