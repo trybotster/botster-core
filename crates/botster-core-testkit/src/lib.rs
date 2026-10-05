@@ -4,6 +4,7 @@
 //! the machine crates may not (plan 2.3c), and it adds no test branch to a production crate (BUILD.md testing rule 8).
 
 pub mod candidate;
+pub mod controls;
 pub mod core;
 pub mod entropy;
 pub mod every_cut;
