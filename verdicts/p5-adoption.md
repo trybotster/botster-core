@@ -869,3 +869,62 @@ P5-F5 through P5-F10 remain CLOSED. Audit A1, A2, A4, A5, A7, and A9 remain CLOS
 The three LOW findings above prevent CLEAN. The other P5 audit deliverables and P5 adoption remain separate work.
 
 VERDICT: NOT CLEAN (3 open)
+
+## PR #164 — Round 7
+
+- Exact head: `b8b37a6d1161b83138a5e5e0e73bb68fc57e2db7`.
+- Base: `144b0234fb632bcbb5176b17c2fe55f3239405df`.
+- Scope: audit A1, A2, A4, A5, A7, and A9, plus the storage and testkit fixes reviewed in this PR.
+- This CLEAN covers P5's package scope for this PR only.
+- The reviewer ran no builds, tests, mutation jobs, or gates.
+
+### Closure of the final delta
+
+The reviewer inspected both commits in `1bcbb385..b8b37a6d`.
+They change only the public open documentation and the storage tests.
+The production directory protocol remains the lead's final-component-only creation rule.
+It syncs the data directory and its immediate parent on every open and syncs no higher ancestor.
+
+P5-F11 is CLOSED. The execute-only grandparent test now checks successful open without fixing an initial epoch.
+Integration K6 is CLOSED. `Core::open` now documents parent existence, parent read access, and the existing `RegistryFailed` outcome.
+Integration K7 is CLOSED. The permission helper requires `PermissionDenied` for an unprivileged process.
+It explicitly identifies root and prints the reason when that permission fixture is inapplicable.
+The implementer also removes the same unchecked-success arm from two older permission tests.
+
+P5-F5 through P5-F10 remain CLOSED under the prior source reviews.
+The final tree retains the full-file damage regression, the pending-Create dependency, and the applied-then-uncertain write regression.
+The shared testkit process table still probes and signals workers across handles while keeping exits with the spawning handle.
+No new mutation exclusion or production test branch was added by this delta.
+No finding remains open within this PR's package scope, including LOW findings.
+
+### Audit closure and integration review
+
+Audit A1 is CLOSED: rejected values and damaged files remain attributable, colliding rows post a state, and the tests no longer certify the skip.
+Audit A2 is CLOSED: the open path reserves durable IDs, and an uncertain Create write cannot permit a same-handle overwrite.
+Audit A4 is CLOSED: Stop waiters receive the failed Start's typed registry error.
+Audit A5 is CLOSED: the facade and driver read no clock; pump supplies the machine's time.
+Audit A7 is CLOSED: the unknown-hello test waits for real wake and EOF events with marked deadlines.
+Audit A9 is CLOSED: Remove probes an adopted non-child identity and observes teardown without relying on a child-reaper event.
+
+The integration reviewer reports zero open findings at this exact head, verdict commit `cc389c2`.
+They state that their CLEAN follows this package's CLEAN at the same head.
+The package reviewer will send this verdict commit so they can issue that terminal integration result.
+
+### Evidence and scope limits
+
+The reviewer read the full updated PR body and the raw exact-head Mac log:
+`~/botster-sessions/gates/botster-core-stage1-p5-audit-contract-b8b37a6d-mac-20261004-222024-65207.log`.
+Its header names the exact head and base above.
+It records clean format and Clippy checks, 487 default-tier tests passed with 654 skipped, and 60 selected slow tests passed.
+The selected slow result has zero skipped tests and exit 0.
+The parent requirements, retry, and execute-only grandparent cases passed.
+
+This is focused execution evidence. It is not a passing full landing gate or mutation result.
+Earlier failed and timed-out results remain failed and timed out; this review does not reclassify them.
+The lead's merge sequence still requires the shared guard and A10 dependencies before the final merged-head gate.
+Any new merged head requires its own delta review.
+
+This verdict does not close audit A10's separate PR, issues #155 or #157, the P1 part of #156, or P5 deliverable 2.
+The declared live-worker adoption placeholder remains P5 deliverable 2 and is not certified as AD-1 recovery behavior.
+
+VERDICT: CLEAN
