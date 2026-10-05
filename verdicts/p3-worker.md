@@ -1989,3 +1989,39 @@ That proposal supplies no source closure in this round.
 All earlier findings and closures remain preserved. The reviewer ran no tests or gate.
 
 VERDICT: NOT CLEAN (F13: three original entries; F21 open) on `1c45103cd0d63ddef9cccb5c6934442ff0e4ea29`.
+
+## Round 59 — Progress assertion and authenticated PTY fixture retirement
+
+Reviewed head: `e475c2841368c6b71bfaf0497b7d06b4d3e0fab9`.
+The delta from 1c45103 changes the direct Driver fixture and its handoff only.
+No production code, mutation exclusion, or merge conflict changes.
+
+F21 is CLOSED.
+Each partial-write turn now requires increased received bytes or changed written totals.
+A ready socket with a no-op flush therefore fails an assertion instead of repeating without progress.
+The fixture retains its readiness poll, deadline, complete-byte comparison, totals, interest checks, and production flush call.
+The reviewer read the actual 7c2503e0 baseline log:
+`~/botster-sessions/gates/botster-core-stage1-p3-m1-v1-7c2503e0-linux-20261004-175451-26664.log`.
+The partial-write test passes in 0.007 seconds. Its source remains unchanged at the reviewed head.
+
+The new PTY fixture starts a guarded real payload with ready, go, and done FIFOs.
+The fixture calls production read_pty_chunk before releasing output and checks that WouldBlock clears readiness.
+The real Driver::run must resume reads before the program can complete four MiB of PTY output.
+The done FIFO checks program progress. It supplies no terminal-byte expectation or terminal-semantics proof.
+The fixture uses blocking readiness waits with deadlines and a finite output program.
+The independent guard still kills the payload group without reaping the production payload.
+Harness field order replaces its custom Drop and releases the guard before the production reaper.
+The fixture can move Driver into its real loop thread without adding another worker path.
+
+The earlier 7c2503e0 baseline runs seven selected tests: six pass and the PTY test fails retirement at 10.017 seconds.
+The failure occurs at the retirement channel after the done FIFO marker. No mutants run.
+That fixture closed the control link, which does not retire the worker under DP-8.
+Correction e475c284 sends authenticated Hello and Remove through the existing frame codec.
+The correction retains the FIFO proof, independent guard, and bounded retirement channel.
+Corrected PTY execution and mutation evidence remain pending. The earlier failure closes no original mutation entry.
+
+F13 retains three original entries: READ_CHUNK addition, main no-op, and Driver::run PTY arm deletion.
+New query/cleanup code still requires mutation accounting in the applicable gate.
+All earlier findings and closures remain preserved. The reviewer ran no tests, builds, or gates.
+
+VERDICT: NOT CLEAN (F13: three original entries) on `e475c2841368c6b71bfaf0497b7d06b4d3e0fab9`.
