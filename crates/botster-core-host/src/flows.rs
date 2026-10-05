@@ -690,12 +690,17 @@ impl HostEngine {
                 });
             }
             (Flow::Create(f), Err(e)) => {
-                // The row was not written: the session never existed (LC-3). The ops that were admitted after the `Create`
-                // (AM-1) end with the same failure, so none stays attached to a session that is gone (AM-3).
+                // The session did not come into being (LC-3). The ops that were admitted after the `Create` (AM-1) end with
+                // the same failure, so none stays attached to it (AM-3).
                 let error = registry_failed(e);
                 self.retire_session_ops(id, Some(f.op), Some(error.clone()));
                 if let Some(session) = self.sessions.remove(id) {
                     self.retired_ops.extend(&session.ops);
+                }
+                // AD-7: an uncertain write may have left the row. Core assumes neither outcome: the id stays in use until
+                // `AdoptAll` reads the registry, which is authoritative.
+                if matches!(e, StorageError::Uncertain { .. }) {
+                    self.unadopted.insert(id.clone());
                 }
                 self.complete(f.op, OpResult::Err(error));
             }
