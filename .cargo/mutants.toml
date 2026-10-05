@@ -93,9 +93,11 @@ exclude_re = [
     # The first SIGKILL can still be pending; this argument does not require every group member to have exited.
     # Recheck this entry when any reap caller or Payload::drop changes.
     'crates/botster-core-sys/src/payload\.rs:\d+:\d+: replace Payload::reap with \(\)$',
+    # wait_unreaped: EXITED and NOWAIT are disjoint option bits, so OR and XOR give the same wait options.
     # wait_unreaped: the_payload_runs_on_the_pty_with_the_exact_environment and a_group_signal_ends_the_leader_and_its_group check its waitid edge.
     # Recheck this entry when the options or the pinned rustix dependency change.
     'crates/botster-core-sys/src/payload\.rs:\d+:\d+: replace \| with \^ in wait_unreaped$',
+    # set_nonblocking: its sole caller passes a fresh blocking PTY from pinned pty-process 0.5.3.
     # set_nonblocking: the_payload_runs_on_the_pty_with_the_exact_environment checks the native NONBLOCK descriptor flag.
     # sys::Pty::open uses RDWR | NOCTTY. blocking::open never sets NONBLOCK, so that bit is clear before this operation.
     # OR and XOR both set the bit. Recheck this entry when the caller or the pinned PTY dependency changes.
