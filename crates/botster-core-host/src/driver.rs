@@ -93,7 +93,7 @@ pub trait HostEdges: Send {
     fn settle_wake(&mut self);
     /// The scheduling policy (`Scheduler`): the production policy, or the seeded policy of the testkit.
     fn scheduler(&mut self) -> &mut dyn Scheduler;
-    /// What the edges know that the engine cannot: for example accept failures (LC-10, one opaque value). None by default.
+    /// What the edges know that the engine cannot: for example accept failures and foreign registry files (LC-10, one opaque value). None by default.
     fn diagnostics(&self) -> serde_json::Value {
         serde_json::Value::Null
     }

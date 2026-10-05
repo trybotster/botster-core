@@ -5,7 +5,7 @@
 //! nothing about the state of such a row beyond the one `SessionState` that every row posts (LC-11).
 
 use super::*;
-use botster_core_edges::edges::GroupSignal;
+use botster_core_edges::edges::{GroupSignal, StorageError};
 
 fn row_key(name: &str) -> String {
     format!("{}{name}", crate::session::ROW_PREFIX)
@@ -198,5 +198,72 @@ fn remove_of_an_adopted_session_whose_worker_is_gone_signals_nothing() {
             again.signals
         );
         again.ok(create("s1"));
+    }
+}
+
+/// Core LC-11, AD-1, ID-2: a row of a session that this handle holds already posts that session's state once more, with its
+/// own instance; the session is not replaced.
+#[test]
+fn a_row_of_a_session_of_this_handle_posts_its_state_with_its_instance() {
+    let mut w = World::default();
+    let create = w.engine.begin(create("own")).unwrap();
+    let made = w.until(|e| matches!(e, Event::Completed { op, .. } if *op == create));
+    let instance = made
+        .iter()
+        .find_map(|e| match e {
+            Event::SessionState { instance, .. } => Some(instance.clone()),
+            _ => None,
+        })
+        .expect("Created was posted");
+    let events = adopt_all(&mut w);
+    let own: Vec<(&InstanceId, &SessionState)> = events
+        .iter()
+        .filter_map(|e| match e {
+            Event::SessionState {
+                id,
+                instance,
+                state,
+            } if *id == sid("own") => Some((instance, state)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(own, vec![(&instance, &SessionState::Created)]);
+}
+
+/// Core AD-7, ID-1, LC-3 (review finding P5-F8): a `Create` whose row write is uncertain assumes neither outcome, so the id
+/// stays in use and a retry cannot overwrite a row that took effect; `AdoptAll` reads the registry and settles it: a row
+/// that took effect is recovered, and an id that no row holds is free again.
+#[test]
+fn an_uncertain_create_keeps_its_id_until_the_registry_is_read() {
+    // A Core-written row of the same id, for the case where the uncertain write took effect.
+    let mut written = World::default();
+    written.ok(create("s1"));
+    for took_effect in [false, true] {
+        let mut w = World::default();
+        w.fail_row = Some(StorageError::Uncertain { errno: 5 });
+        match w.run(create("s1")) {
+            OpResult::Err(e) => assert_eq!(e.code, ErrorCode::RegistryFailed { uncertain: true }),
+            other => panic!("{other:?}"),
+        }
+        assert_eq!(
+            w.engine.begin(create("s1")).unwrap_err().code,
+            ErrorCode::IdInUse,
+            "AD-7: the row may exist"
+        );
+        if took_effect {
+            w.rows
+                .insert(row_key("s1"), written.rows[&row_key("s1")].clone());
+        }
+        let posted = states(&adopt_all(&mut w));
+        if took_effect {
+            assert_eq!(posted, vec![("s1".to_string(), SessionState::Created)]);
+            assert_eq!(
+                w.engine.begin(create("s1")).unwrap_err().code,
+                ErrorCode::IdInUse
+            );
+        } else {
+            assert!(posted.is_empty(), "{posted:?}");
+            w.ok(create("s1"));
+        }
     }
 }

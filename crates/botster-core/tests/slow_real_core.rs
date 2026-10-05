@@ -370,3 +370,56 @@ fn a_worker_is_not_left_when_the_cleanup_of_a_test_fails() {
         "the guard killed and reaped the worker"
     );
 }
+
+/// Lead ruling on audit A1, Core AD-1, AD-2, A10-2: through the real registry, a damaged row is `Lost(RegistryCorrupt)` under
+/// the id that its path names, and keeps that id in use; a file that Core did not write is counted, left untouched, and does
+/// not block `AdoptAll`.
+#[test]
+fn a_damaged_row_is_registry_corrupt_and_a_foreign_file_is_left_alone() {
+    let tmp = tempfile::tempdir().unwrap();
+    let mut core = Core::open(config(tmp.path())).expect("open");
+    core.begin(Op::Create {
+        session: sid("s1"),
+        request: request(),
+    })
+    .unwrap();
+    pump(&mut core);
+    drop(core);
+    let kind = tmp.path().join("d").join("rows").join("session");
+    let rows: Vec<PathBuf> = std::fs::read_dir(&kind)
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .collect();
+    assert_eq!(rows.len(), 1, "one session, one row file: {rows:?}");
+    std::fs::write(&rows[0], b"\xff damaged").unwrap();
+    let foreign = tmp.path().join("d").join("rows").join("notes.txt");
+    std::fs::write(&foreign, b"someone else's").unwrap();
+    let mut again = Core::open(config(tmp.path())).expect("reopen");
+    let adopt = again.begin(Op::AdoptAll).unwrap();
+    let events = pump(&mut again);
+    assert!(
+        events
+            .iter()
+            .any(|e| matches!(e, Event::Completed { op, result: OpResult::Ok(_) } if *op == adopt)),
+        "{events:?}"
+    );
+    assert!(
+        events.iter().any(|e| matches!(
+            e,
+            Event::SessionState { id, state: SessionState::Lost(LostReason::RegistryCorrupt), .. } if *id == sid("s1")
+        )),
+        "{events:?}"
+    );
+    assert_eq!(
+        again
+            .begin(Op::Create {
+                session: sid("s1"),
+                request: request(),
+            })
+            .unwrap_err()
+            .code,
+        ErrorCode::IdInUse
+    );
+    assert_eq!(again.diagnostics()["edges"]["foreign_registry_files"], 1);
+    assert_eq!(std::fs::read(&foreign).unwrap(), b"someone else's");
+}

@@ -786,18 +786,18 @@ fn a_lost_session_without_a_link_removes_with_an_unknown_outcome() {
     }
 }
 
-/// Core ER-0, AD-7: a registry write that fails completes with `RegistryFailed`; an uncertain one says so; the session
-/// never existed.
+/// Core ER-0, AD-7: a registry write that fails completes with `RegistryFailed`, and the session never existed.
 #[test]
 fn a_failed_create_write_is_registry_failed_and_leaves_no_session() {
     let mut w = World::default();
-    w.fail_row = Some(StorageError::Uncertain { errno: 5 });
+    w.fail_row = Some(StorageError::Failed { errno: 5 });
     let op = w.engine.begin(create("s1")).unwrap();
     match w.complete(op) {
-        OpResult::Err(e) => assert_eq!(e.code, ErrorCode::RegistryFailed { uncertain: true }),
+        OpResult::Err(e) => assert_eq!(e.code, ErrorCode::RegistryFailed { uncertain: false }),
         other => panic!("{other:?}"),
     }
     assert!(w.engine.get(&sid("s1")).is_err());
+    // A certain failure left no row: the id is free (the uncertain case: `registry::an_uncertain_create_keeps_its_id...`).
     w.ok(create("s1"));
     w.fail_row = Some(StorageError::Failed { errno: 5 });
     let op = w.engine.begin(Op::Start { id: sid("s1") }).unwrap();
