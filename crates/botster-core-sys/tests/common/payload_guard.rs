@@ -118,8 +118,11 @@ fn payload_anchor() {
         let mut rest = Vec::new();
         let _ = stream.read_to_end(&mut rest);
     }
-    // Every live member of its group but itself, then it ends (the guard of `process_guard`).
-    super::process_guard::end_group(rustix::process::getpgrp());
+    // Every member of its group, then it ends (the rounds of `process_guard`). A failure is reported on its stderr.
+    if let Err(report) = super::process_guard::end_group(rustix::process::getpgrp()) {
+        let _ = writeln!(std::io::stderr(), "{report}");
+        std::process::exit(1);
+    }
 }
 
 #[test]
