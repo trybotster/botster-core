@@ -93,3 +93,66 @@ A pending result does not qualify for CLEAN.
   This statement describes the available evidence; it is not an independent audit of every external action.
 
 VERDICT: NOT CLEAN (2 open)
+
+## Round 2 — 2026-10-04
+
+- Exact fork head: `0bfddc16fdf1e9b71f7662fbfa8314cd497fd92a` on `botster/upstream-sync-20261004`.
+- Exact botster-core head: `e676a2d577e07a350f8a85496fdd8e443491f28c` on `stage1/p2-fork-a6`.
+- Delta bases: the exact fork and Core heads from round 1.
+- Additional binding rules: R-33 (contracts main `14c86abedd59a1f528efe72603b031b304509f18`) and final A14 (contracts main `69327d52cedb05ee9b9c63912b58d6f62a36917f`, manifest final33).
+
+The reviewer inspected both deltas and read R-33 and final A14.
+The reviewer ran no builds, tests, or gates.
+
+### F-A6-01 — CLOSED by R-33
+
+R-33 explicitly excludes data for MIME types that the model ignores.
+Those bytes are not decoded and must not be decoded only to count them.
+The round 1 request to count those bytes is withdrawn.
+The fork already follows the ruled behavior.
+
+The new fork commit changes tests only.
+The tests cover 64 retained types at the byte limit, followed by valid and invalid ignored types.
+Another test checks that ignored types add nothing after the write crosses the byte limit.
+The C callback test now includes an alias and still expects the decoded length of 11.
+These expectations follow R-33 and A14.
+
+### F-A6-02 — HIGH — OPEN
+
+The required test evidence remains pending at both exact heads above.
+The lead's HOLD still prevents the implementer from supplying the remaining results.
+The closure requirements from round 1 apply to the new heads.
+The reviewer accepts no completed test result for these heads from the supplied material.
+
+### F-A6-03 — LOW — The sync record describes option 39 inconsistently
+
+**Status: OPEN.**
+
+**Evidence:** `docs/stage1/ghostty-upstream-sync-20261004.md:198` still describes option 39 as "for the test only".
+Line 199 and `src/lib.rs::set_clipboard_limit` correctly show that production code now sets this option.
+The record at line 157 and the audit at line 391 also state that A6 is closed while required evidence remains pending.
+
+**Required change:** Describe option 39 as a production configuration under A14-3.
+Mark the A6 correction as implemented with verification pending until the required evidence closes F-A6-02.
+After that evidence is accepted, the record can state that A6 is closed.
+
+### A14 source review
+
+- `set_clipboard_limit` sets the callback bound and native option 39 to the same value.
+  The native option accepts the supplied `size_t` without a value-dependent refusal.
+  `Terminal::new` and `Terminal::from_snapshot` call this setter with the default binding bound.
+- The callback uses the model's over-limit report for A14-2 step 1.
+  Otherwise it sums final contents for step 2, including each alias entry.
+  The public event type remains unchanged.
+- The new binding test derives lengths from its inputs.
+  It covers delivery at the bound, an alias refusal, a replaced region refusal, and counting over several chunks.
+  It compares acknowledgements from libghostty and checks that no acknowledgement goes through `pty_writes`.
+- A14-3 excludes temporary decode storage and allocator capacity from its retained payload guarantee.
+  The existing crossing-chunk decode followed by spool release does not contradict that guarantee.
+- The Core submodule names the exact fork head above.
+  The upstream base, `.gitmodules`, package list, and snapshot format sources remain unchanged from round 1.
+  The audit and sync record cite R-33 and final A14.
+- The updated action record reports a fast-forward push only to trybotster/ghostty.
+  The reviewer found no sign of an upstream push or contact in the inspected delta.
+
+VERDICT: NOT CLEAN (2 open)
