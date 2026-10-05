@@ -316,7 +316,7 @@ fn a_hello_for_an_unknown_instance_is_closed() {
 /// blocked on a FIFO that nobody writes: no CPU, and only the group kill ends it) have a FIFO as their standard output, and
 /// the test reads it: the end of that stream means that both exited. The test never reaps and never probes the pid: the
 /// production reaper alone reaps the worker, and until it does, the dead worker is a zombie whose pid and start time can still
-/// be read. The guard's own cleanup runs on a thread, so a deadline bounds it too.
+/// be read. The guard's own cleanup runs on a thread, so a deadline bounds it too, and its failure fails the test with its report.
 #[test]
 fn a_worker_is_not_left_when_the_cleanup_of_a_test_fails() {
     use std::io::{BufRead, Read};
@@ -361,13 +361,19 @@ fn a_worker_is_not_left_when_the_cleanup_of_a_test_fails() {
     drop(core);
     let (cleaned, cleanup) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
-        drop(worker);
-        let _ = cleaned.send(());
+        let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| drop(worker)));
+        let _ = cleaned.send(outcome);
     });
-    cleanup
+    // The guard's anchor can take up to `CLEANUP` to end the group, and the guard then reports: the limit allows both.
+    let limit = 2 * common::process_guard::cleanup::CLEANUP;
+    let outcome = cleanup
         // timer: deadline — a guard whose cleanup blocks fails the test instead of hanging it
-        .recv_timeout(Duration::from_secs(10))
-        .expect("the guard's cleanup ended");
+        .recv_timeout(limit)
+        .unwrap_or_else(|_| panic!("the guard's cleanup did not end within {limit:?}"));
+    // A cleanup that failed fails the test with the guard's own report.
+    if let Err(report) = outcome {
+        std::panic::resume_unwind(report);
+    }
     let rest = heard
         // timer: deadline — a group that the guard did not end fails the test instead of hanging it
         .recv_timeout(Duration::from_secs(10))
