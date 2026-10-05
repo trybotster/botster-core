@@ -539,3 +539,29 @@ They also check PTY readiness, bounded drain completion, and deregistration thro
 Their payload guard releases before production cleanup. No payload is taken into an unguarded local owner.
 The tests enable rustix net only as a dev dependency for the socket send-buffer bound.
 Next: source review and Linux compilation/baseline. A corrected Mac diagnostic needs fresh authorization after the once-authorized run.
+
+## Mac closure and remaining Driver mutations (2026-10-04)
+
+The corrected Linux baseline at `e9efad5e` passed 44 selected tests with zero skipped.
+Log: `~/botster-sessions/gates/botster-core-stage1-p3-m1-v1-e9efad5e-linux-20261004-172920-12855.log`.
+The once-authorized corrected Mac diagnostic passed 15 tests with zero skipped and exit zero after four seconds.
+Log: `~/botster-sessions/gates/botster-core-stage1-p3-m1-v1-e9efad5e-mac-20261004-173007-13507.log`.
+Package verdict `9e81e4b61a17e23ca38c6c4092307df40e6e2c24` closes F18 and F19.
+Integration verdict `aa434a01e9521ced33b12a56e44f093156c1504e` confirms both closures.
+Both reviewers rechecked and accepted the three payload equivalences after Drop and reap changed.
+New query and cleanup mutations still require evidence. These selected baselines are not a full gate.
+
+Focused Driver mutation at `e9efad5e` tested 73 mutants: 63 caught, five unviable, three missed, and two timed out.
+Log: `~/botster-sessions/gates/botster-core-stage1-p3-m1-v1-e9efad5e-linux-20261004-173244-15398.log`.
+Raw evidence is in `gates/artifacts-trybotster_botster_core_stage1_p3_m1_v1-bcb322fa-20261004173244-15398/target-mutants.out`.
+The misses are READ_CHUNK multiplication, main no-op, and the Driver::run PTY arm.
+The timeouts are flush written += changed to *= and written != changed to ==.
+The four running session tests occupied every slot before the direct accounting test ran.
+A selected direct-test mutation run must establish assertion failures for these two entries.
+No timeout counts as caught. Reviewers must map original entries to the relocated decisions and current caller checks.
+
+F21 requires a descriptor wait in the partial-write test.
+The corrected loop polls peer input and queued control output before each read and flush.
+The poll uses the remaining ten-second deadline. Control writability follows the returned output readiness.
+The test retains complete bytes, cumulative totals, write interest, and the production write path.
+Next: review and Linux proof of F21, then close the remaining Driver entries and new payload mutations.
