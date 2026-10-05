@@ -66,3 +66,48 @@ The host logic of each finding is the P5 reviewer's scope.
      that exists.
 
 VERDICT: NOT CLEAN (1 open)
+
+## Round 2 — Head e6d9f48
+
+Reviewed head: `e6d9f487a5c815e8d3abfd922b46d722af5db5b9`. The base is still current v1 `144b023`.
+Reviewed delta: `c4afe58..e6d9f48`, six commits, 17 files. This reviewer ran no build, test or gate. The storage layout
+follows the lead's A1 rulings (state log, 2026-10-04: a reversible base32 path, chunked components with per-component
+`openat`/`mkdirat`, and foreign files counted and left alone). Its file-level logic is the P5 reviewer's scope.
+
+- **K1 CLOSED.**
+  - `Workers::run_processes` is one table per run. It maps each identity to the process cell and to the table of the handle
+    that spawned it.
+  - `identity_state` and `signal_group` use the run table, so a later handle reaches an earlier handle's worker.
+  - A `Kill` ends the process through its spawner's table, so the exit still goes only to the spawning handle, as a real
+    reaper's does.
+  - `a_reopened_handle_sees_and_ends_the_worker_of_the_earlier_handle` runs the whole path on the real testkit: start, drop,
+    reopen, `AdoptAll`, `Remove`. It shows `Matches` before and `Absent` after, and both ops complete `Ok`. It reads the
+    identity with Core's own row decoder. Its loop of 64 pumps is bounded and has no sleep.
+- **New interface: `HostEdges::diagnostics()`.** It has a default `Null`, and the driver merges it under
+  `diagnostics()["edges"]`. LC-10 makes diagnostics one opaque value, so the testkit's `null` and the real edges'
+  `{foreign_registry_files}` may differ without breaking A5-4. Accepted.
+- **Dependencies.** The workspace drops `atomic-write-file` and `sha2` (from botster-core-sys) and adds `data-encoding`.
+
+#### K2 [LOW] OPEN — The Prior art note says "Nothing hand-rolled", but the PR now writes its own atomic file write
+
+- Location: PR #164 body, "Prior art". `crates/botster-core-sys/src/storage.rs` `write_row`: a temporary file, `sync_all`,
+  `renameat`, and an `fsync` of the directory.
+- Evidence: plan 7.2 adopts `atomic-write-file` for `Storage` ("Hand-rolling this needs no reason to exist"). BUILD.md rule 0
+  requires a recorded reason for anything hand-rolled. The lead's chunked-path ruling needs `openat`, `mkdirat` and
+  `renameat` relative to a directory, because no `PATH_MAX` may apply. A path-based crate cannot do that, so a reason
+  exists. But the note still says "Nothing hand-rolled" and does not name `data-encoding`.
+- Required: update the Prior art note. Name the hand-rolled atomic write, with its reason (the dirfd-relative steps that the
+  lead's A1 ruling requires; `atomic-write-file` takes a path). Name `data-encoding` (base32) as the adopted library.
+
+#### K3 [LOW] OPEN — A storage error with no errno becomes `errno: 0`
+
+- Location: `crates/botster-core/src/real.rs` `read_rows`: `StorageError::Failed { errno: error.raw_os_error().unwrap_or(0) }`.
+- Evidence: 0 is not an error number. The value looks valid and means nothing, which is the pattern of audit A52. P3's fix
+  for A52 named one constant for "an OS failure that carries no errno" (`EIO` in botster-worker).
+- Required: use the same rule (`EIO`, or a named constant). An error that cannot occur here is a documented `expect`.
+
+Package verdict: the P5 reviewer's round 1 (`22720e0`) is NOT CLEAN on the old head. CLEAN needs the package verdict on the
+same head. Most commit subjects in the delta start with "wip:". That is not a finding, because no force-push is allowed, but
+the merge description should say what landed.
+
+VERDICT: NOT CLEAN (2 open: K2, K3)
