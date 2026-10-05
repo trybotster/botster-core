@@ -99,6 +99,18 @@ fn hyperlinks(model: &Terminal) -> Result<Vec<Vec<String>>, Error> {
     Ok(rows)
 }
 
+/// `oracle_hyperlinks`: decode the Core capture pages or route baseline, then read native cell URIs (EV-7).
+/// The adapter supplies the baseline's decoded native payload in the same form as capture pages.
+pub fn oracle_hyperlinks(pages: &CapturePages<'_>) -> Result<Value, CaptureError> {
+    let restored = pages.restore()?;
+    let uris: Vec<String> = hyperlinks(&restored)?
+        .into_iter()
+        .flatten()
+        .filter(|uri| !uri.is_empty())
+        .collect();
+    Ok(json!({"uris": uris}))
+}
+
 /// Restore Core's pages and apply all output consumed after the capture revision, in order.
 /// The native snapshot comparison includes pending parser input and other state that changes later output.
 pub fn oracle_resume(
@@ -256,6 +268,28 @@ mod tests {
             oracle_restore(&mut source, &pages(&bytes)).unwrap()["screen_equal"],
             false
         );
+    }
+
+    #[test]
+    fn hyperlink_control_decodes_supplied_pages_and_reads_native_cell_uris() {
+        let mut source = model();
+        source.vt_write(b"\x1b]8;;https://example.test/a\x1b\\AB\x1b]8;;\x1b\\\r\n\r\n\r\n\r\n");
+        let bytes = source.snapshot().unwrap();
+        let actual = oracle_hyperlinks(&pages(&bytes)).unwrap();
+        let expected: Vec<String> = hyperlinks(&source)
+            .unwrap()
+            .into_iter()
+            .flatten()
+            .filter(|uri| !uri.is_empty())
+            .collect();
+        assert!(!expected.is_empty());
+        assert_eq!(actual["uris"], json!(expected));
+        let empty = model().snapshot().unwrap();
+        assert_eq!(
+            oracle_hyperlinks(&pages(&empty)).unwrap(),
+            json!({"uris": []})
+        );
+        assert!(oracle_hyperlinks(&pages(&[])).is_err());
     }
 
     #[test]

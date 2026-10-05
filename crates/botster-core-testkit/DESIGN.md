@@ -29,6 +29,13 @@ Planned dispatch after the stacked P1/P3 PR lands:
 9. Convert binding output bytes into the control's JSON result with the contract codec.
 10. Keep the binding's typed zero result when the encoder produces no output.
 
+For `oracle_query_reply`, resolve the session size and decode the optional prefix and request with the contract codec.
+Call the public helper with the optional host color profile.
+The helper uses a fresh libghostty shadow and reports its answerability and encoded reply.
+For `oracle_hyperlinks`, read all Core capture pages or decode the route baseline's screen payload.
+Pass the native snapshot bytes and source configuration to the public helper.
+The helper restores the bytes through libghostty and reads cell URIs, including history.
+
 Key repetition remains a transaction concern of the dispatch adapter.
 The key encoder returns one event's encoding, as P2 specifies.
 Focus reports and paste markers also come from libghostty.
@@ -69,6 +76,8 @@ The helper replays those chunks first, so a preceding ground-state cut can meet 
 The adapter must verify that no resource failure or held snapshot is injected.
 The helper checks the session size and history configuration.
 It reads the actual model's semantic failure and continuation status at every cut.
+It reads both statuses again after capture and before the suffix.
+Unavailable retention within the independently measured limit remains a mismatch even when a ground-state offer resumes correctly.
 A separate diagnostic terminal retains at least the full input length and measures pending input.
 
 Steward ruling R-30 permits native encoded length plus independent format framing as fit evidence.
@@ -77,6 +86,8 @@ It must obtain these sizes from the GHOSTSNP spec, never from Core's capture.
 The native measurement uses the same format, version, size, history setting, and zero image limit.
 `UnknownFraming` is the current dispatch source because the spec's worker paging section remains pending P3 M2b.
 Every unknown fit sets `inconclusive: true`.
+Every known non-fitting cut also sets `inconclusive: true` because the corpus prerequisite fails.
+An offered capture whose independently framed size exceeds the maximum adds a mismatch.
 The every-cut id remains pending for worker paging and real Core dispatch.
 Unit adapters and synthetic framing in tests prove helper behavior only.
 
