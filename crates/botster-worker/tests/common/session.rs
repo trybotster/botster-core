@@ -47,10 +47,10 @@ fn temp_root() -> tempfile::TempDir {
 }
 
 /// The limit of a wait for a real worker or its payload: a connection, a frame, a marker line. Not a contract value.
-const WORKER_WAIT: Duration = Duration::from_secs(20);
+pub(crate) const WORKER_WAIT: Duration = Duration::from_secs(20);
 
 /// The limit of a worker's own cleanup: its end after `Remove` or a signal. Not a contract value.
-const WORKER_CLEANUP: Duration = Duration::from_secs(10);
+pub(crate) const WORKER_CLEANUP: Duration = Duration::from_secs(10);
 
 /// Runs a blocking wait on a helper thread. `None` when it has not finished within `limit`; the thread then stays blocked
 /// until the test process ends.
@@ -67,7 +67,7 @@ fn wait_for<T: Send + 'static>(
 }
 
 /// Runs a blocking wait, and fails the test when it has not finished within `limit`.
-fn within<T: Send + 'static>(
+pub(crate) fn within<T: Send + 'static>(
     limit: Duration,
     what: &str,
     wait: impl FnOnce() -> T + Send + 'static,
@@ -90,7 +90,7 @@ fn observe_exit(pid: rustix::process::Pid) {
 }
 
 /// A FIFO in `root` (external `mkfifo`; the vault's FIFO rule: external commands, never shell builtins, at a FIFO).
-fn fifo(root: &Path, name: &str) -> PathBuf {
+pub(crate) fn fifo(root: &Path, name: &str) -> PathBuf {
     let path = root.join(name);
     let made = Command::new("/usr/bin/mkfifo").arg(&path).status().unwrap();
     assert!(made.success());
@@ -309,7 +309,7 @@ impl Session {
 }
 
 /// Reads the first line that the payload writes to `fifo` (the open blocks until the payload opens it for writing).
-fn first_line(fifo: &Path) -> (BufReader<std::fs::File>, String) {
+pub(crate) fn first_line(fifo: &Path) -> (BufReader<std::fs::File>, String) {
     let fifo = fifo.to_path_buf();
     within(
         WORKER_WAIT,

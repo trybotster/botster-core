@@ -51,7 +51,7 @@ impl std::ops::Deref for GuardedPayload {
 impl GuardedPayload {
     fn reap(mut self) {
         let payload = self.payload.take().unwrap();
-        finish_within(self.pid, move || payload.reap());
+        finish_within(self.pid, CLEANUP, move || payload.reap());
     }
 
     /// The report of this payload's cleanup: `true` when the guard and the production drop finished within the limit.
@@ -67,7 +67,7 @@ impl Drop for GuardedPayload {
         // The test ends the group before production can block in its reaper; both steps run within the limit.
         let guard = self.guard.take();
         let payload = self.payload.take();
-        let finished = finish_within(self.pid, move || {
+        let finished = finish_within(self.pid, CLEANUP, move || {
             drop(guard);
             drop(payload);
         });
@@ -81,14 +81,14 @@ impl Drop for GuardedPayload {
 /// that never becomes waitable fails the test with the process table instead of holding the job until its deadline
 /// (BUILD.md testing rule 5). Returns whether it finished. A failure panics, except while the test already panics (a second
 /// panic would abort before the report); such a test reads the result through `cleanup_report`.
-fn finish_within(payload_pid: u32, end: impl FnOnce() + Send + 'static) -> bool {
+fn finish_within(payload_pid: u32, limit: Duration, end: impl FnOnce() + Send + 'static) -> bool {
     let (done, finished) = mpsc::channel();
     std::thread::spawn(move || {
         end();
         let _ = done.send(());
     });
     // timer: deadline — the independent guard and production reaper must finish.
-    if finished.recv_timeout(CLEANUP).is_ok() {
+    if finished.recv_timeout(limit).is_ok() {
         return true;
     }
     cleanup_state(payload_pid);
@@ -377,6 +377,20 @@ fn the_pty_counts_output_and_delivers_input_to_the_program() {
     assert_eq!(exit_of(&p), ExitStatus::Code(0));
     p.signal_group(9);
     p.reap();
+}
+
+/// BUILD.md testing rule 5 (audit finding A11): a cleanup that does not finish within its limit fails the test, with the
+/// process table, instead of holding the job until its deadline.
+#[test]
+fn a_cleanup_that_does_not_finish_fails_the_test() {
+    let (release, released) = mpsc::channel::<()>();
+    let stuck = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        finish_within(std::process::id(), Duration::ZERO, move || {
+            let _ = released.recv();
+        })
+    }));
+    assert!(stuck.is_err(), "the stuck cleanup failed the test");
+    release.send(()).unwrap();
 }
 
 /// The independent guard ends a payload that waits for input when the test panics.
