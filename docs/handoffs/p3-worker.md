@@ -765,3 +765,12 @@ All conformance ids remain pending until both harnesses pass.
 No M2a tests, builds, or gates have run. No M2a review or merge-readiness claim exists.
 Next: receive P6's registry head and accessor agreement. Connect the module and open() calls, then run focused Linux checks.
 M2b and the real-process conformance harness remain open.
+
+## M2a registry connected (2026-10-04)
+
+The lead merged PR141 as v1 144b0234fb632bcbb5176b17c2fe55f3239405df.
+P3 merged that base into stage1/p3-m2a-v1 without conflicts.
+worker_controls.rs registers its controls through controls::registered_controls(). The harness dispatch uses the registry.
+P3 added the agreed workers() accessor and directory-aware open() call sites.
+The prior missing-control assertion now uses descendants, which remains unsupported. lose_worker is an implemented M2a control.
+Next: focused Linux compilation, unit tests, and the testkit transcript proof. M2a reviews and gates remain open.

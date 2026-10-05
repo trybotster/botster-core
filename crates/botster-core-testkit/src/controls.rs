@@ -43,6 +43,7 @@ impl ControlRegistry {
 pub(crate) fn registered_controls() -> ControlRegistry {
     let mut registry = ControlRegistry::default();
     crate::refusal::register_controls(&mut registry);
+    crate::worker_controls::register_controls(&mut registry);
     registry
 }
 
