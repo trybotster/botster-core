@@ -1,9 +1,7 @@
 //! Direct checks of the real driver's descriptor state and byte accounting.
 #![cfg(feature = "slow")]
 
-#[path = "../../../botster-core-sys/tests/common/payload_guard.rs"]
-mod payload_guard;
-
+use super::slow_driver::payload_guard;
 use super::*;
 use botster_core_contract::prelude::{InstanceId, Size};
 use std::os::fd::AsFd;

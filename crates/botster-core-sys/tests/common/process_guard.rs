@@ -109,7 +109,170 @@ fn anchor_process() {
     // EOF is the test's Drop or death. No timer or parent-PID check is needed.
     let mut remaining = Vec::new();
     let _ = input.read_to_end(&mut remaining);
-    let _ = rustix::process::kill_process_group(group, rustix::process::Signal::KILL);
+    end_group(group);
+}
+
+/// The limit of the anchor's cleanup: the guards' cleanup limit. Not a contract value.
+const CLEANUP: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// Ends every live member of `group` but this process, which stays a member until the end so that the group id cannot be
+/// reused while it signals. One kill of the group is not enough: on macOS a child whose fork completes after the kill
+/// escapes it and stays in the group. So each round kills the live members that it finds, until a round finds none.
+pub(crate) fn end_group(group: rustix::process::Pid) {
+    // timer: deadline — bounds the anchor's cleanup; a member that never ends cannot hold the anchor forever.
+    let deadline = std::time::Instant::now() + CLEANUP;
+    end_members(
+        || live_members(group),
+        |pid| {
+            let _ = rustix::process::kill_process(pid, rustix::process::Signal::KILL);
+        },
+        |pid| await_end(pid, deadline),
+        || std::time::Instant::now() >= deadline,
+    );
+}
+
+/// The decision of `end_group`: each round kills the members that `members` lists and waits for their ends, and a round
+/// that lists none is final, because only a live member can fork a new one. A member that joins after a kill is in a later
+/// round's list. It stops at `expired`, so it never runs without end.
+fn end_members<P: Copy>(
+    mut members: impl FnMut() -> Vec<P>,
+    mut kill: impl FnMut(P),
+    mut await_end: impl FnMut(P),
+    mut expired: impl FnMut() -> bool,
+) {
+    loop {
+        let live = members();
+        if live.is_empty() || expired() {
+            return;
+        }
+        for &pid in &live {
+            kill(pid);
+        }
+        for &pid in &live {
+            await_end(pid);
+        }
+    }
+}
+
+/// Waits for the exit event of `pid` (it may stay a zombie), at most until `deadline`. A process that is already gone has
+/// ended.
+#[cfg(target_os = "macos")]
+fn await_end(pid: rustix::process::Pid, deadline: std::time::Instant) {
+    let Ok(mut watcher) = kqueue::Watcher::new() else {
+        return;
+    };
+    let added = watcher.add_pid(
+        pid.as_raw_nonzero().get(),
+        kqueue::EventFilter::EVFILT_PROC,
+        kqueue::FilterFlag::NOTE_EXIT,
+    );
+    if added.is_err() || watcher.watch().is_err() {
+        return;
+    }
+    // timer: deadline — bounds the wait for a killed member's exit event.
+    let _ = watcher.poll(Some(
+        deadline.saturating_duration_since(std::time::Instant::now()),
+    ));
+}
+
+/// Waits for the exit event of `pid` (it may stay a zombie), at most until `deadline`. A process that is already gone has
+/// ended.
+#[cfg(target_os = "linux")]
+fn await_end(pid: rustix::process::Pid, deadline: std::time::Instant) {
+    let Ok(fd) = rustix::process::pidfd_open(pid, rustix::process::PidfdFlags::empty()) else {
+        return;
+    };
+    let left = deadline.saturating_duration_since(std::time::Instant::now());
+    // timer: deadline — bounds the wait for a killed member's exit event.
+    let limit = rustix::event::Timespec {
+        tv_sec: left.as_secs() as i64,
+        tv_nsec: left.subsec_nanos().into(),
+    };
+    let mut fds = [rustix::event::PollFd::new(
+        &fd,
+        rustix::event::PollFlags::IN,
+    )];
+    let _ = rustix::event::poll(&mut fds, Some(&limit));
+}
+
+/// The live members of `group` other than this process. A zombie is not live: it cannot fork, and its parent reaps it.
+#[cfg(target_os = "macos")]
+fn live_members(group: rustix::process::Pid) -> Vec<rustix::process::Pid> {
+    use libproc::bsd_info::BSDInfo;
+    use libproc::proc_pid::pidinfo;
+    use libproc::processes::{pids_by_type, ProcFilter};
+    let me = std::process::id();
+    pids_by_type(ProcFilter::ByProgramGroup {
+        pgrpid: group.as_raw_nonzero().get() as u32,
+    })
+    .unwrap_or_default()
+    .into_iter()
+    .filter(|&pid| pid != 0 && pid != me)
+    .filter(|&pid| {
+        pidinfo::<BSDInfo>(pid as i32, 0).is_ok_and(|info| info.pbi_status != libc::SZOMB)
+    })
+    .filter_map(|pid| rustix::process::Pid::from_raw(pid as i32))
+    .collect()
+}
+
+/// The live members of `group` other than this process. A zombie is not live: it cannot fork, and its parent reaps it.
+#[cfg(target_os = "linux")]
+fn live_members(group: rustix::process::Pid) -> Vec<rustix::process::Pid> {
+    let me = std::process::id();
+    let Ok(entries) = std::fs::read_dir("/proc") else {
+        return Vec::new();
+    };
+    entries
+        .filter_map(|entry| entry.ok()?.file_name().to_str()?.parse::<u32>().ok())
+        .filter(|&pid| pid != me)
+        .filter(|pid| {
+            // The fields after the command name: state, ppid, pgrp.
+            std::fs::read_to_string(format!("/proc/{pid}/stat")).is_ok_and(|stat| {
+                let fields: Vec<&str> = stat
+                    .rsplit_once(") ")
+                    .map_or(Vec::new(), |(_, rest)| rest.split_whitespace().collect());
+                fields.first() != Some(&"Z")
+                    && fields.get(2).and_then(|pgrp| pgrp.parse::<i32>().ok())
+                        == Some(group.as_raw_nonzero().get())
+            })
+        })
+        .filter_map(|pid| rustix::process::Pid::from_raw(pid as i32))
+        .collect()
+}
+
+/// A member that joins the group after the first kill still ends: a later round lists it and kills it (the macOS fork
+/// race of a single group kill). The rounds stop once a round lists no member.
+#[test]
+fn a_member_that_joins_after_the_first_kill_still_ends() {
+    let mut rounds = std::collections::VecDeque::from([vec![1], vec![2], vec![]]);
+    let mut killed = Vec::new();
+    let mut awaited = Vec::new();
+    end_members(
+        || rounds.pop_front().expect("no round after an empty one"),
+        |pid| killed.push(pid),
+        |pid| awaited.push(pid),
+        || false,
+    );
+    assert_eq!(killed, [1, 2]);
+    assert_eq!(awaited, killed, "each kill waits for that member's end");
+    assert!(rounds.is_empty());
+}
+
+/// The rounds stop at the deadline, even while a member is still listed.
+#[test]
+fn the_rounds_stop_at_the_deadline() {
+    let mut checks = 0;
+    let mut killed = 0;
+    end_members(
+        || vec![1],
+        |_| killed += 1,
+        |_| {},
+        || {
+            checks += 1;
+            checks > 2
+        },
+    );
+    assert_eq!(killed, 2);
 }
 
 /// A shell cannot start its body until the anchor holds its group.
