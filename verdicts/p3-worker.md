@@ -1,8 +1,8 @@
 # P3 worker review
 
-Current restack verdict: NOT CLEAN. F1 through F23 are CLOSED; F24 LOW is OPEN.
-Reviewed head: `533fd3a44d6d14a26702ad3796290ee2fafebefd`, branch `stage1/p3-m1-v1`.
-Round 70 closes F23 and records missing text in two existing equivalence reasons.
+Current restack verdict: CLEAN for P3's M1 package scope. All findings F1 through F24 are CLOSED.
+Reviewed head: `9eb9a59fcdd798d86cf8a7b96fc2c108e19282dc`, branch `stage1/p3-m1-v1`.
+Round 71 closes F24 after restoration of both equivalence reasons beside the concrete test names.
 This cross-package PR also requires the integration reviewer's CLEAN. The restack plan requires the implementer's gate after both exact-head verdicts.
 The earlier CLEAN below applies only to the old M2a head that it names.
 
@@ -2379,3 +2379,27 @@ F1 through F23 are CLOSED. Every earlier finding and closure remains preserved.
 The reviewer ran no tests, builds, or gates.
 
 VERDICT: NOT CLEAN (F24 LOW open) on `533fd3a44d6d14a26702ad3796290ee2fafebefd`.
+
+
+## Round 71 — Restored equivalence reasons and exact-head CLEAN
+
+Reviewed head: `9eb9a59fcdd798d86cf8a7b96fc2c108e19282dc`.
+The complete delta from 533fd3a adds two exclusion-comment lines and the handoff record.
+The reviewer parsed both TOML versions and verified identical configuration values.
+Production, test source, and exclusion patterns remain unchanged. No merge conflict resolution accompanies the delta.
+
+F24 is CLOSED. This also resolves the corresponding integration I5 source issue.
+The wait_unreaped entry again states that EXITED and NOWAIT are disjoint bits, making OR and XOR equal.
+The set_nonblocking entry again states that its sole caller supplies a fresh blocking PTY from pinned pty-process 0.5.3.
+The comments retain the concrete test names, NONBLOCK-clear premise, OR/XOR argument, and caller/dependency recheck conditions.
+F23's concrete-name closure remains intact. No new finding arises from the delta.
+
+All findings F1 through F24, including LOW findings, are CLOSED at this exact head.
+All original mutation dispositions and later Linux/native helper proof remain preserved.
+The reviewed production and test source remain identical to the completed proof recorded through round 67.
+This CLEAN covers P3's M1 package delta and all named resolutions recorded in this history.
+The cross-package PR requires the integration reviewer's exact-head CLEAN and the implementer's landing gate under the restack plan.
+M2a and M2b review remain separate milestones. The explicit real-harness pending list remains preserved.
+The reviewer ran no tests, builds, or gates.
+
+VERDICT: CLEAN (P3 M1 package scope) on `9eb9a59fcdd798d86cf8a7b96fc2c108e19282dc`.
