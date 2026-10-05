@@ -335,3 +335,31 @@ Round 8 note: the package reviewer keeps part of F43 open at this head, on two p
 - `Owned::drop` returns on any `try_wait` error and discards the kill and reap errors.
 This reviewer's round 8 read the happy path only. The package finding requires the fix, so no duplicate is opened, and CLEAN
 here waits for it.
+
+## Round 9 — PR #165, head c03bcfb1
+
+Reviewed head: `c03bcfb181d21cdf805b752a790359f63b9ef7b9`. Delta `4c06846d..c03bcfb1`, two commits, `guard_cleanup.rs` only,
+test code. The base is still current v1 `144b023`. This reviewer ran no build, test or gate. The implementer's focused Mac run
+at this head (`…guard-macos-c03bcfb1-mac-20261004-223014-89077.log`) shows 158 and 13 tests passing and exits 0. This
+reviewer read its header and summary lines.
+
+Every error branch of the changed helpers was read:
+- `ended_within_cleanup` returns `io::Result<bool>`. An interrupted wait is repeated. `Ok(Some)` is an exit. `Ok(None)` from
+  a blocking wait is an error, not an exit, so no spin is possible. Any other `waitid` error is returned. A timeout is
+  `Ok(false)`, and the helper thread stays blocked, which leaves the child with its owner.
+- `Owned::status` reaps only after an observed exit. It panics with a cause on a timeout or on an observation error.
+- `Owned::drop`:
+  - `Ok(Some)` means the child is reaped, so there is nothing left to do;
+  - a `try_wait` error, a kill error, a timeout after the kill, an observation error and a reap error are each reported
+    through `ownership_failed`, which panics, or prints when the test already panics;
+  - no error is taken as an end.
+- `end_members` now lets the next listing decide after a group kill that returns `EPERM`, as it already did for `ESRCH`. The
+  next listing comes before any success, so a refused kill cannot hide a live member. A member that truly cannot be
+  signalled stays listed. The rounds then block in `await_end` up to the deadline and end with `Left`, or `await_end` itself
+  fails with `Failure::Error`. Either way the failure is reported, with no spin. The scripted case now runs both errnos.
+  The macOS cause (a member in exit refuses the signal) is the implementer's claim and is not proved here. The rule is safe
+  whatever the cause.
+
+Integration findings on #165: none open. Still needed for CLEAN: the P3 package verdict on `c03bcfb1` (F43).
+
+VERDICT: NOT CLEAN (1 open: package verdict pending; 0 integration findings open)
