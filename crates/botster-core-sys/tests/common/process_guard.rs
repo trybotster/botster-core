@@ -16,8 +16,7 @@ pub struct GroupGuard {
     socket: PathBuf,
 }
 
-/// The libtest name of a fixture of this module, in whichever test binary includes it.
-pub fn helper(name: &str) -> String {
+fn helper(name: &str) -> String {
     let module = module_path!().split_once("::").unwrap().1;
     format!("{module}::{name}")
 }
@@ -35,12 +34,7 @@ impl GroupGuard {
         let input: OwnedFd = child_control.try_clone().unwrap().into();
         let output: OwnedFd = child_control.into();
         let anchor = Command::new(std::env::current_exe().unwrap())
-            .args([
-                "--ignored",
-                "--exact",
-                &helper("anchor_process"),
-                "--nocapture",
-            ])
+            .args(["--exact", &helper("anchor_process"), "--nocapture"])
             .env("BOTSTER_TEST_ANCHOR", "1")
             .stdin(Stdio::from(input))
             .stderr(Stdio::from(output))
@@ -75,7 +69,7 @@ impl GroupGuard {
     /// The shell waits for registration before it starts any blocking command.
     pub fn prefix(&self) -> String {
         format!(
-            "BOTSTER_TEST_GROUP_SOCKET={} BOTSTER_TEST_GROUP_PID=$$ {} --ignored --exact {} --nocapture >/dev/null 2>/dev/null || exit 1\n",
+            "BOTSTER_TEST_GROUP_SOCKET={} BOTSTER_TEST_GROUP_PID=$$ {} --exact {} --nocapture >/dev/null 2>/dev/null || exit 1\n",
             quoted(&self.socket),
             quoted(&std::env::current_exe().unwrap()),
             helper("register_worker")
@@ -98,10 +92,8 @@ impl Drop for GroupGuard {
     }
 }
 
-/// A fixture, not a test: a separate process that holds membership in the worker's group. `GroupGuard` starts it with
-/// `--ignored --exact`; a normal run lists it as ignored.
+/// A separate test process holds membership in the worker's group.
 #[test]
-#[ignore = "a fixture process that GroupGuard starts"]
 fn anchor_process() {
     if std::env::var_os("BOTSTER_TEST_ANCHOR").is_none() {
         return;
@@ -120,10 +112,8 @@ fn anchor_process() {
     let _ = rustix::process::kill_process_group(group, rustix::process::Signal::KILL);
 }
 
-/// A fixture, not a test: a shell cannot start its body until the anchor holds its group. The prefix of `GroupGuard`
-/// starts it with `--ignored --exact`.
+/// A shell cannot start its body until the anchor holds its group.
 #[test]
-#[ignore = "a fixture process that a guarded shell starts"]
 fn register_worker() {
     let Some(socket) = std::env::var_os("BOTSTER_TEST_GROUP_SOCKET") else {
         return;
@@ -147,9 +137,70 @@ fn register_worker() {
     }
 }
 
-/// A fixture, not a test: a parent that owns a guarded group and is killed by the test that starts it.
+struct Parent(Option<Child>);
+
+impl Drop for Parent {
+    fn drop(&mut self) {
+        if let Some(mut child) = self.0.take() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+    }
+}
+
+fn eof(reader: impl Read + Send + 'static) {
+    let (sent, received) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let mut reader = reader;
+        let mut rest = Vec::new();
+        let result = reader.read_to_end(&mut rest);
+        let _ = sent.send(result);
+    });
+    received
+        // timer: deadline — bounds cleanup when a guard fails
+        .recv_timeout(std::time::Duration::from_secs(10))
+        .expect("all descendants closed the pipe")
+        .unwrap();
+}
+
+/// The parent dies while the worker has no FIFO reader.
 #[test]
-#[ignore = "a fixture process of the guard's own tests"]
+fn parent_dies_before_fifo_reader() {
+    for handoff in ["ready", "launch"] {
+        let dir = tempfile::tempdir().unwrap();
+        let fifo = dir.path().join("fifo");
+        assert!(Command::new("/usr/bin/mkfifo")
+            .arg(&fifo)
+            .status()
+            .unwrap()
+            .success());
+        let mut parent = Parent(Some(
+            Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", &helper("blocked_parent"), "--nocapture"])
+                .env("BOTSTER_TEST_PARENT_DIR", dir.path())
+                .env("BOTSTER_TEST_HANDOFF", handoff)
+                .stdin(Stdio::piped())
+                .stderr(Stdio::piped())
+                .stdout(Stdio::null())
+                .spawn()
+                .unwrap(),
+        ));
+        let child = parent.0.as_mut().unwrap();
+        let mut reader = BufReader::new(child.stderr.take().unwrap());
+        let mut pid = String::new();
+        reader.read_line(&mut pid).unwrap();
+        assert!(
+            pid.trim().parse::<u32>().is_ok(),
+            "the worker reached its FIFO: {pid}"
+        );
+        child.kill().unwrap();
+        // Drop reaps only the parent. The parent cannot run its group guard.
+        drop(parent);
+        eof(reader);
+    }
+}
+
+#[test]
 fn blocked_parent() {
     use std::os::unix::process::CommandExt;
     let Some(dir) = std::env::var_os("BOTSTER_TEST_PARENT_DIR") else {
@@ -175,4 +226,59 @@ fn blocked_parent() {
     std::io::stdin().read_line(&mut input).unwrap();
     drop(guard);
     worker.wait().unwrap();
+}
+
+/// Panic cleanup starts before any readiness indication exists.
+#[test]
+fn a_panic_before_ready_ends_the_child() {
+    use std::os::unix::process::CommandExt;
+    let dir = tempfile::tempdir().unwrap();
+    let guard = GroupGuard::new(dir.path());
+    let mut child = Command::new("/bin/sh")
+        .args([
+            "-c",
+            &format!("{}while :; do /bin/sleep 1; done", guard.prefix()),
+        ])
+        .stdout(Stdio::piped())
+        .process_group(0)
+        .spawn()
+        .unwrap();
+    let pipe = child.stdout.take().unwrap();
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
+        let _guard = guard;
+        panic!("the test failed before ready");
+    }));
+    assert!(result.is_err());
+    eof(pipe);
+    assert!(!child.wait().unwrap().success());
+}
+
+/// An anchor keeps the group after another owner reaps the leader.
+#[test]
+fn an_early_exit_keeps_the_group_owned_until_cleanup() {
+    use std::os::unix::process::CommandExt;
+    let dir = tempfile::tempdir().unwrap();
+    let guard = GroupGuard::new(dir.path());
+    let mut child = Command::new("/bin/sh")
+        .args([
+            "-c",
+            &format!(
+                "{}(while :; do /bin/sleep 1; done) & echo $!; exit",
+                guard.prefix()
+            ),
+        ])
+        .stdout(Stdio::piped())
+        .process_group(0)
+        .spawn()
+        .unwrap();
+    let group = rustix::process::Pid::from_raw(child.id() as i32).unwrap();
+    let mut pipe = BufReader::new(child.stdout.take().unwrap());
+    let mut descendant = String::new();
+    pipe.read_line(&mut descendant).unwrap();
+    assert!(descendant.trim().parse::<u32>().is_ok());
+    assert!(child.wait().unwrap().success());
+    let anchor = rustix::process::Pid::from_raw(guard.anchor.id() as i32).unwrap();
+    assert_eq!(rustix::process::getpgid(Some(anchor)).unwrap(), group);
+    drop(guard);
+    eof(pipe);
 }
