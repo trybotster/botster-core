@@ -254,3 +254,20 @@ Reviewed delta: `82b4269..800606a`, one commit, 8 files. This reviewer ran no bu
 Integration findings: none open. Still needed for CLEAN: the P3 package verdict on `800606a`.
 
 VERDICT: NOT CLEAN (1 open: package verdict on 800606a pending; 0 integration findings open)
+
+## Round 4 — Test-only delta for the package finding F25
+
+Reviewed head: `ccba0504b8f0e18d274132e0b88b80b2e364becd`. The base is still current v1 `144b023`.
+Reviewed delta: `800606a..ccba050`, one commit, one test file. No production change. This reviewer ran no build, test or gate.
+
+- Round 3 missed the new `sleep 30` group member in `a_failed_exit_watch_ends_the_worker_with_a_failure`. BUILD.md testing
+  rule 5 forbids it. The package reviewer's F25 found it.
+- Now the background member is the external `/bin/cat` (the vault's FIFO rule). It blocks on the open of a FIFO that nothing
+  opens for writing, and it keeps the inherited `held` writer.
+  - It uses no CPU and no timer.
+  - It ends only when the group is killed. The payload guard owns that group on every exit path.
+  - So the EOF on `held` still proves that the whole group ended.
+
+Integration findings: none open. Still needed for CLEAN: the P3 package verdict on `ccba050`.
+
+VERDICT: NOT CLEAN (1 open: package verdict on ccba050 pending; 0 integration findings open)
