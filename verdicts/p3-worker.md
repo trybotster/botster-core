@@ -1,10 +1,10 @@
 # P3 worker review
 
-Current verdict: CLEAN for PR #165; NOT CLEAN for the separate PR #163 review unit.
+Current verdict: NOT CLEAN for PR #165 and the separate PR #163 review unit.
 PR #163 at `40b63dceb6e3f3d7be69a1488ac77eccc121a071` has F28 and F33 OPEN for completed evidence.
-PR #165 is CLEAN at `c03bcfb181d21cdf805b752a790359f63b9ef7b9`. All findings in that review unit, including LOW, are CLOSED.
+PR #165 at `71195e7209cc0cbee03bedb52eda3f2b83db2585` has F45 and F46 OPEN. Round 86's earlier exact-head CLEAN remains recorded.
 F39 is CLOSED in #165 and remains OPEN for #163's later merge delta.
-Round 86 records the exact-head guard CLEAN. All earlier findings, closures, and rounds remain preserved.
+Round 87 records the new guard delta and the remaining audit findings. All earlier findings, closures, and rounds remain preserved.
 F1 through F27 and F29 through F32 remain CLOSED at their recorded heads and scopes.
 F34 records the earlier unsafe PID signals and their source correction at `81ccd17`.
 Each cross-package PR also requires the integration reviewer's exact-head CLEAN and the implementer's landing gate.
@@ -3905,3 +3905,97 @@ This CLEAN does not clear #163, the unreviewed M2a restack, M2b, the A32/A33 fol
 All earlier findings, closures, and verdict rounds remain preserved.
 
 VERDICT: CLEAN for PR #165 on `c03bcfb181d21cdf805b752a790359f63b9ef7b9`.
+
+
+## Round 87 — Remaining waits and sleep fixtures in the shared guard
+
+Reviewed head: `71195e7209cc0cbee03bedb52eda3f2b83db2585`, PR #165, branch `stage1/p3-guard-macos`.
+Base: `144b0234fb632bcbb5176b17c2fe55f3239405df`.
+Reviewed delta: `c03bcfb1..71195e72`, two commits, two files.
+The implementer submitted this correction for P5-F4 under the lead's near-done review scope.
+The reviewer read the complete delta and the remaining early-exit and panic fixtures.
+The integration reviewer records C3 MEDIUM and C4 LOW at verdict commit `cef28d1` on this exact head.
+The reviewer accepts those findings in this package scope.
+The provisional assessment sent before reading that integration message is corrected by this verdict.
+
+### F44 — MEDIUM — CLOSED at 71195e72: the parent-death fixture bounds its first read and parent reap
+
+This finding records the transferred P5-F4 requirement.
+The previous parent-death regression read its readiness line directly on the test thread.
+Its Parent Drop also killed the child and then called an unbounded wait.
+Those paths could hold the test instead of producing a bounded failure.
+
+The current regression uses first_line with the marked CLEANUP deadline.
+It replaces Parent with the existing cleanup::Owned owner.
+That owner observes the exit within the deadline before it reaps, and reports each ownership or cleanup error.
+It reaps only the fixture parent. The independent anchor still ends the worker group after that parent's death.
+The EOF wait now uses the same CLEANUP value.
+No production reaper or worker path changes.
+
+The two new zero-limit tests use actual cat processes blocked on FIFOs.
+They exercise a read that cannot complete and a child wait that cannot complete.
+Each observes the corresponding visible failure through the same bounded function used by the fixtures.
+The Owned wrapper provides the retained cleanup path for the blocked fixture child.
+The proof uses no sleep, busy child, helper call counter, or production test branch.
+This closes P5-F4's two named paths, recorded here as F44.
+
+### F45 — MEDIUM — The early-leader-exit proof still has two unbounded waits
+
+Status: OPEN. This is integration C3.
+Evidence: `crates/botster-core-sys/tests/common/process_guard.rs:345-370` at the reviewed head.
+
+an_early_exit_keeps_the_group_owned_until_cleanup directly calls pipe.read_line before any deadline.
+It then calls child.wait on the test thread before the guard drops.
+A missing descendant line or a leader that does not exit can therefore hold the test before its bounded EOF observation.
+These are the same unbounded-read and unbounded-reap defects corrected in the separate parent-death fixture.
+They remain outside that correction's source path.
+
+Required change: Use the bounded first-line path and an observed-exit child owner for these waits.
+Preserve the required order: the fixture owner reaps the leader while the independent anchor still owns the group.
+Then prove that guard cleanup ends the remaining descendant.
+Keep the anchor membership check and the actual EOF effect.
+Do not let the guard reap a worker or payload that production owns.
+
+Authority: BUILD.md testing rules 3 and 5, independent group ownership, and integration C3.
+
+### F46 — LOW — Two guard self-tests still use sleep loops
+
+Status: OPEN. This is integration C4.
+Evidence: `process_guard.rs:320-340,345-370` at the reviewed head.
+
+a_panic_before_ready_ends_the_child runs a shell loop with /bin/sleep 1.
+an_early_exit_keeps_the_group_owned_until_cleanup starts the same sleep loop in its background descendant.
+These unchanged fixtures still violate BUILD.md's no-sleeps-or-polling rule.
+A timed loop supplies no required process or terminal behavior for either ownership proof.
+
+Required change: Replace these hold bodies with blocked event-driven fixtures, such as a FIFO open with no writer.
+Preserve panic cleanup before readiness and ownership after the leader has been reaped.
+Keep the real EOF and exit observations and their marked bounds.
+The current #165 closure must resolve this LOW finding; a historical package CLEAN does not waive it.
+
+Authority: BUILD.md testing rule 5, the user's event-wait requirement, and integration C4.
+
+### Completed evidence
+
+The reviewer read the completed focused native Mac log:
+`~/botster-sessions/gates/botster-core-stage1-p3-guard-macos-71195e72-mac-20261004-224513-28395.log`.
+It names this exact head and base, slow clippy, worker prebuild, and the focused nextest commands.
+It exits 0 after nine seconds.
+The first command passes 168 tests with zero skips in 1.185 seconds.
+The second passes 15 selected core guard tests and skips nine other tests in 0.087 seconds.
+Both new timeout cases and the actual parent-death regression pass in all six selected binaries that contain them.
+The other accepted registration, cleanup failure, reservation, and driver proofs retain passing results.
+This successful baseline does not close F45's missing wait bounds or F46's prohibited fixture bodies.
+It is not a full landing gate or Linux proof.
+
+### Verdict
+
+PR #165 is NOT CLEAN for F45 and F46 on this exact head.
+F44 is CLOSED at this head. F34 through F43 retain their recorded closures within #165's scope.
+Round 86's CLEAN remains preserved for its named earlier head; it does not clear this new head or these later findings.
+PR #163 separately retains F28, F33, and its later F39 merge duty.
+M2a and A32/A33 remain paused under the lead's amended order.
+All earlier findings, closures, and verdict rounds remain preserved.
+The reviewer ran no tests, builds, measurements, mutants, or gates.
+
+VERDICT: NOT CLEAN (2 open findings in PR #165) on `71195e7209cc0cbee03bedb52eda3f2b83db2585`.
