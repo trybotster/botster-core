@@ -49,11 +49,9 @@ pub enum Report {
         payload: PayloadId,
         report: SpawnReport,
     },
-    StartFailed {
-        reason: StartFailReason,
-    },
-    BoundUnavailable {
-        bound: Bound,
+    /// The host completes the spawn `StartFailed{ExecFailed{errno}}` (A2-1).
+    ExecFailed {
+        errno: i32,
     },
     Exited {
         exit: ServiceExit,

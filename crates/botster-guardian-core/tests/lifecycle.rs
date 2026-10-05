@@ -498,31 +498,21 @@ fn the_service_launches_once_and_its_report_is_retained() {
     );
 }
 
-/// Core SV-9, A2-5: a failed exec reports the edge's failure, signals nothing, and Remove releases the guardian.
+/// Core SV-9, A2-1 (conf::sv_9_start_rollback): a failed exec reports its errno, signals nothing, and Remove releases the
+/// guardian.
 #[test]
-fn a_failed_start_reports_the_edge_failure_and_rolls_back() {
-    for (result, expected) in [
-        (
-            SpawnResult::Failed(StartFailReason::ExecFailed { errno: 2 }),
-            Report::StartFailed {
-                reason: StartFailReason::ExecFailed { errno: 2 },
-            },
-        ),
-        (
-            SpawnResult::BoundUnavailable(Bound::CpuSeconds),
-            Report::BoundUnavailable {
-                bound: Bound::CpuSeconds,
-            },
-        ),
-    ] {
-        let mut rig = Rig::ready();
-        rig.command(Command::Launch(Box::new(spec())));
-        assert_eq!(reports(&rig.input(Input::Spawned(result))), vec![expected]);
-        assert_eq!(rig.g.next_deadline(), None);
-        let removed = rig.command(Command::Remove);
-        assert_eq!(sent(&removed), vec![Sent::Report(Report::Removed)]);
-        assert_eq!(rig.flush(), vec![Action::LinkClose, Action::Exit]);
-    }
+fn a_failed_exec_reports_its_errno_and_rolls_back() {
+    let errno = 2;
+    let mut rig = Rig::ready();
+    rig.command(Command::Launch(Box::new(spec())));
+    assert_eq!(
+        reports(&rig.input(Input::Spawned(SpawnResult::ExecFailed { errno }))),
+        vec![Report::ExecFailed { errno }]
+    );
+    assert_eq!(rig.g.next_deadline(), None);
+    let removed = rig.command(Command::Remove);
+    assert_eq!(sent(&removed), vec![Sent::Report(Report::Removed)]);
+    assert_eq!(rig.flush(), vec![Action::LinkClose, Action::Exit]);
 }
 
 /// Core A2-5: startup runs from exec until the host commits epoch 1; expiry ends the service as `StartupTimeout`.
@@ -940,7 +930,7 @@ fn stale_process_results_change_nothing() {
             descendants_may_remain: true,
         },
         Input::Reaped,
-        Input::Spawned(SpawnResult::Failed(StartFailReason::CwdMissing)),
+        Input::Spawned(SpawnResult::ExecFailed { errno: 2 }),
     ];
     let mut rig = Rig::running();
     for input in stale.clone() {

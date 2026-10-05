@@ -40,6 +40,11 @@ The driver answers each process action with exactly one input:
 
 A result that answers no outstanding action changes nothing.
 
+`Spawned` is `Started` or `ExecFailed{errno}`.
+Every launch failure before `exec` is an exec failure with its errno: a missing `cwd`, and a required bound that the OS refuses.
+A2-1 gives `SpawnService` no other async start failure.
+The host refuses an unsupported required bound synchronously (`BoundUnavailable`, against `features()`), and it observes `GuardianFailed` itself.
+
 The driver must keep the leader unreaped until `ReapService`.
 The driver must verify each descendant identity before it signals that descendant.
 `KillTree` covers the service group, the known descendants, and a current enumeration.
