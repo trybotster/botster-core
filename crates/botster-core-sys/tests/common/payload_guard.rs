@@ -388,3 +388,31 @@ fn a_payload_cleanup_that_cannot_finish_fails_through_the_guard() {
     super::process_guard::eof(pipe);
     payload.wait().unwrap();
 }
+
+/// A registration that cannot be trusted fails the guard, and the registrant is never told that the payload is ready: a
+/// member that registers an invalid group, and a ready helper with no member.
+#[test]
+fn a_registration_that_cannot_be_trusted_fails_the_guard() {
+    for (frames, expected) in [
+        (&b"\x01not-a-pid\n"[..], "invalid group"),
+        (&b"\x02"[..], "ready without its member"),
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let mut guard = PayloadGuard::new(dir.path());
+        let mut registrant = UnixStream::connect(&guard.socket).unwrap();
+        registrant.write_all(frames).unwrap();
+        guard.release();
+        let failed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || drop(guard)))
+            .expect_err("the guard reports the failed registration");
+        let report = failed.downcast_ref::<String>().expect("a report").clone();
+        assert!(report.contains(expected), "{report}");
+        // timer: deadline — bounds the read of the registrant's end.
+        registrant.set_read_timeout(Some(CLEANUP)).unwrap();
+        let mut readiness = [0];
+        assert_eq!(
+            registrant.read(&mut readiness).unwrap(),
+            0,
+            "no readiness was sent"
+        );
+    }
+}
