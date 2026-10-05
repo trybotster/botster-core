@@ -228,3 +228,19 @@ Integration findings on #165: none open. G2 is tracked in #163's merge delta. St
 verdict on `97b8e947` (F35 to F38).
 
 VERDICT: NOT CLEAN (1 open: package verdict pending; 0 integration findings open)
+
+## Round 5 note — a correction to round 4 (head `97b8e947`)
+
+- Round 4 said that the worker fixtures "change only to call the payload guard's new release and report check". That was
+  incomplete. The package reviewer (on `acd05de6`) found that the botster-worker driver `Harness` never calls `release`:
+  - it has no `Drop`;
+  - it drops the `Driver` first and the guard later;
+  - `pty_events_resume_reads_after_would_block` drops its guard before it gets the driver's result.
+  So when production cleanup fails, the independent guard never gets its EOF request. The package reviewer raised this as a
+  HIGH cleanup regression.
+- This reviewer did not open a duplicate, because the package reviewer's finding requires the fix. CLEAN here also waits for
+  it, because the payload guard is shared by botster-core-sys and botster-worker.
+- The package reviewer also requires that the 795-line `process_guard.rs` be split into small shared modules with one
+  cleanup path, under the user's rule against oversized modules. A split is a new head and gets an integration delta review.
+
+VERDICT: NOT CLEAN (1 open: the package verdict, which now includes the Harness release HIGH and the module split; 0 separate integration findings open)
