@@ -378,6 +378,7 @@ dependencies = [
  "botster-core-edges",
  "botster-probe-script",
  "botster-route-codec",
+ "botster-terminal-ghostty",
  "rand_chacha",
  "rand_core 0.9.5",
  "rustix",
