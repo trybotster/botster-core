@@ -6,7 +6,8 @@
 //! before production's cleanup, and drops the guard after it. On macOS the member's rounds can wait in a tty drain until
 //! production closes the PTY master, so the guard reads the member's report only after that.
 
-use super::process_guard::cleanup::{await_group_end, end_group, CLEANUP};
+use super::process_guard::cleanup::platform::{await_end, live_members};
+use super::process_guard::cleanup::{end_group, end_members, Failure, CLEANUP};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
@@ -217,6 +218,33 @@ impl Drop for PayloadGuard {
             }
         }
     }
+}
+
+/// Waits until `group` has no live member, within `cleanup`, without a signal: the caller holds no reservation of the
+/// group, so it must not signal it. It is for a group that production has killed: the rounds of `end_members` with no
+/// kill, so a member that is still ending is awaited, never read as left.
+///
+/// # Errors
+/// The members still live at the deadline, or why they could not be listed or awaited.
+fn await_group_end(
+    group: rustix::process::Pid,
+    cleanup: std::time::Duration,
+) -> Result<(), String> {
+    // timer: deadline — bounds the wait for a killed group's last members.
+    let deadline = std::time::Instant::now() + cleanup;
+    end_members(
+        || Ok(()),
+        || live_members(group),
+        |member| await_end(member.pid, deadline),
+        || std::time::Instant::now() >= deadline,
+    )
+    .map_err(|failure| match failure {
+        Failure::Left(members) => {
+            let left: Vec<String> = members.iter().map(ToString::to_string).collect();
+            format!("members left after {cleanup:?}: {}", left.join(", "))
+        }
+        Failure::Error(error) => format!("the members could not be listed or awaited: {error}"),
+    })
 }
 
 /// This member cannot leave a stale group id: it signals its current group.
