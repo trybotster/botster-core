@@ -298,7 +298,13 @@ impl DataDir {
     /// Opens `path`: creates it with mode `0700` when missing, refuses a directory that is not safe (AD-6), takes the
     /// exclusive lock without waiting (LC-2), and raises the host epoch under the lock (DP-8).
     pub fn open(path: &Path) -> Result<DataDir, OpenError> {
-        create_durably(path, &mut sync_dir)?;
+        create_durably(
+            path,
+            DirEdges {
+                sync: &mut sync_dir,
+                writable: &writable,
+            },
+        )?;
         check_safe(path)?;
         let lock = LockFile::try_exclusive(&path.join("lock")).map_err(|error| match error {
             LockError::Held => OpenError::InUse,
@@ -355,11 +361,19 @@ impl DataDir {
     }
 }
 
-/// Creates `path` and every missing ancestor with mode `0700`, then syncs every ancestor of `path`, up to the root, with
-/// `sync`. The syncs are not limited to the directories that this call created: an earlier open may have created one and
-/// failed before its parent's sync, and that obligation is met now (AD-7). `sync` is the real directory sync in production,
-/// and an injected one in a test.
-fn create_durably(path: &Path, sync: &mut dyn FnMut(&Path) -> io::Result<()>) -> io::Result<()> {
+/// The edges of [`create_durably`]: the directory sync and the write check. Real in production, injected in a test.
+struct DirEdges<'a> {
+    sync: &'a mut dyn FnMut(&Path) -> io::Result<()>,
+    writable: &'a dyn Fn(&Path) -> bool,
+}
+
+/// Creates `path` and every missing ancestor with mode `0700`, then syncs the ancestors of `path`, going up, until the first
+/// one that the host cannot write. The syncs are not limited to the directories that this call created: an earlier open may
+/// have created one and failed before its parent's sync, and that obligation is met now (AD-7). The host can create a
+/// directory only in one that it can write, so no ancestor at or above the first one that it cannot write holds an entry
+/// that the host made: the walk stops there, and an ancestor that the host may pass through but not read (`0711`) never
+/// fails the open.
+fn create_durably(path: &Path, edges: DirEdges<'_>) -> io::Result<()> {
     match fs::DirBuilder::new()
         .mode(0o700)
         .recursive(true)
@@ -372,9 +386,17 @@ fn create_durably(path: &Path, sync: &mut dyn FnMut(&Path) -> io::Result<()>) ->
     }
     let path = fs::canonicalize(path)?;
     for ancestor in path.ancestors().skip(1) {
-        sync(ancestor)?;
+        if !(edges.writable)(ancestor) {
+            break;
+        }
+        (edges.sync)(ancestor)?;
     }
     Ok(())
+}
+
+/// Whether this process may create entries in `dir`.
+fn writable(dir: &Path) -> bool {
+    rustix::fs::access(dir, rustix::fs::Access::WRITE_OK).is_ok()
 }
 
 /// Syncs the directory `dir`.
@@ -631,13 +653,15 @@ mod slow_tests {
     }
 
     /// AD-7 (review finding P5-F9): an open whose sync of an ancestor fails leaves directories that it created; the next
-    /// open syncs every ancestor again, so the entry of a directory that the failed open created is made durable too.
+    /// open syncs every writable ancestor again, so the entry of a directory that the failed open created is made durable too.
     #[test]
     fn a_retried_open_syncs_the_ancestors_that_a_failed_open_left() {
         let tmp = dir();
         let base = fs::canonicalize(tmp.path()).unwrap();
         let path = base.join("new").join("a").join("data");
-        let failing = |dir: &Path| {
+        // Only `base` and what is below it count as writable, so the walk is the same for every user.
+        let below_base = |dir: &Path| dir.starts_with(&base);
+        let mut failing = |dir: &Path| {
             if dir == base {
                 Err(io::Error::from_raw_os_error(
                     rustix::io::Errno::IO.raw_os_error(),
@@ -646,14 +670,22 @@ mod slow_tests {
                 sync_dir(dir)
             }
         };
-        assert!(create_durably(&path, &mut { failing }).is_err());
+        let edges = DirEdges {
+            sync: &mut failing,
+            writable: &below_base,
+        };
+        assert!(create_durably(&path, edges).is_err());
         assert!(path.exists(), "the failed open left its directories");
         let mut synced = Vec::new();
-        create_durably(&path, &mut |dir: &Path| {
+        let mut recording = |dir: &Path| {
             synced.push(dir.to_path_buf());
             sync_dir(dir)
-        })
-        .unwrap();
+        };
+        let edges = DirEdges {
+            sync: &mut recording,
+            writable: &below_base,
+        };
+        create_durably(&path, edges).unwrap();
         for dir in [base.join("new").join("a"), base.join("new"), base.clone()] {
             assert!(
                 synced.contains(&dir),
@@ -661,6 +693,48 @@ mod slow_tests {
                 dir.display()
             );
         }
+    }
+
+    /// Integration finding K4: an ancestor at or above the first one that the host cannot write is never synced, so one that
+    /// the host may pass through but not read (`EACCES` on its open) does not fail the open. The same error on the parent of a
+    /// directory that Core may have created still fails it.
+    #[test]
+    fn an_unreadable_ancestor_fails_the_open_only_below_the_first_unwritable_one() {
+        let tmp = dir();
+        let base = fs::canonicalize(tmp.path()).unwrap();
+        // `home` is another user's `0711` directory; `home/me` is the host's own, and `data` is created in it.
+        let home = base.join("home");
+        let mine = home.join("me");
+        fs::create_dir_all(&mine).unwrap();
+        let path = mine.join("data");
+        let writable = |dir: &Path| dir.starts_with(&mine);
+        let unreadable = |dir: &Path, denied: &Path| -> io::Result<()> {
+            if dir == denied || !dir.starts_with(&mine) {
+                return Err(io::Error::from_raw_os_error(
+                    rustix::io::Errno::ACCESS.raw_os_error(),
+                ));
+            }
+            sync_dir(dir)
+        };
+        let mut synced = Vec::new();
+        let mut sync = |dir: &Path| {
+            unreadable(dir, &base)?;
+            synced.push(dir.to_path_buf());
+            Ok(())
+        };
+        let edges = DirEdges {
+            sync: &mut sync,
+            writable: &writable,
+        };
+        create_durably(&path, edges).unwrap();
+        assert_eq!(synced, vec![mine.clone()], "only the writable ancestors");
+        let mut sync = |dir: &Path| unreadable(dir, &mine);
+        let edges = DirEdges {
+            sync: &mut sync,
+            writable: &writable,
+        };
+        let error = create_durably(&path, edges).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::PermissionDenied);
     }
 
     /// A corrupt epoch row refuses the open: the registry is not guessed at.
