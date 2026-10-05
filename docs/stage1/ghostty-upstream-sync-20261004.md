@@ -154,7 +154,8 @@ replaced regions included, aliases excluded) and the contents size (each alias e
 decides in two steps: the decoded size first (patch 14's report), then the contents size. A14-3 requires the model's
 decode limit to equal `clipboard_bytes`, so the binding now sets option 39 (`CLIPBOARD_WRITE_MAX_BYTES`) from
 `set_clipboard_limit`, wherever it creates a terminal (`Terminal::new` and the snapshot restore both call it). The
-native memory part of A6 is therefore closed: the model holds at most `clipboard_bytes` of payload for one write.
+native memory part of A6 is implemented: the model holds at most `clipboard_bytes` of payload for one write.
+**A6 status: implemented; verification pending** until the test evidence in "Test results" is complete and accepted.
 
 **R-33 (contracts main `14c86ab`): ignored MIME types.** The model ignores the data of MIME types past its count limit
 (64 per write) and never decodes it. That data is not in the decoded size and does not count against the limit; a
@@ -195,7 +196,7 @@ fetch step has the new fork commit and the new `iterm2_themes` package.
 1. The submodule `crates/botster-terminal-ghostty/vendor/ghostty` moves from `3f8eb6810` to `0bfddc16f`, and the
    `.gitmodules` branch from `botster/upstream-sync-20261002` to `botster/upstream-sync-20261004`.
 2. `sys.rs`: `opt::QUERY` 46 and `opt::QUERY_MAX_BYTES` 47; `ClipboardWrite` gains `too_large` and `total_len`;
-   `opt::CLIPBOARD_WRITE_MAX_BYTES` (39) for the test only.
+   `opt::CLIPBOARD_WRITE_MAX_BYTES` (39), which `set_clipboard_limit` sets in production (A14-3).
 3. `events.rs`: the over-limit report (above). `lib.rs`: `set_clipboard_limit` also sets option 39 (A14-3).
 4. `build_data.rs`: the new `iterm2_themes` hash.
 5. `docs/stage1/libghostty-audit.md` revision 11. GHOSTSNP.md: no snapshot fact changed.
