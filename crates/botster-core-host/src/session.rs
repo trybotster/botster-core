@@ -7,7 +7,7 @@
 use botster_core_contract::prelude::*;
 use botster_core_edges::edges::ProcessIdentity;
 use botster_core_link::hello::PROOF_LEN;
-use botster_core_link::proof::TOKEN_LEN;
+use botster_core_link::proof::{token_hex, TOKEN_LEN};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::time::{Duration, Instant};
@@ -21,9 +21,6 @@ pub fn row_key(id: &SessionId) -> String {
 
 /// The prefix of every session row key.
 pub const ROW_PREFIX: &str = "session/";
-
-/// The key of the row that holds the host epoch (DP-8).
-pub const EPOCH_KEY: &str = "meta/host-epoch";
 
 /// The state of a session as the admission table sees it (AM-1).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -162,27 +159,6 @@ impl IdRanges {
     }
 }
 
-pub fn hex_encode(bytes: &[u8]) -> String {
-    bytes.iter().map(|b| format!("{b:02x}")).collect()
-}
-
-pub fn token_from_hex(text: &str) -> Option<[u8; TOKEN_LEN]> {
-    let digits = text.as_bytes();
-    if digits.len() != TOKEN_LEN * 2 {
-        return None;
-    }
-    let nibble = |d: u8| match d {
-        b'0'..=b'9' => Some(d - b'0'),
-        b'a'..=b'f' => Some(d - b'a' + 10),
-        _ => None,
-    };
-    let mut out = [0u8; TOKEN_LEN];
-    for (byte, pair) in out.iter_mut().zip(digits.chunks(2)) {
-        *byte = nibble(pair[0])? * 16 + nibble(pair[1])?;
-    }
-    Some(out)
-}
-
 // A proof is the same size as a token; the two never mix because they have different types.
 const _: () = assert!(PROOF_LEN == TOKEN_LEN);
 
@@ -267,8 +243,6 @@ pub struct Session {
     pub metadata_pending: bool,
     /// How the payload ended while a start flow was still running: applied when the flow ends.
     pub pending_end: Option<SessionEnd>,
-    /// Routes that were registered before the link existed: the handoff waits for the link (DP-2).
-    pub pending_routes: Vec<RouteId>,
 }
 
 impl Session {
@@ -294,7 +268,7 @@ impl Session {
             state: self.shown.unwrap_or(SessionState::Created),
             request: self.request.clone(),
             labels: self.labels.clone(),
-            token: self.token.map(|t| hex_encode(&t)),
+            token: self.token.as_ref().map(token_hex),
             worker: self.worker.identity.map(RowWorker::from),
             payload: self.payload.map(RowWorker::from),
             worker_protocol: self.worker_protocol,
@@ -306,14 +280,6 @@ impl Session {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn a_token_survives_its_hex_form() {
-        let token: [u8; TOKEN_LEN] = std::array::from_fn(|i| i as u8 * 7);
-        assert_eq!(token_from_hex(&hex_encode(&token)), Some(token));
-        assert_eq!(token_from_hex("zz"), None);
-        assert_eq!(token_from_hex(&"G".repeat(64)), None);
-    }
 
     #[test]
     fn a_silence_deadline_needs_a_threshold_an_output_and_an_unfired_period() {

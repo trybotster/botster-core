@@ -208,27 +208,16 @@ exclude_re = [
     'crates/botster-core/src/real\.rs:\d+:\d+: (replace LinkIo::apply( ->| with)|.* in LinkIo::apply$)',
     'crates/botster-core/src/real\.rs:\d+:\d+: (replace socket_path( ->| with)|.* in socket_path$)',
     # botster-core-sys process (P1): `Children` waits for, reaps and signals real children, so the proof is the slow tier,
-    # `tests/slow_process.rs` (slow-tier mutation run of 2026-10-04): `a_child_exit_calls_the_notifier_and_is_polled` and every
-    # test through `next_exit` (poll_exit), `wait_exit_takes_the_exit_of_its_own_child` (wait_exit), and
-    # `a_spawned_child_matches_its_identity_and_dies_by_the_group_kill` and `the_worker_control_signal_reaches_the_worker_handler`
-    # (signal_group, kill_group). Those tests never wait through the code under test, so a defect fails them within their
-    # deadlines.
+    # `tests/slow_process.rs`: `a_child_exit_calls_the_notifier_and_is_polled` and every test through `next_exit`
+    # (poll_exit), and `a_spawned_child_matches_its_identity_and_dies_by_the_group_kill`,
+    # `a_reused_identity_is_never_signalled` and `the_worker_control_signal_reaches_the_worker_handler` (signal_group,
+    # kill_group). Those tests never wait through the code under test, so a defect fails them within their deadlines.
     'crates/botster-core-sys/src/process\.rs:\d+:\d+: (replace Children::poll_exit( ->| with)|.* in Children::poll_exit$)',
-    'crates/botster-core-sys/src/process\.rs:\d+:\d+: (replace Children::wait_exit( ->| with)|.* in Children::wait_exit$)',
     'crates/botster-core-sys/src/process\.rs:\d+:\d+: (replace Children::signal_group( ->| with)|.* in Children::signal_group$)',
     'crates/botster-core-sys/src/process\.rs:\d+:\d+: (replace Children::kill_group( ->| with)|.* in Children::kill_group$)',
-    # process.rs `start_time` of macOS is `cfg(target_os = "macos")` code: the Linux gate does not compile it, so a mutant in
-    # it cannot change a test result there. Only equality has a meaning (AD-6), and the macOS slow tier runs
-    # `a_spawned_child_matches_its_identity_and_dies_by_the_group_kill`.
-    'crates/botster-core-sys/src/process\.rs:\d+:\d+: replace [*+] with [-+*/] in start_time$',
-    # process.rs `exit_status`: the code `-1` is for a reaped child with neither an exit code nor a signal, which a wait
-    # status cannot be (a process ends by `exit` or by a signal).
-    'crates/botster-core-sys/src/process\.rs:\d+:\d+: delete - in exit_status$',
-    # Children::spawn: only the production reaper calls Child::wait for the worker.
-    # The test guard waits for its separate anchor child. It never calls waitpid for the worker.
-    # Child::wait retries EINTR. The child has one reaper, and the wait options are fixed.
-    # ECHILD and EINVAL cannot occur under these ownership rules, so changing the error fallback's sign is equivalent.
-    'crates/botster-core-sys/src/process\.rs:\d+:\d+: delete - in Children::spawn$',
+    # process.rs `wait_unreaped`: the code `-1` is for a pid that is not a pid, and for `ECHILD`, which cannot happen while the
+    # child is in `Unreaped` (the reaper is its only waiter). No real child reaches either path, so the sign is not observable.
+    'crates/botster-core-sys/src/process\.rs:\d+:\d+: delete - in wait_unreaped$',
     # botster-core-sys storage (P1): the registry on a real disk (AD-7, LC-2, DP-8). A real fsync takes the time of the disk
     # of the host, so these tests run in the slow tier (BUILD.md testing rule 2), storage.rs `slow_tests` (slow-tier mutation
     # run of 2026-10-04: every mutant of these functions is caught there): `a_written_row_reads_back_and_a_missing_row_is_none`,
@@ -252,33 +241,21 @@ exclude_re = [
     'crates/botster-core-sys/src/storage\.rs:\d+:\d+: (replace check_safe( ->| with)|.* in check_safe$)',
     # Equivalent mutants of `botster-core-host`: a change that no behavior can show.
     # - `check_payload`: the `Focus` arm is `{}`, the same as the arm for every other kind (`_ => {}`).
-    # - `commit`: `Stop` of a session that is `Starting` while its flow is idle, and `Flow::Create | Flow::Start` are the only
-    #   flows that a `Starting` session has, so the guard `s.admit == Admit::Starting` of the last arms is never the deciding
-    #   one: a `Starting` session always has a start or a create flow.
     'crates/botster-core-host/src/admit\.rs:\d+:\d+: delete match arm InputPayload::Focus\{\.\.\} in HostEngine::check_payload$',
-    'crates/botster-core-host/src/admit\.rs:\d+:\d+: replace match guard s\.admit == Admit::Starting with false in HostEngine::commit$',
     # More equivalent mutants of `botster-core-host`; each is a change that no behavior can show, for the reason given.
     # - `class_of`: the arm of the mandatory kinds. A kind without an arm is mandatory (`_ => Class::Mandatory`).
     # - `key_of`: the arm `ActivitySource::Output`. A source without an arm is keyed with the output (`_ => Output`).
     # - `EventQueue::remove`: the arm of a mandatory event. `remove` is called for K, D and L events only (`retire_*`).
-    # - `link_frame_bound`: `u32::MAX / 2` is the bound and the fallback of `try_from`, which cannot fail after `min`.
     # - `no_worker` returns `WorkerHandle::default()`, the value of `Default::default()`.
     # - `flow_row`: a row result is routed to a session flow only from the phase that wrote the row (`RowWrite`, `DeleteRow`);
     #   the guard of the phase cannot be false when the result arrives.
     # - `on_process_exited`: the `Create` arm. A session in `Create` has no shown state, so the `_` arm does nothing too.
-    # - `forward`: `flow_busy` is `Flow::Start(_) || admit == Starting`, and a request with no link, no failure and no start
-    #   cannot exist: a worker that ends fails its link first (`link_failed`).
-    # - `stop_all_start`: the guard `s.queue.iter().any(Start)` cannot be true for a session that is `Running` or `Starting`
-    #   with a flow other than `Create`, `Start` and `Stop`.
     'crates/botster-core-host/src/queue\.rs:\d+:\d+: delete match arm Event::SessionState\{\.\.\} .* in class_of$',
     'crates/botster-core-host/src/queue\.rs:\d+:\d+: delete match arm ActivitySource::Output in key_of$',
     'crates/botster-core-host/src/queue\.rs:\d+:\d+: replace -= with (\+|/)= in EventQueue::remove$',
-    'crates/botster-core-host/src/engine\.rs:\d+:\d+: replace / with [*%] in HostEngine::link_frame_bound$',
     'crates/botster-core-host/src/engine\.rs:\d+:\d+: replace no_worker -> WorkerHandle with Default::default\(\)$',
     'crates/botster-core-host/src/flows\.rs:\d+:\d+: replace match guard f\.phase == (StopPhase::RowWrite|RemovePhase::DeleteRow) with true in HostEngine::flow_row$',
     'crates/botster-core-host/src/inbound\.rs:\d+:\d+: delete match arm Flow::Create\(_\) in HostEngine::on_process_exited$',
-    'crates/botster-core-host/src/run\.rs:\d+:\d+: replace (== with != |&& with \|\| )in HostEngine::forward$',
-    'crates/botster-core-host/src/run\.rs:\d+:\d+: replace match guard s\.queue\.iter\(\)\.any\(\|f\| matches!\(f, Flow::Start\(_\)\)\) with false in HostEngine::stop_all_start$',
     # botster-terminal-ghostty (review finding P39). Each entry names one function and the mutation that cannot change
     # behavior, with the argument; every other mutant of the crate is caught by a test.
     # Drop bodies that only free a native handle: leak only, not observable through the API. Each body is one call of the

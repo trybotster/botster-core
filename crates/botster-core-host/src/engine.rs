@@ -13,6 +13,13 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
+/// The largest link frame payload of any limits: half of `u32`, so a length and its arithmetic never overflow (plan
+/// section 3).
+const LINK_FRAME_CAP: u32 = u32::MAX / 2;
+
+/// How many link closes `diagnostics()` keeps, newest last (LC-10).
+const LINK_CLOSE_RECORDS: usize = 16;
+
 /// What the engine needs to know before its first input.
 ///
 /// Clause: Core LC-1, Core 9B, Core A2-6, Core DP-8, Core AD-4.
@@ -125,19 +132,26 @@ pub(crate) struct RouteEntry {
     pub route_tag: Option<String>,
 }
 
+/// A route event that waits for mandatory room (EV-5b).
+#[derive(Debug)]
+pub(crate) enum ParkedRoute {
+    Close(RouteId, RouteCloseReason),
+    /// `RouteStalled` (true) or `RouteResumed` (false).
+    Progress(RouteId, bool),
+}
+
 /// Who a ticket belongs to.
 #[derive(Debug, Clone)]
 pub(crate) enum Owner {
     Session(SessionId),
     Op(OpId),
-    /// A best-effort write whose result nobody needs.
-    Ignored,
+    /// The final row of a session that ended: no operation waits for it, so a failure is only recorded (LC-10).
+    FinalRow,
 }
 
 /// The host engine.
 pub struct HostEngine {
     pub(crate) cfg: EngineConfig,
-    pub(crate) features: Features,
     pub(crate) queue: EventQueue,
     /// `queue.total_posted()` when the current input began: a step posts at most one event (9B `pump_events`).
     pub(crate) step_mark: u64,
@@ -160,14 +174,21 @@ pub struct HostEngine {
     pub(crate) now: Option<Instant>,
     pub(crate) unix: UnixSeconds,
     pub(crate) adopt_all_begun: bool,
+    /// Final rows whose write failed or is uncertain: the registry may still show an earlier state, which the next
+    /// `AdoptAll` reads (AD-7: the registry as read after the next `open` is authoritative).
+    pub(crate) final_row_failures: u64,
+    /// Why the last links were closed (a bad frame, a hello that failed AD-6 or AD-4, a peer that left), newest last: an
+    /// interoperability failure is visible where its cause was known (LC-10).
+    link_closes: VecDeque<String>,
     /// The ids of durable rows that no session of this handle holds yet: `Create` refuses them (ID-1: an id is unique among
     /// registry rows), and `AdoptAll` turns each into a session (AD-1).
     pub(crate) unadopted: BTreeSet<SessionId>,
     /// Routes that are registered and wait for the handoff of their stream to the worker (DP-2).
     pub(crate) pending_handoffs: Vec<(RouteId, StreamEndpoint, AttachOptions)>,
     /// Route closes and route events that wait for mandatory-queue room (EV-5b).
-    pub(crate) parked_closes: VecDeque<(RouteId, RouteCloseReason)>,
-    pub(crate) parked_events: VecDeque<Event>,
+    /// One queue in arrival order, so that the events of a route keep the worker's order (EV-6): a close is never posted
+    /// before an event that the worker sent ahead of it.
+    pub(crate) parked: VecDeque<ParkedRoute>,
 }
 
 impl HostEngine {
@@ -179,7 +200,6 @@ impl HostEngine {
             mandatory: cfg.limits.mandatory_events as usize,
         };
         HostEngine {
-            features: cfg.features.clone(),
             queue: EventQueue::new(bounds),
             step_mark: 0,
             sessions: BTreeMap::new(),
@@ -200,9 +220,10 @@ impl HostEngine {
             unadopted: registry_ids,
             unix: 0,
             adopt_all_begun: false,
+            final_row_failures: 0,
+            link_closes: VecDeque::new(),
             pending_handoffs: Vec::new(),
-            parked_closes: VecDeque::new(),
-            parked_events: VecDeque::new(),
+            parked: VecDeque::new(),
             cfg,
         }
     }
@@ -224,6 +245,21 @@ impl HostEngine {
         let n = self.next_instance;
         self.next_instance += 1;
         InstanceId(format!("{}-{}", self.cfg.host_epoch, n))
+    }
+
+    /// Records why `link` was closed, for `diagnostics()` (LC-10). The driver records the closes that it decides.
+    pub fn record_link_close(&mut self, link: LinkId, why: &dyn std::fmt::Display) {
+        if self.link_closes.len() == LINK_CLOSE_RECORDS {
+            self.link_closes.pop_front();
+        }
+        self.link_closes
+            .push_back(format!("link {}: {why}", link.0));
+    }
+
+    /// Closes `link` and records why.
+    pub(crate) fn close_link(&mut self, link: LinkId, why: &str) {
+        self.record_link_close(link, &why);
+        self.act(Action::CloseLink { link });
     }
 
     pub(crate) fn act(&mut self, action: Action) {
@@ -259,11 +295,6 @@ impl HostEngine {
             }),
             _ => true,
         }
-    }
-
-    /// How many route events wait for room inside the engine, for tests.
-    pub fn parked_events_len(&self) -> usize {
-        self.parked_events.len() + self.parked_closes.len()
     }
 
     pub(crate) fn mono(&self) -> Option<Instant> {
@@ -344,6 +375,8 @@ impl HostEngine {
             "captures": self.captures.len(),
             "routes": self.routes.len(),
             "host_epoch": self.cfg.host_epoch,
+            "final_row_failures": self.final_row_failures,
+            "link_closes": self.link_closes,
         })
     }
 
@@ -403,7 +436,7 @@ impl HostEngine {
     }
 
     pub fn features(&self) -> Features {
-        self.features.clone()
+        self.cfg.features.clone()
     }
 
     /// The largest frame payload of a worker link, in bytes (plan section 3). A host write travels in its JSON form and a
@@ -412,7 +445,7 @@ impl HostEngine {
         let limits = &self.cfg.limits;
         let largest = limits.max_paste_bytes.max(limits.max_snapshot_bytes);
         let bound = largest.saturating_mul(4).saturating_add(1 << 20);
-        u32::try_from(bound.min(u64::from(u32::MAX) / 2)).unwrap_or(u32::MAX / 2)
+        u32::try_from(bound).map_or(LINK_FRAME_CAP, |b| b.min(LINK_FRAME_CAP))
     }
 
     pub fn limits(&self) -> CoreLimits {
@@ -469,7 +502,7 @@ impl HostEngine {
         id: &SessionId,
         threshold: Option<Duration>,
     ) -> Result<(), CoreError> {
-        if !self.features.names.contains(&Feature::Silence) {
+        if !self.cfg.features.names.contains(&Feature::Silence) {
             return Err(Self::error(
                 ErrorCode::Unsupported { what: None },
                 "the feature silence is not offered",
@@ -494,7 +527,7 @@ impl HostEngine {
     /// lets parked work run again (EV-5d).
     pub fn poll_events(&mut self, max: usize) -> Vec<Event> {
         let polled = self.queue.poll(max);
-        for event in &polled.events {
+        for event in &polled {
             if let Event::Completed { op, .. } = event {
                 if let Some(done) = self.ops.remove(op) {
                     // The lane of the session is free again when the host polls the completion (AM-4, EV-5a).
@@ -513,7 +546,7 @@ impl HostEngine {
                 }
             }
         }
-        polled.events
+        polled
     }
 
     /// Whether a clause fixes the timing of this work: the scheduler never defers it (R-20).
@@ -644,6 +677,5 @@ pub(crate) fn new_session(
         metadata_pending: false,
         payload: None,
         pending_end: None,
-        pending_routes: Vec::new(),
     }
 }
