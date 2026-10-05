@@ -45,7 +45,7 @@ pub struct PayloadCommand<'a> {
 /// Dropping a payload that was not reaped kills its group and reaps the leader, so a worker that ends leaves no payload
 /// behind (BUILD.md testing rule 10 holds for every owner, a test included).
 pub struct Payload {
-    pty: pty_process::blocking::Pty,
+    pty: Option<pty_process::blocking::Pty>,
     /// `None` once the leader is reaped: from then on the group is never signalled.
     child: Option<Child>,
     pid: u32,
@@ -107,7 +107,7 @@ impl Payload {
         let pid = child.id();
         // From here a `Payload` owns the child: its drop kills the group and reaps the leader.
         Ok(Payload {
-            pty,
+            pty: Some(pty),
             child: Some(child),
             pid,
         })
@@ -120,7 +120,10 @@ impl Payload {
 
     /// The PTY master, for the readiness loop.
     pub fn master(&self) -> BorrowedFd<'_> {
-        self.pty.as_fd()
+        self.pty
+            .as_ref()
+            .expect("the payload master is open")
+            .as_fd()
     }
 
     /// Reads the payload's output. `Ok(0)` means that the output ended. On Linux a read after the last writer closed the PTY
@@ -130,19 +133,24 @@ impl Payload {
     /// `WouldBlock` when no byte is there now, or another read error.
     pub fn read(&self, buf: &mut [u8]) -> io::Result<usize> {
         use std::io::Read;
-        match (&self.pty).read(buf) {
+        match self
+            .pty
+            .as_ref()
+            .expect("the payload master is open")
+            .read(buf)
+        {
             Err(e) if e.raw_os_error() == Some(rustix::io::Errno::IO.raw_os_error()) => Ok(0),
             other => other,
         }
     }
 
-    /// The bytes that the PTY holds for reading now (`FIONREAD`): the bound of the drain after the leader's exit.
+    /// The bytes that the PTY holds for reading now: the bound of the drain after the leader's exit.
+    /// Linux FIONREAD counts master output. On macOS EVFILT_READ supplies that count; FIONREAD counts replica input.
     ///
     /// # Errors
     /// The query failed.
     pub fn pending_output(&self) -> io::Result<usize> {
-        let n = rustix::io::ioctl_fionread(self.pty.as_fd())?;
-        Ok(usize::try_from(n).unwrap_or(usize::MAX))
+        pending_output(self.master())
     }
 
     /// Writes input to the payload.
@@ -151,7 +159,10 @@ impl Payload {
     /// `WouldBlock` when the PTY takes no byte now, or another write error.
     pub fn write(&self, bytes: &[u8]) -> io::Result<usize> {
         use std::io::Write;
-        (&self.pty).write(bytes)
+        self.pty
+            .as_ref()
+            .expect("the payload master is open")
+            .write(bytes)
     }
 
     /// Starts the exit watch: a thread that calls `on_exit` once with the leader's status, when the leader can be reaped. The
@@ -186,6 +197,7 @@ impl Payload {
 
     /// Reaps the leader, after its group kill. It consumes the payload: no signal can follow.
     pub fn reap(mut self) {
+        drop(self.pty.take());
         if let Some(mut child) = self.child.take() {
             // The leader has exited (the watch reported it), so this returns at once.
             let _ = child.wait();
@@ -197,10 +209,44 @@ impl Drop for Payload {
     fn drop(&mut self) {
         if self.child.is_some() {
             self.signal_group(9);
+            // macOS exit drains the controlling terminal before the leader becomes waitable.
+            // Closing the master releases that drain even when output remains unread.
+            drop(self.pty.take());
             if let Some(mut child) = self.child.take() {
                 let _ = child.wait();
             }
         }
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn pending_output(master: BorrowedFd<'_>) -> io::Result<usize> {
+    let count = rustix::io::ioctl_fionread(master)?;
+    Ok(usize::try_from(count).unwrap_or(usize::MAX))
+}
+
+#[cfg(target_os = "macos")]
+fn pending_output(master: BorrowedFd<'_>) -> io::Result<usize> {
+    use std::os::fd::AsRawFd;
+    let mut watcher = kqueue::Watcher::new()?;
+    watcher.add_fd(
+        master.as_raw_fd(),
+        kqueue::EventFilter::EVFILT_READ,
+        kqueue::FilterFlag::empty(),
+    )?;
+    watcher.watch()?;
+    // The fresh read filter samples the current output queue without reading bytes or waiting.
+    match watcher.poll(Some(std::time::Duration::ZERO)) {
+        Some(kqueue::Event {
+            data: kqueue::EventData::ReadReady(count),
+            ..
+        }) => Ok(count),
+        Some(kqueue::Event {
+            data: kqueue::EventData::Error(error),
+            ..
+        }) => Err(error),
+        Some(_) => Err(io::ErrorKind::InvalidData.into()),
+        None => Ok(0),
     }
 }
 

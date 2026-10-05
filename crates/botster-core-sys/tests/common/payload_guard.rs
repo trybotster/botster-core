@@ -50,8 +50,9 @@ impl PayloadGuard {
             let mut rest = Vec::new();
             let _ = receiver.read_to_end(&mut rest);
             let _ = anchor.shutdown(std::net::Shutdown::Write);
-            // EOF confirms that the anchor closed its connection.
-            let _ = anchor.read_to_end(&mut rest);
+            // Return after the cleanup request. The production owner can then close the PTY master.
+            // macOS can hold an exiting anchor in tty drain until that master closes.
+            // The anchor still owns its current group through its final signal.
         });
         Self {
             control,
