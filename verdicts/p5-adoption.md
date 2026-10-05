@@ -387,3 +387,165 @@ The reviewer read the full PR body. Its declared storage and testkit limitations
 This verdict covers this PR's P5 audit scope only. It does not close the remaining deliverable 1 work or P5 adoption.
 
 VERDICT: NOT CLEAN (4 open)
+
+## PR #164 — Round 2
+
+- Exact head: `26c4c2ef58d7ac20b059487013da760bf34911eb`.
+- Base: `144b0234fb632bcbb5176b17c2fe55f3239405df`.
+- Scope: the Round 1 audit fixes and the new storage implementation.
+- The review includes `c4afe586..e6d9f487` and the requested `e6d9f487..26c4c2ef` delta.
+- The reviewer ran no builds, tests, mutation jobs, or gates.
+
+### P5-F5 — MEDIUM — The header defect closes in source, but its regression fails before the contract assertion
+
+The reversible path now preserves the key outside the value file.
+The scanner lists a damaged value under that key, and the real edge returns its bytes to the host decoder.
+The original missing-header source defect is CLOSED.
+The remaining finding concerns regression proof; its severity changes from CONTRACT to MEDIUM.
+P5-F9 separately covers durability defects in the new implementation.
+
+**Evidence:** `crates/botster-core/tests/slow_real_core.rs:377-385` assumes the new `rows/session` directory exists.
+The previous storage layout has no such directory, so this test fails during setup on the baseline.
+It does not reach the missing `SessionState` assertion that must prove audit A1.
+The test then replaces the value with literal invalid bytes at line 386 instead of damaging bytes derived from the written file.
+The supplied log contains passing tests, but no failing baseline at the intended assertion.
+
+**Required change:** Locate the session file from the file changes caused by Core's Create.
+Do not require the revised layout to prepare the regression.
+Read the Core-written bytes and damage those bytes, such as by a derived truncation.
+Check exactly one `Lost(RegistryCorrupt)` event for the created ID, not only the presence of an event.
+Retain the duplicate admission and foreign-file checks.
+Check that the refused Create preserves the damaged bytes, then check ID reuse after Remove.
+Supply the failing baseline at the missing state assertion and the passing revised result.
+
+Status: OPEN (regression proof).
+
+### P5-F6 — CONTRACT — A colliding row still posts no state while Create has not shown Created
+
+The new same-handle test closes the case where Create has already completed.
+The revised source still omits another reachable colliding-row case.
+
+**Evidence:** `crates/botster-core-host/src/run.rs:645-650` posts only when `session.shown` is `Some`.
+After a successful Create row write, the session remains at `CreatePhase::PostCreated` with `shown == None`.
+AdoptAll can then read that durable row and run AdoptRow before the Create state step.
+`ready()` offers operation steps before session steps at `run.rs:118-165`.
+The injected scheduler can also select or defer these independent steps.
+AdoptRow returns without posting, and `adopt_next_row` completes AdoptAll.
+The later Create event does not supply the state before that adoption completes.
+The DESIGN note explicitly counts the later Create event as the row's event, without enforcing this dependency.
+
+**Required change:** Do not complete AdoptAll for this row before its state is posted.
+Preserve the existing instance and the normal Create completion.
+Do not replace the session or add a test-only scheduling rule.
+
+**Closure evidence:** Use injected scheduling to pause Create after its row takes effect and before its Created event.
+Run the first AdoptAll through that interleaving.
+Check the row's state and instance before the AdoptAll completion, and check the eventual Create completion.
+Derive the expected instance from the actual attempted row or operation result.
+Retain the completed-Create case. Supply a failing baseline and a passing revised result at the contract assertion.
+
+Status: OPEN.
+
+### P5-F7 — CLOSED — The testkit shares identity and signal state across handles
+
+`Workers::run_processes` now holds each worker's identity, process cell, and spawning owner.
+Each spawner probes and signals through that shared table.
+The Kill path sends the exit to the spawning owner's table; `poll_exit` still reads only the current owner's exits.
+The new test drops and reopens the actual testkit driver, removes the earlier worker, and observes its absence.
+The supplied Mac log reports that test passing.
+
+The integration reviewer closed K1 at `e6d9f487`, verdict commit `e6078c1`.
+Their review of `26c4c2ef`, commit `8bed899`, reports zero open integration findings.
+They condition their CLEAN on the package CLEAN for that exact head.
+P5-F7 is CLOSED. Audit A9 is CLOSED within this PR's teardown scope.
+
+### P5-F8 — MEDIUM — The reservation closes in source, but the test does not apply the attempted uncertain write
+
+The Create failure path now reserves an uncertain ID in `unadopted`.
+AdoptAll reconciles that reservation against the rows it reads.
+This closes the original same-handle overwrite source defect.
+The remaining finding concerns regression proof; its severity changes from CONTRACT to MEDIUM.
+
+**Evidence:** `crates/botster-core-host/src/tests/registry.rs:233-268` injects an error that does not write the attempted row.
+It later inserts a row copied from a separate World for the `took_effect` case.
+The test does not apply the actual `Action::WriteRow` bytes before returning `Uncertain`.
+It also does not compare the attempted row, recovered instance, or write count after the retry.
+It proves admission remains blocked, but it does not exercise the real applied-then-uncertain edge case from Round 1.
+
+**Required change:** Let the injected storage edge apply the actual attempted row and then return `Uncertain`.
+Keep the complementary case where the error has no effect.
+Check the uncertain completion, duplicate refusal, unchanged row bytes, and absence of a second row write.
+Reopen through the normal driver and check recovery of the first attempted instance.
+Derive expected bytes and identity from that attempt.
+Supply the failing baseline at the duplicate admission assertion and the passing revised result.
+
+Status: OPEN (regression proof).
+
+### P5-F9 — CONTRACT — Successful writes do not establish every ancestor directory's durability
+
+**Evidence:** `crates/botster-core-sys/src/storage.rs:302-323` creates the data directory and the `rows` directory.
+It never syncs their containing directories.
+The row protocol syncs the leaf directory, and `child_dir` syncs parents below the `rows` root.
+Those calls do not establish the `rows` entry's durability in the data directory or newly created data-directory ancestors.
+A successful open and Create can therefore leave the registry's root outside the promised durability protocol.
+This root gap existed before the rewrite and remains in the storage code that this PR now owns.
+
+There is also a new retry gap at `storage.rs:105-110`.
+After `mkdirat` succeeds, a failed parent sync leaves the new directory in place and returns an error.
+A later write sees `EEXIST` and skips that parent sync.
+The later leaf sync can succeed without establishing the ancestor entry's durability.
+The later write then reports success.
+
+AD-7 requires durable registry identity before a payload runs. DP-8 requires a persistent host epoch.
+The lead's storage ruling requires a sync for every created parent directory.
+A sync on an object does not guarantee its entry in its containing directory.
+The Linux manual requires a separate sync for that directory entry. [fsync(2)](https://man7.org/linux/man-pages/man2/fsync.2.html)
+This is a missing durability guarantee; the reviewer makes no claim that the supplied run lost data.
+
+**Required change:** Include the data root and `rows` root in the directory durability protocol.
+Handle all ancestors that Core creates.
+Before reporting a successful retry, establish durability for a directory left by an earlier failed sync.
+Do not treat `EEXIST` alone as proof that its parent entry is durable.
+Use one production protocol with injected filesystem operations, without test branches.
+
+**Closure evidence:** Inject a failure at the parent sync after successful directory creation, then retry the write.
+Check the first failure and the later result through the production storage protocol.
+Check that the retry syncs every required parent before it reports success.
+Derive that parent set from the created path chain.
+Cover fresh data and `rows` roots as well as an ID that creates multiple path components.
+Supply a failing baseline at the missing sync guarantee and a passing revised result.
+
+Status: OPEN.
+
+### P5-F10 — LOW — The PR description still states removed limitations as current behavior
+
+**Evidence:** The full PR body at this head still says `FileStorage::list_rows` drops damaged headers under SHA-256 names.
+It still says the identity probe answers only for the current host.
+Its cross-package summary calls this revision two small edits, despite the new shared process table and storage rewrite.
+Appending a Round 2 section leaves these conflicting statements in the final review description.
+
+**Required change:** Rewrite the description for the final implementation and current scope.
+Remove the obsolete limitations and describe the remaining P5 adoption placeholder accurately.
+Keep prior results with their exact heads and keep the failed slow result marked failed.
+The new Prior art note names `data-encoding` and explains the directory-descriptor protocol; integration K2 closes in source documentation.
+
+Status: OPEN.
+
+### Execution evidence and scope limits
+
+The reviewer read the raw Mac log:
+`~/botster-sessions/gates/botster-core-stage1-p5-audit-contract-e6d9f487-mac-20261004-215950-7755.log`.
+Its header names `e6d9f487a5c815e8d3abfd922b46d722af5db5b9`.
+It reports 486 default-tier tests passed, with 654 skipped.
+The slow result reports 75 passed, one failed, one timed out, and exit 100.
+The A10 cleanup test failed. The shared guard test `parent_dies_before_fifo_reader` timed out after 2.006 seconds.
+Both are known work in #162 and P3's #165; this review does not mark either result passed.
+The new damaged-row, long-ID, existing-row, uncertain-Create, and testkit reopen tests passed on that earlier head.
+
+The final `e6d9f487..26c4c2ef` source delta changes error mapping and the scan result type.
+It maps errors without an OS code to `EIO` and removes the facade's zero-errno fallback.
+The integration reviewer closed K3 for that delta. No execution result on `26c4c2ef` was supplied with this request.
+A4, A5, and A7 remain CLOSED in source. A1 and A2 await the remaining findings above.
+No mutation exclusion changed in this delta. Landing checks remain the implementer's responsibility.
+
+VERDICT: NOT CLEAN (5 open)
