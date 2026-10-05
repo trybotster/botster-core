@@ -599,3 +599,11 @@ The test closes the control peer, releases the independent guard, and waits for 
 The test checks adapter readiness only. It does not establish terminal semantics or real-harness conformance.
 Harness field order now releases the payload guard before Driver drops its production payload.
 No production behavior changed. Next: Linux compilation, baseline, and selected PTY/flush mutations.
+
+The first PTY check at `7c2503e0` failed its unmutated baseline during driver retirement.
+Log: `~/botster-sessions/gates/botster-core-stage1-p3-m1-v1-7c2503e0-linux-20261004-175451-26664.log`.
+Six selected tests passed, including the F21 progress assertion. The PTY test reached the done FIFO marker.
+Its driver-retirement channel then timed out after ten seconds. No mutants ran.
+DP-8 requires the worker to remain alive after link closure. The test used the wrong retirement condition.
+The correction sends the authenticated hello through the link codec, then sends Remove after the output-completion marker.
+The adapter proof still starts with a cleared PTY read flag. The independent guard still owns the real payload.

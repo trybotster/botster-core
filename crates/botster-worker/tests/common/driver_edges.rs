@@ -294,6 +294,22 @@ fn pty_events_resume_reads_after_would_block() {
     h.driver.read_pty_chunk();
     assert!(!h.driver.pty_readable);
     assert!(h.driver.inputs.is_empty());
+    let mut send = |kind, payload: &[u8]| {
+        let mut wire = Vec::new();
+        botster_core_link::frame::encode_frame(kind, payload, u32::MAX, &mut wire).unwrap();
+        h.peer.write_all(&wire).unwrap();
+    };
+    let instance = InstanceId("1-1".into());
+    let mut hello = Vec::new();
+    botster_core_link::hello::Hello {
+        protocol: 1,
+        proof: botster_core_link::proof::token_proof(&[5; 32], &instance, 1),
+        instance,
+        host_epoch: 1,
+    }
+    .encode(&mut hello)
+    .unwrap();
+    send(botster_core_link::frame::FrameType::HELLO, &hello);
     // The program cannot fill the PTY until the real loop must rearm its cleared read flag.
     let driver = h.driver;
     let (sent, received) = mpsc::channel();
@@ -302,7 +318,9 @@ fn pty_events_resume_reads_after_would_block() {
     });
     fifos[1].write_all(b"g").unwrap();
     marker(&mut fifos[2], b"done\n");
-    h.peer.shutdown(std::net::Shutdown::Both).unwrap();
+    let mut remove = Vec::new();
+    botster_core_link::msg::HostMsg::Remove.encode(&mut remove);
+    send(botster_core_link::frame::FrameType::HOST_MSG, &remove);
     drop(h.guard.take());
     received
         // timer: deadline — bounds retirement of the real driver loop.
