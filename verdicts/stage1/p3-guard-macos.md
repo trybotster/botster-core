@@ -329,3 +329,9 @@ This round checks how each new test owns its processes and bounds its waits. Tha
 Integration findings on #165: none open. Still needed for CLEAN: the P3 package verdict on `4c06846d`.
 
 VERDICT: NOT CLEAN (1 open: package verdict pending; 0 integration findings open)
+
+Round 8 note: the package reviewer keeps part of F43 open at this head, on two paths.
+- `ended_within_cleanup` reports an end for any `waitid` error that is not `EINTR`.
+- `Owned::drop` returns on any `try_wait` error and discards the kill and reap errors.
+This reviewer's round 8 read the happy path only. The package finding requires the fix, so no duplicate is opened, and CLEAN
+here waits for it.
