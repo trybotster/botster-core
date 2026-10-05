@@ -165,3 +165,8 @@ Reviewed head: `36702023b8a36876ad226ac61adb63723511f28e`, PR #165, base v1 `144
 The lead's merge order puts this PR first, then #162, #163, #142 and #161.
 
 VERDICT: NOT CLEAN (2 open: G2 for the merged tree in #163; G5)
+
+Note on G2: at this head, #165 alone has no outer wait. The equal deadlines appear only in the tree after #163 merges this
+guard. So G2 moves to #163's review and does not block #165. Open for #165: G5 only.
+
+VERDICT: NOT CLEAN (1 open: G5)

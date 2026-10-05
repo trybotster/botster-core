@@ -376,3 +376,8 @@ Integration source findings: none open. Still needed for CLEAN:
 - the green gate on that head, which runs the newly collected slow tests.
 
 VERDICT: NOT CLEAN (1 open: package verdict and gate pending; 0 integration findings open)
+
+## Note — G2 moved here from the guard PR #165
+
+When #163 merges v1 with the guard PR #165, its bounded anchor wait in `GroupGuard::drop` must be longer than the anchor's
+`CLEANUP`. The implementer plans `2 × CLEANUP` from the one constant. Check this in the delta review of that merge.
