@@ -227,3 +227,30 @@ VERDICT: NOT CLEAN (1 open: package verdict on 82b4269 pending; 0 integration fi
 - If the lead rules on the panic form, a new head gets a delta review here.
 
 VERDICT: NOT CLEAN (1 open: package verdict on 82b4269 pending; 0 integration findings open)
+
+## Round 3 — Delta for package findings F25 and F26
+
+Reviewed head: `800606ac2a99c42a7e25886a5aa1ccc2b88070d1`. The base is still current v1 `144b023`.
+Reviewed delta: `82b4269..800606a`, one commit, 8 files. This reviewer ran no build, test or gate.
+
+- **Production.**
+  - `payload.rs` adds `ExitWatchFailed { errno }`. Its `Display` names the errno and the invariant, and it converts into
+    `io::Error` with the errno's kind and the typed source.
+  - `main.rs` inlines `Input::PayloadExited(watched?)`, and `io_decisions::exit_input` with its map-only test is deleted. This
+    removes the forwarding test noted in the round 2 note.
+  - No interface between packages changes. `watch_exit` keeps the `io::Result<ExitStatus>` callback type of round 2.
+- **The real-path proof.** `a_failed_exit_watch_ends_the_worker_with_a_failure`:
+  - It sends the typed failure through the driver's real exit channel and wakes it. This uses no production seam: the test
+    writes the channel that the watch thread writes.
+  - It runs `command_line::execute` with `Driver::run`, under a marked deadline. It then asserts the failure exit code and the
+    message with the errno and the invariant.
+  - It shows that the whole payload group ended: a background group member's FIFO reaches EOF under a deadline.
+  - The peer socket is nonblocking. The read loop runs only after `run` has returned and the driver is dropped, so it reads the
+    buffered bytes and then EOF, and it cannot block.
+  - Each assertion checks a value that the test supplied or an observed process effect. No terminal byte is asserted.
+- **Test cleanup** (`process_guard.rs`, `payload_guard.rs`, `slow_payload.rs`, `session.rs`) is the package reviewer's F26
+  scope. The shared guard still owns only its group and reaps only its anchor.
+
+Integration findings: none open. Still needed for CLEAN: the P3 package verdict on `800606a`.
+
+VERDICT: NOT CLEAN (1 open: package verdict on 800606a pending; 0 integration findings open)
