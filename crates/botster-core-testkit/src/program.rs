@@ -445,7 +445,9 @@ impl Program for ScriptedProgram {
         let taken = {
             let mut controls = self.controls.lock();
             if controls.fail_after == Some(0) {
-                return Err(io::Error::from_raw_os_error(5));
+                return Err(io::Error::from_raw_os_error(
+                    rustix::io::Errno::IO.raw_os_error(),
+                ));
             }
             let mut room = bytes.len();
             if controls.input_cap.is_some() {

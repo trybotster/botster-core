@@ -28,7 +28,13 @@ use std::time::{Duration, Instant};
 
 /// `ENOEXEC`: the errno of a program that the in-process edge cannot run (a script that is not valid, or a step that needs a
 /// real process). It is what an `exec` of a file that is not a program gives.
-const ENOEXEC: i32 = 8;
+const ENOEXEC: i32 = rustix::io::Errno::NOEXEC.raw_os_error();
+
+/// `EIO`: the errno of a write to a PTY that is gone or that fails.
+const EIO: i32 = rustix::io::Errno::IO.raw_os_error();
+
+/// `EPIPE`: the errno of a write to a program that ended.
+const EPIPE: i32 = rustix::io::Errno::PIPE.raw_os_error();
 
 /// The most inputs that one `Sim` run handles before it reports a livelock: far above what a transcript's workers do between
 /// two host pumps.
@@ -96,11 +102,11 @@ impl Pids {
     }
 }
 
-/// The `Sim` of one harness: every in-process worker of every handle (plan 4.1: "a `Sim` owns ... every `Worker`").
 /// A session instance's worker, named by its data directory and its `InstanceId`: an instance id is unique within one data
 /// directory only (each directory mints its own), so the directory is part of the name.
 type WorkerKey = (String, InstanceId);
 
+/// The `Sim` of one harness: every in-process worker of every handle (plan 4.1: "a `Sim` owns ... every `Worker`").
 #[derive(Clone)]
 pub struct Workers {
     sim: Arc<Mutex<Sim>>,
@@ -358,8 +364,8 @@ enum Ready {
 ///
 /// `ready` performs no read or write that the worker asked for: it reads readiness flags and applies the OS facts that need
 /// no worker input (a process that ended closes its descriptors; `break_control` breaks the link; a program's exit becomes
-/// visible), so the order of every worker effect is the scheduler's (plan 2.5 rule 8). Each worker effect is one input: a read of the link or the PTY, a write of queued link bytes (`LinkWritten`), a spawn's
-/// answer, an exit.
+/// visible), so the order of every worker effect is the scheduler's (plan 2.5 rule 8). Each worker effect is one input: a
+/// read of the link or the PTY, a write of queued link bytes (`LinkWritten`), a PTY write, a spawn's answer, an exit.
 struct WorkerEdges {
     id: ProcessIdentity,
     key: WorkerKey,
@@ -554,7 +560,7 @@ impl Binding<Worker> for WorkerEdges {
                 let bytes = self.pty_write.take().expect("counted as ready");
                 let Some(program) = self.payload.as_mut() else {
                     // No PTY any more (the leader was reaped): the write fails as a write to a closed PTY does.
-                    return Input::PtyWritten(Err(5));
+                    return Input::PtyWritten(Err(EIO));
                 };
                 Input::PtyWritten(match program.write(&bytes) {
                     Ok(n) => Ok(n),
@@ -562,16 +568,8 @@ impl Binding<Worker> for WorkerEdges {
                         self.wait_writable = true;
                         Ok(0)
                     }
-                    // EPIPE for a program that ended, EIO otherwise: the numbers the PTY gives.
-                    Err(e) => {
-                        Err(e
-                            .raw_os_error()
-                            .unwrap_or(if e.kind() == io::ErrorKind::BrokenPipe {
-                                32
-                            } else {
-                                5
-                            }))
-                    }
+                    Err(e) if e.kind() == io::ErrorKind::BrokenPipe => Err(EPIPE),
+                    Err(e) => Err(e.raw_os_error().unwrap_or(EIO)),
                 })
             }
             Ready::PtyWritable => {
