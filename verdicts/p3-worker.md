@@ -2,9 +2,9 @@
 
 Current verdict: NOT CLEAN for two separate review units.
 PR #163 at `40b63dceb6e3f3d7be69a1488ac77eccc121a071` has F28 and F33 OPEN for completed evidence.
-PR #165 at `f5f9d0f64252d41803dcc1b53ca9b586bb90f5cb` has F37, F38, and F39 OPEN.
-F39 now applies to #165's new outer driver wait and the later #163 merge delta.
-Round 83 records the latest guard review. All earlier rounds remain preserved. All earlier findings and closures remain preserved.
+PR #165 at `08fef89d22657db2b558e63d8da8435c9398765a` has F37 and F43 OPEN.
+F39 is CLOSED in #165 and remains OPEN for #163's later merge delta.
+Round 84 records the latest guard review. All earlier rounds remain preserved. All earlier findings and closures remain preserved.
 F1 through F27 and F29 through F32 remain CLOSED at their recorded heads and scopes.
 F34 records the earlier unsafe PID signals and their source correction at `81ccd17`.
 Each cross-package PR also requires the integration reviewer's exact-head CLEAN and the implementer's landing gate.
@@ -3664,3 +3664,99 @@ All earlier findings, closures, and verdict rounds remain preserved.
 The reviewer ran no tests, builds, measurements, mutants, or gates.
 
 VERDICT: NOT CLEAN (3 open findings in PR #165) on `f5f9d0f64252d41803dcc1b53ca9b586bb90f5cb`.
+
+
+## Round 84 — Registration errors and real reservation effects
+
+Reviewed head: `08fef89d22657db2b558e63d8da8435c9398765a`, PR #165, branch `stage1/p3-guard-macos`.
+Base: `144b0234fb632bcbb5176b17c2fe55f3239405df`.
+Reviewed delta: `f5f9d0f6..08fef89d`, two commits, three files.
+The reviewer read the complete registration, reservation-test, and outer-deadline changes.
+The integration reviewer reports zero integration findings at verdict commit `ffcc8f5`, conditional on this package's exact-head CLEAN.
+
+### Completed evidence
+
+The completed focused native Mac log is:
+`~/botster-sessions/gates/botster-core-stage1-p3-guard-macos-08fef89d-mac-20261004-222304-71264.log`.
+The log names this exact head and base, slow clippy, worker prebuild, and the focused nextest commands.
+It exits 0 after nine seconds.
+The first command passes 155 tests with zero skips.
+The second passes 13 selected core guard tests and skips nine other tests.
+The actual reservation signal/no-signal test passes in all six selected binaries that contain it.
+The parent-death regression, both guard failure proofs, and driver edge tests retain their passing results.
+This is a completed focused Mac proof, not a full landing gate or Linux proof.
+
+### F37 — MEDIUM — OPEN for the controlled registration proof
+
+The registration path now retains accept and read failures.
+It rejects unknown or repeated tags and an invalid registered group before sending readiness.
+A ready helper without a member returns a failure.
+A member without a ready helper receives the cleanup request and retains its report path.
+A connection that ends before its tag can cancel registration; the guard preserves an already registered member in that case.
+These source corrections close the remaining silent-registration-error paths from round 83.
+The earlier report validation and real PayloadGuard cleanup-failure proof remain accepted.
+
+The required controlled registration-error proof has not arrived.
+This delta changes the registration code but adds no test of its rejected registration outcomes through the owner/report path.
+The completed log contains the existing cleanup-limit failure proof, which exercises a different path.
+Required evidence: Prove that a rejected registration reaches the guard owner as a failure and does not acknowledge readiness.
+Use the real registration/report path with controlled inputs.
+Retain a proving cancellation case so a launch that never registers does not become an incorrect failure.
+Use observable behavior rather than helper counters or internal literal comparisons.
+F37 remains OPEN for this evidence requirement only.
+F43 below is a separate source finding, so this head is not yet eligible for evidence-only closure.
+
+### F38 — MEDIUM — CLOSED at 08fef89d: the reservation test observes process effects
+
+The reservation test now creates members blocked in a FIFO open.
+With the reservation held, reserved_kill ends the group and the member's exit status identifies SIGKILL.
+After the reservation is reaped, reserved_kill rejects the signal.
+The remaining member then completes its FIFO read and exits normally.
+Thus the test observes both effects that the previous /usr/bin/true proof only claimed.
+It derives the expected signal from Signal::KILL rather than a numeric signal literal.
+The blocking FIFO writer has a marked deadline, which corrects the intermediate nonblocking-open startup race.
+The completed native log records both cases passing.
+This closes F38's required behavior proof.
+F43 separately records the test's missing cleanup ownership and process-wait bounds.
+
+### F39 — LOW — CLOSED in #165 at 08fef89d; OPEN for the later #163 merge delta
+
+Bounded<Driver> now derives its outer completion allowance as 2 * CLEANUP.
+The code reserves one CLEANUP interval for the independent anchor and another for production completion and its report.
+The inner cleanup limit remains unchanged.
+This closes F39 on the current #165 source path.
+PR #163 still must apply the same composition rule when it incorporates the guard and resolves its bounded owner waits.
+The recorded later merge duty remains OPEN in that separate scope.
+
+### F43 — HIGH — The new real reservation test can leave children or wait forever
+
+Status: OPEN.
+Evidence: `crates/botster-core-sys/tests/common/guard_cleanup.rs:275-337` at the reviewed head.
+
+The test holds reserve, held, and alive as raw std::process::Child values.
+No guard kills their group on panic or early return. Child Drop does not end the process.
+If reserved_kill returns an unexpected error or an assertion fails, blocked FIFO members can remain after the test.
+The waits for held, both reserves, and alive are also unbounded.
+If the tested signal does not occur, held.wait() can hold the job indefinitely before any marked deadline.
+The bounded FIFO open does not bound these process waits or provide cleanup ownership.
+This is a new resource-ownership defect in the rewritten proof, despite its passing baseline.
+
+Required change: Give every fixture group independent cleanup ownership on every exit path.
+Preserve the group identity until its final signal; never signal an identity after releasing its owner.
+Bound the observed process completions with real exit events and marked deadlines.
+Reap only the fixture children that this test owns.
+Keep the actual held-signal and released-no-signal assertions.
+Do not replace the proof with helper return checks, sleeps, or busy children.
+
+Authority: the user's real-process guard requirement, no released-ID signals, and BUILD.md testing rules 3 and 5.
+
+### Verdict
+
+PR #165 is NOT CLEAN for F37's evidence and F43's source defect on this exact head.
+F38 and F39 are CLOSED at this head within #165's scope.
+F34, F35, F36, F40, F41, and F42 retain their recorded closures.
+PR #163 separately retains F28, F33, and its later F39 merge duty.
+All earlier findings, closures, and verdict rounds remain preserved.
+The reviewer ran no tests, builds, measurements, mutants, or gates.
+
+VERDICT: NOT CLEAN (2 open findings in PR #165) on `08fef89d22657db2b558e63d8da8435c9398765a`.
