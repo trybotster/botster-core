@@ -259,6 +259,17 @@ mod tests {
         );
     }
 
+    /// AD-6: a start time of 0 is the worker's record of a payload whose start time could not be read. It fails closed: a
+    /// live process that holds the pid has a start time after boot, so the identity never matches it.
+    #[test]
+    fn a_start_time_of_zero_never_matches_a_live_process() {
+        let unknown = ProcessIdentity {
+            pid: std::process::id(),
+            start_time: 0,
+        };
+        assert_eq!(identity_state(unknown), IdentityState::Reused);
+    }
+
     /// AD-6: a signal goes only to the process that the identity names: a reused pid is never signalled (the test would end
     /// with `SIGUSR1` otherwise).
     #[test]

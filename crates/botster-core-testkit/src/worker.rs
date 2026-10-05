@@ -197,8 +197,7 @@ impl Spawner for WorkerSpawner {
             payload: None,
             spawned: None,
             exit: None,
-            output_ended: false,
-            drain: false,
+            drain: None,
             ready: Vec::new(),
             read_chunk: self.workers.read_chunk,
         };
@@ -281,10 +280,9 @@ struct WorkerEdges {
     spawned: Option<Result<PayloadId, SpawnFailure>>,
     /// The exit of the payload that the program edge reported and the worker has not taken yet.
     exit: Option<ExitStatus>,
-    /// A read of the program found the end of its output.
-    output_ended: bool,
-    /// `DrainPty` asked for one `PtyDrained` once the program has no byte to read.
-    drain: bool,
+    /// The bytes still to read for a `DrainPty`: what the program held when the drain was asked, as the real driver's
+    /// bound. `None` when no drain is asked.
+    drain: Option<usize>,
     /// The inputs counted by the last `ready`.
     ready: Vec<Ready>,
     read_chunk: usize,
@@ -318,7 +316,6 @@ impl WorkerEdges {
             .resize(window)
             .map_err(|_| SpawnFailure::Exec { errno: ENOEXEC })?;
         self.payload = Some(program);
-        self.output_ended = false;
         Ok(PayloadId {
             pid: lock(&self.pids).next(),
             start_time: 1,
@@ -385,10 +382,11 @@ impl Binding<Worker> for WorkerEdges {
             if self.exit.is_none() {
                 self.exit = program.poll_exit();
             }
-            if !self.output_ended && program.is_readable() {
-                self.ready.push(Ready::PtyRead);
-            } else if self.drain {
-                self.ready.push(Ready::PtyDrained);
+            // As the real driver: a drain ends when its bound is read or a read finds nothing; output is read while it waits.
+            match (self.drain, program.unread()) {
+                (Some(0), _) | (Some(_), 0) => self.ready.push(Ready::PtyDrained),
+                (_, 0) => {}
+                _ => self.ready.push(Ready::PtyRead),
             }
             if self.exit.is_some() {
                 self.ready.push(Ready::Exited);
@@ -425,24 +423,22 @@ impl Binding<Worker> for WorkerEdges {
             Ready::Spawned => Input::Spawned(self.spawned.take().expect("counted as ready")),
             Ready::PtyRead => {
                 let program = self.payload.as_mut().expect("counted as ready");
-                let mut buf = vec![0u8; self.read_chunk];
-                match program.read(&mut buf) {
-                    Ok(n) if n > 0 => {
-                        buf.truncate(n);
-                        Input::PtyOutput(buf)
-                    }
-                    other => {
-                        // The end of the output, or no byte now: the program has nothing more to read.
-                        if matches!(other, Ok(0)) {
-                            self.output_ended = true;
-                        }
-                        self.drain = false;
-                        Input::PtyDrained
-                    }
+                // A drain reads no more than its bound, so output written after it was asked cannot hold the exit back.
+                let want = self
+                    .drain
+                    .map_or(self.read_chunk, |left| left.min(self.read_chunk));
+                let mut buf = vec![0u8; want];
+                let n = program
+                    .read(&mut buf)
+                    .expect("a program with unread output reads some");
+                buf.truncate(n);
+                if let Some(left) = self.drain.as_mut() {
+                    *left -= n;
                 }
+                Input::PtyOutput(buf)
             }
             Ready::PtyDrained => {
-                self.drain = false;
+                self.drain = None;
                 Input::PtyDrained
             }
             Ready::Exited => Input::PayloadExited(self.exit.take().expect("counted as ready")),
@@ -469,7 +465,9 @@ impl Binding<Worker> for WorkerEdges {
                 }
             }
             Action::SpawnPayload(spec) => self.spawned = Some(self.spawn_payload(&spec)),
-            Action::DrainPty => self.drain = true,
+            Action::DrainPty => {
+                self.drain = Some(self.payload.as_mut().map_or(0, ScriptedProgram::unread));
+            }
             Action::SignalPayload(signal) => {
                 if let Some(program) = self.payload.as_mut() {
                     program.signal(signal);

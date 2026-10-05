@@ -46,6 +46,9 @@ const EXIT: Token = Token(3);
 /// The bytes of one read of the control socket or the PTY.
 const READ_CHUNK: NonZeroUsize = NonZeroUsize::new(64 * 1024).expect("positive driver read bound");
 
+/// The errno of a PTY that is gone, and of an OS failure that carries no errno.
+const EIO: i32 = rustix::io::Errno::IO.raw_os_error();
+
 fn main() -> ExitCode {
     let args: Vec<std::ffi::OsString> = std::env::args_os().skip(1).collect();
     let token = std::env::var(TOKEN_VAR).ok();
@@ -287,7 +290,7 @@ impl Driver {
             let _ = self.poll.registry().deregister(&mut SourceFd(&fd));
             drop(payload);
             return Err(SpawnFailure::Exec {
-                errno: error.raw_os_error().unwrap_or(5),
+                errno: error.raw_os_error().unwrap_or(EIO),
             });
         }
         self.pty_registered = true;
@@ -295,7 +298,9 @@ impl Driver {
         self.payload = Some(payload);
         Ok(PayloadId {
             pid,
-            // A payload that ended at once may have no readable start time; the identity is still unique while unreaped.
+            // A payload that ended at once may have no readable start time. Its record is then 0, which fails closed: while
+            // the worker lives, the unreaped leader pins the pid; after that, a live process that holds the pid has a start
+            // time after boot, so the identity never matches it (AD-6).
             start_time: start_time(pid).unwrap_or(0),
         })
     }
