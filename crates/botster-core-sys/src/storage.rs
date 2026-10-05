@@ -70,8 +70,12 @@ impl From<io::Error> for OpenError {
     }
 }
 
+/// The errno of an I/O error. An error that the OS did not give one for is `EIO`: an input/output error, never a value that
+/// looks like success.
 fn errno(error: &io::Error) -> i32 {
-    error.raw_os_error().unwrap_or(0)
+    error
+        .raw_os_error()
+        .unwrap_or(rustix::io::Errno::IO.raw_os_error())
 }
 
 fn failed(error: impl Into<io::Error>) -> StorageError {
@@ -143,13 +147,13 @@ impl FileStorage {
 
     /// Walks the registry: every path that decodes is a row, and every other name is foreign. The walk descends only into
     /// kind directories and full components, and never follows a link.
-    pub fn scan(&self) -> io::Result<Scan> {
+    pub fn scan(&self) -> Result<Scan, StorageError> {
         let mut scan = Scan::default();
-        for (name, kind) in entries(self.dir.as_fd())? {
+        for (name, kind) in entries(self.dir.as_fd()).map_err(failed)? {
             match kind {
                 FileType::Directory if valid_kind(&name) => {
-                    let fd = open_dir(self.dir.as_fd(), &name)?;
-                    walk(fd.as_fd(), &name, &mut Vec::new(), &mut scan)?;
+                    let fd = open_dir(self.dir.as_fd(), &name).map_err(failed)?;
+                    walk(fd.as_fd(), &name, &mut Vec::new(), &mut scan).map_err(failed)?;
                 }
                 _ => scan.foreign += 1,
             }
@@ -279,7 +283,7 @@ impl Storage for FileStorage {
     }
 
     fn list_rows(&self) -> Result<Vec<String>, StorageError> {
-        self.scan().map(|scan| scan.keys).map_err(failed)
+        self.scan().map(|scan| scan.keys)
     }
 }
 
@@ -385,11 +389,14 @@ fn check_safe(path: &Path) -> Result<(), OpenError> {
 mod tests {
     use super::*;
 
-    /// The errno of an OS error is kept, and an error with none is 0.
+    /// The errno of an OS error is kept, and an error with none is `EIO`, never 0 (integration finding K3).
     #[test]
-    fn an_errno_is_kept() {
+    fn an_errno_is_kept_and_a_missing_one_is_eio() {
         assert_eq!(errno(&io::Error::from_raw_os_error(13)), 13);
-        assert_eq!(errno(&io::Error::other("no code")), 0);
+        assert_eq!(
+            errno(&io::Error::other("no code")),
+            rustix::io::Errno::IO.raw_os_error()
+        );
     }
 
     /// Every error of the open has its own words.
