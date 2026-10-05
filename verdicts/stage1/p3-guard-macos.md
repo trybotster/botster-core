@@ -390,3 +390,39 @@ The #165 CLEAN at `c03bcfb1` (`37ed815`) did not check P5-F4: the unbounded read
 `child.wait` in `process_guard.rs`. This reviewer had moved P5-F4 to #165 (`verdicts/stage1/p5-a10.md`, round 2). Both waits
 remain at `c03bcfb1`. The finding is tracked as C2 on the combined #162 head, which is the head that lands #165 (the lead's
 combined-gate ruling). #165 must not merge by itself at `c03bcfb1`.
+
+## Round 11 — Head 71195e72 (P5-F4 fix, after the CLEAN at c03bcfb1)
+
+Reviewed head: `71195e7209cc0cbee03bedb52eda3f2b83db2585`. Delta `c03bcfb1..71195e72`, two commits, test code only
+(`guard_cleanup.rs`, `process_guard.rs`). The base is still current v1 `144b023`. This reviewer ran no build, test or gate.
+The implementer's focused Mac run at this head (`…guard-macos-71195e72-mac-20261004-224513-28395.log`) shows 168 and 15
+tests passing and exits 0.
+
+- **P5-F4 (C2) CLOSED for the two cited waits.**
+  - `parent_dies_before_fifo_reader` reads its readiness line through `first_line`, with `CLEANUP`.
+  - `Parent` is replaced by `cleanup::Owned`, which observes the end with a deadline, reaps it, and reports a failure.
+  - `eof` uses `CLEANUP`.
+  - Two zero-limit tests show that a stuck child and a silent reader fail with a clear message, and that their owner still
+    ends the child.
+- **A check of every remaining raw wait in the shared guard files** (`git grep 'read_line(&mut\|\.wait()'` at this head).
+  Most are bounded by an earlier observation, or they run inside a helper process, not on a test thread. Two kinds are not.
+
+#### C3 [MEDIUM] OPEN — The same unbounded waits remain in `an_early_exit_keeps_the_group_owned_until_cleanup`
+
+- Location: `process_guard.rs`, about lines 362-366 at this head: `pipe.read_line(&mut descendant).unwrap()` on the test
+  thread, then `child.wait().unwrap()`. Both run before any deadline.
+- Evidence: this is the class of P5-F4. A shell that never writes its line, or never ends, holds the job until its deadline.
+  Round 10 and the P5-F4 fix both missed this test.
+- Required: read through `first_line`, and hold the shell as `cleanup::Owned`, so that its end is observed with a deadline
+  before it is reaped.
+
+#### C4 [LOW] OPEN — Two self-tests still fork `/bin/sleep 1` in a loop
+
+- Location: `process_guard.rs` `a_panic_before_ready…` (`while :; do /bin/sleep 1; done`) and
+  `an_early_exit_keeps_the_group_owned_until_cleanup` (`(while :; do /bin/sleep 1; done) &`).
+- Evidence: BUILD.md testing rule 5 says "No sleeps or polling". The loop wakes every second and forks forever until it is
+  killed. The other fixtures of this PR already use a member that blocks with no CPU on a FIFO that nothing writes. This
+  code predates #165 (it is on v1), but #165 rewrites this file and owns the guard now.
+- Required: replace both loops with that blocked `/bin/cat` member.
+
+VERDICT: NOT CLEAN (2 open: C3, C4; package verdict pending)
