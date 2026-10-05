@@ -67,6 +67,11 @@ pub(crate) fn end_group(
     })
 }
 
+/// Whether a group kill was refused (EPERM): some member could not be signalled.
+fn refused(error: &std::io::Error) -> bool {
+    error.raw_os_error() == Some(rustix::io::Errno::PERM.raw_os_error())
+}
+
 /// Kills `group`, but only while `reserve` holds it: the reserve took the group at its fork, nothing can move a zombie to
 /// another group, and while it is an unreaped child of this process (live or a zombie), the group exists and no other
 /// group has the id. (macOS refuses `getpgid` for a zombie, so the check is the wait status, not the group.) Without the
@@ -124,10 +129,12 @@ pub(crate) fn end_members<M: PartialEq + Clone>(
             let _ = kill();
             return Err(Failure::Left(live));
         }
-        // A kill that finds no member to signal (ESRCH: they all ended since the listing, and a BSD kernel skips the
-        // zombies left) is not a failure; the next listing decides.
+        // A kill that reaches no member is not a failure by itself; the next listing decides. ESRCH: they all ended since
+        // the listing, and a BSD kernel skips the zombies left. EPERM: macOS refuses a group kill when a member cannot be
+        // signalled, which a member that is already exiting is. A member that truly cannot be signalled stays listed live
+        // and ends the rounds as left at the deadline, so the failure is still reported.
         match kill() {
-            Err(error) if !gone(&error) => return Err(Failure::Error(error)),
+            Err(error) if !gone(&error) && !refused(&error) => return Err(Failure::Error(error)),
             _ => {}
         }
         let mut gone = Vec::new();
@@ -229,24 +236,22 @@ fn a_failed_kill_listing_or_wait_stops_the_rounds_with_its_error() {
     assert!(matches!(wait, Err(Failure::Error(_))));
 }
 
-/// A kill that finds no member to signal (ESRCH: they ended after the listing) is not a failure: the next listing is empty,
-/// and the cleanup succeeded.
+/// A kill that reaches no member is not a failure: ESRCH (the members ended after the listing) or EPERM (macOS refuses a
+/// group kill while a member is exiting). The next listing is empty, and the cleanup succeeded.
 #[test]
-fn a_kill_that_finds_no_member_lets_the_next_listing_decide() {
+fn a_kill_that_reaches_no_member_lets_the_next_listing_decide() {
     let member = 7;
-    let mut listings = std::collections::VecDeque::from([vec![member], vec![]]);
-    let ended = end_members(
-        || {
-            Err(std::io::Error::from_raw_os_error(
-                rustix::io::Errno::SRCH.raw_os_error(),
-            ))
-        },
-        || Ok(listings.pop_front().expect("no listing after an empty one")),
-        |_: &i32| Ok(Waited::Gone),
-        || false,
-    );
-    assert!(ended.is_ok());
-    assert!(listings.is_empty());
+    for errno in [rustix::io::Errno::SRCH, rustix::io::Errno::PERM] {
+        let mut listings = std::collections::VecDeque::from([vec![member], vec![]]);
+        let ended = end_members(
+            || Err(std::io::Error::from_raw_os_error(errno.raw_os_error())),
+            || Ok(listings.pop_front().expect("no listing after an empty one")),
+            |_: &i32| Ok(Waited::Gone),
+            || false,
+        );
+        assert!(ended.is_ok(), "{errno}");
+        assert!(listings.is_empty());
+    }
 }
 
 /// A member that a wait calls gone while the listings still call it live (a process held in its exit) does not make the
