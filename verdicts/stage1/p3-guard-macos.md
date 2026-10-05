@@ -122,3 +122,46 @@ The package reviewer also requires proof by behavior on owned processes, under t
 integration side of that requirement. The package reviewer owns the rest.
 
 VERDICT: NOT CLEAN (4 open: G1, G2, G3, G4)
+
+## Round 3 — PR #165, head 3670202
+
+Reviewed head: `36702023b8a36876ad226ac61adb63723511f28e`, PR #165, base v1 `144b023`. Delta `81ccd17..3670202`, one commit,
+`process_guard.rs` and `payload_guard.rs`. This reviewer ran no build, test or gate. It read the implementer's Mac log.
+
+- **G3 CLOSED.** Each round now lists, kills, then waits. `ForkRace` models the kernel: a kill ends the members that are in the
+  group at that moment, and a fork that was in progress joins just after the first kill. Its wait asserts that the member
+  ended by a kill that came after its listing. Under the old order (kill, list, wait), member 2 is waited for with no kill,
+  so the old order fails the test and the new one passes. The test checks behavior. It is not a call count.
+- **G4 CLOSED.** A listing error and a wait-setup error are `Failure::Error`. `ESRCH` means ended: `watch()` on macOS,
+  `pidfd_open` on Linux. A process that vanished during the listing is skipped, because it is not live. A Linux `poll` that
+  returns at its timeout leads to the deadline check, so no setup error retries hot.
+- **G1 CLOSED.** `end_members` returns `Left(members)` or `Error(e)`, and `end_group` turns that into a report. The anchor
+  writes the report to the control stream and exits 1. `GroupGuard::drop` checks the status, reads the report, and panics,
+  or prints it when the test already panics. Scripted tests cover both failure outcomes. The payload guard's member reports
+  the same way, but its stderr is `/dev/null` through the prefix. The PR states this. Each payload test's own EOF check and
+  bounded cleanup observe that cleanup, so this reviewer accepts the stated limit.
+- **G2** stays open for the merged tree. This PR keeps v1's direct `anchor.wait()`, with no outer deadline. The implementer
+  will make #163's bounded anchor wait `2 × CLEANUP`, from the one constant, when #163 merges this guard. G2 closes in #163's
+  delta review.
+- **Proof.** Log `…guard-macos-36702023-mac-20261004-215726-95373.log`: a `botster-gate --on mac` run at this exact head.
+  - Clippy with `slow` passes on the three crates.
+  - `prebuild-worker` passes.
+  - 132 slow tests pass in one run, and 9 in the other. They include `parent_dies_before_fifo_reader` in each binary that
+    includes the guard, and the new `end_members` tests.
+  - Exit 0.
+- **Prior art.** The PR names `libproc` 0.14, `kqueue` 1.2.1 and `libc` 0.2.
+
+#### G5 [LOW] OPEN — A member that the wait calls gone, but the listing still calls live, makes the rounds repeat with no wait
+
+- Location: macOS `await_end` (`watch()` gives `ESRCH`, so `Ok`) and `live_members` (`pbi_status != SZOMB`).
+- Evidence: the earlier Mac hang was a leader stuck in its exit (`?E`). If XNU refuses `EVFILT_PROC` on a process that is in
+  exit but not yet a zombie, then each round lists it, kills it, waits for nothing (`ESRCH`, so `Ok`), and lists it again.
+  That spins until `CLEANUP`, and only then reports `Left`. The report is correct, but the CPU is busy for 10 s. This
+  reviewer has not proved that XNU behaves this way. The rule below does not depend on it.
+- Required: no round repeats without a blocking wait, or a change in the live set. For example, keep the members that a
+  wait called gone (pid and start time), and do not list them as live again; or end with `Left` when the same member is
+  called gone twice. Add a scripted case in the `ForkRace` style.
+
+The lead's merge order puts this PR first, then #162, #163, #142 and #161.
+
+VERDICT: NOT CLEAN (2 open: G2 for the merged tree in #163; G5)
