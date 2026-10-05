@@ -92,20 +92,11 @@ pub type Notify = Arc<dyn Fn() + Send + Sync>;
 /// The children that the host started. A reaper thread watches each child: it waits until the child can be reaped, reaps it
 /// under the lock of `unreaped`, queues the exit and calls the notifier, so the host wakes at the moment a worker ends and
 /// never leaves a zombie.
+#[derive(Default)]
 pub struct Children {
     exits: Exits,
     unreaped: Unreaped,
     notify: Option<Notify>,
-}
-
-impl Default for Children {
-    fn default() -> Children {
-        Children {
-            exits: Arc::default(),
-            unreaped: Arc::default(),
-            notify: None,
-        }
-    }
 }
 
 impl Children {
