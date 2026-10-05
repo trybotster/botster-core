@@ -273,8 +273,11 @@ fn wait_unreaped_with(
                 }
             }
             Err(rustix::io::Errno::INTR) | Ok(None) => {}
-            // ECHILD: the child is no longer ours to wait for. It cannot happen while the leader is unreaped.
-            Err(_) => return ExitStatus::Code(-1),
+            // The Payload holds the unreaped leader, so its wait cannot fail. The watch never invents an exit: if this
+            // invariant ever broke, the worker ends and its host sees a lost worker.
+            Err(errno) => panic!(
+                "the exit watch cannot wait for the payload leader ({errno}): the Payload holds the unreaped leader"
+            ),
         }
     }
 }
@@ -304,17 +307,17 @@ mod tests {
         );
     }
 
-    /// EV-4: a failed exit watch has an unknown exit code; an interrupted wait retries the same operation.
+    /// EV-4: an interrupted wait retries the same operation, and a wait that fails never invents an exit.
     #[test]
-    fn an_interrupted_watch_retries_and_a_failed_watch_reports_unknown_exit() {
+    fn an_interrupted_watch_retries_and_a_failed_watch_invents_no_exit() {
         let mut outcomes = std::collections::VecDeque::from([
             Err(rustix::io::Errno::INTR),
             Err(rustix::io::Errno::CHILD),
         ]);
-        assert_eq!(
-            wait_unreaped_with(|| outcomes.pop_front().expect("the watch made an extra wait")),
-            ExitStatus::Code(-1)
-        );
-        assert!(outcomes.is_empty());
+        let watched = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            wait_unreaped_with(|| outcomes.pop_front().expect("the watch made an extra wait"))
+        }));
+        assert!(watched.is_err(), "no exit status for a failed wait");
+        assert!(outcomes.is_empty(), "the interrupted wait was retried");
     }
 }
