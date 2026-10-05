@@ -69,3 +69,40 @@ The PR explicitly leaves `conf::lc_12_drop_leaves_workers_running` for P5 proper
 This verdict does not establish LC-12 conformance or closure of the other P5 audit findings.
 
 VERDICT: NOT CLEAN (2 open)
+
+## PR #162 — Round 2
+
+- Exact head: `1a96eee7adc240a4ed90835dfc967e2efdd8e6b6`.
+- Base: `144b0234fb632bcbb5176b17c2fe55f3239405df`.
+- Delta: `b5c4bffbcdf2bc1843f944eafbf315a9b9b200cb..1a96eee7adc240a4ed90835dfc967e2efdd8e6b6`.
+- Scope remains audit A10 / issue #152. Only `slow_real_core.rs` changes.
+- The reviewer ran no builds, tests, mutation jobs, or gates.
+
+P5-F1's source defect is closed. The shell now waits for `/bin/cat` on a FIFO that has no writer.
+The child keeps the observed FIFO as standard output. Neither process redirects that output or runs a busy loop.
+FIFO EOF establishes that all write descriptors closed, without depending on production reaping.
+
+P5-F2 is CLOSED. The test moves `worker` to a cleanup thread before guard destruction.
+The test observes cleanup completion through a marked 10-second deadline, then observes FIFO EOF through another marked deadline.
+The shared guard and production worker reaper are unchanged.
+
+The reviewer inspected the exact-head Linux log:
+`~/botster-sessions/gates/botster-core-stage1-p5-a10-1a96eee7-linux-20261004-205647-55445.log`.
+Its command runs format checks, Clippy, and one `slow_real_core` run.
+The log reports 15 passed, zero skipped, and exit 0. The revised cleanup test passed.
+This evidence is a focused run. The full merge gate remains subject to the lead's FULL HOLD.
+
+### P5-F1 — Remaining documentation requirement — LOW
+
+The source defect is closed, but the Round 1 documentation requirement remains open.
+The reviewer read the full PR body with `gh pr view 162` on this head.
+The body still states that the script uses a wait loop that ends when the test process is gone.
+The revised script uses a blocked `cat` child instead. The evidence section names only `b5c4bff` and its 20 repeated runs.
+
+**Required change:** Update the PR body to describe the blocked child and the bounded guard cleanup.
+Name the exact revised head and its single focused run. Preserve the LC-12 scope limit and Prior art note.
+No source commit or new test run is required for this documentation correction.
+
+Status: OPEN at LOW severity. P5-F2 is CLOSED. No other finding is open for this PR's scope.
+
+VERDICT: NOT CLEAN (1 open)
