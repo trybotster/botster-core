@@ -93,6 +93,10 @@ pub trait HostEdges: Send {
     fn settle_wake(&mut self);
     /// The scheduling policy (`Scheduler`): the production policy, or the seeded policy of the testkit.
     fn scheduler(&mut self) -> &mut dyn Scheduler;
+    /// What the edges know that the engine cannot, for `diagnostics()` (LC-10, one opaque value). None by default.
+    fn diagnostics(&self) -> serde_json::Value {
+        serde_json::Value::Null
+    }
 }
 
 /// The errors of `open` that do not need the data directory: the limits (9B, LC-1) and the worker path (LC-1).
@@ -691,7 +695,9 @@ impl<E: HostEdges> CoreApi for HostDriver<E> {
     }
 
     fn diagnostics(&self) -> serde_json::Value {
-        self.engine.diagnostics()
+        let mut diagnostics = self.engine.diagnostics();
+        diagnostics["edges"] = self.edges.diagnostics();
+        diagnostics
     }
 
     fn terminal_state(&self, id: &SessionId) -> Result<TerminalState, CoreError> {
