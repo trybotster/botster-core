@@ -1,3 +1,49 @@
+# PR #161 latest round: contracts-v0.1.15
+
+VERDICT: CLEAN
+
+Implementation head: `b27fdacfad36149cc194a3e60416a03fd0e134af`.
+Reviewed delta: `5a34cf84d840c9424ef83b1bb8e37677b4524b0c..b27fdacfad36149cc194a3e60416a03fd0e134af`.
+Open findings for this pin move: 0, including LOW findings.
+
+## Delta review
+
+The lead retargeted PR #161 to `contracts-v0.1.15` in the shared lead handoff.
+The PR body retains its Prior art note and lists all ten new Core IDs.
+The reviewer confirmed GitHub's exact PR head and inspected the complete delta.
+
+- The tag resolves to `69327d52cedb05ee9b9c63912b58d6f62a36917f`.
+- Manifest final33 includes HC Amendment 6 and accepted Core Amendment 14, candidate 3.
+- All six workspace dependencies use the new tag. All nine contracts lockfile entries use its exact commit.
+- Only the contracts source entries change in Cargo.lock. No contract crate changes between the tags.
+- BUILD.md and the steward rulings remain unchanged between the tags. R-30 through R-32 remain in the new tag.
+- The generated ledger matches the new tag's Core IDs, byte for byte: 664 IDs, up from 654.
+- Exactly ten `conf::a14_*` IDs join the ledger. No existing ID leaves the ledger.
+- Exactly those ten IDs join the pending list. No existing pending ID changes or leaves the list.
+- The header gives the lead's reason: `A14: P3 worker (M2b) + fork binding (option 39)`.
+- Both copied contracts status files match the new tag, byte for byte. The Core deferred table remains unchanged.
+- The three citation changes name the new tag. No executable Rust statement changes.
+
+A14 requires decoded size and contents size checks, in that order, and a model decode limit equal to `clipboard_bytes`.
+This PR records those requirements as pending. It does not implement or prove the A14 behavior.
+This verdict preserves all earlier review history. It does not review the RealCoreHarness scaffold.
+
+## Gate boundary
+
+The reviewer ran no tests, mutation jobs, builds, or gates.
+Direct Git and Python comparisons establish the artifact checks above.
+The supplied gate log for the earlier head `5a34cf8` reports two slow-test failures:
+
+- `a_worker_is_not_left_when_the_cleanup_of_a_test_fails`.
+- `the_pty_counts_output_and_delivers_input_to_the_program`.
+
+The log reports mutation and fuzz steps as NOT RUN. It is not a green gate for either head.
+The lead parked execution under FULL HOLD and requires the A10 and A31 fixes in v1 before the next gate.
+This verdict does not close or waive A10 or A31, or establish their cause.
+The future v1 merge needs a delta review. Merge still requires a green gate on the final exact CLEAN head.
+
+---
+
 # P6 contracts-v0.1.14 pin review
 
 VERDICT: CLEAN
