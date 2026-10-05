@@ -24,7 +24,7 @@ use botster_core_testkit::anchor::{
 use rustix::process::{getpgid, kill_process_group, Pid, Signal};
 use std::convert::Infallible;
 use std::ffi::{OsStr, OsString};
-use std::io::{self, BufRead, BufReader, Read, Write};
+use std::io::{self, BufRead, BufReader, Write};
 use std::os::fd::OwnedFd;
 use std::os::unix::net::UnixStream;
 use std::os::unix::process::CommandExt;
