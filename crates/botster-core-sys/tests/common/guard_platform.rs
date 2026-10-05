@@ -117,7 +117,16 @@ pub(crate) fn live_members(group: rustix::process::Pid) -> std::io::Result<Vec<M
     use libproc::processes::{pids_by_type, ProcFilter};
     let group_id = group.as_raw_nonzero().get() as u32;
     let mut members = Vec::new();
-    for pid in pids_by_type(ProcFilter::ByProgramGroup { pgrpid: group_id })? {
+    // libproc reads `errno` when the kernel lists no process, and that `errno` can be left over from an earlier call. So a
+    // failed listing is checked with a test signal to the group, which skips zombies: ESRCH proves no live member.
+    let pids = match pids_by_type(ProcFilter::ByProgramGroup { pgrpid: group_id }) {
+        Ok(pids) => pids,
+        Err(error) => match rustix::process::test_kill_process_group(group) {
+            Err(rustix::io::Errno::SRCH) => return Ok(Vec::new()),
+            _ => return Err(error),
+        },
+    };
+    for pid in pids {
         let Some(process) = rustix::process::Pid::from_raw(pid as i32) else {
             continue;
         };
