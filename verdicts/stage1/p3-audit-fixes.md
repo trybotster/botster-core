@@ -284,3 +284,37 @@ VERDICT: NOT CLEAN (1 open: package verdict on ccba050 pending; 0 integration fi
 - The xtask is shared CI code, outside P3's crates, so any xtask change gets an integration delta review here.
 
 VERDICT: NOT CLEAN (1 open: package verdict pending, which now includes F33; 0 integration findings open)
+
+## Round 5 — xtask delta for the package finding F33
+
+Reviewed head: `1a13fd1fcd9f31df37b78e7bf70f1ad6946e6b6e`. The base is still current v1 `144b023`.
+Reviewed delta: `ccba050..1a13fd1`, one commit, `xtask/src/test_budget.rs`. This reviewer ran no build, test or gate.
+
+The slow-tier filter changes from `binary(/^slow/)` to `binary(/^slow/) | (kind(bin) & test(/^slow_/))`.
+- With the change, the slow tier runs the botster-worker binary's `slow_driver` and `slow_edges` modules. They are compiled
+  only with `feature = "slow"`, and that module path is where `a_failed_exit_watch_ends_the_worker_with_a_failure` lives. The
+  default tier never compiles those modules, so the default selection does not change.
+- The xtask's own test compares the args with the literal filter. That is the existing pattern for the xtask's command line,
+  not a clause value, so this reviewer accepts it.
+
+#### I7 [MEDIUM] OPEN — The new filter still leaves out the slow modules of library targets
+
+- Location: `xtask/src/test_budget.rs` `SLOW_FILTER`.
+- Evidence: three library targets have a `#[cfg(test)] #[cfg(feature = "slow")] mod slow_tests`:
+  - `crates/botster-core-sys/src/storage.rs:346`, the real-disk storage tests that P1 moved to the slow tier;
+  - `crates/botster-core/src/lib.rs:236`;
+  - `crates/botster-core/src/real.rs:449`.
+  These tests are in neither `binary(/^slow/)` (their binary is the crate's lib test binary) nor `kind(bin)`. So no gate runs
+  them, before or after this delta. The new comment says that only a binary target's real driver needs this path. That is not
+  true for these lib modules.
+- Why: F33 is the gap where the gate does not run a slow test that this PR relies on. The same gap holds for every
+  `slow_*` module of a lib target. BUILD.md testing rule 2 says real-process tests "run at landing". A slow test that the
+  landing gate never collects proves nothing.
+- Required:
+  1. Collect every slow unit-test module, for example `binary(/^slow/) | test(/^slow_/)`, and correct the comment.
+     No test outside these modules has a name that starts with `slow_` (checked with `git grep 'fn slow_'` at this head).
+  2. The gate log names the collected lib tests.
+  3. If a newly collected test fails and its owner is another package, ask the lead a QUESTION about the scope. Do not drop
+     it from the filter.
+
+VERDICT: NOT CLEAN (2 open: I7; package verdict pending)
