@@ -3,7 +3,8 @@
 
 use botster_core_contract::prelude::*;
 use botster_core_edges::edges::{
-    ExitStatus, GroupSignal, ProcessIdentity, SpawnError, SpawnSpec, Storage, StorageError,
+    ExitStatus, GroupSignal, IdentityState, ProcessIdentity, SpawnError, SpawnSpec, Storage,
+    StorageError,
 };
 use botster_core_edges::scheduler::Production;
 use botster_core_edges::{Entropy, Scheduler, Wake as WakeEdge};
@@ -289,6 +290,10 @@ impl HostEdges for RealEdges {
 
     fn signal_group(&mut self, identity: ProcessIdentity, signal: GroupSignal) {
         self.children.signal_group(identity, signal);
+    }
+
+    fn identity_state(&self, identity: ProcessIdentity) -> IdentityState {
+        botster_core_sys::process::identity_state(identity)
     }
 
     fn poll_process_exit(&mut self) -> Option<(ProcessIdentity, ExitStatus)> {

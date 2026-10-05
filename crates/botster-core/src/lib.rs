@@ -60,7 +60,8 @@ fn open_error(error: OpenError) -> CoreError {
 
 impl Core {
     /// Opens a host over `config.data_dir`: validates the limits (9B), needs a worker path (LC-1), takes the exclusive lock
-    /// (LC-2) and raises the host epoch (DP-8). It starts no thread and spawns no process.
+    /// (LC-2), raises the host epoch (DP-8) and reads the ids of the registry's rows (ID-1). It starts no thread, spawns no
+    /// process and reads no clock (TM-1).
     ///
     /// # Errors
     /// `InvalidConfig`, `MissingWorkerPath`, `DataDirInUse`, or `RegistryFailed` when the directory cannot be used.
@@ -92,7 +93,7 @@ impl Core {
             },
         };
         Ok(Core {
-            driver: HostDriver::new(cfg, edges, Instant::now()),
+            driver: HostDriver::open(cfg, edges)?,
             _not_sync: PhantomData,
         })
     }

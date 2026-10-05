@@ -15,7 +15,9 @@ use crate::program::ScriptedProgram;
 use crate::scheduler::SchedulerHandle;
 use crate::sim::{Binding, MachineNode, Sim};
 use botster_core_contract::prelude::*;
-use botster_core_edges::edges::{ExitStatus, GroupSignal, ProcessIdentity, SpawnError, WindowSize};
+use botster_core_edges::edges::{
+    ExitStatus, GroupSignal, IdentityState, ProcessIdentity, SpawnError, WindowSize,
+};
 use botster_core_edges::{Link, Machine, Program};
 use botster_core_host::driver::{HostDriver, HostWake, WorkerSpawn};
 use botster_core_link::msg::PayloadId;
@@ -236,6 +238,14 @@ impl Spawner for WorkerSpawner {
                 }
             }
             GroupSignal::Kill => processes.end(identity, ExitStatus::Signal(9)),
+        }
+    }
+
+    /// A worker of this host matches until it ended. A process that this host did not spawn is not in its table.
+    fn identity_state(&self, identity: ProcessIdentity) -> IdentityState {
+        match lock(&self.processes).cells.get(&identity) {
+            Some(cell) if !lock(cell).ended => IdentityState::Matches,
+            _ => IdentityState::Absent,
         }
     }
 

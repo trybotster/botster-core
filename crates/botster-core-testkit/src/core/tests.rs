@@ -1,6 +1,7 @@
 //! Checks of the injected host edges (Core A5-1, A5-2, A5-3).
 
 use super::*;
+use std::time::Instant;
 
 fn edges(seed: u64) -> SimEdges {
     SimEdges {
@@ -172,6 +173,11 @@ impl Spawner for RecordedSpawner {
         lock(&self.0).signals.push((identity, signal));
     }
 
+    /// The log only records: no process of it ever ends by itself.
+    fn identity_state(&self, _identity: ProcessIdentity) -> IdentityState {
+        IdentityState::Matches
+    }
+
     fn poll_exit(&mut self) -> Option<(ProcessIdentity, ExitStatus)> {
         lock(&self.0).exits.pop_front()
     }
@@ -212,13 +218,10 @@ fn each_spawn_has_its_own_link_and_process_events_reach_the_spawner() {
 
 /// LC-2, LC-12, and DP-8: dropping the host releases the directory, retains rows, and advances the epoch.
 #[test]
-#[allow(clippy::disallowed_methods)] // The test initializes the injected clock once.
 fn reopen_retains_rows_and_advances_the_host_epoch() {
-    let start = Instant::now();
     let run = || RunInputs {
         seed: 4,
         scheduler: SchedulerHandle::with_seed(4),
-        start,
     };
     let config = OpenConfig {
         data_dir: "memory".into(),
@@ -288,7 +291,7 @@ fn the_testkit_facade_forwards_configuration_and_typed_failures() {
     };
     let edges = edges(5);
     let wake = edges.wake();
-    let driver = HostDriver::new(cfg, edges, start);
+    let driver = HostDriver::open(cfg, edges).unwrap();
     let mut core = crate::worker::TestkitCore::new(driver, wake, workers);
     assert_eq!(core.limits(), limits);
     assert_eq!(core.features(), features);
@@ -443,11 +446,7 @@ fn the_testkit_facade_releases_captures_by_id_and_owner() {
                 worker_path: Some("worker".into()),
                 limits: CoreLimits::default(),
             },
-            RunInputs {
-                seed: 7,
-                scheduler,
-                start,
-            },
+            RunInputs { seed: 7, scheduler },
             core_features(),
             Some(Box::new(RecordedSpawner(log.clone()))),
         )
@@ -682,7 +681,6 @@ fn the_worker_keeps_complete_operations_at_each_buffer_bound() {
                 RunInputs {
                     seed: 11,
                     scheduler,
-                    start,
                 },
                 core_features(),
                 Some(Box::new(workers.spawner())),

@@ -982,8 +982,7 @@ fn adopt_all_keeps_created_rows_with_their_labels() {
         labels: BTreeMap::from([("k".into(), "v".into())]),
     });
     let instance = w.instance_of("s1");
-    let mut again = World::default();
-    again.rows = w.rows.clone();
+    let mut again = World::over(&w);
     assert_eq!(again.ok(Op::AdoptAll), OpOutput::Unit);
     let record = again.engine.get(&sid("s1")).unwrap();
     assert_eq!(record.state, SessionState::Created);

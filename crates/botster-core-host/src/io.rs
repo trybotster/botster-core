@@ -6,7 +6,7 @@
 
 use botster_core_contract::prelude::*;
 use botster_core_edges::edges::{
-    ExitStatus, GroupSignal, ProcessIdentity, SpawnError, StorageError,
+    ExitStatus, GroupSignal, IdentityState, ProcessIdentity, SpawnError, StorageError,
 };
 use botster_core_link::hello::{Hello, TokenProof};
 use botster_core_link::msg::{HostMsg, WorkerMsg};
@@ -87,6 +87,11 @@ pub enum Action {
     CloseLink {
         link: LinkId,
     },
+    /// Asks what the identity of a worker matches now (AD-6); the answer is [`Input::IdentityState`]. A worker that this handle
+    /// did not spawn has no exit watch, so this is how the engine learns that it is gone (LC-7 step 3, AD-2 `WorkerGone`).
+    ProbeIdentity {
+        identity: ProcessIdentity,
+    },
     /// Signals the process group of a worker, only when its identity still matches (AD-6).
     SignalGroup {
         identity: ProcessIdentity,
@@ -150,6 +155,10 @@ pub enum Input {
     ProcessExited {
         identity: ProcessIdentity,
         status: ExitStatus,
+    },
+    IdentityState {
+        identity: ProcessIdentity,
+        state: IdentityState,
     },
     /// The platform and the edges now support exactly these features (A2-6). The testkit uses it for `withhold_feature`.
     Features(Features),

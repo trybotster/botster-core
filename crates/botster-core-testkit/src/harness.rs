@@ -23,7 +23,6 @@ use std::time::Instant;
 pub struct TestkitHarness {
     controls: ControlRegistry,
     seed: u64,
-    start: Instant,
     directories: Directories,
     /// Every in-process worker of the run, in one `Sim` with the run's seeded stream (plan 4.1, A5-2).
     workers: Workers,
@@ -38,7 +37,6 @@ impl TestkitHarness {
         TestkitHarness {
             controls: crate::controls::registered_controls(),
             seed,
-            start,
             directories: Directories::default(),
             workers: Workers::new(SchedulerHandle::with_seed(seed), start),
             refusals: BTreeMap::new(),
@@ -97,7 +95,6 @@ impl CoreHarness for TestkitHarness {
             RunInputs {
                 seed: self.seed,
                 scheduler: self.workers.scheduler(),
-                start: self.start,
             },
             core_features(),
             Some(Box::new(self.workers.spawner())),

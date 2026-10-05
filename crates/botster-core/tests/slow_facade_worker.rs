@@ -6,6 +6,8 @@
 //! (`attach`), AD-6 (the token proof of the hello; `EndPayload` to the verified worker), LC-5 and AD-2 (a stop over a broken
 //! link).
 #![cfg(feature = "slow")]
+// The test is the host: it reads the real clock and passes the time to `pump` (Core TM-1).
+#![allow(clippy::disallowed_methods)]
 
 mod common;
 

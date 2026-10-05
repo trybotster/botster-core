@@ -9,9 +9,12 @@
 
 use crate::engine::{EngineConfig, HostEngine};
 use crate::io::{Action, Input, LinkId, Work};
+use crate::run::registry_failed;
+use crate::session::ROW_PREFIX;
 use botster_core_contract::prelude::*;
 use botster_core_edges::edges::{
-    ExitStatus, GroupSignal, ProcessIdentity, SpawnError, StorageError, Wake as WakeEdge,
+    ExitStatus, GroupSignal, IdentityState, ProcessIdentity, SpawnError, StorageError,
+    Wake as WakeEdge,
 };
 use botster_core_edges::scheduler::{ChoicePoint, Scheduler};
 use botster_core_edges::Machine;
@@ -59,6 +62,8 @@ pub trait HostEdges: Send {
     /// Workers as processes (`Process`).
     fn spawn_worker(&mut self, spec: &WorkerSpawn) -> Result<ProcessIdentity, SpawnError>;
     fn signal_group(&mut self, identity: ProcessIdentity, signal: GroupSignal);
+    /// What `identity` matches now (AD-6).
+    fn identity_state(&self, identity: ProcessIdentity) -> IdentityState;
     fn poll_process_exit(&mut self) -> Option<(ProcessIdentity, ExitStatus)>;
 
     /// The control links (`Link`). A worker connects to the host; `accept_link` returns the next new link, or `None`.
@@ -131,19 +136,29 @@ pub struct HostDriver<E: HostEdges> {
 }
 
 impl<E: HostEdges> HostDriver<E> {
-    /// `epoch` is an instant before the first `pump`, for example the time of `open`: the driver never reads a clock.
-    pub fn new(cfg: EngineConfig, edges: E, epoch: Instant) -> HostDriver<E> {
-        let engine = HostEngine::new(cfg, epoch);
+    /// Builds the driver over `edges`. The ids of the rows that the registry holds are read here, so that `Create` refuses an
+    /// id that a durable row holds before `AdoptAll` runs (ID-1, LC-3, AD-2). The driver reads no clock: the first time it
+    /// knows is the `now` of the first `pump` (TM-1).
+    ///
+    /// # Errors
+    /// `RegistryFailed` when the registry cannot be read.
+    pub fn open(cfg: EngineConfig, mut edges: E) -> Result<HostDriver<E>, CoreError> {
+        let rows = edges.read_rows(ROW_PREFIX).map_err(registry_failed)?;
+        let registry_ids = rows
+            .into_iter()
+            .filter_map(|(key, _)| key.strip_prefix(ROW_PREFIX).map(|id| SessionId(id.into())))
+            .collect();
+        let engine = HostEngine::new(cfg, registry_ids);
         let frame_bound = engine.link_frame_bound();
         let wake = edges.wake();
-        HostDriver {
+        Ok(HostDriver {
             engine,
             edges,
             links: BTreeMap::new(),
             wake,
             frame_bound,
             failed_handoffs: std::collections::VecDeque::new(),
-        }
+        })
     }
 
     pub fn engine(&self) -> &HostEngine {
@@ -178,8 +193,7 @@ impl<E: HostEdges> HostDriver<E> {
             let Some(route) = self.failed_handoffs.pop_front() else {
                 break;
             };
-            let now = self.now();
-            self.feed(now, Input::HandoffFailed { route });
+            self.feed(Input::HandoffFailed { route });
             budget.account(&mut self.engine);
             self.perform();
         }
@@ -223,29 +237,29 @@ impl<E: HostEdges> HostDriver<E> {
         }
     }
 
-    fn feed(&mut self, now: Instant, input: Input) {
-        self.engine.handle(now, input);
+    /// Gives the engine an input at the time of the last `pump` (TM-1: only `pump` moves the clock).
+    fn feed(&mut self, input: Input) {
+        self.engine.input(input);
     }
 
     fn act(&mut self, action: Action) {
-        let now = self.now();
         match action {
             Action::Random { ticket, len } => {
                 let mut bytes = vec![0u8; len];
                 self.edges.fill_random(&mut bytes);
-                self.feed(now, Input::Random { ticket, bytes });
+                self.feed(Input::Random { ticket, bytes });
             }
             Action::WriteRow { ticket, key, bytes } => {
                 let result = self.edges.write_row(&key, &bytes);
-                self.feed(now, Input::RowWritten { ticket, result });
+                self.feed(Input::RowWritten { ticket, result });
             }
             Action::DeleteRow { ticket, key } => {
                 let result = self.edges.delete_row(&key);
-                self.feed(now, Input::RowDeleted { ticket, result });
+                self.feed(Input::RowDeleted { ticket, result });
             }
             Action::ReadRows { ticket, prefix } => {
                 let result = self.edges.read_rows(&prefix);
-                self.feed(now, Input::Rows { ticket, result });
+                self.feed(Input::Rows { ticket, result });
             }
             Action::SpawnWorker {
                 ticket,
@@ -260,7 +274,7 @@ impl<E: HostEdges> HostDriver<E> {
                     token,
                     host_epoch,
                 });
-                self.feed(now, Input::Spawned { ticket, result });
+                self.feed(Input::Spawned { ticket, result });
             }
             Action::SendHello { link, hello } => {
                 let mut payload = Vec::new();
@@ -274,6 +288,10 @@ impl<E: HostEdges> HostDriver<E> {
                 self.send_frame(link, FrameType::HOST_MSG, &payload);
             }
             Action::CloseLink { link } => self.close_link(link),
+            Action::ProbeIdentity { identity } => {
+                let state = self.edges.identity_state(identity);
+                self.feed(Input::IdentityState { identity, state });
+            }
             Action::SignalGroup { identity, signal } => self.edges.signal_group(identity, signal),
             Action::HandoffRoute {
                 link,
@@ -290,12 +308,6 @@ impl<E: HostEdges> HostDriver<E> {
                 }
             }
         }
-    }
-
-    fn now(&self) -> Instant {
-        // The engine keeps the last time that the host passed; a call before the first `pump` uses a fixed past instant that
-        // no deadline can be due at.
-        self.engine.last_now()
     }
 
     // ---- links ----
@@ -337,8 +349,7 @@ impl<E: HostEdges> HostDriver<E> {
     fn close_link(&mut self, link: LinkId) {
         if self.links.remove(&link).is_some() {
             self.edges.link_close(link);
-            let now = self.now();
-            self.feed(now, Input::LinkClosed { link });
+            self.feed(Input::LinkClosed { link });
         }
     }
 
@@ -346,7 +357,6 @@ impl<E: HostEdges> HostDriver<E> {
     /// before the work of a `pump`. A link is read only as far as the engine can take what it decoded and as far as the
     /// budget of the pump allows: the rest stays unread (kernel buffer, or the one frame in `held`).
     fn service_links(&mut self, budget: &mut Budget) {
-        let now = self.now();
         while let Some(link) = self.edges.accept_link() {
             self.links.insert(
                 link,
@@ -362,18 +372,18 @@ impl<E: HostEdges> HostDriver<E> {
         let ids: Vec<LinkId> = self.links.keys().copied().collect();
         for link in ids {
             self.flush(link);
-            self.retry_held(link, now, budget);
-            self.read_link(link, now, budget);
+            self.retry_held(link, budget);
+            self.read_link(link, budget);
         }
     }
 
     /// Gives the engine the exits that the process edge reaped, while the pump has budget (9B `pump_events`).
-    fn take_exits(&mut self, now: Instant, budget: &mut Budget) {
+    fn take_exits(&mut self, budget: &mut Budget) {
         while !budget.exhausted() {
             let Some((identity, status)) = self.edges.poll_process_exit() else {
                 return;
             };
-            self.feed(now, Input::ProcessExited { identity, status });
+            self.feed(Input::ProcessExited { identity, status });
             budget.account(&mut self.engine);
         }
         // An exit may stay in the edge for the next pump; the host must call again.
@@ -382,7 +392,7 @@ impl<E: HostEdges> HostDriver<E> {
 
     /// Delivers the frame that the engine could not take before, as soon as it can (EV-5d): it runs whenever the link is
     /// serviced, so a frame held behind a step (the end of a start) goes in after that step, before any later frame.
-    fn retry_held(&mut self, link: LinkId, now: Instant, budget: &mut Budget) {
+    fn retry_held(&mut self, link: LinkId, budget: &mut Budget) {
         let Some(input) = self.links.get_mut(&link).and_then(|s| s.held.take()) else {
             return;
         };
@@ -396,12 +406,12 @@ impl<E: HostEdges> HostDriver<E> {
             self.links.get_mut(&link).expect("kept").held = Some(input);
             return;
         }
-        self.feed(now, input);
+        self.feed(input);
         budget.account(&mut self.engine);
         self.edges.set_read_interest(link, true);
     }
 
-    fn read_link(&mut self, link: LinkId, now: Instant, budget: &mut Budget) {
+    fn read_link(&mut self, link: LinkId, budget: &mut Budget) {
         let mut buf = vec![0u8; READ_CHUNK];
         loop {
             let Some(state) = self.links.get_mut(&link) else {
@@ -422,7 +432,7 @@ impl<E: HostEdges> HostDriver<E> {
                     Ok(Some(frame)) => {
                         let first = !state.hello_seen;
                         state.hello_seen = true;
-                        match self.deliver(link, first, frame.kind, &frame.payload, now, budget) {
+                        match self.deliver(link, first, frame.kind, &frame.payload, budget) {
                             Delivery::Done => {}
                             Delivery::Held => return,
                             Delivery::Bad => {
@@ -479,7 +489,6 @@ impl<E: HostEdges> HostDriver<E> {
         first: bool,
         kind: FrameType,
         payload: &[u8],
-        now: Instant,
         budget: &mut Budget,
     ) -> Delivery {
         let input = if first {
@@ -506,7 +515,7 @@ impl<E: HostEdges> HostDriver<E> {
             }
             return Delivery::Held;
         }
-        self.feed(now, input);
+        self.feed(input);
         budget.account(&mut self.engine);
         Delivery::Done
     }
@@ -573,13 +582,14 @@ impl<E: HostEdges> CoreApi for HostDriver<E> {
             read: BTreeMap::new(),
             more_input: false,
         };
-        self.feed(now.monotonic, Input::Clock(now.unix));
+        // The one place where time enters Core (TM-1): every later input of this pump is at this time.
+        self.engine.handle(now.monotonic, Input::Clock(now.unix));
         // A due `Silent` is an older step than any input that arrives now: it runs first, with the budget it needs (E3-1 item 3).
         while !budget.exhausted() && self.engine.ready().contains(&Work::Silent) {
-            self.feed(now.monotonic, Input::Run(Work::Silent));
+            self.feed(Input::Run(Work::Silent));
             budget.account(&mut self.engine);
         }
-        self.take_exits(now.monotonic, &mut budget);
+        self.take_exits(&mut budget);
         // Each link's held frame goes first, before the link's later frames (`service_links`).
         self.service_links(&mut budget);
         self.perform_counted(&mut budget);
@@ -614,7 +624,7 @@ impl<E: HostEdges> CoreApi for HostDriver<E> {
                 deferred.insert(work);
                 continue;
             }
-            self.feed(now.monotonic, Input::Run(work));
+            self.feed(Input::Run(work));
             budget.account(&mut self.engine);
             self.perform_counted(&mut budget);
             self.service_links(&mut budget);
@@ -625,7 +635,7 @@ impl<E: HostEdges> CoreApi for HostDriver<E> {
             self.edges.settle_wake();
             // A reaper may have queued an exit after the exits were taken above, and the settle consumed its wake: the exits
             // are taken again after the settle, so that none waits in the edge without a wake (TM-6).
-            self.take_exits(now.monotonic, &mut budget);
+            self.take_exits(&mut budget);
             self.service_links(&mut budget);
             self.perform_counted(&mut budget);
             more = self.engine.runnable() || budget.more_input;
