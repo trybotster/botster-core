@@ -208,3 +208,17 @@ Correction: the documentation requirement above is an open finding, so it is tra
   failed open created a directory leaves that entry's parent unsynced. The lead's ruling on the boundary may replace this.
 
 VERDICT: NOT CLEAN (2 open: K5; package verdict pending)
+
+## Round 6 note — The lead's ruling replaces the writable-ancestor walk
+
+The P5 reviewer relays the lead's ruling on the access and durability boundary:
+- Core creates only the last component of `data_dir`. A missing parent fails `open` with the existing typed registry I/O
+  error.
+- On every open, Core fsyncs `data_dir` and its direct parent. The parent must be openable for the fsync.
+- No other ancestor is synced. The ancestors that the host provides are the host's responsibility.
+- Required cases: a parent that is missing or unreadable; a retry that syncs the parent; a grandparent that is execute-only.
+
+This replaces the round 6 design. K5 is therefore moot and closes with no change, because the walk that it records no longer
+exists. K4 is checked again against the ruling on the next exact head.
+
+VERDICT: NOT CLEAN (pending a new head under the lead's ruling, and the package verdict)
