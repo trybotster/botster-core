@@ -67,6 +67,7 @@ impl Core {
     /// `InvalidConfig`, `MissingWorkerPath`, `DataDirInUse`, or `RegistryFailed` when the directory cannot be used.
     pub fn open(config: OpenConfig) -> Result<Core, CoreError> {
         let worker_path = check_open(&config)?;
+        real::check_socket_path(&config.data_dir)?;
         let data = DataDir::open(&config.data_dir).map_err(open_error)?;
         let (edges, host_epoch) =
             real::RealEdges::new(data, &config.data_dir).map_err(|error| {

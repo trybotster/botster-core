@@ -138,7 +138,7 @@ impl HostEngine {
             .find(|(_, s)| s.instance == hello.instance)
             .map(|(id, _)| id.clone());
         let Some(id) = found else {
-            self.act(Action::CloseLink { link });
+            self.close_link(link, "the hello names an instance of no session (AD-6)");
             return;
         };
         let session = &self.sessions[&id];
@@ -150,18 +150,28 @@ impl HostEngine {
             .token
             .filter(|_| accepting && session.worker.link.is_none())
         else {
-            self.act(Action::CloseLink { link });
+            self.close_link(
+                link,
+                "the hello comes for a session that waits for none (AD-6)",
+            );
             return;
         };
         let proof = token_proof(&token, &hello.instance, self.cfg.host_epoch);
         if hello.proof != proof || hello.host_epoch != self.cfg.host_epoch {
             // AD-6: a link that does not prove the token and the epoch is closed, and the start keeps waiting.
-            self.act(Action::CloseLink { link });
+            self.close_link(
+                link,
+                "the hello does not prove the token or the host epoch (AD-6)",
+            );
             return;
         }
         if !self.adoptable_worker_protocols().contains(&hello.protocol) {
             // AD-4, A6-2: a worker outside {T, T - 1} is `Lost(WorkerVersion)`, and Core never misbehaves.
-            self.act(Action::CloseLink { link });
+            let why = format!(
+                "the worker protocol {} is not adoptable (AD-4)",
+                hello.protocol
+            );
+            self.close_link(link, &why);
             if let Some(identity) = self.identity_of(&id) {
                 self.act(Action::SignalGroup {
                     identity,
@@ -603,13 +613,8 @@ impl HostEngine {
         let shown = self.sessions[&id].shown;
         let flow = self.sessions[&id].flow.clone();
         // The worker is gone: its link is gone with it.
-        if let Some(link) = self
-            .sessions
-            .get_mut(&id)
-            .and_then(|s| s.worker.link.take())
-        {
-            self.links.remove(&link);
-            self.act(Action::CloseLink { link });
+        if self.sessions[&id].worker.link.is_some() {
+            self.close_worker_link(&id, "the worker process ended");
             self.sessions
                 .get_mut(&id)
                 .expect("found above")

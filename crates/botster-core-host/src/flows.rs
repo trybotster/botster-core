@@ -130,7 +130,7 @@ impl HostEngine {
                 signal: GroupSignal::Kill,
             });
         }
-        self.close_worker_link(id);
+        self.close_worker_link(id, "the start passed its startup deadline (LC-4)");
         self.fail_start(
             id,
             StartFailReason::StartupTimeout,
@@ -138,12 +138,11 @@ impl HostEngine {
         );
     }
 
-    pub(crate) fn close_worker_link(&mut self, id: &SessionId) {
-        if let Some(s) = self.sessions.get_mut(id) {
-            if let Some(link) = s.worker.link.take() {
-                self.links.remove(&link);
-                self.act(Action::CloseLink { link });
-            }
+    /// Closes the link of the session's worker, if it has one, and records why.
+    pub(crate) fn close_worker_link(&mut self, id: &SessionId, why: &str) {
+        if let Some(link) = self.sessions.get_mut(id).and_then(|s| s.worker.link.take()) {
+            self.links.remove(&link);
+            self.close_link(link, why);
         }
     }
 
@@ -650,11 +649,8 @@ impl HostEngine {
         self.queue
             .post_mandatory(event)
             .expect("the room was checked above");
-        let mut session = self.sessions.remove(id).expect("a flow has a session");
-        if let Some(link) = session.worker.link.take() {
-            self.links.remove(&link);
-            self.act(Action::CloseLink { link });
-        }
+        self.close_worker_link(id, "the session was removed (LC-7)");
+        let session = self.sessions.remove(id).expect("a flow has a session");
         self.retired_ops.extend(&session.ops);
         let uploads = f
             .uploads
@@ -736,7 +732,7 @@ impl HostEngine {
                             signal: GroupSignal::Kill,
                         });
                     }
-                    self.close_worker_link(id);
+                    self.close_worker_link(id, "the worker's identity row was not written (AD-7)");
                     if let Some(flow) = self.start_flow(id) {
                         flow.error = Some(registry_failed(e));
                     }
