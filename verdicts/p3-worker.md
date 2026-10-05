@@ -1,8 +1,8 @@
 # P3 worker review
 
-Current verdict: NOT CLEAN for PR #163. Findings F25 through F28 are OPEN. All findings F1 through F24 remain CLOSED at their recorded heads and scopes.
+Current verdict: NOT CLEAN for PR #163. Findings F25 through F32 are OPEN. All findings F1 through F24 remain CLOSED at their recorded heads and scopes.
 Reviewed head: `0403470b8a08bdcbb6d89aab2a98ca3242c8e37b`, branch `stage1/p3-audit-fixes`.
-Round 74 reviews the fixes for audit findings A3, A8, A11, A30, A31, A52, and A53.
+Round 75 adds the integration findings to round 74 on the same implementation head.
 The cross-package PR also requires the integration reviewer's exact-head CLEAN and the implementer's landing gate.
 Round 73's CLEAN remains preserved for M1 at `da2b0494bbda711e5a67cb180ddf05c607784635`.
 M2a at `a7f4a386593457e3b30f03b56938092de9b060a3` has no restack verdict. The earlier M2a CLEAN below applies only to its named old head.
@@ -2655,3 +2655,145 @@ F25 through F28 are OPEN on this submitted head.
 The reviewer ran no tests, builds, or gates.
 
 VERDICT: NOT CLEAN (4 open findings) on `0403470b8a08bdcbb6d89aab2a98ca3242c8e37b`.
+
+
+## Round 75 — Integration findings on the same audit-fix head
+
+Reviewed head: `0403470b8a08bdcbb6d89aab2a98ca3242c8e37b`, branch `stage1/p3-audit-fixes`.
+There is no new implementation delta.
+The reviewer read the integration verdict at `872a3e650d5a0c410949ddfa5f3232a3af486314`:
+`verdicts/stage1/p3-audit-fixes.md` on `stage1/integration-review`.
+The reviewer checked I1 through I5 against the submitted source.
+F29 through F32 below record I2 through I5 as package findings.
+
+The integration reviewer withdrew I6 after the package reviewer challenged it.
+Audit A53 explicitly permits `Payload::reap` as `drop(self)`.
+That body is correct. Its empty-body mutant also drops the consumed value and is exactly equivalent.
+The exclusion states that reason. No change to this wrapper is required.
+Round 74's A53 acceptance remains in effect.
+
+Round 74's A3 acceptance covers ownership of the computation and correctness of the enumerated bound.
+It does not clear the synchronous cost in F29.
+F30 supersedes round 74's acceptance of the testkit drain's parity with the real driver.
+The lack of a kernel flip buffer does not remove the observable difference for output written after the initial count.
+The real driver's accepted A31 algorithm remains in effect.
+
+### F25 — MEDIUM — A failed exit watch leaves the worker without an exit result
+
+Status: OPEN. This supersedes round 74's LOW severity and comment-only correction option.
+The source evidence remains the same. Integration finding I1 identifies the same failure.
+
+A panic in the detached watcher skips the exit callback.
+The driver retains its original sender, so watcher failure cannot disconnect the receiver.
+The driver receives no exit status and no wake. A Stop that depends on the exit can remain pending.
+Changing the comment alone would document this failure without correcting it.
+The lead's accepted invariant panic must produce an end that the host can observe.
+
+Required change: Preserve the lead's panic policy and propagate watcher failure to the driver.
+The driver must end the payload group and end the worker with a failure that the host can observe.
+Use the production cleanup path. Do not abort the process and skip group cleanup.
+Do not invent a payload exit status or change the public link protocol.
+Correct the comment after the behavior is correct.
+Prove the driver behavior through its injected edges, including cleanup and the observable failure.
+A direct helper test that only catches the panic does not prove this behavior.
+
+Authority: the lead's A52 ruling, EV-4, AM-3, and the requirement for visible failure and exactly one completion.
+
+### F29 — MEDIUM — Key admission repeats large text work on the host thread
+
+Status: OPEN. This records integration finding I2.
+Evidence: `crates/botster-terminal-ghostty/src/encode.rs:679-705,742-770`;
+`crates/botster-core-host/src/admit.rs:371-399,445-456`.
+Native evidence: Ghostty pin `3f8eb6810bb673aa782b047de21783ac81fb1121`,
+`src/terminal/c/key_encode.zig:136-168` and the text loop in `src/input/key_encode.zig`, `KittySequence::encode`.
+The reviewer read that exact native pin through the existing local Ghostty checkout.
+
+A key that fits in its worst form makes every one of the 2048 state probes.
+Each probe receives the complete event, including its text.
+The native size probe runs the encoder with a discarding writer after the fixed writer reports insufficient space.
+The associated-text form visits the text's codepoints and formats each printable codepoint.
+Many state combinations repeat that same text work.
+The host runs these probes synchronously in begin, before it checks pending operation capacity.
+Large admissible text therefore causes repeated full-text work on the host thread.
+The existing early stop does not help an admissible key.
+The reviewer made no runtime measurement and does not claim a measured delay.
+
+Required change: Remove the repeated large-text work while preserving the exact libghostty-derived maximum.
+Do not add a hand-written encoder, terminal-byte table, or assumed text expansion factor.
+Ordering states for early refusal alone does not correct the admissible-key case.
+When execution is permitted, record the cost for worst admissible keys at the default 1 MiB and maximum 64 MiB limits.
+If an exact bound needs a new policy or tuning constant, ask the lead a QUESTION before selecting it.
+The current HOLD still forbids new heavy jobs. This finding requests no job during the HOLD.
+
+Authority: BUILD.md's fast and lean requirement, plan 9B, and the requirement that libghostty owns terminal encoding semantics.
+
+### F30 — MEDIUM — The testkit omits the real driver's flushing read
+
+Status: OPEN. This records integration finding I3 and keeps audit A30 open.
+Evidence: `crates/botster-core-testkit/src/worker.rs:380-394,425-442,468-470`;
+`crates/botster-worker/src/io_decisions.rs:31-89`.
+
+The testkit records only the initial unread count when DrainPty arrives.
+It emits PtyDrained after that count is consumed, even if more output has since become available.
+The real driver then performs one flushing read and reads the count measured after that read.
+Output that arrives after the initial count can therefore reach the real worker before Exited.
+The same output can remain unread when the testkit emits PtyDrained.
+This is an observable edge difference. The scripted program's accurate initial count does not remove it.
+The testkit comment says that it follows the real driver, but its decision differs.
+
+Required change: Put the drain decision where both drivers can use it and use that decision in both paths.
+Keep counts and reads in their injected edges.
+Prove the behavior for output before the initial count, after that count, and after the final bound.
+Use the same decision through the real and scripted edges. Do not copy its branches into a test helper.
+A different testkit contract requires an explicit lead ruling with the reason that the difference cannot be observed.
+
+Authority: audit A30, EV-4, ST-5, BUILD.md's edge-parity requirement, and the user's one-path requirement.
+
+### F31 — LOW — The drain decision delegates its empty-read rule to copied branches
+
+Status: OPEN. This records integration finding I4.
+Evidence: `crates/botster-worker/src/io_decisions.rs`, `Drain::after_read`;
+`crates/botster-worker/src/main.rs`, `read_pty_chunk`; the test helper `drain_with`.
+
+The after_read documentation says that an empty read completes the drain.
+For Counted(3), after_read(0) instead returns Counted(3).
+For Flushed(3), it instead returns Flushed(3).
+The production caller handles zero with a separate Done branch.
+The test helper copies that branch, so its test bypasses the decision for the documented empty-read behavior.
+The current callers complete the drain, but the shared decision does not own this rule.
+
+Required change: Make after_read return Done for an empty read.
+Pass every successful read result through that production decision.
+Remove the copied zero-read branches from the production caller and test helper.
+Keep the behavior proof in the existing drain test.
+
+Authority: accurate documentation and the user's one-path and behavior-test requirements.
+
+### F32 — LOW — A test still claims the repeated-key check that the PR removed
+
+Status: OPEN. This records integration finding I5.
+Evidence: `crates/botster-core-host/src/tests/queue_pressure.rs:758` onward,
+`retirement_keeps_the_result_path_and_bounds_a_repeated_key`.
+
+The test name and documentation still claim that the test checks a repeated key's Unknown bound.
+The PR removes that assertion. The test now checks only the retirement result path.
+The max_key_repeat = 100 setup serves the removed assertion.
+The lifecycle test a_write_in_flight_when_the_link_fails_is_unknown now checks a repeated key's Unknown bound.
+
+Required change: Rename the retirement test and correct its documentation to describe its remaining behavior.
+Remove the unused repeat-limit setup.
+Name the lifecycle test as the repeated-key proof where the documentation describes that coverage.
+
+Authority: accurate test claims and the user's behavior-test requirement.
+
+### Verdict
+
+F1 through F24 remain CLOSED at their recorded heads and scopes.
+F25 remains OPEN at MEDIUM severity with the behavior correction above.
+F26 through F28 remain OPEN with all round 74 requirements preserved.
+F29 through F32 are OPEN. LOW findings also require closure before CLEAN.
+The integration verdict remains NOT CLEAN with five open findings on this same head.
+The earlier completed evidence and all round 74 gate limits remain unchanged.
+The reviewer ran no tests, builds, measurements, mutants, or gates.
+
+VERDICT: NOT CLEAN (8 open findings) on `0403470b8a08bdcbb6d89aab2a98ca3242c8e37b`.
