@@ -2,9 +2,9 @@
 
 Current verdict: NOT CLEAN for two separate review units.
 PR #163 at `40b63dceb6e3f3d7be69a1488ac77eccc121a071` has F28 and F33 OPEN for completed evidence.
-PR #165 at `36702023b8a36876ad226ac61adb63723511f28e` has F35 through F38 OPEN.
+PR #165 at `97b8e94767e862b7349d8542306f91c9bed45bb0` has F35, F37, F38, F40, and F41 OPEN.
 F39 is OPEN for the later #163 merge delta. It does not belong to #165's current source scope.
-Rounds 80 and 81 record the latest reviews. All earlier findings and closures remain preserved.
+Round 82 records the latest guard review. Rounds 80 and 81 remain preserved. All earlier findings and closures remain preserved.
 F1 through F27 and F29 through F32 remain CLOSED at their recorded heads and scopes.
 F34 records the earlier unsafe PID signals and their source correction at `81ccd17`.
 Each cross-package PR also requires the integration reviewer's exact-head CLEAN and the implementer's landing gate.
@@ -3371,3 +3371,166 @@ M2a, M2b, mutation, and conformance duties remain unchanged.
 The reviewer ran no tests, builds, measurements, mutants, or gates.
 
 VERDICT: NOT CLEAN (4 open findings in PR #165) on `36702023b8a36876ad226ac61adb63723511f28e`.
+
+
+## Round 82 — Guard reports and two-phase cleanup
+
+Reviewed head: `97b8e94767e862b7349d8542306f91c9bed45bb0`, PR #165, branch `stage1/p3-guard-macos`.
+Base: `144b0234fb632bcbb5176b17c2fe55f3239405df`.
+The reviewer read the full five-file delta `3670202..acd05de` and the one-file delta `acd05de..97b8e94`.
+The review includes the changed guard owners, not only the shared cleanup helper.
+
+### Completed evidence
+
+The reviewer read the completed focused Mac logs for `acd05de6` and `97b8e947`.
+Their paths are:
+
+- `~/botster-sessions/gates/botster-core-stage1-p3-guard-macos-acd05de6-mac-20261004-220807-29615.log`
+- `~/botster-sessions/gates/botster-core-stage1-p3-guard-macos-97b8e947-mac-20261004-220951-33326.log`
+
+The first passes slow clippy, worker prebuild, 142 tests, and 11 selected core guard tests. It exits 0 after eight seconds.
+The second passes slow clippy, worker prebuild, 147 tests, and 12 selected core guard tests. It exits 0 after nine seconds.
+Each core command skips nine other tests through its explicit guard filter.
+Both logs name base `144b0234fb632bcbb5176b17c2fe55f3239405df`.
+The real parent-death regression and the new real GroupGuard failure test pass in all six selected binaries that contain the guard.
+At the current head, the slow_process parent-death regression passes in 0.046 seconds.
+These are completed focused native Mac proofs. Neither log supplies a full landing gate or Linux execution.
+Neither branch contains PR #163's required failed-watch test, so F33 remains unchanged.
+
+### F35 — MEDIUM — OPEN: the principal error paths are corrected
+
+The Mac path no longer treats every refused pidinfo call as disappearance.
+It uses kqueue registration to distinguish an exiting or absent process from an observation failure.
+Other inspection and registration errors now fail the listing.
+The Linux path now permits only NotFound or ESRCH read failures to omit a process.
+Other stat read errors and missing fields fail the listing.
+The group signal now returns its error to the cleanup decision.
+These corrections satisfy the principal source requirements of F35.
+
+One unreadable-field path remains at `process_guard.rs:451` on `acd05de6`, unchanged in the current head.
+The Linux path still uses `pgrp.parse::<i32>().ok()` and treats a failed parse as a non-member.
+It therefore omits that process without establishing group membership or disappearance.
+Required change: Return the unreadable-stat error when a required field cannot be parsed.
+Do not classify an observation failure as a proved non-member.
+The reserved-group ESRCH exception is recorded separately as F42 below.
+
+### F36 — MEDIUM — CLOSED at acd05de6
+
+The Mac adapter now distinguishes an error event, a deadline, and an observed event.
+It propagates EventData::Error rather than discarding the result.
+Watch ESRCH returns Waited::Gone.
+The shared decision retains members called Gone in the preceding round.
+A member called Gone again while still listed returns Failure::Left instead of repeating indefinitely.
+The controlled decision test proves this retained-member outcome.
+The Linux adapter also distinguishes its timeout from exit readiness and preserves other errors.
+The native regression and corrected error decision tests pass in the completed focused Mac proof.
+The current head retains these corrections.
+This closes F36's discarded-error and repeated-Gone retry paths.
+
+### F37 — MEDIUM — OPEN: the payload report path still accepts failures as success
+
+The payload anchor now sends `ok` or `fail: <why>` through its guard socket.
+The request thread reads that report, and PayloadGuard::drop rejects an explicit failure report.
+GuardedPayload and OwnedWorker call release before production cleanup and read the report afterward.
+These changes correct the former stderr-to-/dev/null report path.
+
+Remaining evidence: `payload_guard.rs:39-63,103-116` at the current head.
+The request thread discards report read errors.
+PayloadGuard::drop uses thread.join().unwrap_or_default(), so a thread panic becomes an empty report.
+It also accepts every result that lacks the `fail: ` prefix, including malformed reports.
+The comment says an empty report means production killed the member.
+A read error or thread panic also produces that result, so the code has not established that condition.
+
+Required change: Preserve transport and thread failures in the visible cleanup result.
+Validate the report instead of treating every non-failure string as success.
+Keep the allowed production-killed case distinct from an observation failure.
+Prove the failure through PayloadGuard and its owner during normal Drop and panic cleanup.
+The passing GroupGuard failure test does not exercise this separate socket/report path.
+Preserve production reaping and the required PTY close ordering.
+
+### F38 — MEDIUM — OPEN: the native guard proof improves; a helper-count assertion remains
+
+The anchor now checks its reservation with waitid NOWAIT|NOHANG before every group signal.
+The check fails if the reservation is no longer its unreaped child.
+The reservation inherits the group when it forks; the anchor moves out afterward and reaps the reservation after its final decision.
+The successful native guard tests execute those checks and verify real process cleanup.
+Together with the source ownership rule, this satisfies the recorded reservation proof requirement.
+
+The new a_cleanup_that_cannot_finish_fails_through_the_guard uses a real GroupGuard with a zero cleanup allowance.
+The member blocks on a FIFO; the anchor reports members left; guard Drop panics with that report.
+The test then observes pipe EOF and reaps only its own fixture child.
+This is an actual guard failure proof, not a helper-only assertion.
+The named first and joiner values also replace the literal expected member list in the ForkRace proof.
+
+However, the deadline decision test now counts kill calls and asserts kills == rounds + 1.
+Its injected expiry depends on a helper check count, and its wait always returns Deadline.
+This tests the round helper's internal call sequence, contrary to the user's requirement and BUILD.md rule 3.
+Required change: Remove the helper-count assertion and its supporting counter setup.
+Use a meaningful deadline outcome and derive expectations from the test's state or real effects.
+The completed real guard failure proof can cover the same clause if the redundant helper test is removed.
+Keep the meaningful ForkRace behavior proof.
+F37 separately owns the missing PayloadGuard report proof; it need not be duplicated under F38.
+
+### F40 — HIGH — The driver harness no longer requests independent cleanup before production reaping
+
+Status: OPEN.
+Evidence: `crates/botster-worker/tests/common/driver_edges.rs:11-18,380-396` at the reviewed head.
+
+The delta moves Driver before PayloadGuard in Harness field order.
+Harness has no Drop implementation and never calls release before its Driver drops.
+The production payload destructor therefore runs before the guard receives its cleanup request.
+If production does not end the group, or blocks in its reaper, the test never drops the later guard field.
+The independent guard cannot perform the cleanup that the user requires it to own.
+This reverses the earlier cleanup order and creates a new failure path.
+The implementer's message says the harness releases first; the source does not do that.
+
+The real-loop test also drops its guard before it receives the driver result.
+The new guard Drop waits for the report, which can require production to close the PTY master first.
+This violates the new release-before-production, Drop-after-production contract and can hold the test before its marked retirement deadline.
+
+Required change: Request independent cleanup before any production wait can block.
+Retain the guard until production closes the PTY and finishes its bounded cleanup.
+Apply that order to ordinary Harness Drop, panic cleanup, and the test that moves Driver into a thread.
+Keep the worker and payload reapers in production.
+Prove that the independent guard still ends the group when production cleanup fails, without a busy child or an unbounded owner wait.
+
+Authority: the user's real-process ownership requirement and BUILD.md testing rules 3 and 5.
+
+### F41 — LOW — The shared guard module combines too many responsibilities
+
+Status: OPEN.
+At `acd05de6`, process_guard.rs has 795 lines. The current head adds another decision test.
+The file combines socket registration, guard ownership, platform process inspection, exit waits, cleanup decisions, models, and real-process fixtures.
+The newest error paths and owner changes require reading these distinct responsibilities together.
+This is the oversized module that the user explicitly prohibited.
+
+Required change: Split these responsibilities into small shared modules.
+Keep one cleanup decision path for both guards.
+Keep platform adapters separate from ownership and the test fixtures.
+Retain the existing behavior proofs and helper process registration after the move.
+A file move must not introduce a second cleanup implementation or new production test branches.
+
+Authority: the user's module-quality requirement and one-code-path rule.
+
+### F42 — LOW — CLOSED at 97b8e947: a reserved group can have no signalable member
+
+The integration reviewer opened G6 at verdict commit `bb23fd6` on `acd05de6`.
+A member can exit after the listing; a BSD-style group signal can then return ESRCH when only zombies remain.
+Treating that case as an unconditional failure can reject successful cleanup.
+The current correction lets a signal ESRCH reach the next listing after the reservation check succeeds.
+Other signal failures still return Failure::Error.
+The controlled decision proof checks the subsequent empty listing and successful outcome.
+The reservation check converts its own failure to a distinct error, so it cannot enter the signal ESRCH exception.
+The integration reviewer closes G6 at verdict commit `4c25d96` and reports zero integration findings on this head.
+That integration CLEAN remains conditional on this package's exact-head CLEAN.
+
+### Verdict
+
+PR #165 is NOT CLEAN for F35, F37, F38, F40, and F41 on this exact head.
+F36 is CLOSED at `acd05de6`; F42 is CLOSED at the current head. F34 retains its recorded closure.
+F39 remains OPEN only for the later #163 merge delta.
+PR #163 separately retains F28 and F33 under round 80.
+All earlier findings, closures, and verdict rounds remain preserved.
+The reviewer ran no tests, builds, measurements, mutants, or gates.
+
+VERDICT: NOT CLEAN (5 open findings in PR #165) on `97b8e94767e862b7349d8542306f91c9bed45bb0`.
