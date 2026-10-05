@@ -37,6 +37,8 @@ pub struct ReadyState {
     pub pty_readable: bool,
     pub draining: Option<usize>,
     pub queued_inputs: usize,
+    pub pending_write: bool,
+    pub write_blocked: bool,
 }
 
 impl ReadyState {
@@ -44,7 +46,8 @@ impl ReadyState {
         let busy = (self.link_open && self.control_readable)
             || (self.pty_registered && self.pty_readable)
             || self.draining.is_some()
-            || self.queued_inputs != 0;
+            || self.queued_inputs != 0
+            || (self.pending_write && !self.write_blocked);
         if busy {
             Some(Duration::ZERO)
         } else {
@@ -111,7 +114,7 @@ mod tests {
     fn every_ready_source_prevents_a_blocking_wait() {
         let now = Instant::now();
         let later = now + Duration::from_secs(3);
-        for bits in 0u8..64 {
+        for bits in 0u16..256 {
             let state = ReadyState {
                 link_open: bits & 1 != 0,
                 control_readable: bits & 2 != 0,
@@ -119,11 +122,14 @@ mod tests {
                 pty_readable: bits & 8 != 0,
                 draining: (bits & 16 != 0).then_some(0),
                 queued_inputs: usize::from(bits & 32 != 0),
+                pending_write: bits & 64 != 0,
+                write_blocked: bits & 128 != 0,
             };
             let ready = match bits {
                 b if b & 3 == 3 => true,
                 b if b & 12 == 12 => true,
                 b if b & 48 != 0 => true,
+                b if b & 192 == 64 => true,
                 _ => false,
             };
             assert_eq!(state.timeout(None, now), ready.then_some(Duration::ZERO));

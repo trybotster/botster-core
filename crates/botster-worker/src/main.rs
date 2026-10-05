@@ -77,6 +77,10 @@ struct Driver {
     signals: Signals,
     payload: Option<Payload>,
     pty_registered: bool,
+    /// The PTY refused bytes. Write interest stays enabled until the writable event.
+    pty_wants_write: bool,
+    /// The driver writes this action once per turn, after it serves the control link.
+    pty_write: Option<Vec<u8>>,
     /// The bytes still to read for a `DrainPty`; `None` when no drain is asked.
     drain_left: Option<usize>,
     waker: Arc<Waker>,
@@ -128,6 +132,8 @@ impl Driver {
             signals,
             payload: None,
             pty_registered: false,
+            pty_wants_write: false,
+            pty_write: None,
             drain_left: None,
             waker,
             exits: mpsc::channel(),
@@ -153,6 +159,7 @@ impl Driver {
             if io_decisions::due(self.worker.next_deadline(), Instant::now()) {
                 self.inputs.push_back(Input::Timer);
             }
+            self.write_pty_once()?;
             self.read_pty_chunk();
             self.settle()?;
             if self.exit {
@@ -165,6 +172,8 @@ impl Driver {
                 pty_readable: self.pty_readable,
                 draining: self.drain_left,
                 queued_inputs: self.inputs.len(),
+                pending_write: self.pty_write.is_some(),
+                write_blocked: self.pty_wants_write,
             }
             .timeout(self.worker.next_deadline(), Instant::now());
             if io_decisions::poll_interrupted(self.poll.poll(&mut events, timeout))? {
@@ -185,7 +194,18 @@ impl Driver {
                             event.is_error(),
                         );
                     }
-                    PTY => self.pty_readable = true,
+                    PTY => {
+                        self.pty_readable = io_decisions::control_ready(
+                            self.pty_readable,
+                            event.is_readable(),
+                            event.is_read_closed(),
+                            event.is_error(),
+                        );
+                        if event.is_writable() && self.pty_wants_write {
+                            self.set_pty_write_interest(false)?;
+                            self.inputs.push_back(Input::PtyWritable);
+                        }
+                    }
                     SIGNALS => {
                         for signal in self.signals.pending() {
                             self.inputs.push_back(if signal == SIGTERM {
@@ -233,6 +253,7 @@ impl Driver {
                 let result = self.spawn(&spec);
                 self.inputs.push_back(Input::Spawned(result));
             }
+            Action::PtyWrite(bytes) => self.pty_write = Some(bytes),
             Action::DrainPty => {
                 let left = match self.payload.as_ref() {
                     Some(payload) => payload.pending_output()?,
@@ -300,12 +321,64 @@ impl Driver {
         })
     }
 
+    /// One PTY write of the pending `PtyWrite` (plan 2.4: one bounded piece per turn). A write that the PTY did not take
+    /// waits for its write readiness; an interrupted write is tried again in the next turn.
+    fn write_pty_once(&mut self) -> io::Result<()> {
+        if self.pty_wants_write {
+            return Ok(());
+        }
+        let Some(bytes) = self.pty_write.take() else {
+            return Ok(());
+        };
+        let result = match self.payload.as_ref() {
+            // No PTY any more: the write fails as a write to a closed PTY does.
+            None => Err(5),
+            Some(payload) => match payload.write(&bytes) {
+                Ok(n) => Ok(n),
+                Err(e) if e.kind() == io::ErrorKind::Interrupted => {
+                    self.pty_write = Some(bytes);
+                    return Ok(());
+                }
+                Err(e) if e.kind() == io::ErrorKind::WouldBlock => Ok(0),
+                Err(e) => Err(e.raw_os_error().unwrap_or(5)),
+            },
+        };
+        if result == Ok(0) && !bytes.is_empty() {
+            self.set_pty_write_interest(true)?;
+        }
+        self.inputs.push_back(Input::PtyWritten(result));
+        Ok(())
+    }
+
+    /// Write interest on the PTY follows a write that it did not take (plan 2.5). A PTY that left the loop takes none.
+    fn set_pty_write_interest(&mut self, on: bool) -> io::Result<()> {
+        if !self.pty_registered || on == self.pty_wants_write {
+            self.pty_wants_write = on && self.pty_registered;
+            return Ok(());
+        }
+        let Some(payload) = self.payload.as_ref() else {
+            return Ok(());
+        };
+        let fd = payload.master().as_raw_fd();
+        let interest = if on {
+            Interest::READABLE | Interest::WRITABLE
+        } else {
+            Interest::READABLE
+        };
+        self.poll
+            .registry()
+            .reregister(&mut SourceFd(&fd), PTY, interest)?;
+        self.pty_wants_write = on;
+        Ok(())
+    }
+
     fn deregister_pty(&mut self, payload: &Payload) {
         if self.pty_registered {
             let fd = payload.master().as_raw_fd();
             let _ = self.poll.registry().deregister(&mut SourceFd(&fd));
             self.pty_registered = false;
             self.pty_readable = false;
+            self.pty_wants_write = false;
         }
     }
 
