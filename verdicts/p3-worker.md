@@ -1,8 +1,8 @@
 # P3 worker review
 
-Current restack verdict: NOT CLEAN (F13, F18, and F19 open; F14, F15, F16, F17, and F20 closed in source).
-Reviewed head: `7b54136568a88f1bbbf599de37002eb8daed363c`, branch `stage1/p3-m1-v1`.
-Round 53 verifies corrected-source Mac failures. F13 retains 60 entries; F18/F19 require further correction.
+Current restack verdict: NOT CLEAN (F13, F18, F19, and F21 open; F14, F15, F16, F17, and F20 closed).
+Reviewed head: `e9efad5e788754bfc3c545b3bdfbfc5333238130`, branch `stage1/p3-m1-v1`.
+Round 54 reviews the Mac PTY correction and opens F21 in the partial-write test. F13 retains 60 entries; F18/F19 await corrected Mac proof.
 The CLEAN below applies only to the old M2a head that it names.
 
 VERDICT: CLEAN
@@ -1787,3 +1787,66 @@ F13 retains 60 original driver entries. F20 remains CLOSED with verified parent-
 All earlier findings and closures remain preserved. The reviewer ran no tests or gate.
 
 VERDICT: NOT CLEAN (F13: 60 entries; F18 and F19 open) on `7b54136568a88f1bbbf599de37002eb8daed363c`.
+
+
+## Round 54 — Mac PTY query and cleanup correction
+
+Reviewed head: `e9efad5e788754bfc3c545b3bdfbfc5333238130`.
+The complete delta from `7b541365` changes payload ownership/query code, Driver drain errors, direct tests, two manifests, Cargo.lock, and the handoff.
+The reviewer inspected all nine changed files and the local Apple and published kqueue 1.2.1 sources.
+No conflict resolution, handwritten terminal parser, unsafe project code, second Worker path, or exclusion accompanies the delta.
+
+The Apple tty source routes FIONREAD through ttnread, which counts canonical/raw input.
+The master PTY EVFILT_READ path supplies its readable output count from t_outq.c_cc.
+The new Mac pending_output uses a fresh kqueue Watcher on the retained master fd and samples one zero-wait read event.
+It consumes no PTY bytes. Watcher::drop does not close descriptors registered through add_fd.
+The library maps a failed kevent poll to an Error event; the project propagates that error.
+Registration errors also propagate. A successful poll with no event returns zero.
+Driver::perform now propagates a pending-output query error instead of treating it as a zero-byte drain.
+The repeated-count test retains the queued-output proof and checks that the query consumes no bytes.
+F18 remains OPEN pending corrected-source Mac evidence.
+
+The Apple exit source calls ttywait before terminal revocation, which supports the proposed drain dependency.
+Payload::drop now sends group SIGKILL, closes its owned master, then waits for its own leader.
+Payload::reap also closes the master before waiting.
+The independent guard requests anchor cleanup and returns instead of waiting for anchor EOF while production still holds the master.
+The anchor retains group membership through its final signal to its current group.
+Production alone reaps the payload. No test guard takes that reap.
+This source removes the proposed master-close dependency from guard completion.
+F19 remains OPEN pending corrected-source Mac proof of finite panic cleanup.
+
+The reviewer rechecked all three existing payload equivalences after the ownership change.
+Payload::reap no-op remains ACCEPTED: current callers observe exit and send group SIGKILL first.
+The no-op consumes self into Drop, which retains the leader through an extra SIGKILL, closes the master, then waits.
+The already reported exit cannot change, and the group id remains reserved through the signal.
+The wait-option OR-to-XOR and fresh-blocking-descriptor OR-to-XOR arguments remain unchanged and ACCEPTED.
+No original payload closure is revoked. New query and cleanup mutations still require evidence.
+
+Direct slow Driver tests now cover control EOF, link loss, retained partial writes, totals, interest, PTY readiness, drain completion, and deregistration.
+They call the existing Driver methods and keep independent payload cleanup ahead of production reap.
+The payload is never removed into an unguarded local owner.
+One failure path in the partial-write test remains below.
+
+### F21 — MEDIUM — The partial-write test can busy-loop without progress
+
+Status: OPEN at this head.
+Evidence: tests/common/driver_edges.rs, partial_writes_retain_bytes_and_track_interest_and_totals.
+
+The loop accepts a peer read that returns WouldBlock without waiting for readiness.
+It then forces control_writable=true, calls flush, and repeats while the received byte count is incomplete.
+If neither operation progresses, the loop repeats immediately until its deadline.
+A mutation that prevents writes reaches that path. The deadline bounds elapsed time but does not prevent a busy loop.
+
+Required change: Wait on descriptor readiness when the loop makes no progress.
+Retain the finite deadline, complete-byte ordering, written totals, and write-interest assertions.
+Use the existing Driver path for writes. Do not add a test branch to production.
+Authority: BUILD.md's no-polling test rule and the bounded real-process test requirements.
+
+The reviewer verified the exact-head Linux baseline log:
+`~/botster-sessions/gates/botster-core-stage1-p3-m1-v1-e9efad5e-linux-20261004-172920-12855.log`.
+All 44 selected slow_payload and binary tests pass, zero skipped, in 0.234 seconds. The job exits zero after ten seconds.
+The explicit filter excludes three other binaries. This is not a full gate or Mac proof.
+F13 retains 60 original driver entries. F18, F19, and F21 remain OPEN.
+All earlier findings and closures remain preserved. The reviewer ran no tests or gate.
+
+VERDICT: NOT CLEAN (F13: 60 entries; F18, F19, and F21 open) on `e9efad5e788754bfc3c545b3bdfbfc5333238130`.
