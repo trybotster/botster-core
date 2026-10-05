@@ -1,6 +1,6 @@
 //! The inputs of the engine: edge results, worker links and processes (plan 2.1).
 
-use crate::engine::{CaptureEntry, HostEngine, Next, Owner, Step};
+use crate::engine::{CaptureEntry, HostEngine, Next, Owner, ParkedRoute, Step};
 use crate::flow::*;
 use crate::io::{Action, Input, LinkId, Ticket};
 use crate::run::registry_failed;
@@ -48,12 +48,7 @@ impl HostEngine {
             }
             Input::LinkClosed { link } => self.on_link_closed(link),
             Input::HandoffFailed { route } => {
-                if self.routes.contains_key(&route)
-                    && !self.close_route(route, RouteCloseReason::HandoffFailed)
-                {
-                    self.parked_closes
-                        .push_back((route, RouteCloseReason::HandoffFailed));
-                }
+                self.route_close(route, RouteCloseReason::HandoffFailed);
             }
             Input::ProcessExited { identity, status } => self.on_process_exited(identity, status),
             Input::IdentityState { identity, state } => self.flow_remove_probed(identity, state),
@@ -272,9 +267,7 @@ impl HostEngine {
                 reason,
                 route_tag: _,
             } => {
-                if self.routes.contains_key(&route) && !self.close_route(route, reason) {
-                    self.parked_closes.push_back((route, reason));
-                }
+                self.route_close(route, reason);
             }
             WorkerMsg::RouteStalled { route } => self.route_event(route, true),
             WorkerMsg::RouteResumed { route } => self.route_event(route, false),
@@ -284,18 +277,34 @@ impl HostEngine {
         }
     }
 
-    fn route_event(&mut self, route: RouteId, stalled: bool) {
+    /// Closes a route now, or after the route events that wait ahead of it (EV-5b, EV-6).
+    fn route_close(&mut self, route: RouteId, reason: RouteCloseReason) {
         if !self.routes.contains_key(&route) {
             return;
+        }
+        if !self.parked.is_empty() || !self.close_route(route, reason) {
+            self.parked.push_back(ParkedRoute::Close(route, reason));
+        }
+    }
+
+    fn route_event(&mut self, route: RouteId, stalled: bool) {
+        // An event waits behind the ones parked before it, so the worker's order holds (EV-6).
+        if !self.parked.is_empty() || !self.post_route_progress(route, stalled) {
+            self.parked.push_back(ParkedRoute::Progress(route, stalled));
+        }
+    }
+
+    /// Posts `RouteStalled` or `RouteResumed` of a route that still exists. False when the queue has no room.
+    fn post_route_progress(&mut self, route: RouteId, stalled: bool) -> bool {
+        if !self.routes.contains_key(&route) {
+            return true;
         }
         let event = if stalled {
             Event::RouteStalled { route }
         } else {
             Event::RouteResumed { route }
         };
-        if let Err(event) = self.queue.post_mandatory(event) {
-            self.parked_events.push_back(*event);
-        }
+        self.queue.post_mandatory(event).is_ok()
     }
 
     fn on_done(&mut self, id: &SessionId, req: u64, result: OpResult) {
@@ -645,20 +654,21 @@ impl HostEngine {
 
     /// The wake of a parked route event: it posts when the queue has room again (EV-5d).
     pub(crate) fn run_parked(&mut self) {
-        if let Some((route, reason)) = self.parked_closes.pop_front() {
-            if self.routes.contains_key(&route) && !self.close_route(route, reason) {
-                self.parked_closes.push_front((route, reason));
-            }
+        let Some(next) = self.parked.pop_front() else {
             return;
-        }
-        if let Some(event) = self.parked_events.pop_front() {
-            if let Err(event) = self.queue.post_mandatory(event) {
-                self.parked_events.push_front(*event);
+        };
+        let posted = match next {
+            ParkedRoute::Close(route, reason) => {
+                !self.routes.contains_key(&route) || self.close_route(route, reason)
             }
+            ParkedRoute::Progress(route, stalled) => self.post_route_progress(route, stalled),
+        };
+        if !posted {
+            self.parked.push_front(next);
         }
     }
 
     pub(crate) fn parked_work(&self) -> bool {
-        !self.parked_closes.is_empty() || !self.parked_events.is_empty()
+        !self.parked.is_empty()
     }
 }

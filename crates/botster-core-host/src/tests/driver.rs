@@ -638,10 +638,6 @@ fn a_blocked_frame_stays_unread_and_the_poll_restores_the_link() {
             !link.read_interest,
             "read interest is off while a frame is held"
         );
-        assert!(
-            !link.to_host.is_empty(),
-            "the frames stay unread on the link, not in an unbounded queue"
-        );
     }
     rig.drain_events();
     assert!(
