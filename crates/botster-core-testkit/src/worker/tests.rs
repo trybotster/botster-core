@@ -17,6 +17,11 @@ fn fixture(capacity: usize) -> (WorkerEdges, LinkEnd, Worker, Instant) {
     processes.cells.insert(id, Arc::clone(&cell));
     let edges = WorkerEdges {
         id,
+        key: ("d".into(), InstanceId("1-1".into())),
+        programs: Arc::default(),
+        pty_write: None,
+        wait_writable: false,
+        link_broken: false,
         cell,
         processes: Arc::new(Mutex::new(processes)),
         pids: Arc::new(Mutex::new(Pids { next: 1001 })),
@@ -116,6 +121,7 @@ fn program_output_waits_for_spawn_and_ends_with_one_drain() {
 fn worker_exit_closes_the_link_and_posts_its_exit_once() {
     let (mut edges, mut peer, worker, now) = fixture(8);
     let mut spawner = WorkerSpawner {
+        data_dir: "d".into(),
         workers: Workers::new(edges.scheduler.clone(), now),
         processes: Arc::clone(&edges.processes),
     };
@@ -149,7 +155,7 @@ fn worker_exit_closes_the_link_and_posts_its_exit_once() {
 fn worker_identities_do_not_repeat() {
     let workers = Workers::new(SchedulerHandle::with_seed(2), Instant::now());
     assert!(format!("{workers:?}").contains("Workers"));
-    let mut spawner = workers.spawner();
+    let mut spawner = workers.spawner("d");
     let spec = WorkerSpawn {
         program: "worker".into(),
         instance: InstanceId("1-1".into()),

@@ -289,7 +289,7 @@ fn the_testkit_facade_forwards_configuration_and_typed_failures() {
     let edges = edges(5);
     let wake = edges.wake();
     let driver = HostDriver::new(cfg, edges, start);
-    let mut core = crate::worker::TestkitCore::new(driver, wake, workers);
+    let mut core = crate::worker::TestkitCore::new(driver, wake, workers, "h", "facade");
     assert_eq!(core.limits(), limits);
     assert_eq!(core.features(), features);
     assert_eq!(core.worker_protocol(), 2);
@@ -452,7 +452,8 @@ fn the_testkit_facade_releases_captures_by_id_and_owner() {
             Some(Box::new(RecordedSpawner(log.clone()))),
         )
         .unwrap();
-    let mut core = crate::worker::TestkitCore::new(opened.driver, opened.wake, workers);
+    let mut core =
+        crate::worker::TestkitCore::new(opened.driver, opened.wake, workers, "h", "captures");
     let session = SessionId("s".into());
     let size = Size {
         rows: 24,
@@ -685,11 +686,12 @@ fn the_worker_keeps_complete_operations_at_each_buffer_bound() {
                     start,
                 },
                 core_features(),
-                Some(Box::new(workers.spawner())),
+                Some(Box::new(workers.spawner("buffers"))),
             )
             .unwrap();
         opened.driver.edges().link_capacity = bound;
-        let mut core = crate::worker::TestkitCore::new(opened.driver, opened.wake, workers);
+        let mut core =
+            crate::worker::TestkitCore::new(opened.driver, opened.wake, workers, "h", "buffers");
         let session = SessionId("s".into());
         let create = core
             .begin(Op::Create {
