@@ -123,10 +123,8 @@ pub(crate) fn end_group(group: rustix::process::Pid) {
     let deadline = std::time::Instant::now() + CLEANUP;
     end_members(
         || live_members(group),
-        |pid| {
-            let _ = rustix::process::kill_process(pid, rustix::process::Signal::KILL);
-        },
-        |pid| await_end(pid, deadline),
+        |member| member.kill(group),
+        |member| member.await_end(deadline),
         || std::time::Instant::now() >= deadline,
     );
 }
@@ -134,10 +132,10 @@ pub(crate) fn end_group(group: rustix::process::Pid) {
 /// The decision of `end_group`: each round kills the members that `members` lists and waits for their ends, and a round
 /// that lists none is final, because only a live member can fork a new one. A member that joins after a kill is in a later
 /// round's list. It stops at `expired`, so it never runs without end.
-fn end_members<P: Copy>(
-    mut members: impl FnMut() -> Vec<P>,
-    mut kill: impl FnMut(P),
-    mut await_end: impl FnMut(P),
+fn end_members<M>(
+    mut members: impl FnMut() -> Vec<M>,
+    mut kill: impl FnMut(&M),
+    mut await_end: impl FnMut(&M),
     mut expired: impl FnMut() -> bool,
 ) {
     loop {
@@ -145,98 +143,166 @@ fn end_members<P: Copy>(
         if live.is_empty() || expired() {
             return;
         }
-        for &pid in &live {
-            kill(pid);
+        for member in &live {
+            kill(member);
         }
-        for &pid in &live {
-            await_end(pid);
+        for member in &live {
+            await_end(member);
         }
     }
 }
 
-/// Waits for the exit event of `pid` (it may stay a zombie), at most until `deadline`. A process that is already gone has
-/// ended.
-#[cfg(target_os = "macos")]
-fn await_end(pid: rustix::process::Pid, deadline: std::time::Instant) {
-    let Ok(mut watcher) = kqueue::Watcher::new() else {
-        return;
-    };
-    let added = watcher.add_pid(
-        pid.as_raw_nonzero().get(),
-        kqueue::EventFilter::EVFILT_PROC,
-        kqueue::FilterFlag::NOTE_EXIT,
-    );
-    if added.is_err() || watcher.watch().is_err() {
-        return;
-    }
-    // timer: deadline — bounds the wait for a killed member's exit event.
-    let _ = watcher.poll(Some(
-        deadline.saturating_duration_since(std::time::Instant::now()),
-    ));
-}
-
-/// Waits for the exit event of `pid` (it may stay a zombie), at most until `deadline`. A process that is already gone has
-/// ended.
+/// A live member of the group, held by a pidfd: the kill and the wait reach this process and no other, even if it ends and
+/// its pid is reused.
 #[cfg(target_os = "linux")]
-fn await_end(pid: rustix::process::Pid, deadline: std::time::Instant) {
-    let Ok(fd) = rustix::process::pidfd_open(pid, rustix::process::PidfdFlags::empty()) else {
-        return;
-    };
-    let left = deadline.saturating_duration_since(std::time::Instant::now());
-    // timer: deadline — bounds the wait for a killed member's exit event.
-    let limit = rustix::event::Timespec {
-        tv_sec: left.as_secs() as i64,
-        tv_nsec: left.subsec_nanos().into(),
-    };
+struct Member {
+    pidfd: std::os::fd::OwnedFd,
+}
+
+#[cfg(target_os = "linux")]
+impl Member {
+    fn kill(&self, _group: rustix::process::Pid) {
+        let _ = rustix::process::pidfd_send_signal(&self.pidfd, rustix::process::Signal::KILL);
+    }
+
+    /// Waits for this member's exit event (it may stay a zombie), at most until `deadline`.
+    fn await_end(&self, deadline: std::time::Instant) {
+        let left = deadline.saturating_duration_since(std::time::Instant::now());
+        // timer: deadline — bounds the wait for a killed member's exit event.
+        let limit = rustix::event::Timespec {
+            tv_sec: left.as_secs() as i64,
+            tv_nsec: left.subsec_nanos().into(),
+        };
+        let mut fds = [rustix::event::PollFd::new(
+            &self.pidfd,
+            rustix::event::PollFlags::IN,
+        )];
+        let _ = rustix::event::poll(&mut fds, Some(&limit));
+    }
+}
+
+/// Whether the process of `pidfd` has ended: its pidfd is readable then.
+#[cfg(target_os = "linux")]
+fn ended(pidfd: &std::os::fd::OwnedFd) -> bool {
     let mut fds = [rustix::event::PollFd::new(
-        &fd,
+        pidfd,
         rustix::event::PollFlags::IN,
     )];
-    let _ = rustix::event::poll(&mut fds, Some(&limit));
+    let now = rustix::event::Timespec {
+        tv_sec: 0,
+        tv_nsec: 0,
+    };
+    rustix::event::poll(&mut fds, Some(&now)).map_or(true, |ready| ready > 0)
 }
 
-/// The live members of `group` other than this process. A zombie is not live: it cannot fork, and its parent reaps it.
-#[cfg(target_os = "macos")]
-fn live_members(group: rustix::process::Pid) -> Vec<rustix::process::Pid> {
-    use libproc::bsd_info::BSDInfo;
-    use libproc::proc_pid::pidinfo;
-    use libproc::processes::{pids_by_type, ProcFilter};
-    let me = std::process::id();
-    pids_by_type(ProcFilter::ByProgramGroup {
-        pgrpid: group.as_raw_nonzero().get() as u32,
-    })
-    .unwrap_or_default()
-    .into_iter()
-    .filter(|&pid| pid != 0 && pid != me)
-    .filter(|&pid| {
-        pidinfo::<BSDInfo>(pid as i32, 0).is_ok_and(|info| info.pbi_status != libc::SZOMB)
-    })
-    .filter_map(|pid| rustix::process::Pid::from_raw(pid as i32))
-    .collect()
-}
-
-/// The live members of `group` other than this process. A zombie is not live: it cannot fork, and its parent reaps it.
+/// The state and process group of `pid` from `/proc` (the fields after the command name: state, ppid, pgrp).
 #[cfg(target_os = "linux")]
-fn live_members(group: rustix::process::Pid) -> Vec<rustix::process::Pid> {
+fn state_and_group(pid: u32) -> Option<(String, i32)> {
+    let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+    let mut fields = stat.rsplit_once(") ")?.1.split_whitespace();
+    let state = fields.next()?.to_string();
+    let group = fields.nth(1)?.parse().ok()?;
+    Some((state, group))
+}
+
+/// The live members of `group` other than this process. A zombie is not live: it cannot fork, and its parent reaps it.
+/// Each is held by a pidfd that is checked after it is opened: the pid still names a member of the group while the pidfd's
+/// process lives, so the pidfd holds that member and not a later process with a reused pid.
+#[cfg(target_os = "linux")]
+fn live_members(group: rustix::process::Pid) -> Vec<Member> {
     let me = std::process::id();
     let Ok(entries) = std::fs::read_dir("/proc") else {
         return Vec::new();
     };
+    let is_member = |pid: u32| {
+        state_and_group(pid)
+            .is_some_and(|(state, pgrp)| state != "Z" && pgrp == group.as_raw_nonzero().get())
+    };
     entries
         .filter_map(|entry| entry.ok()?.file_name().to_str()?.parse::<u32>().ok())
-        .filter(|&pid| pid != me)
-        .filter(|pid| {
-            // The fields after the command name: state, ppid, pgrp.
-            std::fs::read_to_string(format!("/proc/{pid}/stat")).is_ok_and(|stat| {
-                let fields: Vec<&str> = stat
-                    .rsplit_once(") ")
-                    .map_or(Vec::new(), |(_, rest)| rest.split_whitespace().collect());
-                fields.first() != Some(&"Z")
-                    && fields.get(2).and_then(|pgrp| pgrp.parse::<i32>().ok())
-                        == Some(group.as_raw_nonzero().get())
+        .filter(|&pid| pid != me && is_member(pid))
+        .filter_map(|pid| {
+            let process = rustix::process::Pid::from_raw(pid as i32)?;
+            let pidfd =
+                rustix::process::pidfd_open(process, rustix::process::PidfdFlags::empty()).ok()?;
+            (is_member(pid) && !ended(&pidfd)).then_some(Member { pidfd })
+        })
+        .collect()
+}
+
+/// A live member of the group, named by its pid and its start time.
+#[cfg(target_os = "macos")]
+struct Member {
+    pid: rustix::process::Pid,
+    start: (u64, u64),
+}
+
+/// The process group, start time and liveness of `pid`, or `None` when no process has it.
+#[cfg(target_os = "macos")]
+fn identity(pid: u32) -> Option<(u32, (u64, u64), bool)> {
+    use libproc::bsd_info::BSDInfo;
+    use libproc::proc_pid::pidinfo;
+    let info = pidinfo::<BSDInfo>(pid as i32, 0).ok()?;
+    Some((
+        info.pbi_pgid,
+        (info.pbi_start_tvsec, info.pbi_start_tvusec),
+        info.pbi_status != libc::SZOMB,
+    ))
+}
+
+#[cfg(target_os = "macos")]
+impl Member {
+    /// macOS has no pidfd. The kill checks just before it that the pid still names this member (its start time and the
+    /// group). The window left is between that check and the signal: the member would have to end, be reaped by its
+    /// parent and have its pid reused within it.
+    fn kill(&self, group: rustix::process::Pid) {
+        let pid = self.pid.as_raw_nonzero().get() as u32;
+        let same = identity(pid).is_some_and(|(pgid, start, live)| {
+            live && start == self.start && pgid == group.as_raw_nonzero().get() as u32
+        });
+        if same {
+            let _ = rustix::process::kill_process(self.pid, rustix::process::Signal::KILL);
+        }
+    }
+
+    /// Waits for this member's exit event (it may stay a zombie), at most until `deadline`. A process that is already gone
+    /// has ended.
+    fn await_end(&self, deadline: std::time::Instant) {
+        let Ok(mut watcher) = kqueue::Watcher::new() else {
+            return;
+        };
+        let added = watcher.add_pid(
+            self.pid.as_raw_nonzero().get(),
+            kqueue::EventFilter::EVFILT_PROC,
+            kqueue::FilterFlag::NOTE_EXIT,
+        );
+        if added.is_err() || watcher.watch().is_err() {
+            return;
+        }
+        // timer: deadline — bounds the wait for a killed member's exit event.
+        let _ = watcher.poll(Some(
+            deadline.saturating_duration_since(std::time::Instant::now()),
+        ));
+    }
+}
+
+/// The live members of `group` other than this process. A zombie is not live: it cannot fork, and its parent reaps it.
+#[cfg(target_os = "macos")]
+fn live_members(group: rustix::process::Pid) -> Vec<Member> {
+    use libproc::processes::{pids_by_type, ProcFilter};
+    let me = std::process::id();
+    let group = group.as_raw_nonzero().get() as u32;
+    pids_by_type(ProcFilter::ByProgramGroup { pgrpid: group })
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|&pid| pid != 0 && pid != me)
+        .filter_map(|pid| {
+            let (pgid, start, live) = identity(pid)?;
+            (live && pgid == group).then_some(Member {
+                pid: rustix::process::Pid::from_raw(pid as i32)?,
+                start,
             })
         })
-        .filter_map(|pid| rustix::process::Pid::from_raw(pid as i32))
         .collect()
 }
 
@@ -249,8 +315,8 @@ fn a_member_that_joins_after_the_first_kill_still_ends() {
     let mut awaited = Vec::new();
     end_members(
         || rounds.pop_front().expect("no round after an empty one"),
-        |pid| killed.push(pid),
-        |pid| awaited.push(pid),
+        |pid: &i32| killed.push(*pid),
+        |pid: &i32| awaited.push(*pid),
         || false,
     );
     assert_eq!(killed, [1, 2]);
@@ -265,8 +331,8 @@ fn the_rounds_stop_at_the_deadline() {
     let mut killed = 0;
     end_members(
         || vec![1],
-        |_| killed += 1,
-        |_| {},
+        |_: &i32| killed += 1,
+        |_: &i32| {},
         || {
             checks += 1;
             checks > 2
