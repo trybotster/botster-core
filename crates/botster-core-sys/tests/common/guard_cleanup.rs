@@ -269,24 +269,47 @@ fn a_member_gone_to_its_wait_but_still_listed_is_left() {
 }
 
 /// Whether the child `pid` of this process ended within the cleanup limit, observed without reaping it (`WNOWAIT`), so a
-/// timeout leaves the child to its owner.
-fn ended_within_cleanup(pid: rustix::process::Pid) -> bool {
+/// timeout leaves the child to its owner. Only an interrupted wait is repeated.
+///
+/// # Errors
+/// The observation failed: the child cannot be waited for.
+fn ended_within_cleanup(pid: rustix::process::Pid) -> std::io::Result<bool> {
     use rustix::process::{waitid, WaitId, WaitIdOptions};
     let (ended, end) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
-        // The wait blocks until the end; only an interruption repeats it.
-        while let Err(rustix::io::Errno::INTR) | Ok(None) = waitid(
-            WaitId::Pid(pid),
-            WaitIdOptions::EXITED | WaitIdOptions::NOWAIT,
-        ) {}
-        let _ = ended.send(());
+        let observed = loop {
+            match waitid(
+                WaitId::Pid(pid),
+                WaitIdOptions::EXITED | WaitIdOptions::NOWAIT,
+            ) {
+                Err(rustix::io::Errno::INTR) => continue,
+                Ok(Some(_)) => break Ok(()),
+                // A blocking wait returns a status; no status is not an exit.
+                Ok(None) => break Err(std::io::Error::other("the wait returned no status")),
+                Err(error) => break Err(std::io::Error::from(error)),
+            }
+        };
+        let _ = ended.send(observed);
     });
     // timer: deadline — bounds the wait for a test child's end.
-    end.recv_timeout(CLEANUP).is_ok()
+    match end.recv_timeout(CLEANUP) {
+        Ok(observed) => observed.map(|()| true),
+        Err(_) => Ok(false),
+    }
 }
 
-/// A child of this test, owned on every path: `status` waits for its end within the cleanup limit, and its drop ends a
-/// child that still runs (a kill of this unreaped child's own pid) and reaps it within the same limit.
+/// A failure of a test child's ownership: it fails the test, or is reported when the test already panics.
+fn ownership_failed(report: String) {
+    if std::thread::panicking() {
+        eprintln!("{report}");
+    } else {
+        panic!("{report}");
+    }
+}
+
+/// A child of this test, owned on every path: `status` reaps it only after its exit was observed within the cleanup
+/// limit, and its drop ends a child that still runs (a kill of this unreaped child's own pid) and reaps it after its exit,
+/// within the same limit. Every ownership or cleanup error is reported, never taken as an end.
 struct Owned(std::process::Child);
 
 impl Owned {
@@ -294,28 +317,43 @@ impl Owned {
         rustix::process::Pid::from_raw(self.0.id() as i32).expect("a child pid")
     }
 
-    /// The child's exit status, once it has ended within the cleanup limit.
+    /// The child's exit status, once its exit was observed within the cleanup limit.
     fn status(&mut self) -> std::process::ExitStatus {
-        assert!(
-            ended_within_cleanup(self.pid()),
-            "the child ended within the cleanup limit"
-        );
-        self.0.wait().unwrap()
+        match ended_within_cleanup(self.pid()) {
+            Ok(true) => self.0.wait().expect("the reap of an exited child"),
+            Ok(false) => panic!(
+                "the test child {} did not end within {CLEANUP:?}",
+                self.0.id()
+            ),
+            Err(error) => panic!("the test child {} cannot be observed: {error}", self.0.id()),
+        }
     }
 }
 
 impl Drop for Owned {
     fn drop(&mut self) {
-        if !matches!(self.0.try_wait(), Ok(None)) {
-            return;
+        let id = self.0.id();
+        match self.0.try_wait() {
+            // Reaped by `status`, or ended and reaped now.
+            Ok(Some(_)) => return,
+            Ok(None) => {}
+            Err(error) => {
+                return ownership_failed(format!("the test child {id} cannot be checked: {error}"))
+            }
         }
-        let _ = self.0.kill();
-        if ended_within_cleanup(self.pid()) {
-            let _ = self.0.wait();
-        } else if std::thread::panicking() {
-            eprintln!("the test child {} did not end after SIGKILL", self.0.id());
-        } else {
-            panic!("the test child {} did not end after SIGKILL", self.0.id());
+        if let Err(error) = self.0.kill() {
+            return ownership_failed(format!("the test child {id} cannot be killed: {error}"));
+        }
+        match ended_within_cleanup(self.pid()) {
+            Ok(true) => {
+                if let Err(error) = self.0.wait() {
+                    ownership_failed(format!("the test child {id} cannot be reaped: {error}"));
+                }
+            }
+            Ok(false) => ownership_failed(format!("the test child {id} did not end after SIGKILL")),
+            Err(error) => {
+                ownership_failed(format!("the test child {id} cannot be observed: {error}"))
+            }
         }
     }
 }
