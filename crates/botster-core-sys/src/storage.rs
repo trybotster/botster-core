@@ -70,8 +70,12 @@ impl From<io::Error> for OpenError {
     }
 }
 
+/// The errno of an I/O error. An error that the OS did not give one for is `EIO`: an input/output error, never a value that
+/// looks like success.
 fn errno(error: &io::Error) -> i32 {
-    error.raw_os_error().unwrap_or(0)
+    error
+        .raw_os_error()
+        .unwrap_or(rustix::io::Errno::IO.raw_os_error())
 }
 
 fn failed(error: impl Into<io::Error>) -> StorageError {
@@ -95,14 +99,13 @@ fn open_dir(parent: BorrowedFd<'_>, name: &str) -> io::Result<OwnedFd> {
     )?)
 }
 
-/// Opens the directory `name` of `parent`, and creates it first when `create` is set. A directory that this call created is
-/// synced in its parent, so that the row below it survives a crash (AD-7). `None` when it does not exist and `create` is not
-/// set.
+/// Opens the directory `name` of `parent`, and creates it first when `create` is set. With `create`, the parent is synced
+/// whether this call created the directory or an earlier, failed write did: the row below it survives a crash only when
+/// every entry of its path is durable (AD-7). `None` when it does not exist and `create` is not set.
 fn child_dir(parent: BorrowedFd<'_>, name: &str, create: bool) -> io::Result<Option<OwnedFd>> {
     if create {
         match mkdirat(parent, name, Mode::from_raw_mode(0o700)) {
-            Ok(()) => rustix::fs::fsync(parent)?,
-            Err(rustix::io::Errno::EXIST) => {}
+            Ok(()) | Err(rustix::io::Errno::EXIST) => rustix::fs::fsync(parent)?,
             Err(error) => return Err(error.into()),
         }
     }
@@ -143,13 +146,13 @@ impl FileStorage {
 
     /// Walks the registry: every path that decodes is a row, and every other name is foreign. The walk descends only into
     /// kind directories and full components, and never follows a link.
-    pub fn scan(&self) -> io::Result<Scan> {
+    pub fn scan(&self) -> Result<Scan, StorageError> {
         let mut scan = Scan::default();
-        for (name, kind) in entries(self.dir.as_fd())? {
+        for (name, kind) in entries(self.dir.as_fd()).map_err(failed)? {
             match kind {
                 FileType::Directory if valid_kind(&name) => {
-                    let fd = open_dir(self.dir.as_fd(), &name)?;
-                    walk(fd.as_fd(), &name, &mut Vec::new(), &mut scan)?;
+                    let fd = open_dir(self.dir.as_fd(), &name).map_err(failed)?;
+                    walk(fd.as_fd(), &name, &mut Vec::new(), &mut scan).map_err(failed)?;
                 }
                 _ => scan.foreign += 1,
             }
@@ -279,7 +282,7 @@ impl Storage for FileStorage {
     }
 
     fn list_rows(&self) -> Result<Vec<String>, StorageError> {
-        self.scan().map(|scan| scan.keys).map_err(failed)
+        self.scan().map(|scan| scan.keys)
     }
 }
 
@@ -294,17 +297,14 @@ pub struct DataDir {
 impl DataDir {
     /// Opens `path`: creates it with mode `0700` when missing, refuses a directory that is not safe (AD-6), takes the
     /// exclusive lock without waiting (LC-2), and raises the host epoch under the lock (DP-8).
+    ///
+    /// Two requirements on the host (AD-7, lead ruling on integration finding K4):
+    /// - The parent of `path` exists. Core creates only `path` itself; a missing parent fails the open with an I/O error.
+    /// - The parent of `path` is readable, because Core syncs it on every open. A parent that cannot be opened fails the open.
+    ///
+    /// Core syncs `path` and its parent and no other ancestor: the durability of the parent's own entry is the host's.
     pub fn open(path: &Path) -> Result<DataDir, OpenError> {
-        match fs::DirBuilder::new()
-            .mode(0o700)
-            .recursive(true)
-            .create(path)
-        {
-            Ok(()) => {}
-            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
-            Err(error) => return Err(error.into()),
-        }
-        check_safe(path)?;
+        create_data_dir(path, &mut sync_dir)?;
         let lock = LockFile::try_exclusive(&path.join("lock")).map_err(|error| match error {
             LockError::Held => OpenError::InUse,
             LockError::Io(error) => OpenError::Io(error),
@@ -315,6 +315,9 @@ impl DataDir {
             Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
             Err(error) => return Err(error.into()),
         }
+        // The entry of `rows` in the data directory is durable before any row is written below it (AD-7), on the first
+        // open and on a retry after an open whose sync failed. This is the sync of `path` on every open.
+        sync_dir(path)?;
         check_safe(&rows)?;
         let dir = File::open(&rows)?.into();
         let mut storage = FileStorage { dir };
@@ -357,6 +360,31 @@ impl DataDir {
     }
 }
 
+/// Creates the data directory `path` with mode `0700` when it is missing, refuses it when it is not safe (AD-6; a file is
+/// unsafe), then syncs its parent with `sync`, so that the entry of `path` is durable (AD-7). Only `path` itself is created: a missing parent fails with `NotFound`. The parent is
+/// synced on every open, whether this open created `path` or an earlier, failed open did. The parent is opened through
+/// `path/..`, so it is the directory that holds the entry, and it must be readable: a parent that cannot be opened fails the
+/// open, which never claims a durability that it does not have. No other ancestor is synced: the host owns them. `sync` is
+/// [`sync_dir`] in production, and an injected one in a test.
+fn create_data_dir(
+    path: &Path,
+    sync: &mut dyn FnMut(&Path) -> io::Result<()>,
+) -> Result<(), OpenError> {
+    match fs::DirBuilder::new().mode(0o700).create(path) {
+        // A path that exists as a file is refused by `check_safe`, as unsafe.
+        Ok(()) => {}
+        Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
+        Err(error) => return Err(error.into()),
+    }
+    check_safe(path)?;
+    Ok(sync(&path.join(".."))?)
+}
+
+/// Syncs the directory `dir`.
+fn sync_dir(dir: &Path) -> io::Result<()> {
+    File::open(dir)?.sync_all()
+}
+
 /// AD-6: a directory with secrets is owned by this user and closed to every other user.
 fn check_safe(path: &Path) -> Result<(), OpenError> {
     let file = File::open(path)?;
@@ -385,11 +413,14 @@ fn check_safe(path: &Path) -> Result<(), OpenError> {
 mod tests {
     use super::*;
 
-    /// The errno of an OS error is kept, and an error with none is 0.
+    /// The errno of an OS error is kept, and an error with none is `EIO`, never 0 (integration finding K3).
     #[test]
-    fn an_errno_is_kept() {
+    fn an_errno_is_kept_and_a_missing_one_is_eio() {
         assert_eq!(errno(&io::Error::from_raw_os_error(13)), 13);
-        assert_eq!(errno(&io::Error::other("no code")), 0);
+        assert_eq!(
+            errno(&io::Error::other("no code")),
+            rustix::io::Errno::IO.raw_os_error()
+        );
     }
 
     /// Every error of the open has its own words.
@@ -602,6 +633,86 @@ mod slow_tests {
         }
     }
 
+    /// Asserts that an open was refused with `EACCES`. Root ignores the permission bits that make the refusal, so for root
+    /// the check is skipped, with the reason printed.
+    fn assert_permission_denied(result: Result<DataDir, OpenError>) {
+        if rustix::process::geteuid().is_root() {
+            eprintln!("skipped: root ignores the permission bits of this case");
+            return;
+        }
+        match result {
+            Err(OpenError::Io(error)) => assert_eq!(error.kind(), io::ErrorKind::PermissionDenied),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    /// Lead ruling on K4: Core creates only the data directory, so a missing parent fails the open with the I/O error of the
+    /// system, and nothing is created.
+    #[test]
+    fn a_missing_parent_fails_the_open() {
+        let tmp = dir();
+        let parent = tmp.path().join("missing");
+        match DataDir::open(&parent.join("d")) {
+            Err(OpenError::Io(error)) => assert_eq!(error.kind(), io::ErrorKind::NotFound),
+            other => panic!("{other:?}"),
+        }
+        assert!(!parent.exists());
+    }
+
+    /// Lead ruling on K4: the parent is synced on every open, so a parent that the host may write and enter but not read
+    /// fails the open: Core never claims a durability that it does not have.
+    #[test]
+    fn a_parent_that_cannot_be_read_fails_the_open() {
+        let tmp = dir();
+        let parent = tmp.path().join("p");
+        fs::create_dir(&parent).unwrap();
+        fs::set_permissions(&parent, fs::Permissions::from_mode(0o300)).unwrap();
+        let result = DataDir::open(&parent.join("d"));
+        fs::set_permissions(&parent, fs::Permissions::from_mode(0o700)).unwrap();
+        assert_permission_denied(result);
+    }
+
+    /// AD-7 (review finding P5-F9, lead ruling on K4): an open whose parent sync fails leaves the data directory that it
+    /// created; the retry finds the directory and syncs the parent again, so the entry becomes durable.
+    #[test]
+    fn a_retried_open_syncs_the_parent_that_a_failed_open_left() {
+        let tmp = dir();
+        let path = tmp.path().join("d");
+        let parent = fs::canonicalize(tmp.path()).unwrap();
+        let synced_dir = |dir: &Path| fs::canonicalize(dir).unwrap();
+        let mut failing = |dir: &Path| {
+            assert_eq!(synced_dir(dir), parent);
+            Err(io::Error::from_raw_os_error(
+                rustix::io::Errno::IO.raw_os_error(),
+            ))
+        };
+        assert!(create_data_dir(&path, &mut failing).is_err());
+        assert!(path.is_dir(), "the failed open left its directory");
+        let mut synced = Vec::new();
+        let mut recording = |dir: &Path| {
+            synced.push(synced_dir(dir));
+            sync_dir(dir)
+        };
+        create_data_dir(&path, &mut recording).unwrap();
+        assert_eq!(synced, vec![parent]);
+    }
+
+    /// Lead ruling on K4: no ancestor above the parent is synced, so a grandparent that the host may only enter (`0100`)
+    /// does not fail the open.
+    #[test]
+    fn an_execute_only_grandparent_does_not_fail_the_open() {
+        let tmp = dir();
+        let grandparent = tmp.path().join("g");
+        let parent = grandparent.join("p");
+        fs::create_dir_all(&parent).unwrap();
+        fs::set_permissions(&grandparent, fs::Permissions::from_mode(0o100)).unwrap();
+        let result = DataDir::open(&parent.join("d")).map(drop);
+        fs::set_permissions(&grandparent, fs::Permissions::from_mode(0o700)).unwrap();
+        if let Err(error) = result {
+            panic!("the open failed: {error}");
+        }
+    }
+
     /// A corrupt epoch row refuses the open: the registry is not guessed at.
     #[test]
     fn a_corrupt_epoch_refuses_the_open() {
@@ -670,12 +781,7 @@ mod slow_tests {
         fs::set_permissions(&locked, fs::Permissions::from_mode(0o500)).unwrap();
         let result = DataDir::open(&locked.join("d"));
         fs::set_permissions(&locked, fs::Permissions::from_mode(0o700)).unwrap();
-        match result {
-            Err(OpenError::Io(error)) => assert_eq!(error.kind(), io::ErrorKind::PermissionDenied),
-            // A user that ignores permissions (root) creates the directory.
-            Ok(_) => {}
-            Err(other) => panic!("{other}"),
-        }
+        assert_permission_denied(result);
     }
 
     /// The rows directory that cannot be created is the I/O error of the system.
@@ -688,11 +794,7 @@ mod slow_tests {
         fs::set_permissions(&base, fs::Permissions::from_mode(0o500)).unwrap();
         let result = DataDir::open(&base);
         fs::set_permissions(&base, fs::Permissions::from_mode(0o700)).unwrap();
-        match result {
-            Err(OpenError::Io(error)) => assert_eq!(error.kind(), io::ErrorKind::PermissionDenied),
-            Ok(_) => {}
-            Err(other) => panic!("{other}"),
-        }
+        assert_permission_denied(result);
         // A rows path that is a file is unsafe.
         let base = tmp.path().join("e");
         fs::DirBuilder::new().mode(0o700).create(&base).unwrap();

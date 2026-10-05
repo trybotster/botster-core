@@ -378,6 +378,8 @@ fn a_worker_is_not_left_when_the_cleanup_of_a_test_fails() {
 fn a_damaged_row_is_registry_corrupt_and_a_foreign_file_is_left_alone() {
     let tmp = tempfile::tempdir().unwrap();
     let mut core = Core::open(config(tmp.path())).expect("open");
+    let registry = tmp.path().join("d").join("rows");
+    let before = files_below(&registry);
     core.begin(Op::Create {
         session: sid("s1"),
         request: request(),
@@ -385,13 +387,19 @@ fn a_damaged_row_is_registry_corrupt_and_a_foreign_file_is_left_alone() {
     .unwrap();
     pump(&mut core);
     drop(core);
-    let kind = tmp.path().join("d").join("rows").join("session");
-    let rows: Vec<PathBuf> = std::fs::read_dir(&kind)
-        .unwrap()
-        .map(|e| e.unwrap().path())
+    // The row of s1 is the file that its create added, wherever the storage keeps it.
+    let added: Vec<PathBuf> = files_below(&registry)
+        .into_iter()
+        .filter(|f| !before.contains(f))
         .collect();
-    assert_eq!(rows.len(), 1, "one session, one row file: {rows:?}");
-    std::fs::write(&rows[0], b"\xff damaged").unwrap();
+    assert_eq!(added.len(), 1, "one create, one row file: {added:?}");
+    // Every byte of the file is damaged, so no layout keeps any part of the row readable.
+    let damaged: Vec<u8> = std::fs::read(&added[0])
+        .unwrap()
+        .iter()
+        .map(|b| !b)
+        .collect();
+    std::fs::write(&added[0], damaged).unwrap();
     let foreign = tmp.path().join("d").join("rows").join("notes.txt");
     std::fs::write(&foreign, b"someone else's").unwrap();
     let mut again = Core::open(config(tmp.path())).expect("reopen");
@@ -422,4 +430,18 @@ fn a_damaged_row_is_registry_corrupt_and_a_foreign_file_is_left_alone() {
     );
     assert_eq!(again.diagnostics()["edges"]["foreign_registry_files"], 1);
     assert_eq!(std::fs::read(&foreign).unwrap(), b"someone else's");
+}
+
+/// Every file below `dir`, at any depth.
+fn files_below(dir: &std::path::Path) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    for entry in std::fs::read_dir(dir).unwrap() {
+        let path = entry.unwrap().path();
+        if path.is_dir() {
+            out.extend(files_below(&path));
+        } else {
+            out.push(path);
+        }
+    }
+    out
 }
