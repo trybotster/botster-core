@@ -6,7 +6,7 @@
 //! before production's cleanup, and drops the guard after it. On macOS the member's rounds can wait in a tty drain until
 //! production closes the PTY master, so the guard reads the member's report only after that.
 
-use super::process_guard::cleanup::{end_group, platform::live_members, CLEANUP};
+use super::process_guard::cleanup::{await_group_end, end_group, CLEANUP};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
@@ -176,8 +176,9 @@ impl PayloadGuard {
 
 impl Drop for PayloadGuard {
     /// Reads the member's report, and fails the test unless the group is proved empty (or reports the failure when the
-    /// test already panics): an `ok` report; or no report and no live member left in the group, which means that
-    /// production's group kill ended the member with its group. A member that never registered owned nothing.
+    /// test already panics): an `ok` report; or no report and a group whose last live members end within the cleanup
+    /// limit, which means that production's group kill ended the member with its group. A member that never registered
+    /// owned nothing.
     fn drop(&mut self) {
         self.release();
         let Some(thread) = self.thread.take() else {
@@ -203,19 +204,9 @@ impl Drop for PayloadGuard {
             Ok(Outcome {
                 group: Some(group),
                 report: Ok(None),
-            }) => match live_members(group) {
-                Ok(left) if left.is_empty() => None,
-                Ok(left) => {
-                    let left: Vec<String> = left.iter().map(ToString::to_string).collect();
-                    Some(format!(
-                        "the member ended without a report, and members are left: {}",
-                        left.join(", ")
-                    ))
-                }
-                Err(error) => Some(format!(
-                    "the member ended without a report, and its group cannot be listed: {error}"
-                )),
-            },
+            }) => await_group_end(group, CLEANUP)
+                .err()
+                .map(|why| format!("the member ended without a report: {why}")),
         };
         if let Some(why) = failure {
             let report = format!("the payload guard's cleanup failed: {why}");
