@@ -52,9 +52,12 @@ impl<T: Send + 'static> Drop for Bounded<T> {
             drop(value);
             let _ = done.send(());
         });
+        // Production's drop can wait for the guard's member, whose cleanup takes up to CLEANUP, and then completes and
+        // reports: the outer limit allows both.
+        let limit = 2 * CLEANUP;
         // timer: deadline — bounds production's cleanup in a test.
-        if finished.recv_timeout(CLEANUP).is_err() {
-            let report = format!("production's cleanup did not finish within {CLEANUP:?}");
+        if finished.recv_timeout(limit).is_err() {
+            let report = format!("production's cleanup did not finish within {limit:?}");
             if std::thread::panicking() {
                 eprintln!("{report}");
             } else {

@@ -71,63 +71,100 @@ fn quoted(path: &Path) -> String {
     format!("'{}'", path.display().to_string().replace('\'', "'\\''"))
 }
 
+/// The member's registration: its stream, a reader over the same stream, and its group.
+struct Member {
+    stream: UnixStream,
+    reader: BufReader<UnixStream>,
+    group: rustix::process::Pid,
+}
+
+fn failed(error: std::io::Error) -> Outcome {
+    Outcome {
+        group: None,
+        report: Err(error),
+    }
+}
+
 /// Registers the member and the ready helper, waits for the cleanup request, and reads the member's report.
+///
+/// A connection that ends before its tag is the release of a waiting accept (the request came before registration);
+/// it ends the registration. Every other failure is kept: an accept or read error, an unknown tag, or a group that is not
+/// a valid id (no readiness is sent then). A ready helper with no member is an error: the payload ran without its owner.
+/// A member with no ready helper (the payload ended before it) gets the cleanup request at once and reports as usual.
 fn serve(listener: UnixListener, mut receiver: UnixStream) -> Outcome {
-    let mut anchor = None;
+    let mut member: Option<Member> = None;
     let mut ready = None;
-    for _ in 0..2 {
-        let Ok((mut stream, _)) = listener.accept() else {
-            return Outcome::unregistered();
+    while member.is_none() || ready.is_none() {
+        let mut stream = match listener.accept() {
+            Ok((stream, _)) => stream,
+            Err(error) => return failed(error),
         };
         let mut tag = [0];
-        if stream.read_exact(&mut tag).is_err() {
-            return Outcome::unregistered();
+        match stream.read_exact(&mut tag) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => break,
+            Err(error) => return failed(error),
         }
         match tag[0] {
-            1 => anchor = Some(stream),
-            2 => ready = Some(stream),
-            _ => return Outcome::unregistered(),
+            1 if member.is_none() => {
+                let mut reader = match stream.try_clone() {
+                    Ok(clone) => BufReader::new(clone),
+                    Err(error) => return failed(error),
+                };
+                let mut line = String::new();
+                if let Err(error) = reader.read_line(&mut line) {
+                    return failed(error);
+                }
+                let Some(group) = line
+                    .trim()
+                    .parse()
+                    .ok()
+                    .and_then(rustix::process::Pid::from_raw)
+                else {
+                    return failed(std::io::Error::other(format!(
+                        "the member registered an invalid group {line:?}"
+                    )));
+                };
+                member = Some(Member {
+                    stream,
+                    reader,
+                    group,
+                });
+            }
+            2 if ready.is_none() => ready = Some(stream),
+            other => {
+                return failed(std::io::Error::other(format!(
+                    "an unexpected registration tag {other}"
+                )))
+            }
         }
     }
-    let (Some(mut anchor), Some(mut ready)) = (anchor, ready) else {
-        return Outcome::unregistered();
+    let Some(mut member) = member else {
+        return match ready {
+            None => Outcome::unregistered(),
+            Some(_) => failed(std::io::Error::other(
+                "the payload became ready without its member",
+            )),
+        };
     };
-    let mut reader = match anchor.try_clone() {
-        Ok(stream) => BufReader::new(stream),
-        Err(error) => {
-            return Outcome {
-                group: None,
-                report: Err(error),
-            }
-        }
-    };
-    let mut group = String::new();
-    let group = match reader.read_line(&mut group) {
-        Ok(_) => group
-            .trim()
-            .parse()
-            .ok()
-            .and_then(rustix::process::Pid::from_raw),
-        Err(error) => {
-            return Outcome {
-                group: None,
-                report: Err(error),
-            }
-        }
-    };
-    let _ = anchor.write_all(&[1]);
-    let _ = ready.write_all(&[1]);
-    let mut rest = Vec::new();
-    let _ = receiver.read_to_end(&mut rest);
-    let _ = anchor.shutdown(std::net::Shutdown::Write);
+    if let Some(mut ready) = ready {
+        let _ = member.stream.write_all(&[1]);
+        let _ = ready.write_all(&[1]);
+        let mut rest = Vec::new();
+        let _ = receiver.read_to_end(&mut rest);
+    }
+    let _ = member.stream.shutdown(std::net::Shutdown::Write);
     // The cleanup request is sent. The member reports when its rounds end.
     let mut line = String::new();
-    let report = match reader.read_line(&mut line) {
+    let report = match member.reader.read_line(&mut line) {
         Ok(0) => Ok(None),
         Ok(_) => Ok(Some(line.trim_end().to_string())),
         Err(error) => Err(error),
     };
-    Outcome { group, report }
+    Outcome {
+        group: Some(member.group),
+        report,
+    }
 }
 
 impl PayloadGuard {
