@@ -782,3 +782,76 @@ Log: ~/botster-sessions/gates/botster-core-stage1-p3-m2a-v1-740b587a-linux-20261
 The M1 fixtures still used constructors without M2a directory identity or PTY write state.
 P3 updated the existing fixtures to pass their directory and handle names and initialize the new edge state.
 Their assertions and tested behavior remain unchanged. Next: rerun the focused Linux check.
+
+## M2a focused proof and real PTY regression (2026-10-04)
+
+The focused Linux check at 45627e59 passes 265 tests, with zero skipped.
+Log: ~/botster-sessions/gates/botster-core-stage1-p3-m2a-v1-45627e59-linux-20261004-194717-99108.log.
+The check covers Worker admission, driver decisions, testkit edges, directory separation, and the M2a transcript proof.
+New slow regression: in_6_real_pty_cancel_keeps_counts_and_resumes_the_next_write.
+The program disables line processing and waits on a FIFO before it reads PTY input.
+The host sends a large Text transaction, cancels it, and checks its exact positive prefix count.
+The program then reads that prefix and the next transaction. The file must contain exactly the reported input bytes in order.
+The shared fixture runs both the prebuilt binary and the rebuilt observer with the production Driver.
+Existing independent guards own both process groups. FIFO and report waits have explicit deadlines.
+Next: run this regression on Linux, then perform the M2a mutation checks and delta reviews.
+
+## P6 observation boundary for M2b (2026-10-04)
+
+The lead directs live oracle controls to wait for M2b. P6 and P3 will agree on the injected observer API then.
+- Identify each session by data directory and InstanceId. Include its Size and History configuration.
+- After each completed native model step, expose exactly the consumed bytes in order. PTY reads can include an unconsumed suffix.
+- Oracle reads must not pump the subject.
+- At the same boundary, expose accepted resize and terminal configuration changes in their actual order.
+- Provide read-only access to the actual Terminal for native comparisons and failure or continuation checks.
+- For each completed capture, expose its model revision and the actual model at that revision.
+- Retain every consumed output chunk after that revision for resume checks. Core read_page remains the capture source.
+- Every-cut adapters need a fresh subject session, real program prefix and suffix writes, the quiet fence, real CaptureSnapshot, and ordered pages.
+- An observation error must fail the testkit run. The observer must not silently drop bytes.
+No test branch or second terminal semantics path belongs in Worker.
+
+## Implementer handoff boundary (2026-10-04)
+
+The lead directs P3 to an Opus implementer at this clean boundary.
+M1 is merged as 01fd38968b9e7605becc7e2b5088628aff52865a. Its pushed branch head is da2b0494bbda711e5a67cb180ddf05c607784635.
+M1 package CLEAN: 22124c35f2bb2d785f92182a90c6cfe9149d6fb4. Integration CLEAN: c9a1177bf3797b57dba0449b25e02a68becfb9f0.
+All F1-F24 and I1-I6 findings are closed. The full Linux gate passed all ten steps, including fuzz.
+M1 mutation: 328 tested, 261 caught, 67 unviable, zero missed or timed out.
+M1 full log: ~/botster-sessions/gates/botster-core-stage1-p3-m1-v1-da2b0494-linux-20261004-190335-66474.log.
+Required native Mac helper mutation log: ~/botster-sessions/gates/botster-core-stage1-p3-m1-v1-63b5c1db-mac-20261004-181240-42534.log.
+The Mac helper run caught both mutants. Its unchanged baseline passed 47 tests.
+The new branch stage1/p3-m2a-v1 starts at merged M1 and includes merged registry 144b0234fb632bcbb5176b17c2fe55f3239405df.
+The final M2a pushed hash is recorded in the shared handoff after this commit.
+Old pushed branches remain immutable:
+- stage1/p3-worker-m1-stack: 46b16945ead49715949d5983bb41a673c081f8ad.
+- stage1/p3-worker-m2a: 98960e434b0991ebb9d7e65c952f1c6ea116b83a.
+- stage1/p3-worker-m2b: 7abc54db1876d00e1484607eb5b53c2f8c64b885.
+- stage1/p1-testkit-wiring: 95a58545a9d5369098ed0074ee150d1b6ca16491.
+The M2a restack has no reviewer verdict yet. No new M2a findings exist because review has not started.
+The first focused check failed compilation. The constructor fixes passed all 265 selected tests at 45627e59.
+M2a mutation status: not run. The M1 exclusions remain; no new M2a exclusion was added.
+The new real PTY cancellation regression is committed with this handoff but has not run.
+No gate or heavy job is active. No M2a PR exists yet.
+
+Exact next step: prebuild the candidate and run the new regression on Linux through botster-gate.
+Command after `--`: env CARGO_BUILD_JOBS=4 NEXTEST_TEST_THREADS=4 RUST_TEST_THREADS=4 sh -c 'cargo xtask prebuild-worker && cargo nextest run -p botster-worker --features slow --lib --bins --test slow_session -E "test(in_6_real_pty_cancel_keeps_counts_and_resumes_the_next_write)"'.
+This selects both shared fixture paths: the prebuilt candidate and the rebuilt observer that runs the production Driver.
+Then complete M2a checks, mutation tests per changed file, and delta reviews against old CLEAN 5eb1f13.
+M2a changes the testkit's harness.rs, program.rs, and worker.rs. It needs package and integration review before READY.
+Check the M1 environment id that waits for spawn_record. The real tic id still needs a real-process control.
+Keep every conformance id pending until both harnesses pass. The fixed cancel-race transcript is in the testkit proof list.
+
+Registry agreement: worker_controls.rs owns its controls. controls::registered_controls() collects the module registration.
+The harness dispatch remains generic. P3 owns workers() and the directory-aware open() call sites.
+P6 agreed to avoid worker.rs, program.rs, and those open() edits in its independent oracle work.
+The P6 observation requirements appear immediately above this section. Live oracle dispatch waits for M2b.
+
+M2b must use the current v1 binding and finish snapshots, ReadFacts, input records, tap, disable_history, and all 11 A13 ids.
+M2b must complete crates/botster-terminal-ghostty/GHOSTSNP.md's Worker paging section in the same PR as paging code.
+Record the R-30/A8-2 code references there. Split native encoded bytes into contiguous Page { index, bytes, last } values.
+Add no byte framing to the snapshot. P6's every-cut fit adapters depend on this paging contract.
+M2b and the real-process conformance harness remain open. libghostty owns all terminal semantics and expected terminal bytes.
+
+Contacts: lead sess-1790903471-008f-8b9f78eef51d48aba5a45748495fd673; package reviewer sess-1791142479-0100-7411ff7507ce89a5e7416311610290d3.
+Integration reviewer: sess-1791143089-0101-8ce5f4942328f5697c410ea4da89c466. P6: sess-1791136735-00fc-4b09baad3d85f4ce4397761167aced46.
+Use botster receive_messages once after a doorbell. Never poll. Keep one heavy Linux job active at a time.
