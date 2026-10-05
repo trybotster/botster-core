@@ -4,6 +4,8 @@
 //!
 //! Clause: Core LC-1, LC-2, LC-9, LC-12, DP-8, TH-2, TM-6, AD-6.
 #![cfg(feature = "slow")]
+// The test is the host: it reads the real clock and passes the time to `pump` (Core TM-1).
+#![allow(clippy::disallowed_methods)]
 
 mod common;
 

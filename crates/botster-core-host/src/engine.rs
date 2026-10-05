@@ -156,12 +156,13 @@ pub struct HostEngine {
     pub(crate) next_route: u64,
     pub(crate) next_instance: u64,
     pub(crate) next_req: u64,
-    /// The monotonic time of the last input. Before the first input it is `epoch`, a fixed instant that no deadline can be
-    /// due at, because no deadline exists yet.
+    /// The monotonic time of the last `pump` (TM-1: the host passes it; Core reads no clock). `None` before the first one.
     pub(crate) now: Option<Instant>,
-    epoch: Instant,
     pub(crate) unix: UnixSeconds,
     pub(crate) adopt_all_begun: bool,
+    /// The ids of durable rows that no session of this handle holds yet: `Create` refuses them (ID-1: an id is unique among
+    /// registry rows), and `AdoptAll` turns each into a session (AD-1).
+    pub(crate) unadopted: BTreeSet<SessionId>,
     /// Routes that are registered and wait for the handoff of their stream to the worker (DP-2).
     pub(crate) pending_handoffs: Vec<(RouteId, StreamEndpoint, AttachOptions)>,
     /// Route closes and route events that wait for mandatory-queue room (EV-5b).
@@ -170,8 +171,9 @@ pub struct HostEngine {
 }
 
 impl HostEngine {
-    /// `epoch` is any instant before the first input, for example the host's start; the engine only compares it.
-    pub fn new(cfg: EngineConfig, epoch: Instant) -> HostEngine {
+    /// `registry_ids` are the ids of the durable rows that the registry holds when the handle opens: they are in use until
+    /// `AdoptAll` recovers them or `Remove` frees them (ID-1, LC-3, AD-2).
+    pub fn new(cfg: EngineConfig, registry_ids: BTreeSet<SessionId>) -> HostEngine {
         let bounds = QueueBounds {
             droppable: cfg.limits.event_queue as usize,
             mandatory: cfg.limits.mandatory_events as usize,
@@ -195,7 +197,7 @@ impl HostEngine {
             next_instance: 1,
             next_req: 1,
             now: None,
-            epoch,
+            unadopted: registry_ids,
             unix: 0,
             adopt_all_begun: false,
             pending_handoffs: Vec::new(),
@@ -262,11 +264,6 @@ impl HostEngine {
     /// How many route events wait for room inside the engine, for tests.
     pub fn parked_events_len(&self) -> usize {
         self.parked_events.len() + self.parked_closes.len()
-    }
-
-    /// The monotonic time of the last input.
-    pub fn last_now(&self) -> Instant {
-        self.now.unwrap_or(self.epoch)
     }
 
     pub(crate) fn mono(&self) -> Option<Instant> {
@@ -574,6 +571,14 @@ impl HostEngine {
 
     pub(crate) fn identity_of(&self, session: &SessionId) -> Option<ProcessIdentity> {
         self.sessions.get(session).and_then(|s| s.worker.identity)
+    }
+}
+
+impl HostEngine {
+    /// Takes an input with no new time: an edge result, a link message or a step. Only `pump` moves the clock (TM-1), through
+    /// [`Machine::handle`].
+    pub fn input(&mut self, input: Input) {
+        self.on_input(input);
     }
 }
 

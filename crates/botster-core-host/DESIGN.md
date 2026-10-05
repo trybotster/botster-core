@@ -4,7 +4,8 @@ Package P1 (session registry and lifecycle) of Stage 1. Plan pin `555bc433`, con
 
 ## Shape
 
-- `HostEngine` is a sans-IO machine (plan 2.1). It reads no clock, draws no random number, starts no thread and touches no
+- `HostEngine` is a sans-IO machine (plan 2.1). Time enters only through `pump(now)` (TM-1): edge results are fed with no new
+  time (`HostEngine::input`), and before the first `pump` the engine has no time and no deadline. It reads no clock, draws no random number, starts no thread and touches no
   file. `io.rs` lists its inputs and actions. A registry write, a random value, a spawn, a link message: each is an action with
   a `Ticket`, and the driver answers with the input that carries the ticket.
 - `HostDriver` (`driver.rs`) is the one driver of the real `Core` and of the testkit's core. It owns framing and the hello decode
@@ -31,12 +32,15 @@ Package P1 (session registry and lifecycle) of Stage 1. Plan pin `555bc433`, con
 | `Resize`, `SetSizePolicy` and `SetColorProfile` of a `Created` session change the stored request in memory only. | The A2-1 table gives them no `RegistryFailed`, so no durable write. `SetNotificationPolicy` of a `Created` session is durable (A3-1). |
 | A signal number outside 1 to 31 is `Unsupported`. | A2-1 gives `Signal` the sync error `Unsupported` and does not say which values. |
 | A host `Key` or `Mouse` write is bounded at `begin` by 64 bytes per event (times `repeat` or `notches`). | IN-9 asks for the worst case over every mode. The encoders are the worker's (P3), which must never produce a longer sequence. |
-| `AdoptAll` keeps `Created` rows and posts every other row as `Lost(Other)`. | AD-1 recovery of a live worker is the adoption package's (P5). `Other` says that Core cannot tell. |
+| `AdoptAll` keeps `Created` rows and posts every other decodable row as `Lost(Other)`. | AD-1 recovery of a live worker is the adoption package's (P5). `Other` says that Core cannot tell. No test asserts this placeholder. |
+| A row that Core's decoder rejects (not a row, another `version`, or a row whose `id` is not the id of its key) is `Lost(RegistryCorrupt)` under the id of its key. Its session gets an `InstanceId` minted by this handle and a record of size 0 by 0 with no labels. | AD-1: every row is recovered, and one that cannot be is `Lost(reason)`; AD-2 and A10-2 name `RegistryCorrupt`. EV-9 needs an instance for its `SessionState`, and the row's own one cannot be read. A size of 0 is outside every valid size (A2-1), so nobody takes it for a real one. `Remove` claims no upload of it (`outcome_unknown`, A6-3). |
+| A row of a session that this handle holds already (it made the row) is not recovered again. | Its state events were posted by this handle (LC-11). |
+| `HostDriver::open` reads the ids of the registry's rows; `Create` refuses them with `IdInUse` until `AdoptAll` turns them into sessions. | ID-1: an id is unique among registry rows; LC-3; AD-2: a `Lost` row keeps the id in use until `Remove`. A read failure makes `open` fail `RegistryFailed`. |
 | `AttachWebRtc`, `Adopt` and the service rows are refused with `Unsupported` or `UnknownService`. | They belong to P4c, P5 and P7. |
 | A stop sends its request and starts its grace before the state event is posted. `Remove` closes each bound route (with its `RouteClosed`) first; steps 2 to 5 wait for that, then run under pressure and only `Released` waits for room. | EV-5c, and steward ruling R-15: LC-7's order holds under a full queue. |
 | The worker reports the payload's identity at launch, and a stop without a link sends `GroupSignal::EndPayload` (`SIGUSR1`) to the verified worker, at the stop and at `stop_grace`. After the stop the session is `Lost(WorkerUnreachable)`. | LC-5 and LC-6: the payload group ends, and the worker keeps its final model. The worker is the parent of the payload and ends its group. The host never signals a bare payload group (AD-6) and never kills the worker on this path. Core cannot learn the exit of a payload whose worker it cannot reach. |
 | `Signal` is a request to the worker and completes on its confirmation. | A2-1: `Ok` is "after the signal was sent"; a link that fails before the confirmation gives `WorkerLinkFailed`. |
-| `Remove` waits for the worker process to end (a worker that does not end within `stop_grace` after its teardown is killed) before it deletes the row and frees the id. | LC-7 step 3 before steps 4 and 5; A6-3: a stray worker is ended. |
+| `Remove` waits for the worker process to end before it deletes the row and frees the id. A worker that cannot be asked, and a worker that does not end within `stop_grace` after its teardown, has its identity checked (`Action::ProbeIdentity`, AD-6): a matching worker is killed and checked again each `stop_grace`; an absent one, or a pid that another process has now, is gone. | LC-7 step 3 before steps 4 and 5; A6-3: a stray worker is ended; AD-6: a process that does not match is never signalled. A worker that this handle did not spawn has no exit watch, so the check is how the host learns of its end. |
 | Ops of an instance that is gone complete `SessionEnded` (a write: `NotWritten(SessionEnded)`); the ops admitted after a failed `Create` complete with its `RegistryFailed`. | AM-3: no op stays attached to a session that is gone; ID-1: no op reaches a later instance. |
 | A `StopAll` leaves a target whose stop row cannot be written and completes. | LC-12 and A2-1: `StopAll` has no async error; a target that cannot be stopped is left. |
 | Setters of a `Created` session are steps that run in a pump, and a start waits for the setters admitted before it. | OR-1: no progress in `begin`; AM-1: begin order. |
@@ -50,8 +54,9 @@ Package P1 (session registry and lifecycle) of Stage 1. Plan pin `555bc433`, con
 ## Prior art (BUILD.md rule 0)
 
 - **Reused:** nothing from the old code was copied (no `Stolen-From` commit). The old exit watch (`process_exit.rs`) uses
-  `libc` and `unsafe`; this workspace forbids unsafe code, so the real `Process` edge reaps its children with `Child::try_wait`
-  and wakes on the link's EOF. The kqueue and pidfd watch stays P3's steal.
+  `libc` and `unsafe`; this workspace forbids unsafe code, so the real `Process` edge reaps each child on a reaper thread that
+  blocks in `Child::wait` and wakes the host through the notifier (`Children::with_notify`). The kqueue and pidfd watch stays
+  P3's steal.
 - **Rejected:** `registry.rs` (no fsync, no lock, no token), `session_protocol.rs` (the old control frames). Lessons kept: one
   file per row; the length is checked before any allocation.
 - **Libraries added:** `atomic-write-file` (atomic replace: it syncs the file, renames it and syncs the directory in `commit`, and its error does not say which step
@@ -66,7 +71,7 @@ Package P1 (session registry and lifecycle) of Stage 1. Plan pin `555bc433`, con
 - **No payload-group signal (AD-6, lead ruling on F7).** The host signals only processes that it identifies by pid and start time: the worker. It never signals a bare payload group, because the group id can be reused by an unrelated group after the original group ends. With a broken link (LC-5), the host sends `EndPayload` to the verified worker (see Worker-control signal below). `Launched` still carries the payload identity, and the row records it.
 - **Interface note for P3 (worker side).** On `EndPayload` (`SIGUSR1`) the worker ends its payload group and keeps the final model. The worker is the parent of the payload. It keeps the payload leader unreaped (`waitid` with `WNOWAIT`) until the group kill completes, so the group id cannot be reused (POSIX). The worker asks the payload to stop, and kills its group after `stop_grace`.
 - **Ops that end with their instance (AM-3, IN-7).** Writes that were sent and not acknowledged complete `Unknown`. Writes never sent complete `NotWritten(SessionEnded)`. Resize, size policy and signal complete `SessionEnded`. Detach completes `Ok`. Start, Remove, metadata and notification policy complete with the failed Create, or `RegistryFailed`. Other ops complete `WorkerLinkFailed`.
-- **Remove grace.** A kill is not an observed exit. Remove waits for the exit input and repeats the kill each `stop_grace`.
+- **Remove grace.** A kill is not an observed exit. At each `stop_grace` the host checks the worker's identity: it kills a matching worker again, and takes an absent one as gone.
 - **Pump bounds.** Held frames, process exits and completions count against `pump_events`. A read takes at most what is left of `pump_bytes`.
 
 ## Round 3 decisions

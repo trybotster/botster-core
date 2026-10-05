@@ -55,6 +55,7 @@ impl HostEngine {
                 }
             }
             Input::ProcessExited { identity, status } => self.on_process_exited(identity, status),
+            Input::IdentityState { identity, state } => self.flow_remove_probed(identity, state),
             Input::Features(features) => self.features = features,
         }
     }
