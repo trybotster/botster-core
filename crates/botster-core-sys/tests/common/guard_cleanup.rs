@@ -268,9 +268,66 @@ fn a_member_gone_to_its_wait_but_still_listed_is_left() {
     assert!(matches!(ended, Err(Failure::Left(left)) if left == [held]));
 }
 
+/// Whether the child `pid` of this process ended within the cleanup limit, observed without reaping it (`WNOWAIT`), so a
+/// timeout leaves the child to its owner.
+fn ended_within_cleanup(pid: rustix::process::Pid) -> bool {
+    use rustix::process::{waitid, WaitId, WaitIdOptions};
+    let (ended, end) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        loop {
+            match waitid(
+                WaitId::Pid(pid),
+                WaitIdOptions::EXITED | WaitIdOptions::NOWAIT,
+            ) {
+                Err(rustix::io::Errno::INTR) | Ok(None) => continue,
+                _ => break,
+            }
+        }
+        let _ = ended.send(());
+    });
+    // timer: deadline — bounds the wait for a test child's end.
+    end.recv_timeout(CLEANUP).is_ok()
+}
+
+/// A child of this test, owned on every path: `status` waits for its end within the cleanup limit, and its drop ends a
+/// child that still runs (a kill of this unreaped child's own pid) and reaps it within the same limit.
+struct Owned(std::process::Child);
+
+impl Owned {
+    fn pid(&self) -> rustix::process::Pid {
+        rustix::process::Pid::from_raw(self.0.id() as i32).expect("a child pid")
+    }
+
+    /// The child's exit status, once it has ended within the cleanup limit.
+    fn status(&mut self) -> std::process::ExitStatus {
+        assert!(
+            ended_within_cleanup(self.pid()),
+            "the child ended within the cleanup limit"
+        );
+        self.0.wait().unwrap()
+    }
+}
+
+impl Drop for Owned {
+    fn drop(&mut self) {
+        if !matches!(self.0.try_wait(), Ok(None)) {
+            return;
+        }
+        let _ = self.0.kill();
+        if ended_within_cleanup(self.pid()) {
+            let _ = self.0.wait();
+        } else if std::thread::panicking() {
+            eprintln!("the test child {} did not end after SIGKILL", self.0.id());
+        } else {
+            panic!("the test child {} did not end after SIGKILL", self.0.id());
+        }
+    }
+}
+
 /// The reservation through the real kernel, observed by the members' exit statuses. While the reserve is an unreaped
 /// child, the kill reaches the group: its member ends by SIGKILL. Once the reserve is reaped, the kill sends nothing: a
-/// member that still holds the group ends normally when the test lets it, so no signal reached it.
+/// member that still holds the group ends normally when the test lets it, so no signal reached it. Every child is owned
+/// on every path, and every wait is bounded.
 #[test]
 fn a_kill_goes_out_only_while_the_reserve_holds_the_group() {
     use std::os::unix::process::{CommandExt, ExitStatusExt};
@@ -284,33 +341,35 @@ fn a_kill_goes_out_only_while_the_reserve_holds_the_group() {
         .success());
     // A member blocks without CPU in the open of a FIFO that nothing writes, until a writer opens it or a signal ends it.
     let member = |group: i32| {
-        Command::new("/bin/cat")
-            .arg(&never)
-            .stdout(Stdio::null())
-            .process_group(group)
-            .spawn()
-            .unwrap()
+        Owned(
+            Command::new("/bin/cat")
+                .arg(&never)
+                .stdout(Stdio::null())
+                .process_group(group)
+                .spawn()
+                .unwrap(),
+        )
     };
     let kill_signal = rustix::process::Signal::KILL.as_raw();
 
     // Held: the reserve leads the group, and the kill ends its member.
     let mut reserve = member(0);
-    let group = rustix::process::Pid::from_raw(reserve.id() as i32).unwrap();
+    let group = reserve.pid();
     let mut held = member(group.as_raw_nonzero().get());
     reserved_kill(group, group).unwrap();
     assert_eq!(
-        held.wait().unwrap().signal(),
+        held.status().signal(),
         Some(kill_signal),
         "the held group was signalled"
     );
-    reserve.wait().unwrap();
+    reserve.status();
 
     // Released: the reserve alone ends and is reaped while a member still holds the group, and the kill sends nothing.
     let mut reserve = member(0);
-    let group = rustix::process::Pid::from_raw(reserve.id() as i32).unwrap();
+    let group = reserve.pid();
     let mut alive = member(group.as_raw_nonzero().get());
-    reserve.kill().unwrap();
-    reserve.wait().unwrap();
+    reserve.0.kill().unwrap();
+    reserve.status();
     let refused = reserved_kill(group, group).expect_err("a reaped reserve holds nothing");
     assert!(
         refused.to_string().contains("no longer an unreaped child"),
@@ -330,7 +389,7 @@ fn a_kill_goes_out_only_while_the_reserve_holds_the_group() {
         .expect("the member still reads the FIFO");
     drop(writer.unwrap());
     assert_eq!(
-        alive.wait().unwrap().code(),
+        alive.status().code(),
         Some(0),
         "no signal reached the member"
     );
