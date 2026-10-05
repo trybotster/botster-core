@@ -132,6 +132,14 @@ pub(crate) struct RouteEntry {
     pub route_tag: Option<String>,
 }
 
+/// A route event that waits for mandatory room (EV-5b).
+#[derive(Debug)]
+pub(crate) enum ParkedRoute {
+    Close(RouteId, RouteCloseReason),
+    /// `RouteStalled` (true) or `RouteResumed` (false).
+    Progress(RouteId, bool),
+}
+
 /// Who a ticket belongs to.
 #[derive(Debug, Clone)]
 pub(crate) enum Owner {
@@ -178,8 +186,9 @@ pub struct HostEngine {
     /// Routes that are registered and wait for the handoff of their stream to the worker (DP-2).
     pub(crate) pending_handoffs: Vec<(RouteId, StreamEndpoint, AttachOptions)>,
     /// Route closes and route events that wait for mandatory-queue room (EV-5b).
-    pub(crate) parked_closes: VecDeque<(RouteId, RouteCloseReason)>,
-    pub(crate) parked_events: VecDeque<Event>,
+    /// One queue in arrival order, so that the events of a route keep the worker's order (EV-6): a close is never posted
+    /// before an event that the worker sent ahead of it.
+    pub(crate) parked: VecDeque<ParkedRoute>,
 }
 
 impl HostEngine {
@@ -214,8 +223,7 @@ impl HostEngine {
             final_row_failures: 0,
             link_closes: VecDeque::new(),
             pending_handoffs: Vec::new(),
-            parked_closes: VecDeque::new(),
-            parked_events: VecDeque::new(),
+            parked: VecDeque::new(),
             cfg,
         }
     }
