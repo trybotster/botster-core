@@ -706,3 +706,9 @@ The correction names exact test functions for every affected entry. Exclusion pa
 Examples: Driver::start names ev_4_a_real_exit_carries_the_code_or_the_signal; Payload::spawn names the typed-failure and exact-environment tests.
 Payload Drop names a_panic_ends_the_payload_while_it_waits_for_input and dropping_the_payload_reaps_its_leader.
 The delta needs both reviewers before the landing gate. No tests were rerun for this comment correction.
+
+Integration I5 LOW identifies a comment regression in the named-test correction.
+That edit also replaced the wait_unreaped option-bit explanation and set_nonblocking's sole-fresh-caller explanation.
+The correction restores EXITED/NOWAIT disjointness and the pinned pty-process 0.5.3 fresh blocking descriptor fact.
+It retains the concrete test names, NONBLOCK/OR/XOR facts, and recheck conditions.
+Patterns, source, and tests remain unchanged. Both reviewers must review the restored equivalence record before the gate.
