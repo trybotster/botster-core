@@ -906,9 +906,9 @@ Audit A5 is CLOSED: the facade and driver read no clock; pump supplies the machi
 Audit A7 is CLOSED: the unknown-hello test waits for real wake and EOF events with marked deadlines.
 Audit A9 is CLOSED: Remove probes an adopted non-child identity and observes teardown without relying on a child-reaper event.
 
-The integration reviewer reports zero open findings at this exact head, verdict commit `cc389c2`.
-They state that their CLEAN follows this package's CLEAN at the same head.
-The package reviewer will send this verdict commit so they can issue that terminal integration result.
+The integration reviewer reported zero open findings at this exact head, verdict commit `cc389c2`.
+After receiving package verdict commit `89893b23`, they issued terminal CLEAN at the same head, verdict commit `9edbc27`.
+They sent both verdict commits to the lead. The package and integration reviews now both report CLEAN for this exact head.
 
 ### Evidence and scope limits
 
