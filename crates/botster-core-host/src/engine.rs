@@ -17,6 +17,9 @@ use std::time::{Duration, Instant};
 /// section 3).
 const LINK_FRAME_CAP: u32 = u32::MAX / 2;
 
+/// How many link closes `diagnostics()` keeps, newest last (LC-10).
+const LINK_CLOSE_RECORDS: usize = 16;
+
 /// What the engine needs to know before its first input.
 ///
 /// Clause: Core LC-1, Core 9B, Core A2-6, Core DP-8, Core AD-4.
@@ -166,6 +169,9 @@ pub struct HostEngine {
     /// Final rows whose write failed or is uncertain: the registry may still show an earlier state, which the next
     /// `AdoptAll` reads (AD-7: the registry as read after the next `open` is authoritative).
     pub(crate) final_row_failures: u64,
+    /// Why the last links were closed (a bad frame, a hello that failed AD-6 or AD-4, a peer that left), newest last: an
+    /// interoperability failure is visible where its cause was known (LC-10).
+    link_closes: VecDeque<String>,
     /// The ids of durable rows that no session of this handle holds yet: `Create` refuses them (ID-1: an id is unique among
     /// registry rows), and `AdoptAll` turns each into a session (AD-1).
     pub(crate) unadopted: BTreeSet<SessionId>,
@@ -206,6 +212,7 @@ impl HostEngine {
             unix: 0,
             adopt_all_begun: false,
             final_row_failures: 0,
+            link_closes: VecDeque::new(),
             pending_handoffs: Vec::new(),
             parked_closes: VecDeque::new(),
             parked_events: VecDeque::new(),
@@ -230,6 +237,21 @@ impl HostEngine {
         let n = self.next_instance;
         self.next_instance += 1;
         InstanceId(format!("{}-{}", self.cfg.host_epoch, n))
+    }
+
+    /// Records why `link` was closed, for `diagnostics()` (LC-10). The driver records the closes that it decides.
+    pub fn record_link_close(&mut self, link: LinkId, why: &dyn std::fmt::Display) {
+        if self.link_closes.len() == LINK_CLOSE_RECORDS {
+            self.link_closes.pop_front();
+        }
+        self.link_closes
+            .push_back(format!("link {}: {why}", link.0));
+    }
+
+    /// Closes `link` and records why.
+    pub(crate) fn close_link(&mut self, link: LinkId, why: &str) {
+        self.record_link_close(link, &why);
+        self.act(Action::CloseLink { link });
     }
 
     pub(crate) fn act(&mut self, action: Action) {
@@ -346,6 +368,7 @@ impl HostEngine {
             "routes": self.routes.len(),
             "host_epoch": self.cfg.host_epoch,
             "final_row_failures": self.final_row_failures,
+            "link_closes": self.link_closes,
         })
     }
 

@@ -477,8 +477,8 @@ fn the_wake_follows_runnable_work_and_the_pump_settles_before_it_clears() {
     assert!(!rig.wake_set());
 }
 
-/// Plan section 3: a frame over the bound ends the link, and a first frame that is not a hello does too; the engine learns of
-/// both as a closed link.
+/// Plan section 3, LC-10: a frame over the bound ends the link, and a first frame that is not a hello does too; the engine
+/// learns of both as a closed link, and `diagnostics()` keeps why.
 #[test]
 fn a_bad_first_frame_or_an_oversize_frame_closes_the_link() {
     let mut rig = Rig::new(CoreLimits::default());
@@ -523,6 +523,29 @@ fn a_bad_first_frame_or_an_oversize_frame_closes_the_link() {
     }
     rig.pump();
     assert!(rig.mock.lock().unwrap().links[&LinkId(41)].closed_by_host);
+    // LC-10, audit A28: each close is recorded with its reason, so an interoperability failure is visible where its cause
+    // was known.
+    let diagnostics = rig.driver.diagnostics();
+    let closes: Vec<&str> = diagnostics["link_closes"]
+        .as_array()
+        .expect("a list of link closes")
+        .iter()
+        .filter_map(|c| c.as_str())
+        .collect();
+    assert!(
+        closes.iter().any(|c| c.starts_with("link 40: ")),
+        "{closes:?}"
+    );
+    // The reason is the decoder's own refusal of the same header, at the driver's bound.
+    let mut decoder = FrameDecoder::new(rig.driver.engine().link_frame_bound());
+    let mut header = u32::MAX.to_le_bytes().to_vec();
+    header.push(0x01);
+    decoder.push(&header);
+    let oversize = decoder.next_frame().unwrap_err().to_string();
+    assert!(
+        closes.iter().any(|c| *c == format!("link 41: {oversize}")),
+        "{closes:?}"
+    );
 }
 
 /// Plan 2.5: a peer that closes its end (`Ok(0)`) is a closed link, and the pending read of its session fails.

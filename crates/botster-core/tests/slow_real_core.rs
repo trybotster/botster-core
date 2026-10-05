@@ -68,7 +68,8 @@ fn a_second_open_is_refused_until_the_first_is_dropped() {
     assert!(Core::open(config(tmp.path())).is_ok());
 }
 
-/// Core LC-1, 9B: no worker path and a zero limit are refused before the directory is touched.
+/// Core LC-1, 9B: no worker path, a zero limit and a data directory whose control socket cannot be bound are refused before
+/// the directory is touched.
 #[test]
 fn open_checks_the_config_first() {
     let tmp = tempfile::tempdir().unwrap();
@@ -84,8 +85,17 @@ fn open_checks_the_config_first() {
         Core::open(zero).err().expect("refused").code,
         ErrorCode::InvalidConfig { .. }
     ));
+    // A data directory whose control socket path does not fit a Unix socket address (audit A47).
+    let mut long = config(tmp.path());
+    long.data_dir = tmp.path().join("x".repeat(200));
+    assert_eq!(
+        Core::open(long).err().expect("refused").code,
+        ErrorCode::InvalidConfig {
+            field: "data_dir".into()
+        }
+    );
     assert!(
-        !tmp.path().join("d").exists(),
+        !tmp.path().join("d").exists() && !tmp.path().join("x".repeat(200)).exists(),
         "a refused config creates nothing"
     );
 }
