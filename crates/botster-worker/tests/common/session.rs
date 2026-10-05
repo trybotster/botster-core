@@ -31,23 +31,8 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command};
 use std::time::{Duration, Instant};
 
-/// `target/candidate/botster-worker`, found from this test binary (`target/<profile>/deps/<test>`), so it holds for any
-/// target directory.
-fn worker_binary() -> PathBuf {
-    let exe = std::env::current_exe().expect("the test binary");
-    let target = exe
-        .parent()
-        .and_then(|deps| deps.parent())
-        .and_then(|profile| profile.parent())
-        .expect("target/<profile>/deps");
-    let binary = target.join("candidate").join("botster-worker");
-    assert!(
-        binary.is_file(),
-        "{} is missing: run `cargo xtask prebuild-worker` first",
-        binary.display()
-    );
-    binary
-}
+mod candidate;
+use candidate::worker_binary;
 
 /// A short and canonical temporary root: a Unix socket path is limited to about 104 bytes (plan section 5).
 fn temp_root() -> tempfile::TempDir {
