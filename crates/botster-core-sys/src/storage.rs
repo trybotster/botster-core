@@ -297,14 +297,14 @@ pub struct DataDir {
 impl DataDir {
     /// Opens `path`: creates it with mode `0700` when missing, refuses a directory that is not safe (AD-6), takes the
     /// exclusive lock without waiting (LC-2), and raises the host epoch under the lock (DP-8).
+    ///
+    /// Two requirements on the host (AD-7, lead ruling on integration finding K4):
+    /// - The parent of `path` exists. Core creates only `path` itself; a missing parent fails the open with an I/O error.
+    /// - The parent of `path` is readable, because Core syncs it on every open. A parent that cannot be opened fails the open.
+    ///
+    /// Core syncs `path` and its parent and no other ancestor: the durability of the parent's own entry is the host's.
     pub fn open(path: &Path) -> Result<DataDir, OpenError> {
-        create_durably(
-            path,
-            DirEdges {
-                sync: &mut sync_dir,
-                writable: &writable,
-            },
-        )?;
+        create_data_dir(path, &mut sync_dir)?;
         check_safe(path)?;
         let lock = LockFile::try_exclusive(&path.join("lock")).map_err(|error| match error {
             LockError::Held => OpenError::InUse,
@@ -317,7 +317,7 @@ impl DataDir {
             Err(error) => return Err(error.into()),
         }
         // The entry of `rows` in the data directory is durable before any row is written below it (AD-7), on the first
-        // open and on a retry after an open whose sync failed.
+        // open and on a retry after an open whose sync failed. This is the sync of `path` on every open.
         sync_dir(path)?;
         check_safe(&rows)?;
         let dir = File::open(&rows)?.into();
@@ -361,42 +361,20 @@ impl DataDir {
     }
 }
 
-/// The edges of [`create_durably`]: the directory sync and the write check. Real in production, injected in a test.
-struct DirEdges<'a> {
-    sync: &'a mut dyn FnMut(&Path) -> io::Result<()>,
-    writable: &'a dyn Fn(&Path) -> bool,
-}
-
-/// Creates `path` and every missing ancestor with mode `0700`, then syncs the ancestors of `path`, going up, until the first
-/// one that the host cannot write. The syncs are not limited to the directories that this call created: an earlier open may
-/// have created one and failed before its parent's sync, and that obligation is met now (AD-7). The host can create a
-/// directory only in one that it can write, so no ancestor at or above the first one that it cannot write holds an entry
-/// that the host made: the walk stops there, and an ancestor that the host may pass through but not read (`0711`) never
-/// fails the open.
-fn create_durably(path: &Path, edges: DirEdges<'_>) -> io::Result<()> {
-    match fs::DirBuilder::new()
-        .mode(0o700)
-        .recursive(true)
-        .create(path)
-    {
+/// Creates the data directory `path` with mode `0700` when it is missing, then syncs its parent with `sync`, so that the
+/// entry of `path` is durable (AD-7). Only `path` itself is created: a missing parent fails with `NotFound`. The parent is
+/// synced on every open, whether this open created `path` or an earlier, failed open did. The parent is opened through
+/// `path/..`, so it is the directory that holds the entry, and it must be readable: a parent that cannot be opened fails the
+/// open, which never claims a durability that it does not have. No other ancestor is synced: the host owns them. `sync` is
+/// [`sync_dir`] in production, and an injected one in a test.
+fn create_data_dir(path: &Path, sync: &mut dyn FnMut(&Path) -> io::Result<()>) -> io::Result<()> {
+    match fs::DirBuilder::new().mode(0o700).create(path) {
         // A path that exists as a file is refused by `check_safe`, as unsafe.
         Ok(()) => {}
         Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
         Err(error) => return Err(error),
     }
-    let path = fs::canonicalize(path)?;
-    for ancestor in path.ancestors().skip(1) {
-        if !(edges.writable)(ancestor) {
-            break;
-        }
-        (edges.sync)(ancestor)?;
-    }
-    Ok(())
-}
-
-/// Whether this process may create entries in `dir`.
-fn writable(dir: &Path) -> bool {
-    rustix::fs::access(dir, rustix::fs::Access::WRITE_OK).is_ok()
+    sync(&path.join(".."))
 }
 
 /// Syncs the directory `dir`.
@@ -652,89 +630,74 @@ mod slow_tests {
         }
     }
 
-    /// AD-7 (review finding P5-F9): an open whose sync of an ancestor fails leaves directories that it created; the next
-    /// open syncs every writable ancestor again, so the entry of a directory that the failed open created is made durable too.
+    /// Lead ruling on K4: Core creates only the data directory, so a missing parent fails the open with the I/O error of the
+    /// system, and nothing is created.
     #[test]
-    fn a_retried_open_syncs_the_ancestors_that_a_failed_open_left() {
+    fn a_missing_parent_fails_the_open() {
         let tmp = dir();
-        let base = fs::canonicalize(tmp.path()).unwrap();
-        let path = base.join("new").join("a").join("data");
-        // Only `base` and what is below it count as writable, so the walk is the same for every user.
-        let below_base = |dir: &Path| dir.starts_with(&base);
-        let mut failing = |dir: &Path| {
-            if dir == base {
-                Err(io::Error::from_raw_os_error(
-                    rustix::io::Errno::IO.raw_os_error(),
-                ))
-            } else {
-                sync_dir(dir)
-            }
-        };
-        let edges = DirEdges {
-            sync: &mut failing,
-            writable: &below_base,
-        };
-        assert!(create_durably(&path, edges).is_err());
-        assert!(path.exists(), "the failed open left its directories");
-        let mut synced = Vec::new();
-        let mut recording = |dir: &Path| {
-            synced.push(dir.to_path_buf());
-            sync_dir(dir)
-        };
-        let edges = DirEdges {
-            sync: &mut recording,
-            writable: &below_base,
-        };
-        create_durably(&path, edges).unwrap();
-        for dir in [base.join("new").join("a"), base.join("new"), base.clone()] {
-            assert!(
-                synced.contains(&dir),
-                "{} was not synced: {synced:?}",
-                dir.display()
-            );
+        let parent = tmp.path().join("missing");
+        match DataDir::open(&parent.join("d")) {
+            Err(OpenError::Io(error)) => assert_eq!(error.kind(), io::ErrorKind::NotFound),
+            other => panic!("{other:?}"),
+        }
+        assert!(!parent.exists());
+    }
+
+    /// Lead ruling on K4: the parent is synced on every open, so a parent that the host may write and enter but not read
+    /// fails the open: Core never claims a durability that it does not have.
+    #[test]
+    fn a_parent_that_cannot_be_read_fails_the_open() {
+        let tmp = dir();
+        let parent = tmp.path().join("p");
+        fs::create_dir(&parent).unwrap();
+        fs::set_permissions(&parent, fs::Permissions::from_mode(0o300)).unwrap();
+        let result = DataDir::open(&parent.join("d"));
+        fs::set_permissions(&parent, fs::Permissions::from_mode(0o700)).unwrap();
+        match result {
+            Err(OpenError::Io(error)) => assert_eq!(error.kind(), io::ErrorKind::PermissionDenied),
+            // A user that ignores permissions (root) reads the parent.
+            Ok(_) => {}
+            Err(other) => panic!("{other}"),
         }
     }
 
-    /// Integration finding K4: an ancestor at or above the first one that the host cannot write is never synced, so one that
-    /// the host may pass through but not read (`EACCES` on its open) does not fail the open. The same error on the parent of a
-    /// directory that Core may have created still fails it.
+    /// AD-7 (review finding P5-F9, lead ruling on K4): an open whose parent sync fails leaves the data directory that it
+    /// created; the retry finds the directory and syncs the parent again, so the entry becomes durable.
     #[test]
-    fn an_unreadable_ancestor_fails_the_open_only_below_the_first_unwritable_one() {
+    fn a_retried_open_syncs_the_parent_that_a_failed_open_left() {
         let tmp = dir();
-        let base = fs::canonicalize(tmp.path()).unwrap();
-        // `home` is another user's `0711` directory; `home/me` is the host's own, and `data` is created in it.
-        let home = base.join("home");
-        let mine = home.join("me");
-        fs::create_dir_all(&mine).unwrap();
-        let path = mine.join("data");
-        let writable = |dir: &Path| dir.starts_with(&mine);
-        let unreadable = |dir: &Path, denied: &Path| -> io::Result<()> {
-            if dir == denied || !dir.starts_with(&mine) {
-                return Err(io::Error::from_raw_os_error(
-                    rustix::io::Errno::ACCESS.raw_os_error(),
-                ));
-            }
+        let path = tmp.path().join("d");
+        let parent = fs::canonicalize(tmp.path()).unwrap();
+        let synced_dir = |dir: &Path| fs::canonicalize(dir).unwrap();
+        let mut failing = |dir: &Path| {
+            assert_eq!(synced_dir(dir), parent);
+            Err(io::Error::from_raw_os_error(
+                rustix::io::Errno::IO.raw_os_error(),
+            ))
+        };
+        assert!(create_data_dir(&path, &mut failing).is_err());
+        assert!(path.is_dir(), "the failed open left its directory");
+        let mut synced = Vec::new();
+        let mut recording = |dir: &Path| {
+            synced.push(synced_dir(dir));
             sync_dir(dir)
         };
-        let mut synced = Vec::new();
-        let mut sync = |dir: &Path| {
-            unreadable(dir, &base)?;
-            synced.push(dir.to_path_buf());
-            Ok(())
-        };
-        let edges = DirEdges {
-            sync: &mut sync,
-            writable: &writable,
-        };
-        create_durably(&path, edges).unwrap();
-        assert_eq!(synced, vec![mine.clone()], "only the writable ancestors");
-        let mut sync = |dir: &Path| unreadable(dir, &mine);
-        let edges = DirEdges {
-            sync: &mut sync,
-            writable: &writable,
-        };
-        let error = create_durably(&path, edges).unwrap_err();
-        assert_eq!(error.kind(), io::ErrorKind::PermissionDenied);
+        create_data_dir(&path, &mut recording).unwrap();
+        assert_eq!(synced, vec![parent]);
+    }
+
+    /// Lead ruling on K4: no ancestor above the parent is synced, so a grandparent that the host may only enter (`0100`)
+    /// does not fail the open.
+    #[test]
+    fn an_execute_only_grandparent_does_not_fail_the_open() {
+        let tmp = dir();
+        let grandparent = tmp.path().join("g");
+        let parent = grandparent.join("p");
+        fs::create_dir_all(&parent).unwrap();
+        fs::set_permissions(&grandparent, fs::Permissions::from_mode(0o100)).unwrap();
+        let result = DataDir::open(&parent.join("d")).map(|data| data.epoch());
+        fs::set_permissions(&grandparent, fs::Permissions::from_mode(0o700)).unwrap();
+        assert_eq!(result.unwrap(), 1);
     }
 
     /// A corrupt epoch row refuses the open: the registry is not guessed at.
