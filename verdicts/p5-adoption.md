@@ -549,3 +549,121 @@ A4, A5, and A7 remain CLOSED in source. A1 and A2 await the remaining findings a
 No mutation exclusion changed in this delta. Landing checks remain the implementer's responsibility.
 
 VERDICT: NOT CLEAN (5 open)
+
+## PR #164 — Round 3
+
+- Exact head: `737b2017df84f2d7fa3641c7e91f065b13ecc6ff`.
+- Base: `144b0234fb632bcbb5176b17c2fe55f3239405df`.
+- Scope: `26c4c2ef..737b2017`, the revised PR description, and the five Round 2 findings.
+- The reviewer ran no builds, tests, mutation jobs, or gates.
+
+### P5-F5 — MEDIUM — The revised damage still preserves the old key header
+
+The test now finds the file from the files added by Create.
+It no longer assumes the new directory layout and now derives damaged bytes from the Core-written file.
+Those parts of the Round 2 request are CLOSED.
+
+**Remaining evidence:** `crates/botster-core/tests/slow_real_core.rs:380-387` retains the first half of the file.
+Under the old storage layout, that half still contains the short key header for `session/s1`.
+Only the much longer JSON value is truncated.
+At `c4afe586`, the old storage therefore lists the key, and the repaired host value decoder posts `Lost(RegistryCorrupt)`.
+The revised test does not distinguish the header defect from the value defect that Round 1 already fixed.
+No failing baseline at the missing-header contract assertion was supplied.
+
+**Required change:** Damage the complete file, or remove the header as well as the value, without assuming the old layout.
+Start with the file that Core's Create adds and derive the damaged bytes from that file.
+Check exactly one state for the row and preserve the duplicate admission check.
+Supply a failing result on the old storage with the repaired host decoder, at the missing state assertion.
+Then supply the passing revised result.
+
+Status: OPEN (header-specific regression proof).
+
+### P5-F6 — CLOSED — AdoptAll waits for the pending Create state
+
+`ready()` now holds AdoptRow while its next row names a session whose state is not shown.
+Once Create posts Created, AdoptRow posts the existing session's state and preserves its instance.
+The dependency applies in the production machine and all injected schedules.
+
+The new test makes Create write its row, then selects only offered work and prefers AdoptAll when available.
+It checks both the Create state and the row state before the AdoptAll completion.
+The previous same-handle test checks instance preservation after a completed Create.
+The supplied exact-head log reports both tests passing.
+The source comparison shows that the earlier skip fails the new event-order assertion.
+P5-F6 is CLOSED.
+
+### P5-F7 — CLOSED — The shared testkit process table remains intact
+
+The delta does not change the shared identity and signal table or parent-scoped exit notifications.
+The exact-head log again reports the testkit reopen regression passing.
+The integration reviewer reports zero open integration findings at this head, verdict commit `2070167`.
+They condition their CLEAN on this package's exact-head CLEAN.
+P5-F7 remains CLOSED.
+
+### P5-F8 — CLOSED — The injected write now takes effect before it reports uncertainty
+
+The test edge's `fail_row_after_write` applies the actual WriteRow bytes before it reports the injected error.
+The regression checks `RegistryFailed{uncertain: true}`, duplicate refusal, and an unchanged row-write count.
+It decodes the attempted row and compares the recovered state event's instance with that row's instance.
+The complementary no-effect case checks that registry reconciliation frees the ID.
+The test now exercises the applied-then-uncertain case with values derived from the actual write.
+The supplied exact-head log reports it passing.
+The earlier flow admits the duplicate and fails the new refusal assertion.
+P5-F8 is CLOSED.
+
+### P5-F9 — CONTRACT — A retry still forgets a created data-directory ancestor
+
+The row path now syncs its parent on both successful mkdir and `EEXIST`.
+The open path also syncs the `rows` entry in the data directory.
+Those source cases from Round 2 are CLOSED.
+
+**Remaining evidence:** `crates/botster-core-sys/src/storage.rs:361-376` stops its missing-ancestor list at the first existing directory.
+Consider an open for `/base/new/a/data`, with `/base` already present.
+The first attempt creates `/base/new`, then fails while syncing `/base`.
+That attempt leaves `new` present without establishing its entry's durability.
+The retry sees `new` as existing, creates `a` and `data`, and syncs `new` and `a`.
+It never syncs `/base` to repair the remaining obligation.
+If the full requested path already exists on retry, the function syncs only its immediate parent.
+It still cannot repair an earlier unsynced ancestor.
+
+**Required change:** Preserve or re-establish every directory sync obligation across failed opens and later retries.
+Do not use existence as proof of an ancestor entry's durability.
+Keep one production protocol with injected filesystem operations.
+
+**Closure evidence:** Fail the sync after creating an intermediate ancestor, then retry the same open.
+Check that the retry syncs the failed ancestor's parent before open or a later row write reports success.
+Derive the required parents from the requested path and the directories created by the first attempt.
+The existing read-back tests do not cover this failure.
+Supply the failing baseline and the passing revised result through the same protocol.
+
+Status: OPEN.
+
+### P5-F10 — LOW — The PR body is current, but its referenced DESIGN decision remains stale
+
+The reviewer read the rewritten full PR body at this head.
+It removes the header and per-host process limitations and describes the current scope.
+It names the earlier slow failures separately from the new focused passing result.
+The original PR-body finding is CLOSED.
+
+**Remaining evidence:** `crates/botster-core-host/DESIGN.md` still says an unshown Created state posts the row state through Create.
+The revised code instead waits for Create's state, then posts a separate AdoptAll row state.
+The new regression checks both events before the adoption completion.
+
+**Required change:** Update that DESIGN decision to describe the enforced dependency and separate row event.
+
+Status: OPEN (documentation residue).
+
+### Execution evidence and scope limits
+
+The reviewer read the raw exact-head Mac log:
+`~/botster-sessions/gates/botster-core-stage1-p5-audit-contract-737b2017-mac-20261004-220651-25713.log`.
+Its header names `737b2017df84f2d7fa3641c7e91f065b13ecc6ff`.
+It reports 487 default-tier tests passed, with 654 skipped.
+The selected slow targets report 56 passed, zero skipped, and exit 0.
+This selected run excludes the shared guard target that timed out in the earlier wider run.
+It does not establish a passing full gate.
+
+A4, A5, A7, and A9 remain CLOSED within this PR's audit scope.
+A1 awaits P5-F5 and the remaining documentation; the new storage durability finding P5-F9 also remains open.
+The reviewer does not accept a future merged head or close P5 deliverable 2.
+
+VERDICT: NOT CLEAN (3 open)
