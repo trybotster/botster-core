@@ -1,8 +1,8 @@
 # P3 worker review
 
-Current verdict: NOT CLEAN for PR #163. Findings F25 and F28 are OPEN. F26 is CLOSED at the head below. F27 and F29 through F32 retain their recorded closures. All findings F1 through F24 remain CLOSED at their recorded heads and scopes.
-Reviewed head: `800606ac2a99c42a7e25886a5aa1ccc2b88070d1`, branch `stage1/p3-audit-fixes`.
-Round 77 reviews the F25 and F26 corrections. F25 needs an event-based fixture. F28 still requires native evidence.
+Current verdict: NOT CLEAN for PR #163. F28 is OPEN only for completed native evidence. F25 is CLOSED at the head below. All other findings retain their recorded closures. All findings F1 through F24 remain CLOSED at their recorded heads and scopes.
+Reviewed head: `ccba0504b8f0e18d274132e0b88b80b2e364becd`, branch `stage1/p3-audit-fixes`.
+Round 78 closes F25. All source findings are closed. The HOLD still prevents the verification required for F28.
 The cross-package PR also requires the integration reviewer's exact-head CLEAN and the implementer's landing gate.
 Round 73's CLEAN remains preserved for M1 at `da2b0494bbda711e5a67cb180ddf05c607784635`.
 M2a at `a7f4a386593457e3b30f03b56938092de9b060a3` has no restack verdict. The earlier M2a CLEAN below applies only to its named old head.
@@ -3025,3 +3025,52 @@ The conformance pending list remains unchanged. M2a and M2b remain separate work
 The reviewer ran no tests, builds, measurements, mutants, or gates.
 
 VERDICT: NOT CLEAN (2 open findings) on `800606ac2a99c42a7e25886a5aa1ccc2b88070d1`.
+
+
+## Round 78 — Event wait in the failure fixture
+
+Reviewed head: `ccba0504b8f0e18d274132e0b88b80b2e364becd`, branch `stage1/p3-audit-fixes`.
+Reviewed delta: `800606a..ccba050`, one commit, one test file.
+The reviewer read the complete delta. It contains no production change, merge, or conflict resolution.
+The integration verdict at `8505658` records zero integration findings on this head.
+Its CLEAN remains conditional on this package's CLEAN on the same head.
+
+### F25 — MEDIUM — CLOSED at ccba050
+
+The failure fixture creates a second FIFO that no process opens for writing.
+The external /bin/cat member blocks when it opens that FIFO.
+It retains the inherited writer for the first FIFO until production ends the group.
+The fixture uses no sleep or busy loop.
+The readiness event and marked cleanup deadlines remain unchanged.
+
+The accepted production error path and actual-driver proof from round 77 remain unchanged.
+The proof checks the errno, invariant text, failure exit code, production group cleanup, and host link EOF.
+The independent guard remains alive during the production cleanup observation.
+This closes the remaining F25 requirement.
+
+### F28 — MEDIUM — OPEN: completed native evidence only
+
+The source correction from round 76 remains accepted.
+The implementer supplies no completed correction-head proof under the full HOLD.
+The required native evidence, including the Mac path, is still pending.
+The reviewer requests no execution during the HOLD.
+
+All source findings are now closed on this exact head.
+Under the lead's gate-evidence closure rule, F28 alone does not block the required verification after execution is permitted.
+A successful result can close F28 and permit CLEAN on this same head.
+Any source change requires a new delta review before the next execution.
+The reviewer will not give CLEAN while this evidence finding remains open.
+
+The implementer also disclosed eight unchanged older payload scripts with timed hold bodies.
+The implementer assigned their replacement to the existing A32/A33 driver-test follow-up.
+This delta does not change those scripts or close that assigned audit work.
+The separate M2a, M2b, mutation, and conformance duties remain unchanged.
+
+### Verdict
+
+F1 through F27 and F29 through F32 retain their closures, with F25 closed at this head.
+F28 remains OPEN only for the completed native evidence above.
+All earlier findings, closures, and verdict rounds remain preserved.
+The reviewer ran no tests, builds, measurements, mutants, or gates.
+
+VERDICT: NOT CLEAN (1 open evidence finding) on `ccba0504b8f0e18d274132e0b88b80b2e364becd`.
