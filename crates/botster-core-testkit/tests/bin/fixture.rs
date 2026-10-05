@@ -56,7 +56,10 @@ fn own_harness() {
     let mut harness = common::harness_in(&candidate_dir());
     let mut core = common::open(&mut harness);
     common::start(&harness, core.as_mut(), "s", common::stubborn(None));
-    for report in harness.anchors().expect("the anchors") {
+    for report in harness
+        .await_anchors(2)
+        .expect("the worker and the program")
+    {
         println!("{}", Line::Anchor(report).encode());
     }
     println!("ready");

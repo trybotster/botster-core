@@ -196,6 +196,44 @@ impl AnchorGuard {
             .collect())
     }
 
+    /// Waits until at least `count` anchors have reported, then returns every report. A wrapper connects before it execs, so
+    /// this is the wait for `count` real binaries to be started: for example, `Start` completes when the worker has spawned
+    /// the program's wrapper, which may not have exec'd yet. It blocks on the listener, never on a timer loop.
+    ///
+    /// # Errors
+    /// `TimedOut` when fewer than `count` reported within [`SETTLE`].
+    pub fn await_reports(&mut self, count: usize) -> io::Result<Vec<Report>> {
+        let began = std::time::Instant::now();
+        loop {
+            let reports = self.reports()?;
+            if reports.len() >= count {
+                return Ok(reports);
+            }
+            let left = SETTLE.saturating_sub(began.elapsed());
+            let Some(listener) = &self.listener else {
+                return Err(io::Error::other("the guard has finished"));
+            };
+            let timeout = rustix::event::Timespec::try_from(left).map_err(io::Error::other)?;
+            let mut fds = [rustix::event::PollFd::new(
+                listener,
+                rustix::event::PollFlags::IN,
+            )];
+            match rustix::event::poll(&mut fds, Some(&timeout)) {
+                Ok(0) => {
+                    return Err(io::Error::new(
+                        io::ErrorKind::TimedOut,
+                        format!(
+                            "{} of {count} anchors reported within {SETTLE:?}",
+                            reports.len()
+                        ),
+                    ))
+                }
+                Ok(_) | Err(rustix::io::Errno::INTR) => {}
+                Err(error) => return Err(error.into()),
+            }
+        }
+    }
+
     /// Ends every connection and waits for each anchor's end: its group `KILL`, its refusal or its failure. A wrapper that
     /// connects after this is refused, and so never execs.
     ///
