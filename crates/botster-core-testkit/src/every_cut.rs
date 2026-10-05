@@ -1,5 +1,5 @@
 //! Core ST-6b and A8-2 through a fresh Core session at every byte offset.
-//! R-30 (contracts-v0.1.14) permits independent native size measurement with framing computed from the format spec.
+//! R-30 (contracts-v0.1.15) permits independent native size measurement with framing computed from the format spec.
 
 use botster_core_conformance::ControlError;
 use botster_core_contract::prelude::{Size, SnapshotFormat};
