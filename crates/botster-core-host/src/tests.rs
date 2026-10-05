@@ -91,6 +91,8 @@ pub(crate) struct World {
     pub rows: BTreeMap<String, Vec<u8>>,
     pub row_writes: Vec<String>,
     pub fail_row: Option<StorageError>,
+    /// The next row write takes effect and is then reported with this error (AD-7: an uncertain write that happened).
+    pub fail_row_after_write: Option<StorageError>,
     pub refuse_spawn: Option<i32>,
     pub autopilot: Autopilot,
     pub sent: Vec<(LinkId, HostMsg)>,
@@ -143,6 +145,7 @@ impl World {
             rows,
             row_writes: Vec::new(),
             fail_row: None,
+            fail_row_after_write: None,
             refuse_spawn: None,
             autopilot: Autopilot::Full,
             sent: Vec::new(),
@@ -215,7 +218,7 @@ impl World {
                     None => {
                         self.rows.insert(key.clone(), bytes);
                         self.row_writes.push(key);
-                        Ok(())
+                        self.fail_row_after_write.take().map_or(Ok(()), Err)
                     }
                 };
                 self.inject.push(Input::RowWritten { ticket, result });
