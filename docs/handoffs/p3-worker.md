@@ -577,3 +577,25 @@ Log: `~/botster-sessions/gates/botster-core-stage1-p3-m1-v1-ae039b52-linux-20261
 The automatic manifest merge added a duplicate botster-terminal-ghostty dependency entry.
 The correction keeps the existing workspace dependency and removes the duplicate path entry.
 The job supplies no test or mutation evidence. The corrected focused job must run next.
+
+## Direct flush proof and PTY readiness check (2026-10-04)
+
+The focused flush job at `1c45103c` passed: nine mutants tested, seven caught, and two unviable.
+No mutant was missed or timed out. The selected baseline runs six direct entries and skips 23 other entries.
+Log: `~/botster-sessions/gates/botster-core-stage1-p3-m1-v1-1c45103c-linux-20261004-175018-23825.log`.
+Completed raw evidence was copied without a rerun into `/private/tmp/p3-driver-flush-evidence`.
+The written += to *= mutant fails the written > 0 assertion in 0.007 seconds.
+The written != to == mutant fails the empty-input assertion in 0.007 seconds.
+Integration verdict `b4eab95b5c1da77afa4ca3189d871dbeff7ec9d6` verifies both assertion failures.
+Package verdict `3aedba3c62486bd8a8e0d4e1ebd7f641a2ef460e` maps 55 more original driver entries to caught mutants.
+Its count still precedes the focused flush evidence. Original-entry closure requires the package's updated count.
+Integration I3 is closed by `c2c653a6d132d83053a1a17cc45e0bb6821e7201` after the manifest correction.
+
+F21 now also fails promptly if a ready turn makes no read or write progress.
+A new direct test clears PTY readiness through WouldBlock before releasing a FIFO-gated program.
+The program writes four MiB through the real PTY, then reports completion through a separate FIFO.
+The production Driver::run must receive PTY readiness and resume reads before that completion marker arrives.
+The test closes the control peer, releases the independent guard, and waits for driver retirement.
+The test checks adapter readiness only. It does not establish terminal semantics or real-harness conformance.
+Harness field order now releases the payload guard before Driver drops its production payload.
+No production behavior changed. Next: Linux compilation, baseline, and selected PTY/flush mutations.

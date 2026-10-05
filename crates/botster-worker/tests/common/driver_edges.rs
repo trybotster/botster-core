@@ -11,9 +11,10 @@ use std::os::unix::net::{UnixListener, UnixStream as StdStream};
 use std::time::Duration;
 
 struct Harness {
+    // Field order releases independent ownership before the production reaper.
+    guard: Option<payload_guard::PayloadGuard>,
     driver: Driver,
     peer: StdStream,
-    guard: Option<payload_guard::PayloadGuard>,
     root: tempfile::TempDir,
 }
 
@@ -92,13 +93,6 @@ impl Harness {
         let mut marker = [0; 64];
         let count = reader.read(&mut marker).unwrap();
         assert_eq!(&marker[..count], b"queued\n");
-    }
-}
-
-impl Drop for Harness {
-    fn drop(&mut self) {
-        // Independent group cleanup precedes the production payload reaper.
-        drop(self.guard.take());
     }
 }
 
@@ -205,6 +199,7 @@ fn partial_writes_retain_bytes_and_track_interest_and_totals() {
             "partial-write readiness"
         );
         let writable = fds[1].revents().contains(rustix::event::PollFlags::OUT);
+        let received_before = received.len();
         let mut bytes = [0; 4096];
         match h.peer.read(&mut bytes) {
             Ok(n) => {
@@ -225,12 +220,96 @@ fn partial_writes_retain_bytes_and_track_interest_and_totals() {
                 })
             );
         }
+        assert!(
+            received.len() > received_before || h.driver.written != before,
+            "ready descriptors must make partial-write progress"
+        );
         assert!(h.driver.inputs.is_empty());
     }
     assert_eq!(received, wire);
     assert_eq!(h.driver.written, wire.len() as u64);
     assert!(h.driver.outbound.is_empty());
     assert!(!h.driver.writable_interest);
+}
+
+#[test]
+fn pty_events_resume_reads_after_would_block() {
+    let mut h = Harness::new();
+    let mut fifos = Vec::new();
+    for name in ["ready", "go", "done"] {
+        let path = h.root.path().join(name);
+        assert!(std::process::Command::new("/usr/bin/mkfifo")
+            .arg(&path)
+            .status()
+            .unwrap()
+            .success());
+        fifos.push(std::fs::File::from(
+            rustix::fs::open(
+                &path,
+                rustix::fs::OFlags::RDWR | rustix::fs::OFlags::NONBLOCK,
+                rustix::fs::Mode::empty(),
+            )
+            .unwrap(),
+        ));
+    }
+    let guard = payload_guard::PayloadGuard::new(h.root.path());
+    let script = format!(
+        "{}/bin/echo ready > '{}'; /usr/bin/head -c 1 '{}' >/dev/null; \
+         /usr/bin/head -c 4194304 /dev/zero; /bin/echo done > '{}'; read answer",
+        guard.prefix(),
+        h.root.path().join("ready").display(),
+        h.root.path().join("go").display(),
+        h.root.path().join("done").display(),
+    );
+    h.guard = Some(guard);
+    h.driver
+        .spawn(&PayloadSpec {
+            argv: vec!["/bin/sh".into(), "-c".into(), script],
+            env: std::collections::BTreeMap::from([("PATH".into(), "/usr/bin:/bin".into())]),
+            cwd: "/".into(),
+            size: Size {
+                rows: 24,
+                cols: 80,
+                cell_px: None,
+            },
+        })
+        .unwrap();
+    let marker = |reader: &mut std::fs::File, expected: &[u8]| {
+        let mut fds = [rustix::event::PollFd::new(
+            &*reader,
+            rustix::event::PollFlags::IN,
+        )];
+        // timer: deadline — bounds the program's FIFO progress marker.
+        let limit = rustix::event::Timespec {
+            tv_sec: 10,
+            tv_nsec: 0,
+        };
+        assert!(rustix::event::poll(&mut fds, Some(&limit)).unwrap() > 0);
+        drop(fds);
+        let mut bytes = [0; 64];
+        let count = reader.read(&mut bytes).unwrap();
+        assert_eq!(&bytes[..count], expected);
+    };
+    marker(&mut fifos[0], b"ready\n");
+    h.driver.read_pty_chunk();
+    assert!(!h.driver.pty_readable);
+    assert!(h.driver.inputs.is_empty());
+    // The program cannot fill the PTY until the real loop must rearm its cleared read flag.
+    let driver = h.driver;
+    let (sent, received) = mpsc::channel();
+    let thread = std::thread::spawn(move || {
+        let _ = sent.send(driver.run());
+    });
+    fifos[1].write_all(b"g").unwrap();
+    marker(&mut fifos[2], b"done\n");
+    h.peer.shutdown(std::net::Shutdown::Both).unwrap();
+    drop(h.guard.take());
+    received
+        // timer: deadline — bounds retirement of the real driver loop.
+        .recv_timeout(Duration::from_secs(10))
+        .unwrap()
+        .unwrap();
+    thread.join().unwrap();
 }
 
 #[test]
