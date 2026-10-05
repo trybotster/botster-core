@@ -1,15 +1,23 @@
 # P6 terminal-oracle controls review
 
-VERDICT: NOT CLEAN (3 open)
+VERDICT: CLEAN
 
-Reviewed head: `c57e0da22fb3ea461cd85dc756bbc0abcff5a2f7`.
+Reviewed head: `c36120e62a3252c1588bf88fa860e5325939ee19`.
 Branch: `stage1/p6-oracle`.
 Review base: `a3b8af5be21389423439fb3c09d6a81d924c987d`.
+Open findings: 0, including LOW findings.
 The reviewer ran no tests or gates.
 
-## Open findings
+## Closed findings
 
-### O1 — HIGH — Two required oracle controls have no public helper
+The evidence below records findings from the initial review at `c57e0da22fb3ea461cd85dc756bbc0abcff5a2f7`.
+The reviewer checked the complete delta to the current head and closed all three findings.
+
+### O1 — HIGH — CLOSED — Two required oracle controls have no public helper
+
+Closure: public `oracle_query_reply` creates a fresh native terminal, applies the prefix and optional profile, and reports native shadow replies.
+Public `oracle_hyperlinks` decodes supplied capture or baseline bytes and reads native cell URIs, including history.
+Unit tests cover both helpers. `DESIGN.md` defines both dispatch paths.
 
 Evidence: `oracle.rs` exposes state, modes, screen, cursor, notification, and encoding helpers.
 It provides no `oracle_query_reply` helper.
@@ -28,7 +36,11 @@ It must report native answerability and reply bytes.
 The hyperlink helper must decode the supplied Core capture or route baseline through libghostty and report native URIs.
 Document both planned dispatch paths without editing protected files.
 
-### O2 — HIGH — An offered capture can hide failed retention within the limit
+### O2 — HIGH — CLOSED — An offered capture can hide failed retention within the limit
+
+Closure: the helper checks retention independently of the capture result and reads both failure observations again immediately after capture.
+Unavailable retention within the independently measured limit records a mismatch even when a ground-state offer resumes correctly.
+The new regression demonstrates that case with native enabled and disabled retention observations.
 
 Evidence: `every_cut.rs:142` reads subject continuation before capture.
 Only the `SnapshotTooLarge` branch uses that result, at lines 195–202.
@@ -47,7 +59,12 @@ Preserve inconclusive classification when the pending state cannot be establishe
 Check the semantic failure flag after capture, before any suffix can change the observation.
 Add an offered ground-state capture regression with failed within-limit retention and successful final replay.
 
-### O3 — MEDIUM — Known non-fitting cuts can report a conclusive success
+### O3 — MEDIUM — CLOSED — Known non-fitting cuts can report a conclusive success
+
+Closure: every fit result other than `Some(true)` sets `inconclusive`.
+An offered capture whose size exceeds the maximum, using independent framing, records a mismatch.
+New regressions cover a maximum below the measured size and a maximum equal to the measured size.
+`UnknownFraming` remains inconclusive.
 
 Evidence: `every_cut.rs:134–137` sets `inconclusive` only when `fit` returns `None`.
 When `fit` returns `Some(false)`, an offered capture follows the normal resume comparison.
@@ -80,3 +97,21 @@ The delta to the reviewed head changes only that test's clone to a copy.
 
 Every finding must close, including LOW findings. Any later head requires review of its delta.
 The reviewer kept `verdicts/p6-testkit.md` unchanged and left the pre-existing `.gitignore` edit unstaged.
+
+## Exact-head verification and acceptance boundary
+
+The implementer's `/private/tmp/p6-review-focused2.log` identifies the current reviewed head.
+It reports 174 tests passed, clippy with `-D warnings` passed, and formatting passed on Linux.
+The implementer's `/private/tmp/p6-review-mutants.log` identifies that same head and review base.
+It reports 127 mutants tested: 119 caught, eight unviable, zero missed, and zero timeouts.
+No mutation exclusions were added.
+
+The slow process-group source is unchanged from the initial review and its eight passing tests at `c57e0da22fb3ea461cd85dc756bbc0abcff5a2f7`.
+The reviewed delta changes only the three oracle modules and `DESIGN.md`.
+Protected files and pending ids remain unchanged.
+
+This CLEAN verdict approves the brief's public helper APIs, statement helpers, process tests, and planned dispatch.
+It does not approve conformance dispatch, real Core capture integration, or complete worker framing.
+Those dependencies remain explicit in the design and pending reasons.
+Under R-30, the every-offset id cannot pass while fit evidence remains inconclusive for a within-limit cut.
+The implementer must run the full gate on the exact CLEAN head before merge.
