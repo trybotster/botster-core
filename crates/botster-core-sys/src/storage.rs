@@ -99,14 +99,13 @@ fn open_dir(parent: BorrowedFd<'_>, name: &str) -> io::Result<OwnedFd> {
     )?)
 }
 
-/// Opens the directory `name` of `parent`, and creates it first when `create` is set. A directory that this call created is
-/// synced in its parent, so that the row below it survives a crash (AD-7). `None` when it does not exist and `create` is not
-/// set.
+/// Opens the directory `name` of `parent`, and creates it first when `create` is set. With `create`, the parent is synced
+/// whether this call created the directory or an earlier, failed write did: the row below it survives a crash only when
+/// every entry of its path is durable (AD-7). `None` when it does not exist and `create` is not set.
 fn child_dir(parent: BorrowedFd<'_>, name: &str, create: bool) -> io::Result<Option<OwnedFd>> {
     if create {
         match mkdirat(parent, name, Mode::from_raw_mode(0o700)) {
-            Ok(()) => rustix::fs::fsync(parent)?,
-            Err(rustix::io::Errno::EXIST) => {}
+            Ok(()) | Err(rustix::io::Errno::EXIST) => rustix::fs::fsync(parent)?,
             Err(error) => return Err(error.into()),
         }
     }
@@ -299,15 +298,7 @@ impl DataDir {
     /// Opens `path`: creates it with mode `0700` when missing, refuses a directory that is not safe (AD-6), takes the
     /// exclusive lock without waiting (LC-2), and raises the host epoch under the lock (DP-8).
     pub fn open(path: &Path) -> Result<DataDir, OpenError> {
-        match fs::DirBuilder::new()
-            .mode(0o700)
-            .recursive(true)
-            .create(path)
-        {
-            Ok(()) => {}
-            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
-            Err(error) => return Err(error.into()),
-        }
+        create_durably(path)?;
         check_safe(path)?;
         let lock = LockFile::try_exclusive(&path.join("lock")).map_err(|error| match error {
             LockError::Held => OpenError::InUse,
@@ -319,6 +310,9 @@ impl DataDir {
             Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
             Err(error) => return Err(error.into()),
         }
+        // The entry of `rows` in the data directory is durable before any row is written below it (AD-7), on the first
+        // open and on a retry after an open whose sync failed.
+        File::open(path)?.sync_all()?;
         check_safe(&rows)?;
         let dir = File::open(&rows)?.into();
         let mut storage = FileStorage { dir };
@@ -359,6 +353,37 @@ impl DataDir {
     pub fn into_storage(self) -> (LockFile, FileStorage, u64) {
         (self._lock, self.storage, self.epoch)
     }
+}
+
+/// Creates `path` and every missing ancestor with mode `0700`, one directory at a time, and syncs the parent of each one
+/// that it created. The parent of `path` is synced also when `path` exists already: an earlier open may have created it and
+/// failed before its sync (AD-7).
+fn create_durably(path: &Path) -> io::Result<()> {
+    let missing: Vec<&Path> = path
+        .ancestors()
+        .take_while(|dir| !dir.as_os_str().is_empty() && !dir.exists())
+        .collect();
+    for dir in missing.iter().rev() {
+        match fs::DirBuilder::new().mode(0o700).create(dir) {
+            Ok(()) => {}
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
+            Err(error) => return Err(error),
+        }
+        sync_parent(dir)?;
+    }
+    if missing.is_empty() {
+        sync_parent(path)?;
+    }
+    Ok(())
+}
+
+/// Syncs the directory that holds `path` (the current directory for a relative path with no parent).
+fn sync_parent(path: &Path) -> io::Result<()> {
+    let parent = match path.parent() {
+        Some(parent) if !parent.as_os_str().is_empty() => parent,
+        _ => Path::new("."),
+    };
+    File::open(parent)?.sync_all()
 }
 
 /// AD-6: a directory with secrets is owned by this user and closed to every other user.
