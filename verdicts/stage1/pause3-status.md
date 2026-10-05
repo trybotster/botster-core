@@ -64,3 +64,29 @@ updated in `docs/handoffs/`. Docs only. The lead assigned this review. This revi
   `c03bcfb1`), is history only. It has accepted C3 and C4 as package findings."
 
 VERDICT: NOT CLEAN (2 open: S1, S2, both LOW)
+
+## Round 2 — Head 61c82ee
+
+Reviewed head: `61c82ee631c6bd601d2ab60fd6783139d9c05b28`. Delta `84f4ab8..61c82ee`, one commit, docs only:
+`docs/handoffs/core-lead.md` and `docs/stage1-status.md`. The base is still current v1 `144b023`.
+
+- **S1 CLOSED.**
+  - `core-lead.md` section 1 now gives the v1 head as `144b023` at pause #3, with a pointer to the status file.
+  - The hard rule now names the staffed Opus integration reviewer (`sess-1791168757-0109`, branch `stage1/integration-review`).
+  - A reading-order note marks sections 5 to 7 as the 2026-10-04 snapshot. It keeps sections 3, 8 and 9 and every "Ruling"
+    line in force.
+- **S2 is overtaken by events.** The new #165 row says that P3's reviewer "pushed NO verdict for that head" and that
+  `stage1/review-p3` "is still at `ea4415fe`". That was true when the commit was written. A re-check with `git ls-remote` now
+  shows `stage1/review-p3` at `e31e4ae8`: "review(p3): record remaining guard waits and prohibited sleep fixtures", round 87.
+  Its file says: "PR #165 at `71195e72` has F45 and F46 OPEN" (the package names for C3 and C4). F39 is closed in #165 and
+  stays open for #163's later merge delta.
+- No other documented head has moved: #165 `71195e72`, #162 `59cda32`, #163 `40b63dc`, #164 `b8b37a6`, #142 `6e8d5b3`,
+  #161 `dea90ed`, v1 `144b023`.
+
+#### S3 [LOW] OPEN — Record P3's round 87 in the #165 row
+
+- Required: the #165 row says that P3's package verdict at `71195e72` is round 87, `e31e4ae8`, NOT CLEAN. F45 and F46 (the
+  integration C3 and C4) are open, and the round 86 CLEAN at `c03bcfb1` is history. Section 4's #163 row can name the
+  package F39 next to the integration G2 for its merge delta.
+
+VERDICT: NOT CLEAN (1 open: S3, LOW)
