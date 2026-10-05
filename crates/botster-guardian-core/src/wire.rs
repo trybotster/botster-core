@@ -8,6 +8,7 @@ use botster_core_link::frame::{FrameType, DEFAULT_MAX_PAYLOAD};
 use botster_core_link::msg::PayloadId;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+use std::num::NonZeroUsize;
 
 /// The launch input. The host supplies every Core environment variable (SV-1).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -73,8 +74,10 @@ pub const LOG_FRAME: FrameType = FrameType(0x20);
 /// The bytes of the offset that precedes the log bytes.
 const OFFSET_LEN: usize = 8;
 
-/// The most log bytes that one [`LOG_FRAME`] carries on a link with the default bound.
-pub const LOG_CHUNK_BYTES: usize = DEFAULT_MAX_PAYLOAD as usize - OFFSET_LEN;
+/// The log chunk size of the guardian: the most log bytes that fit one [`LOG_FRAME`] at the link's default bound.
+/// No clause fixes a chunk size (SV-9); any positive size up to this one carries the same bytes.
+pub const LOG_CHUNK_BYTES: NonZeroUsize =
+    NonZeroUsize::new(DEFAULT_MAX_PAYLOAD as usize - OFFSET_LEN).unwrap();
 
 /// Captured stdout and stderr bytes, `[u64 LE offset][bytes]` (SV-9).
 ///
@@ -102,4 +105,19 @@ impl LogChunk {
             bytes: bytes.to_vec(),
         })
     }
+}
+
+/// Splits a log tail that starts at `offset` into chunks of at most `max` bytes, with contiguous offsets (SV-9).
+pub fn log_chunks(
+    offset: u64,
+    bytes: &[u8],
+    max: NonZeroUsize,
+) -> impl Iterator<Item = LogChunk> + '_ {
+    (offset..)
+        .step_by(max.get())
+        .zip(bytes.chunks(max.get()))
+        .map(|(offset, bytes)| LogChunk {
+            offset,
+            bytes: bytes.to_vec(),
+        })
 }
