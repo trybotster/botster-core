@@ -1,8 +1,8 @@
 # P3 worker review
 
 Current restack verdict: NOT CLEAN (F13 and F21 open; F14, F15, F16, F17, F18, F19, and F20 closed).
-Reviewed head: `e9efad5e788754bfc3c545b3bdfbfc5333238130`, branch `stage1/p3-m1-v1`.
-Round 55 closes F18/F19 with exact-head Mac evidence. F13 retains 60 entries; F21 remains open.
+Reviewed head: `1c45103cd0d63ddef9cccb5c6934442ff0e4ea29`, branch `stage1/p3-m1-v1`.
+Rounds 56/57 close 55 original driver entries and review the P6 merge. F13 retains five entries; F21 remains open.
 The CLEAN below applies only to the old M2a head that it names.
 
 VERDICT: CLEAN
@@ -1880,3 +1880,83 @@ New query/cleanup code still requires mutation accounting in the applicable gate
 All earlier findings and closures remain preserved. The reviewer ran no tests or gate.
 
 VERDICT: NOT CLEAN (F13: 60 entries; F21 open) on `e9efad5e788754bfc3c545b3bdfbfc5333238130`.
+
+
+## Round 56 — Relocated decisions and direct driver mutation evidence
+
+Evidence head: `e9efad5e788754bfc3c545b3bdfbfc5333238130`.
+Log: `~/botster-sessions/gates/botster-core-stage1-p3-m1-v1-e9efad5e-linux-20261004-173244-15398.log`.
+Artifacts: `~/botster-sessions/gates/artifacts-trybotster_botster_core_stage1_p3_m1_v1-bcb322fa-20261004173244-15398/target-mutants.out/`.
+The reviewer read the exact-head log and actual outcomes.json.
+The baseline result is Success. The raw job tests 73 mutants: 63 caught, five unviable, three missed, and two timeouts.
+The helper file has 42 caught mutations and one unviable mutation, with no miss or timeout.
+
+The reviewer mapped original entries by source responsibility, not only operator text.
+Thirty-nine original entries moved to the decision functions reviewed in round 52.
+Their source responsibilities and exhaustive default assertions match the caught helper mutations:
+
+- Original due comparison at 149 maps to due and its inclusive boundary test.
+- Original busy conditions at 159–162 map to ReadyState::timeout and all 64 state combinations.
+- Original poll error guards at 172 map to poll_interrupted and success/interrupted/error cases.
+- Original accumulated read/write flags at 178–180 map to control_ready and writable_ready, with every event combination.
+- Original PTY/control gates at 321/358 map to read_pty/read_control and every readiness/drain combination.
+- Original I/O classifications at 335–336, 365–366, and 386–387 map to failure and interrupted/blocked/closed cases.
+- Original flush entry gate at 374 maps to flush; loop conditions at 378 map to keep_writing and every readiness/byte case.
+
+The actual Driver uses each tested decision and retains the reviewed effects for its result.
+Two of these 39 original entries already closed in round 50. The other 37 now close under F13.
+The unchanged adapter decisions have 21 caught original entries, matched by location role after line shifts.
+Three already closed in round 50. The other 18 now close under F13.
+The mapping distinguishes the written-total comparison from the later interest comparison, which share operator text.
+It also distinguishes initial flush, continued write, and interest negations.
+The 55 newly closed original names are preserved in `verdicts/p3-worker-mutants-e9efad5-closed.txt`.
+Removal of a location alone is not the basis for any closure.
+
+F13 retains five original driver entries:
+
+- READ_CHUNK multiplication changed to addition: missed.
+- main no-op: missed.
+- Driver::run PTY event arm deletion: missed.
+- Driver::flush written += changed to *=: timeout.
+- Driver::flush written != changed to ==: timeout.
+
+The two timeouts remain open despite direct accounting assertions. No timeout counts as caught.
+New query/cleanup mutations still require accounting in the applicable gate.
+F21 remains open; these outcomes do not establish a correct no-progress wait in that test.
+The reviewer ran no tests or gate.
+
+## Round 57 — P6 merge, manifest correction, and remaining partial-write loop
+
+Reviewed head: `1c45103cd0d63ddef9cccb5c6934442ff0e4ea29`.
+The delta from `e9efad5` includes readiness change ff1ff05, merge 2a88d7a, its handoff, and the manifest correction.
+Merge commit `2a88d7a0eb04454bc9d96a0ae55b0fae6dd41d2f` imports v1 `e8cf15068825888795f3ff2582d98b5c8e9b09e4` (PR #140).
+Both named conflict resolutions are reviewed:
+
+- Cargo.lock keeps both P3 worker-core and P6 sha2 dependencies. The resulting lockfile equals the prior P3 lockfile.
+- conformance/core-pending.txt keeps every pending id, adds the P6 snapshot comments, and updates TI-1's testkit-wiring comment.
+
+The six imported P6 implementation/design/test blobs match merged v1 exactly.
+The combined lib.rs keeps P6 exports plus the existing P3 core/worker modules and re-exports.
+Existing P3 core, worker, harness, and candidate/refusal implementations remain unchanged.
+The new oracle helpers add no M1 producer, terminal parser, or alternate Worker path.
+Their every-cut fit evidence still awaits M2b paging.
+No new mutation exclusion accompanies this merge.
+
+The automatic manifest merge introduced the duplicate terminal dependency reported as integration I3 HIGH on ae039b52.
+Correction 1c45103 removes the duplicate path entry and preserves the existing workspace binding declaration.
+The reviewer parsed the corrected workspace, testkit, sys, and worker manifests successfully.
+The corrected testkit manifest equals its prior P3 version. Integration I3's source defect is corrected at this head.
+The failed ae039b52 job stopped before tests and supplies no test or mutation evidence.
+
+F21 remains OPEN after ff1ff05.
+The loop polls peer IN and queued control OUT with the remaining deadline, then uses reported writability for flush.
+A flush no-op can leave the empty socket writable and outbound bytes queued.
+OUT stays level-ready, so poll returns immediately, the peer read returns WouldBlock, and flush makes no progress.
+The loop still repeats until its deadline without blocking.
+Required change: Fail promptly when reported readiness produces no read/write progress, or wait on a condition that cannot remain ready without progress.
+Retain the deadline, complete bytes, totals, interest assertions, and existing production flush path.
+
+F13 retains five original driver entries. F21 remains OPEN.
+F18/F19 closures and all earlier findings remain preserved. The reviewer ran no tests or gate.
+
+VERDICT: NOT CLEAN (F13: five entries; F21 open) on `1c45103cd0d63ddef9cccb5c6934442ff0e4ea29`.
