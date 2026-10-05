@@ -383,8 +383,13 @@ fn a_damaged_row_is_registry_corrupt_and_a_foreign_file_is_left_alone() {
         .filter(|f| !before.contains(f))
         .collect();
     assert_eq!(added.len(), 1, "one create, one row file: {added:?}");
-    let written = std::fs::read(&added[0]).unwrap();
-    std::fs::write(&added[0], &written[..written.len() / 2]).unwrap();
+    // Every byte of the file is damaged, so no layout keeps any part of the row readable.
+    let damaged: Vec<u8> = std::fs::read(&added[0])
+        .unwrap()
+        .iter()
+        .map(|b| !b)
+        .collect();
+    std::fs::write(&added[0], damaged).unwrap();
     let foreign = tmp.path().join("d").join("rows").join("notes.txt");
     std::fs::write(&foreign, b"someone else's").unwrap();
     let mut again = Core::open(config(tmp.path())).expect("reopen");
