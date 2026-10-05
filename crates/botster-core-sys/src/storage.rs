@@ -298,7 +298,7 @@ impl DataDir {
     /// Opens `path`: creates it with mode `0700` when missing, refuses a directory that is not safe (AD-6), takes the
     /// exclusive lock without waiting (LC-2), and raises the host epoch under the lock (DP-8).
     pub fn open(path: &Path) -> Result<DataDir, OpenError> {
-        create_durably(path)?;
+        create_durably(path, &mut sync_dir)?;
         check_safe(path)?;
         let lock = LockFile::try_exclusive(&path.join("lock")).map_err(|error| match error {
             LockError::Held => OpenError::InUse,
@@ -312,7 +312,7 @@ impl DataDir {
         }
         // The entry of `rows` in the data directory is durable before any row is written below it (AD-7), on the first
         // open and on a retry after an open whose sync failed.
-        File::open(path)?.sync_all()?;
+        sync_dir(path)?;
         check_safe(&rows)?;
         let dir = File::open(&rows)?.into();
         let mut storage = FileStorage { dir };
@@ -355,35 +355,31 @@ impl DataDir {
     }
 }
 
-/// Creates `path` and every missing ancestor with mode `0700`, one directory at a time, and syncs the parent of each one
-/// that it created. The parent of `path` is synced also when `path` exists already: an earlier open may have created it and
-/// failed before its sync (AD-7).
-fn create_durably(path: &Path) -> io::Result<()> {
-    let missing: Vec<&Path> = path
-        .ancestors()
-        .take_while(|dir| !dir.as_os_str().is_empty() && !dir.exists())
-        .collect();
-    for dir in missing.iter().rev() {
-        match fs::DirBuilder::new().mode(0o700).create(dir) {
-            Ok(()) => {}
-            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
-            Err(error) => return Err(error),
-        }
-        sync_parent(dir)?;
+/// Creates `path` and every missing ancestor with mode `0700`, then syncs every ancestor of `path`, up to the root, with
+/// `sync`. The syncs are not limited to the directories that this call created: an earlier open may have created one and
+/// failed before its parent's sync, and that obligation is met now (AD-7). `sync` is the real directory sync in production,
+/// and an injected one in a test.
+fn create_durably(path: &Path, sync: &mut dyn FnMut(&Path) -> io::Result<()>) -> io::Result<()> {
+    match fs::DirBuilder::new()
+        .mode(0o700)
+        .recursive(true)
+        .create(path)
+    {
+        // A path that exists as a file is refused by `check_safe`, as unsafe.
+        Ok(()) => {}
+        Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
+        Err(error) => return Err(error),
     }
-    if missing.is_empty() {
-        sync_parent(path)?;
+    let path = fs::canonicalize(path)?;
+    for ancestor in path.ancestors().skip(1) {
+        sync(ancestor)?;
     }
     Ok(())
 }
 
-/// Syncs the directory that holds `path` (the current directory for a relative path with no parent).
-fn sync_parent(path: &Path) -> io::Result<()> {
-    let parent = match path.parent() {
-        Some(parent) if !parent.as_os_str().is_empty() => parent,
-        _ => Path::new("."),
-    };
-    File::open(parent)?.sync_all()
+/// Syncs the directory `dir`.
+fn sync_dir(dir: &Path) -> io::Result<()> {
+    File::open(dir)?.sync_all()
 }
 
 /// AD-6: a directory with secrets is owned by this user and closed to every other user.
@@ -631,6 +627,39 @@ mod slow_tests {
         );
         for path in &foreign {
             assert_eq!(fs::read(path).unwrap(), b"someone else's");
+        }
+    }
+
+    /// AD-7 (review finding P5-F9): an open whose sync of an ancestor fails leaves directories that it created; the next
+    /// open syncs every ancestor again, so the entry of a directory that the failed open created is made durable too.
+    #[test]
+    fn a_retried_open_syncs_the_ancestors_that_a_failed_open_left() {
+        let tmp = dir();
+        let base = fs::canonicalize(tmp.path()).unwrap();
+        let path = base.join("new").join("a").join("data");
+        let failing = |dir: &Path| {
+            if dir == base {
+                Err(io::Error::from_raw_os_error(
+                    rustix::io::Errno::IO.raw_os_error(),
+                ))
+            } else {
+                sync_dir(dir)
+            }
+        };
+        assert!(create_durably(&path, &mut { failing }).is_err());
+        assert!(path.exists(), "the failed open left its directories");
+        let mut synced = Vec::new();
+        create_durably(&path, &mut |dir: &Path| {
+            synced.push(dir.to_path_buf());
+            sync_dir(dir)
+        })
+        .unwrap();
+        for dir in [base.join("new").join("a"), base.join("new"), base.clone()] {
+            assert!(
+                synced.contains(&dir),
+                "{} was not synced: {synced:?}",
+                dir.display()
+            );
         }
     }
 
