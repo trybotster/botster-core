@@ -268,24 +268,67 @@ fn a_member_gone_to_its_wait_but_still_listed_is_left() {
     assert!(matches!(ended, Err(Failure::Left(left)) if left == [held]));
 }
 
-/// The reservation through the real kernel: the kill goes out while the reserve is an unreaped child, live or a zombie, and
-/// once the reserve is reaped (the id may be reused) nothing is sent, whatever group has the id by then.
+/// The reservation through the real kernel, observed by the members' exit statuses. While the reserve is an unreaped
+/// child, the kill reaches the group: its member ends by SIGKILL. Once the reserve is reaped, the kill sends nothing: a
+/// member that still holds the group ends normally when the test lets it, so no signal reached it.
 #[test]
 fn a_kill_goes_out_only_while_the_reserve_holds_the_group() {
-    use std::os::unix::process::CommandExt;
-    let mut reserve = std::process::Command::new("/usr/bin/true")
-        .process_group(0)
-        .spawn()
-        .unwrap();
-    let pid = rustix::process::Pid::from_raw(reserve.id() as i32).unwrap();
-    // The reserve leads its own group, so the group id is its pid.
-    let held = reserved_kill(pid, pid);
-    assert!(
-        held.is_ok() || held.as_ref().is_err_and(platform::gone),
-        "a held group is signalled: {held:?}"
+    use std::os::unix::process::{CommandExt, ExitStatusExt};
+    use std::process::{Command, Stdio};
+    let dir = tempfile::tempdir().unwrap();
+    let never = dir.path().join("never");
+    assert!(Command::new("/usr/bin/mkfifo")
+        .arg(&never)
+        .status()
+        .unwrap()
+        .success());
+    // A member blocks without CPU in the open of a FIFO that nothing writes, until a writer opens it or a signal ends it.
+    let member = |group: i32| {
+        Command::new("/bin/cat")
+            .arg(&never)
+            .stdout(Stdio::null())
+            .process_group(group)
+            .spawn()
+            .unwrap()
+    };
+    let kill_signal = rustix::process::Signal::KILL.as_raw();
+
+    // Held: the reserve leads the group, and the kill ends its member.
+    let mut reserve = member(0);
+    let group = rustix::process::Pid::from_raw(reserve.id() as i32).unwrap();
+    let mut held = member(group.as_raw_nonzero().get());
+    reserved_kill(group, group).unwrap();
+    assert_eq!(
+        held.wait().unwrap().signal(),
+        Some(kill_signal),
+        "the held group was signalled"
     );
     reserve.wait().unwrap();
-    let released = reserved_kill(pid, pid).expect_err("a reaped reserve holds nothing");
-    assert!(!platform::gone(&released), "no signal is sent: {released}");
-    assert!(released.to_string().contains("no longer an unreaped child"));
+
+    // Released: the reserve alone ends and is reaped while a member still holds the group, and the kill sends nothing.
+    let mut reserve = member(0);
+    let group = rustix::process::Pid::from_raw(reserve.id() as i32).unwrap();
+    let mut alive = member(group.as_raw_nonzero().get());
+    reserve.kill().unwrap();
+    reserve.wait().unwrap();
+    let refused = reserved_kill(group, group).expect_err("a reaped reserve holds nothing");
+    assert!(
+        refused.to_string().contains("no longer an unreaped child"),
+        "{refused}"
+    );
+    // A writer lets the member read the end of the FIFO: it ends normally, so the refused kill reached nothing. The open
+    // does not wait: with no reader left it fails (ENXIO) instead of blocking the test.
+    drop(
+        rustix::fs::open(
+            &never,
+            rustix::fs::OFlags::WRONLY | rustix::fs::OFlags::NONBLOCK,
+            rustix::fs::Mode::empty(),
+        )
+        .expect("the member still reads the FIFO"),
+    );
+    assert_eq!(
+        alive.wait().unwrap().code(),
+        Some(0),
+        "no signal reached the member"
+    );
 }
