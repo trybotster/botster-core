@@ -199,3 +199,12 @@ Integration findings: none open. The P5 package verdict on `428c783` is still ne
 `1b1340c`) kept only K4 open, and it asked the lead for a ruling.
 
 VERDICT: NOT CLEAN (1 open: package verdict pending; 0 integration findings open)
+
+Correction: the documentation requirement above is an open finding, so it is tracked here.
+
+#### K5 [LOW] OPEN — Record the remaining limit of the retry durability rule
+
+- Required: `DESIGN.md` states that the write check runs at the time of the retry. A write permission that is removed after a
+  failed open created a directory leaves that entry's parent unsynced. The lead's ruling on the boundary may replace this.
+
+VERDICT: NOT CLEAN (2 open: K5; package verdict pending)
