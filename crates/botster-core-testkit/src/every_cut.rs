@@ -131,8 +131,9 @@ pub fn oracle_resume_every_cut(
                 Continuation::Unavailable => None,
             };
             let format = subject.format();
-            let fits = fit(&oracle, &format, framing, subject.max_snapshot_bytes());
-            if fits.is_none() {
+            let maximum = subject.max_snapshot_bytes();
+            let fits = fit(&oracle, &format, framing, maximum);
+            if fits != Some(true) {
                 inconclusive = true;
             }
             let semantic_failure = subject
@@ -146,11 +147,24 @@ pub fn oracle_resume_every_cut(
                     "every-cut resource conditions changed during capture".into(),
                 ));
             }
-            if semantic_failure {
+            let semantic_failure_after_capture = subject
+                .model()
+                .vt_processing_error()
+                .map_err(library_error)?;
+            let retention_after_capture = subject.model().continuation().map_err(library_error)?;
+            if semantic_failure || semantic_failure_after_capture {
                 refusals
                     .mismatches
                     .push(json!({"item": item, "offset": offset, "reason": "semantic failure"}));
                 continue;
+            }
+            let retention_failed = retention == Continuation::Unavailable
+                || retention_after_capture == Continuation::Unavailable;
+            if pending.is_none() {
+                inconclusive = true;
+            } else if pending.is_some_and(|length| length <= CONTINUATION_LIMIT) && retention_failed
+            {
+                refusals.mismatches.push(json!({"item": item, "offset": offset, "reason": "retention failure within limit"}));
             }
             match capture {
                 CutCapture::Offered {
@@ -158,6 +172,13 @@ pub fn oracle_resume_every_cut(
                     after_capture,
                 } => {
                     offered += 1;
+                    if framing
+                        .overhead(&format, pages.len())
+                        .and_then(|overhead| pages.len().checked_add(overhead))
+                        .is_some_and(|total| total > maximum)
+                    {
+                        refusals.mismatches.push(json!({"item": item, "offset": offset, "reason": "offered capture exceeds maximum"}));
+                    }
                     let mut restored = match Terminal::from_snapshot(
                         &pages,
                         input.history,
@@ -290,6 +311,7 @@ mod tests {
         prefix: Vec<u8>,
         wrong: bool,
         other: bool,
+        maximum: usize,
         trace: Rc<RefCell<Vec<&'static str>>>,
     }
 
@@ -301,7 +323,7 @@ mod tests {
             snapshot_format()
         }
         fn max_snapshot_bytes(&self) -> usize {
-            usize::MAX
+            self.maximum
         }
         fn history(&self) -> History {
             self.history
@@ -387,6 +409,7 @@ mod tests {
             prefix: Vec::new(),
             wrong: false,
             other: false,
+            maximum: usize::MAX,
             trace,
         }
     }
@@ -456,6 +479,59 @@ mod tests {
         .unwrap();
         assert_eq!(result["mismatches"], json!([]));
         assert_eq!(result["inconclusive"], false);
+    }
+
+    #[test]
+    fn offered_ground_cuts_cannot_hide_unavailable_retention() {
+        let input = input();
+        let result = oracle_resume_every_cut(&input, &TestFraming(0), |size, history| {
+            let mut subject = session(size, history, Rc::new(RefCell::new(Vec::new())));
+            subject.at_ground = true;
+            // This unit adapter deliberately loses retention. It is not a conformance run.
+            subject.terminal.set_continuation_max_bytes(0).unwrap();
+            Ok(Box::new(subject))
+        })
+        .unwrap();
+        let mut failed_cuts = Vec::new();
+        for (item, bytes) in input.corpus.iter().enumerate() {
+            for offset in 0..=bytes.len() {
+                let mut diagnostic = Terminal::new(&input.size, input.history).unwrap();
+                diagnostic.vt_write(&bytes[..offset]);
+                if let Continuation::Retained(pending) = diagnostic.continuation().unwrap() {
+                    if !pending.is_empty() {
+                        failed_cuts.push((item, offset));
+                    }
+                }
+            }
+        }
+        let mismatches = result["mismatches"].as_array().unwrap();
+        assert_eq!(mismatches.len(), failed_cuts.len());
+        assert!(!mismatches.is_empty());
+        for (mismatch, (item, offset)) in mismatches.iter().zip(failed_cuts) {
+            assert_eq!(mismatch["item"], item);
+            assert_eq!(mismatch["offset"], offset);
+            assert_eq!(mismatch["reason"], "retention failure within limit");
+        }
+        assert_eq!(result["inconclusive"], false);
+    }
+
+    #[test]
+    fn an_offered_capture_above_the_known_size_cannot_report_success() {
+        let input = input();
+        let result = oracle_resume_every_cut(&input, &TestFraming(0), |size, history| {
+            let mut subject = session(size, history, Rc::new(RefCell::new(Vec::new())));
+            subject.maximum = 0;
+            Ok(Box::new(subject))
+        })
+        .unwrap();
+        assert_eq!(result["inconclusive"], true);
+        assert_eq!(
+            result["mismatches"].as_array().unwrap().len(),
+            result["cuts_checked"].as_u64().unwrap() as usize
+        );
+        for mismatch in result["mismatches"].as_array().unwrap() {
+            assert_eq!(mismatch["reason"], "offered capture exceeds maximum");
+        }
     }
 
     #[test]

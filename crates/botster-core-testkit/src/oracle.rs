@@ -3,7 +3,7 @@
 //! The driver feeds this handle only the output that the worker model consumed, at each completed model step.
 //! The handle survives the move of the program edge into the worker. Observations never pump the subject.
 
-use botster_core_contract::prelude::{KeyInput, MouseInput, Size};
+use botster_core_contract::prelude::{ColorProfile, KeyInput, MouseInput, Size};
 use botster_route_codec::prelude::ModeFlags;
 use botster_terminal_ghostty::{
     encode_focus_with_modes, encode_key_with_modes, encode_mouse_with_modes,
@@ -28,6 +28,34 @@ pub enum OracleError {
 /// A separate libghostty terminal behind a driver handle.
 #[derive(Clone)]
 pub struct OracleHandle(Arc<Mutex<State>>);
+
+/// `oracle_query_reply`: ask a fresh native shadow terminal, independently of the subject (EV-8).
+/// The adapter resolves the session size and decodes request and prefix with the contract codec.
+pub fn oracle_query_reply(
+    size: &Size,
+    request: &[u8],
+    prefix: &[u8],
+    profile: Option<&ColorProfile>,
+) -> Result<Value, Error> {
+    let mut terminal = Terminal::new(size, History::Off)?;
+    terminal.vt_write(prefix);
+    terminal.drain_events();
+    if let Some(profile) = profile {
+        terminal.set_color_profile(profile)?;
+    }
+    let step = terminal.vt_write_until_query(request)?;
+    let reply = step
+        .query
+        .map(|query| query.shadow_reply)
+        .unwrap_or_default();
+    if reply.is_empty() {
+        Ok(json!({"answerable": false}))
+    } else {
+        Ok(
+            json!({"answerable": true, "reply_hex": botster_route_codec::prelude::hex_encode(&reply)}),
+        )
+    }
+}
 
 impl OracleHandle {
     pub fn new(size: &Size, history: History) -> Result<Self, Error> {
@@ -171,6 +199,57 @@ mod tests {
             cols: 12,
             cell_px: None,
         }
+    }
+
+    #[test]
+    fn query_replies_come_from_a_fresh_native_shadow_with_prefix_and_profile() {
+        let profile = ColorProfile {
+            foreground: botster_core_contract::prelude::Rgb {
+                r: 11,
+                g: 22,
+                b: 33,
+            },
+            background: botster_core_contract::prelude::Rgb {
+                r: 44,
+                g: 55,
+                b: 66,
+            },
+            cursor: None,
+            palette: None,
+        };
+        for profile in [None, Some(&profile)] {
+            for (prefix, request) in [
+                (&b"line\r\ntext"[..], &b"\x1b[6n"[..]),
+                (&b""[..], &b"\x1b]10;?\x1b\\"[..]),
+                (&b""[..], &b"\x1b]52;;?\x1b\\"[..]),
+                (&b""[..], &b"plain"[..]),
+            ] {
+                let mut reference = Terminal::new(&size(), History::Off).unwrap();
+                reference.vt_write(prefix);
+                if let Some(profile) = profile {
+                    reference.set_color_profile(profile).unwrap();
+                }
+                let reply = reference
+                    .vt_write_until_query(request)
+                    .unwrap()
+                    .query
+                    .map(|query| query.shadow_reply)
+                    .unwrap_or_default();
+                let actual = oracle_query_reply(&size(), request, prefix, profile).unwrap();
+                assert_eq!(actual["answerable"], !reply.is_empty());
+                if reply.is_empty() {
+                    assert!(actual.get("reply_hex").is_none());
+                } else {
+                    assert_eq!(
+                        actual["reply_hex"],
+                        botster_route_codec::prelude::hex_encode(&reply)
+                    );
+                }
+            }
+        }
+        let mut invalid = size();
+        invalid.rows = 0;
+        assert!(oracle_query_reply(&invalid, b"", b"", None).is_err());
     }
 
     #[test]
