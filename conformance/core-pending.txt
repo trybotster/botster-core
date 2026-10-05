@@ -1,3 +1,6 @@
+# conf::a2_8_*: Core and TestkitCore use the pinned libghostty identity; real-harness proof remains pending.
+# conf::st_6b_*: oracle helpers exist; real Core dispatch and capture paging await P3.
+# conf::st_6b_resume_invariant_holds_at_every_byte_offset_of_a_corpus_with_partial_escape_sequences: fit evidence awaits P3 M2b worker paging (R-30).
 conf::a10_1_wrong_instance_is_never_signalled
 conf::a10_1_wrong_token_is_never_signalled
 conf::a10_2_corrupted_row_is_lost_registry_corrupt

@@ -23,6 +23,7 @@ botster-worker-core.workspace = true
 botster-terminal-ghostty.workspace = true
 botster-probe-script.workspace = true
 botster-route-codec.workspace = true
+botster-terminal-ghostty = { path = "../botster-terminal-ghostty" }
 rand_chacha.workspace = true
 rand_core.workspace = true
 rustix = { workspace = true, features = ["process"] }
