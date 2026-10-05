@@ -31,6 +31,9 @@ The guardian returns a large log tail in consecutive bounded control frames.
 The driver supplies validated positive orphan grace.
 The launch supplies the service's exact startup and stop grace durations.
 The startup deadline begins at successful exec.
+The Stop path enumerates descendants before SIGTERM.
+The Stop deadline begins at the injected time of the SIGTERM result.
+Census and signal delivery delays cannot consume the service's stop grace.
 The host sends `EpochCommitted` after it commits every lane of epoch 1.
 Only authenticated adoption cancels orphan grace.
 An unauthenticated connection does not extend orphan grace.

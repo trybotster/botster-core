@@ -334,7 +334,7 @@ impl Guardian {
     }
 
     /// Run an authenticated command. The wire driver uses this same entry point.
-    pub fn begin(&mut self, now: Instant, command: Command) {
+    pub fn begin(&mut self, _now: Instant, command: Command) {
         if self.finished
             || self.link != LinkState::Ready
             || self.removing
@@ -352,7 +352,7 @@ impl Guardian {
                 self.actions.push_back(Action::SpawnService(spec));
             }
             Command::EpochCommitted => self.startup = None,
-            Command::Stop => self.start_stop(now, ServiceExitCause::HostStop),
+            Command::Stop => self.start_stop(ServiceExitCause::HostStop),
             Command::Remove => {
                 self.removing = true;
                 self.startup = None;
@@ -398,10 +398,11 @@ impl Guardian {
                 self.payload_id = Some(payload);
                 self.report = Some(report.clone());
                 self.report(Report::Started { payload, report });
-                if self.removing || self.terminating || self.orphan_ending || self.kill_requested {
+                // Every teardown request sets kill_requested, including during exec.
+                if self.kill_requested {
                     self.kill_tree();
                 } else if let Some(reason) = self.stop_reason {
-                    self.start_stop(now, reason);
+                    self.start_stop(reason);
                 } else if self.status.is_none() {
                     self.startup = Some(now + self.startup_duration);
                 }
@@ -426,10 +427,8 @@ impl Guardian {
         }
     }
 
-    fn start_stop(&mut self, now: Instant, reason: ServiceExitCause) {
+    fn start_stop(&mut self, reason: ServiceExitCause) {
         if !matches!(self.payload, PayloadState::Spawning | PayloadState::Live(_))
-            || self.exit.is_some()
-            || self.tree_done
             || self.kill_requested
         {
             return;
@@ -438,9 +437,6 @@ impl Guardian {
             self.stop_reason = Some(reason);
         }
         self.startup = None;
-        if self.stop.is_none() {
-            self.stop = Some(now + self.stop_grace);
-        }
         if let PayloadState::Live(leader) = self.payload {
             if !self.term_started {
                 self.term_started = true;
@@ -477,12 +473,7 @@ impl Guardian {
     }
 
     fn settle_exit(&mut self) {
-        if self.exit.is_some()
-            || !self.drained
-            || !self.tree_done
-            || self.term_pending
-            || self.census_pending
-        {
+        if !self.drained || !self.tree_done || self.term_pending || self.census_pending {
             return;
         }
         let (Some(status), PayloadState::Live(leader)) = (self.status, self.payload) else {
@@ -633,6 +624,9 @@ impl Machine for Guardian {
                 self.term_pending = false;
                 if delivered && !leader_exiting && self.delivered_reason.is_none() {
                     self.delivered_reason = self.stop_reason;
+                }
+                if !leader_exiting && self.status.is_none() && !self.kill_requested {
+                    self.stop = Some(now + self.stop_grace);
                 }
                 self.settle_exit();
             }

@@ -614,17 +614,38 @@ fn cleanup_requests_during_exec_are_not_lost() {
     }
 }
 
-/// Core SV-9: a census that completes after the stop deadline still supplies the kill's identities.
+/// Core SV-9: census and delivery delays cannot shorten the grace after SIGTERM.
 #[test]
-fn a_late_census_cannot_omit_known_descendants_or_reap_the_leader_early() {
+fn a_late_census_preserves_sigterm_then_the_full_grace_and_known_descendants() {
     let at = now();
     let mut g = running(at);
     command(&mut g, at, Command::Stop);
     actions(&mut g);
-    let due = at + Duration::from_millis(300);
-    g.pump(due);
+    let census_at = at + spec().limits.stop_grace;
+    assert_eq!(g.next_deadline(), None);
+    g.pump(census_at);
     assert!(actions(&mut g).is_empty());
-    g.handle(due, Input::Descendants(vec![CHILD]));
+    g.handle(census_at, Input::Descendants(vec![CHILD]));
+    assert_eq!(
+        actions(&mut g),
+        vec![Action::TermService { leader: LEADER }]
+    );
+    assert_eq!(g.next_deadline(), None);
+    let delivered_at = census_at + spec().limits.stop_grace;
+    g.pump(delivered_at);
+    assert!(actions(&mut g).is_empty());
+    g.handle(
+        delivered_at,
+        Input::TermSent {
+            delivered: true,
+            leader_exiting: false,
+        },
+    );
+    let due = delivered_at + spec().limits.stop_grace;
+    assert_eq!(g.next_deadline(), Some(due));
+    g.pump(due - Duration::from_nanos(1));
+    assert!(actions(&mut g).is_empty());
+    g.pump(due);
     assert_eq!(
         actions(&mut g),
         vec![Action::KillTree {
@@ -638,6 +659,217 @@ fn a_late_census_cannot_omit_known_descendants_or_reap_the_leader_early() {
     assert!(actions(&mut g).is_empty());
     killed(&mut g, due, true, false);
     assert!(actions(&mut g).contains(&Action::ReapService { leader: LEADER }));
+}
+
+/// Core SV-9: SIGTERM delivery, rather than the Stop request, starts the grace.
+#[test]
+fn delayed_sigterm_delivery_starts_the_full_stop_grace() {
+    let at = now();
+    let mut g = running(at);
+    command(&mut g, at, Command::Stop);
+    assert_eq!(actions(&mut g), vec![Action::Enumerate { leader: LEADER }]);
+    g.handle(at, Input::Descendants(vec![]));
+    assert_eq!(
+        actions(&mut g),
+        vec![Action::TermService { leader: LEADER }]
+    );
+    let delivered_at = at + spec().limits.stop_grace;
+    command(&mut g, delivered_at, Command::Stop);
+    g.pump(delivered_at);
+    assert_eq!(g.next_deadline(), None);
+    assert!(actions(&mut g).is_empty());
+    g.handle(
+        delivered_at,
+        Input::TermSent {
+            delivered: true,
+            leader_exiting: false,
+        },
+    );
+    let due = delivered_at + spec().limits.stop_grace;
+    assert_eq!(g.next_deadline(), Some(due));
+    command(&mut g, due - Duration::from_nanos(1), Command::Stop);
+    g.pump(due - Duration::from_nanos(1));
+    assert!(actions(&mut g).is_empty());
+    g.pump(due);
+    assert_eq!(
+        actions(&mut g),
+        vec![Action::KillTree {
+            leader: LEADER,
+            known: vec![]
+        }]
+    );
+}
+
+/// Core SV-9: a leader that exits during census remains owned until cleanup completes.
+#[test]
+fn an_exit_during_census_retains_descendants_and_waits_for_log_drain() {
+    let at = now();
+    let mut g = running(at);
+    command(&mut g, at, Command::Stop);
+    actions(&mut g);
+    g.handle(at, Input::PayloadExited(ExitStatus::Code(1)));
+    assert_eq!(actions(&mut g), vec![Action::DrainLogs]);
+    g.handle(at, Input::Descendants(vec![CHILD]));
+    assert_eq!(
+        actions(&mut g),
+        vec![Action::KillTree {
+            leader: LEADER,
+            known: vec![CHILD]
+        }]
+    );
+    killed(&mut g, at, false, false);
+    assert!(actions(&mut g).is_empty());
+    assert_eq!(g.status().exit, None);
+    g.handle(at, Input::LogsDrained);
+    assert_eq!(g.status().exit.unwrap().cause, ServiceExitCause::Normal);
+    assert!(actions(&mut g).contains(&Action::ReapService { leader: LEADER }));
+}
+
+/// Core AD-6, SV-8, SV-9: direct commands require authentication and an active guardian.
+#[test]
+fn direct_commands_cannot_bypass_authentication_or_teardown() {
+    let at = now();
+    let mut g = Guardian::new(config(1024), at);
+    actions(&mut g);
+    g.begin(at, Command::Launch(Box::new(spec())));
+    assert!(actions(&mut g).is_empty());
+    for teardown in 0..3 {
+        let mut g = running(at);
+        match teardown {
+            0 => command(&mut g, at, Command::Remove),
+            1 => g.handle(at, Input::Terminate),
+            _ => {
+                g.handle(at, Input::LinkClosed);
+                g.pump(at + spec().limits.orphan_grace);
+            }
+        }
+        actions(&mut g);
+        g.begin(at, Command::LogTail { req: 1, max: 1024 });
+        g.begin(at, Command::Status);
+        assert!(actions(&mut g).is_empty());
+    }
+}
+
+/// Core AD-6: a command in the wrong frame type cannot change the service.
+#[test]
+fn only_host_message_frames_can_launch_after_authentication() {
+    let at = now();
+    let mut g = ready(at);
+    let payload = serde_json::to_vec(&Command::Launch(Box::new(spec()))).unwrap();
+    g.handle(at, Input::LinkBytes(wire(FrameType::WORKER_MSG, &payload)));
+    assert!(actions(&mut g).is_empty());
+    command(&mut g, at, Command::Launch(Box::new(spec())));
+    assert_eq!(
+        actions(&mut g),
+        vec![Action::SpawnService(Box::new(spec()))]
+    );
+}
+
+/// Core SV-5, SV-7, SV-9: stale edge results cannot change the retained service lifetime.
+#[test]
+fn stale_process_results_cannot_skip_cleanup_or_replace_the_exit() {
+    let at = now();
+    let mut g = ready(at);
+    g.handle(at, Input::PayloadExited(ExitStatus::Code(1)));
+    g.handle(at, Input::Reaped);
+    command(&mut g, at, Command::Launch(Box::new(spec())));
+    assert_eq!(
+        actions(&mut g),
+        vec![Action::SpawnService(Box::new(spec()))]
+    );
+    g.handle(
+        at,
+        Input::Spawned(SpawnResult::Started {
+            payload: LEADER,
+            report: SpawnReport::default(),
+        }),
+    );
+    assert_eq!(
+        reports(&actions(&mut g)),
+        vec![Report::Started {
+            payload: LEADER,
+            report: SpawnReport::default()
+        }]
+    );
+    command(&mut g, at, Command::EpochCommitted);
+    for input in [
+        Input::LogsDrained,
+        Input::Descendants(vec![CHILD]),
+        Input::TermSent {
+            delivered: true,
+            leader_exiting: false,
+        },
+        Input::TreeKilled {
+            leader_signalled: true,
+            leader_exiting: false,
+            descendants_may_remain: true,
+        },
+        Input::Reaped,
+    ] {
+        g.handle(at, input);
+        assert!(actions(&mut g).is_empty());
+        assert_eq!(g.next_deadline(), None);
+    }
+    g.handle(at, Input::PayloadExited(ExitStatus::Code(1)));
+    let cleanup = actions(&mut g);
+    assert!(cleanup.contains(&Action::KillTree {
+        leader: LEADER,
+        known: vec![]
+    }));
+    command(&mut g, at, Command::Stop);
+    assert!(actions(&mut g).is_empty());
+    g.handle(at, Input::PayloadExited(ExitStatus::Signal(9)));
+    assert!(actions(&mut g).is_empty());
+    killed(&mut g, at, false, false);
+    assert!(actions(&mut g).is_empty());
+    assert_eq!(g.status().exit, None);
+    g.handle(at, Input::LogsDrained);
+    let exit = g.status().exit.unwrap();
+    assert_eq!(exit.code, Some(1));
+    assert_eq!(exit.signal, None);
+    assert_eq!(exit.cause, ServiceExitCause::Normal);
+    assert!(!exit.descendants_may_remain);
+    assert!(actions(&mut g).contains(&Action::ReapService { leader: LEADER }));
+}
+
+/// Core AD-6, SV-8: an existing connection and expired adoption cannot start a new handshake.
+#[test]
+fn connected_and_orphan_ending_guardians_ignore_duplicate_connections() {
+    let at = now();
+    let mut g = running(at);
+    g.handle(at, Input::LinkConnected);
+    assert!(actions(&mut g).is_empty());
+    command(&mut g, at, Command::Status);
+    assert_eq!(reports(&actions(&mut g)), vec![Report::Status(g.status())]);
+    g.handle(at, Input::LinkClosed);
+    actions(&mut g);
+    let due = at + spec().limits.orphan_grace;
+    g.pump(due);
+    actions(&mut g);
+    g.handle(due, Input::LinkConnected);
+    assert!(actions(&mut g).is_empty());
+    assert_eq!(g.next_deadline(), None);
+}
+
+/// Core SV-5: an absent signal or an exiting leader cannot produce a guardian kill cause.
+#[test]
+fn cleanup_signal_results_report_only_the_observed_leader_cause() {
+    let at = now();
+    for (leader_signalled, leader_exiting) in [(false, false), (true, true)] {
+        let mut g = running(at);
+        g.handle(at, Input::PayloadExited(ExitStatus::Code(1)));
+        actions(&mut g);
+        g.handle(
+            at,
+            Input::TreeKilled {
+                leader_signalled,
+                leader_exiting,
+                descendants_may_remain: false,
+            },
+        );
+        g.handle(at, Input::LogsDrained);
+        assert_eq!(g.status().exit.unwrap().cause, ServiceExitCause::Normal);
+    }
 }
 
 /// Core SV-9: a leader exit before the spawn answer remains owned through cleanup.
@@ -670,14 +902,16 @@ fn exit_before_spawn_answer_is_retained() {
 
 /// Core SV-5, SV-9: reordered edge results retain Killed and wait for every pending result.
 #[test]
-fn a_late_term_result_cannot_overwrite_the_kill_cause() {
+fn a_late_term_result_cannot_overwrite_the_orphan_kill_cause() {
     let at = now();
     let mut g = running(at);
     command(&mut g, at, Command::Stop);
     actions(&mut g);
     g.handle(at, Input::Descendants(vec![]));
     actions(&mut g);
-    let due = at + Duration::from_millis(300);
+    g.handle(at, Input::LinkClosed);
+    actions(&mut g);
+    let due = at + spec().limits.orphan_grace;
     g.pump(due);
     actions(&mut g);
     killed(&mut g, due, true, false);
@@ -692,7 +926,10 @@ fn a_late_term_result_cannot_overwrite_the_kill_cause() {
             leader_exiting: false,
         },
     );
-    assert_eq!(g.status().exit.unwrap().cause, ServiceExitCause::Killed);
+    assert_eq!(
+        g.status().exit.unwrap().cause,
+        ServiceExitCause::OrphanGrace
+    );
     assert!(actions(&mut g).contains(&Action::ReapService { leader: LEADER }));
 }
 
