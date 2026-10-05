@@ -43,7 +43,8 @@ impl std::ops::Deref for GuardedPayload {
 
 impl GuardedPayload {
     fn reap(mut self) {
-        self.payload.take().unwrap().reap();
+        let payload = self.payload.take().unwrap();
+        finish_within(payload.pid(), move || payload.reap());
     }
 }
 
@@ -51,6 +52,27 @@ impl Drop for GuardedPayload {
     fn drop(&mut self) {
         // The test ends the group before production can block in its reaper.
         drop(self.guard.take());
+        if let Some(payload) = self.payload.take() {
+            finish_within(payload.pid(), move || drop(payload));
+        }
+    }
+}
+
+/// Runs the production end of a payload (its drop or its reap) with a deadline, so a leader that never becomes waitable
+/// fails the test with the process table instead of holding the job until its deadline (BUILD.md testing rule 5).
+fn finish_within(payload_pid: u32, end: impl FnOnce() + Send + 'static) {
+    let (done, finished) = mpsc::channel();
+    std::thread::spawn(move || {
+        end();
+        let _ = done.send(());
+    });
+    // timer: deadline — the independent guard and production reaper must finish.
+    if finished.recv_timeout(Duration::from_secs(10)).is_err() {
+        cleanup_state(payload_pid);
+        // A second panic during unwinding would abort the test process before its report.
+        if !std::thread::panicking() {
+            panic!("the payload's production cleanup did not finish");
+        }
     }
 }
 

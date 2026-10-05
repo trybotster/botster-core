@@ -91,12 +91,8 @@ exclude_re = [
     # set_nonblocking: the_payload_runs_on_the_pty_with_the_exact_environment checks the native NONBLOCK descriptor flag.
     'crates/botster-core-sys/src/payload\.rs:\d+:\d+: (replace set_nonblocking( ->| with)|.* in set_nonblocking$)',
     # Recheck each glue entry when its body or callers change. New pure decisions require default-tier tests.
-    # P3 Payload::reap no-op: every current caller observes the leader's exit and sends group SIGKILL before reap.
-    # Production emits ReapPayload only after killed && exit_drained. Explicit slow-test callers follow that order too.
-    # A no-op still consumes self and runs Payload::drop with the child present. Drop sends an additional SIGKILL and waits.
-    # The unreaped leader reserves the group id through that signal. The extra signal cannot change its reported exit.
-    # The first SIGKILL can still be pending; this argument does not require every group member to have exited.
-    # Recheck this entry when any reap caller or Payload::drop changes.
+    # P3 Payload::reap no-op: reap is `drop(self)`. A `()` body consumes `self` too, and drops it at its end, so both bodies
+    # run Payload::drop at the same point: the mutant is the same code. Recheck this entry when reap gains any other step.
     'crates/botster-core-sys/src/payload\.rs:\d+:\d+: replace Payload::reap with \(\)$',
     # wait_unreaped: EXITED and NOWAIT are disjoint option bits, so OR and XOR give the same wait options.
     # wait_unreaped: the_payload_runs_on_the_pty_with_the_exact_environment and a_group_signal_ends_the_leader_and_its_group check its waitid edge.
