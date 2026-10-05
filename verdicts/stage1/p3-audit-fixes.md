@@ -318,3 +318,21 @@ The slow-tier filter changes from `binary(/^slow/)` to `binary(/^slow/) | (kind(
      it from the filter.
 
 VERDICT: NOT CLEAN (2 open: I7; package verdict pending)
+
+## Round 6 — I7 fix
+
+Reviewed head: `0110caa0fd0396759c5dc67215a77753a0e734c7`. The base is still current v1 `144b023`.
+Reviewed delta: `1a13fd1..0110caa`, one commit, `xtask/src/test_budget.rs`. This reviewer ran no build, test or gate.
+
+- **I7 CLOSED in source.** The filter is now `binary(/^slow/) | test(/^slow_/)`, and the comment names both kinds of module.
+  The `slow_*` names at this head are only these modules:
+  - `slow_tests` in botster-core-sys `storage.rs`, and in botster-core `lib.rs` and `real.rs`;
+  - `slow_driver` and `slow_edges` in botster-worker.
+  Each compiles only with `feature = "slow"`, so the default tier does not change.
+- Still needed: the gate log on the final head names the newly collected lib tests (I7 item 2). Under the lead's gate-evidence
+  rule, that log closes this item. The gate waits for the guard PR (merge order).
+
+Integration findings: none open in source. Still needed for CLEAN: the package verdict on the final head, and the gate log
+that shows the lib slow modules collected.
+
+VERDICT: NOT CLEAN (1 open: package verdict pending; I7 gate evidence pending; 0 integration source findings open)
