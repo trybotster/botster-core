@@ -360,15 +360,14 @@ fn await_end(pid: rustix::process::Pid, deadline: std::time::Instant) -> std::io
     }
 }
 
-/// The live members of `group`, with their states. A zombie is not live: it cannot fork, and its parent reaps it. A
-/// process whose information cannot be read is left out only when it is proved gone (ESRCH).
+/// The live members of `group`, with their states. A process is left out only when it is proved not live: a zombie (it
+/// cannot fork, and its parent reaps it), or a process that is gone. macOS refuses the information of both with ESRCH;
+/// any other refusal fails the listing.
 ///
 /// # Errors
 /// The process table could not be read.
 #[cfg(target_os = "macos")]
 fn live_members(group: rustix::process::Pid) -> std::io::Result<Vec<Member>> {
-    use libproc::bsd_info::BSDInfo;
-    use libproc::proc_pid::pidinfo;
     use libproc::processes::{pids_by_type, ProcFilter};
     let group_id = group.as_raw_nonzero().get() as u32;
     let mut members = Vec::new();
@@ -376,13 +375,27 @@ fn live_members(group: rustix::process::Pid) -> std::io::Result<Vec<Member>> {
         let Some(process) = rustix::process::Pid::from_raw(pid as i32) else {
             continue;
         };
-        let info = match pidinfo::<BSDInfo>(pid as i32, 0) {
-            Ok(info) => info,
-            Err(error) => match rustix::process::test_kill_process(process) {
-                Err(rustix::io::Errno::SRCH) => continue,
-                _ => return Err(std::io::Error::other(format!("process {pid}: {error}"))),
-            },
+        let size = std::mem::size_of::<libc::proc_bsdinfo>();
+        let mut info = std::mem::MaybeUninit::<libc::proc_bsdinfo>::zeroed();
+        // SAFETY: the buffer is a `proc_bsdinfo` of `size` bytes, as the flavor PROC_PIDTBSDINFO asks.
+        let written = unsafe {
+            libc::proc_pidinfo(
+                pid as i32,
+                libc::PROC_PIDTBSDINFO,
+                0,
+                info.as_mut_ptr().cast(),
+                size as i32,
+            )
         };
+        if written <= 0 {
+            let error = std::io::Error::last_os_error();
+            if gone(&error) {
+                continue;
+            }
+            return Err(std::io::Error::other(format!("process {pid}: {error}")));
+        }
+        // SAFETY: proc_pidinfo wrote the whole structure (it returns the bytes it wrote, at most `size`).
+        let info = unsafe { info.assume_init() };
         if info.pbi_pgid == group_id && info.pbi_status != libc::SZOMB {
             members.push(Member {
                 pid: process,
