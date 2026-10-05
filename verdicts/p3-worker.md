@@ -2,7 +2,7 @@
 
 Current restack verdict: NOT CLEAN (F13, F18, and F19 open; F14, F15, F16, F17, and F20 closed in source).
 Reviewed head: `7b54136568a88f1bbbf599de37002eb8daed363c`, branch `stage1/p3-m1-v1`.
-Round 52 reviews the pure I/O decision refactor. F13 retains 60 entries; F18/F19 await Mac evidence.
+Round 53 verifies corrected-source Mac failures. F13 retains 60 entries; F18/F19 require further correction.
 The CLEAN below applies only to the old M2a head that it names.
 
 VERDICT: CLEAN
@@ -1749,6 +1749,41 @@ The handoff reports the lead's release of the Mac hold for one queued payload di
 That job uses the corrected payload tests with a twenty-minute whole-job deadline and unchanged ten-second code test deadlines.
 No result exists in this round. F18 and F19 remain OPEN pending that evidence and any required correction.
 F13 retains 60 original driver entries. F20 remains CLOSED with regression evidence from round 51.
+All earlier findings and closures remain preserved. The reviewer ran no tests or gate.
+
+VERDICT: NOT CLEAN (F13: 60 entries; F18 and F19 open) on `7b54136568a88f1bbbf599de37002eb8daed363c`.
+
+
+## Round 53 — Corrected-source Mac diagnostic still fails
+
+Reviewed and evidence head: `7b54136568a88f1bbbf599de37002eb8daed363c`.
+Log: `~/botster-sessions/gates/botster-core-stage1-p3-m1-v1-7b541365-mac-20261004-165836-99257.log`.
+The reviewer read the exact-head Mac nextest log for the corrected slow_payload tests.
+The job exits 124 after 1201 seconds. Fifteen tests run: 13 pass, two fail, and zero are skipped.
+The panic-cleanup test fails after 10.127 seconds.
+The queued-output/query/input test remains alive until external SIGTERM after 1197.209 seconds.
+No mutation result follows from this diagnostic.
+
+F18 remains OPEN as a production-query finding under the corrected synchronization proof.
+The queued-output FIFO marker arrives before the test calls the unchanged production pending_output query.
+The diagnostic prints pending_output=0 after that marker, then the query assertion fails.
+The previous incomplete-output readiness explanation no longer resolves the failure.
+Production uses this query as its exit-drain bound, so its Mac semantics require investigation and correction.
+Keep the queued-output and complete-output proof. Do not weaken it or bypass the query for tests.
+
+F19 remains OPEN despite the explicit group join and independent guard.
+The panic test times out while guard cleanup and production reaping run in a separate thread.
+Its process-state snapshot reports test PID 99480 and recorded payload PID 99486.
+It reports leader PID 99486, PPID 99480, PGID 99486, state ?Es.
+It reports anchor PID 99490, PPID 99486, PGID 99486, state ?E.
+Thus the snapshot shows the anchor in the leader's group during this failure.
+The query test also blocks during panic cleanup until the external job deadline terminates it.
+The log does not identify the blocking cleanup operation or explain the reported process states.
+Investigate those operations and native PTY behavior before another correction claims finite Mac cleanup.
+Retain independent group ownership, parent-death cleanup, and production-only payload reaping.
+
+The corrected-source evidence now exists and fails. F18 and F19 require further correction, not only another proof run.
+F13 retains 60 original driver entries. F20 remains CLOSED with verified parent-death evidence.
 All earlier findings and closures remain preserved. The reviewer ran no tests or gate.
 
 VERDICT: NOT CLEAN (F13: 60 entries; F18 and F19 open) on `7b54136568a88f1bbbf599de37002eb8daed363c`.
