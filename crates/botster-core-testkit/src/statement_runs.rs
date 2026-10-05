@@ -131,12 +131,12 @@ mod tests {
             )))
             .is_err()
         );
-        assert!(
-            run_deterministic(&json!({"steps": [{"open": {}}]}), || Box::new(
-                crate::TestkitHarness::new(0)
-            ))
-            .is_err()
-        );
+        // Core LC-1: a missing worker path fails even after the real harness can open a valid Core.
+        assert!(run_deterministic(
+            &json!({"steps": [{"open": {"worker": null}}]}),
+            || Box::new(crate::TestkitHarness::new(0))
+        )
+        .is_err());
     }
 
     fn spec() -> Value {
