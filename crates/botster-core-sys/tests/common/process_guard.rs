@@ -11,7 +11,7 @@ use std::process::{Child, Command, Stdio};
 /// Closing the control stream makes the anchor kill its group, including itself.
 pub struct GroupGuard {
     control: UnixStream,
-    anchor: Child,
+    anchor: Option<Child>,
     registration: Option<std::thread::JoinHandle<()>>,
     socket: PathBuf,
 }
@@ -60,7 +60,7 @@ impl GroupGuard {
         });
         Self {
             control,
-            anchor,
+            anchor: Some(anchor),
             registration: Some(registration),
             socket,
         }
@@ -86,9 +86,36 @@ impl Drop for GroupGuard {
             let _ = stream.shutdown(std::net::Shutdown::Both);
         }
         if let Some(thread) = self.registration.take() {
-            let _ = thread.join();
+            bounded("the group guard's registration", move || {
+                let _ = thread.join();
+            });
         }
-        let _ = self.anchor.wait();
+        if let Some(mut anchor) = self.anchor.take() {
+            bounded("the group guard's anchor", move || {
+                let _ = anchor.wait();
+            });
+        }
+    }
+}
+
+/// Runs one wait of the guard's cleanup with the cleanup deadline. A wait that does not finish fails the test, or is
+/// reported when the test already panics (a second panic would abort before the report).
+fn bounded(what: &str, wait: impl FnOnce() + Send + 'static) {
+    let (done, finished) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        wait();
+        let _ = done.send(());
+    });
+    // timer: deadline — bounds a guard's cleanup, so a stuck process fails the test instead of the job.
+    if finished
+        .recv_timeout(std::time::Duration::from_secs(10))
+        .is_err()
+    {
+        if std::thread::panicking() {
+            eprintln!("{what} did not finish");
+        } else {
+            panic!("{what} did not finish");
+        }
     }
 }
 
@@ -277,7 +304,8 @@ fn an_early_exit_keeps_the_group_owned_until_cleanup() {
     pipe.read_line(&mut descendant).unwrap();
     assert!(descendant.trim().parse::<u32>().is_ok());
     assert!(child.wait().unwrap().success());
-    let anchor = rustix::process::Pid::from_raw(guard.anchor.id() as i32).unwrap();
+    let anchor =
+        rustix::process::Pid::from_raw(guard.anchor.as_ref().unwrap().id() as i32).unwrap();
     assert_eq!(rustix::process::getpgid(Some(anchor)).unwrap(), group);
     drop(guard);
     eof(pipe);

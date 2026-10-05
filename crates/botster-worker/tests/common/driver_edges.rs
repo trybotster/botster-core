@@ -429,6 +429,7 @@ fn pty_reads_clear_readiness_and_finish_a_bounded_drain() {
         .1
         // timer: deadline — the production exit watch must observe the group kill.
         .recv_timeout(Duration::from_secs(10))
+        .unwrap()
         .unwrap();
     h.driver.pty_readable = true;
     h.driver.perform(Action::ReapPayload).unwrap();

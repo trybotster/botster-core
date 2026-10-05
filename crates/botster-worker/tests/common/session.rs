@@ -132,12 +132,21 @@ impl Drop for OwnedWorker {
 
 /// Ends a worker that is an unreaped child of this process and of nothing else: `SIGTERM`; `SIGKILL` if it has not ended by
 /// the deadline. The observer only observes the exit (`waitid` with `WNOWAIT`), and nothing else reaps the child, so the
-/// pid stays the worker's through the last signal; the reap comes last.
+/// pid stays the worker's through the last signal; the reap comes last, once the exit is seen. A worker that does not end
+/// even after `SIGKILL` fails the test, or is reported when the test already panics.
 fn end_child_worker(pid: rustix::process::Pid) {
     use rustix::process::{kill_process, waitpid, Signal, WaitOptions};
     let _ = kill_process(pid, Signal::TERM);
     if wait_for(WORKER_CLEANUP, move || observe_exit(pid)).is_none() {
         let _ = kill_process(pid, Signal::KILL);
+        if wait_for(WORKER_CLEANUP, move || observe_exit(pid)).is_none() {
+            let report = format!("the worker {pid:?} did not end after SIGKILL");
+            if std::thread::panicking() {
+                eprintln!("{report}");
+                return;
+            }
+            panic!("{report}");
+        }
     }
     let _ = waitpid(Some(pid), WaitOptions::empty());
 }

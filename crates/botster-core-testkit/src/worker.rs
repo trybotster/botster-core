@@ -20,7 +20,7 @@ use botster_core_edges::{Link, Machine, Program};
 use botster_core_host::driver::{HostDriver, HostWake, WorkerSpawn};
 use botster_core_link::msg::PayloadId;
 use botster_route_codec::prelude::QueryKind;
-use botster_worker_core::{Action, Input, PayloadSpec, SpawnFailure, Worker, WorkerConfig};
+use botster_worker_core::{Action, Drain, Input, PayloadSpec, SpawnFailure, Worker, WorkerConfig};
 use std::collections::{BTreeMap, VecDeque};
 use std::io;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
@@ -280,9 +280,8 @@ struct WorkerEdges {
     spawned: Option<Result<PayloadId, SpawnFailure>>,
     /// The exit of the payload that the program edge reported and the worker has not taken yet.
     exit: Option<ExitStatus>,
-    /// The bytes still to read for a `DrainPty`: what the program held when the drain was asked, as the real driver's
-    /// bound. `None` when no drain is asked.
-    drain: Option<usize>,
+    /// The drain that a `DrainPty` asked for, the same decision as the real driver's; `None` when no drain is asked.
+    drain: Option<Drain>,
     /// The inputs counted by the last `ready`.
     ready: Vec<Ready>,
     read_chunk: usize,
@@ -382,10 +381,11 @@ impl Binding<Worker> for WorkerEdges {
             if self.exit.is_none() {
                 self.exit = program.poll_exit();
             }
-            // As the real driver: a drain ends when its bound is read or a read finds nothing; output is read while it waits.
+            // As the real driver: a complete drain gives `PtyDrained`, and a drain whose next read would find nothing is
+            // complete; output is read while it waits.
             match (self.drain, program.unread()) {
-                (Some(0), _) | (Some(_), 0) => self.ready.push(Ready::PtyDrained),
-                (_, 0) => {}
+                (Some(Drain::Done), _) | (Some(_), 0) => self.ready.push(Ready::PtyDrained),
+                (None, 0) => {}
                 _ => self.ready.push(Ready::PtyRead),
             }
             if self.exit.is_some() {
@@ -423,17 +423,18 @@ impl Binding<Worker> for WorkerEdges {
             Ready::Spawned => Input::Spawned(self.spawned.take().expect("counted as ready")),
             Ready::PtyRead => {
                 let program = self.payload.as_mut().expect("counted as ready");
-                // A drain reads no more than its bound, so output written after it was asked cannot hold the exit back.
                 let want = self
                     .drain
-                    .map_or(self.read_chunk, |left| left.min(self.read_chunk));
+                    .map_or(self.read_chunk, |drain| drain.want(self.read_chunk));
                 let mut buf = vec![0u8; want];
                 let n = program
                     .read(&mut buf)
                     .expect("a program with unread output reads some");
                 buf.truncate(n);
-                if let Some(left) = self.drain.as_mut() {
-                    *left -= n;
+                if let Some(drain) = self.drain {
+                    let Ok(next) =
+                        drain.after_read(n, || Ok::<_, std::convert::Infallible>(program.unread()));
+                    self.drain = Some(next);
                 }
                 Input::PtyOutput(buf)
             }
@@ -466,7 +467,9 @@ impl Binding<Worker> for WorkerEdges {
             }
             Action::SpawnPayload(spec) => self.spawned = Some(self.spawn_payload(&spec)),
             Action::DrainPty => {
-                self.drain = Some(self.payload.as_mut().map_or(0, ScriptedProgram::unread));
+                self.drain = Some(Drain::asked(
+                    self.payload.as_mut().map_or(0, ScriptedProgram::unread),
+                ));
             }
             Action::SignalPayload(signal) => {
                 if let Some(program) = self.payload.as_mut() {

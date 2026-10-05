@@ -166,11 +166,15 @@ impl Payload {
     }
 
     /// Starts the exit watch: a thread that calls `on_exit` once with the leader's status, when the leader can be reaped. The
-    /// leader stays unreaped.
+    /// leader stays unreaped. The watch never invents an exit: a wait that fails gives its OS error, which means that the
+    /// Payload no longer holds the unreaped leader.
     ///
     /// # Errors
     /// The thread could not be started.
-    pub fn watch_exit(&self, on_exit: impl FnOnce(ExitStatus) + Send + 'static) -> io::Result<()> {
+    pub fn watch_exit(
+        &self,
+        on_exit: impl FnOnce(io::Result<ExitStatus>) + Send + 'static,
+    ) -> io::Result<()> {
         let pid = Pid::from_raw(i32::try_from(self.pid).unwrap_or(i32::MAX))
             .ok_or_else(|| io::Error::from(io::ErrorKind::InvalidInput))?;
         std::thread::Builder::new()
@@ -248,8 +252,8 @@ fn pending_output(master: BorrowedFd<'_>) -> io::Result<usize> {
     }
 }
 
-/// Blocks until `pid` can be reaped, and returns its status without reaping it.
-fn wait_unreaped(pid: Pid) -> ExitStatus {
+/// Blocks until `pid` can be reaped, and returns its status without reaping it, or the OS error of a wait that failed.
+fn wait_unreaped(pid: Pid) -> io::Result<ExitStatus> {
     wait_unreaped_with(|| {
         waitid(
             WaitId::Pid(pid),
@@ -261,23 +265,21 @@ fn wait_unreaped(pid: Pid) -> ExitStatus {
 /// The exit-watch decision uses an injected wait operation. The production operation leaves the leader unreaped.
 fn wait_unreaped_with(
     mut wait: impl FnMut() -> rustix::io::Result<Option<rustix::process::WaitIdStatus>>,
-) -> ExitStatus {
+) -> io::Result<ExitStatus> {
     loop {
         match wait() {
             Ok(Some(status)) => {
                 if let Some(signal) = status.terminating_signal() {
-                    return ExitStatus::Signal(signal);
+                    return Ok(ExitStatus::Signal(signal));
                 }
                 if let Some(code) = status.exit_status() {
-                    return ExitStatus::Code(code);
+                    return Ok(ExitStatus::Code(code));
                 }
             }
             Err(rustix::io::Errno::INTR) | Ok(None) => {}
-            // The Payload holds the unreaped leader, so its wait cannot fail. The watch never invents an exit: if this
-            // invariant ever broke, the worker ends and its host sees a lost worker.
-            Err(errno) => panic!(
-                "the exit watch cannot wait for the payload leader ({errno}): the Payload holds the unreaped leader"
-            ),
+            // The Payload holds the unreaped leader, so its wait does not fail while that holds. A failure is given to the
+            // caller as it is; no exit is invented.
+            Err(errno) => return Err(errno.into()),
         }
     }
 }
@@ -307,17 +309,18 @@ mod tests {
         );
     }
 
-    /// EV-4: an interrupted wait retries the same operation, and a wait that fails never invents an exit.
+    /// EV-4: an interrupted wait retries the same operation, and a wait that fails gives its OS error, never an exit.
     #[test]
-    fn an_interrupted_watch_retries_and_a_failed_watch_invents_no_exit() {
-        let mut outcomes = std::collections::VecDeque::from([
-            Err(rustix::io::Errno::INTR),
-            Err(rustix::io::Errno::CHILD),
-        ]);
-        let watched = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            wait_unreaped_with(|| outcomes.pop_front().expect("the watch made an extra wait"))
-        }));
-        assert!(watched.is_err(), "no exit status for a failed wait");
+    fn an_interrupted_watch_retries_and_a_failed_watch_gives_its_error() {
+        let failure = rustix::io::Errno::CHILD;
+        let mut outcomes =
+            std::collections::VecDeque::from([Err(rustix::io::Errno::INTR), Err(failure)]);
+        let watched =
+            wait_unreaped_with(|| outcomes.pop_front().expect("the watch made an extra wait"));
+        assert_eq!(
+            watched.unwrap_err().raw_os_error(),
+            Some(failure.raw_os_error())
+        );
         assert!(outcomes.is_empty(), "the interrupted wait was retried");
     }
 }
