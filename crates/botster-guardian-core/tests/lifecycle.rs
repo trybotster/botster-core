@@ -12,7 +12,9 @@ use botster_core_link::hello::{Hello, HelloError, MAX_INSTANCE_ID_LEN};
 use botster_core_link::msg::PayloadId;
 use botster_core_link::proof::token_proof;
 use botster_guardian_core::guardian::SpawnResult;
-use botster_guardian_core::wire::{Command, LogChunk, Report, ServiceSpec, Status, LOG_FRAME};
+use botster_guardian_core::wire::{
+    Command, LogChunk, Report, ServiceSpec, Status, COMMAND_FRAME, LOG_FRAME, REPORT_FRAME,
+};
 use botster_guardian_core::{Action, Guardian, GuardianConfig, Input};
 use std::collections::BTreeMap;
 use std::time::{Duration, Instant};
@@ -110,9 +112,7 @@ fn sent(actions: &[Action]) -> Vec<Sent> {
                 .expect("each LinkSend holds whole frames");
             out.push(match frame.kind {
                 FrameType::HELLO => Sent::Hello(Hello::decode(&frame.payload).unwrap()),
-                FrameType::WORKER_MSG => {
-                    Sent::Report(serde_json::from_slice(&frame.payload).unwrap())
-                }
+                REPORT_FRAME => Sent::Report(serde_json::from_slice(&frame.payload).unwrap()),
                 LOG_FRAME => Sent::Log(LogChunk::decode(&frame.payload).unwrap()),
                 other => panic!("unexpected frame {other:?}"),
             });
@@ -225,7 +225,7 @@ impl Rig {
 
     fn command(&mut self, command: Command) -> Vec<Action> {
         let json = serde_json::to_vec(&command).unwrap();
-        self.input(Input::LinkBytes(frame(FrameType::HOST_MSG, &json)))
+        self.input(Input::LinkBytes(frame(COMMAND_FRAME, &json)))
     }
 
     fn authenticate(&mut self, epoch: u64) -> Vec<Action> {
@@ -422,17 +422,26 @@ fn malformed_and_oversize_control_frames_close_the_connection() {
     }
 }
 
-/// Core AD-6: after authentication, only a host message frame carries a command.
+/// Core AD-6, plan 3: after authentication, only the guardian's command frame carries a command. The worker message
+/// frames, whose JSON tags overlap the guardian's, carry none.
 #[test]
-fn only_host_message_frames_carry_commands() {
+fn only_command_frames_carry_commands() {
     let mut rig = Rig::ready();
     let launch = serde_json::to_vec(&Command::Launch(Box::new(spec()))).unwrap();
-    assert!(rig
-        .input(Input::LinkBytes(frame(FrameType::WORKER_MSG, &launch)))
-        .is_empty());
+    for kind in [
+        FrameType::HOST_MSG,
+        FrameType::WORKER_MSG,
+        REPORT_FRAME,
+        LOG_FRAME,
+    ] {
+        assert!(
+            rig.input(Input::LinkBytes(frame(kind, &launch))).is_empty(),
+            "{kind:?}"
+        );
+    }
     assert!(rig
         .input(Input::LinkBytes(frame(
-            FrameType::HOST_MSG,
+            COMMAND_FRAME,
             b"{\"t\":\"unknown\"}"
         )))
         .is_empty());
