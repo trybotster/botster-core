@@ -180,15 +180,16 @@ pub(crate) fn end_group(
         }
     };
     let reserve_pid = rustix::process::Pid::from_raw(reserve.id() as i32).expect("a child pid");
-    // Every kill first checks the reservation: the reserve is an unreaped child of this process, so its pid is its own, and
-    // while it is in `group`, the group exists and no other group has the id.
+    // Every kill first checks the reservation: the reserve took this process's group at its fork, nothing can move a
+    // zombie to another group, and while it is an unreaped child of this process (live or a zombie), the group exists and
+    // no other group has the id. (macOS refuses `getpgid` for a zombie, so the check is the wait status, not the group.)
     let kill = || {
-        let owner = rustix::process::getpgid(Some(reserve_pid))?;
-        if owner != group {
+        use rustix::process::{waitid, WaitId, WaitIdOptions};
+        let options = WaitIdOptions::EXITED | WaitIdOptions::NOWAIT | WaitIdOptions::NOHANG;
+        if let Err(error) = waitid(WaitId::Pid(reserve_pid), options) {
             return Err(std::io::Error::other(format!(
-                "the reserve {} is in group {}, not {}",
+                "the reserve {} of group {} is no longer an unreaped child: {error}",
                 reserve_pid.as_raw_nonzero(),
-                owner.as_raw_nonzero(),
                 group.as_raw_nonzero()
             )));
         }
