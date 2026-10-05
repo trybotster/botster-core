@@ -1,8 +1,8 @@
 # P3 worker review
 
 Current restack verdict: NOT CLEAN (F13, F18, and F19 open; F14, F15, F16, F17, and F20 closed in source).
-Reviewed head: `7efe4553d290cd6f76befc0d50ed7b5206b0ea0e`, branch `stage1/p3-m1-v1`.
-Round 51 verifies F20 regression evidence. F13 retains 60 entries: 41 missed and 19 timed out. F18/F19 remain open.
+Reviewed head: `7b54136568a88f1bbbf599de37002eb8daed363c`, branch `stage1/p3-m1-v1`.
+Round 52 reviews the pure I/O decision refactor. F13 retains 60 entries; F18/F19 await Mac evidence.
 The CLEAN below applies only to the old M2a head that it names.
 
 VERDICT: CLEAN
@@ -1718,3 +1718,37 @@ F18 and F19 remain OPEN for corrected-source Mac evidence.
 All earlier findings and closures remain preserved. The reviewer ran no tests or gate.
 
 VERDICT: NOT CLEAN (F13: 60 entries; F18 and F19 open) on `7efe4553d290cd6f76befc0d50ed7b5206b0ea0e`.
+
+
+## Round 52 — Pure decisions on the existing real-driver path
+
+Reviewed head: `7b54136568a88f1bbbf599de37002eb8daed363c`.
+The complete delta from `7efe455` adds io_decisions.rs, changes actual Driver calls, and updates the handoff.
+No exclusion, dependency, conflict resolution, second Worker machine, or production test branch accompanies the delta.
+The reviewer compared every changed Driver decision with its prior expression and error arm.
+No new source finding exists in this refactor.
+
+The existing Driver calls the extracted decisions at their original operation points.
+The original mutation responsibilities move as follows:
+
+- The due-deadline comparison moves to due, retaining the inclusive <= boundary and absent-deadline behavior.
+- Busy readiness and timeout selection move to ReadyState::timeout, retaining control/PTY readiness, drain presence, and queued input conditions.
+- Poll interruption handling moves to poll_interrupted, retaining retry on Interrupted and propagation of every other poll error.
+- Control read/write readiness accumulation moves to control_ready and writable_ready, retaining prior readiness and every event source.
+- Interrupted/WouldBlock classification from read_control, read_pty_chunk, and flush moves to failure, retaining Retry, Blocked, and Closed effects.
+- The control-read, PTY-read, initial flush, and continued-write gates move to read_control, read_pty, flush, and keep_writing.
+
+The Driver still performs the same reads, writes, readiness clearing, drain updates, link-loss actions, and progress reporting.
+The pure default tests cover all readiness combinations, exact deadline boundaries, and distinct interrupted/blocked/error cases.
+The actual Driver uses those tested functions; the tests do not select another production path.
+Direct adapter effects, caller wiring, and the remaining unchanged operations still require evidence.
+A caught relocated decision must map back to its original entry before that entry closes.
+Removal of an old mutation location by itself supplies no closure.
+
+The handoff reports the lead's release of the Mac hold for one queued payload diagnostic.
+That job uses the corrected payload tests with a twenty-minute whole-job deadline and unchanged ten-second code test deadlines.
+No result exists in this round. F18 and F19 remain OPEN pending that evidence and any required correction.
+F13 retains 60 original driver entries. F20 remains CLOSED with regression evidence from round 51.
+All earlier findings and closures remain preserved. The reviewer ran no tests or gate.
+
+VERDICT: NOT CLEAN (F13: 60 entries; F18 and F19 open) on `7b54136568a88f1bbbf599de37002eb8daed363c`.
