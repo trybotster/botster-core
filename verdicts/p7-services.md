@@ -250,3 +250,86 @@ PR 1 remains single-package under the lead's earlier classification.
 Later cross-package PRs still require integration review.
 
 VERDICT: NOT CLEAN (3 open)
+
+## PR #142 — round 4
+
+Head: `d9ded716cd79e2cbe9f8770c389ab13730dcfea0`.
+Previous head: `11a55a88d8c225c89ca639ea66c7ad026b009f43`.
+PR: https://github.com/trybotster/botster-core/pull/142.
+
+This review covers all four changed files, including the design note.
+F1 and F2 remain CLOSED.
+The accepted `GuardianConfig::fmt` exclusion remains unchanged.
+The delta adds no I/O, test branch, mutation exclusion, or pending-id change.
+
+### P7-142-R3-F4 — CLOSED
+
+`Spawn` now retains the first cause byte with `get_or_insert`.
+`Leader::new` receives that retained byte when exec succeeds.
+The existing leader cause priority remains unchanged.
+`a_cause_byte_before_the_exec_result_is_kept` uses an authenticated wire `Launch` and the reported input sequence.
+Its expected exit code and `ChildReported` byte come from the injected inputs.
+
+### P7-142-R3-F5 — CLOSED
+
+Authentication now queues the complete retained ring before `Status`.
+`flush_log` queues every chunk of that replay in the same machine call.
+The ordered link cannot deliver `Status` before those bytes, even when a write is partial.
+An empty ring queues `Status` without a log frame.
+The design note and `Status` documentation define adoption completion on this ordered `Status`.
+
+The reconnect test checks the decoded sequence `Hello`, retained log, then `Status`.
+The retained bytes and offset come from the injected output and configured ring bound.
+The launch test checks the empty-ring sequence `Hello`, then `Status`.
+The large-tail test separately proves ordered bytes across multiple bounded frames through the same wire decoder.
+These tests and the common replay path prove the completion condition.
+I requested an additional combined multiple-frame reconnect test, but that request does not keep the corrected defect open.
+The later host implementation must complete adoption on `Status` as documented.
+
+### P7-142-R4-F6 — LOW — The log test fixes a contract-free tuning value to kill a mutant
+
+**Requirement:** The user forbids tests that exist only to kill a mutant.
+The lead's tuning ruling permits contract equivalence only under its four stated conditions.
+Core SV-9 fixes bounded retained bytes, not the number or fullness of control-link frames.
+
+**Evidence:** `a_large_tail_fills_bounded_frames_in_order` now requires every nonfinal frame to equal
+`HEADER_LEN + DEFAULT_MAX_PAYLOAD`.
+The implementer states that this assertion closes the arithmetic mutation that replaces `-` with `/` in `LOG_CHUNK_BYTES`.
+That mutation sends smaller chunks while retaining their bounds, offsets, order, and complete bytes.
+The new assertion rejects this contract-equivalent chunk size.
+Deriving a value from the link bound does not establish a requirement to fill every frame.
+
+**Required change:** Remove the unsupported frame-fullness requirement.
+Test the retained bytes, frame bounds, offsets, and replay completion across valid chunk sizes through one production path.
+If the tuning ruling applies, meet all four conditions before adding a one-function or one-constant exclusion.
+Name the proving test and enforced lower bound in its reason.
+Alternatively, identify an independent binding requirement that fixes frame fullness and derive the test from that requirement.
+
+**Status:** OPEN.
+
+### P7-142-R2-F3 — Mutation evidence — OPEN
+
+The submitted Linux log records 128 tested mutations: 116 caught and 12 unviable.
+It reports no missed mutation and no timeout, and the command exits zero.
+The command names `guardian.rs`, `link.rs`, `log.rs`, and `wire.rs` with `--in-diff` from the PR base.
+It uses one mutation job, nextest, and timeout multiplier five.
+
+The log provides aggregate counts only.
+No copied artifact directory for this run was available at review time.
+I requested `outcomes.json` and `mutants.json`, or per-file counts and the 12 build-failure reasons.
+That evidence must establish per-file coverage and distinguish unviable builds from tests that did not run.
+F6 also needs review before the mutation argument can close.
+F3 alone must not block a permitted gate after every other finding closes.
+
+### Verification limits
+
+Log: `~/botster-sessions/gates/botster-core-stage1-p7-services-92f7f853-linux-20261004-203327-10747.log`.
+It records passing formatting, focused clippy, 24 lifecycle tests, and two decoder tests before the mutation run.
+The tested commit is `92f7f853b7c14f338c672ffa8abd375c88a2d832`.
+Its tree equals the reviewed head: `a279be5ef73f19c8f01cd086e931de476f096fca`.
+The command is focused validation, not a full gate.
+The reviewer ran no tests or gates.
+`git diff --check` passed for this delta.
+PR 1 remains single-package under the earlier lead ruling.
+
+VERDICT: NOT CLEAN (2 open)
