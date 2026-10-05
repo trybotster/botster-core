@@ -100,7 +100,6 @@ pub mod opt {
     pub const WRITE_PTY: i32 = 1;
     pub const SIZE: i32 = 6;
     pub const CLIPBOARD_READ: i32 = 38;
-    /// Only the tests set it: the binding leaves the model's OSC 5522 transaction limit at its default.
     pub const CLIPBOARD_WRITE_MAX_BYTES: i32 = 39;
     pub const QUERY: i32 = 46;
     pub const QUERY_MAX_BYTES: i32 = 47;

@@ -311,79 +311,99 @@ fn a_write_over_the_limit_is_surfaced_without_its_bytes_and_the_model_gets_io_er
     assert!(!kitty_write(&mut at_limit).0.too_large);
 }
 
-/// An OSC 5522 write with id 9 of one text/plain chunk of each length in `chunks`, then the commit.
-fn kitty_write_of(chunks: &[usize]) -> Vec<u8> {
+/// An OSC 5522 write with id 9: one chunk of `len` bytes for each `(mime, len)` in order, then a `walias` of the first
+/// MIME type for each name in `aliases`, then the commit.
+fn kitty_write_of(chunks: &[(&str, usize)], aliases: &[&str]) -> Vec<u8> {
     use base64::Engine;
     let b64 = |bytes: &[u8]| base64::engine::general_purpose::STANDARD.encode(bytes);
-    let mime = b64(b"text/plain");
     let mut out = b"\x1b]5522;type=write:id=9\x1b\\".to_vec();
-    for &chunk in chunks {
-        let data = b64(&vec![b'x'; chunk]);
+    for &(mime, len) in chunks {
+        let (mime, data) = (b64(mime.as_bytes()), b64(&vec![b'x'; len]));
         out.extend_from_slice(format!("\x1b]5522;type=wdata:mime={mime};{data}\x1b\\").as_bytes());
+    }
+    for alias in aliases {
+        let (mime, alias) = (b64(chunks[0].0.as_bytes()), b64(alias.as_bytes()));
+        out.extend_from_slice(
+            format!("\x1b]5522;type=walias:mime={mime};{alias}\x1b\\").as_bytes(),
+        );
     }
     out.extend_from_slice(b"\x1b]5522;type=wdata\x1b\\");
     out
 }
 
-/// Lower the model's own OSC 5522 transaction limit (64 MiB by default), so a test can go over it with a small write.
-fn set_model_clipboard_limit(terminal: &mut Terminal, bytes: usize) {
-    // SAFETY: the handle is live, and the option takes a `size_t` pointer.
-    check(unsafe {
-        sys::ghostty_terminal_set(
-            terminal.handle.as_ptr(),
-            sys::opt::CLIPBOARD_WRITE_MAX_BYTES,
-            (&bytes as *const usize).cast(),
-        )
-    })
-    .unwrap();
+/// The one clipboard write of `bytes`, its acknowledgements, and whether anything went to the pty.
+fn kitty_outcome(terminal: &mut Terminal, bytes: &[u8]) -> (ClipboardWrite, Vec<Vec<u8>>, bool) {
+    terminal.vt_write(bytes);
+    let mut drained = terminal.drain_events();
+    assert_eq!(drained.events.len(), 1, "{:?}", drained.events);
+    let TerminalEvent::ClipboardWrite(write) = drained.events.remove(0) else {
+        panic!("expected a clipboard write, got {:?}", drained.events);
+    };
+    (
+        write,
+        drained.clipboard_acks,
+        !drained.pty_writes.is_empty(),
+    )
 }
 
 #[test]
-fn a_write_over_the_models_own_limit_is_reported_with_its_full_length_and_only_the_binding_answers_it(
-) {
-    const MODEL_LIMIT: usize = 30;
+fn the_clipboard_limit_decides_on_the_decoded_size_then_the_contents_size() {
+    // Core A14 (final33): step 1 on the decoded size (the model's report, with the model's limit set to the bound),
+    // step 2 on the contents size (aliases at their full length). Every expected size is derived from the input.
+    const LIMIT: usize = 30;
     let mut terminal = terminal();
-    set_model_clipboard_limit(&mut terminal, MODEL_LIMIT);
+    terminal.set_clipboard_limit(LIMIT);
 
-    // At the model's limit (and within the binding's): the bytes are delivered.
-    let (at_limit, at_limit_acks) =
-        clipboard_write_and_acks(&mut terminal, &kitty_write_of(&[MODEL_LIMIT]));
-    assert!(!at_limit.too_large);
-    assert_eq!(
-        at_limit.contents,
-        Some(vec![entry("text/plain", &[b'x'; MODEL_LIMIT])])
+    // Within: a write of exactly the bound is carried (A14-3), and the model gets SUCCESS.
+    let (within, within_acks, pty) = kitty_outcome(
+        &mut terminal,
+        &kitty_write_of(&[("text/plain", LIMIT)], &[]),
     );
-    assert_eq!(at_limit_acks.len(), 1);
+    assert!(!within.too_large && !pty);
+    assert_eq!(
+        within.contents,
+        Some(vec![entry("text/plain", &[b'x'; LIMIT])])
+    );
+    assert_eq!(within.total_bytes, LIMIT as u64);
+    assert_eq!(within_acks.len(), 1);
 
-    // The reference: a write that the model keeps and the binding refuses by its own limit. Its acknowledgement is the
-    // binding's IO_ERROR.
-    let mut reference = self::terminal();
-    reference.set_clipboard_limit(MODEL_LIMIT);
-    let (refused, refused_acks) =
-        clipboard_write_and_acks(&mut reference, &kitty_write_of(&[MODEL_LIMIT + 3]));
-    assert!(refused.too_large);
-    assert_eq!(refused_acks.len(), 1);
-    assert_ne!(refused_acks, at_limit_acks);
+    // Step 2: the model keeps 20 bytes, and the alias makes the contents 40. TooLarge with the contents size; the
+    // binding answers IO_ERROR, a different acknowledgement.
+    let half = LIMIT * 2 / 3;
+    let (alias, alias_acks, pty) = kitty_outcome(
+        &mut terminal,
+        &kitty_write_of(&[("text/plain", half)], &["TEXT"]),
+    );
+    assert!(alias.too_large && !pty);
+    assert_eq!(alias.contents, None);
+    assert_eq!(alias.total_bytes, 2 * half as u64);
+    assert_eq!(alias_acks.len(), 1);
+    assert_ne!(alias_acks, within_acks);
 
-    // Over the model's limit, in chunks before and after it: the model keeps no bytes and still reports the write,
-    // with every byte counted. The model answers nothing itself: the only acknowledgement is the binding's IO_ERROR,
-    // the same as the reference's, and nothing goes to the pty.
-    let chunks = [
-        MODEL_LIMIT / 2,
-        MODEL_LIMIT / 2,
-        MODEL_LIMIT / 2,
-        3 * MODEL_LIMIT,
-    ];
-    terminal.vt_write(&kitty_write_of(&chunks));
-    let drained = terminal.drain_events();
-    let [TerminalEvent::ClipboardWrite(over)] = &drained.events[..] else {
-        panic!("expected one clipboard write, got {:?}", drained.events);
-    };
-    assert!(over.too_large);
+    // Step 1: text/plain returns after text/html and replaces its first region. The final contents would be 2
+    // bytes, but the decoded size is over the bound, so the model kept nothing and reports the decoded size. The
+    // model answers nothing itself: the only acknowledgement is the binding's IO_ERROR, the same as for the alias
+    // write, and nothing goes to the pty. (At libghostty's default limit this write would be carried: the bound,
+    // not the model's default, decides.)
+    let replaced = [("text/plain", LIMIT), ("text/html", 1), ("text/plain", 1)];
+    let (over, over_acks, pty) =
+        kitty_outcome(&mut terminal, &kitty_write_of(&replaced, &["TEXT"]));
+    assert!(over.too_large && !pty);
     assert_eq!(over.contents, None);
-    assert_eq!(over.total_bytes, chunks.iter().sum::<usize>() as u64);
-    assert_eq!(drained.clipboard_acks, refused_acks);
-    assert!(drained.pty_writes.is_empty());
+    assert_eq!(
+        over.total_bytes,
+        replaced.iter().map(|c| c.1 as u64).sum::<u64>()
+    );
+    assert_eq!(over_acks, alias_acks);
+
+    // Step 1 over many chunks: the model counts past its limit, every chunk.
+    let chunks = [("text/plain", LIMIT / 2); 4];
+    let (counted, _, _) = kitty_outcome(&mut terminal, &kitty_write_of(&chunks, &[]));
+    assert!(counted.too_large);
+    assert_eq!(
+        counted.total_bytes,
+        chunks.iter().map(|c| c.1 as u64).sum::<u64>()
+    );
 }
 
 #[test]

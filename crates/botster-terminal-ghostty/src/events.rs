@@ -101,8 +101,9 @@ pub struct ClipboardWrite {
     /// the whole transaction, as the model counted it (R-32): every decoded byte, including a representation that a later
     /// chunk of the same MIME type replaced.
     pub total_bytes: u64,
-    /// `total_bytes` was over the limit, or the model did not keep the write (it was over the model's own OSC 5522
-    /// transaction limit, R-32), and the model got IO_ERROR.
+    /// The write is over the limit (Core A14-2): the model did not keep it, because its decoded size is over the
+    /// model's limit, which is the same limit (step 1, R-32), or its contents size is over the limit (step 2). The model
+    /// got IO_ERROR. `total_bytes` is the size of the step that decided.
     pub too_large: bool,
 }
 
