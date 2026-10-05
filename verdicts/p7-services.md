@@ -122,3 +122,131 @@ The implementer reports that the lead classified PR 1 as single-package and waiv
 Later PRs that change another package still require integration review.
 
 VERDICT: NOT CLEAN (2 open)
+
+## PR #142 — round 3
+
+Head: `11a55a88d8c225c89ca639ea66c7ad026b009f43`.
+Previous head: `5a68841a88a307ad9d66f60b1088333ad0312c27`.
+PR: https://github.com/trybotster/botster-core/pull/142.
+
+This review covers the complete delta, including the typed lifecycle state and the new log protocol.
+The machine still uses injected time, process results, and control bytes.
+The new link and log modules contain no I/O or test branch.
+The PR adds no real driver and removes no pending conformance id.
+
+### P7-142-R1-F1 — CLOSED, correction preserved
+
+`Leader::on_term` starts the Stop grace at the injected time of `TermSent`.
+Neither the census nor the outstanding TERM result starts that grace.
+`the_stop_grace_runs_from_the_sigterm_result` covers both delays.
+The ordinary Stop test checks the deadline boundary and the later tree kill.
+
+A separate kill request can supersede Stop while the census or TERM result is outstanding.
+The machine waits for that result and retains the census before it emits `KillTree`.
+An exited leader also permits cleanup without TERM.
+These paths do not reopen F1.
+
+### P7-142-R2-F2 — CLOSED by removal
+
+The delta removes `LogTail`, the JSON chunk arithmetic, and its mutation exclusion.
+The guardian now sends raw `LogChunk` frames.
+The log tests check retained bytes, offsets, frame bounds, and reconnect data against injected output.
+F5 below concerns the new protocol's completion condition.
+
+### Mutation exclusion: `GuardianConfig::fmt` — ACCEPTED, retained
+
+The exclusion still covers the same exact mutation in one function.
+The renamed test `only_a_valid_host_hello_authenticates` checks token omission.
+The accepted equivalence argument remains valid.
+The delta adds no other exclusion.
+
+### P7-142-R3-F4 — MEDIUM — A cause byte before the exec result is lost
+
+**Requirement:** Core SV-5 reports a cooperative cause byte as `ChildReported(byte)`.
+The machine already permits the leader's exit to arrive before `Spawned`.
+The driver contract does not require a cause byte to arrive after `Spawned`.
+
+**Evidence:** `guardian.rs:706` routes `Input::Cause` only through `with_leader`.
+That function applies an input only in `Service::Live` (`guardian.rs:484`).
+`Spawn` retains an exit and a teardown request, but retains no cause byte.
+The previous machine retained the first cause byte before the exec result.
+
+This input sequence loses an observed byte:
+
+1. An authenticated host sends `Launch`.
+2. The driver supplies `Cause(b)` while the machine is `Spawning`.
+3. The driver supplies `PayloadExited(Code(c))`.
+4. The driver supplies `Spawned(Started)`.
+5. The driver completes the tree kill without signalling the exiting leader.
+6. The driver supplies `LogsDrained`.
+
+The machine reports `Normal`, although it observed `b` before the service exited.
+The existing early-exit test supplies no cause byte and misses this regression.
+
+**Required change:** Retain the first cause byte while the spawn result is outstanding.
+Transfer that byte to the leader when exec succeeds.
+Keep the existing cause priority and ignore later cause bytes after the drain.
+Add a clause test through the authenticated command and process input path.
+Derive the expected `ChildReported` value from the injected byte.
+
+**Status:** OPEN.
+
+### P7-142-R3-F5 — MEDIUM — Log replay has no observable completion condition
+
+**Requirement:** Core SV-9 says the bounded log tail survives adoption.
+`service_log_tail` is a synchronous read.
+The adopting host needs to know when it has received the retained tail before it exposes that read.
+
+**Evidence:** `guardian.rs:305` queues `Status` before `flush_log` queues the retained ring.
+`wire.rs:34` gives `Status` no log position or replay bound.
+`LogChunk` carries only its offset and bytes.
+The protocol has no replay completion report.
+An empty ring produces no log frame (`guardian.rs:338`).
+
+A partial control-link write can deliver `Status` while every retained log byte remains queued.
+The host cannot distinguish an empty replay from a replay that has not arrived.
+A replay with a full final chunk also has no end marker.
+Waiting for a temporarily unreadable socket cannot prove completion.
+The reconnect test decodes every action from one machine call and does not test this transport boundary.
+
+**Required change:** Give the host a completion condition for the retained log replay, including an empty ring.
+For example, report the replay's end position or send a completion report after the retained bytes.
+Document when the host may complete adoption and expose its synchronous tail read.
+Add a boundary test that delivers `Status` and replay bytes separately.
+The test must prove complete retained data before completion, including empty and multiple-frame tails.
+Use the same machine and wire path for that test.
+
+The implementer accepted this finding and proposes to queue the complete retained ring before `Status`.
+The host would complete adoption when it receives that ordered `Status`.
+This proposal provides a completion condition without a new field.
+The correction still needs an exact pushed head and review.
+
+**Status:** OPEN.
+
+### P7-142-R2-F3 — Mutation evidence — OPEN
+
+No final-head mutation result was submitted with this review request.
+The implementer reports that per-file runs are starting.
+The required coverage now includes `guardian.rs`, `link.rs`, `log.rs`, and `wire.rs`.
+Require zero missed mutations and zero timeouts after accepted exclusions.
+Review every additional exclusion or equivalence argument.
+
+F3 alone does not block the gate under the lead's gate-evidence ruling.
+F4 and F5 must close before that ruling permits the gate.
+A code correction needs an exact pushed head and a delta review.
+
+### Verification limits
+
+The supplied focused Linux log is:
+`~/botster-sessions/gates/botster-core-stage1-p7-services-c1f3b7a5-linux-20261004-202259-81726.log`.
+It records formatting, focused clippy, 22 lifecycle tests, and two decoder tests passing.
+It is a focused command, not a full gate.
+I confirmed that `c1f3b7a5f0ce1649711e1e0f8c6b6013362a32ae` and the reviewed head have the same Git tree.
+That tree is `3d9ad79aa6999c716640e5eaa06981147a6d3242`.
+
+This review used source and log inspection.
+The reviewer ran no tests or gates.
+PR 1 remains single-package under the lead's earlier classification.
+Later cross-package PRs still require integration review.
+
+VERDICT: NOT CLEAN (3 open)
