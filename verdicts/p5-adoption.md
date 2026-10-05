@@ -928,3 +928,77 @@ This verdict does not close audit A10's separate PR, issues #155 or #157, the P1
 The declared live-worker adoption placeholder remains P5 deliverable 2 and is not certified as AD-1 recovery behavior.
 
 VERDICT: CLEAN
+
+## PR #162 — Round 6
+
+- Exact head: `59cda32f721f974dee8f8aeea1fef9472afe1d35`.
+- Base: `144b0234fb632bcbb5176b17c2fe55f3239405df`.
+- Scope: the merge of P3's guard head `c03bcfb181d21cdf805b752a790359f63b9ef7b9`, plus the C1 fix.
+- The reviewer ran no builds, tests, mutation jobs, or gates.
+
+The lead amended the pause to permit this review and the later PR #164 merge review.
+The reviewer compared this tree with P3's exact guard head.
+Only the A10 test and its common module differ from that tree.
+The A10 fixture still keeps the observed FIFO open in the shell and its blocked child.
+The fixture uses no CPU while blocked, and production alone reaps the worker.
+P5-F1 and P5-F2 remain CLOSED for the A10 fixture.
+
+### Integration C1 — CLOSED — The outer deadline and panic result cover cleanup
+
+The cleanup thread catches the guard's panic and sends its result to the main test.
+The main test resumes that panic with its original report.
+The outer deadline derives from `2 * process_guard::cleanup::CLEANUP`.
+It therefore allows the anchor's cleanup deadline and time to report its result.
+The EOF observation retains its separate marked deadline.
+The integration reviewer reports zero open integration findings at this head, verdict commit `e39b6b4`.
+
+### P5-F4 — MEDIUM — The merged guard retains the reported unbounded waits
+
+Round 5 transferred P5-F4 to P3's shared guard work. It did not waive this finding.
+The merged tree still contains both waits named in Round 4:
+
+- `crates/botster-core-sys/tests/common/process_guard.rs:280-282` reads readiness directly with `read_line`.
+- `Parent::drop` calls `child.wait()` at line 237 without a deadline.
+- `parent_dies_before_fifo_reader` drops that parent at line 289 before calling the bounded EOF helper at line 290.
+
+The later EOF deadline cannot bound either earlier wait.
+The file already has a bounded `first_line` helper, but this caller does not use it.
+The shared cleanup module also has bounded observation of a test-owned child's exit.
+Neither mechanism covers this parent cleanup.
+P3's CLEAN on the dependency does not close these source facts.
+BUILD.md testing rule 5 and the user's real-process rules still apply.
+
+**Required change:** Bound the readiness read and test-owned parent cleanup with marked deadlines.
+Preserve the EOF observation and production reaper ownership.
+Check the other changed guard self-tests for the same wait-coverage error.
+The lead permits one combined gate after both source reviews report CLEAN; this finding does not request an extra gate.
+
+Status: OPEN.
+
+### P5-F12 — LOW — The PR description still describes the earlier head
+
+The reviewer read the full PR description through `gh pr view`.
+It names head `1a96eee7`, claims one changed file, and describes a ten-second outer cleanup deadline.
+Its final section says the guard merge remains a future step.
+This exact head already carries the shared guard and uses the derived C1 deadline.
+The description therefore does not describe the change that will land.
+
+**Required change:** Rewrite the description around the final combined scope and exact head.
+State the current cleanup deadline and panic propagation.
+Keep earlier failed evidence identified as failed evidence.
+
+Status: OPEN.
+
+### Evidence and scope limits
+
+The implementer supplied no execution result for this exact head and states that no focused run occurred.
+The lead permits one combined gate after both exact-head source reviews report CLEAN.
+This review neither runs that gate nor substitutes older execution evidence for it.
+P5-F3's former quiet-group precondition is absent from the merged guard.
+The shared cleanup now lists members, signals the reserved group, and waits for exit events through injected edges.
+This source change addresses the precondition defect; it does not close P5-F4's separate test waits.
+
+The two findings above prevent CLEAN on this combined head.
+This verdict does not close PR #164's future merge, the other P5 audit work, or P5 adoption.
+
+VERDICT: NOT CLEAN (2 open)
