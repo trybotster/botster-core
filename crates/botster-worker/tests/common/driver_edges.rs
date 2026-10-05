@@ -20,18 +20,25 @@ struct Harness {
 
 impl Harness {
     fn new() -> Self {
+        Self::with_read_bound(READ_CHUNK)
+    }
+
+    fn with_read_bound(read_chunk: NonZeroUsize) -> Self {
         let root = tempfile::Builder::new()
             .prefix("edges")
             .tempdir_in("/tmp")
             .unwrap();
         let control = root.path().join("c");
         let listener = UnixListener::bind(&control).unwrap();
-        let driver = Driver::start(&WorkerLaunch {
-            control,
-            instance: InstanceId("1-1".into()),
-            host_epoch: 1,
-            token: [5; 32],
-        })
+        let driver = Driver::start_with_read_bound(
+            &WorkerLaunch {
+                control,
+                instance: InstanceId("1-1".into()),
+                host_epoch: 1,
+                token: [5; 32],
+            },
+            read_chunk,
+        )
         .unwrap();
         let (peer, _) = listener.accept().unwrap();
         peer.set_nonblocking(true).unwrap();
@@ -93,6 +100,63 @@ impl Harness {
         let mut marker = [0; 64];
         let count = reader.read(&mut marker).unwrap();
         assert_eq!(&marker[..count], b"queued\n");
+    }
+}
+
+#[test]
+fn control_and_pty_reads_retain_bytes_at_each_positive_bound() {
+    use botster_core_link::frame::{encode_frame, FrameDecoder, FrameType};
+    for bound in [65536, 1088, 1] {
+        let mut h = Harness::with_read_bound(NonZeroUsize::new(bound).unwrap());
+        let payloads = [vec![5; 1024], vec![7; 2800]];
+        let mut wire = Vec::new();
+        for payload in &payloads {
+            encode_frame(FrameType::WORKER_MSG, payload, u32::MAX, &mut wire).unwrap();
+        }
+        h.peer.write_all(&wire).unwrap();
+        let mut retained = Vec::new();
+        while retained.len() < wire.len() {
+            h.driver.read_control();
+            let Some(Input::LinkBytes(bytes)) = h.driver.inputs.pop_front() else {
+                panic!("queued control bytes must remain readable at bound {bound}");
+            };
+            assert!(!bytes.is_empty() && bytes.len() <= bound);
+            retained.extend(bytes);
+            assert!(h.driver.inputs.is_empty());
+        }
+        assert_eq!(retained, wire);
+        let mut decoder = FrameDecoder::new(1 << 20);
+        let mut offset = 0;
+        let mut frames = Vec::new();
+        while offset < retained.len() {
+            let took = decoder.push(&retained[offset..]);
+            assert!(took > 0);
+            offset += took;
+            while let Some(frame) = decoder.next_frame().unwrap() {
+                assert_eq!(frame.kind, FrameType::WORKER_MSG);
+                frames.push(frame.payload);
+            }
+        }
+        assert_eq!(frames, payloads);
+        h.driver.read_control();
+        assert!(!h.driver.control_readable);
+        assert!(h.driver.inputs.is_empty());
+
+        h.waiting_payload();
+        let mut output = Vec::new();
+        while output.len() < b"ready".len() {
+            h.driver.read_pty_chunk();
+            let Some(Input::PtyOutput(bytes)) = h.driver.inputs.pop_front() else {
+                panic!("queued program bytes must remain readable at bound {bound}");
+            };
+            assert!(!bytes.is_empty() && bytes.len() <= bound);
+            output.extend(bytes);
+            assert!(h.driver.inputs.is_empty());
+        }
+        assert_eq!(output, b"ready");
+        h.driver.read_pty_chunk();
+        assert!(!h.driver.pty_readable);
+        assert!(h.driver.inputs.is_empty());
     }
 }
 

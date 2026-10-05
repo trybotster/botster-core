@@ -31,6 +31,7 @@ use signal_hook::consts::{SIGTERM, SIGUSR1};
 use signal_hook_mio::v1_0::Signals;
 use std::collections::VecDeque;
 use std::io::{self, Read, Write};
+use std::num::NonZeroUsize;
 use std::os::fd::AsRawFd;
 use std::process::ExitCode;
 use std::sync::mpsc;
@@ -43,7 +44,7 @@ const SIGNALS: Token = Token(2);
 const EXIT: Token = Token(3);
 
 /// The bytes of one read of the control socket or the PTY.
-const READ_CHUNK: usize = 64 * 1024;
+const READ_CHUNK: NonZeroUsize = NonZeroUsize::new(64 * 1024).expect("positive driver read bound");
 
 fn main() -> ExitCode {
     let args: Vec<std::ffi::OsString> = std::env::args_os().skip(1).collect();
@@ -59,6 +60,7 @@ fn main() -> ExitCode {
 
 /// The real edges of one worker and the machine they drive.
 struct Driver {
+    read_chunk: NonZeroUsize,
     worker: Worker,
     poll: Poll,
     control: UnixStream,
@@ -89,6 +91,13 @@ struct Driver {
 
 impl Driver {
     fn start(launch: &WorkerLaunch) -> io::Result<Driver> {
+        Self::start_with_read_bound(launch, READ_CHUNK)
+    }
+
+    fn start_with_read_bound(
+        launch: &WorkerLaunch,
+        read_chunk: NonZeroUsize,
+    ) -> io::Result<Driver> {
         let poll = Poll::new()?;
         let std_control = std::os::unix::net::UnixStream::connect(&launch.control)?;
         std_control.set_nonblocking(true)?;
@@ -105,6 +114,7 @@ impl Driver {
             launch.host_epoch,
         ));
         Ok(Driver {
+            read_chunk,
             worker,
             poll,
             control,
@@ -317,7 +327,9 @@ impl Driver {
         if !io_decisions::read_pty(self.pty_registered, self.pty_readable, draining) {
             return;
         }
-        let want = draining.map_or(READ_CHUNK, |left| left.min(READ_CHUNK));
+        let want = draining.map_or(self.read_chunk.get(), |left| {
+            left.min(self.read_chunk.get())
+        });
         let mut buf = vec![0u8; want];
         let mut ended = false;
         match payload.read(&mut buf) {
@@ -356,7 +368,7 @@ impl Driver {
         if !io_decisions::read_control(self.link_open, self.control_readable) {
             return;
         }
-        let mut buf = vec![0u8; READ_CHUNK];
+        let mut buf = vec![0u8; self.read_chunk.get()];
         match self.control.read(&mut buf) {
             Ok(0) => self.link_lost(),
             Ok(n) => self.inputs.push_back(Input::LinkBytes(buf[..n].to_vec())),
