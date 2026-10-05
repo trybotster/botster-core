@@ -15,7 +15,7 @@
 pub(crate) mod payload_guard;
 
 #[path = "../../../botster-core-sys/tests/common/process_guard.rs"]
-mod process_guard;
+pub(crate) mod process_guard;
 
 use botster_core_contract::prelude::*;
 use botster_core_link::frame::{encode_frame, FrameDecoder, FrameType};
