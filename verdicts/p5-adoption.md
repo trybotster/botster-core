@@ -667,3 +667,78 @@ A1 awaits P5-F5 and the remaining documentation; the new storage durability find
 The reviewer does not accept a future merged head or close P5 deliverable 2.
 
 VERDICT: NOT CLEAN (3 open)
+
+## PR #164 — Round 4
+
+- Exact head: `1b1340cf80ed1f1aa3b05fba7d2e524c8b30de1a`.
+- Base: `144b0234fb632bcbb5176b17c2fe55f3239405df`.
+- Scope: `737b2017..1b1340cf`, the three Round 3 findings, and integration K4 in the storage code.
+- The reviewer ran no builds, tests, mutation jobs, or gates.
+
+### P5-F5 — CLOSED — The regression destroys the key header and the value
+
+The real test locates the file added by Core's Create and inverts every byte of that file.
+It derives the damage from the actual encoder output and assumes no registry layout.
+The old storage's small key length becomes a length larger than the file; its decoder returns no key.
+The baseline therefore reaches AdoptAll without a row state and fails the missing-state assertion.
+The revised scanner preserves the path's key and the host posts `Lost(RegistryCorrupt)`.
+The supplied exact-head log reports this test passing.
+The reviewer established the failing baseline behavior by source comparison and ran no test.
+The separate registry tests check one event per row, corrupt Remove, and ID reuse.
+P5-F5 is CLOSED. Audit A1's damaged-header case is CLOSED in this scope.
+
+### P5-F9 — CLOSED — The retry now syncs the remaining ancestor entries
+
+The production `create_durably` helper accepts an injected directory sync.
+It creates the path, resolves its canonical ancestors, and syncs each containing directory through that function.
+A retry now includes an ancestor left by an earlier failed open, even when the full path already exists.
+The row path retains its sync on successful mkdir and `EEXIST`; the open path retains the `rows` parent sync.
+
+The new regression injects an I/O error at the base sync and then retries through the same helper.
+It derives the required parent paths from the requested directory chain.
+The retry trace must include the base whose sync failed and the intermediate parents.
+The earlier immediate-parent-only retry fails that required-parent assertion.
+The supplied exact-head log reports this test passing.
+P5-F9's missing durability obligations are CLOSED at this head.
+Integration K4 separately identifies an access regression in the broader sync operation.
+Its fix must preserve these durability obligations.
+
+### P5-F10 — CLOSED — The description and DESIGN decision match the implementation
+
+The DESIGN note now states that the row waits for Create's Created event, then posts its own state before AdoptAll completes.
+The reviewer read the full updated PR body at the exact head.
+It describes the current storage protocol and gives each supplied result with its head.
+It marks the current slow result failed and names the known A10 dependency.
+P5-F10 is CLOSED.
+
+### Integration K4 — LOW — The broader ancestor sync adds an access requirement
+
+The integration reviewer reports K4 at this exact head, verdict commit `2aefb09`.
+`create_durably` now opens and syncs every canonical ancestor up to the root.
+An unchanged execute-only ancestor permits path traversal but cannot be opened for reading.
+The new open therefore fails for a path that previously worked.
+This finding affects P5's storage scope and remains open here.
+
+**Required change:** Resolve the access regression with a documented boundary or tolerance rule and an injected regression.
+Keep successful parent syncs for entries Core creates or can have left after a failed open.
+Do not silently discard an unresolved sync obligation on `EACCES`.
+The reviewer sent the lead a QUESTION about the supported durability and access boundary.
+The integration reviewer must review the final exact head.
+
+Status: OPEN.
+
+### Execution evidence and scope limits
+
+The reviewer read the raw exact-head Mac log:
+`~/botster-sessions/gates/botster-core-stage1-p5-audit-contract-1b1340cf-mac-20261004-221058-38226.log`.
+It reports 487 default-tier tests passed, with 654 skipped.
+The selected slow targets report 56 passed, one failed, zero skipped, and exit 100.
+The known A10 cleanup test failed. The new damaged-row and ancestor-retry tests passed.
+This result remains failed; it does not establish a passing full gate.
+
+P5-F5 through P5-F10 are CLOSED at this head.
+Audit A1, A2, A4, A5, A7, and A9 are CLOSED within this PR's stated audit scope.
+K4 prevents a CLEAN verdict until the remaining access rule closes.
+The reviewer does not close the other P5 audit deliverables or P5 adoption.
+
+VERDICT: NOT CLEAN (1 open)
