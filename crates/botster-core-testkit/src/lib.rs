@@ -4,6 +4,7 @@
 //! the machine crates may not (plan 2.3c), and it adds no test branch to a production crate (BUILD.md testing rule 8).
 
 pub mod candidate;
+pub mod core;
 pub mod entropy;
 pub mod every_cut;
 pub mod harness;
@@ -19,6 +20,7 @@ pub mod statement_runs;
 pub mod statements;
 pub mod status;
 pub mod wake;
+pub mod worker;
 
 pub use entropy::SeededEntropy;
 pub use harness::TestkitHarness;
@@ -28,3 +30,4 @@ pub use refusal::{RefusalHandle, RefusalLayer, RefusalScript, ScriptError};
 pub use scheduler::{SchedulerHandle, SeededScheduler};
 pub use sim::{Binding, Handled, Livelock, MachineNode, Node, NodeId, Sim, TraceEntry};
 pub use wake::SimWake;
+pub use worker::{TestkitCore, WorkerSpawner, Workers};

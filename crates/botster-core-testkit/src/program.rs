@@ -297,6 +297,33 @@ impl ScriptedProgram {
         self.ignores_sigterm
     }
 
+    /// A signal that reaches the program's process group (Core LC-5, LC-6), with its default disposition: `SIGKILL` ends the
+    /// program; `SIGTERM` ends it unless execution reached `ignore_sigterm`; `SIGHUP`, `SIGINT`, `SIGQUIT`, `SIGABRT`,
+    /// `SIGPIPE` and `SIGALRM` end it. The in-process program installs no other handler, and a signal outside this list is
+    /// not modelled: it changes nothing. A program that already ended is not changed.
+    pub fn signal(&mut self, signal: i32) {
+        const SIGHUP: i32 = 1;
+        const SIGINT: i32 = 2;
+        const SIGQUIT: i32 = 3;
+        const SIGABRT: i32 = 6;
+        const SIGKILL: i32 = 9;
+        const SIGPIPE: i32 = 13;
+        const SIGALRM: i32 = 14;
+        const SIGTERM: i32 = 15;
+        self.advance();
+        if self.exit.is_some() {
+            return;
+        }
+        let ends = match signal {
+            SIGTERM => !self.ignores_sigterm,
+            SIGHUP | SIGINT | SIGQUIT | SIGABRT | SIGKILL | SIGPIPE | SIGALRM => true,
+            _ => false,
+        };
+        if ends {
+            self.exit = Some(ExitStatus::Signal(signal));
+        }
+    }
+
     /// Makes writes to the program return `WouldBlock` (A5-3, `pty_blocked`), or lets them proceed again.
     pub fn set_blocked(&mut self, blocked: bool) {
         self.controls.set_blocked(blocked);
@@ -627,6 +654,31 @@ mod tests {
             .unwrap_err()
             .to_string();
         assert!(text.starts_with("program[0].bytes_hex: "), "{text}");
+    }
+
+    /// LC-5, LC-6: a signal ends the program by its default disposition; `ignore_sigterm` keeps it alive through `SIGTERM`
+    /// only; an unmodelled signal and a signal after the end change nothing.
+    #[test]
+    fn a_signal_ends_the_program_by_its_default_disposition() {
+        let ended = |script: serde_json::Value, signal: i32| {
+            let mut p = program(script, true, 0);
+            p.signal(signal);
+            p.poll_exit()
+        };
+        let holds = json!({"program": [{"hold": {}}]});
+        for signal in [1, 2, 3, 6, 9, 13, 14, 15] {
+            assert_eq!(
+                ended(holds.clone(), signal),
+                Some(ExitStatus::Signal(signal))
+            );
+        }
+        assert_eq!(ended(holds.clone(), 28), None, "not modelled");
+        let ignores = json!({"program": [{"ignore_sigterm": {}}, {"hold": {}}]});
+        assert_eq!(ended(ignores.clone(), 15), None);
+        assert_eq!(ended(ignores, 9), Some(ExitStatus::Signal(9)));
+        let mut done = program(json!({"program": [{"exit": {"code": 4}}]}), true, 0);
+        done.signal(9);
+        assert_eq!(done.poll_exit(), Some(ExitStatus::Code(4)));
     }
 
     /// The window size is the last size that the worker set.

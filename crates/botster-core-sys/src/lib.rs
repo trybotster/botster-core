@@ -5,5 +5,6 @@
 
 pub mod entropy;
 pub mod lock;
+pub mod payload;
 pub mod process;
 pub mod storage;

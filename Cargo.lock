@@ -362,9 +362,12 @@ dependencies = [
  "atomic-write-file",
  "botster-core-edges",
  "getrandom 0.4.3",
+ "kqueue",
  "libproc",
+ "pty-process",
  "rustix",
  "sha2",
+ "signal-hook",
  "tempfile",
 ]
 
@@ -376,9 +379,12 @@ dependencies = [
  "botster-core-conformance",
  "botster-core-contract",
  "botster-core-edges",
+ "botster-core-host",
+ "botster-core-link",
  "botster-probe-script",
  "botster-route-codec",
  "botster-terminal-ghostty",
+ "botster-worker-core",
  "rand_chacha",
  "rand_core 0.9.5",
  "rustix",
@@ -467,10 +473,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "botster-worker"
+version = "0.1.0"
+dependencies = [
+ "botster-core-contract",
+ "botster-core-edges",
+ "botster-core-link",
+ "botster-core-sys",
+ "botster-worker-core",
+ "mio",
+ "rustix",
+ "signal-hook",
+ "signal-hook-mio",
+ "tempfile",
+]
+
+[[package]]
 name = "botster-worker-core"
 version = "0.1.0"
 dependencies = [
  "botster-core-contract",
+ "botster-core-edges",
+ "botster-core-link",
+ "serde_json",
 ]
 
 [[package]]
@@ -1031,6 +1056,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "kqueue"
+version = "1.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8d763e5b24120b4ddf50de6c92308156765aabfbbccebf401da7cff2d70a41ea"
+dependencies = [
+ "kqueue-sys",
+ "libc",
+]
+
+[[package]]
+name = "kqueue-sys"
+version = "1.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "07293a4e297ac234359b510362495713f75ea345d5307140414f20c69ffeb087"
+dependencies = [
+ "bitflags",
+ "libc",
+]
+
+[[package]]
 name = "lazy_static"
 version = "1.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1332,6 +1377,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "pty-process"
+version = "0.5.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "71cec9e2670207c5ebb9e477763c74436af3b9091dd550b9fb3c1bec7f3ea266"
+dependencies = [
+ "rustix",
+]
+
+[[package]]
 name = "quote"
 version = "1.0.47"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1630,6 +1684,37 @@ name = "shlex"
 version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f8fadd59c855ef2080decdef8ff161eb6661b86933c9d82e5ba29dc602a55aba"
+
+[[package]]
+name = "signal-hook"
+version = "0.3.18"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d881a16cf4426aa584979d30bd82cb33429027e42122b169753d6ef1085ed6e2"
+dependencies = [
+ "libc",
+ "signal-hook-registry",
+]
+
+[[package]]
+name = "signal-hook-mio"
+version = "0.2.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b75a19a7a740b25bc7944bdee6172368f988763b744e3d4dfe753f6b4ece40cc"
+dependencies = [
+ "libc",
+ "mio",
+ "signal-hook",
+]
+
+[[package]]
+name = "signal-hook-registry"
+version = "1.4.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c4db69cba1110affc0e9f7bcd48bbf87b3f4fc7c61fc9155afd4c469eb3d6c1b"
+dependencies = [
+ "errno",
+ "libc",
+]
 
 [[package]]
 name = "smallvec"
