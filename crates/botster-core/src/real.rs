@@ -297,9 +297,7 @@ impl HostEdges for RealEdges {
     }
 
     fn read_rows(&mut self, prefix: &str) -> Result<Vec<(String, Vec<u8>)>, StorageError> {
-        let scan = self.storage.scan().map_err(|error| StorageError::Failed {
-            errno: error.raw_os_error().unwrap_or(0),
-        })?;
+        let scan = self.storage.scan()?;
         // A file that Core did not write is not a row: it is counted and left alone (lead ruling on audit A1).
         self.foreign_registry_files = scan.foreign;
         let mut rows = Vec::new();

@@ -133,6 +133,10 @@ impl HostEngine {
                     // A row write of an op admitted after `Create` waits for the create's own row (AM-1): if that write
                     // fails, the session never existed, and no row of it may stay.
                 }
+                (Step::Ready(Next::AdoptRow), _) if self.row_waits_for_its_session(p) => {
+                    // The row's session is being created by this handle: its state is posted when its `Created` is
+                    // (LC-11: AdoptAll's state of every row comes before its completion).
+                }
                 (Step::Ready(next), _) => {
                     if !self.step_needs_room(next) || room {
                         out.push(Work::Op(*id));
@@ -604,6 +608,16 @@ impl HostEngine {
 
     // ---- AdoptAll (AD-1, LC-11) ----
 
+    /// Whether the next row of an `AdoptAll` names a session of this handle whose `Created` is not shown yet.
+    fn row_waits_for_its_session(&self, pending: &crate::engine::PendingOp) -> bool {
+        pending
+            .rows
+            .front()
+            .and_then(|(key, _)| key.strip_prefix(ROW_PREFIX))
+            .and_then(|id| self.sessions.get(&SessionId(id.into())))
+            .is_some_and(|s| s.shown.is_none())
+    }
+
     /// Recovers the next row, in a step of its own, so that each row posts at most one event (EV-5b, 9B).
     fn adopt_next_row(&mut self, op_id: OpId) {
         let Some((key, bytes)) = self.ops.get_mut(&op_id).and_then(|p| p.rows.pop_front()) else {
@@ -625,10 +639,11 @@ impl HostEngine {
     /// Core's decoder rejects is `Lost(RegistryCorrupt)` (AD-2, A10-2): it keeps its id in use until `Remove` (AD-2).
     ///
     /// A session that this handle holds already made the row itself: it keeps its instance and its state, and the row posts
-    /// that state (LC-11: one `SessionState` for every row). A session whose `Created` is not shown yet posts it through its
-    /// create, which is that row's one state.
+    /// that state (LC-11: one `SessionState` for every row). A row whose session is still being created waits until the
+    /// session's `Created` is shown (`row_waits_for_its_session`).
     fn adopt_row(&mut self, id: SessionId, bytes: &[u8]) {
         if let Some(session) = self.sessions.get(&id) {
+            // `row_waits_for_its_session` holds this step until the session's state is shown.
             if let Some(state) = session.shown {
                 self.post_state(&id, state);
             }

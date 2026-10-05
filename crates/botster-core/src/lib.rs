@@ -63,8 +63,14 @@ impl Core {
     /// (LC-2), raises the host epoch (DP-8) and reads the ids of the registry's rows (ID-1). It starts no thread, spawns no
     /// process and reads no clock (TM-1).
     ///
+    /// Requirements on `config.data_dir` (AD-7; lead ruling on integration finding K4):
+    /// - Its parent exists. Core creates only `data_dir` itself, with mode `0700`, and never a missing parent.
+    /// - Its parent can be opened for reading. Core syncs `data_dir` and its parent on every open, so that the entry of
+    ///   `data_dir` is durable; Core syncs no other ancestor, and the host owns those.
+    ///
     /// # Errors
-    /// `InvalidConfig`, `MissingWorkerPath`, `DataDirInUse`, or `RegistryFailed` when the directory cannot be used.
+    /// `InvalidConfig`, `MissingWorkerPath`, `DataDirInUse`, or `RegistryFailed` when the directory cannot be used:
+    /// `RegistryFailed` also when the parent of `data_dir` is missing or cannot be opened for its sync.
     pub fn open(config: OpenConfig) -> Result<Core, CoreError> {
         let worker_path = check_open(&config)?;
         real::check_socket_path(&config.data_dir)?;

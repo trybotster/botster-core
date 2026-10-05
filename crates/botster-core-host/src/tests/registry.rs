@@ -5,6 +5,7 @@
 //! nothing about the state of such a row beyond the one `SessionState` that every row posts (LC-11).
 
 use super::*;
+use crate::io::Work;
 use botster_core_edges::edges::{GroupSignal, StorageError};
 
 fn row_key(name: &str) -> String {
@@ -231,39 +232,95 @@ fn a_row_of_a_session_of_this_handle_posts_its_state_with_its_instance() {
 }
 
 /// Core AD-7, ID-1, LC-3 (review finding P5-F8): a `Create` whose row write is uncertain assumes neither outcome, so the id
-/// stays in use and a retry cannot overwrite a row that took effect; `AdoptAll` reads the registry and settles it: a row
-/// that took effect is recovered, and an id that no row holds is free again.
+/// stays in use and no retry writes over the row; `AdoptAll` reads the registry and settles it. When the write took effect
+/// (the edge applied the bytes, then reported the error), the row is recovered with the instance of the attempted row; when
+/// it did not, the id is free again.
 #[test]
 fn an_uncertain_create_keeps_its_id_until_the_registry_is_read() {
-    // A Core-written row of the same id, for the case where the uncertain write took effect.
-    let mut written = World::default();
-    written.ok(create("s1"));
     for took_effect in [false, true] {
         let mut w = World::default();
-        w.fail_row = Some(StorageError::Uncertain { errno: 5 });
+        let uncertain = StorageError::Uncertain { errno: 5 };
+        if took_effect {
+            w.fail_row_after_write = Some(uncertain);
+        } else {
+            w.fail_row = Some(uncertain);
+        }
         match w.run(create("s1")) {
             OpResult::Err(e) => assert_eq!(e.code, ErrorCode::RegistryFailed { uncertain: true }),
             other => panic!("{other:?}"),
         }
+        let writes = w.row_writes.len();
         assert_eq!(
             w.engine.begin(create("s1")).unwrap_err().code,
             ErrorCode::IdInUse,
             "AD-7: the row may exist"
         );
-        if took_effect {
-            w.rows
-                .insert(row_key("s1"), written.rows[&row_key("s1")].clone());
-        }
-        let posted = states(&adopt_all(&mut w));
-        if took_effect {
-            assert_eq!(posted, vec![("s1".to_string(), SessionState::Created)]);
-            assert_eq!(
-                w.engine.begin(create("s1")).unwrap_err().code,
-                ErrorCode::IdInUse
-            );
-        } else {
-            assert!(posted.is_empty(), "{posted:?}");
-            w.ok(create("s1"));
+        assert_eq!(w.row_writes.len(), writes, "no second write");
+        let attempted = w
+            .rows
+            .get(&row_key("s1"))
+            .map(|bytes| crate::session::Row::decode(&sid("s1"), bytes).expect("Core wrote it"));
+        assert_eq!(attempted.is_some(), took_effect);
+        let events = adopt_all(&mut w);
+        let posted: Vec<(&InstanceId, &SessionState)> = events
+            .iter()
+            .filter_map(|e| match e {
+                Event::SessionState {
+                    instance, state, ..
+                } => Some((instance, state)),
+                _ => None,
+            })
+            .collect();
+        match attempted {
+            Some(row) => {
+                assert_eq!(posted, vec![(&row.instance, &SessionState::Created)]);
+                assert_eq!(
+                    w.engine.begin(create("s1")).unwrap_err().code,
+                    ErrorCode::IdInUse
+                );
+            }
+            None => {
+                assert!(posted.is_empty(), "{posted:?}");
+                w.ok(create("s1"));
+            }
         }
     }
+}
+
+/// Core LC-11, AD-1: `AdoptAll` that reads the row of a session that this handle is still creating (the row is written, its
+/// `Created` is not posted yet) waits for that `Created`, then posts the row's state, and completes after it. The pump runs
+/// only ready work, and prefers `AdoptAll` whenever it is ready (an order that A5-2 leaves open).
+#[test]
+fn adopt_all_posts_the_state_of_a_row_whose_create_is_still_running() {
+    let mut w = World::default();
+    w.engine.begin(create("own")).unwrap();
+    let adopt = w.engine.begin(Op::AdoptAll).unwrap();
+    w.feed(Input::Clock(w.unix));
+    // The create writes its row first, so that AdoptAll reads it.
+    assert!(w.engine.ready().contains(&Work::Session(sid("own"))));
+    w.feed(Input::Run(Work::Session(sid("own"))));
+    assert!(w.rows.contains_key(&row_key("own")), "the row is written");
+    while let Some(work) = {
+        let ready = w.engine.ready();
+        ready
+            .iter()
+            .find(|x| **x == Work::Op(adopt))
+            .or(ready.first())
+            .cloned()
+    } {
+        w.feed(Input::Run(work));
+    }
+    let events = w.engine.poll_events(64);
+    let done = events
+        .iter()
+        .position(|e| matches!(e, Event::Completed { op, .. } if *op == adopt))
+        .expect("AdoptAll completed");
+    let created = events[..done]
+        .iter()
+        .filter(|e| matches!(e, Event::SessionState { id, state: SessionState::Created, .. } if *id == sid("own")))
+        .count();
+    assert_eq!(
+        created, 2,
+        "the create's Created and AdoptAll's state of the row, before its completion: {events:?}"
+    );
 }
