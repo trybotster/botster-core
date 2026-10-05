@@ -301,3 +301,31 @@ values, with no guard and no deadline on `held.wait`, `reserve.wait` or `alive.w
 or an assertion fails. Then a member can outlive the test, or the wait can block the job (BUILD.md testing rules 5 and 10).
 This reviewer accepted the test without checking its process ownership. The package reviewer's HIGH requires the fix, so
 no duplicate is opened. CLEAN here waits for it as part of the package verdict.
+
+## Round 8 — PR #165, head 4c06846d
+
+Reviewed head: `4c06846d039b9209cbd2d8d57144bbad807b6d98`. Delta `08fef89d..4c06846d`, three commits. The changes are test
+code only, in `guard_cleanup.rs` and `payload_guard.rs`. The base is still current v1 `144b023`. This reviewer ran no build,
+test or gate. The implementer's focused Mac run at this head (`…guard-macos-4c06846d-mac-20261004-222705-81386.log`) shows
+158 and 13 tests passing and exits 0. This reviewer read its summary lines.
+
+This round checks how each new test owns its processes and bounds its waits. That check was missed in round 7.
+- **The reservation test (the package reviewer's F43).** Every child is an `Owned`.
+  - `status()` observes the end with a `waitid` that uses `WNOWAIT` and runs on a helper thread, bounded by `CLEANUP`. Only
+    after that does it reap.
+  - `Drop` sends a kill to that child's own pid. The pid cannot be reused, because the child is still unreaped. `Drop` then
+    observes the end with the same bound and reaps. It panics if the child does not end, or reports when the test already
+    panics.
+  - The FIFO writer that releases the `alive` member opens on a helper thread with the cleanup limit, so a member that is gone
+    fails the test instead of blocking it.
+  - The test reaps only its own fixture children and signals only its own pids. The assertions on the actual effects stay:
+    `SIGKILL` when the group is held, and exit 0 when it is released.
+- **The registration-error test (F37).** It drives the real `PayloadGuard` through two frames that cannot be trusted:
+  `\x01not-a-pid` and a bare ready with no member. The guard's drop panics with a report that contains the expected
+  cause. The registrant reads EOF, so no readiness was sent. Its read has a marked deadline, set while the stream is open.
+  The expected texts are the guard's own words for each case. They are not terminal bytes.
+- No production code and no interface between packages changes.
+
+Integration findings on #165: none open. Still needed for CLEAN: the P3 package verdict on `4c06846d`.
+
+VERDICT: NOT CLEAN (1 open: package verdict pending; 0 integration findings open)
