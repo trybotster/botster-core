@@ -1,10 +1,10 @@
 # P3 worker review
 
-Current verdict: NOT CLEAN for two separate review units.
+Current verdict: CLEAN for PR #165; NOT CLEAN for the separate PR #163 review unit.
 PR #163 at `40b63dceb6e3f3d7be69a1488ac77eccc121a071` has F28 and F33 OPEN for completed evidence.
-PR #165 at `4c06846d039b9209cbd2d8d57144bbad807b6d98` has F43 OPEN.
+PR #165 is CLEAN at `c03bcfb181d21cdf805b752a790359f63b9ef7b9`. All findings in that review unit, including LOW, are CLOSED.
 F39 is CLOSED in #165 and remains OPEN for #163's later merge delta.
-Round 85 records the latest guard review. All earlier rounds remain preserved. All earlier findings and closures remain preserved.
+Round 86 records the exact-head guard CLEAN. All earlier findings, closures, and rounds remain preserved.
 F1 through F27 and F29 through F32 remain CLOSED at their recorded heads and scopes.
 F34 records the earlier unsafe PID signals and their source correction at `81ccd17`.
 Each cross-package PR also requires the integration reviewer's exact-head CLEAN and the implementer's landing gate.
@@ -3834,3 +3834,74 @@ All earlier findings, closures, and verdict rounds remain preserved.
 The reviewer ran no tests, builds, measurements, mutants, or gates.
 
 VERDICT: NOT CLEAN (1 open source finding in PR #165) on `4c06846d039b9209cbd2d8d57144bbad807b6d98`.
+
+
+## Round 86 — Shared guard CLEAN on the amended pause boundary
+
+Reviewed head: `c03bcfb181d21cdf805b752a790359f63b9ef7b9`, PR #165, branch `stage1/p3-guard-macos`.
+Base: `144b0234fb632bcbb5176b17c2fe55f3239405df`.
+Reviewed delta: `4c06846d..c03bcfb1`, two commits, only guard_cleanup.rs.
+The lead's direct amended pause order authorizes this near-done review and the later #163 merge delta.
+M2a and the A32/A33 follow-up remain paused.
+The reviewer read the complete delta and the completed focused native Mac log.
+
+### F43 — HIGH — CLOSED at c03bcfb1
+
+ended_within_cleanup now returns the observation error or a bounded completion result.
+Only an interrupted blocking wait retries.
+A successful wait with no status returns an error rather than repeating without a blocking event.
+Only an actual waitid exit result produces the successful completion value.
+Owned::status therefore reaps only after an observed exit.
+
+Owned Drop now distinguishes an already reaped child, a live owned child, and a failed ownership check.
+It reports failed checks, kills, observations, and reaps.
+During an existing panic, it prints the cleanup failure instead of causing a second panic.
+It signals only its unreaped fixture child and retains the marked completion deadline.
+The actual held-SIGKILL and released-normal-exit assertions remain unchanged.
+This closes the remaining observation-error and silent-cleanup paths in F43.
+
+### New EPERM rule — accepted
+
+The shared cleanup decision now permits a group signal EPERM to reach the subsequent observation and listing.
+It applies the same final-state rule already used for ESRCH.
+A refused signal alone does not produce success.
+Success still requires a listing with no live member.
+A member that cannot end remains a reported failure at the cleanup deadline or through a failed observation.
+The existing repeated-Gone rule prevents an unwatchable retained member from driving an indefinite active retry loop.
+The reservation failure remains a distinct error and cannot enter either signal-errno exception.
+The group identity stays reserved through every signal.
+
+The revised decision proof supplies ESRCH and EPERM separately, then observes a subsequent empty listing and successful cleanup.
+The retained-member and deadline proofs continue to check failure outcomes through the same decision path.
+The real cleanup and reservation-effect proofs remain accepted.
+The reviewer accepts this final-state decision without inferring successful cleanup from the signal errno alone.
+
+### Completed native evidence
+
+The completed focused Mac log is:
+`~/botster-sessions/gates/botster-core-stage1-p3-guard-macos-c03bcfb1-mac-20261004-223014-89077.log`.
+It names this exact head and base, slow clippy, worker prebuild, and the focused nextest commands.
+It exits 0 after 12 seconds.
+The first command passes 158 tests with zero skips in 2.019 seconds.
+The second passes 13 selected core guard tests and skips nine other tests in 0.104 seconds.
+The reservation effect proof passes in all six selected binaries that contain it.
+The actual registration rejection and payload cleanup failure proofs pass in each selected PayloadGuard location.
+The parent-death regression passes in slow_process in 0.069 seconds and also passes in the other selected guard binaries.
+
+This is the required focused native Mac proof for the guard correction.
+It is not a full landing gate or Linux proof.
+The reviewer ran no tests, builds, measurements, mutants, or gates.
+The integration reviewer reports zero integration findings at verdict commit `b2f7db0` on this exact head.
+Its integration CLEAN was conditional on this package's exact-head CLEAN, which this round supplies.
+The implementer and lead still own the required landing and merge steps.
+
+### Verdict and scope
+
+F34 through F43 are CLOSED within PR #165 at their recorded correction heads and scopes.
+F39's #165 requirement is closed; its separate later #163 merge requirement remains open.
+PR #165 has no open package finding, including LOW, on this exact head.
+PR #163 separately retains F28, F33, and its later F39 merge duty.
+This CLEAN does not clear #163, the unreviewed M2a restack, M2b, the A32/A33 follow-up, or pending conformance ids.
+All earlier findings, closures, and verdict rounds remain preserved.
+
+VERDICT: CLEAN for PR #165 on `c03bcfb181d21cdf805b752a790359f63b9ef7b9`.
