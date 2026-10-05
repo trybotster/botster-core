@@ -152,18 +152,19 @@ pub fn oracle_resume_every_cut(
                 .vt_processing_error()
                 .map_err(library_error)?;
             let retention_after_capture = subject.model().continuation().map_err(library_error)?;
-            if semantic_failure || semantic_failure_after_capture {
+            if either_failure(semantic_failure, semantic_failure_after_capture) {
                 refusals
                     .mismatches
                     .push(json!({"item": item, "offset": offset, "reason": "semantic failure"}));
                 continue;
             }
-            let retention_failed = retention == Continuation::Unavailable
-                || retention_after_capture == Continuation::Unavailable;
+            let retention_failed = either_failure(
+                retention == Continuation::Unavailable,
+                retention_after_capture == Continuation::Unavailable,
+            );
             if pending.is_none() {
                 inconclusive = true;
-            } else if pending.is_some_and(|length| length <= CONTINUATION_LIMIT) && retention_failed
-            {
+            } else if failed_retention_within_limit(pending, retention_failed) {
                 refusals.mismatches.push(json!({"item": item, "offset": offset, "reason": "retention failure within limit"}));
             }
             match capture {
@@ -273,6 +274,14 @@ fn valid_oracle(semantic_failure: bool, image_limit: u64) -> bool {
     !semantic_failure && image_limit == 0
 }
 
+fn either_failure(before: bool, after: bool) -> bool {
+    before || after
+}
+
+fn failed_retention_within_limit(pending: Option<usize>, unavailable: bool) -> bool {
+    pending.is_some_and(|length| length <= CONTINUATION_LIMIT) && unavailable
+}
+
 fn beyond_limit(kind: &str) -> Result<Vec<u8>, ControlError> {
     let start: &[u8] = match kind {
         "osc" => b"\x1b]2;",
@@ -312,6 +321,7 @@ mod tests {
         wrong: bool,
         other: bool,
         maximum: usize,
+        exact_maximum: bool,
         trace: Rc<RefCell<Vec<&'static str>>>,
     }
 
@@ -323,7 +333,11 @@ mod tests {
             snapshot_format()
         }
         fn max_snapshot_bytes(&self) -> usize {
-            self.maximum
+            if self.exact_maximum {
+                self.terminal.snapshot().unwrap().len()
+            } else {
+                self.maximum
+            }
         }
         fn history(&self) -> History {
             self.history
@@ -410,6 +424,7 @@ mod tests {
             wrong: false,
             other: false,
             maximum: usize::MAX,
+            exact_maximum: false,
             trace,
         }
     }
@@ -497,8 +512,13 @@ mod tests {
             for offset in 0..=bytes.len() {
                 let mut diagnostic = Terminal::new(&input.size, input.history).unwrap();
                 diagnostic.vt_write(&bytes[..offset]);
+                let mut failed = Terminal::new(&input.size, input.history).unwrap();
+                failed.set_continuation_max_bytes(0).unwrap();
+                failed.vt_write(&bytes[..offset]);
                 if let Continuation::Retained(pending) = diagnostic.continuation().unwrap() {
-                    if !pending.is_empty() {
+                    if pending.len() <= CONTINUATION_LIMIT
+                        && failed.continuation().unwrap() == Continuation::Unavailable
+                    {
                         failed_cuts.push((item, offset));
                     }
                 }
@@ -531,6 +551,46 @@ mod tests {
         );
         for mismatch in result["mismatches"].as_array().unwrap() {
             assert_eq!(mismatch["reason"], "offered capture exceeds maximum");
+        }
+    }
+
+    #[test]
+    fn an_offered_capture_at_the_known_maximum_is_valid() {
+        let input = input();
+        let result = oracle_resume_every_cut(&input, &TestFraming(0), |size, history| {
+            let mut subject = session(size, history, Rc::new(RefCell::new(Vec::new())));
+            subject.exact_maximum = true;
+            Ok(Box::new(subject))
+        })
+        .unwrap();
+        assert_eq!(result["inconclusive"], false);
+        assert_eq!(result["mismatches"], json!([]));
+    }
+
+    #[test]
+    fn either_observation_keeps_failures_and_the_retention_limit_is_inclusive() {
+        for (before, after, failed) in [
+            (false, false, false),
+            (true, false, true),
+            (false, true, true),
+            (true, true, true),
+        ] {
+            assert_eq!(either_failure(before, after), failed);
+        }
+        for unavailable in [false, true] {
+            for pending in [
+                Some(0),
+                Some(CONTINUATION_LIMIT - 1),
+                Some(CONTINUATION_LIMIT),
+            ] {
+                assert_eq!(
+                    failed_retention_within_limit(pending, unavailable),
+                    unavailable
+                );
+            }
+            for pending in [None, Some(CONTINUATION_LIMIT + 1)] {
+                assert!(!failed_retention_within_limit(pending, unavailable));
+            }
         }
     }
 
