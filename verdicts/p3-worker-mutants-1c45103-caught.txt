@@ -1,0 +1,2 @@
+crates/botster-worker/src/main.rs:384:34: replace += with *= in Driver::flush
+crates/botster-worker/src/main.rs:395:25: replace != with == in Driver::flush

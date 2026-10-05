@@ -2,7 +2,7 @@
 
 Current restack verdict: NOT CLEAN (F13 and F21 open; F14, F15, F16, F17, F18, F19, and F20 closed).
 Reviewed head: `1c45103cd0d63ddef9cccb5c6934442ff0e4ea29`, branch `stage1/p3-m1-v1`.
-Rounds 56/57 close 55 original driver entries and review the P6 merge. F13 retains five entries; F21 remains open.
+Round 58 closes both original flush timeouts. F13 retains three original misses; F21 remains open.
 The CLEAN below applies only to the old M2a head that it names.
 
 VERDICT: CLEAN
@@ -1960,3 +1960,32 @@ F13 retains five original driver entries. F21 remains OPEN.
 F18/F19 closures and all earlier findings remain preserved. The reviewer ran no tests or gate.
 
 VERDICT: NOT CLEAN (F13: five entries; F21 open) on `1c45103cd0d63ddef9cccb5c6934442ff0e4ea29`.
+
+
+## Round 58 — Direct assertions catch both former flush timeouts
+
+Reviewed and evidence head: `1c45103cd0d63ddef9cccb5c6934442ff0e4ea29`.
+Log: `~/botster-sessions/gates/botster-core-stage1-p3-m1-v1-1c45103c-linux-20261004-175018-23825.log`.
+Raw evidence: `/private/tmp/p3-driver-flush-evidence/`, retrieved from the completed volume without a rerun.
+The reviewer read the exact-head log, actual outcomes.json, and both relevant mutation failure logs.
+
+The baseline passes with six selected direct entries. Twenty-three entries lie outside the explicit filter.
+The mutation job uses a 120-second external budget, unchanged code deadlines, and nextest fail-fast.
+The raw result tests nine mutations: seven caught, two unviable, zero missed, and zero timeouts.
+The written += to *= mutation at main.rs:390:34 fails written > 0 at driver_edges.rs:175 in 0.007 seconds.
+The written != to == mutation at main.rs:402:25 fails inputs.is_empty at driver_edges.rs:170 in 0.007 seconds.
+Both raw outcomes are CaughtMutant. These are actual bounded assertion failures, not external tool timeouts.
+
+Both original flush entries are now CLOSED under F13.
+The reviewer maps the changed line numbers by their written-total roles in the reviewed unchanged flush implementation.
+Their original names are preserved in `verdicts/p3-worker-mutants-1c45103-caught.txt`.
+The failed assertions occur before the partial-write completion loop, so they do not depend on F21's no-progress path.
+F13 retains three original misses: READ_CHUNK addition, main no-op, and Driver::run PTY arm deletion.
+New query/cleanup code still requires mutation accounting in the applicable gate.
+
+F21 remains OPEN pending review of the proposed progress assertion on a pushed exact head.
+The implementer reports that each ready turn will require increased received bytes or written totals.
+That proposal supplies no source closure in this round.
+All earlier findings and closures remain preserved. The reviewer ran no tests or gate.
+
+VERDICT: NOT CLEAN (F13: three original entries; F21 open) on `1c45103cd0d63ddef9cccb5c6934442ff0e4ea29`.
