@@ -843,6 +843,18 @@ fn a_reopened_handle_sees_and_ends_the_worker_of_the_earlier_handle() {
         })
         .unwrap();
     events.extend(settle_partial(&mut second, start));
+    // The kill is not an observed exit: after `stop_grace` the host checks the identity again (LC-7, AD-6).
+    let grace = start + CoreLimits::default().stop_grace;
+    for _ in 0..64 {
+        let report = second.pump(Now {
+            monotonic: grace,
+            unix: 1_000_000,
+        });
+        events.extend(second.poll_events(64));
+        if !report.more {
+            break;
+        }
+    }
     for op in [adopt, remove] {
         assert!(
             events.iter().any(
