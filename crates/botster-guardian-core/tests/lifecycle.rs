@@ -1,19 +1,24 @@
 //! Guardian clauses through the machine's inputs, actions, and private wire.
+//!
+//! The rig plays the driver: it feeds inputs at a chosen time and decodes every `LinkSend` the way a host does.
 
 use botster_core_contract::prelude::*;
 use botster_core_edges::edges::{ExitStatus, ProcessIdentity};
 use botster_core_edges::Machine;
-use botster_core_link::frame::{encode_frame, FrameDecoder, FrameType, DEFAULT_MAX_PAYLOAD};
-use botster_core_link::hello::Hello;
+use botster_core_link::frame::{
+    encode_frame, FrameDecoder, FrameType, DEFAULT_MAX_PAYLOAD, HEADER_LEN,
+};
+use botster_core_link::hello::{Hello, HelloError, MAX_INSTANCE_ID_LEN};
 use botster_core_link::msg::PayloadId;
 use botster_core_link::proof::token_proof;
 use botster_guardian_core::guardian::SpawnResult;
-use botster_guardian_core::wire::{Command, Report, ServiceSpec};
+use botster_guardian_core::wire::{
+    Command, LogChunk, Report, ServiceSpec, Status, LOG_CHUNK_BYTES, LOG_FRAME,
+};
 use botster_guardian_core::{Action, Guardian, GuardianConfig, Input};
 use std::collections::BTreeMap;
 use std::time::{Duration, Instant};
 
-const TOKEN: [u8; 32] = [7; 32];
 const LEADER: PayloadId = PayloadId {
     pid: 42,
     start_time: 100,
@@ -23,75 +28,22 @@ const CHILD: ProcessIdentity = ProcessIdentity {
     start_time: 101,
 };
 
+/// The base of the injected clock. The machine never reads a clock.
 #[allow(clippy::disallowed_methods)]
 fn now() -> Instant {
     Instant::now()
 }
 
-fn config(log_bytes: usize) -> GuardianConfig {
+fn config() -> GuardianConfig {
     GuardianConfig {
         service: ServiceId([1; 32]),
         instance: InstanceId("service-instance".into()),
-        token: TOKEN,
+        token: [7; 32],
         host_epoch: 1,
         protocol: 1,
         orphan_grace: Duration::from_millis(5000),
-        log_bytes,
+        log_bytes: 1024,
     }
-}
-
-fn wire(kind: FrameType, payload: &[u8]) -> Vec<u8> {
-    let mut bytes = Vec::new();
-    encode_frame(kind, payload, DEFAULT_MAX_PAYLOAD, &mut bytes).unwrap();
-    bytes
-}
-
-fn hello(epoch: u64) -> Hello {
-    let instance = config(0).instance;
-    Hello {
-        protocol: 1,
-        proof: token_proof(&TOKEN, &instance, epoch),
-        instance,
-        host_epoch: epoch,
-    }
-}
-
-fn authenticate(g: &mut Guardian, now: Instant, hello: Hello) {
-    let mut payload = Vec::new();
-    hello.encode(&mut payload).unwrap();
-    for byte in wire(FrameType::HELLO, &payload) {
-        g.handle(now, Input::LinkBytes(vec![byte]));
-    }
-}
-
-fn command(g: &mut Guardian, now: Instant, command: Command) {
-    g.handle(
-        now,
-        Input::LinkBytes(wire(
-            FrameType::HOST_MSG,
-            &serde_json::to_vec(&command).unwrap(),
-        )),
-    );
-}
-
-fn actions(g: &mut Guardian) -> Vec<Action> {
-    std::iter::from_fn(|| g.poll_action()).collect()
-}
-
-fn reports(actions: &[Action]) -> Vec<Report> {
-    actions
-        .iter()
-        .filter_map(|action| {
-            let Action::LinkSend(bytes) = action else {
-                return None;
-            };
-            let mut decoder = FrameDecoder::new(DEFAULT_MAX_PAYLOAD);
-            assert_eq!(decoder.push(bytes), bytes.len());
-            let frame = decoder.next_frame().unwrap().unwrap();
-            (frame.kind == FrameType::WORKER_MSG)
-                .then(|| serde_json::from_slice(&frame.payload).unwrap())
-        })
-        .collect()
 }
 
 fn spec() -> ServiceSpec {
@@ -114,685 +66,812 @@ fn spec() -> ServiceSpec {
     }
 }
 
-fn ready(now: Instant) -> Guardian {
-    let mut g = Guardian::new(config(1024), now);
-    actions(&mut g);
-    authenticate(&mut g, now, hello(1));
-    actions(&mut g);
-    g
+/// The valid hello of a host at `epoch`.
+fn host_hello(cfg: &GuardianConfig, epoch: u64) -> Hello {
+    Hello {
+        protocol: cfg.protocol,
+        instance: cfg.instance.clone(),
+        proof: token_proof(&cfg.token, &cfg.instance, epoch),
+        host_epoch: epoch,
+    }
 }
 
-fn running(now: Instant) -> Guardian {
-    let mut g = ready(now);
-    command(&mut g, now, Command::Launch(Box::new(spec())));
-    assert_eq!(
-        actions(&mut g),
-        vec![Action::SpawnService(Box::new(spec()))]
-    );
-    g.handle(
-        now,
-        Input::Spawned(SpawnResult::Started {
+fn frame(kind: FrameType, payload: &[u8]) -> Vec<u8> {
+    let mut bytes = Vec::new();
+    encode_frame(kind, payload, DEFAULT_MAX_PAYLOAD, &mut bytes).unwrap();
+    bytes
+}
+
+fn hello_frame(hello: &Hello) -> Vec<u8> {
+    let mut payload = Vec::new();
+    hello.encode(&mut payload).unwrap();
+    frame(FrameType::HELLO, &payload)
+}
+
+/// What a host reads from the guardian's `LinkSend` bytes.
+#[derive(Debug, PartialEq)]
+enum Sent {
+    Hello(Hello),
+    Report(Report),
+    Log(LogChunk),
+}
+
+fn sent(actions: &[Action]) -> Vec<Sent> {
+    let mut decoder = FrameDecoder::new(DEFAULT_MAX_PAYLOAD);
+    let mut out = Vec::new();
+    for action in actions {
+        let Action::LinkSend(mut bytes) = action.clone() else {
+            continue;
+        };
+        while !bytes.is_empty() {
+            let took = decoder.push(&bytes);
+            bytes.drain(..took);
+            let frame = decoder
+                .next_frame()
+                .unwrap()
+                .expect("each LinkSend holds whole frames");
+            out.push(match frame.kind {
+                FrameType::HELLO => Sent::Hello(Hello::decode(&frame.payload).unwrap()),
+                FrameType::WORKER_MSG => {
+                    Sent::Report(serde_json::from_slice(&frame.payload).unwrap())
+                }
+                LOG_FRAME => Sent::Log(LogChunk::decode(&frame.payload).unwrap()),
+                other => panic!("unexpected frame {other:?}"),
+            });
+        }
+    }
+    out
+}
+
+fn reports(actions: &[Action]) -> Vec<Report> {
+    sent(actions)
+        .into_iter()
+        .filter_map(|s| match s {
+            Sent::Report(report) => Some(report),
+            _ => None,
+        })
+        .collect()
+}
+
+fn logs(actions: &[Action]) -> Vec<LogChunk> {
+    sent(actions)
+        .into_iter()
+        .filter_map(|s| match s {
+            Sent::Log(chunk) => Some(chunk),
+            _ => None,
+        })
+        .collect()
+}
+
+fn link_bytes(actions: &[Action]) -> u64 {
+    actions
+        .iter()
+        .map(|a| match a {
+            Action::LinkSend(bytes) => bytes.len() as u64,
+            _ => 0,
+        })
+        .sum()
+}
+
+/// The exit that the guardian reports.
+fn exited(actions: &[Action]) -> Option<ServiceExit> {
+    reports(actions).into_iter().find_map(|r| match r {
+        Report::Exited { exit } => Some(exit),
+        _ => None,
+    })
+}
+
+/// A driver over one guardian, with its clock and the bytes written on the current connection.
+struct Rig {
+    g: Guardian,
+    cfg: GuardianConfig,
+    start: Instant,
+    at: Instant,
+    written: u64,
+}
+
+impl Rig {
+    /// A guardian that sent its hello and waits for a host.
+    fn connected() -> Rig {
+        Rig::with(config())
+    }
+
+    fn with(cfg: GuardianConfig) -> Rig {
+        let start = now();
+        let mut g = Guardian::new(cfg.clone(), start).unwrap();
+        let hello = std::iter::from_fn(|| g.poll_action()).collect::<Vec<_>>();
+        let written = link_bytes(&hello);
+        Rig {
+            g,
+            cfg,
+            start,
+            at: start,
+            written,
+        }
+    }
+
+    /// An authenticated guardian.
+    fn ready() -> Rig {
+        let mut rig = Rig::connected();
+        rig.authenticate(rig.cfg.host_epoch);
+        rig
+    }
+
+    /// A launched service whose host committed epoch 1.
+    fn running() -> Rig {
+        let mut rig = Rig::launched();
+        rig.command(Command::EpochCommitted);
+        rig
+    }
+
+    /// A launched service before the host committed epoch 1.
+    fn launched() -> Rig {
+        let mut rig = Rig::ready();
+        rig.command(Command::Launch(Box::new(spec())));
+        rig.started();
+        rig
+    }
+
+    fn input(&mut self, input: Input) -> Vec<Action> {
+        self.g.handle(self.at, input);
+        let actions: Vec<Action> = std::iter::from_fn(|| self.g.poll_action()).collect();
+        self.written += link_bytes(&actions);
+        actions
+    }
+
+    /// Advances the injected clock and delivers the timer.
+    fn at(&mut self, at: Instant) -> Vec<Action> {
+        self.at = at;
+        self.input(Input::Timer)
+    }
+
+    fn command(&mut self, command: Command) -> Vec<Action> {
+        let json = serde_json::to_vec(&command).unwrap();
+        self.input(Input::LinkBytes(frame(FrameType::HOST_MSG, &json)))
+    }
+
+    fn authenticate(&mut self, epoch: u64) -> Vec<Action> {
+        let hello = hello_frame(&host_hello(&self.cfg, epoch));
+        // One byte at a time: the decoder keeps partial frames.
+        hello
+            .iter()
+            .flat_map(|byte| self.input(Input::LinkBytes(vec![*byte])))
+            .collect()
+    }
+
+    /// The driver reports every byte so far as written.
+    fn flush(&mut self) -> Vec<Action> {
+        let total = self.written;
+        self.input(Input::LinkWritten { total })
+    }
+
+    fn reconnect(&mut self, epoch: u64) -> Vec<Action> {
+        self.input(Input::LinkClosed);
+        self.written = 0;
+        let mut actions = self.input(Input::LinkConnected);
+        actions.extend(self.authenticate(epoch));
+        actions
+    }
+
+    fn started(&mut self) -> Vec<Action> {
+        self.input(Input::Spawned(SpawnResult::Started {
             payload: LEADER,
             report: SpawnReport::default(),
-        }),
-    );
-    assert_eq!(
-        reports(&actions(&mut g)),
-        vec![Report::Started {
-            payload: LEADER,
-            report: SpawnReport::default()
-        }]
-    );
-    command(&mut g, now, Command::EpochCommitted);
-    g
-}
-
-fn killed(g: &mut Guardian, now: Instant, live: bool, remain: bool) {
-    g.handle(
-        now,
-        Input::TreeKilled {
-            leader_signalled: live,
-            leader_exiting: !live,
-            descendants_may_remain: remain,
-        },
-    );
-}
-
-fn finish_exit(
-    g: &mut Guardian,
-    now: Instant,
-    status: ExitStatus,
-    live_kill: bool,
-    remain: bool,
-) -> Vec<Action> {
-    g.handle(now, Input::PayloadExited(status));
-    let cleanup = actions(g);
-    assert!(cleanup.contains(&Action::DrainLogs));
-    assert!(cleanup
-        .iter()
-        .any(|a| matches!(a, Action::KillTree { leader: LEADER, .. })));
-    assert!(!cleanup
-        .iter()
-        .any(|a| matches!(a, Action::ReapService { .. })));
-    g.handle(now, Input::LogsDrained);
-    killed(g, now, live_kill, remain);
-    actions(g)
-}
-
-/// Core AD-6, A6-2: only the exact identity, proof, and protocol permit a launch.
-#[test]
-fn authentication_controls_launch_and_hides_the_token() {
-    let at = now();
-    for field in ["instance", "token", "epoch", "protocol", "kind"] {
-        let mut g = Guardian::new(config(1024), at);
-        let greeting = actions(&mut g);
-        let Action::LinkSend(bytes) = &greeting[0] else {
-            panic!("hello");
-        };
-        let mut decoder = FrameDecoder::new(DEFAULT_MAX_PAYLOAD);
-        decoder.push(bytes);
-        let h = Hello::decode(&decoder.next_frame().unwrap().unwrap().payload).unwrap();
-        assert_eq!(h, hello(1));
-        let mut bad = hello(1);
-        match field {
-            "instance" => bad.instance = InstanceId("other".into()),
-            "token" => bad.proof = token_proof(&[8; 32], &bad.instance, 1),
-            "epoch" => bad = hello(0),
-            "protocol" => bad.protocol = 2,
-            "kind" => {}
-            _ => unreachable!(),
-        }
-        if field == "kind" {
-            command(&mut g, at, Command::Launch(Box::new(spec())));
-        } else {
-            authenticate(&mut g, at, bad);
-        }
-        command(&mut g, at, Command::Launch(Box::new(spec())));
-        assert_eq!(actions(&mut g), vec![Action::LinkClose], "{field}");
-        assert_eq!(g.next_deadline(), Some(at + Duration::from_millis(5000)));
+        }))
     }
-    assert!(!format!("{:?}", config(0)).contains("token"));
+
+    fn stop_to_term(&mut self, known: Vec<ProcessIdentity>) {
+        assert_eq!(
+            self.command(Command::Stop),
+            vec![Action::Enumerate { leader: LEADER }]
+        );
+        assert_eq!(
+            self.input(Input::Descendants(known)),
+            vec![Action::TermService { leader: LEADER }]
+        );
+    }
+
+    fn term_result(&mut self, delivered: bool, leader_exiting: bool) -> Vec<Action> {
+        self.input(Input::TermSent {
+            delivered,
+            leader_exiting,
+        })
+    }
+
+    fn tree_killed(
+        &mut self,
+        reached_live_leader: bool,
+        descendants_may_remain: bool,
+    ) -> Vec<Action> {
+        self.input(Input::TreeKilled {
+            leader_signalled: reached_live_leader,
+            leader_exiting: !reached_live_leader,
+            descendants_may_remain,
+        })
+    }
+
+    /// The leader exits after the guardian's kill reached it, and the driver drains its output.
+    fn killed_leader_exits(&mut self, descendants_may_remain: bool) -> Vec<Action> {
+        let mut actions = self.tree_killed(true, descendants_may_remain);
+        actions.extend(self.input(Input::PayloadExited(ExitStatus::Signal(9))));
+        actions.extend(self.input(Input::LogsDrained));
+        actions
+    }
+
+    /// The leader exits on its own; the cleanup kill finds it exiting.
+    fn leader_exits(&mut self, status: ExitStatus) -> Vec<Action> {
+        let cleanup = self.input(Input::PayloadExited(status));
+        assert_eq!(
+            cleanup,
+            vec![
+                Action::DrainLogs,
+                Action::KillTree {
+                    leader: LEADER,
+                    known: vec![]
+                }
+            ]
+        );
+        let mut actions = self.input(Input::LogsDrained);
+        actions.extend(self.tree_killed(false, false));
+        actions
+    }
 }
 
-/// Core SV-1, SV-4, SV-7: the spawn result describes exec and no second launch exists.
+/// Core AD-6, DP-8: the guardian proves the token, and only a host's valid hello at no lower epoch authenticates.
 #[test]
-fn exec_report_is_exact_and_a_second_launch_is_ignored() {
-    let at = now();
-    let mut g = ready(at);
-    let s = spec();
-    command(&mut g, at, Command::Launch(Box::new(s.clone())));
-    assert_eq!(actions(&mut g), vec![Action::SpawnService(Box::new(s))]);
-    command(&mut g, at, Command::Launch(Box::new(spec())));
-    assert!(actions(&mut g).is_empty());
+fn only_a_valid_host_hello_authenticates() {
+    let cfg = config();
+    let rig = Rig::connected();
+    assert_eq!(rig.g.next_deadline(), Some(rig.start + cfg.orphan_grace));
+
+    let mut own = Guardian::new(cfg.clone(), rig.start).unwrap();
+    let hello = std::iter::from_fn(|| own.poll_action()).collect::<Vec<_>>();
+    assert_eq!(
+        sent(&hello),
+        vec![Sent::Hello(host_hello(&cfg, cfg.host_epoch))]
+    );
+    assert!(!format!("{cfg:?}").contains(&format!("{:?}", cfg.token)));
+
+    let wrong: [(&str, Vec<u8>); 5] = [
+        (
+            "instance",
+            hello_frame(&Hello {
+                instance: InstanceId("other".into()),
+                ..host_hello(&cfg, 1)
+            }),
+        ),
+        (
+            "token",
+            hello_frame(&Hello {
+                proof: token_proof(&[8; 32], &cfg.instance, 1),
+                ..host_hello(&cfg, 1)
+            }),
+        ),
+        (
+            "lower epoch",
+            hello_frame(&host_hello(&cfg, cfg.host_epoch - 1)),
+        ),
+        (
+            "protocol",
+            hello_frame(&Hello {
+                protocol: cfg.protocol + 1,
+                ..host_hello(&cfg, 1)
+            }),
+        ),
+        ("frame type", {
+            let mut payload = Vec::new();
+            host_hello(&cfg, 1).encode(&mut payload).unwrap();
+            frame(FrameType::HOST_MSG, &payload)
+        }),
+    ];
+    for (case, bytes) in wrong {
+        let mut rig = Rig::connected();
+        assert_eq!(
+            rig.input(Input::LinkBytes(bytes)),
+            vec![Action::LinkClose],
+            "{case}"
+        );
+        assert!(
+            rig.command(Command::Launch(Box::new(spec()))).is_empty(),
+            "{case}"
+        );
+        assert_eq!(
+            rig.g.next_deadline(),
+            Some(rig.start + cfg.orphan_grace),
+            "{case}"
+        );
+    }
+
+    let mut rig = Rig::connected();
+    let higher = cfg.host_epoch + 1;
+    assert_eq!(
+        reports(&rig.authenticate(higher)),
+        vec![Report::Status(rig.g.status())]
+    );
+    assert_eq!(rig.g.next_deadline(), None);
+    // The proved epoch is now the floor: a reconnect at the configured epoch is refused.
+    rig.input(Input::LinkClosed);
+    rig.input(Input::LinkConnected);
+    assert_eq!(rig.authenticate(cfg.host_epoch), vec![Action::LinkClose]);
+}
+
+/// Core AD-6: a guardian that could not send its hello does not start.
+#[test]
+fn a_config_whose_hello_cannot_be_encoded_is_refused() {
+    let cfg = GuardianConfig {
+        instance: InstanceId("i".repeat(MAX_INSTANCE_ID_LEN + 1)),
+        ..config()
+    };
+    let refused = Guardian::new(cfg, now()).unwrap_err();
+    assert_eq!(refused, HelloError::InstanceIdTooLong);
+}
+
+/// Core AD-6: a malformed or oversize control frame closes only the control connection.
+#[test]
+fn malformed_and_oversize_control_frames_close_the_connection() {
+    let oversize = (DEFAULT_MAX_PAYLOAD + 1).to_le_bytes();
+    for bytes in [
+        frame(FrameType::HELLO, b"not JSON"),
+        frame(FrameType::HELLO, b"{}"),
+        [&oversize[..], &[FrameType::HELLO.0]].concat(),
+    ] {
+        let mut rig = Rig::connected();
+        assert_eq!(rig.input(Input::LinkBytes(bytes)), vec![Action::LinkClose]);
+        assert_eq!(
+            rig.g.next_deadline(),
+            Some(rig.start + rig.cfg.orphan_grace)
+        );
+    }
+}
+
+/// Core AD-6: after authentication, only a host message frame carries a command.
+#[test]
+fn only_host_message_frames_carry_commands() {
+    let mut rig = Rig::ready();
+    let launch = serde_json::to_vec(&Command::Launch(Box::new(spec()))).unwrap();
+    assert!(rig
+        .input(Input::LinkBytes(frame(FrameType::WORKER_MSG, &launch)))
+        .is_empty());
+    assert!(rig
+        .input(Input::LinkBytes(frame(
+            FrameType::HOST_MSG,
+            b"{\"t\":\"unknown\"}"
+        )))
+        .is_empty());
+    assert_eq!(
+        rig.command(Command::Launch(Box::new(spec()))),
+        vec![Action::SpawnService(Box::new(spec()))]
+    );
+}
+
+/// Core SV-1, SV-4, A4-1, SV-7: exec runs once with the host's spec, and its report survives the exit and a reconnect.
+#[test]
+fn the_service_launches_once_and_its_report_is_retained() {
+    let mut rig = Rig::ready();
+    assert_eq!(
+        rig.command(Command::Launch(Box::new(spec()))),
+        vec![Action::SpawnService(Box::new(spec()))]
+    );
+    assert!(rig.command(Command::Launch(Box::new(spec()))).is_empty());
     let report = SpawnReport {
         applied: vec![Bound::OpenFiles],
         unsupported: vec![Bound::Processes],
     };
-    g.handle(
-        at,
-        Input::Spawned(SpawnResult::Started {
-            payload: LEADER,
-            report: report.clone(),
-        }),
-    );
+    let started = rig.input(Input::Spawned(SpawnResult::Started {
+        payload: LEADER,
+        report: report.clone(),
+    }));
     assert_eq!(
-        reports(&actions(&mut g)),
+        reports(&started),
         vec![Report::Started {
             payload: LEADER,
             report: report.clone()
         }]
     );
-    assert_eq!(g.status().report, Some(report));
-    let done = finish_exit(&mut g, at, ExitStatus::Code(1), false, false);
-    assert!(done.contains(&Action::ReapService { leader: LEADER }));
-    g.handle(at, Input::Reaped);
-    command(&mut g, at, Command::Launch(Box::new(spec())));
-    g.pump(at + Duration::from_secs(60000));
-    assert!(actions(&mut g).is_empty());
-    assert_eq!(g.status().payload, Some(LEADER));
+    rig.command(Command::EpochCommitted);
+
+    let status = ExitStatus::Code(1);
+    let exit = exited(&rig.leader_exits(status)).unwrap();
+    rig.input(Input::Reaped);
+    assert!(rig.command(Command::Launch(Box::new(spec()))).is_empty());
+
+    let status = reports(&rig.reconnect(rig.cfg.host_epoch));
+    assert_eq!(
+        status,
+        vec![Report::Status(Status {
+            service: rig.cfg.service,
+            payload: Some(LEADER),
+            report: Some(report),
+            exit: Some(exit),
+        })]
+    );
 }
 
-/// Core SV-9, A2-5: a failed exec has no group, and Remove releases the guardian.
+/// Core SV-9, A2-5: a failed exec reports the edge's failure, signals nothing, and Remove releases the guardian.
 #[test]
-fn failed_starts_report_the_edge_failure_and_roll_back_without_signalling() {
-    let at = now();
-    for result in [
-        SpawnResult::Failed(StartFailReason::CwdMissing),
-        SpawnResult::Failed(StartFailReason::ExecFailed { errno: 2 }),
-        SpawnResult::BoundUnavailable(Bound::CpuSeconds),
+fn a_failed_start_reports_the_edge_failure_and_rolls_back() {
+    for (result, expected) in [
+        (
+            SpawnResult::Failed(StartFailReason::ExecFailed { errno: 2 }),
+            Report::StartFailed {
+                reason: StartFailReason::ExecFailed { errno: 2 },
+            },
+        ),
+        (
+            SpawnResult::BoundUnavailable(Bound::CpuSeconds),
+            Report::BoundUnavailable {
+                bound: Bound::CpuSeconds,
+            },
+        ),
     ] {
-        let mut g = ready(at);
-        command(&mut g, at, Command::Launch(Box::new(spec())));
-        actions(&mut g);
-        let expected = match result.clone() {
-            SpawnResult::Failed(reason) => Report::StartFailed { reason },
-            SpawnResult::BoundUnavailable(bound) => Report::BoundUnavailable { bound },
-            _ => unreachable!(),
-        };
-        g.handle(at, Input::Spawned(result));
-        assert_eq!(reports(&actions(&mut g)), vec![expected]);
-        command(&mut g, at, Command::Remove);
-        let pending = actions(&mut g);
-        assert_eq!(reports(&pending), vec![Report::Removed]);
-        assert!(!pending.contains(&Action::Exit));
-        g.handle(at, Input::LinkWritten { total: u64::MAX });
-        assert_eq!(actions(&mut g), vec![Action::LinkClose, Action::Exit]);
+        let mut rig = Rig::ready();
+        rig.command(Command::Launch(Box::new(spec())));
+        assert_eq!(reports(&rig.input(Input::Spawned(result))), vec![expected]);
+        assert_eq!(rig.g.next_deadline(), None);
+        let removed = rig.command(Command::Remove);
+        assert_eq!(sent(&removed), vec![Sent::Report(Report::Removed)]);
+        assert_eq!(rig.flush(), vec![Action::LinkClose, Action::Exit]);
     }
 }
 
-/// Core A2-5: startup lasts through the first complete epoch, starting after exec.
+/// Core A2-5: startup runs from exec until the host commits epoch 1; expiry ends the service as `StartupTimeout`.
 #[test]
-fn startup_deadline_is_armed_after_exec_and_cancelled_by_epoch_commit() {
-    let at = now();
-    let mut g = ready(at);
-    command(&mut g, at, Command::Launch(Box::new(spec())));
-    actions(&mut g);
-    assert_eq!(g.next_deadline(), None);
-    g.handle(
-        at,
-        Input::Spawned(SpawnResult::Started {
-            payload: LEADER,
-            report: SpawnReport::default(),
-        }),
-    );
-    actions(&mut g);
-    let due = at + spec().limits.startup;
-    assert_eq!(g.next_deadline(), Some(due));
-    g.pump(due - Duration::from_nanos(1));
-    assert!(actions(&mut g).is_empty());
-    g.pump(due);
+fn startup_runs_from_exec_until_epoch_one_commits() {
+    let startup = spec().limits.startup;
+    let mut rig = Rig::ready();
+    rig.command(Command::Launch(Box::new(spec())));
+    assert_eq!(rig.g.next_deadline(), None);
+    let exec_at = rig.start + Duration::from_millis(1);
+    rig.at = exec_at;
+    rig.started();
+    let due = exec_at + startup;
+    assert_eq!(rig.g.next_deadline(), Some(due));
+    assert!(rig.at(due - Duration::from_nanos(1)).is_empty());
     assert_eq!(
-        actions(&mut g),
+        rig.at(due),
         vec![Action::KillTree {
             leader: LEADER,
             known: vec![]
         }]
     );
-    killed(&mut g, due, true, false);
-    g.handle(due, Input::PayloadExited(ExitStatus::Signal(9)));
-    actions(&mut g);
-    g.handle(due, Input::LogsDrained);
-    assert_eq!(
-        g.status().exit.unwrap().cause,
-        ServiceExitCause::StartupTimeout
-    );
-    assert_eq!(g.next_deadline(), None);
+    let exit = exited(&rig.killed_leader_exits(false)).unwrap();
+    assert_eq!(exit.cause, ServiceExitCause::StartupTimeout);
 
-    let mut g = running(at);
-    assert_eq!(g.next_deadline(), None);
-    g.pump(due);
-    assert!(actions(&mut g).is_empty());
+    let mut rig = Rig::launched();
+    assert_eq!(rig.g.next_deadline(), Some(rig.start + startup));
+    rig.command(Command::EpochCommitted);
+    assert_eq!(rig.g.next_deadline(), None);
+    assert!(rig.at(rig.start + startup).is_empty());
 }
 
-/// Core SV-8, AD-6: transport acceptance does not cancel grace; authentication does.
+/// Core SV-8, AD-6: grace runs while no host is authenticated; a failed hello does not extend it; adoption cancels it.
 #[test]
-fn orphan_grace_survives_invalid_adoption_and_valid_adoption_cancels_it() {
-    let at = now();
-    let mut g = running(at);
-    g.handle(at, Input::LinkClosed);
-    actions(&mut g);
-    let due = at + Duration::from_millis(5000);
-    assert_eq!(g.next_deadline(), Some(due));
-    g.handle(at + Duration::from_secs(1), Input::LinkConnected);
-    actions(&mut g);
-    authenticate(&mut g, at + Duration::from_secs(1), hello(0));
-    assert_eq!(actions(&mut g), vec![Action::LinkClose]);
-    assert_eq!(g.next_deadline(), Some(due));
-    g.handle(at + Duration::from_secs(2), Input::LinkConnected);
-    actions(&mut g);
-    authenticate(&mut g, at + Duration::from_secs(2), hello(2));
-    assert_eq!(reports(&actions(&mut g))[0], Report::Status(g.status()));
-    assert_eq!(g.next_deadline(), None);
-    g.pump(due);
-    assert!(actions(&mut g).is_empty());
-    g.handle(due, Input::LinkClosed);
-    actions(&mut g);
-    g.pump(due + Duration::from_millis(5000));
+fn orphan_grace_ends_the_service_unless_a_host_authenticates() {
+    let grace = config().orphan_grace;
+    let mut rig = Rig::running();
+    rig.input(Input::LinkClosed);
+    let due = rig.start + grace;
+    assert_eq!(rig.g.next_deadline(), Some(due));
+
+    rig.at = rig.start + grace / 4;
+    rig.input(Input::LinkConnected);
     assert_eq!(
-        actions(&mut g),
+        rig.authenticate(rig.cfg.host_epoch - 1),
+        vec![Action::LinkClose]
+    );
+    assert_eq!(rig.g.next_deadline(), Some(due));
+
+    rig.at = rig.start + grace / 2;
+    rig.input(Input::LinkConnected);
+    rig.authenticate(rig.cfg.host_epoch + 1);
+    assert_eq!(rig.g.next_deadline(), None);
+    assert!(rig.at(due).is_empty());
+
+    rig.input(Input::LinkClosed);
+    let due = rig.at + grace;
+    assert_eq!(rig.g.next_deadline(), Some(due));
+    assert_eq!(
+        rig.at(due),
         vec![Action::KillTree {
             leader: LEADER,
             known: vec![]
         }]
     );
-    let ended = due + Duration::from_millis(5000);
-    killed(&mut g, ended, true, false);
-    g.handle(ended, Input::PayloadExited(ExitStatus::Signal(9)));
-    assert_eq!(actions(&mut g), vec![Action::DrainLogs]);
-    g.handle(ended, Input::LogsDrained);
+    // A dying guardian accepts no host.
+    assert!(rig.input(Input::LinkConnected).is_empty());
+    let cleanup = rig.killed_leader_exits(false);
     assert_eq!(
-        g.status().exit.unwrap().cause,
+        cleanup,
+        vec![Action::DrainLogs, Action::ReapService { leader: LEADER }]
+    );
+    assert_eq!(
+        rig.g.status().exit.unwrap().cause,
         ServiceExitCause::OrphanGrace
     );
-    assert_eq!(
-        actions(&mut g),
-        vec![Action::ReapService { leader: LEADER }]
-    );
-    g.handle(ended, Input::Reaped);
-    assert_eq!(actions(&mut g), vec![Action::Exit]);
-    g.handle(ended, Input::Terminate);
-    g.pump(ended + Duration::from_secs(60000));
-    assert!(actions(&mut g).is_empty());
+    assert_eq!(rig.input(Input::Reaped), vec![Action::Exit]);
 }
 
-/// Core SV-9: enumerate before TERM; KILL after the exact grace; never signal after reap.
+/// Core SV-8: a guardian that never received a launch also ends at the grace.
 #[test]
-fn stop_enumerates_then_terms_then_kills_the_group_and_descendants() {
-    let at = now();
-    let mut g = running(at);
-    command(&mut g, at, Command::Stop);
-    assert_eq!(actions(&mut g), vec![Action::Enumerate { leader: LEADER }]);
-    g.handle(at, Input::Descendants(vec![CHILD]));
+fn an_unlaunched_guardian_ends_at_orphan_grace() {
+    let mut rig = Rig::connected();
+    let due = rig.start + rig.cfg.orphan_grace;
+    assert!(rig.at(due - Duration::from_nanos(1)).is_empty());
+    assert_eq!(rig.at(due), vec![Action::LinkClose, Action::Exit]);
+    assert_eq!(rig.g.next_deadline(), None);
+}
+
+/// Core SV-9, SV-5 (conf::sv_9_sigterm_then_group_kill): census, SIGTERM, the grace from SIGTERM, then the group kill of
+/// the leader and the known descendants. A kill that reaches the live leader is `Killed`.
+#[test]
+fn stop_terms_then_kills_the_group_and_the_known_descendants() {
+    let grace = spec().limits.stop_grace;
+    let mut rig = Rig::running();
+    rig.stop_to_term(vec![CHILD]);
+    assert!(rig.term_result(true, false).is_empty());
+    let due = rig.at + grace;
+    assert_eq!(rig.g.next_deadline(), Some(due));
+    rig.at = due - Duration::from_nanos(1);
+    assert!(rig.command(Command::Stop).is_empty());
+    assert!(rig.at(due - Duration::from_nanos(1)).is_empty());
     assert_eq!(
-        actions(&mut g),
-        vec![Action::TermService { leader: LEADER }]
-    );
-    g.handle(
-        at,
-        Input::TermSent {
-            delivered: true,
-            leader_exiting: false,
-        },
-    );
-    command(&mut g, at + Duration::from_millis(100), Command::Stop);
-    assert!(actions(&mut g).is_empty());
-    let due = at + Duration::from_millis(300);
-    assert_eq!(g.next_deadline(), Some(due));
-    g.pump(due - Duration::from_nanos(1));
-    assert!(actions(&mut g).is_empty());
-    g.pump(due);
-    assert_eq!(
-        actions(&mut g),
+        rig.at(due),
         vec![Action::KillTree {
             leader: LEADER,
             known: vec![CHILD]
         }]
     );
-    killed(&mut g, due, true, true);
-    g.handle(due, Input::PayloadExited(ExitStatus::Signal(9)));
-    assert_eq!(actions(&mut g), vec![Action::DrainLogs]);
-    g.handle(due, Input::LogsDrained);
-    let report = actions(&mut g);
+    let end = rig.killed_leader_exits(true);
+    let exit = exited(&end).unwrap();
     assert_eq!(
-        g.status().exit,
-        Some(ServiceExit {
+        exit,
+        ServiceExit {
             code: None,
             signal: Some(9),
             cause: ServiceExitCause::Killed,
-            descendants_may_remain: true
-        })
+            descendants_may_remain: true,
+        }
     );
+    assert_eq!(end.last(), Some(&Action::ReapService { leader: LEADER }));
+    rig.input(Input::Reaped);
+    assert!(rig.command(Command::Stop).is_empty());
+}
+
+/// Core SV-5, SV-9 (conf::sv_9_sigterm_then_group_kill): a leader that SIGTERM ends is `HostStop`; the cleanup kill
+/// that finds it exiting is no cause.
+#[test]
+fn a_leader_that_sigterm_ends_is_host_stop() {
+    let mut rig = Rig::running();
+    rig.stop_to_term(vec![]);
+    rig.term_result(true, false);
+    let status = ExitStatus::Signal(15);
+    let exit = exited(&rig.leader_exits(status)).unwrap();
     assert_eq!(
-        reports(&report),
-        vec![Report::Exited {
-            exit: g.status().exit.unwrap()
+        (exit.signal, exit.cause),
+        (Some(15), ServiceExitCause::HostStop)
+    );
+}
+
+/// Core SV-9: census and delivery delays cannot shorten the grace; it runs from the SIGTERM result.
+#[test]
+fn the_stop_grace_runs_from_the_sigterm_result() {
+    let grace = spec().limits.stop_grace;
+    let mut rig = Rig::running();
+    assert_eq!(
+        rig.command(Command::Stop),
+        vec![Action::Enumerate { leader: LEADER }]
+    );
+    let census_at = rig.start + grace;
+    assert!(rig.at(census_at).is_empty());
+    assert_eq!(rig.g.next_deadline(), None);
+    assert_eq!(
+        rig.input(Input::Descendants(vec![CHILD])),
+        vec![Action::TermService { leader: LEADER }]
+    );
+    let term_at = census_at + grace;
+    assert!(rig.at(term_at).is_empty());
+    assert_eq!(rig.g.next_deadline(), None);
+    rig.term_result(true, false);
+    assert_eq!(rig.g.next_deadline(), Some(term_at + grace));
+}
+
+/// Core SV-9: a failed SIGTERM to a live leader still runs the grace, then kills; it claims no `HostStop`.
+#[test]
+fn a_failed_sigterm_runs_the_grace_and_claims_no_cause() {
+    let grace = spec().limits.stop_grace;
+    let mut rig = Rig::running();
+    rig.stop_to_term(vec![]);
+    rig.term_result(false, false);
+    let due = rig.at + grace;
+    assert_eq!(
+        rig.at(due),
+        vec![Action::KillTree {
+            leader: LEADER,
+            known: vec![]
         }]
     );
-    assert_eq!(report.last(), Some(&Action::ReapService { leader: LEADER }));
-    g.handle(due, Input::Reaped);
-    command(&mut g, due, Command::Stop);
-    assert!(actions(&mut g).is_empty());
+    rig.tree_killed(false, false);
+    rig.input(Input::PayloadExited(ExitStatus::Code(0)));
+    let exit = exited(&rig.input(Input::LogsDrained)).unwrap();
+    assert_eq!(exit.cause, ServiceExitCause::Normal);
 }
 
-/// Core SV-5, SV-9: TERM exit stays HostStop; cleanup KILL does not claim the leader's exit.
+/// Core SV-9, SV-8: a kill requested during the census or SIGTERM runs after that result, with the known descendants.
 #[test]
-fn a_term_exit_is_host_stop_and_the_cleanup_kill_is_not_an_exit_cause() {
-    let at = now();
-    let mut g = running(at);
-    command(&mut g, at, Command::Stop);
-    actions(&mut g);
-    g.handle(at, Input::Descendants(vec![]));
-    actions(&mut g);
-    g.handle(
-        at,
-        Input::TermSent {
-            delivered: true,
-            leader_exiting: false,
-        },
+fn a_kill_waits_for_the_outstanding_census_or_sigterm() {
+    let mut rig = Rig::running();
+    rig.command(Command::Stop);
+    assert_eq!(sent(&rig.command(Command::Remove)), vec![]);
+    assert_eq!(
+        rig.input(Input::Descendants(vec![CHILD])),
+        vec![Action::KillTree {
+            leader: LEADER,
+            known: vec![CHILD]
+        }]
     );
-    finish_exit(&mut g, at, ExitStatus::Signal(15), false, false);
-    assert_eq!(g.status().exit.unwrap().cause, ServiceExitCause::HostStop);
+
+    let mut rig = Rig::running();
+    rig.stop_to_term(vec![CHILD]);
+    rig.input(Input::LinkClosed);
+    let due = rig.start + rig.cfg.orphan_grace;
+    assert_eq!(rig.at(due), vec![]);
+    assert_eq!(
+        rig.term_result(true, false),
+        vec![Action::KillTree {
+            leader: LEADER,
+            known: vec![CHILD]
+        }]
+    );
+    rig.killed_leader_exits(false);
+    assert_eq!(
+        rig.g.status().exit.unwrap().cause,
+        ServiceExitCause::OrphanGrace
+    );
 }
 
-/// Core SV-5: limits are not causes; a failed signal cannot claim an unrelated exit.
+/// Core SV-5 (conf::sv_5_no_unobservable_limit_causes): the cause is how the leader ended, or its cooperative byte.
 #[test]
-fn external_exits_and_cooperative_cause_bytes_remain_observable() {
-    let at = now();
-    for (status, byte, expected) in [
-        (ExitStatus::Code(1), None, ServiceExitCause::Normal),
-        (ExitStatus::Signal(24), None, ServiceExitCause::Signal),
+fn an_exit_reports_its_observed_cause() {
+    for (status, bytes, cause) in [
+        (ExitStatus::Code(0), vec![], ServiceExitCause::Normal),
+        (ExitStatus::Signal(24), vec![], ServiceExitCause::Signal),
         (
             ExitStatus::Code(1),
-            Some(7),
+            vec![7, 8],
             ServiceExitCause::ChildReported(7),
         ),
     ] {
-        let mut g = running(at);
-        command(&mut g, at, Command::Stop);
-        actions(&mut g);
-        g.handle(at, Input::Descendants(vec![]));
-        actions(&mut g);
-        g.handle(
-            at,
-            Input::TermSent {
-                delivered: false,
-                leader_exiting: true,
-            },
-        );
-        if let Some(byte) = byte {
-            g.handle(at, Input::Cause(byte));
-            g.handle(at, Input::Cause(8));
+        let mut rig = Rig::running();
+        for byte in bytes {
+            rig.input(Input::Cause(byte));
         }
-        finish_exit(&mut g, at, status, false, false);
-        assert_eq!(g.status().exit.unwrap().cause, expected);
-    }
-}
-
-/// Core SV-9: the ring retains only the newest bytes and survives a control reconnect.
-#[test]
-fn logs_are_bounded_and_remain_available_after_exit_and_adoption() {
-    let at = now();
-    let mut g = running(at);
-    g.handle(at, Input::Log(vec![0x11; 2000]));
-    g.handle(at, Input::Log(vec![0xbb; 16]));
-    assert_eq!(g.log_tail(100000).len(), 1024);
-    assert_eq!(g.log_tail(16), vec![0xbb; 16]);
-    assert!(g.log_tail(0).is_empty());
-    let before = g.log_tail(1024);
-    finish_exit(&mut g, at, ExitStatus::Code(0), false, false);
-    g.handle(at, Input::Reaped);
-    g.handle(at, Input::LinkClosed);
-    actions(&mut g);
-    g.handle(at, Input::LinkConnected);
-    actions(&mut g);
-    authenticate(&mut g, at, hello(2));
-    actions(&mut g);
-    assert_eq!(g.log_tail(1024), before);
-    command(&mut g, at, Command::LogTail { req: 1, max: 16 });
-    assert_eq!(
-        reports(&actions(&mut g)),
-        vec![Report::Log {
-            req: 1,
-            bytes: vec![0xbb; 16],
-            last: true
-        }]
-    );
-}
-
-/// Core SV-9: large tails use bounded link frames without changing the log limit.
-#[test]
-fn log_reports_split_at_the_link_bound_and_empty_tails_finish() {
-    let at = now();
-    let mut cfg = config(DEFAULT_MAX_PAYLOAD as usize);
-    cfg.log_bytes = DEFAULT_MAX_PAYLOAD as usize;
-    let mut g = Guardian::new(cfg, at);
-    actions(&mut g);
-    authenticate(&mut g, at, hello(1));
-    actions(&mut g);
-    command(
-        &mut g,
-        at,
-        Command::LogTail {
-            req: u64::MAX,
-            max: u64::MAX,
-        },
-    );
-    assert_eq!(
-        reports(&actions(&mut g)),
-        vec![Report::Log {
-            req: u64::MAX,
-            bytes: vec![],
-            last: true
-        }]
-    );
-    let bytes = vec![255; DEFAULT_MAX_PAYLOAD as usize];
-    g.handle(at, Input::Log(bytes.clone()));
-    command(
-        &mut g,
-        at,
-        Command::LogTail {
-            req: u64::MAX,
-            max: u64::MAX,
-        },
-    );
-    let chunks = reports(&actions(&mut g));
-    let mut received = Vec::new();
-    for (index, report) in chunks.iter().enumerate() {
-        let Report::Log { req, bytes, last } = report else {
-            panic!("log chunk");
+        let exit = exited(&rig.leader_exits(status)).unwrap();
+        let (code, signal) = match status {
+            ExitStatus::Code(code) => (Some(code), None),
+            ExitStatus::Signal(signal) => (None, Some(signal)),
         };
-        assert_eq!(*req, u64::MAX);
-        assert_eq!(*last, index + 1 == chunks.len());
-        received.extend_from_slice(bytes);
-    }
-    assert_eq!(received, bytes);
-}
-
-/// Core SV-9: teardown waits for an outstanding exec, census, kill, drain, and reap.
-#[test]
-fn cleanup_requests_during_exec_are_not_lost() {
-    let at = now();
-    for terminate in [false, true] {
-        let mut g = ready(at);
-        command(&mut g, at, Command::Launch(Box::new(spec())));
-        actions(&mut g);
-        if terminate {
-            g.handle(at, Input::Terminate);
-        } else {
-            command(&mut g, at, Command::Remove);
-        }
-        assert!(actions(&mut g).is_empty());
-        g.handle(
-            at,
-            Input::Spawned(SpawnResult::Started {
-                payload: LEADER,
-                report: SpawnReport::default(),
-            }),
-        );
-        let spawned = actions(&mut g);
-        assert!(spawned.contains(&Action::KillTree {
-            leader: LEADER,
-            known: vec![]
-        }));
-        assert!(!spawned.contains(&Action::Exit));
-        killed(&mut g, at, true, false);
-        g.handle(at, Input::PayloadExited(ExitStatus::Signal(9)));
-        actions(&mut g);
-        g.handle(at, Input::LogsDrained);
-        assert!(actions(&mut g).contains(&Action::ReapService { leader: LEADER }));
-        assert!(g.status().exit.is_some());
-        g.handle(at, Input::Reaped);
-        let end = actions(&mut g);
-        if terminate {
-            assert_eq!(end, vec![Action::LinkClose, Action::Exit]);
-        } else {
-            assert_eq!(reports(&end), vec![Report::Removed]);
-            assert!(!end.contains(&Action::Exit));
-            g.handle(at, Input::LinkClosed);
-            assert_eq!(actions(&mut g), vec![Action::LinkClose, Action::Exit]);
-        }
-    }
-}
-
-/// Core SV-9: census and delivery delays cannot shorten the grace after SIGTERM.
-#[test]
-fn a_late_census_preserves_sigterm_then_the_full_grace_and_known_descendants() {
-    let at = now();
-    let mut g = running(at);
-    command(&mut g, at, Command::Stop);
-    actions(&mut g);
-    let census_at = at + spec().limits.stop_grace;
-    assert_eq!(g.next_deadline(), None);
-    g.pump(census_at);
-    assert!(actions(&mut g).is_empty());
-    g.handle(census_at, Input::Descendants(vec![CHILD]));
-    assert_eq!(
-        actions(&mut g),
-        vec![Action::TermService { leader: LEADER }]
-    );
-    assert_eq!(g.next_deadline(), None);
-    let delivered_at = census_at + spec().limits.stop_grace;
-    g.pump(delivered_at);
-    assert!(actions(&mut g).is_empty());
-    g.handle(
-        delivered_at,
-        Input::TermSent {
-            delivered: true,
-            leader_exiting: false,
-        },
-    );
-    let due = delivered_at + spec().limits.stop_grace;
-    assert_eq!(g.next_deadline(), Some(due));
-    g.pump(due - Duration::from_nanos(1));
-    assert!(actions(&mut g).is_empty());
-    g.pump(due);
-    assert_eq!(
-        actions(&mut g),
-        vec![Action::KillTree {
-            leader: LEADER,
-            known: vec![CHILD]
-        }]
-    );
-    g.handle(due, Input::PayloadExited(ExitStatus::Signal(9)));
-    assert_eq!(actions(&mut g), vec![Action::DrainLogs]);
-    g.handle(due, Input::LogsDrained);
-    assert!(actions(&mut g).is_empty());
-    killed(&mut g, due, true, false);
-    assert!(actions(&mut g).contains(&Action::ReapService { leader: LEADER }));
-}
-
-/// Core SV-9: SIGTERM delivery, rather than the Stop request, starts the grace.
-#[test]
-fn delayed_sigterm_delivery_starts_the_full_stop_grace() {
-    let at = now();
-    let mut g = running(at);
-    command(&mut g, at, Command::Stop);
-    assert_eq!(actions(&mut g), vec![Action::Enumerate { leader: LEADER }]);
-    g.handle(at, Input::Descendants(vec![]));
-    assert_eq!(
-        actions(&mut g),
-        vec![Action::TermService { leader: LEADER }]
-    );
-    let delivered_at = at + spec().limits.stop_grace;
-    command(&mut g, delivered_at, Command::Stop);
-    g.pump(delivered_at);
-    assert_eq!(g.next_deadline(), None);
-    assert!(actions(&mut g).is_empty());
-    g.handle(
-        delivered_at,
-        Input::TermSent {
-            delivered: true,
-            leader_exiting: false,
-        },
-    );
-    let due = delivered_at + spec().limits.stop_grace;
-    assert_eq!(g.next_deadline(), Some(due));
-    command(&mut g, due - Duration::from_nanos(1), Command::Stop);
-    g.pump(due - Duration::from_nanos(1));
-    assert!(actions(&mut g).is_empty());
-    g.pump(due);
-    assert_eq!(
-        actions(&mut g),
-        vec![Action::KillTree {
-            leader: LEADER,
-            known: vec![]
-        }]
-    );
-}
-
-/// Core SV-9: a leader that exits during census remains owned until cleanup completes.
-#[test]
-fn an_exit_during_census_retains_descendants_and_waits_for_log_drain() {
-    let at = now();
-    let mut g = running(at);
-    command(&mut g, at, Command::Stop);
-    actions(&mut g);
-    g.handle(at, Input::PayloadExited(ExitStatus::Code(1)));
-    assert_eq!(actions(&mut g), vec![Action::DrainLogs]);
-    g.handle(at, Input::Descendants(vec![CHILD]));
-    assert_eq!(
-        actions(&mut g),
-        vec![Action::KillTree {
-            leader: LEADER,
-            known: vec![CHILD]
-        }]
-    );
-    killed(&mut g, at, false, false);
-    assert!(actions(&mut g).is_empty());
-    assert_eq!(g.status().exit, None);
-    g.handle(at, Input::LogsDrained);
-    assert_eq!(g.status().exit.unwrap().cause, ServiceExitCause::Normal);
-    assert!(actions(&mut g).contains(&Action::ReapService { leader: LEADER }));
-}
-
-/// Core AD-6, SV-8, SV-9: direct commands require authentication and an active guardian.
-#[test]
-fn direct_commands_cannot_bypass_authentication_or_teardown() {
-    let at = now();
-    let mut g = Guardian::new(config(1024), at);
-    actions(&mut g);
-    g.begin(at, Command::Launch(Box::new(spec())));
-    assert!(actions(&mut g).is_empty());
-    for teardown in 0..3 {
-        let mut g = running(at);
-        match teardown {
-            0 => command(&mut g, at, Command::Remove),
-            1 => g.handle(at, Input::Terminate),
-            _ => {
-                g.handle(at, Input::LinkClosed);
-                g.pump(at + spec().limits.orphan_grace);
+        assert_eq!(
+            exit,
+            ServiceExit {
+                code,
+                signal,
+                cause,
+                descendants_may_remain: false
             }
-        }
-        actions(&mut g);
-        g.begin(at, Command::LogTail { req: 1, max: 1024 });
-        g.begin(at, Command::Status);
-        assert!(actions(&mut g).is_empty());
+        );
     }
 }
 
-/// Core AD-6: a command in the wrong frame type cannot change the service.
+/// Core SV-9: an exit during the census keeps the census for the kill and waits for the drain.
 #[test]
-fn only_host_message_frames_can_launch_after_authentication() {
-    let at = now();
-    let mut g = ready(at);
-    let payload = serde_json::to_vec(&Command::Launch(Box::new(spec()))).unwrap();
-    g.handle(at, Input::LinkBytes(wire(FrameType::WORKER_MSG, &payload)));
-    assert!(actions(&mut g).is_empty());
-    command(&mut g, at, Command::Launch(Box::new(spec())));
+fn an_exit_during_the_census_keeps_the_descendants_and_waits_for_the_drain() {
+    let mut rig = Rig::running();
+    rig.command(Command::Stop);
     assert_eq!(
-        actions(&mut g),
-        vec![Action::SpawnService(Box::new(spec()))]
+        rig.input(Input::PayloadExited(ExitStatus::Code(1))),
+        vec![Action::DrainLogs]
+    );
+    assert_eq!(
+        rig.input(Input::Descendants(vec![CHILD])),
+        vec![Action::KillTree {
+            leader: LEADER,
+            known: vec![CHILD]
+        }]
+    );
+    assert!(rig.tree_killed(false, false).is_empty());
+    let end = rig.input(Input::LogsDrained);
+    assert_eq!(exited(&end).unwrap().cause, ServiceExitCause::Normal);
+    assert_eq!(end.last(), Some(&Action::ReapService { leader: LEADER }));
+}
+
+/// Core SV-9: a leader that exits before the exec result is cleaned up when the result arrives.
+#[test]
+fn an_exit_before_the_exec_result_is_cleaned_up() {
+    let mut rig = Rig::ready();
+    rig.command(Command::Launch(Box::new(spec())));
+    assert!(rig
+        .input(Input::PayloadExited(ExitStatus::Code(1)))
+        .is_empty());
+    let started = rig.started();
+    assert_eq!(
+        &started[1..],
+        [
+            Action::DrainLogs,
+            Action::KillTree {
+                leader: LEADER,
+                known: vec![]
+            }
+        ]
+    );
+    assert_eq!(rig.g.next_deadline(), None);
+    rig.tree_killed(false, false);
+    assert_eq!(
+        exited(&rig.input(Input::LogsDrained)).unwrap().code,
+        Some(1)
     );
 }
 
-/// Core SV-5, SV-7, SV-9: stale edge results cannot change the retained service lifetime.
+/// Core SV-9: Remove and shutdown during exec kill the service when exec returns, then end the guardian.
 #[test]
-fn stale_process_results_cannot_skip_cleanup_or_replace_the_exit() {
-    let at = now();
-    let mut g = ready(at);
-    g.handle(at, Input::PayloadExited(ExitStatus::Code(1)));
-    g.handle(at, Input::Reaped);
-    command(&mut g, at, Command::Launch(Box::new(spec())));
-    assert_eq!(
-        actions(&mut g),
-        vec![Action::SpawnService(Box::new(spec()))]
-    );
-    g.handle(
-        at,
-        Input::Spawned(SpawnResult::Started {
-            payload: LEADER,
-            report: SpawnReport::default(),
-        }),
-    );
-    assert_eq!(
-        reports(&actions(&mut g)),
-        vec![Report::Started {
-            payload: LEADER,
-            report: SpawnReport::default()
-        }]
-    );
-    command(&mut g, at, Command::EpochCommitted);
+fn teardown_during_exec_kills_when_exec_returns() {
+    for remove in [true, false] {
+        let mut rig = Rig::ready();
+        rig.command(Command::Launch(Box::new(spec())));
+        let request = if remove {
+            rig.command(Command::Remove)
+        } else {
+            rig.input(Input::Terminate)
+        };
+        assert!(request.is_empty());
+        assert!(rig.started().ends_with(&[Action::KillTree {
+            leader: LEADER,
+            known: vec![]
+        }]));
+        rig.killed_leader_exits(false);
+        assert_eq!(rig.g.status().exit.unwrap().cause, ServiceExitCause::Killed);
+        let end = rig.input(Input::Reaped);
+        if remove {
+            assert_eq!(reports(&end), vec![Report::Removed]);
+            assert_eq!(
+                rig.input(Input::LinkClosed),
+                vec![Action::LinkClose, Action::Exit]
+            );
+        } else {
+            assert_eq!(end, vec![Action::LinkClose, Action::Exit]);
+        }
+    }
+}
+
+/// Core SV-9: Remove ends the guardian only after the driver wrote `Removed`; after that, every input is ignored.
+#[test]
+fn removal_waits_for_the_written_report_then_ignores_every_input() {
+    let mut rig = Rig::ready();
+    let before = rig.written;
+    rig.command(Command::Remove);
+    assert!(rig.input(Input::LinkWritten { total: before }).is_empty());
+    assert!(rig
+        .input(Input::LinkWritten {
+            total: rig.written - 1
+        })
+        .is_empty());
+    assert_eq!(rig.flush(), vec![Action::LinkClose, Action::Exit]);
     for input in [
+        Input::Terminate,
+        Input::LinkClosed,
+        Input::LinkConnected,
+        Input::Log(vec![1]),
+        Input::PayloadExited(ExitStatus::Code(0)),
+        Input::Timer,
+    ] {
+        assert!(rig.input(input).is_empty());
+    }
+    assert_eq!(rig.g.next_deadline(), None);
+}
+
+/// Core SV-5, SV-9: results that answer no outstanding action change nothing.
+#[test]
+fn stale_process_results_change_nothing() {
+    let stale = [
         Input::LogsDrained,
         Input::Descendants(vec![CHILD]),
         Input::TermSent {
@@ -805,215 +884,87 @@ fn stale_process_results_cannot_skip_cleanup_or_replace_the_exit() {
             descendants_may_remain: true,
         },
         Input::Reaped,
-    ] {
-        g.handle(at, input);
-        assert!(actions(&mut g).is_empty());
-        assert_eq!(g.next_deadline(), None);
+        Input::Spawned(SpawnResult::Failed(StartFailReason::CwdMissing)),
+    ];
+    let mut rig = Rig::running();
+    for input in stale.clone() {
+        assert!(rig.input(input).is_empty());
     }
-    g.handle(at, Input::PayloadExited(ExitStatus::Code(1)));
-    let cleanup = actions(&mut g);
-    assert!(cleanup.contains(&Action::KillTree {
-        leader: LEADER,
-        known: vec![]
-    }));
-    command(&mut g, at, Command::Stop);
-    assert!(actions(&mut g).is_empty());
-    g.handle(at, Input::PayloadExited(ExitStatus::Signal(9)));
-    assert!(actions(&mut g).is_empty());
-    killed(&mut g, at, false, false);
-    assert!(actions(&mut g).is_empty());
-    assert_eq!(g.status().exit, None);
-    g.handle(at, Input::LogsDrained);
-    let exit = g.status().exit.unwrap();
-    assert_eq!(exit.code, Some(1));
-    assert_eq!(exit.signal, None);
-    assert_eq!(exit.cause, ServiceExitCause::Normal);
-    assert!(!exit.descendants_may_remain);
-    assert!(actions(&mut g).contains(&Action::ReapService { leader: LEADER }));
-}
-
-/// Core AD-6, SV-8: an existing connection and expired adoption cannot start a new handshake.
-#[test]
-fn connected_and_orphan_ending_guardians_ignore_duplicate_connections() {
-    let at = now();
-    let mut g = running(at);
-    g.handle(at, Input::LinkConnected);
-    assert!(actions(&mut g).is_empty());
-    command(&mut g, at, Command::Status);
-    assert_eq!(reports(&actions(&mut g)), vec![Report::Status(g.status())]);
-    g.handle(at, Input::LinkClosed);
-    actions(&mut g);
-    let due = at + spec().limits.orphan_grace;
-    g.pump(due);
-    actions(&mut g);
-    g.handle(due, Input::LinkConnected);
-    assert!(actions(&mut g).is_empty());
-    assert_eq!(g.next_deadline(), None);
-}
-
-/// Core SV-5: an absent signal or an exiting leader cannot produce a guardian kill cause.
-#[test]
-fn cleanup_signal_results_report_only_the_observed_leader_cause() {
-    let at = now();
-    for (leader_signalled, leader_exiting) in [(false, false), (true, true)] {
-        let mut g = running(at);
-        g.handle(at, Input::PayloadExited(ExitStatus::Code(1)));
-        actions(&mut g);
-        g.handle(
-            at,
-            Input::TreeKilled {
-                leader_signalled,
-                leader_exiting,
-                descendants_may_remain: false,
-            },
-        );
-        g.handle(at, Input::LogsDrained);
-        assert_eq!(g.status().exit.unwrap().cause, ServiceExitCause::Normal);
+    assert_eq!(rig.g.status().exit, None);
+    let mut rig = Rig::ready();
+    for input in stale {
+        assert!(rig.input(input).is_empty());
     }
-}
-
-/// Core SV-9: a leader exit before the spawn answer remains owned through cleanup.
-#[test]
-fn exit_before_spawn_answer_is_retained() {
-    let at = now();
-    let mut g = ready(at);
-    command(&mut g, at, Command::Launch(Box::new(spec())));
-    actions(&mut g);
-    g.handle(at, Input::PayloadExited(ExitStatus::Code(1)));
-    assert!(actions(&mut g).is_empty());
-    g.handle(
-        at,
-        Input::Spawned(SpawnResult::Started {
-            payload: LEADER,
-            report: SpawnReport::default(),
-        }),
-    );
-    let cleanup = actions(&mut g);
-    assert!(cleanup.contains(&Action::DrainLogs));
-    assert!(cleanup.contains(&Action::KillTree {
-        leader: LEADER,
-        known: vec![]
-    }));
-    killed(&mut g, at, false, false);
-    g.handle(at, Input::LogsDrained);
-    assert_eq!(g.status().exit.unwrap().cause, ServiceExitCause::Normal);
-    assert!(actions(&mut g).contains(&Action::ReapService { leader: LEADER }));
-}
-
-/// Core SV-5, SV-9: reordered edge results retain Killed and wait for every pending result.
-#[test]
-fn a_late_term_result_cannot_overwrite_the_orphan_kill_cause() {
-    let at = now();
-    let mut g = running(at);
-    command(&mut g, at, Command::Stop);
-    actions(&mut g);
-    g.handle(at, Input::Descendants(vec![]));
-    actions(&mut g);
-    g.handle(at, Input::LinkClosed);
-    actions(&mut g);
-    let due = at + spec().limits.orphan_grace;
-    g.pump(due);
-    actions(&mut g);
-    killed(&mut g, due, true, false);
-    g.handle(due, Input::PayloadExited(ExitStatus::Signal(9)));
-    actions(&mut g);
-    g.handle(due, Input::LogsDrained);
-    assert!(actions(&mut g).is_empty());
-    g.handle(
-        due,
-        Input::TermSent {
-            delivered: true,
-            leader_exiting: false,
-        },
-    );
     assert_eq!(
-        g.status().exit.unwrap().cause,
-        ServiceExitCause::OrphanGrace
+        rig.command(Command::Launch(Box::new(spec()))),
+        vec![Action::SpawnService(Box::new(spec()))]
     );
-    assert!(actions(&mut g).contains(&Action::ReapService { leader: LEADER }));
 }
 
-/// Core SV-9: Remove waits for the actual report bytes, then closes and ends once.
+/// Core SV-9 (conf::sv_9_log_tail_bounded): the guardian streams its output to the host, retains the newest
+/// `log_bytes`, and resends that tail to a new host.
 #[test]
-fn removal_waits_for_every_report_byte_and_cannot_signal_after_it_ends() {
-    let at = now();
-    let mut g = Guardian::new(config(0), at);
-    let mut written = actions(&mut g)
-        .into_iter()
-        .map(|a| match a {
-            Action::LinkSend(bytes) => bytes.len() as u64,
-            _ => panic!("hello"),
-        })
-        .sum::<u64>();
-    authenticate(&mut g, at, hello(1));
-    written += actions(&mut g)
-        .into_iter()
-        .map(|a| match a {
-            Action::LinkSend(bytes) => bytes.len() as u64,
-            _ => panic!("status"),
-        })
-        .sum::<u64>();
-    command(&mut g, at, Command::Remove);
-    let removed = actions(&mut g);
-    assert_eq!(reports(&removed), vec![Report::Removed]);
-    let total = written
-        + removed
-            .into_iter()
-            .map(|a| match a {
-                Action::LinkSend(bytes) => bytes.len() as u64,
-                _ => panic!("removed"),
-            })
-            .sum::<u64>();
-    g.handle(at, Input::LinkWritten { total: total - 1 });
-    assert!(actions(&mut g).is_empty());
-    g.handle(at, Input::LinkWritten { total: written });
-    assert!(actions(&mut g).is_empty());
-    g.handle(at, Input::LinkWritten { total });
-    assert_eq!(actions(&mut g), vec![Action::LinkClose, Action::Exit]);
-    for input in [
-        Input::Terminate,
-        Input::LinkClosed,
-        Input::LinkConnected,
-        Input::Reaped,
-        Input::PayloadExited(ExitStatus::Code(0)),
-    ] {
-        g.handle(at, input);
+fn the_log_streams_to_the_host_and_a_new_host_gets_the_bounded_tail() {
+    let mut rig = Rig::running();
+    let first = vec![0x11; rig.cfg.log_bytes * 2];
+    let last = vec![0xbb; 16];
+    // The ring keeps the newest bytes, so a write larger than the ring sends only its tail.
+    let kept = first.len() - rig.cfg.log_bytes;
+    assert_eq!(
+        logs(&rig.input(Input::Log(first.clone()))),
+        vec![LogChunk {
+            offset: kept as u64,
+            bytes: first[kept..].to_vec()
+        }]
+    );
+    // One batch at a time: the next waits until the first is written.
+    assert!(rig.input(Input::Log(last.clone())).is_empty());
+    assert_eq!(
+        logs(&rig.flush()),
+        vec![LogChunk {
+            offset: first.len() as u64,
+            bytes: last.clone()
+        }]
+    );
+
+    let written = [first, last].concat();
+    let tail = written[written.len() - rig.cfg.log_bytes..].to_vec();
+    let offset = (written.len() - tail.len()) as u64;
+    assert_eq!(
+        logs(&rig.reconnect(rig.cfg.host_epoch)),
+        vec![LogChunk {
+            offset,
+            bytes: tail
+        }]
+    );
+}
+
+/// Core SV-9: a tail larger than one link frame goes out in bounded frames that carry every byte in order.
+#[test]
+fn a_large_tail_fills_bounded_frames_in_order() {
+    let mut rig = Rig::with(GuardianConfig {
+        log_bytes: LOG_CHUNK_BYTES * 2 + 1,
+        ..config()
+    });
+    rig.authenticate(rig.cfg.host_epoch);
+    let bytes: Vec<u8> = (0..rig.cfg.log_bytes).map(|i| i as u8).collect();
+    let actions = rig.input(Input::Log(bytes.clone()));
+    let mut expected = 0u64;
+    let mut received = Vec::new();
+    for action in &actions {
+        let Action::LinkSend(frame) = action else {
+            panic!("only log frames")
+        };
+        assert!(frame.len() <= HEADER_LEN + DEFAULT_MAX_PAYLOAD as usize);
+        let chunks = logs(std::slice::from_ref(action));
+        let [chunk] = &chunks[..] else {
+            panic!("one chunk per frame")
+        };
+        assert_eq!(chunk.offset, expected);
+        expected += chunk.bytes.len() as u64;
+        received.extend_from_slice(&chunk.bytes);
     }
-    g.pump(at + Duration::from_secs(60000));
-    assert_eq!(g.next_deadline(), None);
-    assert!(actions(&mut g).is_empty());
-}
-
-/// Core SV-8, SV-9: orphan grace and termination also release a guardian with no launched payload.
-#[test]
-fn unlaunched_guardians_end_on_orphan_grace_and_termination() {
-    let at = now();
-    let mut g = Guardian::new(config(0), at);
-    actions(&mut g);
-    let due = at + Duration::from_millis(5000);
-    g.pump(due - Duration::from_nanos(1));
-    assert!(actions(&mut g).is_empty());
-    g.pump(due);
-    assert_eq!(actions(&mut g), vec![Action::LinkClose, Action::Exit]);
-    assert_eq!(g.next_deadline(), None);
-    let mut g = ready(at);
-    g.handle(at, Input::Terminate);
-    assert_eq!(actions(&mut g), vec![Action::LinkClose, Action::Exit]);
-}
-
-/// Core AD-6: a malformed or oversize control frame closes only the control connection.
-#[test]
-fn malformed_and_oversize_control_frames_do_not_launch_or_extend_grace() {
-    let at = now();
-    for bytes in [
-        wire(FrameType::HELLO, b"not JSON"),
-        wire(FrameType::HELLO, b"{}"),
-        vec![255, 255, 255, 255, 1],
-    ] {
-        let mut g = Guardian::new(config(0), at);
-        actions(&mut g);
-        g.handle(at, Input::LinkBytes(bytes));
-        assert_eq!(actions(&mut g), vec![Action::LinkClose]);
-        assert_eq!(g.next_deadline(), Some(at + Duration::from_millis(5000)));
-    }
+    assert_eq!(received, bytes);
+    // Every frame but the last is full: the fewest frames carry the tail.
+    assert_eq!(actions.len(), bytes.len().div_ceil(LOG_CHUNK_BYTES));
 }
