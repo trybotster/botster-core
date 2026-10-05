@@ -2089,3 +2089,46 @@ F21 remains CLOSED. All earlier findings and closures remain preserved.
 The reviewer ran no tests, builds, or gates.
 
 VERDICT: NOT CLEAN (F13: two original entries; F22 open) on `c731d03e0fbe2ad73d8f152ec67525c09c66f833`.
+
+## Round 62 — Guarded CLI tests and positive read bounds
+
+Reviewed head: `3fd4144515e8e903d6417adf56d12b7f038d8b70`.
+The reviewer inspected the complete delta from c731d03. No merge conflict or mutation exclusion changes.
+
+F22 is CLOSED in source.
+The CLI fixture creates the existing GroupGuard before spawning a shell in a new process group.
+The shell completes group registration before exec of the prebuilt candidate.
+A test thread owns the worker Child and calls wait_with_output. The guard reaps only its own anchor.
+The anchor retains group membership through the worker reap, preventing reuse of the group identifier before cleanup.
+The guard's socket closes on Drop or parent death. The anchor then kills the group it still owns.
+A ten-second channel deadline bounds the worker wait without polling.
+On deadline failure, guard cleanup starts before the fixture raises its assertion failure.
+The fixture retains the exact launch environment and output/status assertions.
+Corrected guarded execution evidence remains pending.
+
+READ_CHUNK now has type NonZeroUsize and retains default 65536.
+Driver::start delegates to start_with_read_bound. Both control and PTY reads use that field through the same code.
+The type enforces a positive bound in every build. No production test branch or second worker path appears.
+The new direct test checks control-byte order, complete decoded frames, and program-output retention at 65536, 1088, and 1.
+Each read must produce positive progress within its bound. A missing input fails promptly instead of polling.
+The test checks WouldBlock readiness clearing after consuming each finite stream.
+The program-output literal is data from printf, not an expected terminal encoding.
+Passing execution at all three bounds remains pending. No constant exclusion is accepted in this round.
+
+The reviewer read the c731d03 command-line evidence log and raw outcomes:
+`~/botster-sessions/gates/botster-core-stage1-p3-m1-v1-c731d03e-linux-20261004-180200-33062.log` and `/private/tmp/p3-command-line-evidence/`.
+The default baseline passes seven tests, zero skipped. All three generated execute mutations are CaughtMutant.
+Their actual logs fail launch-status or Driver-call assertions with Failure(100), without external timeouts.
+The command_line.rs implementation and default tests remain unchanged at the reviewed head.
+The earlier unguarded boundary tests pass, but do not verify the corrected guard fixture.
+The explicit candidate.rs path also corrects the mutation scanner's reported missing module referent.
+
+Main still contains the real Driver call, argument/environment reads, error printing, and status return.
+The execute evidence verifies the extracted decisions. It does not catch a no-op main in the prebuilt candidate.
+Main's proposed exact-function process-glue classification remains pending corrected boundary evidence and an explicit exclusion reason.
+F13 retains two original entries: READ_CHUNK addition and main no-op.
+New query/cleanup mutations still need accounting in the applicable gate.
+F21 remains CLOSED. All earlier findings and closures remain preserved.
+The reviewer ran no tests, builds, or gates.
+
+VERDICT: NOT CLEAN (F13: two original entries) on `3fd4144515e8e903d6417adf56d12b7f038d8b70`.
