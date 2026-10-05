@@ -11,6 +11,22 @@
 exclude_globs = ["**/tests/**", "tests/**"]
 
 exclude_re = [
+    # P3 Driver READ_CHUNK: no clause fixes this positive read bound. Plan 2.5 rule 7 and A5-2 permit partial reads.
+    # NonZeroUsize enforces positivity in all builds; a zero default fails const evaluation.
+    # control_and_pty_reads_retain_bytes_at_each_positive_bound proves control-frame and program-byte retention
+    # and readiness clearing at 65536, 1088, and 1 through the same Driver constructor and read functions.
+    # The exact-head slow baseline also proves the shared Worker's launch, signal, exit, and removal through Driver.
+    # Changed chunking can change the schedule without changing these contract results.
+    # This entry covers only the constant arithmetic. Read decisions in io_decisions remain mutation-tested.
+    'crates/botster-worker/src/main\.rs:47:55: replace \* with \+$',
+    # P3 main: process glue only. It reads arguments/token, calls command_line::execute with the real Driver,
+    # prints its diagnostic, and returns its status. WorkerLaunch owns parsing; execute owns status decisions.
+    # Default execute tests catch all three generated mutations and prove refusal, identity, success, and driver failure.
+    # Guarded slow_cli checks prove the prebuilt main returns usage code 2 and connection-failure code 1.
+    # slow_session proves successful real-driver retirement with code 0. All waits retain independent group ownership.
+    # This entry covers main alone. command_line and io_decisions remain in default-tier mutation tests.
+    # Recheck the classification if main acquires any decision beyond these process-boundary operations.
+    'crates/botster-worker/src/main\.rs:\d+:\d+: (replace main( ->| with)|.* in main$)',
     # P3 Payload::reap no-op: every current caller observes the leader's exit and sends group SIGKILL before reap.
     # Production emits ReapPayload only after killed && exit_drained. Explicit slow-test callers follow that order too.
     # A no-op still consumes self and runs Payload::drop with the child present. Drop sends an additional SIGKILL and waits.

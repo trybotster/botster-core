@@ -651,3 +651,26 @@ It also checks program-output retention and WouldBlock readiness clearing at eac
 Zero cannot construct this configuration in any build. The default constant also fails const evaluation if it is zero.
 No mutation exclusion was added. The tuning equivalence and main's process-glue classification still require reviewer acceptance.
 Next: Linux prebuild, guarded CLI and read-bound baselines, then payload query/cleanup mutation accounting.
+
+## Guarded proof and exact mutation classifications (2026-10-04)
+
+The exact-head Linux baseline at `3fd41445` passes 41 selected tests, zero skipped, in 0.229 seconds.
+Log: `~/botster-sessions/gates/botster-core-stage1-p3-m1-v1-3fd41445-linux-20261004-180554-37672.log`.
+Package verdict `662ea72e630b0e4944767a3d3b98abe8459b824f` and integration verdict `1e5a85aad0123eb7f626828ed766c61b091ec8db` close F22.
+Both reviewers conditionally accept the positive-tuning constant and main's process-glue classification.
+The submitted exclusions identify only READ_CHUNK arithmetic at main.rs:47:55 and main alone.
+Their comments name the proving tests and leave command_line and io_decisions under default mutation.
+Both entries still need exact configuration review.
+
+The payload mutation job at `3fd41445` tested 32 mutants: 24 caught, five unviable, three missed, and zero timed out.
+Log: `~/botster-sessions/gates/botster-core-stage1-p3-m1-v1-3fd41445-linux-20261004-180653-38263.log`.
+Two misses are the inactive Mac-only pending_output replacements at payload.rs:230:5.
+The remaining miss is the wait_unreaped_with fallback minus at :279:47; its default library test was outside the selection.
+The corrected Linux job must select both the library and slow_payload tests.
+A temporary Linux command filter omits only the inactive Mac helper entries. It creates no configuration exclusion.
+
+The lead authorizes one focused Mac mutation job for the Mac-only pending_output helper.
+The job must use botster-gate --on mac --deadline 20m and --in-diff.
+It selects only that helper, runs the existing library and slow_payload tests, and preserves every code deadline.
+The resulting log belongs in READY, the PR description, and both reviewer inboxes.
+Linux and Mac heavy jobs remain serial. Next: corrected Linux payload selection, then the authorized Mac job.
