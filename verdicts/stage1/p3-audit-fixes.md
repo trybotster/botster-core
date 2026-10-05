@@ -217,3 +217,13 @@ Still needed for CLEAN on this head: the P3 package reviewer's verdict on `82b42
 pending slow-tier evidence (`slow_payload`, clippy with `slow`, native Mac proof).
 
 VERDICT: NOT CLEAN (1 open: package verdict on 82b4269 pending; 0 integration findings open)
+
+## Round 2 note — the I1 test (same head `82b4269`)
+
+- The package reviewer keeps F25 open. `a_failed_exit_watch_is_an_error_and_never_an_exit` tests only `Result::map`. It does
+  not prove that `Driver::run` fails, that the payload group ends, or that the link is lost.
+- This reviewer agrees that the test is a forwarding check of a one-line helper (the A33 pattern). Round 2 closed I1 on source
+  inspection. The actual-path proof is the package reviewer's F25. This reviewer does not open a duplicate finding.
+- If the lead rules on the panic form, a new head gets a delta review here.
+
+VERDICT: NOT CLEAN (1 open: package verdict on 82b4269 pending; 0 integration findings open)
