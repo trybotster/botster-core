@@ -288,26 +288,27 @@ fn a_hello_for_an_unknown_instance_is_closed() {
     hello.encode(&mut payload).unwrap();
     let mut frame = Vec::new();
     encode_frame(FrameType::HELLO, &payload, 1 << 20, &mut frame).unwrap();
+    // The whole hello is in the socket before the host looks: one wake and one pump read it and close the link.
     client.write_all(&frame).unwrap();
-    client
-        .set_read_timeout(Some(Duration::from_millis(200)))
+    let (said, heard) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let mut rest = Vec::new();
+        let _ = said.send(client.read_to_end(&mut rest).map(|_| rest));
+    });
+    let woke = wake
+        // timer: deadline — a host that is never woken fails the test instead of hanging it
+        .wait(Duration::from_secs(8));
+    assert_eq!(woke, Wake::Woken, "TM-6: the connection wakes the host");
+    pump(&mut core);
+    let sent = heard
+        // timer: deadline — a link that the host does not close fails the test instead of hanging it
+        .recv_timeout(Duration::from_secs(8))
+        .expect("the host closed the link")
         .unwrap();
-    let began = Instant::now();
-    let mut buf = [0u8; 16];
-    loop {
-        pump(&mut core);
-        match client.read(&mut buf) {
-            Ok(0) => break,
-            Ok(_) => panic!("the host sent bytes to an unknown worker"),
-            Err(_) => {}
-        }
-        // timer: deadline — a failing run must not hang
-        assert!(
-            began.elapsed() < Duration::from_secs(8),
-            "the link was not closed"
-        );
-        let _ = wake.wait(Duration::from_millis(50));
-    }
+    assert!(
+        sent.is_empty(),
+        "the host sent bytes to an unknown worker: {sent:?}"
+    );
 }
 
 /// Plan R12, testing rule 10 (review finding F28): a test whose cleanup never runs leaves no worker. The session is started
