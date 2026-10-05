@@ -66,6 +66,12 @@ struct Controls {
     accept: Option<usize>,
     /// This many more bytes are taken, then the next write fails (`pty_fail_after`).
     fail_after: Option<usize>,
+    /// At most this many bytes of input reach the PTY per step, a pump of the host (`pty_chunk`).
+    input_cap: Option<usize>,
+    /// The bytes of the cap that the current step has left.
+    input_left: usize,
+    /// A write found the step's cap spent: the next step takes more of it (the host's next pump has work).
+    step_refused: bool,
     /// Every read returns at most this many bytes (`program_write_size`).
     write_cap: Option<usize>,
     /// Output that the program writes besides its script: `(bytes, atomic)` (`program_write_once`, `uncarriable_sequence`).
@@ -103,6 +109,36 @@ impl ProgramControl {
     /// `pty_fail_after`: the program takes `bytes` more bytes, then the next write fails with an OS error (Core IN-2).
     pub fn fail_after(&self, bytes: usize) {
         self.lock().fail_after = Some(bytes);
+    }
+
+    /// `pty_chunk`: at most `bytes` bytes of input reach the PTY per step (a pump of the host), so a host write reaches the
+    /// PTY in pieces across pumps (Core AM-2, IN-6: the definition of the contracts' FakeCore). `None` lifts the cap.
+    pub fn input_chunk(&self, bytes: Option<usize>) {
+        let mut controls = self.lock();
+        controls.input_cap = bytes;
+        controls.input_left = bytes.unwrap_or(0);
+    }
+
+    /// A new step begins: the cap of `pty_chunk` is available again.
+    pub fn new_step(&self) {
+        let mut controls = self.lock();
+        if let Some(cap) = controls.input_cap {
+            controls.input_left = cap;
+        }
+        controls.step_refused = false;
+    }
+
+    /// True when a write found this step's `pty_chunk` cap spent: the next step continues it.
+    pub fn waits_for_next_step(&self) -> bool {
+        self.lock().step_refused
+    }
+
+    /// `pty_output`: the program writes these plain bytes, after its script's output that can run now. A read may end
+    /// anywhere inside them (Core A5-2).
+    pub fn write_plain(&self, bytes: &[u8]) {
+        let mut controls = self.lock();
+        controls.unread += bytes.len();
+        controls.inject.push_back((bytes.to_vec(), false));
     }
 
     /// `program_write_size`: every read returns at most `bytes` bytes; `None` gives the choice back to the scheduler.
@@ -339,6 +375,19 @@ impl ScriptedProgram {
         self.size
     }
 
+    /// True when a write would not return `WouldBlock`: it takes a byte, or fails at once (the write readiness of the program
+    /// edge, plan 2.5 rule 8).
+    pub fn is_writable(&mut self) -> bool {
+        self.advance();
+        if self.exit.is_some() {
+            return true;
+        }
+        let controls = self.controls.lock();
+        let step_spent = controls.input_cap.is_some() && controls.input_left == 0;
+        controls.fail_after == Some(0)
+            || (!controls.blocked && controls.accept != Some(0) && !step_spent)
+    }
+
     /// True when a read would return bytes or the end of the output (readiness flag of the program edge, plan 2.5 rule 8).
     pub fn is_readable(&mut self) -> bool {
         self.advance();
@@ -399,6 +448,9 @@ impl Program for ScriptedProgram {
                 return Err(io::Error::from_raw_os_error(5));
             }
             let mut room = bytes.len();
+            if controls.input_cap.is_some() {
+                room = room.min(controls.input_left);
+            }
             if let Some(accept) = controls.accept {
                 room = room.min(accept);
             }
@@ -406,6 +458,9 @@ impl Program for ScriptedProgram {
                 room = room.min(left);
             }
             if (controls.blocked || room == 0) && !bytes.is_empty() {
+                if !controls.blocked && controls.input_cap.is_some() && controls.input_left == 0 {
+                    controls.step_refused = true;
+                }
                 return Err(io::ErrorKind::WouldBlock.into());
             }
             if let Some(accept) = &mut controls.accept {
@@ -413,6 +468,9 @@ impl Program for ScriptedProgram {
             }
             if let Some(left) = &mut controls.fail_after {
                 *left -= room;
+            }
+            if controls.input_cap.is_some() {
+                controls.input_left -= room;
             }
             controls.input_log.extend_from_slice(&bytes[..room]);
             room
@@ -979,5 +1037,106 @@ mod tests {
         output.push(b"", true);
         output.push(b"", false);
         assert_eq!(output.pieces.len(), 5);
+    }
+
+    /// `pty_chunk` (Core AM-2, IN-6): at most the cap reaches the PTY per step; the rest waits for the next step, and the
+    /// input log holds every byte once, in order.
+    #[test]
+    fn pty_chunk_caps_the_input_of_a_step() {
+        let mut p = program(json!({"program": [{"hold": {}}]}), true, 0);
+        let control = p.control();
+        control.input_chunk(Some(2));
+        assert_eq!(p.write(b"abcde").unwrap(), 2);
+        assert_eq!(
+            p.write(b"cde").unwrap_err().kind(),
+            io::ErrorKind::WouldBlock
+        );
+        assert!(!p.is_writable(), "the step's cap is spent");
+        assert!(control.waits_for_next_step());
+        control.new_step();
+        assert!(!control.waits_for_next_step());
+        assert!(p.is_writable());
+        assert_eq!(p.write(b"cde").unwrap(), 2);
+        control.new_step();
+        assert_eq!(p.write(b"e").unwrap(), 1);
+        control.input_chunk(None);
+        assert_eq!(p.write(b"xyz").unwrap(), 3);
+        assert_eq!(control.input_log(), b"abcdexyz");
+    }
+
+    /// Plan 2.5 rule 8: the program is writable unless it is blocked or its accept limit is spent; a write that would fail
+    /// at once, and an ended program, count as writable (the write returns at once).
+    #[test]
+    fn writability_follows_the_controls() {
+        let mut p = program(json!({"program": [{"hold": {}}]}), true, 0);
+        let control = p.control();
+        assert!(p.is_writable());
+        control.set_blocked(true);
+        assert!(!p.is_writable());
+        control.set_blocked(false);
+        control.accept_at_most(1);
+        assert!(p.is_writable());
+        p.write(b"ab").unwrap();
+        assert!(!p.is_writable(), "the accept limit is spent");
+        control.set_blocked(false);
+        control.fail_after(0);
+        assert!(p.is_writable(), "the next write fails at once");
+        let mut ended = program(json!({"program": [{"exit": {"code": 0}}]}), true, 0);
+        assert!(ended.is_writable());
+    }
+
+    /// `pty_output` (Core A5-2): plain bytes follow the script's output, every byte arrives in order, and the unread count
+    /// covers them.
+    #[test]
+    fn write_plain_adds_plain_output() {
+        let mut p = program(
+            json!({"program": [{"print": {"bytes_hex": "6869"}}, {"hold": {}}]}),
+            true,
+            0,
+        );
+        let control = p.control();
+        control.write_plain(b"!!");
+        assert!(p.is_readable());
+        assert_eq!(control.output_unread(), 4);
+        let mut out = Vec::new();
+        let mut buf = [0u8; 8];
+        while let Ok(n) = p.read(&mut buf) {
+            if n == 0 {
+                break;
+            }
+            out.extend_from_slice(&buf[..n]);
+        }
+        assert_eq!(out, b"hi!!");
+        assert_eq!(control.output_unread(), 0);
+    }
+
+    /// `pty_chunk` edges: a new step clears a refusal even with no cap; lifting the cap mid-step lets the rest through at
+    /// once; a zero-length write with the cap spent neither fails nor marks pending step work.
+    #[test]
+    fn pty_chunk_edges() {
+        let mut p = program(json!({"program": [{"hold": {}}]}), true, 0);
+        let control = p.control();
+        control.input_chunk(Some(1));
+        assert_eq!(p.write(b"ab").unwrap(), 1);
+        assert_eq!(p.write(b"").unwrap(), 0, "an empty write is not refused");
+        assert!(!control.waits_for_next_step(), "and marks no step work");
+        assert_eq!(p.write(b"b").unwrap_err().kind(), io::ErrorKind::WouldBlock);
+        assert!(control.waits_for_next_step());
+        control.input_chunk(None);
+        control.new_step();
+        assert!(
+            !control.waits_for_next_step(),
+            "a new step clears it with no cap"
+        );
+        assert_eq!(p.write(b"bcd").unwrap(), 3, "no cap: the whole write");
+        control.input_chunk(Some(1));
+        assert_eq!(p.write(b"e").unwrap(), 1);
+        control.input_chunk(None);
+        assert!(
+            p.is_writable(),
+            "lifting the cap mid-step lifts the step's limit"
+        );
+        assert_eq!(p.write(b"fg").unwrap(), 2);
+        assert_eq!(control.input_log(), b"abcdefg");
     }
 }

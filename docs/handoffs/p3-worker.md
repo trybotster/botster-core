@@ -743,3 +743,25 @@ The existing slow test the_payload_runs_on_the_pty_with_the_exact_environment ch
 A new function-specific printing-glue entry records that proof. All pure decision coverage and existing scopes remain.
 The earlier library-inclusive payload mutation run includes this formatter and catches its replacement.
 Next: both exact configuration reviews, then the new exact-head landing gate.
+
+## M2a restack started (2026-10-04)
+
+The lead merged PR136 as v1 01fd38968b9e7605becc7e2b5088628aff52865a. The merge tree equals reviewed and gated da2b049.
+New branch: stage1/p3-m2a-v1, from origin/v1 at that merge. The old branches remain unchanged.
+The current worktree path still ends with stage1-p3-m1-v1. It now holds the M2a branch.
+Commit 8ed941a restacks af4abdd, the reviewed M2a input admission machine, without conflicts.
+Uncommitted work restores the program and worker edges and the Sim scheduler proof from the reviewed M2a stack.
+The worker-edge merge keeps M1's injected positive read bound and adds M2a control state.
+The real driver keeps M1's I/O decisions, read bound, exit ownership, and cleanup.
+It retains one pending PTY write and performs at most one PTY write per turn after the control link.
+Unlike the old M2a adapter, PTY registration errors propagate from the driver.
+The readiness decision covers pending writes and blocked writes in all combinations.
+New worker_controls.rs holds M2a controls and their registration function. Harness dispatch has no new arms.
+P6 owns the new ControlRegistry interface on stage1/p6-control-registry.
+P3 requested a workers() accessor and reserves the open() call sites for directory-aware worker construction.
+P3 will merge the registry after it lands, then connect the controls through the module registration call.
+The testkit proof list adds the old M2a ids and the fixed cancel-race id from contracts-v0.1.13.
+All conformance ids remain pending until both harnesses pass.
+No M2a tests, builds, or gates have run. No M2a review or merge-readiness claim exists.
+Next: receive P6's registry head and accessor agreement. Connect the module and open() calls, then run focused Linux checks.
+M2b and the real-process conformance harness remain open.
