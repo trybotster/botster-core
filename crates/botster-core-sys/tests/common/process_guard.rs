@@ -390,7 +390,7 @@ fn a_stuck_reader_fails_with_a_clear_message() {
     );
     let output = silent.0.stdout.take().unwrap();
     let failed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
-        first_line_within(output, std::time::Duration::ZERO)
+        drop(first_line_within(output, std::time::Duration::ZERO));
     }))
     .expect_err("a silent reader fails the read");
     let report = failed.downcast_ref::<String>().expect("a report").clone();
