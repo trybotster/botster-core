@@ -271,3 +271,16 @@ Reviewed delta: `800606a..ccba050`, one commit, one test file. No production cha
 Integration findings: none open. Still needed for CLEAN: the P3 package verdict on `ccba050`.
 
 VERDICT: NOT CLEAN (1 open: package verdict on ccba050 pending; 0 integration findings open)
+
+## Round 4 note — The gate does not collect the real-driver proof (same head `ccba050`)
+
+- The package reviewer reports the Mac gate on `ccba050`: RED. The default tier passes (758 tests). The slow tier has 83 passes
+  and 2 failures, both in the shared guard and A10 tests, which P5 and the guard PR own. Mutation and fuzz did not run.
+- The slow step selects test binaries with `binary(/^slow/)`. The botster-worker driver tests, which include
+  `a_failed_exit_watch_ends_the_worker_with_a_failure`, are not in a `slow*` binary, so the gate never runs them.
+- Rounds 3 and 4 closed I1's real-path proof on this test. A test that the landing gate never runs is not landing evidence.
+  The package reviewer opened F33 (MEDIUM) for the collection. This reviewer does not open a duplicate finding. Integration
+  CLEAN on this PR now also needs F33 closed, with the test collected and passing in the gate.
+- The xtask is shared CI code, outside P3's crates, so any xtask change gets an integration delta review here.
+
+VERDICT: NOT CLEAN (1 open: package verdict pending, which now includes F33; 0 integration findings open)
