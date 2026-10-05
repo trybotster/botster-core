@@ -260,3 +260,23 @@ The base is still current v1 `144b023`. This reviewer ran no build, test or gate
 The P5 package verdict on this head is still needed.
 
 VERDICT: NOT CLEAN (2 open: K6, K7; package verdict pending)
+
+## Round 8 — Head b8b37a6
+
+Reviewed head: `b8b37a6d1161b83138a5e5e0e73bb68fc57e2db7`. Delta `1bcbb38..b8b37a6`, one commit: sys `storage.rs` and the facade
+`lib.rs`. The base is still current v1 `144b023`. This reviewer ran no build, test or gate.
+
+- **K6 CLOSED.** The `Core::open` rustdoc states both requirements on `data_dir`: the parent exists, and it can be opened for
+  reading. It states that Core syncs `data_dir` and its parent and no other ancestor, and that `RegistryFailed` follows when
+  a requirement is not met. The text changes no signature, so the `public-api` snapshot does not change.
+- **K7 CLOSED.** `assert_permission_denied` requires `PermissionDenied`, and it skips with a printed reason only when
+  `geteuid().is_root()`. The same helper replaces the `Ok(_)` arm in two older tests that had the same defect.
+- The package reviewer's LOW (an asserted `epoch == 1` in the grandparent test) is answered: the test now asserts only that
+  the open succeeds.
+- Implementer evidence: `~/botster-sessions/gates/botster-core-stage1-p5-audit-contract-b8b37a6d-mac-20261004-222024-65207.log`.
+  It is a focused Mac run at this exact head: 487 unit and 60 slow tests pass, and it exits 0. This reviewer read its summary
+  lines.
+
+Integration findings: none open. Still needed for CLEAN: the P5 package verdict on `b8b37a6`.
+
+VERDICT: NOT CLEAN (1 open: package verdict pending; 0 integration findings open)
