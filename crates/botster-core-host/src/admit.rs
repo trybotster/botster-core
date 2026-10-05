@@ -112,7 +112,7 @@ impl HostEngine {
 
     /// The feature check of a row that needs an optional feature (A2-6, AD-4).
     fn require_feature(&self, session: &SessionId, feature: Feature) -> Result<(), CoreError> {
-        let offered = self.features.names.contains(&feature);
+        let offered = self.cfg.features.names.contains(&feature);
         let worker_lacks = self
             .sessions
             .get(session)
@@ -582,30 +582,12 @@ impl HostEngine {
                         Step::Ready(Next::Complete(OpResult::Ok(OpOutput::End(end))))
                     }
                     Admit::Running | Admit::Starting => {
-                        let s = self.sessions.get_mut(&session).expect("checked");
-                        s.waiters.push(id);
-                        match s.flow {
-                            // An exit is being posted: the stop joins it.
-                            Flow::Stop(_) => {}
-                            // The start is still finishing (or has not begun): the stop begins when it ends (LC-12).
-                            Flow::Start(_) | Flow::Create(_) => {
-                                s.admit = Admit::Stopping;
-                                s.stop_after_start = true;
-                            }
-                            _ if s.admit == Admit::Starting => {
-                                s.admit = Admit::Stopping;
-                                s.stop_after_start = true;
-                            }
-                            _ => {
-                                s.admit = Admit::Stopping;
-                                s.host_ended = true;
-                                s.flow = Flow::Stop(StopFlow {
-                                    phase: StopPhase::RowWrite,
-                                    deadline: None,
-                                    end: None,
-                                });
-                            }
-                        }
+                        self.sessions
+                            .get_mut(&session)
+                            .expect("checked")
+                            .waiters
+                            .push(id);
+                        self.request_stop(&session);
                         Step::Await(Wait::Flow)
                     }
                     _ => {
@@ -854,12 +836,9 @@ impl HostEngine {
         self.ops.get_mut(&op).expect("read above").cancelled = true;
         match (sent, session, req) {
             (true, Some(session), Some(req)) => {
-                if self.send_msg(&session, botster_core_link::msg::HostMsg::Cancel { req }) {
-                    CancelResult::Admitted
-                } else {
-                    // The link is gone: the op completes through the link failure (IN-7).
-                    CancelResult::Admitted
-                }
+                // Without a link the op completes through the link failure (IN-7); the cancel is admitted either way.
+                self.send_msg(&session, botster_core_link::msg::HostMsg::Cancel { req });
+                CancelResult::Admitted
             }
             _ => {
                 // Not sent yet: nothing reached the PTY, so the cancel is exact (IN-6).

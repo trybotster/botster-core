@@ -17,7 +17,7 @@ use rustix::fs::{fstat, Mode};
 use sha2::{Digest, Sha256};
 use std::fs::{self, File};
 use std::io::{self, Read, Write};
-use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
+use std::os::unix::fs::DirBuilderExt;
 use std::path::{Path, PathBuf};
 
 /// The key of the host epoch row (DP-8).
@@ -266,8 +266,6 @@ fn check_safe(path: &Path) -> Result<(), OpenError> {
             mode & 0o777
         )));
     }
-    // A directory that this user cannot enter is not a directory that the host can use.
-    let _ = fs::metadata(path)?.permissions().mode();
     Ok(())
 }
 

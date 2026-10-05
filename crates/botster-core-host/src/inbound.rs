@@ -26,7 +26,12 @@ impl HostEngine {
                 match self.take_ticket(ticket) {
                     Some(Owner::Session(id)) => self.flow_row(&id, result),
                     Some(Owner::Op(op)) => self.op_row(op, result),
-                    Some(Owner::Ignored) | None => {}
+                    Some(Owner::FinalRow) => {
+                        if result.is_err() {
+                            self.final_row_failures += 1;
+                        }
+                    }
+                    None => {}
                 }
             }
             Input::Spawned { ticket, result } => {
@@ -56,7 +61,6 @@ impl HostEngine {
             }
             Input::ProcessExited { identity, status } => self.on_process_exited(identity, status),
             Input::IdentityState { identity, state } => self.flow_remove_probed(identity, state),
-            Input::Features(features) => self.features = features,
         }
     }
 

@@ -54,7 +54,10 @@ fn the_reads_and_the_service_calls_answer_through_the_driver() {
     assert_eq!(rig.driver.list().len(), 1);
     assert_eq!(rig.driver.status().sessions.len(), 1);
     assert_eq!(rig.driver.status().sessions[0].state, SessionState::Running);
-    assert_eq!(rig.driver.diagnostics()["sessions"], 1);
+    assert!(
+        rig.driver.diagnostics().is_object(),
+        "LC-10: one opaque value"
+    );
     assert_eq!(rig.driver.next_deadline(), None);
     rig.worker_says(
         LinkId(1),
@@ -232,15 +235,24 @@ fn io_errors_are_told_apart_by_their_kind() {
         .fail_send
         .push(io::ErrorKind::WouldBlock);
     rig.driver.begin(Op::Stop { id: sid("s1") }).unwrap();
-    for _ in 0..4 {
-        rig.pump();
-    }
+    let sent_before = rig.mock.lock().unwrap().links[&LinkId(1)].from_host.len();
+    rig.pump();
     {
         let mock = rig.mock.lock().unwrap();
+        let link = &mock.links[&LinkId(1)];
+        assert!(!link.closed_by_host, "a blocked send keeps the link");
+        assert!(link.write_interest, "the bytes wait with write interest on");
+        assert_eq!(link.from_host.len(), sent_before, "nothing was taken");
+    }
+    rig.pump();
+    {
+        let mock = rig.mock.lock().unwrap();
+        let link = &mock.links[&LinkId(1)];
         assert!(
-            !mock.links[&LinkId(1)].closed_by_host,
-            "a blocked send keeps the link"
+            link.from_host.len() > sent_before,
+            "the next pump sent the waiting frame"
         );
+        assert!(!link.write_interest, "and nothing waits now");
     }
     // Any other send error ends the link.
     let mut rig = Rig::new(CoreLimits::default());
