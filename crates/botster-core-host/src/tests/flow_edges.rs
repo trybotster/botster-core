@@ -649,23 +649,17 @@ fn stop_all_joins_an_end_in_flight() {
 }
 
 /// Core AM-1, AM-3: a failed `Create` ends the ops that were admitted after it, each with the registry failure, and none
-/// stays attached to the session that never existed: a `Start` with what follows it, and a `Remove`.
+/// stays attached to the session that never existed: a `Start`, and a `Remove`.
 #[test]
 fn a_failed_create_completes_the_ops_admitted_after_it() {
-    let meta = || Op::UpdateMetadata {
-        id: sid("s1"),
-        labels: BTreeMap::new(),
-    };
-    for after in [
-        [meta(), Op::Start { id: sid("s1") }],
-        [meta(), Op::Remove { id: sid("s1") }],
-    ] {
+    // Both wait behind the create's flow, so the create's row is the first registry write (AM-1).
+    for after in [Op::Start { id: sid("s1") }, Op::Remove { id: sid("s1") }] {
         let mut w = World::default();
         w.fail_row = Some(StorageError::Failed { errno: 5 });
-        let mut ops = vec![w.engine.begin(create("s1")).unwrap()];
-        for op in after {
-            ops.push(w.engine.begin(op).unwrap());
-        }
+        let ops = [
+            w.engine.begin(create("s1")).unwrap(),
+            w.engine.begin(after).unwrap(),
+        ];
         let results = w.complete_all(&ops);
         for op in &ops {
             assert!(
@@ -676,6 +670,43 @@ fn a_failed_create_completes_the_ops_admitted_after_it() {
         assert_eq!(
             w.engine.get(&sid("s1")).unwrap_err().code,
             ErrorCode::UnknownSession
+        );
+    }
+}
+
+/// Core AM-1, AM-3, LC-3: a row write of an op admitted after `Create` (`UpdateMetadata`, and `SetNotificationPolicy` in
+/// `Created`) waits for the create's own row. When the create's write fails, the session never existed: each op ends with
+/// the registry failure, and no row of the session is left.
+#[test]
+fn a_row_write_admitted_after_a_failed_create_leaves_no_row() {
+    let later = [
+        Op::UpdateMetadata {
+            id: sid("s1"),
+            labels: BTreeMap::from([("k".to_string(), "v".to_string())]),
+        },
+        Op::SetNotificationPolicy {
+            session: sid("s1"),
+            policy: NotificationPolicy::None,
+        },
+    ];
+    for after in later {
+        let mut w = World::default();
+        w.fail_row = Some(StorageError::Failed { errno: 5 });
+        let ops = [
+            w.engine.begin(create("s1")).unwrap(),
+            w.engine.begin(after).unwrap(),
+        ];
+        let results = w.complete_all(&ops);
+        for op in &ops {
+            assert!(
+                matches!(&results[op], OpResult::Err(e) if e.code == ErrorCode::RegistryFailed { uncertain: false }),
+                "{op:?}: {results:?}"
+            );
+        }
+        assert!(
+            w.rows.is_empty(),
+            "no row of a session that never existed: {:?}",
+            w.rows.keys()
         );
     }
 }

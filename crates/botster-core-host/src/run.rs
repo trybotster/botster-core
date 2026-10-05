@@ -124,6 +124,15 @@ impl HostEngine {
                         out.push(Work::Op(*id));
                     }
                 }
+                (Step::Ready(Next::MetaWrite | Next::PolicyWrite), Some(session))
+                    if self
+                        .sessions
+                        .get(session)
+                        .is_some_and(|s| matches!(s.flow, Flow::Create(_))) =>
+                {
+                    // A row write of an op admitted after `Create` waits for the create's own row (AM-1): if that write
+                    // fails, the session never existed, and no row of it may stay.
+                }
                 (Step::Ready(next), _) => {
                     if !self.step_needs_room(next) || room {
                         out.push(Work::Op(*id));
