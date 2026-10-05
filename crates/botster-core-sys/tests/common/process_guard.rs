@@ -28,6 +28,11 @@ fn quoted(path: &Path) -> String {
 impl GroupGuard {
     /// Creates ownership before the production spawn can run.
     pub fn new(dir: &Path) -> Self {
+        Self::with_cleanup(dir, CLEANUP)
+    }
+
+    /// A guard whose anchor ends the group within `cleanup` (the failure test gives it no time).
+    pub fn with_cleanup(dir: &Path, cleanup: std::time::Duration) -> Self {
         let socket = dir.join("guard.sock");
         let listener = UnixListener::bind(&socket).unwrap();
         let (control, child_control) = UnixStream::pair().unwrap();
@@ -36,6 +41,10 @@ impl GroupGuard {
         let anchor = Command::new(std::env::current_exe().unwrap())
             .args(["--exact", &helper("anchor_process"), "--nocapture"])
             .env("BOTSTER_TEST_ANCHOR", "1")
+            .env(
+                "BOTSTER_TEST_ANCHOR_CLEANUP_MS",
+                cleanup.as_millis().to_string(),
+            )
             .stdin(Stdio::from(input))
             .stderr(Stdio::from(output))
             .stdout(Stdio::null())
@@ -88,9 +97,29 @@ impl Drop for GroupGuard {
         if let Some(thread) = self.registration.take() {
             let _ = thread.join();
         }
-        let _ = self.anchor.wait();
+        // The anchor ends with success only when no member of the group is left; otherwise it wrote why on its stderr,
+        // which is this end of the control stream.
+        let status = self.anchor.wait();
+        if !matches!(&status, Ok(status) if status.success()) {
+            let mut report = String::new();
+            let _ = self.control.read_to_string(&mut report);
+            let report = format!(
+                "the group guard's cleanup failed ({status:?}): {}",
+                report.trim_start_matches('\u{1}').trim()
+            );
+            if std::thread::panicking() {
+                eprintln!("{report}");
+            } else {
+                panic!("{report}");
+            }
+        }
     }
 }
+
+#[path = "guard_cleanup.rs"]
+pub(crate) mod cleanup;
+
+use cleanup::{end_group, CLEANUP};
 
 /// A separate test process holds membership in the worker's group.
 #[test]
@@ -109,10 +138,72 @@ fn anchor_process() {
     // EOF is the test's Drop or death. No timer or parent-PID check is needed.
     let mut remaining = Vec::new();
     let _ = input.read_to_end(&mut remaining);
-    let _ = rustix::process::kill_process_group(group, rustix::process::Signal::KILL);
+    let cleanup = std::env::var("BOTSTER_TEST_ANCHOR_CLEANUP_MS")
+        .ok()
+        .and_then(|ms| ms.parse().ok())
+        .map_or(CLEANUP, std::time::Duration::from_millis);
+    if let Err(report) = end_group(group, cleanup) {
+        let _ = writeln!(std::io::stderr(), "{report}");
+        std::process::exit(1);
+    }
 }
 
-/// A shell cannot start its body until the anchor holds its group.
+/// A cleanup that cannot finish fails the test through the real guard: with no time for its rounds, the anchor reports
+/// the live member, and the guard's drop fails with that report. The member still ends, by the anchor's last kill.
+#[test]
+fn a_cleanup_that_cannot_finish_fails_through_the_guard() {
+    use std::os::unix::process::CommandExt;
+    let dir = tempfile::tempdir().unwrap();
+    let never = dir.path().join("never");
+    assert!(Command::new("/usr/bin/mkfifo")
+        .arg(&never)
+        .status()
+        .unwrap()
+        .success());
+    let guard = GroupGuard::with_cleanup(dir.path(), std::time::Duration::ZERO);
+    // The member blocks without CPU on a FIFO that nothing opens for writing, and holds the pipe until it ends.
+    let mut child = Command::new("/bin/sh")
+        .args([
+            "-c",
+            &format!(
+                "{}/bin/echo up; exec /bin/cat {} >/dev/null",
+                guard.prefix(),
+                quoted(&never)
+            ),
+        ])
+        .stdout(Stdio::piped())
+        .process_group(0)
+        .spawn()
+        .unwrap();
+    let pipe = child.stdout.take().unwrap();
+    let (pipe, line) = first_line(pipe);
+    assert_eq!(line, "up\n");
+    let failed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || drop(guard)))
+        .expect_err("the guard reports the cleanup failure");
+    let report = failed.downcast_ref::<String>().expect("a report").clone();
+    assert!(report.contains("members left"), "{report}");
+    eof(pipe);
+    child.wait().unwrap();
+}
+
+/// The first line of `reader`, read with the cleanup deadline.
+pub(crate) fn first_line(
+    reader: impl Read + Send + 'static,
+) -> (BufReader<Box<dyn Read + Send>>, String) {
+    let (sent, received) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let mut reader = BufReader::new(Box::new(reader) as Box<dyn Read + Send>);
+        let mut line = String::new();
+        let result = reader.read_line(&mut line).map(|_| (reader, line));
+        let _ = sent.send(result);
+    });
+    received
+        // timer: deadline — bounds the wait for a member's first line.
+        .recv_timeout(CLEANUP)
+        .expect("the member wrote its first line")
+        .unwrap()
+}
+
 #[test]
 fn register_worker() {
     let Some(socket) = std::env::var_os("BOTSTER_TEST_GROUP_SOCKET") else {
@@ -148,7 +239,7 @@ impl Drop for Parent {
     }
 }
 
-fn eof(reader: impl Read + Send + 'static) {
+pub(crate) fn eof(reader: impl Read + Send + 'static) {
     let (sent, received) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
         let mut reader = reader;
