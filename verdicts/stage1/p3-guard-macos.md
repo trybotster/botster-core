@@ -383,3 +383,10 @@ combined-gate ruling, P5 merges this head into #162. That combined head gets del
 from this reviewer, and then one Mac gate.
 
 VERDICT: CLEAN (0 open)
+
+## Correction after round 10 — P5-F4 was not checked
+
+The #165 CLEAN at `c03bcfb1` (`37ed815`) did not check P5-F4: the unbounded readiness `read_line` and `Parent::drop`'s
+`child.wait` in `process_guard.rs`. This reviewer had moved P5-F4 to #165 (`verdicts/stage1/p5-a10.md`, round 2). Both waits
+remain at `c03bcfb1`. The finding is tracked as C2 on the combined #162 head, which is the head that lands #165 (the lead's
+combined-gate ruling). #165 must not merge by itself at `c03bcfb1`.
