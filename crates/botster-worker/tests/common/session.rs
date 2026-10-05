@@ -12,7 +12,7 @@
 #![cfg(feature = "slow")]
 
 #[path = "../../../botster-core-sys/tests/common/payload_guard.rs"]
-mod payload_guard;
+pub(crate) mod payload_guard;
 
 #[path = "../../../botster-core-sys/tests/common/process_guard.rs"]
 mod process_guard;

@@ -118,8 +118,8 @@ fn payload_anchor() {
         let mut rest = Vec::new();
         let _ = stream.read_to_end(&mut rest);
     }
-    let group = rustix::process::getpgrp();
-    let _ = rustix::process::kill_process_group(group, rustix::process::Signal::KILL);
+    // Every live member of its group but itself, then it ends (the guard of `process_guard`).
+    super::process_guard::end_group(rustix::process::getpgrp());
 }
 
 #[test]
