@@ -317,15 +317,18 @@ fn a_kill_goes_out_only_while_the_reserve_holds_the_group() {
         "{refused}"
     );
     // A writer lets the member read the end of the FIFO: it ends normally, so the refused kill reached nothing. The open
-    // does not wait: with no reader left it fails (ENXIO) instead of blocking the test.
-    drop(
-        rustix::fs::open(
-            &never,
-            rustix::fs::OFlags::WRONLY | rustix::fs::OFlags::NONBLOCK,
-            rustix::fs::Mode::empty(),
-        )
-        .expect("the member still reads the FIFO"),
-    );
+    // meets the member's open; it runs on a helper thread with the cleanup limit, so a member that is gone fails the test
+    // instead of blocking it.
+    let fifo = never.clone();
+    let (opened, writer) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = opened.send(std::fs::OpenOptions::new().write(true).open(fifo));
+    });
+    // timer: deadline — bounds the meeting with the member at its FIFO.
+    let writer = writer
+        .recv_timeout(CLEANUP)
+        .expect("the member still reads the FIFO");
+    drop(writer.unwrap());
     assert_eq!(
         alive.wait().unwrap().code(),
         Some(0),
