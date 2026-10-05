@@ -17,11 +17,14 @@ slow = []
 botster-core-edges.workspace = true
 atomic-write-file.workspace = true
 getrandom.workspace = true
+pty-process.workspace = true
 rustix.workspace = true
 sha2.workspace = true
 
 [dev-dependencies]
+signal-hook.workspace = true
 tempfile.workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]
 libproc = "0.14"
+kqueue = "1.2.1"
