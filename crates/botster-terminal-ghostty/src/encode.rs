@@ -684,11 +684,13 @@ const KITTY_FLAG_BITS: u32 = 5;
 /// The key modes of `EncoderState` besides the kitty flags.
 const KEY_MODE_BITS: u32 = 6;
 
+/// Kitty flag 16, "report associated text": the flag under which the key's text is written as code points.
+const KITTY_REPORT_TEXT: u8 = 16;
+
 impl EncoderState {
     /// Every state that the key encoder reads: each of the six key modes on and off, with each of the 32 kitty flag
-    /// combinations (5.1A: "any legacy or kitty flag combination"). The kitty flags are the low bits, so each run of 32
-    /// states holds every flag combination, and a key whose associated text is over a limit reaches a state that reports
-    /// it within the first run.
+    /// combinations (5.1A: "any legacy or kitty flag combination"). The order puts the states that report associated text
+    /// first: the kitty flags are the low bits of the index with flag 16 inverted, so the first 16 states have it on.
     fn every_key_state() -> impl Iterator<Item = EncoderState> {
         (0u32..1 << (KEY_MODE_BITS + KITTY_FLAG_BITS)).map(|bits| {
             let mode = |bit: u32| bits & (1 << (KITTY_FLAG_BITS + bit)) != 0;
@@ -699,7 +701,7 @@ impl EncoderState {
                 alt_esc_prefix: mode(3),
                 modify_other_keys_state_2: mode(4),
                 backarrow_key_mode: mode(5),
-                kitty_flags: (bits & ((1 << KITTY_FLAG_BITS) - 1)) as u8,
+                kitty_flags: (bits & ((1 << KITTY_FLAG_BITS) - 1)) as u8 ^ KITTY_REPORT_TEXT,
                 mouse_event: sys::mouse_event::NONE,
                 mouse_format: sys::mouse_format::X10,
             }
@@ -750,6 +752,11 @@ fn encoded_len(mut call: impl FnMut(*mut u8, usize, *mut usize) -> sys::Result) 
 /// The longest sequence that libghostty writes for one event of `input` in any state of the key encoder (5.1A: the
 /// worst-case bound, "including every modifier parameter and associated text"). It stops at the first state that
 /// writes more than `limit` and returns that length, so a key that is too large costs no more states.
+///
+/// Cost: one size probe per state, 2048 states, and each probe is linear in the key's text. A key that some state writes
+/// over `limit` stops early, and the states that report the text come first. An admitted key costs all 2048 probes of its
+/// text. The contract does not bound `KeyInput.text`, so this cost grows with the text that a host sends; a bound on the
+/// text would make it small for every key (pending steward: KeyInput.text bound).
 pub fn longest_key_sequence(input: &KeyInput, limit: u64) -> Result<u64, crate::Error> {
     let encoder = KeyEncoder::new()?;
     let text = input.text.as_deref().unwrap_or("");
