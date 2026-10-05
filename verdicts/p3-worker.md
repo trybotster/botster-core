@@ -1,9 +1,10 @@
 # P3 worker review
 
-Current restack verdict: NOT CLEAN (F13 and F21 open; F14, F15, F16, F17, F18, F19, and F20 closed).
-Reviewed head: `1c45103cd0d63ddef9cccb5c6934442ff0e4ea29`, branch `stage1/p3-m1-v1`.
-Round 58 closes both original flush timeouts. F13 retains three original misses; F21 remains open.
-The CLEAN below applies only to the old M2a head that it names.
+Current restack verdict: CLEAN for P3's M1 package scope. All findings F1 through F22 are CLOSED.
+Reviewed head: `63b5c1db6cec74b27c7b10d34cbbb37e99e60986`, branch `stage1/p3-m1-v1`.
+Round 67 closes the final native query-helper accounting under F13.
+This cross-package PR also requires the integration reviewer's CLEAN. The restack plan requires the implementer's gate after both exact-head verdicts.
+The earlier CLEAN below applies only to the old M2a head that it names.
 
 VERDICT: CLEAN
 
@@ -2251,3 +2252,34 @@ All 167 original-entry dispositions and all earlier findings and closures remain
 The reviewer ran no tests, builds, or gates.
 
 VERDICT: NOT CLEAN (F13: native query-helper accounting pending) on `63b5c1db6cec74b27c7b10d34cbbb37e99e60986`.
+
+
+## Round 67 — Native helper accounting and exact-head package CLEAN
+
+Reviewed and evidence head: `63b5c1db6cec74b27c7b10d34cbbb37e99e60986`.
+Log: `~/botster-sessions/gates/botster-core-stage1-p3-m1-v1-63b5c1db-mac-20261004-181240-42534.log`.
+Raw evidence: `/private/tmp/p3-payload-mac-evidence/`, copied from completed output without a rerun.
+The reviewer read the exact-head log, outcomes.json, baseline log, and both mutation failure logs.
+
+The native job uses --in-diff and selects only the Mac pending_output helper at payload.rs:230..253.
+It runs the existing library and slow_payload tests with unchanged code deadlines and a 120-second mutation budget.
+The baseline passes 47 tests, zero skipped, in 0.464 seconds.
+Both generated replacements, Ok(0) and Ok(1) at payload.rs:230:5, are CaughtMutant.
+Each fails the real PTY test's pending > 1 assertion in 0.027 seconds, with Failure(100).
+The job has zero missed, zero timeouts, and zero unviable entries. It exits zero after 16 seconds.
+These actual native assertion failures close the later Mac helper accounting. No new exclusion applies.
+
+F13 is CLOSED. All 167 original mutation entries retain their recorded dispositions.
+Later Linux and native query/cleanup accounting is complete for the reviewed generated entries.
+All findings F1 through F22, including LOW findings, are CLOSED at this exact head.
+Every earlier finding and closure remains in this document.
+The named restack and merge resolutions remain as reviewed in the preceding rounds.
+The contracts authority remains contracts-v0.1.13, final A13, R-28, and erratum 2, with binding BUILD.md and the restack plan.
+
+This CLEAN covers P3's M1 package scope and its delta from the old reviewed M1.
+The cross-package PR still requires the separate integration reviewer's exact-head CLEAN.
+The implementer then runs the plan's gate on the head cleared by both reviewers.
+M2a and M2b restack review remain separate milestones. The existing real-harness conformance pending list remains explicit.
+The reviewer ran no tests, builds, or gates.
+
+VERDICT: CLEAN (P3 M1 package scope) on `63b5c1db6cec74b27c7b10d34cbbb37e99e60986`.
