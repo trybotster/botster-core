@@ -31,6 +31,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command};
 use std::time::{Duration, Instant};
 
+#[path = "candidate.rs"]
 mod candidate;
 use candidate::worker_binary;
 

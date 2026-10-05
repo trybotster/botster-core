@@ -628,3 +628,26 @@ The existing session tests still check successful real-driver retirement with co
 Both slow fixtures use one shared helper for the prebuilt candidate path.
 No mutation exclusion was added. Main's process-glue classification requires reviewer approval after runtime proof.
 Next: Linux prebuild, both command-line boundary tests, and default-tier mutation of command_line::execute.
+
+## Command-line proof, F22 correction, and read-bound injection (2026-10-04)
+
+The Linux command-line job at `c731d03e` passed prebuild and both prebuilt-binary checks.
+The usage and connection-failure tests passed with zero skipped entries.
+Default mutation of command_line::execute tested three mutants and caught all three, with no misses or timeouts.
+Log: `~/botster-sessions/gates/botster-core-stage1-p3-m1-v1-c731d03e-linux-20261004-180200-33062.log`.
+Completed raw evidence was copied without rerun into `/private/tmp/p3-command-line-evidence`.
+The two real-binary tests lacked independent group cleanup. F22 keeps their ownership proof open.
+The correction registers the existing GroupGuard anchor before the shell execs the prebuilt worker.
+A test thread owns the worker Child through wait_with_output and its reap. The guard never reaps that Child.
+The anchor retains group membership through worker reaping. Drop and parent death close its control socket.
+A channel bounds output and exit at ten seconds. The test performs no wait polling.
+The candidate, launch environment, and all status/stdout/stderr assertions remain.
+The shared helper now has an explicit path attribute to remove cargo-mutants' module-discovery warning.
+
+Driver read bounds now use NonZeroUsize. The default remains 65536 bytes.
+An injected positive bound selects the same control and PTY read path. No test branch or second Worker exists.
+The new slow test checks control-frame byte retention and order at 65536, 1088, and 1.
+It also checks program-output retention and WouldBlock readiness clearing at each bound.
+Zero cannot construct this configuration in any build. The default constant also fails const evaluation if it is zero.
+No mutation exclusion was added. The tuning equivalence and main's process-glue classification still require reviewer acceptance.
+Next: Linux prebuild, guarded CLI and read-bound baselines, then payload query/cleanup mutation accounting.
