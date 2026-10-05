@@ -2051,3 +2051,41 @@ F21 remains CLOSED. All earlier findings and closures remain preserved.
 The reviewer ran no tests, builds, or gates.
 
 VERDICT: NOT CLEAN (F13: two original entries) on `e475c2841368c6b71bfaf0497b7d06b4d3e0fab9`.
+
+## Round 61 — Command-line decisions and unguarded process tests
+
+Reviewed head: `c731d03e0fbe2ad73d8f152ec67525c09c66f833`.
+The delta from e475c284 extracts command-line decisions, shares the candidate path helper, and adds two process tests.
+No merge conflict or mutation exclusion changes.
+
+command_line::execute still uses WorkerLaunch::parse and calls the injected Driver only after successful parsing.
+It preserves usage status 2, success status 0, driver failure status 1, and error text.
+Main supplies the same Driver::start followed by Driver::run, then prints the error with the same prefix.
+The default tests check refusal without Driver calls, exact launch identity, success, driver failure, and missing-token refusal.
+This extraction creates no second Worker path or production test branch.
+The shared candidate helper preserves the prior prebuilt-binary path algorithm.
+Compilation, boundary execution, and default mutation evidence remain pending.
+Main's proposed process-glue classification supplies no original mutation closure before that evidence and classification review.
+
+### F22 MEDIUM — New command-line process tests lack independent group cleanup
+
+Status: OPEN on c731d03.
+Location: `crates/botster-worker/tests/slow_cli.rs`, both Command::output calls.
+Each test starts a real worker with Command::output and relies on that call to wait for exit.
+Neither test establishes an independent process-group guard for panic or test-parent death.
+If the worker remains alive, the parent blocks in output without independent cleanup or a fixture deadline.
+Expected immediate refusal does not replace ownership of the real process.
+pair-common.md requires every real-process test to own and clean up its process group.
+The resumed review instructions also require guard cleanup when the test parent is gone.
+
+Required change: Start each worker through an independent process-group guard with parent-death cleanup.
+Keep the worker Child owned by the test, and let the test reap that worker.
+The guard must not reap the worker or signal a cached group after the worker is released.
+Bound the wait without polling or busy-spinning children.
+Retain the prebuilt candidate, status, stdout, and stderr assertions.
+
+F13 retains READ_CHUNK addition and main no-op. New query/cleanup mutations still need accounting.
+F21 remains CLOSED. All earlier findings and closures remain preserved.
+The reviewer ran no tests, builds, or gates.
+
+VERDICT: NOT CLEAN (F13: two original entries; F22 open) on `c731d03e0fbe2ad73d8f152ec67525c09c66f833`.
