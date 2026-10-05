@@ -222,3 +222,41 @@ This replaces the round 6 design. K5 is therefore moot and closes with no change
 exists. K4 is checked again against the ruling on the next exact head.
 
 VERDICT: NOT CLEAN (pending a new head under the lead's ruling, and the package verdict)
+
+## Round 7 — Head 1bcbb38 (the lead's K4 ruling)
+
+Reviewed head: `1bcbb38520440ee7e98910373926156ff886edd4`. Delta `428c783..1bcbb38`: sys `storage.rs` and host `DESIGN.md`.
+The base is still current v1 `144b023`. This reviewer ran no build, test or gate.
+
+- **K4 CLOSED under the ruling.**
+  - `create_data_dir` makes only `data_dir`, with a mkdir that is not recursive, so a missing parent fails with `NotFound`.
+  - `check_safe` runs next. Then `sync(path/..)` runs, and any error there fails the open.
+  - No ancestor walk or `W_OK` check is left, so an execute-only grandparent is never opened.
+  - The `DataDir::open` rustdoc states the two host requirements.
+- **K5** stays moot, because the walk that it recorded no longer exists.
+- The implementer's Mac run shows 487 unit and 59 slow tests passing, with one timeout:
+  `botster-core::slow_real_core common::process_guard::parent_dies_before_fifo_reader`. That is the shared guard defect
+  that PR #165 fixes, and the lead's merge order handles it. It is not this PR's.
+
+#### K6 [LOW] OPEN — The facade does not tell the Hub about the new requirements on `data_dir`
+
+- Location: `crates/botster-core/src/lib.rs` `Core::open` rustdoc. Only `DataDir::open` in botster-core-sys states them.
+- Evidence: before this PR, `Core::open` created any missing ancestors of `data_dir`. Now the parent must exist, and it must be
+  readable. The Hub uses only the facade (plan 2.6: the other crates make "no compatibility promise; use `botster-core`"). So
+  the facade's doc is where a Hub author learns these requirements.
+- Required: state both requirements, and the `RegistryFailed` that follows when one is not met, in the `Core::open` rustdoc.
+
+#### K7 [LOW] OPEN — The unreadable-parent test also passes when the open succeeds
+
+- Location: `storage.rs` `a_parent_that_cannot_be_read_fails_the_open`: `match result { Err(Io(PermissionDenied)) => …, Ok(_) => {}, … }`.
+- Evidence: the test's name and the ruling say the open fails. The `Ok(_)` arm lets the test pass on exactly the defect that it
+  names. The likely reason is a root user, for whom `0300` does not stop the open (the Linux gate container may run as root).
+  As written, though, it accepts success on any platform.
+- Required:
+  - Assert `PermissionDenied` unconditionally.
+  - Where `EACCES` cannot occur (`geteuid() == 0`), skip the test with a printed reason, so the skip is visible.
+  - The injected-sync retry test already proves that a failed parent sync fails the open, so that case is covered.
+
+The P5 package verdict on this head is still needed.
+
+VERDICT: NOT CLEAN (2 open: K6, K7; package verdict pending)
