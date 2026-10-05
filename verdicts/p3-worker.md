@@ -1,8 +1,8 @@
 # P3 worker review
 
 Current restack verdict: CLEAN for P3's M1 package scope. All findings F1 through F22 are CLOSED.
-Reviewed head: `63b5c1db6cec74b27c7b10d34cbbb37e99e60986`, branch `stage1/p3-m1-v1`.
-Round 67 closes the final native query-helper accounting under F13.
+Reviewed head: `3f9fe56ed466bf9f3ed7fde827a80168b69c3046`, branch `stage1/p3-m1-v1`.
+Round 67 closes the final native query-helper accounting under F13. Round 68 accepts the per-function OS adapter exclusions.
 This cross-package PR also requires the integration reviewer's CLEAN. The restack plan requires the implementer's gate after both exact-head verdicts.
 The earlier CLEAN below applies only to the old M2a head that it names.
 
@@ -2283,3 +2283,41 @@ M2a and M2b restack review remain separate milestones. The existing real-harness
 The reviewer ran no tests, builds, or gates.
 
 VERDICT: CLEAN (P3 M1 package scope) on `63b5c1db6cec74b27c7b10d34cbbb37e99e60986`.
+
+
+## Round 68 — Per-function OS adapter exclusions
+
+Reviewed head: `3f9fe56ed466bf9f3ed7fde827a80168b69c3046`.
+The complete delta from 63b5c1db changes only .cargo/mutants.toml and the handoff.
+Production and test source remain identical to the exact-head proof reviewed through round 67.
+No merge conflict resolution accompanies this delta.
+
+The reviewer accepts all 24 new per-function OS adapter entries.
+The landing mutation command in xtask::ci selects the default tier without slow features.
+That tier does not create the real sockets, PTYs, or children required to execute these adapters.
+The entries preserve the existing slow and native mutation proof instead of claiming that their mutations are equivalent.
+Each entry names one function, its real-process proof, and the recorded evidence set.
+The native/non-native pending_output implementations share one helper name with mutually exclusive target conditions; both native bodies have recorded proof.
+
+The accepted Driver entries are start, start_with_read_bound, run, settle, perform, spawn, deregister_pty, read_pty_chunk, read_control, flush, link_lost, and drop_link.
+Their reasons cover real descriptor construction, event dispatch, action execution, byte progress, readiness, shutdown, and production cleanup.
+The existing lifecycle, direct descriptor, PTY readiness, and partial-write tests supply their recorded slow proof.
+The constructor extraction retains the same body and passes the three-bound baseline.
+The dispatcher functions settle and perform forward the shared machine's inputs/actions to these real edges; their protocol decisions remain in Worker.
+
+The accepted Payload entries are spawn, pid, master, read, pending_output, write, watch_exit, signal_group, Drop::drop, and the helpers pending_output, wait_unreaped, and set_nonblocking.
+Their reasons cover real descriptor/process ownership, reads/writes, native output queries, unreaped exit watches, group signals, master closure, and production reaping.
+The library-inclusive Linux and native Mac mutation evidence remains as reviewed in rounds 66 and 67.
+Payload::reap retains its earlier exact no-op equivalence entry and receives no broad new exclusion.
+
+The reviewer parsed the TOML and checked every new pattern's function scope.
+The patterns do not match command_line::execute, io_decisions, errno_of, exec_failure, wait_unreaped_with, or Payload::reap.
+Worker-core remains mutation-tested. The main and READ_CHUNK entries remain unchanged from round 65.
+No file or crate exclusion is added. A changed function body or caller requires review of its recorded reason.
+No new finding arises from this configuration delta.
+
+All findings F1 through F22 remain CLOSED. Every earlier finding, closure, and original mutation disposition remains preserved.
+This CLEAN covers P3's M1 package delta. The cross-package PR requires the integration reviewer's exact-head CLEAN and the implementer's landing gate.
+The reviewer ran no tests, builds, or gates.
+
+VERDICT: CLEAN (P3 M1 package scope) on `3f9fe56ed466bf9f3ed7fde827a80168b69c3046`.
