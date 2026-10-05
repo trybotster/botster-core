@@ -262,7 +262,12 @@ fn end_members<M: PartialEq + Clone>(
             let _ = kill();
             return Err(Failure::Left(live));
         }
-        kill().map_err(Failure::Error)?;
+        // A kill that finds no member to signal (ESRCH: they all ended since the listing, and a BSD kernel skips the
+        // zombies left) is not a failure; the next listing decides.
+        match kill() {
+            Err(error) if !gone(&error) => return Err(Failure::Error(error)),
+            _ => {}
+        }
         let mut gone = Vec::new();
         for member in &live {
             if await_end(member).map_err(Failure::Error)? == Waited::Gone {
@@ -549,6 +554,26 @@ fn a_failed_kill_listing_or_wait_stops_the_rounds_with_its_error() {
     assert!(matches!(listing, Err(Failure::Error(_))));
     let wait = end_members(|| Ok(()), || Ok(vec![7]), |_: &i32| Err(failed()), || false);
     assert!(matches!(wait, Err(Failure::Error(_))));
+}
+
+/// A kill that finds no member to signal (ESRCH: they ended after the listing) is not a failure: the next listing is empty,
+/// and the cleanup succeeded.
+#[test]
+fn a_kill_that_finds_no_member_lets_the_next_listing_decide() {
+    let member = 7;
+    let mut listings = std::collections::VecDeque::from([vec![member], vec![]]);
+    let ended = end_members(
+        || {
+            Err(std::io::Error::from_raw_os_error(
+                rustix::io::Errno::SRCH.raw_os_error(),
+            ))
+        },
+        || Ok(listings.pop_front().expect("no listing after an empty one")),
+        |_: &i32| Ok(Waited::Gone),
+        || false,
+    );
+    assert!(ended.is_ok());
+    assert!(listings.is_empty());
 }
 
 /// A member that a wait calls gone while the listings still call it live (a process held in its exit) does not make the
