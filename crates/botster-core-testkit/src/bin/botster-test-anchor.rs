@@ -1,167 +1,257 @@
-//! The prebuilt process anchor for the real test harness.
-//! Safe process creation performs the two forks through two helper stages.
+//! The launch wrapper of the real-process tier (lead ruling 2026-10-04, RealCoreHarness; protocol in
+//! `botster_core_testkit::anchor`). Core runs it as the worker (`OpenConfig.worker_path`) and the worker runs it as the session
+//! program. It has three stages, chosen by `argv[0]`:
+//!
+//! 1. **wrap** (any other `argv[0]`): reads the configuration beside `argv[0]`, connects to the guard, starts the intermediate
+//!    stage, reaps it, waits until the anchor holds the group, and execs the real binary with the same arguments. Exec keeps
+//!    the pid, the start time, the group, the session, the environment and the exit path that Core or the worker watches.
+//! 2. **intermediate**: starts the anchor and exits at once, so the anchor is no child of the real binary (the double fork).
+//! 3. **anchor**: holds the inherited group and the guard connection. It reports itself, then blocks until the guard
+//!    connection ends: the guard's drop or the death of the test. Then it sends `TERM` to the group, waits the configured
+//!    grace, verifies the group again and sends `KILL` to the group as its last act. That signal ends the anchor too. The anchor
+//!    reaps nothing: Core and the worker keep the reaping of their own children.
+//!
+//! A group id cannot be reused while a member lives, and the anchor is a member until the final `KILL`: so the group that the
+//! anchor signals is always the one that it reported. If the real binary still lives and has moved to another group, the
+//! anchor refuses to signal and reports it (ruling item 13). Nothing is found by name or pattern; nothing waits on a timer
+//! except the grace.
 
+use botster_core_edges::edges::ProcessIdentity;
 use botster_core_sys::process::start_time;
-use rustix::process::{getpgid, getpid, kill_process_group, Pid, Signal};
-use serde_json::json;
-use std::ffi::OsString;
+use botster_core_testkit::anchor::{
+    Config, Line, Report, CONFIG_FILE, STAGE_ANCHOR, STAGE_INTERMEDIATE, WRAP_FAILED,
+};
+use rustix::process::{getpgid, kill_process_group, Pid, Signal};
+use std::convert::Infallible;
+use std::ffi::{OsStr, OsString};
 use std::io::{self, BufRead, BufReader, Read, Write};
 use std::os::fd::OwnedFd;
 use std::os::unix::net::UnixStream;
 use std::os::unix::process::CommandExt;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::{atomic::AtomicBool, Arc};
+use std::sync::atomic::AtomicBool;
+use std::sync::Arc;
 use std::time::Duration;
+
+/// The signals that the anchor survives. A no-op handler keeps it alive (the workspace forbids `unsafe`, so no `SIG_IGN`):
+/// `TERM` from Core's group signal (Core LC-5) and from its own cleanup, `HUP` when the payload, its session's leader, exits,
+/// the job-control and keyboard signals that the payload's terminal sends to its foreground group, and the user signals.
+/// `KILL` and `STOP` cannot be caught.
+const SURVIVED: [i32; 10] = [
+    signal_hook::consts::SIGTERM,
+    signal_hook::consts::SIGHUP,
+    signal_hook::consts::SIGINT,
+    signal_hook::consts::SIGQUIT,
+    signal_hook::consts::SIGTSTP,
+    signal_hook::consts::SIGTTIN,
+    signal_hook::consts::SIGTTOU,
+    signal_hook::consts::SIGUSR1,
+    signal_hook::consts::SIGUSR2,
+    signal_hook::consts::SIGALRM,
+];
+
+fn other(error: impl std::fmt::Display) -> io::Error {
+    io::Error::other(error.to_string())
+}
+
+fn raw(pid: u32) -> io::Result<Pid> {
+    i32::try_from(pid)
+        .ok()
+        .and_then(Pid::from_raw)
+        .ok_or_else(|| other(format!("{pid} is not a pid")))
+}
+
+fn group_of(pid: Option<Pid>) -> io::Result<u32> {
+    Ok(getpgid(pid)?.as_raw_nonzero().get().unsigned_abs())
+}
+
+fn identity_of(pid: u32) -> io::Result<ProcessIdentity> {
+    let start_time = start_time(pid).ok_or_else(|| other(format!("{pid} has no start time")))?;
+    Ok(ProcessIdentity { pid, start_time })
+}
+
+fn send(guard: &mut impl Write, line: &Line) -> io::Result<()> {
+    writeln!(guard, "{}", line.encode())?;
+    guard.flush()
+}
+
+/// Wrap: everything before the exec. It returns only when it fails.
+fn wrap(argv0: &OsStr, args: &[OsString]) -> io::Result<Infallible> {
+    let config_path = Path::new(argv0)
+        .parent()
+        .ok_or_else(|| other("argv[0] names no directory"))?
+        .join(CONFIG_FILE);
+    let config = Config::decode(&std::fs::read_to_string(&config_path)?).map_err(other)?;
+    let mut guard = UnixStream::connect(&config.socket)?;
+    let result = (|| -> io::Result<()> {
+        let leader = identity_of(std::process::id())?;
+        let group = group_of(None)?;
+        let grace = config.grace.as_nanos().to_string();
+        // The guard connection is the intermediate's stdin and stderr: the anchor inherits both. The pipe of stdout carries
+        // the anchor's single acknowledgement back here.
+        let input: OwnedFd = guard.try_clone()?.into();
+        let output: OwnedFd = guard.try_clone()?.into();
+        let mut intermediate = Command::new(std::env::current_exe()?)
+            .arg0(STAGE_INTERMEDIATE)
+            .args([
+                leader.pid.to_string(),
+                leader.start_time.to_string(),
+                group.to_string(),
+                grace,
+            ])
+            .arg(&config.binary)
+            .stdin(Stdio::from(input))
+            .stderr(Stdio::from(output))
+            .stdout(Stdio::piped())
+            .spawn()?;
+        let acknowledgement = intermediate
+            .stdout
+            .take()
+            .ok_or_else(|| other("no pipe from the anchor"))?;
+        // The only child of this process. The real binary inherits no child.
+        if !intermediate.wait()?.success() {
+            return Err(other("the intermediate stage failed"));
+        }
+        let mut ready = String::new();
+        BufReader::new(acknowledgement).read_line(&mut ready)?;
+        if ready != "ready\n" {
+            return Err(other("the anchor did not report its group"));
+        }
+        Ok(())
+    })();
+    if let Err(error) = result {
+        let _ = send(
+            &mut guard,
+            &Line::Error {
+                stage: "wrap".into(),
+                error: error.to_string(),
+            },
+        );
+        return Err(error);
+    }
+    // The guard connection is close-on-exec: the real binary does not inherit it.
+    let error = Command::new(&config.binary).args(args).exec();
+    let _ = send(
+        &mut guard,
+        &Line::Error {
+            stage: "wrap".into(),
+            error: format!("exec {}: {error}", config.binary.display()),
+        },
+    );
+    Err(error)
+}
+
+/// Intermediate: starts the anchor with the inherited descriptors and exits without waiting for it.
+fn intermediate(args: &[OsString]) -> io::Result<()> {
+    Command::new(std::env::current_exe()?)
+        .arg0(STAGE_ANCHOR)
+        .args(args)
+        .spawn()?;
+    Ok(())
+}
 
 fn number(value: &OsString) -> io::Result<u64> {
     value
         .to_str()
         .and_then(|s| s.parse().ok())
-        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "the argument is not a number"))
+        .ok_or_else(|| other("an argument is not a number"))
 }
 
-fn wrap(args: &[OsString]) -> io::Result<()> {
-    let [socket, grace, separator, binary, rest @ ..] = args else {
-        return Err(io::Error::other(
-            "wrap needs a socket, grace, --, and a binary",
-        ));
-    };
-    if separator != "--" {
-        return Err(io::Error::other("wrap needs -- before the binary"));
+/// Whether the group may be signalled now: the anchor is still a member (it always is: only it or its parent could move it),
+/// and the leader, while it lives, has not moved to another group.
+fn verify(report: &Report) -> io::Result<Result<(), String>> {
+    if group_of(None)? != report.group {
+        return Ok(Err("the anchor left the group".into()));
     }
-    let guard = UnixStream::connect(socket)?;
-    let guard_input: OwnedFd = guard.try_clone()?.into();
-    let guard_error: OwnedFd = guard.into();
-    let leader = std::process::id();
-    let start =
-        start_time(leader).ok_or_else(|| io::Error::other("the leader has no start time"))?;
-    let group = getpgid(None)?;
-    let mut intermediate = Command::new(std::env::current_exe()?)
-        .arg("intermediate")
-        .args([
-            leader.to_string(),
-            start.to_string(),
-            group.as_raw_nonzero().to_string(),
-        ])
-        .arg(grace)
-        .stdin(Stdio::from(guard_input))
-        .stderr(Stdio::from(guard_error))
-        .stdout(Stdio::piped())
-        .spawn()?;
-    let output = intermediate
-        .stdout
-        .take()
-        .ok_or_else(|| io::Error::other("no anchor acknowledgement pipe"))?;
-    let status = intermediate.wait()?;
-    if !status.success() {
-        return Err(io::Error::other("the intermediate anchor stage failed"));
+    if start_time(report.leader.pid) != Some(report.leader.start_time) {
+        // The leader has ended (its pid is gone or names another process): only the group id is left to signal.
+        return Ok(Ok(()));
     }
-    let mut ready = String::new();
-    BufReader::new(output).read_line(&mut ready)?;
-    if ready != "ready\n" {
-        return Err(io::Error::other(
-            "the anchor did not establish group ownership",
-        ));
+    match group_of(Some(raw(report.leader.pid)?)) {
+        Ok(group) if group != report.group => Ok(Err(format!(
+            "the real binary {} moved from group {} to group {group}",
+            report.leader.pid, report.group
+        ))),
+        // ESRCH: the leader ended between the two reads.
+        _ => Ok(Ok(())),
     }
-    // The only child of this process was reaped. Exec preserves its identity and native exit path.
-    Err(Command::new(binary).args(rest).exec())
 }
 
-fn intermediate(args: &[OsString]) -> io::Result<()> {
-    let child = Command::new(std::env::current_exe()?)
-        .arg("anchor")
-        .arg("0")
-        .args(args)
-        .stdin(Stdio::inherit())
-        .stderr(Stdio::inherit())
-        .stdout(Stdio::inherit())
-        .spawn()?;
-    // This stage exits immediately. The anchor becomes a child of init or the Linux subreaper.
-    drop(child);
-    Ok(())
-}
-
-fn pid(value: u64) -> io::Result<Pid> {
-    i32::try_from(value)
-        .ok()
-        .and_then(Pid::from_raw)
-        .ok_or_else(|| io::Error::other("the argument is not a pid"))
-}
-
-fn verify_group(leader: Pid, leader_start: u64, group: Pid, anchor_start: u64) -> io::Result<()> {
-    if start_time(std::process::id()) != Some(anchor_start) || getpgid(None)? != group {
-        return Err(io::Error::other(
-            "the anchor no longer owns the recorded group",
-        ));
-    }
-    if start_time(leader.as_raw_nonzero().get() as u32) == Some(leader_start)
-        && getpgid(Some(leader))? != group
-    {
-        return Err(io::Error::other(
-            "the real binary moved to another process group",
-        ));
-    }
-    Ok(())
-}
-
+/// Anchor: guard fd 0, acknowledgement fd 1, guard fd 2.
 fn anchor(args: &[OsString]) -> io::Result<()> {
-    let [fd, leader, leader_start, group, grace] = args else {
-        return Err(io::Error::other(
-            "anchor needs fd, leader, start time, group, and grace",
+    let [leader, leader_start, group, grace, binary] = args else {
+        return Err(other(
+            "the anchor takes the leader, its start time, the group, the grace and the binary",
         ));
     };
-    if number(fd)? != 0 {
-        return Err(io::Error::other("the anchor guard fd must be stdin"));
+    // The anchor holds no directory of the session or the worker.
+    std::env::set_current_dir("/")?;
+    for signal in SURVIVED {
+        signal_hook::flag::register(signal, Arc::new(AtomicBool::new(false)))?;
     }
-    let leader = pid(number(leader)?)?;
-    let leader_start = number(leader_start)?;
-    let group = pid(number(group)?)?;
+    let report = Report {
+        anchor: identity_of(std::process::id())?,
+        group: u32::try_from(number(group)?).map_err(other)?,
+        leader: ProcessIdentity {
+            pid: u32::try_from(number(leader)?).map_err(other)?,
+            start_time: number(leader_start)?,
+        },
+        binary: PathBuf::from(binary),
+    };
     let grace = Duration::from_nanos(number(grace)?);
-    let anchor_pid = std::process::id();
-    let anchor_start =
-        start_time(anchor_pid).ok_or_else(|| io::Error::other("the anchor has no start time"))?;
-    verify_group(leader, leader_start, group, anchor_start)?;
-    signal_hook::flag::register(
-        signal_hook::consts::SIGTERM,
-        Arc::new(AtomicBool::new(false)),
-    )?;
-    writeln!(
-        io::stderr(),
-        "{}",
-        json!({"kind": "anchor", "pid": anchor_pid, "start_time": anchor_start,
-        "group": group.as_raw_nonzero().get(), "leader": leader.as_raw_nonzero().get(), "leader_start_time": leader_start})
-    )?;
-    writeln!(io::stdout(), "ready")?;
-    io::stdout().flush()?;
-    // Guard EOF is Drop or test death. This read blocks without a timer or CPU loop.
-    let mut input = Vec::new();
-    io::stdin().read_to_end(&mut input)?;
-    verify_group(leader, leader_start, group, anchor_start)?;
+    if let Err(reason) = verify(&report)? {
+        return Err(other(reason));
+    }
+    let mut guard = io::stderr();
+    send(&mut guard, &Line::Anchor(report.clone()))?;
+    let mut acknowledgement = io::stdout();
+    acknowledgement.write_all(b"ready\n")?;
+    acknowledgement.flush()?;
+    // Blocks until the guard connection ends. An error is an end as well: a connection that the guard never accepted is reset
+    // when the guard's process dies. Neither a timer nor a loop of the CPU is involved.
+    let _ = io::copy(&mut io::stdin(), &mut io::sink());
+    if let Err(reason) = verify(&report)? {
+        let _ = send(&mut guard, &Line::Refused { reason });
+        return Ok(());
+    }
+    let group = raw(report.group)?;
+    let _ = send(&mut guard, &Line::Term);
     kill_process_group(group, Signal::TERM)?;
-    // timer: cleanup grace — this value is the existing CoreLimits.stop_grace supplied by the harness.
-    let (_sender, receiver) = std::sync::mpsc::channel::<()>();
-    let _ = receiver.recv_timeout(grace);
-    verify_group(leader, leader_start, group, anchor_start)?;
-    // Final action: this signal also ends this anchor. The anchor reaps no process.
+    // The grace that the Core limits give a payload before its group is killed (Core LC-5).
+    std::thread::sleep(grace);
+    if let Err(reason) = verify(&report)? {
+        let _ = send(&mut guard, &Line::Refused { reason });
+        return Ok(());
+    }
+    let _ = send(&mut guard, &Line::Kill);
     kill_process_group(group, Signal::KILL)?;
-    Err(io::Error::other(
-        "the final group signal did not end the anchor",
-    ))
+    Err(other("the group KILL did not end the anchor"))
 }
 
 fn main() {
-    let args: Vec<OsString> = std::env::args_os().skip(1).collect();
-    let result = match args.split_first() {
-        Some((stage, args)) if stage == "wrap" => wrap(args),
-        Some((stage, args)) if stage == "intermediate" => intermediate(args),
-        Some((stage, args)) if stage == "anchor" => anchor(args),
-        _ => Err(io::Error::other("unknown anchor stage")),
+    let mut argv = std::env::args_os();
+    let argv0 = argv.next().unwrap_or_default();
+    let args: Vec<OsString> = argv.collect();
+    let (stage, result) = if argv0 == STAGE_INTERMEDIATE {
+        ("intermediate", intermediate(&args))
+    } else if argv0 == STAGE_ANCHOR {
+        ("anchor", anchor(&args))
+    } else {
+        // wrap reports its own failure to the guard when it reached one: its stderr may be the payload's terminal.
+        match wrap(&argv0, &args) {
+            Ok(never) => match never {},
+            Err(_) => std::process::exit(WRAP_FAILED),
+        }
     };
     if let Err(error) = result {
-        let _ = writeln!(
-            io::stderr(),
-            "{}",
-            json!({"kind": "error", "error": error.to_string(), "pid": getpid().as_raw_nonzero().get()})
+        // The helper stages have the guard connection as stderr.
+        let _ = send(
+            &mut io::stderr(),
+            &Line::Error {
+                stage: stage.into(),
+                error: error.to_string(),
+            },
         );
         std::process::exit(1);
     }

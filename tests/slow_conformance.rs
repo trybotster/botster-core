@@ -1,0 +1,22 @@
+//! The Core conformance suite on `RealCoreHarness` (plan sections 4.2 and 5, the real-process tier): the trials of
+//! `conformance.rs` on the real `Core::open` with real worker processes and the real probe, all prebuilt and verified against
+//! the candidate manifest (`cargo xtask prebuild-worker`). `harness = false`; the `slow` feature builds it.
+//!
+//! A pending, deferred or withdrawn id is reported as on the default tier and never counted as passed. A real
+//! implementation ignores the seed (plan 4.2c).
+
+mod suite;
+
+use botster_core_conformance::CoreHarness;
+use botster_core_testkit::candidate::Candidate;
+use botster_core_testkit::real::RealCoreHarness;
+
+fn real_harness(_seed: u64) -> Box<dyn CoreHarness> {
+    let dir = Candidate::beside_test_binary().expect("the candidate directory");
+    let candidate = Candidate::locate(&dir).unwrap_or_else(|error| panic!("{error}"));
+    Box::new(RealCoreHarness::new(candidate).expect("the harness's temporary root and guard"))
+}
+
+fn main() {
+    suite::run(real_harness);
+}

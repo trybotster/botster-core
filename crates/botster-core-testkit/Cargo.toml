@@ -11,9 +11,11 @@ workspace = true
 
 [features]
 # The real-process tests of this crate (BUILD.md testing rule 2): `cargo xtask slow` runs them.
-slow = ["dep:botster-core-sys", "dep:signal-hook", "dep:tempfile"]
+# It also builds `botster-test-anchor` and `real::RealCoreHarness` (plan 4.2).
+slow = ["dep:botster-core", "dep:botster-core-sys", "dep:botster-test-support", "dep:signal-hook"]
 
 [dependencies]
+botster-core = { workspace = true, optional = true }
 botster-core-contract.workspace = true
 botster-core-conformance.workspace = true
 botster-core-edges.workspace = true
@@ -30,13 +32,16 @@ rustix = { workspace = true, features = ["process"] }
 serde_json.workspace = true
 sha2.workspace = true
 toml.workspace = true
+botster-test-support = { workspace = true, optional = true }
 signal-hook = { workspace = true, optional = true }
-tempfile = { workspace = true, optional = true }
 
 [dev-dependencies]
 botster-conformance.workspace = true
 schemars.workspace = true
 tempfile.workspace = true
+
+[target.'cfg(target_os = "macos")'.dev-dependencies]
+kqueue = "1.2.1"
 
 [[bin]]
 name = "botster-test-anchor"
