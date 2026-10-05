@@ -203,7 +203,7 @@ mod tests {
         assert!(parse_deferred("not-applicable conf::a\n").is_err());
     }
 
-    /// The files of the pinned contracts tag parse (`contracts-v0.1.15`: two deferred ids, one case, three withdrawn ids;
+    /// The files of the pinned contracts tag parse (`contracts-v0.1.16`: two deferred ids, one case, three withdrawn ids;
     /// the Hub id `wp_3` is withdrawn with no replacement).
     #[test]
     fn the_pinned_files_parse() {
