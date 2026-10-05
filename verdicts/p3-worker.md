@@ -2,9 +2,9 @@
 
 Current verdict: NOT CLEAN for two separate review units.
 PR #163 at `40b63dceb6e3f3d7be69a1488ac77eccc121a071` has F28 and F33 OPEN for completed evidence.
-PR #165 at `08fef89d22657db2b558e63d8da8435c9398765a` has F37 and F43 OPEN.
+PR #165 at `4c06846d039b9209cbd2d8d57144bbad807b6d98` has F43 OPEN.
 F39 is CLOSED in #165 and remains OPEN for #163's later merge delta.
-Round 84 records the latest guard review. All earlier rounds remain preserved. All earlier findings and closures remain preserved.
+Round 85 records the latest guard review. All earlier rounds remain preserved. All earlier findings and closures remain preserved.
 F1 through F27 and F29 through F32 remain CLOSED at their recorded heads and scopes.
 F34 records the earlier unsafe PID signals and their source correction at `81ccd17`.
 Each cross-package PR also requires the integration reviewer's exact-head CLEAN and the implementer's landing gate.
@@ -3760,3 +3760,77 @@ All earlier findings, closures, and verdict rounds remain preserved.
 The reviewer ran no tests, builds, measurements, mutants, or gates.
 
 VERDICT: NOT CLEAN (2 open findings in PR #165) on `08fef89d22657db2b558e63d8da8435c9398765a`.
+
+
+## Round 85 — Registration proof and fixture child owner
+
+Reviewed head: `4c06846d039b9209cbd2d8d57144bbad807b6d98`, PR #165, branch `stage1/p3-guard-macos`.
+Base: `144b0234fb632bcbb5176b17c2fe55f3239405df`.
+Reviewed delta: `08fef89d..4c06846d`, three commits, two files.
+The reviewer read the complete child-owner and registration-proof changes.
+The integration reviewer reports zero integration findings at verdict commit `7dc2559`, conditional on this package's exact-head CLEAN.
+
+### Completed evidence
+
+The reviewer inspected the completed focused native Mac log:
+`~/botster-sessions/gates/botster-core-stage1-p3-guard-macos-4c06846d-mac-20261004-222705-81386.log`.
+It names this exact head and base, slow clippy, worker prebuild, and the focused nextest commands.
+It exits 0 after eight seconds.
+The first command passes 158 tests with zero skips.
+The second passes 13 selected core guard tests and skips nine other tests.
+The new registration test passes in all three selected binaries that include PayloadGuard.
+The reservation effect test passes in all six selected binaries that include the shared cleanup module.
+The cancelled failed-spawn case and the real parent-death regression also pass.
+This is a completed focused Mac proof, not a full landing gate or Linux proof.
+
+### F37 — MEDIUM — CLOSED at 4c06846d
+
+The new test connects an untrusted registrant to the real PayloadGuard socket.
+One case registers an invalid group; another case supplies a ready helper without a member.
+Both cases release and drop the actual guard, observe its failure report, and read EOF without a readiness byte.
+The read has a marked deadline configured while the stream is open.
+The test therefore checks the owner's failure and rejected readiness, not the registration helper's internals.
+The existing failed-spawn test covers release before any registration and completes quietly.
+The earlier report-validation and real cleanup-failure proofs remain accepted.
+Together with round 84's source correction, this closes F37.
+
+### F43 — HIGH — OPEN: child ownership is added, but observation errors still bypass the bound
+
+Evidence: `crates/botster-core-sys/tests/common/guard_cleanup.rs:273-320` at the reviewed head.
+
+The test now wraps each fixture child in Owned.
+Its normal completion path first observes the child with waitid NOWAIT on a helper thread and a marked deadline.
+Owned Drop kills only its unreaped fixture child, then observes and reaps that child.
+The test still observes the required held-signal and released-no-signal effects.
+These changes correct the absence of an owner and bound the successful observation path.
+
+Remaining source defects:
+
+- ended_within_cleanup exits its loop on every non-INTR waitid error and sends the same completion value as an exit result.
+- Owned::status then calls Child::wait without distinguishing an observed exit from an observation failure.
+- Owned::drop returns on every try_wait error, so it can abandon a child without a cleanup report.
+- Drop discards kill and reap errors.
+- The observation loop also retries Ok(None) immediately, rather than requiring a blocking exit result or reporting an invalid outcome.
+
+Thus an error is still treated as proof of completion, and the later wait has no established exit precondition.
+The new boolean loses the errno and the distinction needed to enforce the completion bound.
+The successful native baseline does not exercise or close those source paths.
+
+Required change: Preserve the observation result and its error.
+Require an actual exit result before the synchronous reap.
+Retry only an interrupted blocking wait; do not spin on a successful None.
+Handle try_wait, kill, and reap errors explicitly and report cleanup failure during both normal Drop and an existing panic.
+Keep ownership until the final cleanup decision and signal only an owned identity.
+Retain the actual process-effect proof and the existing deadlines.
+Do not invent an exit result from a failed observation.
+
+### Verdict
+
+PR #165 is NOT CLEAN for F43 on this exact head.
+F37 is CLOSED at this head.
+F34, F35, F36, F38, F39, F40, F41, and F42 retain their recorded closures within #165's scope.
+PR #163 separately retains F28, F33, and its later F39 merge duty.
+All earlier findings, closures, and verdict rounds remain preserved.
+The reviewer ran no tests, builds, measurements, mutants, or gates.
+
+VERDICT: NOT CLEAN (1 open source finding in PR #165) on `4c06846d039b9209cbd2d8d57144bbad807b6d98`.
