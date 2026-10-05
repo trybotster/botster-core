@@ -274,15 +274,11 @@ fn ended_within_cleanup(pid: rustix::process::Pid) -> bool {
     use rustix::process::{waitid, WaitId, WaitIdOptions};
     let (ended, end) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
-        loop {
-            match waitid(
-                WaitId::Pid(pid),
-                WaitIdOptions::EXITED | WaitIdOptions::NOWAIT,
-            ) {
-                Err(rustix::io::Errno::INTR) | Ok(None) => continue,
-                _ => break,
-            }
-        }
+        // The wait blocks until the end; only an interruption repeats it.
+        while let Err(rustix::io::Errno::INTR) | Ok(None) = waitid(
+            WaitId::Pid(pid),
+            WaitIdOptions::EXITED | WaitIdOptions::NOWAIT,
+        ) {}
         let _ = ended.send(());
     });
     // timer: deadline — bounds the wait for a test child's end.
