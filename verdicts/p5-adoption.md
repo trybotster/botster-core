@@ -794,3 +794,78 @@ P5-F5 through P5-F10 remain CLOSED for the unchanged source in this head.
 The remaining K4 boundary prevents CLEAN. The rest of P5 deliverable 1 and P5 adoption remain separate work.
 
 VERDICT: NOT CLEAN (1 open)
+
+## PR #164 — Round 6
+
+- Exact head: `1bcbb38520440ee7e98910373926156ff886edd4`.
+- Base: `144b0234fb632bcbb5176b17c2fe55f3239405df`.
+- Scope: `428c7839..1bcbb385`, the lead's directory ruling, and the new tests and documentation.
+- The reviewer ran no builds, tests, mutation jobs, or gates.
+
+### Integration K4 — CLOSED — The source implements the lead's directory boundary
+
+`create_data_dir` uses a non-recursive mkdir and tolerates an existing final component.
+It checks the data directory's safety, then syncs its immediate parent through the injected sync.
+It performs that sync on every open, including a retry after a failed sync.
+`DataDir::open` syncs the data directory after creating `rows`, also on every open.
+It performs no sync above the immediate parent.
+The former write-access check and ancestor walk are removed.
+
+The facade maps `OpenError::Io` to `RegistryFailed{uncertain: false}`.
+The DESIGN note and `DataDir::open` rustdoc state the host's parent requirements.
+The new cases cover missing parent, unreadable parent, parent-sync retry, and an execute-only grandparent.
+The retry test observes the actual parent through the injected sync and derives its expected path from the temporary root.
+K4 is CLOSED in source. The integration reviewer confirms this closure at the exact head, verdict commit `b95fb90`.
+
+### P5-F11 — LOW — The grandparent test fixes an initial epoch that the contract leaves open
+
+**Evidence:** `crates/botster-core-sys/src/storage.rs:701-703` maps the open result to its epoch and asserts literal `1`.
+The test's subject is successful open below an execute-only grandparent.
+The lead's K4 ruling requires that success. It does not fix the first epoch.
+DP-8 requires strict increase across opens; it also does not fix the first epoch.
+The assertion therefore pins an implementation value instead of contract-visible behavior with a derived expectation.
+This violates the user's test-quality requirement.
+
+**Required change:** Check successful open without asserting a fixed first epoch.
+If an epoch comparison is necessary, derive it from another observed open rather than a literal.
+Keep the execute-only fixture and restore its permissions before the assertion.
+
+Status: OPEN.
+
+### Integration K6 — LOW — The public open documentation omits the new parent requirements
+
+The integration reviewer reports K6 at the same head.
+`crates/botster-core/src/lib.rs:62-67` documents `Core::open` but does not state either new parent requirement.
+The Hub uses this public facade, not the system crate's `DataDir` documentation.
+
+**Required change:** Document that the parent must exist and must be openable for its required sync.
+State that Core creates only the final data-directory component and reports the existing typed error when a requirement fails.
+
+Status: OPEN.
+
+### Integration K7 — LOW — The unreadable-parent test accepts an unexpected successful open
+
+The integration reviewer reports K7 at the same head.
+`crates/botster-core-sys/src/storage.rs:659-663` accepts `Ok(_)` without checking that the process runs as root.
+A missing parent sync could therefore make this permission regression pass for an ordinary user.
+
+**Required change:** Assert `PermissionDenied` for the unprivileged fixture.
+If root makes that fixture inapplicable, identify that condition explicitly and report the skip visibly.
+Do not accept successful open as a substitute for the required failure assertion.
+Obtain the integration review on the revised exact head.
+
+Status: OPEN.
+
+### Evidence and scope limits
+
+The reviewer read the raw exact-head Mac log:
+`~/botster-sessions/gates/botster-core-stage1-p5-audit-contract-1bcbb385-mac-20261004-221745-54622.log`.
+It reports 487 default-tier tests passed, with 654 skipped.
+The selected slow targets report 59 passed, one timed out, zero skipped, and exit 100.
+The shared guard test `common::process_guard::parent_dies_before_fifo_reader` timed out after 2.003 seconds.
+All four new storage cases passed. This selected run remains failed and is not a passing full gate.
+
+P5-F5 through P5-F10 remain CLOSED. Audit A1, A2, A4, A5, A7, and A9 remain CLOSED in this PR's audit scope.
+The three LOW findings above prevent CLEAN. The other P5 audit deliverables and P5 adoption remain separate work.
+
+VERDICT: NOT CLEAN (3 open)
