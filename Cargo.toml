@@ -14,13 +14,13 @@ unsafe_code = "forbid"
 
 [workspace.dependencies]
 base64 = { version = "0.22", default-features = false, features = ["alloc"] }
-# botster-contracts, by tag (plan section 0; contracts-v0.1.16 = 7778b1e, manifest final34, Core Amendments 14 and 16; rulings R-30 to R-33).
-botster-core-contract = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.16" }
-botster-conformance = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.16" }
-botster-core-conformance = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.16" }
-botster-route-codec = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.16" }
-botster-probe-script = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.16" }
-botster-test-support = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.16" }
+# botster-contracts, by tag (plan section 0; contracts-v0.1.17 = 1725abf, manifest final35, Core Amendments 14 to 16; rulings R-30 to R-34).
+botster-core-contract = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.17" }
+botster-conformance = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.17" }
+botster-core-conformance = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.17" }
+botster-route-codec = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.17" }
+botster-probe-script = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.17" }
+botster-test-support = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.17" }
 
 anyhow = "1"
 atomic-write-file = "0.3"
