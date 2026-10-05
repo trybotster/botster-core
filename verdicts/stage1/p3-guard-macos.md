@@ -271,3 +271,27 @@ Integration findings on #165: none open. G2 stays with #163's merge: this PR kee
 report handling, the proof that a macOS group is empty, the Linux pgrp check) are the package reviewer's scope.
 
 VERDICT: NOT CLEAN (1 open: package verdict pending; 0 integration findings open)
+
+## Round 7 — PR #165, head 08fef89d
+
+Reviewed head: `08fef89d22657db2b558e63d8da8435c9398765a`. Delta `f5f9d0f6..08fef89d`, two commits, 3 files
+(`guard_cleanup.rs`, `payload_guard.rs`, botster-worker `driver_edges.rs`). The base is still current v1 `144b023`. This
+reviewer ran no build, test or gate. The implementer's focused Mac run at this head
+(`…guard-macos-08fef89d-mac-20261004-222304-71264.log`) shows 155 and 13 tests passing and exits 0. This reviewer read its
+summary lines.
+
+- The reservation test now observes the effects through exit statuses of owned processes. The members are `/bin/cat`, blocked
+  in a FIFO open, with no CPU used.
+  - In the held case, the member ends by `SIGKILL`.
+  - In the released case, the kill is refused, and the member ends normally once it is let go.
+  The expected values come from the test's own process setup. This is the package reviewer's F38.
+- `serve()` in the payload guard keeps each registration error. It tells a cancelled launch apart from failed ownership, and
+  it sends no readiness after a failure. This is the package reviewer's F37.
+- The worker harness's `Bounded<Driver>` waits for `2 × CLEANUP`, so the outer wait covers the inner cleanup and its report,
+  and the inner limit does not change. This settles the shape of G2 and F39 on this branch. When #163 merges this guard, it
+  uses the same rule for its bounded anchor wait. G2 is checked again in that delta review.
+- No production code and no interface between packages changes.
+
+Integration findings on #165: none open. Still needed for CLEAN: the P3 package verdict on `08fef89d`.
+
+VERDICT: NOT CLEAN (1 open: package verdict pending; 0 integration findings open)
