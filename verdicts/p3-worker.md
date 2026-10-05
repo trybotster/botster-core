@@ -1,8 +1,8 @@
 # P3 worker review
 
-Current verdict: NOT CLEAN for PR #163. Findings F25, F26, and F28 are OPEN. Findings F27 and F29 through F32 are CLOSED at the head below. All findings F1 through F24 remain CLOSED at their recorded heads and scopes.
-Reviewed head: `82b4269bcb0d1412b94f38c818df5169617570c6`, branch `stage1/p3-audit-fixes`.
-Round 76 reviews the fixes for F25 through F32. F28 has corrected source but still requires native evidence.
+Current verdict: NOT CLEAN for PR #163. Findings F25 and F28 are OPEN. F26 is CLOSED at the head below. F27 and F29 through F32 retain their recorded closures. All findings F1 through F24 remain CLOSED at their recorded heads and scopes.
+Reviewed head: `800606ac2a99c42a7e25886a5aa1ccc2b88070d1`, branch `stage1/p3-audit-fixes`.
+Round 77 reviews the F25 and F26 corrections. F25 needs an event-based fixture. F28 still requires native evidence.
 The cross-package PR also requires the integration reviewer's exact-head CLEAN and the implementer's landing gate.
 Round 73's CLEAN remains preserved for M1 at `da2b0494bbda711e5a67cb180ddf05c607784635`.
 M2a at `a7f4a386593457e3b30f03b56938092de9b060a3` has no restack verdict. The earlier M2a CLEAN below applies only to its named old head.
@@ -2948,3 +2948,80 @@ The conformance pending list remains unchanged. M2a and M2b remain separate work
 The reviewer ran no tests, builds, measurements, mutants, or gates.
 
 VERDICT: NOT CLEAN (3 open findings) on `82b4269bcb0d1412b94f38c818df5169617570c6`.
+
+
+## Round 77 — Watch failure proof and cleanup deadlines
+
+Reviewed head: `800606ac2a99c42a7e25886a5aa1ccc2b88070d1`, branch `stage1/p3-audit-fixes`.
+Reviewed delta: `82b4269..800606a`, one commit, eight files.
+The reviewer read the complete delta. It contains no merge or conflict resolution.
+The implementer reports no compilation or execution at this head under the full HOLD.
+The integration reviewer reports zero integration findings in verdict commit `ca088f6`.
+Its CLEAN remains conditional on this package's CLEAN on the same head.
+
+### F25 — MEDIUM — OPEN: replace the new sleep with an event wait
+
+ExitWatchFailed retains the errno as a typed value and as its error source.
+Its display text names the invariant, "the Payload holds the unreaped leader".
+The injected wait test checks the typed error and the invariant text.
+The watcher returns this error through the existing exit channel and waker.
+The driver now applies `watched?` inline. The map-only helper and its test are removed.
+No fallback invents an ExitStatus.
+
+The new a_failed_exit_watch_ends_the_worker_with_a_failure drives the real Driver::run.
+It passes that run through command_line::execute, which main calls.
+It checks the failure exit code and the error text, including the errno and invariant.
+It observes FIFO EOF while the test guard remains alive.
+That observation checks the production payload cleanup and the background group member's end.
+It also reads the host socket to EOF after the driver returns.
+The test keeps the existing marked deadlines and independent group ownership.
+This is the actual-path proof that round 76 requires, by source inspection.
+The error type and production path meet the lead's refined A52 ruling.
+
+The new script uses `sleep 30` for the background member.
+BUILD.md testing rule 5 forbids sleeps and requires tests to wait on real events.
+The fixture needs a member that keeps the FIFO writer alive, but it does not need a timed sleep.
+
+Required change: Use an event-blocking background member that retains the FIFO writer.
+Keep the readiness event, the production cleanup observation, the independent guard, and the existing deadline waits.
+No other source correction to this failure path is required by this delta review.
+
+Evidence: `crates/botster-worker/tests/common/driver_edges.rs:450-456`.
+Authority: BUILD.md testing rule 5 and the user's real-process fixture requirements.
+
+### F26 — HIGH — CLOSED at 800606a
+
+The guard's bounded helper now returns the completed wait result.
+Parent::drop retains its Child through KILL and moves the final wait into that bounded helper.
+The direct waits in blocked_parent, a_panic_before_ready_ends_the_child,
+and an_early_exit_keeps_the_group_owned_until_cleanup also use the helper.
+The helper uses the existing ten-second marked cleanup deadline.
+No test-side reap of a production payload is added.
+
+The new a_cleanup_that_does_not_finish_fails_the_test drives finish_within with a blocked channel wait.
+The test sets the deadline to zero and catches the timeout failure.
+It requires that the timeout fails the test, then releases the blocked wait.
+This proves the bounded failure without a sleep, polling, or an unreleased test operation.
+The existing unwind regression still requires the separate successful-cleanup report.
+Together with round 76's corrected guard, worker, and observer waits, this closes F26's requirements.
+Production Payload::drop remains unchanged.
+
+### F28 — MEDIUM — OPEN: native evidence remains pending
+
+This delta does not change the PTY count test.
+Round 76's corrected source remains accepted.
+The required completed proof, including the native Mac path, remains pending.
+The HOLD still prevents execution. The reviewer requests no job during the HOLD.
+After F25 closes, F28 alone does not block the permitted verification under the lead's gate-evidence closure rule.
+CLEAN requires its successful result on the same reviewed head.
+
+### Verdict
+
+F1 through F24 remain CLOSED at their recorded heads and scopes.
+F26 is CLOSED at this head. F27 and F29 through F32 retain their round 76 closures.
+F25 requires the fixture correction above. F28 requires completed native evidence.
+All earlier findings, closures, and verdict rounds remain preserved.
+The conformance pending list remains unchanged. M2a and M2b remain separate work.
+The reviewer ran no tests, builds, measurements, mutants, or gates.
+
+VERDICT: NOT CLEAN (2 open findings) on `800606ac2a99c42a7e25886a5aa1ccc2b88070d1`.
