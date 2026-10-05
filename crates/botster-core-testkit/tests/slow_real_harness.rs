@@ -158,6 +158,7 @@ fn fixture(role: &str) -> (OwnedGroup, std::process::ChildStdin, Vec<String>) {
     let mut command = Command::new(FIXTURE);
     command
         .arg(role)
+        .arg(common::candidate_dir())
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::inherit());
