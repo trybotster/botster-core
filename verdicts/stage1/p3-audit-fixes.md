@@ -133,7 +133,7 @@ Scope of this review:
 - Required: rename the test and correct its doc to the part it still checks. Delete the dead limit. In the doc, name the
   test that now covers the repeated key.
 
-#### I6 [LOW] OPEN — `Payload::reap` exists only as an alias of drop, and it needs a mutation exclusion
+#### I6 [LOW] WITHDRAWN (round 1 addendum 2) — `Payload::reap` exists only as an alias of drop, and it needs a mutation exclusion
 
 - Location: `crates/botster-core-sys/src/payload.rs` `Payload::reap`; `.cargo/mutants.toml`, the entry
   `replace Payload::reap with ()`.
@@ -163,3 +163,12 @@ VERDICT: NOT CLEAN (6 open)
   - the driver treats a disconnected exit channel as a fatal failure: it ends the payload group and exits with a failure status.
 
 VERDICT: NOT CLEAN (6 open)
+
+## Round 1 addendum 2 — I6 withdrawn (same head `0403470`)
+
+- The package reviewer challenged I6. The audit's A53 offers `reap` as `drop(self)` as one of two accepted fixes.
+- The body is correct. The `()` mutant is exactly equivalent, and its exclusion entry states that reason. The consuming name
+  marks the ownership boundary at `ReapPayload`.
+- I6 named no defect, only a preference for the other offered fix. This reviewer withdraws I6. No change is required.
+
+VERDICT: NOT CLEAN (5 open)
