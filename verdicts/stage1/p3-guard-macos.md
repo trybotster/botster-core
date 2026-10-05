@@ -295,3 +295,9 @@ summary lines.
 Integration findings on #165: none open. Still needed for CLEAN: the P3 package verdict on `08fef89d`.
 
 VERDICT: NOT CLEAN (1 open: package verdict pending; 0 integration findings open)
+
+Round 7 correction: the package reviewer found that the new reservation test owns its `/bin/cat` members as raw `Child`
+values, with no guard and no deadline on `held.wait`, `reserve.wait` or `alive.wait`. Suppose the kill does not reach a member,
+or an assertion fails. Then a member can outlive the test, or the wait can block the job (BUILD.md testing rules 5 and 10).
+This reviewer accepted the test without checking its process ownership. The package reviewer's HIGH requires the fix, so
+no duplicate is opened. CLEAN here waits for it as part of the package verdict.
