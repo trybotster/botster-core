@@ -61,6 +61,10 @@ exclude_re = [
     # Library-inclusive Linux proof: 63b5c1db, 30 tested, 25 caught, five unviable, no misses/timeouts.
     # Native Mac helper proof at that head: two tested and caught; its baseline runs all 47 selected entries.
     # These are OS glue exceptions, not exclusions inferred from an inactive platform filter.
+    # Payload Debug::fmt prints only the real leader id through Payload::pid; it owns no decision.
+    # the_payload_runs_on_the_pty_with_the_exact_environment checks the Payload label and that actual id in its output.
+    # A real Payload cannot exist in the default tier. This diagnostic formatter is one printing-glue function.
+    'crates/botster-core-sys/src/payload\.rs:\d+:\d+: (replace <impl std::fmt::Debug for Payload>::fmt( ->| with)|.* in <impl std::fmt::Debug for Payload>::fmt$)',
     # Payload::spawn: a_payload_that_cannot_start_is_a_typed_failure checks errors; the_payload_runs_on_the_pty_with_the_exact_environment checks successful spawn.
     'crates/botster-core-sys/src/payload\.rs:\d+:\d+: (replace Payload::spawn( ->| with)|.* in Payload::spawn$)',
     # Payload::pid: the_payload_runs_on_the_pty_with_the_exact_environment checks the leader id; dropping_the_payload_reaps_its_leader checks its retirement.

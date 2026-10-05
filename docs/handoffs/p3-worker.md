@@ -728,3 +728,16 @@ Core LC-1 requires MissingWorkerPath for that specification; the driver propagat
 Only this test input and its clause comment changed. Production and mutation patterns are unchanged.
 Slow, mutation, and fuzz did not run in the failed gate. No readiness claim follows from it.
 Next: focused Linux regression, both delta reviews, then one new exact-head landing gate.
+
+## Landing gate diagnostic formatter survivor (2026-10-04)
+
+The full Linux gate at `b77038ac` ends with exit 1 after 722 seconds.
+Log: `~/botster-sessions/gates/botster-core-stage1-p3-m1-v1-b77038ac-linux-20261004-183142-56625.log`.
+Format, clippy, taint, lists, public-api, prebuild, default tests, and slow tests pass.
+Mutation tests 329 entries: 261 caught, 67 unviable, one missed, zero timed out. Fuzz did not run.
+The survivor replaces Payload's Debug formatter with an empty successful formatting result.
+The formatter prints the Payload label and actual leader id through Payload::pid. It owns no state or decision.
+The existing slow test the_payload_runs_on_the_pty_with_the_exact_environment checks both label and actual id.
+A new function-specific printing-glue entry records that proof. All pure decision coverage and existing scopes remain.
+The earlier library-inclusive payload mutation run includes this formatter and catches its replacement.
+Next: both exact configuration reviews, then the new exact-head landing gate.
