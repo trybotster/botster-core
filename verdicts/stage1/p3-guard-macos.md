@@ -363,3 +363,23 @@ Every error branch of the changed helpers was read:
 Integration findings on #165: none open. Still needed for CLEAN: the P3 package verdict on `c03bcfb1` (F43).
 
 VERDICT: NOT CLEAN (1 open: package verdict pending; 0 integration findings open)
+
+## Round 10 — CLEAN on head c03bcfb1
+
+Reviewed head: `c03bcfb181d21cdf805b752a790359f63b9ef7b9`, unchanged since round 9. Base: current v1
+`144b0234fb632bcbb5176b17c2fe55f3239405df`, which is an ancestor of the head.
+Package verdict: CLEAN on this exact head. P3 reviewer round 86, commit `ea4415fe0551c8023f3545bc3dc25209bf962e9e`, file
+`verdicts/p3-worker.md` on `origin/stage1/review-p3`. It closes F43, and every finding in #165's scope is closed.
+
+Integration findings, all closed:
+- J1 (moved from #162): the guard ends every member on every exit path.
+- G1, G3 and G4 (round 3).
+- G5 (round 4).
+- G6 (round 5).
+- G2 is settled on this branch (round 7: 2 × CLEANUP) and is checked again in #163's merge delta.
+
+Evidence: focused Mac runs at the exact head, 158 and 13 tests passing. This reviewer ran no gate. Under the lead's
+combined-gate ruling, P5 merges this head into #162. That combined head gets delta reviews from both package reviewers and
+from this reviewer, and then one Mac gate.
+
+VERDICT: CLEAN (0 open)
