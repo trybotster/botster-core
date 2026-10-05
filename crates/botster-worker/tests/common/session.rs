@@ -555,3 +555,99 @@ fn observer_parent() {
     std::io::stdin().read_line(&mut input).unwrap();
     drop(session);
 }
+
+/// Core AM-2, IN-2, IN-6: a real PTY keeps exact counts through cancellation and resumes the next transaction.
+#[test]
+fn in_6_real_pty_cancel_keeps_counts_and_resumes_the_next_write() {
+    use std::os::fd::AsFd;
+    let root = temp_root();
+    let ready = fifo(root.path(), "ready");
+    let release = fifo(root.path(), "release");
+    let done = fifo(root.path(), "done");
+    let received = root.path().join("received");
+    let open_fifo = |path: &Path| {
+        std::fs::File::from(
+            rustix::fs::open(
+                path,
+                rustix::fs::OFlags::RDWR | rustix::fs::OFlags::NONBLOCK,
+                rustix::fs::Mode::empty(),
+            )
+            .unwrap(),
+        )
+    };
+    let mut ready_reader = open_fifo(&ready);
+    let mut release_writer = open_fifo(&release);
+    let mut done_reader = open_fifo(&done);
+    let marker = |reader: &mut std::fs::File, expected: &[u8]| {
+        let mut fds = [rustix::event::PollFd::from_borrowed_fd(
+            reader.as_fd(),
+            rustix::event::PollFlags::IN,
+        )];
+        // timer: deadline — bounds an external program marker without polling.
+        let limit = rustix::event::Timespec {
+            tv_sec: 5,
+            tv_nsec: 0,
+        };
+        assert!(rustix::event::poll(&mut fds, Some(&limit)).unwrap() > 0);
+        assert!(fds[0].revents().contains(rustix::event::PollFlags::IN));
+        let mut bytes = [0; 64];
+        let n = reader.read(&mut bytes).unwrap();
+        assert_eq!(&bytes[..n], expected);
+    };
+    let script = format!(
+        "stty raw -echo; /bin/echo ready > '{}'; count=$(/bin/cat '{}'); /usr/bin/head -c \"$count\" > '{}'; /bin/echo done > '{}'; exec sleep 30",
+        ready.display(), release.display(), received.display(), done.display()
+    );
+    let mut s = Session::launch(root.path(), &script, 5000);
+    // timer: deadline — bounds reports for the real PTY input path.
+    s.link
+        .stream
+        .set_read_timeout(Some(Duration::from_secs(5)))
+        .unwrap();
+    marker(&mut ready_reader, b"ready\n");
+    let text = "a".repeat(196_608);
+    let write = |req, text: String| HostMsg::Op {
+        req,
+        op: Op::WriteInput {
+            session: SessionId("s".into()),
+            payload: InputPayload::Text { text },
+            guard: None,
+        },
+    };
+    s.link.msg(&write(1, text.clone()));
+    assert!(matches!(s.link.report(), WorkerMsg::Observed { .. }));
+    s.link.msg(&HostMsg::Cancel { req: 1 });
+    let WorkerMsg::Done {
+        req: 1,
+        result: OpResult::Ok(OpOutput::Input(cancelled)),
+    } = s.link.report()
+    else {
+        panic!("the active write must report its cancellation");
+    };
+    assert_eq!(cancelled.outcome, WriteOutcome::Cancelled);
+    assert_eq!(cancelled.payload_bytes_written, cancelled.pty_bytes_written);
+    let count = usize::try_from(cancelled.payload_bytes_written).unwrap();
+    assert!(
+        count > 0 && count < text.len(),
+        "the real PTY must take a prefix"
+    );
+    s.link.msg(&write(2, "b".into()));
+    assert!(matches!(s.link.report(), WorkerMsg::Observed { .. }));
+    writeln!(release_writer, "{}", count + 1).unwrap();
+    drop(release_writer);
+    let WorkerMsg::Done {
+        req: 2,
+        result: OpResult::Ok(OpOutput::Input(written)),
+    } = s.link.report()
+    else {
+        panic!("the next transaction must finish after the program reads");
+    };
+    assert_eq!(written.outcome, WriteOutcome::Written);
+    assert_eq!(written.payload_bytes_written, 1);
+    assert_eq!(written.pty_bytes_written, 1);
+    marker(&mut done_reader, b"done\n");
+    let mut expected = text.as_bytes()[..count].to_vec();
+    expected.push(b'b');
+    assert_eq!(std::fs::read(&received).unwrap(), expected);
+    s.remove();
+}
