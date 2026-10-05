@@ -183,7 +183,28 @@ fn partial_writes_retain_bytes_and_track_interest_and_totals() {
     // timer: deadline — bounds completion of finite bytes through a partial-write socket.
     let deadline = Instant::now() + Duration::from_secs(10);
     while received.len() < wire.len() {
-        assert!(Instant::now() < deadline, "partial-write completion");
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        assert!(!remaining.is_zero(), "partial-write completion");
+        let mut fds = [
+            rustix::event::PollFd::from_borrowed_fd(h.peer.as_fd(), rustix::event::PollFlags::IN),
+            rustix::event::PollFd::from_borrowed_fd(
+                h.driver.control.as_fd(),
+                if h.driver.outbound.is_empty() {
+                    rustix::event::PollFlags::empty()
+                } else {
+                    rustix::event::PollFlags::OUT
+                },
+            ),
+        ];
+        let limit = rustix::event::Timespec {
+            tv_sec: remaining.as_secs().try_into().unwrap(),
+            tv_nsec: remaining.subsec_nanos().into(),
+        };
+        assert!(
+            rustix::event::poll(&mut fds, Some(&limit)).unwrap() > 0,
+            "partial-write readiness"
+        );
+        let writable = fds[1].revents().contains(rustix::event::PollFlags::OUT);
         let mut bytes = [0; 4096];
         match h.peer.read(&mut bytes) {
             Ok(n) => {
@@ -193,7 +214,7 @@ fn partial_writes_retain_bytes_and_track_interest_and_totals() {
             Err(error) if error.kind() == io::ErrorKind::WouldBlock => {}
             Err(error) => panic!("{error}"),
         }
-        h.driver.control_writable = true;
+        h.driver.control_writable = writable;
         let before = h.driver.written;
         h.driver.flush().unwrap();
         if h.driver.written != before {
