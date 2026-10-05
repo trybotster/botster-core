@@ -352,3 +352,27 @@ VERDICT: NOT CLEAN (1 open: package verdict pending; I7 gate evidence pending; 0
   The xtask test that compares the filter with a literal string proves only the string, not the collection.
 
 VERDICT: NOT CLEAN (2 open: I7; package verdict pending)
+
+## Round 7 — I7 boundary filter and collection evidence
+
+Reviewed head: `40b63dceb6e3f3d7be69a1488ac77eccc121a071`. Delta `0110caa..40b63dc`, one commit, `xtask/src/test_budget.rs`.
+The base is still current v1 `144b023`. This reviewer ran no build, test or gate. It read the implementer's log.
+
+- The filter is `binary(/^slow/) | test(/(^|::)slow_/)`. The comment states that nextest matches the whole module path.
+- Collection evidence: `~/botster-sessions/gates/botster-core-stage1-p3-audit-fixes-40b63dce-mac-20261004-215438-84612.log`.
+  - It is a `botster-gate --on mac` run at this exact head. It runs `cargo nextest list` with the slow tier's four packages,
+    their `slow` features and this filter, and exits 0.
+  - It lists 130 tests. Among them:
+    - botster-core-sys `storage::slow_tests::*` (14);
+    - botster-core `real::slow_tests::*` (5) and `slow_tests::every_call_reaches_the_driver`;
+    - `botster-worker::bin/botster-worker slow_edges::a_failed_exit_watch_ends_the_worker_with_a_failure`;
+    - the `slow_driver::*` tests.
+  - This reviewer checked those lines in the log.
+- **I7 CLOSED for collection.** Execution evidence follows in the single gate on the final head, after the guard PR merges
+  (the lead's merge order). If a newly collected test fails there, its owner and its scope go to the lead.
+
+Integration source findings: none open. Still needed for CLEAN:
+- the package verdict on the final head;
+- the green gate on that head, which runs the newly collected slow tests.
+
+VERDICT: NOT CLEAN (1 open: package verdict and gate pending; 0 integration findings open)
