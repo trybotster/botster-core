@@ -288,25 +288,39 @@ fn an_uncertain_create_keeps_its_id_until_the_registry_is_read() {
 }
 
 /// Core LC-11, AD-1: `AdoptAll` that reads the row of a session that this handle is still creating (the row is written, its
-/// `Created` is not posted yet) waits for that `Created`, then posts the row's state, and completes after it. The order of
-/// the steps is forced: the create's row write, then the whole `AdoptAll`, then the rest.
+/// `Created` is not posted yet) waits for that `Created`, then posts the row's state, and completes after it. The pump runs
+/// only ready work, and prefers `AdoptAll` whenever it is ready (an order that A5-2 leaves open).
 #[test]
 fn adopt_all_posts_the_state_of_a_row_whose_create_is_still_running() {
     let mut w = World::default();
     w.engine.begin(create("own")).unwrap();
     let adopt = w.engine.begin(Op::AdoptAll).unwrap();
     w.feed(Input::Clock(w.unix));
-    // The create writes its row (one step), then AdoptAll runs as far as it can.
+    // The create writes its row first, so that AdoptAll reads it.
+    assert!(w.engine.ready().contains(&Work::Session(sid("own"))));
     w.feed(Input::Run(Work::Session(sid("own"))));
     assert!(w.rows.contains_key(&row_key("own")), "the row is written");
-    for _ in 0..4 {
-        w.feed(Input::Run(Work::Op(adopt)));
+    while let Some(work) = {
+        let ready = w.engine.ready();
+        ready
+            .iter()
+            .find(|x| **x == Work::Op(adopt))
+            .or(ready.first())
+            .cloned()
+    } {
+        w.feed(Input::Run(work));
     }
-    let events = w.until(|e| matches!(e, Event::Completed { op, .. } if *op == adopt));
-    let created = |e: &Event| matches!(e, Event::SessionState { id, state: SessionState::Created, .. } if *id == sid("own"));
-    let states_before: usize = events.iter().filter(|e| created(e)).count();
+    let events = w.engine.poll_events(64);
+    let done = events
+        .iter()
+        .position(|e| matches!(e, Event::Completed { op, .. } if *op == adopt))
+        .expect("AdoptAll completed");
+    let created = events[..done]
+        .iter()
+        .filter(|e| matches!(e, Event::SessionState { id, state: SessionState::Created, .. } if *id == sid("own")))
+        .count();
     assert_eq!(
-        states_before, 2,
-        "the create's Created, then AdoptAll's state of the row, both before its completion: {events:?}"
+        created, 2,
+        "the create's Created and AdoptAll's state of the row, before its completion: {events:?}"
     );
 }
