@@ -90,3 +90,20 @@ Reviewed head: `61c82ee631c6bd601d2ab60fd6783139d9c05b28`. Delta `84f4ab8..61c82
   package F39 next to the integration G2 for its merge delta.
 
 VERDICT: NOT CLEAN (1 open: S3, LOW)
+
+## Round 3 — CLEAN on head a590092
+
+Reviewed head: `a590092858c3d9ab7addd27a11ef0b4c544358bd`. Delta `61c82ee..a590092`, one commit, `docs/stage1-status.md` only.
+The base is still current v1 `144b023`.
+
+- **S3 CLOSED.** The #165 row cites P3's round 87: `stage1/review-p3` @ `e31e4ae8`, NOT CLEAN at `71195e72`, with F45 and F46
+  open (= integration C3 and C4). It states that F39 stays open for #163's merge delta, and it marks the `c03bcfb1` CLEAN
+  (`ea4415fe`) as history.
+- A final re-check with `git ls-remote` shows every documented head unchanged:
+  - #165 `71195e72`, #162 `59cda32`, #163 `40b63dc`, #164 `b8b37a6`, #142 `6e8d5b3`, #161 `dea90ed`, v1 `144b023`;
+  - the review branches: `review-p3` `e31e4ae8`, `review-p5` `cf96240`, `review-p6` `d1a3869`, `review-p7` `ac6e612`,
+    `review-fork-a6` `debe4bb`.
+- All findings are closed: S1 (round 2), S2 (overtaken by events, and replaced by S3), and S3. The lead assigned this docs PR
+  to integration review only, so no package verdict applies.
+
+VERDICT: CLEAN (0 open)
