@@ -5739,3 +5739,80 @@ The reviewer changed no product code and ran no tests, builds, measurements, mut
 All earlier findings, closures, and verdict rounds remain preserved at their named heads and scopes.
 
 VERDICT: CLEAN
+
+## Round 111 — Kernel answers in the pidfd guard test
+
+Reviewed head: `1bfc6fd39fa077bec92b7fe021d5d7c9f6798618`, PR #186, branch `stage1/p3-kernel-errno`.
+Base: `aaac0c0d1f44172ca5d5dd5dd6986c9787be4aa6`.
+The reviewer inspected the complete one-file change, its guard callers, the full PR description, and both completed Linux logs.
+Authority: BUILD.md at contracts main 56bd0a5347a537d25bbee65a67854e0e317a9b9a and the lead's process-control-test ruling.
+The reviewer checked the tier first. HIGH is correct under that ruling.
+HIGH requires package and integration reviews, and every finding must close, including LOW findings.
+
+### F58 — LOW — The documentation excludes a possible PID-reuse answer
+
+The new gone_at_open comment says a listed member is never a non-leader thread because /proc lists thread-group IDs.
+The PR description makes the stronger claim that ENOENT cannot reach production.
+The directory listing proves the kind of PID at listing time. It does not pin that numeric PID until pidfd_open.
+The guard records only the PID. end_members lists members, kills the group, and then calls await_end for each recorded PID.
+A parent can reap a listed member. The kernel can then reuse that PID for a non-leader thread before the wait opens its pidfd.
+The existing await_end documentation explicitly permits PID reuse during this interval.
+The reserve holds the process-group ID. It does not hold every member PID.
+
+Correct the new comment and PR description to preserve this distinction.
+ENOENT is not proof that the recorded member is gone. The wait propagates it as an error, including possible PID reuse.
+Keep gone_at_open unchanged. This finding requests no runtime change or new fixture.
+The reviewer sent F58 directly to P3 and sent its scope to the integration reviewer.
+
+### Accepted logic and kernel evidence
+
+The test holds a non-leader thread on a channel, so its two pidfd_open calls refer to the same live thread.
+It accepts exactly the two documented kernel refusals.
+For EINVAL, it requires await_end to return Gone.
+For ENOENT, it requires await_end to fail with the exact ENOENT errno.
+Every other result fails the test. The channel and thread join remain unchanged.
+The test adds no sleep, polling loop, process fixture, timer, or allowance.
+The guard predicate and the runtime wait code are unchanged.
+
+The reviewer read the kernel author's [2025 patch](https://lkml.iu.edu/hypermail/linux/kernel/2504.1/07385.html).
+That patch distinguishes a released task, which returns ESRCH, from a non-leader thread, which returns ENOENT without PIDFD_THREAD.
+The reviewer checked [Linux proc enumeration](https://raw.githubusercontent.com/torvalds/linux/v6.12/fs/proc/base.c).
+next_tgid selects PIDTYPE_TGID for numeric entries in proc_pid_readdir.
+That source supports the listing-time property. It does not prove that the numeric PID cannot be reused before a later open.
+
+The reviewer read the PR's errno audit and the six listed real-kernel sites.
+The other listed assertions cover descriptor exhaustion, permissions, missing parents, absent signal targets, absent children, and socket reset.
+The reviewer inspected those sites and the constant-errno tests in botster-test-process.
+No additional kernel-answer finding arose from that review.
+
+### Completed evidence
+
+Full gate log: `~/botster-sessions/gates/botster-core-stage1-p3-kernel-errno-1bfc6fd3-pool-20261009-091001-91169.log`.
+It names this exact head and base. The run uses msa1 with kernel 6.12.111+deb13-amd64.
+All ten CI steps pass. The default tier passes 922 tests in 1.848 seconds.
+The slow tier passes 243 tests in 10.131 seconds, including the renamed test in all seven binaries.
+This kernel run covers the EINVAL answer.
+Both mutation commands explicitly report INFO No mutants to filter.
+The diff changes only test code and comments. The reviewer accepts that result from the diff and actual tool output.
+The separate command uses NEXTEST_PROFILE=slow. Signals scan 153 Rust files. Timers scan 137 Rust files.
+Full CI takes 165.3 seconds. Separate mutants take 0.4 seconds. The combined job exits 0 after 232 seconds on msa1.
+
+Focused run log: `~/botster-sessions/gates/botster-core-stage1-p3-kernel-errno-1bfc6fd3-pool-20261009-091500-99554.log`.
+It names the same exact head and base and runs on gaming with kernel 6.18.40.1-microsoft-standard-WSL2.
+The focused slow_process test passes: one passed, zero failed, and 23 filtered out.
+The earlier 5099dca7 log from gaming shows this same test's old expectation failing with errno 2 instead of errno 22.
+The focused pass, kernel identity, earlier observed ENOENT, and inspected branch logic support the ENOENT proof.
+This focused run is not a second full gate. The reviewer accepts both kernel proofs.
+
+### Verdict and scope
+
+PR #186 is NOT CLEAN at this exact head for F58 LOW only.
+The reviewer accepts the test logic and completed evidence. No package runtime finding exists.
+This is the first NOT CLEAN round for #186. The round-limit notice is not due.
+The integration reviewer controls its own verdict.
+#184 retains round 110 CLEAN at its exact head and scope.
+#168 retains its separate single planned real-PTY HOLD. Part B retains its earlier open duties.
+The reviewer changed no product code and ran no tests, builds, measurements, mutants, or gates.
+All earlier findings, closures, and verdict rounds remain preserved at their named heads and scopes.
+
+VERDICT: NOT CLEAN
