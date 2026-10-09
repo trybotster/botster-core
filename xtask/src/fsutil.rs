@@ -41,6 +41,32 @@ pub fn tracked_files(root: &Path) -> Result<Vec<String>> {
         .collect())
 }
 
+/// The files under `root`, relative to it, without git: a test may run in a copy of the tree with no `.git` (the
+/// cargo-mutants copy). A `target` or `vendor` directory and a hidden directory are skipped.
+#[cfg(test)]
+pub fn walk_files(root: &Path) -> Vec<String> {
+    let mut files = Vec::new();
+    let mut dirs = vec![root.to_path_buf()];
+    while let Some(dir) = dirs.pop() {
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in entries.filter_map(Result::ok) {
+            let path = entry.path();
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if path.is_dir() {
+                if !(name.starts_with('.') || name == "target" || name == "vendor") {
+                    dirs.push(path);
+                }
+            } else if let Ok(relative) = path.strip_prefix(root) {
+                files.push(relative.to_string_lossy().into_owned());
+            }
+        }
+    }
+    files.sort();
+    files
+}
+
 /// The text of a file at a git ref, or `None` when the file does not exist there.
 pub fn git_show(root: &Path, reference: &str, path: &str) -> Result<Option<String>> {
     let output = Command::new("git")

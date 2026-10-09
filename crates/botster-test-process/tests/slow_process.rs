@@ -178,6 +178,53 @@ fn a_group_owner_ends_a_member_that_outlives_the_leader() {
     eof(rest.into_inner());
 }
 
+/// G1 (#177): when the cleanup cannot make its reserve, its last kill (`signal_own_group`) ends every member of its group,
+/// itself included. The member is a `cat` of the test's stdin, which the test holds open: it can end only by a signal. So
+/// the end of file of the stderr pipe, which only the helper and its member hold, proves that both ended, and the helper's
+/// `KILL` status proves that the kill ended it before any drop of the member's owner could run. A refused kill lets the
+/// helper report, end its member through the owner's drop, and exit 0: the status check fails.
+#[test]
+fn an_unreserved_cleanup_ends_every_member_by_its_last_kill() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut parent = OwnedChild::spawn_group(
+        helper("helper_unreserved_cleanup", dir.path())
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped()),
+    )
+    .unwrap();
+    let _held = parent.take_stdin().unwrap();
+    let (rest, line) = first_line(parent.take_stderr().unwrap());
+    assert_eq!(line, "member started\n");
+    eof(rest.into_inner());
+    assert_eq!(parent.status().signal(), Some(KILL));
+}
+
+#[test]
+fn helper_unreserved_cleanup() {
+    use std::io::Write;
+    if helper_dir().is_none() {
+        return;
+    }
+    // This process leads its own group (`spawn_group`). The member copies the test's stdin to the test's stderr pipe. If the
+    // last kill does not end this process, the owner's drop ends the member when the helper returns.
+    let _member = OwnedChild::spawn(Command::new("/bin/cat").stdout(stderr())).unwrap();
+    writeln!(std::io::stderr(), "member started").unwrap();
+    let group = rustix::process::getpgrp();
+    // The kill below ends this process's group: it must be the helper's own, never the test runner's.
+    assert_eq!(
+        group,
+        rustix::process::getpid(),
+        "the helper leads its own group"
+    );
+    let ended =
+        botster_test_process::rounds::end_group_reserved(group, Deadline::cleanup(), || {
+            Err(std::io::Error::other("no reserve"))
+        });
+    // Reached only when the last kill did not end this process.
+    writeln!(std::io::stderr(), "survived: {ended:?}").unwrap();
+}
+
 /// The production-style start of a wrapped program: in a new group, as an unreaped child of the test (production's role).
 fn start(guard: &Guard, dir: &Path, program: &Path, args: &[&str]) -> Child {
     let script = dir.join("wrapped.sh");

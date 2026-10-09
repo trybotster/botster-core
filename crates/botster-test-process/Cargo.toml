@@ -23,6 +23,7 @@ name = "botster-test-anchor"
 path = "src/bin/botster-test-anchor.rs"
 
 [dependencies]
+botster-core-sys.workspace = true
 # libc: `close` in the anchor's `close_inherited` (it reports its error, which rustix's `close` does not), and the signal
 # and state numbers of the macOS adapters.
 libc = "0.2"
