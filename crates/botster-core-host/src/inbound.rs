@@ -626,11 +626,8 @@ impl HostEngine {
                     }),
                 );
             }
-            Flow::Adopt(f)
-                if matches!(f.phase, AdoptPhase::AwaitHello | AdoptPhase::AwaitReport) =>
-            {
-                self.adopt_link_closed(&id);
-            }
+            // The link of an adoption ended before the row's state was posted: the worker may live (AD-2).
+            Flow::Adopt(_) => self.adopt_link_closed(&id),
             Flow::Stop(f) if f.end.is_none() && f.phase != StopPhase::RowWrite => {
                 // LC-5: a session whose control link is broken still ends: the host signals the verified worker (pid and
                 // start time, AD-6), which ends its payload group. The host never signals a bare payload group.
@@ -682,9 +679,8 @@ impl HostEngine {
             }
             Flow::Remove(_) => self.flow_remove_worker_gone(&id),
             Flow::Create(_) => {}
-            Flow::Adopt(f) if f.phase != AdoptPhase::Post => {
-                self.adopt_end(&id, End::Lost(LostReason::WorkerGone), "");
-            }
+            // The worker ended before the row's state was posted (AD-2).
+            Flow::Adopt(_) => self.adopt_end(&id, End::Lost(LostReason::WorkerGone), ""),
             _ => {
                 if matches!(
                     shown,

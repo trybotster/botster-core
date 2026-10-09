@@ -249,16 +249,11 @@ impl HostEngine {
             (R::Exited(exit), P::Exited { .. } | P::LaunchFailed { .. }) => {
                 self.adopt_end(id, End::Exited(exit), "");
             }
-            // R-35 (d): the worker is authenticated (AD-6), so the durable row is the wrong record: a corrupt registry
-            // record although its bytes decode. The pairs that R-35 does not name (`Running` with `LaunchFailed`,
-            // `Exited` with `Running`) contradict the row in the same way: an `Exited` row is written only after the end
-            // that it records, and a `Running` row only after `Launched`.
-            (R::Running | R::Exited(_), P::NotLaunched | P::Spawning)
-            | (R::Running, P::LaunchFailed { .. })
-            | (R::Exited(_), P::Running { .. }) => {
-                self.adopt_end(id, End::Lost(LostReason::RegistryCorrupt), "")
-            }
-            // A row of any other state never reaches the handshake (`session_of_row`).
+            // The other pairs. R-35 (d): `Running` or `Exited` with `NotLaunched` or `Spawning`. The worker is
+            // authenticated (AD-6), so the durable row is the wrong record: a corrupt registry record although its bytes
+            // decode. `Running` with `LaunchFailed`, and `Exited` with `Running`, contradict the row in the same way: an
+            // `Exited` row is written only after the end that it records, and a `Running` row only after `Launched`. A
+            // row of any other state never reaches the handshake (`session_of_row`).
             _ => self.adopt_end(id, End::Lost(LostReason::RegistryCorrupt), ""),
         }
     }
@@ -318,7 +313,7 @@ impl HostEngine {
         );
     }
 
-    /// The link of an adoption closed before its report.
+    /// The link of an adoption closed before the row's state was posted.
     pub(crate) fn adopt_link_closed(&mut self, id: &SessionId) {
         self.adopt_end(id, End::Lost(LostReason::WorkerUnreachable), "");
     }
