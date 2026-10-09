@@ -238,3 +238,19 @@ Reviewed head: `3d5237b2b1650424f6f23a27c841407014a165aa`. Delta `f1cee834..3d52
   separately; it is not part of E3.
 
 VERDICT: NOT CLEAN (1 open: E3)
+
+## Round 8 correction — E2 reopened (same head 3d5237b2)
+
+Round 8 closed E2 because the column 40 entry "limits itself to the Linux gate". That limit is only a comment. The
+`exclude_re` entry is global: a Mac gate (`botster-gate --on mac`, required for macOS-only code) also excludes the two
+mutants that the Mac catches, so the exclusion hides a catchable mutant there. The P3 package reviewer's round 97 (F51,
+`ab8a051`) records the same point.
+
+#### E2 [MEDIUM] REOPENED — the platform scope of the column 40 exclusion is not mechanical
+
+- Required (with F51): make the scope mechanical, so that the two `696:40` mutants are excluded only where the build
+  cannot catch them (for example a platform-conditional exclusion in the xtask's mutants step, or a mutants config chosen
+  per target OS), and give the Linux argument for every valid input against the pinned Ghostty source, not one sample.
+  The Mac regression test and the Mac catches of round 8 stand.
+
+VERDICT: NOT CLEAN (2 open: E2, E3)
