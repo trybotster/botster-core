@@ -4111,6 +4111,7 @@ All earlier findings and verdict rounds remain preserved.
 VERDICT: NOT CLEAN
 
 
+
 ## Round 89 — Shared guard CLEAN after the whole guard corrections
 
 Reviewed head: `9eaea51ccb47230f4ee19e14056c17dfb607a826`, PR #165, branch `stage1/p3-guard-macos`.
@@ -5022,6 +5023,86 @@ The reviewer will review the rebuilt regression delta and completed gate evidenc
 
 PR #168 M2a is NOT CLEAN at this exact head for this single HOLD.
 Part B retains its previous findings and A31 duty. M2b, P4a, and pending conformance IDs remain outside this verdict.
+The reviewer changed no product code and ran no tests, builds, measurements, mutants, or gates.
+All earlier findings, closures, and verdict rounds remain preserved at their named heads and scopes.
+
+VERDICT: NOT CLEAN
+
+## Round 102 — Guarded signal calls and their mechanical enforcement
+
+Reviewed head: `9be8102708a33c1a4c79693e09797ab6942c7c3c`, PR #177, branch `stage1/p3-group-signal-guard`.
+Base: `0b684a19470c5b647e64653fd285d4cd43544278`, v1 after #174.
+Authority: BUILD.md, plan revision 22 at pin `~/botster-sessions/pins/stage1-plan.71a623ef.md`, and the lead's signal ruling of 2026-10-09.
+The pin SHA256 remains `71a623ef93f487754e400dc186429216357e39fe251933675cc7f851843d519d`.
+The lead requires one guarded group-signal function, raw-call bans, and the A10-2 corrupted-row behavior test.
+The lead also requires each pattern fix to include the mechanical check that finds all its instances.
+The reviewer inspected the full nineteen-file diff, the final source, the updated PR description, and completed gate evidence.
+
+### Guard behavior — Accepted
+
+`signal::target` refuses 0, 1, values above `i32::MAX`, and the supplied own identifier.
+Both OS wrappers call this function before a raw signal call.
+The group wrapper obtains its own group from `getpgrp`. The process wrapper obtains its own process identifier.
+The wrappers retain OS errors. Conversion to `io::Error` retains the OS errno and reports a refusal as `InvalidInput`.
+The reviewer checked the locked Rustix 1.1.5 source: group identifier 1 becomes `kill(-1, signal)`.
+The new positive-range check prevents that operation and prevents signed-conversion errors.
+
+All current raw `kill_process_group` and `kill_process` calls outside the guard move to these wrappers.
+`Children::signal_group` retains its process identity check before dispatch.
+Term and Kill use the group wrapper. EndPayload uses the process wrapper.
+Payload signaling retains the live-child condition and signal conversion.
+OwnedGroup cleanup and the existing real-process helpers use the same guard.
+The changes add no child wait, sleep, process fixture, or new timer value.
+The changes preserve the existing group anchor, reserve child, cleanup bound, and production reaping rules.
+No separate guard logic finding exists at this head.
+
+The default tests cover invalid targets, own targets, allowed targets, errno preservation, and refusal conversion.
+The wrapper test uses SIGCONT for own targets, so a failed refusal does not terminate the test process.
+The corrupted-row test records pid 1 and supplies a matching identity probe.
+It exercises AdoptAll, Stop, and Remove through Core and records refused signal requests.
+It verifies that the actual worker still has a matching identity.
+The reviewer accepts these behavior tests together with the OS-wrapper tests.
+
+### F54 — MEDIUM — OPEN — Existing lint allowances and slow-only code bypass the raw-signal ban
+
+The six Clippy configuration files ban both raw signal methods.
+`xtask/src/signal_bans.rs` verifies only that each configuration contains both entries.
+It does not verify the effective lint scope.
+
+`crates/botster-core/tests/slow_real_core.rs:8` retains file-wide `allow(clippy::disallowed_methods)`.
+Its changed worker signal call previously used raw `rustix::process::kill_process`.
+Restoring that raw call remains exempt from the ban, even if Clippy compiles the slow feature.
+Other existing item and file allowances have the same scope problem.
+The configuration test remains green because no configuration entry changes.
+
+`xtask/src/ci.rs:82` runs Clippy for the workspace and all targets, but it does not enable the slow feature.
+`slow_real_core.rs` has `cfg(feature = "slow")` at its file root.
+The slow test step enables that feature through nextest, which does not run Clippy.
+Thus a raw call in slow-only code can also avoid the ban without any lint allowance.
+The completed green gate does not establish enforcement for this code.
+
+Required closure: enforce the raw-call ban across the required feature scopes and existing lint allowances.
+Only the two guarded OS calls may receive the necessary exception.
+Provide a safe red-on-revert proof that a raw call outside the guard makes the check fail.
+The proof must not execute the raw call.
+This finding concerns mechanical enforcement, not a current raw-call survivor in product code.
+
+### Completed evidence and verdict
+
+The exact-head Linux log is:
+`~/botster-sessions/gates/botster-core-stage1-p3-group-signal-guard-9be81027-pool-20261009-033702-65783.log`.
+It names this head and base `0b684a19`.
+It runs full `cargo xtask ci`, then the in-diff mutation step with `NEXTEST_PROFILE=slow`.
+All ten CI steps pass. The timer check scans 125 Rust files.
+The default tier passes 853 tests. The slow tier passes 218 tests.
+Both mutation runs report eight tested: six caught, two unviable, zero missed, and zero timed out.
+The full CI summary reports 28.9 seconds. The combined job exits 0 after 41 seconds on msa1.
+The gate selects and passes the new guard, corrupted-row, and configuration tests.
+These results do not close F54 because the gate does not check the missing lint scopes.
+
+PR #177 is NOT CLEAN at this exact head for F54.
+The reviewer sent F54 directly to the P3 implementer.
+PR #168 retains its single real-PTY HOLD from round 101. Part B retains its previous open duties.
 The reviewer changed no product code and ran no tests, builds, measurements, mutants, or gates.
 All earlier findings, closures, and verdict rounds remain preserved at their named heads and scopes.
 
