@@ -4,12 +4,13 @@ use super::*;
 use std::time::Instant;
 
 fn edges(seed: u64) -> SimEdges {
+    let scheduler = SchedulerHandle::with_seed(seed);
     SimEdges {
         registry: Arc::default(),
         faults: Arc::default(),
         entropy: SeededEntropy::with_seed(seed),
-        scheduler: HandleScheduler(SchedulerHandle::with_seed(seed)),
-        wake: Arc::default(),
+        wake: Arc::new(SimHostWake::new(scheduler.clone())),
+        scheduler: HandleScheduler(scheduler),
         spawner: None,
         pending: VecDeque::new(),
         links: BTreeMap::new(),
@@ -73,10 +74,13 @@ fn entropy_and_choices_follow_the_seeded_streams() {
     assert!(bounds.iter().any(|&n| n != 1));
 }
 
-/// TM-6 and TH-2: the wake is a level flag with no descriptor, and an unset wake waits for its deadline.
+/// TM-6 and TH-2: the wake is a level flag with no descriptor, and an unset wake with no spurious wakes waits for its
+/// deadline.
 #[test]
 fn the_wake_keeps_its_level_until_drained() {
-    let wake = SimHostWake::default();
+    let scheduler = SchedulerHandle::with_seed(0);
+    scheduler.set_overrides(|o| o.no_spurious_wakes = true);
+    let wake = SimHostWake::new(scheduler);
     assert_eq!(wake.fd(), -1);
     wake.signal();
     assert_eq!(wake.wait(Duration::ZERO), Wake::Woken);
