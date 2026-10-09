@@ -1207,3 +1207,94 @@ This reviewed head still contains the call inference. No replacement implementat
 One HIGH finding remains at this head: B10. Wait for the replacement READY head under 23i.
 
 VERDICT: NOT CLEAN
+
+
+## Round 9 — plan 23i call-inference removal
+
+Implementation head: `2383e18636d15970d43892597cffd0bf9612d24a`.
+Previous reviewed head: `a94e02d6c2727a4dfa74052fa676ab94d490c375`.
+Integration base and full gate base: `cd97009e93c2641843c05bd46793265b3580b2a9`.
+Plan: revision 23i, `stage1/plan` `5e0a7500fa3f150d9f4a2ae6ba7a7b69e116ef88`, section 8.
+
+The reviewer checked the stated tier first. HIGH remains correct under BUILD.md rules 1 and 3.
+The reviewer applied the lead's scope: removal and gate holes in the remaining checks.
+The reviewer read exact Git objects and supplied evidence.
+The reviewer changed no product code and ran no gate, build, test, mutation job, or reversal.
+
+### B10 closes by removal
+
+The check removes `Calls`, `Index`, macro argument lists, reserved-name rules, and source reading from `inputs`.
+It infers no relation between functions.
+The unrelated method and merged function-index cases no longer supply false call evidence.
+The check now requires a strict proof citation with a decision name present in the xtask mutant list.
+The decision name cannot appear in the set of names with any covered mutant.
+The set contains short names from all listed mutants, across files and types.
+Thus an excluded method named `decide` rejects a citation of the free function `decide`.
+A name collision removes acceptances. It cannot supply call evidence.
+The shell's own name is covered and cannot validate its own citation.
+
+The check still rejects every non-whole-body decision mutant, reasonless platform regex, and xtask glob exclusion.
+It retains the strict citation parser from `mutants_cited`.
+`mutants_cited` still checks that each cited proof is a test that a gate tier runs.
+Review owns the shell classification and the forwarding relation under plans 23g and 23i.
+
+The check-level fixture `a_cited_decision_is_matched_by_name_and_a_shared_name_fails_closed` covers both B10 names.
+It accepts a citation while those names have no covered decision mutant.
+It rejects the citation when an exclusion covers the same-named method.
+Other fixtures assert rejection of missing citations, self citations, names without mutants, excluded decisions, and free-text reasons.
+The retained red fixture asserts that an exclusion of a decision mutant produces a violation.
+The fixtures assert the public check's acceptance, rejection, and diagnostic results.
+They no longer inspect a private call index.
+The source-reading removal test places invalid Rust in the repository and asserts that `inputs` reads only mutation configuration.
+The three proof names cited by the gate-decisions shell exclusion remain.
+The command still lists xtask mutants, parses the listing, reads the configuration, calls `check`, and passes its result to `tools::verdict`.
+The reviewed `stdout_of` and `verdict` proofs assert successful output, failed output, invalid UTF-8, and violations.
+No remaining gate hole was found in this delta.
+
+### B11 LOW — the removal documentation overstates mutation execution
+
+At `gate_decisions.rs:12-14` and `:200-201`, the documentation claims that every mutant of D runs and proves D is tested.
+Part 5 of the PR makes the same claim.
+The mutation command at `ci.rs:396-397` uses `--in-diff`.
+An unchanged decision can have no executed mutants in that run.
+The exclusion check proves eligibility, not execution or test quality.
+
+State that D's mutants remain eligible and that only recorded executed mutants supply mutation evidence.
+Review must read the proof bodies and the forwarding relation.
+The reviewer sent this correction directly to P6. Astra agreed.
+P6 accepted B11 and reports correction commit `2063eace`, with comments only.
+P6 reports that the full gate on that replacement head is running.
+No replacement READY or completed evidence has arrived.
+This section reviews `2383e186`, so B11 remains open at this exact head.
+
+### Base merge and preserved contracts
+
+The implementation delta changes `gate_decisions.rs`, its fixtures, and `process_check.rs`.
+The process check removes the unused `Uses::bindings` helper and restores private visibility for `Uses`, `Uses::of`, and `resolve`.
+Its process detection and scope resolution do not change.
+`platform_code`, `mutants_cited`, and `timers` match round 8 byte for byte.
+The mutation configuration and process allowlist also match round 8.
+The shared process crate and Prior-art note have no delta.
+No real-process test migration enters this round.
+Group ownership, derived bounded waits, and production reap separation remain as reviewed.
+
+Merge `2383e186` imports v1 `cd97009e93c2641843c05bd46793265b3580b2a9`.
+Its only changed path is `crates/botster-worker-core/DESIGN.md`, which matches the base parent.
+The merge changes no xtask, mutation configuration, process configuration, or CI path.
+The reviewer verified the comparison through Git objects.
+The required `ci/high-tier-paths.txt` remains P3's disclosed #184 integration dependency; this review does not claim it has landed.
+
+### Supplied exact-head evidence
+
+Full Linux log: `~/botster-sessions/gates/botster-core-stage1-p6-ci-checks-2383e186-pool-20261009-160312-81805.log`.
+It names the exact implementation head and base listed above.
+All ten jobs pass. It reports 104 passing conformance tests, 1242 default tests, and 254 slow tests.
+The shared-name fixture passes.
+It reports 547 mutants: 518 caught and 29 unviable, with no misses or timeouts.
+This count concerns the executed diff mutants, not every listed xtask decision.
+The reviewer ran no reversal and claims no new Mac pass.
+
+B10 closes. One LOW finding remains at this head: B11.
+Wait for READY on the documentation correction.
+
+VERDICT: NOT CLEAN
