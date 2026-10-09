@@ -111,6 +111,21 @@ mod tests {
         assert_eq!(start_time(pid(i32::MAX.unsigned_abs()).unwrap()), None);
     }
 
+    /// On macOS a start time is in microseconds since the Unix epoch: this process started in the last day, by the clock.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_start_time_on_macos_is_in_microseconds_since_the_epoch() {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        let started = start_time(rustix::process::getpid()).unwrap() / 1_000_000;
+        assert!(
+            (now - 86_400..=now).contains(&started),
+            "started {started}, now {now}"
+        );
+    }
+
     /// No process has the largest pid (both systems' pid limits are lower): the wait reports it gone at once.
     #[test]
     fn a_wait_for_a_pid_with_no_process_reports_it_gone() {
