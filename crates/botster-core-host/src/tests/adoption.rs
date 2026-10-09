@@ -1325,3 +1325,48 @@ fn adopted_exited_and_stopping_sessions_are_silent_a_threshold_after_their_adopt
     assert_eq!(states_of(&events, "s"), vec![SessionState::Stopping]);
     silent_three_seconds_after_the_adoption(&mut again, "s", adopted_at);
 }
+
+/// Core A18-2 (review #207 A18-F2): an adopted `Launch` that fails posts its `Exited` from the start flow, and that pump is
+/// the adoption point. An ordinary failed start is no adoption: it has no output and no idle start, so it is never `Silent`.
+#[test]
+fn only_an_adopted_failed_start_is_silent_a_threshold_after_its_adoption() {
+    let failing = Op::Create {
+        session: sid("s"),
+        request: SpawnRequest {
+            cwd: "/no-such".into(),
+            ..request()
+        },
+    };
+    let mut ordinary = World::default();
+    ordinary.ok(failing.clone());
+    assert!(matches!(
+        ordinary.run(Op::Start { id: sid("s") }),
+        OpResult::Err(_)
+    ));
+    ordinary
+        .engine
+        .set_silence_threshold(&sid("s"), Some(Duration::from_secs(3)))
+        .unwrap();
+    ordinary.advance(Duration::from_secs(10));
+    ordinary.pump();
+    let events = ordinary.engine.poll_events(64);
+    assert!(
+        !events.iter().any(|e| matches!(e, Event::Silent { .. })),
+        "{events:?}"
+    );
+
+    let mut first = World::default();
+    first.autopilot = Autopilot::Silent;
+    first.ok(failing);
+    first.engine.begin(Op::Start { id: sid("s") }).unwrap();
+    first.pump();
+    let mut again = adopting(&first, "s", AdoptedPayload::NotLaunched);
+    again.advance(Duration::from_secs(7));
+    let adopted_at = again.unix;
+    let events = adopt_all(&mut again);
+    assert!(matches!(
+        states_of(&events, "s").as_slice(),
+        [SessionState::Exited(_)]
+    ));
+    silent_three_seconds_after_the_adoption(&mut again, "s", adopted_at);
+}
