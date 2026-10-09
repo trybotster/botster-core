@@ -92,8 +92,14 @@ impl World {
     fn collect(&mut self) -> Vec<Action> {
         let actions: Vec<Action> = std::iter::from_fn(|| self.worker.poll_action()).collect();
         for action in &actions {
-            if let Action::LinkSend(bytes) = action {
-                self.sent += bytes.len() as u64;
+            match action {
+                Action::LinkSend(bytes) => self.sent += bytes.len() as u64,
+                // The new link counts its written bytes from zero, and its stream starts with a new frame.
+                Action::AdoptLink(_) => {
+                    self.sent = 0;
+                    self.decoder = FrameDecoder::new(DEFAULT_MAX_PAYLOAD);
+                }
+                _ => {}
             }
         }
         actions
@@ -1987,4 +1993,270 @@ fn a_wide_character_adds_no_text_for_its_second_cell() {
         cells.iter().any(String::is_empty),
         "the model has a wide character's second cell"
     );
+}
+
+// ---- adoption (P5; botster-core-host DESIGN.md "Adoption (P5)", parts 3, 4 and 7) ----
+
+const ADOPTER: CandidateId = CandidateId(1);
+
+/// The actions after the fence, and the reports among them, decoded on the new link.
+fn after_fence(w: &mut World, actions: &[Action]) -> (Vec<Action>, Vec<Frame>) {
+    let at = actions
+        .iter()
+        .position(|a| *a == Action::AdoptLink(ADOPTER))
+        .expect("the candidate replaced the link");
+    let rest = actions[at + 1..].to_vec();
+    let frames = w.frames(&rest);
+    (rest, frames)
+}
+
+/// A new host at `epoch` connects to the endpoint and sends its hello.
+fn adopt(w: &mut World, epoch: u64) -> Vec<Action> {
+    let mut actions = w.feed(Input::Candidate(ADOPTER));
+    actions.extend(w.feed(Input::CandidateBytes(
+        ADOPTER,
+        World::host_hello(instance(), epoch, TOKEN),
+    )));
+    actions
+}
+
+/// The worker's hello and its report on the new link.
+fn adopted(w: &mut World, actions: &[Action]) -> (Hello, AdoptReport) {
+    let (_, frames) = after_fence(w, actions);
+    assert_eq!(frames.len(), 2, "{frames:?}");
+    assert_eq!(frames[0].kind, FrameType::HELLO);
+    let hello = Hello::decode(&frames[0].payload).unwrap();
+    let report = match WorkerMsg::decode(&frames[1].payload).unwrap() {
+        WorkerMsg::Adopted { report } => *report,
+        other => panic!("{other:?}"),
+    };
+    (hello, report)
+}
+
+/// DESIGN.md 3.3, 3.4, part 4; AD-6, DP-8: a new host proves the host role at a higher epoch. The worker fences the old
+/// link, records the epoch, answers with its own proof at that epoch, and reports a payload that runs.
+#[test]
+fn a_candidate_that_proves_the_host_role_replaces_the_link() {
+    let mut w = World::running();
+    let actions = adopt(&mut w, EPOCH + 3);
+    let (hello, report) = adopted(&mut w, &actions);
+    assert_eq!(hello.host_epoch, EPOCH + 3);
+    assert_eq!(hello.instance, instance());
+    assert_eq!(hello.proof, token_proof(&TOKEN, &instance(), EPOCH + 3));
+    assert_eq!(report.payload, AdoptedPayload::Running { payload: PAYLOAD });
+    assert_eq!(report.features, worker_features());
+    assert_eq!(report.terminal.map(|t| t.size), Some(size()));
+    // The new link obeys the new host.
+    let stop = w.send(&HostMsg::Stop);
+    assert_eq!(signals(&stop), [SIGTERM]);
+}
+
+/// DESIGN.md 3.3 (integration D1, P5-F20): an equal epoch adopts again; a lower one is refused, and the refusal closes only
+/// the candidate.
+#[test]
+fn an_equal_epoch_adopts_and_a_lower_one_is_refused() {
+    let mut w = World::running();
+    let first = adopt(&mut w, EPOCH + 1);
+    adopted(&mut w, &first);
+    let again = adopt(&mut w, EPOCH + 1);
+    adopted(&mut w, &again);
+    let lower = adopt(&mut w, EPOCH);
+    assert_eq!(lower, [Action::CandidateClose(ADOPTER)]);
+    assert_eq!(
+        signals(&w.send(&HostMsg::Stop)),
+        [SIGTERM],
+        "the link stays"
+    );
+}
+
+/// AD-6, A11: a candidate whose hello fails closes only the candidate. The worker's own proof sent back (a replay), another
+/// token, another instance, and a frame that is not a hello are all refused.
+#[test]
+fn a_candidate_that_does_not_prove_the_host_role_is_closed_alone() {
+    let replay = {
+        let hello = Hello {
+            protocol: WORKER_PROTOCOL,
+            proof: token_proof(&TOKEN, &instance(), EPOCH + 1),
+            instance: instance(),
+            host_epoch: EPOCH + 1,
+        };
+        let mut payload = Vec::new();
+        hello.encode(&mut payload).unwrap();
+        World::frame(FrameType::HELLO, &payload)
+    };
+    let wrong = [
+        replay,
+        World::host_hello(instance(), EPOCH + 1, [8; TOKEN_LEN]),
+        World::host_hello(InstanceId("4-2".into()), EPOCH + 1, TOKEN),
+        World::msg(&HostMsg::Stop),
+    ];
+    for bytes in wrong {
+        let mut w = World::running();
+        w.feed(Input::Candidate(ADOPTER));
+        let actions = w.feed(Input::CandidateBytes(ADOPTER, bytes));
+        assert_eq!(actions, [Action::CandidateClose(ADOPTER)]);
+        assert_eq!(
+            signals(&w.send(&HostMsg::Stop)),
+            [SIGTERM],
+            "the link stays"
+        );
+    }
+}
+
+/// DESIGN.md part 7: at most one candidate at a time; a frame above one hello closes it; its hello has `startup`.
+#[test]
+fn a_candidate_is_bounded() {
+    let mut w = World::running();
+    assert!(w.feed(Input::Candidate(ADOPTER)).is_empty());
+    assert_eq!(
+        w.feed(Input::Candidate(CandidateId(2))),
+        [Action::CandidateClose(CandidateId(2))]
+    );
+    let big = World::frame(FrameType::HELLO, &vec![b' '; 4096]);
+    assert_eq!(
+        w.feed(Input::CandidateBytes(ADOPTER, big)),
+        [Action::CandidateClose(ADOPTER)]
+    );
+    assert!(w.feed(Input::Candidate(CandidateId(3))).is_empty());
+    let startup = cfg().startup;
+    assert_eq!(w.worker.next_deadline(), Some(w.now + startup));
+    w.now += startup;
+    assert_eq!(
+        w.feed(Input::Timer),
+        [Action::CandidateClose(CandidateId(3))]
+    );
+    // A closed candidate is gone: a new one is taken.
+    assert!(w.feed(Input::Candidate(CandidateId(4))).is_empty());
+    w.feed(Input::CandidateClosed(CandidateId(4)));
+    assert!(w.feed(Input::Candidate(CandidateId(5))).is_empty());
+}
+
+/// DESIGN.md part 4: the report gives the payload's live state: `NotLaunched`, `Spawning`, `LaunchFailed` and `Exited`,
+/// with a terminal state only for a payload that ran.
+#[test]
+fn the_adoption_report_gives_the_payload_state() {
+    let mut w = World::linked();
+    let actions = adopt(&mut w, EPOCH + 1);
+    let (_, report) = adopted(&mut w, &actions);
+    assert_eq!(report.payload, AdoptedPayload::NotLaunched);
+    assert_eq!(report.terminal, None);
+
+    let mut w = World::linked();
+    w.send(&HostMsg::Launch(Box::new(spec())));
+    let actions = adopt(&mut w, EPOCH + 1);
+    let (_, report) = adopted(&mut w, &actions);
+    assert_eq!(report.payload, AdoptedPayload::Spawning);
+    // The spawn's answer goes to the new host.
+    let reports = {
+        let actions = w.feed(Input::Spawned(Ok(PAYLOAD)));
+        w.reports(&actions)
+    };
+    assert!(
+        matches!(reports[0], WorkerMsg::Launched { .. }),
+        "{reports:?}"
+    );
+
+    let mut w = World::linked();
+    w.send(&HostMsg::Launch(Box::new(spec())));
+    w.feed(Input::Spawned(Err(SpawnFailure::CwdMissing)));
+    let actions = adopt(&mut w, EPOCH + 1);
+    let (_, report) = adopted(&mut w, &actions);
+    assert_eq!(
+        report.payload,
+        AdoptedPayload::LaunchFailed {
+            reason: StartFailReason::CwdMissing
+        }
+    );
+    assert_eq!(report.terminal, None);
+
+    let (mut w, _) = World::exited(ExitStatus::Signal(9));
+    let actions = adopt(&mut w, EPOCH + 1);
+    let (_, report) = adopted(&mut w, &actions);
+    assert_eq!(
+        report.payload,
+        AdoptedPayload::Exited {
+            code: None,
+            signal: Some(9)
+        }
+    );
+    assert!(report.terminal.is_some(), "ST-5: the final model");
+}
+
+/// DESIGN.md part 4: an exit that is not reported yet is `Running` in the report; the exit follows on the new link after
+/// the drain.
+#[test]
+fn an_exit_before_its_drain_follows_the_report() {
+    let mut w = World::running();
+    w.feed(Input::PayloadExited(ExitStatus::Code(3)));
+    let actions = adopt(&mut w, EPOCH + 1);
+    let (_, report) = adopted(&mut w, &actions);
+    assert_eq!(report.payload, AdoptedPayload::Running { payload: PAYLOAD });
+    let actions = w.feed(Input::PtyDrained);
+    assert_eq!(
+        w.reports(&actions),
+        [WorkerMsg::Exited {
+            code: Some(3),
+            signal: None
+        }]
+    );
+}
+
+/// DESIGN.md 3.4 (P3's review): the fence retires every request of the old host. Its queued write never runs, the write in
+/// progress runs to its end and reports nothing, and the new host's request of the same number completes only for itself.
+#[test]
+fn the_fence_retires_the_old_hosts_requests() {
+    let mut w = World::running();
+    w.send(&write(1, b"abc", None));
+    w.send(&write(2, b"zz", None));
+    let actions = adopt(&mut w, EPOCH + 1);
+    adopted(&mut w, &actions);
+    // The new host's first request has the number of the old host's write in flight.
+    let new = w.send(&write(1, b"n", None));
+    assert!(
+        pty_writes(&new).is_empty(),
+        "the old write owns the PTY input"
+    );
+    let actions = w.feed(Input::PtyWritten(Ok(3)));
+    assert_eq!(
+        pty_writes(&actions),
+        [b"n".to_vec()],
+        "the old write ran to its end; the old queued write never runs"
+    );
+    assert!(
+        input_result(&mut w, &actions, 1).is_none(),
+        "the old write reports nothing"
+    );
+    let actions = w.feed(Input::PtyWritten(Ok(1)));
+    let result = input_result(&mut w, &actions, 1).expect("the new write's own result");
+    assert_eq!(outcome(&result), (WriteOutcome::Written, 1, 1));
+}
+
+/// AD-7 (`conf::ad_7_crash_between_steps_leaves_no_unregistered_payload`): a worker with no payload and no host ends by
+/// itself after `startup`, and a `Launch` can never reach it later. A host that is linked, or a payload, keeps it alive.
+#[test]
+fn a_worker_with_no_payload_and_no_host_ends_after_startup() {
+    let startup = cfg().startup;
+    let mut w = World::linked();
+    assert_eq!(w.worker.next_deadline(), None, "a linked host keeps it");
+    w.feed(Input::LinkClosed);
+    assert_eq!(w.worker.next_deadline(), Some(w.now + startup));
+    w.now += startup;
+    let actions = w.feed(Input::Timer);
+    assert_eq!(actions, [Action::Exit]);
+    assert_eq!(
+        w.feed(Input::Candidate(ADOPTER)),
+        [Action::CandidateClose(ADOPTER)],
+        "an ended worker takes no candidate"
+    );
+
+    let mut w = World::running();
+    w.feed(Input::LinkClosed);
+    assert_eq!(w.worker.next_deadline(), None, "a payload keeps it (DP-8)");
+
+    // An adoption before the deadline keeps it.
+    let mut w = World::linked();
+    w.feed(Input::LinkClosed);
+    let actions = adopt(&mut w, EPOCH + 1);
+    adopted(&mut w, &actions);
+    assert_eq!(w.worker.next_deadline(), None);
 }
