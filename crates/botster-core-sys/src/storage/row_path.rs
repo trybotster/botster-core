@@ -3,8 +3,8 @@
 //!
 //! A key is `<kind>/<id>`. The kind is a directory of the registry. The id is encoded as lowercase base32 with no padding, and
 //! the code is cut into components of [`COMPONENT_CHARS`] characters: every component but the last is a directory, and the
-//! last one, with [`ROW_SUFFIX`], is the row file. So any id fits, whatever its length (`CoreLimits.max_session_id_bytes` has
-//! no upper bound), and a path that decodes names exactly one key.
+//! last one, with [`ROW_SUFFIX`], is the row file. So no `NAME_MAX` limits an id, whatever its length
+//! (`CoreLimits.max_session_id_bytes` has no upper bound), and a path that decodes names exactly one key.
 //!
 //! A name that does not decode this way was not written by Core: it is not a row.
 

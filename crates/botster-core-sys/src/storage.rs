@@ -5,11 +5,17 @@
 //! path does not decode was not written by Core: it is foreign, counted, and left alone.
 //!
 //! Every operation walks the path one component at a time, on directory descriptors (`openat`, `mkdirat`), so no joined
-//! path is ever formed and no path length limit applies, whatever the id's length. A write is atomic: a temporary file in
-//! the row's directory, `fsync`, `renameat` over the row, then an `fsync` of the directory; a directory that a write
-//! creates is synced in its parent (AD-7). An error before the rename has no effect (`StorageError::Failed`). An error of
-//! the last directory sync leaves a row whose effect is unknown (`StorageError::Uncertain`, which the host reports as
-//! `RegistryFailed{uncertain: true}`). A delete removes the row, then the directories that became empty, best effort.
+//! path is ever formed and neither `NAME_MAX` nor `PATH_MAX` limits an id. A confinement that checks every file operation
+//! against its whole path (AppArmor, for example Docker's `docker-default` profile) still refuses a path above its own
+//! limit, about 8 KiB: there, a write of a longer id fails with `StorageError::Failed` (`ENAMETOOLONG`) and has no effect
+//! (lead ruling on #164, 2026-10-08; a ceiling of `CoreLimits.max_session_id_bytes` is an open steward question).
+//!
+//! A write is atomic: a temporary file in the row's directory, `fsync`, `renameat` over the row, then an `fsync` of the
+//! directory; a directory that a write creates is synced in its parent (AD-7). An error before the rename has no effect
+//! (`StorageError::Failed`): the temporary file and the directories that the write made are removed again, deepest first,
+//! and only when empty. An error of the last directory sync leaves a row whose effect is unknown (`StorageError::Uncertain`,
+//! which the host reports as `RegistryFailed{uncertain: true}`). A delete removes the row, then the directories that became
+//! empty, best effort.
 //!
 //! The directory is the host's alone: mode `0700`, owned by the host's uid (AD-6), and held under an exclusive lock for as
 //! long as the [`DataDir`] lives (LC-2).
@@ -101,11 +107,21 @@ fn open_dir(parent: BorrowedFd<'_>, name: &str) -> io::Result<OwnedFd> {
 
 /// Opens the directory `name` of `parent`, and creates it first when `create` is set. With `create`, the parent is synced
 /// whether this call created the directory or an earlier, failed write did: the row below it survives a crash only when
-/// every entry of its path is durable (AD-7). `None` when it does not exist and `create` is not set.
-fn child_dir(parent: BorrowedFd<'_>, name: &str, create: bool) -> io::Result<Option<OwnedFd>> {
+/// every entry of its path is durable (AD-7). `None` when it does not exist and `create` is not set. `made` is set when this
+/// call created the directory, before any later step of the call can fail.
+fn child_dir(
+    parent: BorrowedFd<'_>,
+    name: &str,
+    create: bool,
+    made: &mut bool,
+) -> io::Result<Option<OwnedFd>> {
     if create {
         match mkdirat(parent, name, Mode::from_raw_mode(0o700)) {
-            Ok(()) | Err(rustix::io::Errno::EXIST) => rustix::fs::fsync(parent)?,
+            Ok(()) => {
+                *made = true;
+                rustix::fs::fsync(parent)?;
+            }
+            Err(rustix::io::Errno::EXIST) => rustix::fs::fsync(parent)?,
             Err(error) => return Err(error.into()),
         }
     }
@@ -123,6 +139,15 @@ pub struct Scan {
     pub foreign: usize,
 }
 
+/// The directories that one write created along a row's path. They are always consecutive and the deepest ones reached,
+/// because a directory below a new one cannot exist before it: `count` directories that end at depth `end` (exclusive;
+/// depth 0 is the kind). The deepest one may have no descriptor yet, when opening it failed.
+#[derive(Debug, Default, Clone, Copy)]
+struct Made {
+    count: usize,
+    end: usize,
+}
+
 /// The registry rows of one directory.
 #[derive(Debug)]
 pub struct FileStorage {
@@ -130,18 +155,52 @@ pub struct FileStorage {
 }
 
 impl FileStorage {
-    /// The directories of `path`, from the kind down to the row's own directory. `None` when one is missing and `create` is
-    /// not set.
-    fn chain(&self, path: &RowPath, create: bool) -> io::Result<Option<Vec<OwnedFd>>> {
-        let mut chain: Vec<OwnedFd> = Vec::with_capacity(path.dirs.len() + 1);
-        for name in std::iter::once(&path.kind).chain(&path.dirs) {
+    /// The directories of `path`, from the kind down to the row's own directory, into `chain`. `false` when one is missing
+    /// and `create` is not set. `made` records the directories that this call created.
+    fn chain(
+        &self,
+        path: &RowPath,
+        create: bool,
+        chain: &mut Vec<OwnedFd>,
+        made: &mut Made,
+    ) -> io::Result<bool> {
+        for (depth, name) in std::iter::once(&path.kind).chain(&path.dirs).enumerate() {
             let parent = chain.last().map_or(self.dir.as_fd(), AsFd::as_fd);
-            match child_dir(parent, name, create)? {
+            let mut new = false;
+            let opened = child_dir(parent, name, create, &mut new);
+            if new {
+                made.count += 1;
+                made.end = depth + 1;
+            }
+            match opened? {
                 Some(fd) => chain.push(fd),
-                None => return Ok(None),
+                None => return Ok(false),
             }
         }
-        Ok(Some(chain))
+        Ok(true)
+    }
+
+    /// The directories of `path` that exist, from the kind down, or `None` when one is missing.
+    fn existing(&self, path: &RowPath) -> io::Result<Option<Vec<OwnedFd>>> {
+        let mut chain = Vec::with_capacity(path.dirs.len() + 1);
+        let complete = self.chain(path, false, &mut chain, &mut Made::default())?;
+        Ok(complete.then_some(chain))
+    }
+
+    /// Removes the directories of `path` that a failed write created (`made`), deepest first, with `rmdir` only: a directory
+    /// that is not empty stays, and so does every directory above it. Best effort: the write has failed already.
+    fn unmake(&self, path: &RowPath, chain: &[OwnedFd], made: Made) {
+        let names: Vec<&String> = std::iter::once(&path.kind).chain(&path.dirs).collect();
+        for depth in (made.end - made.count..made.end).rev() {
+            let parent = match depth {
+                0 => self.dir.as_fd(),
+                _ => chain[depth - 1].as_fd(),
+            };
+            if unlinkat(parent, names[depth].as_str(), AtFlags::REMOVEDIR).is_err() {
+                break;
+            }
+            let _: rustix::io::Result<()> = rustix::fs::fsync(parent);
+        }
     }
 
     /// Walks the registry: every path that decodes is a row, and every other name is foreign. The walk descends only into
@@ -160,6 +219,34 @@ impl FileStorage {
         scan.keys.sort();
         Ok(scan)
     }
+}
+
+/// Puts the row `bytes` in place in the last directory of `chain`: a temporary file, `fsync`, then `renameat` over the row.
+/// On an error the temporary file is removed and the row is as it was. Returns the row's directory, for its sync.
+fn place<'a>(chain: &'a [OwnedFd], path: &RowPath, bytes: &[u8]) -> io::Result<BorrowedFd<'a>> {
+    let dir = chain.last().expect("a kind directory at least").as_fd();
+    let (temp, fd) = loop {
+        let name = format!(
+            "{TEMP_PREFIX}{}.{}",
+            std::process::id(),
+            TEMP_COUNTER.fetch_add(1, Ordering::Relaxed)
+        );
+        let flags =
+            OFlags::WRONLY | OFlags::CREATE | OFlags::EXCL | OFlags::NOFOLLOW | OFlags::CLOEXEC;
+        match openat(dir, name.as_str(), flags, Mode::from_raw_mode(0o600)) {
+            Ok(fd) => break (name, fd),
+            Err(rustix::io::Errno::EXIST) => continue,
+            Err(error) => return Err(error.into()),
+        }
+    };
+    let mut file = File::from(fd);
+    let written = file.write_all(bytes).and_then(|()| file.sync_all());
+    let renamed = written.and_then(|()| Ok(renameat(dir, temp.as_str(), dir, path.file.as_str())?));
+    if let Err(error) = renamed {
+        let _: rustix::io::Result<()> = unlinkat(dir, temp.as_str(), AtFlags::empty());
+        return Err(error);
+    }
+    Ok(dir)
 }
 
 /// The names in a directory, with their types, not following links. `.` and `..` are left out.
@@ -210,39 +297,27 @@ fn walk(
 impl Storage for FileStorage {
     fn write_row(&mut self, key: &str, bytes: &[u8]) -> Result<(), StorageError> {
         let path = row_path(key).ok_or_else(|| failed(rustix::io::Errno::INVAL))?;
-        let chain = self.chain(&path, true).map_err(failed)?.expect("created");
-        let dir = chain.last().expect("a kind directory at least").as_fd();
-        let (temp, fd) = loop {
-            let name = format!(
-                "{TEMP_PREFIX}{}.{}",
-                std::process::id(),
-                TEMP_COUNTER.fetch_add(1, Ordering::Relaxed)
-            );
-            let flags =
-                OFlags::WRONLY | OFlags::CREATE | OFlags::EXCL | OFlags::NOFOLLOW | OFlags::CLOEXEC;
-            match openat(dir, name.as_str(), flags, Mode::from_raw_mode(0o600)) {
-                Ok(fd) => break (name, fd),
-                Err(rustix::io::Errno::EXIST) => continue,
-                Err(error) => return Err(failed(error)),
+        let mut chain = Vec::with_capacity(path.dirs.len() + 1);
+        let mut made = Made::default();
+        let placed = self
+            .chain(&path, true, &mut chain, &mut made)
+            .and_then(|_| place(&chain, &path, bytes));
+        match placed {
+            // The row is in place. If its directory entry is not durable, the effect is unknown (AD-7).
+            Ok(dir) => rustix::fs::fsync(dir).map_err(uncertain),
+            // Nothing took effect: the directories that this write made go too.
+            Err(error) => {
+                self.unmake(&path, &chain, made);
+                Err(failed(error))
             }
-        };
-        let mut file = File::from(fd);
-        let written = file.write_all(bytes).and_then(|()| file.sync_all());
-        let renamed =
-            written.and_then(|()| Ok(renameat(dir, temp.as_str(), dir, path.file.as_str())?));
-        if let Err(error) = renamed {
-            let _: rustix::io::Result<()> = unlinkat(dir, temp.as_str(), AtFlags::empty());
-            return Err(failed(error));
         }
-        // The row is in place. If its directory entry is not durable, the effect is unknown (AD-7).
-        rustix::fs::fsync(dir).map_err(uncertain)
     }
 
     fn read_row(&self, key: &str) -> Result<Option<Vec<u8>>, StorageError> {
         let Some(path) = row_path(key) else {
             return Ok(None);
         };
-        let Some(chain) = self.chain(&path, false).map_err(failed)? else {
+        let Some(chain) = self.existing(&path).map_err(failed)? else {
             return Ok(None);
         };
         let dir = chain.last().expect("a kind directory at least").as_fd();
@@ -261,7 +336,7 @@ impl Storage for FileStorage {
         let Some(path) = row_path(key) else {
             return Ok(());
         };
-        let Some(chain) = self.chain(&path, false).map_err(failed)? else {
+        let Some(chain) = self.existing(&path).map_err(failed)? else {
             return Ok(());
         };
         let dir = chain.last().expect("a kind directory at least").as_fd();
@@ -449,6 +524,7 @@ mod tests {
 #[cfg(test)]
 #[cfg(feature = "slow")]
 mod slow_tests {
+    use super::row_path::COMPONENT_CHARS;
     use super::*;
     use std::os::unix::fs::PermissionsExt;
     use std::path::PathBuf;
@@ -494,19 +570,43 @@ mod slow_tests {
         assert_eq!(storage.read_row("session/k").unwrap(), Some(b"b".to_vec()));
     }
 
+    /// Linux's `PATH_MAX` (`limits.h`), the longer of the two: macOS's is 1024.
+    const PATH_MAX: usize = 4096;
+
+    /// The longest full path that a process confined by AppArmor can name. AppArmor checks a file operation against its
+    /// whole path, so a walk on directory descriptors does not get past it: in the Linux gate container (profile
+    /// `docker-default`), `mkdirat` of 200-character names fails with `ENAMETOOLONG` at depth 41. Lead ruling on #164
+    /// (2026-10-08); a ceiling of `CoreLimits.max_session_id_bytes` is an open steward question.
+    const CONFINED_PATH_BYTES: usize = 8192;
+
+    /// The length in bytes of an id whose code takes at least `chars` characters (5 bytes are 8 characters of base32).
+    fn id_bytes_for_code(chars: usize) -> usize {
+        chars.div_ceil(8) * 5
+    }
+
     /// Lead ruling on A1: any id is a row, whatever its length: an id of 128 bytes (the default `max_session_id_bytes`)
-    /// and ids far above it, whose paths take several directories and exceed `PATH_MAX`, write, read back and list back
-    /// sorted, and the listing finds nothing foreign.
+    /// and ids far above it, whose paths take several directories, write, read back and list back sorted, and the listing
+    /// finds nothing foreign. The longest one's path exceeds `PATH_MAX` and stays under `CONFINED_PATH_BYTES` (lead ruling
+    /// on #164), so it holds under a confinement too.
     #[test]
     fn any_id_is_a_row_and_lists_back_sorted() {
         let tmp = dir();
+        let rows = tmp.path().join("d").join("rows");
         let mut data = DataDir::open(&tmp.path().join("d")).unwrap();
         let storage = data.storage();
-        let keys: Vec<String> = [0usize, 128, 129, 1000, 8192]
+        let past_path_max = id_bytes_for_code(PATH_MAX + COMPONENT_CHARS);
+        let keys: Vec<String> = [0usize, 128, 129, 1000, past_path_max]
             .iter()
             .map(|n| format!("session/{}", "x".repeat(*n)))
             .chain(["session/../etc".to_string(), "session/é".to_string()])
             .collect();
+        let longest = file_of(&rows, &format!("session/{}", "x".repeat(past_path_max)))
+            .as_os_str()
+            .len();
+        assert!(
+            (PATH_MAX + 1..CONFINED_PATH_BYTES).contains(&longest),
+            "{longest}"
+        );
         for key in &keys {
             storage.write_row(key, key.as_bytes()).unwrap();
         }
@@ -631,6 +731,112 @@ mod slow_tests {
         for path in &foreign {
             assert_eq!(fs::read(path).unwrap(), b"someone else's");
         }
+    }
+
+    /// Lead ruling on #164 (2026-10-08), AD-7: an id whose path is twice `CONFINED_PATH_BYTES` long. Where nothing limits the
+    /// path (macOS, unconfined Linux), the row writes, reads back and lists. Where a confinement limits it (AppArmor), the
+    /// write fails with `Failed`, never `Uncertain`, lists nothing and leaves no directory. The test prints which branch ran.
+    #[test]
+    fn an_id_past_a_confined_path_limit_writes_or_fails_cleanly() {
+        let tmp = dir();
+        let rows = tmp.path().join("d").join("rows");
+        let mut data = DataDir::open(&tmp.path().join("d")).unwrap();
+        let storage = data.storage();
+        let key = format!(
+            "long/{}",
+            "x".repeat(id_bytes_for_code(2 * CONFINED_PATH_BYTES))
+        );
+        match storage.write_row(&key, b"x") {
+            Ok(()) => {
+                println!("branch: written; no confinement limits the path");
+                assert_eq!(storage.read_row(&key).unwrap(), Some(b"x".to_vec()));
+                assert!(storage.list_rows().unwrap().contains(&key));
+            }
+            Err(error) => {
+                println!("branch: refused with {error:?}; a confinement limits the path");
+                assert!(matches!(error, StorageError::Failed { .. }), "{error:?}");
+                assert_eq!(
+                    storage.scan().unwrap(),
+                    Scan {
+                        keys: vec![EPOCH_KEY.to_string()],
+                        foreign: 0
+                    }
+                );
+                assert!(!rows.join("long").exists(), "no directory is left");
+            }
+        }
+    }
+
+    /// AD-7, lead ruling on A1: a write whose path is blocked by a file that Core did not write (a regular file where a
+    /// directory of the path must be) fails with `Failed`, never `Uncertain`; no row is listed, and the file is left as it
+    /// was and counted as foreign.
+    #[test]
+    fn a_write_blocked_by_a_foreign_file_fails_and_leaves_the_file() {
+        let tmp = dir();
+        let rows = tmp.path().join("d").join("rows");
+        let mut data = DataDir::open(&tmp.path().join("d")).unwrap();
+        let storage = data.storage();
+        let key = format!(
+            "session/{}",
+            "x".repeat(id_bytes_for_code(3 * COMPONENT_CHARS))
+        );
+        let path = row_path(&key).unwrap();
+        assert!(path.dirs.len() >= 2, "{path:?}");
+        // The first directory exists; a file stands where the second one must go.
+        let first = rows.join(&path.kind).join(&path.dirs[0]);
+        fs::create_dir_all(&first).unwrap();
+        let blocker = first.join(&path.dirs[1]);
+        fs::write(&blocker, b"someone else's").unwrap();
+        match storage.write_row(&key, b"x") {
+            Err(StorageError::Failed { .. }) => {}
+            other => panic!("{other:?}"),
+        }
+        let scan = storage.scan().unwrap();
+        assert_eq!(scan.keys, vec![EPOCH_KEY.to_string()]);
+        assert_eq!(scan.foreign, 1);
+        assert_eq!(fs::read(&blocker).unwrap(), b"someone else's");
+    }
+
+    /// AD-7 (lead ruling on #164, 2026-10-08): a write that fails after it made directories of its path removes them again,
+    /// deepest first. The descriptor limit is lowered so that exactly two more descriptors can open: the kind and the first
+    /// directory open, the second directory is made (`mkdirat` takes no descriptor), and opening it fails with `EMFILE`.
+    /// nextest runs each test in its own process, so the lowered limit reaches no other test; it is restored before the
+    /// asserts.
+    #[test]
+    fn a_failed_write_removes_the_directories_that_it_made() {
+        use rustix::process::{getrlimit, setrlimit, Resource};
+        use std::os::fd::AsRawFd;
+        let tmp = dir();
+        let rows = tmp.path().join("d").join("rows");
+        let mut data = DataDir::open(&tmp.path().join("d")).unwrap();
+        let storage = data.storage();
+        let key = format!(
+            "made/{}",
+            "x".repeat(id_bytes_for_code(3 * COMPONENT_CHARS))
+        );
+        assert!(row_path(&key).unwrap().dirs.len() >= 2);
+        let saved = getrlimit(Resource::Nofile);
+        // The lowest free descriptor: every lower one is open, so the bound admits exactly two more.
+        let next = File::open(tmp.path()).unwrap().as_raw_fd();
+        let bound = u64::try_from(next).unwrap() + 2;
+        setrlimit(
+            Resource::Nofile,
+            rustix::process::Rlimit {
+                current: Some(bound),
+                maximum: saved.maximum,
+            },
+        )
+        .unwrap();
+        let written = storage.write_row(&key, b"x");
+        setrlimit(Resource::Nofile, saved).unwrap();
+        match written {
+            Err(StorageError::Failed { errno }) => {
+                assert_eq!(errno, rustix::io::Errno::MFILE.raw_os_error())
+            }
+            other => panic!("{other:?}"),
+        }
+        assert!(!rows.join("made").exists(), "no directory is left");
+        assert_eq!(storage.list_rows().unwrap(), vec![EPOCH_KEY.to_string()]);
     }
 
     /// Asserts that an open was refused with `EACCES`. Root ignores the permission bits that make the refusal, so for root

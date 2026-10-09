@@ -68,6 +68,12 @@ impl Core {
     /// - Its parent can be opened for reading. Core syncs `data_dir` and its parent on every open, so that the entry of
     ///   `data_dir` is durable; Core syncs no other ancestor, and the host owns those.
     ///
+    /// Path length: a row's path below `data_dir` grows with its session id, and neither `NAME_MAX` nor `PATH_MAX` limits
+    /// it. A confinement that checks each file operation against its whole path (AppArmor, for example Docker's
+    /// `docker-default` profile) refuses paths above its own limit, about 8 KiB: under one, `Create` of an id whose path is
+    /// longer fails with `RegistryFailed` and leaves nothing behind (lead ruling on #164, 2026-10-08; a ceiling of
+    /// `CoreLimits.max_session_id_bytes` is an open steward question).
+    ///
     /// # Errors
     /// `InvalidConfig`, `MissingWorkerPath`, `DataDirInUse`, or `RegistryFailed` when the directory cannot be used:
     /// `RegistryFailed` also when the parent of `data_dir` is missing or cannot be opened for its sync.
