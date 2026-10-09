@@ -202,3 +202,21 @@ The conditions stay:
 - If v1 moves before the merge, the new v1 merge needs base-merge-check and a full gate on the merge commit.
 
 VERDICT: CLEAN (0 open) at a05ab9a380c459cd609b5fafd7f4c17e17a9e7da
+
+### Correction after round 5 (same head a05ab9a3) — CLEAN WITHDRAWN (two gate holes in the command bindings)
+
+Round 5 said that no form makes the check accept a decision as an I/O shell. That is wrong in two cases. Both are gate
+holes, so both block #181 by the lead's round-5 ruling.
+1. **The P6 package reviewer's B5 (block scope), missed here.** `Index::function` (`gate_decisions.rs:601`) resolves
+   the command bindings (`command_locals`, `:575-588`) with the function's scopes before `visit` runs. `visit_block`
+   (`:632`) pushes a block's own `use` declarations only later. So in
+   `{ use crate::ci::pure::Command; let cmd = Command::new(); cmd.status(); }`, the root of `cmd` resolves through the
+   file's `use std::process::Command`. The check then takes `pure::Command::status` as a process start, and a forwarding
+   decision passes as an I/O shell. Fix: resolve each binding at its own scope, or reject a command binding under a block
+   `use` as an unlisted form (with the form and the file), plus a check-level fixture of the rejected exclusion.
+2. **The macro binding (this reviewer's round 5 note), which the lead promoted to a blocker.** A name rebound inside an
+   unexpanded statement macro is counted once, so the single-binding rule passes it. P6 adds a commit: a statement macro
+   in a function with a command binding fails as an unlisted form.
+
+VERDICT: NOT CLEAN at a05ab9a380c459cd609b5fafd7f4c17e17a9e7da (2 open: B5 block scope HIGH, the package reviewer's
+finding, confirmed here; the macro binding, promoted by the lead)
