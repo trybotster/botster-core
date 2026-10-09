@@ -2,9 +2,9 @@
 
 Current verdict: NOT CLEAN for PR #165 and the separate PR #163 review unit.
 PR #163 at `40b63dceb6e3f3d7be69a1488ac77eccc121a071` has F28 and F33 OPEN for completed evidence.
-PR #165 at `71195e7209cc0cbee03bedb52eda3f2b83db2585` has F45 and F46 OPEN. Round 86's earlier exact-head CLEAN remains recorded.
-F39 is CLOSED in #165 and remains OPEN for #163's later merge delta.
-Round 87 records the new guard delta and the remaining audit findings. All earlier findings, closures, and rounds remain preserved.
+PR #165 at `88faedde845c53b62690a4648045988e63d67dd3` has F39, F47, and F48 OPEN. F45 and F46 are CLOSED.
+F39 is OPEN for #165's real-loop retirement wait and #163's later merge delta.
+Round 88 records the correction delta and the whole guard review. All earlier findings, closures, and rounds remain preserved.
 F1 through F27 and F29 through F32 remain CLOSED at their recorded heads and scopes.
 F34 records the earlier unsafe PID signals and their source correction at `81ccd17`.
 Each cross-package PR also requires the integration reviewer's exact-head CLEAN and the implementer's landing gate.
@@ -3999,3 +3999,114 @@ All earlier findings, closures, and verdict rounds remain preserved.
 The reviewer ran no tests, builds, measurements, mutants, or gates.
 
 VERDICT: NOT CLEAN (2 open findings in PR #165) on `71195e7209cc0cbee03bedb52eda3f2b83db2585`.
+
+
+## Round 88 — Correction delta and whole guard review after resume
+
+Reviewed head: `88faedde845c53b62690a4648045988e63d67dd3`, PR #165, branch `stage1/p3-guard-macos`.
+Base: `144b0234fb632bcbb5176b17c2fe55f3239405df`.
+Reviewed delta: `71195e72..88faedde`, one commit, two files.
+The reviewer also read the whole guard change from the base, including all eleven changed files and the PR description.
+Authority: BUILD.md testing rules 3, 5, and 10; the lead's independent-anchor and exclusive-production-reaping rulings.
+
+### F45 — MEDIUM — CLOSED at 88faedde: the early-leader waits have bounds
+
+The early-leader test now reads its descendant line through first_line with the marked CLEANUP deadline.
+It wraps the fixture leader in cleanup::Owned and calls status before dropping the independent GroupGuard.
+status requires an observed exit within CLEANUP before reaping the fixture leader.
+The test then checks the anchor's membership in the original group and drops the guard.
+Its bounded EOF observation preserves the actual descendant-cleanup proof.
+Owned retains fixture cleanup on assertion failure and panic.
+This closes F45, which is integration C3.
+The guard still does not reap a worker or payload owned by production.
+
+### F46 — LOW — CLOSED at 88faedde: both members wait on a FIFO
+
+The panic-before-ready fixture now runs /bin/cat against a FIFO with no writer.
+The early-leader fixture starts the same blocked member in the background, reports its PID, and exits the leader.
+Both members wait on an event without a sleep loop.
+Both tests retain the actual pipe EOF observations and marked bounds.
+The panic fixture also obtains its child's status through Owned's bounded exit observation.
+This closes F46, which is integration C4.
+The GroupGuard cleanup-failure fixture also replaces its raw child and direct wait with Owned and status.
+
+### F47 — MEDIUM — The PayloadGuard failure fixture still has an unbounded reap
+
+Status: OPEN.
+Evidence: `crates/botster-core-sys/tests/common/payload_guard.rs:366-389` at the reviewed head.
+
+The whole PR adds a_payload_cleanup_that_cannot_finish_fails_through_the_guard.
+That test retains its fixture shell as a raw Child and calls payload.wait directly on the test thread.
+The zero-limit guard deliberately reports members left after its final signal.
+That report does not establish an observed child exit before the reap.
+The EOF observation does not supply that precondition either.
+The script redirects the exec'd cat's stdout to /dev/null, so the pipe can close while cat remains blocked.
+A missing child exit can therefore hold the test without its own completion deadline.
+An earlier assertion failure also skips the raw Child's reap.
+The parallel GroupGuard fixture now uses Owned, but this separate PayloadGuard fixture does not.
+
+Required change: Give this fixture child an owner on every exit path.
+Use the existing bounded exit-observation path before its final reap.
+Preserve the actual PayloadGuard failure report and independent group cleanup.
+Reap only this fixture child; preserve production's exclusive reaping in the production-backed tests.
+Retain the existing cleanup limit and event-driven FIFO member.
+
+Authority: BUILD.md testing rules 5 and 10 and the same bounded-observation requirement that closes F45.
+
+### F39 — LOW — OPEN in #165 for the real-loop retirement wait
+
+Evidence: `crates/botster-worker/tests/common/driver_edges.rs:437-455` at the reviewed head.
+
+Round 84 closed the Bounded<Driver> path by deriving its outer allowance as 2 * CLEANUP.
+The whole PR also changes pty_events_resume_reads_after_would_block to request independent cleanup before Remove.
+That test takes Driver out of Bounded and runs Driver on a separate thread.
+Its result wait still uses Duration::from_secs(10), equal to the independent member's CLEANUP interval.
+It therefore omits the completion allowance that the other owner path now supplies.
+The outer wait can expire before cleanup and the driver result complete.
+This separate path was not covered by round 84's closure.
+
+Required change: Derive this outer retirement allowance from CLEANUP and include cleanup completion and result delivery.
+Apply the accepted composition rule used by Bounded<Driver>.
+Keep the inner CLEANUP limit unchanged and retain release-before-production, report-after-production order.
+F39 also remains OPEN for #163's separate later merge delta.
+
+### F48 — LOW — The PR description still claims that payload cleanup reports are unseen
+
+Status: OPEN.
+Evidence: PR #165's description, read at the exact reviewed head.
+
+The Fix section says the payload member's report is unseen because stderr goes to /dev/null.
+The current member sends its report through the socket.
+PayloadGuard::drop reads that report and rejects failure, transport, and malformed-report outcomes.
+The description therefore states the earlier limitation after F37's source correction removed it.
+Its focused proof also names only the older 3670202 head.
+
+Required change: Update the description to explain the current socket report and two-phase cleanup order.
+Record the completed focused proof for the current head with its log path.
+Preserve the Prior art note and identify the combined landing gate as a separate required step.
+
+### Completed evidence
+
+The reviewer read the completed focused native Mac log:
+`~/botster-sessions/gates/botster-core-stage1-p3-guard-macos-88faedde-pool-20261008-204257-69794.log`.
+The log names this exact head and base `9ea0c9c22d0d0595a166becbba7f9e8872247c22`.
+Slow clippy with -D warnings and worker prebuild pass.
+The first nextest command passes 168 tests with zero skips in 1.379 seconds.
+The core guard selection passes 15 tests and skips nine other tests in 0.107 seconds.
+The corrected early-leader and panic tests pass in all six selected binaries that contain them.
+The parent-death regression, reservation-effect proof, report-failure proofs, and driver tests also pass.
+The job exits 0 after 20 seconds on Mac.
+This is focused Mac evidence; it is not a full landing gate or Linux execution.
+The passing baseline does not close the remaining source findings.
+
+### Verdict and scope
+
+F45 and F46 are CLOSED at this head.
+PR #165 is NOT CLEAN for F47 MEDIUM, F39 LOW in the real-loop path, and F48 LOW.
+All earlier closures retain their recorded heads and scopes; round 84's F39 closure still covers Bounded<Driver>.
+PR #163 separately retains F28, F33, and its later F39 merge duty.
+This review does not clear M2a, M2b, the A32/A33 follow-up, or pending conformance IDs.
+The reviewer changed no product code and ran no tests, builds, measurements, mutants, or gates.
+All earlier findings and verdict rounds remain preserved.
+
+VERDICT: NOT CLEAN
