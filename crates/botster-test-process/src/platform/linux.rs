@@ -6,12 +6,32 @@ use rustix::process::Pid;
 
 /// The start time of `pid` in the unit of the platform, or `None` when no such process exists. Only equality has a meaning.
 /// It reads the same field as `botster_core_sys::process::start_time`, so the two agree.
-pub fn start_time(pid: Pid) -> Option<u64> {
-    let stat = std::fs::read_to_string(format!("/proc/{}/stat", pid.as_raw_nonzero())).ok()?;
-    // The command name is in parentheses and may hold spaces: the fields start after its closing one. Field 22
-    // (`starttime`) is the 20th after the state, which is the first.
-    let after = stat.rsplit_once(") ")?.1;
-    after.split_whitespace().nth(19)?.parse().ok()
+///
+/// # Errors
+/// The process's stat could not be read for another reason, or it has no start time: the identity is not verified.
+pub fn start_time(pid: Pid) -> std::io::Result<Option<u64>> {
+    let stat = match std::fs::read_to_string(format!("/proc/{}/stat", pid.as_raw_nonzero())) {
+        Ok(stat) => stat,
+        Err(error) if ended_since_listing(&error) => return Ok(None),
+        Err(error) => return Err(error),
+    };
+    starttime(&stat).map(Some).ok_or_else(|| {
+        std::io::Error::other(format!(
+            "process {}: a stat with no start time",
+            pid.as_raw_nonzero()
+        ))
+    })
+}
+
+/// The start time of a `/proc/<pid>/stat` line. The command name is in parentheses and may hold spaces: the fields start
+/// after its closing one. Field 22 (`starttime`) is the 20th after the state, which is the first.
+fn starttime(stat: &str) -> Option<u64> {
+    stat.rsplit_once(") ")?
+        .1
+        .split_whitespace()
+        .nth(19)?
+        .parse()
+        .ok()
 }
 
 /// Waits for the exit event of `pid` (it may stay a zombie), at most until `deadline`. It only observes: it never reaps. A
@@ -38,6 +58,23 @@ pub fn await_end(pid: Pid, deadline: Deadline) -> std::io::Result<Waited> {
             Err(error) => return Err(error.into()),
         }
     }
+}
+
+/// The exit status of the caller's own unreaped child `pid` once it is available, at most until `deadline`; `None` when the
+/// deadline came first. It never reaps. The event is a readable pidfd: the kernel reports it once the child's thread group
+/// has exited, which is when the child is a zombie and its status is available.
+///
+/// # Errors
+/// The check or the wait failed.
+pub fn await_status(
+    pid: Pid,
+    deadline: Deadline,
+) -> std::io::Result<Option<std::process::ExitStatus>> {
+    super::status_after_events(
+        || super::peek(pid),
+        || await_end(pid, deadline).map(drop),
+        || deadline.expired(),
+    )
 }
 
 /// Whether an error of the read of `/proc/<pid>/stat` proves that the process ended since the listing: its directory is gone
@@ -100,6 +137,17 @@ mod tests {
         assert!(gone_at_open(rustix::io::Errno::INVAL));
         assert!(!gone_at_open(rustix::io::Errno::PERM));
         assert!(!gone_at_open(rustix::io::Errno::MFILE));
+    }
+
+    #[test]
+    fn a_stat_line_gives_its_start_time_after_a_command_with_spaces_and_parentheses() {
+        // The state and the 18 fields after it: field 22 is the next one.
+        let fields: Vec<String> = (4..=21).map(|n| n.to_string()).collect();
+        let stat = format!("41 (a (b) c) S {}", fields.join(" "));
+        assert_eq!(starttime(&format!("{stat} 77 x")), Some(77));
+        assert_eq!(starttime(&stat), None, "no field 22");
+        assert_eq!(starttime(&format!("{stat} x")), None, "not a number");
+        assert_eq!(starttime("41 cat S 7"), None, "no command name");
     }
 
     #[test]

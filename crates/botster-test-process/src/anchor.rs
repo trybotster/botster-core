@@ -4,16 +4,21 @@
 //! The test cannot hold such a process unreaped, so it cannot hold the process's group id either. So production starts the
 //! process through a generated wrapper script, which runs `botster-test-anchor wrap`:
 //!
-//! 1. **wrap** connects to the guard's socket, starts the intermediate stage, reaps it (its only child), waits for the
+//! 1. **wrap** connects to the guard's socket, starts the intermediate stage, reaps it (its only child, owned: on every error
+//!    path it is killed and reaped within the cleanup bound), waits for the
 //!    anchor's acknowledgement, and execs the real program with the same arguments. Exec keeps the pid, the start time, the
 //!    group, the session, the environment and the exit path that production watches. The real program inherits no child of
 //!    the wrapper.
 //! 2. **intermediate** starts the anchor and exits at once, so the anchor is no child of the real program (the double fork).
 //! 3. **anchor** holds the inherited group (and session) and the guard connection. It reports its identity and the leader's,
 //!    then blocks until the connection ends: the guard's release or drop, or the death of the test. Then it verifies the
-//!    leader's identity and group, refusing to signal a group that the leader left (ruling item 13); sends `TERM` to the group
-//!    and waits the configured grace for its members to end; and ends the group in the rounds of `rounds.rs`, holding it with
-//!    a reserve (see there why). It reaps only the reserve. It reports `ok` or the failure on the connection.
+//!    leader's identity and group, refusing to signal a group that the leader left (ruling item 13) or whose identity or
+//!    group it cannot read; sends `TERM` to the group and waits the configured grace for its members to end; verifies again,
+//!    and refuses when a member that `TERM` reached moved to another group; and ends the group in the rounds of `rounds.rs`,
+//!    holding it with a reserve (see there why). It reaps only the reserve. It reports `ok` or the failure on the connection.
+//!
+//! The intermediate and the anchor first close every inherited descriptor above 2, so that no production pipe stays open in
+//! them (`close_inherited` in the binary).
 //!
 //! Production keeps every reaping of its own children (ruling item 11). The guard runs in the test process, next to
 //! production code, and it never waits for any process: it reads reports, and it awaits a group's end only by observing.
@@ -425,14 +430,118 @@ pub fn send(mut to: impl Write, line: &Line) -> io::Result<()> {
 /// The identity of a live process.
 ///
 /// # Errors
-/// The process has no start time: it is gone.
+/// The process has no start time (it is gone), or its start time could not be read.
 pub fn identity(raw: u32) -> io::Result<Identity> {
-    let start_time = start_time(pid(raw)?)
+    let start_time = start_time(pid(raw)?)?
         .ok_or_else(|| io::Error::other(format!("{raw} has no start time")))?;
     Ok(Identity {
         pid: raw,
         start_time,
     })
+}
+
+/// The verdict on a signal to the reported group (ruling item 13), from what the anchor observes now: its own group, the
+/// leader's start time (`None`: the leader has ended), and the leader's group, which is read only while the leader lives.
+/// A leader that has ended (its pid is gone, or names a process with another start time) leaves only the reserved group id
+/// to signal. An observation that failed refuses: an identity or a membership that cannot be read is not verified (#171
+/// TP2).
+///
+/// # Errors
+/// The refusal: the anchor left the group, the leader moved to another group, or an observation failed.
+pub fn verdict(
+    report: &Report,
+    own_group: u32,
+    leader_start: io::Result<Option<u64>>,
+    leader_group: impl FnOnce() -> rustix::io::Result<u32>,
+) -> Result<(), String> {
+    if own_group != report.group {
+        return Err("the anchor left the group".into());
+    }
+    let leader = report.leader.pid;
+    match leader_start {
+        Err(error) => {
+            return Err(format!(
+                "the identity of the leader {leader} cannot be read: {error}"
+            ))
+        }
+        Ok(start) if start != Some(report.leader.start_time) => return Ok(()),
+        Ok(_) => {}
+    }
+    match leader_group() {
+        Ok(group) if group != report.group => Err(format!(
+            "the leader {leader} moved from group {} to group {group}",
+            report.group
+        )),
+        Ok(_) => Ok(()),
+        // ESRCH: the leader ended between the two reads.
+        Err(rustix::io::Errno::SRCH) => Ok(()),
+        Err(error) => Err(format!(
+            "the group of the leader {leader} cannot be read: {error}"
+        )),
+    }
+}
+
+/// The verdict on the members that were in `group` when the anchor sent `TERM`, after the grace and before any `KILL` (#171
+/// TP6): each one is still in the group, or gone. A member that moved to another group refuses: a `KILL` of the old group
+/// would leave it live. A member whose group cannot be read is not verified, and it refuses too. (A member that ended while
+/// another process took its pid can refuse as well; a refusal signals nothing, so that is the safe side.)
+///
+/// # Errors
+/// The refusal: the first member that moved, or whose group could not be read.
+pub fn stayed(
+    group: u32,
+    members: &[u32],
+    mut group_of: impl FnMut(u32) -> rustix::io::Result<u32>,
+) -> Result<(), String> {
+    for &member in members {
+        match group_of(member) {
+            Ok(now) if now != group => {
+                return Err(format!(
+                    "the member {member} moved from group {group} to group {now}"
+                ))
+            }
+            Ok(_) | Err(rustix::io::Errno::SRCH) => {}
+            Err(error) => {
+                return Err(format!(
+                    "the group of the member {member} cannot be read: {error}"
+                ))
+            }
+        }
+    }
+    Ok(())
+}
+
+/// The wrapper's start of the anchor (#171 TP4). `intermediate` is the intermediate stage, which starts the anchor and
+/// exits. It is an owned child: on every path it ends and is reaped, by its exact pid, within a bound (when this returns
+/// early, the drop of [`crate::OwnedChild`] kills it and reaps it within the cleanup bound). Then the anchor's one line on the
+/// intermediate's stdout, which the anchor writes only once it holds the group, proves the start.
+///
+/// # Errors
+/// The intermediate did not end by `deadline` or failed, or the anchor ended or was silent before it held the group.
+pub fn start_anchor(
+    intermediate: &mut std::process::Command,
+    deadline: Deadline,
+) -> io::Result<()> {
+    let mut stage = crate::OwnedChild::spawn(intermediate.stdout(std::process::Stdio::piped()))?;
+    let acknowledgement = stage
+        .take_stdout()
+        .ok_or_else(|| io::Error::other("no pipe from the anchor"))?;
+    match stage.exit_by(deadline)? {
+        None => return Err(io::Error::other("the intermediate stage did not end")),
+        Some(status) if !status.success() => {
+            return Err(io::Error::other(format!(
+                "the intermediate stage failed: {status}"
+            )))
+        }
+        Some(_) => {}
+    }
+    match Bounded::new(acknowledgement).line(deadline) {
+        Ok(Some(_)) => Ok(()),
+        Ok(None) => Err(io::Error::other(
+            "the anchor ended before it held the group",
+        )),
+        Err(error) => Err(io::Error::other(error.to_string())),
+    }
 }
 
 #[cfg(test)]
@@ -451,6 +560,87 @@ mod tests {
                 start_time: 14,
             },
         }
+    }
+
+    /// The verdict with the anchor in the reported group 13 and the leader 13 started at 14.
+    fn verdict_of(
+        leader_start: io::Result<Option<u64>>,
+        leader_group: rustix::io::Result<u32>,
+    ) -> Result<(), String> {
+        verdict(&report(), 13, leader_start, || leader_group)
+    }
+
+    #[test]
+    fn a_verified_leader_in_its_group_or_an_ended_leader_lets_the_anchor_signal() {
+        assert_eq!(verdict_of(Ok(Some(14)), Ok(13)), Ok(()));
+        assert_eq!(
+            verdict_of(Ok(None), Err(rustix::io::Errno::PERM)),
+            Ok(()),
+            "gone"
+        );
+        assert_eq!(
+            verdict_of(Ok(Some(99)), Err(rustix::io::Errno::PERM)),
+            Ok(()),
+            "pid reused"
+        );
+        assert_eq!(
+            verdict_of(Ok(Some(14)), Err(rustix::io::Errno::SRCH)),
+            Ok(()),
+            "ended between the reads"
+        );
+    }
+
+    #[test]
+    fn a_moved_leader_or_an_anchor_out_of_the_group_is_refused() {
+        assert_eq!(
+            verdict_of(Ok(Some(14)), Ok(20)),
+            Err("the leader 13 moved from group 13 to group 20".into())
+        );
+        assert_eq!(
+            verdict(&report(), 20, Ok(Some(14)), || Ok(13)),
+            Err("the anchor left the group".into())
+        );
+    }
+
+    /// #171 TP2: an identity or a membership that cannot be read is not verified, so it refuses.
+    #[test]
+    fn an_identity_or_a_group_that_cannot_be_read_is_refused() {
+        assert_eq!(
+            verdict_of(Err(io::Error::other("refused")), Ok(13)),
+            Err("the identity of the leader 13 cannot be read: refused".into())
+        );
+        assert_eq!(
+            verdict_of(Ok(Some(14)), Err(rustix::io::Errno::PERM)),
+            Err(format!(
+                "the group of the leader 13 cannot be read: {}",
+                rustix::io::Errno::PERM
+            ))
+        );
+    }
+
+    /// #171 TP6: after the grace, every member that `TERM` reached is still in the group or gone; a member that moved, or
+    /// whose group cannot be read, refuses.
+    #[test]
+    fn a_member_that_moved_or_cannot_be_read_after_the_grace_is_refused() {
+        let groups = |member: u32| match member {
+            1 => Ok(13),
+            2 => Err(rustix::io::Errno::SRCH),
+            3 => Ok(30),
+            _ => Err(rustix::io::Errno::PERM),
+        };
+        assert_eq!(stayed(13, &[], groups), Ok(()));
+        assert_eq!(stayed(13, &[1, 2], groups), Ok(()));
+        assert_eq!(
+            stayed(13, &[1, 3, 4], groups),
+            Err("the member 3 moved from group 13 to group 30".into())
+        );
+        assert_eq!(
+            stayed(13, &[2, 4, 3], groups),
+            Err(format!(
+                "the group of the member 4 cannot be read: {}",
+                rustix::io::Errno::PERM
+            ))
+        );
     }
 
     #[test]

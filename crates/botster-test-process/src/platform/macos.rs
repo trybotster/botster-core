@@ -5,13 +5,25 @@ use super::{gone, Member, Waited};
 use crate::Deadline;
 use rustix::process::Pid;
 
-/// The start time of `pid` in microseconds since the Unix epoch, or `None` when no such process exists. Callers compare
-/// start times only for equality. It reads the same field as `botster_core_sys::process::start_time`, so the two agree.
-pub fn start_time(pid: Pid) -> Option<u64> {
+/// The start time of `pid` in microseconds since the Unix epoch, or `None` when the process has ended (gone, or exiting: macOS
+/// refuses the information of a zombie). Callers compare start times only for equality. It reads the same field as
+/// `botster_core_sys::process::start_time`, so the two agree.
+///
+/// # Errors
+/// The information of a live process was refused, or the check of the refusal failed: the identity is not verified.
+pub fn start_time(pid: Pid) -> std::io::Result<Option<u64>> {
     use libproc::bsd_info::BSDInfo;
     use libproc::proc_pid::pidinfo;
-    let info = pidinfo::<BSDInfo>(pid.as_raw_nonzero().get(), 0).ok()?;
-    Some(info.pbi_start_tvsec * 1_000_000 + info.pbi_start_tvusec)
+    match pidinfo::<BSDInfo>(pid.as_raw_nonzero().get(), 0) {
+        Ok(info) => Ok(Some(
+            info.pbi_start_tvsec * 1_000_000 + info.pbi_start_tvusec,
+        )),
+        Err(_) if exiting_or_gone(pid)? => Ok(None),
+        Err(refused) => Err(std::io::Error::other(format!(
+            "process {}: {refused}",
+            pid.as_raw_nonzero()
+        ))),
+    }
 }
 
 /// Waits for the exit event of `pid` (it may stay a zombie), at most until `deadline`. It only observes: it never reaps. A
@@ -40,6 +52,43 @@ pub fn await_end(pid: Pid, deadline: Deadline) -> std::io::Result<Waited> {
         }) => Err(error),
         Some(_) => Ok(Waited::Exited),
     }
+}
+
+/// The exit status of the caller's own unreaped child `pid` once it is available, at most until `deadline`; `None` when the
+/// deadline came first. It never reaps. XNU's `proc_exit` posts `NOTE_EXIT`, then makes the child a zombie (its status is
+/// available), then sends `SIGCHLD` to the parent (`bsd/kern/kern_exit.c`). So the exit event can come before the status,
+/// and the event that follows it is `SIGCHLD`. kqueue records a `SIGCHLD` with no handler installed, the default action
+/// included: `psignal_internal` posts the signal's event before it checks whether the signal is ignored
+/// (`bsd/kern/kern_sig.c`). The filter is set before the first check, so a `SIGCHLD` after that check wakes the wait. A
+/// `SIGCHLD` of another child only makes the loop check again.
+///
+/// # Errors
+/// The filter could not be set up, or the check or the wait failed.
+pub fn await_status(
+    pid: Pid,
+    deadline: Deadline,
+) -> std::io::Result<Option<std::process::ExitStatus>> {
+    let mut watcher = kqueue::Watcher::new()?;
+    // The crate has no call for a signal filter. The ident of a kevent is a number that the filter interprets, and `add_fd`
+    // passes it unchanged: here, the signal number.
+    watcher.add_fd(
+        libc::SIGCHLD,
+        kqueue::EventFilter::EVFILT_SIGNAL,
+        kqueue::FilterFlag::empty(),
+    )?;
+    watcher.watch()?;
+    super::status_after_events(
+        || super::peek(pid),
+        // timer: deadline — bounds the wait for a SIGCHLD.
+        || match watcher.poll(Some(deadline.remaining())) {
+            Some(kqueue::Event {
+                data: kqueue::EventData::Error(error),
+                ..
+            }) => Err(error),
+            _ => Ok(()),
+        },
+        || deadline.expired(),
+    )
 }
 
 /// The live members of `group`, with their states. A process is left out only when it is proved not live: a zombie (it
