@@ -80,6 +80,14 @@ ids stay pending until the real harness of P6 (`botster-test-process`, #171) can
   `"<u64>-<u64>"`, 41 bytes.
 - **Launch:** the host passes the path to the worker with a new launch argument, `--endpoint`. The worker binds it before
   its first hello, so a host can adopt it from the moment its row records its identity (AD-7 step 3).
+- **The startup limit** reaches the worker with a second new launch argument, `--startup-ms` (milliseconds, a `u64`). The
+  worker needs it for its AD-7 self-exit and for the candidate deadline (part 7). `WorkerLaunch::parse` refuses a
+  missing or malformed value, with a parse test (integration D2).
+- **Removal of the endpoint** (integration D3; SV-9 names endpoints among what a remove releases):
+  - the worker unlinks its endpoint when it ends (`Action::Exit`, and on `Terminate`);
+  - the host unlinks `<data_dir>/w/<InstanceId>` after `Remove` has verified the worker's end (LC-7), if the path is still
+    there (a worker that was killed could not unlink it). A failed unlink is recorded in `diagnostics()` and does not fail
+    the `Remove`.
 - **A missing endpoint** (removed by a cleaner while the worker lives): the connect fails, and the row is
   `Lost(WorkerUnreachable)`. Core never binds or spawns in its place (AD-2: "a `Lost` session is never restarted in place").
   `Adopt(id)` may be retried.
@@ -93,6 +101,11 @@ ids stay pending until the real harness of P6 (`botster-test-process`, #171) can
   Neither side can then replay what it received. The start handshake uses the same two roles, so there is one rule for
   both handshakes.
 - No released worker exists (protocol 1 is not released), so the change breaks no adoptable worker (AD-4).
+- **Rule (integration D4):** the five hello fields (`magic`, `protocol`, `instance`, `proof`, `host_epoch`) and the proof
+  rule (the domain, the role byte, the order of the hashed fields) **never change between protocol numbers**. Otherwise a
+  worker of protocol N - 1 could not answer a host of protocol N, and it would be `Lost(WorkerUnreachable)` instead of
+  adopted or `Lost(WorkerVersion)` (AD-4). The `botster-core-link` docs state the rule, and a test pins the encoded hello
+  and the proof of a fixed input.
 - Owner: `botster-core-link` (the proof) and both machines. Cross-package: the integration reviewer reviews it.
 
 ### 3. The adopt handshake (AD-6, DP-8, AD-4, A10, A11)
@@ -100,8 +113,14 @@ ids stay pending until the real harness of P6 (`botster-test-process`, #171) can
 1. The host connects to the endpoint (a new host edge, `connect_worker`; see 6).
 2. The host sends `Hello{protocol: T, instance, proof: host(token, instance, E), host_epoch: E}`, where E is the new
    host's epoch.
-3. The worker checks the instance, the host proof, and that E is **above every epoch it has seen**. On a failure it closes
-   **this connection only**: its current link, its payload and its highest epoch do not change (A11).
+3. The worker checks the instance, the host proof, and that E is **at least the highest epoch it has seen** (DP-8: the
+   worker obeys the highest epoch). A lower E is refused. On a failure it closes **this connection only**: its current
+   link, its payload and its highest epoch do not change (A11).
+   - **An equal E is valid** (integration D1): a host that reached step 4 and then timed out or lost the link has the row
+     `Lost(WorkerUnreachable)`, and its `Adopt(id)` retry (AD-2) comes with the same E. An equal E replaces the current link
+     after the proof passes, with the fence of step 4. Only one host has epoch E (LC-2: the data-dir lock), so the fence
+     still holds.
+   - Test: the host abandons the handshake after step 4, then `Adopt(id)` with the same epoch adopts.
 4. On success the worker records E, closes its old link (the fence: DP-8 "adoption fences the previous host"), and answers
    `Hello{protocol: P, instance, proof: worker(token, instance, E), host_epoch: E}`, then its adoption report (4).
    **The fence retires every request of the old host** (P3's review): request numbers are per link, so an old `Done{req}`
