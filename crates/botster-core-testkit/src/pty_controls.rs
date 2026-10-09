@@ -1,5 +1,6 @@
-//! The program controls of the testkit (`docs/core-testkit-controls.md`): `pty_output` and `pty_blocked` act at the program
-//! edge of a session's payload only (Core A5-1), never in the worker machine or the host (plan 2.1).
+//! The program controls of the testkit (`docs/core-testkit-controls.md`, `docs/fake-core-notes.md`): `pty_output`,
+//! `pty_blocked`, `pty_input`, `pty_chunk`, `pty_accept` and `pty_fail_after` act at the program edge of a session's payload
+//! only (Core A5-1), never in the worker machine or the host (plan 2.1).
 
 use crate::controls::{parse, session_row, ControlRegistry};
 use crate::harness::TestkitHarness;
@@ -7,14 +8,18 @@ use crate::program::ProgramControl;
 use botster_core_conformance::ControlError;
 use botster_core_contract::prelude::SessionId;
 use botster_core_host::driver::HostWake;
-use botster_route_codec::prelude::hex_decode;
+use botster_route_codec::prelude::{hex_decode, HexBytes};
 use serde::Deserialize;
-use serde_json::Value;
+use serde_json::{json, Value};
 use std::sync::Arc;
 
 pub(crate) fn register_controls(registry: &mut ControlRegistry) {
     registry.register("pty_output", pty_output);
     registry.register("pty_blocked", pty_blocked);
+    registry.register("pty_input", pty_input);
+    registry.register("pty_chunk", pty_chunk);
+    registry.register("pty_accept", pty_accept);
+    registry.register("pty_fail_after", pty_fail_after);
 }
 
 /// The program edge of the payload of `session` on `handle`, and the wake of the host that owns its worker.
@@ -111,6 +116,74 @@ fn pty_blocked(
     if let (false, Some(wake)) = (args.on, wake) {
         wake.signal();
     }
+    Ok(Value::Null)
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Session {
+    session: SessionId,
+}
+
+/// Every byte of PTY input that the payload's program edge took, in order: the observer of the input controls.
+fn pty_input(
+    harness: &mut TestkitHarness,
+    handle: &str,
+    args: &Value,
+) -> Result<Value, ControlError> {
+    let args: Session = parse(args)?;
+    let (program, _) = program_of(harness, handle, &args.session)?;
+    Ok(json!({ "bytes": { "$bytes_hex": HexBytes(program.input_log()).to_hex() } }))
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Bytes {
+    session: SessionId,
+    bytes: usize,
+}
+
+/// At most `bytes` bytes of input reach the PTY in each step (a pump of the host), so one host write reaches the PTY in
+/// pieces across pumps (Core AM-2, IN-6). A cap of zero would let no input through at all, so it is `Bad`.
+fn pty_chunk(
+    harness: &mut TestkitHarness,
+    handle: &str,
+    args: &Value,
+) -> Result<Value, ControlError> {
+    let args: Bytes = parse(args)?;
+    if args.bytes == 0 {
+        return Err(ControlError::Bad(
+            "bytes: a cap of 0 lets no input through".into(),
+        ));
+    }
+    let (program, _) = program_of(harness, handle, &args.session)?;
+    program.input_chunk(Some(args.bytes));
+    Ok(Value::Null)
+}
+
+/// The program edge takes at most `bytes` more bytes of input, then none until `pty_blocked` with `on: false`; a write that
+/// straddles the limit has its accepted prefix written (Core A5-2, IN-2: `Partial`).
+fn pty_accept(
+    harness: &mut TestkitHarness,
+    handle: &str,
+    args: &Value,
+) -> Result<Value, ControlError> {
+    let args: Bytes = parse(args)?;
+    let (program, _) = program_of(harness, handle, &args.session)?;
+    program.accept_at_most(args.bytes);
+    Ok(Value::Null)
+}
+
+/// The program edge takes `bytes` more bytes of input, then the next write fails with an OS error (Core IN-2: `Failed`
+/// with exact counts).
+fn pty_fail_after(
+    harness: &mut TestkitHarness,
+    handle: &str,
+    args: &Value,
+) -> Result<Value, ControlError> {
+    let args: Bytes = parse(args)?;
+    let (program, _) = program_of(harness, handle, &args.session)?;
+    program.fail_after(args.bytes);
     Ok(Value::Null)
 }
 
