@@ -138,7 +138,8 @@ fn an_impostor_is_refused_and_never_signalled() {
     }
 }
 
-/// Core A11-1: after Core refused the handshake, the impostor's scripted frames change nothing. The state stays
+/// Core A11-1, steward ruling R-42: the impostor's scripted frames, which Core meets after it refused the handshake, change
+/// nothing. The state stays
 /// `Lost(WorkerGone)`, and no notification or state event of the session follows.
 #[test]
 fn an_impostors_frames_after_the_refusal_change_nothing() {
@@ -217,6 +218,24 @@ fn a_damaged_row_is_registry_corrupt_and_the_others_are_adopted() {
         SessionState::Lost(LostReason::RegistryCorrupt)
     );
     assert_eq!(state(b.as_ref(), "s2"), SessionState::Running);
+}
+
+/// Core A10-2: `corrupt_registry_row` keeps the first half of the bytes that Core's encoder wrote.
+#[test]
+fn a_damaged_row_is_the_first_half_of_the_written_row() {
+    let (mut harness, _core, _at) = running(&["s1"]);
+    let key = row_key(&sid("s1"));
+    let dir = harness.directory_of("a").expect("handle a").to_string();
+    let written = harness.directories().row(&dir, &key).expect("the row");
+    assert!(written.len() > 2);
+    assert_eq!(
+        harness.control("a", "corrupt_registry_row", &json!({"session": "s1"})),
+        Ok(Value::Null)
+    );
+    assert_eq!(
+        harness.directories().row(&dir, &key),
+        Some(written[..written.len() / 2].to_vec())
+    );
 }
 
 /// Each control refuses what it cannot do, with `Bad`.
