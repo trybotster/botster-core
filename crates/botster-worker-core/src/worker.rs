@@ -19,7 +19,7 @@ use botster_core_edges::edges::ExitStatus;
 use botster_core_edges::Machine;
 use botster_core_link::frame::{encode_frame, FrameDecoder, FrameType, DEFAULT_MAX_PAYLOAD};
 use botster_core_link::hello::Hello;
-use botster_core_link::msg::{HostMsg, LaunchSpec, PayloadId, WorkerMsg};
+use botster_core_link::msg::{HostMsg, LaunchSpec, Observation, PayloadId, WorkerMsg};
 use botster_core_link::proof::{host_proof, token_proof, TOKEN_LEN};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::time::{Duration, Instant};
@@ -181,6 +181,9 @@ pub struct Worker {
     stop_grace: Duration,
     /// The size of the launch, for the state that `Launched` carries.
     launch_size: Option<Size>,
+    /// The session's read-visible revision (Core ST-1): an opaque token that every output read advances. The terminal
+    /// model (M2) advances it at the same points, and on a resize and a mode, title or cwd change.
+    model_rev: ModelRev,
     /// The kill of the worker-control signal's grace (LC-5).
     grace: Option<Instant>,
     /// LC-7 step 3: the worker ends once the payload is reaped and the result is sent.
@@ -222,6 +225,7 @@ impl Worker {
             killed: false,
             stop_grace: CoreLimits::default().stop_grace,
             launch_size: None,
+            model_rev: ModelRev(0),
             grace: None,
             removing: false,
             exit_pending: false,
@@ -276,6 +280,20 @@ impl Worker {
         let mut payload = Vec::new();
         msg.encode(&mut payload);
         self.send_frame(FrameType::WORKER_MSG, &payload);
+    }
+
+    /// A read of the payload's output: it advances the read-visible revision and reports the output to the host (Core
+    /// ST-1, 6.2). An empty read changes nothing.
+    fn on_output(&mut self, bytes: &[u8]) {
+        if bytes.is_empty() {
+            return;
+        }
+        self.model_rev = ModelRev(self.model_rev.0.wrapping_add(1));
+        self.report(&WorkerMsg::Observed {
+            observation: Observation::Output {
+                model_rev: self.model_rev,
+            },
+        });
     }
 
     /// Closes the link after the bytes already sent are written (LC-7: the result reaches the host first).
@@ -458,7 +476,7 @@ impl Worker {
             cwd: None,
             last_output_at: None,
             focused: None,
-            model_rev: ModelRev(0),
+            model_rev: self.model_rev,
             input_rev: InputRevs {
                 client: InputRev(0),
                 host: InputRev(0),
@@ -658,8 +676,9 @@ impl Machine for Worker {
             }
             Input::Spawned(result) => self.on_spawned(now, result),
             // The terminal model takes the output in M2. Until then the worker reads it, so the payload never blocks on a
-            // full PTY.
-            Input::PtyOutput(_) => {}
+            // full PTY, and reports it: the output advances `model_rev` (Core ST-1: "every read-visible mutation
+            // (output, ...)"), and the host posts `Activity{source: Output}` from the observation (Core 6.2).
+            Input::PtyOutput(bytes) => self.on_output(&bytes),
             Input::PtyDrained => self.on_drained(),
             Input::PayloadExited(status) => self.on_exited(status),
             Input::EndPayload => self.on_end_payload(now),
