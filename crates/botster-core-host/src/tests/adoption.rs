@@ -686,6 +686,11 @@ fn an_adopted_state_waits_for_queue_room() {
     let report = again.pump();
     assert!(!report.more, "the parked step is not runnable work (TM-6)");
     assert_eq!(
+        again.connects,
+        vec![first.instance_of("a")],
+        "the probe, the connect and the handshake post nothing, so they run while the queue is full"
+    );
+    assert_eq!(
         again.engine.get(&sid("a")).unwrap_err().code,
         ErrorCode::UnknownSession
     );
