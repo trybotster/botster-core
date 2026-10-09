@@ -204,7 +204,8 @@ fn is_test_path(path: &syn::Path) -> bool {
         .is_some_and(|last| last.ident == "test")
 }
 
-/// A `cfg_attr(<predicate>, <attribute>, ..)` under the condition `outer`: an `ignore` ignores the test where both hold, a
+/// A `cfg_attr(<predicate>, <attribute>, ..)` under the condition `outer`: a `cfg` removes the item where both hold and its
+/// own predicate does not, an `ignore` ignores the test where both hold, a
 /// test attribute makes a test that exists only where both hold, and a nested `cfg_attr` adds its predicate.
 fn conditional(
     meta: &syn::Meta,
@@ -231,6 +232,12 @@ fn conditional(
         let path = item.path();
         if path.is_ident("cfg_attr") {
             conditional(&item, Some(&condition), cfgs, test, ignores)?;
+        } else if path.is_ident("cfg") {
+            let syn::Meta::List(cfg) = &item else {
+                return Err("`cfg` takes a list".to_string());
+            };
+            let inner: syn::Meta = cfg.parse_args().map_err(|error| error.to_string())?;
+            cfgs.push(syn::parse_quote!(any(not(#condition), #inner)));
         } else if path.is_ident("ignore") {
             ignores.push(Some(condition.clone()));
         } else if is_test_path(path) {
@@ -514,11 +521,14 @@ pub fn check(
     Ok(violations)
 }
 
-/// The names that a citation may name besides a test: the identifiers of the code of the Rust files of `paths` other than
-/// the names of test functions, and the words of the vendored files of `paths` (under a `path` of `.gitmodules`). The mutants file itself is not read.
+/// The names that a citation may name besides a test: the identifiers of the code of the Rust files of `paths` that is not
+/// test code, and the words of the vendored files of `paths` (under a `path` of `.gitmodules`). The mutants file itself is
+/// not read. Test code is a test file (as `timers` tells), a module file that test code declares (to a fixed point, as
+/// `process_check::whole_test_files` tells), and an item with a test attribute or a `cfg(test)`: a proof test that loses
+/// its `#[test]` is no test and no identifier of the code, so its citation fails.
 ///
 /// # Errors
-/// A Rust file outside the vendored files does not parse.
+/// A Rust file outside the vendored files does not parse, or the file of a test module is not among `paths`.
 fn defined_names(
     read: &dyn Fn(&str) -> Option<String>,
     paths: &[String],
@@ -530,50 +540,68 @@ fn defined_names(
         .map(|path| format!("{}/", path.trim()))
         .collect();
     let word = Regex::new(r"\b[a-z][a-z0-9_]*\b").expect("regex");
-    let mut items = Items::default();
     let mut words = BTreeSet::new();
+    let mut sources = BTreeMap::new();
     for path in paths.iter().filter(|path| path.as_str() != MUTANTS_FILE) {
         let Some(text) = read(path) else {
             continue;
         };
         if vendored.iter().any(|dir| path.starts_with(dir.as_str())) {
             words.extend(word.find_iter(&text).map(|w| w.as_str().to_string()));
-        } else if path.ends_with(".rs") {
-            let parsed = syn::parse_file(&text).map_err(|error| {
-                anyhow::anyhow!(
-                    "{path}:{}: does not parse: {error}",
-                    error.span().start().line
-                )
-            })?;
-            items.visit_file(&parsed);
+        } else {
+            sources.insert(path.clone(), text);
         }
     }
-    words.extend(
-        items
-            .0
-            .into_iter()
-            .filter(|(_, count)| *count > 0)
-            .map(|(name, _)| name),
-    );
+    let tree = crate::process_check::module_tree(&sources, |file| file.ends_with(".rs"), |_| false);
+    if let Some((path, error)) = tree.errors.first() {
+        bail!(
+            "{path}:{}: does not parse: {error}",
+            error.span().start().line
+        );
+    }
+    let tests = tree
+        .parsed
+        .keys()
+        .copied()
+        .filter(|file| crate::timers::is_test_file(file))
+        .collect();
+    let whole = crate::process_check::whole_test_files(&tree.declared, tests)
+        .map_err(|error| anyhow::anyhow!(error))?;
+    let mut items = Items::default();
+    for (file, parsed) in &tree.parsed {
+        if !whole.contains(file) {
+            items.visit_file(parsed);
+        }
+    }
+    words.extend(items.0);
     Ok(words)
 }
 
-/// The identifiers of the code of Rust files (an item, a field, a method, a path segment, also of a dependency), with
-/// the number of times each one occurs; the name of a test function does not count. Comments and strings are not code.
+/// The identifiers of the code of Rust files that is not test code (an item, a field, a method, a path segment, also of a
+/// dependency). An item with a test attribute or a `cfg(test)` is test code. Comments and strings are not code.
 #[derive(Default)]
-struct Items(BTreeMap<String, usize>);
+struct Items(BTreeSet<String>);
 
 impl<'ast> Visit<'ast> for Items {
     fn visit_ident(&mut self, ident: &'ast proc_macro2::Ident) {
-        *self.0.entry(ident.to_string()).or_default() += 1;
+        self.0.insert(ident.to_string());
+    }
+
+    fn visit_item(&mut self, item: &'ast syn::Item) {
+        if !crate::process_check::is_test_item(crate::process_check::item_attrs(item)) {
+            syn::visit::visit_item(self, item);
+        }
     }
 
     fn visit_item_fn(&mut self, item: &'ast syn::ItemFn) {
-        syn::visit::visit_item_fn(self, item);
-        if item.attrs.iter().any(|attr| is_test_path(attr.path())) {
-            if let Some(count) = self.0.get_mut(&item.sig.ident.to_string()) {
-                *count -= 1;
-            }
+        if !crate::process_check::is_test_item(&item.attrs) {
+            syn::visit::visit_item_fn(self, item);
+        }
+    }
+
+    fn visit_impl_item_fn(&mut self, item: &'ast syn::ImplItemFn) {
+        if !crate::process_check::is_test_item(&item.attrs) {
+            syn::visit::visit_impl_item_fn(self, item);
         }
     }
 }
