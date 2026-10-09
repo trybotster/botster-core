@@ -245,7 +245,11 @@ fn a_worker_that_exits_before_it_connects_ends_the_start_at_once() {
         .expect("the worker runs");
     assert_eq!(said.unwrap().trim(), "ready");
     let pid = worker.pid().expect("the worker recorded its pid");
-    rustix::process::kill_process(pid, rustix::process::Signal::TERM).unwrap();
+    botster_core_sys::signal::signal_process(
+        pid.as_raw_nonzero().get().unsigned_abs(),
+        rustix::process::Signal::TERM,
+    )
+    .unwrap();
     // The host pumps only after a wake (TM-6): every wait must end by a wake, never by its timeout. The worker never
     // connects, so the wake that ends the start is the reaper's, through `RealEdges` and `PollWake`.
     while !events

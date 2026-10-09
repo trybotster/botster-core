@@ -39,11 +39,17 @@ exclude_re = [
     # any_other_lint_difference_fails, only_the_three_lint_entries_name_unsafe_code, only_close_inherited_allows_unsafe_code,
     # the_verdict_counts_the_files_or_reports_every_problem).
     'xtask/src/unsafe_exception\.rs:\d+:\d+: replace command -> Result<\(\)> with Ok\(\(\)\)$',
-    # xtask ci.rs taint_job -> Ok(()): the shell runs the static checks (taint, timers, unsafe_exception, process_check,
-    # mutants_cited, gate_decisions) and the platform-only code derivation, and only propagates their errors with `?`; the
-    # body replaced by Ok(()) runs none. Only this whole-body replacement is excluded. Each check's decisions have their own
-    # tests, and the derivation is the tested derived_exclusions (each_gate_os_excludes_the_adapters_of_the_other_os).
+    # xtask ci.rs taint_job -> Ok(()): the shell runs the static checks (taint, timers, unsafe_exception, signals,
+    # process_check, mutants_cited, gate_decisions) and the platform-only code derivation, and only propagates their errors
+    # with `?`; the body replaced by Ok(()) runs none. Only this whole-body replacement is excluded. Each check's decisions
+    # have their own tests (signals: scan, verdict, string_text, the tests of xtask/src/signals.rs,
+    # a_raw_signal_call_outside_the_guard_is_a_violation_under_any_allow_or_cfg among them), and the derivation is the
+    # tested derived_exclusions (each_gate_os_excludes_the_adapters_of_the_other_os).
     'xtask/src/ci\.rs:\d+:\d+: replace taint_job -> Result<\(\)> with Ok\(\(\)\)$',
+    # xtask ci.rs clippy_job -> Ok(()): process glue. The body starts `cargo clippy` over the workspace with every feature
+    # and returns its exit; a test cannot run clippy inside the test run. Only this whole-body replacement is excluded. A
+    # body replaced by Ok(()) gives no clippy output, which every gate log of the step shows.
+    'xtask/src/ci\.rs:\d+:\d+: replace clippy_job -> Result<\(\)> with Ok\(\(\)\)$',
     # xtask mutants_job -> Ok(()): process glue. The body runs `git diff`, writes the diff file, lists the mutants of the
     # diff, starts `cargo mutants` and prints its summary; a test cannot start a mutation run inside a mutation run, so no
     # test can run the body. Only this whole-body replacement is excluded: every other mutant of mutants_job stays tested.
@@ -71,6 +77,12 @@ exclude_re = [
     # (the_packages_come_from_cargo_metadata), tracked_with_submodules (the_tracked_files_come_from_git) and verdict
     # (a_check_passes_only_with_no_violation).
     'xtask/src/mutants_cited\.rs:\d+:\d+: replace command -> Result<\(\)> with Ok\(\(\)\)$',
+    # xtask test_budget.rs kill -> (): process glue. The body sends SIGKILL to the leftovers of a test run; a default-tier
+    # test cannot give it a real leftover to end. Only this whole-body replacement is excluded. Its decisions are tested:
+    # target, the parse of each argument (a_cleanup_argument_names_a_process_or_a_group), and the refusal of 0, 1 and our
+    # own in botster_core_sys::signal (a_target_of_0_1_out_of_range_or_our_own_is_refused,
+    # our_own_group_and_process_are_never_signalled).
+    'xtask/src/test_budget\.rs:\d+:\d+: replace kill with \(\)$',
     # P7 GuardianConfig::fmt: the debug text has no contract format. An empty successful
     # debug result still omits the service token, which is the only required property.
     # only_a_valid_host_hello_authenticates checks token omission.
@@ -498,6 +510,10 @@ exclude_re = [
     'crates/botster-test-process/src/rounds\.rs:\d+:\d+: (replace reserved_kill( ->| with)|.* in reserved_kill$)',
     # end_group: see reserved_kill.
     'crates/botster-test-process/src/rounds\.rs:\d+:\d+: (replace end_group( ->| with)|.* in end_group$)',
+    # end_group_reserved and reserve (the body of end_group since #177): see reserved_kill, and for the path where no reserve
+    # can be made, an_unreserved_cleanup_ends_every_member_by_its_last_kill.
+    'crates/botster-test-process/src/rounds\.rs:\d+:\d+: (replace end_group_reserved( ->| with)|.* in end_group_reserved$)',
+    'crates/botster-test-process/src/rounds\.rs:\d+:\d+: (replace reserve( ->| with)|.* in reserve$)',
     # platform.rs peek (a real child's status, no reap): the_status_of_an_exited_child_is_awaited_without_a_reap, and every
     # production_reap of the guard tests. Its loop, status_after_events, stays in the default tier with fakes. Two mutants
     # survive the slow tier (Linux --no-config run, #171 round 2 E1), both equivalent: `|` with `^` in the waitid options

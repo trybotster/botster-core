@@ -1,13 +1,14 @@
 //! The anchor binary of the group guard: `botster-test-anchor wrap <socket> <grace ns> <cleanup ns> <program> [args...]`. The stages and
 //! the protocol are in `botster_test_process::anchor`.
 
+use botster_core_sys::signal::{signal_own_group, SignalError};
 use botster_test_process::anchor::{
     identity, send, start_anchor, stayed, verdict, Identity, Line, Report, WRAP_FAILED,
 };
-use botster_test_process::platform::{await_end, live_members, pid, signal_target, start_time};
+use botster_test_process::platform::{await_end, live_members, pid, start_time};
 use botster_test_process::rounds::{end_group, end_members};
 use botster_test_process::Deadline;
-use rustix::process::{getpgid, getpgrp, kill_process_group, Signal};
+use rustix::process::{getpgid, getpgrp, Signal};
 use std::ffi::OsString;
 use std::io::{self, Read};
 use std::os::fd::OwnedFd;
@@ -185,13 +186,16 @@ fn group_of(member: u32) -> rustix::io::Result<u32> {
 }
 
 /// The members other than the anchor end within `grace` after a `TERM`. The anchor is a member, so the group id is held
-/// while it signals. A member left at the end of the grace is ended by the rounds of `KILL`.
+/// while it signals, and the `TERM` goes to its own group (`signal_own_group`, which refuses a group of 0 or 1). A member
+/// left at the end of the grace is ended by the rounds of `KILL`.
 fn terminate(group: rustix::process::Pid, grace: Duration) -> io::Result<()> {
     if grace.is_zero() {
         return Ok(());
     }
-    match kill_process_group(signal_target(group)?, Signal::TERM) {
-        Ok(()) | Err(rustix::io::Errno::SRCH) => {}
+    match signal_own_group(Signal::TERM) {
+        Ok(()) => {}
+        Err(SignalError::Os(error))
+            if error.raw_os_error() == Some(rustix::io::Errno::SRCH.raw_os_error()) => {}
         Err(error) => return Err(error.into()),
     }
     let me = rustix::process::getpid();

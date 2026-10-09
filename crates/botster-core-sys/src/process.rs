@@ -5,12 +5,12 @@
 //! touching the host (LC-5, SV-9). A process is signalled only when its identity still matches: a pid that was reused by an
 //! unrelated process is never killed (AD-6).
 
+use crate::signal::{signal_group, signal_process};
 use botster_core_edges::edges::{
     ExitStatus, GroupSignal, IdentityState, ProcessIdentity, SpawnError, SpawnSpec,
 };
-use rustix::process::{kill_process_group, Pid, Signal};
+use rustix::process::Signal;
 use std::collections::{BTreeSet, VecDeque};
-use std::io;
 use std::os::unix::process::{CommandExt, ExitStatusExt};
 use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Condvar, Mutex};
@@ -191,22 +191,15 @@ impl Children {
     }
 
     fn kill_group(&self, pid: u32, signal: GroupSignal) {
-        let Some(pid) = i32::try_from(pid).ok().and_then(Pid::from_raw) else {
-            return;
-        };
-        let signal = match signal {
-            GroupSignal::Term => Signal::TERM,
-            GroupSignal::Kill => Signal::KILL,
+        // The group may already be gone: that is the goal, so a failure is not an error. A refused target (the pattern rule
+        // of `signal`) is never signalled.
+        let _ = match signal {
+            GroupSignal::Term => signal_group(pid, Signal::TERM),
+            GroupSignal::Kill => signal_group(pid, Signal::KILL),
             // The worker-control signal goes to the worker process alone: its group holds no payload, and a default
             // `SIGUSR1` would end a descendant of the worker (LC-5).
-            GroupSignal::EndPayload => {
-                let _: io::Result<()> =
-                    rustix::process::kill_process(pid, Signal::USR1).map_err(io::Error::from);
-                return;
-            }
+            GroupSignal::EndPayload => signal_process(pid, Signal::USR1),
         };
-        // The group may already be gone: that is the goal, so a failure is not an error.
-        let _: io::Result<()> = kill_process_group(pid, signal).map_err(io::Error::from);
     }
 }
 
