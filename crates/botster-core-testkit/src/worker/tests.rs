@@ -386,10 +386,15 @@ fn each_unconsumed_report_alone_keeps_the_edges_from_quiet() {
     assert!(workers.edges_quiet(&table));
 }
 
-/// F63: a program-edge control (`pty_output`, `pty_blocked`) that runs while the process ends does not deadlock.
-/// `Processes::end` locks the owner, then the cell; `program_edge` must release the cell before it locks the owner. One
-/// thread holds the owner while `program_edge` runs, then ends the process, as a `Kill` does. A bounded wait catches a
-/// deadlock as a failure, not a hang.
+/// F63: a program-edge control (`pty_output`, `pty_blocked`) and the end of its process do not deadlock. `Processes::end`
+/// locks the owner, then the cell, so `program_edge` must release the cell before it locks the owner. The test fixes the
+/// order with events, not with delays:
+/// 1. The control reads the cell and stops before it locks the owner.
+/// 2. The end thread takes the owner and then ends the process, which needs the cell.
+/// 3. The control goes on and locks the owner.
+///
+/// With the cell still held at step 3, the two threads wait for each other on every schedule. The deadlines only turn that
+/// deadlock into a failure.
 #[test]
 fn a_program_edge_control_concurrent_with_the_process_end_does_not_deadlock() {
     use std::sync::mpsc;
@@ -403,34 +408,44 @@ fn a_program_edge_control_concurrent_with_the_process_end_does_not_deadlock() {
     );
     let program = ScriptedProgram::from_argv(&["program".into()], &edges.scheduler).unwrap();
     lock(&edges.cell).program = Some(program.control());
-
-    let (held_tx, held_rx) = mpsc::channel();
-    let (done_tx, done_rx) = mpsc::channel();
-    let processes = Arc::clone(&edges.processes);
     let id = edges.id;
-    let end_done = done_tx.clone();
-    let ender = thread::spawn(move || {
-        let mut owner = lock(&processes);
-        held_tx.send(()).unwrap();
-        // The control thread reaches the cell and then waits for the owner while this thread holds it.
-        // timer: deadline — bounds how long the owner is held before the end, so the control reaches the cell first.
-        thread::sleep(Duration::from_millis(50));
-        owner.end(id, ExitStatus::Signal(9));
-        drop(owner);
-        end_done.send("end").unwrap();
-    });
-    held_rx.recv().unwrap();
+
+    let (at_owner_tx, at_owner_rx) = mpsc::channel();
+    let (go_tx, go_rx) = mpsc::channel::<()>();
+    let (done_tx, done_rx) = mpsc::channel();
     let edge_workers = workers.clone();
+    let control_done = done_tx.clone();
     let control = thread::spawn(move || {
-        let result = edge_workers.program_edge(id).map(|_| ());
-        done_tx.send("control").unwrap();
+        let result = edge_workers
+            .program_edge_between(id, || {
+                at_owner_tx.send(()).unwrap();
+                go_rx.recv().unwrap();
+            })
+            .map(|_| ());
+        control_done.send("control").unwrap();
         result
     });
+    // timer: deadline — fails the test when the control never reaches the owner step.
+    at_owner_rx.recv_timeout(Duration::from_secs(10)).unwrap();
+
+    let (owner_held_tx, owner_held_rx) = mpsc::channel();
+    let processes = Arc::clone(&edges.processes);
+    let ender = thread::spawn(move || {
+        let mut owner = lock(&processes);
+        owner_held_tx.send(()).unwrap();
+        owner.end(id, ExitStatus::Signal(9));
+        drop(owner);
+        done_tx.send("end").unwrap();
+    });
+    // timer: deadline — fails the test when the end thread never takes the owner.
+    owner_held_rx.recv_timeout(Duration::from_secs(10)).unwrap();
+    go_tx.send(()).unwrap();
+
     let mut done = Vec::new();
     for _ in 0..2 {
         done.push(
             done_rx
-                // timer: deadline — bounds the wait, so a lock-order deadlock fails the test and does not hang it.
+                // timer: deadline — fails the test on a lock-order deadlock, so the test does not hang.
                 .recv_timeout(Duration::from_secs(10))
                 .expect("the control and the end finish: no lock-order deadlock"),
         );
@@ -438,13 +453,10 @@ fn a_program_edge_control_concurrent_with_the_process_end_does_not_deadlock() {
     done.sort_unstable();
     assert_eq!(done, ["control", "end"]);
     ender.join().unwrap();
-    // The control answers either way: it read the cell before the end (the usual order), or after it on a slow host.
-    let answer = control.join().unwrap();
-    assert!(
-        answer
-            .as_ref()
-            .map_or_else(|e| e.ends_with("has ended"), |()| true),
-        "{answer:?}"
+    assert_eq!(
+        control.join().unwrap(),
+        Ok(()),
+        "the control read the cell before the end"
     );
     assert_eq!(
         lock(&edges.processes).exits.pop_front(),
