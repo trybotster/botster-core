@@ -215,7 +215,8 @@ pub(crate) enum ImpostorField {
     Instance,
 }
 
-/// A worker-shaped frame that an impostor sends after Core rejected its handshake (Core A11-1).
+/// A worker-shaped frame that an impostor sends behind its hello, so that Core meets it after its check rejected the
+/// handshake (Core A11-1, steward ruling R-42).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ImpostorFrame {
     /// A cleanup result of a `Remove` that claims every upload deleted.
@@ -264,9 +265,12 @@ impl Impostor {
             .is_some_and(|l| !l.done && l.end.is_ready())
     }
 
-    /// Reads what the host sent. On the host's hello it answers with the wrong hello of its plan (Core A10-1). When the host
-    /// closes the link, Core has rejected the handshake: only then are the scripted frames sent (Core A11-1). A link that
-    /// Core closed takes none of them.
+    /// Reads what the host sent. On the host's first hello it answers with the wrong hello of its plan (Core A10-1) and its
+    /// scripted frames, in one write (Core A11-1, steward ruling R-42: "after the rejection" is the order in which Core meets
+    /// the frames). At the end of file, Core has closed the link: the impostor closes its end.
+    ///
+    /// # Panics
+    /// When the link does not take the whole write: R-42 makes a short or failed write a setup failure, never a pass.
     fn step(&mut self) {
         let plan = &self.plan;
         let Some(link) = self.link.as_mut().filter(|l| !l.done) else {
@@ -276,12 +280,6 @@ impl Impostor {
         loop {
             match link.end.recv(&mut buf) {
                 Ok(0) => {
-                    if link.answered {
-                        for frame in &plan.script {
-                            // The send fails on a link that Core closed: the frames reach no one, as on a real socket.
-                            let _ = link.end.send(&script_frame(*frame));
-                        }
-                    }
                     link.done = true;
                     link.end.close();
                     return;
@@ -296,7 +294,16 @@ impl Impostor {
                                 continue;
                             }
                             if let Ok(hello) = Hello::decode(&frame.payload) {
-                                let _ = link.end.send(&impostor_hello(plan, &hello));
+                                let mut answer = impostor_hello(plan, &hello);
+                                for scripted in &plan.script {
+                                    answer.extend(script_frame(*scripted));
+                                }
+                                let sent = link.end.send(&answer).ok();
+                                assert_eq!(
+                                    sent,
+                                    Some(answer.len()),
+                                    "R-42: the impostor's hello and its script are one whole write"
+                                );
                                 link.answered = true;
                             }
                         }

@@ -90,8 +90,9 @@ struct Impostor {
 }
 
 /// At the next adoption, the session's endpoint is answered by a process that is not its worker, with a wrong token or a
-/// wrong `InstanceId` (Core A10-1). After Core rejects the handshake, it sends the scripted frames (Core A11-1). The real
-/// worker keeps running and is never connected.
+/// wrong `InstanceId` (Core A10-1). Its scripted frames follow its hello in the same write, so Core meets them after its check
+/// rejected the handshake (Core A11-1; steward ruling R-42, contracts `main` `c2df50c`). The real worker keeps running and is
+/// never connected.
 fn impostor_worker(
     harness: &mut TestkitHarness,
     handle: &str,
