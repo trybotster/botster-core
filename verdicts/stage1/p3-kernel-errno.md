@@ -64,3 +64,11 @@ the member, and a non-leader thread can reuse the pid before `pidfd_open`. This 
 The merge rule asks for a green gate on this exact head. P3 named no gate for it.
 
 VERDICT: CLEAN (0 open) at 0f559acd2f0ae714774a4bd0fa42e8043b4f137a
+
+### Carry-over to the v1 merge 1a07efc3
+
+`1a07efc3c54bca0e8e89db1fab21eb746fc0eca7` merges v1 `465978d6` (#185) into `0f559acd`. Its tree is the tree of
+`git merge-tree --write-tree 0f559acd 465978d6` (`243efb75`), and its diff against v1 is the same one file. P3 reports that
+base-merge-check passes. So the CLEAN carries over (the lead's ruling). The full gate on this head is still running.
+
+VERDICT: CLEAN (0 open) at 1a07efc3c54bca0e8e89db1fab21eb746fc0eca7
