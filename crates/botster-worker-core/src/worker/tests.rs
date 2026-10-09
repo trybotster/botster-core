@@ -2009,3 +2009,25 @@ fn the_model_rev_is_the_revision_that_a_read_carries() {
     };
     assert_eq!(cursor.model_rev, w.worker.model_rev());
 }
+
+/// ST-6: the live model's snapshot is what a capture at that point sends: an independent terminal's snapshot of the same
+/// output, and the capture's page. Before the launch there is no model.
+#[test]
+fn the_model_snapshot_is_what_a_capture_sends_now() {
+    assert!(World::linked().worker.model_snapshot().is_none());
+    let mut w = World::running();
+    w.feed(Input::PtyOutput(b"ab\x1b[1;3".to_vec()));
+    let mut expected = oracle();
+    expected.vt_write(b"ab\x1b[1;3");
+    let live = w
+        .worker
+        .model_snapshot()
+        .expect("a model")
+        .expect("a snapshot");
+    assert_eq!(live, expected.snapshot().unwrap());
+    let reports = capture(&mut w, 1);
+    let Some(WorkerMsg::Pages { pages, .. }) = reports.first() else {
+        panic!("{reports:?}");
+    };
+    assert_eq!(pages[0].bytes.0, live);
+}

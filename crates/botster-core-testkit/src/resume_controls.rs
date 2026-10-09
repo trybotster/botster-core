@@ -1,17 +1,18 @@
 //! The resume oracle of the testkit (`docs/core-testkit-controls.md`): `oracle_resume` (Core ST-6b, the resume invariant).
 //!
 //! A fresh libghostty terminal loads Core's pages of a capture and applies the output that the session's model consumed
-//! after the capture's `model_rev`. It is compared with the session's model: an independent libghostty terminal that replays
-//! every output byte the worker read, with the worker's own step rule (R-7). The subject's model is never read.
+//! after the capture's `model_rev`. It is compared with the session's model: the live worker model's snapshot
+//! (`Worker::model_snapshot`, the encoder of `CaptureSnapshot`). An independent libghostty terminal replays the output that
+//! the worker read with the worker's own step rule only to find that suffix (R-7).
 
 use crate::controls::{parse, session_row, ControlRegistry};
 use crate::harness::TestkitHarness;
-use crate::snapshot_controls::{oracle_resume as resume, CapturePages};
+use crate::snapshot_controls::CapturePages;
 use botster_core_conformance::ControlError;
 use botster_core_contract::prelude::{CaptureId, ModelRev, SessionId, Size};
 use botster_terminal_ghostty::{History, Terminal};
 use serde::Deserialize;
-use serde_json::Value;
+use serde_json::{json, Value};
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
@@ -82,8 +83,8 @@ impl CaptureLog {
 }
 
 /// The worker's step rule over `output`: `vt_write_until_query` until a step consumes nothing, the unconsumed suffix kept.
-/// It returns the terminal and the bytes it consumed.
-fn replay(size: &Size, output: &[u8]) -> Result<(Terminal, usize), ControlError> {
+/// It returns the bytes it consumed.
+fn replay(size: &Size, output: &[u8]) -> Result<usize, ControlError> {
     let mut terminal = Terminal::new(size, History::On)
         .map_err(|e| ControlError::Bad(format!("oracle_resume: no oracle terminal: {e:?}")))?;
     // Each step that does not end the replay consumes at least one byte, so `rest` is shorter after it.
@@ -98,8 +99,7 @@ fn replay(size: &Size, output: &[u8]) -> Result<(Terminal, usize), ControlError>
         }
         rest = rest.get(step.consumed..).unwrap_or_default();
     }
-    let consumed = output.len() - rest.len();
-    Ok((terminal, consumed))
+    Ok(output.len() - rest.len())
 }
 
 #[derive(Debug, Deserialize)]
@@ -110,8 +110,8 @@ struct Resume {
 }
 
 /// `oracle_resume` (Core ST-6b): `{equal}`. Core's pages of `capture`, loaded in a fresh oracle terminal, with every byte
-/// that the session's model consumed after the capture's `model_rev`, give the session's model now. A capture that the
-/// host did not complete, or a `model_rev` that the worker never had, is `Bad`.
+/// that the session's model consumed after the capture's `model_rev`, give the live session model now. A capture that the
+/// host did not complete, a `model_rev` that the worker never had, or a worker with no model is `Bad`.
 fn oracle_resume(
     harness: &mut TestkitHarness,
     handle: &str,
@@ -143,15 +143,26 @@ fn oracle_resume(
         ))
     })?;
     // The worker had consumed what the step rule consumes of the output before the cut; the rest it consumed later.
-    let (_, before) = replay(&size, &log.output[..cut])?;
-    let (model, after) = replay(&size, &log.output)?;
+    let before = replay(&size, &log.output[..cut])?;
+    let after = replay(&size, &log.output)?;
+    let live = harness
+        .workers()
+        .model_snapshot(worker.identity())
+        .map_err(ControlError::Bad)?
+        .ok_or_else(|| ControlError::Bad(format!("the session {} has no model", args.session.0)))?;
     let pages = CapturePages {
         bytes: &record.bytes,
         history: History::On,
         cell_px: size.cell_px,
     };
-    resume(&model, &pages, &[&log.output[before..after]])
-        .map_err(|e| ControlError::Bad(format!("oracle_resume: {e:?}")))
+    let mut restored = pages
+        .restore()
+        .map_err(|e| ControlError::Bad(format!("oracle_resume: {e:?}")))?;
+    restored.vt_write(&log.output[before..after]);
+    let resumed = restored
+        .snapshot()
+        .map_err(|e| ControlError::Bad(format!("oracle_resume: {e:?}")))?;
+    Ok(json!({"equal": resumed == live}))
 }
 
 #[cfg(test)]

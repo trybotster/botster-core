@@ -155,6 +155,45 @@ fn pages_of_another_state_are_not_equal() {
     );
 }
 
+/// The other side is the live model: with Core's capture and the logged suffix unchanged, a model that stepped other
+/// output is not equal.
+#[test]
+fn a_live_model_that_diverged_is_not_equal() {
+    let mut harness = TestkitHarness::new(0);
+    let (mut core, at) = running(&mut harness);
+    output(&mut harness, core.as_mut(), at, b"abc");
+    let taken = capture(core.as_mut(), at);
+    output(&mut harness, core.as_mut(), at, b"def");
+    assert_eq!(
+        resume_of(&mut harness, taken.capture).unwrap(),
+        json!({"equal": true})
+    );
+    harness
+        .workers()
+        .apply_unlogged_output(worker(&harness), b"xyz", at);
+    assert_eq!(
+        resume_of(&mut harness, taken.capture).unwrap(),
+        json!({"equal": false})
+    );
+}
+
+/// A worker that stops stepping after a valid capture: the edge logged output that its model never applied, so the
+/// capture with that suffix is not the live model.
+#[test]
+fn a_worker_that_stopped_stepping_is_not_equal() {
+    let mut harness = TestkitHarness::new(0);
+    let (mut core, at) = running(&mut harness);
+    output(&mut harness, core.as_mut(), at, b"abc");
+    let taken = capture(core.as_mut(), at);
+    harness
+        .workers()
+        .log_unapplied_output(worker(&harness), b"def");
+    assert_eq!(
+        resume_of(&mut harness, taken.capture).unwrap(),
+        json!({"equal": false})
+    );
+}
+
 fn worker(harness: &TestkitHarness) -> botster_core_edges::edges::ProcessIdentity {
     session_row(harness, "a", &sid())
         .unwrap()
@@ -222,6 +261,6 @@ fn the_replay_keeps_the_unconsumed_suffix() {
     let mut fresh = Terminal::new(&size, History::On).unwrap();
     let step = fresh.vt_write_until_query(bytes).unwrap();
     assert!(step.consumed < bytes.len(), "the model keeps the ESC");
-    let (_, consumed) = replay(&size, bytes).unwrap();
+    let consumed = replay(&size, bytes).unwrap();
     assert_eq!(consumed, step.consumed);
 }

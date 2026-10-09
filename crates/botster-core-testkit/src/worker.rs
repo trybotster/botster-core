@@ -70,6 +70,29 @@ struct ProcessCell {
     program: Option<ProgramControl>,
     /// What reached the worker's terminal model since the payload's spawn (`oracle_resume`). It outlives the end.
     model_log: ModelLog,
+    /// The worker machine itself, for reading its live model between pumps (`oracle_resume`).
+    worker: Option<SharedWorker>,
+}
+
+/// The worker machine, shared with its process cell. The sim is its only writer; a control reads it between pumps.
+#[derive(Clone, Debug)]
+struct SharedWorker(Arc<Mutex<Worker>>);
+
+impl Machine for SharedWorker {
+    type Input = Input;
+    type Action = Action;
+
+    fn handle(&mut self, now: Instant, input: Input) {
+        lock(&self.0).handle(now, input);
+    }
+
+    fn poll_action(&mut self) -> Option<Action> {
+        lock(&self.0).poll_action()
+    }
+
+    fn next_deadline(&self) -> Option<Instant> {
+        lock(&self.0).next_deadline()
+    }
 }
 
 /// The process table of the workers that one host spawned: identities and the exits that the host has not polled.
@@ -304,6 +327,50 @@ impl Workers {
             .ok_or_else(|| format!("no worker process {identity:?} in this run"))
     }
 
+    /// A snapshot of the live model of the worker process `identity` (`Worker::model_snapshot`, `oracle_resume`): `None`
+    /// before its launch made the model.
+    ///
+    /// # Errors
+    /// The process is not a worker of this run, it has ended, or its model could not make the snapshot.
+    pub(crate) fn model_snapshot(
+        &self,
+        identity: ProcessIdentity,
+    ) -> Result<Option<Vec<u8>>, String> {
+        let worker = lock(&self.run_processes)
+            .get(&identity)
+            .and_then(|(cell, _)| lock(cell).worker.clone())
+            .ok_or_else(|| format!("no worker machine of the process {identity:?} in this run"))?;
+        let snapshot = lock(&worker.0).model_snapshot();
+        snapshot
+            .transpose()
+            .map_err(|e| format!("the model of {identity:?} made no snapshot: {e:?}"))
+    }
+
+    /// The output of the worker process `identity` reaches its log but not its model: a worker that stopped stepping
+    /// (the negative proof of `oracle_resume`).
+    #[cfg(test)]
+    pub(crate) fn log_unapplied_output(&self, identity: ProcessIdentity, bytes: &[u8]) {
+        if let Some((cell, _)) = lock(&self.run_processes).get(&identity) {
+            lock(cell).model_log.read(bytes);
+        }
+    }
+
+    /// The worker machine of `identity` steps output that its log never got: its live model diverges from the capture and
+    /// the suffix (the negative proof of `oracle_resume`).
+    #[cfg(test)]
+    pub(crate) fn apply_unlogged_output(
+        &self,
+        identity: ProcessIdentity,
+        bytes: &[u8],
+        now: Instant,
+    ) {
+        let worker = lock(&self.run_processes)
+            .get(&identity)
+            .and_then(|(cell, _)| lock(cell).worker.clone())
+            .expect("a worker machine");
+        lock(&worker.0).handle(now, Input::PtyOutput(bytes.to_vec()));
+    }
+
     /// True while the payload of the worker process `identity` runs (`payload_alive`). The payload is in the worker's process
     /// group, so it ends with the worker; a process that is not a worker of this run has no payload.
     pub(crate) fn payload_alive(&self, identity: ProcessIdentity) -> bool {
@@ -433,7 +500,8 @@ impl Spawner for WorkerSpawner {
             ready: Vec::new(),
             read_chunk: self.workers.read_chunk,
         };
-        let mut worker = worker;
+        let mut worker = SharedWorker(Arc::new(Mutex::new(worker)));
+        lock(&edges.cell).worker = Some(worker.clone());
         let mut sim = lock(&self.workers.sim);
         // The worker's first actions (its hello) come from its construction, before any input: they are performed here, as
         // the real driver performs them before its first poll.
@@ -633,15 +701,16 @@ impl WorkerEdges {
     }
 }
 
-impl Binding<Worker> for WorkerEdges {
-    fn ready(&mut self, _now: Instant, machine: &Worker) -> usize {
+impl Binding<SharedWorker> for WorkerEdges {
+    fn ready(&mut self, _now: Instant, machine: &SharedWorker) -> usize {
         self.ready.clear();
         if lock(&self.cell).ended {
             self.ended();
             return 0;
         }
         // The revision after the last input, at the output read so far (`oracle_resume`).
-        lock(&self.cell).model_log.rev(machine.model_rev());
+        let rev = lock(&machine.0).model_rev();
+        lock(&self.cell).model_log.rev(rev);
         if lock(&self.cell).end_payload {
             self.ready.push(Ready::EndPayload);
         }
@@ -700,7 +769,7 @@ impl Binding<Worker> for WorkerEdges {
         self.ready.len()
     }
 
-    fn take(&mut self, _now: Instant, _machine: &Worker, index: usize) -> Input {
+    fn take(&mut self, _now: Instant, _machine: &SharedWorker, index: usize) -> Input {
         match self.ready[index] {
             Ready::EndPayload => {
                 lock(&self.cell).end_payload = false;
