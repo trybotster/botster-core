@@ -66,6 +66,8 @@ const JOBS: &[(&str, &str, JobFn)] = &[
 const HARNESSES: &[(&str, &str)] = &[
     ("botster-core-link", "link_decoder"),
     ("botster-core-link", "msg_decoder"),
+    ("botster-guardian-core", "guardian_command_decoder"),
+    ("botster-guardian-core", "guardian_log_decoder"),
 ];
 
 /// The seconds of one fuzz run per harness.
