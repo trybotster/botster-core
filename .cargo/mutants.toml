@@ -326,4 +326,54 @@ exclude_re = [
     # errors (EMFILE, ENFILE, ENOBUFS, ECONNABORTED) need a process-wide descriptor or memory limit, or a peer reset inside
     # the kernel's accept queue; a test cannot cause one without breaking the other tests of the process.
     'crates/botster-test-process/src/anchor\.rs:\d+:\d+: replace match guard error\.kind\(\) == io::ErrorKind::WouldBlock with true in Guard::accept$',
+    # botster-test-process (P6): the default tier starts no real process (BUILD.md testing rules 1 and 2), so the code that
+    # starts, waits for, signals or reads a real process is proved by the crate's slow tier, tests/slow_process.rs (slow-tier
+    # mutation run of the crate, P6 PR A evidence). Each entry names one function and the slow tests that exercise it. The
+    # decisions stay in the default tier: end_members (rounds), Line and the guard's outcome (anchor), Bounded (read).
+    # child.rs OwnedChild::id: a_child_that_does_not_end_fails_its_status_and_its_drop_still_ends_it names the pid in its panic.
+    'crates/botster-test-process/src/child\.rs:\d+:\d+: (replace OwnedChild::id( ->| with)|.* in OwnedChild::id$)',
+    # OwnedChild::take_stdin: a_child_reads_what_the_test_writes_to_its_stdin.
+    'crates/botster-test-process/src/child\.rs:\d+:\d+: (replace OwnedChild::take_stdin( ->| with)|.* in OwnedChild::take_stdin$)',
+    # OwnedChild::take_stdout: a_released_blocker_ends_its_child_with_code_0_and_its_shell_words_name_the_fifo, a_group_owner_ends_a_member_that_outlives_the_leader.
+    'crates/botster-test-process/src/child\.rs:\d+:\d+: (replace OwnedChild::take_stdout( ->| with)|.* in OwnedChild::take_stdout$)',
+    # OwnedChild::take_stderr: a_blocked_child_ends_when_the_test_that_holds_its_fifo_is_gone, the_anchor_ends_the_group_when_the_test_dies.
+    'crates/botster-test-process/src/child\.rs:\d+:\d+: (replace OwnedChild::take_stderr( ->| with)|.* in OwnedChild::take_stderr$)',
+    # OwnedChild::kill: a_blocked_child_ends_when_the_test_that_holds_its_fifo_is_gone, the_anchor_ends_the_group_when_the_test_dies.
+    'crates/botster-test-process/src/child\.rs:\d+:\d+: (replace OwnedChild::kill( ->| with)|.* in OwnedChild::kill$)',
+    # OwnedChild::exited_within: a_group_owner_ends_a_member_that_outlives_the_leader, a_leader_that_moved_to_another_group_is_refused_and_not_signalled.
+    'crates/botster-test-process/src/child\.rs:\d+:\d+: (replace OwnedChild::exited_within( ->| with)|.* in OwnedChild::exited_within$)',
+    # OwnedChild::status: a_released_blocker_ends_its_child_with_code_0_and_its_shell_words_name_the_fifo, a_child_reads_what_the_test_writes_to_its_stdin.
+    'crates/botster-test-process/src/child\.rs:\d+:\d+: (replace OwnedChild::status( ->| with)|.* in OwnedChild::status$)',
+    # OwnedChild::status_by: a_child_that_does_not_end_fails_its_status_and_its_drop_still_ends_it.
+    'crates/botster-test-process/src/child\.rs:\d+:\d+: (replace OwnedChild::status_by( ->| with)|.* in OwnedChild::status_by$)',
+    # OwnedChild::observed_status: a_released_blocker_ends_its_child_with_code_0_and_its_shell_words_name_the_fifo (code 0) and the signal of a_blocked_child_ends_when_the_test_that_holds_its_fifo_is_gone.
+    'crates/botster-test-process/src/child\.rs:\d+:\d+: (replace OwnedChild::observed_status( ->| with)|.* in OwnedChild::observed_status$)',
+    # OwnedChild::reap and OwnedChild::end: a_child_that_does_not_end_fails_its_status_and_its_drop_still_ends_it, a_group_owner_ends_a_member_that_outlives_the_leader.
+    'crates/botster-test-process/src/child\.rs:\d+:\d+: (replace OwnedChild::reap( ->| with)|.* in OwnedChild::reap$)',
+    # OwnedChild::end: see OwnedChild::reap.
+    'crates/botster-test-process/src/child\.rs:\d+:\d+: (replace OwnedChild::end( ->| with)|.* in OwnedChild::end$)',
+    # Drop for OwnedChild: a_group_owner_ends_a_member_that_outlives_the_leader.
+    'crates/botster-test-process/src/child\.rs:\d+:\d+: (replace <impl Drop for OwnedChild>::drop( ->| with)|.* in <impl Drop for OwnedChild>::drop$)',
+    # fixture.rs Blocker::shell, Blocker::send, Blocker::release: a_released_blocker_ends_its_child_with_code_0_and_its_shell_words_name_the_fifo.
+    'crates/botster-test-process/src/fixture\.rs:\d+:\d+: (replace Blocker::shell( ->| with)|.* in Blocker::shell$)',
+    # Blocker::send: also the_guard_ends_the_group_and_production_still_reaps_its_own_child.
+    'crates/botster-test-process/src/fixture\.rs:\d+:\d+: (replace Blocker::send( ->| with)|.* in Blocker::send$)',
+    # Blocker::release: also a_blocked_child_ends_when_the_test_that_holds_its_fifo_is_gone (the release by the end of the test).
+    'crates/botster-test-process/src/fixture\.rs:\d+:\d+: (replace Blocker::release( ->| with)|.* in Blocker::release$)',
+    # rounds.rs reserved_kill and end_group: the_guard_ends_the_group_and_production_still_reaps_its_own_child, a_group_owner_ends_a_member_that_outlives_the_leader.
+    'crates/botster-test-process/src/rounds\.rs:\d+:\d+: (replace reserved_kill( ->| with)|.* in reserved_kill$)',
+    # end_group: see reserved_kill.
+    'crates/botster-test-process/src/rounds\.rs:\d+:\d+: (replace end_group( ->| with)|.* in end_group$)',
+    # bin/botster-test-anchor.rs: the anchor binary. Its stages (wrap, intermediate, anchor), main, and the helpers group_now
+    # and number run in every guard test: the_guard_ends_the_group_and_production_still_reaps_its_own_child,
+    # the_anchor_ends_the_group_when_the_test_dies, an_anchor_survives_the_hangup_of_its_session_leader. verify:
+    # a_leader_that_moved_to_another_group_is_refused_and_not_signalled. terminate: a_grace_ends_the_members_by_term.
+    'crates/botster-test-process/src/bin/botster-test-anchor\.rs:\d+:\d+: (replace wrap( ->| with)|.* in wrap$)',
+    'crates/botster-test-process/src/bin/botster-test-anchor\.rs:\d+:\d+: (replace intermediate( ->| with)|.* in intermediate$)',
+    'crates/botster-test-process/src/bin/botster-test-anchor\.rs:\d+:\d+: (replace anchor( ->| with)|.* in anchor$)',
+    'crates/botster-test-process/src/bin/botster-test-anchor\.rs:\d+:\d+: (replace main( ->| with)|.* in main$)',
+    'crates/botster-test-process/src/bin/botster-test-anchor\.rs:\d+:\d+: (replace group_now( ->| with)|.* in group_now$)',
+    'crates/botster-test-process/src/bin/botster-test-anchor\.rs:\d+:\d+: (replace number( ->| with)|.* in number$)',
+    'crates/botster-test-process/src/bin/botster-test-anchor\.rs:\d+:\d+: (replace verify( ->| with)|.* in verify$)',
+    'crates/botster-test-process/src/bin/botster-test-anchor\.rs:\d+:\d+: (replace terminate( ->| with)|.* in terminate$)',
 ]

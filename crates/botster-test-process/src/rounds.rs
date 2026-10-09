@@ -169,6 +169,23 @@ pub fn await_group_end(group: Pid, deadline: Deadline) -> Result<(), String> {
 mod tests {
     use super::*;
 
+    /// This test process is a live member of its own group, so a wait for that group's end reports it as left. No signal is
+    /// sent: the wait holds no reservation of the group.
+    #[test]
+    fn a_wait_for_a_group_end_reports_a_live_member_as_left() {
+        let me = rustix::process::getpid();
+        let report = await_group_end(
+            rustix::process::getpgrp(),
+            Deadline::after(std::time::Duration::ZERO),
+        )
+        .expect_err("this process is live");
+        assert!(report.starts_with("members left after 0ns: "), "{report}");
+        assert!(
+            report.contains(&format!("{} (", me.as_raw_nonzero())),
+            "{report}"
+        );
+    }
+
     /// A group as the kernel keeps it, for the decision: a kill ends every member in the group at that moment, and a fork
     /// that was in progress completes just after the first kill, so its child joins the group then. A member ends only by a
     /// kill.
