@@ -150,3 +150,38 @@ no build, test or gate.
 - The ONE Linux landing gate on this exact head is owed.
 
 VERDICT: CLEAN (0 open) at 723bc8d5c937d905a918a8063deedaaf5326b8c7
+
+## Round 7 — Head f1cee834 (package F50: no test of every_key_state's layout)
+
+Reviewed head: `f1cee83415af0962b83ccadc45b29e006120e443`. Delta `723bc8d5..f1cee834`, one commit: the private layout test
+in `encode.rs` is removed; `tests_encode.rs` gains `bits_above_the_five_kitty_flags_change_no_key_bytes`;
+`.cargo/mutants.toml` gains two `every_key_state` entries. This reviewer ran no build, test or gate.
+
+- Evidence: focused Linux pool run at this head (`…p3-audit-fixes-a-f1cee834-pool-20261008-215400-6319.log`): fmt, clippy,
+  taint, lists, test-budget (788) PASS; mutants 107: 94 caught, 0 missed, 0 timeout, 13 unviable; exit 0.
+- `!= 0` to `== 0`: unchanged argument (a reorder; Core 9.3). Accepted.
+- `&` to `^` of the kitty flags (column 36): a bijection of the five flag bits plus bits above them; the new behavior test
+  shows, through the public encoder, that bits above the five change no byte. Accepted; the test runs in the default tier
+  on every head, so a Ghostty pin that reads a sixth bit fails it.
+- `&` to `|` or `^` of the mode bits (column 40): the mutant keeps only states with all six key modes on (for `^`, all but
+  one state). It is equivalent only if every contract key reaches its worst case with all six modes on. That is a
+  property of the pinned libghostty, not of our code, and the entry rests on one run.
+
+#### E2 [MEDIUM] OPEN — The mode-bits exclusion rests on a local-only exploration that no later head reruns
+
+- Location: `.cargo/mutants.toml`, the new entry `encode\.rs:\d+:40: replace & with [|^] in EncoderState::every_key_state`.
+- Evidence: the argument cites "a check of 1,960 inputs" with the log
+  `~/botster-sessions/gates/botster-core-scratch-p3-f50-explore-f3611957-pool-20261008-215141-2770.log`
+  (`EXPLORE inputs=1960 allon_short=0 highbits_differ=0`, exit 0). The code that ran is commit `f3611957`, "scratch: F50
+  exploration (local only)"; `git ls-remote origin scratch/p3-f50-explore` finds nothing. So:
+  - nobody else can reread or rerun the check;
+  - the property depends on libghostty's encoders, and the A6 fork moves the Ghostty pin soon (to upstream `5dc28bb8e`).
+    If the new pin makes some key's worst case need a mode off (for example a keypad key with NumLock, where
+    `ignore_keypad_with_numlock` on gives the shorter legacy form), the mutant under-bounds IN-9 and nothing fails: the
+    mutant is excluded, and `the_key_bound_is_the_longest_sequence_of_any_mode` passes on the real code.
+- Required: keep the exploration as a test that asserts the property the exclusion needs (for the same 1,960 inputs, the
+  longest sequence with all six key modes on equals the longest over every explicit mode). It runs in the default tier if
+  it fits the 2 s budget in the test profile, else in a `slow_*` module of the binding. Cite that test in the entry, in
+  place of the scratch log. The A6 pin move then rechecks it.
+
+VERDICT: NOT CLEAN (1 open: E2)
