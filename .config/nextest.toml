@@ -43,3 +43,9 @@ fail-fast = false
 
 [profile.slow.junit]
 path = "junit.xml"
+
+# The confinement test prints which branch ran (written, or refused by a path limit), so that a gate log shows it
+# (lead ruling on #164, 2026-10-08).
+[[profile.slow.overrides]]
+filter = "test(=storage::slow_tests::an_id_past_a_confined_path_limit_writes_or_fails_cleanly)"
+success-output = "immediate"
