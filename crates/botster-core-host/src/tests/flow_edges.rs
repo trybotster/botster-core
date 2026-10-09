@@ -99,7 +99,8 @@ fn a_failed_identity_row_kills_the_worker_and_closes_its_link() {
     assert!(w.closed.contains(&link), "its link is closed");
 }
 
-/// Core LC-4: the startup deadline kills the worker and closes its link; the start ends `StartupTimeout`.
+/// Core LC-4: the startup deadline kills the worker and closes its link; the start ends `StartupTimeout`. A read of the
+/// ended session then fails `WorkerLinkFailed` (A2-1): no worker can answer it, and it does not wait for a launch.
 #[test]
 fn the_startup_deadline_kills_the_worker_and_closes_its_link() {
     let mut w = World::new(limits(|l| l.startup = Duration::from_secs(2)));
@@ -114,6 +115,17 @@ fn the_startup_deadline_kills_the_worker_and_closes_its_link() {
     let worker = w.identity_of("s1");
     assert!(w.signals.contains(&(worker, GroupSignal::Kill)));
     assert!(w.closed.contains(&link));
+    let read = w
+        .engine
+        .begin(Op::ReadModeFlags { session: sid("s1") })
+        .unwrap();
+    assert!(matches!(
+        w.complete(read),
+        OpResult::Err(CoreError {
+            code: ErrorCode::WorkerLinkFailed,
+            ..
+        })
+    ));
 }
 
 /// Core R-16, LC-12: a plain `Stop` and a `StopAll` on one session whose Stopping row fails: the `Stop` fails
