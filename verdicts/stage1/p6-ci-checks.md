@@ -568,3 +568,49 @@ Its B10 finding closes here by the approved removal. The package review of this 
 The reviewer sent the closure assessment and documentation correction directly to P6 and its reviewer.
 
 VERDICT: NOT CLEAN (1 open: R8-1 MEDIUM) at 2383e18636d15970d43892597cffd0bf9612d24a
+
+## Round 9 — mutation evidence wording — 2026-10-09 — CLEAN
+
+Reviewed head: `2063eace36e48e81e333a333ccf24931564a4f9d`.
+Previous reviewed head: `2383e18636d15970d43892597cffd0bf9612d24a`.
+Gate base: `cd97009e93c2641843c05bd46793265b3580b2a9`.
+HIGH remains correct under BUILD.md rules 1 and 3.
+The reviewer read the complete one-file delta and the corrected PR description, part 5.
+The reviewer changed no product code and ran no builds, tests, mutants, gates, or reversals.
+
+### R8-1 — CLOSED
+
+The module documentation now states that the cited decision's mutants remain eligible for mutation testing.
+It states that the mutation step uses `--in-diff` and that only recorded execution supplies mutation evidence for that decision.
+The comment in `check` also describes eligibility, without claiming execution.
+The PR description gives the same guarantee and requires review of the proof bodies and forwarding.
+These corrections close R8-1 and the package reviewer's corresponding B11.
+
+The complete delta changes comments only. No executable code, exclusion, fixture, mutation scope, or command changes.
+Round 8's implementation checks and finding closures remain valid.
+`git diff --check` passes.
+
+### Supplied exact-head evidence
+
+Gate:
+`~/botster-sessions/gates/botster-core-stage1-p6-ci-checks-2063eace-pool-20261009-161806-17545.log`.
+The log names the exact reviewed head and gate base. That base is an ancestor of this head.
+Linux node `msa1` used allocation `6559d4d8`. All ten CI stages passed.
+The default tier passed 1242 tests. The slow tier passed 254 tests. Conformance reports 104 passed and zero failed.
+Mutants: 547 tested, 518 caught, 29 unviable, zero missed, and zero timeouts.
+The gate exited zero after 768 seconds.
+The process check scanned 161 files with 111 allowed sites. The citation check read 157 names.
+The decision check read 1090 xtask mutants, 188 regex entries, and two globs.
+These counts describe the supplied run. They do not prove mutation execution for every unchanged cited decision.
+
+### Required before merge
+
+Current fetched v1 is `77c4b472626e35052cc6298bb521f1f1e4868c1e`, which includes #204 and #205.
+This head does not contain that v1 tip; the supplied gate used the earlier base above.
+This CLEAN applies to the reviewed head. It does not authorize landing against the later base without the required checks.
+P6 must merge current v1, run base-merge-check, and supply a full gate on the merge head.
+Any required integration delta review applies to that merge head.
+The #181/#184 union review remains required for the second PR to merge.
+The prior #181/#198 union review and the later bounded-accept work retain their Round 8 scope.
+
+VERDICT: CLEAN (0 open findings) at 2063eace36e48e81e333a333ccf24931564a4f9d; current-base merge checks remain required.
