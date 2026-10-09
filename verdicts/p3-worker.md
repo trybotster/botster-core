@@ -5654,3 +5654,88 @@ The reviewer changed no product code and ran no tests, builds, measurements, mut
 All earlier findings, closures, and verdict rounds remain preserved at their named heads and scopes.
 
 VERDICT: NOT CLEAN
+
+## Round 110 — HIGH-path list and its gate check
+
+Reviewed head: `b9c3ea2a8ffbdc6317241de248af24fd053bc720`, PR #184, branch `stage1/p3-high-tier-paths`.
+Branch base: `b520f8324d6a55be7b3b521e8c6a5b9a066039f1`.
+Completed gate base: `aaac0c0d1f44172ca5d5dd5dd6986c9787be4aa6`.
+The merge base of the reviewed head and completed gate base remains the branch base above.
+The reviewer inspected the full five-file PR change, the delta from b1992a0f, and the final outcome correction from b40e9bc3.
+Authority: BUILD.md at contracts main `56bd0a5347a537d25bbee65a67854e0e317a9b9a`, Risk tiers and Round limit.
+The reviewer checked the stated tier first. HIGH is correct under rule 1.
+The PR changes the HIGH-path list, CI wiring, and the mutation profile. Each is gate-decision code.
+HIGH requires package and integration reviews, and every finding must close.
+
+### F57 is CLOSED
+
+The list now includes core-host driver.rs, run.rs, flows.rs, admit.rs, and engine.rs, plus guardian-core guardian.rs.
+Each added entry names the current process-control or adoption behavior that makes its file HIGH.
+The flows.rs reason also names the session token draw.
+The header states that process-control and adoption decisions belong on the list, including decisions about timing and targets.
+The header gives rule-5 areas priority over the generic sans-IO example.
+All 25 entries match tracked files at this exact head.
+The reviewer retains round 109's accepted coverage for the other entries.
+
+The complete PR description corrects the fd-handoff fallback claim.
+It states that the fallback applies only to a repo without a list.
+It requires new rule-5 code to extend this list and notes that the lead or reviewer may raise a tier.
+The reviewer accepts the absence of a current fd-handoff entry because current code delegates descriptor passing to future P4a.
+The description preserves the broad entries for machines with proof checks and the pure PTY decisions.
+No package finding remains on the list or its description.
+
+### Gate check and mutation scope
+
+The new high-tier command validates the list against tracked paths from git ls-files.
+The command propagates file-read, git, and validation errors.
+verdict skips blank and comment lines, splits the entry from its reason, and reports every problem with its line number.
+The check requires a nonempty reason, an exact path or trailing directory wildcard, and at least one tracked match.
+The directory match requires the slash boundary, so a sibling with the same prefix does not match.
+The pure outcome rejects a nonempty problem list and returns the pass line only for an empty problem list.
+The final correction moves the pass/fail decision out of command and into this tested function.
+The command contains only I/O and error propagation.
+
+Eight named tests cover valid entries, stale entries, directory boundaries, missing reasons, invalid globs, all error lines, and step outcomes.
+The repository test checks the actual list against the walked tree because the mutation copy has no git metadata.
+The completed default test log selects and passes all eight tests.
+The PR reports a safe failing check with lock_moved.rs replacing lock.rs in the list, followed by a pass after restoration.
+The reviewer read that reported proof and the completed gate. The reviewer did not run the command or modify the list.
+
+The standalone command is registered in the same table used by command selection.
+The taint step calls high_tier after the existing four checks and propagates its error.
+The existing taint-job exclusion gains an accurate note for the fifth check.
+The only new exclusion matches the whole-body command replacement with Ok(()).
+It does not exclude verdict, matches, outcome, or their individual decisions.
+The exclusion names its I/O limitation and the selected tests that prove the decisions.
+The reviewer accepts this narrow I/O exclusion under the lead's existing ruling for command glue.
+No real-process fixture, raw wait, sleep, polling loop, timer value, or runtime product behavior changes.
+
+### Completed evidence
+
+The reviewer read the complete PR description and the final exact-head log.
+Log: `~/botster-sessions/gates/botster-core-stage1-p3-high-tier-paths-b9c3ea2a-pool-20261009-085207-67495.log`.
+It names this reviewed head and completed gate base.
+All ten CI steps pass. The taint step prints the high-tier pass line.
+The default tier passes 928 tests in 1.641 seconds. The slow tier passes 243 tests in 10.128 seconds.
+Signals scan 154 Rust files. Timers scan 137 Rust files.
+Both mutation runs test 13 mutants and catch all 13, with zero missed, timed out, or unviable.
+The earlier b40e9bc3 survivor was the negated pass/fail decision in command.
+The final head moves that decision into outcome, whose failure and success test is selected and passes.
+The final completed mutation evidence supersedes the earlier failure.
+The separate mutation command uses NEXTEST_PROFILE=slow. Fuzz reports no changed crate with a decoder harness.
+Full CI takes 105.5 seconds. Separate mutants take 81.2 seconds.
+The combined job exits 0 after 195 seconds on msa1.
+
+### Verdict and scope
+
+PR #184 is CLEAN at `b9c3ea2a8ffbdc6317241de248af24fd053bc720` for the P3 package review.
+F57 is closed. No package finding remains open for this change.
+The integration reviewer controls its own verdict and must review this new head.
+Its prior CLEAN at b1992a0f was withdrawn in verdict a406fdab922d508aa9a6a5a33076151b84c90c04.
+This package CLEAN covers only this exact head, branch base, and completed evidence. It covers no later source or base merge.
+#184 had one NOT CLEAN round before this CLEAN. The round-limit notice is not due.
+#168 retains its separate single planned real-PTY HOLD. Part B retains its earlier open duties.
+The reviewer changed no product code and ran no tests, builds, measurements, mutants, or gates.
+All earlier findings, closures, and verdict rounds remain preserved at their named heads and scopes.
+
+VERDICT: CLEAN
