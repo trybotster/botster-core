@@ -1975,3 +1975,58 @@ A15 remains P6's item. The held process-test and live-worker adoption scope limi
 A later base merge requires the section 8 script proof and a gate on the new exact head.
 
 VERDICT: CLEAN
+
+
+## PR #169 — Round 4
+
+- Exact head: `75916ff0d914952a249802876148160ef04b2517`.
+- Reviewed parent: `9343f20df613c2756c7cdf781fc3dd6bfa9bfad1` (Round 3 CLEAN).
+- Base parent: `59ce126885e04a3b3f22d97e89337bfdbf055949` (#170 on v1).
+- Tree: `eb0721c45ce3f358ac39daac388fb096e9721b72`.
+- Plan: revision 22, pin `71a623ef93f487754e400dc186429216357e39fe251933675cc7f851843d519d`.
+- The reviewer changed no product code and ran no builds, tests, mutation jobs, or gates.
+
+### Merge review
+
+The reviewer read the complete six-file delta, the #170 description, and the current #169 description.
+The reviewer also read the supplied base-merge-check log and its posted PR comment.
+The check passes ancestry and conflict conditions. It fails conditions 2 and 3 because both sides changed `.cargo/mutants.toml`.
+The reviewer performed this delta round as required. The reviewer did not use the exception that permits no delta round.
+
+Read-only blob comparisons confirm that all five other changed files match the base parent exactly:
+`guard_platform.rs`, `base_merge.rs`, `base_merge/tests.rs`, `caps.rs`, and `main.rs`.
+The merged mutants.toml equals the reviewed file plus exactly the base's two whole-body shell exclusions.
+Those entries cover `run -> Ok(())` and `command -> Ok(())` only.
+Their reasons name the tested pure decisions; their patterns do not exclude those decisions.
+Every other path in #169's reviewed diff remains unchanged.
+The merge retains the accepted A28 proof paths and the marked read deadline.
+No merge finding remains. P5-F16 through P5-F19 remain CLOSED.
+
+Base-merge-check log: `~/botster-sessions/gates/botster-core-stage1-p5-audit-host-fixes-75916ff0-pool-20261009-002512-13249.log`.
+Posted output: PR #169 comment `6076438133`.
+
+### Exact-head evidence
+
+The reviewer checked the full Linux log's head, base, test summaries, mutation summary, fuzz results, and final result.
+Log: `~/botster-sessions/gates/botster-core-stage1-p5-audit-host-fixes-75916ff0-pool-20261009-002552-14051.log`.
+The header names the exact head above and base 59ce1268.
+Fmt, clippy, taint, lists, public-api, prebuild-worker, test-budget, slow, mutants, and fuzz report PASS.
+The default tier passes 810 tests. The slow tier passes 215 tests, including both A28 behavior tests.
+The mutation step reports 141 tested, 122 caught, 19 unviable, zero missed, and zero timeouts.
+Both link fuzz targets finish their 60-second runs. The full command exits zero after 368 seconds.
+
+The reviewer read the complete additional mutation log:
+`...75916ff0-pool-20261009-003209-24376.log`.
+Its command sets `NEXTEST_PROFILE=slow` and names the same head and base.
+The unmutated baseline passes. The step reports 141 tested, 122 caught, 19 unviable, zero missed, and zero timeouts.
+The command exits zero after 215 seconds.
+The updated PR description names the merge, failed script conditions, delta rounds, and exact-head evidence.
+The remote PR head and base match the values above.
+
+### Scope limits
+
+This verdict accepts the merge delta and retains Round 3's package scope.
+It does not close #156 A16/A25/A27/A50, #157 A24/A49, or P5 deliverable 2.
+A15 remains P6's item. Integration retains its separate verdict ownership.
+
+VERDICT: CLEAN
