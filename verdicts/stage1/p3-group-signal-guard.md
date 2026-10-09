@@ -179,3 +179,14 @@ sends `KILL` to its own group. A one-line assert (`getpgrp() == getpid()`) befor
 `spawn_group` from sending that `KILL` to the test runner's group.
 
 VERDICT: NOT CLEAN (1 open: L2 LOW. F55 and F56 are the P3 package reviewer's.)
+
+### Note after round 3 (same head 05c70358) — L1 is open again (alias case found by the P3 package reviewer)
+
+The P3 package reviewer showed that `use libc as sys; unsafe { sys::kill(-1, libc::SIGKILL); }` passes the scan, because
+`libc_kill` matches only the literal crate name `libc`. Under `#![allow(clippy::disallowed_methods)]`, clippy does not see
+it either. This reviewer closed L1 in round 3 without checking a crate rename, so L1 is open again. L2 (the glob) is the same
+gap in another form. One fix closes both: collect the names under which a file can reach libc (`libc`, each
+`libc as X`, and `extern crate libc as X`), then flag `<name> :: kill`, `<name> :: { … kill … }` and a `<name> :: *` glob.
+This is the method that `command_names` uses for `Command`, so the fixture can test it the same way.
+
+VERDICT: NOT CLEAN (2 open: L1 LOW (crate rename), L2 LOW (glob). F56 is the P3 package reviewer's.)
