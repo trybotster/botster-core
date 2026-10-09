@@ -11,7 +11,12 @@
 //! **The payload leader stays unreaped** until its group kill is complete (lead ruling on P1 finding F7): the driver reaps it
 //! only on [`Action::ReapPayload`], so while the machine can still signal the group, its id cannot be reused.
 //!
-//! Clause: Core AD-6, Core AD-7, Core DP-8, Core EV-4, Core LC-5, Core LC-6, Core LC-7, Core A6-2.
+//! **Adoption** (P5; `botster-core-host` DESIGN.md "Adoption (P5)", parts 3, 4 and 7): a connection on the worker endpoint
+//! is a *candidate* until its hello proves the host role for this instance at an epoch at least the highest one seen. A
+//! candidate that passes replaces the control link (the fence, DP-8), and the worker answers with its hello and one
+//! `Adopted` report. A worker with no payload and no host for `startup` ends by itself (AD-7).
+//!
+//! Clause: Core AD-1, Core AD-3, Core AD-6, Core AD-7, Core DP-8, Core EV-4, Core LC-5, Core LC-6, Core LC-7, Core A6-2.
 
 use crate::{WORKER_FEATURES_BY_PROTOCOL, WORKER_PROTOCOL};
 use botster_core_contract::prelude::*;
@@ -19,7 +24,9 @@ use botster_core_edges::edges::ExitStatus;
 use botster_core_edges::Machine;
 use botster_core_link::frame::{encode_frame, FrameDecoder, FrameType, DEFAULT_MAX_PAYLOAD};
 use botster_core_link::hello::Hello;
-use botster_core_link::msg::{HostMsg, LaunchSpec, Observation, PayloadId, WorkerMsg};
+use botster_core_link::msg::{
+    AdoptReport, AdoptedPayload, HostMsg, LaunchSpec, Observation, PayloadId, WorkerMsg,
+};
 use botster_core_link::proof::{host_proof, token_proof, TOKEN_LEN};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::time::{Duration, Instant};
@@ -39,6 +46,9 @@ pub struct WorkerConfig {
     /// The worker protocol number that the hello announces: [`WORKER_PROTOCOL`] in production. It is a construction input,
     /// so a harness can make a real worker announce another number (plan section 3, A6-2), never a test branch.
     pub protocol: u8,
+    /// `CoreLimits.startup`: the bound of a candidate's hello, and of a worker with no payload and no host (AD-7). The
+    /// launch argument `--startup-ms` carries it (DESIGN.md part 1).
+    pub startup: Duration,
 }
 
 impl std::fmt::Debug for WorkerConfig {
@@ -48,6 +58,7 @@ impl std::fmt::Debug for WorkerConfig {
             .field("instance", &self.instance)
             .field("host_epoch", &self.host_epoch)
             .field("protocol", &self.protocol)
+            .field("startup", &self.startup)
             .finish_non_exhaustive()
     }
 }
@@ -60,6 +71,7 @@ impl WorkerConfig {
             token,
             host_epoch,
             protocol: WORKER_PROTOCOL,
+            startup: CoreLimits::default().startup,
         }
     }
 }
@@ -83,6 +95,10 @@ pub struct PayloadSpec {
     pub cwd: String,
     pub size: Size,
 }
+
+/// A connection on the worker endpoint, named by the driver (DESIGN.md part 7).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct CandidateId(pub u64);
 
 /// An input of the worker.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -116,6 +132,12 @@ pub enum Input {
     Terminate,
     /// A deadline of [`Machine::next_deadline`] is due.
     Timer,
+    /// A connection came on the worker endpoint: a candidate for the control link until its hello passes.
+    Candidate(CandidateId),
+    /// Bytes that a candidate delivered, in order.
+    CandidateBytes(CandidateId, Vec<u8>),
+    /// A candidate's connection ended.
+    CandidateClosed(CandidateId),
 }
 
 /// An action of the worker, for its driver.
@@ -140,6 +162,13 @@ pub enum Action {
     ReapPayload,
     /// End the worker process (LC-7 step 3 is done).
     Exit,
+    /// Close this candidate's connection. Nothing was sent on it.
+    CandidateClose(CandidateId),
+    /// The fence (DP-8): close the control link and drop every byte that is still unwritten on it, then make this
+    /// candidate the control link. Every later `LinkSend`, `LinkClose`, [`Input::LinkBytes`], [`Input::LinkClosed`] and
+    /// [`Input::LinkWritten`] is about the new link, and `LinkWritten` counts from zero on it. The driver reports no input of
+    /// the old link after this action.
+    AdoptLink(CandidateId),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -168,10 +197,32 @@ enum PayloadState {
     Reaped,
 }
 
+/// A connection on the endpoint whose hello has not passed.
+#[derive(Debug)]
+struct Candidate {
+    id: CandidateId,
+    /// Bounded to one hello of this instance until the hello passes (DESIGN.md part 7).
+    decoder: FrameDecoder,
+    /// The `startup` deadline of its hello.
+    deadline: Instant,
+}
+
 /// The session worker.
 #[derive(Debug)]
 pub struct Worker {
     cfg: WorkerConfig,
+    /// The highest host epoch that the worker has seen (DP-8: the worker obeys it). It starts at `cfg.host_epoch`.
+    epoch: u64,
+    /// The one candidate for the control link, if a connection on the endpoint is pending.
+    candidate: Option<Candidate>,
+    /// The largest hello frame of this instance: the bound of a candidate's decoder.
+    hello_bound: u32,
+    /// AD-7: the end of a worker with no payload and no host, while that lasts.
+    orphan: Option<Instant>,
+    /// The worker sent `Exit`: nothing more is accepted.
+    ended: bool,
+    /// Why the spawn failed, for the adoption report.
+    failure: Option<StartFailReason>,
     link: LinkState,
     decoder: FrameDecoder,
     /// The bound of the frames that this worker sends, and of the decoder after the launch (`LaunchSpec.link_frame_bound`).
@@ -236,6 +287,12 @@ impl Worker {
         let mut worker = Worker {
             decoder: FrameDecoder::new(DEFAULT_MAX_PAYLOAD),
             frame_bound: DEFAULT_MAX_PAYLOAD,
+            epoch: cfg.host_epoch,
+            candidate: None,
+            hello_bound: hello_bound(&cfg),
+            orphan: None,
+            ended: false,
+            failure: None,
             cfg,
             link: LinkState::AwaitHello,
             payload: PayloadState::None,
@@ -260,24 +317,37 @@ impl Worker {
             limits: CoreLimits::default(),
             actions: VecDeque::new(),
         };
-        let hello = Hello {
-            protocol: worker.cfg.protocol,
-            instance: worker.cfg.instance.clone(),
-            proof: worker.proof(),
-            host_epoch: worker.cfg.host_epoch,
-        };
-        let mut payload = Vec::new();
-        if hello.encode(&mut payload).is_ok() {
-            worker.send_frame(FrameType::HELLO, &payload);
-        } else {
+        if !worker.send_hello() {
             // An `InstanceId` that the hello cannot carry cannot be proven: no host will accept this worker.
             worker.close_link();
         }
         worker
     }
 
+    /// The worker's hello at the current epoch. False when the instance cannot be encoded.
+    fn send_hello(&mut self) -> bool {
+        let hello = Hello {
+            protocol: self.cfg.protocol,
+            instance: self.cfg.instance.clone(),
+            proof: self.proof(),
+            host_epoch: self.epoch,
+        };
+        let mut payload = Vec::new();
+        let encoded = hello.encode(&mut payload).is_ok();
+        if encoded {
+            self.send_frame(FrameType::HELLO, &payload);
+        }
+        encoded
+    }
+
     fn proof(&self) -> botster_core_link::hello::TokenProof {
-        token_proof(&self.cfg.token, &self.cfg.instance, self.cfg.host_epoch)
+        token_proof(&self.cfg.token, &self.cfg.instance, self.epoch)
+    }
+
+    /// AD-6, DP-8: a host hello proves the host role for this instance at its own epoch.
+    fn host_proven(&self, hello: &Hello) -> bool {
+        hello.instance == self.cfg.instance
+            && hello.proof == host_proof(&self.cfg.token, &self.cfg.instance, hello.host_epoch)
     }
 
     /// True while the payload's group can be signalled: it was launched and its leader is not reaped.
@@ -364,7 +434,7 @@ impl Worker {
         }
         if self.exit_pending && self.link == LinkState::Closed {
             self.exit_pending = false;
-            self.actions.push_back(Action::Exit);
+            self.end();
         }
     }
 
@@ -421,12 +491,8 @@ impl Worker {
     /// AD-6, DP-8: the host proves the same token for the same instance and epoch. Anything else closes the link.
     fn on_host_hello(&mut self, kind: FrameType, payload: &[u8]) {
         let proven = kind == FrameType::HELLO
-            && Hello::decode(payload).is_ok_and(|hello| {
-                hello.instance == self.cfg.instance
-                    && hello.host_epoch == self.cfg.host_epoch
-                    && hello.proof
-                        == host_proof(&self.cfg.token, &self.cfg.instance, self.cfg.host_epoch)
-            });
+            && Hello::decode(payload)
+                .is_ok_and(|hello| hello.host_epoch == self.epoch && self.host_proven(&hello));
         if !proven {
             self.close_link();
             return;
@@ -521,6 +587,7 @@ impl Worker {
                     SpawnFailure::CwdMissing => StartFailReason::CwdMissing,
                     SpawnFailure::Exec { errno } => StartFailReason::ExecFailed { errno },
                 };
+                self.failure = Some(reason);
                 self.report(&WorkerMsg::LaunchFailed { reason });
                 self.try_start();
                 self.finish_remove();
@@ -701,6 +768,16 @@ impl Worker {
             self.actions.push_back(Action::LinkClose);
         }
         self.exit_pending = false;
+        self.end();
+    }
+
+    /// The worker ends: a pending candidate is closed, and nothing more is accepted.
+    fn end(&mut self) {
+        if let Some(candidate) = self.candidate.take() {
+            self.actions.push_back(Action::CandidateClose(candidate.id));
+        }
+        self.orphan = None;
+        self.ended = true;
         self.actions.push_back(Action::Exit);
     }
 
@@ -733,6 +810,145 @@ impl Worker {
             self.signal(SIGKILL);
             self.reap_when_complete();
         }
+        if self.candidate.as_ref().is_some_and(|c| c.deadline <= now) {
+            // A candidate whose hello has not passed by `startup` is closed (DESIGN.md part 7).
+            self.close_candidate();
+        }
+        if self.orphan.is_some_and(|at| at <= now) {
+            // AD-7: no payload and no host for `startup`. The worker ends; no unregistered payload can follow.
+            if self.link != LinkState::Closed {
+                self.link = LinkState::Closed;
+                self.actions.push_back(Action::LinkClose);
+            }
+            self.end();
+        }
+    }
+
+    /// AD-7: the self-exit deadline runs while the worker has no payload and no host.
+    fn arm_orphan(&mut self, now: Instant) {
+        let orphan =
+            !self.ended && self.payload == PayloadState::None && self.link != LinkState::Ready;
+        if !orphan {
+            self.orphan = None;
+        } else if self.orphan.is_none() {
+            self.orphan = Some(now + self.cfg.startup);
+        }
+    }
+
+    // ---- adoption: candidates on the endpoint (DESIGN.md parts 3, 4, 7) ----
+
+    fn close_candidate(&mut self) {
+        if let Some(candidate) = self.candidate.take() {
+            self.actions.push_back(Action::CandidateClose(candidate.id));
+        }
+    }
+
+    /// At most one candidate at a time. A worker that is ending takes none.
+    fn on_candidate(&mut self, now: Instant, id: CandidateId) {
+        if self.candidate.is_some()
+            || self.ended
+            || self.removing
+            || self.exit_pending
+            || self.terminating
+        {
+            self.actions.push_back(Action::CandidateClose(id));
+            return;
+        }
+        self.candidate = Some(Candidate {
+            id,
+            decoder: FrameDecoder::new(self.hello_bound),
+            deadline: now + self.cfg.startup,
+        });
+    }
+
+    fn on_candidate_bytes(&mut self, now: Instant, id: CandidateId, bytes: &[u8]) {
+        let Some(candidate) = self.candidate.as_mut().filter(|c| c.id == id) else {
+            return;
+        };
+        let took = candidate.decoder.push(bytes);
+        let hello = match candidate.decoder.next_frame() {
+            Ok(None) => return,
+            Ok(Some(frame)) if frame.kind == FrameType::HELLO => Hello::decode(&frame.payload).ok(),
+            // Any other frame, or one above the bound of one hello.
+            Ok(Some(_)) | Err(_) => None,
+        };
+        // DESIGN.md 3.3: the instance, the host proof, and an epoch at least the highest one seen. A failure closes this
+        // connection only: the control link, the payload and the epoch do not change (A11).
+        match hello.filter(|h| h.host_epoch >= self.epoch && self.host_proven(h)) {
+            Some(hello) => self.adopt(now, id, hello.host_epoch, &bytes[took..]),
+            None => self.close_candidate(),
+        }
+    }
+
+    /// DESIGN.md 3.4: the candidate replaces the control link. The fence retires every request of the old host, then the
+    /// worker answers with its hello and its report.
+    fn adopt(&mut self, now: Instant, id: CandidateId, epoch: u64, rest: &[u8]) {
+        self.candidate = None;
+        self.epoch = epoch;
+        // The driver drops the bytes that are still unwritten on the old link; they never reach the new one.
+        self.actions.push_back(Action::AdoptLink(id));
+        self.queued_total = 0;
+        self.written_total = 0;
+        self.link = LinkState::Ready;
+        self.decoder = FrameDecoder::new(self.frame_bound);
+        self.input_fence();
+        self.send_hello();
+        let report = self.adoption_report();
+        self.report(&report);
+        // Bytes that came after the hello in the same read belong to the new link.
+        self.on_link_bytes(now, rest);
+    }
+
+    /// DESIGN.md part 4: the live state, never values remembered from the spawn.
+    fn adoption_report(&self) -> WorkerMsg {
+        let exited = || {
+            let (code, signal) = match self.exit {
+                Some(ExitStatus::Code(code)) => (Some(code), None),
+                Some(ExitStatus::Signal(signal)) => (None, Some(signal)),
+                None => (None, None),
+            };
+            AdoptedPayload::Exited { code, signal }
+        };
+        let (payload, ran) = match self.payload {
+            PayloadState::None => (AdoptedPayload::NotLaunched, false),
+            PayloadState::Spawning => (AdoptedPayload::Spawning, false),
+            // An exit that is not reported yet follows after the drain, as on any link.
+            PayloadState::Live(payload) if !self.exit_drained => {
+                (AdoptedPayload::Running { payload }, true)
+            }
+            PayloadState::Live(_) | PayloadState::Reaped => (exited(), true),
+            PayloadState::Failed => (
+                AdoptedPayload::LaunchFailed {
+                    reason: self.failure.unwrap_or(StartFailReason::WorkerFailed),
+                },
+                false,
+            ),
+        };
+        WorkerMsg::Adopted {
+            report: Box::new(AdoptReport {
+                payload,
+                features: worker_features(),
+                terminal: ran.then(|| self.initial_terminal()),
+                formats: Vec::new(),
+            }),
+        }
+    }
+}
+
+/// The size of the largest hello frame of this instance: the highest protocol and epoch, and a proof (D4: the hello fields
+/// never change between protocols).
+fn hello_bound(cfg: &WorkerConfig) -> u32 {
+    let hello = Hello {
+        protocol: u8::MAX,
+        instance: cfg.instance.clone(),
+        proof: botster_core_link::hello::TokenProof([0; botster_core_link::hello::PROOF_LEN]),
+        host_epoch: u64::MAX,
+    };
+    let mut payload = Vec::new();
+    match hello.encode(&mut payload) {
+        Ok(()) => u32::try_from(payload.len()).unwrap_or(u32::MAX),
+        // A worker whose instance has no hello takes no candidate's bytes.
+        Err(_) => 0,
     }
 }
 
@@ -771,7 +987,15 @@ impl Machine for Worker {
             Input::EndPayload => self.on_end_payload(now),
             Input::Terminate => self.on_terminate(),
             Input::Timer => self.on_timer(now),
+            Input::Candidate(id) => self.on_candidate(now, id),
+            Input::CandidateBytes(id, bytes) => self.on_candidate_bytes(now, id, &bytes),
+            Input::CandidateClosed(id) => {
+                if self.candidate.as_ref().is_some_and(|c| c.id == id) {
+                    self.candidate = None;
+                }
+            }
         }
+        self.arm_orphan(now);
     }
 
     fn poll_action(&mut self) -> Option<Action> {
@@ -779,7 +1003,14 @@ impl Machine for Worker {
     }
 
     fn next_deadline(&self) -> Option<Instant> {
-        self.grace
+        [
+            self.grace,
+            self.orphan,
+            self.candidate.as_ref().map(|c| c.deadline),
+        ]
+        .into_iter()
+        .flatten()
+        .min()
     }
 }
 

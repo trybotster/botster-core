@@ -274,6 +274,10 @@ impl Driver {
                 self.drain_left = None;
             }
             Action::Exit => self.exit = true,
+            // The worker endpoint and its candidates come with the launch argument `--endpoint`, after
+            // `botster-test-process` (#171; DESIGN.md parts 1 and 7). Until then this driver gives no `Input::Candidate`,
+            // so the machine names no candidate.
+            Action::CandidateClose(_) | Action::AdoptLink(_) => {}
         }
         Ok(())
     }
