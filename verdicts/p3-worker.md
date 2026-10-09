@@ -6605,3 +6605,93 @@ The reviewer changed no product code and ran no tests, builds, measurements, mut
 All earlier findings, closures, and verdict rounds remain preserved at their named heads and scopes.
 
 VERDICT: CLEAN
+
+
+## Round 122 — Worker PTY output observations and two TM-3 removals
+
+Reviewed head: `cdf0f4d20e39069dd75747d523cdb36ca6b29c06`, PR #197, branch `stage1/p3-output-activity`.
+Base: `c06f5b982d05dd65b00661a6cb9bb8b3aeea5514`.
+Parent: `3c243a044e762cbdf5a93d4858ea9298b16e09be`.
+The reviewer checked the tier first. HIGH is correct: the lead raised it for worker PTY behavior and the HIGH-path scope.
+Authority: BUILD.md, plan revisions 23a through 23d at 9b7bc5a0 (pin stage1-plan.e3c60694.md),
+Core ST-1, IN-10, ST-5, TM-3 and the Activity event row, plus the lead's current rulings.
+The reviewer read the full five-file change, its comment-only correction, worker report and lifecycle paths,
+real and testkit driver ordering, host observation handling, both pinned transcripts, replacement-map rows,
+the complete final PR description, and completed gate evidence at both heads.
+
+### Source and behavioral proof
+
+Each nonempty Input::PtyOutput advances the worker's model_rev independently of link state.
+An empty read changes nothing. The launch terminal state uses the same counter.
+The tokens remain opaque to the host; the test's chosen numeric values verify this worker's implementation only.
+The host's existing Output observation path updates the terminal revision and output time,
+resets the silence state, and posts Activity keyed by instance and source on the injected clock.
+The change adds no terminal parser or claimed libghostty terminal semantics.
+The terminal-state and CaptureSnapshot duties of M2 remain pending.
+
+While the last Output report is unwritten, further reads keep only the latest revision in the machine.
+LinkWritten releases that pending revision only after the cumulative total covers the previous Output frame.
+Before another report, report() sends the pending Output first, so Exited and RemoveResult follow prior output.
+The existing staged close still waits for all bytes queued before it; Terminate retains its separate immediate close path.
+A closed link sends no new output reports. The driver continues to read the PTY.
+Real and testkit drivers deliver the spawn answer before they offer the payload's output.
+The existing drain path reads the exit tail before PtyDrained and Exited.
+
+The corrected queue claim is accepted. Reads alone queue at most one unwritten Output report.
+Flushing before another report can add another Output before the first is written.
+The bound is therefore one Output from reads, plus at most one for each other report, not a global one-report queue limit.
+The integration reviewer raised the earlier overstatement; the final comment and description state the actual bound.
+The existing queue growth from other reports is outside this PR's output-only bound.
+
+The machine tests prove empty/nonempty reads, distinct revisions, partial LinkWritten totals,
+coalescing across three further reads, release at the write boundary, pending Output before Exited,
+and no send after link closure. The exit-drain test now requires the output tail observation.
+The description reports separate failing revert checks for coalescing and flush-before-other-report.
+
+The real-worker lifecycle helper skips Output observations rather than assuming a kernel-dependent report count.
+The real driver test drains the host socket until EOF so Remove's staged close has a reader.
+The socket clone shares its file description; the description states that making it blocking also affects h.peer.
+Subsequent operations on h.peer are writes. The existing real-driver retirement deadline and process guards remain.
+These changes consume the host protocol and add no new process launch, group ownership, wait, or cleanup fixture.
+The named real-worker exit and PTY readiness tests run and pass at this head.
+No new real-process proof is claimed for the two TM-3 IDs, and no real-harness count is increased.
+
+### Pending removals and progress scope
+
+Only conf::tm_3_due_deadline_fires_in_pump and conf::tm_3_wake_handle_ignores_deadlines leave core-pending.txt.
+At the reviewed replacement-map commit 2701038, both use core-testkit+edge with the clock edge, not slow-only proof.
+Both pinned transcripts first require Activity{Output} after pty_output and then assert the deadline or wake behavior.
+The exact-head conformance run passes both under the gate's seed set.
+These removals comply with the lead's revision 23a rule and add regression protection now.
+Only the first ID belongs to the minimum set: minimum testkit progress is 28/70, up from 27/70; real progress remains 0/70.
+conf::tm_3_next_deadline_is_host_armed stays pending for its M2 CaptureSnapshot step.
+
+### Completed exact-head evidence
+
+Log: `~/botster-sessions/gates/botster-core-stage1-p3-output-activity-cdf0f4d2-pool-20261009-114608-35231.log`.
+The log names the exact head and base. The run uses msa1 with kernel 6.12.111+deb13-amd64.
+All ten CI steps pass. The default tier passes 998 tests in 3.053 seconds.
+The slow tier passes 243 tests in 10.121 seconds.
+The three new machine tests, both newly active TM-3 IDs, both real-worker exit tests,
+and pty_events_resume_reads_after_would_block run and pass; the real PTY readiness test takes 0.010 seconds.
+Signals scan 161 Rust files. Timers scan 145 Rust files.
+The lists report gives 675 ledger IDs, 638 pending, two deferred, two withdrawn, and 33 to run.
+All 33 active IDs pass; 581 pending and 57 without transcripts remain.
+Both mutation commands report 13 tested: 12 caught, zero missed, zero timeout, and one unviable.
+The separate command uses NEXTEST_PROFILE=slow. No mutation exclusion changes.
+Fuzz reports no changed crate with a decoder harness.
+Full CI takes 42.4 seconds. Separate mutants take 13.4 seconds. The gate exits 0 after 62 seconds.
+The final description names the correct tier, final head, base, gate, proof, corrected bound, and progress limits.
+
+### Verdict and scope
+
+PR #197 is CLEAN at `cdf0f4d20e39069dd75747d523cdb36ca6b29c06` for the P3 package review.
+No package finding remains. This covers only this exact head and base, not a later source change or base merge.
+No NOT CLEAN round is recorded for #197. The integration reviewer controls its own verdict.
+#195 retains round 121 CLEAN and is merged at c06f5b98; F63 remains closed.
+#192 retains round 117 NOT CLEAN with F61 and F62 open, awaiting a new exact-head READY after the shared-resolver correction.
+#168 retains its separate single planned real-PTY HOLD. Part B retains its earlier open duties, including F39 for the merge change.
+The reviewer changed no product code and ran no tests, builds, measurements, mutants, or gates.
+All earlier findings, closures, and verdict rounds remain preserved at their named heads and scopes.
+
+VERDICT: CLEAN
