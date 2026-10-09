@@ -167,7 +167,7 @@ pub fn tier_env(slow: bool) -> Vec<(&'static str, &'static str)> {
 }
 
 /// The nextest filter of the slow tier: the slow binaries and the in-crate slow modules.
-const SLOW_FILTER: &str = "binary(/^slow/) or test(/::slow_tests::/)";
+pub const SLOW_FILTER: &str = "binary(/^slow/) or test(/::slow_tests::/)";
 
 /// The packages and filter that a tier runs.
 fn selection(options: &Options, meta: &Meta) -> Vec<String> {
