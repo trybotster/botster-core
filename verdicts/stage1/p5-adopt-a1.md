@@ -142,3 +142,81 @@ The reviewer sent the three integration findings and confirmed both package find
 Replacement reviews and exact-head gate evidence are required before a later CLEAN.
 
 VERDICT: NOT CLEAN (5 open)
+
+## Round 2 — 2026-10-09
+
+- Head: `74b1e2116d19ec96e511ad3042cde8a04f35c195`.
+- Base: `a6555ebaf221042ca7b777ca2f2425e4a63dd960`.
+- Scope: the five-file correction from `d96c9128`, its affected callers, tests, and supplied gate evidence.
+- Risk remains HIGH under rule 3.
+- The reviewer changed no product code and ran no builds, tests, mutation jobs, or gates.
+
+### Closed findings
+
+- **R1-1 closes.** The adoption fence resets `output_sent_to` and `output_unsent` with the other link counters.
+  This reset handles both drained and pending output state. The adoption report carries the current model revision.
+  The new regression sends enough old output to exceed the new handshake length, then requires a new output report.
+  The regression directly covers the drained case; closure of the pending case also uses the unconditional source reset.
+- **R1-2 closes.** An adoption report uses `model::snapshot_formats()` when the model has run.
+  The running and exited tests check the reported formats. The host stores those formats through its unchanged reader.
+- **R1-3 closes.** `on_remove` and `on_terminate` close the pending candidate before teardown continues.
+  The removal test supplies a hello both before and after the unwritten removal result.
+  It requires the original link to close and the worker to exit. The termination test requires candidate closure.
+- **A1-F1 closes.** `ProcessCell.control` selects the current host's wake independently of the spawning host's exit table.
+  `AdoptLink` changes this target after successful adoption. A refused candidate leaves the target unchanged.
+  The new test covers refusal, adoption by B, repeated adoption by C, program output, and a control-link break.
+
+### A1-F2 — MEDIUM — A refused candidate's unread EOF is absent from the report table
+
+The package reviewer reported the remaining failure on this exact head.
+The integration reviewer independently traced the connection, refusal, and quiet check.
+
+`SimEdges::connect_worker` gives the host its link immediately at `crates/botster-core-testkit/src/core.rs:264`.
+`WorkerSpawner::connect_worker` queues the worker end, but does not register report observation at `worker.rs:536`.
+Only successful `AdoptLink` adds the process cell to the adopting host's `Processes.links` at `worker.rs:963`.
+`CandidateClose` closes a refused worker end at `worker.rs:952`.
+`ProcessTable::holds_reports` checks only `Processes.links` and process exits at `worker.rs:111`.
+
+The failing sequence is:
+
+1. Host A starts a worker. A stranger takes the worker's candidate place.
+2. Host B connects to that worker for adoption.
+3. Run the worker without pumping B. The worker refuses B's candidate and closes its end.
+4. Let the worker's ready work finish.
+5. B still holds unread EOF in `SimEdges.links`, but B has no corresponding entry in `Processes.links`.
+6. `edges_quiet(B)` returns true before B consumes the EOF.
+
+The new ownership test uses `settle_partial` on B before it checks refusal and ownership.
+That pump consumes the EOF, so the test does not cover this sequence.
+The passing adopted-report assertion proves successful adoption only.
+
+Report observation and the control wake target have different lifetimes.
+The host must observe its connection from creation through report consumption, including candidate refusal and link replacement.
+The control wake target must change only after successful adoption.
+The spawning host must retain process-exit ownership.
+This correction stays within the existing testkit scope.
+
+Required proof: flush a refused candidate's EOF without pumping B.
+Require `edges_quiet(B)` to remain false until B consumes the EOF.
+Also retain coverage for successful adoption, repeated adoption, and reports from a retired link.
+
+Status: A1-F2 OPEN. The other four findings are CLOSED.
+
+### Evidence
+
+The fetched branch and PR body name the reviewed head. The head contains the stated base.
+`git diff --check` reports no error. Pending ids, dependencies, mutation exclusions, and contract pins do not change in this correction.
+The prior pending-map assessment remains applicable. Real-driver adoption remains separate work in #176.
+
+The reviewer read the supplied full gate:
+`~/botster-sessions/gates/botster-core-stage1-p5-adopt-a1-74b1e211-pool-20261009-151953-30712.log`.
+It names this exact head and base. It ran on Linux node `msa1`, allocation `d2207207`.
+All ten checks passed. The default tier passed 1138 tests. The slow tier passed 249 tests.
+The mutation run reports 115 mutants: 100 caught, 15 unviable, zero missed, and zero timeouts.
+The gate exited zero after 231 seconds. This evidence does not exercise the remaining unread-EOF case.
+
+The reviewer read the exact-head package verdict at `6a0e99e38057c8dcc2382ed0303593abd5d9f0c1`.
+Its file is `verdicts/p5-adoption-a1.md`. It records the same four closures and one open finding.
+The reviewer sent the remaining finding to P5 and the package reviewer.
+
+VERDICT: NOT CLEAN (1 open) at 74b1e2116d19ec96e511ad3042cde8a04f35c195
