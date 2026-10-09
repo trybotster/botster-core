@@ -39,3 +39,10 @@ toml.workspace = true
 name = "conformance"
 path = "../../tests/conformance.rs"
 harness = false
+
+# The guard fixture (tests/common/process_guard.rs) ends every member of a group: libproc lists them, kqueue awaits their
+# exits, and libc names the zombie state.
+[target.'cfg(target_os = "macos")'.dev-dependencies]
+kqueue = "1.2.1"
+libc = "0.2"
+libproc = "0.14"

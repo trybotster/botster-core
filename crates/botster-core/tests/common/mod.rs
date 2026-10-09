@@ -4,7 +4,7 @@
 use rustix::process::Pid;
 
 #[path = "../../../botster-core-sys/tests/common/process_guard.rs"]
-mod process_guard;
+pub(crate) mod process_guard;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
