@@ -69,3 +69,11 @@ no write interest on. The transaction then waits until the payload exits or the 
 this is not a finding. P3 can say so in the module documentation.
 
 VERDICT: NOT CLEAN (2 open: N1 MEDIUM, N2 LOW; v1 merge needed)
+
+### Note after round 1
+
+- The P3 package reviewer opened F53 LOW at `1c3154cf` (`Program::write`: with `pty_chunk` and a spent `pty_accept`, it
+  sets `step_refused`, so `Workers::has_ready` asks for one idle pump too many). Owner: the P3 package reviewer.
+- Lead clarification: CLEAN means merge-ready. After the logic findings close, M2a stays NOT CLEAN with one HOLD: the
+  real-PTY cancel regression, rebuilt on botster-test-process, must pass the gate. This reviewer gives no
+  development-only CLEAN on #168.
