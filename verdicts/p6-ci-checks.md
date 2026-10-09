@@ -654,3 +654,97 @@ A new finding in untouched code moves to P6's next HIGH PR. A gate hole still bl
 Wait for the replacement READY head.
 
 VERDICT: NOT CLEAN
+
+## Round 5 — PR #181 — 2026-10-09
+
+Reviewed head: `a05ab9a380c459cd609b5fafd7f4c17e17a9e7da`.
+Previous reviewed head: `24fb122f32cb691bf073292f12b6a61448260c55`.
+Merge base and full gate base: `7aec2bb917f48994d1705301d2383873a219c031`.
+
+The reviewer checked the stated tier first. HIGH remains correct under BUILD.md rules 1 and 3.
+The lead authorized this review for the replacement delta only, with a full gate before READY.
+A new finding in untouched code moves to the next HIGH PR. A gate hole still blocks #181.
+The reviewer inspected the one-commit, four-file delta and the supplied logs.
+The reviewer ran no gate, build, test, or mutation job and changed no product code.
+
+### The three round-four cases close
+
+The I/O classifier now uses explicit lists of filesystem and environment functions.
+It does not list `split_paths` or `join_paths`. The fixtures retain accepted filesystem and environment operations.
+The gate-level fixture rejects an exclusion of `forwarded_split`.
+
+The command-binding index counts each pattern binding.
+It accepts a command binding only when the function binds its name once.
+That rejects the reported parameter shadow, the local shadow, and the closure rebinding.
+The gate-level fixture rejects an exclusion of `forwarded_shadow`.
+
+The platform derivation now makes a separate rejection pass through the parsed file.
+That pass ignores platform gates and reports the unsupported inline-module path below a gated parent.
+The new fixture asserts rejection on both Linux and Mac, with the form, file, line, and column.
+B8 closes. The previously closed B1, B2, B3, B4, B6, B7, and B9 remain closed for the reported cases.
+
+### B5 — HIGH — A block import does not apply to the stored command binding
+
+Location: `xtask/src/gate_decisions.rs:575-588`, `command_locals` (modified in this delta).
+
+The function collects command bindings before `visit_block` enters a block's import scope.
+`command_locals` resolves each initializer through the imports active at the function's entry.
+A block import can therefore replace the type at the actual initializer without replacing its stored command root.
+For example, in `xtask/src/ci.rs`:
+
+```rust
+use std::process::Command;
+pub fn builder() -> Command {
+    Command::new("unused")
+}
+mod pure {
+    pub struct Command;
+    impl Command {
+        pub fn new() -> Self { Self }
+        pub fn status(&self) {}
+    }
+}
+fn forwarded(code: Option<i32>) -> Result<()> {
+    {
+        use crate::ci::pure::Command;
+        let cmd = Command::new();
+        cmd.status();
+    }
+    mutation_verdict(code)
+}
+```
+
+`cmd` is bound once. The new binding-count filter accepts it.
+The stored `Command::new` resolves to `std::process::Command::new` through the file import.
+The actual initializer uses `pure::Command`. Its `status` method does no I/O.
+The expression visitor resolves the actual constructor under the block import, but does not replace the stored command root.
+`process_start` marks `forwarded` as an I/O shell through that stored root.
+Its whole-body exclusion with reason `mutation_verdict (verdicts)` passes when that decision has its tested, unexcluded fixture.
+
+This is a gate hole: the check accepts an exclusion of a pure forwarding decision.
+Block imports and single-binding command locals are listed forms. The check does not reject their combination.
+The modified command-binding function is in the authorized delta. The lead's gate-hole exception also keeps this case in scope.
+
+Reject command bindings under unsupported local imports and name the form and file, or resolve bindings at their own import scope.
+Add a fixture that checks rejection of the forwarding decision's exclusion.
+The reviewer sent this source finding directly to the implementer and integration reviewer. The reviewer did not execute the fixture.
+
+### Supplied evidence and preserved contracts
+
+The full Linux log is `botster-core-stage1-p6-ci-checks-a05ab9a3-pool-20261009-122351-51352.log` under `~/botster-sessions/gates/`.
+It names the exact reviewed head and base `7aec2bb917f48994d1705301d2383873a219c031`.
+All ten jobs pass. It passes 1095 default tests and 248 slow tests.
+It reports 652 mutants: 623 caught and 29 unviable, with no misses or timeouts.
+The focused delta log is `botster-core-stage1-p6-ci-checks-a05ab9a3-pool-20261009-121906-35982.log`.
+It reports 25 mutants tested and 25 caught.
+The supplied runs cover the reported regression fixtures. They do not cover the remaining block-import case.
+The regression assertions turn red on reversal of the reported fixes by source inspection. The reviewer did not execute a reversal.
+
+This head has no base merge, configuration migration, shared process-crate change, or process-guard migration.
+The Prior-art note and process ownership rules have no delta.
+The delta retains the gate-level rejection assertions and the existing accepted shell cases.
+The reviewer did not broaden this review to untouched code or claim a new Mac pass.
+
+B5 remains open. Wait for the replacement READY head.
+
+VERDICT: NOT CLEAN
