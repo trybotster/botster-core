@@ -51,9 +51,18 @@ fn complete(core: &mut dyn CoreApi, at: &mut Instant, op: OpId) -> OpResult {
 
 /// A Core on handle `a` with the session `s1` created; `start` also starts it.
 fn session(harness: &mut TestkitHarness, start: bool) -> (Box<dyn CoreApi>, Instant) {
+    session_of(harness, start, &json!([{"hold": {}}]))
+}
+
+/// [`session`] with the payload's probe `program`.
+fn session_of(
+    harness: &mut TestkitHarness,
+    start: bool,
+    program: &Value,
+) -> (Box<dyn CoreApi>, Instant) {
     let mut core = harness.open(&spec("a")).expect("open");
     let mut at = Instant::now();
-    let mut create = json!({"Create": {"session": "s1", "request": {"program": [{"hold": {}}]}}});
+    let mut create = json!({"Create": {"session": "s1", "request": {"program": program}}});
     normalize_op(&mut create, &harness.probe_binary());
     let create = core.begin(serde_json::from_value(create).unwrap()).unwrap();
     assert!(matches!(
@@ -248,4 +257,38 @@ fn the_program_controls_refuse_what_they_cannot_do() {
         harness.control("a", "pty_output", &output("78")),
         Ok(Value::Null)
     );
+}
+
+/// A payload that has exited writes nothing more: its PTY stays readable until the reap, but `pty_output` is `Bad`.
+#[test]
+fn pty_output_refuses_a_payload_that_has_exited() {
+    for seed in 0..8 {
+        let mut harness = TestkitHarness::new(seed);
+        let (mut core, at) =
+            session_of(&mut harness, true, &json!([{"print": {"bytes_hex": "78"}}]));
+        settle(core.as_mut(), at);
+        assert_eq!(
+            harness
+                .control("a", "payload_alive", &json!({"session": "s1"}))
+                .unwrap()["alive"],
+            false,
+            "seed {seed}: the probe program ended after its last step"
+        );
+        let row = session_row(&harness, "a", &sid("s1")).unwrap();
+        assert!(
+            harness
+                .workers()
+                .program_edge(row.worker.unwrap().identity())
+                .is_ok(),
+            "seed {seed}: the payload is not reaped yet"
+        );
+        assert!(
+            bad(harness.control(
+                "a",
+                "pty_output",
+                &json!({"session": "s1", "bytes_hex": "78"})
+            )),
+            "seed {seed}"
+        );
+    }
 }

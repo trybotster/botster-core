@@ -36,6 +36,19 @@ fn program_of(
         .map_err(ControlError::Bad)
 }
 
+/// True while the payload of `session` on `handle` runs (`payload_alive`). After its exit, its PTY stays readable until the
+/// reap, but the program writes nothing more.
+fn program_alive(
+    harness: &TestkitHarness,
+    handle: &str,
+    session: &SessionId,
+) -> Result<bool, ControlError> {
+    let row = session_row(harness, handle, session)?;
+    Ok(row
+        .worker
+        .is_some_and(|worker| harness.workers().payload_alive(worker.identity())))
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct PtyOutput {
@@ -45,7 +58,8 @@ struct PtyOutput {
 
 /// The payload of the session writes these bytes to its terminal (Core ST-1, OU-7). They are plain output: the worker reads
 /// them as the program's own output, in reads whose sizes the scheduler chooses. The host is woken, as the real PTY's
-/// readiness wakes a real host (TM-6). An empty, odd-length or non-hex `bytes_hex` is `Bad`.
+/// readiness wakes a real host (TM-6). An empty, odd-length or non-hex `bytes_hex` is `Bad`, and so is a payload that has
+/// exited.
 fn pty_output(
     harness: &mut TestkitHarness,
     handle: &str,
@@ -58,6 +72,12 @@ fn pty_output(
         return Err(ControlError::Bad("bytes_hex: no bytes".into()));
     }
     let (program, wake) = program_of(harness, handle, &args.session)?;
+    if !program_alive(harness, handle, &args.session)? {
+        return Err(ControlError::Bad(format!(
+            "the payload of the session {} has exited: it writes nothing more",
+            args.session.0
+        )));
+    }
     program.write(&bytes);
     if let Some(wake) = wake {
         wake.signal();
