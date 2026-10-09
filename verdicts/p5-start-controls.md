@@ -81,3 +81,63 @@ SC-F1 remains open. Integration owns its separate review of this HIGH PR.
 The reviewer changed no product code and ran no builds, tests, mutation jobs, or gates.
 
 VERDICT: NOT CLEAN
+
+## PR #196 — Round 2 — 2026-10-09
+
+Exact head: `64a6deb5bec9cc52c08aae3376726003ead1920b`.
+Exact tree: `5279f21d9e79c9f68050ebf851931f6a931ab49a`.
+PR and gate base: `1dd1657a2c53f4da6953f7a349d7fa9d59b97ec6`.
+Parent: `59c8701b72405a779ef52ee2748f6e3cb9d49bc3`.
+Branch: `stage1/p5-controls-start`.
+
+The reviewer checked the risk tier first. The PR retains HIGH under rule 3.
+The PR retains Prior art and names the exact Round 2 head and gate.
+
+### SC-F1 — MEDIUM — CLOSED — The hold key includes the data directory
+
+The shared hold set now uses StartKey { dir, instance }.
+The controls obtain dir from the open handle's directory mapping.
+The harness passes the same directory to Workers::spawner(dir).
+The spawner stores that directory with the worker's instance in WorkerEdges::start.
+Hold insertion, release, readiness, and worker cleanup therefore use the same scoped key.
+No instance minting or production Core code changes.
+
+The new behavior test is a_hold_is_scoped_to_its_data_directory.
+It creates s1 in three different directories and explicitly confirms equal instance IDs.
+Independent holds under a and b both succeed.
+The unheld c starts and has a live payload.
+Releasing b preserves a's hold, as checked by the refusal of a duplicate hold.
+The test arms b again, starts and stops b, and checks that b's hold is gone while a's hold remains.
+Releasing a then permits its Start and live payload.
+The extended edge test also confirms that cleanup removes its own key and preserves an equal instance in another directory.
+The exact-head gate reports both tests PASS.
+
+### Delta and supplied evidence
+
+The reviewer read all six changed files in the Round 2 delta and checked every spawner call site.
+The test call sites name the same directories that their Core opens.
+The updated WorkerSpawner test literal carries its fixture's directory.
+The pending list is byte-identical to Round 1; the five removals and replacement-map checks remain valid.
+The supplied gate reports all 31 active conformance trials PASS, including the five removals and all 27 active minimum ids.
+The default seed configuration remains 0-31.
+No other package finding arose.
+
+The PR now records steward ruling R-38, which the reviewer read in contracts docs/steward-rulings.md.
+That ruling makes before=running a hold of Start completion and requires no Running row write.
+This head keeps that phase Unsupported and does not implement or certify it.
+No contracts pin, timeout, transcript, expected value, or real-process test changes.
+
+The supplied full Linux gate is `~/botster-sessions/shared/core-stage1/gate-logs/controls-start-sc-f1b.log`.
+It names the exact reviewed head and unchanged base.
+The default tier reports 987 passed and 644 skipped.
+The slow tier reports 243 passed and 982 skipped.
+The mutation run tests 31 mutants: 24 caught, zero missed, zero timeouts, and seven unviable.
+All ten CI stages pass. Fuzz runs no decoder harness for this delta.
+The job and gate exit zero.
+
+Every package finding is closed. Integration must supply its separate CLEAN before this HIGH PR merges.
+This verdict does not close #176's proof hold or establish real-process minimum conformance.
+The reviewer changed no product code and ran no builds, tests, mutation jobs, or gates.
+The lead owns the merge decision.
+
+VERDICT: CLEAN
