@@ -303,22 +303,17 @@ exclude_re = [
     'crates/botster-terminal-ghostty/src/encode\.rs:\d+:\d+: replace \| with \^ in encode_mouse$',
     # sys::mode_new: `(value & 0x7FFF) | (ansi << 15)` joins disjoint bits (bits 0 to 14, and bit 15), so `^` is equal.
     'crates/botster-terminal-ghostty/src/sys\.rs:\d+:\d+: replace \| with \^ in mode_new$',
-    # every_key_state (A3) enumerates the states of the key search. Its mutants cannot change a bound:
+    # every_key_state (A3) enumerates the states of the key search. These two mutants cannot change a bound:
     # - `!= 0` to `== 0` inverts every key-mode bit, which maps the 64 key-mode combinations onto themselves: the same states
     #   in another order. The order changes only which length over the limit the search stops at, never whether a key is
     #   over it: the code stays `PayloadTooLarge`, and only the size in its detail can differ (Core 9.3, "The code is the
     #   contract; the detail is for humans", core-contract-v1.17.md:318).
-    # - `&` to `|` or `^` in the mode bits keeps, for every kitty combination, the state with all six key modes on (`^`
-    #   turns one mode off in one state only). Every key reaches its worst case with all six modes on: a check of 1,960
-    #   inputs (each contract named key with 8 modifier sets and press, repeat and release, plus 40 character keys) against
-    #   every explicit mode found no key whose worst case needs a mode off (log
-    #   ~/botster-sessions/gates/botster-core-scratch-p3-f50-explore-f3611957-pool-20261008-215141-2770.log).
-    #   the_key_bound_is_the_longest_sequence_of_any_mode checks the bound against every explicit mode.
     # - `&` to `^` in the kitty flags inverts the five flag bits, which maps the 32 combinations onto themselves, and sets
-    #   bits above them, which libghostty does not read (bits_above_the_five_kitty_flags_change_no_key_bytes).
-    # The columns name the operator: 40 the `&` of the mode bits, 36 the `&` of the kitty flags (whose `|` is caught).
+    #   bits above them, which libghostty does not read: the C API truncates the flags to five bits
+    #   (bits_above_the_five_kitty_flags_change_no_key_bytes).
+    # The column names the operator: 36 is the `&` of the kitty flags (whose `|` is caught). The `&` of the mode bits is
+    # not excluded: its mutants keep only the all-modes-on states, and a test catches them.
     'crates/botster-terminal-ghostty/src/encode\.rs:\d+:\d+: replace != with == in EncoderState::every_key_state$',
-    'crates/botster-terminal-ghostty/src/encode\.rs:\d+:40: replace & with [|^] in EncoderState::every_key_state$',
     'crates/botster-terminal-ghostty/src/encode\.rs:\d+:36: replace & with \^ in EncoderState::every_key_state$',
     # set_query_request_limit_default: the library's own default (terminal.zig `default_query_max_bytes`) is 4096, the
     # value that this call sets (`DEFAULT_QUERY_REQUEST_BYTES`, `CoreLimits.max_query_bytes`, tested). Skipping the call
