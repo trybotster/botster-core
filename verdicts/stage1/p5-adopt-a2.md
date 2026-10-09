@@ -112,3 +112,53 @@ The reviewer sent all three findings directly to P5 and the package reviewer.
 No ordinary NOT CLEAN report was sent to the lead.
 
 VERDICT: NOT CLEAN (3 open) at 6b5372ac24d1d9f4b05c365d4e5da264952b0b54
+
+
+## Round 2 — 2026-10-09 — CLEAN
+
+Reviewed head: `58e3a314c4bbe4082637abe86fa6bbb048748442`.
+Base: `cd97009e93c2641843c05bd46793265b3580b2a9`.
+Previous reviewed head: `6b5372ac24d1d9f4b05c365d4e5da264952b0b54`.
+The reviewer read both correction commits, their three-file delta, the affected recovery path, the updated PR description, and the gate.
+HIGH remains correct. The reviewer changed no product code and ran no builds, tests, mutants, or gates.
+
+### Closed findings
+
+**R1-1 / A2-F1 closes.** `session_of_row` restores `worker.gone` from a recorded `Lost(WorkerGone)` state.
+The later handle's `Remove` now takes the no-signal path and reports `NotDeleted(OutcomeUnknown)`.
+The host proof checks refusal, recovery into a third host, removal, zero signals, and survival of the recorded process.
+The testkit proof covers both wrong-token and wrong-instance refusals through drop, reopen, `AdoptAll`, and `Remove`.
+It checks the payload before removal, then the unknown cleanup result and zero signals after removal.
+The signal observer remains available after the row is deleted.
+This preserves the proof's no-signal invariant without using a row-dependent control after row deletion.
+`Adopt` admission remains unchanged. No `WorkerGone` retry is added.
+
+**R1-2 / A2-F2 closes.** A recovered, posted `Lost(WorkerUnreachable)` row moves its historical protocol into `row_protocol`.
+The visible field stays empty. The authenticated-hello and unsupported-version paths are unchanged.
+The host proof now opens a third host and checks both `get` and `list` for no visible protocol.
+It also checks that the row retains its recorded protocol.
+
+**R1-3 / A2-F3 closes.** One pool job runs the full gate and then the required in-diff mutation job with `NEXTEST_PROFILE=slow`.
+The supplied log identifies this exact head and records successful outcomes for both mutation runs.
+The new regression proofs all have PASS lines in that log.
+
+### Evidence and scope
+
+Gate:
+`~/botster-sessions/gates/botster-core-stage1-p5-adopt-a2-v1-58e3a314-pool-20261009-161258-9135.log`.
+Linux node `msa1` used allocation `d5c16b29`.
+All ten full CI checks passed. The default tier passed 1170 tests. The slow tier passed 249 tests.
+Conformance reports 113 passed and zero failed.
+Each mutation run tested 57 mutants: 51 caught, six unviable, zero missed, and zero timeouts.
+The second run explicitly uses the slow profile. The gate exited zero after 389 seconds.
+The earlier `c0676f7c` run failed because its test read the row-dependent payload control after removal.
+The final test checks payload liveness before removal and retains the post-removal signal assertion.
+That earlier setup failure supplies no negative proof of the recovery defect.
+
+The base remains the fetched v1 tip and is an ancestor of the reviewed head. `git diff --check` passes.
+No pending-list, contract pin, dependency, configuration, or exclusion changes occur in this correction.
+The round 1 mapping of nine removed IDs remains applicable: testkit minimum coverage increases from 35 to 39 of 70.
+This review claims no real-process minimum gain. The #176b real-driver and real-process scope remains separate.
+All three integration findings are closed at this head.
+
+VERDICT: CLEAN (0 open) at 58e3a314c4bbe4082637abe86fa6bbb048748442
