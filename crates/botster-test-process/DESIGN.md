@@ -79,9 +79,12 @@ crate's lint table is the workspace's with one difference, `unsafe_code = "deny"
 function, `close_inherited` in the anchor binary, allows it, with a SAFETY comment: the stage owns no descriptor yet, so
 nothing in the process aliases the closed ones. Rejected: (B) nix 0.29's safe `close(RawFd)`, which hides the same
 `unsafe` in a new dependency; (C) a shell stage that closes descriptors by redirection, which is fragile (dash handles only
-0 to 9). `cargo xtask ci` (taint job, `xtask/src/unsafe_code.rs`) fails on any other lint difference, any other attribute
-that names `unsafe_code`, and any other manifest with an `unsafe_code` entry. The libghostty-vt binding keeps its earlier
-crate-wide allow, by name (#173 tracks its SAFETY comments and clippy `undocumented_unsafe_blocks`).
+0 to 9). `cargo xtask ci` (taint job, `xtask/src/unsafe_exception.rs`) fails on any other lint difference, on any other
+`unsafe_code` identifier in a Rust source, and on any other key or string that names the lint in a manifest or a Cargo
+configuration (`rustflags` included). The check parses: it reads each source as Rust tokens (an attribute on several lines,
+a `cfg_attr` or a macro body is read as a whole; comments and strings are not identifiers) and each manifest as TOML (an
+escaped key is read as Cargo reads it), and it reads `-` as `_` in a lint name, as rustc does (#171 round 2, TP7). The
+libghostty-vt binding keeps its earlier crate-wide allow, by name (#173 tracks its SAFETY comments and clippy `undocumented_unsafe_blocks`).
 
 An anchor that ended with no report was ended by production's own group kill; the guard then observes, without a signal,
 that the group is empty within the cleanup bound.
