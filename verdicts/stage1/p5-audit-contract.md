@@ -451,3 +451,39 @@ Reviewed head: `152dbb07891b362935048533f406cc3bf26f86d4`. Parents: `e1624ca1` (
   lead's ruling) stays owed by the implementer on this exact head.
 
 VERDICT: CLEAN (0 open) at 152dbb07891b362935048533f406cc3bf26f86d4
+
+## Round 16 — NOT CLEAN on head dffa7b12 (the pump's Silent loop, World::settle)
+
+Reviewed head: `dffa7b12a61034ac57bd0fe83003456c1bd6fb0a`. Delta `152dbb07..dffa7b12`, one commit, `botster-core-host`
+only. v1 is still `d1d18f4a`. This reviewer ran no build, test or gate.
+
+- **driver.rs Silent loop: correct, and behavior is the same.** Each `Work::Silent` step runs `run_deadline(true)`. That
+  takes the first due silence and sets `fired`, which removes it from `deadlines()`. In the pump, time is fixed after
+  `Input::Clock`, and only `Silent` steps run in this loop. So no silence becomes due during the loop. The old loop ran
+  exactly `due_silences()` steps (or fewer at the budget), and the new loop runs the same steps. The bound now depends on
+  a count, not on what each step does (9B). The budget check before each step is kept.
+- **run.rs `due_deadlines`:** `now.is_some_and(...)` gives the old `self.now?` result (no deadline without a time).
+  `due_deadline` is the first item of the same sorted list, so it is unchanged.
+- **New test** `a_pump_runs_each_due_silence_first_until_the_budget_runs_out`: with `due_silences` replaced by 0 or 1,
+  `service_links` runs the newer `Bell` before the main loop, so the first pump posts fewer than two silences. The test
+  catches that.
+- **World::settle:** the 10_000-step bound and the per-step `after` callback keep the old order of the two migrated loops.
+  `flow_edges.rs:431` keeps its own `guard < 50`.
+
+### L1 MEDIUM — the new test adds an unbounded `while rig.pump().more` loop; three more exist in the same file
+
+`crates/botster-core-host/src/tests/driver/deadlines.rs:133` (new in `dffa7b12`) is `while rig.pump().more {
+rig.drain_events(); }` with no step bound. The same file has three more such loops from v1 (P1): lines 87, 222
+(`fe9183c9`) and 257 (`af6c44fb`). The other four `while rig.pump().more` loops in the crate (`driver.rs:583`,
+`deadlines.rs:13`, `:25`, `:483`, `observations.rs:124`) have a `guard` assert.
+
+Failure: a mutant that keeps `PumpReport.more` true (for example `runnable -> true`) makes these tests loop forever. With
+the lead's no-terminate mutants profile, that is a TIMEOUT, which the policy treats as a finding. This commit exists to
+remove that pattern, so it must not add a new instance.
+
+Lead rule: a pattern finding is fixed together with the mechanical check that finds all its instances. Proposed fix:
+a `Rig` helper, like `World::settle`, that pumps and drains until `more` is false, with a step bound. Use it at all
+four sites. The mechanical check is then that `git grep -n 'while rig.pump().more'` finds no loop without a bound (or no
+match at all, if every site uses the helper).
+
+VERDICT: NOT CLEAN (1 open: L1)
