@@ -194,8 +194,9 @@ pub struct Worker {
     queued_total: u64,
     written_total: u64,
     /// The end of the last `Output` report in the sent bytes (`queued_total` after it): until the driver writes it, a new
-    /// read is not reported on its own. At most one `Output` report waits for the link, so a host that reads slowly
-    /// cannot grow the worker's queue with output reports.
+    /// read is not reported on its own. Reads alone queue at most one `Output` report; another report first sends the
+    /// waiting one, so the bound is one, plus one for each other report. A host that reads slowly cannot grow the
+    /// worker's queue with output.
     output_sent_to: u64,
     /// A read advanced `model_rev` while the last `Output` report was not written: one report of the latest revision
     /// follows when it is written, or before the next other report, so the order of reports stays the order of events.
