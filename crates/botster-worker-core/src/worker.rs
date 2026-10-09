@@ -728,6 +728,12 @@ impl Worker {
             self.signal(SIGKILL);
             self.reap_when_complete();
         }
+    }
+
+    /// The adoption deadlines that are due at `now`. Every input applies them first, so an input at or after a deadline
+    /// never comes before it, whatever order the driver gives (P5-F27): a late hello cannot pass, and a late host cannot
+    /// cancel a due self-exit.
+    fn expire_adoption(&mut self, now: Instant) {
         if self.candidate.as_ref().is_some_and(|c| c.deadline <= now) {
             // A candidate whose hello has not passed by `startup` is closed (DESIGN.md part 7).
             self.close_candidate();
@@ -875,6 +881,7 @@ impl Machine for Worker {
     type Action = Action;
 
     fn handle(&mut self, now: Instant, input: Input) {
+        self.expire_adoption(now);
         match input {
             Input::LinkBytes(bytes) => self.on_link_bytes(now, &bytes),
             Input::LinkClosed => {
