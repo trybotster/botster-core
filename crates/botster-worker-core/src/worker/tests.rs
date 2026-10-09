@@ -2070,7 +2070,7 @@ fn an_equal_epoch_adopts_and_a_lower_one_is_refused() {
 }
 
 /// AD-6, A11: a candidate whose hello fails closes only the candidate. The worker's own proof sent back (a replay), another
-/// token, another instance, and a frame that is not a hello are all refused.
+/// token, another instance, a message, and a hello in a frame of another kind are all refused.
 #[test]
 fn a_candidate_that_does_not_prove_the_host_role_is_closed_alone() {
     let replay = {
@@ -2089,6 +2089,15 @@ fn a_candidate_that_does_not_prove_the_host_role_is_closed_alone() {
         World::host_hello(instance(), EPOCH + 1, [8; TOKEN_LEN]),
         World::host_hello(InstanceId("4-2".into()), EPOCH + 1, TOKEN),
         World::msg(&HostMsg::Stop),
+        // A valid host hello in a frame that is not a hello.
+        {
+            let mut hello = World::host_hello(instance(), EPOCH + 1, TOKEN);
+            let mut decoder = FrameDecoder::new(DEFAULT_MAX_PAYLOAD);
+            decoder.push(&hello);
+            let payload = decoder.next_frame().unwrap().unwrap().payload;
+            hello = World::frame(FrameType::HOST_MSG, &payload);
+            hello
+        },
     ];
     for bytes in wrong {
         let mut w = World::running();
@@ -2259,4 +2268,48 @@ fn a_worker_with_no_payload_and_no_host_ends_after_startup() {
     let actions = adopt(&mut w, EPOCH + 1);
     adopted(&mut w, &actions);
     assert_eq!(w.worker.next_deadline(), None);
+}
+
+/// LC-7, DESIGN.md part 7: a worker that is removing its session, or that waits to end after the removal, takes no
+/// candidate: the removal ends the session.
+#[test]
+fn a_removing_worker_takes_no_candidate() {
+    let mut w = World::running();
+    w.send(&HostMsg::Remove);
+    assert_eq!(
+        w.feed(Input::Candidate(ADOPTER)),
+        [Action::CandidateClose(ADOPTER)],
+        "the removal is under way"
+    );
+    w.instant_link = false;
+    w.feed(Input::PayloadExited(ExitStatus::Signal(9)));
+    let actions = w.feed(Input::PtyDrained);
+    assert!(
+        w.reports(&actions)
+            .iter()
+            .any(|m| matches!(m, WorkerMsg::RemoveResult { .. })),
+        "{actions:?}"
+    );
+    assert!(
+        !actions.contains(&Action::Exit),
+        "the result is not written yet"
+    );
+    assert_eq!(
+        w.feed(Input::Candidate(ADOPTER)),
+        [Action::CandidateClose(ADOPTER)],
+        "the worker waits to end"
+    );
+}
+
+/// DESIGN.md 3.4, AM-2: a cancel from the new host never reaches the old host's write in progress, even with the same
+/// request number: the old write runs to its end.
+#[test]
+fn a_new_hosts_cancel_never_stops_the_retired_write() {
+    let mut w = World::running();
+    w.send(&write(1, b"abc", None));
+    let actions = adopt(&mut w, EPOCH + 1);
+    adopted(&mut w, &actions);
+    w.send(&HostMsg::Cancel { req: 1 });
+    let actions = w.feed(Input::PtyWritten(Ok(1)));
+    assert_eq!(pty_writes(&actions), [b"bc".to_vec()]);
 }
