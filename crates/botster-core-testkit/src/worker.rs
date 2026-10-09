@@ -11,7 +11,7 @@
 
 use crate::core::{SimEdges, Spawner};
 use crate::net::{EndControl, Interest, LinkEnd};
-use crate::program::ScriptedProgram;
+use crate::program::{ProgramControl, ScriptedProgram};
 use crate::scheduler::SchedulerHandle;
 use crate::sim::{Binding, MachineNode, Sim};
 use botster_core_contract::prelude::*;
@@ -58,6 +58,9 @@ struct ProcessCell {
     break_link: bool,
     /// The worker's end of its control link, for reading what it holds for the host (`edges_quiet`). It outlives the end.
     link: Option<EndControl>,
+    /// The controls of the payload's program edge, from the spawn until the reap or the end of the worker (`pty_output`,
+    /// `pty_blocked`): the PTY stays readable after the payload's exit until the worker reaps it.
+    program: Option<ProgramControl>,
 }
 
 /// The process table of the workers that one host spawned: identities and the exits that the host has not polled.
@@ -212,6 +215,32 @@ impl Workers {
             wake.signal();
         }
         Ok(())
+    }
+
+    /// The program edge of the payload of the worker process `identity` (`pty_output`, `pty_blocked`), and the wake of the
+    /// host that owns the process. A control that makes the edge ready signals that wake, as the real edge event wakes a
+    /// real host (TM-6).
+    ///
+    /// # Errors
+    /// The process is not a worker of this run, it has ended, or it has no payload.
+    pub(crate) fn program_edge(
+        &self,
+        identity: ProcessIdentity,
+    ) -> Result<(ProgramControl, Option<Arc<dyn HostWake>>), String> {
+        let (cell, owner) = lock(&self.run_processes)
+            .get(&identity)
+            .cloned()
+            .ok_or_else(|| format!("no worker process {identity:?} in this run"))?;
+        let cell = lock(&cell);
+        if cell.ended {
+            return Err(format!("the worker process {identity:?} has ended"));
+        }
+        let program = cell
+            .program
+            .clone()
+            .ok_or_else(|| format!("the worker process {identity:?} has no payload"))?;
+        let wake = lock(&owner).wake.clone();
+        Ok((program, wake))
     }
 
     /// True when no edge toward the host of `table` holds a report that it has not consumed: no worker has ready work (input
@@ -386,6 +415,7 @@ impl WorkerEdges {
         }
         self.outbound.clear();
         self.payload = None;
+        lock(&self.cell).program = None;
     }
 
     fn spawn_payload(&mut self, spec: &PayloadSpec) -> Result<PayloadId, SpawnFailure> {
@@ -404,6 +434,7 @@ impl WorkerEdges {
         program
             .resize(window)
             .map_err(|_| SpawnFailure::Exec { errno: ENOEXEC })?;
+        lock(&self.cell).program = Some(program.control());
         self.payload = Some(program);
         Ok(PayloadId {
             pid: lock(&self.pids).next(),
@@ -577,7 +608,10 @@ impl Binding<Worker> for WorkerEdges {
                     program.signal(signal);
                 }
             }
-            Action::ReapPayload => self.payload = None,
+            Action::ReapPayload => {
+                self.payload = None;
+                lock(&self.cell).program = None;
+            }
             Action::Exit => {
                 lock(&self.processes).end(self.id, ExitStatus::Code(0));
                 self.ended();
