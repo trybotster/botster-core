@@ -79,17 +79,36 @@ protocol is the codec extract of DP-3 (`botster-route-codec`, contracts v0.1.20)
 
 ### The handoff (DP-2)
 
-- The host engine already registers the route (`attach`, OU-1) and emits `Action::HandoffRoute{link, route, transport,
-  options}` after the launch (`flush_handoffs`). Today no component sends `HostMsg::AttachRoute`, and the testkit edge drops
-  `route` and `options`.
-- Change: the driver calls `edges.handoff_route` first. On `Ok`, the engine sends `HostMsg::AttachRoute{route, options}` on
-  the same link. On `Err`, nothing is sent and the route closes `HandoffFailed` (as today).
-- The worker pairs each `AttachRoute` with the oldest descriptor that it received on that link and did not bind. The
-  descriptor is sent before the message, so it is always there when the message is decoded:
-  - testkit: `LinkEnd::send_descriptor` queues it at once;
-  - real (later, real-only): `SCM_RIGHTS` rides with link bytes that are sent before the `AttachRoute` frame.
-- An `AttachRoute` with no descriptor is a host fault: the worker closes the link (as for a bad frame). A descriptor of a
-  link that the worker replaced (`AdoptLink`, DP-8) is dropped unbound.
+Today the host engine registers the route (`attach`, OU-1) and emits `Action::HandoffRoute{link, route, transport,
+options}` after the launch (`flush_handoffs`). No component sends `HostMsg::AttachRoute`, and the testkit edge drops `route`
+and `options`. P4a changes this as follows.
+
+**Sender (host).** The descriptor travels with the first byte of its `AttachRoute` frame, in the link's ordered outbound
+path (the `SCM_RIGHTS` model):
+
+1. On `HandoffRoute`, the driver encodes `HostMsg::AttachRoute{route, options}` into the link's outbound buffer like any
+   frame. It records a mark: the offset of the frame's first byte, the route, and the endpoint. The mark owns the endpoint.
+2. The writer sends bytes up to the mark with `link_send`. A partly written earlier frame is therefore always complete
+   first.
+3. At the mark, the writer calls a new edge `link_send_descriptor(link, bytes, endpoint) -> Result<usize, HandoffError>`
+   (it replaces `handoff_route`). `Ok(n)` with `n >= 1` means that the link took the descriptor and the first `n` bytes of
+   the frame. The edge then owns the endpoint (real: the host closes its copy after `sendmsg`).
+4. `Ok` feeds `Input::HandoffSent{route}` to the engine. An `Err` before any byte of the frame was taken drops the whole
+   frame (it was not started, so the framing stays intact) and feeds the route to `failed_handoffs` (`HandoffFailed`, as
+   today).
+5. The marks are link-scoped. When the link closes, each mark is dropped, its endpoint is closed, and its route is a failed
+   handoff, unless the session's loss closed the route first (the first reason wins, OU-2).
+
+**Receiver (worker).** A binding delivers each descriptor before the link bytes that it rides with:
+
+- testkit: a new `LinkEnd::send_with_descriptor(bytes, descriptor)` tags the descriptor with the stream offset of its
+  first byte. A `recv` never returns bytes across a tagged offset, and the descriptor becomes readable at that offset. The
+  worker driver reads it and feeds `Input::Descriptor` before the `LinkBytes` that start at the offset;
+- real (later, real-only): `recvmsg` returns the descriptor with the segment that starts at its byte.
+
+The machine keeps a FIFO of unbound descriptors for the current link. An `AttachRoute` binds the oldest one. An
+`AttachRoute` with no unbound descriptor is a host fault: the worker closes the link, as for a bad frame. At `LinkClosed`
+and at `AdoptLink` (DP-8), the machine emits `CloseDescriptor` for each unbound descriptor of the old link.
 
 ### Worker-core inputs and actions (sans-IO)
 
@@ -97,32 +116,86 @@ The worker holds no transport object. The driver keeps each received descriptor 
 
 | New `Input` | New `Action` |
 |---|---|
-| `Descriptor(DescriptorId)`: the link delivered one | `BindRoute{descriptor, route}`: the transport of `descriptor` is `route`'s from now |
-| `RouteBytes{route, bytes}`: bytes that the route delivered, in order | `RouteWrite{route, bytes}`: one write; at most one is out per route |
-| `RouteWritten{route, n}`: the bytes that the kernel accepted (the progress point of OU-3a); `n = 0` waits for `RouteWritable` | `RouteRead{route, on}`: read interest (off while the admission point is full, DP-5) |
-| `RouteWritable{route}` | `RouteClose{route}`: close the transport; the driver reports nothing more of `route` |
-| `RouteClosedByPeer{route}`: read `Ok(0)` or an I/O error (OU-5) | |
+| `Descriptor(DescriptorId)`: the link delivered one, before the bytes that it rides with | `BindRoute{descriptor, route}`: the transport of `descriptor` is `route`'s from now |
+| `RouteBytes{route, bytes}`: bytes that the route delivered, in order | `CloseDescriptor(DescriptorId)`: close an unbound descriptor |
+| `RouteWritten{route, n}`: the bytes that the kernel accepted (the progress point of OU-3a); `n = 0` waits for `RouteWritable` | `RouteWrite{route, bytes}`: one write; at most one is out per route |
+| `RouteWritable{route}` | `RouteRead{route, on}`: read interest (off while the admission point is full, DP-5) |
+| `RouteClosedByPeer{route}`: read `Ok(0)` or an I/O error (OU-5) | `RouteClose{route}`: close the transport; the driver reports nothing more of `route` |
+| | `PtyReadBudget(n)`: the driver reads at most `n` PTY bytes in total until the next budget; `0` stops every PTY read, a drain too |
+
+**Source backpressure (OU-3d, OU-7).** The worker sets the PTY read budget after each step:
+
+- the budget is the smallest free payload space of the `Open` routes (free queue bytes less the frame overhead of the
+  frames that the bytes need), at most the driver's read chunk;
+- a `Stalled` route does not count (OU-3b: Core stops holding the PTY for it); with no `Open` route the budget is the read
+  chunk;
+- a drain (`DrainPty`) obeys the budget, so the exit tail is lossless for a progressing route. A route that makes no
+  progress for `reader_progress_deadline` becomes `Stalled`, stops counting, and the drain continues (OU-7: it is
+  skipped).
+- The worker computes the budget again when a route's write progresses (`RouteWritten`), when a route becomes `Stalled`,
+  and when a route closes. Each of these can release a budget of `0`.
 
 ### The route machine (OU-2; new `src/worker/route.rs`)
 
 - States: `Open`, `Stalled`, `Closed`. One `Route` per route id holds the state, the negotiated format and features, the
   options, a bounded output queue (`route_queue_bytes`) with the written offset of its first frame, a codec `StreamReader`
   bounded by the route limits, the last progress instant, and the latest `focus` input (DP-12).
-- `Open → Stalled`: frames wait and no byte is accepted for `reader_progress_deadline`; the worker sends `RouteStalled`.
-- `Stalled → Open`: a write is accepted again; the worker queues `resync` (same content as the baseline) and sends
-  `RouteResumed`.
-- `→ Closed`: the reasons of OU-2, mapped to the wire by OU-2b. The worker completes a partly written frame first (OU-4),
-  then writes `route_closed` as the last frame, then `RouteClose`, then `WorkerMsg::RouteClosed{route, reason, route_tag}`.
+- `Open → Stalled`: frames wait and no byte is accepted for `reader_progress_deadline`; the queued frames that are not
+  started are dropped (OU-3b), and the worker sends `RouteStalled`.
+- `Stalled → Open`: a write is accepted again; the worker runs the resync sequence below (reason per the extract) and
+  sends `RouteResumed`.
+- `→ Closed` at the first close reason of OU-2. The first reason is kept; a later reason is ignored. The worker emits
+  `RouteClose` once and sends `WorkerMsg::RouteClosed{route, reason, route_tag}` once, with the first reason, after
+  `RouteClose`. Two paths:
+  - **healthy close** (`Detached`, `Replaced`, `Revoked`, `SessionEnded`, `SessionRemoved`, `SnapshotTooLarge`,
+    `BadFrame`): the worker drops the frames that are not started, completes a partly written frame (OU-4), writes
+    `route_closed` with the wire reason of OU-2b as the last frame, and emits `RouteClose` when the kernel accepted it.
+    If the transport fails, or accepts no byte for `reader_progress_deadline`, the close becomes a failed close. The
+    first reason stays;
+  - **failed close** (the failed-route reasons of OU-2b; the route has no `route_closed`, and the host reports
+    `route_ended`): the worker emits `RouteClose` at once and writes nothing more. The reasons are distinct:
+    - `PeerClosed` (read `Ok(0)`, a reset or a read error; wire `transport_lost`);
+    - `WriteFailed` (a write returned an error; wire `write_failed`);
+    - `StallTimeout` (`Stalled` for `stall_close_after`; wire `stalled`);
+    - `HandoffFailed` is the host's (the handoff above), and `SessionLost` is the host's when the worker is lost (wire
+      `session_lost`). The worker never sends these two.
+
+### The output queue and the resync sequence (OU-4, OU-9, DP-5)
+
+Each queued frame has a class:
+
+- **droppable**: `output` and the baseline frames (`baseline_begin`, `screen`, `history`, `baseline_end`, `live`);
+- **kept**: `input_refused`, `input_done` and `route_closed`. A stall or a resync never drops them;
+- **bounded**: `modes` and `terminal_query`, as DP-5 defines their bound.
+
+The resync sequence (at `Stalled → Open`, OU-9):
+
+1. The worker completes a frame that it started (OU-4). The frame boundary after it is the resync point.
+2. The worker drops the droppable frames that are not started. Kept and bounded frames stay in order.
+3. At the resync point the worker writes `resync{reason}`, then a new baseline sequence from a new point `R`
+   (`baseline_begin`, `screen`, `history`, `baseline_end`) and `live`, then the output after that `R` (with the `unfed`
+   suffix as in "Frames" below).
+4. A snapshot over the limits closes the route `SnapshotTooLarge` (healthy close) and writes no partial baseline.
 
 ### Frames (OU-8, OU-9, DP-3)
 
-- On `BindRoute`, in one machine step, from the model at one point `R`: `attached{features, terminal_format, limits}`,
-  `baseline_begin{rows, cols, modes}`, `screen`, `history`, `baseline_end{history}`, `live`. `features` is the intersection
-  with `options.route_features`. `terminal_format` is negotiated against this worker's formats (OU-1).
-- A `screen` over `max_screen_frame_bytes` closes the route `SnapshotTooLarge`; the limit is checked before the frame is
-  built (DP-3 frame limit).
-- Every later `PtyOutput` is one `output` frame per route with the PTY bytes unchanged (OU-12): no gap and no duplicate after
-  `R`.
+- On `BindRoute`, in one machine step, the worker takes the baseline at the point `R`. `R` is the model's consumed
+  boundary: the bytes that the model applied. The frames are `attached{features, terminal_format, limits}`,
+  `baseline_begin{rows, cols, modes}`, `screen`, `history`, `baseline_end{history}`, `live`. `features` is the
+  intersection with `options.route_features`. `terminal_format` is negotiated against this worker's formats (OU-1).
+- The model can hold a suffix of earlier output that it has not applied (`unfed`, for example a lone ESC). That suffix is
+  after `R`. The worker writes it as the first `output` frame after `live`, then the later PTY output. Each byte after `R`
+  is therefore on the route exactly once (the cut that #200's resume oracle checks).
+- Two limits, both checked before any baseline frame is queued:
+  - the snapshot: an encoded snapshot over `max_snapshot_bytes` cannot be offered (OU-9). The route closes
+    `SnapshotTooLarge` with `route_closed{attach_failed{snapshot_too_large}}` and no baseline frame. (Whether `attached`
+    comes first follows the extract's TS-1; `a8_2_baseline_inside_an_uncarriable_sequence_closes_route_snapshot_too_large`
+    accepts both.)
+  - the frame: the `screen` frame is the snapshot plus the type byte, so `max_screen_frame_bytes = max_snapshot_bytes + 1`
+    (`attached.limits`, `dp_3_screen_is_one_frame_within_max_screen_frame_bytes`). The size is computed before the frame
+    is built (`dp_3_frame_limit_checked_before_allocation`).
+- PTY output goes to each `Open` route unchanged and in order (OU-12). The worker splits it into `output` frames whose size
+  is within the route's `max_frame_bytes`, as the codec measures a frame (`bound_of`).
 - Client frames (`ToWorker`) go to the one admission point that host input already uses (AM-2, DP-4, DP-9). Input is
   fire-and-forget: only `input_refused` and the `input_done` of DP-5 are written back. `Observation::ClientInput{route,
   input_rev}` reports the admission to the host.
@@ -132,7 +205,8 @@ The worker holds no transport object. The driver keeps each received descriptor 
 
 - `TestkitHarness::attach_stream` makes a `stream_pair`. One end goes to `Core::attach` as `RouteTransport::Stream`; the
   other end is the `RouteClient` (`write`, `read` until the deadline, `control`).
-- The testkit worker binding reads descriptors from its link end and binds the `StreamEnd` as the route edge.
+- The testkit worker binding reads tagged descriptors from its link end and binds the `StreamEnd` as the route edge. It
+  reads at most the PTY read budget.
 - Controls map to the existing `EndControl` hooks where one fits: `route_gate` (gate), `route_accept` (accept_at_most),
   `fail_handoff` (fail_next_handoff), `client_close` (close), `input_blocked` (the admission point is full). New:
   `route_stream_holders`, `alloc_window`/`alloc_peak`, `hold_handoff`/`release_handoff`, `route_stream_written`,
@@ -140,14 +214,51 @@ The worker holds no transport object. The driver keeps each received descriptor 
 
 ### Real-only (not in the P4a testkit PRs)
 
-- `SCM_RIGHTS` in `botster-core/src/real.rs` `handoff_route` (today `Err`), and the host closing its copy of the stream
-  (`dp_2_stream_handoff_transfers_ownership_and_closes_host_copy`).
-- The `botster-worker` binary: route descriptors on the `mio` loop and the `RouteTransport` edge over the socket.
+- `link_send_descriptor` with `SCM_RIGHTS` in `botster-core/src/real.rs` (today `handoff_route` returns `Err`), and the
+  host closing its copy of the stream (`dp_2_stream_handoff_transfers_ownership_and_closes_host_copy`).
+- The `botster-worker` binary: `recvmsg` descriptors on the `mio` loop, the PTY read budget, and the `RouteTransport` edge
+  over the socket.
 - The testkit minimum count and the real minimum count are reported separately in each PR.
 
-### Questions for review
+### Proofs that the P4a PRs add (worker-core and testkit tests)
 
-1. Pairing by the order of descriptors (above) or a descriptor id in `AttachRoute`? Order needs no wire change; an id needs
-   a link message change (`botster-core-link`, HIGH).
-2. The engine sends `AttachRoute` after `handoff_route` returns `Ok`. The alternative is that the edge sends both; then the
-   frame bypasses the link's outbound buffer and its order with earlier frames.
+- Handoff: both receive kinds ready in the same step; an earlier control frame partly written at the mark; repeated
+  handoffs on one link; a failed descriptor send (the frame is not sent, `HandoffFailed`); a link closed with marks
+  pending; `AdoptLink` with unbound descriptors.
+- Backpressure: a progressing slow reader loses no byte; two routes with different `max_frame_bytes`; an exit tail larger
+  than the free queue space.
+- Baseline cut: attach and resync while the model holds an `unfed` suffix, including a lone ESC.
+- Close: a partly written frame, then a write failure (`WriteFailed`, no `route_closed`); a route that is not writable at
+  the `stall_close_after` deadline (`StallTimeout`).
+- Limits: a snapshot over `max_snapshot_bytes` is refused although the frame limit would take it.
+- Resync: a partly written `output` frame, and kept `input_refused`, `input_done` frames, across a resync.
+
+### Prior art (BUILD.md rule 0)
+
+Reused, not rewritten:
+
+- `botster-route-codec` (contracts v0.1.20): every frame type, `StreamReader`, `bound_of`, `stream_wrap` and the deflate
+  helpers.
+- `botster-core-edges::RouteTransport` (read, write, close) as the worker's route edge.
+- The testkit's `stream_pair` and `EndControl` (gate, accept_at_most, fail_next_write, read_at_most, fail_next_handoff,
+  reset) for the route controls.
+- The worker's one admission point (AM-2) for route input, and the `CaptureSnapshot` encoder for the baseline.
+- The consumed cut and the `unfed` suffix of #200 (`ModelLog`, `model_snapshot`).
+
+Rejected:
+
+- `origin/delivery/core-route-stall-resync-*` (2026-09): the old daemon architecture (638 files), not in v1. Its edges and
+  its host-side relay do not fit the sans-IO worker. No code is ported.
+- The legacy mechanisms that the contract's "reusable from" column names (C1 source backpressure, `ROUTE_RESYNC`, the
+  Hub's `ProcessExit` ordering): P4a takes their rules (stop reading the PTY, the resync fence, exit after the tail) and
+  ports no code, because they are in the old architecture.
+- A host-terminated relay: it puts the host on the data path (DP-1, DP-11).
+- WebRTC: withdrawn by A17.
+- A descriptor id in `AttachRoute`: an id alone fixes neither the order nor the cleanup. The ordered outbound path above
+  fixes both with no link message change.
+
+### Changes outside worker-core (each is HIGH)
+
+- `botster-core-host`: the outbound marks, `link_send_descriptor` in place of `handoff_route`, and `Input::HandoffSent`.
+- `botster-core-testkit`: `send_with_descriptor`, the tagged `recv`, the worker binding, and the PTY read budget.
+- No link message change: `HostMsg::AttachRoute{route, options}` exists.
