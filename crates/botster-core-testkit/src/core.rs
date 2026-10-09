@@ -53,17 +53,38 @@ pub struct Faults {
     pub next_spawn: Option<i32>,
 }
 
-/// The wake object of the testkit: a level flag that a waiter on any thread sees (TM-6, TH-2).
-#[derive(Debug, Default)]
+/// The wake object of the testkit: a level flag that a waiter on any thread sees (TM-6, TH-2). A wait on a clear flag can end
+/// with a spurious `Woken`: the run's scheduler decides it (A5-2 "spurious wakes"), and `no_spurious_wakes` turns it off.
+#[derive(Debug)]
 pub struct SimHostWake {
     flag: Mutex<bool>,
     changed: Condvar,
+    scheduler: SchedulerHandle,
+}
+
+impl SimHostWake {
+    /// A clear wake whose spurious wakes the run's `scheduler` draws.
+    pub fn new(scheduler: SchedulerHandle) -> SimHostWake {
+        SimHostWake {
+            flag: Mutex::new(false),
+            changed: Condvar::new(),
+            scheduler,
+        }
+    }
 }
 
 impl botster_core_contract::prelude::WakeHandle for SimHostWake {
     fn wait(&self, timeout: Duration) -> Wake {
         let flag = lock(&self.flag);
         if *flag {
+            return Wake::Woken;
+        }
+        // TH-2 allows a `Woken` with no work. The flag stays clear: no work is behind it.
+        if self
+            .scheduler
+            .with(|s| s.pick(ChoicePoint::SpuriousWake, 2))
+            == 1
+        {
             return Wake::Woken;
         }
         let (flag, _) = self
@@ -318,6 +339,11 @@ pub struct Opened {
 }
 
 impl Directories {
+    /// The stored bytes of the row `key` in the directory `name`, as the storage edge holds them.
+    pub(crate) fn row(&self, name: &str, key: &str) -> Option<Vec<u8>> {
+        lock(self.dirs.get(name)?).rows.get(key).cloned()
+    }
+
     /// Opens a `Core` over the in-memory directory `name`, as `Core::open` opens a real one (LC-1, LC-2, 9B, DP-8).
     ///
     /// # Errors
@@ -364,8 +390,8 @@ impl Directories {
             registry,
             faults: Arc::clone(&faults),
             entropy: SeededEntropy::with_seed(seed),
+            wake: Arc::new(SimHostWake::new(scheduler.clone())),
             scheduler: HandleScheduler(scheduler),
-            wake: Arc::new(SimHostWake::default()),
             spawner,
             pending: VecDeque::new(),
             links: BTreeMap::new(),
