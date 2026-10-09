@@ -7457,3 +7457,79 @@ The reviewer changed no product code and ran no tests, builds, gates, measuremen
 All earlier findings and exact-head verdicts remain preserved.
 
 VERDICT: CLEAN
+
+
+## Round 131 — PR #202 static Core TH-1 proof — 2026-10-09
+
+Reviewed head: `2dc7dacfd90468bc55474ff020ca58312a66cd42`.
+Base: `fe0e6d6d5f9df40838df957b7d8f5d0564712a6a`.
+Parents: `8411effde214bfd11a8dd7c065be277aa771251b` and the reviewed base.
+The head contains the current v1 base. The tier is HIGH under BUILD.md rules 3 and 5.
+It changes the facade test crate and shared testkit, including a public testkit builder.
+Authority: BUILD.md, pinned contracts v0.1.20 at 03891658, and accepted plan 23a-23h.
+Current plan pin: stage1-plan.ea5e6dd4.md, sha256 ea5e6dd4de72db642773b9612b677d31ddb249f9a81b33e392851d7392b3efb3.
+The reviewer read the complete three-file change, full corrected body, exact refs, pinned transcript and map row, driver handling, and completed evidence.
+
+### Static proof and runner path
+
+The conformance test crate asserts botster_core::Core: Send and asserts that the same type does not implement Sync.
+Both assertions run at compile time, outside any test function or conditional branch.
+A change that removes Send or adds Sync prevents this suite from compiling.
+CORE_IS_SEND_NOT_SYNC records true only in the suite whose two assertions compiled.
+The actual harness_factory gives that result to each seed's TestkitHarness through with_core_type.
+The suite already declares static_assertions as a dev dependency. This PR adds no dependency or feature.
+The existing facade Core has PhantomData<Cell<()>> for its non-Sync property. This PR changes no facade behavior.
+
+The harness defaults to None and stores the supplied result as Some(bool).
+Its existing CoreHarness method returns that value. The unit proof covers None, Some(true), and Some(false).
+The pinned driver passes type_check: send_not_sync only for Some(true).
+It fails Some(false) with the expected type mismatch and refuses to treat None as a pass.
+The compile assertion observes the actual facade type. The testkit supplies no guessed type property by default.
+The builder passes static evidence across the testkit's dependency boundary. It adds no production test hook.
+No source finding is recorded.
+
+The reviewer also read the saved negative proof at evidence/p3-th1/red-th1-false-2dc7dacf.out.
+P3 changed the constant to false for that focused check. The suite compiled and ran one transcript.
+It failed conf::th_1_core_is_send_not_sync at seed 0, step 0 with the expected type-check mismatch.
+The artifact reports zero passed and one failed. The reviewer ran no check.
+The PR initially called aggregate tier test totals conformance counts. P3 corrected that wording at the unchanged head.
+The reviewer verified the corrected body. No description correction remains open.
+
+### Pending removal and completed evidence
+
+The pending list removes only conf::th_1_core_is_send_not_sync.
+The transcript contains one type_check: send_not_sync step. The replacement map at 0389165 classifies its proof as static.
+Plan 23a permits this static ID to leave pending when the required proof passes. It requires no process fixture.
+The reviewer independently counted the minimum list against both pending lists: base 34/70, head 35/70.
+The gate runs and passes this exact ID. It reports 104 active conformance IDs passed and zero failed.
+The real minimum remains 0/70. The aggregate slow-tier total is not a real-harness conformance count.
+
+Gate: ~/botster-sessions/gates/botster-core-stage1-p3-th1-send-not-sync-2dc7dacf-pool-20261009-154114-17192.log.
+Shared copy: ~/botster-sessions/shared/core-stage1/evidence/p3-th1/gate-2dc7dacf.out.
+The gate names the exact head and base. It runs on msa1, kernel 6.12.111+deb13-amd64.
+All ten CI steps pass. The default tier passes 1152 tests in 6.823 seconds.
+The slow tier passes 249 tests in 10.121 seconds.
+The extended harness proof and conf::th_1_core_is_send_not_sync run and pass in the default tier.
+Signals scan 165 Rust files. Timers scan 149 Rust files.
+The ledger retains 675 IDs: 567 pending, two deferred, two withdrawn, and 104 active.
+The report retains 510 pending and 57 without transcripts.
+Both mutation runs test four mutants: three caught, one unviable, zero missed, and zero timeouts.
+Both runs record a 20-second timeout. The separate run uses NEXTEST_PROFILE=slow.
+The fuzz step passes because the diff changes no crate with a decoder harness.
+Full CI takes 108.9 seconds. Separate mutants take 70.9 seconds. The gate exits 0 after 189 seconds.
+The source adds no real-process fixture, sleep, production reaping change, guard change, or mutation exclusion.
+
+### Verdict and retained scope
+
+PR #202 is CLEAN at `2dc7dacfd90468bc55474ff020ca58312a66cd42` for the package review assigned to the P3 reviewer.
+No package finding remains. Integration requires its own exact-head verdict because the tier is HIGH.
+No NOT CLEAN round or round-limit notice is needed for this PR.
+The lead's accepted 23h assignment sends this pair to P4a next. P3's non-minimum queue stays parked.
+The reviewer read the P4a clause list and inventory. P3 will supply the P4a design note before its first PR.
+#200 retains round 130 CLEAN, integration 80edcf86, and its merge at 3fa51cd2. F70 remains CLOSED.
+F39 remains OPEN for #163's guard merge change and its registration and anchor-owner wait bounds.
+#192 retains F61/F62. Earlier guard, bounded-accept, and process-proof carry items retain their recorded scope.
+The reviewer changed no product code and ran no tests, builds, gates, measurements, or mutants.
+All earlier findings and exact-head verdicts remain preserved.
+
+VERDICT: CLEAN
