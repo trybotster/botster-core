@@ -62,3 +62,33 @@ own.
 
 VERDICT: NOT CLEAN at b1992a0f349466deef5b3aef75ce4b9595a637c2 (1 open: F57 MEDIUM, the package reviewer's finding,
 confirmed here)
+
+## Round 2 — CLEAN on head b9c3ea2a
+
+Reviewed head: `b9c3ea2a8ffbdc6317241de248af24fd053bc720`, two commits on `b1992a0f` (5 files, +215 -9). v1 is `aaac0c0d`,
+and `git merge-tree --write-tree origin/v1 b9c3ea2a` has no conflict. P3's gate log:
+`…-p3-high-tier-paths-b9c3ea2a-pool-20261009-085207-67495.log` (928 default and 243 slow tests, 13 mutants, 13 caught).
+This reviewer did not read it. The tier stays HIGH (rule 1: the list, and now gate code in `xtask`).
+
+- **F57 closed.** The list adds `driver.rs`, `run.rs`, `flows.rs`, `admit.rs` and `engine.rs` of `botster-core-host`, and
+  `botster-guardian-core/src/guardian.rs`, each with its reason. The header now says that a file that decides when or whom
+  to spawn, signal, adopt or reap is listed. `flows.rs` names the session token draw (the round 1 observation). The PR body
+  corrects the fallback claim: once the list exists, new rule-5 code must extend it.
+- **No other process-action file is missing.** A search of production sources for `SignalGroup`, `KillTree`, `Reap` and
+  `Spawn` actions finds only listed files, `core-host/src/io.rs` (the action types only; each dispatch is in the listed
+  `driver.rs`) and the shared crates (rule 3).
+- **`cargo xtask high-tier`** (gate code):
+  - `verdict` reports, per line, an entry with no reason, a glob other than a trailing `/**`, and an entry that matches no
+    tracked file. `matches` takes `<dir>/**` as files under `dir` only (not `dir` itself and not a sibling such as `dx`).
+    Each rule has a unit test.
+  - `outcome` is the pass-or-fail decision, with its own test. `command` is I/O only: it reads the list, calls the existing
+    `fsutil::tracked_files`, and passes the result through `?`. So its `-> Ok(())` exclusion hides no decision.
+  - `the_repository_list_has_no_problem` checks the real list against the walked tree, because the mutants copy has no
+    `.git`.
+  - The step runs in `taint_job`, after `signals`, and it has a `COMMANDS` and usage entry, with the dispatch test.
+
+Condition (the same as #181's, because both PRs change `taint_job`, `COMMANDS` and `.cargo/mutants.toml`): the PR that
+merges second has a conflict, so `base-merge-check` cannot carry this CLEAN to it. That merge needs a new review of the
+conflict resolution (the union) and a full gate on the merge commit.
+
+VERDICT: CLEAN (0 open) at b9c3ea2a8ffbdc6317241de248af24fd053bc720
