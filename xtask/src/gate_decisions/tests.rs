@@ -803,7 +803,10 @@ fn a_macro_is_read_only_when_its_path_is_listed() {
         let error = Calls::of(&[("xtask/src/a.rs".to_string(), text.to_string())])
             .unwrap_err()
             .to_string();
-        assert!(error.lines().any(|line| line == rejected(at, name)), "{text}: {error}");
+        assert!(
+            error.lines().any(|line| line == rejected(at, name)),
+            "{text}: {error}"
+        );
     }
     let io = |text: &str| -> BTreeSet<String> {
         let calls = Calls::of(&[("xtask/src/a.rs".to_string(), text.to_string())]).unwrap();
