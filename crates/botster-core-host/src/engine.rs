@@ -681,6 +681,5 @@ pub(crate) fn new_session(
         payload: None,
         pending_end: None,
         adopting: None,
-        row_state: None,
     }
 }

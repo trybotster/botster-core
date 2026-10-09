@@ -273,6 +273,8 @@ impl HostEngine {
             }
             Op::Adopt { id } => {
                 let admit = self.session_admit(id)?;
+                // A2-1: always admitted for `Lost(WorkerUnreachable)` and `Lost(WorkerVersion)`, whatever path ended the
+                // session; `WrongState` is only for another state (steward ruling R-36, contracts `main` `c62085f`).
                 let adoptable = admit == Lost
                     && matches!(
                         self.sessions.get(id).and_then(|s| s.shown),
@@ -737,10 +739,8 @@ impl HostEngine {
             }
             Op::Adopt { id: session } => {
                 let instance = instance_of(self, &session);
-                let recorded = self.sessions[&session]
-                    .row_state
-                    .expect("an indeterminate Lost keeps the row's intent (End::indeterminate)");
-                self.begin_adoption(id, &session, recorded);
+                // R-36: no intent; the worker's report alone decides the result.
+                self.begin_adoption(id, &session, None);
                 self.ops.insert(
                     id,
                     Self::pending(op, Some(session), instance, Step::Await(Wait::Flow)),

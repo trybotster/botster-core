@@ -196,6 +196,10 @@ impl HostEngine {
                     } else {
                         Admit::Running
                     };
+                    if f.adopted {
+                        // An adoption writes the state that it posts: a retried row records `Lost` until now (R-36).
+                        self.write_final_row(id, SessionState::Running);
+                    }
                     self.set_start_phase(id, StartPhase::Finish);
                 }
             }
@@ -213,12 +217,7 @@ impl HostEngine {
                         }
                         End::Lost(_) => s.admit = Admit::Lost,
                     }
-                    if failure.state.indeterminate() {
-                        // R-35, the retry rule: the row keeps its `Starting` intent, and `Adopt(id)` may retry.
-                        s.row_state = Some(SessionState::Starting);
-                    } else {
-                        self.write_final_row(id, failure.state.state());
-                    }
+                    self.write_final_row(id, failure.state.state());
                     self.set_start_phase(id, StartPhase::Finish);
                 }
             }
@@ -309,7 +308,8 @@ impl HostEngine {
                     f.phase = StopPhase::PostEnd;
                 }
             }
-            Flow::Start(_) => s.pending_end = Some(end),
+            // The adoption posts the row's state first; the end follows it (OR-2; review P5-F25).
+            Flow::Start(_) | Flow::Adopt(_) => s.pending_end = Some(end),
             Flow::Idle => {
                 s.flow = Flow::Stop(StopFlow {
                     phase: StopPhase::PostEnd,
@@ -375,13 +375,7 @@ impl HostEngine {
                         }
                         End::Lost(_) => s.admit = Admit::Lost,
                     }
-                    if end.indeterminate() {
-                        // R-35, the retry rule: the row keeps its `Stopping` intent, so a retry resends the stop or
-                        // finds the payload ended (AD-1).
-                        s.row_state = Some(SessionState::Stopping);
-                    } else {
-                        self.write_final_row(id, state);
-                    }
+                    self.write_final_row(id, state);
                     if let Some(f) = self.stop_flow(id) {
                         f.phase = StopPhase::Finish;
                     }

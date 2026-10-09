@@ -316,7 +316,8 @@ impl HostEngine {
         ticket
     }
 
-    /// The row of the state that a session ended in. No operation waits for it; a failure is counted (`FinalRow`).
+    /// The row of the state that a session ended in, or that an adoption posted. No operation waits for it; a failure is
+    /// counted (`FinalRow`).
     pub(crate) fn write_final_row(&mut self, id: &SessionId, state: SessionState) {
         if self.sessions.contains_key(id) {
             let row = self.row_of(id, state);
@@ -714,7 +715,7 @@ impl HostEngine {
         self.sessions.insert(id.clone(), session);
         let state = match recovery {
             Recovery::Adopt(recorded) => {
-                self.begin_adoption(op, &id, recorded);
+                self.begin_adoption(op, &id, Some(recorded));
                 return;
             }
             Recovery::Post(state) => state,
@@ -755,12 +756,12 @@ impl HostEngine {
         let recovery = match row.state {
             // AD-1: no process exists.
             SessionState::Created => Recovery::Post(SessionState::Created),
-            // Core never writes `Lost(Other)` (R-35 correction `c3ed727`), and it never writes an indeterminate end (the row
-            // keeps its intent: `End::indeterminate`), so such a row is a corrupt record.
-            SessionState::Lost(
-                LostReason::Other | LostReason::WorkerUnreachable | LostReason::WorkerVersion,
-            ) => Recovery::Post(SessionState::Lost(LostReason::RegistryCorrupt)),
-            // The row recorded the end.
+            // Core never writes `Lost(Other)` (R-35 correction `c3ed727`), so such a row is a corrupt record.
+            SessionState::Lost(LostReason::Other) => {
+                Recovery::Post(SessionState::Lost(LostReason::RegistryCorrupt))
+            }
+            // The row recorded the end. `Adopt(id)` may retry a `Lost(WorkerUnreachable)` or `Lost(WorkerVersion)` row
+            // with the worker's identity that it keeps (steward ruling R-36, contracts `main` `c62085f`).
             SessionState::Lost(reason) => Recovery::Post(SessionState::Lost(reason)),
             // AD-1: a start that never recorded its worker.
             SessionState::Starting if session.worker.identity.is_none() => {
