@@ -459,6 +459,28 @@ fn an_unanswered_adoption_is_unreachable_at_the_startup_deadline() {
     assert!(again.signals.is_empty());
 }
 
+/// Core LC-9, AD-2: the row of a running session records its worker's protocol. A new host that never reads the worker's
+/// hello does not show that protocol: the session is `Lost(WorkerUnreachable)` with no protocol.
+#[test]
+fn an_unanswered_adoption_drops_the_protocol_that_the_row_recorded() {
+    let mut first = World::default();
+    first.ok(create("s"));
+    first.ok(Op::Start { id: sid("s") });
+    let row = Row::decode(&sid("s"), &first.rows[&row_key("s")]).expect("the row decodes");
+    assert_eq!(row.worker_protocol, Some(HELLO_PROTOCOL));
+    let mut again = with_endpoint(&first, "s", None);
+    let adopt = again.engine.begin(Op::AdoptAll).unwrap();
+    again.pump();
+    let startup = again.engine.cfg.limits.startup;
+    again.advance(startup);
+    let events = again.until(|e| matches!(e, Event::Completed { op, .. } if *op == adopt));
+    assert_eq!(
+        states_of(&events, "s"),
+        vec![SessionState::Lost(LostReason::WorkerUnreachable)]
+    );
+    assert_eq!(again.engine.get(&sid("s")).unwrap().worker_protocol, None);
+}
+
 /// Core AD-2; steward ruling R-36 (contracts `main` `c62085f`): an adoption whose link is lost after the `Launch` is
 /// `Lost(WorkerUnreachable)`, and the row records it with the worker's identity. `Adopt(id)` re-reads the worker: its payload
 /// runs, so the session is `Running`, with no second `Launch`, and the row records `Running`.
