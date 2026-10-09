@@ -6815,3 +6815,102 @@ The reviewer changed no product code and ran no tests, builds, measurements, mut
 All earlier findings, closures, and verdict rounds remain preserved at their named heads and scopes.
 
 VERDICT: NOT CLEAN
+
+
+## Round 124 — PR #198 PTY input fixture correction — 2026-10-09
+
+Reviewed head: `8a762ac00a354b032432a5a26963d93c91e0284c`.
+Base: `7aec2bb917f48994d1705301d2383873a219c031`.
+Parent: `02062f1bf34bcbece5affcefdb6e8282deed935d`.
+Previous reviewed head: `fc39fee6be5024df41a0cc937417401100c6303b`, round 123.
+The tier remains HIGH under BUILD.md rule 3 and the lead's PTY scope ruling.
+Authority: BUILD.md rule 5 and testing rule 10; the lead's anchor rulings; plan 23b-23e.
+The reviewer read all five changed files, the shared process owners, worker lifecycle paths, description, and completed gate.
+Round 123 covers the whole input admission change. This correction changes no product code, testkit behavior, counters, or pending IDs.
+
+### F64 — HIGH — Shared-crate migration; CLOSED
+
+The named real-PTY regression now uses GuardedSession, with Guard, OwnedChild, Blocker, Bounded, and Deadline from botster-test-process.
+The workspace and worker dev dependency now name that crate.
+Guard wraps the payload and verifies the anchor's leader against the payload report before launch returns.
+OwnedChild owns and reaps the worker; group mode also cleans the observer group on Drop.
+The test uses Blocker commands for release and hold. It does not use the former sleep to hold the payload.
+Bounded reads the ready and done markers. Close-on-exec prevents inherited FIFO ends from keeping release open.
+The regression checks the cancelled prefix, the resumed following byte, and the exact received bytes.
+It sends Kill, consumes Exited, and then sends Remove. The worker must exit with code 0 within the shared bound.
+GuardedSession releases the payload anchor before its fields drop; the worker ends before Guard reads the cleanup result.
+Production keeps payload reaping. The fixture copies no process guard or cleanup implementation.
+Both named slow-tier tests pass at this exact head. The description now names the actual shared owners.
+These changes close the migration finding. F66 below records a separate missing parent-death path in the new fixture.
+
+The lead's handoff explicitly accepts the temporary bounded-accept loop at this head.
+The listener is nonblocking. A real poll waits for readiness within Deadline::cleanup; EINTR retries use the remaining time.
+This loop is not a sleep or busy poll. The accepted carry remains required:
+The second of #181 and #198 to land adds one temporary allow entry.
+P6's next crate PR adds bounded accept, removes that entry, and moves this regression to that function.
+The reviewer does not treat this accepted carry as a finding or BLOCKED state.
+
+### F65 — MEDIUM — Structured I/O-shell citations; CLOSED
+
+Both new reasons now use the required decision (proof_a, proof_b) form.
+Driver::write_pty_once cites io_decisions::pty_write with the pure result test and the named real-PTY regression.
+Driver::set_pty_write_interest cites io_decisions::pty_write_interest with the pure interest test and the same real regression.
+The exact-head gate selects the pure tests and both slow regression binaries. The pure decisions remain mutation-tested.
+No gate-decision function is excluded. Plan 23c/23d's citation requirement is satisfied.
+
+### F66 — HIGH — New fixture leaves the worker or observer alive after test-parent death; OPEN
+
+This is integration R2-1, independently confirmed by the package reviewer.
+At crates/botster-worker/tests/common/session.rs:618-628, GuardedSession starts the observer directly with OwnedChild::spawn_group.
+The other branch starts the worker directly with OwnedChild::spawn.
+OwnedChild::start calls Command::spawn and stores the child. OwnedChild::Drop performs its cleanup.
+OwnedChild does not start an anchor or another owner that survives test-parent death.
+GuardedSession's Guard wraps only the payload; that anchor owns the payload group, not the worker or observer group.
+Test-parent death skips Rust Drop. The control socket closes, but DP-8 intentionally preserves the worker after LinkClosed.
+The worker's payload-exit and drain paths report the exit; they do not request worker exit without Remove or Terminate.
+Thus the payload anchor does not supply worker or observer cleanup when the test parent dies.
+BUILD.md testing rule 10 requires cleanup on every exit path. The lead's ruling explicitly includes test-parent death.
+The existing parent_death_ends_the_driver_observer proof starts the legacy Session fixture, not GuardedSession.
+Its passing result does not prove cleanup for the new fixture.
+
+Required correction: use shared-crate ownership that survives test-parent death for the new worker and observer paths.
+Ask P6 for a missing shared capability. Do not copy local guard or cleanup infrastructure.
+Keep the payload anchor, identity checks, group reservation, exact reaping, and current deadline rules.
+Add a bounded parent-death proof that exercises the new fixture and observes cleanup of its worker or observer.
+Provide the completed exact-head gate. The reviewer sent F66 directly to P3 and integration.
+No lead decision is needed to continue this correction.
+
+### Completed evidence and whole-change scope
+
+Log: `~/botster-sessions/gates/botster-core-stage1-p3-pty-input-8a762ac0-pool-20261009-125251-39706.log`.
+The log names this exact head and base. It runs on gaming, kernel 6.18.40.1-microsoft-standard-WSL2.
+All ten CI steps pass. The default tier passes 1040 tests in 5.046 seconds.
+The slow tier passes 245 tests in 10.244 seconds.
+The named real-PTY regression passes in the integration binary in 0.020 seconds and driver binary in 0.022 seconds.
+The new testkit behavior tests and pure driver decision tests pass.
+Signals scan 162 Rust files. Timers scan 146 Rust files.
+The ledger has 675 IDs: 625 pending, two deferred, two withdrawn, and 46 active. All 46 active IDs pass.
+The report retains 568 pending and 57 IDs without transcripts.
+Both mutation runs test 118 mutants: 108 caught, ten unviable, zero missed, and zero timeouts.
+The separate mutation command uses NEXTEST_PROFILE=slow. The log sets the mutation timeout to 20 seconds.
+Fuzz has no changed decoder harness. Full CI takes 264.4 seconds; separate mutants take 226.9 seconds.
+The gate exits 0 after 501 seconds. These results do not prove the missing parent-death path.
+
+Round 123's product source coverage remains applicable because the correction changes no product code.
+The thirteen pending removals remain supported; the minimum counts remain testkit 28/70 and real 0/70.
+Part B and the later terminal and route duties remain outside this PR's scope.
+Integration records NOT CLEAN at this head in verdict commit `893501ccf485b6a664705fa8d0c08aee5f61d21e`.
+
+### Verdict and retained duties
+
+PR #198 is NOT CLEAN at `8a762ac00a354b032432a5a26963d93c91e0284c` for the P3 package review.
+F64 and F65 are CLOSED. F66 HIGH is OPEN. This is #198's second recorded NOT CLEAN round.
+No round-limit notice is due. Normal findings go to P3 and integration; they are not BLOCKED reports to the lead.
+The named real-PTY proof has moved to the shared crate and passes, but its parent-death ownership needs correction before merge.
+This verdict does not change #168's original head verdict or authorize merging that original PR.
+#197 retains round 122 CLEAN and its merge at 7aec2bb9. #195 retains round 121 CLEAN with F63 closed.
+#192 retains round 117 NOT CLEAN with F61 and F62 open. Part B retains F39 and its other recorded duties.
+The reviewer changed no product code and ran no tests, builds, measurements, mutants, or gates.
+All earlier findings and verdict rounds remain preserved at their named heads and scopes.
+
+VERDICT: NOT CLEAN
