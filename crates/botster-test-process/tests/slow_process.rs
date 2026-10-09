@@ -223,6 +223,31 @@ fn the_guard_ends_the_group_and_production_still_reaps_its_own_child() {
     eof(rest.into_inner());
 }
 
+/// Other crates build their guard with `Guard::new`, which runs the anchor that `cargo xtask prebuild-worker` installs in
+/// `target/candidate`; the slow tier runs after that step. The installed anchor holds a wrapped program's group and reports
+/// it, as the anchor of this crate does.
+#[test]
+fn the_prebuilt_anchor_of_guard_new_holds_the_group_of_a_wrapped_program() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut blocker = Blocker::new(dir.path(), "block").unwrap();
+    let mut guard = Guard::new(dir.path()).unwrap();
+    let mut production = start(
+        &guard,
+        dir.path(),
+        Path::new("/bin/sh"),
+        &["-c", &blocker.shell()],
+    );
+    let report = one_anchor(&mut guard);
+    let leader = production.id();
+    assert_eq!((report.leader.pid, report.group), (leader, leader));
+    blocker.send(b"up\n").unwrap();
+    let (rest, line) = first_line(production.stdout.take().unwrap());
+    assert_eq!(line, "up\n");
+    drop(guard);
+    assert_eq!(production_reap(&mut production).signal(), Some(KILL));
+    eof(rest.into_inner());
+}
+
 /// With a grace, the anchor first sends `TERM`: the members end by it within the grace, and no `KILL` reaches them.
 #[test]
 fn a_grace_ends_the_members_by_term() {
