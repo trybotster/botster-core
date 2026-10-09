@@ -3,8 +3,8 @@
 //!
 //! A key is `<kind>/<id>`. The kind is a directory of the registry. The id is encoded as lowercase base32 with no padding, and
 //! the code is cut into components of [`COMPONENT_CHARS`] characters: every component but the last is a directory, and the
-//! last one, with [`ROW_SUFFIX`], is the row file. So any id fits, whatever its length (`CoreLimits.max_session_id_bytes` has
-//! no upper bound), and a path that decodes names exactly one key.
+//! last one, with [`ROW_SUFFIX`], is the row file. So no `NAME_MAX` limits an id, whatever its length
+//! (`CoreLimits.max_session_id_bytes` has no upper bound), and a path that decodes names exactly one key.
 //!
 //! A name that does not decode this way was not written by Core: it is not a row.
 
@@ -155,5 +155,27 @@ mod tests {
         assert!(row_path("no-kind").is_none());
         assert!(is_dir_component(&full));
         assert!(!is_dir_component("abc"));
+    }
+
+    /// The cut is part of the name: a code that decodes is still not a row when it is cut in another place than
+    /// [`row_path`] cuts it. A short directory component is refused even when the joined code names a key, and so is a last
+    /// component above [`COMPONENT_CHARS`] even when there is no directory.
+    #[test]
+    fn a_code_cut_in_another_place_is_not_a_row() {
+        let short = BASE32.encode(b"ab");
+        let (dir, last) = short.split_at(2);
+        assert_eq!(
+            key_of("session", &[], &format!("{short}{ROW_SUFFIX}")).as_deref(),
+            Some("session/ab"),
+            "the same code, cut as row_path cuts it"
+        );
+        assert_eq!(
+            key_of("session", &[dir], &format!("{last}{ROW_SUFFIX}")),
+            None
+        );
+
+        let long = BASE32.encode(&[b'a'; 130]);
+        assert!(long.len() > COMPONENT_CHARS);
+        assert_eq!(key_of("session", &[], &format!("{long}{ROW_SUFFIX}")), None);
     }
 }

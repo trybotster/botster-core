@@ -429,11 +429,11 @@ impl HostEngine {
             .inflight
             .clear();
         for (_, op) in inflight {
-            let result = match self.ops.get(&op).map(|p| &p.op) {
-                Some(Op::WriteInput { payload, .. }) => {
+            let result = match self.ops.get(&op) {
+                Some(pending) if matches!(pending.op, Op::WriteInput { .. }) => {
                     OpResult::Ok(OpOutput::Input(InputResult {
                         outcome: WriteOutcome::Unknown {
-                            max_payload_bytes: Self::held_bytes(payload),
+                            max_payload_bytes: pending.held_bytes,
                         },
                         payload_bytes_written: 0,
                         pty_bytes_written: 0,
