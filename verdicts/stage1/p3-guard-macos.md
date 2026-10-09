@@ -570,3 +570,21 @@ head `47ae53a7`; 168 run, 168 passed (`a_panic_ends_the_payload_while_it_waits_f
   behind. Under the lead's 2026-10-08 flow each reviewer sends its own CLEAN.
 
 VERDICT: CLEAN (0 open) at 47ae53a79b95e5499b8548c456a2fbaceacba992
+
+## Round 16 — CLEAN on head 29b37890 (timer marker after rustfmt)
+
+Reviewed head: `29b37890efeffa4410d7dfc34f5c2344bfad1ba4`. Delta `47ae53a7..29b37890`, one commit, one moved comment line in
+`guard_cleanup.rs` (`a_kill_goes_out_only_while_the_reserve_holds_the_group`). Cause: #162's combined Linux gate failed
+its taint step, because rustfmt had split `writer.recv_timeout(CLEANUP)` and the `timer: deadline` marker was then two
+lines above the timed call. This reviewer ran no build, test or gate.
+
+- The marker now sits inside the chain, directly above `.recv_timeout(CLEANUP)`. No code changes.
+- Evidence: the static Linux pool run at this head
+  (`~/botster-sessions/gates/botster-core-stage1-p3-guard-macos-29b37890-pool-20261008-210034-20788.log`): command
+  `cargo fmt --all -- --check && cargo xtask ci --job taint && cargo xtask ci --job lists`; taint PASS ("timers: 111 Rust
+  files scanned"), lists PASS, exit 0. The taint step is the mechanical check for this pattern, and it covers every file.
+- Process note (no finding): the focused Mac runs of rounds 12-15 ran clippy and the slow tests, but not fmt or taint, so
+  this was first seen in the full gate. A focused run of a test-only change should include `--job taint`.
+- All earlier findings stay closed as ticked in round 15.
+
+VERDICT: CLEAN (0 open) at 29b37890efeffa4410d7dfc34f5c2344bfad1ba4
