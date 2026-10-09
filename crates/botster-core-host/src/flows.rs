@@ -213,11 +213,7 @@ impl HostEngine {
                         }
                         End::Lost(_) => s.admit = Admit::Lost,
                     }
-                    let indeterminate = matches!(
-                        failure.state,
-                        End::Lost(LostReason::WorkerUnreachable | LostReason::WorkerVersion)
-                    );
-                    if f.adopted && indeterminate {
+                    if failure.state.indeterminate() {
                         // R-35, the retry rule: the row keeps its `Starting` intent, and `Adopt(id)` may retry.
                         s.row_state = Some(SessionState::Starting);
                     } else {
@@ -379,7 +375,13 @@ impl HostEngine {
                         }
                         End::Lost(_) => s.admit = Admit::Lost,
                     }
-                    self.write_final_row(id, state);
+                    if end.indeterminate() {
+                        // R-35, the retry rule: the row keeps its `Stopping` intent, so a retry resends the stop or
+                        // finds the payload ended (AD-1).
+                        s.row_state = Some(SessionState::Stopping);
+                    } else {
+                        self.write_final_row(id, state);
+                    }
                     if let Some(f) = self.stop_flow(id) {
                         f.phase = StopPhase::Finish;
                     }

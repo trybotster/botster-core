@@ -283,14 +283,6 @@ impl HostEngine {
                 if !adoptable {
                     return Err(wrong_state("Adopt", id, admit));
                 }
-                // The retry needs the row's intent (R-35, the retry rule). Only an adoption of this handle keeps it: a
-                // `Lost(WorkerUnreachable)` of the stop path, or a row that recorded `Lost`, has none.
-                if self.sessions.get(id).and_then(|s| s.row_state).is_none() {
-                    return Err(err(
-                        ErrorCode::Unsupported { what: None },
-                        "a Lost session that no adoption of this handle reached has no recorded intent to retry",
-                    ));
-                }
                 Ok(())
             }
             Op::SpawnService { .. } | Op::EndEpoch { .. } => Err(err(
@@ -747,7 +739,7 @@ impl HostEngine {
                 let instance = instance_of(self, &session);
                 let recorded = self.sessions[&session]
                     .row_state
-                    .expect("Adopt is admitted only with the row's kept intent");
+                    .expect("an indeterminate Lost keeps the row's intent (End::indeterminate)");
                 self.begin_adoption(id, &session, recorded);
                 self.ops.insert(
                     id,

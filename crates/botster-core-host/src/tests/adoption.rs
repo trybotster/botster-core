@@ -270,6 +270,11 @@ fn an_exited_row_with_a_live_worker_adopts_exited_with_its_exit() {
         first.rows[&row_key("s")],
         "the row records this end already"
     );
+    // ST-5 (review P5-F23): the final-model worker keeps its link, so the adopted session serves reads.
+    assert!(matches!(
+        again.ok(Op::ReadModeFlags { session: sid("s") }),
+        OpOutput::Modes(_)
+    ));
 }
 
 /// Steward ruling R-35 (c): a `Stopping` row with no payload ends `Exited{cause: HostStop}` with no code and no signal, and
@@ -612,6 +617,11 @@ fn a_starting_row_whose_payload_ended_adopts_exited_and_writes_it() {
     assert_eq!(states_of(&events, "s"), vec![exited]);
     let row = Row::decode(&sid("s"), &again.rows[&row_key("s")]).unwrap();
     assert_eq!(row.state, exited);
+    // ST-5 (review P5-F23): the worker keeps the final model, and its link stays.
+    assert!(matches!(
+        again.ok(Op::ReadModeFlags { session: sid("s") }),
+        OpOutput::Modes(_)
+    ));
 }
 
 /// Core AD-1, LC-5: a `Stopping` row whose payload ended is `Exited{cause: HostStop}` with the reported signal.
@@ -703,12 +713,14 @@ fn an_adopted_state_waits_for_queue_room() {
     assert_eq!(states_of(&events, "a"), vec![SessionState::Running]);
 }
 
-/// Core AD-1, AD-2: a row that recorded its end posts it; a recorded `Lost(Other)`, which Core never writes, and a row with a
-/// worker identity but no token are corrupt records (R-35 correction `c3ed727`). None of them is probed or connected.
+/// Core AD-1, AD-2: a row that recorded its end posts it. A recorded `Lost(Other)` or indeterminate `Lost`, which Core never
+/// writes, and a row with a worker identity but no token are corrupt records (R-35 correction `c3ed727`). None of them is
+/// probed or connected.
 #[test]
 fn recorded_ends_and_inconsistent_rows_post_without_a_handshake() {
     let mut first = crashed_before_launch("gone");
-    for name in ["other", "tokenless"] {
+    let corrupt = ["other", "unreachable", "version", "tokenless"];
+    for name in corrupt {
         first.ok(create(name));
         let template = first.rows[&row_key("gone")].clone();
         let mut row = Row::decode(&sid("gone"), &template).unwrap();
@@ -723,6 +735,12 @@ fn recorded_ends_and_inconsistent_rows_post_without_a_handshake() {
     rewrite_row(&mut first, "other", |row| {
         row.state = SessionState::Lost(LostReason::Other)
     });
+    rewrite_row(&mut first, "unreachable", |row| {
+        row.state = SessionState::Lost(LostReason::WorkerUnreachable)
+    });
+    rewrite_row(&mut first, "version", |row| {
+        row.state = SessionState::Lost(LostReason::WorkerVersion)
+    });
     rewrite_row(&mut first, "tokenless", |row| row.token = None);
     let mut again = World::over(&first);
     let events = adopt_all(&mut again);
@@ -730,7 +748,7 @@ fn recorded_ends_and_inconsistent_rows_post_without_a_handshake() {
         states_of(&events, "gone"),
         vec![SessionState::Lost(LostReason::WorkerGone)]
     );
-    for name in ["other", "tokenless"] {
+    for name in corrupt {
         assert_eq!(
             states_of(&events, name),
             vec![SessionState::Lost(LostReason::RegistryCorrupt)],
@@ -738,4 +756,134 @@ fn recorded_ends_and_inconsistent_rows_post_without_a_handshake() {
         );
     }
     assert!(again.connects.is_empty());
+}
+
+/// A running session whose stop meets a broken link (LC-5): `stop_grace` ends it `Lost(WorkerUnreachable)`.
+fn stopped_with_a_broken_link() -> World {
+    let mut w = World::new(limits(|l| l.stop_grace = Duration::from_millis(100)));
+    w.autopilot = Autopilot::Silent;
+    w.running("s");
+    let link = w.link_of("s");
+    w.feed(Input::LinkClosed { link });
+    let stop = w.engine.begin(Op::Stop { id: sid("s") }).unwrap();
+    w.pump();
+    w.advance(Duration::from_millis(100));
+    assert!(matches!(
+        w.complete(stop),
+        OpResult::Ok(OpOutput::End(SessionEnd::Lost(
+            LostReason::WorkerUnreachable
+        )))
+    ));
+    w
+}
+
+/// Puts a scripted worker at the endpoint of `name` on this handle.
+fn endpoint_here(w: &mut World, name: &str, payload: AdoptedPayload) {
+    let (instance, token) = (w.instance_of(name), w.token_of(name));
+    w.endpoints.insert(
+        instance,
+        Endpoint {
+            token,
+            protocol: HELLO_PROTOCOL,
+            payload: Some(payload),
+        },
+    );
+}
+
+/// Core AD-2, LC-5; R-35, the retry rule (integration A1): the stop path's `Lost(WorkerUnreachable)` never rewrites the row,
+/// which keeps `Stopping`. `Adopt(id)` of a payload that runs adopts `Stopping` and resends the stop.
+#[test]
+fn a_retry_after_a_broken_link_stop_resends_the_stop() {
+    let mut w = stopped_with_a_broken_link();
+    let row = Row::decode(&sid("s"), &w.rows[&row_key("s")]).unwrap();
+    assert_eq!(
+        row.state,
+        SessionState::Stopping,
+        "no row records the indeterminate end"
+    );
+    endpoint_here(&mut w, "s", running_payload());
+    let stops_before = w
+        .sent
+        .iter()
+        .filter(|(_, m)| matches!(m, HostMsg::Stop))
+        .count();
+    let record = match w.ok(Op::Adopt { id: sid("s") }) {
+        OpOutput::Record(record) => record,
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(record.state, SessionState::Stopping);
+    let link = w.link_of("s");
+    assert!(
+        w.sent
+            .iter()
+            .skip(stops_before)
+            .any(|(l, m)| *l == link && matches!(m, HostMsg::Stop)),
+        "AD-1: the stop is sent again on the new link"
+    );
+    assert_eq!(launches(&w), 0);
+}
+
+/// Core AD-1, AD-2; R-35, the retry rule (integration A1): after the stop path's `Lost(WorkerUnreachable)`, a retry that
+/// finds the payload ended is `Exited{cause: HostStop}`, and that end is written.
+#[test]
+fn a_retry_after_a_broken_link_stop_finds_the_payload_ended() {
+    let mut w = stopped_with_a_broken_link();
+    endpoint_here(
+        &mut w,
+        "s",
+        AdoptedPayload::Exited {
+            code: None,
+            signal: Some(9),
+        },
+    );
+    let record = match w.ok(Op::Adopt { id: sid("s") }) {
+        OpOutput::Record(record) => record,
+        other => panic!("{other:?}"),
+    };
+    let exited = SessionState::Exited(Exit {
+        code: None,
+        signal: Some(9),
+        cause: ExitCause::HostStop,
+    });
+    assert_eq!(record.state, exited);
+    let row = Row::decode(&sid("s"), &w.rows[&row_key("s")]).unwrap();
+    assert_eq!(row.state, exited);
+}
+
+/// Core AD-4, AD-2; R-35, the retry rule (integration A1): a start whose worker announces a protocol outside the set is
+/// `Lost(WorkerVersion)`, the row keeps `Starting`, and `Adopt(id)` is admitted. The start ended that worker, so the retry
+/// finds it gone.
+#[test]
+fn a_start_lost_to_the_worker_version_keeps_its_intent_for_a_retry() {
+    let mut w = World::default();
+    w.autopilot = Autopilot::Silent;
+    w.ok(create("s"));
+    let start = w.engine.begin(Op::Start { id: sid("s") }).unwrap();
+    w.pump();
+    let (token, instance) = (w.token_of("s"), w.instance_of("s"));
+    w.feed(Input::LinkHello {
+        link: LinkId(90),
+        hello: Hello {
+            protocol: 9,
+            instance: instance.clone(),
+            proof: token_proof(&token, &instance, 7),
+            host_epoch: 7,
+        },
+    });
+    w.complete(start);
+    assert_eq!(
+        w.engine.get(&sid("s")).unwrap().state,
+        SessionState::Lost(LostReason::WorkerVersion)
+    );
+    let row = Row::decode(&sid("s"), &w.rows[&row_key("s")]).unwrap();
+    assert_eq!(
+        row.state,
+        SessionState::Starting,
+        "no row records the indeterminate end"
+    );
+    let record = match w.ok(Op::Adopt { id: sid("s") }) {
+        OpOutput::Record(record) => record,
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(record.state, SessionState::Lost(LostReason::WorkerGone));
 }

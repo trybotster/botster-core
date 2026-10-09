@@ -338,10 +338,20 @@ fn a_started_payload_is_reported_launched_with_its_identity() {
 }
 
 /// AD-7, R-35: a worker accepts at most one `Launch` in its life, so an adoption retry that sends a `Launch` again can never
-/// spawn a second payload. A `Launch` after the payload runs, after it exited, and after its spawn failed starts nothing.
+/// spawn a second payload. A `Launch` while the first spawn is in flight (R-35 (b)), after the payload runs, after it exited,
+/// and after its spawn failed starts nothing.
 #[test]
 fn a_worker_accepts_one_launch_in_its_life() {
     let launch = || HostMsg::Launch(Box::new(spec()));
+    let mut spawning = World::linked();
+    assert_ne!(spawning.send(&launch()), [], "the first Launch spawns");
+    assert_eq!(spawning.send(&launch()), [], "the spawn is in flight");
+    let actions = spawning.feed(Input::Spawned(Ok(PAYLOAD)));
+    assert_eq!(
+        spawning.reports(&actions).len(),
+        1,
+        "one spawn answers one Launch"
+    );
     let mut running = World::running();
     assert_eq!(running.send(&launch()), [], "running");
     let (mut exited, _) = World::exited(ExitStatus::Code(0));

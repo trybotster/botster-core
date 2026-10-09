@@ -47,6 +47,15 @@ impl End {
         }
     }
 
+    /// `Lost(WorkerUnreachable)` or `Lost(WorkerVersion)`: a live worker may remain, so `Adopt(id)` may retry (AD-2). Such
+    /// an end is never written to the row: the row keeps the intent that the retry needs (R-35, the retry rule).
+    pub fn indeterminate(self) -> bool {
+        matches!(
+            self,
+            End::Lost(LostReason::WorkerUnreachable | LostReason::WorkerVersion)
+        )
+    }
+
     /// The end that a shown state names, or `None` for a state that is not an end.
     pub fn of(state: SessionState) -> Option<End> {
         match state {

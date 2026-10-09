@@ -282,14 +282,15 @@ impl HostEngine {
         });
     }
 
-    /// The adoption ends in `end`. A link that it made is closed (and the reason recorded) unless `why` is empty and no
-    /// link is open.
+    /// The adoption ends in `end`. An end with a worker (`Running`, `Exited`) keeps the authenticated link: an `Exited`
+    /// session stays readable from its final-model worker until `Remove` (AD-1, ST-5; review P5-F23). A `Lost` end
+    /// closes the link that the adoption made, and records `why`.
     pub(crate) fn adopt_end(&mut self, id: &SessionId, end: End, why: &str) {
         self.adopt_end_with(id, end.state(), why);
     }
 
     fn adopt_end_with(&mut self, id: &SessionId, state: SessionState, why: &str) {
-        if state != SessionState::Running {
+        if matches!(state, SessionState::Lost(_)) {
             let why = if why.is_empty() {
                 "the adoption ended without the worker (AD-2)"
             } else {
@@ -339,10 +340,7 @@ impl HostEngine {
             SessionState::Lost(reason) => {
                 s.admit = Admit::Lost;
                 // R-35, the retry rule: an indeterminate end never rewrites the row, and a retry has its intent.
-                if matches!(
-                    reason,
-                    LostReason::WorkerUnreachable | LostReason::WorkerVersion
-                ) {
+                if End::Lost(reason).indeterminate() {
                     s.row_state = Some(f.recorded);
                 }
             }
