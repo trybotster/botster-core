@@ -129,9 +129,11 @@ pub struct Workers {
     sessions: Arc<Mutex<BTreeMap<String, BTreeMap<SessionId, WorkerKey>>>>,
     /// The worker process of each session instance, for the process controls.
     worker_processes: Arc<Mutex<BTreeMap<WorkerKey, WorkerProcess>>>,
-    /// The endpoint of each live worker of the run (DESIGN.md parts 1, 6): bound at the spawn, before the first hello, and
-    /// gone when the worker ends. Every handle of the run reaches it, as a path in one file system.
-    endpoints: Arc<Mutex<BTreeMap<WorkerKey, Endpoint>>>,
+    /// The endpoint of each worker of the run (DESIGN.md parts 1, 6): bound at the spawn, before the first hello. A worker
+    /// that exits removes its own. A killed worker cannot: its endpoint stays as `None`, a socket file that no worker
+    /// listens on, until the host's `Remove` or a cleaner removes it. Every handle of the run reaches it, as a path in one
+    /// file system.
+    endpoints: Arc<Mutex<BTreeMap<WorkerKey, Option<Endpoint>>>>,
 }
 
 impl std::fmt::Debug for Workers {
@@ -200,13 +202,23 @@ impl Workers {
         true
     }
 
-    /// A cleaner removes the endpoint of the session's live worker (DESIGN.md part 1): the worker keeps running, and a new
-    /// host's connect fails. Returns false when the session has no endpoint.
+    /// A cleaner removes the endpoint of the session's worker (DESIGN.md part 1): a live worker keeps running, and a new
+    /// host's connect fails. Returns false when the session has no endpoint (it was never bound, or it was removed).
     pub fn unlink_endpoint(&self, handle: &str, session: &SessionId) -> bool {
         let Some(key) = self.key_of(handle, session) else {
             return false;
         };
         lock(&self.endpoints).remove(&key).is_some()
+    }
+
+    /// A process of this user that is not a host connects to the endpoint of the session's live worker (AD-6: the endpoint
+    /// is closed to other users only). The test holds the connection's other end. `None` when no worker listens there.
+    pub fn connect_endpoint(&self, handle: &str, session: &SessionId) -> Option<LinkEnd> {
+        let key = self.key_of(handle, session)?;
+        let endpoint = lock(&self.endpoints).get(&key).cloned().flatten()?;
+        let (stranger, worker) = crate::net::link_pair(self.read_chunk);
+        lock(&endpoint).push_back(worker);
+        Some(stranger)
     }
 
     /// The controls of the payload of the session `session` of the handle `handle`.
@@ -295,7 +307,7 @@ impl Spawner for WorkerSpawner {
         lock(&self.workers.run_processes)
             .insert(id, (Arc::clone(&cell), Arc::clone(&self.processes)));
         let endpoint = Endpoint::default();
-        lock(&self.workers.endpoints).insert(key.clone(), Arc::clone(&endpoint));
+        lock(&self.workers.endpoints).insert(key.clone(), Some(Arc::clone(&endpoint)));
         let link = connect();
         let worker = Worker::new(WorkerConfig {
             startup: spec.startup,
@@ -378,7 +390,7 @@ impl Spawner for WorkerSpawner {
     /// A worker of this data directory that lives listens on its endpoint.
     fn connect_worker(&mut self, instance: &InstanceId, end: LinkEnd) -> bool {
         let key: WorkerKey = (self.data_dir.clone(), instance.clone());
-        let Some(endpoint) = lock(&self.workers.endpoints).get(&key).cloned() else {
+        let Some(endpoint) = lock(&self.workers.endpoints).get(&key).cloned().flatten() else {
             return false;
         };
         lock(&endpoint).push_back(end);
@@ -452,9 +464,9 @@ struct WorkerEdges {
     /// The inputs counted by the last `ready`.
     ready: Vec<Ready>,
     read_chunk: usize,
-    /// This worker's endpoint, and the run's table of endpoints (the worker's end removes its own).
+    /// This worker's endpoint, and the run's table of endpoints (the worker's exit removes its own).
     endpoint: Endpoint,
-    endpoints: Arc<Mutex<BTreeMap<WorkerKey, Endpoint>>>,
+    endpoints: Arc<Mutex<BTreeMap<WorkerKey, Option<Endpoint>>>>,
     /// The accepted connections whose hello has not passed.
     candidates: BTreeMap<CandidateId, LinkEnd>,
     next_candidate: u64,
@@ -462,15 +474,22 @@ struct WorkerEdges {
 
 impl WorkerEdges {
     /// The end of the worker process: the OS closes its descriptors, so its link, its endpoint and every connection on it
-    /// close, and its payload's PTY is gone.
-    fn ended(&mut self) {
+    /// close, and its payload's PTY is gone. A worker that exits (`exited`) removes its endpoint; a killed one leaves it,
+    /// and no worker listens on it.
+    fn ended(&mut self, exited: bool) {
         if self.link_open {
             self.link_open = false;
             self.link.close();
         }
         self.outbound.clear();
         self.payload = None;
-        lock(&self.endpoints).remove(&self.key);
+        let mut endpoints = lock(&self.endpoints);
+        if exited {
+            endpoints.remove(&self.key);
+        } else if let Some(endpoint) = endpoints.get_mut(&self.key) {
+            *endpoint = None;
+        }
+        drop(endpoints);
         for mut end in std::mem::take(&mut *lock(&self.endpoint)) {
             end.close();
         }
@@ -533,7 +552,7 @@ impl Binding<Worker> for WorkerEdges {
     fn ready(&mut self, _now: Instant, _machine: &Worker) -> usize {
         self.ready.clear();
         if lock(&self.cell).ended {
-            self.ended();
+            self.ended(false);
             return 0;
         }
         if std::mem::take(&mut lock(&self.cell).break_link) && self.link_open {
@@ -737,7 +756,7 @@ impl Binding<Worker> for WorkerEdges {
             Action::ReapPayload => self.payload = None,
             Action::Exit => {
                 lock(&self.processes).end(self.id, ExitStatus::Code(0));
-                self.ended();
+                self.ended(true);
             }
             Action::CandidateClose(id) => {
                 if let Some(mut end) = self.candidates.remove(&id) {

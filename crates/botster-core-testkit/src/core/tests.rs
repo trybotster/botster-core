@@ -150,6 +150,7 @@ struct ProcessLog {
     spawns: Vec<WorkerSpawn>,
     signals: Vec<(ProcessIdentity, GroupSignal)>,
     exits: VecDeque<(ProcessIdentity, ExitStatus)>,
+    unlinks: Vec<InstanceId>,
 }
 
 struct RecordedSpawner(Arc<Mutex<ProcessLog>>);
@@ -180,6 +181,15 @@ impl Spawner for RecordedSpawner {
 
     fn poll_exit(&mut self) -> Option<(ProcessIdentity, ExitStatus)> {
         lock(&self.0).exits.pop_front()
+    }
+
+    /// The log's processes bind no endpoint: no worker listens there.
+    fn connect_worker(&mut self, _instance: &InstanceId, _end: LinkEnd) -> bool {
+        false
+    }
+
+    fn remove_endpoint(&mut self, instance: &InstanceId) {
+        lock(&self.0).unlinks.push(instance.clone());
     }
 }
 
@@ -215,6 +225,11 @@ fn each_spawn_has_its_own_link_and_process_events_reach_the_spawner() {
         Some((ids[1], ExitStatus::Signal(9)))
     );
     assert_eq!(edges.poll_process_exit(), None);
+    // DESIGN.md parts 1 and 6: a connect where no worker listens is no link, and the removal of an endpoint reaches the
+    // spawner.
+    assert_eq!(edges.connect_worker(&spec.instance), None);
+    edges.remove_endpoint(&spec.instance);
+    assert_eq!(lock(&log).unlinks, vec![spec.instance.clone()]);
 }
 
 /// LC-2, LC-12, and DP-8: dropping the host releases the directory, retains rows, and advances the epoch.
@@ -890,10 +905,21 @@ fn handle_over(
     workers: &crate::worker::Workers,
     scheduler: &SchedulerHandle,
 ) -> crate::worker::TestkitCore {
+    handle_with(dirs, dir, workers, scheduler, CoreLimits::default())
+}
+
+/// [`handle_over`] with the limits `limits`.
+fn handle_with(
+    dirs: &mut Directories,
+    dir: &str,
+    workers: &crate::worker::Workers,
+    scheduler: &SchedulerHandle,
+    limits: CoreLimits,
+) -> crate::worker::TestkitCore {
     let config = OpenConfig {
         data_dir: dir.into(),
         worker_path: Some("worker".into()),
-        limits: CoreLimits::default(),
+        limits,
     };
     let opened = dirs
         .open(
@@ -987,5 +1013,213 @@ fn a_reopened_handle_adopts_the_running_worker_through_its_endpoint() {
             } if *op == stop
         )),
         "{events:?}"
+    );
+}
+
+/// Creates the session `id` running `program` on `core`, and starts it.
+fn create_and_start(core: &mut crate::worker::TestkitCore, id: &SessionId, start: Instant) {
+    core.begin(Op::Create {
+        session: id.clone(),
+        request: SpawnRequest {
+            argv: vec!["program".into()],
+            env: BTreeMap::new(),
+            cwd: "/".into(),
+            size: Size {
+                rows: 24,
+                cols: 80,
+                cell_px: None,
+            },
+            labels: BTreeMap::new(),
+            color_profile: None,
+            notification_policy: None,
+            size_policy: None,
+        },
+    })
+    .unwrap();
+    settle_partial(core, start);
+    core.begin(Op::Start { id: id.clone() }).unwrap();
+    settle_partial(core, start);
+    assert_eq!(core.get(id).unwrap().state, SessionState::Running);
+}
+
+/// The run's scheduler and in-process workers, with no spurious wakes.
+fn adoption_run(start: Instant) -> (SchedulerHandle, crate::worker::Workers) {
+    let scheduler = SchedulerHandle::with_seed(13);
+    scheduler.with(|s| {
+        s.overrides_mut().no_spurious_wakes = true;
+    });
+    let workers = crate::worker::Workers::new(scheduler.clone(), start);
+    (scheduler, workers)
+}
+
+/// The completed `Stop` of `id`, which a host stop of the payload ends (AD-1: the stop reaches the adopted payload).
+fn stopped_by_the_host(
+    core: &mut crate::worker::TestkitCore,
+    id: &SessionId,
+    start: Instant,
+) -> bool {
+    let stop = core.begin(Op::Stop { id: id.clone() }).unwrap();
+    settle_partial(core, start).iter().any(|e| {
+        matches!(
+            e,
+            Event::Completed {
+                op,
+                result: OpResult::Ok(OpOutput::End(SessionEnd::Exited(Exit {
+                    cause: ExitCause::HostStop,
+                    ..
+                })))
+            } if *op == stop
+        )
+    })
+}
+
+/// AD-1, DESIGN.md parts 3 and 6: one `AdoptAll` adopts every running session, each over its own new link. Each stop
+/// reaches its own payload.
+#[test]
+fn an_adopt_all_gives_each_adopted_worker_its_own_link() {
+    let start = Instant::now();
+    let (scheduler, workers) = adoption_run(start);
+    let mut dirs = Directories::default();
+    let sessions = [SessionId("a".into()), SessionId("b".into())];
+    let mut first = handle_over(&mut dirs, "two", &workers, &scheduler);
+    for id in &sessions {
+        create_and_start(&mut first, id, start);
+    }
+    drop(first);
+
+    let mut second = handle_over(&mut dirs, "two", &workers, &scheduler);
+    second.begin(Op::AdoptAll).unwrap();
+    let events = settle_partial(&mut second, start);
+    for id in &sessions {
+        assert_eq!(
+            second.get(id).unwrap().state,
+            SessionState::Running,
+            "{id:?}: {events:?}"
+        );
+    }
+    for id in &sessions {
+        assert!(stopped_by_the_host(&mut second, id, start), "{id:?}");
+    }
+}
+
+/// AD-6, DESIGN.md parts 3 and 7: the worker takes one candidate at a time and closes another one at once. A candidate
+/// that closes frees the place: a host that connects later adopts the worker.
+#[test]
+fn a_second_candidate_is_closed_and_a_closed_candidate_frees_the_place() {
+    let start = Instant::now();
+    let (scheduler, workers) = adoption_run(start);
+    let mut dirs = Directories::default();
+    let session = SessionId("s".into());
+    let mut first = handle_over(&mut dirs, "strangers", &workers, &scheduler);
+    create_and_start(&mut first, &session, start);
+    drop(first);
+
+    let mut held = workers
+        .connect_endpoint("h", &session)
+        .expect("the worker listens");
+    let mut refused = workers
+        .connect_endpoint("h", &session)
+        .expect("the worker listens");
+    workers.run(start);
+    let mut buf = [0u8; 1];
+    assert_eq!(
+        refused.recv(&mut buf).unwrap(),
+        0,
+        "the second candidate is closed"
+    );
+    assert_eq!(
+        held.recv(&mut buf).unwrap_err().kind(),
+        std::io::ErrorKind::WouldBlock,
+        "the first candidate waits for its hello"
+    );
+    held.end().close();
+    workers.run(start);
+
+    let mut second = handle_over(&mut dirs, "strangers", &workers, &scheduler);
+    second.begin(Op::AdoptAll).unwrap();
+    let events = settle_partial(&mut second, start);
+    assert_eq!(
+        second.get(&session).unwrap().state,
+        SessionState::Running,
+        "{events:?}"
+    );
+    assert!(stopped_by_the_host(&mut second, &session, start));
+}
+
+/// DESIGN.md part 1: a killed worker cannot remove its endpoint, so the endpoint stays and no worker listens on it.
+/// `Remove` (step 4) removes it; the endpoint of a session that is not removed stays.
+#[test]
+fn remove_unlinks_the_endpoint_that_a_killed_worker_left() {
+    let start = Instant::now();
+    let (scheduler, workers) = adoption_run(start);
+    let mut dirs = Directories::default();
+    let (removed, kept) = (SessionId("r".into()), SessionId("k".into()));
+    let mut core = handle_over(&mut dirs, "killed", &workers, &scheduler);
+    for id in [&removed, &kept] {
+        create_and_start(&mut core, id, start);
+        assert!(workers.end_worker("h", id));
+    }
+    let events = settle_partial(&mut core, start);
+    for id in [&removed, &kept] {
+        assert!(
+            !matches!(core.get(id).unwrap().state, SessionState::Running),
+            "{id:?}: {events:?}"
+        );
+        assert!(
+            workers.connect_endpoint("h", id).is_none(),
+            "no worker listens on the endpoint of a killed worker"
+        );
+    }
+    let remove = core
+        .begin(Op::Remove {
+            id: removed.clone(),
+        })
+        .unwrap();
+    let events = settle_partial(&mut core, start);
+    assert!(
+        events.iter().any(
+            |e| matches!(e, Event::Completed { op, result: OpResult::Ok(_) } if *op == remove)
+        ),
+        "{events:?}"
+    );
+    assert!(
+        !workers.unlink_endpoint("h", &removed),
+        "Remove removed the endpoint"
+    );
+    assert!(
+        workers.unlink_endpoint("h", &kept),
+        "the killed worker left its endpoint"
+    );
+}
+
+/// DESIGN.md part 3 (3.3): a candidate that sends no hello is closed at the `startup` of the handle that spawned the worker
+/// (`WorkerSpawn.startup`), not at a default.
+#[test]
+fn a_silent_candidate_is_closed_at_the_spawning_handles_startup() {
+    let start = Instant::now();
+    let (scheduler, workers) = adoption_run(start);
+    let mut dirs = Directories::default();
+    let session = SessionId("s".into());
+    let limits = CoreLimits {
+        startup: CoreLimits::default().startup / 2,
+        ..CoreLimits::default()
+    };
+    let mut core = handle_with(&mut dirs, "silent", &workers, &scheduler, limits.clone());
+    create_and_start(&mut core, &session, start);
+    let mut silent = workers
+        .connect_endpoint("h", &session)
+        .expect("the worker listens");
+    workers.run(start);
+    let mut buf = [0u8; 1];
+    assert_eq!(
+        silent.recv(&mut buf).unwrap_err().kind(),
+        std::io::ErrorKind::WouldBlock,
+        "the candidate waits for its hello"
+    );
+    workers.run(start + limits.startup);
+    assert_eq!(
+        silent.recv(&mut buf).unwrap(),
+        0,
+        "the candidate is closed at startup"
     );
 }
