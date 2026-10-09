@@ -24,21 +24,24 @@
 //!   declared to return `Command`, a parameter typed `Command` (also by reference), or a `let` bound to such a chain; a
 //!   parameter or a `let` counts only when the function binds its name once.
 //!   `Command::new` alone is a builder and starts nothing;
-//! - a macro by its path, the first segment expanded one step through the `use` that binds it: an `ARGUMENT_MACROS`
-//!   macro, whose arguments the check reads as code of the caller (their bindings and `use` declarations included), or
-//!   an `OPAQUE_MACROS` macro, whose tokens it does not read.
+//! - a macro by its path as written, the listed path or its last segment alone (`macro_class`): an `ARGUMENT_MACROS`
+//!   macro, whose arguments every part of the check reads as code of the caller, or an `OPAQUE_MACROS` macro, whose
+//!   tokens no part of the check reads.
 //!
-//! These forms are not listed, so the check fails on them and names the form and the file (#181 B5 rounds 5 and 6): any
-//! other macro; a macro path whose first segment no `use` binds where a glob `use` of another crate is visible; a function
-//! that starts a command binding and has a `use` declaration in its body (the check resolves a command binding through
-//! the `use` declarations around the function); an item (a block-local one included) whose name a visible `use` binds or
-//! that is a crate root of the lists (`struct Command;` under `use std::process::Command;`, `mod anyhow`), since the check
-//! takes names only from `use` declarations and crate roots; a function declared inside a function, since the check keys
-//! a function by its file and name; a `use` that binds the name of a listed macro or of its crate to another path
-//! (`pub use syn::parse_quote as println;`); and a `#[path]` module. A binding in the tokens of a macro counts as a
-//! binding, but it never holds a command. Any other way of doing I/O (a start on a field, a closure that holds a command)
-//! is not recognized: a shell that does only that is no shell for the check, so its exclusion fails until the code takes
-//! a listed form or a reviewed change extends the list.
+//! The check defends against honest drift and mistakes, not deliberate evasion (plan section 8, 23f). These forms are not
+//! listed, so the check fails on them and names the form and the file (#181 B5 rounds 5 and 6):
+//! - any other macro, a `macro_rules!` definition included;
+//! - a declaration that introduces a reserved name (`is_reserved`: the crate roots of the lists, `core`, `Command`, and
+//!   the name and crate of each listed macro): a module, a struct, an enum, a union, a trait, a type alias, a constant, a
+//!   static, an `extern crate` rename, and a `use` unless its path ends in the name and is the listed path, the crate or
+//!   a `std` or `core` path (so no local module exports a reserved name to a glob);
+//! - a function that starts a command binding and has a `use` declaration in its body (the check resolves a command
+//!   binding through the `use` declarations around the function);
+//! - a `#[path]` module.
+//!
+//! A closure body may never run, so it supplies no I/O evidence to its function. Any other way of doing I/O (a start on
+//! a field, a start or an I/O call in a closure) is not recognized: a shell that does only that is no shell for the
+//! check, so its exclusion fails until the code takes a listed form or a reviewed change extends the list.
 //!
 //! The check reads the calls from the syntax of the xtask. Every other exclusion of an xtask mutant fails, a glob or an
 //! `OFF_MACOS_EXCLUSIONS` regex included (neither has a reason here).
@@ -139,8 +142,10 @@ const COMMAND: [&str; 3] = ["std", "process", "Command"];
 /// The methods of a process command that start the process.
 const SPAWN_METHODS: [&str; 3] = ["status", "output", "spawn"];
 
-/// The macros whose arguments are expressions of the caller, by their resolved path: each expands to an expression and
-/// binds or imports no name of the caller, so the check reads its arguments as code of the caller (#181 B5 round 5).
+/// The macros whose arguments are expressions of the caller: each expands to an expression and binds or imports no name
+/// of the caller, so the check reads its arguments as code of the caller (#181 B5 round 5). A macro is one of these by
+/// its path as written: the listed path, or its last segment alone (`bail!` is `anyhow::bail!`). The reserved names
+/// (`is_reserved`) keep a declaration from giving the name to another macro.
 const ARGUMENT_MACROS: [&[&str]; 22] = [
     &["assert"],
     &["assert_eq"],
@@ -180,28 +185,52 @@ const OPAQUE_MACROS: [&[&str]; 9] = [
     &["cfg"],
 ];
 
-/// Whether `name` is a crate root that the check's lists name: a local item of that name would take its paths.
-fn is_root(name: &str) -> bool {
+/// Whether `name` is a reserved name of the check (plan section 8, 23f): a name that it resolves by text. These are the
+/// crate roots of its lists (`std`, `core`, `botster_core_sys`, `botster_test_process`, `anyhow`, `serde_json`, `syn`),
+/// the I/O type `Command`, and the name and crate of each `ARGUMENT_MACROS` and `OPAQUE_MACROS` macro. A declaration
+/// that introduces one fails (`Index::visit_item`, `Index::visit_item_use`).
+fn is_reserved(name: &str) -> bool {
     IO_FUNCTIONS
         .iter()
         .map(|path| path[0])
-        .chain([COMMAND_NEW[0]])
+        .chain([COMMAND[0], COMMAND[2], "core"])
         .chain(
             ARGUMENT_MACROS
                 .iter()
                 .chain(&OPAQUE_MACROS)
-                .filter(|path| path.len() > 1)
-                .map(|path| path[0]),
+                .flat_map(|path| [path[0], path[path.len() - 1]]),
         )
-        .any(|root| root == name)
+        .any(|reserved| reserved == name)
 }
 
-/// Whether `name` is the last segment of a listed macro or the crate root of one.
-fn is_macro_name(name: &str) -> bool {
-    ARGUMENT_MACROS
-        .iter()
-        .chain(&OPAQUE_MACROS)
-        .any(|path| path.last() == Some(&name) || path[0] == name)
+/// What the check does with a macro, by its path as written.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum MacroClass {
+    /// An `ARGUMENT_MACROS` macro: its arguments are code of the caller.
+    Argument,
+    /// An `OPAQUE_MACROS` macro: its tokens are not read.
+    Opaque,
+    /// Any other macro: not a listed form.
+    Unlisted,
+}
+
+/// The class of the macro `path`: a listed path, or the last segment of one alone (`bail` is `anyhow::bail`). Every part
+/// of the check (`Index`, `Bindings`, `CommandBindings`) reads macros by this one class (plan 23f).
+fn macro_class(path: &syn::Path) -> MacroClass {
+    let segments: Vec<String> = path.segments.iter().map(|s| s.ident.to_string()).collect();
+    let listed = |list: &[&[&str]]| {
+        list.iter().any(|want| {
+            is_path(&segments, want)
+                || (segments.len() == 1 && want.last() == Some(&segments[0].as_str()))
+        })
+    };
+    if listed(&ARGUMENT_MACROS) {
+        MacroClass::Argument
+    } else if listed(&OPAQUE_MACROS) {
+        MacroClass::Opaque
+    } else {
+        MacroClass::Unlisted
+    }
 }
 
 /// Whether `path` is `want`, segment by segment.
@@ -268,6 +297,7 @@ impl Calls {
                 test: false,
                 command_locals: Vec::new(),
                 rejected: Vec::new(),
+                closures: 0,
             };
             index.visit_file(&parsed);
             rejected.extend(index.rejected.iter().map(|at| format!("{file}:{at}")));
@@ -410,6 +440,9 @@ struct Index<'a> {
     command_locals: Vec<BTreeMap<String, Option<Vec<String>>>>,
     /// The forms that the check does not resolve, each as `line:column: what`, in the order found.
     rejected: Vec<String>,
+    /// How many closures are around the current code. A closure body may never run, so it supplies no I/O evidence to its
+    /// function: no I/O call, no process start and no path call for `callees` (plan 23f, #181 R6 integration note).
+    closures: usize,
 }
 
 /// The syntax of the bindings of a function that may hold a process command: each typed parameter with its type's path
@@ -425,17 +458,17 @@ struct CommandBindings {
     uses: bool,
     /// The names on which the function calls a `SPAWN_METHODS` method (the receiver chain begins at the name).
     receivers: BTreeSet<String>,
-    /// How deep the visit is in the arguments of a macro. A binding there counts in `bound`, but it never holds a command:
-    /// `Index` does not read the tokens of an `OPAQUE_MACROS` macro, so such a binding is not one that it sees (#181 R6-3).
-    in_macro: usize,
 }
 
-/// The arguments of `mac` when they parse as expressions separated by commas.
-fn macro_arguments(
-    mac: &syn::Macro,
-) -> Option<syn::punctuated::Punctuated<syn::Expr, syn::Token![,]>> {
+/// The arguments of `mac` that the check reads as code of the caller: those of an `ARGUMENT_MACROS` macro, when they parse
+/// as expressions separated by commas. `Index`, `Bindings` and `CommandBindings` read the same ones (#181 R6-3).
+fn macro_arguments(mac: &syn::Macro) -> Vec<syn::Expr> {
+    if macro_class(&mac.path) != MacroClass::Argument {
+        return Vec::new();
+    }
     mac.parse_body_with(syn::punctuated::Punctuated::<syn::Expr, syn::Token![,]>::parse_terminated)
-        .ok()
+        .map(|exprs| exprs.into_iter().collect())
+        .unwrap_or_default()
 }
 
 impl<'ast> Visit<'ast> for CommandBindings {
@@ -460,11 +493,9 @@ impl<'ast> Visit<'ast> for CommandBindings {
     }
 
     fn visit_macro(&mut self, mac: &'ast syn::Macro) {
-        self.in_macro += 1;
-        for expr in macro_arguments(mac).iter().flatten() {
+        for expr in &macro_arguments(mac) {
             self.visit_expr(expr);
         }
-        self.in_macro -= 1;
     }
 
     fn visit_pat_ident(&mut self, pat: &'ast syn::PatIdent) {
@@ -477,7 +508,7 @@ impl<'ast> Visit<'ast> for CommandBindings {
         while let syn::Type::Reference(inner) = ty {
             ty = &inner.elem;
         }
-        if let (0, syn::Pat::Ident(name), syn::Type::Path(ty)) = (self.in_macro, &*pat.pat, ty) {
+        if let (syn::Pat::Ident(name), syn::Type::Path(ty)) = (&*pat.pat, ty) {
             self.typed.push((
                 name.ident.to_string(),
                 ty.path
@@ -491,7 +522,7 @@ impl<'ast> Visit<'ast> for CommandBindings {
     }
 
     fn visit_local(&mut self, local: &'ast syn::Local) {
-        if let (0, syn::Pat::Ident(name), Some(init)) = (self.in_macro, &local.pat, &local.init) {
+        if let (syn::Pat::Ident(name), Some(init)) = (&local.pat, &local.init) {
             if let Some(path) = chain_root(&init.expr) {
                 self.started.push((name.ident.to_string(), path));
             }
@@ -552,7 +583,7 @@ impl<'ast> Visit<'ast> for Bindings {
     }
 
     fn visit_macro(&mut self, mac: &'ast syn::Macro) {
-        for expr in macro_arguments(mac).iter().flatten() {
+        for expr in &macro_arguments(mac) {
             self.visit_expr(expr);
         }
     }
@@ -598,6 +629,9 @@ impl Index<'_> {
     /// Records a path call of the current function, resolved through the `use` scopes: an I/O call marks the function,
     /// another call is kept for `callees`. A call of a local binding (a parameter `write`, a closure) is neither.
     fn path_call(&mut self, path: &syn::Path) {
+        if self.closures > 0 {
+            return;
+        }
         let Some(resolved) = self.resolved(path) else {
             return;
         };
@@ -629,7 +663,7 @@ impl Index<'_> {
     /// other receiver (a local binding, a field) is not recognized, so a shell that does only that does no I/O for the
     /// check (plan section 8: the form is not listed).
     fn process_start(&mut self, call: &syn::ExprMethodCall) {
-        if !SPAWN_METHODS.contains(&call.method.to_string().as_str()) {
+        if self.closures > 0 || !SPAWN_METHODS.contains(&call.method.to_string().as_str()) {
             return;
         }
         let mut receiver = &*call.receiver;
@@ -755,7 +789,10 @@ impl Index<'_> {
             .or_default();
         self.function.push(name);
         self.locals.push(locals.0);
+        // A function declared inside a closure is a function of its own.
+        let closures = std::mem::take(&mut self.closures);
         visit(self);
+        self.closures = closures;
         self.locals.pop();
         self.command_locals.pop();
         self.function.pop();
@@ -764,87 +801,54 @@ impl Index<'_> {
 }
 
 impl<'ast> Visit<'ast> for Index<'_> {
-    /// An item that declares a name the check resolves elsewhere fails (#181 R6, plan section 8): the check takes names only
-    /// from `use` declarations and crate roots, so an item named like a visible `use` binding or like a crate root of its
-    /// lists (`struct Command;` under `use std::process::Command;`, `type Command = ..;`, `mod anyhow`) would resolve to
-    /// the wrong path. A function declared inside a function fails too: the check keys a function by its file and name.
+    /// A declaration that introduces a reserved name (`is_reserved`) fails (plan section 8, 23f; #181 R6-1, R6-2): the
+    /// check resolves that name by text, so a `struct Command`, a `type Command = ..`, a `mod anyhow` would take it.
     fn visit_item(&mut self, item: &'ast syn::Item) {
-        let mut idents: Vec<(&syn::Ident, &str)> = Vec::new();
-        match item {
-            syn::Item::Const(item) => idents.push((&item.ident, "constant")),
-            syn::Item::Enum(item) => idents.push((&item.ident, "enum")),
-            // `extern crate x;` names the crate x itself; only a rename can take another name.
+        let declared = match item {
+            syn::Item::Const(item) => Some((&item.ident, "constant")),
+            syn::Item::Enum(item) => Some((&item.ident, "enum")),
+            // `extern crate x;` names the crate x itself; only a rename introduces a name.
             syn::Item::ExternCrate(syn::ItemExternCrate {
                 rename: Some((_, rename)),
                 ..
-            }) => idents.push((rename, "extern crate")),
-            syn::Item::Fn(item) => idents.push((&item.sig.ident, "function")),
-            syn::Item::ForeignMod(block) => {
-                for foreign in &block.items {
-                    match foreign {
-                        syn::ForeignItem::Fn(item) => idents.push((&item.sig.ident, "function")),
-                        syn::ForeignItem::Static(item) => idents.push((&item.ident, "static")),
-                        syn::ForeignItem::Type(item) => idents.push((&item.ident, "type")),
-                        _ => {}
-                    }
-                }
-            }
-            syn::Item::Mod(item) => idents.push((&item.ident, "module")),
-            syn::Item::Static(item) => idents.push((&item.ident, "static")),
-            syn::Item::Struct(item) => idents.push((&item.ident, "struct")),
-            syn::Item::Trait(item) => idents.push((&item.ident, "trait")),
-            syn::Item::TraitAlias(item) => idents.push((&item.ident, "trait alias")),
-            syn::Item::Type(item) => idents.push((&item.ident, "type alias")),
-            syn::Item::Union(item) => idents.push((&item.ident, "union")),
-            _ => {}
-        }
-        for (ident, kind) in idents {
-            let name = ident.to_string();
+            }) => Some((rename, "extern crate")),
+            syn::Item::Mod(item) => Some((&item.ident, "module")),
+            syn::Item::Static(item) => Some((&item.ident, "static")),
+            syn::Item::Struct(item) => Some((&item.ident, "struct")),
+            syn::Item::Trait(item) => Some((&item.ident, "trait")),
+            syn::Item::Type(item) => Some((&item.ident, "type alias")),
+            syn::Item::Union(item) => Some((&item.ident, "union")),
+            _ => None,
+        };
+        if let Some((ident, kind)) = declared.filter(|(ident, _)| is_reserved(&ident.to_string())) {
             let at = ident.span().start();
-            if is_root(&name)
-                || self
-                    .scopes
-                    .iter()
-                    .any(|scope| scope.binding(&name).is_some())
-            {
-                self.rejected.push(format!(
-                    "{}:{}: the {kind} `{name}` declares a name that gate-decisions resolves through a `use` declaration \
-                     or as a crate root, which is not a form that the check resolves (plan section 8); rename it",
-                    at.line,
-                    at.column + 1
-                ));
-            }
-            if let (syn::Item::Fn(_), Some(outer)) = (item, self.function.last()) {
-                self.rejected.push(format!(
-                    "{}:{}: the function `{name}` is declared inside the function `{outer}`, which is not a form that \
-                     gate-decisions resolves (plan section 8): it keys a function by its file and name",
-                    at.line,
-                    at.column + 1
-                ));
-            }
+            self.rejected.push(format!(
+                "{}:{}: the {kind} `{ident}` declares a reserved name of gate-decisions (plan section 8): the check \
+                 resolves the name by text; rename it",
+                at.line,
+                at.column + 1
+            ));
         }
         syn::visit::visit_item(self, item);
     }
 
-    /// A `use` that binds the name of a listed macro (or of a crate root of the macro lists) fails unless the path ends in
-    /// that name and is a listed macro, the crate, or a `std` or `core` path (`use std::env;`): through a glob of the crate
-    /// it could give a listed name to another macro (`pub use syn::parse_quote as println;`, #181 R6-1).
+    /// A `use` that introduces a reserved name fails unless its path ends in that name and is a listed macro, the crate
+    /// itself, or a `std` or `core` path (`use anyhow::bail;`, `use syn;`, `use std::process::Command;`). A rename (`use
+    /// syn::parse_quote as bail;`) fails, and so no local module exports a reserved name to a glob (plan 23f, #181 R6-1).
     fn visit_item_use(&mut self, item: &'ast syn::ItemUse) {
         let uses = crate::process_check::Uses::of([&syn::Item::Use(item.clone())], false);
         for (name, target) in uses.bindings() {
-            // Allowed: the name itself, as a listed macro (`anyhow::bail`), a crate (`syn`) or a `std` path (`std::env`);
-            // never a rename (`use syn::parse_quote as bail;`, though `syn::parse_quote` is listed itself).
             let listed = ARGUMENT_MACROS
                 .iter()
                 .chain(&OPAQUE_MACROS)
                 .any(|want| is_path(target, want));
             let own = target.last() == Some(name)
                 && (listed || target.len() == 1 || matches!(target[0].as_str(), "std" | "core"));
-            if is_macro_name(name) && !own {
+            if is_reserved(name) && !own {
                 let at = item.use_token.span.start();
                 self.rejected.push(format!(
-                    "{}:{}: the `use` binds `{name}`, the name of a listed macro or of its crate, to `{}`, which is not a \
-                     form that gate-decisions resolves (plan section 8)",
+                    "{}:{}: the `use` introduces the reserved name `{name}` of gate-decisions as `{}` (plan section 8): \
+                     only its listed path, its crate or a `std` or `core` path may introduce it",
                     at.line,
                     at.column + 1,
                     target.join("::")
@@ -886,16 +890,6 @@ impl<'ast> Visit<'ast> for Index<'_> {
     }
 
     fn visit_impl_item_fn(&mut self, item: &'ast syn::ImplItemFn) {
-        if let Some(outer) = self.function.last() {
-            let at = item.sig.ident.span().start();
-            self.rejected.push(format!(
-                "{}:{}: the function `{}` is declared inside the function `{outer}`, which is not a form that \
-                 gate-decisions resolves (plan section 8): it keys a function by its file and name",
-                at.line,
-                at.column + 1,
-                item.sig.ident
-            ));
-        }
         self.returns(&item.sig.ident.to_string(), &item.sig.output);
         let mut locals = Bindings::default();
         locals.visit_impl_item_fn(item);
@@ -904,6 +898,12 @@ impl<'ast> Visit<'ast> for Index<'_> {
         self.function(&item.sig.ident, &item.attrs, (locals, commands), |index| {
             syn::visit::visit_impl_item_fn(index, item)
         });
+    }
+
+    fn visit_expr_closure(&mut self, closure: &'ast syn::ExprClosure) {
+        self.closures += 1;
+        syn::visit::visit_expr_closure(self, closure);
+        self.closures -= 1;
     }
 
     fn visit_expr_call(&mut self, call: &'ast syn::ExprCall) {
@@ -922,48 +922,28 @@ impl<'ast> Visit<'ast> for Index<'_> {
         syn::visit::visit_expr_method_call(self, call);
     }
 
-    /// A macro is a listed form only when its path is an `ARGUMENT_MACROS` macro, whose arguments the check reads as code
-    /// of the caller, or an `OPAQUE_MACROS` macro, whose tokens it does not read. Any other macro can bind a name or import
-    /// a path that the check does not see (`let cmd = Pure;`, `use pure::Command;` in its expansion), so it fails (#181 B5
-    /// round 5). The path of a macro is its first segment expanded one step through the nearest `use` that binds it
-    /// (`bail` after `use anyhow::{anyhow, bail}` is `anyhow::bail`; `use` paths begin at a crate), else the path as
-    /// written. A path whose first segment no `use` binds fails also where a glob `use` of another crate is visible,
-    /// which can hide the standard macro or the crate of that name.
+    /// A macro is a listed form only when its class (`macro_class`) is `Argument`, whose arguments the check reads as code
+    /// of the caller, or `Opaque`, whose tokens it does not read. Any other macro can bind a name or import a path that the
+    /// check does not see (`let cmd = Pure;`, `use pure::Command;` in its expansion), so it fails (#181 B5 round 5).
     fn visit_macro(&mut self, mac: &'ast syn::Macro) {
-        let segments: Vec<String> = mac
-            .path
-            .segments
-            .iter()
-            .map(|s| s.ident.to_string())
-            .collect();
-        let bound = self
-            .scopes
-            .iter()
-            .rev()
-            .find_map(|scope| scope.binding(&segments[0]));
-        let resolved: Vec<String> = match bound {
-            Some(full) => full.iter().chain(&segments[1..]).cloned().collect(),
-            None => segments.clone(),
-        };
-        let listed = |list: &[&[&str]]| list.iter().any(|want| is_path(&resolved, want));
-        let hidden = bound.is_none()
-            && self
-                .scopes
-                .iter()
-                .any(crate::process_check::Uses::has_foreign_glob);
-        if listed(&ARGUMENT_MACROS) && !hidden {
-            for expr in macro_arguments(mac).iter().flatten() {
-                self.visit_expr(expr);
-            }
-        } else if !(listed(&OPAQUE_MACROS) && !hidden) {
+        if macro_class(&mac.path) == MacroClass::Unlisted {
             let at = mac.path.segments[0].ident.span().start();
+            let name: Vec<String> = mac
+                .path
+                .segments
+                .iter()
+                .map(|s| s.ident.to_string())
+                .collect();
             self.rejected.push(format!(
                 "{}:{}: the macro `{}!` is not a form that gate-decisions resolves (plan section 8): its expansion can \
                  bind a name or import a path that the check does not see; use a listed macro or a function",
                 at.line,
                 at.column + 1,
-                segments.join("::")
+                name.join("::")
             ));
+        }
+        for expr in &macro_arguments(mac) {
+            self.visit_expr(expr);
         }
     }
 }

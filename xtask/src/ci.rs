@@ -792,7 +792,7 @@ mod tests {
              before its outcomes"
         );
         assert!(decide(3, None, None).is_err(), "a signal");
-        let failed = mutation_decision(3, || Err(anyhow!("start cargo mutants")));
+        let failed = mutation_decision(3, || Err(anyhow::anyhow!("start cargo mutants")));
         assert_eq!(failed.unwrap_err().to_string(), "start cargo mutants");
         let partial = decide(3, Some(0), Some(summary(2)))
             .unwrap_err()
@@ -860,7 +860,7 @@ mod tests {
 
     const FAKE: &[(&str, &str, JobFn)] = &[("a", "", pass), ("b", "", fail), ("c", "", pass)];
 
-    fn run_fake(only: Option<&str>, keep_going: bool) -> (Vec<(String, String)>, bool) {
+    fn run(only: Option<&str>, keep_going: bool) -> (Vec<(String, String)>, bool) {
         let mut lines = Vec::new();
         let (rows, failed) = run_steps(Path::new("."), FAKE, only, keep_going, &mut |l| {
             lines.push(l.to_string())
@@ -888,7 +888,7 @@ mod tests {
     #[test]
     fn a_failure_stops_the_run_and_marks_the_rest_not_run() {
         assert_eq!(
-            run_fake(None, false),
+            run(None, false),
             (
                 kinds(&[("a", "pass"), ("b", "fail"), ("c", "notrun")]),
                 true
@@ -899,15 +899,15 @@ mod tests {
     #[test]
     fn keep_going_runs_every_step() {
         assert_eq!(
-            run_fake(None, true),
+            run(None, true),
             (kinds(&[("a", "pass"), ("b", "fail"), ("c", "pass")]), true)
         );
     }
 
     #[test]
     fn one_step_can_be_run_alone() {
-        assert_eq!(run_fake(Some("a"), false), (kinds(&[("a", "pass")]), false));
-        assert_eq!(run_fake(Some("b"), false), (kinds(&[("b", "fail")]), true));
+        assert_eq!(run(Some("a"), false), (kinds(&[("a", "pass")]), false));
+        assert_eq!(run(Some("b"), false), (kinds(&[("b", "fail")]), true));
     }
 
     #[test]
