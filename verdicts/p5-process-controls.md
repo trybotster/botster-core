@@ -68,3 +68,56 @@ PC-F1 remains open. Integration owns its separate review of this HIGH PR.
 The reviewer changed no product code and ran no builds, tests, mutation jobs, or gates.
 
 VERDICT: NOT CLEAN
+
+## PR #191 — Round 2 — 2026-10-09
+
+Exact head: `7a56100cd97b0d46f501779ac134369756170be1`.
+Exact tree: `9c359a5d52164d326c12f47d509645b903ec509e`.
+PR and gate base: `67fd748a369d0ed544e3373d20c887024af31fa8`.
+Parents: `7d240117fab9d0f2205ac1c345cd5778d4df72f9` and `67fd748a369d0ed544e3373d20c887024af31fa8`.
+Branch: `stage1/p5-controls-process`.
+
+The reviewer checked the risk tier first. The PR retains HIGH under rule 3.
+The PR retains Prior art and now names the exact Round 2 head and gate.
+
+### PC-F1 — MEDIUM — CLOSED — The harness removes the dropped handle
+
+TestkitHarness::drop_handle now removes only the handle_dirs entry for the dropped handle.
+The method preserves the registry rows and workers required by LC-12.
+The method's comment now describes the handle removal and the preserved state.
+The session_row helper therefore rejects a dropped handle with ControlError::Bad.
+
+The new test is a_dropped_handle_is_gone_and_a_reopen_reaches_the_surviving_worker.
+It creates and starts s1 under handle a, drops the Core, and calls drop_handle("a").
+It then asserts that break_control under handle a returns Bad.
+It reopens the same directory under handle b and asserts that break_control reaches the surviving worker and returns success.
+The supplied exact-head gate reports this test PASS.
+
+### Merge delta and supplied evidence
+
+The fix changes only harness.rs and process_controls/tests.rs from the Round 1 package source.
+The merge imports only xtask/src/base_merge.rs and xtask/src/base_merge/tests.rs from v1's #190.
+The reviewer verified that the imported binary diff equals the exact old-base-to-new-base diff.
+The PR's binary diff against the new base equals the fixed PR's diff against the old base.
+The merge therefore preserves the complete package change and imports the base change without edits.
+This review does not replace #190's separate review.
+
+The pending list, testkit manifest, and lockfile are byte-identical to Round 1.
+The single minimum-id removal and its replacement-map classification remain valid.
+The gate reports conf::lc_5_stop_with_broken_control and all six process-control tests PASS.
+No new package finding arose.
+
+The supplied full Linux gate is `~/botster-sessions/shared/core-stage1/gate-logs/controls-process-7a56100c.log`.
+It names the exact reviewed head and base.
+The default tier reports 966 passed and 651 skipped.
+The slow tier reports 243 passed and 968 skipped.
+The mutation run tests 26 mutants: 20 caught, zero missed, zero timeouts, and six unviable.
+All ten CI stages pass. Fuzz runs no decoder harness for this delta.
+The job and gate exit zero.
+
+Every package finding is closed. Integration must supply its separate CLEAN before this HIGH PR merges.
+This verdict does not close #176's proof hold or establish real-process minimum conformance.
+The reviewer changed no product code and ran no builds, tests, mutation jobs, or gates.
+The lead owns the merge decision.
+
+VERDICT: CLEAN
