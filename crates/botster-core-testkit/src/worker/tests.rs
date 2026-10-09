@@ -19,12 +19,16 @@ fn fixture(capacity: usize) -> (WorkerEdges, LinkEnd, Worker, Instant) {
         cell,
         processes: Arc::new(Mutex::new(processes)),
         pids: Arc::new(Mutex::new(Pids { next: 1001 })),
-        start: StartKey {
+        key: InstanceKey {
             dir: "d".into(),
             instance: InstanceId("1-1".into()),
         },
         held_starts: Arc::default(),
         held_spawn: None,
+        endpoint: Endpoint::default(),
+        endpoints: Arc::default(),
+        candidates: BTreeMap::new(),
+        next_candidate: 0,
         scheduler,
         link,
         link_open: true,
@@ -153,7 +157,7 @@ fn worker_exit_closes_the_link_and_posts_its_exit_once() {
     );
     let mut spawner = WorkerSpawner {
         workers,
-        dir: edges.start.dir.clone(),
+        dir: edges.key.dir.clone(),
         processes: Arc::clone(&edges.processes),
     };
     for signal in [GroupSignal::EndPayload, GroupSignal::Term] {
@@ -187,6 +191,7 @@ fn worker_identities_do_not_repeat() {
     assert!(format!("{workers:?}").contains("Workers"));
     let mut spawner = workers.spawner("d");
     let spec = WorkerSpawn {
+        startup: CoreLimits::default().startup,
         program: "worker".into(),
         instance: InstanceId("1-1".into()),
         token: [1; TOKEN_LEN],
@@ -347,6 +352,7 @@ fn each_unconsumed_report_alone_keeps_the_edges_from_quiet() {
     let table = spawner.table();
     assert!(workers.edges_quiet(&table), "no worker, no report");
     let spec = WorkerSpawn {
+        startup: CoreLimits::default().startup,
         program: "worker".into(),
         instance: InstanceId("1-1".into()),
         token: [1; TOKEN_LEN],
@@ -513,7 +519,7 @@ fn the_payload_is_alive_from_its_spawn_until_its_process_ends() {
 #[test]
 fn a_held_spawn_waits_for_the_release_and_goes_with_the_worker() {
     let (mut edges, _peer, worker, now) = fixture(1024);
-    let key = edges.start.clone();
+    let key = edges.key.clone();
     lock(&edges.held_starts).insert(key.clone());
     edges.perform(now, Action::SpawnPayload(payload_spec()));
     assert_eq!(
@@ -528,7 +534,7 @@ fn a_held_spawn_waits_for_the_release_and_goes_with_the_worker() {
     assert!(lock(&edges.cell).payload_alive);
 
     let (mut edges, _peer, worker, now) = fixture(1024);
-    let other = StartKey {
+    let other = InstanceKey {
         dir: "other".into(),
         ..key.clone()
     };
