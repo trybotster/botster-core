@@ -803,6 +803,7 @@ impl HostEngine {
             link_frame_bound: self.link_frame_bound(),
             stop_grace_ms: u64::try_from(self.cfg.limits.stop_grace.as_millis())
                 .unwrap_or(u64::MAX),
+            limits: self.cfg.limits.clone(),
         }
     }
 }

@@ -289,6 +289,7 @@ fn hello_and_launch(
         size_policy: SizePolicy::Latest,
         link_frame_bound: 1 << 20,
         stop_grace_ms,
+        limits: CoreLimits::default(),
     })));
     let WorkerMsg::Launched { payload, .. } = link.report() else {
         panic!("not launched");
