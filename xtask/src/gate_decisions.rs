@@ -136,14 +136,13 @@ impl Calls {
         Ok(calls)
     }
 
-    /// The xtask functions that a resolved path call in `file` names. `crate::m::f` and `m::f` name the `f` of
-    /// `xtask/src/m.rs` or `xtask/src/m/mod.rs` (`crate::a::b::f`: of `a/b.rs`), `Self::f` the `f` of `file`, and a plain
-    /// `f` (also `crate::f`) the `f` of `file`, else each `f` of the xtask. A path of another crate names none.
+    /// The xtask functions that a resolved path call in `file` names. A module path names the file of the module:
+    /// `[]` is `xtask/src/main.rs` (the crate root), `[a, b]` is `xtask/src/a/b.rs` or `xtask/src/a/b/mod.rs`.
+    /// `crate::m::f` names the `f` of the module `m`, each leading `super` the parent of the module of `file`, `self` the
+    /// module of `file`, and `m::f` the `f` of the child `m` of the module of `file`, else of the module `m`. `Self::f`
+    /// names the `f` of `file`, and a plain `f` the `f` of `file`, else each `f` of the xtask (a glob import). A path of
+    /// another crate, or a `super` above the crate root, names none.
     fn callees(&self, file: &str, path: &[String]) -> Vec<(String, String)> {
-        let path = match path.split_first() {
-            Some((first, rest)) if first == "crate" => rest,
-            _ => path,
-        };
         let Some((name, modules)) = path.split_last() else {
             return Vec::new();
         };
@@ -151,6 +150,19 @@ impl Calls {
             let key = (file.to_string(), name.clone());
             self.by_function.contains_key(&key).then_some(key)
         };
+        let in_module = |module: &[String]| -> Vec<(String, String)> {
+            let files = if module.is_empty() {
+                vec!["xtask/src/main.rs".to_string()]
+            } else {
+                let dir = module.join("/");
+                vec![
+                    format!("xtask/src/{dir}.rs"),
+                    format!("xtask/src/{dir}/mod.rs"),
+                ]
+            };
+            files.iter().filter_map(|file| known(file)).collect()
+        };
+        let mut here = module_path(file);
         match modules {
             [] => known(file).map_or_else(
                 || {
@@ -163,15 +175,28 @@ impl Calls {
                 |key| vec![key],
             ),
             [only] if only == "Self" => known(file).into_iter().collect(),
+            [first, rest @ ..] if first == "crate" => in_module(rest),
+            [first, rest @ ..] if first == "self" => {
+                here.extend_from_slice(rest);
+                in_module(&here)
+            }
+            [first, ..] if first == "super" => {
+                let supers = modules.iter().take_while(|m| *m == "super").count();
+                if supers > here.len() {
+                    return Vec::new();
+                }
+                here.truncate(here.len() - supers);
+                here.extend_from_slice(&modules[supers..]);
+                in_module(&here)
+            }
             _ => {
-                let dir = modules.join("/");
-                [
-                    format!("xtask/src/{dir}.rs"),
-                    format!("xtask/src/{dir}/mod.rs"),
-                ]
-                .iter()
-                .filter_map(|file| known(file))
-                .collect()
+                here.extend_from_slice(modules);
+                let child = in_module(&here);
+                if child.is_empty() {
+                    in_module(modules)
+                } else {
+                    child
+                }
             }
         }
     }
@@ -180,6 +205,18 @@ impl Calls {
         self.by_function
             .get(&(file.to_string(), function.to_string()))
     }
+}
+
+/// The module path of an xtask file: `xtask/src/main.rs` is the crate root (`[]`), `xtask/src/a.rs` and
+/// `xtask/src/a/mod.rs` are `[a]`, and `xtask/src/a/b.rs` is `[a, b]`.
+fn module_path(file: &str) -> Vec<String> {
+    let path = file.strip_prefix("xtask/src/").unwrap_or(file);
+    let path = path.strip_suffix(".rs").unwrap_or(path);
+    let path = path.strip_suffix("/mod").unwrap_or(path);
+    if path == "main" {
+        return Vec::new();
+    }
+    path.split('/').map(str::to_string).collect()
 }
 
 struct Index<'a> {

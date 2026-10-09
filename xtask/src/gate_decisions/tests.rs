@@ -5,7 +5,7 @@ fn mutation_verdict(code: Option<i32>) -> Result<()> { if code == Some(0) { retu
 fn parse_outcomes(json: &str) -> Result<u64> { Ok(json.len() as u64) }
 fn untested_decision(code: i32) -> bool { code == 0 }
 fn mutants_job(root: &Path) -> Result<()> {
-    let listing = std::process::Command::new("cargo").output()?;
+    let listing = std::process::Command::new("git").output()?;
     let status = run(root)?;
     let _ = untested_decision(1);
     println!("{}", parse_outcomes("x")?);
@@ -424,10 +424,12 @@ fn by_longer_function() { std::process::Command::new::extra(); }
     assert_eq!(io, expected);
 }
 
-/// A function also does I/O when a resolved path call names an xtask function that does I/O: `m::f` and `crate::m::f`
-/// name the `f` of `xtask/src/m.rs` (or `m/mod.rs`), `Self::f` the `f` of its own file, and a plain `f` (also through a
-/// `use` rename) the `f` of its own file first, else each `f` of the xtask. A call of a parameter or another local binding
-/// names no function, and a path of another crate names none.
+/// A function also does I/O when a resolved path call names an xtask function that does I/O. Paths resolve by module:
+/// `xtask/src/main.rs` is the crate root, `crate::m::f` names the `f` of `xtask/src/m.rs` (or `m/mod.rs`), `super` and
+/// `self` are relative to the module of the file, and `m::f` names the `f` of the child `m` first, else of the root
+/// module `m`. `Self::f` names the `f` of its own file, and a plain `f` (also through a `use` rename) the `f` of its own
+/// file first, else each `f` of the xtask. A call of a parameter or another local binding names no function, and a path
+/// of another crate, of the wrong module, or with a `super` above the crate root names none.
 #[test]
 fn io_reaches_a_function_through_the_xtask_functions_it_calls() {
     let files = [
@@ -454,9 +456,27 @@ fn io_reaches_a_function_through_the_xtask_functions_it_calls() {
              fn by_pure_module() { tools::pure(); }\n\
              fn by_unknown_module() { serde_json::run(x); }\n\
              fn by_crate() { crate::pure(); }\n\
-             fn by_crate_io() { crate::run(c); }\n\
-             fn by_super_io() { super::local_io(); }\n",
+             fn by_crate_io() { crate::root_io(); }\n\
+             fn by_crate_wrong_module() { crate::local_io(); }\n\
+             fn by_super_io() { super::root_io(); }\n\
+             fn by_super_wrong_module() { super::local_io(); }\n\
+             fn by_super_above_root() { super::super::root_io(); }\n",
         ),
+        (
+            "xtask/src/main.rs",
+            "fn root_io() { std::env::args(); }\nfn pure() {}\n",
+        ),
+        (
+            "xtask/src/fsutil/inner.rs",
+            "fn by_super() { super::base(); }\nfn by_self_module() { self::helper(); }\n\
+             fn helper() { std::fs::read(p); }\nfn by_child() { deep::leaf(); }\n\
+             fn by_root_module() { tools::run(c); }\n",
+        ),
+        (
+            "xtask/src/fsutil/inner/deep.rs",
+            "pub fn leaf() { std::env::var(k); }\n",
+        ),
+        ("xtask/src/deep.rs", "pub fn leaf() {}\n"),
         (
             "xtask/src/b.rs",
             "fn run() {}\nfn by_own_file() { run(); }\nfn by_late_chain() { by_late_link(); }\n\
@@ -480,6 +500,13 @@ fn io_reaches_a_function_through_the_xtask_functions_it_calls() {
         ("xtask/src/a.rs", "by_chain"),
         ("xtask/src/a.rs", "by_crate_io"),
         ("xtask/src/a.rs", "by_super_io"),
+        ("xtask/src/main.rs", "root_io"),
+        ("xtask/src/fsutil/inner.rs", "by_super"),
+        ("xtask/src/fsutil/inner.rs", "by_self_module"),
+        ("xtask/src/fsutil/inner.rs", "helper"),
+        ("xtask/src/fsutil/inner.rs", "by_child"),
+        ("xtask/src/fsutil/inner.rs", "by_root_module"),
+        ("xtask/src/fsutil/inner/deep.rs", "leaf"),
         ("xtask/src/b.rs", "by_late_chain"),
         ("xtask/src/b.rs", "by_late_link"),
         ("xtask/src/a.rs", "by_self"),
