@@ -410,19 +410,26 @@ impl World {
         }
     }
 
-    /// One `pump` of a driver with the production policy: the clock, then ready work until none is left.
-    pub fn pump(&mut self) -> PumpReport {
-        self.feed(Input::Clock(self.unix));
+    /// Runs the ready work that `choose` picks, one step at a time, until it picks none; `after` sees the World after each
+    /// step. An engine whose steps make no progress fails the test at the step bound, instead of hanging it.
+    pub fn settle(
+        &mut self,
+        mut choose: impl FnMut(&[Work]) -> Option<Work>,
+        mut after: impl FnMut(&mut Self),
+    ) {
         let mut guard = 0;
-        loop {
-            let ready = self.engine.ready();
-            let Some(work) = ready.into_iter().next() else {
-                break;
-            };
+        while let Some(work) = choose(&self.engine.ready()) {
             self.feed(Input::Run(work));
+            after(self);
             guard += 1;
             assert!(guard < 10_000, "the engine does not settle");
         }
+    }
+
+    /// One `pump` of a driver with the production policy: the clock, then ready work until none is left.
+    pub fn pump(&mut self) -> PumpReport {
+        self.feed(Input::Clock(self.unix));
+        self.settle(|ready| ready.first().cloned(), |_| {});
         PumpReport {
             more: self.engine.runnable(),
             events_posted: self.engine.take_posted(),

@@ -52,10 +52,10 @@ fn every_step_posts_at_most_one_event() {
     w.engine.begin(create("s1")).unwrap();
     w.feed(Input::Clock(w.unix));
     let mut counts = Vec::new();
-    while let Some(work) = w.engine.ready().into_iter().next() {
-        w.feed(Input::Run(work));
-        counts.push(w.engine.take_posted());
-    }
+    w.settle(
+        |ready| ready.first().cloned(),
+        |w| counts.push(w.engine.take_posted()),
+    );
     assert!(counts.iter().all(|c| *c <= 1), "{counts:?}");
     assert_eq!(counts.iter().sum::<u32>(), 2);
 }
