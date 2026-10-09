@@ -6695,3 +6695,123 @@ The reviewer changed no product code and ran no tests, builds, measurements, mut
 All earlier findings, closures, and verdict rounds remain preserved at their named heads and scopes.
 
 VERDICT: CLEAN
+
+
+## Round 123 — PR A, PTY input admission and real write path
+
+Reviewed head: `fc39fee6be5024df41a0cc937417401100c6303b`, PR #198, branch `stage1/p3-pty-input`.
+Base: `7aec2bb917f48994d1705301d2383873a219c031`.
+Parent: `2a19f9d250e779666919c86f159e63376d009f4c`.
+The reviewer checked the tier first. HIGH is correct under BUILD.md rule 3 for shared testkit and workspace configuration,
+and for the lead-raised PTY write scope under rule 5.
+Authority: BUILD.md, plan 23a through 23d at 9b7bc5a0 (pin stage1-plan.e3c60694.md),
+Core AM-2, IN-2, IN-5, IN-6, IN-7 and IN-10, and the lead's explicit M2a real-PTY proof requirement.
+The reviewer read all sixteen changed files, the imported legacy test guards, complete PR description,
+completed exact-head gate, thirteen pinned transcript cases, and their reviewed replacement-map rows.
+The reviewer compared the input admission module with round 101's accepted M2a head 7550018f.
+
+### F64 — HIGH — Required real-PTY proof still uses legacy process guards; OPEN
+
+The new in_6_real_pty_cancel_keeps_counts_and_resumes_the_next_write test is in worker/tests/common/session.rs.
+At lines 15-19 that module imports the legacy payload_guard and process_guard modules from botster-core-sys/tests/common.
+Session::launch uses their PayloadGuard::new and prefix; OwnedWorker retains their ownership and cleanup paths.
+The reviewer read those imported files: they implement the legacy group guards, current-test-binary helpers,
+and cleanup locally. They do not delegate this ownership to botster-test-process.
+botster-worker/Cargo.toml has no botster-test-process dev dependency at this head.
+
+The test does run and pass in both slow binaries. That proves this legacy fixture ran, not that it was rebuilt on the shared crate.
+The description and new mutation-exclusion reason incorrectly state that it is under botster-test-process ownership.
+The lead's explicit requirement, preserved in round 101, is that this named real-PTY regression be rebuilt on
+botster-test-process and pass the gate before the PTY write path merges.
+Plan section 6.1 also assigns real-process infrastructure to P6 and prohibits new proof code on legacy infrastructure
+before the shared crate and check land. The lead's handoff still records #181 awaiting its final correction gate.
+The required ownership part of the proof is therefore not satisfied by this passing gate.
+
+Required correction: rebuild this named regression using the shared crate's ownership and capabilities.
+Ask P6 for any missing shared capability; do not copy process guards or cleanup code into this package.
+Update the description and exclusion reasons to name the actual fixture, then provide the exact-head selected proof.
+This finding retains the existing M2a merge requirement; it is not a new deadline or a request to change product behavior.
+
+### F65 — MEDIUM — New I/O-shell reasons omit the required proof-citation form; OPEN
+
+The two new exclusions for Driver::write_pty_once and Driver::set_pty_write_interest are at .cargo/mutants.toml:127-139.
+Their reason text names io_decisions::pty_write, io_decisions::pty_write_interest and the real-PTY proof only in free text.
+Plan 23c/23d requires an I/O-shell exclusion to cite at least one selected test in the decision (proof_a, proof_b) form.
+A proof named only in free text fails that rule. The current reasons do not use the required form.
+The passing pre-#181 gate does not waive the binding plan rule.
+
+Required correction: give each new entry the real decision/proof citation in the required form.
+Retain mutation coverage for the pure decision functions and cite only tests selected by a gate tier.
+The pure write, interest and writable-event tests do run at this head; the slow proof must also satisfy F64.
+The reviewer sent F64 and F65 directly to P3 and integration. No lead decision is needed to continue.
+
+### Whole-change source coverage
+
+The input admission module differs from the accepted M2a module only by removal of its duplicate model_rev
+and comparison with the worker's counter from #197. The port keeps start-time guards and FIFO host writes.
+Bytes and UTF-8 Text are supported; Paste, Key, Mouse, Focus, route admission and query replies remain later work.
+One active transaction owns the PTY input across short writes. One PtyWrite is out at a time.
+Cancellation of a queued write completes with exact zero; an active write waits for an outstanding count.
+A full PTY waits for PtyWritable rather than retrying without readiness. Counts precede the completion decision.
+An OS error gives Failed with prior counts. Payload end gives the certain Partial or zero result once its count is known.
+Queued writes perform the guards at their start; host input revision advances after those checks.
+The worker uses one model revision for output and the terminal guard.
+
+The real driver keeps one pending write, performs one write per turn after serving the control link,
+retains interrupted writes, and reports no progress as Ok(0) with write interest.
+The writable-event decision and poll-interest decision use the pure io_decisions functions.
+The default tests cover successful, empty, blocked, interrupted, missing-PTY and errno results,
+all four writable-event combinations, and registered/unregistered interest transitions.
+The new narrow glue exclusions retain the prior M2a classification, subject to F64 and F65.
+No gate-decision function is excluded by this PR.
+
+The testkit routes PtyWrite and PtyWritable as separate scheduler inputs.
+It uses the existing run process table and cell program handle; it does not restore M2a's separate worker namespace.
+The run resets each program's chunk allowance at the pump step, and has_ready retains work for a spent chunk.
+The F53 rule survives: an exhausted accept limit or blocked program does not request another chunk step.
+Controls use strict parsing and session-row/program lookup. pty_input observes accepted bytes;
+pty_chunk, pty_accept and pty_fail_after operate on the program edge, not the worker machine.
+Tests cover chunk progress across pumps, block and release, failed-write counts, invalid controls,
+combined exhausted limits and input-log order. No additional package source finding is recorded.
+
+The named real regression waits on FIFO markers and link reports, checks a nonzero cancelled prefix,
+releases the program to read the prefix and the following byte, and checks the exact received bytes.
+Its O_CLOEXEC change prevents inherited FIFO ends from holding the release open.
+It ends the payload through Kill and consumes Exited before Remove.
+These behaviors are useful, but their fixture ownership remains F64; they do not close the shared-crate requirement.
+
+### Pending removals and completed evidence
+
+The thirteen removals match the description. At replacement-map 2701038, each is core-testkit or core-testkit+perturb.
+None is real-only or belongs to the minimum set. The minimum count remains testkit 28/70, real 0/70.
+The source supports the claimed host-write, cancel, guard and lane-bound transcript paths.
+The route-contiguity minimum ID stays pending for P4a; CaptureSnapshot and terminal-model duties remain pending.
+The reported additional AM-4 pass remains pending and outside this PR's thirteen removals.
+
+Log: `~/botster-sessions/gates/botster-core-stage1-p3-pty-input-fc39fee6-pool-20261009-122909-62645.log`.
+The log names this head and base. The run uses msa1 with kernel 6.12.111+deb13-amd64.
+All ten CI steps pass. The default tier passes 1040 tests in 3.658 seconds.
+The slow tier passes 245 tests in 10.119 seconds.
+The named real-PTY regression runs in the integration binary in 0.010 seconds and driver binary in 0.012 seconds.
+The new testkit behavior tests and pure driver decision tests run and pass.
+Signals scan 162 Rust files. Timers scan 146 Rust files.
+The lists report gives 675 ledger IDs, 625 pending, two deferred, two withdrawn, and 46 to run.
+All 46 active IDs pass; 568 pending and 57 without transcripts remain.
+Both mutation commands report 118 tested: 108 caught, zero missed, zero timeout, and ten unviable.
+The separate mutation command uses NEXTEST_PROFILE=slow. Fuzz has no changed decoder harness.
+Full CI takes 223.0 seconds. Separate mutants take 212.9 seconds. The gate exits 0 after 444 seconds.
+The passing results do not close F64's ownership requirement or F65's citation requirement.
+
+### Verdict and scope
+
+PR #198 is NOT CLEAN at `fc39fee6be5024df41a0cc937417401100c6303b` for the P3 package review.
+F64 HIGH and F65 MEDIUM are open. This is #198's first recorded NOT CLEAN round; no round-limit notice is due.
+Normal findings go to P3 and integration, not to the lead as BLOCKED. Integration controls its own verdict.
+#197 retains round 122 CLEAN and is merged at 7aec2bb9. #195 retains round 121 CLEAN with F63 closed.
+#192 retains round 117 NOT CLEAN with F61 and F62 open, awaiting a new exact-head READY after the shared-resolver correction.
+#168's named real-PTY merge requirement remains unsatisfied by this legacy-fixture proof.
+Part B retains its earlier open duties, including F39 for the merge change.
+The reviewer changed no product code and ran no tests, builds, measurements, mutants, or gates.
+All earlier findings, closures, and verdict rounds remain preserved at their named heads and scopes.
+
+VERDICT: NOT CLEAN
