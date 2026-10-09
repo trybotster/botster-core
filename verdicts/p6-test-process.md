@@ -246,3 +246,77 @@ The Linux run wrapper and migrations remain outside this verdict.
 TP7 and TP8 went directly to the implementer. No lead decision is required for this NOT CLEAN round.
 
 VERDICT: NOT CLEAN
+
+## Round 3 — 2026-10-09
+
+Reviewed head: `414b0ab1e6e3d3ad55da56c87fe2f12f4fe18b32`.
+Previous reviewed head: `5d0d89c7d443146418117e5db991d3ea81b61c36`.
+Integration merge base: `59ce126885e04a3b3f22d97e89337bfdbf055949`.
+The supplied gate uses origin/v1 `a0f78fe4c4e4faff1fee926e072ceb5e94ba8649` as its base ref.
+This round reviews the delta from round 2. TP1 through TP6 remain closed.
+
+### Closed findings
+
+TP7 closes. `unsafe_exception.rs` reads Rust tokens and parses TOML.
+The source check permits one token position in the top-level `#[allow(unsafe_code)]` of `fn close_inherited` in the anchor binary.
+It finds multiline attributes, `expect`, `cfg_attr`, nested items, macro bodies, and raw identifiers.
+The manifest check finds escaped keys and lint names in Cargo configuration flags.
+The fixtures assert the check's result for each reported bypass and for the permitted exception.
+The exact-head gate runs these fixtures and reports no finding in the real tree.
+
+TP8 closes. The inaccurate exclusion is removed.
+`polled` returns distinct timeout, event, and interruption results. It preserves other errors.
+The Mac default-tier test asserts all four results. The Mac mutation run covers this decision.
+The `await_status` caller checks status and expiry again after an interruption.
+The `await_end` caller introduces TP9 below.
+
+### TP9 — MEDIUM: the Mac interruption loop can retry after its deadline
+
+Location: `crates/botster-test-process/src/platform/macos.rs:46-54`.
+
+`await_end` retries each `Polled::Interrupted` result without an expiry decision.
+After the deadline, `deadline.remaining()` supplies zero. A later interruption still causes another iteration.
+Thus repeated interruptions can keep the wait active after its named bound.
+The existing `polled` test checks one result. It does not prove that the retry loop stops at expiry.
+
+A zero timeout does not prove that EINTR is impossible on this path.
+XNU's legacy `kevent` computes an absolute deadline and calls `assert_wait_deadline` from `kqueue_scan`.
+Its interrupted continuation returns EINTR.
+See [XNU's event implementation](https://raw.githubusercontent.com/apple-oss-distributions/xnu/main/bsd/kern/kern_event.c).
+`waitq_assert_wait64_locked` calls `thread_mark_wait_locked` before it arms the deadline timer.
+It arms that timer only for `THREAD_WAITING`.
+See [XNU's wait implementation](https://raw.githubusercontent.com/apple-oss-distributions/xnu/main/osfmk/kern/waitq.c).
+An already aborted wait returns `THREAD_INTERRUPTED`.
+See [XNU's scheduler implementation](https://raw.githubusercontent.com/apple-oss-distributions/xnu/main/osfmk/kern/sched_prim.c).
+These paths support the repeated-interruption case; the reviewer did not run a signal-stress test.
+
+Add an explicit expiry exit before an interruption retry.
+Preserve an already available exit event if the caller requires that behavior.
+Add a decision test with repeated interruptions and expiry. The test must prove that no later poll starts.
+
+### Evidence and scope
+
+The supplied full Linux gate passes all ten jobs: 874 default tests and 236 slow tests.
+It reports 183 caught mutants and 33 unviable mutants, with no misses or timeouts.
+Log: `gates/botster-core-stage1-p6-test-process-414b0ab1-pool-20261009-030617-17472.log`.
+
+The Mac focused run passes 69 tests and skips the prebuilt-anchor test, which the Linux full gate runs.
+It reports 19 caught mutants and three unviable mutants, with no misses or timeouts.
+Log: `gates/botster-core-stage1-p6-test-process-414b0ab1-pool-20261009-031627-28957.log`.
+
+The Linux slow-tier run without configuration tests 234 mutants: 187 caught, 35 unviable, and 12 misses with written reasons.
+It reports no timeout. Both `OwnedChild::id -> 0` and `-> 1` are caught.
+Log: `gates/botster-core-stage1-p6-test-process-5ae04611-pool-20261009-025755-11248.log`.
+Only mutation-reason text changes between that head and the reviewed head.
+The integration reviewer closes E1 in verdict commit `f91ad7b5ab0bfe7184a34e919405a0404becb98e`.
+
+The new signal-target check refuses group 1 on all three group-signal paths.
+Its decision test sends no signal. The shared crate still preserves production's exclusive reap.
+The group-end test gains an independent `CLEANUP` bound for its result thread.
+The Prior-art table keeps a decision and reason for every item. No migration is included in this delta.
+PR B still owns the mutation profile and hang fixture. PR A2 still owns the Linux run wrapper.
+
+TP9 went directly to the implementer. No lead decision is required.
+The reviewer ran no gate, build, test, or mutation job. The reviewer changed no product code.
+
+VERDICT: NOT CLEAN
