@@ -1725,3 +1725,40 @@ P5 reports that the full Linux gate is running; no completed result was supplied
 All prior audit and package scope limits remain as recorded in Round 12.
 
 VERDICT: NOT CLEAN (1 open)
+
+
+## PR #164 — Round 14
+
+- Exact head: `44f2f7f92135d42d61f575371eb836deb1e07e33`.
+- Parent: `dffa7b12a61034ac57bd0fe83003456c1bd6fb0a` (NOT CLEAN in Round 13).
+- Tree: `ec352b556b2b5c9452035005bfd1931e15ba6047`.
+- Scope: the two-file correction for P5-F15 and integration L1.
+- The reviewer ran no builds, tests, mutation jobs, or gates.
+
+### P5-F15 closure
+
+The reviewer read the complete delta and the surrounding Rig and deadline test code.
+`Rig::settle` pumps while `more`, drains events after each continuing pump, and asserts the existing `guard < 200` bound.
+The helper drains events once more after the final pump.
+All four reported unbounded sites use the helper. The identical bounded `run_session` loop also uses it.
+The helper preserves the prior pump and drain order. The event assertions remain unchanged.
+All remaining `while rig.pump().more` loops have guards. No existing bound value changes.
+P5-F15 is CLOSED. No package finding remains open in this correction.
+
+### Supplied evidence and description
+
+The reviewer verified the remote head and read the corrected PR description.
+The description names this head and correction, records both predecessor NOT CLEAN verdicts, and attributes evidence to its head.
+The reviewer read the exact-head log:
+`~/botster-sessions/gates/botster-core-stage1-p5-audit-contract-44f2f7f9-pool-20261008-230434-22250.log`.
+The log names job `jobq-botster-core-44f2f7f9-20261008230435-0dee` and base `d1d18f4aeba717d2dec2708024c77f55e3ee35ef`.
+The command uses `NEXTEST_PROFILE=slow` for the in-diff mutation job.
+The unmutated baseline passes. The result reports 104 tested, 82 caught, 22 unviable, zero missed, zero timeouts; exit 0.
+
+The reviewer checked the predecessor full gate's head and final summary in its `230051-17795` log.
+That log names dffa7b12 and reports every CI step PASS, exit 0.
+The predecessor gate does not replace the current head's full gate.
+P5 reports that the full Linux gate at 44f2f7f9 is running; no completed result was supplied.
+This CLEAN verdict covers the reviewed delta. All prior audit and package scope limits remain as recorded in Round 12.
+
+VERDICT: CLEAN
