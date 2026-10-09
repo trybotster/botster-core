@@ -755,10 +755,11 @@ impl HostEngine {
         let recovery = match row.state {
             // AD-1: no process exists.
             SessionState::Created => Recovery::Post(SessionState::Created),
-            // Core never writes `Lost(Other)` (R-35 correction `c3ed727`), so such a row is a corrupt record.
-            SessionState::Lost(LostReason::Other) => {
-                Recovery::Post(SessionState::Lost(LostReason::RegistryCorrupt))
-            }
+            // Core never writes `Lost(Other)` (R-35 correction `c3ed727`), and it never writes an indeterminate end (the row
+            // keeps its intent: `End::indeterminate`), so such a row is a corrupt record.
+            SessionState::Lost(
+                LostReason::Other | LostReason::WorkerUnreachable | LostReason::WorkerVersion,
+            ) => Recovery::Post(SessionState::Lost(LostReason::RegistryCorrupt)),
             // The row recorded the end.
             SessionState::Lost(reason) => Recovery::Post(SessionState::Lost(reason)),
             // AD-1: a start that never recorded its worker.

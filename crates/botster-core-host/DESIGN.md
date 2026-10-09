@@ -273,10 +273,12 @@ second `Launch` for a launch that already happened.
 - **The retry rule** keeps the row's intent in `Session.row_state`. Every row write of the session (`to_row`,
   `UpdateMetadata`, `SetNotificationPolicy`) records that state, so no write rewrites the intent. A lost link during an
   adopted start is `Lost(WorkerUnreachable)` (the worker may have accepted the `Launch`), not the ordinary start's
-  `Exited`. `Adopt(id)` is admitted only for a session whose kept intent exists: a `Lost(WorkerUnreachable)` of the stop
-  path (`stop_grace` with a broken link) or a row that recorded `Lost` has none, and stays `Unsupported` (an open
-  question for the reviewers). A retry that ends in the state that the session shows posts no second event; the `Adopt`
-  result is the record.
+  `Exited`. **No row records an indeterminate end** (`End::indeterminate`; integration A1): every path that ends
+  `Lost(WorkerUnreachable)` or `Lost(WorkerVersion)` keeps the intent instead. The start's out-of-set protocol keeps
+  `Starting`; the stop path (`stop_grace` with a broken link) keeps `Stopping`, so a retry resends the stop or finds the
+  payload ended (`Exited{HostStop}`); an adoption keeps the row's recorded state. So `Adopt(id)` always has an intent
+  (A2-1 gives it only `UnknownSession` and `WrongState`), and a row that records either end is a corrupt record. A retry
+  that ends in the state that the session shows posts no second event; the `Adopt` result is the record.
 - **An `Exited` row** is adopted with the exit that the row recorded (the report confirms that the payload ended).
 - **`connect_worker(instance)`**, not `connect_worker(endpoint)`: the edge owns the endpoint path, because the edge also
   passes `--endpoint` at the spawn. The default of the `HostEdges` method answers `None`: until the worker binds its
