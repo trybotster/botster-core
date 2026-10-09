@@ -28,6 +28,9 @@ pub(super) struct Model {
     unfed: Vec<u8>,
     /// The flags of the last `ModesChanged` (or of the launch).
     posted_modes: ModeFlags,
+    /// The last title and cwd that the output set: an adopting host reads them in the `Adopted` report (AD-3).
+    pub(super) title: Option<String>,
+    pub(super) cwd: Option<String>,
 }
 
 impl std::fmt::Debug for Model {
@@ -49,6 +52,8 @@ impl Model {
             term,
             unfed: Vec::new(),
             posted_modes,
+            title: None,
+            cwd: None,
         })
     }
 
@@ -155,10 +160,17 @@ impl Worker {
         let model_rev = self.model_rev;
         let bound = usize::try_from(self.limits.clipboard_bytes).unwrap_or(usize::MAX);
         let mut lost = drained.dropped_kinds;
+        let (mut last_title, mut last_cwd) = (None, None);
         for event in drained.events {
             let observation = match event {
-                TerminalEvent::Title(title) => Observation::Title { title, model_rev },
-                TerminalEvent::Cwd(cwd) => Observation::Cwd { cwd, model_rev },
+                TerminalEvent::Title(title) => {
+                    last_title = Some(title.clone());
+                    Observation::Title { title, model_rev }
+                }
+                TerminalEvent::Cwd(cwd) => {
+                    last_cwd = Some(cwd.clone());
+                    Observation::Cwd { cwd, model_rev }
+                }
                 TerminalEvent::Bell => Observation::Bell,
                 TerminalEvent::PromptMark { mark, exit_code } => {
                     Observation::PromptMark { mark, exit_code }
@@ -216,6 +228,14 @@ impl Worker {
                 }
             };
             self.report(&WorkerMsg::Observed { observation });
+        }
+        if let Some(model) = self.model.as_mut() {
+            if last_title.is_some() {
+                model.title = last_title;
+            }
+            if last_cwd.is_some() {
+                model.cwd = last_cwd;
+            }
         }
         for kind in lost {
             self.report(&WorkerMsg::Observed {
