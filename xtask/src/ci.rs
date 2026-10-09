@@ -262,6 +262,8 @@ fn parse_outcomes(json: &str) -> Result<MutantSummary> {
 ///   slow tier runs them in every real-process test of `crates/botster-test-process/tests/slow_process.rs`, and the default
 ///   tier on macOS in the `platform` unit tests (`this_process_has_a_start_time_and_is_a_live_member_of_its_group`,
 ///   `processes_that_started_at_different_times_have_different_start_times`, `a_wait_for_a_pid_with_no_process_reports_it_gone`).
+///   Temporary: P6 PR B removes these entries and derives the exclusions of platform-only code from `cfg` (plan r22
+///   section 8, "Platform-only code").
 const OFF_MACOS_EXCLUSIONS: &[&str] = &[
     r"crates/botster-terminal-ghostty/src/encode\.rs:\d+:40: replace & with [|^] in EncoderState::every_key_state$",
     r"crates/botster-test-process/src/platform/macos\.rs:\d+:\d+: (replace start_time( ->| with)|.* in start_time$)",
