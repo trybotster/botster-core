@@ -211,8 +211,9 @@ impl Session {
             payload_guard: Some(payload_guard),
             observer_guard,
         };
+        let (stream, _) = listener.accept().unwrap();
         let (link, payload) = hello_and_launch(
-            &listener,
+            stream,
             &launch,
             vec!["/bin/sh".into(), "-c".into(), script],
             stop_grace_ms,
@@ -238,15 +239,14 @@ impl Session {
     }
 }
 
-/// Accepts the worker's link, proves the hello both ways (AD-6), and launches `argv` (AD-7 step 4). Returns the link and
+/// On the worker's accepted link: proves the hello both ways (AD-6), and launches `argv` (AD-7 step 4). Returns the link and
 /// the payload's identity from `Launched`.
 fn hello_and_launch(
-    listener: &UnixListener,
+    stream: UnixStream,
     launch: &WorkerLaunch,
     argv: Vec<String>,
     stop_grace_ms: u64,
 ) -> (Link, PayloadId) {
-    let (stream, _) = listener.accept().unwrap();
     // timer: deadline — the limit of a wait for a real worker's frame; not a contract value.
     stream
         .set_read_timeout(Some(Duration::from_secs(20)))
@@ -628,8 +628,25 @@ impl GuardedSession {
             OwnedChild::spawn(&mut command)
         }
         .unwrap();
-        let (link, payload) = hello_and_launch(
+        // botster-test-process has no bounded accept (asked of P6): the accept waits for the worker's connection by a deadline
+        // first, so it does not block.
+        let mut ready = [rustix::event::PollFd::new(
             &listener,
+            rustix::event::PollFlags::IN,
+        )];
+        // timer: deadline — bounds the wait for the worker's connection.
+        let polled = rustix::event::poll(
+            &mut ready,
+            Some(&rustix::event::Timespec::try_from(Deadline::cleanup().remaining()).unwrap()),
+        );
+        assert_eq!(
+            polled,
+            Ok(1),
+            "the worker connects within the cleanup bound"
+        );
+        let (stream, _) = listener.accept().unwrap();
+        let (link, payload) = hello_and_launch(
+            stream,
             &launch,
             vec![wrapper.display().to_string()],
             stop_grace_ms,
