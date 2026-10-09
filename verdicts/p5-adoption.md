@@ -2232,3 +2232,82 @@ This verdict changes no conformance record and does not close P5 deliverable 2.
 Integration retains its separate design verdict ownership.
 
 VERDICT: CLEAN
+
+
+## P5 adoption code #174 — Round 1
+
+- Exact head: `6a09f29b6873084c77c4c2a2462485c894608bfc`.
+- Base: `a0f78fe4c4e4faff1fee926e072ceb5e94ba8649`.
+- Tree: `1aa2cc05730f9d8812f70b220f1e8485dcb3b084`.
+- Scope: the complete code delta across 22 files, including the host adoption flow, link proofs, reports, worker checks, tests, and documentation.
+- The reviewer changed no product code and ran no builds, tests, mutation jobs, or gates.
+
+### P5-F23 — HIGH — Successful Exited adoption closes the final-model link
+
+At `crates/botster-core-host/src/adopt.rs:291`, `adopt_end_with` closes the worker link for every state except Running.
+Successful adoption of an Exited row therefore removes the authenticated worker link.
+The same closure applies when a Starting, Running, or Stopping row reports an exited payload.
+The forwarding path then completes model reads with WorkerLinkFailed because the session has no worker link.
+AD-1, AD-6, and ST-5 require the adopted Exited session to remain readable until Remove.
+
+Required change: retain the link after successful Exited adoption.
+Require boundary proofs that read the final model after adoption of an encoded Exited row.
+Also cover a Starting or Running row whose worker reports Exited.
+The current Exited adoption test checks the state and stored bytes but does not read the final model.
+Status: OPEN. The reviewer sent this finding directly to P5 and copied integration.
+
+### P5-F24 — WITHDRAWN — R-36 replaces the proposed intent requirement
+
+The reviewer found that `admit.rs:288` refuses Adopt for an indeterminate Lost session without `row_state`.
+The reviewer proposed keeping Stopping intent on the broken-link Stop path.
+The lead referred the interpretation question to the steward.
+The reviewer read R-36 at contracts main `c62085f` and withdrew that proposed requirement.
+R-36 says a Lost row keeps the worker identity, not the prior intent.
+Keeping Stopping durably instead of Lost would change LC-5 and require an amendment.
+
+R-36 also confirms that Adopt is always admitted for Lost(WorkerUnreachable) and Lost(WorkerVersion).
+The result follows the worker's current report: Running, Exited, or Lost with the current reason.
+Core must not relaunch on that retry.
+The correction must cover the current Unsupported refusal and the kept-intent retry paths.
+The current tests for a retry that sends Launch and a retry that resumes Stopping need reconciliation with R-36.
+The reviewer sent the withdrawal and this ruling to P5 and integration.
+Integration finding A1 overlaps the Unsupported refusal; integration owns its separate verdict.
+R-36 requires a code correction and review before acceptance of this head.
+
+### P5-F25 — HIGH — Core discards an exit received before adoption posts Running
+
+An authenticated worker can send Adopted with a Running payload, then Exited, in the same pump.
+The adoption report sets the flow to Post(Running).
+The driver can deliver the next frame before it runs that Post step.
+The exit calls `begin_end_flow` at `crates/botster-core-host/src/flows.rs:303`.
+That function ignores Flow::Adopt through its fallback arm.
+Core discards the exit, then posts Running. The session can remain Running after its payload ended.
+This breaks the lifecycle report required by EV-4 and AD-1.
+
+Required change: retain an exit received while adoption waits to post its state.
+Apply that exit in the contract order.
+Require a driver boundary proof with the adoption report and exit frame in one buffer and pump.
+Cover initial adoption and retry.
+Status: OPEN. The reviewer sent this finding directly to P5 and copied integration.
+
+### Evidence and scope
+
+The reviewer read the supplied full gate log for the exact head:
+`~/botster-sessions/gates/botster-core-stage1-p5-adopt-1-6a09f29b-pool-20261009-013739-16501.log`.
+The log reports 837 default tests and 215 slow tests passed.
+It reports 156 mutants: 138 caught, 18 unviable, zero missed, and zero timeouts.
+All listed CI jobs, including fuzz, report PASS.
+
+The reviewer also read the explicit slow-profile mutation log:
+`~/botster-sessions/gates/botster-core-stage1-p5-adopt-1-08e6f288-pool-20261009-013253-12549.log`.
+It reports the same mutation totals and a passing focused test for adoption with a full mandatory queue.
+The reviewer verified that `08e6f288` to the exact head changes only one documentation line.
+These passing jobs do not resolve F23 or F25, or satisfy the new R-36 ruling.
+
+The role proofs, protocol-one predicate, five report states, and R-35 launch recovery have code and unit proofs in this delta.
+The reviewer found no remaining Core construction of Lost(Other) in the changed sites.
+Integration retains W1, its separate LOW finding about the one-Launch test during Spawning.
+The worker endpoint, real and simulated connection edges, launch arguments, FocusChanged, RouteAdopted, and A52 remain outside this PR.
+This verdict changes no conformance record and does not close P5 deliverable 2.
+
+VERDICT: NOT CLEAN
