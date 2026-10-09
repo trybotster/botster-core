@@ -1,7 +1,7 @@
 # P3 worker review
 
-Current verdict: NOT CLEAN for PR #168 M2a at `1c3154cfe695282d2c8acab4d45d5bc3b769ffed`.
-Round 100 completes the logic review. F53 LOW and the required real-PTY proof HOLD remain open.
+Current verdict: NOT CLEAN for PR #168 M2a at `7550018fff91ed948dbdfb7eea14caec48b27d6c`.
+Round 101 closes F53 and completes the merge delta review. Only the required real-PTY proof HOLD remains open.
 PR #167 Part A remains CLEAN at `41e997446090afb7ac45ae9823734dfeea7eb40b`. F49 through F52 are CLOSED.
 PR #163 Part B retains F28, F33 execution, and F39 for its later merge delta.
 PR #165 remains CLEAN at `29b37890efeffa4410d7dfc34f5c2344bfad1ba4` and landed through #162.
@@ -4931,6 +4931,97 @@ The logic review is complete. No other M2a logic finding remains open.
 PR #167 Part A's round 99 CLEAN remains preserved at its exact head.
 Part B retains its previous findings and A31 scope. This verdict does not clear those duties.
 M2b, P4a, the A32/A33 follow-up, and pending conformance IDs remain outside this verdict.
+The reviewer changed no product code and ran no tests, builds, measurements, mutants, or gates.
+All earlier findings, closures, and verdict rounds remain preserved at their named heads and scopes.
+
+VERDICT: NOT CLEAN
+
+
+## Round 101 — F53 closure, N1/N2 changes, and the v1 merge
+
+Reviewed head: `7550018fff91ed948dbdfb7eea14caec48b27d6c`, PR #168, branch `stage1/p3-m2a-v1`.
+Base: `ee7dd16c73a6991b6ef9b3a85d84fd93e57a3230`, v1 after #164.
+Reviewed delta: merge `33a2bc877e01ff19d100a030c5c58f1b87b7cb60`, then fix `7550018f`, after round 100's head `1c3154cf`.
+Authority: plan revision 22, pin `~/botster-sessions/pins/stage1-plan.71a623ef.md`, BUILD.md, and the lead's M2a ruling.
+The reviewer verified the plan SHA256: `71a623ef93f487754e400dc186429216357e39fe251933675cc7f851843d519d`.
+The corrected plan retains F51's platform coverage exception and requires no nextest termination during mutation evidence.
+It keeps the real-process proof requirement and P6's test infrastructure ownership.
+
+### F53 — CLOSED — An exhausted accept limit requests no next step
+
+The next-step condition now also requires `controls.accept != Some(0)`.
+A spent chunk can request another step only when the program is not blocked and its accept limit permits progress.
+The combined-limit regression sets both limits to 2 and writes `abc`.
+The first attempt takes two bytes. The retry returns `WouldBlock` and requests no next step.
+The existing cases retain readiness for a positive spent chunk and suppress readiness for a blocked write.
+The test asserts write and readiness behavior. It does not assert a private data layout.
+The exact-head default tier selects this test and passes it.
+The reviewer closes F53 at this head. F11's preserved readiness requirement remains in force.
+
+### N1/N2 changes — Accepted in the package review
+
+`io_decisions::pty_writable` contains the writable-event decision that M2a added inside excluded `Driver::run`.
+The real driver calls this same function before clearing write interest and delivering `PtyWritable`.
+Its default test checks all four combinations of write wait and event writability.
+The pure decision remains mutation-tested. The exact-head default tier selects and passes its test.
+The exclusion comments distinguish this decision from the real PTY event and write operations.
+They name the parked regression for the PTY arm, the action dispatch, and the write-interest operation.
+The bitwise XOR of disjoint READABLE and WRITABLE flags remains equivalent.
+The bitwise AND removes interest and remains part of the required real-process proof.
+The cited regression still does not exist on the branch. That evidence remains the single HOLD below.
+
+The worker-core route-codec dependency moves to `dev-dependencies`.
+The dependency supplies test construction only and adds no production dependency.
+The reviewer accepts the N1 source correction and N2 dependency correction.
+The integration reviewer retains responsibility for its own N1/N2 verdict.
+No new package logic finding exists in these changes.
+
+### Merge delta — Both process namespaces and upstream changes are preserved
+
+The reviewer inspected the merge conflict resolutions and the final diff against both parents.
+The old and new M2a diffs each change the same eighteen paths.
+Six paths are shared with #164: the mutation configuration, lock file, testkit Core tests, harness, worker, and worker tests.
+The merge registers each spawned worker in both v1's run process table and M2a's directory/instance map.
+The tables retain their separate roles: identity probes and signals use the run table; controls use the session map.
+The Core test resolution uses v1's `HostDriver::open` and M2a's handle/data-directory constructor arguments.
+The reopen fixture supplies the same `reopen` directory to its Core, spawner, and identity probe.
+The worker exit fixture retains v1's registered process table and M2a's directory field.
+The final fix restores the #164 exclusion entries and comments that the intermediate merge had omitted.
+The final configuration differs from v1 only by M2a's entries and proof comments.
+No upstream-only file differs from v1 at the submitted head.
+Eight M2a files remain byte-identical to round 100, including the admission module, machine, controls, and machine tests.
+The reviewed guard and process fixtures receive no M2a change.
+The merge has shared paths and conflicts, so it does not qualify for the plan's base-only script exception.
+This round supplies the package delta review.
+
+### Completed evidence
+
+The exact-head Linux log is:
+`~/botster-sessions/gates/botster-core-stage1-p3-m2a-v1-7550018f-pool-20261008-231933-52884.log`.
+It names this head and base `ee7dd16c`.
+The command runs the full `cargo xtask ci`, then the in-diff mutation step with `NEXTEST_PROFILE=slow`.
+All ten CI steps pass, including formatting, taint/timers for 124 Rust files, lists, API, and prebuild.
+The default tier passes 833 tests. The slow tier passes 206 tests.
+The full gate's mutation step reports 156 tested: 136 caught, 20 unviable, zero missed or timed out.
+The separate no-termination mutation step reports the same results at the same exact head.
+The full CI summary reports 307.3 seconds. The no-termination step takes 273.8 seconds.
+The combined job exits 0 after 594 seconds.
+The fuzz step has no changed decoder harness.
+The reviewer read the full updated PR description. It matches the code, merge resolutions, and completed evidence.
+The PR retains its explicit merge prohibition until the rebuilt real-PTY regression passes.
+
+### HOLD and verdict
+
+The logic review is complete. No package logic finding remains open within M2a.
+F53 is CLOSED. Exactly one item remains open:
+HOLD: "the real-PTY regression in_6_real_pty_cancel_keeps_counts_and_resumes_the_next_write, rebuilt on botster-test-process, must pass the gate".
+This is the lead's ruling of 2026-10-08. CLEAN means merge-ready; no development-only CLEAN is permitted.
+The HOLD includes the missing selected proof for the Driver exclusions under plan section 8.
+The current 206 slow tests do not contain the parked regression and cannot close this HOLD.
+The reviewer will review the rebuilt regression delta and completed gate evidence before CLEAN.
+
+PR #168 M2a is NOT CLEAN at this exact head for this single HOLD.
+Part B retains its previous findings and A31 duty. M2b, P4a, and pending conformance IDs remain outside this verdict.
 The reviewer changed no product code and ran no tests, builds, measurements, mutants, or gates.
 All earlier findings, closures, and verdict rounds remain preserved at their named heads and scopes.
 
