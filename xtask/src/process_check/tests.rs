@@ -39,7 +39,7 @@ fn t(mut child: Child, mut r: BufReader<File>) {
             (2, "t".into(), "child-wait"),
             (3, "t".into(), "child-wait"),
             (4, "t".into(), "child-wait"),
-            (6, "t".into(), "read-line"),
+            (6, "t".into(), "blocking-read"),
             (7, "t".into(), "sleep"),
             (8, "t".into(), "spawn"),
             (9, "t".into(), "command-wait"),
@@ -91,11 +91,11 @@ fn a_renamed_or_glob_imported_or_qualified_call_is_found() {
         ),
         (
             "fn f() { BufRead::read_line(&mut r, &mut s); }\n",
-            "read-line",
+            "blocking-read",
         ),
         (
             "fn f() { <R as BufRead>::read_line(&mut r, &mut s); }\n",
-            "read-line",
+            "blocking-read",
         ),
         (
             "use std::process::Command as Cmd;\nfn f() { Cmd::new(\"x\").output(); }\n",
@@ -147,7 +147,7 @@ fn t() {
             "child-wait",
             "shell-loop",
             "child-wait",
-            "read-line",
+            "blocking-read",
             "sleep"
         ]
     );
@@ -340,11 +340,82 @@ fn an_early_exit_keeps_the_group_owned_until_cleanup() {
     let violations = judge(&scan(file, &reverted).unwrap(), &[]);
     assert_eq!(violations.len(), 2, "{violations:?}");
     assert!(
-        violations[0].starts_with(&format!("{file}:9: [read-line]")),
+        violations[0].starts_with(&format!("{file}:9: [blocking-read]")),
         "{violations:?}"
     );
     assert!(
         violations[1].starts_with(&format!("{file}:10: [child-wait]")),
+        "{violations:?}"
+    );
+}
+
+/// Lead ruling 2026-10-08 (after #169 F19): every blocking read with no deadline on a pipe, a socket or a channel is found,
+/// in each form; a read of a file, `str::lines` and the bounded forms are not.
+#[test]
+fn every_blocking_read_without_a_deadline_is_found_and_a_file_read_is_not() {
+    for text in [
+        "fn f() { client.read_to_end(&mut out).unwrap(); }\n",
+        "fn f() { stdout.read_to_string(&mut s).unwrap(); }\n",
+        "fn f() { pipe.read_exact(&mut buf).unwrap(); }\n",
+        "fn f() { for line in BufReader::new(stdout).lines() {} }\n",
+        "fn f() { let reader = BufReader::new(stdout);\n for line in reader.lines() {} }\n",
+        "fn f() { let (stream, _) = listener.accept().unwrap(); }\n",
+        "fn f() { for stream in listener.incoming() {} }\n",
+        "fn f() { let value = receiver.recv().unwrap(); }\n",
+        "fn f() { let socket = UdpSocket::bind(a).unwrap();\n socket.recv(&mut buf).unwrap(); }\n",
+        "fn f() { UnixDatagram::bind(p).unwrap().recv_from(&mut buf).unwrap(); }\n",
+        "fn f() { children.map(Read::read_to_end); }\n",
+        "use std::io::Read as R;\nfn f() { R::read_exact(&mut p, &mut b); }\n",
+        "fn f() { std::io::read_to_string(stdout).unwrap(); }\n",
+    ] {
+        assert_eq!(rules(text), ["blocking-read"], "{text}");
+    }
+    for text in [
+        "fn f() { File::open(p).unwrap().read_to_string(&mut s).unwrap(); }\n",
+        "fn f() -> io::Result<()> { let mut f = File::open(p)?;\n f.read_to_end(&mut v)?; Ok(()) }\n",
+        "fn f() { std::fs::OpenOptions::new().read(true).open(p).unwrap().read_exact(&mut b).unwrap(); }\n",
+        "fn f() { let text = std::fs::read_to_string(p).unwrap(); }\n",
+        "fn f() { for line in text.lines() {} }\n",
+        "fn f() { receiver.recv_timeout(d).unwrap(); }\n",
+        // The testkit's in-memory link does not block: `recv(buf)` of a receiver that is not a socket is allowed.
+        "fn f() { while let Ok(n) = link.recv(&mut buf) {} }\n",
+        "fn f() { Bounded::new(client).to_eof(Deadline::cleanup()).unwrap(); }\n",
+    ] {
+        assert_eq!(rules(text), Vec::<&str>::new(), "{text}");
+    }
+}
+
+/// The red-on-revert proof of the widened rule, in the shape of #169 F19 (an unbounded `read_to_end` of a `UnixStream` in
+/// botster-core real.rs): the bounded read is clean, and the revert to `read_to_end` fails the check at that call.
+#[test]
+fn re_adding_a_read_to_end_of_a_socket_fails_the_check() {
+    let bounded = "\
+use botster_test_process::{Bounded, Deadline};
+use std::os::unix::net::UnixStream;
+
+#[test]
+fn the_service_answers_once_and_closes() {
+    let client = UnixStream::connect(&path).unwrap();
+    let answer = Bounded::new(client).to_eof(Deadline::cleanup()).unwrap();
+    assert_eq!(answer, b\"ok\\n\");
+}
+";
+    let file = "crates/botster-core/tests/real.rs";
+    assert_eq!(
+        judge(&scan(file, bounded).unwrap(), &[]),
+        Vec::<String>::new()
+    );
+    let reverted = bounded.replace(
+        "    let client = UnixStream::connect(&path).unwrap();\n    let answer = Bounded::new(client).to_eof(Deadline::cleanup()).unwrap();\n",
+        "    let mut client = UnixStream::connect(&path).unwrap();\n    let mut answer = Vec::new();\n    client.read_to_end(&mut answer).unwrap();\n",
+    );
+    assert_ne!(reverted, bounded);
+    let violations = judge(&scan(file, &reverted).unwrap(), &[]);
+    assert_eq!(violations.len(), 1, "{violations:?}");
+    assert!(
+        violations[0].starts_with(&format!(
+            "{file}:8: [blocking-read] in `the_service_answers_once_and_closes`"
+        )),
         "{violations:?}"
     );
 }

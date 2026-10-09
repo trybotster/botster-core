@@ -15,22 +15,22 @@ crates/botster-core-sys/tests/common/guard_cleanup.rs | end_group | child-wait
 crates/botster-core-sys/tests/common/guard_cleanup.rs | end_group | spawn
 crates/botster-core-sys/tests/common/guard_cleanup.rs | status_within | child-wait
 crates/botster-core-sys/tests/common/payload_guard.rs | a_payload_cleanup_that_cannot_finish_fails_through_the_guard | spawn
-crates/botster-core-sys/tests/common/payload_guard.rs | serve | read-line
-crates/botster-core-sys/tests/common/payload_guard.rs | serve | read-line
+crates/botster-core-sys/tests/common/payload_guard.rs | serve | blocking-read
+crates/botster-core-sys/tests/common/payload_guard.rs | serve | blocking-read
 crates/botster-core-sys/tests/common/process_guard.rs | a_cleanup_that_cannot_finish_fails_through_the_guard | spawn
 crates/botster-core-sys/tests/common/process_guard.rs | a_panic_before_ready_ends_the_child | spawn
 crates/botster-core-sys/tests/common/process_guard.rs | a_stuck_reader_fails_with_a_clear_message | spawn
 crates/botster-core-sys/tests/common/process_guard.rs | an_early_exit_keeps_the_group_owned_until_cleanup | spawn
-crates/botster-core-sys/tests/common/process_guard.rs | anchor_process | read-line
+crates/botster-core-sys/tests/common/process_guard.rs | anchor_process | blocking-read
 crates/botster-core-sys/tests/common/process_guard.rs | blocked_parent | child-wait
-crates/botster-core-sys/tests/common/process_guard.rs | blocked_parent | read-line
+crates/botster-core-sys/tests/common/process_guard.rs | blocked_parent | blocking-read
 crates/botster-core-sys/tests/common/process_guard.rs | blocked_parent | spawn
 crates/botster-core-sys/tests/common/process_guard.rs | drop | child-wait
-crates/botster-core-sys/tests/common/process_guard.rs | first_line_within | read-line
+crates/botster-core-sys/tests/common/process_guard.rs | first_line_within | blocking-read
 crates/botster-core-sys/tests/common/process_guard.rs | never_fifo | command-wait
 crates/botster-core-sys/tests/common/process_guard.rs | parent_dies_before_fifo_reader | command-wait
 crates/botster-core-sys/tests/common/process_guard.rs | parent_dies_before_fifo_reader | spawn
-crates/botster-core-sys/tests/common/process_guard.rs | with_cleanup | read-line
+crates/botster-core-sys/tests/common/process_guard.rs | with_cleanup | blocking-read
 crates/botster-core-sys/tests/common/process_guard.rs | with_cleanup | spawn
 
 # Payload slow tests. PR C migrates them to botster-test-process (owner P3, core-sys payload).
@@ -49,7 +49,7 @@ crates/botster-core-sys/tests/slow_process.rs | WAITING_CHILD | shell-loop
 # Real Core slow tests and their worker script fixture. PR C migrates them to botster-test-process (owner P5).
 crates/botster-core/tests/common/mod.rs | mkfifo | command-wait
 crates/botster-core/tests/common/mod.rs | WAIT_WHILE_THE_PARENT_LIVES | shell-loop
-crates/botster-core/tests/slow_real_core.rs | a_worker_is_not_left_when_the_cleanup_of_a_test_fails | read-line
+crates/botster-core/tests/slow_real_core.rs | a_worker_is_not_left_when_the_cleanup_of_a_test_fails | blocking-read
 
 # OwnedGroup and its slow tests. PR C replaces them with OwnedChild::spawn_group (owner P6).
 crates/botster-core-testkit/src/process_group.rs | kill | child-wait
@@ -65,15 +65,15 @@ crates/botster-worker/tests/common/session.rs | a_panic_after_worker_sigkill_end
 crates/botster-worker/tests/common/session.rs | drop | child-wait
 crates/botster-worker/tests/common/session.rs | drop | child-wait
 crates/botster-worker/tests/common/session.rs | fifo | command-wait
-crates/botster-worker/tests/common/session.rs | first_line | read-line
+crates/botster-worker/tests/common/session.rs | first_line | blocking-read
 crates/botster-worker/tests/common/session.rs | launch | spawn
 crates/botster-worker/tests/common/session.rs | lc_5_stop_asks_then_kill_ends_and_the_worker_survives | shell-loop
 crates/botster-worker/tests/common/session.rs | lc_5_stop_asks_then_kill_ends_and_the_worker_survives | shell-loop
 crates/botster-worker/tests/common/session.rs | lc_5_the_worker_control_signal_ends_the_payload_and_the_worker_stays | shell-loop
 crates/botster-worker/tests/common/session.rs | lc_6_signal_reaches_the_whole_group | shell-loop
-crates/botster-worker/tests/common/session.rs | observer_parent | read-line
+crates/botster-worker/tests/common/session.rs | observer_parent | blocking-read
 crates/botster-worker/tests/common/session.rs | observer_parent | shell-loop
-crates/botster-worker/tests/common/session.rs | parent_death_ends_the_driver_observer | read-line
+crates/botster-worker/tests/common/session.rs | parent_death_ends_the_driver_observer | blocking-read
 crates/botster-worker/tests/common/session.rs | parent_death_ends_the_driver_observer | spawn
 crates/botster-worker/tests/common/session.rs | remove | child-wait
 crates/botster-worker/tests/common/session.rs | sigterm_on_the_worker_ends_its_payload_group_then_the_worker | child-wait
