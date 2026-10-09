@@ -5,7 +5,7 @@
 
 use crate::controls::{parse, session_row, ControlRegistry};
 use crate::harness::TestkitHarness;
-use crate::worker::StartKey;
+use crate::worker::InstanceKey;
 use botster_core_conformance::ControlError;
 use botster_core_contract::prelude::{InstanceId, SessionId, SessionState};
 use serde::Deserialize;
@@ -46,11 +46,11 @@ fn start_key(
     harness: &TestkitHarness,
     handle: &str,
     instance: InstanceId,
-) -> Result<StartKey, ControlError> {
+) -> Result<InstanceKey, ControlError> {
     let dir = harness
         .directory_of(handle)
         .ok_or_else(|| ControlError::Bad(format!("the handle '{handle}' is not open")))?;
-    Ok(StartKey {
+    Ok(InstanceKey {
         dir: dir.to_string(),
         instance,
     })
