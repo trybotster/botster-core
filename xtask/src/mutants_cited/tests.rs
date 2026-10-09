@@ -327,8 +327,9 @@ fn only_comment_words_with_three_parts_are_cited() {
 #[test]
 fn a_proof_citation_is_a_decision_with_its_proofs_in_parentheses() {
     let toml = "# decide_the_step (a_proof, b_proof) and `other_decision_fn`\n#   (c_proof) but not (P6 PR A evidence),\n\
-                # not (a path::to) and not (two words) or (`code_name`); x(y_proof)\n# z\nexclude_re = []\n# far_decision_fn\n# (d_proof)\n";
+                # not (a path::to) and not (two words) or (`code_name`); x(y_proof)\n# z\nexclude_re = []\n# far_decision_fn\n# (d_proof)\n# split (e_proof,\n# f_proof)\n";
     let cited = cited(toml);
+    assert_eq!(cited.len(), 10);
     let proofs: Vec<(String, usize)> = cited.proofs.into_iter().collect();
     assert_eq!(
         proofs,
@@ -337,6 +338,8 @@ fn a_proof_citation_is_a_decision_with_its_proofs_in_parentheses() {
             ("b_proof".to_string(), 1),
             ("c_proof".to_string(), 2),
             ("d_proof".to_string(), 7),
+            ("e_proof".to_string(), 8),
+            ("f_proof".to_string(), 9),
             ("y_proof".to_string(), 3),
         ]
     );
