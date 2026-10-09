@@ -449,6 +449,7 @@ fn by_shadowed_let() { let c = Command::new(\"git\"); let c = Pure; c.status(); 
 fn by_closure_rebinding(c: &mut Command) { let f = |c: Pure| c.status(); f(Pure); }
 fn by_fs_write() { std::fs::write(p, b); }
 fn by_env_var() { std::env::var(k); }
+fn by_let_after_a_macro() { println!(\"x\"); let c = Command::new(\"git\"); c.status(); }
 ";
     let calls = Calls::of(&[("xtask/src/a.rs".to_string(), text.to_string())]).unwrap();
     let io: BTreeSet<&str> = calls.io.iter().map(|(_, f)| f.as_str()).collect();
@@ -467,6 +468,7 @@ fn by_env_var() { std::env::var(k); }
         "by_let",
         "by_fs_write",
         "by_env_var",
+        "by_let_after_a_macro",
     ]
     .into();
     assert_eq!(io, expected);
@@ -897,6 +899,12 @@ fn an_item_or_a_use_that_takes_a_resolved_name_fails() {
             "{name}: {error}"
         );
     }
+    // A one-segment macro name is no crate root: an item may take it (a function `format` is not the macro `format!`).
+    Calls::of(&[(
+        "xtask/src/b.rs".to_string(),
+        "fn format() {}\nstruct vec;\n".to_string(),
+    )])
+    .unwrap();
     // 16 items, 2 nested functions, 4 uses; `extern crate syn;`, `struct Local` and the allowed uses add none.
     assert_eq!(error.lines().count(), 22, "{error}");
 }
