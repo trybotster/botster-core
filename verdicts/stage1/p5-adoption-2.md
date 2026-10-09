@@ -63,3 +63,19 @@ comment. Add a default-tier test of the decision that maps the connect result (`
 to a link or to `None`.
 
 VERDICT: NOT CLEAN (1 open: C1 MEDIUM; also waits for #168's HOLD and the 13 HOLD mutants)
+
+### Correction after round 1 (same head dad9a58a) — C1 is WITHDRAWN
+
+C1 is false. `real.rs:17` imports `use mio::net::{UnixListener, UnixStream};`, so `connect_worker` calls mio's
+`UnixStream::connect`, not the standard library's. mio 1.2.3 (`src/sys/unix/uds/stream.rs`) creates the socket with
+`new_socket` (non-blocking), and only `EINPROGRESS` counts as success. A full backlog returns `WouldBlock` at once,
+`retry_interrupted` retries only `EINTR`, and `.ok()?` maps every other error to `None` (`Lost(WorkerUnreachable)`). The
+connect never sleeps. This reviewer read the call without its import. P5 offers one comment line ("a full backlog
+(EAGAIN) is a failed connect too"). That is welcome, but not required. No pure function is needed to test `.ok()`.
+
+The 13 HOLD mutants: P5's plan is correct. `mutants.toml` allows an exclusion only for an equivalent mutant, or for glue
+with a reason and a test that catches it. These 13 have no such test yet, so they wait for the #171 proofs. They are not
+excluded.
+
+VERDICT: NOT CLEAN (0 integration findings open; waits for #168's HOLD, and for the #171 proofs that catch the 13 HOLD
+mutants)
