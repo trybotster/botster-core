@@ -6348,3 +6348,86 @@ The reviewer changed no product code and ran no tests, builds, measurements, mut
 All earlier findings, closures, and verdict rounds remain preserved at their named heads and scopes.
 
 VERDICT: CLEAN
+
+
+## Round 119 — Testkit PTY program controls
+
+Reviewed head: `46642d85de52c98ce8fe1cfbd0bf7afa27847c4d`, PR #195, branch `stage1/p3-pty-controls`.
+Base: `1dd1657a2c53f4da6953f7a349d7fa9d59b97ec6`.
+Parent: `3b43213afd7268d755b89eb4f122da2e598f80a2`.
+The reviewer checked the tier first. HIGH is correct under BUILD.md rule 3 because this changes the shared testkit.
+The lead assigned the work. The description records P5 and P6 agreement on the design.
+Authority: BUILD.md, plan 2.1, the pinned program-control documentation, and Core A5-1, A5-2, A5-3, ST-1, OU-7, and TM-6.
+The reviewer read the full six-file diff, control parsing, program read/write behavior, worker lifecycle, and existing block test.
+The reviewer also read the complete description, probe scope, and completed exact-head gate.
+
+### F63 — MEDIUM — program_edge reverses the process lock order; OPEN
+
+Location at the reviewed head: crates/botster-core-testkit/src/worker.rs:234-242.
+program_edge locks the ProcessCell and keeps its MutexGuard alive while it locks the owner's Processes table to clone the wake.
+Existing process end takes these locks in reverse order.
+Processes::end at lines 102-108 locks the cell while the caller holds the owner table.
+WorkerEdges performs Action::Exit through this path at line 616. WorkerSpawner also uses it for GroupSignal::Kill at line 346.
+ProcessTable::holds_reports at lines 88-96 likewise holds the table while locking its cells.
+
+CoreApi is Send under Core TH-1. A caller can move its Core to a pumping thread while retaining the harness on another thread.
+A program control on the harness can therefore run concurrently with worker exit during a pump.
+If the control holds the cell and exit holds the owner, exit waits for the cell while the control waits for the owner.
+Both threads stop. The current single-thread control tests do not exercise this lock cycle.
+
+Required correction: release the cell guard after validation and cloning ProgramControl, before reading the owner's wake.
+break_link already limits the cell guard to a separate scope before it accesses the owner.
+Add a meaningful regression for a program-edge control concurrent with process end, without an unbounded wait.
+The reviewer sent F63 directly to P3 and integration.
+This finding follows from source inspection and the Send contract. The reviewer ran no test or gate.
+
+### Other source coverage and proof limits
+
+The registry dispatches both new controls through the existing parse and session_row helpers.
+The handlers reject unknown handles or sessions, absent workers, extra keys, and invalid or empty output hex.
+ProgramControl::write appends plain output rather than an atomic piece. The existing program reader keeps the seeded read sizes.
+The worker receives Input::PtyOutput through its existing readiness and read path.
+The new program handle is set after a successful payload spawn and cleared at reap or worker end.
+The controls reject an ended worker or absent payload.
+
+pty_output signals the owning host's wake. pty_blocked defaults to on and signals the wake only on release.
+The block uses the existing ProgramControl::set_blocked, which also clears a pty_accept limit on release.
+The existing the_handle_blocks_a_program_that_moved test proves WouldBlock and subsequent acceptance at the program edge.
+The new wake tests arm no_spurious_wakes before they require a clear idle wake, as #194 requires.
+The output test uses eight seeds and proves that five injected bytes become unread and are then read by the worker.
+Its unread observation uses the documented program-edge counter, not private worker state.
+The description reports revert checks for the write and both wake signals.
+
+The description states both current proof limits.
+The testkit has no input-write action, so a harness test cannot observe a blocked write; no transcript counts as proof of pty_blocked.
+The M1 worker reports no output to the host and serves no terminal read, so the output test proves only consumption by the worker.
+The transcript probes still fail at output Activity or stop at route controls. No pending ID leaves the list in this PR.
+A reported pass with the separate output-activity branch is not proof for this reviewed head.
+The change adds no real-process fixture or production process code. No other package finding remains.
+
+### Completed evidence and its limit
+
+Exact-head log: `~/botster-sessions/gates/botster-core-stage1-p3-pty-controls-46642d85-pool-20261009-105935-10918.log`.
+The log names this head and base. The run uses msa1 with kernel 6.12.111+deb13-amd64.
+All ten CI steps pass. The default tier passes 979 tests in 2.809 seconds.
+The slow tier passes 243 tests in 10.132 seconds. All four new pty_controls tests run and pass.
+Signals scan 159 Rust files. Timers scan 143 Rust files.
+The lists report gives 675 ledger IDs, 645 pending, two deferred, two withdrawn, and 26 to run.
+Both mutation commands report 15 tested: ten caught, zero missed, zero timeout, and five unviable.
+The separate command uses NEXTEST_PROFILE=slow. Fuzz reports no changed crate with a decoder harness.
+Full CI takes 240.0 seconds. Separate mutants take 82.1 seconds. The gate exits 0 after 387 seconds.
+These passing checks do not cover F63's lock-order cycle.
+The complete final description names the correct tier, head, base, gate, tests, and limits.
+
+### Verdict and scope
+
+PR #195 is NOT CLEAN at `46642d85de52c98ce8fe1cfbd0bf7afa27847c4d` for the P3 package review.
+F63 is open. This is #195's first recorded NOT CLEAN round; the round-limit notice is not due.
+The integration reviewer controls its own verdict. No lead decision is needed to continue.
+#190 retains round 118 CLEAN at 5a0b07ac0575743977c5d45ae78ae0a6a55ec101; the lead records its merge as 67fd748a.
+#192 retains round 117 NOT CLEAN with F61 and F62 open, awaiting a new exact-head READY after the shared-resolver correction.
+#168 retains its separate single planned real-PTY HOLD. Part B retains its earlier open duties.
+The reviewer changed no product code and ran no tests, builds, measurements, mutants, or gates.
+All earlier findings, closures, and verdict rounds remain preserved at their named heads and scopes.
+
+VERDICT: NOT CLEAN
