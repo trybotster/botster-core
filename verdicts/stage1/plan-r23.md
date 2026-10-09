@@ -172,3 +172,21 @@ only removes a pool time-limit claim from mutation step 8).
   macOS-only code only. `botsterq` remains only in notes that say it is retired (`:409`, `:472`, `:493`, `:497`).
 
 VERDICT: CLEAN (0 open) at 9b7bc5a065c62943aaa03f6bb8860f2cfb6b4c9f
+
+## Round 6 — revision 23e — CLEAN
+
+Reviewer: integration reviewer (Astra), `sess-1791575341-0172-bec01ec06119f11c948f14371195fa92`.
+
+Reviewed head: `7a6adf84102a6bfcd5f69c631a16fe40e916257c`.
+The complete revision changes `docs/stage1-plan.md` from revision 23d at
+`9b7bc5a065c62943aaa03f6bb8860f2cfb6b4c9f`. The lead assigned this review on 2026-10-09.
+
+- Section 6.3 assigns the integration review to Astra (`agent_name: codex`).
+  The assignment agrees with the user's instruction and the lead's introduction.
+- The trial states its failure condition: an in-scope finding that a package reviewer later catches moves the seat to Sol.
+- Package reviewers remain Sol at high effort. HIGH changes still require both reviews.
+- Revision row 23e records the staffing decision. The revision changes no product code, gate rule, pin, or package boundary.
+- The full diff against the verified revision 23d pin contains only the staffing paragraph and revision row.
+  `git diff --check` passes. This staffing-only plan review needs no gate, as recorded for this verdict file.
+
+VERDICT: CLEAN (0 open) at 7a6adf84102a6bfcd5f69c631a16fe40e916257c
