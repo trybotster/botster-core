@@ -245,25 +245,24 @@ exclude_re = [
     # ECHILD and EINVAL cannot occur under these ownership rules, so changing the error fallback's sign is equivalent.
     'crates/botster-core-sys/src/process\.rs:\d+:\d+: delete - in Children::spawn$',
     # botster-core-sys storage (P1): the registry on a real disk (AD-7, LC-2, DP-8). A real fsync takes the time of the disk
-    # of the host, so these tests run in the slow tier (BUILD.md testing rule 2), storage.rs `slow_tests` (slow-tier mutation
-    # run of 2026-10-04: every mutant of these functions is caught there): `a_written_row_reads_back_and_a_missing_row_is_none`,
-    # `a_second_write_replaces_the_row`, `any_key_is_a_valid_row_name_and_lists_back_sorted`, `delete_removes_the_row_and_is_idempotent`
-    # (write_row, read_row, list_rows, delete_row, FileStorage::path, FileStorage::read_file), `the_directory_is_exclusive_until_it_is_dropped`,
-    # `the_host_epoch_strictly_increases_across_opens`, `a_corrupt_epoch_refuses_the_open` (DataDir::open, DataDir::epoch),
+    # of the host, so these tests run in the slow tier (BUILD.md testing rule 2), storage.rs `slow_tests`. Evidence: the
+    # slow-tier mutation run of 2026-10-04 (P1's code), and for every line that #164 changed, the Linux slow-tier run of
+    # 2026-10-08 at 2121aaca and b48a6d8d (`--no-config --features slow`; logs named in PR #164). Catching tests:
+    # `a_written_row_reads_back_and_a_missing_row_is_none`, `a_second_write_replaces_the_row`,
+    # `any_id_is_a_row_and_lists_back_sorted`, `delete_removes_the_row_and_its_empty_directories`,
+    # `only_a_missing_row_is_none_or_deleted_quietly`, `a_write_that_cannot_start_is_failed_with_no_effect`,
+    # `a_damaged_row_is_still_named_by_its_path` (write_row, read_row, list_rows, delete_row);
+    # `a_link_in_a_row_path_is_never_followed` (read_row's O_NOFOLLOW, which the 2026-10-04 run did not catch; its `|` to
+    # `^` mutants are the pre-accepted disjoint-bits class); `the_directory_is_exclusive_until_it_is_dropped`,
+    # `the_host_epoch_strictly_increases_across_opens`, `a_corrupt_epoch_refuses_the_open` (DataDir::open, DataDir::epoch);
     # `an_unsafe_directory_is_refused_and_a_new_one_is_private`, `open_tells_an_existing_file_from_a_failed_create`,
-    # `open_reports_a_rows_directory_that_cannot_be_created` (DataDir::open, check_safe), `a_damaged_row_file_is_not_a_row`,
-    # `a_row_is_found_only_under_its_own_key`, `only_a_missing_row_is_none_or_deleted_quietly`,
-    # `a_write_that_cannot_start_is_failed_with_no_effect` (read_file, read_row, delete_row, write_row). Correction (#164,
-    # Linux slow-tier run of 2026-10-08): read_row's O_NOFOLLOW was not caught by the run of 2026-10-04; it is caught by
-    # `a_link_in_a_row_path_is_never_followed`; its `|` to `^` mutants are the pre-accepted disjoint-bits class. The pure parts
-    # (`encode`, `decode`, `key_hash`, `errno`, the error words, `sync_directory` of a missing directory) are tested in the
-    # default tier.
+    # `open_reports_a_rows_directory_that_cannot_be_created` (DataDir::open, check_safe). The pure parts are tested in the
+    # default tier: `errno` and the error words (storage.rs `tests`), and the row path encoding (`row_path`, `key_of`,
+    # `valid_kind`, `is_dir_component`; storage/row_path.rs `tests`).
     'crates/botster-core-sys/src/storage\.rs:\d+:\d+: (replace <impl Storage for FileStorage>::write_row( ->| with)|.* in <impl Storage for FileStorage>::write_row$)',
     'crates/botster-core-sys/src/storage\.rs:\d+:\d+: (replace <impl Storage for FileStorage>::read_row( ->| with)|.* in <impl Storage for FileStorage>::read_row$)',
     'crates/botster-core-sys/src/storage\.rs:\d+:\d+: (replace <impl Storage for FileStorage>::list_rows( ->| with)|.* in <impl Storage for FileStorage>::list_rows$)',
     'crates/botster-core-sys/src/storage\.rs:\d+:\d+: (replace <impl Storage for FileStorage>::delete_row( ->| with)|.* in <impl Storage for FileStorage>::delete_row$)',
-    'crates/botster-core-sys/src/storage\.rs:\d+:\d+: (replace FileStorage::path( ->| with)|.* in FileStorage::path$)',
-    'crates/botster-core-sys/src/storage\.rs:\d+:\d+: (replace FileStorage::read_file( ->| with)|.* in FileStorage::read_file$)',
     'crates/botster-core-sys/src/storage\.rs:\d+:\d+: (replace DataDir::open( ->| with)|.* in DataDir::open$)',
     'crates/botster-core-sys/src/storage\.rs:\d+:\d+: (replace DataDir::epoch( ->| with)|.* in DataDir::epoch$)',
     'crates/botster-core-sys/src/storage\.rs:\d+:\d+: (replace check_safe( ->| with)|.* in check_safe$)',
