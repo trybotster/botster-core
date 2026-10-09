@@ -203,21 +203,27 @@ mod tests {
     }
 
     fn git(root: &Path, args: &[&str]) {
-        let status = Command::new("git")
-            .arg("-C")
-            .arg(root)
-            .args([
-                "-c",
-                "user.name=t",
-                "-c",
-                "user.email=t@t",
-                "-c",
-                "commit.gpgsign=false",
-            ])
-            .args(args)
-            .status()
-            .unwrap();
-        assert!(status.success(), "git {args:?}");
+        let output = botster_test_process::run_to_completion(
+            Command::new("git")
+                .arg("-C")
+                .arg(root)
+                .args([
+                    "-c",
+                    "user.name=t",
+                    "-c",
+                    "user.email=t@t",
+                    "-c",
+                    "commit.gpgsign=false",
+                ])
+                .args(args),
+            botster_test_process::Deadline::cleanup(),
+        )
+        .unwrap();
+        assert!(
+            output.status.success(),
+            "git {args:?}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
     }
 
     /// The base is resolved once: a reference that moves later does not change the commit of the run.

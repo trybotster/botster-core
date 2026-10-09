@@ -193,6 +193,7 @@ fn test_code_is_a_test_file_a_test_item_or_the_testkit() {
         "crates/x/src/tests/driver/api.rs",
         "crates/x/src/a_test.rs",
         "crates/botster-core-testkit/src/process_group.rs",
+        "xtask/src/base_merge/tests.rs",
     ] {
         assert_eq!(found(file, banned).len(), 1, "{file}");
     }
@@ -202,10 +203,17 @@ fn test_code_is_a_test_file_a_test_item_or_the_testkit() {
         "crates/botster-test-process/src/child.rs",
         "crates/botster-test-process/tests/slow_process.rs",
         "xtask/src/ci.rs",
+        "xtask/fixtures/mutants-hang/src/lib.rs",
         "crates/x/README.md",
     ] {
         assert_eq!(found(file, banned), [], "{file}");
     }
+    // The xtask's commands run the gate's tools; its tests are test code.
+    let xtask = "fn command() { c.wait(); }\n#[cfg(test)]\nmod tests { fn h() { c.wait(); } }\n";
+    assert_eq!(
+        found("xtask/src/ci.rs", xtask),
+        [(3, "h".into(), "child-wait")]
+    );
     let src = "crates/x/src/a.rs";
     let items = "\
 fn production() { c.wait(); }
