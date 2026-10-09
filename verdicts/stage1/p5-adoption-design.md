@@ -74,3 +74,30 @@ order) do not change between protocol numbers. A future change to them would tur
 `WorkerUnreachable`.
 
 VERDICT: NOT CLEAN (4 open: D1 MEDIUM; D2, D3, D4 LOW)
+
+## Round 2 — no integration finding open on head 78f4be5c; NOT CLEAN for the F22 QUESTION
+
+Reviewed head: `78f4be5c11de2bab2a48d01cc24b07e8069f5aaa`. Delta `0682aabe..78f4be5c`, `DESIGN.md` only.
+
+- **D1 CLOSED.** 3.3 accepts E at least the highest seen epoch, and refuses a lower E. An equal E replaces the current
+  link after the proof passes, with the 3.4 fence. The test is named: an abandon after step 4, then `Adopt(id)` with the
+  same epoch adopts, and a lower epoch after it is still refused. This is also the P5 package reviewer's F20.
+- **D2 CLOSED.** `--startup-ms` (a `u64` in milliseconds) is a new launch argument. `WorkerLaunch::parse` refuses a
+  missing or malformed value, with a parse test. The worker has it before any `Launch`, so its orphan deadline covers every
+  AD-7 crash point.
+- **D3 CLOSED.** The worker unlinks its endpoint at `Exit` and on `Terminate`. The host unlinks the path after `Remove`
+  has verified the worker's end. A failed unlink goes to `diagnostics()` and does not fail `Remove`. The `InstanceId` is
+  unique, so this unlink cannot reach another session's endpoint.
+- **D4 CLOSED.** The rule is written in part 2: the five hello fields and the proof rule never change between protocol
+  numbers. The link docs state it, and a test pins the encoded hello and the proof of a fixed input.
+- The P5 package reviewer's F21 (the adoptable set at T = 1 is {1}, from one function) and F22 (a worker with no running
+  payload) are theirs. F22's reading of AD-1 with AD-7 goes to the lead as a QUESTION before it is coded.
+
+### Observation for the F22 QUESTION (not counted)
+
+The F22 table gives `Lost(Other)` for a `Running` or `Exited` row whose worker reports `NotLaunched` or `Spawning`. AD-2
+names `Other` only as the reason that a **host** maps an unknown reason to. It does not list `Other` as a reason that Core
+reports. Put this in the same QUESTION: may Core report `Lost(Other)`, or must it use a listed reason?
+
+VERDICT: NOT CLEAN at 78f4be5c11de2bab2a48d01cc24b07e8069f5aaa (0 integration findings open; the design waits for the
+lead's answer to the F22 QUESTION and for the P5 package reviewer)
