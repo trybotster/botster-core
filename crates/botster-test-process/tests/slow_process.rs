@@ -119,6 +119,42 @@ fn a_tool_that_does_not_end_by_the_deadline_fails_the_run() {
     );
 }
 
+/// B7 (#181): a background child that the tool leaves behind is ended before the run returns, on the success path and at
+/// the deadline. The child is a `cat` of a blocked FIFO whose stdout is the writer of a pipe that the test watches: the
+/// tool inherits that writer (its close-on-exec flag is cleared), and the test drops its own copy, so the end of file of
+/// the pipe proves that the `cat` is gone. With the tool's leader owned alone (`OwnedChild::spawn`), the `cat` stays, and
+/// the end of file never comes.
+#[test]
+fn a_child_that_the_tool_leaves_is_ended_when_the_run_returns() {
+    use std::os::fd::AsRawFd;
+    let dir = tempfile::tempdir().unwrap();
+    let blocker = Blocker::new(dir.path(), "block").unwrap();
+    // "done": the tool exits at once. "late": the tool's leader blocks on the FIFO too, past its deadline.
+    for (name, rest, deadline) in [
+        ("done", String::new(), Deadline::cleanup()),
+        (
+            "late",
+            format!("exec {}", blocker.shell()),
+            Deadline::after(Duration::ZERO),
+        ),
+    ] {
+        let (watched, writer) = std::io::pipe().unwrap();
+        rustix::io::fcntl_setfd(&writer, rustix::io::FdFlags::empty()).unwrap();
+        let script = format!(
+            "{} >&{} 2>/dev/null & {rest}",
+            blocker.shell(),
+            writer.as_raw_fd()
+        );
+        let run = run_to_completion(Command::new("/bin/sh").args(["-c", &script]), deadline);
+        drop(writer);
+        match name {
+            "done" => assert_eq!(run.unwrap().status.code(), Some(0)),
+            _ => assert_eq!(run.unwrap_err().kind(), std::io::ErrorKind::TimedOut),
+        }
+        eof(watched);
+    }
+}
+
 #[test]
 fn a_released_blocker_ends_its_child_with_code_0_and_its_shell_words_name_the_fifo() {
     let dir = tempfile::tempdir().unwrap();

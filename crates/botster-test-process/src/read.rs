@@ -414,7 +414,8 @@ mod tests {
         assert!(two.is_empty());
     }
 
-    /// A silent writer fails the read at the deadline, with what the first reader read; the second keeps its own bytes.
+    /// A silent writer fails the read at the deadline, with what the first reader read; the second keeps its own bytes for its
+    /// next read.
     #[test]
     fn a_silent_writer_fails_both_reads_at_the_deadline() {
         let (first, mut first_writer) = std::io::pipe().unwrap();
@@ -430,8 +431,9 @@ mod tests {
             error.to_string(),
             "nothing ended the read within 0ns (read so far: \"out\")"
         );
-        assert_eq!(second.buffered(), b"err");
+        // The second reader keeps its bytes: they come back with the rest once its writer is gone.
         drop((first_writer, second_writer));
+        assert_eq!(second.to_eof(Deadline::cleanup()).unwrap(), b"err");
     }
 
     #[test]
