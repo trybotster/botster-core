@@ -6,7 +6,7 @@
 
 use crate::tools::{cargo, cargo_nightly, ensure_nightly, require_cargo_tool, run};
 use crate::{
-    caps, fsutil, lists, mutants_cited, prebuild, process_check, public_api, taint, test_budget, timers, unsafe_exception,
+    caps, fsutil, gate_decisions, lists, mutants_cited, prebuild, process_check, public_api, taint, test_budget, timers, unsafe_exception,
 };
 use anyhow::{bail, Context, Result};
 use std::path::Path;
@@ -31,7 +31,7 @@ const JOBS: &[(&str, &str, JobFn)] = &[
     ),
     (
         "taint",
-        "banned old-world names; unmarked timers; the one unsafe_code exception; real-process test code outside its owner; cited mutants tests",
+        "banned old-world names; unmarked timers; the one unsafe_code exception; real-process test code outside its owner; cited mutants tests; no excluded gate decision",
         taint_job,
     ),
     (
@@ -100,7 +100,8 @@ fn taint_job(root: &Path) -> Result<()> {
     timers::command(root, &[])?;
     unsafe_exception::command(root, &[])?;
     process_check::command(root, &[])?;
-    mutants_cited::command(root, &[])
+    mutants_cited::command(root, &[])?;
+    gate_decisions::command(root, &[])
 }
 
 /// The passed count of a conformance report: the number after `passed ` in its `conformance:` line.
@@ -269,7 +270,7 @@ fn parse_outcomes(json: &str) -> Result<MutantSummary> {
 ///   `processes_that_started_at_different_times_have_different_start_times`, `a_wait_for_a_pid_with_no_process_reports_it_gone`).
 ///   Temporary: P6 PR B removes these entries and derives the exclusions of platform-only code from `cfg` (plan r22
 ///   section 8, "Platform-only code").
-const OFF_MACOS_EXCLUSIONS: &[&str] = &[
+pub(crate) const OFF_MACOS_EXCLUSIONS: &[&str] = &[
     r"crates/botster-terminal-ghostty/src/encode\.rs:\d+:40: replace & with [|^] in EncoderState::every_key_state$",
     r"crates/botster-test-process/src/platform/macos\.rs:\d+:\d+: (replace start_time( ->| with)|.* in start_time$)",
     r"crates/botster-test-process/src/platform/macos\.rs:\d+:\d+: (replace await_end( ->| with)|.* in await_end$)",

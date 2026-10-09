@@ -4,6 +4,7 @@ mod base_merge;
 mod caps;
 mod ci;
 mod fsutil;
+mod gate_decisions;
 mod lists;
 mod mutants_cited;
 mod prebuild;
@@ -27,6 +28,7 @@ commands:
   timers                             unmarked sleeps in test code; timers in machine crates
   process-check                      real-process test code outside botster-test-process (waits, reads, sleeps)
   mutants-cited                      every name that a .cargo/mutants.toml reason cites is real; each cited test runs in a tier
+  gate-decisions                     no mutation exclusion covers a gate decision (an xtask function outside its reviewed glue)
   lists                              check core-ledger-ids, core-pending and core-deferred
   ledger-ids [--write]               check or write conformance/core-ledger-ids.txt from the pinned ledger
   public-api [--update]              check or write the facade snapshot api/botster-core.txt
@@ -54,6 +56,7 @@ const COMMANDS: &[(&str, CommandFn, Option<&[&str]>)] = &[
     ("taint", taint::command, None),
     ("timers", timers::command, None),
     ("process-check", process_check::command, None),
+    ("gate-decisions", gate_decisions::command, None),
     ("mutants-cited", mutants_cited::command, None),
     ("lists", lists::command, None),
     ("ledger-ids", lists::ledger_ids_command, None),
@@ -123,6 +126,7 @@ mod tests {
             ("taint", taint::command, given.clone()),
             ("timers", timers::command, given.clone()),
             ("process-check", process_check::command, given.clone()),
+            ("gate-decisions", gate_decisions::command, given.clone()),
             ("mutants-cited", mutants_cited::command, given.clone()),
             ("lists", lists::command, given.clone()),
             ("ledger-ids", lists::ledger_ids_command, given.clone()),
