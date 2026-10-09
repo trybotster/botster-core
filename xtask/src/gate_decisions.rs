@@ -27,7 +27,7 @@
 //! introduces a reserved name (`is_reserved`: the name and the crate of each `ARGUMENT_MACROS` macro) fails, and the
 //! check names the form and the file: a module, a struct, an enum, a union, a trait, a type alias, a constant, a static,
 //! a `macro_rules!` definition, an `extern crate` rename, and a `use` unless its path ends in the name and is the listed
-//! path or the crate.
+//! path, the crate or a `std` or `core` path.
 //!
 //! Every other exclusion of an xtask mutant fails, a glob or an `OFF_MACOS_EXCLUSIONS` regex included (neither has a
 //! reason here).
@@ -263,19 +263,20 @@ impl<'ast> Visit<'ast> for Index<'_> {
         syn::visit::visit_item(self, item);
     }
 
-    /// A `use` that introduces a reserved name fails unless its path ends in that name and is a listed macro or the crate
-    /// itself (`use anyhow::bail;`, `use anyhow;`). A rename (`use syn::parse_quote as bail;`) fails, and so no local
+    /// A `use` that introduces a reserved name fails unless its path ends in that name and is a listed macro, the crate
+    /// itself, or a `std` or `core` path (`use anyhow::bail;`, `use anyhow;`, `use std::fs::write;`). A rename (`use syn::parse_quote as bail;`) fails, and so no local
     /// module exports a reserved name to a glob (plan 23f, #181 R6-1).
     fn visit_item_use(&mut self, item: &'ast syn::ItemUse) {
         let uses = crate::process_check::Uses::of([&syn::Item::Use(item.clone())], false);
         for (name, target) in uses.bindings() {
             let listed = ARGUMENT_MACROS.iter().any(|want| is_path(target, want));
-            let own = target.last() == Some(name) && (listed || target.len() == 1);
+            let own = target.last() == Some(name)
+                && (listed || target.len() == 1 || matches!(target[0].as_str(), "std" | "core"));
             if is_reserved(name) && !own {
                 let at = item.use_token.span.start();
                 self.rejected.push(format!(
                     "{}:{}: the `use` introduces the reserved name `{name}` of gate-decisions as `{}` (plan section 8): \
-                     only its listed path or its crate may introduce it",
+                     only its listed path, its crate or a `std` or `core` path may introduce it",
                     at.line,
                     at.column + 1,
                     target.join("::")
