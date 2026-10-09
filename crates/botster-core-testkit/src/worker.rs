@@ -12,6 +12,7 @@
 use crate::core::{SimEdges, Spawner};
 use crate::net::{EndControl, Interest, LinkEnd};
 use crate::program::{ProgramControl, ScriptedProgram};
+use crate::resume_controls::{CaptureLog, CaptureRecord, ModelLog};
 use crate::scheduler::SchedulerHandle;
 use crate::sim::{Binding, MachineNode, Sim};
 use botster_core_contract::prelude::*;
@@ -67,6 +68,8 @@ struct ProcessCell {
     /// The controls of the payload's program edge, from the spawn until the reap or the end of the worker (`pty_output`,
     /// `pty_blocked`): the PTY stays readable after the payload's exit until the worker reaps it.
     program: Option<ProgramControl>,
+    /// What reached the worker's terminal model since the payload's spawn (`oracle_resume`). It outlives the end.
+    model_log: ModelLog,
 }
 
 /// The process table of the workers that one host spawned: identities and the exits that the host has not polled.
@@ -288,6 +291,17 @@ impl Workers {
             }
         }
         Ok(())
+    }
+
+    /// What reached the terminal model of the worker process `identity` (`oracle_resume`).
+    ///
+    /// # Errors
+    /// The process is not a worker of this run.
+    pub(crate) fn model_log(&self, identity: ProcessIdentity) -> Result<ModelLog, String> {
+        lock(&self.run_processes)
+            .get(&identity)
+            .map(|(cell, _)| lock(cell).model_log.clone())
+            .ok_or_else(|| format!("no worker process {identity:?} in this run"))
     }
 
     /// True while the payload of the worker process `identity` runs (`payload_alive`). The payload is in the worker's process
@@ -581,7 +595,10 @@ impl WorkerEdges {
         program
             .resize(window)
             .map_err(|_| SpawnFailure::Exec { errno: ENOEXEC })?;
-        lock(&self.cell).program = Some(program.control());
+        let mut cell = lock(&self.cell);
+        cell.program = Some(program.control());
+        cell.model_log = ModelLog::new(spec.size);
+        drop(cell);
         self.payload = Some(program);
         lock(&self.cell).payload_alive = true;
         Ok(PayloadId {
@@ -617,12 +634,14 @@ impl WorkerEdges {
 }
 
 impl Binding<Worker> for WorkerEdges {
-    fn ready(&mut self, _now: Instant, _machine: &Worker) -> usize {
+    fn ready(&mut self, _now: Instant, machine: &Worker) -> usize {
         self.ready.clear();
         if lock(&self.cell).ended {
             self.ended();
             return 0;
         }
+        // The revision after the last input, at the output read so far (`oracle_resume`).
+        lock(&self.cell).model_log.rev(machine.model_rev());
         if lock(&self.cell).end_payload {
             self.ready.push(Ready::EndPayload);
         }
@@ -748,6 +767,7 @@ impl Binding<Worker> for WorkerEdges {
                     .read(&mut buf)
                     .expect("a program with unread output reads some");
                 buf.truncate(n);
+                lock(&self.cell).model_log.read(&buf);
                 if let Some(drain) = self.drain {
                     let Ok(next) =
                         drain.after_read(n, || Ok::<_, std::convert::Infallible>(program.unread()));
@@ -816,6 +836,7 @@ pub struct TestkitCore {
     driver: HostDriver<SimEdges>,
     workers: Workers,
     wake: Arc<dyn HostWake>,
+    captures: CaptureLog,
 }
 
 impl TestkitCore {
@@ -829,7 +850,13 @@ impl TestkitCore {
             driver,
             workers,
             wake,
+            captures: CaptureLog::default(),
         }
+    }
+
+    /// The captures that the host completed, with their pages (`oracle_resume`).
+    pub(crate) fn captures(&self) -> CaptureLog {
+        self.captures.clone()
     }
 
     /// The host driver, for the controls that act on the host's edges.
@@ -855,8 +882,31 @@ impl CoreApi for TestkitCore {
         report
     }
 
+    /// A completed capture is recorded with every page that `read_page` gives, before the caller can release it.
     fn poll_events(&mut self, max: usize) -> Vec<Event> {
-        self.driver.poll_events(max)
+        let events = self.driver.poll_events(max);
+        for event in &events {
+            if let Event::Completed {
+                result: OpResult::Ok(OpOutput::Capture(capture)),
+                ..
+            } = event
+            {
+                let mut bytes = Vec::new();
+                for page in 0..capture.page_count {
+                    if let Ok(page) = self.driver.read_page(capture.capture, page) {
+                        bytes.extend_from_slice(&page.bytes.0);
+                    }
+                }
+                self.captures.insert(
+                    capture.capture,
+                    CaptureRecord {
+                        model_rev: capture.model_rev,
+                        bytes,
+                    },
+                );
+            }
+        }
+        events
     }
 
     fn wake_handle(&self) -> Arc<dyn WakeHandle> {
