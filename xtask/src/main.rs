@@ -31,7 +31,7 @@ commands:
   taint                              banned old-world names (contracts list plus Core's additions)
   timers                             unmarked sleeps in test code; timers in machine crates
   process-check                      real-process test code outside botster-test-process (waits, reads, sleeps)
-  gate-decisions                     an xtask exclusion covers only an I/O shell and names its tested decision function
+  gate-decisions                     an xtask exclusion covers only a whole body and cites its tested decision function
   mutants-cited                      every name that a .cargo/mutants.toml reason cites is real; each cited test runs in a tier
   signals                            raw signal calls and kill programs outside botster_core_sys::signal
   lists                              check core-ledger-ids, core-pending and core-deferred
