@@ -190,3 +190,19 @@ gap in another form. One fix closes both: collect the names under which a file c
 This is the method that `command_names` uses for `Command`, so the fixture can test it the same way.
 
 VERDICT: NOT CLEAN (2 open: L1 LOW (crate rename), L2 LOW (glob). F56 is the P3 package reviewer's.)
+
+### Lead decision after round 3 (same head 05c70358) — L1 and L2 no longer block #177
+
+The lead decided the enforcement design:
+- Clippy `disallowed-methods` is the authority for the signal bans, because it resolves names.
+- Its one hole, an `allow(clippy::disallowed_methods)` attribute, is closed by two later changes:
+  - an attribute ban in P6's syntax-aware xtask check;
+  - a P3 follow-up PR that moves the 17 clock allowances onto one helper per crate. This reviewer reviews it.
+- No further alias-naming findings are raised against #177's token scan. After both land, the scan shrinks to
+  `Command::new` with kill program literals.
+
+L1 (the crate rename) and L2 (the glob) are alias-naming findings against the token scan. So they are SUPERSEDED by this
+decision and no longer block #177. P3's next head adds the alias resolution anyway. This reviewer checks only that it adds
+no defect. **Carries:** P6's attribute ban, and P3's clock-helper PR. Both close the `allow` hole that L1 and L2 depended on.
+
+VERDICT: NOT CLEAN at 05c70358 until the next head (0 integration findings open; L1 and L2 superseded)
