@@ -3,7 +3,6 @@
 use super::*;
 use botster_core_link::proof::TOKEN_LEN;
 
-#[allow(clippy::disallowed_methods)] // The test initializes the injected clock once.
 fn fixture(capacity: usize) -> (WorkerEdges, LinkEnd, Worker, Instant) {
     let now = Instant::now();
     let scheduler = SchedulerHandle::with_seed(1);
@@ -174,7 +173,6 @@ fn worker_exit_closes_the_link_and_posts_its_exit_once() {
 
 /// A5-1: worker identities remain unique across repeated spawns in the shared process table.
 #[test]
-#[allow(clippy::disallowed_methods)] // The test initializes the injected clock once.
 fn worker_identities_do_not_repeat() {
     let workers = Workers::new(SchedulerHandle::with_seed(2), Instant::now());
     assert!(format!("{workers:?}").contains("Workers"));
@@ -325,7 +323,6 @@ fn program_reads_retain_output_at_each_read_bound() {
 /// A zero read bound cannot make progress and is outside the internal parameter's range.
 #[test]
 #[should_panic(expected = "a worker needs a positive read bound")]
-#[allow(clippy::disallowed_methods)] // The test initializes the injected clock once.
 fn a_worker_refuses_zero_read_bound() {
     Workers::with_read_chunk(SchedulerHandle::with_seed(1), Instant::now(), 0);
 }

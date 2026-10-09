@@ -15,8 +15,6 @@
 //!
 //! This script is a driver: it reads the environment and runs processes, which the machine crates must not do.
 
-#![allow(clippy::disallowed_methods)]
-
 #[allow(dead_code)]
 mod build_data;
 
@@ -26,6 +24,33 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use build_data::{GHOSTTY_BUILD_ARGS, REQUIRED_ZIG_VERSION, ZIG_PACKAGES, ZIG_PACKAGES_IN_ZON};
+
+// The script reads its environment and the files of the build through the five wrappers below. Each one is the only place
+// that makes its call, with an allowance on that one call: no other code of the script may use a disallowed method.
+#[allow(clippy::disallowed_methods)] // a build script reads the variables that Cargo and the user set
+fn var(name: &str) -> Result<String, env::VarError> {
+    env::var(name)
+}
+
+#[allow(clippy::disallowed_methods)] // a build script reads the variables that Cargo and the user set
+fn var_os(name: &str) -> Option<std::ffi::OsString> {
+    env::var_os(name)
+}
+
+#[allow(clippy::disallowed_methods)] // a build script makes its directories under OUT_DIR
+fn create_dir_all(path: impl AsRef<Path>) -> std::io::Result<()> {
+    fs::create_dir_all(path)
+}
+
+#[allow(clippy::disallowed_methods)] // a build script copies the library and the Zig packages into OUT_DIR
+fn copy(from: impl AsRef<Path>, to: impl AsRef<Path>) -> std::io::Result<u64> {
+    fs::copy(from, to)
+}
+
+#[allow(clippy::disallowed_methods)] // a build script reads the pinned build files of the Ghostty source
+fn read_to_string(path: impl AsRef<Path>) -> std::io::Result<String> {
+    fs::read_to_string(path)
+}
 
 const GHOSTTY_SUBMODULE: &str = "crates/botster-terminal-ghostty/vendor/ghostty";
 const PREFETCH_HINT: &str = "run crates/botster-terminal-ghostty/prefetch-zig.sh once, with network, to fill the package store";
@@ -47,12 +72,12 @@ fn main() {
         println!("cargo:rerun-if-changed=vendor/ghostty/{path}");
     }
 
-    let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"));
+    let manifest_dir = PathBuf::from(var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"));
     let ghostty = manifest_dir.join("vendor/ghostty");
     require_ghostty_source(&ghostty);
     check_package_list(&ghostty);
 
-    let out_dir = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR"));
+    let out_dir = PathBuf::from(var("OUT_DIR").expect("OUT_DIR"));
     let global_cache = out_dir.join("zig-global");
     stage_packages(&global_cache);
 
@@ -69,9 +94,9 @@ fn main() {
     // Zig installs the shared library next to the archive, and the Apple linker takes a `.dylib` before a `.a` of the
     // same name in one search directory, whatever the link kind says. The link directory holds the archive only.
     let link_dir = out_dir.join("link");
-    fs::create_dir_all(&link_dir).expect("create the link directory");
+    create_dir_all(&link_dir).expect("create the link directory");
     let linked = link_dir.join("libghostty-vt.a");
-    fs::copy(&library, &linked).unwrap_or_else(|e| panic!("copy {}: {e}", library.display()));
+    copy(&library, &linked).unwrap_or_else(|e| panic!("copy {}: {e}", library.display()));
     println!("cargo:rustc-link-search=native={}", link_dir.display());
     println!("cargo:rustc-link-lib=static=ghostty-vt");
     // The linked archive, for the test that checks which symbols it defines.
@@ -97,7 +122,7 @@ fn require_ghostty_source(ghostty: &Path) {
 fn check_package_list(ghostty: &Path) {
     let mut zon = String::new();
     for path in ["build.zig.zon", "pkg/translate-c/build.zig.zon"] {
-        zon.push_str(&fs::read_to_string(ghostty.join(path)).unwrap_or_default());
+        zon.push_str(&read_to_string(ghostty.join(path)).unwrap_or_default());
     }
     for hash in ZIG_PACKAGES_IN_ZON {
         assert!(
@@ -109,10 +134,10 @@ fn check_package_list(ghostty: &Path) {
 }
 
 fn package_store() -> PathBuf {
-    if let Some(dir) = env::var_os("BOTSTER_ZIG_PACKAGES") {
+    if let Some(dir) = var_os("BOTSTER_ZIG_PACKAGES") {
         return PathBuf::from(dir);
     }
-    let home = env::var_os("HOME").expect("HOME is not set, and BOTSTER_ZIG_PACKAGES is not set");
+    let home = var_os("HOME").expect("HOME is not set, and BOTSTER_ZIG_PACKAGES is not set");
     PathBuf::from(home).join(".cache/botster/zig-packages")
 }
 
@@ -120,7 +145,7 @@ fn package_store() -> PathBuf {
 fn stage_packages(global_cache: &Path) {
     let store = package_store();
     let packages = global_cache.join("p");
-    fs::create_dir_all(&packages).expect("create the Zig package directory");
+    create_dir_all(&packages).expect("create the Zig package directory");
 
     let missing: Vec<String> = ZIG_PACKAGES
         .iter()
@@ -139,14 +164,14 @@ fn stage_packages(global_cache: &Path) {
         let name = format!("{hash}.tar.gz");
         let target = packages.join(&name);
         if !target.exists() {
-            fs::copy(store.join("p").join(&name), &target)
+            copy(store.join("p").join(&name), &target)
                 .unwrap_or_else(|e| panic!("copy the Zig package {name}: {e}"));
         }
     }
 }
 
 fn resolve_zig(ghostty: &Path) -> PathBuf {
-    let program = env::var_os("BOTSTER_ZIG")
+    let program = var_os("BOTSTER_ZIG")
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("zig"));
     let output = Command::new(&program)
@@ -171,7 +196,7 @@ fn resolve_zig(ghostty: &Path) -> PathBuf {
 /// The command prefix that denies the network to the command that follows, or nothing when the host says that it has
 /// no network.
 fn network_denial() -> Vec<String> {
-    if env::var_os("BOTSTER_ZIG_NETWORK_DENIED").is_some_and(|v| v == "1") {
+    if var_os("BOTSTER_ZIG_NETWORK_DENIED").is_some_and(|v| v == "1") {
         return Vec::new();
     }
     if cfg!(target_os = "macos") {
