@@ -1344,3 +1344,32 @@ The dependency's focused Mac proof does not replace the required combined Linux 
 The gate remains the implementer's responsibility after both exact-head source reviews report CLEAN.
 
 VERDICT: CLEAN
+
+
+## PR #165 — Round 8
+
+- Exact head: `29b37890efeffa4410d7dfc34f5c2344bfad1ba4`.
+- Reviewed predecessor: `47ae53a79b95e5499b8548c456a2fbaceacba992` (CLEAN in Round 7).
+- Scope: the timer comment placement in `crates/botster-core-sys/tests/common/guard_cleanup.rs`.
+- The reviewer ran no builds, tests, mutation jobs, or gates.
+
+### Timer comment placement
+
+The complete delta moves one timer comment directly above `.recv_timeout(CLEANUP)` in the formatted method chain.
+It changes no expression, timeout value, cleanup order, or test behavior.
+The bounded FIFO observation retains its existing deadline.
+Round 7's source conclusions remain valid for this head.
+No finding remains open within this delta's package review scope.
+The separate #163 guard-drop duty remains outside this closure.
+
+### Supplied evidence and next review
+
+The reviewer read the raw Linux log:
+`~/botster-sessions/gates/botster-core-stage1-p3-guard-macos-29b37890-pool-20261008-210034-20788.log`.
+Job: `jobq-botster-core-29b37890-20261008210034-3e36`.
+The log identifies the exact head above and reports formatting, taint/timers, and lists PASS; exit 0 after 18 seconds.
+These static checks do not establish guard test execution or a full landing gate.
+The PR description attributes the previous focused Mac proof to its original `47ae53a7` head.
+The combined #162 head must merge this dependency and receive a new delta review before its next authorized gate.
+
+VERDICT: CLEAN
