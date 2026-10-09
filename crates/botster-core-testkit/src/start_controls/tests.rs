@@ -161,7 +161,7 @@ fn a_stop_of_a_held_start_drops_the_kept_spawn() {
     complete(core.as_mut(), &mut at, stop);
     let state = core.get(&sid("s1")).unwrap().state;
     assert!(
-        matches!(state, SessionState::Exited | SessionState::Lost),
+        matches!(state, SessionState::Exited(_) | SessionState::Lost(_)),
         "{state:?}"
     );
     assert_eq!(alive(&mut harness), json!(false));
