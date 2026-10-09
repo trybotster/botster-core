@@ -36,3 +36,27 @@ testkit-only exemption". The lead's ruling, as the PR states it, changes this. T
 the lead to confirm it and to record it in the plan.
 
 VERDICT: NOT CLEAN at 539a4c7b211b9f116434ae6fb6d9b27057154707 (1 open: H1 LOW)
+
+### Addendum to round 1 (same head 539a4c7b): the real-only exception of plan revision 23a
+
+The lead asked for a check of the 20 ids against the exception of revision 23a (`48c14ab8`): a real-only id leaves pending
+only with its passing real proof. In `conformance/replacement-map.json` at `contracts-v0.1.19`:
+- 19 ids have proof `core-testkit`, `core-testkit+edge` (process or clock) or `core-testkit+perturb`. They are not
+  real-only.
+- `conf::lc_2_data_dir_is_exclusive` has proof `slow:data-dir-lock` ("the lock is a real file lock and is released when the
+  process dies"). Plan 4.2b also names "the real file lock of LC-2". So it is real-only.
+
+`lc_2` has a real proof at this head: `crates/botster-core/tests/slow_real_core.rs`
+`a_second_open_is_refused_until_the_first_is_dropped` cites Core LC-2 and uses the real `flock`. It follows the
+transcript: open, a second open gets `DataDirInUse`, drop, open again. It omits the `list` step, which needs no real OS
+condition. It passes in the slow tier of the exact-head gate (`flip20-539a4c7b.log`, 29/243). So `lc_2` may leave pending,
+and no id must go back.
+
+The release on process death that the map's note names is a property of `flock`. No test kills a process that holds the
+lock. This reviewer does not count it, because the transcript drops the handle and does not end a process.
+
+**H2 LOW (new, from revision 23a):** the PR body must name the real proof of the one real-only id
+(`lc_2_data_dir_is_exclusive`: `slow_real_core::a_second_open_is_refused_until_the_first_is_dropped`), so that the
+exception is visible on the record.
+
+VERDICT: NOT CLEAN at 539a4c7b211b9f116434ae6fb6d9b27057154707 (2 open: H1 LOW, H2 LOW)
