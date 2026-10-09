@@ -1590,3 +1590,33 @@ The corrected exclusion note closes the original stale-name defect; this evidenc
 All prior scope limits and the pending full gate remain as recorded in Round 9.
 
 VERDICT: NOT CLEAN (1 open)
+
+
+## PR #164 — Round 11
+
+- Exact head: `e1624ca1b35d53b5ce00ee7a4092950219165348` (unchanged from Round 10).
+- Scope: the corrected PR evidence link and terminal review of the fix round.
+- The reviewer ran no builds, tests, mutation jobs, or gates.
+
+### P5-F14 — CLOSED
+
+P5 corrected the PR description without a source commit.
+The reviewer verified the unchanged remote head and read the corrected description.
+The `5b7617f3` default-tier result now links to the matching `213518-79582` log read in Round 10.
+The incorrect `213813-83022` link no longer appears.
+The cited result and log agree: 239 unit tests passed; 80 mutants tested, 68 caught, 11 unviable, and one missed diagnostic body.
+The current exclusion note names existing tests and functions, and its evidence attribution is accurate.
+P5-F14 is CLOSED. No package finding remains open in this fix round.
+
+### Source closure and limits
+
+Rounds 9 and 10 cover the source, configuration, and supplied focused evidence at this exact head.
+The rollback, test coverage, and broader slow selection retain those reviewed conclusions.
+The remaining equivalent mutants have written arguments; the real-disk exclusions name their catching slow tests.
+The failed predecessor gate remains failed. No full passing gate was supplied for this exact head.
+The implementer remains responsible for the authorized full gate after both exact-head reviews report CLEAN.
+Any later v1 merge requires its applicable merge review before its gate.
+The open session-id ceiling question and the other package scope limits recorded in Round 9 remain open or outside this closure.
+This verdict does not certify P5 deliverable 2 or the live-worker adoption placeholder.
+
+VERDICT: CLEAN
