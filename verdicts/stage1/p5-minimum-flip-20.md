@@ -69,3 +69,17 @@ when the process dies". The drop test proves the real `flock` and its release at
 lock ends in it. So the test is not the full real proof, and the addendum's "no id must go back" was too lenient. `lc_2`
 leaves pending when a real test ends a process that holds the lock. H2 closes with `lc_2` back in pending. The new head
 gets its own round.
+
+## Round 2 — CLEAN on head 3f9ca34e
+
+Reviewed head: `3f9ca34e9e1639216a1b8933476cf127b907bd75`, two commits on `539a4c7b`, base v1 `aaac0c0d` (the current v1).
+
+- **H1 closed** (`663b35c0`). The header of `worker_transcripts.rs` now states the lead's ruling. An id leaves pending when
+  it passes on `TestkitHarness`, and `RealCoreHarness` runs it later. The ids in this list are still pending.
+- **H2 closed** (`3f9ca34e`, the ruling above). `conf::lc_2_data_dir_is_exclusive` is back in its sorted place. Against v1,
+  `core-pending.txt` has 19 removals and no addition. The 19 ids are the 20 of round 1 without `lc_2`, and each one has a
+  non-`slow` proof in the replacement map. The PR body lists 19 ids and gives the reason why `lc_2` stays pending.
+- **The gate log** (`flip20-3f9ca34e.log`) names the head and base `aaac0c0d`. The conformance binary reports 19 passed and
+  656 ignored. The default tier runs 941 tests and the slow tier 243, and all of them pass.
+
+VERDICT: CLEAN (0 open) at 3f9ca34e9e1639216a1b8933476cf127b907bd75
