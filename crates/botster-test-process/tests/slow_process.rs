@@ -103,6 +103,25 @@ fn a_released_blocker_ends_its_child_with_code_0_and_its_shell_words_name_the_fi
     assert_eq!(child.status().code(), Some(0), "the status is kept");
 }
 
+/// The owner hands out the child's stdin: what the test writes there comes back through the child.
+#[test]
+fn a_child_reads_what_the_test_writes_to_its_stdin() {
+    use std::io::Write;
+    let mut child = OwnedChild::spawn(
+        Command::new("/bin/cat")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped()),
+    )
+    .unwrap();
+    let mut input = child.take_stdin().unwrap();
+    input.write_all(b"echo\n").unwrap();
+    drop(input);
+    let (rest, line) = first_line(child.take_stdout().unwrap());
+    assert_eq!(line, "echo\n");
+    eof(rest.into_inner());
+    assert_eq!(child.status().code(), Some(0));
+}
+
 /// The blocked child ends by itself when the test that holds its FIFO dies with no cleanup: the end of file of the pipe
 /// that only the blocked child holds proves it.
 #[test]
@@ -220,7 +239,10 @@ fn a_grace_ends_the_members_by_term() {
     blocker.send(b"up\n").unwrap();
     let (rest, line) = first_line(production.stdout.take().unwrap());
     assert_eq!(line, "up\n");
+    // The anchor waits only while a member other than itself lives: the drop ends long before the grace would.
+    let grace = Deadline::after(CLEANUP);
     drop(guard);
+    assert!(!grace.expired(), "the anchor waited out its grace");
     assert_eq!(production_reap(&mut production).signal(), Some(TERM));
     eof(rest.into_inner());
 }

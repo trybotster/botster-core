@@ -120,19 +120,20 @@ impl Line {
     }
 }
 
-/// `target/candidate/botster-test-anchor`, found from this test binary (`target/<profile>/deps/<test>`), so it holds for any
+/// `target/candidate/botster-test-anchor` for the test binary `exe` (`target/<profile>/deps/<test>`), so it holds for any
 /// target directory.
+pub fn candidate(exe: &Path) -> Option<PathBuf> {
+    let target = exe.parent()?.parent()?.parent()?;
+    Some(target.join("candidate").join(BINARY))
+}
+
+/// The prebuilt anchor binary of this test binary (`candidate`).
 ///
 /// # Panics
 /// The binary is missing: `cargo xtask prebuild-worker` builds it.
 pub fn binary() -> PathBuf {
     let exe = std::env::current_exe().expect("the test binary");
-    let target = exe
-        .parent()
-        .and_then(Path::parent)
-        .and_then(Path::parent)
-        .expect("target/<profile>/deps");
-    let binary = target.join("candidate").join(BINARY);
+    let binary = candidate(&exe).expect("target/<profile>/deps");
     assert!(
         binary.is_file(),
         "{} is missing: run `cargo xtask prebuild-worker` first",
@@ -262,8 +263,8 @@ impl Guard {
                         end: None,
                     });
                 }
+                // The listener is non-blocking: no connection waits.
                 Err(error) if error.kind() == io::ErrorKind::WouldBlock => return Ok(()),
-                Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
                 Err(error) => return Err(format!("the guard cannot accept: {error}")),
             }
         }
@@ -290,9 +291,7 @@ impl Guard {
                 return Ok(reports);
             }
             let waiting: Vec<usize> = (0..self.connections.len())
-                .filter(|&i| {
-                    self.connections[i].report.is_none() && self.connections[i].end.is_none()
-                })
+                .filter(|&i| self.connections[i].end.is_none())
                 .collect();
             let ready = {
                 let mut fds = Vec::new();
@@ -591,29 +590,84 @@ mod tests {
         );
     }
 
+    /// The text of an anchor's report line, as an anchor sends it.
+    fn anchor_line(group: u32) -> String {
+        let mut report = report();
+        report.group = group;
+        format!("{}\n", Line::Anchor(report).encode())
+    }
+
+    /// A guard whose one connection sent `text` and closed.
+    fn guard_after(text: &str) -> (tempfile::TempDir, Guard) {
+        let dir = tempfile::tempdir().unwrap();
+        let guard = Guard::with_binary(dir.path(), PathBuf::from("/b/anchor")).unwrap();
+        let mut anchor = UnixStream::connect(dir.path().join("anchor.sock")).unwrap();
+        anchor.write_all(text.as_bytes()).unwrap();
+        drop(anchor);
+        (dir, guard)
+    }
+
     #[test]
-    fn a_refusal_and_a_malformed_line_fail_the_drop() {
-        for (lines, expected) in [
+    fn a_refusal_an_unexpected_line_or_a_second_report_fails_the_drop() {
+        for (text, expected) in [
             (
-                vec![Line::Anchor(report()), Line::Refused("moved".into())],
+                format!("{}refused moved\n", anchor_line(13)),
                 "refused: moved",
             ),
-            (vec![Line::Ok], "an unexpected line \"ok\\n\""),
+            ("ok\n".to_string(), r#"an unexpected line "ok\n""#),
+            (
+                format!("{}hello\n", anchor_line(13)),
+                r#"an unexpected line "hello\n""#,
+            ),
+            (
+                format!("{}{}", anchor_line(13), anchor_line(14)),
+                "an unexpected line Anchor(",
+            ),
         ] {
-            let dir = tempfile::tempdir().unwrap();
-            let guard = Guard::with_binary(dir.path(), PathBuf::from("/b/anchor")).unwrap();
-            let mut anchor = UnixStream::connect(dir.path().join("anchor.sock")).unwrap();
-            for line in &lines {
-                send(&mut anchor, line).unwrap();
-            }
-            drop(anchor);
-            let failed =
-                std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || drop(guard)))
-                    .expect_err("a failure");
-            assert_eq!(
-                failed.downcast_ref::<String>().map(String::as_str),
-                Some(format!("the group guard's cleanup failed: {expected}").as_str())
+            let (_dir, guard) = guard_after(&text);
+            let message = drop_failure(guard);
+            assert!(
+                message.starts_with(&format!("the group guard's cleanup failed: {expected}")),
+                "{text:?}: {message}"
             );
         }
+    }
+
+    /// An anchor that reported and then ended with no outcome was ended by production's group kill: the drop observes that
+    /// its group is empty, and succeeds.
+    #[test]
+    fn an_anchor_that_ended_after_its_report_passes_when_its_group_is_empty() {
+        // A group id that no process uses: above every pid that macOS gives, and unused on Linux.
+        let (_dir, guard) = guard_after(&anchor_line(4_194_000));
+        drop(guard);
+    }
+
+    /// A line other than a report before any report fails the wait for anchors at once.
+    #[test]
+    fn an_unexpected_line_before_the_report_fails_the_wait_for_anchors() {
+        let (_dir, mut guard) = guard_after("hello\n");
+        assert_eq!(
+            guard.anchors(1, Deadline::cleanup()),
+            Err(r#"an unexpected line "hello\n""#.into())
+        );
+        assert_eq!(
+            drop_failure(guard),
+            r#"the group guard's cleanup failed: an unexpected line "hello\n""#
+        );
+    }
+
+    fn drop_failure(guard: Guard) -> String {
+        let failed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || drop(guard)))
+            .expect_err("a failure");
+        failed.downcast_ref::<String>().expect("a report").clone()
+    }
+
+    #[test]
+    fn the_candidate_anchor_is_beside_the_profile_directory_of_the_test_binary() {
+        assert_eq!(
+            candidate(Path::new("/t/target/debug/deps/slow-1a2b")),
+            Some(PathBuf::from("/t/target/candidate/botster-test-anchor"))
+        );
+        assert_eq!(candidate(Path::new("/deps/x")), None);
     }
 }

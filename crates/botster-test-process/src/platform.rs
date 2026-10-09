@@ -269,6 +269,17 @@ mod tests {
     }
 
     #[test]
+    fn members_are_the_same_when_their_pids_are_the_same() {
+        let member = |raw, state: &str| Member {
+            pid: pid(raw).unwrap(),
+            state: state.into(),
+        };
+        assert_eq!(member(7, "state S"), member(7, "state R"));
+        assert_ne!(member(7, "state S"), member(8, "state S"));
+        assert_eq!(member(7, "state S").to_string(), "7 (state S)");
+    }
+
+    #[test]
     fn only_esrch_proves_a_process_gone() {
         assert!(gone(&std::io::Error::from_raw_os_error(
             rustix::io::Errno::SRCH.raw_os_error()
