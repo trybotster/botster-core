@@ -11,6 +11,11 @@
 //! An exception is allowed per call site only: one entry per site in `.config/process-check-allow.txt`, `<file> | <item> |
 //! <rule>`, under a comment that gives the reason (the style of the `exclude_re` entries). An entry that matches no site
 //! fails the check too, so the list shrinks as each migration lands.
+//!
+//! The module forms that the check resolves (plan section 8, `unlisted_module_form`): `mod name;`,
+//! `#[path = ".."] mod name;`, and an inline `mod name { .. }` without `#[path]`. A `#[path]` on an inline module fails
+//! the check with the form and the file.
+//! A call resolves through the `use` declarations of its file, inline module and block (`resolve`).
 
 use crate::fsutil::tracked_files;
 use anyhow::{bail, Result};

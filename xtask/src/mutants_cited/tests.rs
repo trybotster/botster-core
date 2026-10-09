@@ -59,6 +59,11 @@ impl Repo {
     }
 }
 
+/// The violation of a proof (`{}`) that names no test and no test target, on line 1.
+const PROOF_OF_NO_TEST: &str =
+    ".cargo/mutants.toml:1: cites `{}` as a proof (a name in parentheses after a decision), \
+     which names no test and no test target; write code in backticks, which is not a citation";
+
 /// A library with real-disk tests in a `slow_tests` module behind the `slow` feature, as botster-core-sys storage.rs.
 fn storage() -> Repo {
     Repo::new()
@@ -108,7 +113,7 @@ fn a_default_tier_test_an_item_and_a_vendored_word_pass() {
         .file(".gitmodules", "[submodule \"vendor/z\"]\n\tpath = vendor/z\n")
         .file("vendor/z/terminal.zig", "const default_query_max_bytes = 4096;\n");
     let toml =
-        "# parse_the_line: a_line_parses; the default is terminal.zig `default_query_max_bytes`.\n";
+        "# parse_the_line (a_line_parses); the default is terminal.zig `default_query_max_bytes`.\n";
     assert!(repo.check(toml, OLD_FILTER).is_empty());
     let unknown = "# no_such_thing_anywhere is cited.\n";
     assert_eq!(
@@ -124,7 +129,7 @@ fn an_ignored_test_runs_in_no_tier() {
         "#[cfg(test)]\nmod tests {\n    #[test]\n    #[ignore]\n    fn a_long_check_runs() {}\n}\n",
     );
     assert_eq!(
-        repo.check("# a_long_check_runs\n", OLD_FILTER),
+        repo.check("# d (a_long_check_runs)\n", OLD_FILTER),
         [".cargo/mutants.toml:1: cites the test `a_long_check_runs`, which no gate tier runs (tests::a_long_check_runs in a)"]
     );
 }
@@ -137,17 +142,17 @@ fn a_slow_target_runs_only_in_a_package_with_a_slow_feature() {
         .file("crates/a/src/lib.rs", "")
         .file("crates/a/tests/slow_process.rs", target);
     assert!(slow
-        .check("# the_child_ends_in_time, slow_process\n", OLD_FILTER)
+        .check("# d (the_child_ends_in_time, slow_process)\n", OLD_FILTER)
         .is_empty());
     let no_feature = Repo::new()
         .package("a", false, &["slow_process"])
         .file("crates/a/src/lib.rs", "")
         .file("crates/a/tests/slow_process.rs", target);
     assert_eq!(
-        no_feature.check("# the_child_ends_in_time\n# slow_process_target: slow_process\n", OLD_FILTER),
+        no_feature.check("# d (the_child_ends_in_time)\n\n# slow_process_target: slow_process\n", OLD_FILTER),
         [
             ".cargo/mutants.toml:1: cites the test `the_child_ends_in_time`, which no gate tier runs (the_child_ends_in_time in slow_process)",
-            ".cargo/mutants.toml:2: cites `slow_process_target`, which names no test, no test target, no identifier of the code and no vendored word",
+            ".cargo/mutants.toml:3: cites `slow_process_target`, which names no test, no test target, no identifier of the code and no vendored word",
         ]
     );
 }
@@ -176,7 +181,7 @@ fn a_test_of_one_system_runs_in_a_tier_and_a_windows_test_does_not() {
             "#[cfg(test)]\nmod tests {\n    #[cfg(target_os = \"macos\")]\n    #[test]\n    fn kqueue_sees_the_exit() {}\n    #[cfg(windows)]\n    #[test]\n    fn windows_has_no_group() {}\n}\n",
         );
     assert_eq!(
-        repo.check("# kqueue_sees_the_exit, windows_has_no_group\n", OLD_FILTER),
+        repo.check("# d (kqueue_sees_the_exit, windows_has_no_group)\n", OLD_FILTER),
         [".cargo/mutants.toml:1: cites the test `windows_has_no_group`, which no gate tier runs (tests::windows_has_no_group in a)"]
     );
 }
@@ -285,7 +290,7 @@ fn an_unknown_predicate_fails_the_check() {
     );
     let read = |path: &str| repo.files.get(path).cloned();
     let error = check(
-        "# under_a_model_checker\n",
+        "# d (under_a_model_checker)\n",
         &repo.packages,
         &read,
         &[],
@@ -303,13 +308,85 @@ fn an_unknown_predicate_fails_the_check() {
 fn only_comment_words_with_three_parts_are_cited() {
     let toml =
         "exclude_globs = [\"a_b_c\"]\n# one_two and one_two_three\n    # four_five_six_seven\n";
-    let names: Vec<(String, usize)> = cited(toml).into_iter().collect();
+    let cited = cited(toml);
+    let names: Vec<(String, usize)> = cited.words.into_iter().collect();
     assert_eq!(
         names,
         [
             ("four_five_six_seven".to_string(), 3),
             ("one_two_three".to_string(), 2)
         ]
+    );
+    assert!(cited.proofs.is_empty());
+}
+
+/// Plan section 8: a proof citation is `decision (proof, ..)`: a name, then in parentheses lowercase identifiers only,
+/// also across the lines of one comment block, with backticks allowed around the decision. Prose in parentheses is no
+/// citation, and neither is code in backticks: a list with a backticked name, or a code span with a parenthesis. A
+/// proof is not a word of the text, and the decision is.
+#[test]
+fn a_proof_citation_is_a_decision_with_its_proofs_in_parentheses() {
+    let toml = "# decide_the_step (a_proof, b_proof) and `other_decision_fn`\n#   (c_proof) but not (P6 PR A evidence),\n\
+                # not (a path::to) and not (two words) or (`code_name`); x(y_proof)\n# z\nexclude_re = []\n# far_decision_fn\n# (d_proof)\n";
+    let cited = cited(toml);
+    let proofs: Vec<(String, usize)> = cited.proofs.into_iter().collect();
+    assert_eq!(
+        proofs,
+        [
+            ("a_proof".to_string(), 1),
+            ("b_proof".to_string(), 1),
+            ("c_proof".to_string(), 2),
+            ("d_proof".to_string(), 7),
+            ("y_proof".to_string(), 3),
+        ]
+    );
+    let words: Vec<String> = cited.words.into_keys().collect();
+    assert_eq!(
+        words,
+        ["decide_the_step", "far_decision_fn", "other_decision_fn"]
+    );
+    assert_eq!(
+        citations("x (a, b) y (c d) z(`e`) `Ok(true)` `f`(g_h) `i` (j_k) `l`"),
+        [
+            Citation {
+                decision: "x".into(),
+                proofs: vec!["a".into(), "b".into()],
+                proofs_at: 3..7
+            },
+            Citation {
+                decision: "f".into(),
+                proofs: vec!["g_h".into()],
+                proofs_at: 39..42
+            },
+            Citation {
+                decision: "i".into(),
+                proofs: vec!["j_k".into()],
+                proofs_at: 49..52
+            },
+        ]
+    );
+}
+
+/// Plan section 8 (lead ruling B): a test named in free text is a source reference and passes when it runs; a proof must
+/// name a test or a test target, and the error tells that backticked code is not a citation.
+#[test]
+fn a_test_in_free_text_passes_and_a_proof_that_names_no_test_fails() {
+    let repo = Repo::new().package("a", false, &[]).file(
+        "crates/a/src/lib.rs",
+        "pub fn decide_the_step() {}\n#[cfg(test)]\nmod tests {\n    #[test]\n    fn the_step_is_decided() {}\n}\n",
+    );
+    assert!(repo
+        .check("# decide_the_step (the_step_is_decided)\n", OLD_FILTER)
+        .is_empty());
+    assert!(repo
+        .check("# decide_the_step, see the_step_is_decided\n", OLD_FILTER)
+        .is_empty());
+    assert!(repo
+        .check("# `decide_the_step(the_step)` is code\n", OLD_FILTER)
+        .is_empty());
+    assert_eq!(
+        repo.check("# the_step_is_decided (decide_the_step)\n", OLD_FILTER),
+        [PROOF_OF_NO_TEST.replace("{}", "decide_the_step")]
     );
 }
 
@@ -518,8 +595,8 @@ fn the_defined_names_are_the_identifiers_of_the_code_and_the_vendored_words() {
         .contains("the file of the test module `gone` is not found"));
 }
 
-/// #181 B6 round 2: a proof test that loses its `#[test]` is no test, and its name is no identifier of the code (test code
-/// does not count), so its citation fails.
+/// #181 B6 rounds 2 and 3: a proof test that loses its `#[test]` is no test, so its proof citation fails, in a test module
+/// and at the top of a library (where its name is an identifier of the code: plan section 8, a proof must be a test).
 #[test]
 fn a_cited_proof_without_its_test_attribute_fails() {
     let repo = |attrs: &str| {
@@ -530,17 +607,21 @@ fn a_cited_proof_without_its_test_attribute_fails() {
             ),
         )
     };
-    assert!(repo("#[test]")
-        .check("# the_cited_proof\n", OLD_FILTER)
-        .is_empty());
+    let cites = "# f (the_cited_proof)\n";
+    let fails = [PROOF_OF_NO_TEST.replace("{}", "the_cited_proof")];
+    assert!(repo("#[test]").check(cites, OLD_FILTER).is_empty());
     // Another attribute, also under `cfg_attr`, does not make a test.
     for attrs in ["", "#[inline]", "#[cfg_attr(unix, inline)]"] {
-        assert_eq!(
-            repo(attrs).check("# the_cited_proof\n", OLD_FILTER),
-            [".cargo/mutants.toml:1: cites `the_cited_proof`, which names no test, no test target, no identifier of the code and no vendored word"],
-            "{attrs}"
-        );
+        assert_eq!(repo(attrs).check(cites, OLD_FILTER), fails, "{attrs}");
     }
+    let top = |attrs: &str| {
+        Repo::new().package("a", false, &[]).file(
+            "crates/a/src/lib.rs",
+            &format!("pub fn f() {{}}\n{attrs}\npub fn the_cited_proof() {{ f(); }}\n"),
+        )
+    };
+    assert!(top("#[test]").check(cites, OLD_FILTER).is_empty());
+    assert_eq!(top("").check(cites, OLD_FILTER), fails);
 }
 
 /// #181 B6: `#[cfg_attr(<predicate>, ignore)]` ignores the test where the predicate holds, also nested; `cfg_attr(..,
@@ -585,7 +666,7 @@ fn a_conditionally_ignored_test_runs_only_where_its_condition_does_not_hold() {
             false,
         ),
     ] {
-        let found = repo(attrs).check("# the_cited_check\n", OLD_FILTER);
+        let found = repo(attrs).check("# d (the_cited_check)\n", OLD_FILTER);
         if runs {
             assert!(found.is_empty(), "{attrs}: {found:?}");
         } else {
@@ -597,7 +678,7 @@ fn a_conditionally_ignored_test_runs_only_where_its_condition_does_not_hold() {
         let read = |path: &str| repo.files.get(path).cloned();
         let paths: Vec<String> = repo.files.keys().cloned().collect();
         check(
-            "# the_cited_check\n",
+            "# d (the_cited_check)\n",
             &repo.packages,
             &read,
             &paths,
@@ -631,7 +712,7 @@ fn a_path_on_an_inline_module_fails_the_check() {
     let rejection = "crates/a/src/lib.rs:2:1: `#[path]` on the inline module `checks` is not a form that the check resolves (plan section 8): give the module its own file, or remove the attribute";
     assert_eq!(
         check(
-            "# the_cited_check\n",
+            "# d (the_cited_check)\n",
             &repo.packages,
             &read,
             &paths,

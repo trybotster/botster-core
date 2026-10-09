@@ -16,7 +16,7 @@ fn mutation_decision(listed: usize, run: impl FnOnce() -> Option<i32>) -> Result
     if listed == 0 { return Ok(()); }
     mutation_verdict(run())
 }
-fn forwarded(code: Option<i32>) -> Result<()> { mutation_verdict(code) }
+fn forwarded(code: Option<i32>) -> Result<()> { let _ = std::process::Command::new("unused"); mutation_verdict(code) }
 fn forwarded_write(write: fn() -> Option<i32>) -> Result<()> { mutation_verdict(write()) }
 #[cfg(test)]
 mod tests {
@@ -77,12 +77,13 @@ fn exclusion(pattern: &str, reason: &str) -> Exclusion {
 const SHELL: &str =
     r"xtask/src/ci\.rs:\d+:\d+: replace mutants_job -> Result<\(\)> with Ok\(\(\)\)$";
 
-/// The model entry of #167: a shell whose reason names the tested decision functions that it calls.
+/// The model entry of #167: a shell whose reason cites the tested decision functions that it calls, with their proofs
+/// (plan section 8: `decision (proof, ..)`).
 #[test]
 fn a_shell_entry_that_names_the_tested_decision_it_calls_passes() {
     let entry = exclusion(
         SHELL,
-        "process glue; its decisions mutation_verdict and parse_outcomes stay tested",
+        "process glue; its decisions mutation_verdict (verdicts) and parse_outcomes (outcomes) stay tested",
     );
     assert!(check(&mutants(), &[entry], &[], &calls())
         .unwrap()
@@ -112,15 +113,17 @@ fn an_exclusion_of_a_decision_function_fails() {
 #[test]
 fn a_shell_entry_fails_unless_its_named_decision_is_called_tested_and_not_excluded() {
     let reasons = [
-        "process glue",                                         // names no decision
-        "process glue; mutants_job is glue",                    // names itself
-        "process glue; untested_decision decides",              // called, but no test calls it
-        "process glue; other decides", // not called by the shell (nor a function here)
-        "process glue; mutation_verdict decides, see verdicts", // called and tested, but excluded below
+        "process glue",                                         // cites no decision
+        "process glue; mutants_job (verdicts)",                 // cites itself
+        "process glue; untested_decision (verdicts)",           // called, but no test calls it
+        "process glue; other (verdicts)", // not called by the shell (nor a function here)
+        "process glue; mutation_verdict (verdicts)", // called and tested, but excluded below
+        "process glue; mutation_verdict decides, see verdicts", // plan r23d: a decision in free text is no citation
+        "process glue; mutation_verdict (see verdicts)", // prose in parentheses is no citation
     ];
     for reason in reasons {
         let mut entries = vec![exclusion(SHELL, reason)];
-        if reason.contains("mutation_verdict") {
+        if reason.contains("mutation_verdict (verdicts)") {
             entries.push(exclusion(
                 r"replace == with != in mutation_verdict$",
                 "parse_outcomes",
@@ -290,8 +293,9 @@ fn a_named_decision_must_be_a_function_of_the_xtask() {
         )
         .unwrap()
     };
-    assert!(named("glue; decide decides").is_empty());
-    assert_eq!(named("glue; lib_call decides").len(), 1);
+    assert!(named("glue; decide (top_level)").is_empty());
+    assert_eq!(named("glue; lib_call (top_level)").len(), 1);
+    assert_eq!(named("glue; decide decides, see top_level").len(), 1);
 }
 
 /// The inputs come from the repository: the reasoned `exclude_re` entries with the gate's off-macOS exclusions, the
@@ -327,8 +331,8 @@ fn the_inputs_are_the_reasoned_entries_the_globs_and_the_xtask_sources() {
 }
 
 /// #181 B5: a gate decision is never excluded, whatever its reason names: the whole body of `mutation_decision` (a decision
-/// that calls the tested decision `mutation_verdict`), of a decision that only forwards to another, and a decision mutant
-/// inside an I/O shell.
+/// that calls the tested decision `mutation_verdict`), of a decision that only forwards to another (round 3: behind a
+/// `Command::new` builder that starts nothing), and a decision mutant inside an I/O shell.
 #[test]
 fn a_decision_that_calls_a_tested_decision_or_a_decision_mutant_of_a_shell_is_never_excluded() {
     let cases = [
@@ -356,10 +360,7 @@ fn a_decision_that_calls_a_tested_decision_or_a_decision_mutant_of_a_shell_is_ne
     for (pattern, function, problem) in cases {
         let found = check(
             &mutants(),
-            &[exclusion(
-                pattern,
-                "glue; mutation_verdict decides, see verdicts",
-            )],
+            &[exclusion(pattern, "glue; mutation_verdict (verdicts)")],
             &[],
             &calls(),
         )
@@ -375,11 +376,14 @@ fn a_decision_that_calls_a_tested_decision_or_a_decision_mutant_of_a_shell_is_ne
     }
 }
 
-/// #181 B5 round 2: a function does I/O when a call resolves, through the `use` declarations in its scope (a block's
-/// included), to a function of `std::fs` or `std::env`, to `std::process::Command::new`, to a signal, or to
-/// `run_to_completion`. A name alone is not I/O: a parameter or a local named `write` or `read_to_string`, a method named
-/// `status`, `output`, `spawn` or `exists`, a module named `fs` of another crate, and another function of the signal
-/// module are not.
+/// #181 B5 rounds 2 and 3, plan section 8: a function does I/O only through a listed operation, resolved through the
+/// `use` declarations in its scope (a block's included): a free function of `std::fs` or `std::env`, a signal,
+/// `run_to_completion`, or a `status`, `output` or `spawn` call on a process command. A command is a method chain that
+/// begins at `Command::new(..)` or at a function declared to return `Command`, a parameter typed `Command` (also by
+/// reference), or a `let` bound to such a chain. `Command::new` alone is a builder and starts nothing, and so is a type's
+/// function of `std::fs` (`OpenOptions::new`). A name alone is not I/O: a parameter or a local named `write` or
+/// `read_to_string`, a method `status` on another type, a module `fs` of another crate, another function of the signal
+/// module.
 #[test]
 fn a_function_does_io_when_a_call_resolves_to_an_io_function() {
     let text = "\
@@ -387,8 +391,6 @@ use std::process::Command;
 use std::fs;
 use botster_core_sys::signal::{signal_group, Signal};
 use other::fs as other_fs;
-fn by_command_new() { Command::new(\"git\"); }
-fn by_full_path() { std::process::Command::new(\"git\"); }
 fn by_fs_module() { fs::metadata(p); }
 fn by_env() { std::env::args(); }
 fn by_signal() { signal_group(g, Signal::KILL); }
@@ -396,7 +398,18 @@ fn by_other_signals() { botster_core_sys::signal::signal_process(p, s); }
 fn by_own_group() { botster_core_sys::signal::signal_own_group(s); }
 fn by_block_use() { use std::fs::write as put; put(p, b); }
 fn by_run() { botster_test_process::run_to_completion(&mut c, d); }
-fn by_method(c: &mut Command, p: &Path) { c.status(); c.output(); c.spawn(); p.exists(); }
+fn by_chain() { Command::new(\"git\").arg(\"x\").status(); }
+fn by_full_path_chain() { std::process::Command::new(\"git\").output(); }
+fn by_typed_parameter(c: &mut Command) { c.spawn(); }
+fn by_owned_parameter(mut c: Command) { c.status(); }
+fn by_let() { let mut c = Command::new(\"git\"); c.arg(\"x\"); c.output(); }
+fn by_command_new() { Command::new(\"git\"); }
+fn by_full_path() { let _ = std::process::Command::new(\"unused\"); }
+fn by_builder() { std::fs::OpenOptions::new(); }
+fn by_type_function() { fs::File::open(p); }
+fn by_method(c: &mut Other, p: &Path) { c.status(); c.output(); c.spawn(); p.exists(); }
+fn by_let_of_another_type() { let c = Other::new(); c.status(); }
+fn by_field(s: &mut S) { s.command.status(); }
 fn by_parameter(write: fn() -> Option<i32>) { write(); }
 fn by_local() { let read_to_string = f; read_to_string(); }
 fn by_other_fs() { other_fs::write(p); }
@@ -410,8 +423,6 @@ fn by_longer_function() { std::process::Command::new::extra(); }
     let calls = Calls::of(&[("xtask/src/a.rs".to_string(), text.to_string())]).unwrap();
     let io: BTreeSet<&str> = calls.io.iter().map(|(_, f)| f.as_str()).collect();
     let expected: BTreeSet<&str> = [
-        "by_command_new",
-        "by_full_path",
         "by_fs_module",
         "by_env",
         "by_signal",
@@ -419,6 +430,47 @@ fn by_longer_function() { std::process::Command::new::extra(); }
         "by_own_group",
         "by_block_use",
         "by_run",
+        "by_chain",
+        "by_full_path_chain",
+        "by_typed_parameter",
+        "by_owned_parameter",
+        "by_let",
+    ]
+    .into();
+    assert_eq!(io, expected);
+}
+
+/// #181 B5 round 3: a process start reaches through an xtask function declared to return `Command` (as
+/// `tools::cargo`), in a chain or through a `let`; a function that returns another type is not a command.
+#[test]
+fn a_start_on_a_command_of_an_xtask_function_is_io() {
+    let files = [
+        (
+            "xtask/src/tools.rs",
+            "use std::process::Command;\npub fn cargo(root: &Path) -> Command { Command::new(\"cargo\") }\n\
+             pub fn other() -> Other { Other }\n",
+        ),
+        (
+            "xtask/src/a.rs",
+            "use crate::tools::cargo;\n\
+             fn by_chain(root: &Path) { cargo(root).args([\"x\"]).status(); }\n\
+             fn by_let(root: &Path) { let mut cmd = cargo(root); cmd.arg(\"x\"); cmd.output(); }\n\
+             fn by_module_path() { crate::tools::cargo(r).spawn(); }\n\
+             fn by_builder_only(root: &Path) { let _ = cargo(root); }\n\
+             fn by_other_type() { crate::tools::other().status(); }\n",
+        ),
+    ]
+    .map(|(file, text)| (file.to_string(), text.to_string()));
+    let calls = Calls::of(&files).unwrap();
+    let io: BTreeSet<(&str, &str)> = calls
+        .io
+        .iter()
+        .map(|(file, function)| (file.as_str(), function.as_str()))
+        .collect();
+    let expected: BTreeSet<(&str, &str)> = [
+        ("xtask/src/a.rs", "by_chain"),
+        ("xtask/src/a.rs", "by_let"),
+        ("xtask/src/a.rs", "by_module_path"),
     ]
     .into();
     assert_eq!(io, expected);
@@ -514,4 +566,30 @@ fn io_reaches_a_function_through_the_xtask_functions_it_calls() {
     ]
     .into();
     assert_eq!(io, expected);
+}
+
+/// Plan section 8: gate-decisions reads the module of a function from its file path, so a `#[path]` module (declared or
+/// inline, at any depth) is not a form that it resolves, and the check fails and names the form and the file.
+#[test]
+fn a_path_module_in_the_xtask_fails_the_index() {
+    for (text, at, name) in [
+        ("#[path = \"other.rs\"]\nmod m;\n", "1:1", "m"),
+        (
+            "mod outer {\n    #[path = \"x\"]\n    mod inner {}\n}\n",
+            "2:5",
+            "inner",
+        ),
+    ] {
+        let error = Calls::of(&[("xtask/src/a.rs".to_string(), text.to_string())])
+            .unwrap_err()
+            .to_string();
+        assert_eq!(
+            error,
+            format!(
+                "xtask/src/a.rs:{at}: `#[path]` on the module `{name}` is not a form that gate-decisions resolves \
+                 (plan section 8): it reads the module of a function from its file path"
+            ),
+            "{text}"
+        );
+    }
 }
