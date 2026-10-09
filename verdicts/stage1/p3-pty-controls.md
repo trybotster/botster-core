@@ -77,3 +77,12 @@ has exited, as at round 1. A transcript sends `pty_output` after its start compl
 result.
 
 VERDICT: CLEAN (0 open) at ab430951006a5aeee2f054b363679940356d9bbb
+
+### Note after round 2 (same head ab430951) — the P3 package reviewer keeps F63 open for its proof (package scope)
+
+The round 2 text above says that the F63 test's two waits are bounded. That is wrong for one of them:
+`worker/tests.rs:415-417` is a 50 ms `thread::sleep` that orders the two threads, and it has a `timer: deadline` label.
+BUILD.md Testing rule 5 forbids it. With the old lock order, a schedule where the control runs after the end returns
+`has ended` and passes. So the test can miss the bug. The package reviewer's F63 proof finding is correct. The source fix
+(`program_edge`) stays correct, and no cross-package effect changes. By the lead's rule, this CLEAN is not withdrawn, and
+the next head gets a delta check of the new test only.
