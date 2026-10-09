@@ -27,7 +27,7 @@ use botster_worker_core::{
 };
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::io;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
 use std::time::{Duration, Instant};
 
 /// `ENOEXEC`: the errno of a program that the in-process edge cannot run (a script that is not valid, or a step that needs a
@@ -43,6 +43,14 @@ const SIM_STEP_LIMIT: usize = 100_000;
 
 /// The bytes of one read of the control link or the PTY.
 const READ_CHUNK: usize = 64 * 1024;
+
+/// The wake of the host that holds the control link of the worker of `cell` now. The cell's guard ends before the host's
+/// table is locked: `Processes::end` locks a table, then a cell.
+fn control_wake(cell: &Mutex<ProcessCell>) -> Option<Arc<dyn HostWake>> {
+    let control = lock(cell).control.as_ref().and_then(Weak::upgrade)?;
+    let wake = lock(&control).wake.clone();
+    wake
+}
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     // The testkit has no panic that leaves its state half written, so a poisoned lock still holds usable state.
@@ -69,13 +77,20 @@ struct ProcessCell {
     /// The controls of the payload's program edge, from the spawn until the reap or the end of the worker (`pty_output`,
     /// `pty_blocked`): the PTY stays readable after the payload's exit until the worker reaps it.
     program: Option<ProgramControl>,
+    /// The table of the host that holds the worker's control link now: the spawning host, then each host that adopts the
+    /// worker (the fence, `Action::AdoptLink`). A control's wake goes to that host. Weak: a dropped host's table ends.
+    control: Option<Weak<Mutex<Processes>>>,
 }
 
 /// The process table of the workers that one host spawned: identities and the exits that the host has not polled.
 #[derive(Default)]
 struct Processes {
+    /// The workers that this host spawned: it reaps them (their exits come to it only).
     cells: BTreeMap<ProcessIdentity, Arc<Mutex<ProcessCell>>>,
     exits: VecDeque<(ProcessIdentity, ExitStatus)>,
+    /// The workers whose control link this host holds: the ones that it spawned and did not lose to an adoption, and the
+    /// ones that it adopted (`edges_quiet` reads their links).
+    links: BTreeMap<ProcessIdentity, Arc<Mutex<ProcessCell>>>,
     /// The wake object of the host that owns the table. An edge event that a control causes between two pumps wakes that
     /// host, as the real event wakes a real host (TM-6).
     wake: Option<Arc<dyn HostWake>>,
@@ -90,13 +105,13 @@ impl ProcessTable {
         lock(&self.0).wake = Some(wake);
     }
 
-    /// True while the process edge holds a report that the host has not consumed: an exit that it has not polled, or a
-    /// worker's control link with bytes or an end of file that the host has not read. A new worker's link holds its hello,
+    /// True while the process edge holds a report that the host has not consumed: an exit that it has not polled, or the
+    /// control link of a worker that it holds (spawned or adopted) with bytes or an end of file that the host has not read. A new worker's link holds its hello,
     /// so a link that the host has not accepted yet counts too. It reads the state and changes nothing (`edges_quiet`).
     pub(crate) fn holds_reports(&self) -> bool {
         let processes = lock(&self.0);
         !processes.exits.is_empty()
-            || processes.cells.values().any(|cell| {
+            || processes.links.values().any(|cell| {
                 lock(cell)
                     .link
                     .as_ref()
@@ -146,8 +161,12 @@ pub(crate) struct InstanceKey {
     pub(crate) instance: InstanceId,
 }
 
+/// A connection to a worker endpoint: the worker's end, and the table of the host that connected (`None` for a process that
+/// is not a host). An adoption over it moves the worker's control link to that host.
+type Connection = (LinkEnd, Option<Arc<Mutex<Processes>>>);
+
 /// The connections that wait on one worker endpoint, oldest first (DESIGN.md part 6).
-type Endpoint = Arc<Mutex<VecDeque<LinkEnd>>>;
+type Endpoint = Arc<Mutex<VecDeque<Connection>>>;
 
 /// The endpoint of each worker of the run (DESIGN.md parts 1, 6): bound at the spawn, before the first hello. A worker that
 /// exits removes its own. A killed worker cannot: its endpoint stays as `None`, a socket file that no worker listens on,
@@ -242,12 +261,12 @@ impl Workers {
     }
 
     /// The worker's end of the control link of the process `identity` breaks (`break_control`). The break is an edge event:
-    /// the worker's edges deliver it at the worker's next turn, and the host that owns the process is woken.
+    /// the worker's edges deliver it at the worker's next turn, and the host that holds its control link now is woken.
     ///
     /// # Errors
     /// The process is not a worker of this run, or it has ended.
     pub(crate) fn break_link(&self, identity: ProcessIdentity) -> Result<(), String> {
-        let (cell, owner) = lock(&self.run_processes)
+        let (cell, _) = lock(&self.run_processes)
             .get(&identity)
             .cloned()
             .ok_or_else(|| format!("no worker process {identity:?} in this run"))?;
@@ -258,7 +277,7 @@ impl Workers {
             }
             cell.break_link = true;
         }
-        if let Some(wake) = &lock(&owner).wake {
+        if let Some(wake) = control_wake(&cell) {
             wake.signal();
         }
         Ok(())
@@ -279,7 +298,7 @@ impl Workers {
     }
 
     /// Ends the hold of [`Workers::hold_start`]. A worker that kept a spawn, the process `worker`, spawns its payload at its
-    /// next turn, and the host that owns it is woken.
+    /// next turn, and the host that holds its control link is woken.
     ///
     /// # Errors
     /// No hold of `key` remains: none was set, it was released, or its worker ended.
@@ -294,11 +313,9 @@ impl Workers {
                 key.instance.0, key.dir
             ));
         }
-        let owner = worker.and_then(|id| lock(&self.run_processes).get(&id).cloned());
-        if let Some((_, owner)) = owner {
-            if let Some(wake) = &lock(&owner).wake {
-                wake.signal();
-            }
+        let cell = worker.and_then(|id| lock(&self.run_processes).get(&id).cloned());
+        if let Some(wake) = cell.and_then(|(cell, _)| control_wake(&cell)) {
+            wake.signal();
         }
         Ok(())
     }
@@ -315,7 +332,7 @@ impl Workers {
     }
 
     /// The program edge of the payload of the worker process `identity` (`pty_output`, `pty_blocked`), and the wake of the
-    /// host that owns the process. A control that makes the edge ready signals that wake, as the real edge event wakes a
+    /// host that holds its control link now (the spawning host, or the host that adopted it). A control that makes the edge ready signals that wake, as the real edge event wakes a
     /// real host (TM-6).
     ///
     /// # Errors
@@ -327,18 +344,18 @@ impl Workers {
         self.program_edge_between(identity, || {})
     }
 
-    /// [`Workers::program_edge`]: `between` runs after the cell is read and before the owner is locked, so a test can put
-    /// the end of the process exactly there (F63).
+    /// [`Workers::program_edge`]: `between` runs after the cell is read and before the control host's table is locked, so a
+    /// test can put the end of the process exactly there (F63).
     fn program_edge_between(
         &self,
         identity: ProcessIdentity,
         between: impl FnOnce(),
     ) -> Result<(ProgramControl, Option<Arc<dyn HostWake>>), String> {
-        let (cell, owner) = lock(&self.run_processes)
+        let (cell, _) = lock(&self.run_processes)
             .get(&identity)
             .cloned()
             .ok_or_else(|| format!("no worker process {identity:?} in this run"))?;
-        // The cell guard ends before the owner is locked: `Processes::end` locks the owner, then the cell.
+        // The cell guard ends before a table is locked: `Processes::end` locks a table, then the cell.
         let program = {
             let cell = lock(&cell);
             if cell.ended {
@@ -349,8 +366,7 @@ impl Workers {
                 .ok_or_else(|| format!("the worker process {identity:?} has no payload"))?
         };
         between();
-        let wake = lock(&owner).wake.clone();
-        Ok((program, wake))
+        Ok((program, control_wake(&cell)))
     }
 
     /// A cleaner removes the endpoint of the worker of `key` (DESIGN.md part 1): a live worker keeps running, and a new
@@ -368,7 +384,7 @@ impl Workers {
     pub(crate) fn connect_endpoint(&self, key: &InstanceKey) -> Option<LinkEnd> {
         let endpoint = lock(&self.endpoints).get(key).cloned().flatten()?;
         let (stranger, worker) = crate::net::link_pair(self.read_chunk);
-        lock(&endpoint).push_back(worker);
+        lock(&endpoint).push_back((worker, None));
         Some(stranger)
     }
 
@@ -426,7 +442,12 @@ impl Spawner for WorkerSpawner {
             start_time: 1,
         };
         let cell = Arc::new(Mutex::new(ProcessCell::default()));
-        lock(&self.processes).cells.insert(id, Arc::clone(&cell));
+        lock(&cell).control = Some(Arc::downgrade(&self.processes));
+        {
+            let mut processes = lock(&self.processes);
+            processes.cells.insert(id, Arc::clone(&cell));
+            processes.links.insert(id, Arc::clone(&cell));
+        }
         lock(&self.workers.run_processes)
             .insert(id, (Arc::clone(&cell), Arc::clone(&self.processes)));
         let key = self.key(&spec.instance);
@@ -521,7 +542,7 @@ impl Spawner for WorkerSpawner {
         else {
             return false;
         };
-        lock(&endpoint).push_back(end);
+        lock(&endpoint).push_back((end, Some(Arc::clone(&self.processes))));
         true
     }
 
@@ -577,7 +598,7 @@ struct WorkerEdges {
     endpoint: Endpoint,
     endpoints: Endpoints,
     /// The accepted connections whose hello has not passed.
-    candidates: BTreeMap<CandidateId, LinkEnd>,
+    candidates: BTreeMap<CandidateId, Connection>,
     next_candidate: u64,
     scheduler: SchedulerHandle,
     link: LinkEnd,
@@ -618,10 +639,10 @@ impl WorkerEdges {
             *endpoint = None;
         }
         drop(endpoints);
-        for mut end in std::mem::take(&mut *lock(&self.endpoint)) {
+        for (mut end, _) in std::mem::take(&mut *lock(&self.endpoint)) {
             end.close();
         }
-        for (_, mut end) in std::mem::take(&mut self.candidates) {
+        for (_, (mut end, _)) in std::mem::take(&mut self.candidates) {
             end.close();
         }
         self.outbound.clear();
@@ -735,7 +756,7 @@ impl Binding<Worker> for WorkerEdges {
         if !lock(&self.endpoint).is_empty() {
             self.ready.push(Ready::Accept);
         }
-        for (id, end) in &mut self.candidates {
+        for (id, (end, _)) in &mut self.candidates {
             end.end().set_interest(Interest {
                 read: true,
                 write: false,
@@ -812,14 +833,14 @@ impl Binding<Worker> for WorkerEdges {
                 Input::LinkClosed
             }
             Ready::Accept => {
-                let end = lock(&self.endpoint).pop_front().expect("counted as ready");
+                let connection = lock(&self.endpoint).pop_front().expect("counted as ready");
                 self.next_candidate += 1;
                 let id = CandidateId(self.next_candidate);
-                self.candidates.insert(id, end);
+                self.candidates.insert(id, connection);
                 Input::Candidate(id)
             }
             Ready::Candidate(id) => {
-                let end = self.candidates.get_mut(&id).expect("counted as ready");
+                let (end, _) = self.candidates.get_mut(&id).expect("counted as ready");
                 let mut buf = vec![0u8; self.read_chunk];
                 match end.recv(&mut buf) {
                     Ok(n) if n > 0 => {
@@ -827,7 +848,7 @@ impl Binding<Worker> for WorkerEdges {
                         Input::CandidateBytes(id, buf)
                     }
                     _ => {
-                        if let Some(mut end) = self.candidates.remove(&id) {
+                        if let Some((mut end, _)) = self.candidates.remove(&id) {
                             end.close();
                         }
                         Input::CandidateClosed(id)
@@ -929,7 +950,7 @@ impl Binding<Worker> for WorkerEdges {
                 self.ended(true);
             }
             Action::CandidateClose(id) => {
-                if let Some(mut end) = self.candidates.remove(&id) {
+                if let Some((mut end, _)) = self.candidates.remove(&id) {
                     end.close();
                 }
             }
@@ -942,14 +963,29 @@ impl Binding<Worker> for WorkerEdges {
                 self.outbound.clear();
                 self.written = 0;
                 // The machine adopts a candidate in the input that gave its hello, so the candidate is still here.
-                self.link = self
+                let (link, adopter) = self
                     .candidates
                     .remove(&id)
                     .expect("the machine adopts only a candidate that it holds");
+                self.link = link;
                 self.link_open = true;
-                let mut cell = lock(&self.cell);
-                cell.break_link = false;
-                cell.link = Some(self.link.end().control());
+                let earlier = {
+                    let mut cell = lock(&self.cell);
+                    cell.break_link = false;
+                    cell.link = Some(self.link.end().control());
+                    match &adopter {
+                        Some(adopter) => cell.control.replace(Arc::downgrade(adopter)),
+                        None => None,
+                    }
+                };
+                // The control link moves to the adopting host: its `edges_quiet` reads the link, and a control wakes it.
+                // The spawning host still reaps the worker (`cells`). The cell's guard ends before a table is locked.
+                if let Some(adopter) = adopter {
+                    if let Some(earlier) = earlier.as_ref().and_then(Weak::upgrade) {
+                        lock(&earlier).links.remove(&self.id);
+                    }
+                    lock(&adopter).links.insert(self.id, Arc::clone(&self.cell));
+                }
             }
         }
     }

@@ -678,6 +678,9 @@ impl Worker {
     /// so the result is `Deleted` (A6-3: every file is gone, or there were none).
     fn on_remove(&mut self) {
         self.removing = true;
+        // A worker that is ending takes no candidate, and the one that waits for its hello is closed: the removal
+        // completes on the old link, and no `AdoptLink` follows (P5 #201 R1-3).
+        self.close_candidate();
         match self.payload {
             PayloadState::Live(_) => {
                 if !self.killed {
@@ -754,6 +757,7 @@ impl Worker {
     /// and the worker ends once no leader is held.
     fn on_terminate(&mut self) {
         self.terminating = true;
+        self.close_candidate();
         match self.payload {
             PayloadState::Live(_) => {
                 if !self.killed {
@@ -862,14 +866,14 @@ impl Worker {
         }
     }
 
+    /// A worker that is ending (a removal, a `Terminate`, a staged exit, or its end) takes no candidate.
+    fn ending(&self) -> bool {
+        self.ended || self.removing || self.exit_pending || self.terminating
+    }
+
     /// At most one candidate at a time. A worker that is ending takes none.
     fn on_candidate(&mut self, now: Instant, id: CandidateId) {
-        if self.candidate.is_some()
-            || self.ended
-            || self.removing
-            || self.exit_pending
-            || self.terminating
-        {
+        if self.candidate.is_some() || self.ending() {
             self.actions.push_back(Action::CandidateClose(id));
             return;
         }
@@ -908,6 +912,10 @@ impl Worker {
         self.actions.push_back(Action::AdoptLink(id));
         self.queued_total = 0;
         self.written_total = 0;
+        // The new link counts its bytes from zero, so an `Output` report of the old link waits for nothing on it. The
+        // report carries the current `model_rev` (P5 #201 R1-1).
+        self.output_sent_to = 0;
+        self.output_unsent = false;
         self.link = LinkState::Ready;
         self.decoder = FrameDecoder::new(self.frame_bound);
         self.input_fence();
@@ -948,7 +956,12 @@ impl Worker {
                 payload,
                 features: worker_features(),
                 terminal: ran.then(|| self.adopted_terminal()),
-                formats: Vec::new(),
+                // The formats of `Launched`: a model that ran keeps them (P5 #201 R1-2).
+                formats: if ran {
+                    model::snapshot_formats()
+                } else {
+                    Vec::new()
+                },
             }),
         }
     }

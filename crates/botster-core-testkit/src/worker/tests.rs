@@ -14,10 +14,13 @@ fn fixture(capacity: usize) -> (WorkerEdges, LinkEnd, Worker, Instant) {
     let cell = Arc::new(Mutex::new(ProcessCell::default()));
     let mut processes = Processes::default();
     processes.cells.insert(id, Arc::clone(&cell));
+    processes.links.insert(id, Arc::clone(&cell));
+    let processes = Arc::new(Mutex::new(processes));
+    lock(&cell).control = Some(Arc::downgrade(&processes));
     let edges = WorkerEdges {
         id,
         cell,
-        processes: Arc::new(Mutex::new(processes)),
+        processes,
         pids: Arc::new(Mutex::new(Pids { next: 1001 })),
         key: InstanceKey {
             dir: "d".into(),
