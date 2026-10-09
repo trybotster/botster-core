@@ -6269,3 +6269,82 @@ The reviewer changed no product code and ran no tests, builds, measurements, mut
 All earlier findings, closures, and verdict rounds remain preserved at their named heads and scopes.
 
 VERDICT: NOT CLEAN
+
+
+## Round 118 — Set-file metadata and one-sided merge rules
+
+Reviewed head: `5a0b07ac0575743977c5d45ae78ae0a6a55ec101`, PR #190, branch `stage1/p3-pending-set-merge`.
+Base: `3000ae14bf8b05efe410c22ac66d5915cf36ff45`.
+Parent: `5ee3da3ee11e3675978ea51c3c31679962a84431`.
+The reviewer checked the tier first. HIGH remains correct under BUILD.md rule 1 for gate-decision code.
+Authority remains BUILD.md and the lead's approved set rule, with P6's agreement for this P6-owned module.
+The reviewer inspected the complete correction and the full two-file change against the base.
+The reviewer read the full corrected description and completed exact-head evidence.
+
+### F60 — HIGH — CLOSED
+
+The check now reads the tree entry's mode and type with its text at all four commits.
+Blob retains the mode/type string from ls-tree. A non-blob entry remains present and reaches the decision with its metadata.
+judge_set requires 100644 blob at the reviewed merge base, reviewed head, new merge base, and new head.
+The metadata check runs before either the one-sided branches or the set-text decision.
+An executable file, symlink, gitlink, or tree fails at any position. Partial absence still fails.
+The all-absent case remains valid.
+
+The default test a_set_file_that_is_not_a_regular_file_at_any_commit_fails covers all four rejected kinds at all four positions.
+The real-repository regression a_real_mode_change_of_the_set_file_after_the_merge_fails starts from a valid two-flip merge.
+It adds an executable-mode change without changing the pending text and requires FAIL (4) at the new head.
+The exact-head gate selects and passes both tests.
+The description reports that removing the metadata check makes both tests fail.
+The new input and decision reject round 116's false-pass counterexample. F60 is closed.
+
+### Whole-change and integration R1 coverage
+
+The correction also restores the original byte rule when only one side changes the set file.
+If the reviewed head leaves the file unchanged, the new head must equal the base's file.
+If the base leaves it unchanged, the new head must equal the reviewed file.
+Equality covers metadata and text. The regular-file check still applies first.
+A comment edit or an already-reviewed addition on the only changed side can therefore carry forward unchanged.
+An additional final-head edit fails. Changes on both sides still require the strict set rule.
+The one-sided unit test covers both branches and incorrect results.
+The real-repository test covers a PR that leaves pending unchanged while the base edits its comment.
+The reviewer accepts this correction for the package scope. Integration controls R1's closure and its own verdict.
+
+SET_FILES still contains only conformance/core-pending.txt.
+The two-sided text rule still rejects duplicate IDs, additions, edits, reordered lines, removed non-ID lines, overlap, and incorrect merged text.
+Every configured path still reaches condition (4).
+The ancestry, forward-base, conflict, overlap outside SET_FILES, and canonical-patch decisions remain in force.
+The command still removes all four GIT_*_PATHSPECS variables.
+The hostile-pathspec and extra-final-change regressions remain selected.
+No mutation exclusion changes. The decision functions remain exposed to mutation testing.
+The change adds no production process behavior or new real-process fixture.
+No package finding remains.
+
+### Completed evidence
+
+Exact-head log: `~/botster-sessions/gates/botster-core-stage1-p3-pending-set-merge-5a0b07ac-pool-20261009-100828-95489.log`.
+The log names this head and base. The run uses msa1 with kernel 6.12.111+deb13-amd64.
+All ten CI steps pass. The default tier passes 959 tests in 2.408 seconds.
+The slow tier passes 243 tests in 10.117 seconds.
+The new metadata, mode-only, and one-sided tests run and pass in the default tier.
+Signals scan 153 Rust files. Timers scan 137 Rust files.
+The lists report gives 675 ledger IDs, 648 pending, two deferred, two withdrawn, and 23 to run.
+Both mutation commands report 39 caught, zero missed, zero timeout, and zero unviable.
+The separate command uses NEXTEST_PROFILE=slow. Fuzz reports no changed crate with a decoder harness.
+Full CI takes 154.6 seconds. Separate mutants take 133.5 seconds. The gate exits 0 after 296 seconds.
+The complete final description names the correct tier, head, base, source corrections, tests, revert checks, and gate history.
+
+### Verdict and scope
+
+PR #190 is CLEAN at `5a0b07ac0575743977c5d45ae78ae0a6a55ec101` for the P3 package review.
+F60 is closed. No package finding remains open for this change.
+The integration reviewer controls its own verdict and its R1 finding.
+This package CLEAN covers only this exact head, base, and completed evidence. It covers no later source or base merge.
+#190 had one recorded NOT CLEAN round before this CLEAN. The round-limit notice is not due.
+#192 retains round 117 NOT CLEAN at d34a629d9078aadcc63012adfe2bf47222c2a921 with F61 and F62 open.
+P3 accepted those findings and plans to use P6's resolver after #181 lands, with new regressions and corrected probe evidence.
+#189 retains round 115 CLEAN at its named head and merged base 3000ae14.
+#168 retains its separate single planned real-PTY HOLD. Part B retains its earlier open duties.
+The reviewer changed no product code and ran no tests, builds, measurements, mutants, or gates.
+All earlier findings, closures, and verdict rounds remain preserved at their named heads and scopes.
+
+VERDICT: CLEAN
