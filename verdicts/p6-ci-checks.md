@@ -495,3 +495,162 @@ The reviewer will report QUESTION with this exact head and the pushed verdict co
 The reviewer will wait for the replacement READY head before round four.
 
 VERDICT: NOT CLEAN
+
+## Round 4 — PR #181 — 2026-10-09
+
+Reviewed head: `24fb122f32cb691bf073292f12b6a61448260c55`.
+Previous reviewed head: `7bb34d7618238f116613319f0883fae0d1fe82f7`.
+Merge base and full gate base: `7aec2bb917f48994d1705301d2383873a219c031`.
+
+The reviewer checked the stated tier first. HIGH remains correct under BUILD.md rules 1 and 3.
+The lead authorized round four under plan revision 23d, `stage1/plan` commit `9b7bc5a0`.
+The reviewer read section 8 in `~/botster-sessions/pins/stage1-plan.e3c60694.md` and verified its SHA-256:
+`e3c60694b24cd969151ad7948e54229a3ade059d1124124d7a19d528529c2db7`.
+Each Rust source check must list supported forms. It must reject other forms and name the form and file.
+An I/O shell exclusion must cite at least one proof as `decision (proof, ...)`.
+A proof named only in free text does not satisfy that requirement.
+
+The reviewer inspected the source delta, regression fixtures, configuration migration, base merges, and supplied gate log.
+The reviewer ran no gate, build, test, or mutation job and changed no product code.
+The remaining cases below are source findings. The reviewer did not execute these cases.
+
+### Closed findings and preserved review scope
+
+B3 closes for the reported module form. The shared rejection names an inline module's path attribute and its file.
+The process, timer, and citation checks use that rejection. Their fixtures assert the rejection through their check results.
+The platform check rejects the reported B8 fixture on Linux and Mac. A parent gate still hides the form, as detailed below.
+
+B6 closes under the lead's citation rule. Proof citations use the strict decision-and-proof form.
+The proof check rejects a top-level function after its test attribute is removed.
+The fixture also retains the test-module cases and conditional-cfg cases.
+The parser fixtures cover comment lines, source references, backticked code, and the count of cited names.
+The gate-decision check requires a structured proof citation for a shell exclusion.
+
+B5 rejects the reported `Command::new` and `OpenOptions::new` builders.
+The new fixtures retain the callback-name and other-type method cases.
+Two accepted forms still classify a pure forwarding decision as an I/O shell, as detailed below.
+B1, B2, B4, B7, and B9 remain closed for the reported cases.
+
+### B5 — HIGH — Pure environment functions still qualify as I/O
+
+Location: `xtask/src/gate_decisions.rs:66-104`.
+
+`IO_MODULES` still accepts every lowercase free function of `std::env`.
+That accepts `split_paths` and `join_paths`, which parse and combine supplied data without reading or changing the environment.
+The [split_paths documentation](https://doc.rust-lang.org/std/env/fn.split_paths.html) describes parsing supplied input.
+The [join_paths documentation](https://doc.rust-lang.org/std/env/fn.join_paths.html) describes combining supplied paths.
+
+For example, this forwarding decision still qualifies as an I/O shell:
+
+```rust
+fn forwarded(code: Option<i32>) -> Result<()> {
+    let _ = std::env::split_paths("fixed");
+    mutation_verdict(code)
+}
+```
+
+Its whole-body exclusion passes with reason `mutation_verdict (verdicts)` when the decision has its tested, unexcluded fixture.
+Replacing the parsing call with `std::env::join_paths(["fixed"])` has the same classification error.
+These are wrong results on the documented free-function form. The closed-form rule does not close this finding.
+
+Use an explicit list of actual I/O operations. Add rejected fixtures for both pure functions.
+Retain the builder and process-start fixtures.
+
+### B5 — HIGH — A shadowed command parameter retains its command classification
+
+Location: `xtask/src/gate_decisions.rs:316-322`, `command_locals`, and `process_start`.
+
+The check collects command bindings for the whole function before it visits calls.
+A parameter typed `Command` remains in that map when a later non-call initializer shadows it.
+For example:
+
+```rust
+struct Pure;
+impl Pure {
+    fn status(&self) {}
+}
+fn forwarded(cmd: std::process::Command, code: Option<i32>) -> Result<()> {
+    let _ = &cmd;
+    let cmd = Pure;
+    cmd.status();
+    mutation_verdict(code)
+}
+```
+
+`CommandBindings` records the parameter. It does not record `let cmd = Pure` because the initializer has no call-chain root.
+`process_start` then marks `Pure::status` as a process start through the retained parameter entry.
+The same whole-body exclusion with reason `mutation_verdict (verdicts)` passes.
+The function performs no I/O. A command parameter and a local binding are documented forms, but this case is not rejected.
+
+Reject unsupported binding changes and name the form and file, or resolve the listed bindings correctly.
+Add a fixture that checks rejection of the forwarding decision's exclusion after this shadowing.
+
+### B8 — MEDIUM — A gated parent hides an unsupported module form
+
+Location: `xtask/src/platform_code.rs:205-223`.
+
+The rejection runs before the current item's gate. It does not run before an ancestor's gate.
+For example:
+
+```rust
+#[cfg(target_os = "macos")]
+mod outer {
+    #[path = "alt"]
+    mod inner {}
+}
+```
+
+On Linux, `visit_item` records the outer module's gated lines and skips its descendants.
+The derivation returns without rejecting the unsupported inline-module path.
+On Mac, the derivation visits the inner module and rejects it.
+The supplied fixture puts a gate on the unsupported module itself. It does not cover a gate on its parent.
+
+The lead requires rejection on every OS. Reject unsupported forms before skipping a gated parent.
+Add a fixture with this parent gate and assert rejection for both systems.
+Other source checks can reject this fixture in the combined taint step. This finding concerns the derivation's required rejection on each OS.
+
+### Configuration migration, process rules, and base merges
+
+The mutation configuration migration changes comments only. All parsed TOML values remain identical to the previous head.
+It retains 185 `exclude_re` entries and two `exclude_globs` entries.
+The comments retain the test names and facts. Six shell reasons move their proof lists after their decision names.
+The other rewrites mark function lists and `Ok(true)` as code. Free-text source references remain permitted by the lead's ruling.
+No test assertion changes in this migration.
+
+The process allowlist adds one testkit channel receive from #195/#196, with P3's ownership and reason.
+The main thread's existing deadlines bound the steps before it sends on the channel.
+If the test unwinds first, it drops the sender and releases the receive.
+The added entry permits one site. It does not add a sleep, busy loop, process wait, or reap.
+The shared process crate and Prior-art note have no delta. Their group ownership and production reap separation remain as reviewed.
+No process-guard migration enters this round.
+
+Merge `fc54187c45258790f01f0d8f3e5f94f0670f8f70` imports v1 `c06f5b982d05dd65b00661a6cb9bb8b3aeea5514`.
+Its nineteen base-only paths match the base parent. `Cargo.lock` is the only overlapping path.
+The lockfile retains the base changes and the two previously reviewed xtask dependencies.
+Merge `24fb122f32cb691bf073292f12b6a61448260c55` imports v1 `7aec2bb917f48994d1705301d2383873a219c031`.
+Its five base-only paths match the base parent. It has no overlapping path.
+Neither merge adds an unexpected path. These are Git object comparisons, not a gate run or a carried CLEAN verdict.
+
+### Supplied evidence and its limits
+
+The full Linux log is `botster-core-stage1-p6-ci-checks-24fb122f-pool-20261009-115821-64845.log` under `~/botster-sessions/gates/`.
+It names the exact reviewed head and base `7aec2bb917f48994d1705301d2383873a219c031`.
+All ten jobs pass. It passes 1094 default tests and 248 slow tests.
+It reports 644 mutants: 615 caught and 29 unviable, with no misses or timeouts.
+The log shows the new module-rejection, citation, command-builder, and command-start fixtures passing.
+The real hang fixture still fails its nested mutation step as a timeout and passes its enclosing contract test.
+The platform-exclusion proof also passes in the slow tier.
+
+The implementer supplies no new Mac or separate slow-profile mutation run for this round.
+The round changes xtask code and comments, with no shared process-crate or macOS-only code delta.
+The earlier Mac process evidence remains as recorded. The reviewer does not convert the earlier Mac xtask timeouts into passes.
+The regression assertions turn red on reversal of the reported fixes by source inspection.
+The reviewer did not execute a reversal or claim that a supplied run exercised the remaining cases.
+
+B5 and B8 remain open. The reviewer sent the cases directly to the implementer and integration reviewer.
+The lead's round-limit decision authorized this review. No further resolution inference is required to close these cases.
+Before this verdict commit, the lead authorized round five for the replacement delta only, after P6 sends READY with a full gate.
+A new finding in untouched code moves to P6's next HIGH PR. A gate hole still blocks #181.
+Wait for the replacement READY head.
+
+VERDICT: NOT CLEAN
