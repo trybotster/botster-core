@@ -39,6 +39,13 @@ exclude_re = [
     # any_other_lint_difference_fails, only_the_three_lint_entries_name_unsafe_code, only_close_inherited_allows_unsafe_code,
     # the_verdict_counts_the_files_or_reports_every_problem).
     'xtask/src/unsafe_exception\.rs:\d+:\d+: replace command -> Result<\(\)> with Ok\(\(\)\)$',
+    # xtask lists.rs command -> Ok(()): the shell reads the pinned ledger, the status sources, the replacement map, the
+    # lists, the real proofs and the tracked sources, and prints the report of check and real_proofs::verdict; the body
+    # replaced by Ok(()) reads nothing and prints no summary. Only this whole-body replacement is excluded. The decisions
+    # are check (the lists rules, with their tests in lists.rs) and running, verdict, parse and proofs_of_map (the tests of
+    # real_proofs.rs: a_running_real_only_id_without_its_real_test_is_a_problem,
+    # a_named_test_that_is_missing_or_not_in_the_slow_tier_is_a_problem, the_running_ids_are_the_ledger_ids_that_no_skip_list_holds).
+    'xtask/src/lists\.rs:\d+:\d+: replace command -> Result<\(\)> with Ok\(\(\)\)$',
     # xtask ci.rs taint_job -> Ok(()): the shell runs four checks (taint, timers, unsafe_exception, signals) and only
     # propagates their errors with `?`; the body replaced by Ok(()) runs none. Only this whole-body replacement is excluded.
     # Each check's decisions have their own tests: taint (scan_files, hits_in_line), timers, unsafe_code (verdict,

@@ -1,0 +1,11 @@
+# The real tests of the real-only Core ids (`cargo xtask lists`; xtask/src/real_proofs.rs).
+#
+# A Core id whose replacement-map proof is `slow:*` passes only on the real-process tier. Such an id may leave
+# core-pending.txt only when this file names its real test, and that test exists and runs in the slow tier.
+#
+# [[proof]]
+# id = "conf::<id>"
+# binary = "slow_<binary>"                  # an integration test binary: crates/<crate>/tests/slow_<binary>.rs
+# test = "<module>::<name>"                 # the nextest path of the test in that binary
+#
+# No non-pending Core id has a `slow:*` proof yet, so the file has no entry.
