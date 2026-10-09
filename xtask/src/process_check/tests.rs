@@ -308,7 +308,7 @@ fn one_entry_allows_one_site_and_an_entry_with_no_site_is_stale() {
     assert_eq!(
         judge(&findings, &[entry(1)]),
         [format!(
-            "{TEST_FILE}:3: [child-wait] in `t`: {}",
+            "{TEST_FILE}:3:7: [child-wait] in `t`: {}",
             Rule::ChildWait.advice()
         )]
     );
@@ -348,11 +348,11 @@ fn an_early_exit_keeps_the_group_owned_until_cleanup() {
     let violations = judge(&scan(file, &reverted).unwrap(), &[]);
     assert_eq!(violations.len(), 2, "{violations:?}");
     assert!(
-        violations[0].starts_with(&format!("{file}:9: [blocking-read]")),
+        violations[0].starts_with(&format!("{file}:9:28: [blocking-read]")),
         "{violations:?}"
     );
     assert!(
-        violations[1].starts_with(&format!("{file}:10: [child-wait]")),
+        violations[1].starts_with(&format!("{file}:10:11: [child-wait]")),
         "{violations:?}"
     );
 }
@@ -422,7 +422,7 @@ fn the_service_answers_once_and_closes() {
     assert_eq!(violations.len(), 1, "{violations:?}");
     assert!(
         violations[0].starts_with(&format!(
-            "{file}:8: [blocking-read] in `the_service_answers_once_and_closes`"
+            "{file}:8:12: [blocking-read] in `the_service_answers_once_and_closes`"
         )),
         "{violations:?}"
     );
@@ -554,7 +554,7 @@ fn a_violation_names_its_site_its_rule_and_the_advice() {
     assert_eq!(
         judge(&findings, &[]),
         [format!(
-            "{TEST_FILE}:1: [child-wait] in `t`: a raw wait for a child: use botster_test_process::OwnedChild (status, \
+            "{TEST_FILE}:1:12: [child-wait] in `t`: a raw wait for a child: use botster_test_process::OwnedChild (status, \
              exited_within)"
         )]
     );
@@ -586,4 +586,141 @@ fn the_check_scans_the_tracked_test_code_against_the_allowlist() {
     assert_eq!((report.scanned, report.allowed), (1, 1));
     assert!(report.violations.is_empty());
     command(allowed.path(), &[]).unwrap();
+}
+
+/// #181 B1: a `use` chain resolves to its end, also through `self`, `super` and a glob; a binding is visible only in its
+/// own scope and the scopes inside it, and the innermost binding of a name wins; a cycle ends.
+#[test]
+fn a_use_chain_resolves_within_its_scopes() {
+    for (text, expected) in [
+        (
+            "use std::thread as th;\nuse th::sleep as nap;\nfn t() { nap(d); }\n",
+            vec![(3, "t".to_string(), "sleep")],
+        ),
+        (
+            "use std::thread as th;\nuse self::th::sleep as nap;\nfn t() { nap(d); }\n",
+            vec![(3, "t".into(), "sleep")],
+        ),
+        (
+            "use std::thread;\nmod m {\n    use super::thread as th;\n    fn t() { th::sleep(d); }\n}\n",
+            vec![(4, "t".into(), "sleep")],
+        ),
+        (
+            "use std::thread as th;\nuse th::*;\nfn t() { sleep(d); }\n",
+            vec![(3, "t".into(), "sleep")],
+        ),
+        (
+            "use std::thread::sleep;\nmod tests {\n    use super::*;\n    fn t() { sleep(d); }\n}\n",
+            vec![(4, "t".into(), "sleep")],
+        ),
+        (
+            "mod a {\n    use std::thread::sleep as nap;\n    fn t() { nap(d); }\n}\n\
+             mod b {\n    use crate::slow::nap;\n    fn u() { nap(d); }\n}\n",
+            vec![(3, "t".into(), "sleep")],
+        ),
+        (
+            "fn t() {\n    use std::thread::sleep as nap;\n    nap(d);\n}\nfn u() { nap(d); }\n",
+            vec![(3, "t".into(), "sleep")],
+        ),
+        (
+            "use std::thread::sleep as nap;\nmod m {\n    use crate::slow::nap;\n    fn t() { nap(d); }\n}\n",
+            vec![],
+        ),
+        ("use a as b;\nuse b as a;\nfn t() { a(d); }\n", vec![]),
+        ("use self::*;\nfn t() { sleep(d); }\n", vec![]),
+        ("use super::*;\nfn t() { sleep(d); }\n", vec![]),
+    ] {
+        assert_eq!(found(TEST_FILE, text), expected, "{text}");
+    }
+}
+
+/// #181 B2: two calls on one line are two sites, in code and in a macro body that is not expressions; one entry allows
+/// one of them, and the other is a violation at its own column.
+#[test]
+fn two_calls_on_one_line_are_two_sites() {
+    for (text, columns) in [
+        ("fn t() { a.wait(); b.wait(); }\n", [12, 22]),
+        ("fn t() { m!(x => a.wait(), b.wait()); }\n", [20, 30]),
+    ] {
+        let findings = scan(TEST_FILE, text).unwrap();
+        assert_eq!(
+            findings.iter().map(|f| f.column).collect::<Vec<_>>(),
+            columns,
+            "{text}"
+        );
+        let entry = Allowed {
+            key: (TEST_FILE.into(), "t".into(), Rule::ChildWait),
+            line: 1,
+        };
+        assert_eq!(
+            judge(&findings, &[entry]),
+            [format!(
+                "{TEST_FILE}:1:{}: [child-wait] in `t`: {}",
+                columns[1],
+                Rule::ChildWait.advice()
+            )]
+        );
+    }
+}
+
+/// #181 B3: a module file is test code as a whole when a test declaration declares it (`#[path]` included, inside an
+/// inline module too), or a file that is test code as a whole does, through the module tree; a module that only
+/// production declares is not. The file of a test module must be found.
+#[test]
+fn a_module_that_a_test_declares_is_test_code_through_the_module_tree() {
+    let banned = "fn f(c: &mut std::process::Child) { c.wait().unwrap(); }\n";
+    let sources: BTreeMap<String, String> = [
+        (
+            "crates/x/src/lib.rs",
+            "#[cfg(test)]\nmod helpers;\n#[cfg(test)]\n#[path = \"../support/./a/../b.rs\"]\nmod support;\n\
+             mod real;\n#[cfg(test)]\nmod checks {\n    mod nested;\n}\n#[cfg(test)]\nmod tests;\n\
+             #[cfg(test)]\n#[path = \"gen.inc\"]\nmod generated;\n",
+        ),
+        ("crates/x/src/helpers.rs", "fn f(c: &mut std::process::Child) { c.wait().unwrap(); }\nmod deeper;\n"),
+        ("crates/x/src/helpers/deeper.rs", banned),
+        ("crates/x/support/b.rs", banned),
+        ("crates/x/src/real.rs", banned),
+        ("crates/x/src/checks/nested.rs", banned),
+        ("crates/x/src/tests.rs", "#[path = \"shared.rs\"]\nmod shared;\n"),
+        ("crates/x/src/shared.rs", banned),
+        ("crates/x/src/gen.inc", banned),
+        ("crates/x/tests/a.rs", "mod common;\n"),
+        ("crates/x/tests/common/mod.rs", "fn g() {}\n"),
+    ]
+    .into_iter()
+    .map(|(file, text)| (file.to_string(), text.to_string()))
+    .collect();
+    let sites: Vec<(String, usize)> = scan_files(&sources)
+        .unwrap()
+        .into_iter()
+        .map(|f| (f.file, f.line))
+        .collect();
+    assert_eq!(
+        sites,
+        [
+            ("crates/x/src/checks/nested.rs".to_string(), 1),
+            ("crates/x/src/helpers.rs".into(), 1),
+            ("crates/x/src/helpers/deeper.rs".into(), 1),
+            ("crates/x/src/shared.rs".into(), 1),
+            ("crates/x/support/b.rs".into(), 1),
+        ]
+    );
+    let lone = |text: &str| BTreeMap::from([("crates/x/src/lib.rs".to_string(), text.to_string())]);
+    assert_eq!(
+        scan_files(&lone("#[cfg(test)]\nmod gone;\n")).unwrap_err(),
+        "crates/x/src/lib.rs:2: the file of the test module `gone` is not found"
+    );
+    assert_eq!(
+        scan_files(&lone("mod gone;\n")).unwrap(),
+        Vec::<Finding>::new()
+    );
+    assert!(scan_files(&lone("fn f( {\n"))
+        .unwrap_err()
+        .starts_with("crates/x/src/lib.rs:1:"));
+}
+
+#[test]
+fn a_path_is_normalized() {
+    assert_eq!(normalize("a/./b/../c.rs"), "a/c.rs");
+    assert_eq!(normalize("../a/../../b.rs"), "../../b.rs");
 }

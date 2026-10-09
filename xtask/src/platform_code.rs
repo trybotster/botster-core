@@ -101,13 +101,13 @@ fn gated(node: &impl ToTokens, os: &str) -> bool {
 }
 
 /// The directory of `file`, with its final `/` (empty for a file at the root of the run).
-fn parent_dir(file: &str) -> &str {
+pub(crate) fn parent_dir(file: &str) -> &str {
     &file[..file.rfind('/').map_or(0, |slash| slash + 1)]
 }
 
 /// The directory that holds the files of the modules that `file` declares (`a/b.rs` declares `a/b/c.rs`; `lib.rs`,
 /// `main.rs` and `mod.rs` declare beside themselves).
-fn module_dir(file: &str) -> String {
+pub(crate) fn module_dir(file: &str) -> String {
     let dir = parent_dir(file);
     let stem = file[dir.len()..].trim_end_matches(".rs");
     if matches!(stem, "lib" | "main" | "mod") {
@@ -118,7 +118,7 @@ fn module_dir(file: &str) -> String {
 }
 
 /// The value of a `#[path = "..."]` attribute.
-fn path_attr(attrs: &[syn::Attribute]) -> Option<String> {
+pub(crate) fn path_attr(attrs: &[syn::Attribute]) -> Option<String> {
     attrs.iter().find_map(|attr| match &attr.meta {
         syn::Meta::NameValue(pair) if pair.path.is_ident("path") => match &pair.value {
             syn::Expr::Lit(syn::ExprLit {
