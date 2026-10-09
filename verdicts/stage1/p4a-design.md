@@ -349,3 +349,53 @@ P6 withdrew the concurrent #181 review request for `a94e02d6` while its call-ide
 No #181 verdict is claimed for that head.
 
 VERDICT: NOT CLEAN (2 open) at 307380789d2a7e65623d98015778632a0de71b43
+
+
+## Round 4 — 2026-10-09 — CLEAN
+
+Reviewed head: `c1d26778ded49180a310acf4f75e409a36161fe7`.
+Base: `cc2e86ee356c7adcfc9ab95dd50494ae98429a45`.
+Previous reviewed head: `307380789d2a7e65623d98015778632a0de71b43`.
+The reviewer read both correction commits, the complete P4a design section, and the supplied gate.
+Only `crates/botster-worker-core/DESIGN.md` changes against the base. STANDARD remains correct.
+The reviewer changed no product code and ran no builds, tests, mutants, or gates.
+
+### Closed findings
+
+**D4 / F72 closes.** A healthy close retains the stall rules while it delivers its queue.
+The progress deadline changes the route to `Stalled`; it does not close the route.
+A resumed route completes resync before the remaining queue and `route_closed`.
+Only the stall-close deadline permits closure by stall alone. A terminal transport error permits immediate closure.
+The report keeps the first reason consistently, including a session-end reason already fixed at `Exited`.
+`StallTimeout` applies when no earlier close reason exists.
+The driver maps write `WouldBlock` to zero progress and retries `Interrupted`.
+The driver waits after read `WouldBlock` and retries read `Interrupted` without reporting closure.
+Only terminal errors reach the machine as `WriteFailed` or `PeerClosed`.
+
+**F77 closes.** Both stall discard and resync retire an affected unstarted `terminal_query` frame.
+The worker ends that client's opportunity and submits the saved parse-point fallback through the existing admission point.
+If admission lacks room, the query remains pending only for fallback and retries when room returns.
+The stale client path never reopens. Later replies are `query_expired` before fallback admission and `already_replied` after admission.
+A sent query, or a started query that finishes, keeps its opportunity.
+The queue rules now preserve mandatory frames without retaining an affected query after its required output prefix is discarded.
+
+All seven original design findings are closed. The earlier design corrections remain intact.
+This verdict accepts the design. It does not establish implemented behavior or the proposed implementation proofs.
+
+### Evidence and retained requirements
+
+The supplied gate is:
+`~/botster-sessions/gates/botster-core-stage1-p4a-design-c1d26778-pool-20261009-160005-69360.log`.
+It names the exact reviewed head and base. The base is an ancestor of the head.
+Linux node `msa1` used allocation `be42f20d`. All ten CI checks passed.
+The default tier passed 1152 tests. The slow tier passed 249 tests. Conformance reports 104 passed and zero failed.
+The gate exited zero after 44 seconds. Both mutation jobs report no Rust source change and no mutation outcomes.
+These jobs supply no new mutation proof. The gate checks existing code, not a P4a implementation.
+`git diff --check` passes.
+
+The design changes no pending id or minimum count. Testkit and real minimum counts remain separate.
+The production descriptor transfer still requires its real-process proof and the existing #181 dependency.
+The implementation PRs must prove the stated ownership, ordering, capacity, baseline, close, and resync behavior.
+No new architecture or contract exception is granted by this design verdict.
+
+VERDICT: CLEAN (0 open) at c1d26778ded49180a310acf4f75e409a36161fe7
