@@ -1,7 +1,7 @@
 # P3 worker review
 
-Current verdict: NOT CLEAN for PR #167 Part A at `723bc8d5c937d905a918a8063deedaaf5326b8c7`.
-Round 95 records F50 MEDIUM after the landing gate missed 17 mutants. F49 remains CLOSED.
+Current verdict: NOT CLEAN for PR #167 Part A at `f1cee83415af0962b83ccadc45b29e006120e443`.
+Round 96 closes F50 and records F51 MEDIUM: a non-equivalent exclusion on macOS. F49 remains CLOSED.
 PR #163 Part B retains F28, F33 execution, and F39 for its later merge delta.
 PR #165 remains CLEAN at `29b37890efeffa4410d7dfc34f5c2344bfad1ba4` and landed through #162.
 F45 through F48 are CLOSED. F39 is CLOSED within #165.
@@ -4485,6 +4485,99 @@ The reviewer requested that the description name the superseding head and its st
 
 PR #167 Part A is NOT CLEAN for F50 MEDIUM at this exact head.
 The prior source closures and F49 closure remain valid. No other package finding is open within Part A's submitted scope.
+A31 remains open in the real driver after Part A.
+Part B retains F28 native evidence, F33 failed-watch execution, and F39's later merge duty.
+M2a, M2b, the A32/A33 follow-up, and pending conformance IDs remain outside this verdict.
+The reviewer changed no product code and ran no tests, builds, measurements, mutants, or gates.
+All earlier findings, closures, and verdict rounds remain preserved at their named heads and scopes.
+
+VERDICT: NOT CLEAN
+
+
+## Round 96 — F50 correction and native Mac equivalence counterexample
+
+Reviewed head: `f1cee83415af0962b83ccadc45b29e006120e443`, PR #167, branch `stage1/p3-audit-fixes-a`.
+Base: `0b0eecc06d0cd4c39af5e33e59c0b3f643aba6d4`.
+Reviewed delta: `723bc8d5..f1cee834`, one commit, three files.
+The delta removes the private helper test, adds a native-encoder behavior test, and adds two exclusion patterns.
+The implementer asks whether the 1960-input exploration log proves the mode-bit exclusion.
+
+### F50 — MEDIUM — CLOSED at f1cee834
+
+The helper-internal key-state test is removed from encode.rs.
+The new `bits_above_the_five_kitty_flags_change_no_key_bytes` test calls the public explicit-mode encoder.
+It compares native results with and without high flag bits across the independent mode enumeration.
+The input cases include associated text, a function key, and a keypad key with NumLock.
+It checks native encoding behavior rather than private tuple count or layout.
+The removed test's clauses remain covered by the independent worst-case tests and the recorded source review.
+The separate invalid exclusion is F51 below.
+
+### F51 — MEDIUM — OPEN: the mode-bit exclusion loses a required Mac mode
+
+Evidence: `.cargo/mutants.toml`, the new pattern for `EncoderState::every_key_state` at column 40.
+The pattern excludes `&` to `|` and `&` to `^` in the mode-bit closure.
+The comment claims that every key reaches its worst case with all six modes on.
+The finite Linux input survey does not prove that universal claim, and the claim is false on macOS.
+
+The reviewer inspected the pinned libghostty source at `3f8eb6810bb673aa782b047de21783ac81fb1121`.
+The relevant source is src/input/key_encode.zig: legacy, legacyAltPrefix, and kitty's associated-text decision.
+The binding's KeyEncoder::configure sets OptionAsAlt to true on every platform.
+Use this valid input: Key::Char("a"), modifiers [Alt], text containing 64 copies of "a", Press, and no alternate keys.
+With kitty disabled and alt_esc_prefix false, native legacy encoding writes the complete 64-byte text.
+With all six modes on, the Mac legacyAltPrefix branch uses the unshifted codepoint instead of the supplied multi-byte text.
+That branch writes the escape prefix and the single base character.
+The kitty branch cannot supply the omitted long result: Alt prevents associated text when OptionAsAlt is true.
+Its sequence for this input remains shorter than 64 bytes, for every kitty-flag combination.
+
+The `|` mutant sets every boolean mode true.
+The `^` mutant can make a mode false only when the index equals that mode's single-bit mask.
+At those indices, the low kitty bits are zero before the text-bit inversion, so kitty flag 16 is enabled.
+Thus both mutants retain only the all-on mode combination for the disabled-kitty legacy path.
+Both mutants omit the Mac mode that writes all 64 text bytes, so their computed worst-case bound is too small.
+This can change the host's retained-byte accounting and Unknown bound.
+The unchanged production enumeration includes the required mode; this finding concerns the exclusion and missing regression proof.
+
+Remove the column-40 exclusion.
+Add a behavior test that compares the public bound with the independent native encoder for this valid long-text case.
+Keep the native library as the oracle; do not invent terminal sequences in the test.
+Provide completed Mac evidence that catches both excluded mutants.
+Correct the exclusion argument and the PR description's universal claim.
+The reviewer sent F51 directly to the implementer and copied the integration reviewer.
+
+### Other exclusion arguments
+
+The retained `!=` to `==` exclusion still permutes the same six-mode combinations and preserves the full maximum.
+The new kitty-flag `&` to `^` exclusion at column 36 is equivalent at the current pin.
+The reviewer inspected src/terminal/c/key_encode.zig: setoptTyped truncates the supplied flags to u5 before storing them.
+The mutant permutes the same five-bit combinations; the C API discards all higher bits.
+The new native behavior test supports that argument.
+The prior payload_size threshold exclusion remains accepted within contract-valid limits.
+
+### Completed evidence and its limits
+
+The reviewer read the scratch exploration log:
+`~/botster-sessions/gates/botster-core-scratch-p3-f50-explore-f3611957-pool-20261008-215141-2770.log`.
+The reviewer also read the scratch source at `f3611957b7f17e75053cda9a3c7e223a02c7c1e4`, without running it.
+The release-mode Linux command reports 1960 inputs, zero shorter all-on maxima, and zero differing high-bit results.
+The survey uses eight modifier sets and five character scalars. It supplies no explicit associated text or alternate keys.
+It does not cover the Mac branch or the long-text counterexample above.
+The scratch job exits 0 after 54 seconds. It is exploration, not proof of universal equivalence.
+
+The exact-head focused log is:
+`~/botster-sessions/gates/botster-core-stage1-p3-audit-fixes-a-f1cee834-pool-20261008-215400-6319.log`.
+It names this exact head and base `0b0eecc06d0cd4c39af5e33e59c0b3f643aba6d4`.
+Formatting, clippy, taint, lists, test-budget, and mutants pass.
+The default tier passes 788 tests and skips 654 tests; its wall time is 1.1 seconds.
+The mutation step tests 107 mutants: 94 caught, 13 unviable, zero missed, and zero timeouts.
+The job exits 0 after 160 seconds on msa1.
+The disputed mutants are excluded, and Linux does not compile the relevant Mac branch.
+This green focused job therefore does not close F51 or supply a green landing gate.
+The PR description names the current head and evidence but repeats F51's incorrect all-on claim.
+
+### Verdict and limits
+
+PR #167 Part A is NOT CLEAN for F51 MEDIUM at this exact head.
+F50 and F49 are CLOSED. No other package finding is open within Part A's submitted scope.
 A31 remains open in the real driver after Part A.
 Part B retains F28 native evidence, F33 failed-watch execution, and F39's later merge duty.
 M2a, M2b, the A32/A33 follow-up, and pending conformance IDs remain outside this verdict.
