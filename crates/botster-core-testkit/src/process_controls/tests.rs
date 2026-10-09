@@ -115,11 +115,16 @@ fn a_broken_control_link_fails_the_next_op_and_a_stop_still_ends_the_session() {
 }
 
 /// Core TM-6: the break is an edge event, so it wakes the host that owns the worker, as the end of file of a real socket
-/// does. The host is idle before it: a pump that leaves no work clears the wake.
+/// does. The host is idle before it: a pump that leaves no work clears the wake, and `no_spurious_wakes` makes the
+/// `TimedOut` sound.
 #[test]
 fn a_break_wakes_the_host_that_owns_the_worker() {
     let mut harness = TestkitHarness::new(0);
     let (mut core, at) = session(&mut harness, true);
+    assert_eq!(
+        harness.control("a", "no_spurious_wakes", &json!({})),
+        Ok(Value::Null)
+    );
     let mut settled = false;
     for _ in 0..PUMPS {
         let report = core.pump(Now {

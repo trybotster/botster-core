@@ -1,5 +1,5 @@
 //! The wake and quiet controls of the testkit (`docs/core-testkit-controls.md`): `edges_quiet`, the fence of `await_quiet`
-//! (Core A5-2), and `no_spurious_wakes` (Core TH-2, A5-2), which waits.
+//! (Core A5-2), and `no_spurious_wakes` (Core TH-2, A5-2).
 
 use crate::controls::{parse, ControlRegistry};
 use crate::harness::TestkitHarness;
@@ -9,17 +9,7 @@ use serde_json::{json, Value};
 
 pub(crate) fn register_controls(registry: &mut ControlRegistry) {
     registry.register("edges_quiet", edges_quiet);
-    // It needs a measured notion of a spurious wake (a `Woken` while the host has no work), checked at every wait and at the
-    // end of the run, as agreed with P6; until then it is `Unsupported`, never a constant.
-    registry.register("no_spurious_wakes", unsupported);
-}
-
-fn unsupported(
-    _harness: &mut TestkitHarness,
-    _handle: &str,
-    _args: &Value,
-) -> Result<Value, ControlError> {
-    Err(ControlError::Unsupported)
+    registry.register("no_spurious_wakes", no_spurious_wakes);
 }
 
 #[derive(Debug, Deserialize)]
@@ -38,6 +28,26 @@ fn edges_quiet(
         .processes_of(handle)
         .ok_or_else(|| ControlError::Bad(format!("the handle '{handle}' is not open")))?;
     Ok(json!({ "quiet": harness.workers().edges_quiet(table) }))
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct NoSpuriousWakes {}
+
+/// From now on, the wake edge of every `Core` of the run fires only for a signal, so a `wait_wake` that gives `TimedOut` is
+/// sound (Core TH-2 allows a spurious `Woken`, and A5-2 seeds it). The run has one scheduler, so the handle names no single
+/// edge.
+fn no_spurious_wakes(
+    harness: &mut TestkitHarness,
+    _handle: &str,
+    args: &Value,
+) -> Result<Value, ControlError> {
+    let NoSpuriousWakes {} = parse(args)?;
+    harness
+        .workers()
+        .scheduler()
+        .set_overrides(|o| o.no_spurious_wakes = true);
+    Ok(Value::Null)
 }
 
 #[cfg(test)]
