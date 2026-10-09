@@ -2,6 +2,9 @@
 
 use crate::harness::TestkitHarness;
 use botster_core_conformance::ControlError;
+use botster_core_contract::prelude::SessionId;
+use botster_core_host::session::{row_key, Row};
+use serde::de::DeserializeOwned;
 use serde_json::Value;
 use std::collections::{btree_map::Entry, BTreeMap};
 
@@ -43,7 +46,41 @@ impl ControlRegistry {
 pub(crate) fn registered_controls() -> ControlRegistry {
     let mut registry = ControlRegistry::default();
     crate::refusal::register_controls(&mut registry);
+    crate::process_controls::register_controls(&mut registry);
     registry
+}
+
+/// The arguments of a control. The step's own keys, `op` and `handle`, are removed at the top level only; every other key
+/// must be an argument of the control (`T` denies unknown fields), so a misspelt argument is `Bad`, never ignored.
+pub(crate) fn parse<T: DeserializeOwned>(args: &Value) -> Result<T, ControlError> {
+    let mut args = args.clone();
+    if let Some(object) = args.as_object_mut() {
+        object.remove("op");
+        object.remove("handle");
+    }
+    serde_json::from_value(args).map_err(|e| ControlError::Bad(format!("the arguments: {e}")))
+}
+
+/// The registry row of `session` in the data directory of `handle`, decoded by the host's own decoder (`Row::decode`): the
+/// testkit reads what Core stored and has no second reading of it.
+pub(crate) fn session_row(
+    harness: &TestkitHarness,
+    handle: &str,
+    session: &SessionId,
+) -> Result<Row, ControlError> {
+    let dir = harness
+        .directory_of(handle)
+        .ok_or_else(|| ControlError::Bad(format!("the handle '{handle}' is not open")))?;
+    let bytes = harness
+        .directories()
+        .row(dir, &row_key(session))
+        .ok_or_else(|| ControlError::Bad(format!("no row of the session {}", session.0)))?;
+    Row::decode(session, &bytes).ok_or_else(|| {
+        ControlError::Bad(format!(
+            "the row of the session {} is not readable",
+            session.0
+        ))
+    })
 }
 
 #[cfg(test)]
