@@ -165,7 +165,7 @@ fn poll_by(fds: &mut [rustix::event::PollFd<'_>], deadline: Deadline) -> Result<
 ///
 /// # Errors
 /// A descriptor cannot be set non-blocking, the deadline passed first (the error keeps what `first` read; `second` keeps its
-/// own bytes), or a read failed.
+/// own bytes), a read failed, or a pass of the loop read nothing after `poll` reported a ready descriptor (it never spins).
 pub(crate) fn both_to_eof<A: Read + AsFd, B: Read + AsFd>(
     first: &mut Bounded<A>,
     second: &mut Bounded<B>,
@@ -204,11 +204,20 @@ pub(crate) fn both_to_eof<A: Read + AsFd, B: Read + AsFd>(
         };
         // `ready` lists the readers that had not ended, in order.
         let mut ready = ready.into_iter();
+        let mut reads = 0;
         if !first.eof && ready.next() == Some(true) {
             first.read_once()?;
+            reads += 1;
         }
         if !second.eof && ready.next() == Some(true) {
             second.read_once()?;
+            reads += 1;
+        }
+        // `poll` reported a ready descriptor, so a pass with no read would only poll again at once: a spin.
+        if reads == 0 {
+            return Err(ReadError::Io(io::Error::other(
+                "poll reported a ready descriptor, and no reader read it",
+            )));
         }
     }
 }
