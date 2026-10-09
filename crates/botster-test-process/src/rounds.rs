@@ -261,6 +261,17 @@ mod tests {
         assert_eq!(report, "members left after 3s: 7");
     }
 
+    /// A deadline that passes after `rounds` checks: a decision that ignores an error ends as members left, never in a
+    /// loop, so the test fails instead of hanging.
+    fn after_rounds(rounds: usize) -> impl FnMut() -> bool {
+        let mut left = rounds;
+        move || {
+            let passed = left == 0;
+            left = left.saturating_sub(1);
+            passed
+        }
+    }
+
     /// A kill, a listing or a wait that fails stops the rounds with its error: they never spin and never report an end.
     #[test]
     fn a_failed_kill_listing_or_wait_stops_the_rounds_with_its_error() {
@@ -269,7 +280,7 @@ mod tests {
             || Err(failed()),
             || Ok(vec![7]),
             |_| Ok(Waited::Exited),
-            || false,
+            after_rounds(3),
         );
         let Err(failure) = kill else {
             panic!("a failed kill is a failure")
@@ -281,10 +292,15 @@ mod tests {
             || Ok(()),
             || Err(failed()),
             |_| Ok(Waited::Exited),
-            || false,
+            after_rounds(3),
         );
         assert!(matches!(listing, Err(Failure::Error(_))));
-        let wait = end_members(|| Ok(()), || Ok(vec![7]), |_: &i32| Err(failed()), || false);
+        let wait = end_members(
+            || Ok(()),
+            || Ok(vec![7]),
+            |_: &i32| Err(failed()),
+            after_rounds(3),
+        );
         assert!(matches!(wait, Err(Failure::Error(_))));
     }
 

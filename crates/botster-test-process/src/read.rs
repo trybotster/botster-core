@@ -50,6 +50,14 @@ impl<R: Read + AsFd> Bounded<R> {
         }
     }
 
+    /// The error of a read whose deadline passed, with the bytes read so far.
+    fn passed(&mut self, deadline: Deadline) -> ReadError {
+        ReadError::Deadline {
+            limit: deadline.limit(),
+            partial: std::mem::take(&mut self.buffer),
+        }
+    }
+
     /// Waits until the descriptor is readable (data, an end of file or an error), then reads once. Returns false at the end
     /// of file.
     fn fill(&mut self, deadline: Deadline) -> Result<bool, ReadError> {
@@ -63,12 +71,7 @@ impl<R: Read + AsFd> Bounded<R> {
             )];
             // timer: deadline — bounds the wait for the writer.
             match rustix::event::poll(&mut fds, Some(&deadline.timespec())) {
-                Ok(0) => {
-                    return Err(ReadError::Deadline {
-                        limit: deadline.limit(),
-                        partial: std::mem::take(&mut self.buffer),
-                    })
-                }
+                Ok(0) => return Err(self.passed(deadline)),
                 Ok(_) => break,
                 Err(rustix::io::Errno::INTR) => continue,
                 Err(error) => return Err(ReadError::Io(error.into())),
@@ -90,7 +93,7 @@ impl<R: Read + AsFd> Bounded<R> {
     }
 
     /// The next line, with its newline, read by `deadline`. `None` at the end of file with nothing left; a last line with no
-    /// newline is returned as it is.
+    /// newline is returned as it is. A line already buffered is returned at any time; no read starts after the deadline.
     ///
     /// # Errors
     /// The deadline passed first, or the read failed.
@@ -99,6 +102,10 @@ impl<R: Read + AsFd> Bounded<R> {
             if let Some(end) = self.buffer.iter().position(|&b| b == b'\n') {
                 let line: Vec<u8> = self.buffer.drain(..=end).collect();
                 return Ok(Some(String::from_utf8_lossy(&line).into_owned()));
+            }
+            // No read starts after the deadline, so the loop ends at it even when a read makes no progress.
+            if deadline.expired() {
+                return Err(self.passed(deadline));
             }
             if !self.fill(deadline)? {
                 if self.buffer.is_empty() {
@@ -110,14 +117,22 @@ impl<R: Read + AsFd> Bounded<R> {
         }
     }
 
-    /// Everything up to the end of file, read by `deadline`. The end of file of a pipe proves that every holder of its writing
+    /// Everything up to the end of file, read by `deadline`; no read starts after the deadline. The end of file of a pipe
+    /// proves that every holder of its writing
     /// end has closed it or ended.
     ///
     /// # Errors
     /// The deadline passed first, or the read failed.
     pub fn to_eof(&mut self, deadline: Deadline) -> Result<Vec<u8>, ReadError> {
-        while self.fill(deadline)? {}
-        Ok(std::mem::take(&mut self.buffer))
+        loop {
+            // No read starts after the deadline, so the loop ends at it even when a read makes no progress.
+            if deadline.expired() {
+                return Err(self.passed(deadline));
+            }
+            if !self.fill(deadline)? {
+                return Ok(std::mem::take(&mut self.buffer));
+            }
+        }
     }
 
     /// The reader, with any buffered bytes dropped.
@@ -172,20 +187,27 @@ mod tests {
     #[test]
     fn a_silent_writer_fails_the_read_at_the_deadline_with_what_was_read() {
         let (reader, mut writer) = std::io::pipe().unwrap();
-        writer.write_all(b"half").unwrap();
+        writer.write_all(b"half\nrest").unwrap();
         let mut reader = Bounded::new(reader);
+        assert_eq!(
+            reader.line(Deadline::cleanup()).unwrap().as_deref(),
+            Some("half\n")
+        );
+        // The end of the line is ready, but no read starts after the deadline.
+        writer.write_all(b"\n").unwrap();
         let error = reader
             .line(Deadline::after(Duration::ZERO))
-            .expect_err("a silent writer");
+            .expect_err("the deadline passed");
         assert_eq!(
             error.to_string(),
-            "nothing ended the read within 0ns (read so far: \"half\")"
+            "nothing ended the read within 0ns (read so far: \"rest\")"
         );
         let error = reader
             .to_eof(Deadline::after(Duration::ZERO))
-            .expect_err("still open");
+            .expect_err("the deadline passed");
         assert!(matches!(error, ReadError::Deadline { partial, .. } if partial.is_empty()));
         drop(writer);
+        assert_eq!(reader.to_eof(Deadline::cleanup()).unwrap(), b"\n");
     }
 
     #[test]
