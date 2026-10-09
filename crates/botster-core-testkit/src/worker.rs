@@ -11,7 +11,7 @@
 
 use crate::core::{SimEdges, Spawner};
 use crate::net::{Interest, LinkEnd};
-use crate::program::ScriptedProgram;
+use crate::program::{ProgramControl, ScriptedProgram};
 use crate::scheduler::SchedulerHandle;
 use crate::sim::{Binding, MachineNode, Sim};
 use botster_core_contract::prelude::*;
@@ -30,7 +30,10 @@ use std::time::{Duration, Instant};
 
 /// `ENOEXEC`: the errno of a program that the in-process edge cannot run (a script that is not valid, or a step that needs a
 /// real process). It is what an `exec` of a file that is not a program gives.
-const ENOEXEC: i32 = 8;
+const ENOEXEC: i32 = rustix::io::Errno::NOEXEC.raw_os_error();
+
+/// `EIO`: the errno of a write to a PTY that is gone or that fails.
+const EIO: i32 = rustix::io::Errno::IO.raw_os_error();
 
 /// The most inputs that one `Sim` run handles before it reports a livelock: far above what a transcript's workers do between
 /// two host pumps.
@@ -53,6 +56,16 @@ struct ProcessCell {
     terminate: bool,
     /// The worker process ended: by its own `Exit`, or by a signal of the `Process` edge.
     ended: bool,
+    /// The control link breaks while the worker lives (`break_control`): its descriptor fails, and the worker sees the end.
+    break_link: bool,
+}
+
+/// What the process controls need to reach the worker of a session instance.
+#[derive(Clone)]
+struct WorkerProcess {
+    id: ProcessIdentity,
+    cell: Arc<Mutex<ProcessCell>>,
+    processes: Arc<Mutex<Processes>>,
 }
 
 /// The process table of the workers that one host spawned: identities and the exits that the host has not polled.
@@ -93,6 +106,10 @@ impl Pids {
     }
 }
 
+/// A session instance's worker, named by its data directory and its `InstanceId`: an instance id is unique within one data
+/// directory only (each directory mints its own), so the directory is part of the name.
+type WorkerKey = (String, InstanceId);
+
 /// The `Sim` of one harness: every in-process worker of every handle (plan 4.1: "a `Sim` owns ... every `Worker`").
 #[derive(Clone)]
 pub struct Workers {
@@ -101,6 +118,12 @@ pub struct Workers {
     run_processes: Arc<Mutex<RunProcesses>>,
     scheduler: SchedulerHandle,
     read_chunk: usize,
+    /// The program edge of each session instance's payload, for the program controls (`pty_*`).
+    programs: Arc<Mutex<BTreeMap<WorkerKey, ProgramControl>>>,
+    /// The worker of each session of each handle, as its Core posted it (`SessionState` carries the instance).
+    sessions: Arc<Mutex<BTreeMap<String, BTreeMap<SessionId, WorkerKey>>>>,
+    /// The worker process of each session instance, for the process controls.
+    worker_processes: Arc<Mutex<BTreeMap<WorkerKey, WorkerProcess>>>,
 }
 
 impl std::fmt::Debug for Workers {
@@ -133,7 +156,52 @@ impl Workers {
             run_processes: Arc::default(),
             scheduler,
             read_chunk,
+            programs: Arc::default(),
+            sessions: Arc::default(),
+            worker_processes: Arc::default(),
         }
+    }
+
+    fn key_of(&self, handle: &str, session: &SessionId) -> Option<WorkerKey> {
+        lock(&self.sessions).get(handle)?.get(session).cloned()
+    }
+
+    fn worker_process(&self, handle: &str, session: &SessionId) -> Option<WorkerProcess> {
+        let key = self.key_of(handle, session)?;
+        lock(&self.worker_processes).get(&key).cloned()
+    }
+
+    /// `process_end_worker` (Core A5-1, A5-3): the process edge ends the session's worker at this script point, as a kill
+    /// does. Returns false when the session has no worker.
+    pub fn end_worker(&self, handle: &str, session: &SessionId) -> bool {
+        let Some(worker) = self.worker_process(handle, session) else {
+            return false;
+        };
+        lock(&worker.processes).end(worker.id, ExitStatus::Signal(9));
+        true
+    }
+
+    /// `break_control` (Core LC-5, A2-1): the control link of the session's live worker breaks. Returns false when the session
+    /// has no worker.
+    pub fn break_link(&self, handle: &str, session: &SessionId) -> bool {
+        let Some(worker) = self.worker_process(handle, session) else {
+            return false;
+        };
+        lock(&worker.cell).break_link = true;
+        true
+    }
+
+    /// The controls of the payload of the session `session` of the handle `handle`.
+    pub fn program_control(&self, handle: &str, session: &SessionId) -> Option<ProgramControl> {
+        let key = self.key_of(handle, session)?;
+        lock(&self.programs).get(&key).cloned()
+    }
+
+    fn record_session(&self, handle: &str, data_dir: &str, id: &SessionId, instance: &InstanceId) {
+        lock(&self.sessions)
+            .entry(handle.to_string())
+            .or_default()
+            .insert(id.clone(), (data_dir.to_string(), instance.clone()));
     }
 
     /// Runs every ready input of every worker at `now`, until none is ready.
@@ -142,6 +210,10 @@ impl Workers {
     /// When the workers still have ready work after [`SIM_STEP_LIMIT`] inputs: a worker that makes work for itself without
     /// end is a defect, never a result.
     pub fn run(&self, now: Instant) {
+        // A pump is a step of the program edge: the input cap of `pty_chunk` is available again.
+        for program in lock(&self.programs).values() {
+            program.new_step();
+        }
         let mut sim = lock(&self.sim);
         sim.advance_to(now);
         if let Err(livelock) = sim.run_until_idle(SIM_STEP_LIMIT) {
@@ -149,9 +221,12 @@ impl Workers {
         }
     }
 
-    /// True when a worker has ready work at the virtual clock.
+    /// True when a worker has ready work at the virtual clock, or a PTY write waits for the next step of `pty_chunk`.
     pub fn has_ready(&self) -> bool {
         lock(&self.sim).has_ready()
+            || lock(&self.programs)
+                .values()
+                .any(ProgramControl::waits_for_next_step)
     }
 
     /// The earliest deadline of a worker.
@@ -159,11 +234,12 @@ impl Workers {
         lock(&self.sim).next_deadline()
     }
 
-    /// The `Process` edge of one host for its workers.
-    pub fn spawner(&self) -> WorkerSpawner {
+    /// The `Process` edge of one host, over the data directory `data_dir`, for its workers.
+    pub fn spawner(&self, data_dir: &str) -> WorkerSpawner {
         WorkerSpawner {
             workers: self.clone(),
             processes: Arc::default(),
+            data_dir: data_dir.to_string(),
         }
     }
 }
@@ -172,6 +248,8 @@ impl Workers {
 pub struct WorkerSpawner {
     workers: Workers,
     processes: Arc<Mutex<Processes>>,
+    /// The data directory of the host: with an instance, it names a worker.
+    data_dir: String,
 }
 
 impl Spawner for WorkerSpawner {
@@ -187,6 +265,15 @@ impl Spawner for WorkerSpawner {
         };
         let cell = Arc::new(Mutex::new(ProcessCell::default()));
         lock(&self.processes).cells.insert(id, Arc::clone(&cell));
+        let key: WorkerKey = (self.data_dir.clone(), spec.instance.clone());
+        lock(&self.workers.worker_processes).insert(
+            key.clone(),
+            WorkerProcess {
+                id,
+                cell: Arc::clone(&cell),
+                processes: Arc::clone(&self.processes),
+            },
+        );
         lock(&self.workers.run_processes)
             .insert(id, (Arc::clone(&cell), Arc::clone(&self.processes)));
         let link = connect();
@@ -197,12 +284,17 @@ impl Spawner for WorkerSpawner {
         ));
         let mut edges = WorkerEdges {
             id,
+            key,
+            programs: Arc::clone(&self.workers.programs),
+            pty_write: None,
+            wait_writable: false,
             cell,
             processes: Arc::clone(&self.processes),
             pids: Arc::clone(&self.workers.pids),
             scheduler: self.workers.scheduler.clone(),
             link,
             link_open: true,
+            link_broken: false,
             outbound: VecDeque::new(),
             written: 0,
             payload: None,
@@ -265,12 +357,18 @@ impl Spawner for WorkerSpawner {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Ready {
     EndPayload,
+    /// The link broke (`break_control`): the worker hears the end.
+    LinkBroken,
     Terminate,
     /// The link has bytes, or its peer closed it.
     Link,
     /// The link takes bytes and some of `outbound` waits for it.
     Flush,
     Spawned,
+    /// A `PtyWrite` waits to be offered to the program.
+    PtyWrite,
+    /// The program takes input again after a write that it did not take.
+    PtyWritable,
     PtyRead,
     PtyDrained,
     Exited,
@@ -278,17 +376,26 @@ enum Ready {
 
 /// The edges of one in-process worker: the control link, the scripted program on its PTY, and its process cell.
 ///
-/// `ready` reads no edge and writes none: it only reads flags, so the order of every effect is the scheduler's (plan 2.5
-/// rule 8). Each effect is one input: a read of the link or the PTY, a write of queued link bytes (`LinkWritten`), a spawn's
-/// answer, an exit.
+/// `ready` performs no read or write that the worker asked for: it reads readiness flags and applies the OS facts that need
+/// no worker input (a process that ended closes its descriptors; `break_control` breaks the link; a program's exit becomes
+/// visible), so the order of every worker effect is the scheduler's (plan 2.5 rule 8). Each worker effect is one input: a
+/// read of the link or the PTY, a write of queued link bytes (`LinkWritten`), a PTY write, a spawn's answer, an exit.
 struct WorkerEdges {
     id: ProcessIdentity,
+    key: WorkerKey,
+    programs: Arc<Mutex<BTreeMap<WorkerKey, ProgramControl>>>,
+    /// The bytes of a `PtyWrite` that the program has not been offered yet.
+    pty_write: Option<Vec<u8>>,
+    /// The program took no byte at the last write: `PtyWritable` follows its write readiness.
+    wait_writable: bool,
     cell: Arc<Mutex<ProcessCell>>,
     processes: Arc<Mutex<Processes>>,
     pids: Arc<Mutex<Pids>>,
     scheduler: SchedulerHandle,
     link: LinkEnd,
     link_open: bool,
+    /// `break_control` broke the link, and the worker has not heard it yet.
+    link_broken: bool,
     /// Bytes of `LinkSend` that the link has not taken yet, in order.
     outbound: VecDeque<u8>,
     /// The bytes of `LinkSend` written so far (`Input::LinkWritten`).
@@ -332,6 +439,7 @@ impl WorkerEdges {
         program
             .resize(window)
             .map_err(|_| SpawnFailure::Exec { errno: ENOEXEC })?;
+        lock(&self.programs).insert(self.key.clone(), program.control());
         self.payload = Some(program);
         Ok(PayloadId {
             pid: lock(&self.pids).next(),
@@ -372,6 +480,16 @@ impl Binding<Worker> for WorkerEdges {
             self.ended();
             return 0;
         }
+        if std::mem::take(&mut lock(&self.cell).break_link) && self.link_open {
+            // The descriptor fails: both ends see the end of the link, and the worker hears it as its next input.
+            self.link.close();
+            self.link_open = false;
+            self.outbound.clear();
+            self.link_broken = true;
+        }
+        if self.link_broken {
+            self.ready.push(Ready::LinkBroken);
+        }
         if lock(&self.cell).end_payload {
             self.ready.push(Ready::EndPayload);
         }
@@ -392,10 +510,16 @@ impl Binding<Worker> for WorkerEdges {
                 self.ready.push(Ready::Flush);
             }
         }
+        if self.pty_write.is_some() && self.spawned.is_none() {
+            self.ready.push(Ready::PtyWrite);
+        }
         if self.spawned.is_some() {
             // The payload's inputs depend on its spawn: none is offered before the spawn's answer is taken.
             self.ready.push(Ready::Spawned);
         } else if let Some(program) = self.payload.as_mut() {
+            if self.wait_writable && program.is_writable() {
+                self.ready.push(Ready::PtyWritable);
+            }
             if self.exit.is_none() {
                 self.exit = program.poll_exit();
             }
@@ -415,6 +539,10 @@ impl Binding<Worker> for WorkerEdges {
 
     fn take(&mut self, _now: Instant, _machine: &Worker, index: usize) -> Input {
         match self.ready[index] {
+            Ready::LinkBroken => {
+                self.link_broken = false;
+                Input::LinkClosed
+            }
             Ready::EndPayload => {
                 lock(&self.cell).end_payload = false;
                 Input::EndPayload
@@ -439,6 +567,25 @@ impl Binding<Worker> for WorkerEdges {
             }
             Ready::Flush => self.flush(),
             Ready::Spawned => Input::Spawned(self.spawned.take().expect("counted as ready")),
+            Ready::PtyWrite => {
+                let bytes = self.pty_write.take().expect("counted as ready");
+                let Some(program) = self.payload.as_mut() else {
+                    // No PTY any more (the leader was reaped): the write fails as a write to a closed PTY does.
+                    return Input::PtyWritten(Err(EIO));
+                };
+                Input::PtyWritten(match program.write(&bytes) {
+                    Ok(n) => Ok(n),
+                    Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
+                        self.wait_writable = true;
+                        Ok(0)
+                    }
+                    Err(e) => Err(e.raw_os_error().unwrap_or(EIO)),
+                })
+            }
+            Ready::PtyWritable => {
+                self.wait_writable = false;
+                Input::PtyWritable
+            }
             Ready::PtyRead => {
                 let program = self.payload.as_mut().expect("counted as ready");
                 let want = self
@@ -489,6 +636,8 @@ impl Binding<Worker> for WorkerEdges {
                     self.payload.as_mut().map_or(0, ScriptedProgram::unread),
                 ));
             }
+            // The write is its own input (`Ready::PtyWrite`), so the scheduler orders it among the other ready work.
+            Action::PtyWrite(bytes) => self.pty_write = Some(bytes),
             Action::SignalPayload(signal) => {
                 if let Some(program) = self.payload.as_mut() {
                     program.signal(signal);
@@ -508,6 +657,10 @@ pub struct TestkitCore {
     driver: HostDriver<SimEdges>,
     workers: Workers,
     wake: Arc<dyn HostWake>,
+    /// The handle's name in the transcript: the program controls find a session's payload through it.
+    handle: String,
+    /// The data directory of the handle: with an instance, it names a worker.
+    data_dir: String,
 }
 
 impl TestkitCore {
@@ -516,11 +669,15 @@ impl TestkitCore {
         driver: HostDriver<SimEdges>,
         wake: Arc<dyn HostWake>,
         workers: Workers,
+        handle: &str,
+        data_dir: &str,
     ) -> TestkitCore {
         TestkitCore {
             driver,
             workers,
             wake,
+            handle: handle.to_string(),
+            data_dir: data_dir.to_string(),
         }
     }
 
@@ -547,8 +704,17 @@ impl CoreApi for TestkitCore {
         report
     }
 
+    /// The events of the host, unchanged. A `SessionState` names a session and its instance: the program controls learn the
+    /// pair from it (they act on the instance's payload).
     fn poll_events(&mut self, max: usize) -> Vec<Event> {
-        self.driver.poll_events(max)
+        let events = self.driver.poll_events(max);
+        for event in &events {
+            if let Event::SessionState { id, instance, .. } = event {
+                self.workers
+                    .record_session(&self.handle, &self.data_dir, id, instance);
+            }
+        }
+        events
     }
 
     fn wake_handle(&self) -> Arc<dyn WakeHandle> {

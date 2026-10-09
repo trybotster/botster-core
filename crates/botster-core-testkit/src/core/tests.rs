@@ -290,7 +290,7 @@ fn the_testkit_facade_forwards_configuration_and_typed_failures() {
     let edges = edges(5);
     let wake = edges.wake();
     let driver = HostDriver::open(cfg, edges).unwrap();
-    let mut core = crate::worker::TestkitCore::new(driver, wake, workers);
+    let mut core = crate::worker::TestkitCore::new(driver, wake, workers, "h", "facade");
     assert_eq!(core.limits(), limits);
     assert_eq!(core.features(), features);
     assert_eq!(core.worker_protocol(), 2);
@@ -448,7 +448,8 @@ fn the_testkit_facade_releases_captures_by_id_and_owner() {
             Some(Box::new(RecordedSpawner(log.clone()))),
         )
         .unwrap();
-    let mut core = crate::worker::TestkitCore::new(opened.driver, opened.wake, workers);
+    let mut core =
+        crate::worker::TestkitCore::new(opened.driver, opened.wake, workers, "h", "captures");
     let session = SessionId("s".into());
     let size = Size {
         rows: 24,
@@ -679,11 +680,12 @@ fn the_worker_keeps_complete_operations_at_each_buffer_bound() {
                     scheduler,
                 },
                 core_features(),
-                Some(Box::new(workers.spawner())),
+                Some(Box::new(workers.spawner("buffers"))),
             )
             .unwrap();
         opened.driver.edges().link_capacity = bound;
-        let mut core = crate::worker::TestkitCore::new(opened.driver, opened.wake, workers);
+        let mut core =
+            crate::worker::TestkitCore::new(opened.driver, opened.wake, workers, "h", "buffers");
         let session = SessionId("s".into());
         let create = core
             .begin(Op::Create {
@@ -783,10 +785,10 @@ fn a_reopened_handle_sees_and_ends_the_worker_of_the_earlier_handle() {
                     scheduler: scheduler.clone(),
                 },
                 core_features(),
-                Some(Box::new(workers.spawner())),
+                Some(Box::new(workers.spawner("reopen"))),
             )
             .unwrap();
-        crate::worker::TestkitCore::new(opened.driver, opened.wake, workers.clone())
+        crate::worker::TestkitCore::new(opened.driver, opened.wake, workers.clone(), "h", "reopen")
     };
     let session = SessionId("s".into());
     let mut first = open(&mut dirs);
@@ -824,7 +826,7 @@ fn a_reopened_handle_sees_and_ends_the_worker_of_the_earlier_handle() {
         .and_then(|row| row.worker)
         .expect("the row names its worker")
         .identity();
-    let probe = workers.spawner();
+    let probe = workers.spawner("reopen");
     assert_eq!(
         probe.identity_state(identity),
         IdentityState::Matches,
@@ -947,10 +949,10 @@ fn a_corrupt_row_with_pid_1_never_signals_anything() {
                 Some(spawner),
             )
             .unwrap();
-        crate::worker::TestkitCore::new(opened.driver, opened.wake, workers.clone())
+        crate::worker::TestkitCore::new(opened.driver, opened.wake, workers.clone(), "h", "corrupt")
     };
     let session = SessionId("s".into());
-    let mut first = open(&mut dirs, Box::new(workers.spawner()));
+    let mut first = open(&mut dirs, Box::new(workers.spawner("corrupt")));
     first
         .begin(Op::Create {
             session: session.clone(),
@@ -1003,7 +1005,7 @@ fn a_corrupt_row_with_pid_1_never_signals_anything() {
     let mut second = open(
         &mut dirs,
         Box::new(GuardedSpawner {
-            inner: workers.spawner(),
+            inner: workers.spawner("corrupt"),
             corrupt,
             real,
             asked: Arc::clone(&asked),
@@ -1043,7 +1045,7 @@ fn a_corrupt_row_with_pid_1_never_signals_anything() {
         assert!(*pid == 1 && *refused, "{pid} {signal:?}");
     }
     assert_eq!(
-        workers.spawner().identity_state(real),
+        workers.spawner("corrupt").identity_state(real),
         IdentityState::Matches,
         "no signal reached the worker"
     );

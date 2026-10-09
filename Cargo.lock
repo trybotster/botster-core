@@ -519,6 +519,7 @@ dependencies = [
  "botster-core-contract",
  "botster-core-edges",
  "botster-core-link",
+ "botster-route-codec",
  "serde_json",
 ]
 

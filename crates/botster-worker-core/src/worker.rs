@@ -99,6 +99,11 @@ pub enum Input {
     Spawned(Result<PayloadId, SpawnFailure>),
     /// Bytes that the payload wrote on the PTY.
     PtyOutput(Vec<u8>),
+    /// The answer to [`Action::PtyWrite`]: the bytes that the PTY took (`Ok(0)`: none now, and [`Input::PtyWritable`]
+    /// follows when it takes bytes again), or the OS error of the write.
+    PtyWritten(Result<usize, i32>),
+    /// The PTY takes input again after a write that it did not take.
+    PtyWritable,
     /// The answer to [`Action::DrainPty`]: the drain read what the PTY held when it was asked, or a read found no byte
     /// (it would block) or the end of the output first.
     PtyDrained,
@@ -127,6 +132,8 @@ pub enum Action {
     /// its exit is read before the exit is reported (EV-4, ST-5: the final model holds it). The drain is bounded by what the
     /// PTY held when it was asked, so output that a remaining process of the group writes later cannot hold the exit back.
     DrainPty,
+    /// Write these bytes to the payload's PTY, and answer with [`Input::PtyWritten`]. One write is out at a time (AM-2).
+    PtyWrite(Vec<u8>),
     /// Send this signal to the payload's process group. It is emitted only while the leader is unreaped.
     SignalPayload(i32),
     /// Reap the payload's leader: its group kill is complete, so its id may be reused from now on.
@@ -195,6 +202,8 @@ pub struct Worker {
     /// Inputs about the payload that came while its spawn was out (the drivers may deliver them before the spawn's answer):
     /// they apply once the spawn succeeds, and are dropped when it fails (no group to signal).
     early: Early,
+    /// The admission point and the host's writes (AM-2, IN-1 to IN-10).
+    input: input::InputState,
     actions: VecDeque<Action>,
 }
 
@@ -229,6 +238,7 @@ impl Worker {
             written_total: 0,
             terminating: false,
             early: Early::default(),
+            input: input::InputState::default(),
             actions: VecDeque::new(),
         };
         let hello = Hello {
@@ -375,9 +385,9 @@ impl Worker {
                 self.reap_when_complete();
             }
             HostMsg::Op { req, op } => self.on_op(now, req, op),
+            HostMsg::Cancel { req } => self.on_cancel(req),
             HostMsg::Remove => self.on_remove(),
-            // `Cancel`, `AttachRoute` and `Detach` belong to the input and route milestones (P3 M2, P4a); a later variant
-            // of the enum is a later host's.
+            // `AttachRoute` and `Detach` belong to the route milestone (P4a); a later variant of the enum is a later host's.
             _ => {}
         }
     }
@@ -429,6 +439,7 @@ impl Worker {
                 if let Some(status) = early.exit {
                     self.on_exited(status);
                 }
+                self.try_start();
             }
             Err(failure) => {
                 self.payload = PayloadState::Failed;
@@ -437,6 +448,7 @@ impl Worker {
                     SpawnFailure::Exec { errno } => StartFailReason::ExecFailed { errno },
                 };
                 self.report(&WorkerMsg::LaunchFailed { reason });
+                self.try_start();
                 self.finish_remove();
                 self.finish_terminate();
             }
@@ -458,18 +470,20 @@ impl Worker {
             cwd: None,
             last_output_at: None,
             focused: None,
-            model_rev: ModelRev(0),
-            input_rev: InputRevs {
-                client: InputRev(0),
-                host: InputRev(0),
-            },
+            model_rev: ModelRev(self.input.model_rev),
+            input_rev: self.input.input_revs(),
         }
     }
 
-    /// The operations that need the worker. In this milestone it serves `Signal` (LC-6); the reads, the input and the
-    /// setters come with the terminal model (M2), and the worker answers them `Internal` until then.
+    /// The operations that need the worker: `Signal` (LC-6) and `WriteInput` (IN-1). The reads and the setters come with the
+    /// terminal model, and the worker answers them `Internal` until then.
     fn on_op(&mut self, _now: Instant, req: u64, op: Op) {
         let result = match op {
+            Op::WriteInput { payload, guard, .. } => {
+                // Its `Done` comes when its transaction ends (IN-3).
+                self.on_write_input(req, payload, guard);
+                return;
+            }
             Op::Signal { sig, .. } => {
                 if let (true, Some(number)) = (self.group_live(), signal_number(sig)) {
                     self.signal(number);
@@ -542,6 +556,7 @@ impl Worker {
         }
         self.exit = Some(status);
         self.actions.push_back(Action::DrainPty);
+        self.input_payload_ended();
     }
 
     /// The first drain after the exit reports the exit, once, after the output written before it was read.
@@ -659,7 +674,10 @@ impl Machine for Worker {
             Input::Spawned(result) => self.on_spawned(now, result),
             // The terminal model takes the output in M2. Until then the worker reads it, so the payload never blocks on a
             // full PTY.
-            Input::PtyOutput(_) => {}
+            // Output changes the read-visible state (ST-1); the terminal model takes the bytes when it comes.
+            Input::PtyOutput(_) => self.input.model_rev += 1,
+            Input::PtyWritten(result) => self.on_pty_written(result),
+            Input::PtyWritable => self.on_pty_writable(),
             Input::PtyDrained => self.on_drained(),
             Input::PayloadExited(status) => self.on_exited(status),
             Input::EndPayload => self.on_end_payload(now),
@@ -715,6 +733,8 @@ fn op_name(op: &Op) -> String {
         .and_then(|v| v.as_object().and_then(|o| o.keys().next().cloned()))
         .unwrap_or_else(|| "this operation".to_string())
 }
+
+mod input;
 
 #[cfg(test)]
 mod tests;
