@@ -587,18 +587,22 @@ fn observer_parent() {
     drop(session);
 }
 
-/// A started worker whose payload starts through the group guard of `botster-test-process`: the payload's anchor ends the
-/// payload group on every path, a panic included. The test owns the worker as an [`OwnedChild`] (in group mode for the
-/// driver observer, so that its drop ends the observer's group too). The control link is the same as [`Session`]'s.
+/// A started worker whose worker and payload both start through the group guard of `botster-test-process`. Each one's
+/// anchor ends its group on every path: a panic, and the death of the test process too. The worker keeps running when its
+/// link closes (DP-8), so only its anchor ends it when the test dies. The test owns the worker as an [`OwnedChild`] in group
+/// mode: the worker leads its own group, which its anchor holds. The control link is the same as [`Session`]'s.
 struct GuardedSession {
     link: Link,
     worker: OwnedChild,
+    /// The payload's identity from `Launched`. The worker starts the payload in its own session, so this pid is also the
+    /// payload's group.
+    payload: PayloadId,
     guard: Guard,
 }
 
 impl GuardedSession {
-    /// Starts a worker and launches `sh -c script` through the guard's wrapper. The anchor reports the payload as its
-    /// group's leader before this returns.
+    /// Starts a worker and launches `sh -c script`, each through the guard's wrapper. Before this returns, one anchor
+    /// reports the worker as its group's leader, and one the payload.
     fn launch(root: &Path, script: &str, stop_grace_ms: u64) -> GuardedSession {
         let mut guard = Guard::new(root)
             .unwrap()
@@ -615,19 +619,31 @@ impl GuardedSession {
             host_epoch: 1,
             token: [5; 32],
         };
-        let worker = if let Some(observer) = crate::DRIVER_OBSERVER {
-            let mut command = Command::new(std::env::current_exe().unwrap());
-            command
-                .args(["--exact", observer, "--nocapture"])
-                .env_clear()
-                .env("BOTSTER_DRIVER_CONTROL", &launch.control);
-            OwnedChild::spawn_group(&mut command)
+        let (program, args) = if let Some(observer) = crate::DRIVER_OBSERVER {
+            (
+                std::env::current_exe().unwrap(),
+                vec!["--exact".into(), observer.into(), "--nocapture".into()],
+            )
         } else {
-            let mut command = Command::new(worker_binary());
-            command.args(launch.args()).env_clear().envs(launch.env());
-            OwnedChild::spawn(&mut command)
+            (worker_binary(), launch.args())
+        };
+        let args: Vec<&str> = args.iter().map(|arg| arg.to_str().unwrap()).collect();
+        let worker_wrapper = root.join("worker");
+        guard.wrapper(&worker_wrapper, &program, &args).unwrap();
+        let mut command = Command::new(&worker_wrapper);
+        command.env_clear();
+        if crate::DRIVER_OBSERVER.is_some() {
+            command.env("BOTSTER_DRIVER_CONTROL", &launch.control);
+        } else {
+            command.envs(launch.env());
         }
-        .unwrap();
+        let worker = OwnedChild::spawn_group(&mut command).unwrap();
+        let reports = guard.anchors(1, Deadline::cleanup()).unwrap();
+        assert_eq!(
+            reports[0].leader.pid,
+            worker.id(),
+            "an anchor holds the worker's group"
+        );
         // botster-test-process has no bounded accept yet (P6 adds `botster_test_process::accept` in its next crate PR, which
         // replaces this loop). The listener is non-blocking, so the accept never blocks; a poll by the deadline waits for the
         // connection, and an accept that finds none (`WouldBlock`, a peer that reset first) polls again.
@@ -663,14 +679,15 @@ impl GuardedSession {
             vec![wrapper.display().to_string()],
             stop_grace_ms,
         );
-        let reports = guard.anchors(1, Deadline::cleanup()).unwrap();
+        let reports = guard.anchors(2, Deadline::cleanup()).unwrap();
         assert_eq!(
-            reports[0].leader.pid, payload.pid,
-            "the anchor holds the payload's group"
+            reports[1].leader.pid, payload.pid,
+            "an anchor holds the payload's group"
         );
         GuardedSession {
             link,
             worker,
+            payload,
             guard,
         }
     }
@@ -689,8 +706,8 @@ impl GuardedSession {
 }
 
 impl Drop for GuardedSession {
-    /// The anchors start to end the payload group first. Then the fields drop in order: the worker, which holds the PTY
-    /// master, ends; and the guard reads each anchor's outcome (`Guard::release`).
+    /// The anchors start to end the worker's and the payload's groups first. Then the fields drop in order: the worker,
+    /// which holds the PTY master, ends and is reaped; and the guard reads each anchor's outcome (`Guard::release`).
     fn drop(&mut self) {
         self.guard.release();
     }
@@ -792,4 +809,53 @@ fn in_6_real_pty_cancel_keeps_counts_and_resumes_the_next_write() {
     s.link.msg(&HostMsg::Kill);
     assert_eq!(s.link.report(), exited(None, Some(9)));
     s.remove();
+}
+
+/// BUILD.md rule 10: a [`GuardedSession`] ends when its test process dies without running Drop. A fixture parent (this test
+/// binary, running [`guarded_parent`]) starts the session and is then killed. The anchors end the worker's group (the worker
+/// does not end when its link closes, DP-8) and the payload's group, and the test observes both ends without a signal.
+#[test]
+fn a_guarded_session_ends_when_its_test_parent_dies() {
+    let root = temp_root();
+    let name = format!(
+        "{}::guarded_parent",
+        module_path!().split_once("::").unwrap().1
+    );
+    let mut command = Command::new(std::env::current_exe().unwrap());
+    command
+        .args(["--exact", &name, "--nocapture"])
+        .env("BOTSTER_GUARDED_PARENT_ROOT", root.path())
+        .stdin(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::null());
+    let mut parent = OwnedChild::spawn(&mut command).unwrap();
+    let _held = parent.take_stdin();
+    let (_rest, line) = botster_test_process::first_line(parent.take_stderr().unwrap());
+    let groups: Vec<u32> = line
+        .split_whitespace()
+        .map(|group| group.parse().unwrap())
+        .collect();
+    assert_eq!(groups.len(), 2, "the parent reports two groups: {line}");
+    parent.kill().unwrap();
+    assert!(!parent.status().success(), "the parent was killed");
+    for group in groups {
+        botster_test_process::rounds::await_group_end(
+            botster_test_process::platform::pid(group).unwrap(),
+            Deadline::cleanup(),
+        )
+        .unwrap();
+    }
+}
+
+/// The fixture parent of [`a_guarded_session_ends_when_its_test_parent_dies`]: it starts a guarded session, reports the
+/// worker's group and the payload's group, and waits for its death (bounded: it ends by itself at the cleanup bound).
+#[test]
+fn guarded_parent() {
+    let Some(root) = std::env::var_os("BOTSTER_GUARDED_PARENT_ROOT") else {
+        return;
+    };
+    let session = GuardedSession::launch(Path::new(&root), "exec /bin/cat", 5000);
+    eprintln!("{} {}", session.worker.id(), session.payload.pid);
+    let _ = Bounded::new(std::io::stdin()).line(Deadline::cleanup());
+    drop(session);
 }
