@@ -391,6 +391,9 @@ impl HostEngine {
         if !shown && !self.post_state(id, state) {
             return;
         }
+        if !shown {
+            self.mark_adoption_point(id, state);
+        }
         let s = self.sessions.get_mut(id).expect("a flow has a session");
         s.shown = Some(state);
         match state {
@@ -414,6 +417,24 @@ impl HostEngine {
         let pending = self.sessions.get_mut(id).and_then(|s| s.pending_end.take());
         if let (SessionState::Running, Some(end)) = (state, pending) {
             self.begin_end_flow(id, end);
+        }
+    }
+
+    /// Core A18-2: this pump posted the adoption's `SessionState`, so it is the session's adoption point. A session that the
+    /// adoption leaves with its worker (every state but `Lost`) and that this host has seen no output of starts its idle
+    /// period here: the pump's monotonic time and unix time (TM-1, TM-4), also after an earlier adoption point of a retried
+    /// row. `last_output_at` stays `None` (A18-1). Each path that posts an adoption's state calls this: `post_adoption`, and
+    /// the start and stop flows of an adopted row.
+    pub(crate) fn mark_adoption_point(&mut self, id: &SessionId, state: SessionState) {
+        if matches!(state, SessionState::Lost(_)) {
+            return;
+        }
+        let (mono, unix) = (self.mono(), self.unix);
+        if let (Some(s), Some(now)) = (self.sessions.get_mut(id), mono) {
+            if !s.silence.output_seen {
+                s.silence.idle_start = Some((now, unix));
+                s.silence.fired = false;
+            }
         }
     }
 
