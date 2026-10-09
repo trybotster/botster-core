@@ -196,15 +196,23 @@ mod tests {
     use super::*;
 
     /// This test process is a live member of its own group, so a wait for that group's end reports it as left. No signal is
-    /// sent: the wait holds no reservation of the group.
+    /// sent: the wait holds no reservation of the group. The wait runs on its own thread, so that a wait that does not end
+    /// at its deadline fails the test within the cleanup bound (#171 round 2).
     #[test]
     fn a_wait_for_a_group_end_reports_a_live_member_as_left() {
         let me = rustix::process::getpid();
-        let report = await_group_end(
-            rustix::process::getpgrp(),
-            Deadline::after(std::time::Duration::ZERO),
-        )
-        .expect_err("this process is live");
+        let (sender, receiver) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            sender.send(await_group_end(
+                rustix::process::getpgrp(),
+                Deadline::after(std::time::Duration::ZERO),
+            ))
+        });
+        // timer: CLEANUP — bounds the test's wait for a wait that must end at once.
+        let report = receiver
+            .recv_timeout(crate::CLEANUP)
+            .expect("the wait ends at its deadline")
+            .expect_err("this process is live");
         assert!(report.starts_with("members left after 0ns: "), "{report}");
         assert!(
             report.contains(&format!("{} (", me.as_raw_nonzero())),
