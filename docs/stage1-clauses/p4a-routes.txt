@@ -74,7 +74,7 @@ conf::dp_2_offer_must_carry_all_candidates	DP-2	transcript
 conf::dp_2_stream_handoff_transfers_ownership_and_closes_host_copy	DP-2	transcript
 conf::dp_3_data_frames_are_raw	DP-3	transcript
 conf::dp_3_exactly_maximal_snapshot_fits_with_the_type_byte	DP-3	pending
-conf::dp_3_frame_limit_checked_before_allocation	DP-3	pending
+conf::dp_3_frame_limit_checked_before_allocation	DP-3	transcript
 conf::dp_3_history_is_paged_within_max_history_page_bytes	DP-3	pending
 conf::dp_3_output_deflate_frames_share_no_state	DP-3	transcript
 conf::dp_3_output_deflate_inflated_payload_is_at_most_the_frame_bound_minus_the_type_byte	DP-3	transcript
@@ -144,7 +144,7 @@ conf::ou_7_exit_after_tail_queued_then_close	OU-7	transcript
 conf::ou_7_progressing_slow_route_delays_exit_lossless	OU-7	transcript
 conf::ou_7_stalled_route_does_not_hold_exit	OU-7	transcript
 conf::ou_8_route_output_frame_kinds	OU-8	transcript
-conf::ou_9_attach_is_sync_baseline_in_pump	OU-9	pending
+conf::ou_9_attach_is_sync_baseline_in_pump	OU-9	transcript
 conf::ou_9_baseline_then_live_no_gap	OU-9	transcript
 conf::ou_9_oversize_snapshot_closes_route_typed	OU-9	pending
 conf::ou_9_resync_completes_a_partial_frame	OU-9	transcript
