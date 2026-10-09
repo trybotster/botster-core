@@ -925,7 +925,7 @@ mod tests {
                     id: sid("s"),
                     instance: inst("i"),
                     selection: "c".into(),
-                    bytes: None,
+                    contents: None,
                     total_bytes: 0,
                     reason: None,
                 },
