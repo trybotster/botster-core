@@ -48,3 +48,20 @@ Four commits (A3, A30, A53, F33). This reviewer ran no build, test or gate.
   issue open when #167 merges.
 
 VERDICT: NOT CLEAN (1 open: D1; package verdict not read)
+
+## Round 2 — CLEAN on head c95b4d76 (D1 fix)
+
+Reviewed head: `c95b4d7646fb5388ce6421bcc4baa708c73685e9` (the implementer's first READY mistyped it as `c95b4d7616`;
+corrected by the implementer; this SHA is from `git rev-parse origin/stage1/p3-audit-fixes-a`). Delta `d823a40e..c95b4d76`,
+one commit, the module doc of `drain.rs` only. Base v1 `a22811b6` (current). This reviewer ran no build, test or gate.
+
+- **D1 CLOSED.** The doc now says that the testkit edge drives `Drain` now; that the real driver adopts it with A31 (#163
+  part B); that until then the real driver reads only the count, without the flushing read; and that this is the open A31
+  defect, with the BUILD.md rule cited. This matches `main.rs` at this head.
+- The PR body (`gh pr view 167`, head `c95b4d76`) has the section "Open after this PR: A31": A31 (#156) stays open, and
+  its issue stays open when #167 merges.
+- Evidence: static Linux run at this head (`…p3-audit-fixes-a-c95b4d76-pool-20261008-211852-47753.log`): fmt, taint, lists
+  PASS, exit 0. The round 1 focused run at `d823a40e` covers the code; this delta is a comment.
+- The landing gate (slow tier and mutants in-diff) is still owed on this exact head.
+
+VERDICT: CLEAN (0 open) at c95b4d7646fb5388ce6421bcc4baa708c73685e9
