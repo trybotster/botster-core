@@ -18,6 +18,10 @@ fn mutation_decision(listed: usize, run: impl FnOnce() -> Option<i32>) -> Result
 }
 fn forwarded(code: Option<i32>) -> Result<()> { let _ = std::process::Command::new("unused"); mutation_verdict(code) }
 fn forwarded_write(write: fn() -> Option<i32>) -> Result<()> { mutation_verdict(write()) }
+fn forwarded_split(code: Option<i32>) -> Result<()> { let _ = std::env::split_paths("fixed"); mutation_verdict(code) }
+struct Pure;
+impl Pure { fn status(&self) {} }
+fn forwarded_shadow(cmd: std::process::Command, code: Option<i32>) -> Result<()> { let cmd = Pure; cmd.status(); mutation_verdict(code) }
 #[cfg(test)]
 mod tests {
     #[test]
@@ -62,6 +66,14 @@ fn mutants() -> Vec<Mutant> {
         mutant(
             "forwarded_write",
             "replace forwarded_write -> Result<()> with Ok(())",
+        ),
+        mutant(
+            "forwarded_split",
+            "replace forwarded_split -> Result<()> with Ok(())",
+        ),
+        mutant(
+            "forwarded_shadow",
+            "replace forwarded_shadow -> Result<()> with Ok(())",
         ),
         mutant("mutants_job", "delete ! in mutants_job"),
     ]
@@ -155,14 +167,14 @@ fn a_glob_or_a_reasonless_regex_that_covers_the_xtask_fails_and_the_test_globs_p
     assert!(check(&mutants(), &[], &tests, &calls()).unwrap().is_empty());
     for glob in ["xtask/**", "ci.rs", "xtask/src/*.rs", "**/ci.rs"] {
         let found = check(&mutants(), &[], &[glob.to_string()], &calls()).unwrap();
-        assert_eq!(found.len(), 8, "{glob}: {found:?}");
+        assert_eq!(found.len(), 10, "{glob}: {found:?}");
     }
     let off_macos = exclusion(r"xtask/src/ci\.rs", "");
     assert_eq!(
         check(&mutants(), &[off_macos], &[], &calls())
             .unwrap()
             .len(),
-        8
+        10
     );
 }
 
@@ -352,6 +364,16 @@ fn a_decision_that_calls_a_tested_decision_or_a_decision_mutant_of_a_shell_is_ne
             "the function does no process, file or signal I/O itself",
         ),
         (
+            r"replace forwarded_split -> Result<\(\)> with Ok\(\(\)\)$",
+            "forwarded_split",
+            "the function does no process, file or signal I/O itself",
+        ),
+        (
+            r"replace forwarded_shadow -> Result<\(\)> with Ok\(\(\)\)$",
+            "forwarded_shadow",
+            "the function does no process, file or signal I/O itself",
+        ),
+        (
             r"delete ! in mutants_job$",
             "mutants_job",
             "it is a decision mutant",
@@ -383,7 +405,8 @@ fn a_decision_that_calls_a_tested_decision_or_a_decision_mutant_of_a_shell_is_ne
 /// reference), or a `let` bound to such a chain. `Command::new` alone is a builder and starts nothing, and so is a type's
 /// function of `std::fs` (`OpenOptions::new`). A name alone is not I/O: a parameter or a local named `write` or
 /// `read_to_string`, a method `status` on another type, a module `fs` of another crate, another function of the signal
-/// module.
+/// module. Round 4: `std::fs` and `std::env` count by an explicit list (`split_paths` and `join_paths` parse data only), and
+/// a command binding counts only when the function binds its name once.
 #[test]
 fn a_function_does_io_when_a_call_resolves_to_an_io_function() {
     let text = "\
@@ -419,6 +442,12 @@ fn by_signal_target() { botster_core_sys::signal::target(1, 2); }
 fn by_plain_name() { write(p); }
 fn by_new_of_another_type() { std::process::Stdio::new(); }
 fn by_longer_function() { std::process::Command::new::extra(); }
+fn by_split_paths() { std::env::split_paths(\"fixed\"); std::env::join_paths([\"fixed\"]); }
+fn by_shadowed_parameter(cmd: Command) { let cmd = Pure; cmd.status(); }
+fn by_shadowed_let() { let c = Command::new(\"git\"); let c = Pure; c.status(); }
+fn by_closure_rebinding(c: &mut Command) { let f = |c: Pure| c.status(); f(Pure); }
+fn by_fs_write() { std::fs::write(p, b); }
+fn by_env_var() { std::env::var(k); }
 ";
     let calls = Calls::of(&[("xtask/src/a.rs".to_string(), text.to_string())]).unwrap();
     let io: BTreeSet<&str> = calls.io.iter().map(|(_, f)| f.as_str()).collect();
@@ -435,6 +464,8 @@ fn by_longer_function() { std::process::Command::new::extra(); }
         "by_typed_parameter",
         "by_owned_parameter",
         "by_let",
+        "by_fs_write",
+        "by_env_var",
     ]
     .into();
     assert_eq!(io, expected);

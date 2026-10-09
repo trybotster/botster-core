@@ -405,3 +405,20 @@ mod linux {
         );
     }
 }
+
+/// #181 B8 round 4: the rejection also holds under a gated parent that the derivation of the other system skips.
+#[test]
+fn a_path_on_an_inline_module_under_a_gated_parent_fails_on_every_system() {
+    let lib =
+        "#[cfg(target_os = \"macos\")]\nmod outer {\n    #[path = \"alt\"]\n    mod inner {}\n}\n";
+    for os in ["linux", "macos"] {
+        let errors = derive(&[("src/lib.rs", lib)], os).unwrap_err();
+        assert_eq!(errors.len(), 1, "{os}: {errors:?}");
+        assert!(
+            errors[0].starts_with(
+                "src/lib.rs:3:5: `#[path]` on the inline module `inner` is not a form"
+            ),
+            "{os}: {errors:?}"
+        );
+    }
+}

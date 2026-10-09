@@ -201,15 +201,23 @@ impl Scan<'_> {
     }
 }
 
+/// The unlisted module forms of a file (`process_check::unlisted_module_form`), at any depth and under any `cfg`.
+struct UnlistedForms<'a> {
+    file: &'a str,
+    errors: Vec<String>,
+}
+
+impl<'ast> Visit<'ast> for UnlistedForms<'_> {
+    fn visit_item_mod(&mut self, module: &'ast syn::ItemMod) {
+        match crate::process_check::unlisted_module_form(self.file, module) {
+            Some(rejection) => self.errors.push(rejection),
+            None => syn::visit::visit_item_mod(self, module),
+        }
+    }
+}
+
 impl<'ast> Visit<'ast> for Scan<'_> {
     fn visit_item(&mut self, item: &'ast syn::Item) {
-        // On every system, before a gate can hide the module (plan section 8).
-        if let syn::Item::Mod(module) = item {
-            if let Some(rejection) = crate::process_check::unlisted_module_form(self.file, module) {
-                self.errors.push(rejection);
-                return;
-            }
-        }
         match item {
             syn::Item::Mod(module) if module.content.is_none() => {
                 if gated(module, self.os) {
@@ -307,6 +315,16 @@ pub fn exclusions(files: &[(String, String)], os: &str) -> Result<Vec<String>, V
             errors: Vec::new(),
         };
         scan.visit_file(&parsed);
+        // Plan section 8: an unlisted module form fails on every system, also under a gated parent that the scan skips.
+        let mut unlisted = UnlistedForms {
+            file: path,
+            errors: Vec::new(),
+        };
+        unlisted.visit_file(&parsed);
+        if !unlisted.errors.is_empty() {
+            errors.extend(unlisted.errors);
+            continue;
+        }
         active.extend(scan.active.into_iter().map(|child| (path.as_str(), child)));
         if !scan.lines.is_empty() {
             lines.insert(path, scan.lines);
