@@ -6431,3 +6431,91 @@ The reviewer changed no product code and ran no tests, builds, measurements, mut
 All earlier findings, closures, and verdict rounds remain preserved at their named heads and scopes.
 
 VERDICT: NOT CLEAN
+
+
+## Round 120 — Testkit PTY controls, lock-order correction and merged start controls
+
+Reviewed head: `ab430951006a5aeee2f054b363679940356d9bbb`, PR #195, branch `stage1/p3-pty-controls`.
+Base: `1f157c29b3d58e4097d1a0969847cadc2475ec90`.
+Parent: `491966a647082dd3cca252e2f985d8393e805c01`.
+The reviewer checked the tier first. HIGH remains correct under BUILD.md rule 3 for the shared testkit.
+Authority: BUILD.md, including testing rule 5, plan 2.1, the pinned program-control documentation, and the lead's anchor rulings.
+The reviewer inspected the correction, the full seven-file PR change against the new base, and the imported #196 start-control change.
+The reviewer read the complete final description, reported revert checks, and completed exact-head gate.
+
+### F63 — MEDIUM — source correction accepted; regression proof remains OPEN
+
+The source correction in worker.rs:298-309 is accepted.
+program_edge validates the cell and clones ProgramControl inside a separate scope.
+The cell guard ends before the owner Processes table is locked to clone its wake.
+The previous owner/cell lock cycle is removed.
+
+The new regression, a_program_edge_control_concurrent_with_the_process_end_does_not_deadlock,
+uses thread::sleep(Duration::from_millis(50)) at worker/tests.rs:417 to set the thread order.
+The preceding deadline marker says this lets the control reach the cell before process end.
+That sleep is synchronization by elapsed time, not a deadline on an event.
+BUILD.md testing rule 5 forbids sleeps or polling and requires tests to wait on the real event.
+A deadline marker does not make this ordering method comply.
+
+The test also permits the control to run only after process end on a slow host, at lines 441-446.
+Under that schedule, the old program_edge returns the accepted has-ended error without taking the owner lock.
+Both threads finish, so the regression passes with the old lock order.
+The reported three failing revert runs show the usual schedule, but do not remove this false-pass schedule.
+
+Required correction: replace the ordering sleep with event coordination or deterministic concurrency exploration
+that establishes the relevant lock order. Keep a real completion deadline to bound failure.
+Show that the old lock order fails without relying on the OS scheduling the control within 50 ms.
+The reviewer sent this remaining proof requirement directly to P3 and integration.
+F63 remains open for the regression proof only. No new finding ID is assigned.
+
+### Other source coverage and merged-base scope
+
+The parser, registered dispatch, normal-byte injection, seeded program reads, and host wake paths remain accepted.
+The block control still uses the existing ProgramControl block and release behavior.
+The existing program-edge test remains the block/acceptance proof; the harness has no input-write action.
+The output test proves worker consumption only because the M1 worker does not report output or serve a terminal read.
+The description retains these limits. No pending ID leaves the list through #195.
+
+The new output refusal checks payload_alive and returns Bad after payload exit, before injecting bytes.
+The eight-seed regression first confirms that program_edge still exists, then requires refusal.
+This covers the interval after payload exit and before worker reap.
+The merged worker fields retain both program and payload_alive and clear them together at reap or worker end.
+No other package finding remains.
+
+The new base imports #196 at its reviewed head 64a6deb5bec9cc52c08aae3376726003ead1920b.
+The lead records P5 verdict 3274099a and integration verdict ec24a408 for that HIGH shared-testkit change.
+The reviewer inspected the start-key controls, worker lifecycle changes, registry dispatch, and their union with the PTY controls.
+The start key includes both data directory and instance. Held starts apply before payload spawn.
+The five pending-ID removals belong to the merged base, not this PTY-control change.
+The base's completed gate and prior verdicts do not close F63 at the current PR head.
+No production process code or real-process fixture is added by #195.
+
+### Completed evidence and its limit
+
+Exact-head log: `~/botster-sessions/gates/botster-core-stage1-p3-pty-controls-ab430951-pool-20261009-112122-4292.log`.
+The log names this head and base. The run uses msa1 with kernel 6.12.111+deb13-amd64.
+All ten CI steps pass. The default tier passes 993 tests in 2.738 seconds.
+The slow tier passes 243 tests in 10.118 seconds.
+The new output-refusal test passes in 0.010 seconds. The concurrency regression passes in 0.053 seconds.
+Signals scan 161 Rust files. Timers scan 145 Rust files.
+The lists report gives 675 ledger IDs, 640 pending, two deferred, two withdrawn, and 31 to run.
+The conformance run passes all 31 active IDs; 583 pending and 57 without transcripts remain.
+Both mutation commands report 18 tested: 13 caught, zero missed, zero timeout, and five unviable.
+The separate command uses NEXTEST_PROFILE=slow. Fuzz reports no changed crate with a decoder harness.
+Full CI takes 114.1 seconds. Separate mutants take 113.2 seconds. The gate exits 0 after 236 seconds.
+The passing gate does not correct the regression's ordering sleep or its false-pass schedule.
+
+### Verdict and scope
+
+PR #195 is NOT CLEAN at `ab430951006a5aeee2f054b363679940356d9bbb` for the P3 package review.
+F63 remains open for the regression proof; its source correction is accepted.
+This is #195's second recorded NOT CLEAN round. The round-limit notice is not yet due.
+The integration reviewer controls its own verdict. No lead decision is needed to continue.
+Normal NOT CLEAN findings go only to P3 and integration under the lead's current reporting rule.
+#190 retains round 118 CLEAN and is merged at 67fd748a.
+#192 retains round 117 NOT CLEAN with F61 and F62 open, awaiting a new exact-head READY after the shared-resolver correction.
+#168 retains its separate single planned real-PTY HOLD. Part B retains its earlier open duties, including F39 for the merge change.
+The reviewer changed no product code and ran no tests, builds, measurements, mutants, or gates.
+All earlier findings, closures, and verdict rounds remain preserved at their named heads and scopes.
+
+VERDICT: NOT CLEAN
