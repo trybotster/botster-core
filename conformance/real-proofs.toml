@@ -5,7 +5,7 @@
 #
 # [[proof]]
 # id = "conf::<id>"
-# file = "crates/<crate>/tests/slow_<binary>.rs"
-# test = "<module>::<name>"
+# binary = "slow_<binary>"                  # an integration test binary: crates/<crate>/tests/slow_<binary>.rs
+# test = "<module>::<name>"                 # the nextest path of the test in that binary
 #
 # No non-pending Core id has a `slow:*` proof yet, so the file has no entry.
