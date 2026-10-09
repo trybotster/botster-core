@@ -23,7 +23,7 @@ botster-probe-script = { git = "https://github.com/trybotster/botster-contracts"
 botster-test-support = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.13" }
 
 anyhow = "1"
-atomic-write-file = "0.3"
+data-encoding = "2"
 bolero = "0.13"
 getrandom = "0.4"
 libtest-mimic = "0.8"

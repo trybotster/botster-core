@@ -11,6 +11,37 @@
 exclude_globs = ["**/tests/**", "tests/**"]
 
 exclude_re = [
+    # xtask main.rs run -> Ok(()): the shell reads the process arguments and runs what choose decides; a test cannot run the
+    # binary's entry without a real process, and the body replaced by Ok(()) runs no command and prints nothing. Only this
+    # whole-body replacement is excluded. The decision is choose, a pure function with tests that do not read its table:
+    # each_name_runs_its_own_function_with_its_arguments, the_help_names_choose_the_help_and_others_fail_with_the_usage
+    # and the_usage_lists_every_command_and_only_those.
+    'xtask/src/main\.rs:\d+:\d+: replace run -> Result<\(\)> with Ok\(\(\)\)$',
+    # xtask base_merge.rs command -> Ok(()): the shell resolves the base of the run (fsutil::base, one value for the
+    # process) and prints the report of check; the body replaced by Ok(()) prints no report, and the PR must carry the
+    # report. Only this whole-body replacement is excluded. check runs on real repositories in its tests
+    # (a_real_base_only_merge_passes, an_unreviewed_change_fails_under_an_external_diff, a_git_failure_fails_the_check) and
+    # its decisions are judge, conflicts, overlap, first_difference, ancestry and succeeded, each with tests.
+    'xtask/src/base_merge\.rs:\d+:\d+: replace command -> Result<\(\)> with Ok\(\(\)\)$',
+    # xtask mutants_job -> Ok(()): process glue. The body runs `git diff`, writes the diff file, starts `cargo mutants` and
+    # prints its summary; a test cannot start a mutation run inside a mutation run, so no test can run the body. Only this
+    # whole-body replacement is excluded: every other mutant of mutants_job stays tested. Its decisions are pure functions
+    # with unit tests, which stay mutation-tested: mutation_verdict, the pass or fail of the step from the exit code
+    # (only_a_mutation_run_with_every_mutant_caught_passes), parse_outcomes (the_mutation_summary_is_read_from_outcomes_json)
+    # and platform_exclusions (only_a_gate_off_macos_adds_the_off_macos_exclusions). A body replaced by Ok(()) skips the
+    # step without its summary line, which every gate log of the step shows ("mutants: N mutants: ...").
+    'xtask/src/ci\.rs:\d+:\d+: replace mutants_job -> Result<\(\)> with Ok\(\(\)\)$',
+    # P7 GuardianConfig::fmt: the debug text has no contract format. An empty successful
+    # debug result still omits the service token, which is the only required property.
+    # only_a_valid_host_hello_authenticates checks token omission.
+    'crates/botster-guardian-core/src/guardian\.rs:\d+:\d+: replace <impl std::fmt::Debug for GuardianConfig>::fmt -> std::fmt::Result with Ok\(Default::default\(\)\)$',
+    # P7 LOG_CHUNK_BYTES (tuning ruling, 2026-10-04): no clause fixes the log chunk size; SV-9 fixes the retained bytes.
+    # `/` gives DEFAULT_MAX_PAYLOAD / 8, a smaller positive size. log_chunks_carry_every_byte_at_each_chunk_size proves
+    # every byte, order, contiguous offsets and the link frame bound at the default, at that mutant value and at the
+    # minimum 1. NonZeroUsize enforces the lower bound: a zero size fails const evaluation. `+` exceeds the frame bound
+    # and stays killed. a_large_tail_streams_and_replays_before_the_status proves the default through the machine.
+    # This entry covers only that constant's subtraction.
+    'crates/botster-guardian-core/src/wire\.rs:80:52: replace - with /$',
     # P3 Driver READ_CHUNK: no clause fixes this positive read bound. Plan 2.5 rule 7 and A5-2 permit partial reads.
     # NonZeroUsize enforces positivity in all builds; a zero default fails const evaluation.
     # control_and_pty_reads_retain_bytes_at_each_positive_bound proves control-frame and program-byte retention
@@ -91,12 +122,8 @@ exclude_re = [
     # set_nonblocking: the_payload_runs_on_the_pty_with_the_exact_environment checks the native NONBLOCK descriptor flag.
     'crates/botster-core-sys/src/payload\.rs:\d+:\d+: (replace set_nonblocking( ->| with)|.* in set_nonblocking$)',
     # Recheck each glue entry when its body or callers change. New pure decisions require default-tier tests.
-    # P3 Payload::reap no-op: every current caller observes the leader's exit and sends group SIGKILL before reap.
-    # Production emits ReapPayload only after killed && exit_drained. Explicit slow-test callers follow that order too.
-    # A no-op still consumes self and runs Payload::drop with the child present. Drop sends an additional SIGKILL and waits.
-    # The unreaped leader reserves the group id through that signal. The extra signal cannot change its reported exit.
-    # The first SIGKILL can still be pending; this argument does not require every group member to have exited.
-    # Recheck this entry when any reap caller or Payload::drop changes.
+    # P3 Payload::reap no-op: reap is `drop(self)`. A `()` body consumes `self` too, and drops it at its end, so both bodies
+    # run Payload::drop at the same point: the mutant is the same code. Recheck this entry when reap gains any other step.
     'crates/botster-core-sys/src/payload\.rs:\d+:\d+: replace Payload::reap with \(\)$',
     # wait_unreaped: EXITED and NOWAIT are disjoint option bits, so OR and XOR give the same wait options.
     # wait_unreaped: the_payload_runs_on_the_pty_with_the_exact_environment and a_group_signal_ends_the_leader_and_its_group check its waitid edge.
@@ -122,12 +149,6 @@ exclude_re = [
     # An all-build assertion rejects zero; `a_worker_refuses_zero_read_bound` proves it. A minimum whole-frame read is not required.
     # A seed reproduces the same build; changed read chunking can change a schedule without changing the contract results.
     'crates/botster-core-testkit/src/worker\.rs:38:30: replace \* with \+$',
-    # P3 M1, Worker::report_exit: replacing `exit_reported || !exit_drained` with `&&` is equivalent at this milestone.
-    # Only on_host_hello and on_drained call this function. The first hello precedes Launch, so no exit exists there.
-    # on_drained calls it only for the first drain after an exit: exit_drained is true and exit_reported is false.
-    # Both guards are false for that call. Later drains do not call report_exit. The worker cannot reconnect at M1.
-    # Recheck this entry when M2 adds callers or a reconnect path.
-    'crates/botster-worker-core/src/worker\.rs:\d+:\d+: replace \|\| with && in Worker::report_exit$',
     # botster-core-testkit process_group (P6): process glue of a real process group (BUILD.md testing rule 10), one entry per
     # function. They start or signal real processes, which the default tier never does; the proof is the slow tier,
     # `tests/slow_process_group.rs`: `dropping_the_guard_ends_the_whole_group` (spawn, pid, take_stdout, drop),
@@ -177,14 +198,20 @@ exclude_re = [
     'crates/botster-core/src/lib\.rs:\d+:\d+: (replace <impl CoreApi for Core>::adoptable_worker_protocols( ->| with)|.* in <impl CoreApi for Core>::adoptable_worker_protocols$)',
     'crates/botster-core/src/lib\.rs:\d+:\d+: (replace <impl CoreApi for Core>::shadow_answerable_kinds( ->| with)|.* in <impl CoreApi for Core>::shadow_answerable_kinds$)',
     # botster-core real edges (P1): OS wiring with no decision of its own (a descriptor, a socket, a poll, a row call). The
-    # decisions (`wake_after`, `interest_of`, `registration`, `retry_interrupted`) are pure functions tested in the default
-    # tier. Each function below is caught by the slow tier (slow-tier mutation run of 2026-10-04), in real.rs `slow_tests`:
+    # decisions (`wake_after`, `interest_of`, `registration`, `retry_interrupted`, and from audit A28 `broken_after`,
+    # `LinkIo::record`, `AcceptFailures::take`, `edge_diagnostics`) are pure functions tested in the default tier. Each function
+    # below is caught by the slow tier (slow-tier mutation run of 2026-10-04), in real.rs `slow_tests`:
     # `the_edges_keep_rows_in_the_registry` (write_row, read_rows, delete_row), `the_edges_draw_random_bytes_and_refuse_the_handoff`
     # (fill_random, handoff_route, poll_process_exit, accept_link), `a_link_reads_writes_and_closes` (accept_link, link_recv,
     # link_send, link_close, set_read_interest, set_write_interest, LinkIo::apply), `the_socket_lives_with_the_edges`
     # (socket_path, the Drop of RealEdges), `the_wake_follows_its_flag` (PollWake signal, drain, wait, fd, consume,
     # settle_wake); and tests/slow_real_core.rs `a_worker_that_exits_before_it_connects_ends_the_start_at_once` (the reaper's
     # wake through signal) and tests/slow_facade_worker.rs (signal_group: a stop over a broken link ends the worker).
+    # What audit A28 added to these functions is a call of a pure function above, plus, on Linux only (epoll refuses a change
+    # of interest for a descriptor that is not in the poll; kqueue does not), `a_link_that_the_poll_refuses_wakes_the_host_and_fails`
+    # (the wake of set_read_interest and set_write_interest when `LinkIo::apply` returns false, the refusal in link_recv and
+    # link_send, link_close) and `the_host_closes_a_link_that_the_poll_refuses_and_records_why` (the driver closes the link and
+    # records why).
     'crates/botster-core/src/real\.rs:\d+:\d+: (replace <impl HostEdges for RealEdges>::write_row( ->| with)|.* in <impl HostEdges for RealEdges>::write_row$)',
     'crates/botster-core/src/real\.rs:\d+:\d+: (replace <impl HostEdges for RealEdges>::read_rows( ->| with)|.* in <impl HostEdges for RealEdges>::read_rows$)',
     'crates/botster-core/src/real\.rs:\d+:\d+: (replace <impl HostEdges for RealEdges>::delete_row( ->| with)|.* in <impl HostEdges for RealEdges>::delete_row$)',
@@ -207,6 +234,11 @@ exclude_re = [
     'crates/botster-core/src/real\.rs:\d+:\d+: (replace PollWake::consume( ->| with)|.* in PollWake::consume$)',
     'crates/botster-core/src/real\.rs:\d+:\d+: (replace LinkIo::apply( ->| with)|.* in LinkIo::apply$)',
     'crates/botster-core/src/real\.rs:\d+:\d+: (replace socket_path( ->| with)|.* in socket_path$)',
+    # RealEdges::diagnostics (#164, audit A1, A28): it passes the failed accepts and the foreign registry files of the real
+    # storage to `edge_diagnostics`, whose keys the default tier tests (`a_failed_accept_is_counted_and_reported`); the slow
+    # tier catches it (slow-tier mutation run of 2026-10-08 on Linux), in tests/slow_real_core.rs
+    # `a_damaged_row_is_registry_corrupt_and_a_foreign_file_is_left_alone`.
+    'crates/botster-core/src/real\.rs:\d+:\d+: (replace <impl HostEdges for RealEdges>::diagnostics( ->| with)|.* in <impl HostEdges for RealEdges>::diagnostics$)',
     # botster-core-sys process (P1): `Children` waits for, reaps and signals real children, so the proof is the slow tier,
     # `tests/slow_process.rs` (slow-tier mutation run of 2026-10-04): `a_child_exit_calls_the_notifier_and_is_polled` and every
     # test through `next_exit` (poll_exit), `wait_exit_takes_the_exit_of_its_own_child` (wait_exit), and
@@ -230,55 +262,81 @@ exclude_re = [
     # ECHILD and EINVAL cannot occur under these ownership rules, so changing the error fallback's sign is equivalent.
     'crates/botster-core-sys/src/process\.rs:\d+:\d+: delete - in Children::spawn$',
     # botster-core-sys storage (P1): the registry on a real disk (AD-7, LC-2, DP-8). A real fsync takes the time of the disk
-    # of the host, so these tests run in the slow tier (BUILD.md testing rule 2), storage.rs `slow_tests` (slow-tier mutation
-    # run of 2026-10-04: every mutant of these functions is caught there): `a_written_row_reads_back_and_a_missing_row_is_none`,
-    # `a_second_write_replaces_the_row`, `any_key_is_a_valid_row_name_and_lists_back_sorted`, `delete_removes_the_row_and_is_idempotent`
-    # (write_row, read_row, list_rows, delete_row, FileStorage::path, FileStorage::read_file), `the_directory_is_exclusive_until_it_is_dropped`,
-    # `the_host_epoch_strictly_increases_across_opens`, `a_corrupt_epoch_refuses_the_open` (DataDir::open, DataDir::epoch),
+    # of the host, so these tests run in the slow tier (BUILD.md testing rule 2), storage.rs `slow_tests`. Evidence: the
+    # slow-tier mutation run of 2026-10-04 (P1's code), and for every line that #164 changed, the Linux slow-tier run of
+    # 2026-10-08 at 2121aaca and b48a6d8d (`--no-config --features slow`; logs named in PR #164). Catching tests:
+    # `a_written_row_reads_back_and_a_missing_row_is_none`, `a_second_write_replaces_the_row`,
+    # `any_id_is_a_row_and_lists_back_sorted`, `delete_removes_the_row_and_its_empty_directories`,
+    # `only_a_missing_row_is_none_or_deleted_quietly`, `a_write_that_cannot_start_is_failed_with_no_effect`,
+    # `a_damaged_row_is_still_named_by_its_path` (write_row, read_row, list_rows, delete_row);
+    # `a_link_in_a_row_path_is_never_followed` (read_row's O_NOFOLLOW, which the 2026-10-04 run did not catch; its `|` to
+    # `^` mutants are the pre-accepted disjoint-bits class); `the_directory_is_exclusive_until_it_is_dropped`,
+    # `the_host_epoch_strictly_increases_across_opens`, `a_corrupt_epoch_refuses_the_open` (DataDir::open, DataDir::epoch);
     # `an_unsafe_directory_is_refused_and_a_new_one_is_private`, `open_tells_an_existing_file_from_a_failed_create`,
-    # `open_reports_a_rows_directory_that_cannot_be_created` (DataDir::open, check_safe), `a_damaged_row_file_is_not_a_row`,
-    # `a_row_is_found_only_under_its_own_key`, `only_a_missing_row_is_none_or_deleted_quietly`,
-    # `a_write_that_cannot_start_is_failed_with_no_effect` (read_file, read_row, delete_row, write_row). The pure parts
-    # (`encode`, `decode`, `key_hash`, `errno`, the error words, `sync_directory` of a missing directory) are tested in the
-    # default tier.
+    # `open_reports_a_rows_directory_that_cannot_be_created` (DataDir::open, check_safe). The pure parts are tested in the
+    # default tier: `errno` and the error words (storage.rs `tests`), and the row path encoding (`row_path`, `key_of`,
+    # `valid_kind`, `is_dir_component`; storage/row_path.rs `tests`).
     'crates/botster-core-sys/src/storage\.rs:\d+:\d+: (replace <impl Storage for FileStorage>::write_row( ->| with)|.* in <impl Storage for FileStorage>::write_row$)',
     'crates/botster-core-sys/src/storage\.rs:\d+:\d+: (replace <impl Storage for FileStorage>::read_row( ->| with)|.* in <impl Storage for FileStorage>::read_row$)',
     'crates/botster-core-sys/src/storage\.rs:\d+:\d+: (replace <impl Storage for FileStorage>::list_rows( ->| with)|.* in <impl Storage for FileStorage>::list_rows$)',
     'crates/botster-core-sys/src/storage\.rs:\d+:\d+: (replace <impl Storage for FileStorage>::delete_row( ->| with)|.* in <impl Storage for FileStorage>::delete_row$)',
-    'crates/botster-core-sys/src/storage\.rs:\d+:\d+: (replace FileStorage::path( ->| with)|.* in FileStorage::path$)',
-    'crates/botster-core-sys/src/storage\.rs:\d+:\d+: (replace FileStorage::read_file( ->| with)|.* in FileStorage::read_file$)',
     'crates/botster-core-sys/src/storage\.rs:\d+:\d+: (replace DataDir::open( ->| with)|.* in DataDir::open$)',
     'crates/botster-core-sys/src/storage\.rs:\d+:\d+: (replace DataDir::epoch( ->| with)|.* in DataDir::epoch$)',
     'crates/botster-core-sys/src/storage\.rs:\d+:\d+: (replace check_safe( ->| with)|.* in check_safe$)',
-    # Equivalent mutants of `botster-core-host`: a change that no behavior can show.
-    # - `check_payload`: the `Focus` arm is `{}`, the same as the arm for every other kind (`_ => {}`).
-    # - `commit`: `Stop` of a session that is `Starting` while its flow is idle, and `Flow::Create | Flow::Start` are the only
-    #   flows that a `Starting` session has, so the guard `s.admit == Admit::Starting` of the last arms is never the deciding
-    #   one: a `Starting` session always has a start or a create flow.
-    'crates/botster-core-host/src/admit\.rs:\d+:\d+: delete match arm InputPayload::Focus\{\.\.\} in HostEngine::check_payload$',
-    'crates/botster-core-host/src/admit\.rs:\d+:\d+: replace match guard s\.admit == Admit::Starting with false in HostEngine::commit$',
-    # More equivalent mutants of `botster-core-host`; each is a change that no behavior can show, for the reason given.
+    # botster-core-sys storage, the descriptor walk of audit A1 (#164): the same real-disk rule as the entries above. The
+    # slow tier runs storage.rs `slow_tests` (xtask's `SLOW_FILTER` selects every module named `slow_*`), and a Linux
+    # slow-tier mutation run of 2026-10-08 (`--features slow`, those tests) catches every mutant of these functions except
+    # the equivalent ones named below.
+    # Catching tests: `any_id_is_a_row_and_lists_back_sorted` (chain, place, scan, walk, entries, open_dir),
+    # `a_written_row_reads_back_and_a_missing_row_is_none`, `delete_removes_the_row_and_its_empty_directories` and
+    # `only_a_missing_row_is_none_or_deleted_quietly` (existing, child_dir), `a_link_in_a_row_path_is_never_followed`
+    # (open_dir O_NOFOLLOW, child_dir's not-found guard), `a_write_never_reuses_a_temporary_file_that_it_did_not_create`
+    # (place O_EXCL), `a_failed_write_removes_the_directories_that_it_made` (unmake, chain's record of made directories),
+    # `a_foreign_file_is_counted_untouched_and_not_listed` (scan, walk, entries: foreign files and directories),
+    # `a_missing_parent_fails_the_open`, `a_retried_open_syncs_the_parent_that_a_failed_open_left` and
+    # `open_tells_an_existing_file_from_a_failed_create` (create_data_dir, sync_dir).
+    # Equivalent mutants of these functions (cargo-mutants swaps the operator as text, so `a | b & c | d` drops b and c):
+    # - `|` to `^` in the flags of open_dir and place: the flags are distinct bits (pre-accepted class).
+    # - open_dir, `RDONLY & DIRECTORY` (drops O_DIRECTORY): every caller opens an entry typed as a directory (scan, walk) or
+    #   one that `mkdirat` just found existing (chain); on a non-directory, the next *at call on the descriptor fails with
+    #   ENOTDIR, the errno that O_DIRECTORY gives, so the result is the same `Failed`.
+    # - place, `NOFOLLOW & CLOEXEC` (drops both): O_CREAT | O_EXCL already fails on any existing name, a link included, so
+    #   O_NOFOLLOW adds nothing; O_CLOEXEC matters only for an exec while the descriptor is open, and `place` opens and
+    #   closes it within one call, during which Core starts no process (its other threads only reap, DESIGN.md A46).
+    'crates/botster-core-sys/src/storage\.rs:\d+:\d+: (replace open_dir( ->| with)|.* in open_dir$)',
+    'crates/botster-core-sys/src/storage\.rs:\d+:\d+: (replace child_dir( ->| with)|.* in child_dir$)',
+    'crates/botster-core-sys/src/storage\.rs:\d+:\d+: (replace FileStorage::chain( ->| with)|.* in FileStorage::chain$)',
+    'crates/botster-core-sys/src/storage\.rs:\d+:\d+: (replace FileStorage::existing( ->| with)|.* in FileStorage::existing$)',
+    'crates/botster-core-sys/src/storage\.rs:\d+:\d+: (replace FileStorage::unmake( ->| with)|.* in FileStorage::unmake$)',
+    'crates/botster-core-sys/src/storage\.rs:\d+:\d+: (replace FileStorage::scan( ->| with)|.* in FileStorage::scan$)',
+    'crates/botster-core-sys/src/storage\.rs:\d+:\d+: (replace place( ->| with)|.* in place$)',
+    'crates/botster-core-sys/src/storage\.rs:\d+:\d+: (replace entries( ->| with)|.* in entries$)',
+    'crates/botster-core-sys/src/storage\.rs:\d+:\d+: (replace walk( ->| with)|.* in walk$)',
+    'crates/botster-core-sys/src/storage\.rs:\d+:\d+: (replace create_data_dir( ->| with)|.* in create_data_dir$)',
+    'crates/botster-core-sys/src/storage\.rs:\d+:\d+: (replace sync_dir( ->| with)|.* in sync_dir$)',
+    # Equivalent mutants of `botster-core-host`; each is a change that no behavior can show, for the reason given.
     # - `class_of`: the arm of the mandatory kinds. A kind without an arm is mandatory (`_ => Class::Mandatory`).
     # - `key_of`: the arm `ActivitySource::Output`. A source without an arm is keyed with the output (`_ => Output`).
     # - `EventQueue::remove`: the arm of a mandatory event. `remove` is called for K, D and L events only (`retire_*`).
-    # - `link_frame_bound`: `u32::MAX / 2` is the bound and the fallback of `try_from`, which cannot fail after `min`.
     # - `no_worker` returns `WorkerHandle::default()`, the value of `Default::default()`.
     # - `flow_row`: a row result is routed to a session flow only from the phase that wrote the row (`RowWrite`, `DeleteRow`);
     #   the guard of the phase cannot be false when the result arrives.
     # - `on_process_exited`: the `Create` arm. A session in `Create` has no shown state, so the `_` arm does nothing too.
-    # - `forward`: `flow_busy` is `Flow::Start(_) || admit == Starting`, and a request with no link, no failure and no start
-    #   cannot exist: a worker that ends fails its link first (`link_failed`).
-    # - `stop_all_start`: the guard `s.queue.iter().any(Start)` cannot be true for a session that is `Running` or `Starting`
-    #   with a flow other than `Create`, `Start` and `Stop`.
+    # - `HostEdges::diagnostics` (the trait's default body): it returns `serde_json::Value::Null`, which is
+    #   `serde_json::Value::default()`, so the mutant is the same function.
     'crates/botster-core-host/src/queue\.rs:\d+:\d+: delete match arm Event::SessionState\{\.\.\} .* in class_of$',
     'crates/botster-core-host/src/queue\.rs:\d+:\d+: delete match arm ActivitySource::Output in key_of$',
     'crates/botster-core-host/src/queue\.rs:\d+:\d+: replace -= with (\+|/)= in EventQueue::remove$',
-    'crates/botster-core-host/src/engine\.rs:\d+:\d+: replace / with [*%] in HostEngine::link_frame_bound$',
     'crates/botster-core-host/src/engine\.rs:\d+:\d+: replace no_worker -> WorkerHandle with Default::default\(\)$',
     'crates/botster-core-host/src/flows\.rs:\d+:\d+: replace match guard f\.phase == (StopPhase::RowWrite|RemovePhase::DeleteRow) with true in HostEngine::flow_row$',
     'crates/botster-core-host/src/inbound\.rs:\d+:\d+: delete match arm Flow::Create\(_\) in HostEngine::on_process_exited$',
-    'crates/botster-core-host/src/run\.rs:\d+:\d+: replace (== with != |&& with \|\| )in HostEngine::forward$',
-    'crates/botster-core-host/src/run\.rs:\d+:\d+: replace match guard s\.queue\.iter\(\)\.any\(\|f\| matches!\(f, Flow::Start\(_\)\)\) with false in HostEngine::stop_all_start$',
+    'crates/botster-core-host/src/driver\.rs:\d+:\d+: replace HostEdges::diagnostics -> serde_json::Value with Default::default\(\)$',
+    # payload_size (A3): `limit / times` is only where the key search may stop. With any stop limit at or over it, a key
+    # within the limit gets the same size (its search never stops early), and a key over the limit stays over it, so it is
+    # `PayloadTooLarge` either way. Only the cost of the search and the size quoted in the error's detail differ, and the
+    # detail is not behavior: Core 9.3, "The code is the contract; the detail is for humans" (core-contract-v1.17.md:318).
+    # `limit / times` is defined: the argument check refuses a repeat of 0 before the size is computed (admit.rs:326).
+    'crates/botster-core-host/src/admit\.rs:\d+:\d+: replace / with \* in HostEngine::payload_size$',
     # botster-terminal-ghostty (review finding P39). Each entry names one function and the mutation that cannot change
     # behavior, with the argument; every other mutant of the crate is caught by a test.
     # Drop bodies that only free a native handle: leak only, not observable through the API. Each body is one call of the
@@ -298,6 +356,19 @@ exclude_re = [
     'crates/botster-terminal-ghostty/src/encode\.rs:\d+:\d+: replace \| with \^ in encode_mouse$',
     # sys::mode_new: `(value & 0x7FFF) | (ansi << 15)` joins disjoint bits (bits 0 to 14, and bit 15), so `^` is equal.
     'crates/botster-terminal-ghostty/src/sys\.rs:\d+:\d+: replace \| with \^ in mode_new$',
+    # every_key_state (A3) enumerates the states of the key search. These two mutants cannot change a bound:
+    # - `!= 0` to `== 0` inverts every key-mode bit, which maps the 64 key-mode combinations onto themselves: the same states
+    #   in another order. The order changes only which length over the limit the search stops at, never whether a key is
+    #   over it: the code stays `PayloadTooLarge`, and only the size in its detail can differ (Core 9.3, "The code is the
+    #   contract; the detail is for humans", core-contract-v1.17.md:318).
+    # - `&` to `^` in the kitty flags inverts the five flag bits, which maps the 32 combinations onto themselves, and sets
+    #   bits above them, which libghostty does not read: the C API truncates the flags to five bits
+    #   (bits_above_the_five_kitty_flags_change_no_key_bytes).
+    # The column names the operator: 36 is the `&` of the kitty flags (whose `|` is caught). The `&` of the mode bits
+    # (column 40) is not equivalent on macOS (review finding F51): a gate off macOS excludes it, with the argument, in
+    # xtask/src/ci.rs `OFF_MACOS_EXCLUSIONS`; a Mac gate tests it.
+    'crates/botster-terminal-ghostty/src/encode\.rs:\d+:\d+: replace != with == in EncoderState::every_key_state$',
+    'crates/botster-terminal-ghostty/src/encode\.rs:\d+:36: replace & with \^ in EncoderState::every_key_state$',
     # set_query_request_limit_default: the library's own default (terminal.zig `default_query_max_bytes`) is 4096, the
     # value that this call sets (`DEFAULT_QUERY_REQUEST_BYTES`, `CoreLimits.max_query_bytes`, tested). Skipping the call
     # changes nothing at this pin; the call keeps Core's limit when an upstream default changes.

@@ -1,13 +1,11 @@
-//! The edges of the flows: a start that fails each way, a stop whose row fails, a remove whose row delete fails, and the
-//! rows that `AdoptAll` takes or leaves (Core AD-7, LC-4, LC-7, LC-12, R-16, AD-1).
+//! The edges of the flows: a start that fails each way, a stop whose row fails, and a remove whose row delete fails (Core
+//! AD-7, LC-4, LC-7, LC-12, R-16, A2-1).
 
 use super::*;
-use crate::flow::{Flow, RemovePhase};
-use crate::session::Admit;
-use botster_core_edges::edges::GroupSignal;
+use botster_core_edges::edges::{GroupSignal, StorageError};
 
-/// Core LC-4, A2-1: a launch that the worker refuses ends the start `Exited`, with the exit recorded and the admission state
-/// `Exited`; a stop that waited for the start does not run on the failed session.
+/// Core LC-4, A2-1: a launch that the worker refuses ends the start `Exited`, with the exit recorded, and the session is
+/// not started again; a stop that waited for the start does not run on the failed session.
 #[test]
 fn a_refused_launch_leaves_an_exited_session_and_no_stop_runs() {
     let mut w = World::default();
@@ -32,9 +30,20 @@ fn a_refused_launch_leaves_an_exited_session_and_no_stop_runs() {
         .iter()
         .any(|e| matches!(e, Event::Completed { op, result: OpResult::Err(_) } if *op == start)));
     assert!(seen.iter().any(|e| matches!(e, Event::Completed { op, result: OpResult::Ok(OpOutput::End(SessionEnd::Exited(_))) } if *op == stop)));
-    let s = &w.engine.sessions[&sid("s1")];
-    assert_eq!(s.admit, Admit::Exited);
-    assert!(s.exit.is_some(), "the exit is recorded");
+    let record = w.engine.get(&sid("s1")).unwrap();
+    assert!(
+        matches!(record.state, SessionState::Exited(_)),
+        "{record:?}"
+    );
+    assert!(record.exit.is_some(), "the exit is recorded");
+    assert_eq!(
+        w.engine
+            .begin(Op::Start { id: sid("s1") })
+            .unwrap_err()
+            .code,
+        ErrorCode::WrongState,
+        "A2-1: an exited session is not started again"
+    );
     assert!(
         !w.sent.iter().any(|(_, m)| matches!(m, HostMsg::Stop)),
         "no stop is sent to a payload that never ran"
@@ -90,7 +99,8 @@ fn a_failed_identity_row_kills_the_worker_and_closes_its_link() {
     assert!(w.closed.contains(&link), "its link is closed");
 }
 
-/// Core LC-4: the startup deadline kills the worker and closes its link; the start ends `StartupTimeout`.
+/// Core LC-4: the startup deadline kills the worker and closes its link; the start ends `StartupTimeout`. A read of the
+/// ended session then fails `WorkerLinkFailed` (A2-1): no worker can answer it, and it does not wait for a launch.
 #[test]
 fn the_startup_deadline_kills_the_worker_and_closes_its_link() {
     let mut w = World::new(limits(|l| l.startup = Duration::from_secs(2)));
@@ -105,6 +115,17 @@ fn the_startup_deadline_kills_the_worker_and_closes_its_link() {
     let worker = w.identity_of("s1");
     assert!(w.signals.contains(&(worker, GroupSignal::Kill)));
     assert!(w.closed.contains(&link));
+    let read = w
+        .engine
+        .begin(Op::ReadModeFlags { session: sid("s1") })
+        .unwrap();
+    assert!(matches!(
+        w.complete(read),
+        OpResult::Err(CoreError {
+            code: ErrorCode::WorkerLinkFailed,
+            ..
+        })
+    ));
 }
 
 /// Core R-16, LC-12: a plain `Stop` and a `StopAll` on one session whose Stopping row fails: the `Stop` fails
@@ -140,130 +161,82 @@ fn a_stop_and_a_stop_all_share_a_failed_stopping_row() {
     assert_eq!(w.complete(all), OpResult::Ok(OpOutput::Unit));
 }
 
-/// Core LC-7, A2-1: a `Remove` whose row delete fails leaves the session as it was, in the admission state of its shown
-/// state, so that the remove can be tried again.
+/// Core LC-7, A2-1: a `Remove` whose row delete fails completes `RegistryFailed` and leaves the session as it was, so that
+/// the remove can be tried again, and the retry removes it.
 #[test]
-fn a_failed_row_delete_restores_the_admission_state() {
-    for (name, shown, admit) in [
-        ("created", None, Admit::Created),
-        ("exited", Some(true), Admit::Exited),
-        ("lost", Some(false), Admit::Lost),
-    ] {
+fn a_failed_row_delete_leaves_the_session_and_the_remove_can_be_tried_again() {
+    for name in ["created", "exited", "lost"] {
         let mut w = World::default();
-        match shown {
-            None => {
+        match name {
+            "created" => {
                 w.ok(create("s1"));
             }
-            Some(exit) => {
-                w.autopilot = Autopilot::Silent;
+            "exited" => {
                 w.running("s1");
-                if exit {
-                    w.worker_says(
-                        "s1",
-                        WorkerMsg::Exited {
-                            code: Some(0),
-                            signal: None,
-                        },
-                    );
-                } else {
-                    w.exited("s1");
-                }
+                w.ok(Op::Stop { id: sid("s1") });
+            }
+            _ => {
+                w.running("s1");
+                w.exited("s1");
                 w.pump();
-                w.engine.poll_events(64);
             }
         }
-        let remove = w.engine.begin(Op::Remove { id: sid("s1") }).unwrap();
-        for _ in 0..30 {
-            let phase = |w: &World| match &w.engine.sessions[&sid("s1")].flow {
-                Flow::Remove(f) => Some(f.phase),
-                _ => None,
-            };
-            if phase(&w) == Some(RemovePhase::AwaitTeardown) {
-                if w.engine.sessions[&sid("s1")].worker.link.is_some() {
-                    w.worker_says(
-                        "s1",
-                        WorkerMsg::RemoveResult {
-                            uploads: UploadsOutcome::Deleted,
-                        },
-                    );
-                }
-                if !w.engine.sessions[&sid("s1")].worker.gone {
-                    w.exited("s1");
-                }
-            }
-            if phase(&w) == Some(RemovePhase::DeleteRow) {
-                break;
-            }
-            if !w.step() {
-                break;
-            }
-        }
+        w.engine.poll_events(64);
+        let before = w.engine.get(&sid("s1")).unwrap();
+        // The first registry write of a remove is the delete of the row (LC-7 step 4).
         w.fail_row = Some(botster_core_edges::edges::StorageError::Failed { errno: 5 });
-        let result = w.complete(remove);
+        let result = w.run(Op::Remove { id: sid("s1") });
         assert!(
-            matches!(&result, OpResult::Err(e) if matches!(e.code, ErrorCode::RegistryFailed { .. })),
+            matches!(&result, OpResult::Err(e) if e.code == ErrorCode::RegistryFailed { uncertain: false }),
             "{name}: {result:?}"
         );
-        assert_eq!(w.engine.sessions[&sid("s1")].admit, admit, "{name}");
-        assert!(
-            w.engine.get(&sid("s1")).is_ok(),
+        assert_eq!(
+            w.engine.get(&sid("s1")).unwrap(),
+            before,
             "{name}: the session stays"
+        );
+        assert!(
+            matches!(
+                w.ok(Op::Remove { id: sid("s1") }),
+                OpOutput::RemoveReport(_)
+            ),
+            "{name}: the retry"
+        );
+        assert_eq!(
+            w.engine.get(&sid("s1")).unwrap_err().code,
+            ErrorCode::UnknownSession,
+            "{name}"
         );
     }
 }
 
-/// Core AD-1, LC-9: `AdoptAll` takes the rows of the registry: a `Created` row is kept as it is, a row of a session that ran is
-/// `Lost`, a row that is damaged or of another version is left, and a session that exists already is not replaced.
+/// Core A2-1 (`Stop`: `RegistryFailed` is its only asynchronous error), AD-7: a `Stop` that waits for a start whose `Starting`
+/// row cannot be written completes with the same registry failure as the `Start`, certain or uncertain as the write was.
 #[test]
-fn adopt_all_takes_the_good_rows_and_leaves_the_others() {
-    let mut first = World::default();
-    first.autopilot = Autopilot::Silent;
-    first.ok(create("a"));
-    first.running("b");
-    first.ok(create("kept"));
-    let mut rows = first.rows.clone();
-    let mut other_version: serde_json::Value = serde_json::from_slice(&rows["session/a"]).unwrap();
-    other_version["version"] = serde_json::json!(99);
-    other_version["id"] = serde_json::json!("v99");
-    rows.insert(
-        "session/v99".into(),
-        serde_json::to_vec(&other_version).unwrap(),
-    );
-    rows.insert("session/bad".into(), b"{not json".to_vec());
-    let mut again = World::default();
-    again.rows = rows;
-    again.ok(create("kept"));
-    again.engine.poll_events(64);
-    let kept_instance = again.instance_of("kept");
-    let adopt = again.engine.begin(Op::AdoptAll).unwrap();
-    for _ in 0..30 {
-        again.pump();
-        again.engine.poll_events(64);
+fn a_stop_that_waited_for_a_failed_start_row_has_the_registry_failure() {
+    for error in [
+        botster_core_edges::edges::StorageError::Failed { errno: 5 },
+        botster_core_edges::edges::StorageError::Uncertain { errno: 5 },
+    ] {
+        let mut w = World::default();
+        w.ok(create("s1"));
+        let start = w.engine.begin(Op::Start { id: sid("s1") }).unwrap();
+        let stop = w.engine.begin(Op::Stop { id: sid("s1") }).unwrap();
+        w.fail_row = Some(error);
+        let expected = ErrorCode::RegistryFailed {
+            uncertain: matches!(
+                error,
+                botster_core_edges::edges::StorageError::Uncertain { .. }
+            ),
+        };
+        let results = w.complete_all(&[start, stop]);
+        for op in [start, stop] {
+            match &results[&op] {
+                OpResult::Err(e) => assert_eq!(e.code, expected, "{error:?}"),
+                other => panic!("{error:?}: {other:?}"),
+            }
+        }
     }
-    let _ = adopt;
-    assert_eq!(
-        again.engine.get(&sid("a")).unwrap().state,
-        SessionState::Created
-    );
-    assert_eq!(
-        again.engine.get(&sid("b")).unwrap().state,
-        SessionState::Lost(LostReason::Other)
-    );
-    assert!(
-        again.engine.get(&sid("v99")).is_err(),
-        "another version is left"
-    );
-    assert!(
-        again.engine.get(&sid("bad")).is_err(),
-        "a damaged row is left"
-    );
-    assert_eq!(
-        again.instance_of("kept"),
-        kept_instance,
-        "an existing session is not replaced"
-    );
-    assert_eq!(again.engine.sessions[&sid("a")].admit, Admit::Created);
-    assert_eq!(again.engine.sessions[&sid("b")].admit, Admit::Lost);
 }
 
 /// Core OR-2, EV-5, plan 2.5 rule 7: the engine does not take an observation while the start is not through, also while
@@ -271,7 +244,6 @@ fn adopt_all_takes_the_good_rows_and_leaves_the_others() {
 /// unread on its link meanwhile (`driver::observations`).
 #[test]
 fn an_observation_is_not_taken_while_the_start_is_not_through() {
-    use crate::flow::Flow;
     let mut w = World::new(limits(|l| l.mandatory_events = 1));
     w.autopilot = Autopilot::Silent;
     w.ok(create("s1"));
@@ -301,80 +273,62 @@ fn an_observation_is_not_taken_while_the_start_is_not_through() {
         },
     });
     w.pump();
-    assert!(matches!(w.engine.sessions[&sid("s1")].flow, Flow::Start(_)));
     assert!(!w.engine.can_accept(&bell), "`Running` waits for room");
     w.complete(start);
     assert!(w.engine.can_accept(&bell), "the start is through");
 }
 
-/// Core DP-7, EV-5(b): a failed handoff closes its route once, posts nothing for a route that is gone, and parks only a close
-/// that found no room.
+/// Core DP-7, OU-2, EV-5(b): a failed handoff closes its route once with `HandoffFailed`, posts nothing for a route that is
+/// gone, and a close that finds no room waits and posts after a poll, once.
 #[test]
 fn a_failed_handoff_closes_a_known_route_once_and_ignores_an_unknown_one() {
-    let attach = |w: &mut World| {
-        w.engine
-            .attach(
-                ClientId("c".into()),
-                sid("s1"),
-                RouteTransport::Stream(StreamEndpoint::new(())),
-                AttachOptions {
-                    file_directory: "/tmp".into(),
-                    file_permissions: None,
-                    route_features: vec![],
-                    terminal_formats: vec![],
-                    connect_deadline: None,
-                    owner: None,
-                    query_deadline: Some(Duration::from_secs(1)),
-                    route_tag: None,
-                    route_limits: None,
-                    history: None,
-                    stall_deadline: None,
-                    answers_queries: true,
-                    input: true,
-                },
-            )
-            .unwrap()
-            .route
-    };
     let mut w = World::new(limits(|l| l.mandatory_events = 2));
     w.autopilot = Autopilot::Silent;
     w.running("s1");
-    let route = attach(&mut w);
+    let route = super::losses::attach(&mut w);
     w.engine.poll_events(64);
     w.feed(Input::HandoffFailed { route });
     let events = w.engine.poll_events(64);
     assert!(
-        matches!(
-            &events[..],
-            [Event::RouteClosed {
-                reason: RouteCloseReason::HandoffFailed,
-                ..
-            }]
-        ),
+        matches!(&events[..], [Event::RouteClosed { route: r, reason: RouteCloseReason::HandoffFailed, .. }] if *r == route),
         "{events:?}"
     );
-    assert!(!w.engine.parked_work(), "a close that posted is not parked");
     w.feed(Input::HandoffFailed { route });
     w.feed(Input::HandoffFailed { route: RouteId(99) });
-    assert!(
-        w.engine.poll_events(64).is_empty(),
+    w.pump();
+    assert_eq!(
+        w.engine.poll_events(64),
+        vec![],
         "a route that is gone posts nothing"
     );
-    assert!(!w.engine.parked_work());
-    // With no room the close is parked.
-    let route = attach(&mut w);
+    // With no room the close waits; after a poll it posts, once.
+    let route = super::losses::attach(&mut w);
     w.engine.begin(create("x1")).unwrap();
     w.engine.begin(create("x2")).unwrap();
     w.pump();
-    assert!(!w.engine.has_room());
     w.feed(Input::HandoffFailed { route });
-    assert!(w.engine.parked_work(), "no room: parked");
+    w.pump();
+    let closes = |events: &[Event]| {
+        events
+            .iter()
+            .filter(|e| matches!(e, Event::RouteClosed { route: r, reason: RouteCloseReason::HandoffFailed, .. } if *r == route))
+            .count()
+    };
+    // The queue was full when the handoff failed: the first poll has the creates' events, not the close.
+    let first = w.engine.poll_events(64);
+    assert_eq!(closes(&first), 0, "the close waits for room: {first:?}");
+    w.pump();
+    let mut later = Vec::new();
+    for _ in 0..4 {
+        later.extend(w.engine.poll_events(64));
+        w.pump();
+    }
+    assert_eq!(closes(&later), 1, "{later:?}");
 }
 
 /// Core LC-7, A6-3: a link that closes while the worker tears down leaves the uploads `OutcomeUnknown`.
 #[test]
 fn a_link_closing_during_the_remove_teardown_leaves_the_uploads_unknown() {
-    use crate::flow::{Flow, RemovePhase};
     let mut w = World::default();
     w.autopilot = Autopilot::Silent;
     w.running("s1");
@@ -388,13 +342,11 @@ fn a_link_closing_during_the_remove_teardown_leaves_the_uploads_unknown() {
     w.pump();
     w.engine.poll_events(64);
     let remove = w.engine.begin(Op::Remove { id: sid("s1") }).unwrap();
-    for _ in 0..10 {
-        if matches!(&w.engine.sessions[&sid("s1")].flow, Flow::Remove(f) if f.phase == RemovePhase::AwaitTeardown)
-        {
-            break;
-        }
-        w.step();
-    }
+    w.pump();
+    assert!(
+        w.sent.iter().any(|(_, m)| matches!(m, HostMsg::Remove)),
+        "the worker was asked for its teardown"
+    );
     let link = w.link_of("s1");
     w.feed(Input::LinkClosed { link });
     w.exited("s1");
@@ -443,23 +395,8 @@ fn ops_that_never_ran_before_the_remove_retired_them_keep_their_own_results() {
         })
         .unwrap();
     w.engine.begin(Op::Remove { id: sid("s1") }).unwrap();
-    // Only the session's work runs, until the teardown waits for the worker: the write and the detach never run.
-    let mut guard = 0;
-    while let Some(work) = w
-        .engine
-        .ready()
-        .into_iter()
-        .find(|work| matches!(work, Work::Session(_)))
-    {
-        w.feed(Input::Run(work));
-        guard += 1;
-        assert!(guard < 50);
-    }
-    assert!(matches!(
-        &w.engine.sessions[&sid("s1")].flow,
-        Flow::Remove(f) if f.phase == RemovePhase::AwaitTeardown
-    ));
-    w.pump();
+    // The session's work runs first, so the remove retires the write and the detach before either runs.
+    w.pump_last_first();
     let events = w.engine.poll_events(64);
     let result = |op: OpId| {
         events.iter().find_map(|e| match e {
@@ -467,14 +404,16 @@ fn ops_that_never_ran_before_the_remove_retired_them_keep_their_own_results() {
             _ => None,
         })
     };
-    assert_eq!(
-        result(write),
-        Some(OpResult::Ok(OpOutput::Input(InputResult {
-            outcome: WriteOutcome::NotWritten(NotWrittenReason::SessionEnded),
-            payload_bytes_written: 0,
-            pty_bytes_written: 0,
-            detail: "the session ended".into(),
-        }))),
+    assert!(
+        matches!(
+            result(write),
+            Some(OpResult::Ok(OpOutput::Input(InputResult {
+                outcome: WriteOutcome::NotWritten(NotWrittenReason::SessionEnded),
+                payload_bytes_written: 0,
+                pty_bytes_written: 0,
+                ..
+            })))
+        ),
         "{events:?}"
     );
     assert_eq!(
@@ -510,17 +449,22 @@ fn a_closed_link_after_the_launch_and_an_exit_after_a_failure_change_nothing() {
         },
     });
     w.pump();
-    assert!(!w.engine.has_room(), "Running waits");
     w.feed(Input::LinkClosed { link });
+    let mut events = Vec::new();
     for _ in 0..10 {
-        w.engine.poll_events(64);
+        events.extend(w.engine.poll_events(64));
         w.pump();
     }
     assert_eq!(
         w.engine.get(&sid("s1")).unwrap().state,
         SessionState::Running
     );
-    let _ = start;
+    assert!(
+        events
+            .iter()
+            .any(|e| matches!(e, Event::Completed { op, result: OpResult::Ok(_) } if *op == start)),
+        "the start completed: {events:?}"
+    );
     // The link closes before the launch: the start fails `Exited`; a worker exit while that failure waits for room does not
     // turn it into `Lost`.
     let mut w = World::new(limits(|l| l.mandatory_events = 2));
@@ -531,7 +475,6 @@ fn a_closed_link_after_the_launch_and_an_exit_after_a_failure_change_nothing() {
     let link = w.link_of_after_hello("s1");
     w.engine.begin(create("x")).unwrap();
     w.pump();
-    assert!(!w.engine.has_room());
     w.feed(Input::LinkClosed { link });
     w.pump();
     w.exited("s1");
@@ -576,8 +519,9 @@ fn the_grace_kill_goes_over_the_link_and_the_end_is_written_to_the_registry() {
         },
     );
     w.pump();
-    let row: serde_json::Value = serde_json::from_slice(&w.rows["session/s1"]).unwrap();
-    assert!(row["state"].get("Exited").is_some(), "{row}");
+    let row = crate::session::Row::decode(&sid("s1"), &w.rows["session/s1"])
+        .expect("Core decodes its row");
+    assert!(matches!(row.state, SessionState::Exited(_)), "{row:?}");
 }
 
 /// Core DP-7: a local `Detach` closes the route with the reason that was asked for.
@@ -643,7 +587,6 @@ fn a_local_detach_closes_with_the_reason_asked_for() {
 /// that never ran ends `RegistryFailed` for a policy and `SessionEnded` for a size or a size policy.
 #[test]
 fn pending_setters_of_a_removed_created_session_end_by_their_own_row() {
-    use crate::flow::{Flow, RemovePhase};
     let mut w = World::default();
     w.ok(create("s1"));
     let resize = w
@@ -673,13 +616,7 @@ fn pending_setters_of_a_removed_created_session_end_by_their_own_row() {
         .unwrap();
     w.engine.begin(Op::Remove { id: sid("s1") }).unwrap();
     // The flow of the remove runs before the setters do.
-    for _ in 0..10 {
-        if !matches!(&w.engine.sessions.get(&sid("s1")).map(|s| s.flow.clone()), Some(Flow::Remove(f)) if f.phase != RemovePhase::PostReleased)
-        {
-            break;
-        }
-        w.feed(Input::Run(crate::io::Work::Session(sid("s1"))));
-    }
+    w.pump_last_first();
     let mut done = BTreeMap::new();
     for _ in 0..10 {
         w.pump();
@@ -701,28 +638,6 @@ fn pending_setters_of_a_removed_created_session_end_by_their_own_row() {
     );
 }
 
-/// Core AD-7: a flow step that asks an edge for something waits for the answer: the session is not ready until the ticket is
-/// resolved.
-#[test]
-fn a_flow_waits_for_the_ticket_of_its_edge_request() {
-    let mut w = World::default();
-    w.ok(create("s1"));
-    w.engine.begin(Op::Start { id: sid("s1") }).unwrap();
-    // One step by hand: the engine asks for random bytes, and the world has not answered.
-    w.engine
-        .on_input(Input::Run(crate::io::Work::Session(sid("s1"))));
-    assert!(
-        w.engine.sessions[&sid("s1")].ticket.is_some(),
-        "the flow waits for its ticket"
-    );
-    assert!(
-        !w.engine
-            .ready()
-            .contains(&crate::io::Work::Session(sid("s1"))),
-        "a session with a ticket is not ready"
-    );
-}
-
 /// Core LC-12: a `StopAll` that finds the end of a payload in flight waits for it and does not send a stop.
 #[test]
 fn stop_all_joins_an_end_in_flight() {
@@ -731,7 +646,6 @@ fn stop_all_joins_an_end_in_flight() {
     w.running("s1");
     w.engine.begin(create("x")).unwrap();
     w.pump();
-    assert!(!w.engine.has_room());
     w.worker_says(
         "s1",
         WorkerMsg::Exited {
@@ -741,22 +655,7 @@ fn stop_all_joins_an_end_in_flight() {
     );
     w.pump();
     let all = w.engine.begin(Op::StopAll).unwrap();
-    let mut result = None;
-    for _ in 0..12 {
-        w.engine.poll_events(64);
-        w.pump();
-        for e in w.engine.poll_events(64) {
-            if let Event::Completed { op, result: r } = e {
-                if op == all {
-                    result = Some(r);
-                }
-            }
-        }
-        if !w.engine.ops.contains_key(&all) {
-            break;
-        }
-    }
-    let _ = result;
+    assert_eq!(w.complete(all), OpResult::Ok(OpOutput::Unit), "LC-12");
     assert!(
         !w.sent.iter().any(|(_, m)| matches!(m, HostMsg::Stop)),
         "no stop for a payload that ended"
@@ -765,4 +664,173 @@ fn stop_all_joins_an_end_in_flight() {
         w.engine.get(&sid("s1")).unwrap().state,
         SessionState::Exited(_)
     ));
+}
+
+/// Core AM-1, AM-3: a failed `Create` ends the ops that were admitted after it, each with the registry failure, and none
+/// stays attached to the session that never existed: a `Start`, and a `Remove`.
+#[test]
+fn a_failed_create_completes_the_ops_admitted_after_it() {
+    // Both wait behind the create's flow, so the create's row is the first registry write (AM-1).
+    for after in [Op::Start { id: sid("s1") }, Op::Remove { id: sid("s1") }] {
+        let mut w = World::default();
+        w.fail_row = Some(StorageError::Failed { errno: 5 });
+        let ops = [
+            w.engine.begin(create("s1")).unwrap(),
+            w.engine.begin(after).unwrap(),
+        ];
+        let results = w.complete_all(&ops);
+        for op in &ops {
+            assert!(
+                matches!(&results[op], OpResult::Err(e) if e.code == ErrorCode::RegistryFailed { uncertain: false }),
+                "{op:?}: {results:?}"
+            );
+        }
+        assert_eq!(
+            w.engine.get(&sid("s1")).unwrap_err().code,
+            ErrorCode::UnknownSession
+        );
+    }
+}
+
+/// Core AM-1, AM-3, LC-3: a row write of an op admitted after `Create` (`UpdateMetadata`, and `SetNotificationPolicy` in
+/// `Created`) waits for the create's own row. When the create's write fails, the session never existed: each op ends with
+/// the registry failure, and no row of the session is left.
+#[test]
+fn a_row_write_admitted_after_a_failed_create_leaves_no_row() {
+    let later = [
+        Op::UpdateMetadata {
+            id: sid("s1"),
+            labels: BTreeMap::from([("k".to_string(), "v".to_string())]),
+        },
+        Op::SetNotificationPolicy {
+            session: sid("s1"),
+            policy: NotificationPolicy::None,
+        },
+    ];
+    for after in later {
+        let mut w = World::default();
+        w.fail_row = Some(StorageError::Failed { errno: 5 });
+        let ops = [
+            w.engine.begin(create("s1")).unwrap(),
+            w.engine.begin(after).unwrap(),
+        ];
+        let results = w.complete_all(&ops);
+        for op in &ops {
+            assert!(
+                matches!(&results[op], OpResult::Err(e) if e.code == ErrorCode::RegistryFailed { uncertain: false }),
+                "{op:?}: {results:?}"
+            );
+        }
+        assert!(
+            w.rows.is_empty(),
+            "no row of a session that never existed: {:?}",
+            w.rows.keys()
+        );
+    }
+}
+
+/// Core LC-5, AD-6: with the link gone, a stop signals only the verified worker (pid and start time), never a bare
+/// payload group; the session ends `Lost`.
+#[test]
+fn a_broken_link_stop_signals_the_verified_worker_only() {
+    let mut w = World::new(limits(|l| l.stop_grace = Duration::from_millis(100)));
+    w.autopilot = Autopilot::Silent;
+    w.running("s1");
+    let worker = w.identity_of("s1");
+    let link = w.link_of("s1");
+    w.feed(Input::LinkClosed { link });
+    let op = w.engine.begin(Op::Stop { id: sid("s1") }).unwrap();
+    w.pump();
+    assert!(w.signals.contains(&(worker, GroupSignal::EndPayload)));
+    w.advance(Duration::from_millis(100));
+    w.pump();
+    assert!(w.signals.contains(&(worker, GroupSignal::EndPayload)));
+    assert!(
+        w.signals.iter().all(|(_, s)| *s == GroupSignal::EndPayload),
+        "the worker is never killed: it keeps the final model (LC-5)"
+    );
+    assert!(
+        w.signals.iter().all(|(id, _)| *id == worker),
+        "no process but the verified worker is signalled"
+    );
+    assert!(matches!(
+        w.complete(op),
+        OpResult::Ok(OpOutput::End(SessionEnd::Lost(
+            LostReason::WorkerUnreachable
+        )))
+    ));
+}
+
+/// Core LC-5, R-16: a plain `Stop` keeps `RegistryFailed` when its row write fails, and the session stays `Running`.
+#[test]
+fn a_plain_stop_keeps_registry_failed_when_the_row_write_fails() {
+    let mut w = World::default();
+    w.running("s1");
+    let op = w.engine.begin(Op::Stop { id: sid("s1") }).unwrap();
+    w.fail_row = Some(StorageError::Failed { errno: 5 });
+    assert!(
+        matches!(w.complete(op), OpResult::Err(e) if matches!(e.code, ErrorCode::RegistryFailed { .. }))
+    );
+    assert_eq!(
+        w.engine.get(&sid("s1")).unwrap().state,
+        SessionState::Running
+    );
+}
+
+/// Core AD-7, LC-10 (audit A48): the final row of a session that ended is written with no operation waiting for it. A write
+/// that fails changes nothing that the session reached (the stop completes with the exit), the registry keeps the earlier
+/// row, and the failure is recorded: `diagnostics()` counts it, since no completion can carry it. A final row that is
+/// written is not counted.
+#[test]
+fn a_failed_final_row_is_counted_and_changes_no_end() {
+    let mut w = World::default();
+    w.autopilot = Autopilot::Silent;
+    w.running("s1");
+    let stop = w.engine.begin(Op::Stop { id: sid("s1") }).unwrap();
+    w.pump();
+    let stopping = crate::session::Row::decode(&sid("s1"), &w.rows["session/s1"])
+        .expect("Core decodes its row");
+    assert_eq!(stopping.state, SessionState::Stopping);
+    w.fail_row = Some(StorageError::Failed { errno: 28 });
+    w.worker_says(
+        "s1",
+        WorkerMsg::Exited {
+            code: Some(0),
+            signal: None,
+        },
+    );
+    assert!(matches!(
+        w.complete(stop),
+        OpResult::Ok(OpOutput::End(SessionEnd::Exited(_)))
+    ));
+    let kept = crate::session::Row::decode(&sid("s1"), &w.rows["session/s1"])
+        .expect("Core decodes its row");
+    assert_eq!(
+        kept.state,
+        SessionState::Stopping,
+        "the failed write left the row"
+    );
+    assert_eq!(w.engine.diagnostics()["final_row_failures"], 1);
+    w.running("s2");
+    let stop = w.engine.begin(Op::Stop { id: sid("s2") }).unwrap();
+    w.pump();
+    w.worker_says(
+        "s2",
+        WorkerMsg::Exited {
+            code: Some(0),
+            signal: None,
+        },
+    );
+    w.complete(stop);
+    let written = crate::session::Row::decode(&sid("s2"), &w.rows["session/s2"])
+        .expect("Core decodes its row");
+    assert!(
+        matches!(written.state, SessionState::Exited(_)),
+        "{written:?}"
+    );
+    assert_eq!(
+        w.engine.diagnostics()["final_row_failures"],
+        1,
+        "a written final row is not counted"
+    );
 }

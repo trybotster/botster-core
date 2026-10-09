@@ -1,71 +1,139 @@
-# Stage 1 Core status (paused 2026-10-02)
+# Stage 1 Core status (paused 2026-10-05, pause #3)
 
-The user paused Botster v1 on 2026-10-02 ("no rush, finish at a convenient clean point"). Every Stage 1 Core agent stopped at a clean point and pushed its work; nothing unaccepted was merged. This file lets a NEW lead and new pairs resume without asking. Per-package detail is in `docs/handoffs/`.
+The user paused Botster v1 again on 2026-10-05, to save token budget. Every Stage 1 Core agent finished its current atomic step, pushed its work and wrote a handoff.
+
+A one-round wind-down was allowed for near-done PRs. Its merge chain stopped, because the shared test guard (#165) needed a second fix round. **Nothing merged during the wind-down. Nothing unaccepted was merged.**
+
+This file lets a NEW lead and new pairs resume without asking. The per-package detail is in `docs/handoffs/`, and the lead's full handoff is `docs/handoffs/core-lead.md`.
 
 ## 1. Read first
 
-1. `~/Projects/botster-contracts/docs/BUILD.md` (binding; read all of it, including the "Ghostty fork policy" rule added at the pause).
-2. The Stage 1 plan: `docs/stage1-plan.md` on branch `stage1/plan`, revision 20, commit `27ffaa4006c3f979fdceb897cbde09de6c25c15e`; read-only pin `~/botster-sessions/pins/stage1-plan.e4862c71.md` (sha256 `e4862c712743e0a4119fbfe138d314eb242a9dfdab1c641bbee7c53035e55b3e`); CLEAN by the integration reviewer (verdict `0b9b923` on `stage1/plan-review`). The clause ownership lists are `docs/stage1-clauses/*.txt` on the same branch (652 active Core ids).
-3. The pair rules and briefs: `~/botster-sessions/shared/core-stage1/` (`pair-common.md`, `brief-*.md`, `handoff-p2-implementer.md`).
-4. The state log: `~/botster-sessions/botster-v1-orchestrator-state.md` (every spawn, merge, ruling and decision, in order).
-5. The handoffs in `docs/handoffs/` of this branch.
+1. `~/Projects/botster-contracts/docs/BUILD.md` (binding), including the "Ghostty fork policy".
+2. `docs/handoffs/core-lead.md`: the rules, the rulings in force (section 8 and the later "Ruling" lines), the staffing, and the resume steps.
+3. The plan: `docs/stage1-plan.md` on branch `stage1/plan`.
+   - Revision 21 = `ad03636ffbd68048f9f07faf176986f004d5e516`.
+   - Read-only pin: `~/botster-sessions/pins/stage1-plan.bdda2359.md` (sha256 `bdda23593c29e3cc654acf0a5a98eee43f218b119ff2cd530cbd31d6b2cff9ac`).
+   - **Revision 22 is due on resume** (section 9).
+4. The per-package handoffs in `docs/handoffs/` (P3, P5, P6, P7, the A6 fork, the integration reviewer, the package reviewers).
+5. The state log: `~/botster-sessions/botster-v1-orchestrator-state.md`.
+6. The audit: `audits/v1-pr134-141.md` on branch `stage1/audit-134-141` (commit `02acc4b`), and GitHub issues #143 to #160 (label `stage1-audit`).
 
-## 2. Pins in force at the pause
+## 2. Pins
 
-| What | Pin |
+| What | State |
 |---|---|
-| Contracts (plan) | tag `contracts-v0.1.13` = `a8db5c9a0f43fc440564989fd38a55121fdda38b`, manifest final30 (Core A13 final). Packages pin the tag the lead names, one commit per move (P1 is on v0.1.9, P2 on v0.1.13, P3 on v0.1.9, P6/v1 on v0.1.9). |
-| Ghostty (recorded in the plan) | `trybotster/ghostty` branch `botster/vt-core-stage1-b` @ `85a8d8eb197c5752887c017c9a3faa6f1dc1969b` on upstream `ghostty-org/ghostty` main `83edd491e3024ae5e50393d62877b8897da1cccd`. |
-| Ghostty (proposed, NOT recorded) | branch `botster/vt-core-stage1-c` @ `ada251c5e99cdb753de8bf72d5d1f307d474518f` (22 commits on `83edd491`; `85a8d8e` is its ancestor). It waits for the P2 reviewer's CLEAN on patches 12 and 13 and the binding delta, and now also for the upstream resync (section 7, action 1). |
-| Zig | 0.16.0 |
-| Rust | 1.97.0 (`rust-toolchain.toml`); the agent environment sets `RUSTUP_TOOLCHAIN=1.92.0`, so local cargo commands run with `env -u RUSTUP_TOOLCHAIN`; the pinned nightly `nightly-2026-09-30` is in the Linux gate image and installed on the Mac. |
+| Contracts in `v1` | still `contracts-v0.1.13` (`a8db5c9`). |
+| Contracts target | `contracts-v0.1.17` = `1725abf` (manifest final35: Core A14, A15, A16; steward rulings R-30 to R-34; R-33 is on contracts main `14c86ab`). PR #161 moves the pin. |
+| Ghostty in `v1` | `trybotster/ghostty` `botster/upstream-sync-20261002` @ `3f8eb6810bb673aa782b047de21783ac81fb1121`, on upstream `f523504ea`. |
+| Ghostty candidate (A6, R-32, A14) | `botster/upstream-sync-20261004` @ `0bfddc16fdf1e9b71f7662fbfa8314cd497fd92a`, on upstream `5dc28bb8e`. NOT recorded; under review (section 6). |
+| Zig | 0.16.0, 7 packages |
+| Rust | 1.97.0 (`env -u RUSTUP_TOOLCHAIN` for local cargo) |
 
-## 3. What landed in `v1` (head `41ebcc0`)
+## 3. Merged in `v1` since pause #1 (`v1` head `144b0234fb632bcbb5176b17c2fe55f3239405df`)
 
-| PR | Merge | Head | Content |
-|---|---|---|---|
-| #125 | `118c972` | `47759ee` | P0 skeleton (M0): workspace, edges and machine traits, link framing and hello, flock, facade shell, lints, the libtest-mimic conformance harness, `cargo xtask ci` |
-| #126 | `7c0ae16` | `9846f9e` | P6 testkit M0b: Sim, seeded scheduler and Entropy, in-memory Link and RouteTransport, scripted program edge (botster-probe-script), TestkitHarness |
-| #127 | `ccb04eb` | `4ab9a94` | infra: the gate on the LAN Linux test host (`ci/remote/`) |
-| #128 | `06f1f04` | `96140c9` | P6 scope 2 step 1: contracts' deferred/withdrawn files as the source, five report counts, base ref resolved once, verify-only nightly |
-| #129 | `67124ec` | `744da57` | P6 scope 2 partial: RefusalScript (plan 4.2a, R-19), edge controls, RealCoreHarness scaffolding, pin contracts-v0.1.9 |
-| #130 | `5f15db8` | `2e631a7` | infra: bounded target volumes, early fail below 40 GiB host disk |
-| #131 | `41ebcc0` | `5f1201e` | infra: `ci/remote/fetch-public.sh` (libghostty submodule and Zig packages for the offline gate), `/tmp` tmpfs |
+| PR | Merge | Content |
+|---|---|---|
+| #132 | `f96a9df` | Pause #1 status and handoffs |
+| #133 | `e43225f` | `xtask lists`: shared withdrawn and deferred ids are checked against `ledger.json`; Core applies only Core ids |
+| #134 | `38e6989` | P2 libghostty binding (Ghostty pin `3f8eb68`; P32 Linux allocator fix proven; P38 macOS static link) |
+| #135 | `1d25d09` | P1 registry and lifecycle (milestone **M4**) |
+| #136 | `01fd389` | P3 M1 worker and PTY, plus P1's testkit wiring (milestone **M1**) |
+| #137 | `393f403` | P1 TI-1: Core terminal identity from the binding |
+| #138 | `38bbe58` | Binding read and restore APIs for the oracle controls |
+| #139 | `a3b8af5` | The GHOSTSNP format spec (the "Worker paging" section stays pending for P3 M2b) |
+| #140 | `e8cf150` | P6 oracle controls and process cleanup tests |
+| #141 | `144b023` | Testkit per-module control registry |
 
-Every merge had the package reviewer's CLEAN on the exact head and a green gate on that head; each merge tree equals its gated head.
+Each merge: the package reviewer (plus the integration reviewer where cross-package) was CLEAN on the exact head, a gate was green on that head, and the merge tree equals the gated tree.
 
-## 4. Package state
+## 4. Open PRs and branches, with the merge order on resume
 
-| Pkg | Branch @ pushed head | Done | Left | Last verdict / open findings |
+Each PR, in this order: merge `origin/v1` into it, get delta CLEANs (the package reviewer, plus the integration reviewer if cross-package), run ONE gate on that exact head (Linux preferred), then merge. Never re-gate a red head to check for flakiness (BUILD testing rule 9).
+
+| # | PR | Branch @ pushed head | Owner | State |
 |---|---|---|---|---|
-| P0 skeleton | merged (#125) | all | — | pair retired |
-| P1 lifecycle | `stage1/p1-lifecycle` @ `ff376cceea6f68db75ca76ebbe1a574ea3ece5fd`; `stage1/p1-testkit-wiring` @ `95a58545a9d5369098ed0074ee150d1b6ca16491` (SimEdges wiring, lands with P3) | HostEngine, registry and Storage edge, facade, R-15/R-16/R-19/R-20, the F7 worker-control signal interface, the real-disk storage tests moved to the slow tier (done at `ff376cc`), the 41 missed mutants of `19788e0` given a killing test or a named exclusion | the two Resize defects P3 found (handoff); the three open mutation results below; the delta review since `2016886`; one green gate (all steps, including mutants and fuzz); then merge; then the testkit-wiring PR with P3 (needs the integration reviewer) | reviewer CLEAN on `2016886` (`stage1/review-p1` `44f5590`); delta since then unreviewed; F14 (TI-1 terminfo) deferred to P2's merge. The Linux gate on `ff376cc` was cancelled at the pause after 2543 s (exit 125): fmt through slow passed; the mutants step (961 mutants) was cut part way after one TIMEOUT (`flows.rs:698`, `flow_row` `RowIdentity` arm) and two MISSED (`inbound.rs:586` `on_link_closed` `Flow::Remove` arm; `inbound.rs:653` `run_parked` `!`); later files were not reached (handoff addendum) |
-| P2 libghostty | `stage1/p2-libghostty` @ `f711184885f933723c64124a1eaaa3bbc547b51f`; fork `botster/vt-core-stage1-c` @ `ada251c` | audit (CLEAN), fork patches 0-13, binding crate (93 tests, macOS) | the upstream resync (section 7), review of patches 12-13 and the binding delta, the pin record, the Linux gate (P32) | last published verdict `e26e146` (`stage1/review-p2`) at binding head `ab8577a`; heads `52d1f73` and `ada251c` examined, no new verdict; open findings (incl. P34's native image test, patches 12-13 review, P32 gate order) in the handoff |
-| P3 worker | `stage1/p3-worker-m1-stack` @ `46b16945` (CLEAN `30bb483`; on P1 `823a1f1`+`befe0ff`); `stage1/p3-worker-m2a` @ `98960e43` (CLEAN `5eb1f13`); `stage1/p3-worker-m2b` @ `7abc54db` (not reviewed); `stage1/p3-worker` @ `306b143a` | M1 and M2a CLEAN; 78 P3 ids pass on 32 seeds | M2b (capture/baseline, ReadFacts, tap, disable_history), the 11 A13 ids, the pin move to v0.1.13, rebase after P1 merges, then gate | no open findings (`stage1/review-p3` `5eb1f13`) |
-| P4a, P4b, P4c routes | not started | — | everything; 16 P4a ids still lack a contract boundary (botster-contracts `docs/core-p4a-2-notes.md`) | — |
-| P5 adoption | not started | — | everything | — |
-| P6 testkit | `stage1/p6-testkit` @ `744da57` (= v1 via #129) | M0b, step 1, partial scope 2 | controls needing P1/P3 identity, terminal-oracle controls after P2, RealCoreHarness integration, its 15 ids | CLEAN `2793fd6`, no open findings |
-| P7 services | not started | — | everything | — |
-| P8 example | not started | — | everything | — |
+| 1 | #165 → folded into #162 | `stage1/p3-guard-macos` @ `71195e72` | P3 | Fixes the macOS regression of the shared test guard (`process_guard::parent_dies_before_fifo_reader`). P5-F4 is closed (integration `cef28d1`). **Open: C3 MEDIUM** (`an_early_exit_keeps_the_group_owned_until_cleanup` still uses `read_line` and `child.wait()` with no deadline) **and C4 LOW** (`while :; do /bin/sleep 1; done` children; BUILD rule 5). Package review: P3's reviewer round 87 (`stage1/review-p3` @ `e31e4ae8`, "record remaining guard waits and prohibited sleep fixtures"): #165 at `71195e72` is **NOT CLEAN** with F45 and F46 open (= integration C3 and C4); F39 stays open for #163's merge delta. The `c03bcfb1` CLEAN (`ea4415fe`) is history. |
+| 1 | #162 | `stage1/p5-a10` @ `59cda32` | P5 | The A10 reaper-race fix, carrying #165 `c03bcfb`. C1 is closed. It gets the final #165 head merged in, then delta CLEANs (P5 reviewer plus integration), then ONE gate. **Its gate and #165's each fail on the other's defect, so they gate together.** |
+| 2 | #163 | `stage1/p3-audit-fixes` @ `40b63dc` | P3 | Audit A3, A8, A11, A30, A31, A52, A53. It needs the F28 native Mac mutation run and the F33 execution; integration G2 is re-checked in the merge delta. |
+| 3 | #164 | `stage1/p5-audit-contract` @ `b8b37a6` | P5 | Audit A1, A2, A4, A5, A7, A9: chunked base32 registry paths and the `data_dir` boundary. **CLEAN** (P5 `89893b2` and `b91cd55`; integration `9edbc27`). |
+| 4 | #142 | `stage1/p7-services` @ `6e8d5b3` | P7 | The sans-IO Guardian machine. **CLEAN** (P7 `ac6e612`). It lands AS REVIEWED: merge `v1` only. The wire fixes on `stage1/p7-services-wire` @ `39bdc39` are a separate follow-up PR. |
+| 5 | #161 | `stage1/contracts-v0.1.14` @ `dea90ed` | P6 | The pin move to `contracts-v0.1.17` (the a14, a15 and a16 ids added as pending with their owners). **CLEAN** (P6 `d1a3869`). |
+| – | (no PR) | `stage1/p2-fork-a6` @ `65b2064`; the fork `0bfddc16` | A6 fork agent | Section 6. |
+| – | (no PR) | `stage1/p3-m2a-v1` @ `cce8598` | P3 | M2a in progress; unreviewed. |
+| – | (no PR) | `stage1/p5-audit-host-fixes` @ `b3b5fac` | P5 | Fixes for #155, #157 and the P1 part of #156; the findings are not yet checked one by one; unreviewed. (`stage1/p5-audit-host` @ `5308cb1` is history only.) |
+| – | (no PR) | `stage1/p6-real-harness` @ `276427d` | P6 | RealCoreHarness with the anchor design; unreviewed. Its latest fixes are unverified. |
+| – | (no PR) | `stage1/p7-services-wire` @ `39bdc39` | P7 | The PR 1 wire fixes; untested. PR 2a is a design draft only (`~/botster-sessions/shared/core-stage1/p7-pr2-host-services-design-draft.md`). |
 
-## 5. The P2 fork and the Linux defect
+## 5. Audit of PRs #134-#141 (issues #143-#160, all still open)
 
-- Patch list (0-13, each with its clause) and the pin status: `docs/handoffs/p2-libghostty.md`.
-- The `-c` stack (`ada251c`) still contains the "notification source" (`7afa387`) and "paste marker frame" (`970a1c9`) patches: they did NOT leave the stack. `85a8d8e` (`-b`) is an ancestor of `ada251c`; `-c` adds patches 9-13 on top.
-- **Linux calloc/free defect (P32):** the Zig-built `libghostty-vt` archive defined its own `calloc` and `free` (wuffs calls `calloc`; without libc, Zig compiles its own allocator) while `malloc`/`realloc` stayed glibc's, so every binding test aborted on Linux. Patch 10 links libc on Linux; `tests_archive.rs` fails on any libc allocator symbol in the archive. Not yet proven by a Linux gate. Closure rule (lead): the reviewer may CLEAN the source logic with P32 pending; the green Linux gate on the exact head closes it.
-- The offline Linux gate fetches the submodule at the pinned gitlink and the Zig packages through `ci/remote/fetch-public.sh`. Verify the Zig package list of `build_data.rs` at the new fork head before the gate (P2 counts 7 at `85a8d8e`; the infra engineer reported 9).
+The audit found: CONTRACT 8, HIGH 4, MEDIUM 32, LOW 20. No reverts. The architecture is sound, and P35 holds. The weaknesses are systematic: mutant-only tests, wide exclusions, slow-test and process-ownership breaks, unbounded waits, and untested edges.
 
-## 6. Stacking and milestones
+| Issue | Finding | Owner | State |
+|---|---|---|---|
+| #143 | A1 AdoptAll skips damaged rows | P5 | fixed in #164 (CLEAN) |
+| #144 | A2 Create overwrites a durable row | P5 | fixed in #164 |
+| #145 | A3 IN-9 bound / KeyInput.text | P3 | fixed in #163 (exact bound, early stop); A15 is now final: P3 worker check and P5 host check follow after #161 |
+| #146 | A4 Stop async WrongState | P5 | fixed in #164 |
+| #147 | A5 Core::open reads the clock | P5 | fixed in #164 |
+| #148 | A6 OSC 5522 over the limit | A6 fork agent, then P3 | R-32, R-33, A14; the fork patch is in review (section 6) |
+| #149 | A7 slow test polls | P5 | fixed in #164 |
+| #150 | A8 worker fixture group ownership | P3 | fixed in #163 |
+| #151 | A9 Remove of an adopted session | P5 | fixed in #164 |
+| #152 | A10 reaper race | P5 | #162 (gated with #165) |
+| #153 | A11 unbounded waits | P3 | #163; the guard part is in #165 (C3) |
+| #154 | A12 every-cut cost | P6 | settled by R-31; implement in the oracle work |
+| #155, #157 | host and facade MEDIUM/LOW | P5 | partly in #164; the rest follows |
+| #156 | sys MEDIUM/LOW | P5 (storage), P3 (payload) | partly in #163 and #164 |
+| #158 | worker MEDIUM/LOW | P3 | partly in #163; A36 goes to M2b; A32 and A33 are an approved follow-up PR (a slow in-diff mutants pass; plan section 8 revision after it) |
+| #159 | testkit MEDIUM/LOW | P6 | open |
+| #160 | binding MEDIUM/LOW | the A6 fork agent or P6 | open |
 
-- **Stacking:** P3's M1 stacks on P1 (`823a1f1` + `befe0ff`), M2a on P1 `3512c68`, M2b on M2a + P2 `977d986` + P1 `21adfb2`. P1's testkit wiring (`stage1/p1-testkit-wiring`) lands together with P3's worker. Merge order: P1 → (P2) → P3 (rebased onto the new v1, delta review, one gate) → P1's testkit wiring with P3 (integration reviewer required).
-- **Milestones (plan 6.2):** M0 done (#125); M0b done (#126); M1 CLEAN, waits for P1's merge; M2 (M2a CLEAN, M2b in progress); M3 (P4a) not started; M4 (P1) waits for P1's merge.
+Close each issue when its fixing PR merges.
 
-## 7. First three actions on resume
+## 6. The A6 Ghostty fork task (user rule: nothing ever goes upstream)
 
-1. **P2, the Ghostty upstream resync (user rule, BUILD.md "Ghostty fork policy"):** before ANY further fork patch, rebase the `botster/vt-core-stage1-c` stack (22 commits on upstream `83edd491e`) onto the LATEST upstream `ghostty-org/ghostty` main. Rebuild, re-run the libghostty audit and the binding and Core tests, drop every patch that upstream now covers, and record the new upstream SHA and the surviving patch list. Then the P2 reviewer reviews the rebased stack and the binding delta, the lead records the pin move in the plan, and P2 gates once on Linux (closing P32).
-2. **P1:** fix the two Resize defects P3 found and the three open mutation results of the cancelled `ff376cc` gate, get the delta review since `2016886`, gate once on the exact CLEAN head (green on every step, including mutants), merge (milestone M4). The real-fsync storage tests are already in the slow tier (`ff376cc`). Then P3 rebases M1 and M2a onto the new v1, gets the delta review, gates and merges (milestone M1), with P1's testkit wiring in the same step (integration reviewer).
-3. **Lead:** restaff by the plan's waves (6.3) from the handoffs, with the spawn rule of BUILD.md; P4a starts after M2, P5 and P7 after M4. Move every package to the current contracts tag first.
+User rule, verbatim: "nothing ever goes upstream. Push only to trybotster/ghostty; no PRs, issues, comments or any other contact with ghostty-org. Fetching upstream main is fine."
+
+- Fork: `botster/upstream-sync-20261004` @ `0bfddc16`, on upstream `5dc28bb8e`.
+- It contains the R-32 patch: the over-limit callback carries the decoded size, and libghostty sends no EFBIG.
+- Under R-33, types past the 64-type limit are neither decoded nor counted.
+- Core branch `stage1/p2-fork-a6` @ `65b2064`. The binding PR is not opened yet. It must set option 39 = `clipboard_bytes` (A14).
+- Review: NOT CLEAN, with only F-A6-02 (HIGH, test evidence) open. It needs the final-head Zig tests, the library build, the binding tests on Mac and Linux, the empty-cache package check, the completed sync record and audit, and the PR's Prior-art note.
+- Handoffs: `docs/handoffs/fork-a6.md` and `review-fork-a6.md`.
+
+## 7. Contract changes since pause #1 (all final unless marked)
+
+| Item | Effect on Core | Owner |
+|---|---|---|
+| A14 (final33): `clipboard_bytes` bounds the decoded size; option 39 = `clipboard_bytes` is required | fork and binding (option 39); worker two-step rule | A6 fork agent, P3 |
+| A15 (final35): `max_key_text_bytes` (default 256, range 1-4,096) | host limit and admission (P5); worker (P3); route (P4a) | P5, P3, P4a |
+| A16 (final34): `ServiceEnd` = `Exited` \| `Lost{reason, payload_may_remain}` | StopService | P7 |
+| R-30, R-31: the every-cut fit check (exact oracle measurement; one session per item; no sampling) | oracle controls | P6 |
+| R-32, R-33: OSC 5522 over the limit; ignored types not counted | fork patch | A6 fork agent |
+| R-34 (user): the A15 numbers; the Web client encodes keys itself (restty) | — | — |
 
 ## 8. Agents at the pause
 
-All Stage 1 Core agents were retired at the pause after their work was confirmed pushed (see the state log for ids). Their worktrees (the paths the handoffs name) and the P2 fork worktree were removed after the lead checked each head on origin: recreate a worktree from the pushed branch on resume. The integration reviewer's role (Sol, long-lived) restarts with the stage: it reviews the plan revisions and every cross-package PR.
+- **Idle, kept for their context:** the implementers P3, P5, P6, P7 and the A6 fork agent; the integration reviewer; and the package reviewers that owe a pending verdict (P3, P5, P6, P7, fork A6).
+- **Staffing rule (user):** implementers are Claude Opus; package reviewers are Sol at high effort (`agent_name: sol-high`, definition `~/.botster-dev/agents/sol-high/initialization`); the integration reviewer is Opus.
+- The session ids are in `docs/handoffs/core-lead.md`.
+
+## 9. First actions on resume
+
+1. **#165 round 2 (P3):** fix C3 (`first_line` plus `cleanup::Owned` in `an_early_exit_keeps_the_group_owned_until_cleanup`) and C4 (FIFO-blocked `/bin/cat` members instead of sleep loops). Then get CLEAN from P3's reviewer, the integration reviewer and P5's reviewer. Then P5 merges it into #162, gets the delta CLEANs, and runs ONE gate, Linux preferred (#165's Linux branches are still unproven). Then merge #162.
+2. **The rest of the merge chain:** #163, #164, #142, #161 (section 4).
+3. **Plan revision 22 (lead):**
+   - the contracts pin `v0.1.17`, and the Ghostty pin after the A6 binding PR merges;
+   - `owners.py` rules: A14 to P3, A15 split P5/P3/P4a, A16 to P7;
+   - the slow mutants pass (after P3's A32 and A33 follow-up);
+   - review by the integration reviewer.
+4. **Prior-art notes (orchestrator):**
+   - P3 does a prior-art pass before M2a: shpool, the tmux server/client and its per-pane key re-encoding, the zellij server, the wezterm mux, abduco/dtach. Record reuse or reject per item.
+   - P5 and P7 add Prior-art notes too.
+5. **Then the paused work:**
+   - P3 M2a and M2b (milestone M2; GHOSTSNP Worker paging; A13, A14, A15 worker);
+   - P5 adoption and the A15 host check;
+   - P6 RealCoreHarness;
+   - P7 PR 2a with A16;
+   - the A6 fork binding PR;
+   - the remaining audit issues.
