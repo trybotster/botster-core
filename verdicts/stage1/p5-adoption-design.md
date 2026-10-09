@@ -101,3 +101,25 @@ reports. Put this in the same QUESTION: may Core report `Lost(Other)`, or must i
 
 VERDICT: NOT CLEAN at 78f4be5c11de2bab2a48d01cc24b07e8069f5aaa (0 integration findings open; the design waits for the
 lead's answer to the F22 QUESTION and for the P5 package reviewer)
+
+## Round 3 — CLEAN on head 4fec490a
+
+Reviewed head: `4fec490a97f291c05622aa92be2f02c74a891c30`. Delta `78f4be5c..4fec490a`, `DESIGN.md` only: the no-payload
+table and the retry rule.
+
+- **The table matches steward ruling R-35** (contracts `main` `f969f5e`, corrected by `c3ed727`, both read here):
+  - `Starting` with `NotLaunched`: one `Launch` (AD-7 step 4). A failed launch takes the ordinary `Start` outcome (LC-4).
+  - A spawn in progress is not repeated.
+  - `Stopping` with no launch: `Exited{cause: HostStop}`, with no `Launch`.
+  - `Running` or `Exited` with no payload: `Lost(RegistryCorrupt)`.
+- **The observation of round 2 is resolved.** `c3ed727` says that Core never reports `Lost(Other)`. The design removes P1's
+  placeholder, and the PR must list every Core-side construction of `Lost(Other)` with its fix (the pattern rule).
+- **The retry keeps the intent.** A `Lost(WorkerUnreachable)` or `Lost(WorkerVersion)` adoption never rewrites the row.
+  The retry applies the tables with the row's recorded state (the intent) and the new report's payload state (the facts).
+  So the payload is launched once, and a `Stopping` row never gets a `Launch`. Two tests are named. This is the P5 package
+  reviewer's F22 remainder, which is theirs to close.
+- **The interaction with D1** (an equal epoch is accepted) is safe: the retry runs the full handshake and the 3.4 fence,
+  and it takes the payload facts from the new report only.
+- The ids stay pending until the real harness can run them (plan 5).
+
+VERDICT: CLEAN (0 open) at 4fec490a97f291c05622aa92be2f02c74a891c30
