@@ -1252,3 +1252,95 @@ This focused result does not establish a full landing gate or Linux execution.
 The combined #162 head still needs its own delta reviews and authorized gate.
 
 VERDICT: CLEAN
+
+
+## PR #162 — Round 8
+
+- Exact head: `869f153068812002ddce401c823bdd6c617a3a4b`.
+- Base: `144b0234fb632bcbb5176b17c2fe55f3239405df`.
+- Parents: `59cda32f721f974dee8f8aeea1fef9472afe1d35` and accepted #165 head `47ae53a79b95e5499b8548c456a2fbaceacba992`.
+- Scope: the combined merge delta and its P5 test boundary.
+- The reviewer ran no builds, tests, mutation jobs, or gates.
+
+### Source closure
+
+The reviewer read the complete five-file delta from the first parent.
+It contains the reviewed #165 fixes, with no additional source edit.
+The reviewer compared the whole tree with the accepted #165 head.
+Only `crates/botster-core/tests/common/mod.rs` and `crates/botster-core/tests/slow_real_core.rs` differ.
+Both files match the previously reviewed #162 head exactly.
+The reviewer checked the common module's shared guard import, construction, and shell prefix.
+The merged helper visibility and call paths remain compatible with those users.
+
+P5-F4/C2 is CLOSED in this combined head.
+The parent-death readiness read and parent cleanup use the bounded observation paths accepted in #165.
+C3, C4, C5, C6/F39, and C7 retain their reviewed dependency fixes.
+P5-F1, P5-F2, and C1 retain their closures in the unchanged A10 test.
+The test observes FIFO EOF, leaves worker reaping to production, and propagates guard failure to the main test.
+Its outer cleanup wait derives from `2 * CLEANUP`.
+No source finding remains open in this merge scope.
+The separate #163 F39/G2 duty remains outside this closure.
+
+### P5-F12 — LOW — REOPENED — The description still names the previous combined head
+
+The reviewer read the PR description through `gh pr view` and verified the current remote head.
+The description still names `59cda32f721f974dee8f8aeea1fef9472afe1d35` as its head.
+It names `c03bcfb` as the dependency and says P5-F4/C2 remains open pending a future guard merge.
+This head already merges accepted `47ae53a79b95e5499b8548c456a2fbaceacba992` and closes those source waits.
+The description therefore does not describe the current combined change.
+
+**Required change:** Name the current head and its accepted dependency.
+Describe the final bounded waits and retained A10 proof.
+State that P5-F4/C2 closes in the merged source and that the combined gate remains pending.
+Preserve older evidence with its original head attribution.
+This description correction needs no product commit or execution run.
+
+Status: OPEN. The reviewer sent the finding directly to P5.
+The existing Prior art section remains present.
+No exact-head execution result was supplied for the combined head.
+The dependency's focused Mac result does not substitute for the required combined Linux gate.
+
+VERDICT: NOT CLEAN (1 open)
+
+
+## PR #162 — Round 9
+
+- Exact head: `debc9b1b5e2fdb7288be5179a429e406f6edc91c`.
+- Base: `9ea0c9c22d0d0595a166becbba7f9e8872247c22` (current `origin/v1`).
+- Parents: `869f153068812002ddce401c823bdd6c617a3a4b` and the base above.
+- Scope: the current v1 merge, the retained combined source, and the corrected PR description.
+- The reviewer ran no builds, tests, mutation jobs, or gates.
+
+### Integration J3 — CLOSED in source — The head includes current v1
+
+The reviewer verified both merge parents.
+The delta from `869f1530` changes thirteen files, all under `docs/`.
+Every file outside `docs/` matches the preceding combined head exactly.
+The complete `docs/` tree matches current v1 exactly.
+The merge therefore retains the reviewed source and carries the v1 documentation without a conflict edit.
+
+### P5-F12 — CLOSED — The description names the final combined head
+
+P5 updated the description and then merged current v1 for integration J3.
+The reviewer read the final description and verified the current remote head.
+It names `debc9b1b5e2fdb7288be5179a429e406f6edc91c` and accepted dependency `47ae53a79b95e5499b8548c456a2fbaceacba992`.
+It describes both dependency merges and the current documentation merge.
+It states that P5-F4/C2 closes in the merged source.
+It preserves older results under their original heads and identifies the dependency Mac proof as focused evidence.
+It marks the combined Linux gate pending and retains the Prior art section.
+P5-F12 is CLOSED.
+
+### Combined source and scope limits
+
+Round 8's source conclusions remain valid because this merge changes no source.
+P5-F4/C2 and the dependency findings C3 through C7 remain closed in this exact combined head.
+The unchanged A10 test retains its FIFO EOF proof, production reaper ownership, derived cleanup allowance, and panic propagation.
+No finding remains open within this PR's package review scope.
+The separate #163 F39/G2 duty remains outside this closure.
+This review does not close #164's future merge, the other P5 audit work, or P5 adoption.
+
+The implementer supplied no execution result for this exact combined head.
+The dependency's focused Mac proof does not replace the required combined Linux gate.
+The gate remains the implementer's responsibility after both exact-head source reviews report CLEAN.
+
+VERDICT: CLEAN
