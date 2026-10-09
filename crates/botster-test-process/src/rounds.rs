@@ -208,9 +208,9 @@ mod tests {
                 Deadline::after(std::time::Duration::ZERO),
             ))
         });
-        // timer: CLEANUP — bounds the test's wait for a wait that must end at once.
-        let report = receiver
-            .recv_timeout(crate::CLEANUP)
+        // timer: deadline — CLEANUP bounds the test's wait for a wait that must end at once.
+        let ended = receiver.recv_timeout(crate::CLEANUP);
+        let report = ended
             .expect("the wait ends at its deadline")
             .expect_err("this process is live");
         assert!(report.starts_with("members left after 0ns: "), "{report}");
