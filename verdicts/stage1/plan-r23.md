@@ -295,3 +295,37 @@ The remote plan ref names the reviewed head. `git diff --check` passes.
 No gate was run for this documentation-only review.
 
 VERDICT: CLEAN (0 open) at 6dece66f00144bd36e627dac739699c4579e0dd0
+
+## Round 9 — revision 23h — CLEAN
+
+Reviewed head: `93fd39704e27fdf596127d0ab655ef6b88da1ead`.
+Previous reviewed head: `6dece66f00144bd36e627dac739699c4579e0dd0`.
+The review covers both `676d4cc2` and `93fd3970`, as the lead requested.
+The complete delta changes section 6.3, section 11 step 3, and the revision table.
+The reviewer applied orchestrate-delivery to the changed staffing and dependency order.
+The reviewer changed no product code and ran no tests, builds, mutants, or gates.
+
+The P3 pair completes `th_1`, then takes P4a's minimum work from current `v1`.
+This assignment uses an existing pair and preserves the three-pair cap.
+The P3 handoff records the probe that found `th_1` independent of P4a and real-process work.
+It also records the route dependency for the additional event, output, timing, and attach ids.
+The plan names P4a's 18 minimum ids and six additional dependent minimum ids as the reason for the move.
+This dependency count does not claim that those ids already pass.
+
+The second commit replaces the first commit's automatic assignment of a fourth pair to non-minimum work.
+P3's non-minimum queue remains on hold until minimum Core is complete.
+The fourth pair requires a named minimum id that lacks staff, and the lead must name that id to the orchestrator.
+The plan records the shared usage limit. This review does not start or delegate work to another pair.
+The section 6.1 distinction between packages and pairs preserves package responsibilities when staffing changes.
+
+The change retains the HOLD on new real-process test code until #181 lands.
+P6 still owns the shared process crate and the real-harness work.
+A staffing change supplies no missing real-process proof and permits no early merge of a change that requires one.
+The existing HIGH review rules, exact-head evidence, minimum acceptance conditions, and section 8 checks remain in force.
+No contract pin, pending id, production interface, or gate command changes.
+
+The fetched plan ref names the reviewed head. `git diff --check` passes.
+The fetched `v1` contains #200 at `3fa51cd2d148315883002af96495b3096242ba42`, consistent with the lead's merge notice.
+The earlier 23h head receives no separate CLEAN because the second commit supersedes its fourth-pair assignment.
+
+VERDICT: CLEAN (0 open) at 93fd39704e27fdf596127d0ab655ef6b88da1ead
