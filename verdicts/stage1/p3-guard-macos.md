@@ -547,3 +547,26 @@ test or gate.
   reason. Keep the inner limit and the drop order unchanged.
 
 VERDICT: NOT CLEAN (1 open: C7)
+
+## Round 15 — CLEAN on head 47ae53a7 (C7 fix)
+
+Reviewed head: `47ae53a79b95e5499b8548c456a2fbaceacba992`. Delta `9eaea51c..47ae53a7`, one commit, `slow_payload.rs` only.
+Trial merges: with v1 `9ea0c9c` clean (tree `c9670d7`); with #162 `59cda32` clean (tree `efe821e`). Focused Mac pool run at
+this head (`~/botster-sessions/gates/botster-core-stage1-p3-guard-macos-47ae53a7-pool-20261008-204957-86837.log`): header
+head `47ae53a7`; 168 run, 168 passed (`a_panic_ends_the_payload_while_it_waits_for_input` included); then 15 passed; exit
+0. This is a focused run, not the landing gate. This reviewer ran no build, test or gate.
+
+- **C7 CLOSED.** The outer wait is `recv_timeout(2 * process_guard::cleanup::CLEANUP)`, from the one constant, with the
+  `Bounded` reason. The `timer: deadline` marker stays directly above the call. The inner limit and the drop order of
+  `GuardedPayload` are unchanged. The one remaining literal 10 s in `slow_payload.rs` (line about 127, `exit_of`) waits
+  for a process exit with no guard cleanup inside.
+- **Carried findings, ticked against this exact tree:** G1, G3, G4, G5, G6 closed (rounds 3-5); G2 closed for
+  `Bounded<Driver>` (round 7), the real-loop path (C6, round 14) and the panic path (C7, this round); C2 (= P5-F4) closed
+  (round 11); C3, C4 (round 12); C5 (round 13). Literal deadlines in all guard consumers were checked in round 14; this
+  delta adds none.
+- **Still carried, outside #165's CLEAN:** the Linux branches (`/proc`, pidfd) are uncompiled until #162's combined Linux
+  gate; #165 lands only through #162. G2/F39 for #163's merge delta.
+- **Package verdicts.** P3 reviewer: not read at this head. P5 reviewer: CLEAN at `9eaea51c` (`02828d89`), one commit
+  behind. Under the lead's 2026-10-08 flow each reviewer sends its own CLEAN.
+
+VERDICT: CLEAN (0 open) at 47ae53a79b95e5499b8548c456a2fbaceacba992
