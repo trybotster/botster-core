@@ -182,6 +182,7 @@ impl Worker {
                             written: 0,
                             in_flight: false,
                             cancelled: false,
+                            retired: false,
                         });
                         self.write_more();
                     }
