@@ -49,3 +49,16 @@ The section 0 contracts row still says, in its v0.1.13 to v0.1.17 part, "`v1` mo
 in the past with the real tag.
 
 VERDICT: NOT CLEAN at 1cdb24e28f2093cb4ee60e4e17e16c93e82f66c2 (3 open: P23-1, P23-2, P23-3, all LOW)
+
+## Round 2 — CLEAN on head dd656249
+
+Reviewed head: `dd6562490d6b14255f6312d9b6c8e2d68caf5058`, one commit on `1cdb24e2` (`docs/stage1-plan.md`, +3 -3).
+
+- **P23-1 closed.** The guard is now "planned by the steward (not yet in the contracts repo at `contracts-v0.1.19` or
+  `main`)".
+- **P23-2 closed.** The merged list adds #170, #169, #175 and #174. "The payload-guard ECONNRESET fix" matches #175's
+  commit (`0f789572`: "a reset of the payload member's connection is its end of file").
+- **P23-3 closed.** The v0.1.17 note now says that v1 moved past that tag: #161 went to v0.1.18, and #182 to v0.1.19.
+- Revision row 23 records the round. No other text changed.
+
+VERDICT: CLEAN (0 open) at dd6562490d6b14255f6312d9b6c8e2d68caf5058
