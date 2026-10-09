@@ -1,7 +1,7 @@
 # P3 worker review
 
-Current verdict: CLEAN for PR #167 Part A at `b70855356aa243996edabf8bfb3c9f6d2c2f5db6`.
-Round 94 records the merge-delta review. Round 93 closes F49 LOW.
+Current verdict: NOT CLEAN for PR #167 Part A at `723bc8d5c937d905a918a8063deedaaf5326b8c7`.
+Round 95 records F50 MEDIUM after the landing gate missed 17 mutants. F49 remains CLOSED.
 PR #163 Part B retains F28, F33 execution, and F39 for its later merge delta.
 PR #165 remains CLEAN at `29b37890efeffa4410d7dfc34f5c2344bfad1ba4` and landed through #162.
 F45 through F48 are CLOSED. F39 is CLOSED within #165.
@@ -4406,3 +4406,89 @@ The reviewer changed no product code and ran no tests, builds, measurements, mut
 All earlier findings, closures, and verdict rounds remain preserved at their named heads and scopes.
 
 VERDICT: CLEAN
+
+
+## Round 95 — Part A mutation fixes
+
+Reviewed head: `723bc8d5c937d905a918a8063deedaaf5326b8c7`, PR #167, branch `stage1/p3-audit-fixes-a`.
+Base: `0b0eecc06d0cd4c39af5e33e59c0b3f643aba6d4`.
+Previous CLEAN head: `b70855356aa243996edabf8bfb3c9f6d2c2f5db6`.
+The initial READY named `7be3184c09dc4c77e46414cddcd15428ccd3aa6d`.
+The later READY adds only exclusion comments for integration E1; the regexes and executable source are unchanged.
+
+### Landing failure and new tests
+
+The reviewer read the completed landing log:
+`~/botster-sessions/gates/botster-core-stage1-p3-audit-fixes-a-b7085535-pool-20261008-213644-81473.log`.
+The default tier passes 784 tests; the slow tier passes 197 tests.
+The mutation step tests 112 mutants: 82 caught, 17 missed, and 13 unviable.
+The missed mutants affect Part A's Focus bound, key-state enumeration, key search stop, mouse notch normalization, and drain steps.
+The job exits 1 after 181 seconds. The fuzz step does not run.
+The implementer changes the source before another gate; the implementer does not rerun this red head.
+
+The new drain test checks exact progress for short reads, full reads, and zero reads in both counted phases.
+The native-encoder tests check refusal below a key's worst case and one-notch mouse bounds.
+The host test now checks the observable Unknown bound for a Focus write as well as bytes and repeated keys.
+These checks address the missed decisions without inventing terminal bytes or starting real processes.
+The new private key-state test has the separate F50 defect below.
+
+### Exclusion arguments
+
+The payload_size entry excludes only `/` to `*` in one named function.
+An admitted key has the same complete maximum under either search threshold.
+A refused key remains over the final payload bound under either threshold.
+Valid CoreLimits cap max_paste_bytes at 64 MiB and max_key_repeat at 4096, so the multiplied threshold cannot overflow u64.
+The argument check refuses a zero repeat before payload_size divides by it.
+The threshold can change search cost and the length quoted in the error detail.
+Core 9.3 makes the code contractual and the detail human text; both paths retain PayloadTooLarge.
+The reviewer accepts this exclusion within contract-valid configuration.
+
+The every_key_state entry excludes only `!=` to `==` in one named function.
+It complements the six boolean key modes and permutes the same 64 combinations.
+It preserves every kitty-flag combination and the text-first order within each run of 32.
+The full maximum remains the same, and an early result remains above the supplied limit.
+A different early length can change only the host refusal's detail under Core 9.3.
+The reviewer accepts the equivalence argument. Its proving-test reference must change when F50 is corrected.
+The integration E1 comments make the code/detail distinction explicit and change no exclusion pattern.
+
+### F50 — MEDIUM — OPEN: the new test checks a private helper's internals
+
+Evidence: `crates/botster-terminal-ghostty/src/encode.rs:819-843` at the reviewed head.
+`the_key_states_are_every_combination_once_with_the_text_states_first` calls private EncoderState::every_key_state.
+It checks internal tuple count, uniqueness, bit range, and index layout.
+BUILD.md testing rule 3 says, "none tests a helper's internals."
+Core 5.1A requires the safe worst-case bound over native encoder modes.
+It does not require this private representation or exactly one visit per tuple.
+Replace this test with native-encoder behavior coverage through longest_key_sequence and the independent explicit-mode path.
+If a missed state-transform mutant cannot change the bound, document a narrow equivalence argument instead.
+Update the exclusion's proving-test reference and the PR description after this correction.
+The reviewer sent F50 directly to the P3 implementer and copied the integration reviewer.
+
+### Completed focused evidence
+
+The reviewer read the completed focused log at `7be3184c09dc4c77e46414cddcd15428ccd3aa6d`:
+`~/botster-sessions/gates/botster-core-stage1-p3-audit-fixes-a-7be3184c-pool-20261008-214331-91507.log`.
+Formatting, clippy, taint, lists, test-budget, and mutants pass.
+The default tier passes 788 tests and skips 654 tests; its wall time is 1.1 seconds.
+The mutation step tests 110 mutants: 97 caught, 13 unviable, zero missed, and zero timeouts.
+The job exits 0 after 174 seconds on msa1.
+
+The exact-head static log is:
+`~/botster-sessions/gates/botster-core-stage1-p3-audit-fixes-a-723bc8d5-pool-20261008-214836-98013.log`.
+Formatting, taint, timers for 120 Rust files, and lists pass. The job exits 0 after nine seconds.
+Both logs name base `0b0eecc06d0cd4c39af5e33e59c0b3f643aba6d4`.
+The later delta changes comments only, so the 7be3184c executable evidence remains applicable to this review.
+These focused jobs do not supply a green landing gate or remove F50's test-design defect.
+The reviewer requested that the description name the superseding head and its static log.
+
+### Verdict and limits
+
+PR #167 Part A is NOT CLEAN for F50 MEDIUM at this exact head.
+The prior source closures and F49 closure remain valid. No other package finding is open within Part A's submitted scope.
+A31 remains open in the real driver after Part A.
+Part B retains F28 native evidence, F33 failed-watch execution, and F39's later merge duty.
+M2a, M2b, the A32/A33 follow-up, and pending conformance IDs remain outside this verdict.
+The reviewer changed no product code and ran no tests, builds, measurements, mutants, or gates.
+All earlier findings, closures, and verdict rounds remain preserved at their named heads and scopes.
+
+VERDICT: NOT CLEAN
