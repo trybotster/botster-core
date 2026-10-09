@@ -90,12 +90,19 @@ path (the `SCM_RIGHTS` model):
    frame. It records a mark: the offset of the frame's first byte, the route, and the endpoint. The mark owns the endpoint.
 2. The writer sends bytes up to the mark with `link_send`. A partly written earlier frame is therefore always complete
    first.
-3. At the mark, the writer calls a new edge `link_send_descriptor(link, bytes, endpoint) -> Result<usize, HandoffError>`
-   (it replaces `handoff_route`). `Ok(n)` with `n >= 1` means that the link took the descriptor and the first `n` bytes of
-   the frame. The edge then owns the endpoint (real: the host closes its copy after `sendmsg`).
-4. `Ok` feeds `Input::HandoffSent{route}` to the engine. An `Err` before any byte of the frame was taken drops the whole
-   frame (it was not started, so the framing stays intact) and feeds the route to `failed_handoffs` (`HandoffFailed`, as
-   today).
+3. At the mark, the writer calls a new edge (it replaces `handoff_route`):
+   `link_send_descriptor(link, bytes, endpoint) -> Result<usize, (StreamEndpoint, DescriptorSendError)>`. It has three
+   outcomes:
+   - `Ok(n)`, `n >= 1`: the link took the descriptor and the first `n` bytes of the frame. The edge owns the endpoint
+     from here (real: the host closes its copy after `sendmsg`). The mark is consumed, and the rest of the frame goes by
+     `link_send` like any bytes. The descriptor is therefore sent once and the frame bytes once;
+   - `Err((endpoint, Blocked))`: `WouldBlock` or `Interrupted`, no byte and no descriptor taken. The edge gives the
+     endpoint back; the mark keeps it and the frame stays unstarted. The writer tries the mark again at the next write
+     readiness of the link;
+   - `Err((endpoint, Failed))`: any other error, nothing taken. The driver closes the endpoint and drops the frame (it
+     was not started, so the framing stays intact).
+4. `Ok` feeds `Input::HandoffSent{route}` to the engine. `Failed` feeds the route to `failed_handoffs` (`HandoffFailed`,
+   as today). `Blocked` feeds nothing.
 5. The marks are link-scoped. When the link closes, each mark is dropped, its endpoint is closed, and its route is a failed
    handoff, unless the session's loss closed the route first (the first reason wins, OU-2).
 
@@ -118,9 +125,9 @@ The worker holds no transport object. The driver keeps each received descriptor 
 |---|---|
 | `Descriptor(DescriptorId)`: the link delivered one, before the bytes that it rides with | `BindRoute{descriptor, route}`: the transport of `descriptor` is `route`'s from now |
 | `RouteBytes{route, bytes}`: bytes that the route delivered, in order | `CloseDescriptor(DescriptorId)`: close an unbound descriptor |
-| `RouteWritten{route, n}`: the bytes that the kernel accepted (the progress point of OU-3a); `n = 0` waits for `RouteWritable` | `RouteWrite{route, bytes}`: one write; at most one is out per route |
+| `RouteWritten{route, result}`: the answer to `RouteWrite`. `Ok(n)` is the bytes that the kernel accepted (the progress point of OU-3a), and `Ok(0)` waits for `RouteWritable`. `Err(errno)` is a failed write: the route closes `WriteFailed` | `RouteWrite{route, bytes}`: one write; at most one is out per route |
 | `RouteWritable{route}` | `RouteRead{route, on}`: read interest (off while the admission point is full, DP-5) |
-| `RouteClosedByPeer{route}`: read `Ok(0)` or an I/O error (OU-5) | `RouteClose{route}`: close the transport; the driver reports nothing more of `route` |
+| `RouteClosedByPeer{route}`: a read returned `Ok(0)`, a reset or another read error (OU-5): the route closes `PeerClosed` | `RouteClose{route}`: close the transport; the driver reports nothing more of `route` |
 | | `PtyReadBudget(n)`: the driver reads at most `n` PTY bytes in total until the next budget; `0` stops every PTY read, a drain too |
 
 **Source backpressure (OU-3d, OU-7).** The worker sets the PTY read budget after each step:
@@ -148,10 +155,18 @@ The worker holds no transport object. The driver keeps each received descriptor 
   `RouteClose` once and sends `WorkerMsg::RouteClosed{route, reason, route_tag}` once, with the first reason, after
   `RouteClose`. Two paths:
   - **healthy close** (`Detached`, `Replaced`, `Revoked`, `SessionEnded`, `SessionRemoved`, `SnapshotTooLarge`,
-    `BadFrame`): the worker drops the frames that are not started, completes a partly written frame (OU-4), writes
-    `route_closed` with the wire reason of OU-2b as the last frame, and emits `RouteClose` when the kernel accepted it.
-    If the transport fails, or accepts no byte for `reader_progress_deadline`, the close becomes a failed close. The
-    first reason stays;
+    `BadFrame`): the worker completes a partly written frame (OU-4), writes `route_closed` with the wire reason of OU-2b
+    as the last frame, and emits `RouteClose` when the kernel accepted it. What happens to the queue before
+    `route_closed` depends on the reason:
+    - `SessionEnded` and `SessionRemoved` (OU-7): the worker keeps the whole queue and delivers it while the route
+      progresses. `route_closed` follows the last queued frame. If the route stalls first, the stall rules apply: its
+      droppable frames are dropped (OU-3b), it gets the resync sequence if it resumes, and it closes `StallTimeout` if it
+      does not;
+    - `Detached`, `Replaced`, `Revoked`, `SnapshotTooLarge` and `BadFrame`: the worker drops the droppable frames that are
+      not started and keeps the kept frames in order (a choice where the contract is silent: no client reads output after
+      a detach);
+    - if the transport fails, or accepts no byte for `reader_progress_deadline`, the close becomes a failed close. The
+      first reason stays;
   - **failed close** (the failed-route reasons of OU-2b; the route has no `route_closed`, and the host reports
     `route_ended`): the worker emits `RouteClose` at once and writes nothing more. The reasons are distinct:
     - `PeerClosed` (read `Ok(0)`, a reset or a read error; wire `transport_lost`);
@@ -191,9 +206,11 @@ The resync sequence (at `Stalled → Open`, OU-9):
     `SnapshotTooLarge` with `route_closed{attach_failed{snapshot_too_large}}` and no baseline frame. (Whether `attached`
     comes first follows the extract's TS-1; `a8_2_baseline_inside_an_uncarriable_sequence_closes_route_snapshot_too_large`
     accepts both.)
-  - the frame: the `screen` frame is the snapshot plus the type byte, so `max_screen_frame_bytes = max_snapshot_bytes + 1`
-    (`attached.limits`, `dp_3_screen_is_one_frame_within_max_screen_frame_bytes`). The size is computed before the frame
-    is built (`dp_3_frame_limit_checked_before_allocation`).
+  - the frame: `max_screen_frame_bytes` is a per-route limit. The route keeps the applied value that `attached.limits`
+    reports; it is at least `max_snapshot_bytes + 1` (the snapshot and the type byte). With no route request it is
+    exactly `max_snapshot_bytes + 1` (`dp_3_screen_is_one_frame_within_max_screen_frame_bytes`: 65537 for 65536). The
+    check is `snapshot_payload + 1 <= applied max_screen_frame_bytes`, computed before the frame is built
+    (`dp_3_frame_limit_checked_before_allocation`).
 - PTY output goes to each `Open` route unchanged and in order (OU-12). The worker splits it into `output` frames whose size
   is within the route's `max_frame_bytes`, as the codec measures a frame (`bound_of`).
 - Client frames (`ToWorker`) go to the one admission point that host input already uses (AM-2, DP-4, DP-9). Input is
@@ -222,9 +239,10 @@ The resync sequence (at `Stalled → Open`, OU-9):
 
 ### Proofs that the P4a PRs add (worker-core and testkit tests)
 
-- Handoff: both receive kinds ready in the same step; an earlier control frame partly written at the mark; repeated
-  handoffs on one link; a failed descriptor send (the frame is not sent, `HandoffFailed`); a link closed with marks
-  pending; `AdoptLink` with unbound descriptors.
+- Handoff: a `Blocked` send at the mark, then a later send (one descriptor, the frame bytes once); a short write at the
+  mark (`Ok(n)` less than the frame); both receive kinds ready in the same step; an earlier control frame partly written
+  at the mark; repeated handoffs on one link; a failed descriptor send (the frame is not sent, `HandoffFailed`); a link
+  closed with marks pending; `AdoptLink` with unbound descriptors.
 - Backpressure: a progressing slow reader loses no byte; two routes with different `max_frame_bytes`; an exit tail larger
   than the free queue space.
 - Baseline cut: attach and resync while the model holds an `unfed` suffix, including a lone ESC.
