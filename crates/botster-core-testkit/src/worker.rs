@@ -10,7 +10,7 @@
 //! scripted program, deliver signals and report exits (plan 2.1: a difference between the two runs is a bug in an edge).
 
 use crate::core::{SimEdges, Spawner};
-use crate::net::{Interest, LinkEnd};
+use crate::net::{EndControl, Interest, LinkEnd};
 use crate::program::ScriptedProgram;
 use crate::scheduler::SchedulerHandle;
 use crate::sim::{Binding, MachineNode, Sim};
@@ -56,6 +56,8 @@ struct ProcessCell {
     /// The worker's end of its control link breaks at the next turn of the worker (`break_control`): the host reads the end of
     /// the link, the worker takes `LinkClosed`, and the process keeps running.
     break_link: bool,
+    /// The worker's end of its control link, for reading what it holds for the host (`edges_quiet`). It outlives the end.
+    link: Option<EndControl>,
 }
 
 /// The process table of the workers that one host spawned: identities and the exits that the host has not polled.
@@ -75,6 +77,20 @@ impl ProcessTable {
     /// The wake object of the host that owns the table.
     pub(crate) fn set_wake(&self, wake: Arc<dyn HostWake>) {
         lock(&self.0).wake = Some(wake);
+    }
+
+    /// True while the process edge holds a report that the host has not consumed: an exit that it has not polled, or a
+    /// worker's control link with bytes or an end of file that the host has not read. A new worker's link holds its hello,
+    /// so a link that the host has not accepted yet counts too. It reads the state and changes nothing (`edges_quiet`).
+    pub(crate) fn holds_reports(&self) -> bool {
+        let processes = lock(&self.0);
+        !processes.exits.is_empty()
+            || processes.cells.values().any(|cell| {
+                lock(cell)
+                    .link
+                    .as_ref()
+                    .is_some_and(EndControl::holds_for_peer)
+            })
     }
 }
 
@@ -198,6 +214,13 @@ impl Workers {
         Ok(())
     }
 
+    /// True when no edge toward the host of `table` holds a report that it has not consumed: no worker has ready work (input
+    /// to read, bytes to write, a payload's output or exit, a signal), and the host's process table holds no exit and no
+    /// unread link report (`edges_quiet`). The fence of `await_quiet` (Core A5-2).
+    pub(crate) fn edges_quiet(&self, table: &ProcessTable) -> bool {
+        !self.has_ready() && !table.holds_reports()
+    }
+
     /// The `Process` edge of one host for its workers.
     pub fn spawner(&self) -> WorkerSpawner {
         WorkerSpawner {
@@ -235,7 +258,8 @@ impl Spawner for WorkerSpawner {
         lock(&self.processes).cells.insert(id, Arc::clone(&cell));
         lock(&self.workers.run_processes)
             .insert(id, (Arc::clone(&cell), Arc::clone(&self.processes)));
-        let link = connect();
+        let mut link = connect();
+        lock(&cell).link = Some(link.end().control());
         let worker = Worker::new(WorkerConfig::new(
             spec.instance.clone(),
             spec.token,
