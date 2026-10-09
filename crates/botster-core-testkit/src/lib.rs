@@ -11,6 +11,7 @@ pub mod every_cut;
 pub mod harness;
 pub mod net;
 pub mod oracle;
+pub mod process_controls;
 pub mod process_group;
 pub mod program;
 pub mod refusal;
