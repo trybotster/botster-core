@@ -97,3 +97,12 @@ hand-entry pattern.
   `xtask/src/base_merge/tests.rs` `Repo::git` must use it.
 
 VERDICT: NOT CLEAN (1 open: R1 LOW)
+
+### Note after round 1 (same head dc7fca5a) — R1 is a duplicate of TP1
+
+The P6 package reviewer's TP1 covers the same call (`rounds.rs` `end_group`, line 153), and that error path too. R1 is
+now a duplicate of TP1, which is theirs. This reviewer withdraws R1's proposed fix: a `wait` after `reserve.kill()` still
+has no deadline (for example, a process in uninterruptible sleep). Follow TP1's fix: a kill, then a completion check that
+is bounded by the deadline (`await_end` within the deadline, then the reap), on every path.
+
+VERDICT: NOT CLEAN (R1 is a duplicate of TP1, the package reviewer's; no integration finding open of its own)
