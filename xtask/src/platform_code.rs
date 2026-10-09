@@ -131,8 +131,8 @@ pub(crate) fn path_attr(attrs: &[syn::Attribute]) -> Option<String> {
     })
 }
 
-/// What one file contributes: the lines that `os` does not compile, the module files and directories that it does not
-/// compile at all, and the errors.
+/// What one file contributes: the lines that `os` does not compile, the module files and directories that a gated
+/// declaration reaches, the module files that a compiled declaration reaches, and the errors.
 struct Scan<'a> {
     file: &'a str,
     os: &'a str,
@@ -141,6 +141,8 @@ struct Scan<'a> {
     dir: String,
     lines: BTreeSet<usize>,
     modules: Vec<String>,
+    /// The files of the modules that this file declares without a gate.
+    active: Vec<String>,
     errors: Vec<String>,
 }
 
@@ -155,25 +157,34 @@ impl Scan<'_> {
         gated
     }
 
-    /// The file (and the directory of its own modules) of the gated module `item`, declared without a body.
-    fn gate_module(&mut self, item: &syn::ItemMod) {
+    /// The file of the module `item`, declared without a body, when it is among the files of the run.
+    fn module_file(&self, item: &syn::ItemMod) -> Option<String> {
         let name = item.ident.to_string();
         let candidates = match path_attr(&item.attrs) {
-            Some(path) => vec![format!("{}{path}", parent_dir(self.file))],
+            Some(path) => vec![crate::process_check::normalize(&format!(
+                "{}{path}",
+                parent_dir(self.file)
+            ))],
             None => vec![
                 format!("{}{name}.rs", self.dir),
                 format!("{}{name}/mod.rs", self.dir),
             ],
         };
-        match candidates.into_iter().find(|c| self.files.contains(c)) {
+        candidates.into_iter().find(|c| self.files.contains(c))
+    }
+
+    /// The file (and the directory of its own modules) of the gated module `item`, declared without a body.
+    fn gate_module(&mut self, item: &syn::ItemMod) {
+        match self.module_file(item) {
             Some(found) => {
                 self.modules.push(module_dir(&found));
                 self.modules.push(found);
             }
             None => self.errors.push(format!(
-                "{}:{}: the file of the platform-gated module `{name}` is not found",
+                "{}:{}: the file of the platform-gated module `{}` is not found",
                 self.file,
-                item.span().start().line
+                item.span().start().line,
+                item.ident
             )),
         }
     }
@@ -185,6 +196,8 @@ impl<'ast> Visit<'ast> for Scan<'_> {
             syn::Item::Mod(module) if module.content.is_none() => {
                 if gated(module, self.os) {
                     self.gate_module(module);
+                } else {
+                    self.active.extend(self.module_file(module));
                 }
             }
             _ if self.gate(item) => {}
@@ -241,7 +254,9 @@ impl<'ast> Visit<'ast> for Scan<'_> {
 }
 
 /// The `--exclude-re` patterns of a mutation run on `os`: one per file with code that `os` does not compile, matching the
-/// mutants of that file (a whole gated module) or of its gated lines. `files` holds each Rust source file as (path relative
+/// mutants of that file (a whole gated module) or of its gated lines. A file that a gated declaration reaches is excluded as
+/// a whole only when no compiled declaration reaches it too (#181 B8: two `#[path]` declarations of one file, one for each
+/// OS); a compiled declaration counts when its own file is compiled. `files` holds each Rust source file as (path relative
 /// to the root of the run, text).
 ///
 /// # Errors
@@ -250,6 +265,7 @@ pub fn exclusions(files: &[(String, String)], os: &str) -> Result<Vec<String>, V
     let paths: BTreeSet<String> = files.iter().map(|(path, _)| path.clone()).collect();
     let mut lines: BTreeMap<&str, BTreeSet<usize>> = BTreeMap::new();
     let mut modules = Vec::new();
+    let mut active: Vec<(&str, String)> = Vec::new();
     let mut errors = Vec::new();
     for (path, text) in files {
         let parsed = match syn::parse_file(text) {
@@ -269,9 +285,11 @@ pub fn exclusions(files: &[(String, String)], os: &str) -> Result<Vec<String>, V
             dir: module_dir(path),
             lines: BTreeSet::new(),
             modules: Vec::new(),
+            active: Vec::new(),
             errors: Vec::new(),
         };
         scan.visit_file(&parsed);
+        active.extend(scan.active.into_iter().map(|child| (path.as_str(), child)));
         if !scan.lines.is_empty() {
             lines.insert(path, scan.lines);
         }
@@ -281,11 +299,24 @@ pub fn exclusions(files: &[(String, String)], os: &str) -> Result<Vec<String>, V
     if !errors.is_empty() {
         return Err(errors);
     }
-    let whole = |path: &str| {
+    let reached = |path: &str| {
         modules
             .iter()
             .any(|m| path == m || (m.ends_with('/') && path.starts_with(m.as_str())))
     };
+    let mut compiled: BTreeSet<&str> = BTreeSet::new();
+    loop {
+        let before = compiled.len();
+        for (from, to) in &active {
+            if !reached(from) || compiled.contains(from) {
+                compiled.insert(to.as_str());
+            }
+        }
+        if compiled.len() == before {
+            break;
+        }
+    }
+    let whole = |path: &str| reached(path) && !compiled.contains(path);
     let mut patterns: Vec<String> = paths
         .iter()
         .filter(|path| whole(path))

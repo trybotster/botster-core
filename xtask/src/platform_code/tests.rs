@@ -314,3 +314,35 @@ fn a_gated_module_without_a_file_a_cfg_if_and_a_file_that_does_not_parse_fail_th
     let errors = derive(&[("src/lib.rs", "fn (")], "linux").unwrap_err();
     assert!(errors[0].contains("does not parse"), "{errors:?}");
 }
+
+/// #181 B8: a file that a gated declaration and a compiled declaration both reach is compiled, so it keeps its mutants, on
+/// each OS; so do the modules that it declares. A compiled declaration inside an excluded file rescues nothing.
+#[test]
+fn a_file_that_a_compiled_declaration_also_reaches_is_not_excluded() {
+    let lib = "\
+#[cfg(target_os = \"macos\")]
+#[path = \"./shared.rs\"]
+mod mac_shared;
+#[cfg(target_os = \"linux\")]
+#[path = \"shared.rs\"]
+mod linux_shared;
+#[cfg(target_os = \"macos\")]
+mod mac;
+#[path = \"mac/inner.rs\"]
+mod also;
+";
+    let files = [
+        ("src/lib.rs", lib),
+        ("src/shared.rs", "mod nested;\nfn a() -> u8 { 1 }\n"),
+        ("src/shared/nested.rs", "fn b() -> u8 { 2 }\n"),
+        ("src/mac.rs", "mod inner;\nmod only;\nfn c() -> u8 { 3 }\n"),
+        ("src/mac/inner.rs", "mod leaf;\nfn d() -> u8 { 4 }\n"),
+        ("src/mac/inner/leaf.rs", "fn e() -> u8 { 5 }\n"),
+        ("src/mac/only.rs", "fn f() -> u8 { 6 }\n"),
+    ];
+    assert_eq!(
+        derive(&files, "linux").unwrap(),
+        [r"^src/mac\.rs:", r"^src/mac/only\.rs:"]
+    );
+    assert_eq!(derive(&files, "macos").unwrap(), Vec::<String>::new());
+}
