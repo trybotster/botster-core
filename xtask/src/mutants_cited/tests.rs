@@ -96,15 +96,16 @@ fn a_cited_test_that_was_renamed_fails() {
     );
     assert_eq!(
         renamed.check(CITES_STORAGE, crate::test_budget::SLOW_FILTER),
-        [".cargo/mutants.toml:2: cites `a_written_row_reads_back`, which names no test, no test target and no word of another file"]
+        [".cargo/mutants.toml:2: cites `a_written_row_reads_back`, which names no test, no test target, no item and no vendored word"]
     );
 }
 
 #[test]
-fn a_default_tier_test_and_a_word_of_another_file_pass() {
+fn a_default_tier_test_an_item_and_a_vendored_word_pass() {
     let repo = Repo::new()
         .package("a", false, &[])
         .file("crates/a/src/lib.rs", "pub fn parse_the_line() {}\n#[cfg(test)]\nmod tests {\n    #[test]\n    fn a_line_parses() {}\n}\n")
+        .file(".gitmodules", "[submodule \"vendor/z\"]\n\tpath = vendor/z\n")
         .file("vendor/z/terminal.zig", "const default_query_max_bytes = 4096;\n");
     let toml =
         "# parse_the_line: a_line_parses; the default is terminal.zig `default_query_max_bytes`.\n";
@@ -112,7 +113,7 @@ fn a_default_tier_test_and_a_word_of_another_file_pass() {
     let unknown = "# no_such_thing_anywhere is cited.\n";
     assert_eq!(
         repo.check(unknown, OLD_FILTER),
-        [".cargo/mutants.toml:1: cites `no_such_thing_anywhere`, which names no test, no test target and no word of another file"]
+        [".cargo/mutants.toml:1: cites `no_such_thing_anywhere`, which names no test, no test target, no item and no vendored word"]
     );
 }
 
@@ -146,7 +147,7 @@ fn a_slow_target_runs_only_in_a_package_with_a_slow_feature() {
         no_feature.check("# the_child_ends_in_time\n# slow_process_target: slow_process\n", OLD_FILTER),
         [
             ".cargo/mutants.toml:1: cites the test `the_child_ends_in_time`, which no gate tier runs (the_child_ends_in_time in slow_process)",
-            ".cargo/mutants.toml:2: cites `slow_process_target`, which names no test, no test target and no word of another file",
+            ".cargo/mutants.toml:2: cites `slow_process_target`, which names no test, no test target, no item and no vendored word",
         ]
     );
 }
@@ -230,7 +231,7 @@ fn the_filter_has_binary_and_test_terms_joined_by_or() {
         path: path.into(),
         name: String::new(),
         cfgs: Vec::new(),
-        ignored: false,
+        ignores: Vec::new(),
     };
     let filter = Filter::parse("binary(/^slow/) or test(/::slow_tests::/)").unwrap();
     assert!(filter.selects(&test("slow_process", "t")));
@@ -367,4 +368,142 @@ fn the_packages_come_from_cargo_metadata() {
     assert!(process.targets.iter().any(|t| t.kind == "test"
         && t.name == "slow_process"
         && t.root == "crates/botster-test-process/tests/slow_process.rs"));
+}
+
+/// #181 B6: a deleted test's name that stays in a document, a comment, a string or a test of another name does not pass;
+/// an item of the same name that is not a test does.
+#[test]
+fn a_deleted_test_that_a_document_or_a_string_still_mentions_fails() {
+    let deleted = Repo::new()
+        .package("a", false, &[])
+        .file(
+            "crates/a/src/lib.rs",
+            "// a_written_row_reads_back\nconst NOTE: &str = \"a_written_row_reads_back\";\n\
+             #[cfg(test)]\nmod tests {\n    #[test]\n    fn a_row_reads() {}\n}\n",
+        )
+        .file("crates/a/README.md", "a_written_row_reads_back proves it\n")
+        .file("verdicts/v.md", "a_written_row_reads_back\n");
+    assert_eq!(
+        deleted.check(CITES_STORAGE, OLD_FILTER),
+        [".cargo/mutants.toml:2: cites `a_written_row_reads_back`, which names no test, no test target, no item and no vendored word"]
+    );
+    let item = deleted.file(
+        "crates/a/src/lib.rs",
+        "pub fn a_written_row_reads_back() {}\n",
+    );
+    assert!(item.check(CITES_STORAGE, OLD_FILTER).is_empty());
+}
+
+/// Each kind of item that is not a test is a name that a citation may name; a `#[test]` function is not, and neither is
+/// a word of a file outside the vendored paths or a word of the mutants file.
+#[test]
+fn the_defined_names_are_the_items_that_are_not_tests_and_the_vendored_words() {
+    let files = BTreeMap::from([
+        (
+            "crates/a/src/lib.rs".to_string(),
+            "fn f_fn() {}\n#[test]\nfn t_test() {}\n#[tokio::test]\nasync fn t_async() {}\n\
+             impl S { fn f_method() {} }\ntrait T_trait { fn f_trait_fn(); }\nconst C_CONST: u8 = 0;\n\
+             static S_STATIC: u8 = 0;\nstruct S_struct { f_field: u8 }\nenum E_enum { V_variant }\n\
+             type T_type = u8;\nmod m_mod {}\nmacro_rules! m_macro { () => {} }\n"
+                .to_string(),
+        ),
+        ("vendor/z/a.c".to_string(), "int v_vendored(void);\n".to_string()),
+        ("vendor/z/b.rs".to_string(), "not rust {\n".to_string()),
+        (".gitmodules".to_string(), "\tpath = vendor/z\n".to_string()),
+        ("docs/notes.md".to_string(), "d_doc\n".to_string()),
+        (MUTANTS_FILE.to_string(), "# m_mutants\n".to_string()),
+    ]);
+    let read = |path: &str| files.get(path).cloned();
+    let paths: Vec<String> = files.keys().cloned().collect();
+    let names = defined_names(&read, &paths).unwrap();
+    for name in [
+        "f_fn",
+        "f_method",
+        "T_trait",
+        "f_trait_fn",
+        "C_CONST",
+        "S_STATIC",
+        "S_struct",
+        "f_field",
+        "E_enum",
+        "V_variant",
+        "T_type",
+        "m_mod",
+        "m_macro",
+        "v_vendored",
+        "not",
+        "rust",
+    ] {
+        assert!(names.contains(name), "{name}");
+    }
+    for name in ["t_test", "t_async", "d_doc", "m_mutants", "notes"] {
+        assert!(!names.contains(name), "{name}");
+    }
+    let broken = BTreeMap::from([("crates/a/src/lib.rs".to_string(), "fn f( {\n".to_string())]);
+    let read = |path: &str| broken.get(path).cloned();
+    assert!(defined_names(&read, &["crates/a/src/lib.rs".to_string()])
+        .unwrap_err()
+        .to_string()
+        .starts_with("crates/a/src/lib.rs:1: does not parse"));
+}
+
+/// #181 B6: `#[cfg_attr(<predicate>, ignore)]` ignores the test where the predicate holds, also nested; `cfg_attr(..,
+/// test)` makes a test only where its predicate holds; an unknown predicate fails the check.
+#[test]
+fn a_conditionally_ignored_test_runs_only_where_its_condition_does_not_hold() {
+    let repo = |attrs: &str| {
+        Repo::new().package("a", false, &[]).file(
+            "crates/a/src/lib.rs",
+            &format!(
+                "#[cfg(test)]\nmod tests {{\n    {attrs}\n    fn the_cited_check() {{}}\n}}\n"
+            ),
+        )
+    };
+    let unrun = ".cargo/mutants.toml:1: cites the test `the_cited_check`, which no gate tier runs (tests::the_cited_check in a)";
+    for (attrs, runs) in [
+        ("#[test]\n    #[cfg_attr(all(), ignore)]", false),
+        ("#[test]\n    #[cfg_attr(unix, ignore = \"slow\")]", false),
+        (
+            "#[test]\n    #[cfg_attr(target_os = \"macos\", ignore)]",
+            true,
+        ),
+        ("#[test]\n    #[cfg_attr(windows, ignore)]", true),
+        (
+            "#[test]\n    #[cfg_attr(unix, cfg_attr(test, ignore))]",
+            false,
+        ),
+        (
+            "#[test]\n    #[cfg_attr(unix, cfg_attr(windows, ignore))]",
+            true,
+        ),
+        ("#[test]\n    #[cfg_attr(unix, derive(Debug))]", true),
+        ("#[cfg_attr(unix, test)]", true),
+        ("#[cfg_attr(windows, test)]", false),
+    ] {
+        let found = repo(attrs).check("# the_cited_check\n", OLD_FILTER);
+        if runs {
+            assert!(found.is_empty(), "{attrs}: {found:?}");
+        } else {
+            assert_eq!(found, [unrun], "{attrs}");
+        }
+    }
+    let read = |attrs: &str| {
+        let repo = repo(attrs);
+        let read = |path: &str| repo.files.get(path).cloned();
+        let paths: Vec<String> = repo.files.keys().cloned().collect();
+        check(
+            "# the_cited_check\n",
+            &repo.packages,
+            &read,
+            &paths,
+            &Filter::parse(OLD_FILTER).unwrap(),
+        )
+        .map_err(|error| error.to_string())
+    };
+    assert!(read("#[test]\n    #[cfg_attr(loom, ignore)]")
+        .unwrap_err()
+        .contains("the check does not know the predicate `loom`"));
+    for malformed in ["#[test]\n    #[cfg_attr]", "#[test]\n    #[cfg_attr()]"] {
+        assert!(read(malformed).is_err(), "{malformed}");
+    }
 }
