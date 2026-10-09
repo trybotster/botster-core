@@ -70,3 +70,50 @@ does not build the `slow` feature. So a raw `kill_process` call can come back in
 theirs to close. This reviewer will check its closure in the next round with G1 and S1.
 
 VERDICT: NOT CLEAN (2 open here: G1 MEDIUM; S1 LOW. F54 is the P3 package reviewer's.)
+
+## Round 2 — NOT CLEAN on head f16eed6f
+
+Reviewed head: `f16eed6fb50da9581060c06acc6f2dded1d61ca0`. The base is v1 `fc23cd9747e64e24f99565543b45ae5f7400a71c` (#171
+merged). Delta on `9be81027`: `e3eb925b` (G1), `9ea5574a` and `400727e4` (the `signals` scan, F54; S1), the merge
+`75482fa1` of v1 `fc23cd97`, and `f16eed6f` (#171's crate goes through the guard). P3's gate log:
+`…-f16eed6f-pool-20261009-040121-96622.log` (44 mutants: 41 caught, 0 missed, 0 timeout, 3 unviable). This reviewer did
+not read it.
+
+- **The merge `75482fa1`.** `git merge-tree --write-tree 400727e4 fc23cd97` conflicts only in `xtask/src/ci.rs`. The
+  real merge differs from the trial tree only in that file. The resolution keeps both sides: the `use` line has `signals`
+  and `unsafe_exception`, and `taint_job` runs taint, timers, `unsafe_exception` and `signals`.
+- **G1 CLOSED.** `signal_own_group(signal)` takes no target, so no record can give it one. It refuses our own group 0 or
+  1 (`own_group`, tested), and it sends with `kill_current_process_group`, which is now banned outside `signal.rs`. The
+  users are `guard_cleanup.rs` `end_group`'s reserve-failure path, the anchor's `terminate`, and `rounds::end_group`'s
+  reserve-failure path. Each of them is in that group when it signals: the reserve failed before `setpgid(None, None)`,
+  and the anchor calls `verify` (the anchor is still a member of `report.group`) before `terminate`. `reserved_kill` signals
+  from outside the group, through `signal_group`. `a_signal_to_our_own_group_reaches_this_process` proves the real call
+  with `SIGURG`, which the other members ignore by default.
+  - P3 wrote no child-in-a-new-group test and no reserve-failure test, because plan r22 defers new real-process test code
+    until P6's PR B. This reviewer accepts that reason. **Carry to PR B:** a test of the reserve-failure path of both
+    `end_group` copies.
+- **S1 CLOSED.** `test_budget::kill` no longer runs a program. Each argument goes through `target` (tested: a pid, `-N`,
+  and junk) and then through `signal_process` or `signal_group`, which refuse 0, 1 and our own. The `kill -> ()` exclusion
+  states its reason, and it names the tests of the decisions inside the body.
+- **F54 (the P3 package reviewer's).** `cargo xtask signals` reads `proc-macro2` tokens. So an `#[allow]`, a `cfg` or a
+  feature hides nothing. The scan runs in the `taint` job. The clippy job now uses `--all-features`. The tests cover a path,
+  an import, a renamed import, a glob, a raw identifier, comments, strings and longer names. F54's closure is the package
+  reviewer's to rule on.
+- **`clippy_job -> Ok(())` exclusion.** The body has no decision other than its `?`, the same as the accepted
+  `mutants_job` entry.
+
+### L1 LOW — the scan and the bans do not see a `libc` signal call
+
+`signals.rs` matches only the three rustix names, and the `clippy.toml` entries ban only them. But `libc` is a dependency
+of four crates: `botster-core-sys` (macOS dev), `botster-core`, `botster-test-process` and `botster-worker`. So
+`libc::kill(-1, SIGKILL)` or `libc::killpg(1, SIGKILL)` passes both checks. That is the same `kill(-1)` hazard that this
+PR exists to stop, and `botster-test-process` already calls `libc` directly (`close`). Fix:
+- Add `libc::kill` and `libc::killpg` to every `clippy.toml` list (with `allow-invalid`).
+- In the scan, add `killpg` to `RAW_CALLS`, and match `kill` only as the path `libc :: kill` (a bare `kill` is
+  `Child::kill` and `test_budget::kill`).
+- Add both cases to `a_raw_signal_call_outside_the_guard_is_a_violation_under_any_allow_or_cfg`.
+
+Observation (not counted): the scan cannot see `Command::new("sh")` with a `kill` script, or a `Command` under another
+name. A shell script is outside the Rust scan. This reviewer does not ask for more.
+
+VERDICT: NOT CLEAN (1 open: L1 LOW)
