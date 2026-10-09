@@ -3,7 +3,8 @@
 #   botster-gate --on mac|linux <core worktree> -- bash docs/stage1/ghostty-upstream-sync-20261009/evidence.sh
 # It prints the heads, the Zig version, then for each step its exit status:
 #   1. the lib-vt build with the binding's GHOSTTY_BUILD_ARGS and an EMPTY Zig global cache, and the packages that the
-#      build fetched, compared with build_data.rs ZIG_PACKAGES (needs network; it says so when it has none);
+#      build fetched, compared with build_data.rs ZIG_PACKAGES (needs network; it says so when it has none; the gate's
+#      binding build of step 3 covers the build from the package store);
 #   2a. zig build test-lib-vt --summary all in upstream's default configuration (SIMD, the app packages); it needs
 #       network to fetch the test packages, and without network it says so and does not run;
 #   2b. zig build test-lib-vt --summary all with the shipped options: GHOSTTY_BUILD_ARGS without "build" and without
@@ -22,18 +23,31 @@ trap 'rm -rf "$scratch"' EXIT
 args=$(sed -n '/pub const GHOSTTY_BUILD_ARGS/,/^];/p' "$g/build_data.rs" | sed -n 's/^ *"\(.*\)",$/\1/p')
 packages=$(sed -n '/pub const ZIG_PACKAGES: /,/^];/p' "$g/build_data.rs" | sed -n 's/^ *"\(.*\)",$/\1/p' | sort)
 
+# Zig 0.16 can also take packages from the project-local zig-pkg directory of the fork tree (untracked), for example
+# after a prefetch in the same tree. Then the "empty-cache" build is not empty, so the script reports the directory.
+if [ -e "$f/zig-pkg" ]; then echo "project-local $f/zig-pkg: PRESENT ($(ls "$f/zig-pkg" | wc -l | tr -d ' ') entries)"; else
+  echo "project-local $f/zig-pkg: absent"; fi
+
 echo "== 1. lib-vt build, empty global cache: zig $(echo $args)"
 (cd "$f" && "$zig" $args --cache-dir "$scratch/local" --global-cache-dir "$scratch/global" --prefix "$scratch/prefix") > "$scratch/lib.txt" 2>&1
-echo "lib build exit $?"
+status=$?
+nonet=
+if [ $status -ne 0 ] && grep -q "unable to connect to server" "$scratch/lib.txt"; then
+  nonet=1
+  echo "lib build exit $status: NOT RUN, no network (the empty-cache check fetches every package)"
+else
+  echo "lib build exit $status"
+fi
 tail -5 "$scratch/lib.txt"
 ls -l "$scratch/prefix/lib" 2>&1
 fetched=$(ls "$scratch/global/p" 2>/dev/null | sed -n 's/\.tar\.gz$//p' | sort)
 echo "fetched packages ($(echo "$fetched" | grep -c .)):"; echo "$fetched"
-if [ "$fetched" = "$packages" ]; then echo "package list: SAME as build_data.rs ZIG_PACKAGES"; else
+if [ -n "$nonet" ]; then echo "package list: not compared (no network)"
+elif [ "$fetched" = "$packages" ]; then echo "package list: SAME as build_data.rs ZIG_PACKAGES"; else
   echo "package list: DIFFERENT from build_data.rs ZIG_PACKAGES:"; diff <(echo "$packages") <(echo "$fetched"); fi
 
 echo "== 2a. zig build test-lib-vt --summary all, upstream default configuration"
-if [ -z "$fetched" ]; then
+if [ -n "$nonet" ]; then
   echo "test-lib-vt default: NOT RUN, no network (the test packages are not in the package store)"
 else
   # The tests need more packages than the library. The Mac Zig fetch can fail with TlsInitializationFailed; it is tried
