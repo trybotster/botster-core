@@ -88,8 +88,8 @@ None merged, so no patch needs a re-audit for them.
 No `build.zig.zon`, `build.zig` or `pkg/` file changed upstream. The Mac run with an empty Zig global cache fetched
 exactly the 7 packages of `build_data.rs` `ZIG_PACKAGES` (final Mac run below). The Linux gate's fetch step mirrors the
 submodule URL and checks out the pinned commit, and its package store needs nothing new. `test-lib-vt` with the
-shipped options needs no package outside `ZIG_PACKAGES`, on Mac and on Linux (step 2b below), so the list gets no
-test-only part.
+shipped options needs no package outside `ZIG_PACKAGES`: the Linux step 2b below, with no network, shows it. So the list
+gets no test-only part.
 
 ## Patch decisions
 
@@ -140,27 +140,58 @@ tested configuration cannot drift from the shipped one. Its steps:
    - 2a. upstream's default configuration (SIMD, and the Ghostty application's packages). This step needs network.
    - 2b. the shipped options: `GHOSTTY_BUILD_ARGS` without `build` and without `-Doptimize` (`-Demit-lib-vt -Dsimd=false
      -Dcpu=baseline -Demit-xcframework=false`), in Debug, so the tests run with the safety checks. Its Zig global cache
-     holds only the 7 packages of `ZIG_PACKAGES`, copied from the gate's package store. The step reports any package
-     that the run fetched outside that list.
+     holds only the 7 packages of `ZIG_PACKAGES`, copied from the gate's package store, and the fork tree's `zig-pkg/`
+     is moved out first. The step reports any package that the run fetched into the global cache outside that list.
 3. `cargo nextest run -p botster-terminal-ghostty`.
 
 The script also reports whether the fork tree has a project-local `zig-pkg/` directory, because Zig 0.16 takes packages
-from it too. Both final runs report it absent.
+from it too: at the start, and before and after step 2b. Before step 2b it moves the directory out of the fork tree
+(review finding F-A6-04). Steps 2a and 2b print the whole `--summary all` step tree.
 
 **Scope.** Linux test-lib-vt uses the shipped options (emit-lib-vt, `simd=false`, `cpu=baseline`, Debug). Upstream's
 default configuration (SIMD, the application packages) is covered by the Mac run only. The gate has no network, and the
 package store is filled for `ZIG_PACKAGES`, the packages of the shipped build.
 
-### Final runs (fork `39a68e822`, Core `2c636dbe`, 0 tracked changes in both, Zig 0.16.0)
+### Final runs (fork `39a68e822`, Zig 0.16.0, 0 tracked changes in Core and fork)
 
-The commits after `2c636dbe` change only these records and logs; they change no source and not `evidence.sh`.
+The commits after `6e4a55aa` change only these records and logs; they change no source and not `evidence.sh`.
 
-| Step | Mac (`mac-run3-2c636dbe.log`) | Linux (`linux-run2-2c636dbe.log`) |
+| Step | Mac | Linux (`linux-run3-6e4a55aa.log`, no network) |
 |---|---|---|
-| 1. empty-cache build and packages | exit 0; `libghostty-vt.a` 10341912 bytes; **the 7 packages of `ZIG_PACKAGES`, the same list** | not run: no network (`NameServerFailure`) |
-| 2a. `test-lib-vt`, default configuration | exit 0, **46/46 steps succeeded; 6751/6805 tests passed (54 skipped)** (the first fetch try failed with `TlsInitializationFailed`; the second passed) | not run: no network |
-| 2b. `test-lib-vt`, shipped options, `ZIG_PACKAGES` only | exit 0, **42/42 steps succeeded; 6749/6805 tests passed (56 skipped)**; nothing fetched | exit 0, **41/41 steps succeeded; 6733/6805 tests passed (72 skipped)**; nothing fetched |
-| 3. binding tests | exit 0, **134 passed** | exit 0, **134 passed** |
+| 1. empty-cache build and packages | `mac-run3-2c636dbe.log` (Core `2c636dbe`; `zig-pkg/` absent at the start): exit 0; `libghostty-vt.a` 10341912 bytes; **the 7 packages of `ZIG_PACKAGES`, the same list**. (In `mac-run4-6e4a55aa.log` this step did not finish: a fetch from codeberg failed, `HttpConnectionClosing`.) | not run: no network (`NameServerFailure`) |
+| 2a. `test-lib-vt`, default configuration | `mac-run4-6e4a55aa.log`: exit 0, **46/46 steps succeeded; 6751/6805 tests passed (54 skipped)** | not run: no network |
+| 2b. `test-lib-vt`, shipped options | `mac-run4-6e4a55aa.log`: exit 0, **42/42 steps succeeded; 6749/6805 tests passed (56 skipped)** | exit 0, **41/41 steps succeeded; 6733/6805 tests passed (72 skipped)**; nothing fetched |
+| 3. binding tests | `mac-run4-6e4a55aa.log`: exit 0, **134 passed** | exit 0, **134 passed** |
+
+**What each run proves.**
+
+- **The 7-package proof is Linux step 2b.** The gate has no network, the Zig global cache holds only the 7 packages of
+  `ZIG_PACKAGES`, and the fork tree has no `zig-pkg/` directory before the step. A package outside the list cannot come
+  from anywhere, and the tests pass. (The step writes a `zig-pkg/` itself: Zig 0.16 unpacks the cached packages there.)
+- **The empty-cache shipped-library proof is Mac step 1** (`mac-run3-2c636dbe.log`): the build fetched exactly the 7
+  packages of `ZIG_PACKAGES` into an empty global cache, with no `zig-pkg/` in the fork tree.
+- **Mac step 2b is the shipped-options test result, not a package proof** (review finding F-A6-04). Step 2a filled the
+  fork tree's `zig-pkg/` (39 entries); `evidence.sh` moved it out of the fork tree before step 2b. Step 2b then wrote a
+  `zig-pkg/` of its own, and the Mac has network, so its "none fetched" line covers only the global cache.
+
+**Why the step and skip counts differ.** The `--summary all` trees (in `mac-run4-6e4a55aa.log` and the Linux log) have
+two test runs, one for each module that `test-lib-vt` builds (`vt` and `vt_c`, both with the root `src/lib_vt.zig`).
+
+| Run | Steps | Skipped in each module | Skipped in all |
+|---|---|---|---|
+| Mac, default configuration (2a) | 46 | 27 | 54 |
+| Mac, shipped options (2b) | 42 | 28 | 56 |
+| Linux, shipped options (2b) | 41 | 36 | 72 |
+
+- Mac 2a to Mac 2b: one more skip in each module. The test `decode simd matches scalar` (`src/simd/vt.zig` line 158)
+  skips when `-Dsimd=false`. The shipped options also drop the four steps of the SIMD libraries (`compile lib simdutf`,
+  `compile lib highway`, `WriteFile hwy` and an unnamed `WriteFile`): 46 steps to 42.
+- Mac 2b to Linux 2b: 8 more skips in each module (16 in all), and 16 fewer passes; the total is 6805 on both. Eight tests
+  of `src/lib_vt.zig`'s input code run only on macOS: `src/input/key_encode.zig` lines 1846, 1868, 2246, 2263, 2452,
+  2837 and 2850, and `src/input/key_mods.zig` line 174.
+- Mac 2b has one step more than Linux 2b: `WriteFile libc.txt`, an input of `translate-c wuffs_c.h`. On macOS,
+  `pkg/translate-c/build.zig` takes the libc paths of the target from `pkg/apple-sdk` (`apple_sdk.pathsForTarget`),
+  which writes that file. Every other step name is the same in the two trees.
 
 Linux: x86_64, image `botster-core-gate:bbc12a44852f`, Zig at `/usr/local/zig/zig`. The binding tests build
 libghostty-vt from the fork through `build.rs` and link it statically, so the Linux-only patch 10 (link libc) is
@@ -184,6 +215,7 @@ exercised.
 |---|---|---|
 | `mac-run1-d1e747ca.log` | `d1e747ca` | (1) and (3) pass; (2) not run: a test-only package fetch failed, `TlsInitializationFailed`. |
 | `mac-run2-7095fb76.log` | `7095fb76` | (2) default and (3) pass; (1) not run: a fetch from codeberg failed, `HttpConnectionClosing`. |
+| `linux-run2-2c636dbe.log` | `2c636dbe` | (2b) and (3) pass, as in the final Linux run; (1) and (2a) not run (no network). Its tree was not printed yet. |
 | `linux-run-7095fb76.log` | `7095fb76` | (3) passes. (1) reports exit 0 with no package fetched. It is not an empty-cache check: probably the gate's `prefetch-zig.sh` ran in the same fork tree first and left the packages in `zig-pkg/`. (2) default cannot run without network. |
 
 ## Pin candidate
