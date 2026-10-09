@@ -60,3 +60,13 @@ comment says that "no crate is exempt from the pattern rule", and the clippy ban
 argument before the command runs. Add a test that a pid of 1 or our own pid is never passed.
 
 VERDICT: NOT CLEAN (2 open: G1 MEDIUM; S1 LOW)
+
+### Note after round 1 (same head 9be81027) — the P3 package reviewer's F54 (theirs), missed here
+
+The P3 package reviewer's F54 MEDIUM (verdict `a68fa489`) is real. This reviewer checked the ban entries but not the
+allowances. `#![allow(clippy::disallowed_methods)]` silences the whole list, the signal entries too. At the head, 13 files
+carry such an allow (for example `crates/botster-core/tests/slow_real_core.rs:8`, file-wide, for the clock), and CI clippy
+does not build the `slow` feature. So a raw `kill_process` call can come back in those files with no lint failure. F54 is
+theirs to close. This reviewer will check its closure in the next round with G1 and S1.
+
+VERDICT: NOT CLEAN (2 open here: G1 MEDIUM; S1 LOW. F54 is the P3 package reviewer's.)
