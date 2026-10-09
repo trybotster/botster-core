@@ -8,7 +8,7 @@ use botster_core_edges::edges::{
 };
 use botster_core_edges::scheduler::Production;
 use botster_core_edges::{Entropy, Scheduler, Wake as WakeEdge};
-use botster_core_host::driver::{HandoffError, HostEdges, HostWake, WorkerSpawn};
+use botster_core_host::driver::{DescriptorSendError, HostEdges, HostWake, WorkerSpawn};
 use botster_core_host::LinkId;
 use botster_core_link::launch::WorkerLaunch;
 use botster_core_sys::entropy::OsEntropy;
@@ -450,16 +450,15 @@ impl HostEdges for RealEdges {
         }
     }
 
-    fn handoff_route(
+    fn link_send_descriptor(
         &mut self,
         _link: LinkId,
-        _route: RouteId,
-        _transport: StreamEndpoint,
-        _options: &AttachOptions,
-    ) -> Result<(), HandoffError> {
-        // The descriptor handoff over the control link (`SCM_RIGHTS`, DP-2) belongs to the route data plane (P4a). Until it
-        // exists, a route closes with the typed `HandoffFailed` (OU-2), and Core closes the endpoint.
-        Err(HandoffError)
+        _bytes: &[u8],
+        endpoint: StreamEndpoint,
+    ) -> Result<usize, (StreamEndpoint, DescriptorSendError)> {
+        // `SCM_RIGHTS` over the control link (DP-2) is real-only work after the testkit PRs of P4a (worker-core DESIGN.md
+        // "Real-only"). Until it exists, a route closes with the typed `HandoffFailed` (OU-2), and Core closes the endpoint.
+        Err((endpoint, DescriptorSendError::Failed))
     }
 
     fn wake(&self) -> Arc<dyn HostWake> {

@@ -20,7 +20,7 @@ use botster_core_edges::scheduler::{ChoicePoint, Scheduler};
 use botster_core_edges::Machine;
 use botster_core_link::frame::{encode_frame, FrameDecoder, FrameType};
 use botster_core_link::hello::Hello;
-use botster_core_link::msg::WorkerMsg;
+use botster_core_link::msg::{HostMsg, WorkerMsg};
 use botster_core_link::proof::TOKEN_LEN;
 use botster_route_codec::prelude::QueryKind;
 use std::collections::{BTreeMap, BTreeSet};
@@ -41,9 +41,15 @@ pub struct WorkerSpawn {
     pub startup: std::time::Duration,
 }
 
-/// The handoff of a route's stream failed (DP-2): the route closes `HandoffFailed`.
+/// Why [`HostEdges::link_send_descriptor`] took nothing (DESIGN.md "The handoff"; worker-core DESIGN.md P4a).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct HandoffError;
+pub enum DescriptorSendError {
+    /// `WouldBlock` or `Interrupted`: the link takes no byte now. The writer keeps the endpoint and tries again at the next
+    /// write readiness.
+    Blocked,
+    /// The handoff failed: the route closes `HandoffFailed`, and the driver closes the endpoint (DP-2).
+    Failed,
+}
 
 /// The wake object: the `WakeHandle` that the host waits on, and the "runnable work exists" flag that the driver sets and
 /// clears (TM-6, TH-2).
@@ -89,14 +95,15 @@ pub trait HostEdges: Send {
     /// Read interest follows what the engine can take (plan 2.5 rule 7): off while a frame is held, on again when the engine
     /// can take it.
     fn set_read_interest(&mut self, link: LinkId, on: bool);
-    /// Hands the stream of a route to the worker over its link (DP-2).
-    fn handoff_route(
+    /// Writes `bytes` (the start of a route's `AttachRoute` frame) with the route's stream riding on their first byte, as
+    /// `sendmsg` with `SCM_RIGHTS` does (DP-2). `Ok(n)`, `n >= 1`: the link took the endpoint and the first `n` bytes, and
+    /// the edge owns the endpoint. An error took nothing and gives the endpoint back.
+    fn link_send_descriptor(
         &mut self,
         link: LinkId,
-        route: RouteId,
-        transport: StreamEndpoint,
-        options: &AttachOptions,
-    ) -> Result<(), HandoffError>;
+        bytes: &[u8],
+        endpoint: StreamEndpoint,
+    ) -> Result<usize, (StreamEndpoint, DescriptorSendError)>;
 
     /// The wake object (`Wake`). The driver signals and drains it, and hands it out as the `WakeHandle`.
     fn wake(&self) -> Arc<dyn HostWake>;
@@ -132,12 +139,24 @@ struct LinkState {
     decoder: FrameDecoder,
     /// Bytes that the link did not take yet (plan 2.5: write interest while this is not empty).
     out: Vec<u8>,
+    /// The route streams that ride with the first byte of their `AttachRoute` frame in `out`, in offset order (DP-2). The
+    /// mark owns its endpoint until the link takes it.
+    marks: std::collections::VecDeque<Mark>,
     /// The first frame of a link is the hello; after it, messages.
     hello_seen: bool,
     /// Bytes that were read and not decoded yet: at most one read chunk.
     pending: Vec<u8>,
     /// A decoded input that the engine cannot take now (EV-5b): the link is not read until it can.
     held: Option<Input>,
+}
+
+/// A route stream that waits in a link's outbound bytes: `at` is the offset of its frame in `out`, `len` the frame's length.
+#[derive(Debug)]
+struct Mark {
+    at: usize,
+    len: usize,
+    route: RouteId,
+    endpoint: StreamEndpoint,
 }
 
 /// The host driver. It is `Send`, and `Core` is `Send` and not `Sync` (TH-1) because the owner thread alone calls it.
@@ -323,19 +342,49 @@ impl<E: HostEdges> HostDriver<E> {
                 route,
                 transport,
                 options,
-            } => {
-                if self
-                    .edges
-                    .handoff_route(link, route, transport, &options)
-                    .is_err()
-                {
-                    self.failed_handoffs.push_back(route);
-                }
-            }
+                limits,
+            } => self.send_handoff(link, route, transport, options, limits),
         }
     }
 
     // ---- links ----
+
+    /// Queues the route's `AttachRoute` frame like any frame, with its stream marked at the frame's first byte (DP-2). A
+    /// link that is gone, or a frame over the bound, fails the handoff; the endpoint is dropped, which closes it.
+    fn send_handoff(
+        &mut self,
+        link: LinkId,
+        route: RouteId,
+        endpoint: StreamEndpoint,
+        options: AttachOptions,
+        limits: AppliedRouteLimits,
+    ) {
+        let mut payload = Vec::new();
+        HostMsg::AttachRoute {
+            route,
+            options,
+            limits,
+        }
+        .encode(&mut payload);
+        let Some(state) = self.links.get_mut(&link) else {
+            self.failed_handoffs.push_back(route);
+            return;
+        };
+        let at = state.out.len();
+        if encode_frame(FrameType::HOST_MSG, &payload, self.frame_bound, &mut state.out).is_err() {
+            state.out.truncate(at);
+            self.failed_handoffs.push_back(route);
+            return;
+        }
+        let len = state.out.len() - at;
+        state.marks.push_back(Mark {
+            at,
+            len,
+            route,
+            endpoint,
+        });
+        self.flush(link);
+    }
 
     fn send_frame(&mut self, link: LinkId, kind: FrameType, payload: &[u8]) {
         let Some(state) = self.links.get_mut(&link) else {
@@ -349,22 +398,49 @@ impl<E: HostEdges> HostDriver<E> {
         self.flush(link);
     }
 
+    /// Writes the outbound bytes in order. The bytes before a mark go by `link_send`; at a mark, the frame's first bytes go by
+    /// `link_send_descriptor` with the route's stream, so a partly written earlier frame is always complete first (DP-2).
     fn flush(&mut self, link: LinkId) {
         let Some(state) = self.links.get_mut(&link) else {
             return;
         };
         while !state.out.is_empty() {
-            match self.edges.link_send(link, &state.out) {
-                Ok(0) => break,
-                Ok(n) => {
-                    state.out.drain(..n);
+            let next_mark = state.marks.front().map(|m| m.at);
+            let sent = if next_mark == Some(0) {
+                let mark = state.marks.pop_front().expect("a mark at 0");
+                match self
+                    .edges
+                    .link_send_descriptor(link, &state.out[..mark.len], mark.endpoint)
+                {
+                    Ok(n) => n,
+                    Err((endpoint, DescriptorSendError::Blocked)) => {
+                        state.marks.push_front(Mark { endpoint, ..mark });
+                        break;
+                    }
+                    Err((endpoint, DescriptorSendError::Failed)) => {
+                        // Nothing of the frame was taken: it is dropped whole, so the framing stays intact. The endpoint
+                        // closes when it drops.
+                        drop(endpoint);
+                        self.failed_handoffs.push_back(mark.route);
+                        mark.len
+                    }
                 }
-                Err(e) if e.kind() == io::ErrorKind::WouldBlock => break,
-                Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
-                Err(error) => {
-                    self.close_link_because(link, &error);
-                    return;
+            } else {
+                let until = next_mark.unwrap_or(state.out.len());
+                match self.edges.link_send(link, &state.out[..until]) {
+                    Ok(0) => break,
+                    Ok(n) => n,
+                    Err(e) if e.kind() == io::ErrorKind::WouldBlock => break,
+                    Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
+                    Err(error) => {
+                        self.close_link_because(link, &error);
+                        return;
+                    }
                 }
+            };
+            state.out.drain(..sent);
+            for mark in &mut state.marks {
+                mark.at -= sent;
             }
         }
         let wanted = !state.out.is_empty();
@@ -380,7 +456,12 @@ impl<E: HostEdges> HostDriver<E> {
     }
 
     fn close_link(&mut self, link: LinkId) {
-        if self.links.remove(&link).is_some() {
+        if let Some(state) = self.links.remove(&link) {
+            // The streams that did not leave close with their marks; their routes are failed handoffs, unless the link's
+            // loss closed them first (the first reason wins, OU-2).
+            for mark in state.marks {
+                self.failed_handoffs.push_back(mark.route);
+            }
             self.edges.link_close(link);
             self.feed(Input::LinkClosed { link });
         }
@@ -393,6 +474,7 @@ impl<E: HostEdges> HostDriver<E> {
             LinkState {
                 decoder: FrameDecoder::new(self.frame_bound),
                 out: Vec::new(),
+                marks: std::collections::VecDeque::new(),
                 hello_seen: false,
                 pending: Vec::new(),
                 held: None,

@@ -112,12 +112,15 @@ pub enum Action {
         identity: ProcessIdentity,
         signal: GroupSignal,
     },
-    /// Hands a route's connected stream to the worker over its link (DP-2). Core owns the endpoint from here.
+    /// Hands a route's connected stream to the worker over its link (DP-2): the driver sends `HostMsg::AttachRoute` with the
+    /// stream riding on its first byte. `limits` are the values that `attach` returned (OU-1). Core owns the endpoint from
+    /// here.
     HandoffRoute {
         link: LinkId,
         route: RouteId,
         transport: StreamEndpoint,
         options: AttachOptions,
+        limits: AppliedRouteLimits,
     },
 }
 

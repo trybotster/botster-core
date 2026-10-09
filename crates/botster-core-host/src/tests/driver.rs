@@ -1,7 +1,7 @@
 //! The driver (plan 2.1, 2.5): framing, the hello, partial writes, the wake flag and the order of a pump, over mock edges.
 
 use super::*;
-use crate::driver::{HandoffError, HostDriver, HostEdges, HostWake, WorkerSpawn};
+use crate::driver::{DescriptorSendError, HostDriver, HostEdges, HostWake, WorkerSpawn};
 use botster_core_edges::edges::GroupSignal;
 use botster_core_edges::scheduler::Production;
 use botster_core_edges::{Scheduler, Wake as WakeEdge};
@@ -12,6 +12,7 @@ use std::sync::{Arc, Mutex};
 
 mod api;
 mod deadlines;
+mod handoff;
 mod observations;
 
 #[derive(Default)]
@@ -50,6 +51,8 @@ struct MockLink {
     closed_by_host: bool,
     /// The most bytes that one `send` takes: a short write (plan 2.5: write interest while bytes wait).
     send_cap: Option<usize>,
+    /// The bytes that the link takes in all until a test changes it: a full socket buffer that drains later.
+    send_budget: Option<usize>,
     write_interest: bool,
     read_interest: bool,
     peer_closed: bool,
@@ -57,6 +60,10 @@ struct MockLink {
     fail_recv: Vec<io::ErrorKind>,
     /// Errors that the next `send` calls return, last first.
     fail_send: Vec<io::ErrorKind>,
+    /// The route streams that rode on a byte of `from_host`: the byte's offset and the route endpoint's object.
+    descriptors: Vec<(usize, StreamEndpoint)>,
+    /// Errors that the next descriptor sends return, last first.
+    fail_descriptor: Vec<DescriptorSendError>,
 }
 
 struct Mock {
@@ -234,8 +241,12 @@ impl HostEdges for Edges {
             return Err(kind.into());
         }
         let n = l.send_cap.map_or(bytes.len(), |cap| cap.min(bytes.len()));
+        let n = l.send_budget.map_or(n, |budget| budget.min(n));
         if n == 0 {
             return Err(io::ErrorKind::WouldBlock.into());
+        }
+        if let Some(budget) = &mut l.send_budget {
+            *budget -= n;
         }
         l.from_host.extend_from_slice(&bytes[..n]);
         Ok(n)
@@ -259,14 +270,35 @@ impl HostEdges for Edges {
         }
     }
 
-    fn handoff_route(
+    fn link_send_descriptor(
         &mut self,
-        _l: LinkId,
-        _r: RouteId,
-        _t: StreamEndpoint,
-        _o: &AttachOptions,
-    ) -> Result<(), HandoffError> {
-        Err(HandoffError)
+        link: LinkId,
+        bytes: &[u8],
+        endpoint: StreamEndpoint,
+    ) -> Result<usize, (StreamEndpoint, DescriptorSendError)> {
+        let failure = {
+            let mut mock = self.0.lock().unwrap();
+            match mock.links.get_mut(&link) {
+                Some(l) => l.fail_descriptor.pop(),
+                None => Some(DescriptorSendError::Failed),
+            }
+        };
+        if let Some(error) = failure {
+            return Err((endpoint, error));
+        }
+        match self.link_send(link, bytes) {
+            Ok(n) => {
+                let mut mock = self.0.lock().unwrap();
+                let l = mock.links.get_mut(&link).expect("the send found it");
+                let at = l.from_host.len() - n;
+                l.descriptors.push((at, endpoint));
+                Ok(n)
+            }
+            Err(e) if matches!(e.kind(), io::ErrorKind::WouldBlock | io::ErrorKind::Interrupted) => {
+                Err((endpoint, DescriptorSendError::Blocked))
+            }
+            Err(_) => Err((endpoint, DescriptorSendError::Failed)),
+        }
     }
 
     fn wake(&self) -> Arc<dyn HostWake> {
