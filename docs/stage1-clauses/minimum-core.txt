@@ -13,7 +13,6 @@ conf::a2_7_pump_report_fields	A2-7	p1-lifecycle
 conf::a6_1_withheld_control_link_gives_worker_unreachable_not_worker_gone	A6-1	p5-adoption
 conf::ad_1_created_rows_kept	AD-1	p5-adoption
 conf::ad_1_running_adopts_running	AD-1	p5-adoption
-conf::ad_2_lost_reasons	AD-2	p5-adoption
 conf::ad_3_adopted_equals_started	AD-3	p5-adoption
 conf::ad_5_no_double_adoption	AD-5	p5-adoption
 conf::ad_6_reused_pid_is_never_killed	AD-6	p5-adoption

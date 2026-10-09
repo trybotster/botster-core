@@ -43,10 +43,10 @@ Assumed minimum configuration (each one removes a family of ids):
 | p4a-routes | 18 | 134 | 152 |
 | p4b-queries-files | 1 | 67 | 68 |
 | p4c-webrtc-perf | 0 | 15 | 15 |
-| p5-adoption | 15 | 40 | 55 |
+| p5-adoption | 14 | 41 | 55 |
 | p6-testkit | 0 | 15 | 15 |
 | p7-services | 0 | 67 | 67 |
-| **Total (clause files)** | **70** | **603** | **673** |
+| **Total (clause files)** | **69** (70 before revision 23k) | **604** | **673** |
 | other: in the v1 ledger, no owner | 0 | 2 | 2 |
 
 The "other" row: the v1 ledger has 675 ids. Two of them, `conf::a3_1_route_too_small_for_the_worst_case_minimum_frame_gets_no_feature` and `conf::a3_1_minimum_frame_includes_truncated_and_the_widest_count`, were withdrawn by Amendment 9 (A9-2). `owners.py` skips withdrawn ids, so they are in no package file. They are not in `core-pending.txt`.
@@ -149,7 +149,7 @@ The "other" row: the v1 ledger has 675 ids. Two of them, `conf::a3_1_route_too_s
 | `conf::a10_1_wrong_token_is_never_signalled` | A10-1 | Safety, through the testkit: "the test asserts that Core never signals the impostor." |
 | `conf::a10_1_wrong_instance_is_never_signalled` | A10-1 | The same, for a wrong `InstanceId`. |
 | `conf::a10_2_corrupted_row_is_lost_registry_corrupt` | A10-2 | Registry safety: a damaged row "becomes `Lost(RegistryCorrupt)`", so one bad row does not break adoption of the others. A host killed mid-write can leave one. |
-| `conf::ad_2_lost_reasons` | AD-2 | Worker died while the host was down: `WorkerGone` "(no process with this identity)", typed. Only the `WorkerGone` case is needed for the minimum. |
+| ~~`conf::ad_2_lost_reasons`~~ | AD-2 | **Removed (revision 23k, steward 2026-10-09).** Core A10's Ids item 2 makes this id cover every Lost reason through the testkit, including the service reasons (GuardianLost, EpochExhausted). A partial pass does not exist, and the minimum assumes no services. `WorkerGone` after a host restart stays covered by `ad_1`, `ad_5`, `lc_11` and `a6_1`. |
 | `conf::a6_1_withheld_control_link_gives_worker_unreachable_not_worker_gone` | A6-1 | No hang: a live worker that does not connect becomes `WorkerUnreachable` "(alive but no connection within the deadline)". Without a deadline, `AdoptAll` could wait forever on one worker. |
 | `conf::ou_9_adopted_session_attaches_by_baseline` | OU-9 | "an adopted or long-running session attaches by the same baseline." The client re-attaches after the restart. See B4. |
 
