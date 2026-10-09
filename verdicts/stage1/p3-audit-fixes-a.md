@@ -254,3 +254,15 @@ mutants that the Mac catches, so the exclusion hides a catchable mutant there. T
   The Mac regression test and the Mac catches of round 8 stand.
 
 VERDICT: NOT CLEAN (2 open: E2, E3)
+
+## Round 8 note — E2's requirement narrowed (same head 3d5237b2)
+
+The P3 package reviewer accepts the implementer's proposal for F51: the column 40 mutants leave the global
+`.cargo/mutants.toml` and become an exclusion that the xtask's mutants step applies only when the target is not macOS,
+with unit coverage of that condition; Mac gates then include both mutants. That reviewer withdraws the universal Linux
+proof. This reviewer withdraws it from E2 too: the production search visits every state, so the mutants only reduce
+Linux mutation coverage; the macOS build, where the behavior differs, catches them, with the named Mac run (the lead's
+native rule). E2 now requires: the mechanical off-macOS scope with its unit test; the exception citing the macOS branch
+(`key_encode.zig:642-650`), the Mac regression test and the Mac mutation log; and the PR naming them.
+
+VERDICT: NOT CLEAN (2 open: E2, E3)
