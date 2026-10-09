@@ -20,7 +20,7 @@ use botster_core_edges::Machine;
 use botster_core_link::frame::{encode_frame, FrameDecoder, FrameType, DEFAULT_MAX_PAYLOAD};
 use botster_core_link::hello::Hello;
 use botster_core_link::msg::{HostMsg, LaunchSpec, PayloadId, WorkerMsg};
-use botster_core_link::proof::{token_proof, TOKEN_LEN};
+use botster_core_link::proof::{host_proof, token_proof, TOKEN_LEN};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::time::{Duration, Instant};
 
@@ -354,7 +354,8 @@ impl Worker {
             && Hello::decode(payload).is_ok_and(|hello| {
                 hello.instance == self.cfg.instance
                     && hello.host_epoch == self.cfg.host_epoch
-                    && hello.proof == self.proof()
+                    && hello.proof
+                        == host_proof(&self.cfg.token, &self.cfg.instance, self.cfg.host_epoch)
             });
         if !proven {
             self.close_link();

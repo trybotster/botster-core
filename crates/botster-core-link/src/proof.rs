@@ -1,9 +1,16 @@
 //! The token proof of the hello (Core AD-6): how a peer shows that it holds the per-worker token.
 //!
-//! The proof is the SHA-256 of a fixed domain string, the token, the host epoch and the `InstanceId`. It binds the token to
-//! one instance and one epoch, so a proof that was captured for one session or one host never opens another. The token itself
-//! never travels on the link. Both ends call [`token_proof`]. The package that owns adoption (AD-6, P5) may replace the
-//! function in one place; the hello codec treats the proof as opaque bytes.
+//! The proof is the SHA-256 of a fixed domain string, the role of the sender, the token, the host epoch and the
+//! `InstanceId`. It binds the token to one instance and one epoch, so a proof that was captured for one session or one host
+//! never opens another. The token itself never travels on the link. The hello codec treats the proof as opaque bytes.
+//!
+//! **Roles.** A worker proves itself with [`token_proof`] and a host with [`host_proof`]; each end checks the role of the
+//! other. So neither end can send back the proof that it received: in an adoption the host speaks first (P5), and an impostor
+//! at the worker's endpoint could otherwise return the host's own proof.
+//!
+//! **Rule (AD-4).** The proof rule (the domain, the role byte and the order of the hashed fields) and the five fields of the
+//! hello never change between worker protocol numbers. A worker of protocol N - 1 must be able to answer a host of protocol
+//! N; otherwise it would be `Lost(WorkerUnreachable)` instead of adopted or `Lost(WorkerVersion)`.
 //!
 //! Hand-rolled reason: a keyed MAC over a challenge would need a second round trip; here the hello is the only message and the
 //! link is a local socket that only the host's uid can reach (AD-6), so a bound hash proves possession without a new protocol.
@@ -16,6 +23,11 @@ use sha2::{Digest, Sha256};
 pub const TOKEN_LEN: usize = 32;
 
 const DOMAIN: &[u8] = b"botster-core-link/v1/hello-proof";
+
+/// The role byte of a worker's proof.
+const WORKER: u8 = b'w';
+/// The role byte of a host's proof.
+const HOST: u8 = b'h';
 
 /// A token as 64 lowercase hex digits: its form in the worker's environment and in the registry row (AD-6).
 pub fn token_hex(token: &[u8; TOKEN_LEN]) -> String {
@@ -53,9 +65,21 @@ pub(crate) fn from_hex<const N: usize>(text: &str) -> Option<[u8; N]> {
 /// The proof of `token` for `instance` at `host_epoch`.
 ///
 /// Clause: Core AD-6, Core DP-8.
+/// The proof that a worker sends in its hello (AD-6).
 pub fn token_proof(token: &[u8; TOKEN_LEN], instance: &InstanceId, host_epoch: u64) -> TokenProof {
+    proof(WORKER, token, instance, host_epoch)
+}
+
+/// The proof that a host sends in its hello (AD-6). It differs from the worker's proof of the same inputs.
+pub fn host_proof(token: &[u8; TOKEN_LEN], instance: &InstanceId, host_epoch: u64) -> TokenProof {
+    proof(HOST, token, instance, host_epoch)
+}
+
+fn proof(role: u8, token: &[u8; TOKEN_LEN], instance: &InstanceId, host_epoch: u64) -> TokenProof {
     let mut hash = Sha256::new();
     hash.update(DOMAIN);
+    hash.update([0]);
+    hash.update([role]);
     hash.update([0]);
     hash.update(token);
     hash.update([0]);
@@ -114,6 +138,39 @@ mod tests {
         assert_ne!(base, token_proof(&[8u8; TOKEN_LEN], &instance("i"), 3));
         assert_ne!(base, token_proof(&token, &instance("j"), 3));
         assert_ne!(base, token_proof(&token, &instance("i"), 4));
+    }
+
+    /// AD-6: a host's proof and a worker's proof of the same inputs differ, so neither end can return the proof it received.
+    /// Each proof also follows its own token, instance and epoch.
+    #[test]
+    fn the_host_and_the_worker_prove_with_different_roles() {
+        let token = [7u8; TOKEN_LEN];
+        let worker = token_proof(&token, &instance("i"), 3);
+        let host = host_proof(&token, &instance("i"), 3);
+        assert_ne!(worker, host);
+        assert_eq!(host, host_proof(&token, &instance("i"), 3));
+        assert_ne!(host, host_proof(&[8u8; TOKEN_LEN], &instance("i"), 3));
+        assert_ne!(host, host_proof(&token, &instance("j"), 3));
+        assert_ne!(host, host_proof(&token, &instance("i"), 4));
+    }
+
+    /// AD-4 rule: the proof is the SHA-256 of the documented layout (domain, role byte, token, epoch, instance, each after a
+    /// zero byte). The hash is computed here from that layout, so a change of the rule fails this test.
+    #[test]
+    fn the_proof_follows_the_documented_layout() {
+        let token = [3u8; TOKEN_LEN];
+        let layout = |role: u8| {
+            let mut bytes = b"botster-core-link/v1/hello-proof".to_vec();
+            bytes.extend([0, role, 0]);
+            bytes.extend(token);
+            bytes.push(0);
+            bytes.extend(9u64.to_be_bytes());
+            bytes.push(0);
+            bytes.extend(b"4-2");
+            TokenProof(Sha256::digest(&bytes).into())
+        };
+        assert_eq!(token_proof(&token, &instance("4-2"), 9), layout(b'w'));
+        assert_eq!(host_proof(&token, &instance("4-2"), 9), layout(b'h'));
     }
 
     /// The domain bytes and the separators keep two different field splits apart.
