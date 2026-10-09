@@ -11,6 +11,11 @@
 exclude_globs = ["**/tests/**", "tests/**"]
 
 exclude_re = [
+    # xtask main.rs run -> Ok(()): the I/O shell reads the process arguments and starts the chosen command; a test cannot
+    # run the binary's entry without a real process. The decision is choose, a pure function with tests:
+    # each_name_chooses_its_own_command, the_help_names_choose_the_help_and_others_fail_with_the_usage and
+    # the_usage_lists_every_command_and_only_those (COMMANDS and USAGE name the same commands).
+    'xtask/src/main\.rs:\d+:\d+: (replace run( ->| with)|.* in run$)',
     # xtask base_merge.rs command (base-merge-check, P6): the I/O shell runs git and prints. A test cannot run it without a
     # real repository and real git processes, which the default tier does not start. Its decisions are pure functions with
     # unit tests, which stay mutation-tested: judge (each_failed_condition_fails_the_check_and_names_its_cause,
