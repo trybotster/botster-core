@@ -102,3 +102,35 @@ Design rounds 3 and 4 (`verdicts/stage1/p5-adoption-design.md`) approved the kep
 supersedes that part of the design. The design text must follow R-36 in the same PR.
 
 VERDICT (unchanged): NOT CLEAN (2 open: A1 MEDIUM with the R-36 fix, W1 LOW)
+
+## Round 2 — CLEAN on head 36688882
+
+Reviewed head: `36688882d42e24130f4419689f8415d48a7f7bb4`, a fast-forward from `6a09f29b` (7 commits, 13 files,
++611 -136). v1 is still `a0f78fe4`. Steward ruling R-36 (`c62085f`) and its follow-up (`d18b6de`) are read here.
+
+- **A1 CLOSED, per R-36.**
+  - `Adopt(id)` is admitted for every `Lost(WorkerUnreachable)` and `Lost(WorkerVersion)` session (`admit.rs:274-288`).
+    The `Unsupported` refusal is gone, and `WrongState` stays only for another state.
+  - `row_state` and the kept intent are removed. `recorded_state()` is the shown state. `begin_adoption` takes `None` for
+    `Adopt(id)`.
+  - `adopt_retry` follows the worker's report alone:
+    - `Running` → `Running`; `Exited` → `Exited`;
+    - `NotLaunched` → `Lost(StartInterrupted)`, follow-up (i);
+    - `Spawning` → a wait for the spawn's answer with no `Launch`, bounded by `startup`, follow-up (ii);
+    - `LaunchFailed` → the LC-4 outcome, follow-up (iii).
+    No `Launch` is sent, and there is no `Stopping` outcome.
+  - The row records the posted state (`post_adoption`, and the adopted start's `Running`). A `Lost` row keeps the
+    worker's identity, so a later handle may retry it.
+  - The tests named in round 1's correction exist (`tests/adoption.rs:877`, `:900`, `:927`, `:946`), including a new
+    handle that retries the row of a broken-link stop.
+  - `DESIGN.md` parts 5 and 9 follow R-36 and say that it replaces the round 2 retry rule. No kept-intent text is left in
+    the code or the design.
+- **W1 CLOSED.** `a_worker_accepts_one_launch_in_its_life` now sends a second `Launch` while the first spawn is in
+  flight. It asserts no action, and exactly one spawn report for one `Spawned` input.
+- **The P5 package reviewer's F23 and F25** are theirs. The delta keeps the link for every non-`Lost` end (F23), and it
+  holds an end that comes during `Flow::Adopt` until after `Running` (F25).
+- **`.cargo/mutants.toml`** is unchanged. The targeted run at this head (`…020637-57135.log`) passes fmt, clippy
+  `-D warnings`, 487 tests, taint, and the slow-profile in-diff mutation run: 157 tested, 139 caught, 0 missed, 0
+  TIMEOUT, 18 unviable. That run is not the full pool gate. The full gate on this exact head stays the lead's check.
+
+VERDICT: CLEAN (0 open) at 36688882d42e24130f4419689f8415d48a7f7bb4
