@@ -200,21 +200,26 @@ fn a_local_detach_waits_for_room() {
         })
         .unwrap();
     w.pump();
-    let mut events = Vec::new();
+    let closed = |e: &Event| matches!(e, Event::RouteClosed { route: r, reason: RouteCloseReason::Detached, .. } if *r == route);
+    let done = |e: &Event| matches!(e, Event::Completed { op, .. } if *op == detach);
+    // The queue was full when the detach began: the first poll has the create's event, and neither the close nor the
+    // completion.
+    let first = w.engine.poll_events(64);
+    assert!(
+        !first.iter().any(|e| closed(e) || done(e)),
+        "the detach waits for room: {first:?}"
+    );
+    w.pump();
+    let mut later = Vec::new();
     for _ in 0..6 {
-        events.extend(w.engine.poll_events(64));
+        later.extend(w.engine.poll_events(64));
         w.pump();
     }
-    let closed = events
-        .iter()
-        .position(|e| matches!(e, Event::RouteClosed { route: r, reason: RouteCloseReason::Detached, .. } if *r == route));
-    let done = events
-        .iter()
-        .position(|e| matches!(e, Event::Completed { op, .. } if *op == detach));
-    assert!(
-        matches!((closed, done), (Some(c), Some(d)) if c < d),
-        "DP-7: RouteClosed, then the completion: {events:?}"
-    );
+    assert_eq!(later.iter().filter(|e| closed(e)).count(), 1, "{later:?}");
+    assert_eq!(later.iter().filter(|e| done(e)).count(), 1, "{later:?}");
+    let c = later.iter().position(closed);
+    let d = later.iter().position(done);
+    assert!(c < d, "DP-7: RouteClosed, then the completion: {later:?}");
 }
 
 fn op_requests(w: &World, link: LinkId) -> Vec<u64> {

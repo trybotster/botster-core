@@ -152,6 +152,46 @@ fn registration(interest: Option<Interest>, registered: bool) -> Registration {
     }
 }
 
+/// The state of a link after a registration call returned `result`, when it was `broken` before (audit A28): a refusal of
+/// the poll breaks the link, and a broken link stays broken.
+fn broken_after(result: &io::Result<()>, broken: Option<io::ErrorKind>) -> Option<io::ErrorKind> {
+    match result {
+        Err(error) => Some(error.kind()),
+        Ok(()) => broken,
+    }
+}
+
+/// The accepts that failed with something other than "no client waits" (for example `EMFILE`), and the last error.
+#[derive(Debug, Default, PartialEq, Eq)]
+struct AcceptFailures {
+    count: u64,
+    last: Option<String>,
+}
+
+impl AcceptFailures {
+    /// What an accept returned: the client, or `None` when no client waits or the accept failed. A failure is counted.
+    fn take<T>(&mut self, accepted: io::Result<T>) -> Option<T> {
+        match accepted {
+            Ok(client) => Some(client),
+            Err(error) if error.kind() == io::ErrorKind::WouldBlock => None,
+            Err(error) => {
+                self.count += 1;
+                self.last = Some(error.to_string());
+                None
+            }
+        }
+    }
+}
+
+/// What the real edges report in the host's diagnostics (LC-10): the failed accepts and the foreign registry files.
+fn edge_diagnostics(accepts: &AcceptFailures, foreign_registry_files: usize) -> serde_json::Value {
+    serde_json::json!({
+        "accept_failures": accepts.count,
+        "last_accept_error": accepts.last,
+        "foreign_registry_files": foreign_registry_files,
+    })
+}
+
 /// The path of the control socket inside the data directory. A Unix socket path is limited to about 100 bytes, so the name is
 /// short.
 fn socket_path(data_dir: &Path) -> PathBuf {
@@ -203,9 +243,12 @@ impl LinkIo {
             }),
             Registration::Keep => Ok(()),
         };
-        if let Err(error) = result {
-            self.broken = Some(error.kind());
-        }
+        self.record(&result)
+    }
+
+    /// Records what a registration call returned. Returns false when the link is broken.
+    fn record(&mut self, result: &io::Result<()>) -> bool {
+        self.broken = broken_after(result, self.broken);
         self.broken.is_none()
     }
 
@@ -231,9 +274,7 @@ pub struct RealEdges {
     socket: PathBuf,
     streams: BTreeMap<LinkId, LinkIo>,
     next_link: u64,
-    /// Accepts that failed with something other than "no client waits" (for example `EMFILE`), and the last error.
-    accept_failures: u64,
-    last_accept_error: Option<String>,
+    accepts: AcceptFailures,
     /// Files of the registry directory that are not rows, at the last read of the rows.
     foreign_registry_files: usize,
     wake: Arc<PollWake>,
@@ -265,8 +306,7 @@ impl RealEdges {
                 socket,
                 streams: BTreeMap::new(),
                 next_link: 1,
-                accept_failures: 0,
-                last_accept_error: None,
+                accepts: AcceptFailures::default(),
                 foreign_registry_files: 0,
                 wake,
                 scheduler: Production::new(),
@@ -339,15 +379,9 @@ impl HostEdges for RealEdges {
     }
 
     fn accept_link(&mut self) -> Option<LinkId> {
-        let mut stream = match retry_interrupted(|| self.listener.accept()) {
-            Ok((stream, _)) => stream,
-            Err(error) if error.kind() == io::ErrorKind::WouldBlock => return None,
-            Err(error) => {
-                self.accept_failures += 1;
-                self.last_accept_error = Some(error.to_string());
-                return None;
-            }
-        };
+        let (mut stream, _) = self
+            .accepts
+            .take(retry_interrupted(|| self.listener.accept()))?;
         let link = LinkId(self.next_link);
         self.next_link += 1;
         let registered =
@@ -363,7 +397,7 @@ impl HostEdges for RealEdges {
                 read: true,
                 write: false,
                 registered: registered.is_ok(),
-                broken: registered.err().map(|e| e.kind()),
+                broken: broken_after(&registered, None),
             },
         );
         Some(link)
@@ -441,11 +475,7 @@ impl HostEdges for RealEdges {
     }
 
     fn diagnostics(&self) -> serde_json::Value {
-        serde_json::json!({
-            "accept_failures": self.accept_failures,
-            "last_accept_error": self.last_accept_error,
-            "foreign_registry_files": self.foreign_registry_files,
-        })
+        edge_diagnostics(&self.accepts, self.foreign_registry_files)
     }
 }
 
@@ -512,15 +542,20 @@ mod tests {
         );
     }
 
-    /// Audit A28: a link whose poll registration fails is broken: `apply` reports it, and every later read or write of the
-    /// link fails with the registration's error, so the driver closes the link instead of keeping one that cannot wake the
-    /// host. The failure is made on Linux, where epoll refuses a change of interest made through another poll than the one
-    /// that holds the descriptor; kqueue has no such refusal.
-    #[cfg(target_os = "linux")]
+    /// Audit A28: a refusal of the poll breaks a link, and a broken link stays broken whatever a later call returns: every
+    /// read or write of it then fails with the refusal's error.
     #[test]
-    fn a_link_whose_registration_fails_is_broken() {
-        let held = Poll::new().unwrap();
-        let other = Poll::new().unwrap();
+    fn a_refused_registration_breaks_the_link_for_good() {
+        let refused = || Err(io::Error::from(io::ErrorKind::NotFound));
+        assert_eq!(broken_after(&Ok(()), None), None);
+        assert_eq!(
+            broken_after(&refused(), None),
+            Some(io::ErrorKind::NotFound)
+        );
+        assert_eq!(
+            broken_after(&Ok(()), Some(io::ErrorKind::NotFound)),
+            Some(io::ErrorKind::NotFound)
+        );
         let (stream, _peer) = UnixStream::pair().unwrap();
         let mut io = LinkIo {
             stream,
@@ -529,17 +564,42 @@ mod tests {
             registered: false,
             broken: None,
         };
-        assert!(io.apply(held.registry(), LinkId(1)), "registered");
+        assert!(io.record(&Ok(())), "a registration that the poll takes");
         assert!(io.check().is_ok());
-        io.write = true;
-        assert!(!io.apply(other.registry(), LinkId(1)), "refused");
-        assert!(io.check().is_err(), "a read or write of the link fails");
-        io.write = false;
-        assert!(
-            !io.apply(held.registry(), LinkId(1)),
-            "a broken link stays broken"
+        assert!(!io.record(&refused()), "refused");
+        assert_eq!(io.check().unwrap_err().kind(), io::ErrorKind::NotFound);
+        assert!(!io.record(&Ok(())), "a broken link stays broken");
+        assert_eq!(io.check().unwrap_err().kind(), io::ErrorKind::NotFound);
+    }
+
+    /// Audit A28, LC-10: an accept with no client waiting is not a failure; any other failed accept is counted with its error,
+    /// and the diagnostics of the edges report the count, the last error and the foreign registry files.
+    #[test]
+    fn a_failed_accept_is_counted_and_reported() {
+        let mut accepts = AcceptFailures::default();
+        assert_eq!(accepts.take(Ok(5u8)), Some(5));
+        assert_eq!(
+            accepts.take::<u8>(Err(io::ErrorKind::WouldBlock.into())),
+            None
         );
-        assert!(io.check().is_err());
+        assert_eq!(accepts, AcceptFailures::default(), "no client waits");
+        assert_eq!(accepts.take::<u8>(Err(io::Error::other("first"))), None);
+        assert_eq!(accepts.take::<u8>(Err(io::Error::other("second"))), None);
+        assert_eq!(
+            accepts,
+            AcceptFailures {
+                count: 2,
+                last: Some("second".into())
+            }
+        );
+        assert_eq!(
+            edge_diagnostics(&accepts, 3),
+            serde_json::json!({
+                "accept_failures": 2,
+                "last_accept_error": "second",
+                "foreign_registry_files": 3,
+            })
+        );
     }
 }
 
@@ -688,5 +748,78 @@ mod slow_tests {
         wake.consume();
         assert_eq!(wake.wait(Duration::ZERO), Wake::TimedOut);
         assert!(wake.fd() > 2, "the descriptor of the poll");
+    }
+
+    /// Audit A28: the poll refuses a change of the interest of a link, here because the link's descriptor was taken out of the
+    /// poll behind the edges' back, which epoll refuses (kqueue has no such refusal, so the test is Linux only). The edges
+    /// wake the host, and every later read or write of the link fails although the client's bytes wait to be read; closing
+    /// the link ends the stream for the client.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_link_that_the_poll_refuses_wakes_the_host_and_fails() {
+        use std::io::{Read, Write};
+        let (mut edges, tmp) = edges();
+        let mut client = connect(&tmp);
+        let link = accept(&mut edges);
+        client.write_all(b"abc").unwrap();
+        edges.settle_wake();
+        assert_eq!(edges.wake.wait(Duration::ZERO), Wake::TimedOut);
+        let io = edges.streams.get_mut(&link).expect("accepted");
+        edges.wake.registry.deregister(&mut io.stream).unwrap();
+        edges.set_write_interest(link, true);
+        assert_eq!(
+            edges.wake.wait(Duration::ZERO),
+            Wake::Woken,
+            "the host pumps and finds the link broken"
+        );
+        let mut buf = [0u8; 8];
+        let read = edges.link_recv(link, &mut buf).unwrap_err();
+        let write = edges.link_send(link, b"x").unwrap_err();
+        assert_ne!(read.kind(), io::ErrorKind::WouldBlock, "{read}");
+        assert_eq!(read.kind(), write.kind());
+        edges.link_close(link);
+        let mut rest = Vec::new();
+        client.read_to_end(&mut rest).unwrap();
+        assert!(rest.is_empty(), "the client sees the end of the stream");
+    }
+
+    /// Audit A28, LC-10: the host closes a link whose registration the poll refuses, and its diagnostics say why. The refusal
+    /// is made as in `a_link_that_the_poll_refuses_wakes_the_host_and_fails`, after the host accepted the client.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn the_host_closes_a_link_that_the_poll_refuses_and_records_why() {
+        use crate::Core;
+        use std::io::Read;
+        use std::time::Instant;
+        let pump = |core: &mut Core| {
+            core.pump(Now {
+                monotonic: Instant::now(),
+                unix: 1_000_000,
+            })
+        };
+        let tmp = tempfile::tempdir().unwrap();
+        let mut core = Core::open(OpenConfig {
+            data_dir: tmp.path().join("d"),
+            worker_path: Some(PathBuf::from("/bin/true")),
+            limits: CoreLimits::default(),
+        })
+        .unwrap();
+        let mut client = connect(&tmp);
+        // A connect on a Unix socket is queued at once: this pump accepts it.
+        pump(&mut core);
+        let edges = core.driver.edges();
+        let io = edges.streams.get_mut(&LinkId(1)).expect("accepted");
+        edges.wake.registry.deregister(&mut io.stream).unwrap();
+        pump(&mut core);
+        let closes = &core.diagnostics()["link_closes"];
+        assert_eq!(
+            closes,
+            &serde_json::json!(["link 1: the poll registration of the link failed"]),
+        );
+        // timer: deadline — a link that the host does not close fails the test instead of hanging it
+        client.set_read_timeout(Some(Duration::from_secs(8))).unwrap();
+        let mut rest = Vec::new();
+        client.read_to_end(&mut rest).unwrap();
+        assert!(rest.is_empty(), "the client sees the end of the stream");
     }
 }
