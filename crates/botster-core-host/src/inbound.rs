@@ -664,9 +664,12 @@ impl HostEngine {
         // During a `Remove` the worker writes its cleanup result, closes the link and only then ends (LC-7 step 3), but the
         // host can see the exit before it reads the link (the edges report them independently). The link stays open, so
         // the result written before the exit is still read; the link's end of file completes the teardown
-        // (`on_link_closed`), and the remove grace still bounds it (A6-3).
-        let removing = matches!(flow, Flow::Remove(_));
-        if removing && self.sessions[&id].worker.link.is_some() {
+        // (`on_link_closed`), and the remove grace still bounds it (A6-3). Only a worker that was asked for its teardown can
+        // have written a result: an exit before `SendRemove` closes the link below, and `SendRemove` then records
+        // `OutcomeUnknown` without asking a gone worker.
+        let tearing_down =
+            matches!(&flow, Flow::Remove(f) if f.phase == RemovePhase::AwaitTeardown);
+        if tearing_down && self.sessions[&id].worker.link.is_some() {
             if let Some(s) = self.sessions.get_mut(&id) {
                 if let Flow::Remove(f) = &mut s.flow {
                     f.worker_gone = true;

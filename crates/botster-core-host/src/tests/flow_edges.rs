@@ -412,6 +412,40 @@ fn a_worker_exit_seen_before_its_remove_result_keeps_the_result() {
     }
 }
 
+/// Core LC-7 step 3, A6-3 (review findings REO-F2, R1): a worker that ends before the host asks for its teardown wrote no
+/// cleanup result. The `Remove` completes with `OutcomeUnknown` and releases the id with no wait for the link's end of file
+/// or the remove grace, and the host never asks the gone worker.
+#[test]
+fn a_worker_exit_before_the_teardown_is_asked_completes_the_remove() {
+    let mut w = World::default();
+    w.autopilot = Autopilot::Silent;
+    w.running("s1");
+    w.worker_says(
+        "s1",
+        WorkerMsg::Exited {
+            code: Some(0),
+            signal: None,
+        },
+    );
+    w.pump();
+    w.engine.poll_events(64);
+    let remove = w.engine.begin(Op::Remove { id: sid("s1") }).unwrap();
+    // No pump ran, so the `Remove` has not reached its teardown request; the link stays open with no end of file.
+    w.exited("s1");
+    match w.complete(remove) {
+        OpResult::Ok(OpOutput::RemoveReport(report)) => assert_eq!(
+            report.uploads,
+            UploadsOutcome::NotDeleted(NotDeleted::OutcomeUnknown)
+        ),
+        other => panic!("{other:?}"),
+    }
+    assert!(w.engine.list().is_empty(), "the session is removed");
+    assert!(
+        !w.sent.iter().any(|(_, m)| matches!(m, HostMsg::Remove)),
+        "the gone worker was not asked for its teardown"
+    );
+}
+
 /// Core AM-3, IN-7, A2-1, A5-2: the scheduler may run a session's work before an op's (OR-3), so a `Remove` can retire ops
 /// that never ran. Each keeps the result of its own row: a write that was never forwarded is `NotWritten(SessionEnded)`, and
 /// a `Detach` whose route the `Remove` closed completes with unit.
