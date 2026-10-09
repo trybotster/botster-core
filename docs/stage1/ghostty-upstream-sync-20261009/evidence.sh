@@ -33,6 +33,13 @@ if [ -z "$fetched" ]; then
   # No network: the tests use the gate's package store (layout p/<hash>.tar.gz, as a Zig global cache).
   store=${BOTSTER_ZIG_PACKAGES:-$HOME/.cache/botster/zig-packages}
   mkdir -p "$scratch/global/p" && cp "$store"/p/*.tar.gz "$scratch/global/p/" && echo "global cache seeded from $store"
+else
+  # The tests need more packages than the library. The Mac Zig fetch can fail with TlsInitializationFailed; it is tried
+  # up to three times, as the earlier record's mac-zig.sh did.
+  for i in 1 2 3; do
+    (cd "$f" && "$zig" build --fetch=all --cache-dir "$scratch/local" --global-cache-dir "$scratch/global") > "$scratch/fetch.txt" 2>&1 && break
+    echo "fetch attempt $i failed: $(grep -m1 -o 'error: .*' "$scratch/fetch.txt")"
+  done
 fi
 (cd "$f" && "$zig" build test-lib-vt --summary all --cache-dir "$scratch/local" --global-cache-dir "$scratch/global") > "$scratch/test.txt" 2>&1
 echo "test-lib-vt exit $?"
