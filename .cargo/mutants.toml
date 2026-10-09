@@ -11,11 +11,14 @@
 exclude_globs = ["**/tests/**", "tests/**"]
 
 exclude_re = [
-    # xtask mutants_job: process glue. It runs `git diff`, writes the diff file, starts `cargo mutants` and prints its
-    # summary; a test cannot start a mutation run inside a mutation run. Its decisions are pure functions with unit tests:
-    # parse_outcomes (the_mutation_summary_is_read_from_outcomes_json) and platform_exclusions
-    # (only_a_gate_off_macos_adds_the_off_macos_exclusions). Every gate runs it: its own step is the proof.
-    'xtask/src/ci\.rs:\d+:\d+: (replace mutants_job( ->| with)|.* in mutants_job$)',
+    # xtask mutants_job -> Ok(()): process glue. The body runs `git diff`, writes the diff file, starts `cargo mutants` and
+    # prints its summary; a test cannot start a mutation run inside a mutation run, so no test can run the body. Only this
+    # whole-body replacement is excluded: every other mutant of mutants_job stays tested. Its decisions are pure functions
+    # with unit tests, which stay mutation-tested: mutation_verdict, the pass or fail of the step from the exit code
+    # (only_a_mutation_run_with_every_mutant_caught_passes), parse_outcomes (the_mutation_summary_is_read_from_outcomes_json)
+    # and platform_exclusions (only_a_gate_off_macos_adds_the_off_macos_exclusions). A body replaced by Ok(()) skips the
+    # step without its summary line, which every gate log of the step shows ("mutants: N mutants: ...").
+    'xtask/src/ci\.rs:\d+:\d+: replace mutants_job -> Result<\(\)> with Ok\(\(\)\)$',
     # P7 GuardianConfig::fmt: the debug text has no contract format. An empty successful
     # debug result still omits the service token, which is the only required property.
     # only_a_valid_host_hello_authenticates checks token omission.

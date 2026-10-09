@@ -270,6 +270,18 @@ fn platform_exclusions(os: &str) -> &'static [&'static str] {
     }
 }
 
+/// The step's verdict from the exit code of `cargo mutants` (`None`: ended by a signal). Only 0, every mutant caught or
+/// no mutant in the diff, passes; 2 a missed mutant, 3 a timeout, 4 a failed baseline and any other end fail the step.
+fn mutation_verdict(code: Option<i32>) -> Result<()> {
+    if code == Some(0) {
+        return Ok(());
+    }
+    bail!(
+        "cargo mutants failed (exit code {code:?}: 2 a missed mutant, 3 a timeout, 4 a failed baseline); a missed \
+         mutant or a timeout is a review finding"
+    )
+}
+
 /// Mutation tests of the code that the diff changes (plan section 8, step 8). A missed mutant or a timeout is a review
 /// finding, so it fails the step.
 fn mutants_job(root: &Path) -> Result<()> {
@@ -317,7 +329,6 @@ fn mutants_job(root: &Path) -> Result<()> {
     }
     cmd.args(["--", "--no-tests=pass"])
         .envs(test_budget::tier_env(false));
-    // Exit status: 0 all caught (or no mutant in the diff), 2 a mutant was missed, 3 a timeout, 4 the baseline failed.
     let status = cmd.status().context("start cargo mutants")?;
     let outcomes = target.join("mutants.out/outcomes.json");
     let summary = match std::fs::read_to_string(&outcomes) {
@@ -333,9 +344,7 @@ fn mutants_job(root: &Path) -> Result<()> {
             "mutants: no outcomes.json (no Rust change in the diff, or the run failed early)"
         ),
     }
-    if !status.success() {
-        bail!("cargo mutants failed ({status}); a missed mutant or a timeout is a review finding");
-    }
+    mutation_verdict(status.code())?;
     Ok(())
 }
 
@@ -510,6 +519,15 @@ mod tests {
         assert!(platform_exclusions("macos").is_empty());
         assert_eq!(platform_exclusions("linux"), OFF_MACOS_EXCLUSIONS);
         assert!(!OFF_MACOS_EXCLUSIONS.is_empty());
+    }
+
+    /// Plan section 8, step 8: only a run with every mutant caught passes the mutation step.
+    #[test]
+    fn only_a_mutation_run_with_every_mutant_caught_passes() {
+        assert!(mutation_verdict(Some(0)).is_ok());
+        for failed in [Some(1), Some(2), Some(3), Some(4), None] {
+            assert!(mutation_verdict(failed).is_err(), "{failed:?}");
+        }
     }
 
     #[test]
