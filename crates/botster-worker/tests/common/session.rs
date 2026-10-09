@@ -21,8 +21,9 @@ use botster_core_contract::prelude::*;
 use botster_core_link::frame::{encode_frame, FrameDecoder, FrameType};
 use botster_core_link::hello::Hello;
 use botster_core_link::launch::WorkerLaunch;
-use botster_core_link::msg::{HostMsg, LaunchSpec, Observation, WorkerMsg};
+use botster_core_link::msg::{HostMsg, LaunchSpec, Observation, PayloadId, WorkerMsg};
 use botster_core_link::proof::token_proof;
+use botster_test_process::{quoted, Blocker, Bounded, Deadline, Guard, OwnedChild};
 use payload_guard::PayloadGuard;
 use std::collections::BTreeMap;
 use std::io::{BufRead, BufReader, Read, Write};
@@ -210,53 +211,12 @@ impl Session {
             payload_guard: Some(payload_guard),
             observer_guard,
         };
-        let (stream, _) = listener.accept().unwrap();
-        // timer: deadline — the limit of a wait for a real worker's frame; not a contract value.
-        stream
-            .set_read_timeout(Some(Duration::from_secs(20)))
-            .unwrap();
-        let mut link = Link {
-            stream,
-            decoder: FrameDecoder::new(1 << 20),
-            pending: Vec::new(),
-        };
-        let (kind, payload) = link.frame();
-        assert_eq!(kind, FrameType::HELLO);
-        let hello = Hello::decode(&payload).unwrap();
-        let proof = token_proof(&launch.token, &launch.instance, launch.host_epoch);
-        assert_eq!(hello.proof, proof, "AD-6");
-        let mut reply = Vec::new();
-        Hello {
-            protocol: 1,
-            instance: launch.instance.clone(),
-            proof: botster_core_link::proof::host_proof(
-                &launch.token,
-                &launch.instance,
-                launch.host_epoch,
-            ),
-            host_epoch: 1,
-        }
-        .encode(&mut reply)
-        .unwrap();
-        link.send(FrameType::HELLO, &reply);
-        link.msg(&HostMsg::Launch(Box::new(LaunchSpec {
-            argv: vec!["/bin/sh".into(), "-c".into(), script],
-            env: BTreeMap::from([("PATH".to_string(), "/usr/bin:/bin".to_string())]),
-            cwd: "/".into(),
-            size: Size {
-                rows: 24,
-                cols: 80,
-                cell_px: None,
-            },
-            color_profile: None,
-            notification_policy: NotificationPolicy::All,
-            size_policy: SizePolicy::Latest,
-            link_frame_bound: 1 << 20,
+        let (link, payload) = hello_and_launch(
+            &listener,
+            &launch,
+            vec!["/bin/sh".into(), "-c".into(), script],
             stop_grace_ms,
-        })));
-        let WorkerMsg::Launched { payload, .. } = link.report() else {
-            panic!("not launched");
-        };
+        );
         assert!(payload.pid > 0);
         Session { worker, link }
     }
@@ -276,6 +236,64 @@ impl Session {
             "LC-7: the worker ends after the result"
         );
     }
+}
+
+/// Accepts the worker's link, proves the hello both ways (AD-6), and launches `argv` (AD-7 step 4). Returns the link and
+/// the payload's identity from `Launched`.
+fn hello_and_launch(
+    listener: &UnixListener,
+    launch: &WorkerLaunch,
+    argv: Vec<String>,
+    stop_grace_ms: u64,
+) -> (Link, PayloadId) {
+    let (stream, _) = listener.accept().unwrap();
+    // timer: deadline — the limit of a wait for a real worker's frame; not a contract value.
+    stream
+        .set_read_timeout(Some(Duration::from_secs(20)))
+        .unwrap();
+    let mut link = Link {
+        stream,
+        decoder: FrameDecoder::new(1 << 20),
+        pending: Vec::new(),
+    };
+    let (kind, payload) = link.frame();
+    assert_eq!(kind, FrameType::HELLO);
+    let hello = Hello::decode(&payload).unwrap();
+    let proof = token_proof(&launch.token, &launch.instance, launch.host_epoch);
+    assert_eq!(hello.proof, proof, "AD-6");
+    let mut reply = Vec::new();
+    Hello {
+        protocol: 1,
+        instance: launch.instance.clone(),
+        proof: botster_core_link::proof::host_proof(
+            &launch.token,
+            &launch.instance,
+            launch.host_epoch,
+        ),
+        host_epoch: 1,
+    }
+    .encode(&mut reply)
+    .unwrap();
+    link.send(FrameType::HELLO, &reply);
+    link.msg(&HostMsg::Launch(Box::new(LaunchSpec {
+        argv,
+        env: BTreeMap::from([("PATH".to_string(), "/usr/bin:/bin".to_string())]),
+        cwd: "/".into(),
+        size: Size {
+            rows: 24,
+            cols: 80,
+            cell_px: None,
+        },
+        color_profile: None,
+        notification_policy: NotificationPolicy::All,
+        size_policy: SizePolicy::Latest,
+        link_frame_bound: 1 << 20,
+        stop_grace_ms,
+    })));
+    let WorkerMsg::Launched { payload, .. } = link.report() else {
+        panic!("not launched");
+    };
+    (link, payload)
 }
 
 /// Reads the first line that the payload writes to `fifo` (the open blocks until the payload opens it for writing).
@@ -569,55 +587,131 @@ fn observer_parent() {
     drop(session);
 }
 
+/// A started worker whose payload starts through the group guard of `botster-test-process`: the payload's anchor ends the
+/// payload group on every path, a panic included. The test owns the worker as an [`OwnedChild`] (in group mode for the
+/// driver observer, so that its drop ends the observer's group too). The control link is the same as [`Session`]'s.
+struct GuardedSession {
+    link: Link,
+    worker: OwnedChild,
+    guard: Guard,
+}
+
+impl GuardedSession {
+    /// Starts a worker and launches `sh -c script` through the guard's wrapper. The anchor reports the payload as its
+    /// group's leader before this returns.
+    fn launch(root: &Path, script: &str, stop_grace_ms: u64) -> GuardedSession {
+        let mut guard = Guard::new(root)
+            .unwrap()
+            .grace(Duration::from_millis(stop_grace_ms));
+        let wrapper = root.join("payload");
+        guard
+            .wrapper(&wrapper, Path::new("/bin/sh"), &["-c", script])
+            .unwrap();
+        let socket = root.join("c");
+        let listener = UnixListener::bind(&socket).unwrap();
+        let launch = WorkerLaunch {
+            control: socket,
+            instance: InstanceId("1-1".into()),
+            host_epoch: 1,
+            token: [5; 32],
+        };
+        let worker = if let Some(observer) = crate::DRIVER_OBSERVER {
+            let mut command = Command::new(std::env::current_exe().unwrap());
+            command
+                .args(["--exact", observer, "--nocapture"])
+                .env_clear()
+                .env("BOTSTER_DRIVER_CONTROL", &launch.control);
+            OwnedChild::spawn_group(&mut command)
+        } else {
+            let mut command = Command::new(worker_binary());
+            command.args(launch.args()).env_clear().envs(launch.env());
+            OwnedChild::spawn(&mut command)
+        }
+        .unwrap();
+        let (link, payload) = hello_and_launch(
+            &listener,
+            &launch,
+            vec![wrapper.display().to_string()],
+            stop_grace_ms,
+        );
+        let reports = guard.anchors(1, Deadline::cleanup()).unwrap();
+        assert_eq!(
+            reports[0].leader.pid, payload.pid,
+            "the anchor holds the payload's group"
+        );
+        GuardedSession {
+            link,
+            worker,
+            guard,
+        }
+    }
+
+    /// LC-7: `Remove` gives the complete result, and then the worker ends with code 0.
+    fn remove(mut self) {
+        self.link.msg(&HostMsg::Remove);
+        assert!(matches!(self.link.report(), WorkerMsg::RemoveResult { .. }));
+        let status = self.worker.status_by(Deadline::cleanup());
+        assert_eq!(
+            status.code(),
+            Some(0),
+            "LC-7: the worker ends after the result"
+        );
+    }
+}
+
+impl Drop for GuardedSession {
+    /// The anchors start to end the payload group first. Then the fields drop in order: the worker, which holds the PTY
+    /// master, ends; and the guard reads each anchor's outcome (`Guard::release`).
+    fn drop(&mut self) {
+        self.guard.release();
+    }
+}
+
+/// A FIFO in `root` that the payload writes and the test reads, by deadlines. The test holds it open for reading and
+/// writing, so the payload's open for writing does not wait, and the test never sees an end of file. Close-on-exec: the
+/// worker and its payload do not inherit it.
+fn marker_fifo(root: &Path, name: &str) -> Bounded<std::fs::File> {
+    let path = root.join(name);
+    let made = OwnedChild::spawn(Command::new("/usr/bin/mkfifo").arg(&path))
+        .unwrap()
+        .status();
+    assert!(made.success());
+    Bounded::new(std::fs::File::from(
+        rustix::fs::open(
+            &path,
+            rustix::fs::OFlags::RDWR | rustix::fs::OFlags::NONBLOCK | rustix::fs::OFlags::CLOEXEC,
+            rustix::fs::Mode::empty(),
+        )
+        .unwrap(),
+    ))
+}
+
 /// Core AM-2, IN-2, IN-6: a real PTY keeps exact counts through cancellation and resumes the next transaction.
+///
+/// The payload starts through the shared group guard ([`GuardedSession`]). It blocks on fixture children of
+/// `botster-test-process` ([`Blocker`]): one `cat` that waits for the count to read, and one that holds the payload until
+/// the test kills it. The test reads the payload's markers by deadlines ([`Bounded`]).
 #[test]
 fn in_6_real_pty_cancel_keeps_counts_and_resumes_the_next_write() {
-    use std::os::fd::AsFd;
     let root = temp_root();
-    let ready = fifo(root.path(), "ready");
-    let release = fifo(root.path(), "release");
-    let done = fifo(root.path(), "done");
+    let mut ready = marker_fifo(root.path(), "ready");
+    let mut done = marker_fifo(root.path(), "done");
+    let mut release = Blocker::new(root.path(), "release").unwrap();
+    let hold = Blocker::new(root.path(), "hold").unwrap();
     let received = root.path().join("received");
-    // CLOEXEC: the worker and its payload must not inherit the test's ends. A write end of `release` that the payload kept
-    // would hold its `cat` from the end of file for ever.
-    let open_fifo = |path: &Path| {
-        std::fs::File::from(
-            rustix::fs::open(
-                path,
-                rustix::fs::OFlags::RDWR
-                    | rustix::fs::OFlags::NONBLOCK
-                    | rustix::fs::OFlags::CLOEXEC,
-                rustix::fs::Mode::empty(),
-            )
-            .unwrap(),
-        )
-    };
-    let mut ready_reader = open_fifo(&ready);
-    let mut release_writer = open_fifo(&release);
-    let mut done_reader = open_fifo(&done);
-    let marker = |reader: &mut std::fs::File, expected: &[u8]| {
-        let mut fds = [rustix::event::PollFd::from_borrowed_fd(
-            reader.as_fd(),
-            rustix::event::PollFlags::IN,
-        )];
-        // timer: deadline — bounds an external program marker without polling.
-        let limit = rustix::event::Timespec {
-            tv_sec: 5,
-            tv_nsec: 0,
-        };
-        assert!(rustix::event::poll(&mut fds, Some(&limit)).unwrap() > 0);
-        assert!(fds[0].revents().contains(rustix::event::PollFlags::IN));
-        let mut bytes = [0; 64];
-        let n = reader.read(&mut bytes).unwrap();
-        assert_eq!(&bytes[..n], expected);
-    };
     let script = format!(
-        "stty raw -echo; /bin/echo ready > '{}'; count=$(/bin/cat '{}'); /usr/bin/head -c \"$count\" > '{}'; /bin/echo done > '{}'; exec sleep 30",
-        ready.display(), release.display(), received.display(), done.display()
+        "stty raw -echo; /bin/echo ready > {}; count=$({}); /usr/bin/head -c \"$count\" > {}; /bin/echo done > {}; exec {}",
+        quoted(&root.path().join("ready")),
+        release.shell(),
+        quoted(&received),
+        quoted(&root.path().join("done")),
+        hold.shell(),
     );
-    // The link's reads keep the deadline that the helper sets at the accept.
-    let mut s = Session::launch(root.path(), &script, 5000);
-    marker(&mut ready_reader, b"ready\n");
+    let mut s = GuardedSession::launch(root.path(), &script, 5000);
+    assert_eq!(
+        ready.line(Deadline::cleanup()).unwrap().as_deref(),
+        Some("ready\n")
+    );
     let text = "a".repeat(196_608);
     let write = |req, text: String| HostMsg::Op {
         req,
@@ -646,8 +740,8 @@ fn in_6_real_pty_cancel_keeps_counts_and_resumes_the_next_write() {
     );
     s.link.msg(&write(2, "b".into()));
     assert!(matches!(s.link.report(), WorkerMsg::Observed { .. }));
-    writeln!(release_writer, "{}", count + 1).unwrap();
-    drop(release_writer);
+    release.send(format!("{}\n", count + 1).as_bytes()).unwrap();
+    release.release();
     let WorkerMsg::Done {
         req: 2,
         result: OpResult::Ok(OpOutput::Input(written)),
@@ -658,11 +752,14 @@ fn in_6_real_pty_cancel_keeps_counts_and_resumes_the_next_write() {
     assert_eq!(written.outcome, WriteOutcome::Written);
     assert_eq!(written.payload_bytes_written, 1);
     assert_eq!(written.pty_bytes_written, 1);
-    marker(&mut done_reader, b"done\n");
+    assert_eq!(
+        done.line(Deadline::cleanup()).unwrap().as_deref(),
+        Some("done\n")
+    );
     let mut expected = text.as_bytes()[..count].to_vec();
     expected.push(b'b');
     assert_eq!(std::fs::read(&received).unwrap(), expected);
-    // The program still runs (`exec sleep 30`): it ends first, so `remove` sees the complete result (LC-7).
+    // The payload still runs (the `cat` of `hold`): it ends first, so `remove` sees the complete result (LC-7).
     s.link.msg(&HostMsg::Kill);
     assert_eq!(s.link.report(), exited(None, Some(9)));
     s.remove();

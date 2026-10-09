@@ -502,6 +502,7 @@ dependencies = [
  "botster-core-edges",
  "botster-core-link",
  "botster-core-sys",
+ "botster-test-process",
  "botster-worker-core",
  "kqueue",
  "libc",
