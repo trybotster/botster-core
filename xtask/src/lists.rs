@@ -427,6 +427,27 @@ pub fn command(root: &Path, args: &[String]) -> Result<()> {
         base,
         tag_moved,
     }));
+    let deferred_ids: BTreeSet<String> = deferred.iter().map(|d| d.id.clone()).collect();
+    let running = crate::real_proofs::running(&ledger, &[&pending, &deferred_ids, &withdrawn]);
+    let proof_of = crate::real_proofs::proofs_of_map(
+        &std::fs::read_to_string(meta.contracts_root.join("conformance/replacement-map.json"))
+            .context("read the pinned replacement map")?,
+    )
+    .map_err(anyhow::Error::msg)?;
+    let proofs =
+        crate::real_proofs::parse(&read(crate::real_proofs::FILE)?).map_err(anyhow::Error::msg)?;
+    let sources = crate::fsutil::tracked_files(root)?
+        .into_iter()
+        .filter(|path| path.ends_with(".rs"))
+        .map(|path| Ok((read(&path)?, path)).map(|(text, path)| (path, text)))
+        .collect::<Result<_>>()?;
+    problems.extend(crate::real_proofs::verdict(&crate::real_proofs::Input {
+        running: &running,
+        ledger: &ledger,
+        proof_of: &proof_of,
+        proofs: &proofs,
+        sources: &sources,
+    }));
     report(&problems)?;
     let withdrawn = withdrawn.intersection(&ledger).count();
     println!(
