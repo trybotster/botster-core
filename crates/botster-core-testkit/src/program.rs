@@ -117,6 +117,14 @@ impl ProgramControl {
         controls.inject.push_back((bytes.to_vec(), true));
     }
 
+    /// `pty_output`: the program writes these bytes to the terminal as plain output, like its own `print`, so the scheduler
+    /// chooses where the worker's reads end within them (Core ST-1, OU-7).
+    pub fn write(&self, bytes: &[u8]) {
+        let mut controls = self.lock();
+        controls.unread += bytes.len();
+        controls.inject.push_back((bytes.to_vec(), false));
+    }
+
     /// `uncarriable_sequence`: the program writes the start of an OSC or DCS string and more than `limit` bytes of it, with no
     /// terminator (Core A8-2). `kind` is `osc` or `dcs`; the caller names the continuation limit of the snapshot format.
     pub fn write_unterminated(&self, kind: UnterminatedKind, limit: usize) {

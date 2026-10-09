@@ -27,6 +27,7 @@ botster-route-codec.workspace = true
 rand_chacha.workspace = true
 rand_core.workspace = true
 rustix = { workspace = true, features = ["process"] }
+serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
 toml.workspace = true

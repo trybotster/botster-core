@@ -301,6 +301,18 @@ impl EndControl {
     pub fn reset(&self) {
         lock(&self.shared).reset = true;
     }
+
+    /// True while this side holds a report that its peer has not consumed: bytes or a descriptor that it wrote, or its own
+    /// close (the peer's end of file), and the peer's end is still open. It reads the state and changes nothing
+    /// (`edges_quiet`).
+    pub fn holds_for_peer(&self) -> bool {
+        let shared = lock(&self.shared);
+        let (me, peer) = (self.side, 1 - self.side);
+        !shared.closed[peer]
+            && (!shared.queues[me].is_empty()
+                || !shared.descriptors[me].is_empty()
+                || shared.closed[me])
+    }
 }
 
 impl Drop for End {
@@ -865,5 +877,44 @@ mod tests {
         let (end, _other) = pair_of_streams();
         a.send_descriptor(Descriptor::new(end)).unwrap();
         assert!(b.recv_descriptor().is_some(), "only one handoff failed");
+    }
+
+    /// `edges_quiet`: a side holds a report for its peer while it has written bytes or a descriptor that the peer has not
+    /// taken, or has closed without the peer having closed; a closed peer takes nothing more, so nothing is held for it.
+    #[test]
+    fn a_side_holds_what_its_peer_has_not_consumed() {
+        let (mut a, mut b) = link_pair(64);
+        let held = a.end().control();
+        assert!(!held.holds_for_peer(), "a fresh link holds nothing");
+        a.send(b"x").unwrap();
+        assert!(held.holds_for_peer(), "bytes the peer has not read");
+        assert_eq!(drain(&mut b), b"x");
+        assert!(!held.holds_for_peer());
+        let (end, _other) = pair_of_streams();
+        a.send_descriptor(Descriptor::new(end)).unwrap();
+        assert!(
+            held.holds_for_peer(),
+            "a descriptor the peer has not received"
+        );
+        assert!(b.recv_descriptor().is_some());
+        assert!(!held.holds_for_peer());
+        assert!(
+            !b.end().control().holds_for_peer(),
+            "the other side wrote nothing"
+        );
+        a.end().close();
+        assert!(
+            held.holds_for_peer(),
+            "an end of file the peer has not read"
+        );
+        b.end().close();
+        assert!(!held.holds_for_peer(), "a closed peer takes nothing more");
+        let (mut c, mut d) = link_pair(64);
+        c.send(b"y").unwrap();
+        d.end().close();
+        assert!(
+            !c.end().control().holds_for_peer(),
+            "bytes toward a closed peer are not a report"
+        );
     }
 }
