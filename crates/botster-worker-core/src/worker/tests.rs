@@ -34,6 +34,7 @@ fn spec() -> LaunchSpec {
         size_policy: SizePolicy::Latest,
         link_frame_bound: 1 << 16,
         stop_grace_ms: 250,
+        limits: CoreLimits::default(),
     }
 }
 

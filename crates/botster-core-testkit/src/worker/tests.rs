@@ -241,6 +241,7 @@ fn workers_expose_the_payload_grace_deadline() {
         size_policy: SizePolicy::Latest,
         link_frame_bound: 65536,
         stop_grace_ms: 250,
+        limits: CoreLimits::default(),
     }));
     payload.clear();
     launch.encode(&mut payload);
