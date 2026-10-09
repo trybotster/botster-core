@@ -2373,3 +2373,52 @@ The worker endpoint, real and simulated connection edges, launch arguments, Focu
 This verdict changes no conformance record and does not close P5 deliverable 2.
 
 VERDICT: NOT CLEAN
+
+
+## P5 adoption code #174 — Round 3
+
+- Exact head: `4a5a71585d0abb1470c2ffda56b59780272fba0c`.
+- Previous reviewed head: `36688882d42e24130f4419689f8415d48a7f7bb4`.
+- Tree: `e7d9968df2a4f9017ed7e6756cbb6bbe6bfaf68a`.
+- Scope: the complete four-file correction, current PR description, and exact-head evidence.
+- The reviewer changed no product code and ran no builds, tests, mutation jobs, or gates.
+
+### P5-F26 source closure
+
+The missing-identity retry now returns Lost(StartInterrupted) without a probe or connect.
+The start path can receive a hello before the spawn result records its identity, so this guard also handles an in-memory session.
+The correction gives a typed recovery result and removes the identity expect panic.
+A stored indeterminate Lost row with an identity and an absent or invalid token becomes RegistryCorrupt before any connection.
+The token expect is unreachable for these decoded rows. An ordinary start draws the token before it spawns the worker.
+The proofs start from encoded Lost rows and cover missing identity, absent token, malformed token, and WorkerVersion.
+A valid Lost row in the same registry retains R-36 admission.
+The reviewer accepts the source correction. F23 and F25 remain CLOSED; F24 remains WITHDRAWN under R-36.
+
+### P5-F26 documentation closure
+
+P5 corrected the PR paragraph that omitted the new token validation exception.
+The reviewer re-read the current PR body and verified the correction at the unchanged exact head.
+The paragraph also states the missing-identity retry result and the absence of a probe or connection.
+P5-F26 is CLOSED in source, proof, and documentation. No package review finding remains.
+
+### Evidence and scope
+
+The reviewer read the exact-head log:
+`~/botster-sessions/gates/botster-core-stage1-p5-adopt-1-4a5a7158-pool-20261009-021336-63942.log`.
+It records fmt, clippy with warnings denied, 489 passing tests, and taint PASS.
+The explicit slow-profile mutation run reports 160 mutants: 142 caught, 18 unviable, zero missed, and zero timeouts.
+The log shows both new F26 proofs and the retained F23/F25 proofs passing. The remote job exits zero at the exact head.
+The earlier full gate remains evidence for the unchanged scope, including the two worker test helpers.
+The worker endpoint, real and simulated connection edges, launch arguments, FocusChanged, RouteAdopted, and A52 remain outside this PR.
+A later full gate at the same head is RED:
+`~/botster-sessions/gates/botster-core-stage1-p5-adopt-1-4a5a7158-pool-20261009-021843-68853.log`.
+The reviewer read the failure: slow_driver::ev_4_a_real_exit_carries_the_code_or_the_signal fails in payload_guard.rs:254 while reading a member report.
+The error is ConnectionReset. The slow tier reports 214 passed and one failed.
+The full gate then does not run its mutants or fuzz steps.
+The guard file is outside the #174 delta. This review does not establish the failure's cause or classify it as a flake.
+P5 asked the lead how to proceed. The lead retains the gate disposition and merge decision.
+This CLEAN verdict certifies the package code review; it does not claim a green full gate on this head.
+
+This verdict changes no conformance record and does not close P5 deliverable 2.
+
+VERDICT: CLEAN
