@@ -464,3 +464,31 @@ branches (`/proc`, pidfd) are still uncompiled at this head; the combined Linux 
   not EOF, proves the end.
 
 VERDICT: NOT CLEAN (1 open: C5)
+
+## Round 13 — CLEAN on head 7e20c5fa (C5 fix)
+
+Reviewed head: `7e20c5fa2cbdc7855401ad9b71c8c941e064d878`. Delta `88faedde..7e20c5fa`, one commit, test code only
+(`payload_guard.rs`, `process_guard.rs`). Trial merges: with v1 `9ea0c9c` clean (tree `fdf133a`); with #162 `59cda32`
+clean (tree `604e327`). This reviewer ran no build, test or gate.
+
+- **C5 CLOSED.**
+  - `a_payload_cleanup_that_cannot_finish_fails_through_the_guard`: the member is `exec /bin/cat <never>` with no redirect.
+    Its stdout stays the pipe, and it writes nothing. The prefix's two helpers send their output to `/dev/null`, so they
+    hold no copy of the pipe. `eof(pipe)` therefore proves the member's end. The shell is held as `cleanup::Owned` and
+    reaped with `status()` (`CLEANUP`). The FIFO comes from the shared `never_fifo`.
+  - `process_guard.rs` `a_cleanup_that_cannot_finish…`: the same fixture change. Its comment is now true.
+  - `git grep` at this head: no `exec /bin/cat … >/dev/null` fixture remains, and no raw `.wait()` remains in
+    `payload_guard.rs`.
+- **Evidence.** Focused Mac pool run at this head
+  (`~/botster-sessions/gates/botster-core-stage1-p3-guard-macos-7e20c5fa-pool-20261008-204548-78525.log`): header head
+  `7e20c5fa`, base v1 `9ea0c9c`; clippy `-D warnings` on the three crates; 168 run, 168 passed, 0 skipped; then
+  `slow_real_core` `process_guard::` 15 passed; exit 0. Every copy of both cannot-finish tests passes. This is a focused
+  run, not the landing gate.
+- **Carried items.** The Linux branches (`/proc`, pidfd) are still uncompiled. The combined Linux gate of #162 must cover
+  them; #165 lands only through #162. G2/F39 (outer wait 2 x CLEANUP) stays for #163's merge delta.
+- **Package verdict.** Not read at this head (`stage1/review-p3` is still `e31e4ae8`, round 87 at `71195e72`). Under the
+  lead's 2026-10-08 flow, each reviewer sends its own CLEAN to the lead.
+
+All integration findings on #165 (G1 to G6, C3, C4, C5, and P5-F4 as C2) are closed.
+
+VERDICT: CLEAN (0 open) at 7e20c5fa2cbdc7855401ad9b71c8c941e064d878
