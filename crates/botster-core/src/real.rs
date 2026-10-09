@@ -658,24 +658,10 @@ mod slow_tests {
         assert!(edges.poll_process_exit().is_none());
         assert!(edges.accept_link().is_none(), "no client waits");
         let endpoint = StreamEndpoint::new(());
-        let options = AttachOptions {
-            file_directory: "/tmp".into(),
-            file_permissions: None,
-            route_features: vec![],
-            terminal_formats: vec![],
-            connect_deadline: None,
-            owner: None,
-            query_deadline: None,
-            route_tag: None,
-            route_limits: None,
-            history: None,
-            stall_deadline: None,
-            answers_queries: false,
-            input: true,
-        };
-        assert!(edges
-            .handoff_route(LinkId(1), RouteId(1), endpoint, &options)
-            .is_err());
+        assert!(matches!(
+            edges.link_send_descriptor(LinkId(1), b"x", endpoint),
+            Err((_, DescriptorSendError::Failed))
+        ));
     }
 
     /// Plan 2.5: a client that connects is a link with its own number; the host reads what it writes, sends what it is
