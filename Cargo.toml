@@ -29,6 +29,7 @@ getrandom = "0.4"
 libtest-mimic = "0.8"
 mio = { version = "1", features = ["os-poll", "os-ext", "net"] }
 proc-macro2 = { version = "1", features = ["span-locations"] }
+syn = "2"
 rand_chacha = "0.9"
 rand_core = "0.9"
 schemars = "1"
