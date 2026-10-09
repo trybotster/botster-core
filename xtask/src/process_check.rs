@@ -770,7 +770,7 @@ fn declared_modules(
 }
 
 /// `path` without its `.` segments, and with each `..` segment taken out together with the segment before it.
-fn normalize(path: &str) -> String {
+pub(crate) fn normalize(path: &str) -> String {
     let mut segments: Vec<&str> = Vec::new();
     for segment in path.split('/') {
         match segment {
