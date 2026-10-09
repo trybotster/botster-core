@@ -22,23 +22,28 @@ const RAW_CALLS: [&str; 4] = [
     "killpg",
 ];
 
-/// Whether `tokens` start with the path `libc :: kill`, or with `libc :: { … }` whose list names `kill`.
-fn libc_kill(tokens: &[TokenTree]) -> bool {
+/// Whether `tokens` start with the path `<libc> :: kill`, a glob `<libc> :: *`, or `<libc> :: { … }` whose list names `kill`
+/// or holds a glob (`<libc>` one of `names`): after a glob import, a bare `kill` is libc's.
+fn libc_kill(tokens: &[TokenTree], names: &[String]) -> bool {
     let [TokenTree::Ident(krate), TokenTree::Punct(first), TokenTree::Punct(second), next, ..] =
         tokens
     else {
         return false;
     };
-    if krate != "libc" || (first.as_char(), second.as_char()) != (':', ':') {
+    if !names.iter().any(|name| krate == name) || (first.as_char(), second.as_char()) != (':', ':')
+    {
         return false;
     }
-    match next {
+    let names_kill = |tree: &TokenTree| match tree {
         TokenTree::Ident(name) => name == "kill",
-        TokenTree::Group(list) if list.delimiter() == Delimiter::Brace => list
-            .stream()
-            .into_iter()
-            .any(|tree| matches!(tree, TokenTree::Ident(name) if name == "kill")),
+        TokenTree::Punct(glob) => glob.as_char() == '*',
         _ => false,
+    };
+    match next {
+        TokenTree::Group(list) if list.delimiter() == Delimiter::Brace => {
+            list.stream().into_iter().any(|tree| names_kill(&tree))
+        }
+        tree => names_kill(tree),
     }
 }
 
@@ -52,35 +57,51 @@ fn string_value(literal: &str) -> Option<String> {
         .map(|lit| lit.value())
 }
 
-/// The names under which `tokens` can name `std::process::Command`: `Command`, each `Command as X` (an import rename), and
-/// each `type X = …Command…;` (a type alias). Groups included.
-fn command_names(tokens: TokenStream, names: &mut Vec<String>) {
+/// The aliases in `tokens` (groups included) of a name in `names`: each `A as X` (an import rename, `extern crate A as X`
+/// too) and each `type X = …A…;` (a type alias), with `A` in `names`.
+fn aliases(tokens: TokenStream, names: &[String], found: &mut Vec<String>) {
+    let known = |name: &str| names.iter().any(|known| known == name);
     let tokens: Vec<TokenTree> = tokens.into_iter().collect();
     for (index, tree) in tokens.iter().enumerate() {
         match &tokens[index..] {
-            [TokenTree::Ident(command), TokenTree::Ident(rename), TokenTree::Ident(alias), ..]
-                if command == "Command" && rename == "as" =>
+            [TokenTree::Ident(original), TokenTree::Ident(rename), TokenTree::Ident(alias), ..]
+                if known(&original.to_string()) && rename == "as" =>
             {
-                names.push(alias.to_string());
+                found.push(alias.to_string());
             }
             [TokenTree::Ident(keyword), TokenTree::Ident(alias), TokenTree::Punct(equals), rest @ ..]
                 if keyword == "type" && equals.as_char() == '=' =>
             {
-                let names_command = rest
+                let names_one = rest
                     .iter()
                     .take_while(
                         |tree| !matches!(tree, TokenTree::Punct(end) if end.as_char() == ';'),
                     )
-                    .any(|tree| matches!(tree, TokenTree::Ident(name) if name == "Command"));
-                if names_command {
-                    names.push(alias.to_string());
+                    .any(|tree| matches!(tree, TokenTree::Ident(name) if known(&name.to_string())));
+                if names_one {
+                    found.push(alias.to_string());
                 }
             }
             _ => {}
         }
         if let TokenTree::Group(group) = tree {
-            command_names(group.stream(), names);
+            aliases(group.stream(), names, found);
         }
+    }
+}
+
+/// `seed` and every name that reaches it in `tokens` through a chain of aliases (`use A as B; type C = B;`), to the fixpoint.
+fn reaching(tokens: &TokenStream, seed: &str) -> Vec<String> {
+    let mut names = vec![seed.to_string()];
+    loop {
+        let mut found = Vec::new();
+        aliases(tokens.clone(), &names, &mut found);
+        found.retain(|name| !names.contains(name));
+        found.dedup();
+        if found.is_empty() {
+            return names;
+        }
+        names.extend(found);
     }
 }
 
@@ -111,22 +132,23 @@ fn kill_program(tokens: &[TokenTree], names: &[String]) -> bool {
 }
 
 /// Every violation in `tokens`, groups included: `(line, message)`. A raw call counts only outside the guard.
-fn violations(
-    tokens: TokenStream,
-    guard: bool,
-    names: &[String],
-    found: &mut Vec<(usize, String)>,
-) {
+/// The names that reach `std::process::Command` and the libc crate in one file.
+struct Names {
+    command: Vec<String>,
+    libc: Vec<String>,
+}
+
+fn violations(tokens: TokenStream, guard: bool, names: &Names, found: &mut Vec<(usize, String)>) {
     let tokens: Vec<TokenTree> = tokens.into_iter().collect();
     for (index, tree) in tokens.iter().enumerate() {
-        if kill_program(&tokens[index..], names) {
+        if kill_program(&tokens[index..], &names.command) {
             found.push((
                 tree.span().start().line,
                 "a kill program: signal through botster_core_sys::signal (the pattern rule)"
                     .to_string(),
             ));
         }
-        if !guard && libc_kill(&tokens[index..]) {
+        if !guard && libc_kill(&tokens[index..], &names.libc) {
             found.push((
                 tree.span().start().line,
                 "raw `libc::kill`: signal through botster_core_sys::signal (the pattern rule)"
@@ -156,8 +178,10 @@ pub fn scan(file: &str, text: &str) -> Vec<(usize, String)> {
         Ok(tokens) => tokens,
         Err(error) => return vec![(1, format!("does not lex: {error}"))],
     };
-    let mut names = vec!["Command".to_string()];
-    command_names(tokens.clone(), &mut names);
+    let names = Names {
+        command: reaching(&tokens, "Command"),
+        libc: reaching(&tokens, "libc"),
+    };
     let mut found = Vec::new();
     violations(tokens, file == GUARD, &names, &mut found);
     found
@@ -219,7 +243,7 @@ mod tests {
     }
 
     /// Red on revert: each raw call, as a path, an import, a renamed import or a glob-imported name, is a violation in every
-    /// file but the guard; so are libc's `kill` (as a path or in an import list) and `killpg`. An `#[allow]`, a
+    /// file but the guard; so are libc's `kill` (as a path or in an import list), a glob import of libc, and `killpg`. An `#[allow]`, a
     /// `cfg(feature = "slow")` and a test module hide nothing. `Child::kill`, another `kill` and another libc name are not
     /// raw calls. The fixture is text: no call runs.
     #[test]
@@ -237,14 +261,20 @@ mod tests {
             #[allow(unsafe_code)]\n\
             fn g() { unsafe { libc::kill(-1, libc::SIGKILL); libc::killpg(1, libc::SIGKILL); } }\n\
             use libc::{getpid, kill};\n\
-            fn h(child: &mut Child) { child.kill().unwrap(); test_budget::kill(&[]); libc::killer(); libc::getpid(); let _ = libc::(kill); }\n\
-            use libc::{getpid as k};\n";
+            fn h(child: &mut Child) { child.kill().unwrap(); test_budget::kill(&[]); libc::killer(); libc::getpid(); let _ = libc::(kill); let _ = libc::[*]; let x = libc::SIGKILL * 2; }\n\
+            use libc::*;\nuse libc::{getpid, *};\n\
+            use libc::{getpid as k};\n\
+            use libc as sys;\nfn i() { unsafe { sys::kill(-1, 9); } }\nmod m { use sys::*; }\n";
         for file in [
             "crates/botster-core/tests/slow_real_core.rs",
             "crates/botster-core-sys/src/process.rs",
             "xtask/src/test_budget.rs",
         ] {
-            assert_eq!(lines(file, reverted), [4, 8, 9, 12, 12, 13], "{file}");
+            assert_eq!(
+                lines(file, reverted),
+                [4, 8, 9, 12, 12, 13, 15, 16, 19, 20],
+                "{file}"
+            );
         }
         assert!(lines(GUARD, reverted).is_empty());
     }
@@ -259,12 +289,12 @@ mod tests {
             let ok = (Command::new(KILL), Command::old(\"kill\"), Builder::new(\"kill\"), Command::new[\"kill\"]);\n\
             let ok = (Command:new(\"kill\"), Command;:new(\"kill\"), Command::new(b'k'), Command::new());\n\
             use std::process::Command as Proc;\nlet e = Proc::new(\"ki\\x6cl\");\nlet f = vec![Command::new(\"\\u{6b}ill\")];\n\
-            let ok = Proc::new(\"true\");\n";
+            let ok = Proc::new(\"true\");\ntype Shell = Proc;\nlet g = Shell::new(\"kill\");\n";
         assert_eq!(
             lines("xtask/src/test_budget.rs", text),
-            [1, 2, 3, 5, 10, 11]
+            [1, 2, 3, 5, 10, 11, 14]
         );
-        assert_eq!(lines(GUARD, text), [1, 2, 3, 5, 10, 11]);
+        assert_eq!(lines(GUARD, text), [1, 2, 3, 5, 10, 11, 14]);
     }
 
     /// A mention in a comment or in a string is no call; a longer name that contains a raw call is not that call.
@@ -295,16 +325,22 @@ mod tests {
         }
     }
 
-    /// Every name of `Command` in a file: the name itself, an import rename (in a list too) and a type alias.
+    /// Every name that reaches `Command` or `libc` in a file: the name itself, an import rename (in a list too, and of a
+    /// crate), a type alias, and any chain of them, to the fixpoint.
     #[test]
-    fn a_renamed_or_aliased_command_is_a_command_name() {
+    fn every_alias_chain_reaches_its_name() {
         let text =
             "use std::process::{Command as Proc, Stdio};\nuse std::process::Command as Run;\n\
             type Shell = std::process::Command;\ntype Other = Vec<u8>;\nlet x = Thing as Not;\n\
-            let started = Command::new(\"true\");\n";
-        let mut names = Vec::new();
-        command_names(text.parse().unwrap(), &mut names);
-        assert_eq!(names, ["Proc", "Run", "Shell"]);
+            let started = Command::new(\"true\");\ntype Last = Chain;\ntype Chain = Proc;\nuse Chain as Final;\n\
+            use libc as sys;\nextern crate libc as c;\nuse sys as again;\nuse rustix as other;\n";
+        let tokens: TokenStream = text.parse().unwrap();
+        assert_eq!(
+            reaching(&tokens, "Command"),
+            ["Command", "Proc", "Run", "Shell", "Chain", "Last", "Final"]
+        );
+        assert_eq!(reaching(&tokens, "libc"), ["libc", "sys", "c", "again"]);
+        assert_eq!(reaching(&"fn f() {}".parse().unwrap(), "libc"), ["libc"]);
     }
 
     /// A file that does not lex cannot be checked, so it is a violation.
