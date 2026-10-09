@@ -125,9 +125,9 @@ The worker holds no transport object. The driver keeps each received descriptor 
 |---|---|
 | `Descriptor(DescriptorId)`: the link delivered one, before the bytes that it rides with | `BindRoute{descriptor, route}`: the transport of `descriptor` is `route`'s from now |
 | `RouteBytes{route, bytes}`: bytes that the route delivered, in order | `CloseDescriptor(DescriptorId)`: close an unbound descriptor |
-| `RouteWritten{route, result}`: the answer to `RouteWrite`. `Ok(n)` is the bytes that the kernel accepted (the progress point of OU-3a), and `Ok(0)` waits for `RouteWritable`. `Err(errno)` is a failed write: the route closes `WriteFailed` | `RouteWrite{route, bytes}`: one write; at most one is out per route |
+| `RouteWritten{route, result}`: the answer to `RouteWrite`. `Ok(n)` is the bytes that the kernel accepted (the progress point of OU-3a), and `Ok(0)` waits for `RouteWritable`. `Err(errno)` is a terminal write error: the route closes `WriteFailed`. The driver never reports `WouldBlock` (it is `Ok(0)`) or `Interrupted` (the driver writes again) as `Err` | `RouteWrite{route, bytes}`: one write; at most one is out per route |
 | `RouteWritable{route}` | `RouteRead{route, on}`: read interest (off while the admission point is full, DP-5) |
-| `RouteClosedByPeer{route}`: a read returned `Ok(0)`, a reset or another read error (OU-5): the route closes `PeerClosed` | `RouteClose{route}`: close the transport; the driver reports nothing more of `route` |
+| `RouteClosedByPeer{route}`: a read returned `Ok(0)`, a reset or another terminal read error (OU-5): the route closes `PeerClosed`. `WouldBlock` waits for read readiness and `Interrupted` reads again; neither is reported | `RouteClose{route}`: close the transport; the driver reports nothing more of `route` |
 | | `PtyReadBudget(n)`: the driver reads at most `n` PTY bytes in total until the next budget; `0` stops every PTY read, a drain too |
 
 **Source backpressure (OU-3d, OU-7).** The worker sets the PTY read budget after each step:
@@ -159,20 +159,25 @@ The worker holds no transport object. The driver keeps each received descriptor 
     `BadFrame`): the worker completes a partly written frame (OU-4), writes `route_closed` with the wire reason of OU-2b
     as the last frame, and emits `RouteClose` when the kernel accepted it. What happens to the queue before
     `route_closed` depends on the reason:
-    - `SessionEnded` and `SessionRemoved` (OU-7): the worker keeps the whole queue and delivers it while the route
-      progresses. `route_closed` follows the last queued frame. If the route stalls first, the stall rules apply: its
-      droppable frames are dropped (OU-3b), it gets the resync sequence if it resumes, and it closes `StallTimeout` if it
-      does not;
+    - `SessionEnded` and `SessionRemoved` (OU-7): the reason is fixed when `Exited` is posted. The worker keeps the
+      whole queue and delivers it while the route progresses. `route_closed` follows the last queued frame;
     - `Detached`, `Replaced`, `Revoked`, `SnapshotTooLarge` and `BadFrame`: the worker drops the droppable frames that are
       not started and keeps the kept frames in order (a choice where the contract is silent: no client reads output after
-      a detach);
-    - if the transport fails, or accepts no byte for `reader_progress_deadline`, the close becomes a failed close. The
-      first reason stays;
+      a detach).
+
+    The stall rules stay in force while a healthy close delivers. A stall alone never closes a route before
+    `stall_close_after` (OU-2):
+    - no byte accepted for `reader_progress_deadline`: the route becomes `Stalled` as above (droppable frames dropped,
+      affected queries retired, `RouteStalled`);
+    - a write is accepted again: the resync sequence, then the rest of the queue, then `route_closed`;
+    - `Stalled` for `stall_close_after`: the worker emits `RouteClose` with no more frames. The report keeps the first
+      reason (for example `SessionEnded`), not `StallTimeout`;
+    - a terminal transport error: a failed close as below. The report keeps the first reason;
   - **failed close** (the failed-route reasons of OU-2b; the route has no `route_closed`, and the host reports
     `route_ended`): the worker emits `RouteClose` at once and writes nothing more. The reasons are distinct:
     - `PeerClosed` (read `Ok(0)`, a reset or a read error; wire `transport_lost`);
     - `WriteFailed` (a write returned an error; wire `write_failed`);
-    - `StallTimeout` (`Stalled` for `stall_close_after`; wire `stalled`);
+    - `StallTimeout` (`Stalled` for `stall_close_after` with no close reason before it; wire `stalled`);
     - `HandoffFailed` is the host's (the handoff above), and `SessionLost` is the host's when the worker is lost (wire
       `session_lost`). The worker never sends these two.
 
