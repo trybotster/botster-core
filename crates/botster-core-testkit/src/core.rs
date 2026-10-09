@@ -114,6 +114,9 @@ pub trait Spawner: Send {
     fn connect_worker(&mut self, _instance: &InstanceId, _end: LinkEnd) -> bool {
         false
     }
+    /// Removes the endpoint of the worker of `instance` (DESIGN.md part 1, `Remove` step 4). A missing endpoint is no
+    /// failure.
+    fn remove_endpoint(&mut self, _instance: &InstanceId) {}
 }
 
 /// The scheduler of the testkit as a `Scheduler`: every choice draws from the one seeded stream.
@@ -243,6 +246,12 @@ impl HostEdges for SimEdges {
         self.next_link += 1;
         self.links.insert(link, host);
         Some(link)
+    }
+
+    fn remove_endpoint(&mut self, instance: &InstanceId) {
+        if let Some(spawner) = self.spawner.as_mut() {
+            spawner.remove_endpoint(instance);
+        }
     }
 
     fn accept_link(&mut self) -> Option<LinkId> {

@@ -73,6 +73,14 @@ pub enum Action {
         instance: InstanceId,
         token: [u8; TOKEN_LEN],
         host_epoch: u64,
+        /// `CoreLimits.startup`, for the worker (DESIGN.md "Adoption (P5)", parts 1 and 7).
+        startup: std::time::Duration,
+    },
+    /// Removes the endpoint of the worker of `instance`, if it is still there (DESIGN.md "Adoption (P5)" part 1; SV-9): the
+    /// worker's end is verified (LC-7 step 3), and a worker that was killed could not remove it. No answer: a failure is
+    /// recorded in the edges' diagnostics and does not fail the `Remove`.
+    RemoveEndpoint {
+        instance: InstanceId,
     },
     /// Connects to the endpoint of the worker of `instance` (DESIGN.md "Adoption (P5)" 3.1); the answer is
     /// [`Input::WorkerConnected`]. The host speaks first on the new link: the worker cannot prove the epoch of a host that

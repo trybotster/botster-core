@@ -194,6 +194,7 @@ fn worker_identities_do_not_repeat() {
         instance: InstanceId("1-1".into()),
         token: [1; TOKEN_LEN],
         host_epoch: 1,
+        startup: CoreLimits::default().startup,
     };
     let mut peers = Vec::new();
     let mut connect = || {

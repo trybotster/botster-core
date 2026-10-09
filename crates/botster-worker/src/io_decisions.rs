@@ -1,5 +1,7 @@
 //! Pure decisions of the real I/O adapter. The Driver uses these decisions for every real edge.
 
+use botster_worker_core::{CandidateId, Input};
+use std::collections::VecDeque;
 use std::io;
 use std::time::{Duration, Instant};
 
@@ -39,6 +41,10 @@ pub struct ReadyState {
     pub queued_inputs: usize,
     pub pending_write: bool,
     pub write_blocked: bool,
+    /// The worker endpoint may hold a connection to accept.
+    pub endpoint_readable: bool,
+    /// A candidate may hold bytes to read.
+    pub candidate_readable: bool,
 }
 
 impl ReadyState {
@@ -47,7 +53,9 @@ impl ReadyState {
             || (self.pty_registered && self.pty_readable)
             || self.draining.is_some()
             || self.queued_inputs != 0
-            || (self.pending_write && !self.write_blocked);
+            || (self.pending_write && !self.write_blocked)
+            || self.endpoint_readable
+            || self.candidate_readable;
         if busy {
             Some(Duration::ZERO)
         } else {
@@ -78,6 +86,43 @@ pub fn flush(link_open: bool, bytes: usize) -> bool {
 
 pub fn keep_writing(writable: bool, bytes: usize) -> bool {
     writable && bytes != 0
+}
+
+/// The poll token of the first candidate. A candidate's token is this value plus its id (DESIGN.md part 7).
+pub const FIRST_CANDIDATE: usize = 5;
+
+/// The poll token of candidate `id`.
+pub fn candidate_token(id: CandidateId) -> usize {
+    FIRST_CANDIDATE.saturating_add(usize::try_from(id.0).unwrap_or(usize::MAX))
+}
+
+/// The candidate of a poll token, or `None` for a token below the candidates.
+pub fn candidate_of(token: usize) -> Option<CandidateId> {
+    token
+        .checked_sub(FIRST_CANDIDATE)
+        .map(|n| CandidateId(n as u64))
+}
+
+/// The fence of `Action::AdoptLink(adopted)` on the inputs that the driver queued and the machine did not handle yet. An
+/// input of the old link is dropped: the machine hears nothing of the old link after the action. An input of the adopted
+/// candidate becomes the same input of the control link.
+pub fn fence(inputs: &mut VecDeque<Input>, adopted: CandidateId) {
+    let queued = std::mem::take(inputs);
+    inputs.extend(queued.into_iter().filter_map(|input| match input {
+        Input::LinkBytes(_) | Input::LinkClosed | Input::LinkWritten { .. } => None,
+        Input::CandidateBytes(id, bytes) if id == adopted => Some(Input::LinkBytes(bytes)),
+        Input::CandidateClosed(id) if id == adopted => Some(Input::LinkClosed),
+        other => Some(other),
+    }));
+}
+
+/// The result of the removal of the worker endpoint at the worker's end. An endpoint that is not there is no failure: the
+/// host removes it at `Remove` (DESIGN.md part 1).
+pub fn unlinked(result: io::Result<()>) -> io::Result<()> {
+    match result {
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+        other => other,
+    }
 }
 
 /// The errno of a PTY that is gone, and of an OS failure that carries no errno.
@@ -166,7 +211,7 @@ mod tests {
     fn every_ready_source_prevents_a_blocking_wait() {
         let now = Instant::now();
         let later = now + Duration::from_secs(3);
-        for bits in 0u16..256 {
+        for bits in 0u16..1024 {
             let state = ReadyState {
                 link_open: bits & 1 != 0,
                 control_readable: bits & 2 != 0,
@@ -176,12 +221,15 @@ mod tests {
                 queued_inputs: usize::from(bits & 32 != 0),
                 pending_write: bits & 64 != 0,
                 write_blocked: bits & 128 != 0,
+                endpoint_readable: bits & 256 != 0,
+                candidate_readable: bits & 512 != 0,
             };
             let ready = match bits {
                 b if b & 3 == 3 => true,
                 b if b & 12 == 12 => true,
                 b if b & 48 != 0 => true,
                 b if b & 192 == 64 => true,
+                b if b & 768 != 0 => true,
                 _ => false,
             };
             assert_eq!(state.timeout(None, now), ready.then_some(Duration::ZERO));
@@ -291,5 +339,61 @@ mod tests {
         assert_eq!(pty_write_interest(true, true, false), change(true, false));
         assert_eq!(pty_write_interest(true, true, true), change(false, true));
         assert_eq!(pty_write_interest(true, false, false), change(false, false));
+    }
+
+    /// DESIGN.md part 7: each candidate has its own poll token above the fixed ones, and only those tokens name one.
+    #[test]
+    fn a_candidate_token_names_that_candidate_only() {
+        for id in [0, 1, 7, 4096] {
+            let token = candidate_token(CandidateId(id));
+            assert!(token >= FIRST_CANDIDATE);
+            assert_eq!(candidate_of(token), Some(CandidateId(id)));
+        }
+        for token in 0..FIRST_CANDIDATE {
+            assert_eq!(candidate_of(token), None);
+        }
+    }
+
+    /// The fence (DP-8, `Action::AdoptLink`): no queued input of the old link reaches the machine, the adopted candidate's
+    /// inputs become control-link inputs in their order, and every other input stays in its place.
+    #[test]
+    fn the_fence_drops_the_old_link_and_turns_the_adopted_candidate_into_the_link() {
+        let (adopted, other) = (CandidateId(2), CandidateId(3));
+        let mut inputs = VecDeque::from([
+            Input::LinkBytes(vec![1]),
+            Input::Timer,
+            Input::CandidateBytes(adopted, vec![2]),
+            Input::LinkWritten { total: 9 },
+            Input::CandidateBytes(other, vec![3]),
+            Input::LinkClosed,
+            Input::CandidateClosed(other),
+            Input::CandidateClosed(adopted),
+            Input::Candidate(CandidateId(4)),
+        ]);
+        fence(&mut inputs, adopted);
+        assert_eq!(
+            inputs,
+            VecDeque::from([
+                Input::Timer,
+                Input::LinkBytes(vec![2]),
+                Input::CandidateBytes(other, vec![3]),
+                Input::CandidateClosed(other),
+                Input::LinkClosed,
+                Input::Candidate(CandidateId(4)),
+            ])
+        );
+    }
+
+    /// DESIGN.md part 1: the worker removes its endpoint at its end; an endpoint that the host removed first is no failure.
+    #[test]
+    fn a_missing_endpoint_at_the_end_is_no_failure() {
+        assert!(unlinked(Ok(())).is_ok());
+        assert!(unlinked(Err(io::ErrorKind::NotFound.into())).is_ok());
+        assert_eq!(
+            unlinked(Err(io::ErrorKind::PermissionDenied.into()))
+                .unwrap_err()
+                .kind(),
+            io::ErrorKind::PermissionDenied
+        );
     }
 }

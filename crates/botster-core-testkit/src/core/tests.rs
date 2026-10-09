@@ -193,6 +193,7 @@ fn each_spawn_has_its_own_link_and_process_events_reach_the_spawner() {
         instance: InstanceId("1-1".into()),
         token: [3; 32],
         host_epoch: 1,
+        startup: CoreLimits::default().startup,
     };
     let mut ids = Vec::new();
     for _ in 0..3 {
@@ -608,6 +609,7 @@ fn spawned_links_retain_frames_at_each_queue_capacity() {
                 instance: InstanceId("1-1".into()),
                 token: [9; 32],
                 host_epoch: 1,
+                startup: CoreLimits::default().startup,
             })
             .unwrap();
         let link = edges.accept_link().unwrap();
@@ -655,6 +657,7 @@ fn a_spawn_refuses_zero_queue_capacity() {
             instance: InstanceId("1-1".into()),
             token: [9; 32],
             host_epoch: 1,
+            startup: CoreLimits::default().startup,
         })
         .unwrap();
 }
