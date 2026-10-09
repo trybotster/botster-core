@@ -1,5 +1,5 @@
 [package]
-name = "botster-core-host"
+name = "botster-guardian-core"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -13,7 +13,8 @@ workspace = true
 botster-core-contract.workspace = true
 botster-core-edges.workspace = true
 botster-core-link.workspace = true
-botster-route-codec.workspace = true
-botster-terminal-ghostty.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+
+[dev-dependencies]
+bolero.workspace = true
