@@ -354,7 +354,8 @@ impl Worker {
             && Hello::decode(payload).is_ok_and(|hello| {
                 hello.instance == self.cfg.instance
                     && hello.host_epoch == self.cfg.host_epoch
-                    && hello.proof == host_proof(&self.cfg.token, &self.cfg.instance, self.cfg.host_epoch)
+                    && hello.proof
+                        == host_proof(&self.cfg.token, &self.cfg.instance, self.cfg.host_epoch)
             });
         if !proven {
             self.close_link();
