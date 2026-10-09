@@ -606,7 +606,7 @@ fn a_guard_dropped_by_a_test_panic_ends_the_group_and_production_still_reaps_its
 #[test]
 fn a_member_that_moves_after_term_is_refused_and_no_kill_is_sent() {
     let dir = tempfile::tempdir().unwrap();
-    let blocker = Blocker::new(dir.path(), "block").unwrap();
+    let mut blocker = Blocker::new(dir.path(), "block").unwrap();
     let member = dir.path().join("member.sh");
     std::fs::write(
         &member,
@@ -659,5 +659,8 @@ fn a_member_that_moves_after_term_is_refused_and_no_kill_is_sent() {
     // No KILL reached the old group: the leader ends by itself once the member ends at the end of its stdin.
     drop(production.take_stdin());
     assert_eq!(production.status().code(), Some(0));
+    // The member's `cat` can outlive the TERM (it can come while the member's shell forks it, before `cat` runs), and no
+    // KILL reached the old group: the release of its FIFO ends it.
+    blocker.release();
     eof(rest.into_inner());
 }
