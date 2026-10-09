@@ -323,8 +323,6 @@ fn mutation_verdict(code: Option<i32>) -> Result<()> {
     )
 }
 
-/// Mutation tests of the code that the diff changes (plan section 8, step 8). A missed mutant or a timeout is a review
-/// finding, so it fails the step.
 /// The options of the mutation run, after the mutant selection.
 const MUTANTS_OPTIONS: [&str; 7] = [
     "--jobs",
@@ -349,6 +347,8 @@ const MUTANTS_TEST_ARGS: [&str; 6] = [
     "--no-tests=pass",
 ];
 
+/// Mutation tests of the code that the diff changes (plan section 8, step 8). A missed mutant or a timeout is a review
+/// finding, so it fails the step.
 fn mutants_job(root: &Path) -> Result<()> {
     require_cargo_tool(
         root,
@@ -375,37 +375,100 @@ fn mutants_job(root: &Path) -> Result<()> {
     let diff_path = target.join("landing.diff");
     std::fs::write(&diff_path, &diff.stdout)?;
 
-    let mut cmd = cargo(root);
-    cmd.args(["mutants", "--in-diff"])
-        .arg(&diff_path)
-        .args(MUTANTS_OPTIONS)
-        .arg("--output")
-        .arg(&target);
-    for re in platform_exclusions(std::env::consts::OS) {
-        cmd.arg("--exclude-re").arg(re);
-    }
-    for re in derived_exclusions(root, &package_sources(root)?, std::env::consts::OS)? {
-        cmd.arg("--exclude-re").arg(re);
-    }
-    cmd.args(MUTANTS_TEST_ARGS)
-        .envs(test_budget::tier_env(false));
-    let status = cmd.status().context("start cargo mutants")?;
-    let outcomes = target.join("mutants.out/outcomes.json");
-    let summary = match std::fs::read_to_string(&outcomes) {
-        Ok(text) => Some(parse_outcomes(&text)?),
-        Err(_) => None,
+    let exclusions: Vec<String> = platform_exclusions(std::env::consts::OS)
+        .iter()
+        .map(|re| (*re).to_string())
+        .chain(derived_exclusions(
+            root,
+            &package_sources(root)?,
+            std::env::consts::OS,
+        )?)
+        .collect();
+    let mutants = |cmd: &mut Command| {
+        cmd.args(["mutants", "--in-diff"])
+            .arg(&diff_path)
+            .args(MUTANTS_OPTIONS);
+        for re in &exclusions {
+            cmd.arg("--exclude-re").arg(re);
+        }
     };
-    match &summary {
-        Some(s) => println!(
-            "mutants: {} mutants: {} caught, {} missed, {} timeout, {} unviable",
-            s.total, s.caught, s.missed, s.timeout, s.unviable
-        ),
-        None => println!(
-            "mutants: no outcomes.json (no Rust change in the diff, or the run failed early)"
-        ),
-    }
-    mutation_verdict(status.code())?;
+    // The mutants of the diff, listed without a build, with the run's own filters.
+    let mut list = cargo(root);
+    mutants(&mut list);
+    list.args(["--list", "--json"]);
+    let listed = parse_listing(&list.output().context("start cargo mutants --list")?)?;
+    let line = mutation_decision(listed, || {
+        // An outcomes file left by an earlier run must not stand for this one.
+        let out = target.join("mutants.out");
+        if out.exists() {
+            std::fs::remove_dir_all(&out).with_context(|| format!("remove {}", out.display()))?;
+        }
+        let mut cmd = cargo(root);
+        mutants(&mut cmd);
+        cmd.arg("--output").arg(&target);
+        cmd.args(MUTANTS_TEST_ARGS)
+            .envs(test_budget::tier_env(false));
+        let status = cmd.status().context("start cargo mutants")?;
+        let summary = match std::fs::read_to_string(out.join("outcomes.json")) {
+            Ok(text) => Some(parse_outcomes(&text)?),
+            Err(_) => None,
+        };
+        Ok((status.code(), summary))
+    })?;
+    println!("{line}");
     Ok(())
+}
+
+/// The number of mutants that `cargo mutants --list --json` lists (a JSON array, one object per mutant).
+///
+/// # Errors
+/// The listing failed, or its output is not a JSON array.
+fn parse_listing(listing: &std::process::Output) -> Result<usize> {
+    if !listing.status.success() {
+        bail!(
+            "cargo mutants --list failed: {}",
+            String::from_utf8_lossy(&listing.stderr)
+        );
+    }
+    let v: serde_json::Value =
+        serde_json::from_slice(&listing.stdout).context("parse the mutant listing")?;
+    v.as_array()
+        .map(Vec::len)
+        .context("the mutant listing is not an array")
+}
+
+/// The verdict of the mutation step, from the number of mutants that the diff lists and the run (its exit code and its
+/// outcomes; `None`: no `outcomes.json`). With no mutant listed, the run does not start, and the step passes with that
+/// reason. Otherwise the run must report every listed mutant: a run that ended before it wrote its outcomes (a failed
+/// start, a failed build, a signal) fails the step, whatever its exit code. Then the exit code decides (`mutation_verdict`).
+///
+/// # Errors
+/// The run failed to start, it wrote no outcomes or outcomes for another number of mutants, or its exit code fails.
+fn mutation_decision(
+    listed: usize,
+    run: impl FnOnce() -> Result<(Option<i32>, Option<MutantSummary>)>,
+) -> Result<String> {
+    if listed == 0 {
+        return Ok(
+            "mutants: the diff has no mutant (cargo mutants --list), so no run starts".into(),
+        );
+    }
+    let (code, summary) = run()?;
+    let Some(s) = summary else {
+        bail!(
+            "cargo mutants wrote no outcomes.json for the {listed} mutants of the diff (exit code {code:?}): the run \
+             failed before its outcomes"
+        );
+    };
+    let line = format!(
+        "mutants: {} mutants: {} caught, {} missed, {} timeout, {} unviable",
+        s.total, s.caught, s.missed, s.timeout, s.unviable
+    );
+    if usize::try_from(s.total).ok() != Some(listed) {
+        bail!("{line}; the diff lists {listed} mutants: the run did not report every one");
+    }
+    mutation_verdict(code).with_context(|| line.clone())?;
+    Ok(line)
 }
 
 /// Bolero fuzzing of the harnesses of the changed crates, on the pinned nightly (plan section 8, step 9).
@@ -669,6 +732,75 @@ mod tests {
                 });
             assert!(found, "no harness `{harness}` in {krate}");
         }
+    }
+
+    /// The lead's ruling after #175: a run that failed early must not pass. No mutant listed passes with its reason and
+    /// starts no run; a listed diff passes only with outcomes for every listed mutant and exit code 0.
+    #[test]
+    fn a_mutation_step_passes_only_with_no_mutant_or_every_outcome_and_exit_code_0() {
+        let summary = |total| MutantSummary {
+            total,
+            caught: total,
+            missed: 0,
+            timeout: 0,
+            unviable: 0,
+        };
+        let decide = |listed, code, outcomes: Option<MutantSummary>| {
+            mutation_decision(listed, || Ok((code, outcomes)))
+        };
+        assert_eq!(
+            mutation_decision(0, || panic!("no mutant listed, so no run")).unwrap(),
+            "mutants: the diff has no mutant (cargo mutants --list), so no run starts"
+        );
+        assert_eq!(
+            decide(3, Some(0), Some(summary(3))).unwrap(),
+            "mutants: 3 mutants: 3 caught, 0 missed, 0 timeout, 0 unviable"
+        );
+        assert_eq!(
+            decide(3, Some(0), None).unwrap_err().to_string(),
+            "cargo mutants wrote no outcomes.json for the 3 mutants of the diff (exit code Some(0)): the run failed \
+             before its outcomes"
+        );
+        assert!(decide(3, None, None).is_err(), "a signal");
+        let failed = mutation_decision(3, || Err(anyhow::anyhow!("start cargo mutants")));
+        assert_eq!(failed.unwrap_err().to_string(), "start cargo mutants");
+        let partial = decide(3, Some(0), Some(summary(2)))
+            .unwrap_err()
+            .to_string();
+        assert!(
+            partial.ends_with("the diff lists 3 mutants: the run did not report every one"),
+            "{partial}"
+        );
+        let missed = decide(3, Some(2), Some(summary(3))).unwrap_err();
+        assert_eq!(
+            missed.to_string(),
+            "mutants: 3 mutants: 3 caught, 0 missed, 0 timeout, 0 unviable"
+        );
+        assert!(
+            format!("{missed:#}").contains("exit code Some(2)"),
+            "{missed:#}"
+        );
+    }
+
+    #[test]
+    fn a_mutant_listing_is_counted_and_anything_else_fails() {
+        use std::os::unix::process::ExitStatusExt;
+        let listing = |code: i32, stdout: &str| std::process::Output {
+            status: std::process::ExitStatus::from_raw(code << 8),
+            stdout: stdout.into(),
+            stderr: b"no manifest".to_vec(),
+        };
+        assert_eq!(parse_listing(&listing(0, "[]")).unwrap(), 0);
+        assert_eq!(
+            parse_listing(&listing(0, r#"[{"name": "a"}, {"name": "b"}]"#)).unwrap(),
+            2
+        );
+        assert!(parse_listing(&listing(0, "{}")).is_err());
+        assert!(parse_listing(&listing(0, "not json")).is_err());
+        assert_eq!(
+            parse_listing(&listing(1, "[]")).unwrap_err().to_string(),
+            "cargo mutants --list failed: no manifest"
+        );
     }
 
     #[test]
