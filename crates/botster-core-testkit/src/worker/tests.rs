@@ -3,7 +3,7 @@
 use super::*;
 use botster_core_link::proof::TOKEN_LEN;
 
-fn fixture(capacity: usize) -> (WorkerEdges, LinkEnd, Worker, Instant) {
+fn fixture(capacity: usize) -> (WorkerEdges, LinkEnd, SharedWorker, Instant) {
     let now = Instant::now();
     let scheduler = SchedulerHandle::with_seed(1);
     let (link, peer) = crate::net::link_pair(capacity);
@@ -39,11 +39,11 @@ fn fixture(capacity: usize) -> (WorkerEdges, LinkEnd, Worker, Instant) {
         ready: Vec::new(),
         read_chunk: READ_CHUNK,
     };
-    let worker = Worker::new(WorkerConfig::new(
+    let worker = SharedWorker(Arc::new(Mutex::new(Worker::new(WorkerConfig::new(
         InstanceId("1-1".into()),
         [1; TOKEN_LEN],
         1,
-    ));
+    )))));
     (edges, peer, worker, now)
 }
 
