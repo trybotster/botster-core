@@ -268,7 +268,7 @@ impl HostEngine {
         if broken {
             // The worker cannot answer: the payload was killed and Core cannot learn the exit. The session ends
             // `Lost(WorkerUnreachable)` (AD-2: the worker is alive, and no connection is made).
-            self.begin_end_flow(id, SessionEnd::Lost(LostReason::WorkerUnreachable));
+            self.begin_end_flow(id, End::Lost(LostReason::WorkerUnreachable));
         }
     }
 

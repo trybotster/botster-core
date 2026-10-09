@@ -113,7 +113,7 @@ impl HostEngine {
         &mut self,
         id: &SessionId,
         reason: StartFailReason,
-        state: SessionState,
+        state: End,
     ) {
         if let Some(f) = self.start_flow(id) {
             f.failure = Some(StartFailure { reason, state });
@@ -134,7 +134,7 @@ impl HostEngine {
         self.fail_start(
             id,
             StartFailReason::StartupTimeout,
-            SessionState::Exited(failed_start_exit()),
+            End::Exited(failed_start_exit()),
         );
     }
 
@@ -187,7 +187,7 @@ impl HostEngine {
                     self.fail_start(
                         id,
                         StartFailReason::WorkerFailed,
-                        SessionState::Exited(failed_start_exit()),
+                        End::Exited(failed_start_exit()),
                     );
                 }
             }
@@ -205,17 +205,17 @@ impl HostEngine {
             }
             StartPhase::PostFailed => {
                 let failure = f.failure.expect("a failed start has its failure");
-                if self.post_state(id, failure.state) {
+                if self.post_state(id, failure.state.state()) {
                     let s = self.sessions.get_mut(id).expect("a flow has a session");
-                    s.shown = Some(failure.state);
+                    s.shown = Some(failure.state.state());
                     match failure.state {
-                        SessionState::Exited(exit) => {
+                        End::Exited(exit) => {
                             s.exit = Some(exit);
                             s.admit = Admit::Exited;
                         }
-                        _ => s.admit = Admit::Lost,
+                        End::Lost(_) => s.admit = Admit::Lost,
                     }
-                    self.write_final_row(id, failure.state);
+                    self.write_final_row(id, failure.state.state());
                     self.set_start_phase(id, StartPhase::Finish);
                 }
             }
@@ -259,7 +259,7 @@ impl HostEngine {
             let end = self.session_end(id);
             let waiters = std::mem::take(&mut self.sessions.get_mut(id).expect("kept").waiters);
             for op in waiters {
-                self.complete_later(op, OpResult::Ok(OpOutput::End(end)));
+                self.complete_later(op, OpResult::Ok(OpOutput::End(end.public())));
             }
         }
         self.wake_launch_waiters(id);
@@ -288,7 +288,7 @@ impl HostEngine {
     }
 
     /// The payload ended, or the worker was lost: the session reaches `end` (EV-4, AD-2).
-    pub(crate) fn begin_end_flow(&mut self, id: &SessionId, end: SessionEnd) {
+    pub(crate) fn begin_end_flow(&mut self, id: &SessionId, end: End) {
         let Some(s) = self.sessions.get_mut(id) else {
             return;
         };
@@ -351,20 +351,16 @@ impl HostEngine {
             }
             StopPhase::PostEnd => {
                 let end = f.end.expect("PostEnd has its end");
-                let state = match end {
-                    SessionEnd::Exited(exit) => SessionState::Exited(exit),
-                    SessionEnd::Lost(reason) => SessionState::Lost(reason),
-                    _ => SessionState::Lost(LostReason::Other),
-                };
+                let state = end.state();
                 if self.post_state(id, state) {
                     let s = self.sessions.get_mut(id).expect("a flow has a session");
                     s.shown = Some(state);
                     match end {
-                        SessionEnd::Exited(exit) => {
+                        End::Exited(exit) => {
                             s.exit = Some(exit);
                             s.admit = Admit::Exited;
                         }
-                        _ => s.admit = Admit::Lost,
+                        End::Lost(_) => s.admit = Admit::Lost,
                     }
                     self.write_final_row(id, state);
                     if let Some(f) = self.stop_flow(id) {
@@ -382,7 +378,7 @@ impl HostEngine {
                     .waiters;
                 let next = (!waiters.is_empty()).then(|| waiters.remove(0));
                 match next {
-                    Some(op) => self.complete(op, OpResult::Ok(OpOutput::End(end))),
+                    Some(op) => self.complete(op, OpResult::Ok(OpOutput::End(end.public()))),
                     None => {
                         self.flow_done(id);
                         self.fail_inflight(id);
@@ -744,7 +740,7 @@ impl HostEngine {
                     self.fail_start(
                         id,
                         StartFailReason::WorkerFailed,
-                        SessionState::Lost(LostReason::StartInterrupted),
+                        End::Lost(LostReason::StartInterrupted),
                     );
                 }
                 _ => {}
@@ -822,7 +818,7 @@ impl HostEngine {
             Err(e) => self.fail_start(
                 id,
                 StartFailReason::ExecFailed { errno: e.errno },
-                SessionState::Exited(failed_start_exit()),
+                End::Exited(failed_start_exit()),
             ),
         }
     }

@@ -22,6 +22,41 @@ pub fn row_key(id: &SessionId) -> String {
 /// The prefix of every session row key.
 pub const ROW_PREFIX: &str = "session/";
 
+/// How a session ended: one of the two ends that Core reaches. A type of this crate, so that every match on it is total and
+/// no fallback is needed: Core never posts `Lost(Other)` (AD-2; steward ruling R-35, correction `c3ed727`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum End {
+    Exited(Exit),
+    Lost(LostReason),
+}
+
+impl End {
+    /// The state that this end shows.
+    pub fn state(self) -> SessionState {
+        match self {
+            End::Exited(exit) => SessionState::Exited(exit),
+            End::Lost(reason) => SessionState::Lost(reason),
+        }
+    }
+
+    /// The end as an operation result gives it (A2-1).
+    pub fn public(self) -> SessionEnd {
+        match self {
+            End::Exited(exit) => SessionEnd::Exited(exit),
+            End::Lost(reason) => SessionEnd::Lost(reason),
+        }
+    }
+
+    /// The end that a shown state names, or `None` for a state that is not an end.
+    pub fn of(state: SessionState) -> Option<End> {
+        match state {
+            SessionState::Exited(exit) => Some(End::Exited(exit)),
+            SessionState::Lost(reason) => Some(End::Lost(reason)),
+            _ => None,
+        }
+    }
+}
+
 /// The state of a session as the admission table sees it (AM-1).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Admit {
@@ -242,7 +277,7 @@ pub struct Session {
     /// `MetadataChanged` is due: it follows the completion of an `UpdateMetadata` in a step of its own (LC-9).
     pub metadata_pending: bool,
     /// How the payload ended while a start flow was still running: applied when the flow ends.
-    pub pending_end: Option<SessionEnd>,
+    pub pending_end: Option<End>,
 }
 
 impl Session {

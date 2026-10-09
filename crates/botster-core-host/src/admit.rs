@@ -557,7 +557,7 @@ impl HostEngine {
                 let step = match admit {
                     Admit::Exited | Admit::Lost => {
                         let end = self.session_end(&session);
-                        Step::Ready(Next::Complete(OpResult::Ok(OpOutput::End(end))))
+                        Step::Ready(Next::Complete(OpResult::Ok(OpOutput::End(end.public()))))
                     }
                     Admit::Running | Admit::Starting => {
                         self.sessions
@@ -773,12 +773,15 @@ impl HostEngine {
     }
 
     /// How a session that has ended ended (A2-1: `SessionEnd`).
-    pub(crate) fn session_end(&self, session: &SessionId) -> SessionEnd {
-        match self.sessions.get(session).and_then(|s| s.shown) {
-            Some(SessionState::Lost(reason)) => SessionEnd::Lost(reason),
-            Some(SessionState::Exited(exit)) => SessionEnd::Exited(exit),
-            _ => SessionEnd::Lost(LostReason::Other),
-        }
+    ///
+    /// A session reaches `Exited` or `Lost` in the same step that shows that state, so an ended session always shows its
+    /// end.
+    pub(crate) fn session_end(&self, session: &SessionId) -> End {
+        self.sessions
+            .get(session)
+            .and_then(|s| s.shown)
+            .and_then(End::of)
+            .expect("an ended session shows its end")
     }
 
     /// `cancel` (IN-6, A2-1): only a `WriteInput` can be cancelled.

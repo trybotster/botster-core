@@ -179,7 +179,7 @@ impl HostEngine {
             self.fail_start(
                 &id,
                 StartFailReason::WorkerFailed,
-                SessionState::Lost(LostReason::WorkerVersion),
+                End::Lost(LostReason::WorkerVersion),
             );
             return;
         }
@@ -247,7 +247,7 @@ impl HostEngine {
                     self.fail_start(
                         id,
                         reason,
-                        SessionState::Exited(Exit {
+                        End::Exited(Exit {
                             code: None,
                             signal: None,
                             cause: ExitCause::Other,
@@ -257,7 +257,7 @@ impl HostEngine {
             }
             WorkerMsg::Exited { code, signal } => {
                 let exit = self.exit_of(id, code, signal);
-                self.begin_end_flow(id, SessionEnd::Exited(exit));
+                self.begin_end_flow(id, End::Exited(exit));
             }
             WorkerMsg::Done { req, result } => self.on_done(id, req, result),
             WorkerMsg::Pages { req, pages } => {
@@ -588,7 +588,7 @@ impl HostEngine {
                 self.fail_start(
                     &id,
                     StartFailReason::WorkerFailed,
-                    SessionState::Exited(Exit {
+                    End::Exited(Exit {
                         code: None,
                         signal: None,
                         cause: ExitCause::Other,
@@ -641,7 +641,7 @@ impl HostEngine {
                 self.fail_start(
                     &id,
                     StartFailReason::WorkerFailed,
-                    SessionState::Lost(LostReason::WorkerGone),
+                    End::Lost(LostReason::WorkerGone),
                 );
             }
             Flow::Remove(_) => self.flow_remove_worker_gone(&id),
@@ -653,7 +653,7 @@ impl HostEngine {
                 ) && self.sessions[&id].pending_end.is_none()
                     && !matches!(&flow, Flow::Stop(f) if f.phase == StopPhase::PostEnd || f.phase == StopPhase::Finish)
                 {
-                    self.begin_end_flow(&id, SessionEnd::Lost(LostReason::WorkerGone));
+                    self.begin_end_flow(&id, End::Lost(LostReason::WorkerGone));
                 }
             }
         }
