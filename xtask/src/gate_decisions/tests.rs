@@ -760,8 +760,9 @@ fn a_macro_is_read_only_when_its_path_is_listed() {
     assert_eq!(
         io("use super::*;\nuse crate::x::*;\nuse self::y::*;\n\
             fn read() { println!(\"{}\", std::fs::read_to_string(p)); }\n\
-            fn opaque() { matches!(std::fs::write(p, b), Ok(())); }\n"),
-        BTreeSet::from(["read".to_string()])
+            fn opaque() { matches!(std::fs::write(p, b), Ok(())); }\n\
+            fn typed() -> syn::Token![,] { std::fs::write(p, b) }\n"),
+        BTreeSet::from(["read".to_string(), "typed".to_string()])
     );
     assert_eq!(
         io("use anyhow::{anyhow, bail};\nfn bailed() { bail!(\"{:?}\", std::fs::read(p)); }\n"),
