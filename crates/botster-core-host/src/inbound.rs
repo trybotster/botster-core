@@ -8,7 +8,7 @@ use botster_core_contract::prelude::*;
 use botster_core_edges::edges::{ExitStatus, GroupSignal, ProcessIdentity};
 use botster_core_link::hello::Hello;
 use botster_core_link::msg::{Observation, WorkerMsg};
-use botster_core_link::proof::token_proof;
+use botster_core_link::proof::{host_proof, token_proof};
 use std::collections::BTreeSet;
 
 impl HostEngine {
@@ -188,7 +188,8 @@ impl HostEngine {
             hello: Hello {
                 protocol: self.cfg.worker_protocol,
                 instance: hello.instance.clone(),
-                proof,
+                // AD-6: the host answers with its own role, so a worker never receives its own proof back.
+                proof: host_proof(&token, &hello.instance, self.cfg.host_epoch),
                 host_epoch: self.cfg.host_epoch,
             },
         });

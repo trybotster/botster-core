@@ -106,7 +106,7 @@ impl World {
     fn host_hello(instance: InstanceId, epoch: u64, token: [u8; TOKEN_LEN]) -> Vec<u8> {
         let hello = Hello {
             protocol: WORKER_PROTOCOL,
-            proof: token_proof(&token, &instance, epoch),
+            proof: host_proof(&token, &instance, epoch),
             instance,
             host_epoch: epoch,
         };

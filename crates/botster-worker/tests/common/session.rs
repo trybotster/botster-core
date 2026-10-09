@@ -220,7 +220,7 @@ impl Session {
         Hello {
             protocol: 1,
             instance: launch.instance.clone(),
-            proof,
+            proof: botster_core_link::proof::host_proof(&launch.token, &launch.instance, launch.host_epoch),
             host_epoch: 1,
         }
         .encode(&mut reply)
