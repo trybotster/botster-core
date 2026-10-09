@@ -15,10 +15,6 @@ use std::time::Duration;
 /// The largest `rows` or `cols` of a `Size` (A2-1).
 const MAX_DIMENSION: u32 = 65_535;
 
-/// The longest report or key sequence of any mode, in bytes: the bound that a host `Key` or `Mouse` write is checked against
-/// at `begin` (5.1A, "the worst case over every mode"). The worker's encoders must never produce a longer one.
-const WORST_CASE_SEQUENCE_BYTES: u64 = 64;
-
 fn err(code: ErrorCode, detail: impl Into<String>) -> CoreError {
     CoreError::new(code, detail)
 }
@@ -313,34 +309,9 @@ impl HostEngine {
         }
     }
 
-    /// The payload checks of a host write that `begin` can make (IN-5, IN-9, A2-1): `InvalidInput` and `PayloadTooLarge`.
+    /// The checks of a host write's payload that `begin` makes before its size (IN-9, A2-1): `InvalidInput`.
     fn check_payload(&self, payload: &InputPayload) -> Result<(), CoreError> {
-        let limit = self.cfg.limits.max_paste_bytes;
-        let too_large = |bytes: u64| {
-            err(
-                ErrorCode::PayloadTooLarge,
-                format!("{bytes} payload bytes are over max_paste_bytes {limit}"),
-            )
-        };
         match payload {
-            InputPayload::Bytes { bytes } => {
-                let n = bytes.0.len() as u64;
-                if n > limit {
-                    return Err(too_large(n));
-                }
-            }
-            InputPayload::Text { text } => {
-                let n = text.len() as u64;
-                if n > limit {
-                    return Err(too_large(n));
-                }
-            }
-            InputPayload::Paste { bytes, .. } => {
-                let n = bytes.0.len() as u64;
-                if n > limit {
-                    return Err(too_large(n));
-                }
-            }
             InputPayload::Key(key) => {
                 if key.shifted_key.is_some()
                     && !key
@@ -349,7 +320,6 @@ impl HostEngine {
                 {
                     return Err(invalid("shifted_key is valid only with shift"));
                 }
-                let mut times = 1u64;
                 if let Some(repeat) = key.repeat {
                     if key.event != botster_route_codec::prelude::KeyEvent::Press {
                         return Err(invalid("repeat is valid only with a press"));
@@ -360,11 +330,6 @@ impl HostEngine {
                             self.cfg.limits.max_key_repeat
                         )));
                     }
-                    times = u64::from(repeat);
-                }
-                let worst = times * WORST_CASE_SEQUENCE_BYTES;
-                if worst > limit {
-                    return Err(too_large(worst));
                 }
             }
             InputPayload::Mouse(mouse) => {
@@ -385,12 +350,7 @@ impl HostEngine {
                 if mouse.notches == Some(0) {
                     return Err(invalid("notches is from 1"));
                 }
-                let worst = u64::from(mouse.notches.unwrap_or(1)) * WORST_CASE_SEQUENCE_BYTES;
-                if worst > limit {
-                    return Err(too_large(worst));
-                }
             }
-            InputPayload::Focus { .. } => {}
             _ => {}
         }
         Ok(())
@@ -406,26 +366,42 @@ impl HostEngine {
         })
     }
 
-    /// The most encoded bytes that a write can put on the PTY (IN-9): the payload bytes, or the worst case of one sequence
-    /// for each repeat or notch. It counts against `input_retained_bytes` (IN-5), and it bounds an `Unknown` write (IN-7).
-    pub(crate) fn held_bytes(payload: &InputPayload) -> u64 {
-        match payload {
+    /// The size of a host write's payload (IN-5, IN-9): its bytes, or for a semantic kind the worst-case encoded size over
+    /// every mode, which libghostty's encoders give, once for each repeat or notch (5.1A). Over `max_paste_bytes` it is
+    /// `PayloadTooLarge`. The size counts against `input_retained_bytes` (IN-5) and bounds an `Unknown` write (IN-7).
+    fn payload_size(&self, payload: &InputPayload) -> Result<u64, CoreError> {
+        let limit = self.cfg.limits.max_paste_bytes;
+        let size = match payload {
             InputPayload::Bytes { bytes } | InputPayload::Paste { bytes, .. } => {
                 bytes.0.len() as u64
             }
             InputPayload::Text { text } => text.len() as u64,
             InputPayload::Key(key) => {
-                u64::from(key.repeat.unwrap_or(1)) * WORST_CASE_SEQUENCE_BYTES
+                let times = u64::from(key.repeat.unwrap_or(1));
+                // A sequence over `limit / times` puts the whole write over `limit`, so the search can stop there.
+                let longest = botster_terminal_ghostty::longest_key_sequence(key, limit / times)
+                    .map_err(|_| err(ErrorCode::Internal, "the key encoder cannot be created"))?;
+                times.saturating_mul(longest)
             }
-            InputPayload::Mouse(mouse) => {
-                u64::from(mouse.notches.unwrap_or(1)) * WORST_CASE_SEQUENCE_BYTES
+            InputPayload::Mouse(mouse) => u64::from(mouse.notches.unwrap_or(1))
+                .saturating_mul(botster_terminal_ghostty::longest_mouse_report(mouse)),
+            InputPayload::Focus { focused } => {
+                botster_terminal_ghostty::longest_focus_report(*focused)
             }
-            _ => WORST_CASE_SEQUENCE_BYTES,
+            // A later kind of the non-exhaustive enum is refused `Unsupported` by `check_arguments`.
+            _ => 0,
+        };
+        if size > limit {
+            return Err(err(
+                ErrorCode::PayloadTooLarge,
+                format!("{size} payload bytes are over max_paste_bytes {limit}"),
+            ));
         }
+        Ok(size)
     }
 
     /// The capacity codes of the rows (9.3).
-    fn check_capacity(&self, op: &Op) -> Result<(), CoreError> {
+    fn check_capacity(&self, op: &Op, size: u64) -> Result<(), CoreError> {
         match op {
             Op::Create { .. } if self.sessions.len() >= self.cfg.limits.max_sessions as usize => {
                 Err(err(
@@ -448,13 +424,11 @@ impl HostEngine {
                     Ok(())
                 }
             }
-            Op::WriteInput {
-                session, payload, ..
-            } => {
+            Op::WriteInput { session, .. } => {
                 let s = &self.sessions[session];
                 let limits = &self.cfg.limits;
                 if s.input_ops >= limits.input_ops_per_session
-                    || s.input_bytes + Self::held_bytes(payload) > limits.input_retained_bytes
+                    || s.input_bytes + size > limits.input_retained_bytes
                 {
                     Err(err(
                         ErrorCode::LaneFull,
@@ -471,17 +445,21 @@ impl HostEngine {
     /// Starts an operation (Core 2, ER-0, OR-1, AM-1). It makes no progress: `begin` never completes an op.
     pub fn begin(&mut self, op: Op) -> Result<OpId, CoreError> {
         self.check_arguments(&op)?;
+        let size = match &op {
+            Op::WriteInput { payload, .. } => self.payload_size(payload)?,
+            _ => 0,
+        };
         if self.ops.len() >= self.cfg.limits.pending_ops as usize {
             return Err(err(
                 ErrorCode::PendingLimit,
                 format!("pending_ops is {}", self.cfg.limits.pending_ops),
             ));
         }
-        self.check_capacity(&op)?;
+        self.check_capacity(&op, size)?;
         let id = OpId(self.next_op);
         self.next_op += 1;
         let session = Self::session_of(&op);
-        self.commit(id, op);
+        self.commit(id, op, size);
         if let Some(s) = session.and_then(|session| self.sessions.get_mut(&session)) {
             s.ops.insert(id.0);
         }
@@ -535,7 +513,7 @@ impl HostEngine {
     }
 
     /// Changes the admission table and queues the first step (AM-1: at `begin`, in `begin` order).
-    fn commit(&mut self, id: OpId, op: Op) {
+    fn commit(&mut self, id: OpId, op: Op, size: u64) {
         let instance_of =
             |engine: &HostEngine, s: &SessionId| engine.sessions.get(s).map(|x| x.instance.clone());
         match op.clone() {
@@ -731,17 +709,14 @@ impl HostEngine {
                 pending.fixed_timing = admit == Admit::Created || same_size;
                 self.ops.insert(id, pending);
             }
-            Op::WriteInput {
-                session, payload, ..
-            } => {
+            Op::WriteInput { session, .. } => {
                 let instance = instance_of(self, &session);
-                let held = Self::held_bytes(&payload);
                 let s = self.sessions.get_mut(&session).expect("checked");
                 s.input_ops += 1;
-                s.input_bytes += held;
+                s.input_bytes += size;
                 let mut pending =
                     Self::pending(op, Some(session), instance, Step::Ready(Next::Forward));
-                pending.held_bytes = held;
+                pending.held_bytes = size;
                 self.ops.insert(id, pending);
             }
             Op::Detach { route, .. } => {

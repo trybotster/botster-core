@@ -116,7 +116,7 @@ pub(crate) struct World {
 
 impl World {
     pub fn new(limits: CoreLimits) -> World {
-        World::open(config(limits), BTreeMap::new(), BTreeSet::new())
+        World::open(config(limits), BTreeMap::new(), BTreeSet::new(), 100)
     }
 
     /// A handle whose platform offers `feature` too (A2-6).
@@ -128,16 +128,21 @@ impl World {
 
     /// A handle opened with `cfg`: the features, limits and lists that `open` gives the engine (A2-6, 9B, EV-8).
     pub fn configured(cfg: EngineConfig) -> World {
-        World::open(cfg, BTreeMap::new(), BTreeSet::new())
+        World::open(cfg, BTreeMap::new(), BTreeSet::new(), 100)
     }
 
     /// A new handle over the registry and the processes of `earlier` (a host that was dropped, LC-12). The handle reads the
-    /// ids of the rows when it opens (ID-1), as `HostDriver::open` does.
+    /// ids of the rows when it opens (ID-1), as `HostDriver::open` does. Its host epoch is above `earlier`'s (DP-8: every
+    /// open raises it), and its spawns take pids after `earlier`'s, as the operating system gives no live process's pid to a
+    /// new one.
     pub fn over(earlier: &World) -> World {
+        let mut cfg = earlier.engine.cfg.clone();
+        cfg.host_epoch += 1;
         World::open(
-            earlier.engine.cfg.clone(),
+            cfg,
             earlier.rows.clone(),
             earlier.alive.clone(),
+            earlier.next_pid,
         )
     }
 
@@ -145,6 +150,7 @@ impl World {
         cfg: EngineConfig,
         rows: BTreeMap<String, Vec<u8>>,
         alive: BTreeSet<ProcessIdentity>,
+        next_pid: u32,
     ) -> World {
         #[allow(clippy::disallowed_methods)] // a test starts the injected clock at a real instant
         let start = Instant::now();
@@ -171,7 +177,7 @@ impl World {
             spawned: BTreeMap::new(),
             alive,
             identities: BTreeMap::new(),
-            next_pid: 100,
+            next_pid,
             next_link: 1,
             random: 1,
             inject: Vec::new(),
@@ -291,8 +297,13 @@ impl World {
                     result: Ok(identity),
                 });
                 if self.autopilot == Autopilot::Full {
-                    self.inject
-                        .push(self.hello_input(&instance, HELLO_PROTOCOL, token, 7, link));
+                    self.inject.push(self.hello_input(
+                        &instance,
+                        HELLO_PROTOCOL,
+                        token,
+                        self.engine.cfg.host_epoch,
+                        link,
+                    ));
                 }
             }
             Action::SendHello { link, hello } => self.hellos.push((link, hello)),
@@ -403,20 +414,27 @@ impl World {
         }
     }
 
+    /// Runs the ready work that `choose` picks, one step at a time, until it picks none; `after` sees the World after each
+    /// step. An engine whose steps make no progress fails the test at the step bound, instead of hanging it.
+    pub fn settle(
+        &mut self,
+        mut choose: impl FnMut(&[Work]) -> Option<Work>,
+        mut after: impl FnMut(&mut Self),
+    ) {
+        let mut guard = 0;
+        while let Some(work) = choose(&self.engine.ready()) {
+            self.feed(Input::Run(work));
+            after(self);
+            guard += 1;
+            assert!(guard < 10_000, "the engine does not settle");
+        }
+    }
+
     /// One `pump` with no budget and no deferral: the clock, then the first ready work until none is left. Budgets, deferral and
     /// the order of a seeded scheduler are the driver's, and the driver's own tests prove them (`tests::driver`).
     pub fn pump(&mut self) -> PumpReport {
         self.feed(Input::Clock(self.unix));
-        let mut guard = 0;
-        loop {
-            let ready = self.engine.ready();
-            let Some(work) = ready.into_iter().next() else {
-                break;
-            };
-            self.feed(Input::Run(work));
-            guard += 1;
-            assert!(guard < 10_000, "the engine does not settle");
-        }
+        self.settle(|ready| ready.first().cloned(), |_| {});
         PumpReport {
             more: self.engine.runnable(),
             events_posted: self.engine.take_posted(),
@@ -427,12 +445,7 @@ impl World {
     /// an order that a clause fixes must hold under it too.
     pub fn pump_last_first(&mut self) {
         self.feed(Input::Clock(self.unix));
-        let mut guard = 0;
-        while let Some(work) = self.engine.ready().pop() {
-            self.feed(Input::Run(work));
-            guard += 1;
-            assert!(guard < 10_000, "the engine does not settle");
-        }
+        self.settle(|ready| ready.last().cloned(), |_| {});
     }
 
     /// Pumps and polls until `event` shows up, and returns the events up to it.

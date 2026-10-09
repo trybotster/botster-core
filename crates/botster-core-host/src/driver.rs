@@ -603,7 +603,11 @@ impl<E: HostEdges> CoreApi for HostDriver<E> {
         // The one place where time enters Core (TM-1): every later input of this pump is at this time.
         self.engine.handle(now.monotonic, Input::Clock(now.unix));
         // A due `Silent` is an older step than any input that arrives now: it runs first, with the budget it needs (E3-1 item 3).
-        while !budget.exhausted() && self.engine.ready().contains(&Work::Silent) {
+        // The loop runs once for each silence that is due, so this pump ends whatever a step does (9B).
+        for _ in 0..self.engine.due_silences() {
+            if budget.exhausted() {
+                break;
+            }
             self.feed(Input::Run(Work::Silent));
             budget.account(&mut self.engine);
         }

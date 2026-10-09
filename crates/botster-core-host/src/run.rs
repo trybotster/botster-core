@@ -185,11 +185,25 @@ impl HostEngine {
 
     /// The earliest due deadline: a `Silent` when `silent`, and any other kind otherwise (E3-1).
     fn due_deadline(&self, silent: bool) -> Option<DeadlineKind> {
-        let now = self.now?;
+        self.due_deadlines(silent).next()
+    }
+
+    /// The deadlines that are due now: the silences, or every other kind.
+    fn due_deadlines(&self, silent: bool) -> impl Iterator<Item = DeadlineKind> {
+        let now = self.now;
         self.deadlines()
             .into_iter()
-            .find(|(at, kind)| *at <= now && matches!(kind, DeadlineKind::Silence(_)) == silent)
+            .filter(move |(at, kind)| {
+                now.is_some_and(|now| *at <= now)
+                    && matches!(kind, DeadlineKind::Silence(_)) == silent
+            })
             .map(|(_, kind)| kind)
+    }
+
+    /// How many silences are due now. Each `Work::Silent` step fires one, so this is the most `Silent` steps that a pump
+    /// runs before other work (E3-1 item 3).
+    pub(crate) fn due_silences(&self) -> usize {
+        self.due_deadlines(true).count()
     }
 
     /// Runs one piece of ready work (plan 2.4).
@@ -543,10 +557,10 @@ impl HostEngine {
         };
         match &pending.op {
             // A write that was sent and not acknowledged is `Unknown`; one that was never sent is a certain zero (IN-7).
-            Op::WriteInput { payload, .. } => OpResult::Ok(OpOutput::Input(InputResult {
+            Op::WriteInput { .. } => OpResult::Ok(OpOutput::Input(InputResult {
                 outcome: if pending.req.is_some() {
                     WriteOutcome::Unknown {
-                        max_payload_bytes: Self::held_bytes(payload),
+                        max_payload_bytes: pending.held_bytes,
                     }
                 } else {
                     WriteOutcome::NotWritten(NotWrittenReason::SessionEnded)
