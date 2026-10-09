@@ -415,3 +415,39 @@ fn a_registration_that_cannot_be_trusted_fails_the_guard() {
         );
     }
 }
+
+/// A member that ends with the readiness byte unread, as when production's group kill ends it first, is a member that
+/// ended without a report: the guard awaits the end of its group, and does not fail on the reset of the connection
+/// (Linux reports ECONNRESET to the guard's read).
+#[test]
+fn a_member_that_ends_with_the_readiness_unread_ended_without_a_report() {
+    use std::os::unix::process::CommandExt;
+    let dir = tempfile::tempdir().unwrap();
+    // A group with no live member: the group of a child that this test started and reaped.
+    let mut leader = super::process_guard::cleanup::Owned(
+        std::process::Command::new("/usr/bin/true")
+            .process_group(0)
+            .spawn()
+            .unwrap(),
+    );
+    let group = leader.0.id();
+    leader.status();
+    let mut guard = PayloadGuard::new(dir.path());
+    let mut member = UnixStream::connect(&guard.socket).unwrap();
+    member
+        .write_all(format!("\x01{group}\n").as_bytes())
+        .unwrap();
+    let mut ready = UnixStream::connect(&guard.socket).unwrap();
+    // timer: deadline — bounds the read of the readiness (set while the stream is open; macOS refuses it once the peer
+    // has closed).
+    ready.set_read_timeout(Some(CLEANUP)).unwrap();
+    ready.write_all(&[2]).unwrap();
+    // The guard writes the readiness to the member first, so it waits unread in the member's stream once the ready helper
+    // has it.
+    let mut readiness = [0];
+    ready.read_exact(&mut readiness).unwrap();
+    assert_eq!(readiness, [1]);
+    drop(member);
+    guard.release();
+    drop(guard);
+}
