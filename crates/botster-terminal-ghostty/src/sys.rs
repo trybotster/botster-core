@@ -100,8 +100,9 @@ pub mod opt {
     pub const WRITE_PTY: i32 = 1;
     pub const SIZE: i32 = 6;
     pub const CLIPBOARD_READ: i32 = 38;
-    pub const QUERY: i32 = 44;
-    pub const QUERY_MAX_BYTES: i32 = 45;
+    pub const CLIPBOARD_WRITE_MAX_BYTES: i32 = 39;
+    pub const QUERY: i32 = 47;
+    pub const QUERY_MAX_BYTES: i32 = 48;
     pub const CONTINUATION_MAX_BYTES: i32 = 31;
     pub const KITTY_IMAGE_STORAGE_LIMIT: i32 = 15;
     pub const COLOR_FOREGROUND: i32 = 11;
@@ -202,6 +203,8 @@ pub struct ClipboardWrite {
     pub reply: ClipboardWriteReplyFn,
     pub selection: GString,
     pub terminator: i32,
+    pub too_large: bool,
+    pub total_len: u64,
 }
 
 /// `GhosttyTerminalQuery`.

@@ -7,7 +7,7 @@
 use botster_core_contract::prelude::*;
 use botster_core_edges::edges::ProcessIdentity;
 use botster_core_link::hello::PROOF_LEN;
-use botster_core_link::proof::TOKEN_LEN;
+use botster_core_link::proof::{token_hex, TOKEN_LEN};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use std::time::{Duration, Instant};
@@ -22,8 +22,40 @@ pub fn row_key(id: &SessionId) -> String {
 /// The prefix of every session row key.
 pub const ROW_PREFIX: &str = "session/";
 
-/// The key of the row that holds the host epoch (DP-8).
-pub const EPOCH_KEY: &str = "meta/host-epoch";
+/// How a session ended: one of the two ends that Core reaches. A type of this crate, so that every match on it is total and
+/// no fallback is needed: Core never posts `Lost(Other)` (AD-2; steward ruling R-35, correction `c3ed727`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum End {
+    Exited(Exit),
+    Lost(LostReason),
+}
+
+impl End {
+    /// The state that this end shows.
+    pub fn state(self) -> SessionState {
+        match self {
+            End::Exited(exit) => SessionState::Exited(exit),
+            End::Lost(reason) => SessionState::Lost(reason),
+        }
+    }
+
+    /// The end as an operation result gives it (A2-1).
+    pub fn public(self) -> SessionEnd {
+        match self {
+            End::Exited(exit) => SessionEnd::Exited(exit),
+            End::Lost(reason) => SessionEnd::Lost(reason),
+        }
+    }
+
+    /// The end that a shown state names, or `None` for a state that is not an end.
+    pub fn of(state: SessionState) -> Option<End> {
+        match state {
+            SessionState::Exited(exit) => Some(End::Exited(exit)),
+            SessionState::Lost(reason) => Some(End::Lost(reason)),
+            _ => None,
+        }
+    }
+}
 
 /// The state of a session as the admission table sees it (AM-1).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -36,6 +68,8 @@ pub enum Admit {
     Lost,
     /// `Remove` was admitted. The id is still in use until step 5 of LC-7.
     Removing,
+    /// An adoption runs (AD-1, AD-2 retry). Until it posts the row's state, no operation is admitted on the session.
+    Adopting,
 }
 
 /// The durable row of a session: one JSON object per row, version 1.
@@ -90,6 +124,36 @@ impl From<ProcessIdentity> for RowWorker {
 
 pub const ROW_VERSION: u32 = 1;
 
+impl Row {
+    /// The row of `id` that `bytes` hold, or `None` when Core's decoder rejects them: bytes that are not a row, a row of
+    /// another version, or a row of another id (A10-2, AD-2 `RegistryCorrupt`).
+    pub fn decode(id: &SessionId, bytes: &[u8]) -> Option<Row> {
+        serde_json::from_slice::<Row>(bytes)
+            .ok()
+            .filter(|row| row.version == ROW_VERSION && &row.id == id)
+    }
+}
+
+/// The request of a session whose row is corrupt: Core cannot read what was asked. Its size of 0 rows by 0 columns is
+/// outside every valid size (A2-1), so a reader of the record cannot take it for a real one, and no worker ever gets it: a
+/// `Lost` session is never started (AD-2).
+pub fn unknown_request() -> SpawnRequest {
+    SpawnRequest {
+        argv: Vec::new(),
+        env: BTreeMap::new(),
+        cwd: String::new(),
+        size: Size {
+            rows: 0,
+            cols: 0,
+            cell_px: None,
+        },
+        labels: BTreeMap::new(),
+        color_profile: None,
+        notification_policy: None,
+        size_policy: None,
+    }
+}
+
 /// A set of `OpId`s as disjoint ranges. `cancel` needs exact identity for the whole life of the handle (ID-1, IN-6), and ranges
 /// keep that exact set small.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -130,27 +194,6 @@ impl IdRanges {
             }
         }
     }
-}
-
-pub fn hex_encode(bytes: &[u8]) -> String {
-    bytes.iter().map(|b| format!("{b:02x}")).collect()
-}
-
-pub fn token_from_hex(text: &str) -> Option<[u8; TOKEN_LEN]> {
-    let digits = text.as_bytes();
-    if digits.len() != TOKEN_LEN * 2 {
-        return None;
-    }
-    let nibble = |d: u8| match d {
-        b'0'..=b'9' => Some(d - b'0'),
-        b'a'..=b'f' => Some(d - b'a' + 10),
-        _ => None,
-    };
-    let mut out = [0u8; TOKEN_LEN];
-    for (byte, pair) in out.iter_mut().zip(digits.chunks(2)) {
-        *byte = nibble(pair[0])? * 16 + nibble(pair[1])?;
-    }
-    Some(out)
 }
 
 // A proof is the same size as a token; the two never mix because they have different types.
@@ -236,9 +279,9 @@ pub struct Session {
     /// `MetadataChanged` is due: it follows the completion of an `UpdateMetadata` in a step of its own (LC-9).
     pub metadata_pending: bool,
     /// How the payload ended while a start flow was still running: applied when the flow ends.
-    pub pending_end: Option<SessionEnd>,
-    /// Routes that were registered before the link existed: the handoff waits for the link (DP-2).
-    pub pending_routes: Vec<RouteId>,
+    pub pending_end: Option<End>,
+    /// The `AdoptAll` or `Adopt` op that waits for this session's state (LC-11).
+    pub adopting: Option<OpId>,
 }
 
 impl Session {
@@ -256,15 +299,21 @@ impl Session {
         })
     }
 
+    /// The state that a row write of this session records: the shown state. A `Lost` row keeps the worker's identity, not
+    /// an earlier state (steward ruling R-36, contracts `main` `c62085f`).
+    pub fn recorded_state(&self) -> SessionState {
+        self.shown.unwrap_or(SessionState::Created)
+    }
+
     pub fn to_row(&self) -> Row {
         Row {
             version: ROW_VERSION,
             id: self.id.clone(),
             instance: self.instance.clone(),
-            state: self.shown.unwrap_or(SessionState::Created),
+            state: self.recorded_state(),
             request: self.request.clone(),
             labels: self.labels.clone(),
-            token: self.token.map(|t| hex_encode(&t)),
+            token: self.token.as_ref().map(token_hex),
             worker: self.worker.identity.map(RowWorker::from),
             payload: self.payload.map(RowWorker::from),
             worker_protocol: self.worker_protocol,
@@ -278,17 +327,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_token_survives_its_hex_form() {
-        let token: [u8; TOKEN_LEN] = std::array::from_fn(|i| i as u8 * 7);
-        assert_eq!(token_from_hex(&hex_encode(&token)), Some(token));
-        assert_eq!(token_from_hex("zz"), None);
-        assert_eq!(token_from_hex(&"G".repeat(64)), None);
-    }
-
-    #[test]
     fn a_silence_deadline_needs_a_threshold_an_output_and_an_unfired_period() {
-        #[allow(clippy::disallowed_methods)] // a test starts the injected clock at a real instant
-        let now = Instant::now();
+        let now = crate::tests::real_now();
         let mut silence = Silence::default();
         assert_eq!(silence.deadline(), None);
         silence.threshold = Some(Duration::from_secs(2));

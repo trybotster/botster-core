@@ -1,7 +1,8 @@
 # `allow-invalid` on the rand and getrandom entries: a crate that does not depend on them has no such function to find.
 # Lints for the machine crates (plan 2.3c). Every crate below this directory uses this file unless
-# its own directory has a clippy.toml: the drivers, `botster-core-sys`, the testkit and `xtask` carry an
-# empty one, because they own the real edges (plan 2.3c: "The drivers, the sys crate and the testkit are exempt").
+# its own directory has a clippy.toml: the drivers, `botster-core-sys`, the testkit and `xtask` carry their
+# own, because they own the real edges (plan 2.3c: "The drivers, the sys crate and the testkit are exempt").
+# Every one of those files repeats the five signal entries: no crate is exempt from the pattern rule.
 
 disallowed-methods = [
   { path = "std::time::Instant::now", reason = "the clock is the Clock edge (plan 2.3, 2.3c)" },
@@ -39,6 +40,11 @@ disallowed-methods = [
   { path = "std::fs::File::set_len", reason = "file I/O goes through FileSink or Storage (plan 2.3b, 2.3c)" },
   { path = "std::fs::File::metadata", reason = "file I/O goes through FileSink or Storage (plan 2.3b, 2.3c)" },
   { path = "std::fs::DirBuilder::create", reason = "file I/O goes through FileSink or Storage (plan 2.3b, 2.3c)" },
+  { path = "rustix::process::kill_process_group", reason = "signal through botster_core_sys::signal, which refuses a target of 0 or 1 and our own (the pattern rule: kill(-1) signals every process of the user)", allow-invalid = true },
+  { path = "rustix::process::kill_process", reason = "signal through botster_core_sys::signal, which refuses a target of 0 or 1 and our own (the pattern rule: kill(-1) signals every process of the user)", allow-invalid = true },
+  { path = "rustix::process::kill_current_process_group", reason = "signal through botster_core_sys::signal, which refuses a target of 0 or 1 and our own (the pattern rule: kill(-1) signals every process of the user)", allow-invalid = true },
+  { path = "libc::kill", reason = "signal through botster_core_sys::signal, which refuses a target of 0 or 1 and our own (the pattern rule: kill(-1) signals every process of the user)", allow-invalid = true },
+  { path = "libc::killpg", reason = "signal through botster_core_sys::signal, which refuses a target of 0 or 1 and our own (the pattern rule: kill(-1) signals every process of the user)", allow-invalid = true },
   { path = "rand::random", reason = "every random value comes from the Entropy edge (plan 2.3a)", allow-invalid = true },
   { path = "rand::thread_rng", reason = "every random value comes from the Entropy edge (plan 2.3a)", allow-invalid = true },
   { path = "rand::rng", reason = "every random value comes from the Entropy edge (plan 2.3a)", allow-invalid = true },

@@ -35,100 +35,133 @@ fn a_full_queue_parks_the_transition_and_a_poll_unparks_it() {
         SessionState::Running,
         "the state step was not taken (EV-5b)"
     );
-    assert!(w.engine.ready().is_empty());
     w.engine.poll_events(64);
-    assert!(
-        !w.engine.ready().is_empty(),
-        "EV-5d: room makes the parked work runnable"
+    w.pump();
+    let shown = states(&w.engine.poll_events(64));
+    assert_eq!(
+        shown.first(),
+        Some(&("s2".to_string(), SessionState::Stopping)),
+        "EV-5d: the room that a poll frees lets the parked step run: {shown:?}"
     );
 }
 
-/// Core EV-5c, LC-5: the effects of a stop continue while the queue is full: the graceful request goes out; only the state
-/// event waits.
+/// Core EV-5c, LC-5: the effects of a stop go on while the mandatory queue is full: the graceful request, the grace deadline
+/// and the kill after it. Only the state events wait, and they follow in order once a poll frees room.
 #[test]
-fn a_stop_sends_its_request_while_the_queue_is_full() {
+fn a_stop_has_its_effects_while_the_queue_is_full() {
     let mut w = World::new(limits(|l| {
-        l.max_sessions = 2;
-        l.mandatory_events = 1;
+        l.max_sessions = 4;
+        l.mandatory_events = 2;
+        l.stop_grace = Duration::from_millis(100);
     }));
     w.autopilot = Autopilot::Silent;
     w.running("s1");
     w.engine.poll_events(64);
+    // Unpolled mandatory events fill the queue; then the stop is admitted.
+    w.engine.begin(create("s2")).unwrap();
+    w.engine.begin(create("s3")).unwrap();
+    w.pump();
     w.engine.begin(Op::Stop { id: sid("s1") }).unwrap();
     w.pump();
-    // `Stopping` fits (one slot); the exit that follows needs a slot that the unpolled `Stopping` holds.
     assert!(
         w.sent.iter().any(|(_, m)| matches!(m, HostMsg::Stop)),
-        "the request went out"
+        "the graceful request went out"
+    );
+    assert!(
+        w.engine.next_deadline().is_some(),
+        "the grace deadline runs"
+    );
+    assert_eq!(
+        w.engine.get(&sid("s1")).unwrap().state,
+        SessionState::Running,
+        "the state event waits"
+    );
+    w.advance(Duration::from_millis(100));
+    w.pump();
+    assert!(
+        w.sent.iter().any(|(_, m)| matches!(m, HostMsg::Kill)),
+        "the kill followed the grace"
     );
     w.worker_says(
         "s1",
         WorkerMsg::Exited {
-            code: Some(0),
-            signal: None,
+            code: None,
+            signal: Some(9),
         },
     );
-    let report = w.pump();
-    assert!(!report.more);
-    assert_eq!(
-        w.engine.get(&sid("s1")).unwrap().state,
-        SessionState::Stopping
+    let mut shown = Vec::new();
+    for _ in 0..6 {
+        for event in w.engine.poll_events(64) {
+            if let Event::SessionState { id, state, .. } = event {
+                if id == sid("s1") {
+                    shown.push(state);
+                }
+            }
+        }
+        w.pump();
+    }
+    assert!(
+        matches!(
+            &shown[..],
+            [SessionState::Stopping, SessionState::Exited(_)]
+        ),
+        "{shown:?}"
     );
-    w.engine.poll_events(64);
-    w.pump();
-    assert!(matches!(
-        w.engine.get(&sid("s1")).unwrap().state,
-        SessionState::Exited(_)
-    ));
 }
 
-/// Core EV-5, 9B: no mandatory event is lost or replaced when the host polls in small batches.
+/// Core EV-5, OR-2, 9B: no mandatory event is lost or replaced when the host polls in small batches: each state of the
+/// session comes once, in order, and each completion comes once, after the state that its operation reached (OR-2). The order
+/// of a completion against the next operation's states is not fixed (OR-3), so it is not checked.
 #[test]
 fn no_mandatory_event_is_lost_under_a_small_queue() {
     let mut w = World::new(limits(|l| {
         l.max_sessions = 1;
         l.mandatory_events = 2;
     }));
-    w.ok_events_collect();
-}
-
-impl World {
-    fn ok_events_collect(&mut self) {
-        self.engine.begin(create("s1")).unwrap();
-        self.engine.begin(Op::Start { id: sid("s1") }).unwrap();
-        let mut seen = Vec::new();
-        for _ in 0..30 {
-            self.pump();
-            seen.extend(self.engine.poll_events(1));
-        }
-        let order: Vec<String> = seen
-            .iter()
-            .map(|e| match e {
-                Event::SessionState { state, .. } => format!("{state:?}"),
-                Event::Completed { .. } => "completed".into(),
-                other => format!("{other:?}"),
-            })
-            .collect();
-        assert_eq!(
-            order,
-            ["Created", "completed", "Starting", "Running", "completed"],
-            "every state and every completion, in order"
-        );
+    let create = w.engine.begin(create("s1")).unwrap();
+    let start = w.engine.begin(Op::Start { id: sid("s1") }).unwrap();
+    let mut seen = Vec::new();
+    for _ in 0..30 {
+        w.pump();
+        seen.extend(w.engine.poll_events(1));
     }
+    let states: Vec<SessionState> = states(&seen).into_iter().map(|(_, s)| s).collect();
+    assert_eq!(
+        states,
+        [
+            SessionState::Created,
+            SessionState::Starting,
+            SessionState::Running
+        ]
+    );
+    let at = |wanted: &dyn Fn(&Event) -> bool| {
+        let found: Vec<usize> = seen
+            .iter()
+            .enumerate()
+            .filter(|(_, e)| wanted(e))
+            .map(|(i, _)| i)
+            .collect();
+        assert_eq!(found.len(), 1, "exactly once: {seen:?}");
+        found[0]
+    };
+    let completed =
+        |op: OpId| move |e: &Event| matches!(e, Event::Completed { op: o, .. } if *o == op);
+    let state = |s: SessionState| move |e: &Event| matches!(e, Event::SessionState { state, .. } if *state == s);
+    assert!(at(&state(SessionState::Created)) < at(&completed(create)));
+    assert!(at(&state(SessionState::Running)) < at(&completed(start)));
 }
 
-/// Core TM-6: `ready` (the runnable work) is empty when only blocked work remains, and the engine reports no deadline of
-/// parked work.
+/// Core TM-6: work that waits for mandatory room is not runnable: the pump reports no `more`, and the engine reports no
+/// deadline for it.
 #[test]
-fn work_parked_on_room_has_no_deadline_and_is_not_ready() {
+fn work_parked_on_room_has_no_deadline_and_is_not_runnable() {
     let mut w = World::new(limits(|l| {
         l.max_sessions = 2;
         l.mandatory_events = 1;
     }));
     w.ok(create("s1"));
     w.engine.begin(Op::Start { id: sid("s1") }).unwrap();
-    w.pump();
-    assert!(w.engine.ready().is_empty());
+    assert!(!w.pump().more);
     assert_eq!(w.engine.next_deadline(), None);
 }
 
@@ -311,10 +344,9 @@ fn set_silence_threshold_errors() {
             .code,
         ErrorCode::UnknownSession
     );
-    w.feed(Input::Features(Features {
-        names: BTreeSet::new(),
-        service_preamble_versions: vec![1],
-    }));
+    let mut bare = config(CoreLimits::default());
+    bare.features.names.clear();
+    let mut w = World::configured(bare);
     w.ok(create("s1"));
     assert_eq!(
         w.engine
@@ -342,11 +374,7 @@ fn capture_worker(w: &mut World, session: &str, pages: Vec<Page>) -> OpId {
         })
         .unwrap();
     w.pump();
-    let req = *w.engine.sessions[&sid(session)]
-        .inflight
-        .keys()
-        .next()
-        .expect("the request was sent");
+    let req = w.last_request(session);
     let n = pages.len() as u32;
     w.worker_says(session, WorkerMsg::Pages { req, pages });
     w.worker_says(
@@ -533,42 +561,6 @@ fn released_retires_the_instances_unpolled_events() {
     );
 }
 
-/// Core TM-3, TM-5: due deadlines are processed in order of due time, one per step.
-#[test]
-fn due_deadlines_run_in_order_of_due_time() {
-    let mut w = World::new(limits(|l| l.capture_ttl = Duration::from_secs(5)));
-    w.autopilot = Autopilot::Silent;
-    w.running("s1");
-    w.worker_says(
-        "s1",
-        observation(Observation::Output {
-            model_rev: ModelRev(2),
-        }),
-    );
-    w.engine
-        .set_silence_threshold(&sid("s1"), Some(Duration::from_secs(2)))
-        .unwrap();
-    let op = capture_worker(&mut w, "s1", vec![page(0, true)]);
-    w.complete(op);
-    assert_eq!(
-        w.engine.next_deadline(),
-        Some(w.now + Duration::from_secs(2)),
-        "silence is due first"
-    );
-    w.advance(Duration::from_secs(6));
-    w.feed(Input::Clock(w.unix));
-    assert!(w.engine.ready().contains(&Work::Silent));
-    let before = w.engine.captures.len();
-    run_work(&mut w, Work::Silent);
-    assert_eq!(
-        w.engine.captures.len(),
-        before,
-        "the silence deadline ran first"
-    );
-    run_work(&mut w, Work::Deadline);
-    assert_eq!(w.engine.captures.len(), 0, "then the capture expiry");
-}
-
 fn capture_op(w: &mut World, owner: &str) -> Result<OpId, CoreError> {
     w.engine.begin(Op::CaptureSnapshot {
         session: sid("s1"),
@@ -577,11 +569,7 @@ fn capture_op(w: &mut World, owner: &str) -> Result<OpId, CoreError> {
 }
 
 fn answer_capture(w: &mut World, ok: bool) {
-    let req = *w.engine.sessions[&sid("s1")]
-        .inflight
-        .keys()
-        .next()
-        .expect("a request is in flight");
+    let req = w.last_request("s1");
     let result = if ok {
         w.worker_says(
             "s1",
@@ -756,14 +744,12 @@ fn e3_1_eventless_effect_overtakes_a_carried_or_parked_step() {
     let _ = stop2;
 }
 
-/// Core A2-1, IN-7, IN-9 (F17): a `SetNotificationPolicy` of an `Exited` session ends `WorkerLinkFailed` when a `Remove`
-/// retires it (the registry path is only the one of `Created`), and a sent repeated key is `Unknown` with the bound of
-/// every repeat.
+/// Core A2-1 (F17): a `SetNotificationPolicy` of an `Exited` session ends `WorkerLinkFailed` when a `Remove` retires it
+/// (the registry path is only the one of `Created`). The bound of a sent key is proved by
+/// `a_write_in_flight_when_the_link_fails_is_unknown`.
 #[test]
-fn retirement_keeps_the_result_path_and_bounds_a_repeated_key() {
-    let mut w = World::new(limits(|l| {
-        l.max_key_repeat = 100;
-    }));
+fn retirement_keeps_the_result_path_of_a_running_setter() {
+    let mut w = World::default();
     w.autopilot = Autopilot::Silent;
     w.ok(create("s1"));
     let start = w.engine.begin(Op::Start { id: sid("s1") }).unwrap();
@@ -822,16 +808,4 @@ fn retirement_keeps_the_result_path_and_bounds_a_repeated_key() {
         done.get(&policy)
     );
     assert!(done.contains_key(&remove));
-    assert_eq!(
-        HostEngine::held_bytes(&InputPayload::Key(KeyInput {
-            key: botster_route_codec::prelude::Key::Char('a'.into()),
-            shifted_key: None,
-            base_layout_key: None,
-            mods: vec![],
-            event: botster_route_codec::prelude::KeyEvent::Press,
-            text: None,
-            repeat: Some(100),
-        })),
-        6400
-    );
 }

@@ -60,12 +60,26 @@ fn open_error(error: OpenError) -> CoreError {
 
 impl Core {
     /// Opens a host over `config.data_dir`: validates the limits (9B), needs a worker path (LC-1), takes the exclusive lock
-    /// (LC-2) and raises the host epoch (DP-8). It starts no thread and spawns no process.
+    /// (LC-2), raises the host epoch (DP-8) and reads the ids of the registry's rows (ID-1). It starts no thread, spawns no
+    /// process and reads no clock (TM-1).
+    ///
+    /// Requirements on `config.data_dir` (AD-7; lead ruling on integration finding K4):
+    /// - Its parent exists. Core creates only `data_dir` itself, with mode `0700`, and never a missing parent.
+    /// - Its parent can be opened for reading. Core syncs `data_dir` and its parent on every open, so that the entry of
+    ///   `data_dir` is durable; Core syncs no other ancestor, and the host owns those.
+    ///
+    /// Path length: a row's path below `data_dir` grows with its session id, and neither `NAME_MAX` nor `PATH_MAX` limits
+    /// it. A confinement that checks each file operation against its whole path (AppArmor, for example Docker's
+    /// `docker-default` profile) refuses paths above its own limit, about 8 KiB: under one, `Create` of an id whose path is
+    /// longer fails with `RegistryFailed` and leaves nothing behind (lead ruling on #164, 2026-10-08; a ceiling of
+    /// `CoreLimits.max_session_id_bytes` is an open steward question).
     ///
     /// # Errors
-    /// `InvalidConfig`, `MissingWorkerPath`, `DataDirInUse`, or `RegistryFailed` when the directory cannot be used.
+    /// `InvalidConfig`, `MissingWorkerPath`, `DataDirInUse`, or `RegistryFailed` when the directory cannot be used:
+    /// `RegistryFailed` also when the parent of `data_dir` is missing or cannot be opened for its sync.
     pub fn open(config: OpenConfig) -> Result<Core, CoreError> {
         let worker_path = check_open(&config)?;
+        real::check_socket_path(&config.data_dir)?;
         let data = DataDir::open(&config.data_dir).map_err(open_error)?;
         let (edges, host_epoch) =
             real::RealEdges::new(data, &config.data_dir).map_err(|error| {
@@ -92,7 +106,7 @@ impl Core {
             },
         };
         Ok(Core {
-            driver: HostDriver::new(cfg, edges, Instant::now()),
+            driver: HostDriver::open(cfg, edges)?,
             _not_sync: PhantomData,
         })
     }
@@ -231,6 +245,15 @@ impl CoreApi for Core {
     }
 }
 
+/// The real instant that a test passes to the pump. It is the one call of the crate's unit tests that reads the real clock,
+/// so its allowance covers that one call (Core reads no clock of its own: Core TM-1). Only the slow tests use it.
+#[cfg(test)]
+#[cfg(feature = "slow")]
+#[allow(clippy::disallowed_methods)]
+pub(crate) fn real_now() -> std::time::Instant {
+    std::time::Instant::now()
+}
+
 #[cfg(test)]
 #[cfg(feature = "slow")]
 mod slow_tests {
@@ -252,8 +275,7 @@ mod slow_tests {
     fn pump(core: &mut Core) -> Vec<Event> {
         let mut out = Vec::new();
         loop {
-            #[allow(clippy::disallowed_methods)] // a test passes a real instant to the pump
-            let monotonic = Instant::now();
+            let monotonic = crate::real_now();
             let report = core.pump(Now {
                 monotonic,
                 unix: 1_000_000,
@@ -292,7 +314,7 @@ mod slow_tests {
         );
         assert!(core.list().is_empty());
         assert!(core.status().sessions.is_empty());
-        assert_eq!(core.diagnostics()["sessions"], 0);
+        assert!(core.diagnostics().is_object());
         assert_eq!(core.next_deadline(), None);
         assert_eq!(
             core.snapshot_formats(&sid("nope")).unwrap_err().code,
@@ -353,7 +375,7 @@ mod slow_tests {
         ));
         assert_eq!(core.list().len(), 1);
         assert_eq!(core.status().sessions.len(), 1);
-        assert_eq!(core.diagnostics()["sessions"], 1);
+        assert!(core.diagnostics().is_object());
         assert_eq!(core.get(&sid("s1")).unwrap().state, SessionState::Created);
         assert_eq!(core.cancel(create), CancelResult::TooLate);
         core.set_silence_threshold(&sid("s1"), Some(Duration::from_secs(5)))

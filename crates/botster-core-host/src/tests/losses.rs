@@ -114,7 +114,8 @@ fn route_reports_become_events_and_wait_for_room() {
     assert!(!w.engine.routes.contains_key(&route));
 }
 
-/// Core EV-5(b), EV-5(d): with the mandatory queue full, a route event is parked, and the next pump after a poll posts it.
+/// Core EV-5(b), EV-5(d), EV-6: with the mandatory queue full, the route events that do not fit wait; a pump with no room
+/// posts none of them; after a poll they are posted, each exactly once, in the worker's order.
 #[test]
 fn a_route_event_waits_in_a_full_queue_and_posts_after_a_poll() {
     let mut w = World::new(limits(|l| l.mandatory_events = 3));
@@ -122,12 +123,11 @@ fn a_route_event_waits_in_a_full_queue_and_posts_after_a_poll() {
     w.running("s1");
     let route = attach(&mut w);
     w.engine.poll_events(64);
-    // Three route events fill the queue; the next ones are parked.
+    // Three route events fill the queue; the next two wait.
     for _ in 0..3 {
         w.worker_says("s1", WorkerMsg::RouteStalled { route });
     }
     w.worker_says("s1", WorkerMsg::RouteResumed { route });
-    assert_eq!(w.engine.parked_events_len(), 1);
     w.worker_says(
         "s1",
         WorkerMsg::RouteClosed {
@@ -136,29 +136,32 @@ fn a_route_event_waits_in_a_full_queue_and_posts_after_a_poll() {
             route_tag: None,
         },
     );
-    assert_eq!(w.engine.parked_events_len(), 2, "the close waits too");
-    // Parked work that still finds no room stays parked.
-    w.feed(Input::Run(Work::Parked));
-    assert_eq!(w.engine.parked_events_len(), 2, "the close is kept");
+    w.pump();
     let first = w.engine.poll_events(64);
-    assert_eq!(first.len(), 3);
-    // The close posts in one step of parked work, and it is not parked again.
-    w.feed(Input::Run(Work::Parked));
-    assert_eq!(w.engine.parked_events_len(), 1, "the close posted once");
+    assert!(
+        first.len() == 3
+            && first
+                .iter()
+                .all(|e| matches!(e, Event::RouteStalled { .. })),
+        "{first:?}"
+    );
     for _ in 0..4 {
         w.pump();
     }
     let rest = w.engine.poll_events(64);
-    assert_eq!(rest.len(), 2, "{rest:?}");
     assert!(
-        rest.iter().any(|e| matches!(e, Event::RouteResumed { .. })),
+        matches!(
+            &rest[..],
+            [Event::RouteResumed { .. }, Event::RouteClosed { .. }]
+        ),
         "{rest:?}"
     );
-    assert!(
-        rest.iter().any(|e| matches!(e, Event::RouteClosed { .. })),
-        "{rest:?}"
+    w.pump();
+    assert_eq!(
+        w.engine.poll_events(64),
+        vec![],
+        "each event is posted once"
     );
-    assert_eq!(w.engine.parked_events_len(), 0);
 }
 
 fn page(index: u32, bytes: usize) -> Page {
@@ -185,11 +188,7 @@ fn a_capture_is_bounded_by_the_snapshot_bytes_and_has_its_own_id() {
             })
             .unwrap();
         w.pump();
-        let req = *w.engine.sessions[&sid("s1")]
-            .inflight
-            .keys()
-            .next()
-            .unwrap();
+        let req = w.last_request("s1");
         w.worker_says(
             "s1",
             WorkerMsg::Pages {
@@ -230,11 +229,7 @@ fn a_capture_is_bounded_by_the_snapshot_bytes_and_has_its_own_id() {
         .begin(Op::ReadCursor { session: sid("s1") })
         .unwrap();
     w.pump();
-    let req = *w.engine.sessions[&sid("s1")]
-        .inflight
-        .keys()
-        .next()
-        .unwrap();
+    let req = w.last_request("s1");
     let odd = Capture {
         capture: CaptureId(77),
         page_count: 0,

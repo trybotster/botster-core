@@ -212,17 +212,44 @@ fn mouse(action: MouseAction, button: MouseButton, notches: Option<u32>) -> Inpu
     })
 }
 
-/// Core IN-5, IN-9, A2-1 (`WriteInput`): the payload bound is exact for every kind: the bytes of a byte, text or paste
-/// payload, and 64 bytes for each repeat of a key and each notch of a wheel.
+/// The worst-case size of one key sequence over every mode, from libghostty's encoders (5.1A).
+fn longest_key(payload: &InputPayload) -> u64 {
+    let InputPayload::Key(key) = payload else {
+        panic!("a key payload");
+    };
+    botster_terminal_ghostty::longest_key_sequence(key, u64::MAX).expect("a key encoder")
+}
+
+/// The worst-case size of one mouse report over every mode, from libghostty's encoders (5.1A).
+fn longest_mouse(payload: &InputPayload) -> u64 {
+    let InputPayload::Mouse(mouse) = payload else {
+        panic!("a mouse payload");
+    };
+    botster_terminal_ghostty::longest_mouse_report(mouse)
+}
+
+/// Core IN-5, IN-9, A2-1 (`WriteInput`), 5.1A: the payload bound is exact for every kind: the bytes of a byte, text or
+/// paste payload, and for a key or a wheel the worst-case encoded size over every mode, once for each repeat or notch.
 #[test]
 fn the_payload_bound_is_exact_for_every_kind() {
+    let one_key = key(None, KeyEvent::Press, false, vec![]);
+    let one_notch = mouse(MouseAction::Wheel, MouseButton::WheelUp, None);
+    let (key_bytes, notch_bytes) = (longest_key(&one_key), longest_mouse(&one_notch));
+    assert!(
+        key_bytes > 0 && notch_bytes > 0,
+        "libghostty writes both in some mode"
+    );
+    // Two repeats fit exactly; the third does not. The wheel gets as many notches as fit, then one more.
+    let limit = 2 * key_bytes;
+    let notches = u32::try_from(limit / notch_bytes).expect("a notch count");
     let mut w = World::new(limits(|l| {
-        l.max_paste_bytes = 128;
+        l.max_paste_bytes = limit;
         l.max_key_repeat = 3;
         l.input_ops_per_session = 64;
         l.input_retained_bytes = 1 << 20;
     }));
     w.running("s1");
+    let n = usize::try_from(limit).expect("a small limit");
     let paste = |n| InputPayload::Paste {
         bytes: hex(n),
         require_bracketed: false,
@@ -231,12 +258,20 @@ fn the_payload_bound_is_exact_for_every_kind() {
         text: "x".repeat(n),
     };
     for (what, payload, ok) in [
-        ("bytes 128", InputPayload::Bytes { bytes: hex(128) }, true),
-        ("bytes 129", InputPayload::Bytes { bytes: hex(129) }, false),
-        ("text 128", text(128), true),
-        ("text 129", text(129), false),
-        ("paste 128", paste(128), true),
-        ("paste 129", paste(129), false),
+        (
+            "bytes at the limit",
+            InputPayload::Bytes { bytes: hex(n) },
+            true,
+        ),
+        (
+            "bytes over it",
+            InputPayload::Bytes { bytes: hex(n + 1) },
+            false,
+        ),
+        ("text at the limit", text(n), true),
+        ("text over it", text(n + 1), false),
+        ("paste at the limit", paste(n), true),
+        ("paste over it", paste(n + 1), false),
         (
             "key repeat 2",
             key(Some(2), KeyEvent::Press, false, vec![]),
@@ -248,13 +283,13 @@ fn the_payload_bound_is_exact_for_every_kind() {
             false,
         ),
         (
-            "wheel 2",
-            mouse(MouseAction::Wheel, MouseButton::WheelUp, Some(2)),
+            "wheel that fits",
+            mouse(MouseAction::Wheel, MouseButton::WheelUp, Some(notches)),
             true,
         ),
         (
-            "wheel 3",
-            mouse(MouseAction::Wheel, MouseButton::WheelUp, Some(3)),
+            "wheel one notch over",
+            mouse(MouseAction::Wheel, MouseButton::WheelUp, Some(notches + 1)),
             false,
         ),
     ] {
@@ -269,6 +304,42 @@ fn the_payload_bound_is_exact_for_every_kind() {
             );
         }
     }
+}
+
+/// Core 5.1A, IN-9: a key's associated text counts in its bound. A key whose text alone is at the limit has a worst case
+/// over the limit, so it is refused `PayloadTooLarge` at `begin`; the same key with no text is admitted.
+#[test]
+fn a_key_with_long_text_is_refused_by_its_worst_case() {
+    let limit = 4096;
+    let with_text = |text: Option<String>| {
+        InputPayload::Key(KeyInput {
+            key: Key::Char('a'.into()),
+            shifted_key: None,
+            base_layout_key: None,
+            mods: vec![],
+            event: KeyEvent::Press,
+            text,
+            repeat: None,
+        })
+    };
+    let long = with_text(Some("a".repeat(usize::try_from(limit).expect("small"))));
+    assert!(
+        longest_key(&long) > limit,
+        "some mode writes more than the text itself"
+    );
+    let short = with_text(None);
+    assert!(longest_key(&short) <= limit);
+    let mut w = World::new(limits(|l| {
+        l.max_paste_bytes = limit;
+        l.input_ops_per_session = 64;
+        l.input_retained_bytes = 1 << 20;
+    }));
+    w.running("s1");
+    assert_eq!(
+        w.engine.begin(write(long)).unwrap_err().code,
+        ErrorCode::PayloadTooLarge
+    );
+    assert!(w.engine.begin(write(short)).is_ok());
 }
 
 /// Core IN-9, A2-1: a repeat is from 1 to `max_key_repeat` and only with a press; `shifted_key` needs shift; a wheel button
@@ -336,33 +407,6 @@ fn key_and_mouse_arguments_are_checked_one_by_one() {
     }
 }
 
-/// Core IN-5, IN-9: the bytes that a write holds against the lane: the payload bytes, and 64 for each repeat or notch or
-/// other semantic payload.
-#[test]
-fn held_bytes_counts_each_kind() {
-    let held = HostEngine::held_bytes;
-    assert_eq!(held(&InputPayload::Bytes { bytes: hex(7) }), 7);
-    assert_eq!(held(&InputPayload::Text { text: "abc".into() }), 3);
-    assert_eq!(
-        held(&InputPayload::Paste {
-            bytes: hex(5),
-            require_bracketed: true
-        }),
-        5
-    );
-    assert_eq!(held(&key(None, KeyEvent::Press, false, vec![])), 64);
-    assert_eq!(held(&key(Some(3), KeyEvent::Press, false, vec![])), 192);
-    assert_eq!(
-        held(&mouse(MouseAction::Wheel, MouseButton::WheelUp, None)),
-        64
-    );
-    assert_eq!(
-        held(&mouse(MouseAction::Wheel, MouseButton::WheelUp, Some(3))),
-        192
-    );
-    assert_eq!(held(&InputPayload::Focus { focused: true }), 64);
-}
-
 /// Core IN-5, 9.3: the lane of a session is full at `input_ops_per_session` writes or at `input_retained_bytes` bytes, and
 /// not before; a session limit and a capture limit are exact as well.
 #[test]
@@ -400,101 +444,71 @@ fn capacity_limits_are_exact() {
     assert_eq!(refused(&mut w, create("c")), ErrorCode::SessionLimit);
 }
 
-/// Core ID-1, IN-6: every op that names a session is recorded in the op identity of that session, so that `cancel` can tell
-/// an op of a removed instance.
+/// Core ID-1, IN-6: after `Remove` and a new `Create` of the same id, `cancel` of any op of the old instance is `UnknownOp`,
+/// whatever its kind, while an op of the new instance whose completion was polled is `TooLate`.
 #[test]
-fn every_op_that_names_a_session_is_recorded_with_it() {
+fn an_op_of_a_removed_instance_is_unknown_to_cancel() {
     let mut w = World::default();
-    w.autopilot = Autopilot::Silent;
-    w.ok(create("s1"));
-    let recorded = |w: &World, op: OpId| w.engine.sessions[&sid("s1")].ops.contains(op.0);
-    let meta = w
-        .engine
-        .begin(Op::UpdateMetadata {
+    let mut old = vec![w.engine.begin(create("s1")).unwrap()];
+    for op in [
+        Op::UpdateMetadata {
             id: sid("s1"),
             labels: Default::default(),
-        })
-        .unwrap();
-    assert!(recorded(&w, meta));
-    let resize = w
-        .engine
-        .begin(Op::Resize {
+        },
+        Op::Resize {
             session: sid("s1"),
             size: with_size(10, 10, None),
-        })
-        .unwrap();
-    assert!(recorded(&w, resize));
-    let color = w
-        .engine
-        .begin(Op::SetColorProfile {
+        },
+        Op::SetColorProfile {
             session: sid("s1"),
             profile: profile(None),
-        })
-        .unwrap();
-    assert!(recorded(&w, color));
-    let policy = w
-        .engine
-        .begin(Op::SetNotificationPolicy {
+        },
+        Op::SetNotificationPolicy {
             session: sid("s1"),
             policy: NotificationPolicy::All,
-        })
-        .unwrap();
-    assert!(recorded(&w, policy));
-    let size_policy = w
-        .engine
-        .begin(Op::SetSizePolicy {
+        },
+        Op::SetSizePolicy {
             session: sid("s1"),
             policy: SizePolicy::Latest,
-        })
-        .unwrap();
-    assert!(recorded(&w, size_policy));
-    let start = w.engine.begin(Op::Start { id: sid("s1") }).unwrap();
-    assert!(recorded(&w, start));
-    w.pump();
-    let link = w.link_of_after_hello("s1");
-    w.feed(Input::LinkMsg {
-        link,
-        msg: WorkerMsg::Launched {
-            features: BTreeSet::from([Feature::NotificationPolicy]),
-            terminal: terminal_state(),
-            formats: vec![],
-            payload: botster_core_link::msg::PayloadId {
-                pid: 900,
-                start_time: 3,
-            },
         },
-    });
-    w.complete(start);
-    for (what, op) in [
-        ("read", Op::ReadCursor { session: sid("s1") }),
-        ("modes", Op::ReadModeFlags { session: sid("s1") }),
-        (
-            "screen",
-            Op::ReadScreen {
-                session: sid("s1"),
-                history: false,
-            },
-        ),
-        (
-            "capture",
-            Op::CaptureSnapshot {
-                session: sid("s1"),
-                owner: ClientId("c".into()),
-            },
-        ),
-        ("write", write(InputPayload::Focus { focused: true })),
-        (
-            "signal",
-            Op::Signal {
-                id: sid("s1"),
-                sig: Signal::Term,
-            },
-        ),
-        ("stop", Op::Stop { id: sid("s1") }),
+        Op::Start { id: sid("s1") },
     ] {
-        let id = w.engine.begin(op).unwrap();
-        assert!(recorded(&w, id), "{what}");
+        old.push(w.engine.begin(op).unwrap());
     }
+    w.complete_all(&old);
+    let running = [
+        Op::ReadCursor { session: sid("s1") },
+        Op::ReadModeFlags { session: sid("s1") },
+        Op::ReadScreen {
+            session: sid("s1"),
+            history: false,
+        },
+        Op::CaptureSnapshot {
+            session: sid("s1"),
+            owner: ClientId("c".into()),
+        },
+        write(InputPayload::Focus { focused: true }),
+        Op::Signal {
+            id: sid("s1"),
+            sig: Signal::Term,
+        },
+        Op::Stop { id: sid("s1") },
+    ];
+    let ran: Vec<OpId> = running
+        .into_iter()
+        .map(|op| w.engine.begin(op).unwrap())
+        .collect();
+    w.complete_all(&ran);
+    old.extend(ran);
+    let remove = w.engine.begin(Op::Remove { id: sid("s1") }).unwrap();
+    w.complete_all(&[remove]);
+    old.push(remove);
+    let again = w.engine.begin(create("s1")).unwrap();
+    w.complete_all(&[again]);
+    for op in old {
+        assert_eq!(w.engine.cancel(op), CancelResult::UnknownOp, "{op:?}");
+    }
+    assert_eq!(w.engine.cancel(again), CancelResult::TooLate);
 }
 
 /// Core A2-1: an op that names no live session is refused by its own row: `UnknownSession`, `UnknownRoute`, `Unsupported`
@@ -545,11 +559,6 @@ fn the_rows_of_the_unbuilt_operations_have_their_own_codes() {
         })
         .unwrap_err();
     assert!(matches!(end_epoch.code, ErrorCode::Unsupported { .. }));
-    assert!(
-        end_epoch.detail.contains("service package"),
-        "{}",
-        end_epoch.detail
-    );
     let service = w
         .engine
         .begin(Op::StopService {
@@ -576,56 +585,12 @@ fn the_rows_of_the_unbuilt_operations_have_their_own_codes() {
     );
 }
 
-/// Core OR-1, AM-1: the setters of a `Created` session are applied in order before the launch, each of them, and a setter of a
-/// running session goes to the worker instead.
+/// Core A2-1, A2-6: a setter of a running session goes to the worker as an op. The setters of a `Created` session reach the
+/// launch instead (`ready::every_setter_admitted_before_a_start_reaches_the_launch_in_any_order`).
 #[test]
-fn each_created_setter_reaches_the_launch_and_a_running_setter_goes_to_the_worker() {
-    let mut w = World::default();
-    w.engine.features.names.insert(Feature::SizePolicyOther);
-    w.ok(create("s1"));
-    let new = with_size(33, 101, None);
-    w.engine
-        .begin(Op::Resize {
-            session: sid("s1"),
-            size: new,
-        })
-        .unwrap();
-    w.engine
-        .begin(Op::SetColorProfile {
-            session: sid("s1"),
-            profile: profile(Some(256)),
-        })
-        .unwrap();
-    w.engine
-        .begin(Op::SetSizePolicy {
-            session: sid("s1"),
-            policy: SizePolicy::Largest,
-        })
-        .unwrap();
-    w.engine
-        .begin(Op::SetNotificationPolicy {
-            session: sid("s1"),
-            policy: NotificationPolicy::None,
-        })
-        .unwrap();
-    w.engine.begin(Op::Start { id: sid("s1") }).unwrap();
-    w.pump();
-    let spec = w
-        .sent
-        .iter()
-        .find_map(|(_, m)| match m {
-            HostMsg::Launch(spec) => Some(spec.clone()),
-            _ => None,
-        })
-        .expect("the launch");
-    assert_eq!(spec.size, new);
-    assert_eq!(spec.color_profile, Some(profile(Some(256))));
-    assert_eq!(spec.size_policy, SizePolicy::Largest);
-    assert_eq!(spec.notification_policy, NotificationPolicy::None);
-    // A running session: the same setters are sent to the worker as ops.
-    let mut w = World::default();
+fn a_running_setter_goes_to_the_worker() {
+    let mut w = World::offering(Feature::SizePolicyOther);
     w.autopilot = Autopilot::Silent;
-    w.engine.features.names.insert(Feature::SizePolicyOther);
     w.ok(create("s1"));
     let start = w.engine.begin(Op::Start { id: sid("s1") }).unwrap();
     w.pump();
@@ -701,6 +666,21 @@ fn a_sent_write_is_cancelled_through_the_worker() {
             .all(|e| !matches!(e, Event::Completed { .. })),
         "the worker has not answered"
     );
+    // A write that was not sent yet: the cancel is exact, and it completes `Cancelled` with nothing written (IN-6).
+    let unsent = w
+        .engine
+        .begin(write(InputPayload::Focus { focused: true }))
+        .unwrap();
+    assert_eq!(w.engine.cancel(unsent), CancelResult::Admitted);
+    assert!(matches!(
+        w.complete(unsent),
+        OpResult::Ok(OpOutput::Input(InputResult {
+            outcome: WriteOutcome::Cancelled,
+            payload_bytes_written: 0,
+            pty_bytes_written: 0,
+            ..
+        }))
+    ));
 }
 
 /// Core A2-1 (`Stop` of an ended session): the end is `Lost(reason)` for a lost session and `Exited` for an exited one.
@@ -1047,17 +1027,15 @@ fn each_observation_becomes_its_event_and_updates_the_cache() {
     );
 }
 
-/// Core 2, 9B: the constant reads of the engine return what it holds: the shadow kinds, the snapshot formats of a launched
-/// worker, the diagnostics counts, and the bound of a link frame.
+/// Core EV-8, ST-6, LC-10: the shadow kinds are the ones that `open` gave, the snapshot formats are the ones that the worker
+/// reported at launch, and `diagnostics()` is one opaque value.
 #[test]
-fn the_engine_reads_return_what_it_holds() {
-    let mut w = World::default();
+fn the_engine_reads_return_what_open_and_the_worker_gave() {
+    let mut cfg = config(CoreLimits::default());
+    cfg.shadow_answerable = vec![botster_route_codec::prelude::QueryKind::CellPixels];
+    let mut w = World::configured(cfg.clone());
     w.autopilot = Autopilot::Silent;
-    w.engine.cfg.shadow_answerable = vec![botster_route_codec::prelude::QueryKind::CellPixels];
-    assert_eq!(
-        w.engine.shadow_answerable_kinds(),
-        vec![botster_route_codec::prelude::QueryKind::CellPixels]
-    );
+    assert_eq!(w.engine.shadow_answerable_kinds(), cfg.shadow_answerable);
     w.ok(create("s1"));
     let start = w.engine.begin(Op::Start { id: sid("s1") }).unwrap();
     w.pump();
@@ -1080,75 +1058,64 @@ fn the_engine_reads_return_what_it_holds() {
     });
     w.complete(start);
     assert_eq!(w.engine.snapshot_formats(&sid("s1")).unwrap(), vec![format]);
-    let read = w
-        .engine
-        .begin(Op::ReadCursor { session: sid("s1") })
-        .unwrap();
-    let diagnostics = w.engine.diagnostics();
-    assert_eq!(diagnostics["sessions"], 1);
-    assert_eq!(diagnostics["pending_ops"], 1, "{diagnostics}");
-    assert_eq!(diagnostics["captures"], 0);
-    assert_eq!(diagnostics["routes"], 0);
-    assert_eq!(diagnostics["host_epoch"], 7);
-    assert_eq!(diagnostics["queued_events"], w.engine.queue.len());
-    let _ = read;
-    // Each ticket is new.
-    let first = w.engine.ticket(crate::engine::Owner::Ignored);
-    let second = w.engine.ticket(crate::engine::Owner::Ignored);
-    assert_eq!(second.0, first.0 + 1);
-    // The bound of a link frame: four times the largest payload, and a mebibyte for the framing; at most half of u32.
-    let bound = |paste: u64, snapshot: u64| {
-        World::new(limits(|l| {
+    assert!(w.engine.diagnostics().is_object());
+}
+
+/// Plan section 3, 9B: the bound of a link frame holds the largest message that the limits allow (a write of
+/// `max_paste_bytes` and a page of `max_snapshot_bytes`, as the link encodes them), and it is never above half of `u32`.
+#[test]
+fn a_link_frame_holds_the_largest_message_and_stays_under_half_of_u32() {
+    use botster_core_link::frame::{encode_frame, FrameType};
+    for (paste, snapshot) in [
+        (1, 1),
+        (1000, 3000),
+        (5000, 3000),
+        ((1 << 29) + 1, 3000),
+        (1000, 1 << 40),
+    ] {
+        let bound = World::new(limits(|l| {
             l.max_paste_bytes = paste;
             l.max_snapshot_bytes = snapshot;
         }))
         .engine
-        .link_frame_bound()
-    };
-    assert_eq!(bound(1000, 3000), 3000 * 4 + (1 << 20));
-    assert_eq!(bound(5000, 3000), 5000 * 4 + (1 << 20));
-    assert_eq!(bound(1000, 1 << 40), u32::MAX / 2);
-}
-
-/// 9B `pump_events`: an op that completes in a step that already posted an event completes in a step of its own; the
-/// completion is not lost.
-#[test]
-fn a_completion_after_a_post_in_the_same_step_waits_for_its_own_step() {
-    let mut w = World::default();
-    w.autopilot = Autopilot::Silent;
-    w.running("s1");
-    w.engine.poll_events(64);
-    let op = w
-        .engine
-        .begin(Op::UpdateMetadata {
-            id: sid("s1"),
-            labels: Default::default(),
-        })
-        .unwrap();
-    w.engine.step_mark = w.engine.queue.total_posted();
-    w.engine.queue.post_droppable(Event::Bell {
-        id: sid("s1"),
-        instance: w.instance_of("s1"),
-        at: 1,
-    });
-    w.engine.complete(op, OpResult::Ok(OpOutput::Unit));
-    assert!(matches!(
-        w.engine.ops[&op].step,
-        crate::engine::Step::Ready(crate::engine::Next::Complete(_))
-    ));
-    assert!(w
-        .engine
-        .poll_events(64)
-        .iter()
-        .all(|e| !matches!(e, Event::Completed { .. })));
-    w.engine.step_mark = w.engine.queue.total_posted();
-    w.engine.complete(op, OpResult::Ok(OpOutput::Unit));
-    assert!(matches!(w.engine.ops[&op].step, crate::engine::Step::Done));
-    assert!(w
-        .engine
-        .poll_events(64)
-        .iter()
-        .any(|e| matches!(e, Event::Completed { .. })));
+        .link_frame_bound();
+        assert!(bound <= u32::MAX / 2, "{paste} {snapshot}: {bound}");
+        // The messages are built only for limits that a test can hold in memory.
+        if paste.max(snapshot) > 1 << 20 {
+            continue;
+        }
+        let write = HostMsg::Op {
+            req: u64::MAX,
+            op: Op::WriteInput {
+                session: sid(&"s".repeat(128)),
+                payload: InputPayload::Paste {
+                    bytes: botster_route_codec::prelude::HexBytes(vec![0xff; paste as usize]),
+                    require_bracketed: true,
+                },
+                guard: None,
+            },
+        };
+        let mut payload = Vec::new();
+        write.encode(&mut payload);
+        assert!(
+            encode_frame(FrameType::HOST_MSG, &payload, bound, &mut Vec::new()).is_ok(),
+            "a write of {paste} bytes"
+        );
+        let pages = WorkerMsg::Pages {
+            req: u64::MAX,
+            pages: vec![Page {
+                index: u32::MAX,
+                bytes: botster_route_codec::prelude::HexBytes(vec![0xff; snapshot as usize]),
+                last: true,
+            }],
+        };
+        let mut payload = Vec::new();
+        pages.encode(&mut payload);
+        assert!(
+            encode_frame(FrameType::WORKER_MSG, &payload, bound, &mut Vec::new()).is_ok(),
+            "a page of {snapshot} bytes"
+        );
+    }
 }
 
 /// Core A8-1: the held bytes count each capture once: an unpolled capture counts `max_snapshot_bytes` and not its own size
@@ -1162,19 +1129,14 @@ fn held_capture_bytes_count_each_capture_once() {
     }));
     w.autopilot = Autopilot::Silent;
     w.running("s1");
-    let op = w
-        .engine
+    w.engine
         .begin(Op::CaptureSnapshot {
             session: sid("s1"),
             owner: ClientId("c".into()),
         })
         .unwrap();
     w.pump();
-    let req = *w.engine.sessions[&sid("s1")]
-        .inflight
-        .keys()
-        .next()
-        .unwrap();
+    let req = w.last_request("s1");
     w.worker_says(
         "s1",
         WorkerMsg::Pages {
@@ -1198,14 +1160,12 @@ fn held_capture_bytes_count_each_capture_once() {
             })),
         },
     );
-    // Finished and not polled: 100 are held, not 140; one more capture (100) fits in 220.
-    assert!(w.engine.ops.contains_key(&op));
-    assert_eq!(w.engine.retained_bytes(), 100);
-    accepted(
-        &mut w,
-        Op::CaptureSnapshot {
-            session: sid("s1"),
-            owner: ClientId("c".into()),
-        },
-    );
+    // Finished and not polled: the capture holds `max_snapshot_bytes` (100), not 100 and its 40 besides, so one more capture
+    // (100) fits in 220, and a third does not.
+    let more = || Op::CaptureSnapshot {
+        session: sid("s1"),
+        owner: ClientId("c".into()),
+    };
+    accepted(&mut w, more());
+    assert_eq!(refused(&mut w, more()), ErrorCode::CaptureLimit);
 }

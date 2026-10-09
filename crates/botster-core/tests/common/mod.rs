@@ -4,9 +4,16 @@
 use rustix::process::Pid;
 
 #[path = "../../../botster-core-sys/tests/common/process_guard.rs"]
-mod process_guard;
+pub(crate) mod process_guard;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
+
+/// The real instant that a slow test passes to the pump or measures from. It is the one call of these tests that reads the
+/// real clock, so its allowance covers that one call (Core reads no clock of its own: Core TM-1).
+#[allow(clippy::disallowed_methods)]
+pub fn real_now() -> std::time::Instant {
+    std::time::Instant::now()
+}
 
 /// Waits without using the CPU and ends when the test process, the worker's parent, is gone: a test that is killed runs no
 /// guard, and nothing may outlive it. Each `sleep` is a background job that `wait` waits for, so a signal ends the wait at

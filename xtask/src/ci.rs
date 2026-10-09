@@ -5,7 +5,10 @@
 //! is the full gate. The pending and deferred file checks (`lists`) run right after the taint check, because they are fast.
 
 use crate::tools::{cargo, cargo_nightly, ensure_nightly, require_cargo_tool, run};
-use crate::{caps, fsutil, lists, prebuild, public_api, taint, test_budget, timers};
+use crate::{
+    caps, fsutil, lists, prebuild, public_api, signals, taint, test_budget, timers,
+    unsafe_exception,
+};
 use anyhow::{bail, Context, Result};
 use std::path::Path;
 use std::process::Command;
@@ -29,7 +32,7 @@ const JOBS: &[(&str, &str, JobFn)] = &[
     ),
     (
         "taint",
-        "banned old-world names; unmarked timers",
+        "banned old-world names; unmarked timers; the one unsafe_code exception; raw signal calls",
         taint_job,
     ),
     (
@@ -66,6 +69,8 @@ const JOBS: &[(&str, &str, JobFn)] = &[
 const HARNESSES: &[(&str, &str)] = &[
     ("botster-core-link", "link_decoder"),
     ("botster-core-link", "msg_decoder"),
+    ("botster-guardian-core", "guardian_command_decoder"),
+    ("botster-guardian-core", "guardian_log_decoder"),
 ];
 
 /// The seconds of one fuzz run per harness.
@@ -83,6 +88,7 @@ fn clippy_job(root: &Path) -> Result<()> {
         "clippy",
         "--workspace",
         "--all-targets",
+        "--all-features",
         "--locked",
         "--",
         "-D",
@@ -93,7 +99,9 @@ fn clippy_job(root: &Path) -> Result<()> {
 
 fn taint_job(root: &Path) -> Result<()> {
     taint::command(root, &[])?;
-    timers::command(root, &[])
+    timers::command(root, &[])?;
+    unsafe_exception::command(root, &[])?;
+    signals::command(root, &[])
 }
 
 /// The passed count of a conformance report: the number after `passed ` in its `conformance:` line.
@@ -244,6 +252,56 @@ fn parse_outcomes(json: &str) -> Result<MutantSummary> {
     })
 }
 
+/// Platform coverage exceptions of the native encoder, not equivalent mutants: a gate off macOS excludes each one, and a
+/// Mac gate tests it. A test catches each mutant on macOS, where the native branch that shows it is compiled; off macOS
+/// that branch is not compiled, so no test there can show the mutant. `cargo mutants` adds each `--exclude-re` to the
+/// configured exclusions.
+/// - `EncoderState::every_key_state`, `&` to `|` or `^` of the mode bits: the mutant keeps only the all-modes-on state
+///   of each kitty combination. The Mac branch is the legacy Alt prefix of pinned Ghostty src/input/key_encode.zig:642-650
+///   (`builtin.os.tag == .macos`): it writes ESC and the unshifted key, not the text, so an Alt key with long text writes
+///   the most with that prefix off. The regression is
+///   `the_key_bound_of_an_alt_key_with_long_text_covers_the_states_with_modes_off`. When `every_key_state`, the key
+///   encoding or the Ghostty pin changes, a focused Mac mutation run of `every_key_state` must show both mutants caught.
+///   The proof at aeda1cac, pin 3f8eb681 (PR #167): ~/.local/state/jobq/logs/jobq-botster-core-aeda1cac-20261008222501-7480.log.
+/// - botster-test-process `platform/macos.rs` (P6): the macOS adapters (libproc, kqueue) are `cfg(target_os = "macos")`
+///   code, one entry per function. Off macOS the file is not compiled, so no test there can show a mutant in it. The Mac
+///   slow tier runs them in every real-process test of `crates/botster-test-process/tests/slow_process.rs`, and the default
+///   tier on macOS in the `platform` unit tests (`this_process_has_a_start_time_and_is_a_live_member_of_its_group`,
+///   `processes_that_started_at_different_times_have_different_start_times`, `a_wait_for_a_pid_with_no_process_reports_it_gone`).
+///   Temporary: P6 PR B removes these entries and derives the exclusions of platform-only code from `cfg` (plan r22
+///   section 8, "Platform-only code").
+const OFF_MACOS_EXCLUSIONS: &[&str] = &[
+    r"crates/botster-terminal-ghostty/src/encode\.rs:\d+:40: replace & with [|^] in EncoderState::every_key_state$",
+    r"crates/botster-test-process/src/platform/macos\.rs:\d+:\d+: (replace start_time( ->| with)|.* in start_time$)",
+    r"crates/botster-test-process/src/platform/macos\.rs:\d+:\d+: (replace await_end( ->| with)|.* in await_end$)",
+    r"crates/botster-test-process/src/platform/macos\.rs:\d+:\d+: (replace live_members( ->| with)|.* in live_members$)",
+    r"crates/botster-test-process/src/platform/macos\.rs:\d+:\d+: (replace exiting_or_gone( ->| with)|.* in exiting_or_gone$)",
+    r"crates/botster-test-process/src/platform/macos\.rs:\d+:\d+: (replace await_status( ->| with)|.* in await_status$)",
+    r"crates/botster-test-process/src/platform/macos\.rs:\d+:\d+: (replace polled( ->| with)|.* in polled$)",
+    r"crates/botster-test-process/src/platform/macos\.rs:\d+:\d+: (replace exit_after_polls( ->| with)|.* in exit_after_polls$)",
+];
+
+/// The exclusions that a gate on `os` (`std::env::consts::OS`) adds to the configured ones.
+fn platform_exclusions(os: &str) -> &'static [&'static str] {
+    if os == "macos" {
+        &[]
+    } else {
+        OFF_MACOS_EXCLUSIONS
+    }
+}
+
+/// The step's verdict from the exit code of `cargo mutants` (`None`: ended by a signal). Only 0, every mutant caught or
+/// no mutant in the diff, passes; 2 a missed mutant, 3 a timeout, 4 a failed baseline and any other end fail the step.
+fn mutation_verdict(code: Option<i32>) -> Result<()> {
+    if code == Some(0) {
+        return Ok(());
+    }
+    bail!(
+        "cargo mutants failed (exit code {code:?}: 2 a missed mutant, 3 a timeout, 4 a failed baseline); a missed \
+         mutant or a timeout is a review finding"
+    )
+}
+
 /// Mutation tests of the code that the diff changes (plan section 8, step 8). A missed mutant or a timeout is a review
 /// finding, so it fails the step.
 fn mutants_job(root: &Path) -> Result<()> {
@@ -285,10 +343,12 @@ fn mutants_job(root: &Path) -> Result<()> {
             "5",
         ])
         .arg("--output")
-        .arg(&target)
-        .args(["--", "--no-tests=pass"])
+        .arg(&target);
+    for re in platform_exclusions(std::env::consts::OS) {
+        cmd.arg("--exclude-re").arg(re);
+    }
+    cmd.args(["--", "--no-tests=pass"])
         .envs(test_budget::tier_env(false));
-    // Exit status: 0 all caught (or no mutant in the diff), 2 a mutant was missed, 3 a timeout, 4 the baseline failed.
     let status = cmd.status().context("start cargo mutants")?;
     let outcomes = target.join("mutants.out/outcomes.json");
     let summary = match std::fs::read_to_string(&outcomes) {
@@ -304,9 +364,7 @@ fn mutants_job(root: &Path) -> Result<()> {
             "mutants: no outcomes.json (no Rust change in the diff, or the run failed early)"
         ),
     }
-    if !status.success() {
-        bail!("cargo mutants failed ({status}); a missed mutant or a timeout is a review finding");
-    }
+    mutation_verdict(status.code())?;
     Ok(())
 }
 
@@ -473,6 +531,23 @@ mod tests {
                 "fuzz"
             ]
         );
+    }
+
+    /// A gate off macOS adds the exclusions that hold off macOS only; a Mac gate adds none, so it tests those mutants.
+    #[test]
+    fn only_a_gate_off_macos_adds_the_off_macos_exclusions() {
+        assert!(platform_exclusions("macos").is_empty());
+        assert_eq!(platform_exclusions("linux"), OFF_MACOS_EXCLUSIONS);
+        assert!(!OFF_MACOS_EXCLUSIONS.is_empty());
+    }
+
+    /// Plan section 8, step 8: only a run with every mutant caught passes the mutation step.
+    #[test]
+    fn only_a_mutation_run_with_every_mutant_caught_passes() {
+        assert!(mutation_verdict(Some(0)).is_ok());
+        for failed in [Some(1), Some(2), Some(3), Some(4), None] {
+            assert!(mutation_verdict(failed).is_err(), "{failed:?}");
+        }
     }
 
     #[test]

@@ -4,6 +4,7 @@
 //!
 //! Clause: Core LC-1, LC-2, LC-9, LC-12, DP-8, TH-2, TM-6, AD-6.
 #![cfg(feature = "slow")]
+// The test is the host: it reads the real clock and passes the time to `pump` (Core TM-1).
 
 mod common;
 
@@ -11,7 +12,7 @@ use botster_core::prelude::*;
 use botster_core::Core;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 fn config(dir: &std::path::Path) -> OpenConfig {
     OpenConfig {
@@ -42,7 +43,7 @@ fn pump(core: &mut Core) -> Vec<Event> {
     let mut out = Vec::new();
     loop {
         let report = core.pump(Now {
-            monotonic: Instant::now(),
+            monotonic: common::real_now(),
             unix: 1_000_000,
         });
         out.extend(core.poll_events(64));
@@ -66,7 +67,8 @@ fn a_second_open_is_refused_until_the_first_is_dropped() {
     assert!(Core::open(config(tmp.path())).is_ok());
 }
 
-/// Core LC-1, 9B: no worker path and a zero limit are refused before the directory is touched.
+/// Core LC-1, 9B: no worker path, a zero limit and a data directory whose control socket cannot be bound are refused before
+/// the directory is touched.
 #[test]
 fn open_checks_the_config_first() {
     let tmp = tempfile::tempdir().unwrap();
@@ -82,8 +84,17 @@ fn open_checks_the_config_first() {
         Core::open(zero).err().expect("refused").code,
         ErrorCode::InvalidConfig { .. }
     ));
+    // A data directory whose control socket path does not fit a Unix socket address (audit A47).
+    let mut long = config(tmp.path());
+    long.data_dir = tmp.path().join("x".repeat(200));
+    assert_eq!(
+        Core::open(long).err().expect("refused").code,
+        ErrorCode::InvalidConfig {
+            field: "data_dir".into()
+        }
+    );
     assert!(
-        !tmp.path().join("d").exists(),
+        !tmp.path().join("d").exists() && !tmp.path().join("x".repeat(200)).exists(),
         "a refused config creates nothing"
     );
 }
@@ -214,7 +225,7 @@ fn a_worker_that_exits_before_it_connects_ends_the_start_at_once() {
     .unwrap();
     pump(&mut core);
     let start = core.begin(Op::Start { id: sid("s1") }).unwrap();
-    let began = Instant::now();
+    let began = common::real_now();
     let mut events = pump(&mut core);
     assert_eq!(
         core.get(&sid("s1")).unwrap().state,
@@ -233,7 +244,11 @@ fn a_worker_that_exits_before_it_connects_ends_the_start_at_once() {
         .expect("the worker runs");
     assert_eq!(said.unwrap().trim(), "ready");
     let pid = worker.pid().expect("the worker recorded its pid");
-    rustix::process::kill_process(pid, rustix::process::Signal::TERM).unwrap();
+    botster_core_sys::signal::signal_process(
+        pid.as_raw_nonzero().get().unsigned_abs(),
+        rustix::process::Signal::TERM,
+    )
+    .unwrap();
     // The host pumps only after a wake (TM-6): every wait must end by a wake, never by its timeout. The worker never
     // connects, so the wake that ends the start is the reaper's, through `RealEdges` and `PollWake`.
     while !events
@@ -286,44 +301,62 @@ fn a_hello_for_an_unknown_instance_is_closed() {
     hello.encode(&mut payload).unwrap();
     let mut frame = Vec::new();
     encode_frame(FrameType::HELLO, &payload, 1 << 20, &mut frame).unwrap();
+    // The whole hello is in the socket before the host looks: one wake and one pump read it and close the link.
     client.write_all(&frame).unwrap();
-    client
-        .set_read_timeout(Some(Duration::from_millis(200)))
+    let (said, heard) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let mut rest = Vec::new();
+        let _ = said.send(client.read_to_end(&mut rest).map(|_| rest));
+    });
+    let woke = wake
+        // timer: deadline — a host that is never woken fails the test instead of hanging it
+        .wait(Duration::from_secs(8));
+    assert_eq!(woke, Wake::Woken, "TM-6: the connection wakes the host");
+    pump(&mut core);
+    let sent = heard
+        // timer: deadline — a link that the host does not close fails the test instead of hanging it
+        .recv_timeout(Duration::from_secs(8))
+        .expect("the host closed the link")
         .unwrap();
-    let began = Instant::now();
-    let mut buf = [0u8; 16];
-    loop {
-        pump(&mut core);
-        match client.read(&mut buf) {
-            Ok(0) => break,
-            Ok(_) => panic!("the host sent bytes to an unknown worker"),
-            Err(_) => {}
-        }
-        // timer: deadline — a failing run must not hang
-        assert!(
-            began.elapsed() < Duration::from_secs(8),
-            "the link was not closed"
-        );
-        let _ = wake.wait(Duration::from_millis(50));
-    }
+    assert!(
+        sent.is_empty(),
+        "the host sent bytes to an unknown worker: {sent:?}"
+    );
 }
 
-/// Plan R12, testing rule 10 (review finding F28): a test whose cleanup never runs leaves no worker. The session is started
-/// and the host is dropped with no `Stop` (LC-12: the worker survives the host); the guard in test code then kills the
-/// worker's group and reaps it.
+/// Plan R12, testing rule 10 (review finding F28, audit A10): a test whose cleanup never runs leaves no worker. The session
+/// is started and the host is dropped with no `Stop` (LC-12: dropping `Core` never ends a worker); the test's group guard
+/// then kills the worker's group.
+///
+/// The test proves the end by its own observation. The worker's script and the one child that it waits for (a `/bin/cat`
+/// blocked on a FIFO that nobody writes: no CPU, and only the group kill ends it) have a FIFO as their standard output, and
+/// the test reads it: the end of that stream means that both exited. The test never reaps and never probes the pid: the
+/// production reaper alone reaps the worker, and until it does, the dead worker is a zombie whose pid and start time can still
+/// be read. The guard's own cleanup runs on a thread, so a deadline bounds it too, and its failure fails the test with its report.
 #[test]
 fn a_worker_is_not_left_when_the_cleanup_of_a_test_fails() {
+    use std::io::{BufRead, Read};
     let tmp = tempfile::tempdir().unwrap();
-    let ready = tmp.path().join("ready");
-    common::mkfifo(&ready);
-    let worker = common::ScriptWorker::new(
-        tmp.path(),
-        &format!(
-            "/bin/echo ready > '{}'\n{}",
-            ready.display(),
-            common::WAIT_WHILE_THE_PARENT_LIVES
-        ),
+    let held = tmp.path().join("held");
+    let never = tmp.path().join("never");
+    common::mkfifo(&held);
+    common::mkfifo(&never);
+    // The reader's open waits for the worker's open of the write end. It sends the first line, then the end of the stream.
+    let (said, heard) = std::sync::mpsc::channel();
+    let fifo = held.clone();
+    std::thread::spawn(move || {
+        let mut stream = std::io::BufReader::new(std::fs::File::open(fifo).unwrap());
+        let mut line = String::new();
+        let _ = said.send(stream.read_line(&mut line).map(|_| line));
+        let mut rest = String::new();
+        let _ = said.send(stream.read_to_string(&mut rest).map(|_| rest));
+    });
+    let body = format!(
+        "{{\n/bin/echo ready\n/bin/cat '{}'\n}} > '{}'",
+        never.display(),
+        held.display()
     );
+    let worker = common::ScriptWorker::new(tmp.path(), &body);
     let mut open = config(tmp.path());
     open.worker_path = Some(worker.path.clone());
     let mut core = Core::open(open).expect("open");
@@ -335,25 +368,107 @@ fn a_worker_is_not_left_when_the_cleanup_of_a_test_fails() {
     pump(&mut core);
     core.begin(Op::Start { id: sid("s1") }).unwrap();
     pump(&mut core);
-    let (told, heard) = std::sync::mpsc::channel();
-    let fifo = ready.clone();
-    std::thread::spawn(move || {
-        let _ = told.send(std::fs::read_to_string(fifo));
-    });
-    heard
+    let first = heard
         // timer: deadline — bounds the wait for the worker's start
         .recv_timeout(Duration::from_secs(10))
         .expect("the worker runs")
         .unwrap();
-    let pid = worker.pid().expect("the worker recorded its pid");
+    assert_eq!(first.trim(), "ready");
     drop(core);
+    let (cleaned, cleanup) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| drop(worker)));
+        let _ = cleaned.send(outcome);
+    });
+    // The guard's anchor can take up to `CLEANUP` to end the group, and the guard then reports: the limit allows both.
+    let limit = 2 * common::process_guard::cleanup::CLEANUP;
+    let outcome = cleanup
+        // timer: deadline — a guard whose cleanup blocks fails the test instead of hanging it
+        .recv_timeout(limit)
+        .unwrap_or_else(|_| panic!("the guard's cleanup did not end within {limit:?}"));
+    // A cleanup that failed fails the test with the guard's own report.
+    if let Err(report) = outcome {
+        std::panic::resume_unwind(report);
+    }
+    let rest = heard
+        // timer: deadline — a group that the guard did not end fails the test instead of hanging it
+        .recv_timeout(Duration::from_secs(10))
+        .expect("the worker's script and its child ended")
+        .unwrap();
+    assert_eq!(rest, "", "the script wrote nothing after it started");
+}
+
+/// Lead ruling on audit A1, Core AD-1, AD-2, A10-2: through the real registry, a damaged row is `Lost(RegistryCorrupt)` under
+/// the id that its path names, and keeps that id in use; a file that Core did not write is counted, left untouched, and does
+/// not block `AdoptAll`.
+#[test]
+fn a_damaged_row_is_registry_corrupt_and_a_foreign_file_is_left_alone() {
+    let tmp = tempfile::tempdir().unwrap();
+    let mut core = Core::open(config(tmp.path())).expect("open");
+    let registry = tmp.path().join("d").join("rows");
+    let before = files_below(&registry);
+    core.begin(Op::Create {
+        session: sid("s1"),
+        request: request(),
+    })
+    .unwrap();
+    pump(&mut core);
+    drop(core);
+    // The row of s1 is the file that its create added, wherever the storage keeps it.
+    let added: Vec<PathBuf> = files_below(&registry)
+        .into_iter()
+        .filter(|f| !before.contains(f))
+        .collect();
+    assert_eq!(added.len(), 1, "one create, one row file: {added:?}");
+    // Every byte of the file is damaged, so no layout keeps any part of the row readable.
+    let damaged: Vec<u8> = std::fs::read(&added[0])
+        .unwrap()
+        .iter()
+        .map(|b| !b)
+        .collect();
+    std::fs::write(&added[0], damaged).unwrap();
+    let foreign = tmp.path().join("d").join("rows").join("notes.txt");
+    std::fs::write(&foreign, b"someone else's").unwrap();
+    let mut again = Core::open(config(tmp.path())).expect("reopen");
+    let adopt = again.begin(Op::AdoptAll).unwrap();
+    let events = pump(&mut again);
     assert!(
-        rustix::process::test_kill_process(pid).is_ok(),
-        "the worker outlives the host (LC-12)"
+        events
+            .iter()
+            .any(|e| matches!(e, Event::Completed { op, result: OpResult::Ok(_) } if *op == adopt)),
+        "{events:?}"
     );
-    drop(worker);
     assert!(
-        rustix::process::test_kill_process(pid).is_err(),
-        "the guard killed and reaped the worker"
+        events.iter().any(|e| matches!(
+            e,
+            Event::SessionState { id, state: SessionState::Lost(LostReason::RegistryCorrupt), .. } if *id == sid("s1")
+        )),
+        "{events:?}"
     );
+    assert_eq!(
+        again
+            .begin(Op::Create {
+                session: sid("s1"),
+                request: request(),
+            })
+            .unwrap_err()
+            .code,
+        ErrorCode::IdInUse
+    );
+    assert_eq!(again.diagnostics()["edges"]["foreign_registry_files"], 1);
+    assert_eq!(std::fs::read(&foreign).unwrap(), b"someone else's");
+}
+
+/// Every file below `dir`, at any depth.
+fn files_below(dir: &std::path::Path) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    for entry in std::fs::read_dir(dir).unwrap() {
+        let path = entry.unwrap().path();
+        if path.is_dir() {
+            out.extend(files_below(&path));
+        } else {
+            out.push(path);
+        }
+    }
+    out
 }

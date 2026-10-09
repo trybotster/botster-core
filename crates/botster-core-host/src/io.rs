@@ -6,7 +6,7 @@
 
 use botster_core_contract::prelude::*;
 use botster_core_edges::edges::{
-    ExitStatus, GroupSignal, ProcessIdentity, SpawnError, StorageError,
+    ExitStatus, GroupSignal, IdentityState, ProcessIdentity, SpawnError, StorageError,
 };
 use botster_core_link::hello::{Hello, TokenProof};
 use botster_core_link::msg::{HostMsg, WorkerMsg};
@@ -74,6 +74,13 @@ pub enum Action {
         token: [u8; TOKEN_LEN],
         host_epoch: u64,
     },
+    /// Connects to the endpoint of the worker of `instance` (DESIGN.md "Adoption (P5)" 3.1); the answer is
+    /// [`Input::WorkerConnected`]. The host speaks first on the new link: the worker cannot prove the epoch of a host that
+    /// it has not heard (DP-8).
+    ConnectWorker {
+        ticket: Ticket,
+        instance: InstanceId,
+    },
     /// The host's side of the hello, on a link that sent a valid one (AD-6).
     SendHello {
         link: LinkId,
@@ -86,6 +93,11 @@ pub enum Action {
     /// Closes a link: a hello that failed AD-6 or AD-4, or a session that ended.
     CloseLink {
         link: LinkId,
+    },
+    /// Asks what the identity of a worker matches now (AD-6); the answer is [`Input::IdentityState`]. A worker that this handle
+    /// did not spawn has no exit watch, so this is how the engine learns that it is gone (LC-7 step 3, AD-2 `WorkerGone`).
+    ProbeIdentity {
+        identity: ProcessIdentity,
     },
     /// Signals the process group of a worker, only when its identity still matches (AD-6).
     SignalGroup {
@@ -129,7 +141,13 @@ pub enum Input {
         ticket: Ticket,
         result: Result<ProcessIdentity, SpawnError>,
     },
-    /// A worker connected and sent a valid-framed hello on a new link.
+    /// The answer to [`Action::ConnectWorker`]: the new link, or `None` when no worker answers at the endpoint.
+    WorkerConnected {
+        ticket: Ticket,
+        link: Option<LinkId>,
+    },
+    /// The first frame of a link, a valid-framed hello: of a worker that connected, or the worker's answer on a link that
+    /// the host made (`Action::ConnectWorker`).
     LinkHello {
         link: LinkId,
         hello: Hello,
@@ -151,8 +169,10 @@ pub enum Input {
         identity: ProcessIdentity,
         status: ExitStatus,
     },
-    /// The platform and the edges now support exactly these features (A2-6). The testkit uses it for `withhold_feature`.
-    Features(Features),
+    IdentityState {
+        identity: ProcessIdentity,
+        state: IdentityState,
+    },
 }
 
 /// The proof of a hello as the engine needs it: the engine recomputes it from the token (AD-6).
