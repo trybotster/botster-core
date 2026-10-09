@@ -165,6 +165,11 @@ impl Uses {
         uses
     }
 
+    /// The path that a `use` of this scope binds to `name`, if any.
+    pub(crate) fn binding(&self, name: &str) -> Option<&[String]> {
+        self.names.get(name).map(Vec::as_slice)
+    }
+
     /// Whether the scope imports a glob of another crate (not `crate::`, `self::` or `super::`).
     pub(crate) fn has_foreign_glob(&self) -> bool {
         self.globs.iter().any(|glob| {

@@ -707,10 +707,11 @@ fn a_binding_or_a_use_that_the_check_does_not_resolve_rejects_the_exclusion() {
 
 /// #181 B5 round 5, plan section 8: a macro is a listed form only by its resolved path. The check reads the arguments of
 /// an `ARGUMENT_MACROS` macro as code of the caller, does not read the tokens of an `OPAQUE_MACROS` macro, and fails on any
-/// other macro (a `macro_rules!` definition included), and on a one-segment name where a glob of another crate can hide
-/// the standard macro. A glob of `crate`, `self` or `super` hides none, and a path of two segments is not hidden.
+/// other macro (a `macro_rules!` definition included). The path expands one step through the `use` that binds its first
+/// segment (`use anyhow::{anyhow, bail}` gives `anyhow::bail`, and `anyhow::anyhow` after it is not listed); an unbound
+/// first segment fails where a glob of another crate can hide it. A glob of `crate`, `self` or `super` hides none.
 #[test]
-fn a_macro_is_read_only_when_its_resolved_path_is_listed() {
+fn a_macro_is_read_only_when_its_path_is_listed() {
     let rejected = |at: &str, name: &str| {
         format!(
             "xtask/src/a.rs:{at}: the macro `{name}!` is not a form that gate-decisions resolves (plan section 8): its \
@@ -731,6 +732,21 @@ fn a_macro_is_read_only_when_its_resolved_path_is_listed() {
             "2:10",
             "format",
         ),
+        (
+            "use evil::*;\nfn f() { anyhow::bail!(\"x\"); }\n",
+            "2:10",
+            "anyhow::bail",
+        ),
+        (
+            "use crate::evil as anyhow;\nfn f() { anyhow::bail!(\"x\"); }\n",
+            "2:10",
+            "anyhow::bail",
+        ),
+        (
+            "use anyhow::anyhow;\nfn f() { anyhow::anyhow!(\"x\"); }\n",
+            "2:10",
+            "anyhow::anyhow",
+        ),
     ] {
         let error = Calls::of(&[("xtask/src/a.rs".to_string(), text.to_string())])
             .unwrap_err()
@@ -748,7 +764,11 @@ fn a_macro_is_read_only_when_its_resolved_path_is_listed() {
         BTreeSet::from(["read".to_string()])
     );
     assert_eq!(
-        io("use evil::*;\nfn bailed() { anyhow::bail!(\"{:?}\", std::fs::read(p)); }\n"),
+        io("use anyhow::{anyhow, bail};\nfn bailed() { bail!(\"{:?}\", std::fs::read(p)); }\n"),
         BTreeSet::from(["bailed".to_string()])
+    );
+    assert_eq!(
+        io("fn qualified() { anyhow::ensure!(true, \"{:?}\", std::fs::read(p)); }\n"),
+        BTreeSet::from(["qualified".to_string()])
     );
 }
