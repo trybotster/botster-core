@@ -18,6 +18,7 @@ pub enum Flow {
     Start(StartFlow),
     Stop(StopFlow),
     Remove(RemoveFlow),
+    Adopt(AdoptFlow),
 }
 
 /// `begin(Create)`: the row is written, then `SessionState{Created}` is posted, then `Completed` (OR-2).
@@ -54,6 +55,9 @@ pub struct StartFlow {
     pub error: Option<CoreError>,
     /// The hello arrived before the identity row was durable.
     pub hello_seen: bool,
+    /// An adoption runs this start (steward ruling R-35 (a), (b)): `op` is the `AdoptAll` or `Adopt` op, and the start
+    /// posts the row's one `SessionState` (LC-11) instead of completing a `Start`.
+    pub adopted: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -113,6 +117,37 @@ pub struct RemoveFlow {
     pub worker_gone: bool,
     /// The grace after which a worker that did not end is killed.
     pub deadline: Option<Instant>,
+}
+
+/// The adoption of one row whose worker may live (AD-1, AD-6; DESIGN.md "Adoption (P5)", parts 3 to 5). The identity
+/// probe, the handshake and the worker's report decide the row's one `SessionState` (LC-11).
+#[derive(Debug, Clone)]
+pub struct AdoptFlow {
+    /// The `AdoptAll` or `Adopt` op that waits for the row's state.
+    pub op: OpId,
+    pub phase: AdoptPhase,
+    /// The state that the row records: the intent. The report gives the facts (steward ruling R-35, the retry rule).
+    pub recorded: SessionState,
+    /// The `startup` deadline: the connect, the hello and the report complete before it (DESIGN.md 3.7).
+    pub deadline: Option<Instant>,
+    /// The state that `AdoptPhase::Post` posts.
+    pub post: Option<SessionState>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AdoptPhase {
+    /// What the recorded worker identity matches now (AD-6).
+    Probe,
+    AwaitProbe,
+    /// The host connects to the worker endpoint (DESIGN.md 3.1).
+    Connect,
+    AwaitConnect,
+    /// The worker's answer to the host's hello (DESIGN.md 3.2 to 3.6).
+    AwaitHello,
+    /// The worker's adoption report (DESIGN.md 4).
+    AwaitReport,
+    /// Posts the row's state.
+    Post,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

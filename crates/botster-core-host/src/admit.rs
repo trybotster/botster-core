@@ -90,10 +90,12 @@ fn request_valid(request: &SpawnRequest) -> Result<(), CoreError> {
 
 impl HostEngine {
     fn session_admit(&self, id: &SessionId) -> Result<Admit, CoreError> {
-        self.sessions
-            .get(id)
-            .map(|s| s.admit)
-            .ok_or_else(|| unknown_session(id))
+        match self.sessions.get(id) {
+            // A row whose adoption has not posted its state is no session of this handle yet (AD-1, LC-11).
+            Some(s) if s.admit == Admit::Adopting && s.shown.is_none() => Err(unknown_session(id)),
+            Some(s) => Ok(s.admit),
+            None => Err(unknown_session(id)),
+        }
     }
 
     /// `UnknownSession`, then `WrongState` unless the admission state is one of `allowed` (A2-1, "Admitted in").
@@ -270,20 +272,26 @@ impl HostEngine {
                 }
             }
             Op::Adopt { id } => {
-                self.session_admit(id)?;
-                let adoptable = matches!(
-                    self.sessions.get(id).and_then(|s| s.shown),
-                    Some(SessionState::Lost(
-                        LostReason::WorkerUnreachable | LostReason::WorkerVersion
-                    ))
-                );
+                let admit = self.session_admit(id)?;
+                let adoptable = admit == Lost
+                    && matches!(
+                        self.sessions.get(id).and_then(|s| s.shown),
+                        Some(SessionState::Lost(
+                            LostReason::WorkerUnreachable | LostReason::WorkerVersion
+                        ))
+                    );
                 if !adoptable {
-                    return Err(wrong_state("Adopt", id, self.session_admit(id)?));
+                    return Err(wrong_state("Adopt", id, admit));
                 }
-                Err(err(
-                    ErrorCode::Unsupported { what: None },
-                    "adopting a live worker is built by the adoption package (P5)",
-                ))
+                // The retry needs the row's intent (R-35, the retry rule). Only an adoption of this handle keeps it: a
+                // `Lost(WorkerUnreachable)` of the stop path, or a row that recorded `Lost`, has none.
+                if self.sessions.get(id).and_then(|s| s.row_state).is_none() {
+                    return Err(err(
+                        ErrorCode::Unsupported { what: None },
+                        "a Lost session that no adoption of this handle reached has no recorded intent to retry",
+                    ));
+                }
+                Ok(())
             }
             Op::SpawnService { .. } | Op::EndEpoch { .. } => Err(err(
                 ErrorCode::Unsupported { what: None },
@@ -544,6 +552,7 @@ impl HostEngine {
                         deadline: None,
                         error: None,
                         hello_seen: false,
+                        adopted: false,
                     }),
                 );
                 self.ops.insert(
@@ -614,7 +623,7 @@ impl HostEngine {
                 let targets: BTreeSet<SessionId> = self
                     .sessions
                     .values()
-                    .filter(|s| s.admit != Admit::Removing)
+                    .filter(|s| !matches!(s.admit, Admit::Removing | Admit::Adopting))
                     .map(|s| s.id.clone())
                     .collect();
                 self.ops.insert(
@@ -732,6 +741,17 @@ impl HostEngine {
                 self.ops.insert(
                     id,
                     Self::pending(op, None, None, Step::Ready(Next::AdoptRead)),
+                );
+            }
+            Op::Adopt { id: session } => {
+                let instance = instance_of(self, &session);
+                let recorded = self.sessions[&session]
+                    .row_state
+                    .expect("Adopt is admitted only with the row's kept intent");
+                self.begin_adoption(id, &session, recorded);
+                self.ops.insert(
+                    id,
+                    Self::pending(op, Some(session), instance, Step::Await(Wait::Flow)),
                 );
             }
             Op::ReadScreen { session, .. }

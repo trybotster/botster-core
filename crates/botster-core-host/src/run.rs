@@ -15,12 +15,22 @@ use std::collections::BTreeSet;
 use std::mem::{discriminant, Discriminant};
 use std::time::Instant;
 
+/// How a decoded row is recovered (AD-1).
+enum Recovery {
+    /// The row's state is known now.
+    Post(SessionState),
+    /// The row names a worker: its adoption, with the row's recorded state.
+    Adopt(SessionState),
+}
+
 /// A deadline that the engine owns (TM-3).
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) enum DeadlineKind {
     Startup(SessionId),
     StopGrace(SessionId),
     RemoveGrace(SessionId),
+    /// The reachability deadline of an adoption (DESIGN.md "Adoption (P5)" 3.7).
+    Adopt(SessionId),
     Silence(SessionId),
     Capture(CaptureId),
 }
@@ -48,6 +58,11 @@ impl HostEngine {
                 Flow::Stop(f) => {
                     if let Some(at) = f.deadline {
                         out.push((at, DeadlineKind::StopGrace(id.clone())));
+                    }
+                }
+                Flow::Adopt(f) => {
+                    if let Some(at) = f.deadline {
+                        out.push((at, DeadlineKind::Adopt(id.clone())));
                     }
                 }
                 Flow::Remove(f) => {
@@ -81,6 +96,7 @@ impl HostEngine {
                 StartPhase::PostStarting | StartPhase::PostRunning | StartPhase::PostFailed
             ),
             Flow::Stop(f) => matches!(f.phase, StopPhase::PostStopping | StopPhase::PostEnd),
+            Flow::Adopt(f) => f.phase == AdoptPhase::Post,
             Flow::Remove(f) => match f.phase {
                 RemovePhase::CloseRoutes => !session.routes.is_empty(),
                 RemovePhase::PostReleased => true,
@@ -96,6 +112,13 @@ impl HostEngine {
             Flow::Start(f) => matches!(f.phase, StartPhase::AwaitHello | StartPhase::AwaitLaunched),
             Flow::Stop(f) => f.phase == StopPhase::AwaitExit,
             Flow::Remove(f) => f.phase == RemovePhase::AwaitTeardown,
+            Flow::Adopt(f) => matches!(
+                f.phase,
+                AdoptPhase::AwaitProbe
+                    | AdoptPhase::AwaitConnect
+                    | AdoptPhase::AwaitHello
+                    | AdoptPhase::AwaitReport
+            ),
         }
     }
 
@@ -143,6 +166,9 @@ impl HostEngine {
                     }
                 }
                 (Step::Await(Wait::StopAll(targets)), _) if self.stop_all_done(targets) => {
+                    out.push(Work::Op(*id));
+                }
+                (Step::Await(Wait::Adopt), _) if !self.adopting_rows(*id) => {
                     out.push(Work::Op(*id));
                 }
                 _ => {}
@@ -241,6 +267,7 @@ impl HostEngine {
             DeadlineKind::StopGrace(id) => self.kill_payload(&id),
             DeadlineKind::RemoveGrace(id) => self.remove_grace_expired(&id),
             DeadlineKind::Startup(id) => self.startup_expired(&id),
+            DeadlineKind::Adopt(id) => self.adopt_expired(&id),
         }
     }
 
@@ -309,6 +336,13 @@ impl HostEngine {
             }
             return;
         }
+        if matches!(pending.step, Step::Await(Wait::Adopt)) {
+            // LC-11: `Completed{AdoptAll}` follows the last row's state.
+            if !self.adopting_rows(op_id) {
+                self.complete(op_id, OpResult::Ok(OpOutput::Unit));
+            }
+            return;
+        }
         let Step::Ready(next) = pending.step.clone() else {
             return;
         };
@@ -336,9 +370,7 @@ impl HostEngine {
                 let Op::UpdateMetadata { labels, .. } = self.ops[&op_id].op.clone() else {
                     return;
                 };
-                let state = self.sessions[&session]
-                    .shown
-                    .unwrap_or(SessionState::Created);
+                let state = self.sessions[&session].recorded_state();
                 let mut row = self.row_of(&session, state);
                 row.labels = labels;
                 self.write_row(Owner::Op(op_id), &row);
@@ -349,9 +381,7 @@ impl HostEngine {
                 let Op::SetNotificationPolicy { policy, .. } = self.ops[&op_id].op.clone() else {
                     return;
                 };
-                let state = self.sessions[&session]
-                    .shown
-                    .unwrap_or(SessionState::Created);
+                let state = self.sessions[&session].recorded_state();
                 let mut row = self.row_of(&session, state);
                 row.request.notification_policy = Some(policy);
                 self.write_row(Owner::Op(op_id), &row);
@@ -639,23 +669,28 @@ impl HostEngine {
             return;
         };
         if let Some(id) = key.strip_prefix(ROW_PREFIX) {
-            self.adopt_row(SessionId(id.into()), &bytes);
+            self.adopt_row(op_id, SessionId(id.into()), &bytes);
         }
         let more = self.ops.get(&op_id).is_some_and(|p| !p.rows.is_empty());
         if more {
             self.set_step(op_id, Step::Ready(Next::AdoptRow));
+        } else if self.adopting_rows(op_id) {
+            // LC-11: the rows whose adoption runs post their states first. They do not block each other.
+            self.set_step(op_id, Step::Await(Wait::Adopt));
         } else {
             self.complete(op_id, OpResult::Ok(OpOutput::Unit));
         }
     }
 
-    /// AD-1: recovers the row of `id` as a session of this handle, and posts its one `SessionState` (LC-11). A row that
-    /// Core's decoder rejects is `Lost(RegistryCorrupt)` (AD-2, A10-2): it keeps its id in use until `Remove` (AD-2).
+    /// AD-1: recovers the row of `id` as a session of this handle (DESIGN.md "Adoption (P5)" 5). A row that Core's decoder
+    /// rejects is `Lost(RegistryCorrupt)` (AD-2, A10-2): it keeps its id in use until `Remove` (AD-2). A row that names a
+    /// live worker begins its adoption, which posts the row's state when it ends; every other row posts its state now. Each
+    /// row posts one `SessionState` (LC-11).
     ///
     /// A session that this handle holds already made the row itself: it keeps its instance and its state, and the row posts
     /// that state (LC-11: one `SessionState` for every row). A row whose session is still being created waits until the
     /// session's `Created` is shown (`row_waits_for_its_session`).
-    fn adopt_row(&mut self, id: SessionId, bytes: &[u8]) {
+    fn adopt_row(&mut self, op: OpId, id: SessionId, bytes: &[u8]) {
         if let Some(session) = self.sessions.get(&id) {
             // `row_waits_for_its_session` holds this step until the session's state is shown.
             if let Some(state) = session.shown {
@@ -664,17 +699,32 @@ impl HostEngine {
             return;
         }
         self.unadopted.remove(&id);
-        let (session, state) = match Row::decode(&id, bytes) {
+        let (session, recovery) = match Row::decode(&id, bytes) {
             Some(row) => self.session_of_row(row),
             None => {
                 let instance = self.mint_instance();
-                let mut session =
+                let session =
                     crate::engine::new_session(id.clone(), instance, unknown_request(), Flow::Idle);
-                session.admit = Admit::Lost;
-                (session, SessionState::Lost(LostReason::RegistryCorrupt))
+                (
+                    session,
+                    Recovery::Post(SessionState::Lost(LostReason::RegistryCorrupt)),
+                )
             }
         };
         self.sessions.insert(id.clone(), session);
+        let state = match recovery {
+            Recovery::Adopt(recorded) => {
+                self.begin_adoption(op, &id, recorded);
+                return;
+            }
+            Recovery::Post(state) => state,
+        };
+        if let Some(s) = self.sessions.get_mut(&id) {
+            s.admit = match state {
+                SessionState::Created => Admit::Created,
+                _ => Admit::Lost,
+            };
+        }
         // `AdoptRow` runs only with mandatory room (`step_needs_room`), so the state is posted.
         if self.post_state(&id, state) {
             if let Some(s) = self.sessions.get_mut(&id) {
@@ -683,14 +733,9 @@ impl HostEngine {
         }
     }
 
-    /// The session of a row that decodes. A `Created` row is kept as `Created` (AD-1). Every other row names a worker, and
-    /// its recovery needs the adoption handshake (AD-6), which is not built yet: until then it is `Lost(Other)`, the reason
-    /// that says Core cannot tell (AD-2).
-    fn session_of_row(&mut self, row: Row) -> (crate::session::Session, SessionState) {
-        let state = match row.state {
-            SessionState::Created => SessionState::Created,
-            _ => SessionState::Lost(LostReason::Other),
-        };
+    /// The session of a row that decodes, and how it is recovered (AD-1; DESIGN.md "Adoption (P5)" 5). The checks of the
+    /// row come before any probe or connect.
+    fn session_of_row(&mut self, row: Row) -> (crate::session::Session, Recovery) {
         let mut session = crate::engine::new_session(
             row.id.clone(),
             row.instance.clone(),
@@ -705,11 +750,34 @@ impl HostEngine {
         session.worker_protocol = row.worker_protocol;
         session.worker_features = row.worker_features.clone();
         session.worker.identity = row.worker.map(|w| w.identity());
-        session.admit = match state {
-            SessionState::Created => Admit::Created,
-            _ => Admit::Lost,
+        session.payload = row.payload.map(|p| p.identity());
+        let names_worker = session.worker.identity.is_some() && session.token.is_some();
+        let recovery = match row.state {
+            // AD-1: no process exists.
+            SessionState::Created => Recovery::Post(SessionState::Created),
+            // Core never writes `Lost(Other)` (R-35 correction `c3ed727`), so such a row is a corrupt record.
+            SessionState::Lost(LostReason::Other) => {
+                Recovery::Post(SessionState::Lost(LostReason::RegistryCorrupt))
+            }
+            // The row recorded the end.
+            SessionState::Lost(reason) => Recovery::Post(SessionState::Lost(reason)),
+            // AD-1: a start that never recorded its worker.
+            SessionState::Starting if session.worker.identity.is_none() => {
+                Recovery::Post(SessionState::Lost(LostReason::StartInterrupted))
+            }
+            state @ (SessionState::Starting
+            | SessionState::Running
+            | SessionState::Stopping
+            | SessionState::Exited(_))
+                if names_worker =>
+            {
+                Recovery::Adopt(state)
+            }
+            // A row that Core's encoder writes never has these contents (AD-7): the bytes decode, and the record is corrupt
+            // (AD-2; R-35 correction `c3ed727`). Core never posts `Lost(Other)`.
+            _ => Recovery::Post(SessionState::Lost(LostReason::RegistryCorrupt)),
         };
-        (session, state)
+        (session, recovery)
     }
 
     /// The launch request that a worker gets (A3-1, DP-6: the policies come from the row).
