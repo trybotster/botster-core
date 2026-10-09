@@ -246,15 +246,16 @@ fn parse_outcomes(json: &str) -> Result<MutantSummary> {
     })
 }
 
-/// The exclusions of `.cargo/mutants.toml` that hold off macOS only: a test catches each of these mutants on macOS, where
-/// the behavior that shows it is compiled, and a focused Mac mutation run is the proof. `cargo mutants` adds each
-/// `--exclude-re` to the configured ones.
-/// - `every_key_state`, the `&` of the mode bits (`|` or `^`) keeps only the all-modes-on state of each kitty
-///   combination. On macOS the legacy Alt prefix writes ESC and the unshifted key, not the text (pinned Ghostty
-///   src/input/key_encode.zig:642-650, macOS only), so an Alt key with long text writes the most with that prefix off:
-///   the_key_bound_of_an_alt_key_with_long_text_covers_the_states_with_modes_off catches both mutants. Off macOS the
-///   other branch writes ESC and the complete text, and the test passes with the mutants. Recheck this entry when the
-///   key encoding or the Ghostty pin changes.
+/// Platform coverage exceptions of the native encoder, not equivalent mutants: a gate off macOS excludes each one, and a
+/// Mac gate tests it. A test catches each mutant on macOS, where the native branch that shows it is compiled; off macOS
+/// that branch is not compiled, so no test there can show the mutant. `cargo mutants` adds each `--exclude-re` to the
+/// configured exclusions.
+/// - `EncoderState::every_key_state`, `&` to `|` or `^` of the mode bits: the mutant keeps only the all-modes-on state
+///   of each kitty combination. The Mac branch is the legacy Alt prefix of pinned Ghostty src/input/key_encode.zig:642-650
+///   (`builtin.os.tag == .macos`): it writes ESC and the unshifted key, not the text, so an Alt key with long text writes
+///   the most with that prefix off. The regression is
+///   `the_key_bound_of_an_alt_key_with_long_text_covers_the_states_with_modes_off`. When `every_key_state`, the key
+///   encoding or the Ghostty pin changes, a focused Mac mutation run of `every_key_state` must show both mutants caught.
 const OFF_MACOS_EXCLUSIONS: &[&str] = &[
     r"crates/botster-terminal-ghostty/src/encode\.rs:\d+:40: replace & with [|^] in EncoderState::every_key_state$",
 ];
