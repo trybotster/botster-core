@@ -15,6 +15,13 @@ use botster_core_link::proof::{token_proof, TOKEN_LEN};
 use std::collections::{BTreeMap, BTreeSet};
 use std::time::{Duration, Instant};
 
+/// The real instant that a test gives its injected clock as the start. It is the one call of the crate's tests that reads the
+/// real clock, so its allowance covers that one call (the machine crates read no clock: plan 2.3c).
+#[allow(clippy::disallowed_methods)]
+pub(crate) fn real_now() -> std::time::Instant {
+    std::time::Instant::now()
+}
+
 pub(crate) fn size() -> Size {
     Size {
         rows: 24,
@@ -173,8 +180,7 @@ impl World {
         alive: BTreeSet<ProcessIdentity>,
         next_pid: u32,
     ) -> World {
-        #[allow(clippy::disallowed_methods)] // a test starts the injected clock at a real instant
-        let start = Instant::now();
+        let start = real_now();
         let registry_ids = rows
             .keys()
             .filter_map(|key| key.strip_prefix(crate::session::ROW_PREFIX))
