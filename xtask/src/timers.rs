@@ -36,7 +36,7 @@ const MACHINE_CRATES: [&str; 5] = [
     "crates/botster-core-host/",
 ];
 
-fn is_test_file(file: &str) -> bool {
+pub(crate) fn is_test_file(file: &str) -> bool {
     let name = file.rsplit('/').next().unwrap_or(file);
     file.split('/').any(|part| matches!(part, "tests" | "test")) || name.ends_with("_test.rs")
 }

@@ -428,8 +428,23 @@ fn the_defined_names_are_the_identifiers_of_the_code_and_the_vendored_words() {
              type T_type = u8;\nmod m_mod {}\nmacro_rules! m_macro { () => {} }\n\
              #[inline]\nfn f_inline() {}\n\
              fn uses(l: dep_crate::Limits) -> u8 { l.dep_field + l.dep_method() }\n\
-             // c_comment\nconst Q: &str = \"s_string\";\n"
+             // c_comment\nconst Q: &str = \"s_string\";\n\
+             impl S { #[test] fn t_impl() {} }\n#[cfg(test)]\nmod t_tests { fn t_helper() {} }\n\
+             #[cfg(test)]\nconst T_CONST: u8 = 0;\n#[cfg(test)]\nmod t_decl;\n#[path = \"gen.inc\"]\nmod m_gen;\n"
                 .to_string(),
+        ),
+        (
+            "crates/a/src/t_decl.rs".to_string(),
+            "fn t_declared() {}\nmod deeper;\n".to_string(),
+        ),
+        (
+            "crates/a/src/t_decl/deeper.rs".to_string(),
+            "fn t_deeper() {}\n".to_string(),
+        ),
+        ("crates/a/src/gen.inc".to_string(), "fn g_generated() {}\n".to_string()),
+        (
+            "crates/a/tests/it.rs".to_string(),
+            "fn t_integration() {}\n".to_string(),
         ),
         ("vendor/z/a.c".to_string(), "int v_vendored(void);\n".to_string()),
         ("vendor/z/b.rs".to_string(), "not rust {\n".to_string()),
@@ -461,6 +476,8 @@ fn the_defined_names_are_the_identifiers_of_the_code_and_the_vendored_words() {
         "dep_field",
         "dep_method",
         "f_inline",
+        "m_gen",
+        "g_generated",
     ] {
         assert!(names.contains(name), "{name}");
     }
@@ -472,6 +489,15 @@ fn the_defined_names_are_the_identifiers_of_the_code_and_the_vendored_words() {
         "notes",
         "c_comment",
         "s_string",
+        "t_impl",
+        "t_tests",
+        "t_helper",
+        "T_CONST",
+        "t_decl",
+        "t_declared",
+        "deeper",
+        "t_deeper",
+        "t_integration",
     ] {
         assert!(!names.contains(name), "{name}");
     }
@@ -481,10 +507,41 @@ fn the_defined_names_are_the_identifiers_of_the_code_and_the_vendored_words() {
         .unwrap_err()
         .to_string()
         .starts_with("crates/a/src/lib.rs:1: does not parse"));
+    let missing = BTreeMap::from([(
+        "crates/a/src/lib.rs".to_string(),
+        "#[cfg(test)]\nmod gone;\n".to_string(),
+    )]);
+    let read = |path: &str| missing.get(path).cloned();
+    assert!(defined_names(&read, &["crates/a/src/lib.rs".to_string()])
+        .unwrap_err()
+        .to_string()
+        .contains("the file of the test module `gone` is not found"));
+}
+
+/// #181 B6 round 2: a proof test that loses its `#[test]` is no test, and its name is no identifier of the code (test code
+/// does not count), so its citation fails.
+#[test]
+fn a_cited_proof_without_its_test_attribute_fails() {
+    let repo = |attrs: &str| {
+        Repo::new().package("a", false, &[]).file(
+            "crates/a/src/lib.rs",
+            &format!(
+                "pub fn f() {{}}\n#[cfg(test)]\nmod tests {{\n    {attrs}\n    fn the_cited_proof() {{ super::f(); }}\n}}\n"
+            ),
+        )
+    };
+    assert!(repo("#[test]")
+        .check("# the_cited_proof\n", OLD_FILTER)
+        .is_empty());
+    assert_eq!(
+        repo("").check("# the_cited_proof\n", OLD_FILTER),
+        [".cargo/mutants.toml:1: cites `the_cited_proof`, which names no test, no test target, no identifier of the code and no vendored word"]
+    );
 }
 
 /// #181 B6: `#[cfg_attr(<predicate>, ignore)]` ignores the test where the predicate holds, also nested; `cfg_attr(..,
-/// test)` makes a test only where its predicate holds; an unknown predicate fails the check.
+/// test)` makes a test only where its predicate holds; `cfg_attr(<predicate>, cfg(<inner>))` removes the test where the
+/// predicate holds and the inner predicate does not; an unknown predicate fails the check.
 #[test]
 fn a_conditionally_ignored_test_runs_only_where_its_condition_does_not_hold() {
     let repo = |attrs: &str| {
@@ -515,6 +572,14 @@ fn a_conditionally_ignored_test_runs_only_where_its_condition_does_not_hold() {
         ("#[test]\n    #[cfg_attr(unix, derive(Debug))]", true),
         ("#[cfg_attr(unix, test)]", true),
         ("#[cfg_attr(windows, test)]", false),
+        ("#[cfg_attr(all(), cfg(any()))]\n    #[test]", false),
+        ("#[cfg_attr(unix, cfg(any()))]\n    #[test]", false),
+        ("#[cfg_attr(windows, cfg(any()))]\n    #[test]", true),
+        ("#[cfg_attr(unix, cfg(all()))]\n    #[test]", true),
+        (
+            "#[cfg_attr(unix, cfg_attr(all(), cfg(any())))]\n    #[test]",
+            false,
+        ),
     ] {
         let found = repo(attrs).check("# the_cited_check\n", OLD_FILTER);
         if runs {
@@ -539,7 +604,12 @@ fn a_conditionally_ignored_test_runs_only_where_its_condition_does_not_hold() {
     assert!(read("#[test]\n    #[cfg_attr(loom, ignore)]")
         .unwrap_err()
         .contains("the check does not know the predicate `loom`"));
-    for malformed in ["#[test]\n    #[cfg_attr]", "#[test]\n    #[cfg_attr()]"] {
+    for malformed in [
+        "#[test]\n    #[cfg_attr]",
+        "#[test]\n    #[cfg_attr()]",
+        "#[test]\n    #[cfg_attr(unix, cfg)]",
+        "#[test]\n    #[cfg_attr(unix, cfg(a b))]",
+    ] {
         assert!(read(malformed).is_err(), "{malformed}");
     }
 }

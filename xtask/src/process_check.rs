@@ -333,7 +333,7 @@ fn cfg_requires_test(meta: &syn::Meta) -> bool {
 
 /// Whether attributes make an item test code: `#[test]` (any path ending in `test`, such as `tokio::test`) or a `cfg` that
 /// holds only under `test`.
-fn is_test_item(attrs: &[syn::Attribute]) -> bool {
+pub(crate) fn is_test_item(attrs: &[syn::Attribute]) -> bool {
     attrs.iter().any(|attr| {
         let path = attr.path();
         if path.is_ident("cfg") {
@@ -349,7 +349,7 @@ fn is_test_item(attrs: &[syn::Attribute]) -> bool {
 
 /// The attributes of an item that can hold code. A function's own visit reads its attributes (`visit_item_fn`); a `use`, an
 /// `extern crate`, an `extern` block and a trait alias hold no expression.
-fn item_attrs(item: &syn::Item) -> &[syn::Attribute] {
+pub(crate) fn item_attrs(item: &syn::Item) -> &[syn::Attribute] {
     match item {
         syn::Item::Const(i) => &i.attrs,
         syn::Item::Enum(i) => &i.attrs,
