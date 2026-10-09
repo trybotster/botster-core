@@ -11,7 +11,7 @@ mod taint;
 mod test_budget;
 mod timers;
 mod tools;
-mod unsafe_code;
+mod unsafe_exception;
 
 use anyhow::Result;
 use std::path::Path;

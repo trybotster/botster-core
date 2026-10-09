@@ -5,7 +5,9 @@
 //! is the full gate. The pending and deferred file checks (`lists`) run right after the taint check, because they are fast.
 
 use crate::tools::{cargo, cargo_nightly, ensure_nightly, require_cargo_tool, run};
-use crate::{caps, fsutil, lists, prebuild, public_api, taint, test_budget, timers, unsafe_code};
+use crate::{
+    caps, fsutil, lists, prebuild, public_api, taint, test_budget, timers, unsafe_exception,
+};
 use anyhow::{bail, Context, Result};
 use std::path::Path;
 use std::process::Command;
@@ -96,7 +98,7 @@ fn clippy_job(root: &Path) -> Result<()> {
 fn taint_job(root: &Path) -> Result<()> {
     taint::command(root, &[])?;
     timers::command(root, &[])?;
-    unsafe_code::command(root, &[])
+    unsafe_exception::command(root, &[])
 }
 
 /// The passed count of a conformance report: the number after `passed ` in its `conformance:` line.
@@ -272,6 +274,7 @@ const OFF_MACOS_EXCLUSIONS: &[&str] = &[
     r"crates/botster-test-process/src/platform/macos\.rs:\d+:\d+: (replace live_members( ->| with)|.* in live_members$)",
     r"crates/botster-test-process/src/platform/macos\.rs:\d+:\d+: (replace exiting_or_gone( ->| with)|.* in exiting_or_gone$)",
     r"crates/botster-test-process/src/platform/macos\.rs:\d+:\d+: (replace await_status( ->| with)|.* in await_status$)",
+    r"crates/botster-test-process/src/platform/macos\.rs:\d+:\d+: (replace polled( ->| with)|.* in polled$)",
 ];
 
 /// The exclusions that a gate on `os` (`std::env::consts::OS`) adds to the configured ones.
