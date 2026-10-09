@@ -53,7 +53,8 @@ exclude_re = [
     # (only_a_mutation_run_with_every_mutant_caught_passes), parse_listing (a_mutant_listing_is_counted_and_anything_else_fails),
     # parse_outcomes (the_mutation_summary_is_read_from_outcomes_json),
     # platform_exclusions (only_a_gate_off_macos_adds_the_off_macos_exclusions) and derived_exclusions, the code that the
-    # gate's OS does not compile (each_gate_os_excludes_the_adapters_of_the_other_os). A body replaced by Ok(()) skips the
+    # gate's OS does not compile (each_gate_os_excludes_the_adapters_of_the_other_os), and package_rust_files
+    # (the_package_sources_are_the_rust_files_outside_the_fixtures). A body replaced by Ok(()) skips the
     # step without its summary line, which every gate log of the step shows ("mutants: N mutants: ...").
     'xtask/src/ci\.rs:\d+:\d+: replace mutants_job -> Result<\(\)> with Ok\(\(\)\)$',
     # P7 GuardianConfig::fmt: the debug text has no contract format. An empty successful

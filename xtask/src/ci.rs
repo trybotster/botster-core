@@ -290,12 +290,17 @@ fn platform_exclusions(os: &str) -> &'static [&'static str] {
     }
 }
 
-/// The tracked Rust files of the packages: the fixtures are left out (each one is its own workspace).
+/// The tracked Rust files of the packages.
 fn package_sources(root: &Path) -> Result<Vec<String>> {
-    Ok(fsutil::tracked_files(root)?
+    Ok(package_rust_files(fsutil::tracked_files(root)?))
+}
+
+/// The Rust files of the packages among `files`: the fixtures are left out (each one is its own workspace).
+fn package_rust_files(files: Vec<String>) -> Vec<String> {
+    files
         .into_iter()
         .filter(|file| file.ends_with(".rs") && !file.starts_with("xtask/fixtures/"))
-        .collect())
+        .collect()
 }
 
 /// The exclusions of the code that `os` does not compile (plan section 8, "Platform-only code"), derived from the `cfg`
@@ -645,13 +650,17 @@ mod tests {
     }
 
     /// Plan section 8, "Platform-only code": the mutation step on each gate OS excludes the other OS's adapters of
-    /// botster-test-process, derived from the tracked packages; the fixtures (their own workspaces) are not read.
+    /// botster-test-process, derived from their `cfg` attributes. The test reads the files from the source tree, not from
+    /// git: a cargo-mutants copy has no `.git`.
     #[test]
     fn each_gate_os_excludes_the_adapters_of_the_other_os() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR"))
             .parent()
             .expect("the repository");
-        let files = package_sources(root).unwrap();
+        let files: Vec<String> = ["platform.rs", "platform/linux.rs", "platform/macos.rs"]
+            .iter()
+            .map(|file| format!("crates/botster-test-process/src/{file}"))
+            .collect();
         let linux = derived_exclusions(root, &files, "linux").unwrap();
         let macos = derived_exclusions(root, &files, "macos").unwrap();
         let adapter = |os: &str| format!(r"^crates/botster\-test\-process/src/platform/{os}\.rs:");
@@ -663,7 +672,20 @@ mod tests {
             macos.contains(&adapter("linux")) && !macos.contains(&adapter("macos")),
             "{macos:?}"
         );
-        assert!(!linux.iter().chain(&macos).any(|p| p.contains("fixtures")));
+    }
+
+    /// The fixtures are their own workspaces, so their files are not package sources; files that are not Rust are not either.
+    #[test]
+    fn the_package_sources_are_the_rust_files_outside_the_fixtures() {
+        let files = [
+            "a/lib.rs",
+            "xtask/fixtures/x/src/lib.rs",
+            "a/Cargo.toml",
+            "xtask/src/ci.rs",
+        ]
+        .map(String::from)
+        .to_vec();
+        assert_eq!(package_rust_files(files), ["a/lib.rs", "xtask/src/ci.rs"]);
     }
 
     /// Plan section 8, step 8: only a run with every mutant caught passes the mutation step.
