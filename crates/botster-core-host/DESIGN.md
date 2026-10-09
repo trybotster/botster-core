@@ -32,7 +32,7 @@ Package P1 (session registry and lifecycle) of Stage 1. Plan pin `555bc433`, con
 | `Resize`, `SetSizePolicy` and `SetColorProfile` of a `Created` session change the stored request in memory only. | The A2-1 table gives them no `RegistryFailed`, so no durable write. `SetNotificationPolicy` of a `Created` session is durable (A3-1). |
 | A signal number outside 1 to 31 is `Unsupported`. | A2-1 gives `Signal` the sync error `Unsupported` and does not say which values. |
 | A host `Key` or `Mouse` write is bounded at `begin` by 64 bytes per event (times `repeat` or `notches`). | IN-9 asks for the worst case over every mode. The encoders are the worker's (P3), which must never produce a longer sequence. |
-| `AdoptAll` keeps `Created` rows and posts every other decodable row as `Lost(Other)`. | AD-1 recovery of a live worker is the adoption package's (P5). `Other` says that Core cannot tell. No test asserts this placeholder. |
+| `AdoptAll` recovers each decodable row by its recorded state and, for a live worker, by the worker's report. | P1 posted every non-`Created` row as `Lost(Other)`. P5 replaced that placeholder ("Adoption (P5)" below; steward ruling R-35): Core never posts `Lost(Other)`. |
 | A row that Core's decoder rejects (not a row, another `version`, or a row whose `id` is not the id of its key) is `Lost(RegistryCorrupt)` under the id of its key. Its session gets an `InstanceId` minted by this handle and a record of size 0 by 0 with no labels. | AD-1: every row is recovered, and one that cannot be is `Lost(reason)`; AD-2 and A10-2 name `RegistryCorrupt`. EV-9 needs an instance for its `SessionState`, and the row's own one cannot be read. A size of 0 is outside every valid size (A2-1), so nobody takes it for a real one. `Remove` claims no upload of it (`outcome_unknown`, A6-3). |
 | A row of a session that this handle holds already (it made the row) keeps the session and its instance, and posts its current state. A row whose session this handle is still creating waits until the create has posted `Created`, then posts its own state, before `AdoptAll` completes. | LC-11: one `SessionState` for every row, posted by `AdoptAll` before its completion. |
 | `HostDriver::open` reads the ids of the registry's rows; `Create` refuses them with `IdInUse` until `AdoptAll` turns them into sessions. | ID-1: an id is unique among registry rows; LC-3; AD-2: a `Lost` row keeps the id in use until `Remove`. A read failure makes `open` fail `RegistryFailed`. |
@@ -257,13 +257,80 @@ second `Launch` for a launch that already happened.
   parts. The worker-machine work is based on #168's `worker.rs` (the input state that the fence retires), or starts after
   #168 merges.
 
-### Prior art
+### 9. What the first code PR builds (host side, sans-IO)
 
-See the adoption Prior art note in `handoffs/p5-adoption.md` (moved here with the first P5 code PR): tmux, shpool, zellij,
-abduco and the old daemon. In short: REUSE tmux's directory check and its "a failed check ends the peer" rule (A11);
-REUSE the old daemon's lesson that the adoption state is the live state; REJECT exact-version adoption (AD-4) and zellij's
-resurrection (Core never starts a replacement); the handshake and the endpoint are hand-rolled over `std`/`mio` sockets and
-`botster-core-link`, because tmux, shpool and zellij are programs, not libraries.
+- **The proof roles** (part 2): `host_proof` and `token_proof` (the worker's role) in `botster-core-link`, in both
+  handshakes.
+- **The report** (part 4): `WorkerMsg::Adopted` with `AdoptReport` and the five `AdoptedPayload` states. The input
+  revisions and the routes come later with the worker side (P3's #168, P4a).
+- **The row path** (part 5): `session_of_row` checks each decoded row before any probe or connect. A row whose state is
+  `Lost(Other)` is a corrupt record (Core never writes it). A row that names a live worker gets `Flow::Adopt`: the
+  identity probe, the connect, the host's hello, the worker's hello, the report, and then the table of part 5. R-35 (a)
+  and (b) hand the row to the start's own flow (`StartFlow.adopted`), and a `Stopping` row with a payload hands it to the
+  stop's own flow, so the outcomes are the ordinary ones.
+- **No session before its state.** An adopting row is in the admission state `Adopting`: `get`, `list` and every
+  operation see no session until the row's one `SessionState` is posted (`UnknownSession`). `StopAll` does not target it.
+- **The retry rule** keeps the row's intent in `Session.row_state`. Every row write of the session (`to_row`,
+  `UpdateMetadata`, `SetNotificationPolicy`) records that state, so no write rewrites the intent. A lost link during an
+  adopted start is `Lost(WorkerUnreachable)` (the worker may have accepted the `Launch`), not the ordinary start's
+  `Exited`. `Adopt(id)` is admitted only for a session whose kept intent exists: a `Lost(WorkerUnreachable)` of the stop
+  path (`stop_grace` with a broken link) or a row that recorded `Lost` has none, and stays `Unsupported` (an open
+  question for the reviewers). A retry that ends in the state that the session shows posts no second event; the `Adopt`
+  result is the record.
+- **An `Exited` row** is adopted with the exit that the row recorded (the report confirms that the payload ended).
+- **`connect_worker(instance)`**, not `connect_worker(endpoint)`: the edge owns the endpoint path, because the edge also
+  passes `--endpoint` at the spawn. The default of the `HostEdges` method answers `None`: until the worker binds its
+  endpoint, every adoption of a live worker ends `Lost(WorkerUnreachable)` (AD-2: indeterminate, `Adopt(id)` may retry).
+  `RealEdges` and the testkit `Sim` implement the method with the worker endpoint, after `botster-test-process` (#171),
+  because the endpoint's proof is real-process.
+- **Not in this PR:** the `FocusChanged` of DP-12 at adoption, `RouteAdopted` (P4a), the worker side (part 7), the launch
+  arguments (part 1), and A52.
+
+### Prior art (BUILD.md rule 0; written 2026-10-09)
+
+Sources, read on 2026-10-09:
+- tmux `master`: `tmux.c` (`make_label`), `server.c` (`server_accept`, `server_create_socket`, `server_signal`), `server-acl.c`,
+  `proc.c` (`peer_check_version`), `client.c`, and `tmux(1)`.
+- shpool `master`: `libshpool/src/daemon/server.rs` (`handle_conn`, `select_shell_desc`, `spawn_subshell`),
+  `libshpool/src/daemon/peer.rs` (`check`), and the README.
+- zellij `main`: `zellij-utils/src/consts.rs`, and the session-resurrection page of the documentation.
+- abduco: the README.
+- Old botster-core at `72b2e33` (read with `git show` only): `crates/botster-core/src/runtime/worker_process.rs`
+  (`adopt_reserved_inner`), `crates/botster-core-daemon/src/daemon.rs` (`adoption_scan`), and the test
+  `adoption_of_live_process_with_reaped_socket_fails_without_rebinding`.
+- Vault notes:
+  - "botster hub socket liveness requires a protocol handshake";
+  - "adoption restart evidence must come from real protocol primitives not defaults";
+  - "botster hub socket cleanup must preserve connectable sockets and repair missing socket paths";
+  - "persisted core session metadata is revalidated against the current size cap".
+
+**The shape.**
+- tmux, zellij and shpool: one long-lived server owns every PTY, and a client reconnects to it. When the server dies,
+  every session dies. zellij's "resurrection" does not keep processes: it saves the layout and the pane commands, and it
+  runs them again behind a "Press ENTER to run" banner.
+- abduco: one server process for each session, closer to Botster.
+- Botster: each worker owns one session and outlives the host (LC-12). So the worker is the server and the new host is the
+  client: one client reattaches to many per-session servers.
+
+| Point | tmux | shpool | zellij / abduco | Old botster-core | Botster (AD) and verdict |
+|---|---|---|---|---|---|
+| Where the endpoint is, and who may connect | Directory `$TMUX_TMPDIR/tmux-<uid>`, made `0700`. `make_label` refuses an existing one unless `lstat` shows a directory that the uid owns with no group or other bits ("directory %s has unsafe permissions"). The socket is bound under a umask. The server checks the peer uid against an ACL; the owner and root are always allowed. | The daemon reads the peer credentials of every connection (`SO_PEERCRED` on Linux; `getpeereid` and `LOCAL_PEERPID` on macOS). Another uid is refused: "shpool prohibits connections across users". A client binary that differs from the daemon's only gives a warning. | zellij: `<runtime or tmp dir>/zellij-<uid>/contract_version_1/`. abduco: `$HOME/.abduco` or `/tmp/abduco/$USER`, owner only. | The worker's socket path is stored in the registry row, and the host connects to it. | AD-6: an endpoint that only the host's uid can read and connect to. **REUSE (idea):** tmux's directory check (owned by the uid, no group or other bits, `lstat`, not a symlink) before a bind or a connect, and shpool's peer-uid check on the connected stream, as a second fence. Checked: the workspace's `rustix` 1.1.5 has `socket_peercred` (`SO_PEERCRED`) only under `cfg(linux_kernel)`, and no `getpeereid`; the workspace forbids `unsafe`. So the directory check is the fence on both OSes: a `0700` directory that the host's uid owns stops every other non-root uid at `connect`, because `connect` needs search permission on the directory. The Linux peer-uid check is optional defense in depth; adding it is a design choice for the P5 PR, not a requirement of AD-6. |
+| How the other end is checked | No identity check beyond the uid. Every message header carries `PROTOCOL_VERSION`; on a mismatch `peer_check_version` answers `MSG_VERSION`, marks the peer `PEER_BAD`, and dispatches no later message. | The daemon sends its version first; the client only warns on a mismatch. | zellij: compatibility by directory (`contract_version_N`), with no check on the link. | Hello and welcome. Only the exact protocol is accepted. The welcome must name the same session. No secret: any process of the same uid that listens on the path can answer. | AD-6 and DP-8: a token proof bound to the instance and the epoch, which is stronger than all four. **REJECT** an exact-version-only rule: AD-4 adopts protocols N and N−1. **REUSE (idea):** tmux's `PEER_BAD`: after a failed check, no later frame of that link is decoded or acted on. This is A11. Vault: an endpoint is live only after the handshake answers, never because a path exists or a connect succeeds. |
+| What state the new client gets | The server keeps each grid and redraws the whole screen for the new client. | An in-memory render of the terminal redraws the screen; the restore mode keeps a number of output lines (default 500). | zellij: the server renders the full screen for each client. Resurrection runs the commands again (rejected below). abduco: the README names no screen state. | The welcome repeated the spawn-time modes, so after adoption the host asked the worker for the live modes ("The adopted welcome repeats spawn-time modes. Probe for live ones."). | AD-1: the worker owns the libghostty terminal, so it is the "server that keeps the screen". **REUSE the lesson:** the adoption report gives the live state (payload state, modes, size, identity); never values remembered from the spawn, and never a positive default (vault). **REJECT** zellij's resurrection: Core never starts a replacement for a session that it could not adopt (`Lost`). Old test: a missing endpoint must not create a replacement worker. |
+| The old client is still attached | Several clients can attach. `attach -d` detaches the others; `-x` also sends SIGHUP to the client's parent. | One client per session: an attach to a busy session gets `Busy`, unless `-f` or `shpool detach` forces it. | zellij: several clients. abduco: several; only the newest non-read-only client resizes. | — | One controlling host. A live old host holds the data-dir lock (LC-2), so a second host cannot open. For an old host that died, the worker accepts only an epoch above every epoch it has seen and closes the old link (DP-8). This is tmux's `-d` with the epoch as the rule, and shpool's one controller per session. **REUSE (idea).** |
+
+**Other lessons.**
+- A socket path can disappear while its listener lives (a `/tmp` cleaner on macOS; vault). The old daemon then failed
+  adoption without binding a replacement and without killing the worker (old test above). tmux re-creates its socket on
+  `SIGUSR1`. **Botster:** a worker endpoint that cannot be connected to gives `Lost(WorkerUnreachable)`; Core never
+  binds or spawns in its place. **Decided (P3's choice, part 8):** the worker does not bind its endpoint again: a
+  rebind races the cleaner and hides AD-2's `Lost`.
+- Validate everything that can refuse an adoption before the first change of state (vault: "persisted core session metadata
+  is revalidated"): a row is decoded and checked before the host connects; a failed check changes nothing.
+
+**Hand-rolled, with the reason.** The worker endpoint, the connect and the handshake use `std`/`mio` Unix sockets and the
+existing link codec (`botster-core-link`). No library offers a per-session reattach with a token proof; tmux, shpool and
+zellij are programs, not libraries. The directory check uses `rustix` (already in the workspace).
 
 ## Prior art (BUILD.md rule 0)
 
