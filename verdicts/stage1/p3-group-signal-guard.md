@@ -128,3 +128,13 @@ by a marked deadline. F55 is theirs to close. Their scope note on `kill_program`
 matches this reviewer's round 2 observation.
 
 VERDICT: NOT CLEAN (1 open here: L1 LOW. F55 is the P3 package reviewer's.)
+
+### Lead ruling after round 2 (same head f16eed6f) — G1 REOPENED
+
+The lead ruled that the reserve-failure behavior proof does not carry to P6's PR B. Plan r22: production code whose proof
+is a real-process test does not merge before that proof exists. Under the crate exception, the PR B HOLD does not block a
+test in `botster-test-process`'s own suite. So G1 is open again until #177 contains a passing proof there of
+`rounds::end_group`'s reserve-failure path (the last `KILL` through `signal_own_group` ends every member). This reviewer's
+round 2 acceptance of the carry is withdrawn.
+
+VERDICT: NOT CLEAN (2 open here: G1 MEDIUM, the proof only; L1 LOW. F55 and F56 are the P3 package reviewer's.)
