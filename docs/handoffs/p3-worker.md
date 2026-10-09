@@ -743,3 +743,293 @@ The existing slow test the_payload_runs_on_the_pty_with_the_exact_environment ch
 A new function-specific printing-glue entry records that proof. All pure decision coverage and existing scopes remain.
 The earlier library-inclusive payload mutation run includes this formatter and catches its replacement.
 Next: both exact configuration reviews, then the new exact-head landing gate.
+
+## M2a restack started (2026-10-04)
+
+The lead merged PR136 as v1 01fd38968b9e7605becc7e2b5088628aff52865a. The merge tree equals reviewed and gated da2b049.
+New branch: stage1/p3-m2a-v1, from origin/v1 at that merge. The old branches remain unchanged.
+The current worktree path still ends with stage1-p3-m1-v1. It now holds the M2a branch.
+Commit 8ed941a restacks af4abdd, the reviewed M2a input admission machine, without conflicts.
+Uncommitted work restores the program and worker edges and the Sim scheduler proof from the reviewed M2a stack.
+The worker-edge merge keeps M1's injected positive read bound and adds M2a control state.
+The real driver keeps M1's I/O decisions, read bound, exit ownership, and cleanup.
+It retains one pending PTY write and performs at most one PTY write per turn after the control link.
+Unlike the old M2a adapter, PTY registration errors propagate from the driver.
+The readiness decision covers pending writes and blocked writes in all combinations.
+New worker_controls.rs holds M2a controls and their registration function. Harness dispatch has no new arms.
+P6 owns the new ControlRegistry interface on stage1/p6-control-registry.
+P3 requested a workers() accessor and reserves the open() call sites for directory-aware worker construction.
+P3 will merge the registry after it lands, then connect the controls through the module registration call.
+The testkit proof list adds the old M2a ids and the fixed cancel-race id from contracts-v0.1.13.
+All conformance ids remain pending until both harnesses pass.
+No M2a tests, builds, or gates have run. No M2a review or merge-readiness claim exists.
+Next: receive P6's registry head and accessor agreement. Connect the module and open() calls, then run focused Linux checks.
+M2b and the real-process conformance harness remain open.
+
+## M2a registry connected (2026-10-04)
+
+The lead merged PR141 as v1 144b0234fb632bcbb5176b17c2fe55f3239405df.
+P3 merged that base into stage1/p3-m2a-v1 without conflicts.
+worker_controls.rs registers its controls through controls::registered_controls(). The harness dispatch uses the registry.
+P3 added the agreed workers() accessor and directory-aware open() call sites.
+The prior missing-control assertion now uses descendants, which remains unsupported. lose_worker is an implemented M2a control.
+Next: focused Linux compilation, unit tests, and the testkit transcript proof. M2a reviews and gates remain open.
+
+## M2a first Linux compilation (2026-10-04)
+
+The focused Linux check at 740b587 stops during compilation with seven fixture constructor errors. No tests ran.
+Log: ~/botster-sessions/gates/botster-core-stage1-p3-m2a-v1-740b587a-linux-20261004-194349-96539.log.
+The M1 fixtures still used constructors without M2a directory identity or PTY write state.
+P3 updated the existing fixtures to pass their directory and handle names and initialize the new edge state.
+Their assertions and tested behavior remain unchanged. Next: rerun the focused Linux check.
+
+## M2a focused proof and real PTY regression (2026-10-04)
+
+The focused Linux check at 45627e59 passes 265 tests, with zero skipped.
+Log: ~/botster-sessions/gates/botster-core-stage1-p3-m2a-v1-45627e59-linux-20261004-194717-99108.log.
+The check covers Worker admission, driver decisions, testkit edges, directory separation, and the M2a transcript proof.
+New slow regression: in_6_real_pty_cancel_keeps_counts_and_resumes_the_next_write.
+The program disables line processing and waits on a FIFO before it reads PTY input.
+The host sends a large Text transaction, cancels it, and checks its exact positive prefix count.
+The program then reads that prefix and the next transaction. The file must contain exactly the reported input bytes in order.
+The shared fixture runs both the prebuilt binary and the rebuilt observer with the production Driver.
+Existing independent guards own both process groups. FIFO and report waits have explicit deadlines.
+Next: run this regression on Linux, then perform the M2a mutation checks and delta reviews.
+
+## P6 observation boundary for M2b (2026-10-04)
+
+The lead directs live oracle controls to wait for M2b. P6 and P3 will agree on the injected observer API then.
+- Identify each session by data directory and InstanceId. Include its Size and History configuration.
+- After each completed native model step, expose exactly the consumed bytes in order. PTY reads can include an unconsumed suffix.
+- Oracle reads must not pump the subject.
+- At the same boundary, expose accepted resize and terminal configuration changes in their actual order.
+- Provide read-only access to the actual Terminal for native comparisons and failure or continuation checks.
+- For each completed capture, expose its model revision and the actual model at that revision.
+- Retain every consumed output chunk after that revision for resume checks. Core read_page remains the capture source.
+- Every-cut adapters need a fresh subject session, real program prefix and suffix writes, the quiet fence, real CaptureSnapshot, and ordered pages.
+- An observation error must fail the testkit run. The observer must not silently drop bytes.
+No test branch or second terminal semantics path belongs in Worker.
+
+## Implementer handoff boundary (2026-10-04)
+
+The lead directs P3 to an Opus implementer at this clean boundary.
+M1 is merged as 01fd38968b9e7605becc7e2b5088628aff52865a. Its pushed branch head is da2b0494bbda711e5a67cb180ddf05c607784635.
+M1 package CLEAN: 22124c35f2bb2d785f92182a90c6cfe9149d6fb4. Integration CLEAN: c9a1177bf3797b57dba0449b25e02a68becfb9f0.
+All F1-F24 and I1-I6 findings are closed. The full Linux gate passed all ten steps, including fuzz.
+M1 mutation: 328 tested, 261 caught, 67 unviable, zero missed or timed out.
+M1 full log: ~/botster-sessions/gates/botster-core-stage1-p3-m1-v1-da2b0494-linux-20261004-190335-66474.log.
+Required native Mac helper mutation log: ~/botster-sessions/gates/botster-core-stage1-p3-m1-v1-63b5c1db-mac-20261004-181240-42534.log.
+The Mac helper run caught both mutants. Its unchanged baseline passed 47 tests.
+The new branch stage1/p3-m2a-v1 starts at merged M1 and includes merged registry 144b0234fb632bcbb5176b17c2fe55f3239405df.
+Final pushed M2a head: a7f4a386593457e3b30f03b56938092de9b060a3. Remote branch matches this head. The worktree is clean.
+Old pushed branches remain immutable:
+- stage1/p3-worker-m1-stack: 46b16945ead49715949d5983bb41a673c081f8ad.
+- stage1/p3-worker-m2a: 98960e434b0991ebb9d7e65c952f1c6ea116b83a.
+- stage1/p3-worker-m2b: 7abc54db1876d00e1484607eb5b53c2f8c64b885.
+- stage1/p1-testkit-wiring: 95a58545a9d5369098ed0074ee150d1b6ca16491.
+The M2a restack has no reviewer verdict yet. No new M2a findings exist because review has not started.
+The first focused check failed compilation. The constructor fixes passed all 265 selected tests at 45627e59.
+M2a mutation status: not run. The M1 exclusions remain; no new M2a exclusion was added.
+The new real PTY cancellation regression is committed with this handoff but has not run.
+No gate or heavy job is active. No M2a PR exists yet.
+
+Exact next step: prebuild the candidate and run the new regression on Linux through botster-gate.
+Command after `--`: env CARGO_BUILD_JOBS=4 NEXTEST_TEST_THREADS=4 RUST_TEST_THREADS=4 sh -c 'cargo xtask prebuild-worker && cargo nextest run -p botster-worker --features slow --lib --bins --test slow_session -E "test(in_6_real_pty_cancel_keeps_counts_and_resumes_the_next_write)"'.
+This selects both shared fixture paths: the prebuilt candidate and the rebuilt observer that runs the production Driver.
+Then complete M2a checks, mutation tests per changed file, and delta reviews against old CLEAN 5eb1f13.
+M2a changes the testkit's harness.rs, program.rs, and worker.rs. It needs package and integration review before READY.
+Check the M1 environment id that waits for spawn_record. The real tic id still needs a real-process control.
+Keep every conformance id pending until both harnesses pass. The fixed cancel-race transcript is in the testkit proof list.
+
+Registry agreement: worker_controls.rs owns its controls. controls::registered_controls() collects the module registration.
+The harness dispatch remains generic. P3 owns workers() and the directory-aware open() call sites.
+P6 agreed to avoid worker.rs, program.rs, and those open() edits in its independent oracle work.
+The P6 observation requirements appear immediately above this section. Live oracle dispatch waits for M2b.
+
+M2b must use the current v1 binding and finish snapshots, ReadFacts, input records, tap, disable_history, and all 11 A13 ids.
+M2b must complete crates/botster-terminal-ghostty/GHOSTSNP.md's Worker paging section in the same PR as paging code.
+Record the R-30/A8-2 code references there. Split native encoded bytes into contiguous Page { index, bytes, last } values.
+Add no byte framing to the snapshot. P6's every-cut fit adapters depend on this paging contract.
+M2b and the real-process conformance harness remain open. libghostty owns all terminal semantics and expected terminal bytes.
+
+Contacts: lead sess-1790903471-008f-8b9f78eef51d48aba5a45748495fd673; package reviewer sess-1791142479-0100-7411ff7507ce89a5e7416311610290d3.
+Integration reviewer: sess-1791143089-0101-8ce5f4942328f5697c410ea4da89c466. P6: sess-1791136735-00fc-4b09baad3d85f4ce4397761167aced46.
+Use botster receive_messages once after a doorbell. Never poll. Keep one heavy Linux job active at a time.
+
+Handoff boundary confirmed: no active jobs, no edits in progress. The implementer stops here under the lead instruction.
+
+## Opus implementer takeover and audit-fix PR (2026-10-04)
+
+- Implementer: Opus (this session). Package reviewer: sess-1791169299-010e-6e279534401cc89d86c447f2fa43f4bc (Sol).
+  Integration reviewer: sess-1791168757-0109-73d2ca212653045545e7480ab60be9a9 (Opus). The …0100 and …0101 sessions are retired.
+- Lead priority: the audit-fix PR lands FIRST. M2a waits. The audit-fix PR blocks P6's contracts-v0.1.14 pin move (PR #161 failed its gate on the A31 race).
+
+### Audit-fix PR: branch stage1/p3-audit-fixes (from v1 144b023)
+
+- Worktree: ~/botster-sessions/trybotster-botster-core-stage1-p3-audit-fixes.
+- Commits: 5b81d5e A3; 27f3b59 A8, A11, A53 (reap); b841bed A30, A52, A53; 5f57c23 A31.
+- A3 (#145): the binding computes the worst case with libghostty (longest_key_sequence, longest_mouse_report, longest_focus_report). The host computes a write's size once in begin and stores it for PayloadTooLarge, IN-5 and IN-7. The invented 64 is gone. Cross-package: host (P1) and binding (P2).
+- A8 (#150): both session-fixture paths start the worker through GroupGuard (process_group(0)).
+- A11 (#153): every fixture wait has a marked deadline. The limits are the existing values: 20 s for a worker or payload wait, 10 s for cleanup. The production drop of each test payload runs with the existing 10 s deadline. Production Drop is unchanged.
+- A30: the testkit drain takes the DrainPty bound (ScriptedProgram::unread). PtyDrained answers only an asked drain.
+- A31: io_decisions::Drain reads the count, then one flushing read, then at most the count measured once after it. slow_payload's count test waits for master readability.
+- A52 (lead ruling): the exit watch panics instead of inventing Code(-1). start_time 0 is documented as fail-closed and has a test. The link type is unchanged; P5 owns Option<u64>.
+- A53: Payload::reap is drop(self). The dead exit report at hello, exit_reported, and report's bool are gone, with two mutant entries.
+- A36: deferred to M2b (lead ruling, noted on #158). M2b builds Launched.terminal from the libghostty model. The ids that depend on it stay pending: "worker model lands in M2b".
+- A29: production is single-threaded at PTY open, and nextest runs each test in its own process. To be argued in the PR.
+- First focused Linux job at 27f3b59: fmt, clippy and taint passed; one test failed (fixed in 5f57c23, a helper that dropped a batched completion). Log: ~/botster-sessions/gates/botster-core-stage1-p3-audit-fixes-27f3b59e-linux-20261004-202030-78550.log.
+- Next: focused job at 5f57c23, then the PR, then READY to both reviewers, then the gate on the CLEAN head, then READY to the lead.
+
+### Follow-up PR (lead-approved design): stage1/p3-driver-mutation, from v1 after the audit-fix PR merges
+
+- The default mutants pass excludes main.rs, io_decisions.rs and payload.rs (exclude_globs). Their per-function entries are deleted.
+- A slow in-diff pass covers only those files, with --features slow and their slow tests, through a separate config that keeps only the reasoned equivalence entries. 4-CPU cap. A timeout is a finding.
+- The truth tables and private-field driver tests are replaced by two Driver::run slow tests: a flooding payload plus a host Op that must complete, and a host that stops reading while the payload is still served.
+- Cross-package (xtask ci). Show one gate log where the slow pass runs and one where it is skipped.
+
+### M2a (paused): branch stage1/p3-m2a-v1 at cce8598
+
+- cce8598 names errnos and registers one function per control (worker_controls.rs). Not reviewed yet.
+- The handoff's earlier regression command was wrong: botster-worker has no lib target. Use `--bins --test slow_session`. Log of the failed attempt: ~/botster-sessions/gates/botster-core-stage1-p3-m2a-v1-cce85984-linux-20261004-195905-36664.log (no tests ran).
+- Known edge gap for P4a: a descriptor alone makes the testkit link readable, and the edge then feeds empty LinkBytes. Without an AttachRoute handler, this would livelock the Sim (no M2a transcript attaches).
+- After the audit-fix PR merges: merge origin/v1 (conflicts expected in main.rs, io_decisions.rs and the testkit worker.rs ready() and drain), then the regression, mutation, and delta reviews against old CLEAN 5eb1f13.
+- M2b notes: keep the over-limit A13 test pending: "R-32 (contracts-v0.1.14): awaits the fork patch". Write the worker side to R-32. Close A36.
+- M2b, A13 over-limit: the user approved the R-32 fork patch. Fork agent sess-1791171304-0112-f36545cd8fa2e17ba1c1fe6f1863319d syncs Ghostty and adds an additive binding API: ClipboardWrite over the limit has no contents and carries its length. Build TooLarge plus ack EIO against that API. The test stays pending until that pin merges.
+- M2b, A14 (draft, contracts 0d2fa62, not final): clipboard_bytes will bound the decoded size of an OSC 5522 write, replaced chunks included. Over the bound: TooLarge, total_bytes = decoded size, ack EIO. Build to A13 as it stands, with the worker's clipboard size accounting in one place. The lead announces when A14 is final.
+- PR #163 is open: head 0403470 (adds 1060fca, fb36ff8 and 0403470: test fixes and three earlier slow-tier clippy lints). Both reviewers have the head.
+- The 1060fca focused job passed fmt, clippy, taint, prebuild, the default tier (758) and slow_session (52). slow_payload did not compile there (fixed in fb36ff8). The fb36ff8 job stopped at slow-feature clippy (fixed in 0403470).
+- Full HOLD from the lead: no new gate or heavy job. When it lifts: clippy -p botster-core-sys -p botster-worker --all-targets --features slow, then prebuild, then slow_payload. Then the gate on the CLEAN head, then READY to the lead.
+- Review round 1 on PR #163 at 0403470: integration NOT CLEAN I1 to I6 (verdict 872a3e6; I6 withdrawn); package NOT CLEAN F25 to F28 (verdict 9735723, round 74). Fixes in 6770c0c and 82b4269 (head 82b4269); both reviewers have them. Nothing is compiled at those heads (full HOLD).
+- I2 (lead option b): the states that report text come first; the cost note says "pending steward (KeyInput.text bound)". If the steward bounds the text: a follow-up PR with the check and measurements at 1 MiB and 64 MiB.
+- When the HOLD lifts: run the focused Linux job (fmt, clippy, clippy with slow for botster-core-sys and botster-worker, taint, prebuild, test-budget, slow_session, slow_payload), then the native Mac slow_payload (F28 asks for fresh native proof). Then the gate on the CLEAN head.
+- M2b clipboard: A14 is FINAL (contracts main 69327d5). Decide in two steps: (1) decoded size over clipboard_bytes → TooLarge, total_bytes = decoded size, ack EIO; (2) else contents size over the limit → TooLarge, total_bytes = contents size, ack EIO; else post and ack SUCCESS. The 10 a14_* ids are P3's. R-33: MIME types past libghostty's limit of 64 are not decoded, not counted, and stay in Output. Keep the size accounting in one place.
+- A15 (draft, contracts c75cf39, in review): a new CoreLimits row max_key_text_bytes (default 256, range 1 to 4,096), checked before the IN-9 worst case. Over it: a host key gets a sync InvalidInput{field: "text"}; a route key gets input_refused{too_large}. The ids are a15_1_*. The follow-up PR (text check plus measurements) waits until A15 is final and tagged; the lead announces it. #163 keeps the exact enumeration with early stop.
+- Round 3, head 800606a: F25 (typed ExitWatchFailed with the errno and the invariant; a real-driver test through command_line::execute) and F26 (every guard and fixture wait bounded; a stuck-cleanup regression test). Integration review was clean at 82b4269; the delta goes back to it. The package reviewer's round 76 had F25, F26 and F28 (native proof) open. Nothing is compiled since 1060fca (full HOLD).
+- Head ccba050: the F25 fixture blocks on a FIFO instead of sleep 30. Follow-up PR (stage1/p3-driver-mutation): replace the 8 older `sleep 30` payload bodies in the slow tests with a FIFO wait (BUILD.md testing rule 5); both reviewers were told.
+- Mac gate at ccba050: RED, slow step only. Log: ~/botster-sessions/gates/botster-core-stage1-p3-audit-fixes-ccba0504-mac-20261004-212806-3319.log.
+  - All non-slow steps pass, and so do slow_payload, slow_session and slow_cli.
+  - Two failures predate this PR: A10 (fixed on P5's stage1/p5-a10) and botster-core-sys slow_process parent_dies_before_fifo_reader. The second fails on the Mac at base 144b023 on the P5 and P7 gates too; it is a new v1 defect. BLOCKED was sent to the lead with options (a) to (c).
+  - The gate's slow tier does NOT run `-p botster-worker --features slow --bins` (driver_edges and the observer copy). Run it as a focused job with the F28 Mac mutation job when capacity allows. Raise the xtask gap in the A32/A33 follow-up.
+
+### Guard fix PR (lead: lands first): branch stage1/p3-guard-macos (from v1 144b023)
+
+- Worktree: ~/botster-sessions/trybotster-botster-core-stage1-p3-guard-macos. Head c5ba07e.
+- Root cause: the anchor's single killpg misses a child whose fork completes after the kill (macOS). P5 found an orphaned tee holding the pipe.
+- Fix: the anchor stays a member and ends the other live members in rounds (list → kill → await exit events: kqueue on macOS, pidfd on Linux), until a round lists none, within the existing 10 s limit. The payload guard uses the same rounds. Scripted decision tests. macOS dev-deps: libproc, kqueue, libc.
+- Integration reviewer's conditions: end every member on every exit path, with no caller precondition; a deterministic test for a member that joins after the first kill; keep #163's bounded Drop at the merge.
+- Focused Mac proof runs only via `botster-gate --on mac --deadline 20m <wt> -- <cmd>` (lead), one at a time. Then both reviewers, the Mac gate, READY. The lead merges it first; then #162 (P5) and #163 merge v1 and gate.
+- #163 also owes F33 (package reviewer, MEDIUM): the landing slow tier must run `-p botster-worker --features slow --bins` (xtask slow selection). Coordinate the xtask delta with the integration reviewer. Then F28 (Mac mutation run on payload.rs via botster-gate --on mac).
+- M2b note from the fork-A6 implementer (binding stage1/p2-fork-a6 @ e676a2d): call Terminal::set_clipboard_limit with CoreLimits.clipboard_bytes on every terminal you create or restore. ClipboardWrite too_large=true also arrives for a write over the model's limit (contents None, total_bytes = the decoded size).
+- Guard PR head 3670202:
+  - The reserve design: an unreaped /usr/bin/true pins the pgid; the anchor leaves the group and only sends group kills.
+  - Each round lists, kills, then awaits. Failures are values: members left, or a listing or wait error. The anchor reports on stderr and exits 1; GroupGuard::drop checks the anchor's status.
+  - Integration review accepted the design. Open there: G1, G3 and G4 (addressed in 3670202) and G2: in the #163 merge, the outer anchor wait must be longer than CLEANUP, both from one constant.
+  - The payload anchor's report goes to /dev/null (the prefix redirects it). Disclose this.
+  - The focused Mac proof is running.
+- #163 head 40b63dc: integration I7 closed for collection (130 tests; log …40b63dce-mac-20261004-215438-84612.log). The integration CLEAN waits for the package CLEAN and a green gate.
+- Guard PR #165 is open at 36702023. The focused Mac proof passed: 132 + 9 tests, including slow_process parent_dies. Log: …guard-macos-36702023-mac-20261004-215726-95373.log. Both reviewers have it.
+  - A QUESTION to the lead is open on merge order: #165's full Mac gate will fail on A10 (fixed only on #162), and #162's gate fails on the guard. I recommended combining.
+  - G2 belongs in the #163 merge: the bounded anchor wait becomes 2 × CLEANUP.
+- Guard PR #165 head acd05de6: the focused Mac proof passes (142 + 11; log …guard-macos-acd05de6-mac-20261004-220807-29615.log). Sent to both reviewers for F35 to F38 and G5.
+  - The reservation check is the reserve's wait status (waitid WNOWAIT|WNOHANG), because macOS refuses getpgid for zombies.
+  - A member is proved not live through kqueue's ESRCH; the workspace forbids unsafe.
+  - The payload guard reports through release() before production cleanup and a report check in Drop.
+  - Mistake noted: I amended a pushed commit (0e34e3e), then soft-reset to origin and committed on top. Nothing was force-pushed.
+- Lead ruling: once #165 is CLEAN at an exact head, tell the lead. P5 merges it into #162, and the combined head gets one gate. Do not gate #165 alone.
+- A15 is FINAL (contracts main 1725abf): max_key_text_bytes (default 256, range 1 to 4,096). The follow-up after #163 adds the worker's check; measure the enumeration cost at 256 and 4,096. The host side is P5's; route keys are P4a's.
+- Guard PR #165 head f5f9d0f6: the focused Mac proof passes (155 + 13; log …guard-macos-f5f9d0f6-mac-20261004-221717-52020.log). Both reviewers have it, for package round 82 (F35, F37, F38, F40, F41).
+  - Integration: 0 open on 97b8e947; the delta goes back for a re-check. Package F42 and integration G6 are closed.
+  - Module split: tests/common/process_guard.rs, guard_cleanup.rs, guard_platform.rs, payload_guard.rs.
+  - Owners of a PayloadGuard follow two phases: release() or a Release handle first, then production cleanup, then the guard's Drop.
+  - libproc on macOS reads a stale errno for an empty group; a failed listing is checked with test_kill_process_group (ESRCH means empty).
+  - #163 merge note: driver_edges Harness has `release` and `driver: Bounded<Driver>`. The #163 failed-watch test moves h.driver and h.peer; adapt it to h.driver.take(), and release before execute.
+- Guard PR #165 head 08fef89d: focused Mac 155 + 13 pass (log …guard-macos-08fef89d-mac-20261004-222304-71264.log). Answers package round 83 (F37 registration errors, F38 exit-status proof, F39 outer 2 × CLEANUP). Both reviewers have it. Integration was 0 open at f5f9d0f6.
+- Guard PR #165 head 4c06846d: focused Mac 158 + 13 pass (log …guard-macos-4c06846d-mac-20261004-222705-81386.log). Answers package round 84 (F43 owned children, F37 registration-error proof). Package closed F38 and F39 at 08fef89d. Integration was 0 open at 08fef89d.
+- macOS facts found: proc_pidinfo refuses zombies (prove with kqueue ESRCH); getpgid refuses zombies (use the waitid status); libproc reads a stale errno for an empty group (prove with a group test signal); SO_RCVTIMEO is refused once the peer has closed.
+
+## PAUSE (2026-10-04, user order via the lead): authoritative state
+
+Nothing is unpushed. All three worktrees are clean, and their local heads equal origin.
+
+### Branches and exact pushed heads
+| Branch | Head | Worktree | PR |
+|---|---|---|---|
+| stage1/p3-guard-macos | c03bcfb181d21cdf805b752a790359f63b9ef7b9 | ~/botster-sessions/trybotster-botster-core-stage1-p3-guard-macos | #165 |
+| stage1/p3-audit-fixes | 40b63dceb6e3f3d7be69a1488ac77eccc121a071 | ~/botster-sessions/trybotster-botster-core-stage1-p3-audit-fixes | #163 |
+| stage1/p3-m2a-v1 (M2a, paused) | cce85984f760c6c65aeaab264b1d8463d1880267 | ~/botster-sessions/trybotster-botster-core-stage1-p3-m1-v1 | none yet |
+
+Reviewers: package sess-1791169299-010e (Sol, verdicts/p3-worker.md on stage1/review-p3); integration sess-1791168757-0109 (Opus, stage1/integration-review).
+
+### Merge order (lead ruling)
+1. #165 (guard) reaches CLEAN from both reviewers at one exact head. Then I tell the lead "#165 CLEAN <head>". The lead hands it to P5, who merges #165's branch into #162 (A10). The combined head gets ONE gate. Do not gate #165 alone.
+2. After #162 merges (with #165's commits), #163 merges origin/v1, gets a delta review, and gets its Mac gate. Then READY.
+3. Then the A32/A33 follow-up (stage1/p3-driver-mutation), then the A15 follow-up, then M2a and M2b.
+
+### #165 guard PR (head c03bcfb1)
+- The macOS fork race in the test guard. The anchor reserves the group with an unreaped /usr/bin/true, leaves the group, and sends only group kills (reserved_kill checks the reserve with waitid). Each round lists, kills, then awaits exit events (kqueue on macOS, pidfd on Linux). Failures are values; the anchor reports, and GroupGuard::drop fails the test. The payload guard reports ok or fail through two phases (release before production cleanup; Drop after).
+- Modules: crates/botster-core-sys/tests/common/{process_guard.rs, guard_cleanup.rs, guard_platform.rs, payload_guard.rs}.
+- Focused Mac proof at c03bcfb1: 158 + 13 pass. Log ~/botster-sessions/gates/botster-core-stage1-p3-guard-macos-c03bcfb1-mac-20261004-223014-89077.log.
+- The Linux branches (/proc, pidfd) are not compiled anywhere yet; the combined gate on Linux or the Mac gate covers them.
+- Integration: 0 open at 4c06846d (verdict 7dc2559). The c03bcfb1 delta (F43 and EPERM) was sent; no verdict yet.
+- Package: round 85 (verdict df09cc8) at 4c06846d left F43 open. c03bcfb1 answers it (ended_within_cleanup returns the observation; Owned reports every error); no verdict on c03bcfb1 yet. Closed: F34 to F38, F40 to F42 (F39 closed in #165; its duty stays for #163).
+- Exact next step: wait for both verdicts on c03bcfb1. If both are CLEAN, send the lead "#165 CLEAN c03bcfb1 (package verdict …, integration verdict …)".
+
+### #163 audit-fix PR (head 40b63dc)
+- Fixes: A3 (#145) worst-case bound from libghostty; A8 (#150) owned worker group; A11 (#153) bounded waits; A30, A31, A52, A53 (#158, #156). Plus the review rounds: I1 to I7, F25 to F33. The slow tier now collects slow_* modules at any depth (130 tests listed; log …audit-fixes-40b63dce-mac-20261004-215438-84612.log).
+- Integration: 0 open for collection (verdict ca4d7d9). CLEAN after the package CLEAN and a green gate that RUNS those tests. G2/F39 duty at the v1 merge: Bounded<Driver> and any outer wait use 2 × CLEANUP.
+- Package: F28 (a native Mac mutation run of payload.rs pending_output: run `cargo mutants` via `botster-gate --on mac --deadline 20m … --` after the guard fix) and F33 (landing execution evidence) are open, plus the F39 merge duty.
+- Merge notes for v1: driver_edges Harness now has a `release` field and `driver: Bounded<Driver>`. #163's a_failed_exit_watch test moves h.driver and h.peer; adapt it to h.driver.take(), with release before execute. session.rs: process_guard and payload_guard are pub(crate). The payload guard API changed (release(), release_handle(), with_cleanup).
+- Known pre-existing failure: botster-core slow_real_core a_worker_is_not_left_when_the_cleanup_of_a_test_fails (A10; fixed on P5's #162).
+
+### Audit issues
+- P3's: #145 (A3), #150 (A8), #153 (A11), #156 (A29 argued, not changed; A31 fixed), #158 (A30, A52, A53 fixed in #163; A36 deferred to M2b; A32/A33 in the follow-up).
+- The guard defect (parent_dies on macOS) was assigned to P3 by the lead and is fixed in #165.
+
+### Contract duties
+- A13 / A14 (FINAL, contracts 69327d5) / R-32 / R-33 for M2b clipboard work. Decide in two steps: the decoded size over clipboard_bytes, then the contents size. TooLarge carries total_bytes, with ack EIO. Call Terminal::set_clipboard_limit(clipboard_bytes) on every terminal created or restored. MIME types past 64 are not counted. The over-limit tests stay pending until the fork binding PR (stage1/p2-fork-a6) and the pin land. Keep the size accounting in one place.
+- A15 (FINAL, contracts 1725abf): max_key_text_bytes (default 256, range 1 to 4,096) is checked before the IN-9 worst case. The follow-up after #163 adds the worker check and measures the enumeration at 256 and 4,096. The host side is P5's; route keys are P4a's. The a15_1 ids stay pending.
+- A36: closes in M2b (Launched.terminal from the model).
+
+### M2a (paused, cce8598)
+Merge origin/v1 after #163. Then run the regression with `--bins --test slow_session` (not --lib), mutation per file, and delta reviews against 5eb1f13. The P4a edge note (a descriptor-only readable link) is above.
+- PAUSE AMENDED (user, via the lead): finish #165 (both CLEANs, then "#165 CLEAN <head>" to the lead) and #163 (after #162 merges: merge v1, delta CLEANs, one gate, READY). At most one more fix round each, otherwise hand off. No new item. The final PAUSED message follows these.
+- #165 CLEAN at c03bcfb1: package verdict ea4415fe (round 86); integration 0 open at b2f7db0, conditional on the package CLEAN (asked to record the final CLEAN). "#165 CLEAN" was sent to the lead, and P5 folds it into #162. Next for P3: #163 after #162 merges (merge origin/v1, apply the 2 × CLEANUP outer-wait rule and the harness API changes, delta reviews, one gate, READY).
+- #165 integration CLEAN at c03bcfb1: verdict 37ed815 (sent to the lead). Both CLEANs are final.
+- One more round on #165 (lead): P5's reviewer (sess-1791169805-0111) held P5-F4 (two unbounded waits in process_guard.rs). Fixed at 71195e72: first_line bounds the readiness read; cleanup::Owned replaces Parent; eof uses CLEANUP; two zero-limit stuck-process tests. Focused Mac 168 + 15 pass (log …guard-macos-71195e72-mac-20261004-224513-28395.log). Sent to all three reviewers. When all three are CLEAN, send the lead "#165 CLEAN 71195e72". If it needs more than this round, stop and tell the lead (the chain then pauses).
+- #165 at 71195e72: P5-F4 is closed by the integration reviewer (cef28d1) and accepted by P5's reviewer in source (it closes on #162's combined head). The integration reviewer opened C3 MEDIUM (an_early_exit_keeps_the_group_owned_until_cleanup: an unbounded read_line and child.wait; fix with first_line and cleanup::Owned) and C4 LOW (two tests fork a `sleep 1` loop; replace it with a FIFO-blocked /bin/cat). This would be a second round, so I STOPPED and asked the lead whether to do it or pause the chain. The package reviewer's verdict on 71195e72 is still pending.
+
+## FINAL PAUSE (2026-10-04, lead order): resume here
+
+Nothing is unpushed; the worktrees are clean; no job is running.
+
+| Branch | Exact pushed head | PR | State |
+|---|---|---|---|
+| stage1/p3-guard-macos | 71195e7209cc0cbee03bedb52eda3f2b83db2585 | #165 | C3 and C4 open (integration); package review of 71195e72 pending |
+| stage1/p3-audit-fixes | 40b63dceb6e3f3d7be69a1488ac77eccc121a071 | #163 | waits for #165 through #162; F28/F33 open; the F39 merge duty |
+| stage1/p3-m2a-v1 | cce85984f760c6c65aeaab264b1d8463d1880267 | none | paused |
+
+### Resume step 1: one round on #165 (guard)
+- C3 MEDIUM: in crates/botster-core-sys/tests/common/process_guard.rs, `an_early_exit_keeps_the_group_owned_until_cleanup` reads the descendant line with `pipe.read_line` and calls `child.wait()` on the test thread, with no deadline. Fix: read the line with `first_line(...)` (bounded by CLEANUP), and hold the shell as `cleanup::Owned` (use `.status()` for its exit status).
+- C4 LOW: `a_panic_before_ready_ends_the_child` and `an_early_exit_keeps_the_group_owned_until_cleanup` fork `while :; do /bin/sleep 1; done` (BUILD.md rule 5). Replace it with the FIFO-blocked member the other fixtures use: `/bin/cat '<never-fifo>' >/dev/null` (a FIFO that nothing writes; the test makes it with /usr/bin/mkfifo). Keep each test's observed effect (pipe EOF via `eof`, the group owned after the leader's exit).
+- Then run the focused Mac proof (only through `botster-gate --on mac --deadline 20m <guard worktree> -- env CARGO_BUILD_JOBS=4 NEXTEST_TEST_THREADS=4 RUST_TEST_THREADS=4 sh -c 'cargo clippy -p botster-core-sys -p botster-core -p botster-worker --all-targets --features slow --locked -- -D warnings && cargo xtask ci --job prebuild-worker && cargo nextest run -p botster-core-sys -p botster-worker --features slow --profile slow --tests --bins && cargo nextest run -p botster-core --features slow --profile slow --test slow_real_core -E "test(/process_guard::/)"'`).
+- Send the new head to: the package reviewer sess-1791169299-010e, the integration reviewer sess-1791168757-0109, and P5's reviewer sess-1791169805-0111 (it closes P5-F4 on #162's combined head).
+- When the package and integration reviewers are both CLEAN, send the lead "#165 CLEAN <head>". P5 then merges it into #162 for ONE combined gate. Do not gate #165 alone.
+
+Review state at 71195e72:
+- P5-F4 is CLOSED by the integration reviewer (verdict cef28d1); P5's reviewer accepts it in source.
+- The package reviewer has NOT reviewed 71195e72. Its last verdict is CLEAN at c03bcfb1 (ea4415fe, round 86).
+- C3 and C4 are open.
+
+### Resume step 2: #163, after #162 merges with #165
+In the audit-fixes worktree:
+1. `git merge origin/v1`. Resolve against #165's guard: driver_edges Harness gains `release` and `driver: Bounded<Driver>`; adapt #163's a_failed_exit_watch test to `h.driver.take()`, with the release before execute. Keep the 2 × CLEANUP outer-wait rule (F39/G2). Keep #163's bounded GroupGuard Drop and slow_payload finish_within, merged with the guard's two-phase release.
+2. Delta review by both reviewers.
+3. F28: run the native Mac mutation run of payload.rs pending_output via `botster-gate --on mac --deadline 20m … -- cargo mutants …`.
+4. F33: run ONE gate (Mac, or Linux with room, normal priority); its log must show the slow_* lib and bin tests running.
+5. READY to the lead.
+
+### Later (not started; the lead's order applies)
+- The A32/A33 follow-up (stage1/p3-driver-mutation): the slow mutation pass; behavioral Driver::run tests; replace the 8 older `sleep 30` payload bodies.
+- The A15 follow-up: max_key_text_bytes in the worker; measure at 256 and 4,096.
+- M2a and M2b: before M2a resumes, do the PRIOR-ART PASS (BUILD.md rule 0: the vault, old code at 72b2e33, the parity audits) and write the Prior art note for the M2a PR. M2b duties: A13, A14 (FINAL), R-32, R-33, A36, GHOSTSNP Worker paging, and the 11 A13 ids.
+- Package reviewer at 71195e72: NOT CLEAN, on the same items as integration C3 and C4. It accepts the P5-F4 fixes and the 168 + 15 Mac proof. At the C3/C4 resume, preserve the early-reaped-leader with a live descendant ownership proof and the panic-before-ready proof, with no sleeping or busy child.

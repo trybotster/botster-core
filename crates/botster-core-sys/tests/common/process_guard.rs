@@ -28,6 +28,11 @@ fn quoted(path: &Path) -> String {
 impl GroupGuard {
     /// Creates ownership before the production spawn can run.
     pub fn new(dir: &Path) -> Self {
+        Self::with_cleanup(dir, CLEANUP)
+    }
+
+    /// A guard whose anchor ends the group within `cleanup` (the failure test gives it no time).
+    pub fn with_cleanup(dir: &Path, cleanup: std::time::Duration) -> Self {
         let socket = dir.join("guard.sock");
         let listener = UnixListener::bind(&socket).unwrap();
         let (control, child_control) = UnixStream::pair().unwrap();
@@ -36,6 +41,10 @@ impl GroupGuard {
         let anchor = Command::new(std::env::current_exe().unwrap())
             .args(["--exact", &helper("anchor_process"), "--nocapture"])
             .env("BOTSTER_TEST_ANCHOR", "1")
+            .env(
+                "BOTSTER_TEST_ANCHOR_CLEANUP_MS",
+                cleanup.as_millis().to_string(),
+            )
             .stdin(Stdio::from(input))
             .stderr(Stdio::from(output))
             .stdout(Stdio::null())
@@ -88,9 +97,29 @@ impl Drop for GroupGuard {
         if let Some(thread) = self.registration.take() {
             let _ = thread.join();
         }
-        let _ = self.anchor.wait();
+        // The anchor ends with success only when no member of the group is left; otherwise it wrote why on its stderr,
+        // which is this end of the control stream.
+        let status = self.anchor.wait();
+        if !matches!(&status, Ok(status) if status.success()) {
+            let mut report = String::new();
+            let _ = self.control.read_to_string(&mut report);
+            let report = format!(
+                "the group guard's cleanup failed ({status:?}): {}",
+                report.trim_start_matches('\u{1}').trim()
+            );
+            if std::thread::panicking() {
+                eprintln!("{report}");
+            } else {
+                panic!("{report}");
+            }
+        }
     }
 }
+
+#[path = "guard_cleanup.rs"]
+pub(crate) mod cleanup;
+
+use cleanup::{end_group, CLEANUP};
 
 /// A separate test process holds membership in the worker's group.
 #[test]
@@ -109,10 +138,78 @@ fn anchor_process() {
     // EOF is the test's Drop or death. No timer or parent-PID check is needed.
     let mut remaining = Vec::new();
     let _ = input.read_to_end(&mut remaining);
-    let _ = rustix::process::kill_process_group(group, rustix::process::Signal::KILL);
+    let cleanup = std::env::var("BOTSTER_TEST_ANCHOR_CLEANUP_MS")
+        .ok()
+        .and_then(|ms| ms.parse().ok())
+        .map_or(CLEANUP, std::time::Duration::from_millis);
+    if let Err(report) = end_group(group, cleanup) {
+        let _ = writeln!(std::io::stderr(), "{report}");
+        std::process::exit(1);
+    }
 }
 
-/// A shell cannot start its body until the anchor holds its group.
+/// A cleanup that cannot finish fails the test through the real guard: with no time for its rounds, the anchor reports
+/// the live member, and the guard's drop fails with that report. The member still ends, by the anchor's last kill.
+#[test]
+fn a_cleanup_that_cannot_finish_fails_through_the_guard() {
+    use std::os::unix::process::CommandExt;
+    let dir = tempfile::tempdir().unwrap();
+    let never = never_fifo(dir.path());
+    let guard = GroupGuard::with_cleanup(dir.path(), std::time::Duration::ZERO);
+    // The member blocks without CPU on a FIFO that nothing opens for writing. Its stdout stays the pipe and it writes
+    // nothing, so it holds the pipe until it ends.
+    let mut child = cleanup::Owned(
+        Command::new("/bin/sh")
+            .args([
+                "-c",
+                &format!(
+                    "{}/bin/echo up; exec /bin/cat {}",
+                    guard.prefix(),
+                    quoted(&never)
+                ),
+            ])
+            .stdout(Stdio::piped())
+            .process_group(0)
+            .spawn()
+            .unwrap(),
+    );
+    let pipe = child.0.stdout.take().unwrap();
+    let (pipe, line) = first_line(pipe);
+    assert_eq!(line, "up\n");
+    let failed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || drop(guard)))
+        .expect_err("the guard reports the cleanup failure");
+    let report = failed.downcast_ref::<String>().expect("a report").clone();
+    assert!(report.contains("members left"), "{report}");
+    eof(pipe);
+    child.status();
+}
+
+/// The first line of `reader`, read with the cleanup deadline.
+pub(crate) fn first_line(
+    reader: impl Read + Send + 'static,
+) -> (BufReader<Box<dyn Read + Send>>, String) {
+    first_line_within(reader, CLEANUP)
+}
+
+/// The first line of `reader`, read within `limit`; a reader that writes nothing fails the test with a clear message.
+fn first_line_within(
+    reader: impl Read + Send + 'static,
+    limit: std::time::Duration,
+) -> (BufReader<Box<dyn Read + Send>>, String) {
+    let (sent, received) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let mut reader = BufReader::new(Box::new(reader) as Box<dyn Read + Send>);
+        let mut line = String::new();
+        let result = reader.read_line(&mut line).map(|_| (reader, line));
+        let _ = sent.send(result);
+    });
+    received
+        // timer: deadline — bounds the wait for a member's first line.
+        .recv_timeout(limit)
+        .unwrap_or_else(|_| panic!("no first line within {limit:?}"))
+        .unwrap()
+}
+
 #[test]
 fn register_worker() {
     let Some(socket) = std::env::var_os("BOTSTER_TEST_GROUP_SOCKET") else {
@@ -137,18 +234,7 @@ fn register_worker() {
     }
 }
 
-struct Parent(Option<Child>);
-
-impl Drop for Parent {
-    fn drop(&mut self) {
-        if let Some(mut child) = self.0.take() {
-            let _ = child.kill();
-            let _ = child.wait();
-        }
-    }
-}
-
-fn eof(reader: impl Read + Send + 'static) {
+pub(crate) fn eof(reader: impl Read + Send + 'static) {
     let (sent, received) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
         let mut reader = reader;
@@ -158,7 +244,7 @@ fn eof(reader: impl Read + Send + 'static) {
     });
     received
         // timer: deadline — bounds cleanup when a guard fails
-        .recv_timeout(std::time::Duration::from_secs(10))
+        .recv_timeout(CLEANUP)
         .expect("all descendants closed the pipe")
         .unwrap();
 }
@@ -174,7 +260,8 @@ fn parent_dies_before_fifo_reader() {
             .status()
             .unwrap()
             .success());
-        let mut parent = Parent(Some(
+        // The test owns the parent: its drop kills and reaps it within the cleanup limit, and reports a failure.
+        let mut parent = cleanup::Owned(
             Command::new(std::env::current_exe().unwrap())
                 .args(["--exact", &helper("blocked_parent"), "--nocapture"])
                 .env("BOTSTER_TEST_PARENT_DIR", dir.path())
@@ -184,11 +271,9 @@ fn parent_dies_before_fifo_reader() {
                 .stdout(Stdio::null())
                 .spawn()
                 .unwrap(),
-        ));
-        let child = parent.0.as_mut().unwrap();
-        let mut reader = BufReader::new(child.stderr.take().unwrap());
-        let mut pid = String::new();
-        reader.read_line(&mut pid).unwrap();
+        );
+        let child = &mut parent.0;
+        let (reader, pid) = first_line(child.stderr.take().unwrap());
         assert!(
             pid.trim().parse::<u32>().is_ok(),
             "the worker reached its FIFO: {pid}"
@@ -228,29 +313,44 @@ fn blocked_parent() {
     worker.wait().unwrap();
 }
 
+/// A FIFO in `dir` that nothing opens for writing: a `/bin/cat` of it blocks without CPU in the open until a signal ends it.
+pub(crate) fn never_fifo(dir: &Path) -> PathBuf {
+    let never = dir.join("never");
+    assert!(Command::new("/usr/bin/mkfifo")
+        .arg(&never)
+        .status()
+        .unwrap()
+        .success());
+    never
+}
+
 /// Panic cleanup starts before any readiness indication exists.
 #[test]
 fn a_panic_before_ready_ends_the_child() {
     use std::os::unix::process::CommandExt;
     let dir = tempfile::tempdir().unwrap();
+    let never = never_fifo(dir.path());
     let guard = GroupGuard::new(dir.path());
-    let mut child = Command::new("/bin/sh")
-        .args([
-            "-c",
-            &format!("{}while :; do /bin/sleep 1; done", guard.prefix()),
-        ])
-        .stdout(Stdio::piped())
-        .process_group(0)
-        .spawn()
-        .unwrap();
-    let pipe = child.stdout.take().unwrap();
+    // The shell and its blocked member both hold the pipe, so EOF proves that every one of them ended.
+    let mut child = cleanup::Owned(
+        Command::new("/bin/sh")
+            .args([
+                "-c",
+                &format!("{}/bin/cat {}", guard.prefix(), quoted(&never)),
+            ])
+            .stdout(Stdio::piped())
+            .process_group(0)
+            .spawn()
+            .unwrap(),
+    );
+    let pipe = child.0.stdout.take().unwrap();
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
         let _guard = guard;
         panic!("the test failed before ready");
     }));
     assert!(result.is_err());
     eof(pipe);
-    assert!(!child.wait().unwrap().success());
+    assert!(!child.status().success());
 }
 
 /// An anchor keeps the group after another owner reaps the leader.
@@ -258,27 +358,53 @@ fn a_panic_before_ready_ends_the_child() {
 fn an_early_exit_keeps_the_group_owned_until_cleanup() {
     use std::os::unix::process::CommandExt;
     let dir = tempfile::tempdir().unwrap();
+    let never = never_fifo(dir.path());
     let guard = GroupGuard::new(dir.path());
-    let mut child = Command::new("/bin/sh")
-        .args([
-            "-c",
-            &format!(
-                "{}(while :; do /bin/sleep 1; done) & echo $!; exit",
-                guard.prefix()
-            ),
-        ])
-        .stdout(Stdio::piped())
-        .process_group(0)
-        .spawn()
-        .unwrap();
-    let group = rustix::process::Pid::from_raw(child.id() as i32).unwrap();
-    let mut pipe = BufReader::new(child.stdout.take().unwrap());
-    let mut descendant = String::new();
-    pipe.read_line(&mut descendant).unwrap();
+    // The leader exits at once; its blocked descendant holds the pipe and the group until the guard ends it.
+    let mut child = cleanup::Owned(
+        Command::new("/bin/sh")
+            .args([
+                "-c",
+                &format!(
+                    "{}/bin/cat {} & echo $!; exit",
+                    guard.prefix(),
+                    quoted(&never)
+                ),
+            ])
+            .stdout(Stdio::piped())
+            .process_group(0)
+            .spawn()
+            .unwrap(),
+    );
+    let group = rustix::process::Pid::from_raw(child.0.id() as i32).unwrap();
+    let (pipe, descendant) = first_line(child.0.stdout.take().unwrap());
     assert!(descendant.trim().parse::<u32>().is_ok());
-    assert!(child.wait().unwrap().success());
+    assert!(child.status().success());
     let anchor = rustix::process::Pid::from_raw(guard.anchor.id() as i32).unwrap();
     assert_eq!(rustix::process::getpgid(Some(anchor)).unwrap(), group);
     drop(guard);
     eof(pipe);
+}
+
+/// A reader that writes nothing fails the test with a clear message within the limit, never a hang. The silent writer
+/// blocks without CPU in the open of a FIFO that nothing writes, and its owner ends it.
+#[test]
+fn a_stuck_reader_fails_with_a_clear_message() {
+    let dir = tempfile::tempdir().unwrap();
+    let never = never_fifo(dir.path());
+    let mut silent = cleanup::Owned(
+        Command::new("/bin/cat")
+            .arg(&never)
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap(),
+    );
+    let output = silent.0.stdout.take().unwrap();
+    let failed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
+        drop(first_line_within(output, std::time::Duration::ZERO));
+    }))
+    .expect_err("a silent reader fails the read");
+    let report = failed.downcast_ref::<String>().expect("a report").clone();
+    assert!(report.contains("no first line within"), "{report}");
+    drop(silent);
 }
