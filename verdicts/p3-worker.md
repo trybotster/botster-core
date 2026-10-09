@@ -1,8 +1,8 @@
 # P3 worker review
 
-Current verdict: NOT CLEAN for PR #167 Part A at `9ddbdf897e33aa4fa2c742c20670588bfdabddad`.
-Round 98 closes F51. F52 MEDIUM remains OPEN for the excluded mutation-result decision.
-F50 and F49 remain CLOSED.
+Current verdict: CLEAN for PR #167 Part A at `41e997446090afb7ac45ae9823734dfeea7eb40b`.
+Round 99 closes F52. F51, F50, and F49 remain CLOSED.
+No package finding remains open within Part A.
 PR #163 Part B retains F28, F33 execution, and F39 for its later merge delta.
 PR #165 remains CLEAN at `29b37890efeffa4410d7dfc34f5c2344bfad1ba4` and landed through #162.
 F45 through F48 are CLOSED. F39 is CLOSED within #165.
@@ -4750,3 +4750,62 @@ The reviewer changed no product code and ran no tests, builds, measurements, mut
 All earlier findings, closures, and verdict rounds remain preserved at their named heads and scopes.
 
 VERDICT: NOT CLEAN
+
+
+## Round 99 — F52 mutation-result decision
+
+Reviewed head: `41e997446090afb7ac45ae9823734dfeea7eb40b`, PR #167, branch `stage1/p3-audit-fixes-a`.
+Base: `0b0eecc06d0cd4c39af5e33e59c0b3f643aba6d4`.
+Reviewed delta: `9ddbdf89..41e99744`, one commit, two files.
+The reviewer checked the delta against round 98, BUILD.md, and the lead's anchor rulings.
+The delta changes xtask's result decision, its default test, and its exclusion entry.
+It changes no product code, guard, or real-process fixture.
+The binding and native regression files match the configured Mac proof at `aeda1cac` exactly.
+
+### F52 — CLOSED — Failed mutation runs reject the step through the tested decision
+
+`mutation_verdict(code: Option<i32>)` passes only `Some(0)`.
+Every other code and `None` return an error. `None` represents a child that ended by a signal.
+`mutants_job` calls this same function with `status.code()` and propagates its error.
+The default test `only_a_mutation_run_with_every_mutant_caught_passes` proves success and failure results.
+It checks success at zero and rejection at codes 1, 2, 3, and 4, plus a signal result.
+This test proves the required CI result decision. It does not assert a private data layout.
+The function remains mutation-tested.
+The error text reports the code and identifies missed mutants, timeouts, and baseline failures.
+
+The exclusion now matches only `replace mutants_job -> Result<()> with Ok(())`.
+Every other generated mutation in `mutants_job` remains eligible.
+The whole-body replacement removes the process operations and the result summary together.
+Default tests cannot start a nested mutation run.
+The concrete exception names the tested result, summary, and platform decisions.
+The completed job also shows the required summary and real process execution.
+The reviewer accepts this exact-function, exact-replacement exception for process glue.
+F52 is CLOSED at this head.
+
+### Completed evidence
+
+The exact-head Linux log is:
+`~/botster-sessions/gates/botster-core-stage1-p3-audit-fixes-a-41e99744-pool-20261008-223521-78736.log`.
+It names this head and base `0b0eecc06d0cd4c39af5e33e59c0b3f643aba6d4`.
+Formatting, taint, lists, and clippy pass.
+The mutation diagnostic uses `NEXTEST_PROFILE=slow`, without nextest's per-test termination deadline.
+It reports 113 mutants: 97 caught, 16 unviable, zero missed or timed out.
+The mutation step passes in 155.3 seconds. The job exits 0 after 165 seconds.
+The reviewer read the full PR description. It names the exact head and matches the submitted code and evidence.
+The earlier configured Mac proof remains applicable because the binding and native regression files are unchanged.
+Round 98 records that proof: 14 tested, 12 caught, two unviable, including both column-40 catches.
+The required full landing gate remains the implementer's next step after both exact-head reviews are CLEAN.
+
+### Verdict and limits
+
+PR #167 Part A is CLEAN at this exact head. F49 through F52 are CLOSED.
+No package finding remains open within Part A's submitted scope.
+The previous whole-change reviews and their unchanged code remain applicable.
+A31 remains open in the real driver after Part A under the lead's approved split.
+Part B retains F28 native evidence, F33 failed-watch execution, and F39's later merge duty.
+The guard remains the reviewed version that landed through #162. Part A changes no fixture wait.
+M2a, M2b, the A32/A33 follow-up, and pending conformance IDs remain outside this verdict.
+The reviewer changed no product code and ran no tests, builds, measurements, mutants, or gates.
+All earlier findings, closures, and verdict rounds remain preserved at their named heads and scopes.
+
+VERDICT: CLEAN
