@@ -5305,3 +5305,108 @@ The reviewer changed no product code and ran no tests, builds, measurements, mut
 All earlier verdict rounds remain preserved at their named heads and scopes.
 
 VERDICT: NOT CLEAN
+
+## Round 106 — Reserve-failure proof, event wait, and remaining alias coverage
+
+Reviewed head: `05c70358eab8f1a8e1ca77280a68b135dc2f990f`, PR #177.
+Base: `fc23cd9747e64e24f99565543b45ae5f7400a71c`.
+Reviewed delta: the sixteen-file change after `f16eed6f`, plus the final guard and scan source.
+Authority: BUILD.md, plan r22 pin `~/botster-sessions/pins/stage1-plan.71a623ef.md`, and the lead's G1 ruling recorded in round 105.
+The reviewer read the complete updated PR description and exact-head gate log.
+No new base merge exists in this delta. Round 104's merge review remains in force.
+
+### G1 — CLOSED — The required failure-path proof runs and passes
+
+`end_group` now calls `end_group_reserved` with the unchanged reserve operation.
+The latter accepts the reserve operation as an injected edge in the dev-only test-process crate.
+Its error path calls `signal_own_group(KILL)` before returning.
+The new slow test starts a helper in its own group and keeps the helper's stdin open.
+The helper starts an owned cat process that inherits that group and stdin.
+The helper calls the same cleanup function with a reserve operation that returns an error.
+The test waits for EOF on the pipe held by both processes, before outer cleanup can run.
+It then requires the helper's exit signal to be KILL.
+These observations establish that the final signal ends the helper and its member.
+The helper's owner cannot run its normal member cleanup after KILL.
+Without the final signal, the helper returns, its member owner cleans up, and its normal exit fails the signal assertion.
+The implementer reports this safe red-on-revert result: left None, right Some(9).
+The exact-head slow gate selects and passes `an_unreserved_cleanup_ends_every_member_by_its_last_kill`.
+
+The fixture uses the crate's existing OwnedChild, bounded pipe reads, and cleanup deadline.
+It adds no raw child wait, sleep, polling loop, or test behavior branch to product code.
+The existing reserve reaping, identity checks, group checks, and cleanup bounds remain intact.
+P6's shared owner handoff records its OK on this proof at `05c70358`.
+The implementer's READY and PR description report the same owner check.
+The package reviewer also requested direct confirmation from P6.
+This existing written owner check and the completed proof satisfy the lead's own-crate exception.
+The reviewer closes G1 at this head.
+
+### F55 — CLOSED — The signal test waits on the real completion
+
+The SIGURG handler now writes a byte to an anonymous socket pair through signal-hook.
+The test blocks in `read_exact` for that byte and unregisters the handler before checking the result.
+A marked deadline bounds the socket read with the existing ten-second cleanup value.
+The old AtomicBool polling loop and yield calls are removed.
+The exact-head default tier selects and passes this test.
+The reviewer closes F55 under BUILD.md testing rule 5.
+
+### F56 — OPEN — Composed aliases still bypass the command scan
+
+The scan now uses `syn::LitStr::value` to decode each literal.
+The escaped program names from round 104 are recognized, including hexadecimal and Unicode escapes.
+The scan also recognizes a direct Command import rename and a type alias whose right side names Command.
+The selected fixtures cover these corrected forms and pass.
+
+It does not combine these forms:
+`use std::process::Command as Proc; type Shell = Proc; Shell::new("kill")`.
+`command_names` records Proc from the import, but checks each type right side only for the literal identifier Command.
+It therefore omits Shell. The call produces no command violation.
+The command starts the same banned program as the direct call.
+Resolve alias chains for the checked operations, including combinations of import renames and type aliases.
+Add safe source fixtures that execute no program.
+F56 remains OPEN. The reviewer sent this remaining case directly to P3.
+
+### L1 — OPEN — A renamed libc module bypasses the token scan
+
+All seven Clippy configuration files now ban `libc::kill` and `libc::killpg`.
+The token scan recognizes killpg and direct libc::kill paths or import lists.
+Its selected source fixture covers those forms and passes.
+
+`use libc as sys; unsafe { sys::kill(-1, libc::SIGKILL); }` produces no token violation.
+`libc_kill` requires the literal module name libc, while the general raw identifier list omits kill.
+In a permitted unsafe scope with a disallowed_methods allowance, Clippy does not close this gap.
+The mechanical check must resolve the renamed module and reject this raw signal operation.
+L1 remains OPEN under its integration identifier. The reviewer sent this case directly to P3.
+The current source contains no such raw call; this finding concerns the required pattern enforcement.
+
+### Documentation and completed evidence
+
+The PR's new review section describes the source changes and the completed proof.
+Its opening ban summary still claims six configuration files, two guarded calls, and complete libc protection from unsafe forbidding.
+The reviewer requested a summary correction to seven files, five banned methods, three guarded calls, and the actual unsafe exceptions.
+The old G1 proof deferral must be marked as superseded by the lead's ruling and the new proof.
+These corrections accompany the remaining scan findings.
+
+The new mutation exclusions cover the extracted reserve and end_group_reserved OS glue.
+Their comments name the selected group cleanup tests and the new failure-path proof.
+The scan and its verdict decisions remain mutation-tested.
+The new syn dependency supplies literal parsing. The lock file already contains syn 2.0.119 and adds only its xtask use.
+
+Exact-head log: `~/botster-sessions/gates/botster-core-stage1-p3-group-signal-guard-05c70358-pool-20261009-042155-67173.log`.
+It names this head and base `fc23cd97`.
+All ten full CI steps pass. The signal scan reads 153 Rust files; the timer check reads 137.
+The default tier passes 919 tests. The slow tier passes 243 tests in 10.127 seconds.
+Both mutation runs report 69 tested: 66 caught, three unviable, zero missed, and zero timed out.
+The separate mutation run uses `NEXTEST_PROFILE=slow`.
+Full CI reports 167.4 seconds. The separate mutation run reports 148.8 seconds.
+The combined job exits 0 after 328 seconds on msa1.
+The gate selects the new G1 proof, event-wait test, decoded-literal fixture, and direct-alias fixture.
+The implementer also reports a local signal-scan mutation run with all 56 mutants caught.
+The green gate does not cover the composed aliases or renamed libc module above.
+
+PR #177 is NOT CLEAN at this exact head for F56 and L1.
+G1 and F55 are CLOSED. F54 and S1 remain CLOSED.
+PR #168 retains its separate single real-PTY HOLD. Part B retains its earlier open duties.
+The reviewer changed no product code and ran no tests, builds, measurements, mutants, or gates.
+All earlier findings, closures, and verdict rounds remain preserved at their named heads and scopes.
+
+VERDICT: NOT CLEAN
