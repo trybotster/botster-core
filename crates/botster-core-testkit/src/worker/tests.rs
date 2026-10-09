@@ -733,22 +733,25 @@ fn the_pty_read_budget_bounds_the_reads() {
     edges.spawned = Some(Ok(id));
     edges.ready(now, &worker);
     edges.take(now, &worker, 0);
+    // At most eight reads (one byte each at the least), then the edge must offer none.
+    let mut read_all = |edges: &mut WorkerEdges, read: &mut Vec<u8>| {
+        for _ in 0..8 {
+            if edges.ready(now, &worker) != 1 {
+                break;
+            }
+            let Input::PtyOutput(bytes) = edges.take(now, &worker, 0) else {
+                panic!("a read")
+            };
+            read.extend(bytes);
+        }
+        assert_eq!(edges.ready(now, &worker), 0, "no more read is offered");
+    };
     edges.perform(now, Action::PtyReadBudget(Some(3)));
     let mut read = Vec::new();
-    while edges.ready(now, &worker) == 1 {
-        let Input::PtyOutput(bytes) = edges.take(now, &worker, 0) else {
-            panic!("a read")
-        };
-        read.extend(bytes);
-    }
+    read_all(&mut edges, &mut read);
     assert_eq!(read, b"abc", "three bytes in all, then none");
     edges.perform(now, Action::PtyReadBudget(None));
-    while edges.ready(now, &worker) == 1 {
-        let Input::PtyOutput(bytes) = edges.take(now, &worker, 0) else {
-            panic!("a read")
-        };
-        read.extend(bytes);
-    }
+    read_all(&mut edges, &mut read);
     assert_eq!(read, b"abcdefgh");
 }
 
