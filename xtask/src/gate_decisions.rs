@@ -6,45 +6,31 @@
 //! which builds nothing) and applies every exclusion to them: each `exclude_re` entry of `.cargo/mutants.toml` with the
 //! comment above it as its reason, each regex of `ci::OFF_MACOS_EXCLUSIONS`, and each `exclude_globs` entry.
 //!
-//! An exclusion that covers a mutant of xtask function F passes only when all of these hold (#181 B5):
+//! An exclusion that covers a mutant of xtask function F passes only when both of these hold (#181 B5):
 //! - the mutant replaces the whole body of F (genre `FnValue`): an operator or a match-arm mutant is a decision mutant;
-//! - F does I/O, so F is an I/O shell: F performs a listed I/O operation, or calls an xtask function that does I/O;
-//! - its reason cites a proof (plan section 8, r23d): a function D of the xtask that F calls, that a test calls and that no
-//!   exclusion covers, written `D (proof, ..)`; mutants-cited checks that each proof is a test that a gate tier runs. A
-//!   decision named only in free text does not count.
+//! - its reason cites a proof (plan section 8, r23d): a function D of the xtask, other than F, that F calls, that a test
+//!   calls and that no exclusion covers, written `D (proof, ..)`; mutants-cited checks that each proof is a test that a
+//!   gate tier runs. A decision named only in free text does not count.
 //!
-//! The forms that the check resolves (plan section 8, "Source-reading checks accept a closed set of forms"):
-//! - a call path, through the `use` declarations of its file, inline module and block (`process_check::resolve`);
-//! - the module of a function from its file path: `xtask/src/main.rs` is the crate root, `crate::`, `super::` and a child
-//!   or root module `m::f` (`Calls::callees`); a plain `f` is the `f` of its file, else each `f` of the xtask;
-//! - the I/O operations: a listed function of `std::fs` (`FS_FUNCTIONS`; not a type's function such as the builder
-//!   `OpenOptions::new`) or of `std::env` (`ENV_FUNCTIONS`; not `split_paths`), a signal or `run_to_completion`
-//!   (`IO_FUNCTIONS`), and a `status`, `output` or `spawn`
-//!   call on a process command: a method chain that begins at `Command::new(..)` or at a call of an xtask function
-//!   declared to return `Command`, a parameter typed `Command` (also by reference), or a `let` bound to such a chain; a
-//!   parameter or a `let` counts only when the function binds its name once.
-//!   `Command::new` alone is a builder and starts nothing;
-//! - a macro by its path as written, the listed path or its last segment alone (`macro_class`): an `ARGUMENT_MACROS`
-//!   macro, whose arguments every part of the check reads as code of the caller, or an `OPAQUE_MACROS` macro, whose
-//!   tokens no part of the check reads.
+//! The check does not decide from the source whether F does I/O (plan section 8, 23g, "No automatic I/O
+//! classification"). That F is an I/O shell rests on the reason of its exclusion and on review: every change to
+//! `.cargo/mutants.toml` is HIGH (`ci/high-tier-paths.txt`), so the package reviewer and the integration reviewer each
+//! read every new or changed exclusion.
 //!
-//! The check defends against honest drift and mistakes, not deliberate evasion (plan section 8, 23f). These forms are not
-//! listed, so the check fails on them and names the form and the file (#181 B5 rounds 5 and 6):
-//! - any other macro, a `macro_rules!` definition included;
-//! - a declaration that introduces a reserved name (`is_reserved`: the crate roots of the lists, `core`, `Command`, and
-//!   the name and crate of each listed macro): a module, a struct, an enum, a union, a trait, a type alias, a constant, a
-//!   static, an `extern crate` rename, and a `use` unless its path ends in the name and is the listed path, the crate or
-//!   a `std` or `core` path (so no local module exports a reserved name to a glob);
-//! - a function that starts a command binding and has a `use` declaration in its body (the check resolves a command
-//!   binding through the `use` declarations around the function);
-//! - a `#[path]` module.
+//! The check reads the calls from the syntax of the xtask, by name: a call `f(..)`, `m::f(..)` or `x.f(..)` is a call of
+//! each xtask function named `f`. A test is a function with a `#[test]` attribute, or a function in a `#[cfg(test)]`
+//! module. The check reads the arguments of an `ARGUMENT_MACROS` macro as code of the caller (a macro is one by its path
+//! as written: the listed path, or its last segment alone). It reads no token of any other macro, so a call there does
+//! not count, and the check fails closed.
 //!
-//! A closure body may never run, so it supplies no I/O evidence to its function. Any other way of doing I/O (a start on
-//! a field, a start or an I/O call in a closure) is not recognized: a shell that does only that is no shell for the
-//! check, so its exclusion fails until the code takes a listed form or a reviewed change extends the list.
+//! The check defends against honest drift and mistakes, not deliberate evasion (plan section 8, 23f). A declaration that
+//! introduces a reserved name (`is_reserved`: the name and the crate of each `ARGUMENT_MACROS` macro) fails, and the
+//! check names the form and the file: a module, a struct, an enum, a union, a trait, a type alias, a constant, a static,
+//! a `macro_rules!` definition, an `extern crate` rename, and a `use` unless its path ends in the name and is the listed
+//! path or the crate.
 //!
-//! The check reads the calls from the syntax of the xtask. Every other exclusion of an xtask mutant fails, a glob or an
-//! `OFF_MACOS_EXCLUSIONS` regex included (neither has a reason here).
+//! Every other exclusion of an xtask mutant fails, a glob or an `OFF_MACOS_EXCLUSIONS` regex included (neither has a
+//! reason here).
 
 use crate::mutants_cited::MUTANTS_FILE;
 use crate::tools::{cargo, require_cargo_tool};
@@ -79,69 +65,6 @@ pub struct Exclusion {
     pub reason: String,
 }
 
-/// The functions of `std::fs` that do file system I/O: every free function of the module (round 4: an explicit list, plan
-/// section 8). A function of a type (`std::fs::OpenOptions::new`, a builder) is not one. A call does I/O by the full path
-/// that it resolves to through the `use` declarations in its scope; a name alone (a parameter `write`, a method `status`)
-/// does not (#181 B5 round 2).
-const FS_FUNCTIONS: [&str; 19] = [
-    "canonicalize",
-    "copy",
-    "create_dir",
-    "create_dir_all",
-    "exists",
-    "hard_link",
-    "metadata",
-    "read",
-    "read_dir",
-    "read_link",
-    "read_to_string",
-    "remove_dir",
-    "remove_dir_all",
-    "remove_file",
-    "rename",
-    "set_permissions",
-    "soft_link",
-    "symlink_metadata",
-    "write",
-];
-
-/// The functions of `std::env` that read or change the environment of the process: its variables, arguments and
-/// directories. `split_paths` and `join_paths` only parse the data that they are given, so they are not I/O (#181 B5
-/// round 4).
-const ENV_FUNCTIONS: [&str; 13] = [
-    "args",
-    "args_os",
-    "current_dir",
-    "current_exe",
-    "home_dir",
-    "remove_var",
-    "set_current_dir",
-    "set_var",
-    "temp_dir",
-    "var",
-    "var_os",
-    "vars",
-    "vars_os",
-];
-
-/// The other functions that do I/O, by their full path: a signal and the bounded run of a tool.
-const IO_FUNCTIONS: [&[&str]; 4] = [
-    &["botster_core_sys", "signal", "signal_group"],
-    &["botster_core_sys", "signal", "signal_process"],
-    &["botster_core_sys", "signal", "signal_own_group"],
-    &["botster_test_process", "run_to_completion"],
-];
-
-/// The constructor of a process command. It is a builder and starts nothing (#181 B5 round 3): only a `SPAWN_METHODS`
-/// call on it starts a process.
-const COMMAND_NEW: [&str; 4] = ["std", "process", "Command", "new"];
-
-/// The type of a process command, as a function's declared return type.
-const COMMAND: [&str; 3] = ["std", "process", "Command"];
-
-/// The methods of a process command that start the process.
-const SPAWN_METHODS: [&str; 3] = ["status", "output", "spawn"];
-
 /// The macros whose arguments are expressions of the caller: each expands to an expression and binds or imports no name
 /// of the caller, so the check reads its arguments as code of the caller (#181 B5 round 5). A macro is one of these by
 /// its path as written: the listed path, or its last segment alone (`bail!` is `anyhow::bail!`). The reserved names
@@ -171,66 +94,24 @@ const ARGUMENT_MACROS: [&[&str]; 22] = [
     &["format_args"],
 ];
 
-/// The macros that expand to a value and bind or import no name of the caller, whose tokens the check does not read: a
-/// call inside them is not seen, so it cannot make a function an I/O shell.
-const OPAQUE_MACROS: [&[&str]; 9] = [
-    &["concat"],
-    &["env"],
-    &["include_str"],
-    &["matches"],
-    &["stringify"],
-    &["serde_json", "json"],
-    &["syn", "parse_quote"],
-    &["syn", "Token"],
-    &["cfg"],
-];
-
 /// Whether `name` is a reserved name of the check (plan section 8, 23f): a name that it resolves by text. These are the
-/// crate roots of its lists (`std`, `core`, `botster_core_sys`, `botster_test_process`, `anyhow`, `serde_json`, `syn`),
-/// the I/O type `Command`, and the name and crate of each `ARGUMENT_MACROS` and `OPAQUE_MACROS` macro. A declaration
-/// that introduces one fails (`Index::visit_item`, `Index::visit_item_use`).
+/// name and the crate of each `ARGUMENT_MACROS` macro. A declaration that introduces one fails (`Index::visit_item`,
+/// `Index::visit_item_use`).
 fn is_reserved(name: &str) -> bool {
-    IO_FUNCTIONS
+    ARGUMENT_MACROS
         .iter()
-        .map(|path| path[0])
-        .chain([COMMAND[0], COMMAND[2], "core"])
-        .chain(
-            ARGUMENT_MACROS
-                .iter()
-                .chain(&OPAQUE_MACROS)
-                .flat_map(|path| [path[0], path[path.len() - 1]]),
-        )
+        .flat_map(|path| [path[0], path[path.len() - 1]])
         .any(|reserved| reserved == name)
 }
 
-/// What the check does with a macro, by its path as written.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum MacroClass {
-    /// An `ARGUMENT_MACROS` macro: its arguments are code of the caller.
-    Argument,
-    /// An `OPAQUE_MACROS` macro: its tokens are not read.
-    Opaque,
-    /// Any other macro: not a listed form.
-    Unlisted,
-}
-
-/// The class of the macro `path`: a listed path, or the last segment of one alone (`bail` is `anyhow::bail`). Every part
-/// of the check (`Index`, `Bindings`, `CommandBindings`) reads macros by this one class (plan 23f).
-fn macro_class(path: &syn::Path) -> MacroClass {
+/// Whether the macro `path` is an `ARGUMENT_MACROS` macro: a listed path, or the last segment of one alone (`bail` is
+/// `anyhow::bail`).
+fn is_argument_macro(path: &syn::Path) -> bool {
     let segments: Vec<String> = path.segments.iter().map(|s| s.ident.to_string()).collect();
-    let listed = |list: &[&[&str]]| {
-        list.iter().any(|want| {
-            is_path(&segments, want)
-                || (segments.len() == 1 && want.last() == Some(&segments[0].as_str()))
-        })
-    };
-    if listed(&ARGUMENT_MACROS) {
-        MacroClass::Argument
-    } else if listed(&OPAQUE_MACROS) {
-        MacroClass::Opaque
-    } else {
-        MacroClass::Unlisted
-    }
+    ARGUMENT_MACROS.iter().any(|want| {
+        is_path(&segments, want)
+            || (segments.len() == 1 && want.last() == Some(&segments[0].as_str()))
+    })
 }
 
 /// Whether `path` is `want`, segment by segment.
@@ -238,66 +119,30 @@ fn is_path(path: &[String], want: &[&str]) -> bool {
     path.len() == want.len() && path.iter().zip(want).all(|(segment, want)| segment == want)
 }
 
-/// Whether a call of the resolved path `path` does I/O: an `FS_FUNCTIONS` function of `std::fs`, an `ENV_FUNCTIONS`
-/// function of `std::env`, or an `IO_FUNCTIONS` function.
-fn io_path(path: &[String]) -> bool {
-    let listed = |module: &[&str], names: &[&str]| {
-        path.split_last()
-            .is_some_and(|(name, prefix)| is_path(prefix, module) && names.contains(&name.as_str()))
-    };
-    IO_FUNCTIONS.iter().any(|function| is_path(path, function))
-        || listed(&["std", "fs"], &FS_FUNCTIONS)
-        || listed(&["std", "env"], &ENV_FUNCTIONS)
-}
-
-/// The calls of the xtask, from its syntax: what each function calls, by file and name, what the tests call, and which
-/// functions do I/O themselves.
+/// The calls of the xtask, from its syntax: what each function calls, by file and name, and what the tests call.
 #[derive(Default, Debug)]
 pub struct Calls {
     by_function: BTreeMap<(String, String), BTreeSet<String>>,
     tested: BTreeSet<String>,
-    /// The path calls of each function, by file and name, each resolved through the `use` declarations in its scope. A
-    /// call of a local binding (a parameter, a closure) is not among them.
-    paths: BTreeMap<(String, String), BTreeSet<Vec<String>>>,
-    /// The functions, by file and name, that do I/O: a call that resolves to an I/O path (`io_path`), a process start, or
-    /// a call of an xtask function that does I/O (`callees`).
-    io: BTreeSet<(String, String)>,
-    /// The functions, by file and name, whose declared return type is `std::process::Command`.
-    commands: BTreeSet<(String, String)>,
-    /// The process starts of each function, by file and name, whose receiver chain begins at a call of the resolved path
-    /// (other than `Command::new`): a start when the path names an xtask function of `commands`.
-    starts: BTreeMap<(String, String), BTreeSet<Vec<String>>>,
 }
 
 impl Calls {
     /// The calls of the Rust files `(path, text)`.
     ///
     /// # Errors
-    /// A file does not parse.
+    /// A file does not parse, or it declares a reserved name (each such declaration is reported).
     pub fn of(files: &[(String, String)]) -> Result<Calls> {
         let mut calls = Calls::default();
         let mut rejected = Vec::new();
         for (file, text) in files {
             let parsed = syn::parse_file(text)
                 .map_err(|error| anyhow::anyhow!("{file}: does not parse: {error}"))?;
-            let mut paths = PathModules::default();
-            paths.visit_file(&parsed);
-            if let Some((line, column, name)) = paths.0.first() {
-                bail!(
-                    "{file}:{line}:{column}: `#[path]` on the module `{name}` is not a form that gate-decisions resolves \
-                     (plan section 8): it reads the module of a function from its file path"
-                );
-            }
             let mut index = Index {
                 file,
                 calls: &mut calls,
                 function: Vec::new(),
-                locals: Vec::new(),
-                scopes: vec![crate::process_check::Uses::of(&parsed.items, true)],
                 test: false,
-                command_locals: Vec::new(),
                 rejected: Vec::new(),
-                closures: 0,
             };
             index.visit_file(&parsed);
             rejected.extend(index.rejected.iter().map(|at| format!("{file}:{at}")));
@@ -305,105 +150,7 @@ impl Calls {
         if !rejected.is_empty() {
             bail!("{}", rejected.join("\n"));
         }
-        let started: Vec<(String, String)> = calls
-            .starts
-            .iter()
-            .filter(|(function, roots)| {
-                roots.iter().any(|root| {
-                    calls
-                        .callees(&function.0, root)
-                        .iter()
-                        .any(|callee| calls.commands.contains(callee))
-                })
-            })
-            .map(|(function, _)| function.clone())
-            .collect();
-        calls.io.extend(started);
-        // Each round adds a function or ends the search, so there are at most as many rounds as functions.
-        for _ in 0..=calls.paths.len() {
-            let before = calls.io.len();
-            let found: Vec<(String, String)> = calls
-                .paths
-                .iter()
-                .filter(|(function, paths)| {
-                    !calls.io.contains(*function)
-                        && paths.iter().any(|path| {
-                            calls
-                                .callees(&function.0, path)
-                                .iter()
-                                .any(|callee| calls.io.contains(callee))
-                        })
-                })
-                .map(|(function, _)| function.clone())
-                .collect();
-            calls.io.extend(found);
-            if calls.io.len() == before {
-                break;
-            }
-        }
         Ok(calls)
-    }
-
-    /// The xtask functions that a resolved path call in `file` names. A module path names the file of the module:
-    /// `[]` is `xtask/src/main.rs` (the crate root), `[a, b]` is `xtask/src/a/b.rs` or `xtask/src/a/b/mod.rs`.
-    /// `crate::m::f` names the `f` of the module `m`, each leading `super` the parent of the module of `file`, and `m::f`
-    /// the `f` of the child `m` of the module of `file`, else of the module `m`. A leading `self` (and a `super` inside an
-    /// inline module) never comes here: `process_check::resolve` removes it. `Self::f`
-    /// names the `f` of `file`, and a plain `f` the `f` of `file`, else each `f` of the xtask (a glob import). A path of
-    /// another crate, or a `super` above the crate root, names none.
-    fn callees(&self, file: &str, path: &[String]) -> Vec<(String, String)> {
-        let Some((name, modules)) = path.split_last() else {
-            return Vec::new();
-        };
-        let known = |file: &str| {
-            let key = (file.to_string(), name.clone());
-            self.by_function.contains_key(&key).then_some(key)
-        };
-        let in_module = |module: &[String]| -> Vec<(String, String)> {
-            let files = if module.is_empty() {
-                vec!["xtask/src/main.rs".to_string()]
-            } else {
-                let dir = module.join("/");
-                vec![
-                    format!("xtask/src/{dir}.rs"),
-                    format!("xtask/src/{dir}/mod.rs"),
-                ]
-            };
-            files.iter().filter_map(|file| known(file)).collect()
-        };
-        let mut here = module_path(file);
-        match modules {
-            [] => known(file).map_or_else(
-                || {
-                    self.by_function
-                        .keys()
-                        .filter(|(_, function)| function == name)
-                        .cloned()
-                        .collect()
-                },
-                |key| vec![key],
-            ),
-            [only] if only == "Self" => known(file).into_iter().collect(),
-            [first, rest @ ..] if first == "crate" => in_module(rest),
-            [first, ..] if first == "super" => {
-                let supers = modules.iter().take_while(|m| *m == "super").count();
-                if supers > here.len() {
-                    return Vec::new();
-                }
-                here.truncate(here.len() - supers);
-                here.extend_from_slice(&modules[supers..]);
-                in_module(&here)
-            }
-            _ => {
-                here.extend_from_slice(modules);
-                let child = in_module(&here);
-                if child.is_empty() {
-                    in_module(modules)
-                } else {
-                    child
-                }
-            }
-        }
     }
 
     fn calls(&self, file: &str, function: &str) -> Option<&BTreeSet<String>> {
@@ -412,181 +159,25 @@ impl Calls {
     }
 }
 
-/// The module path of an xtask file: `xtask/src/main.rs` is the crate root (`[]`), `xtask/src/a.rs` and
-/// `xtask/src/a/mod.rs` are `[a]`, and `xtask/src/a/b.rs` is `[a, b]`.
-fn module_path(file: &str) -> Vec<String> {
-    let path = file.strip_prefix("xtask/src/").unwrap_or(file);
-    let path = path.strip_suffix(".rs").unwrap_or(path);
-    let path = path.strip_suffix("/mod").unwrap_or(path);
-    if path == "main" {
-        return Vec::new();
-    }
-    path.split('/').map(str::to_string).collect()
-}
-
 struct Index<'a> {
     file: &'a str,
     calls: &'a mut Calls,
     /// The function being read, innermost last.
     function: Vec<String>,
-    /// The names that the function being read binds (parameters, `let`, patterns, closure parameters), innermost last.
-    locals: Vec<BTreeSet<String>>,
-    /// The `use` scopes around the current code, the file's own first.
-    scopes: Vec<crate::process_check::Uses>,
     test: bool,
-    /// The bindings of the function being read that hold a process command, innermost last: a parameter typed `Command`
-    /// (`None`), or a `let` whose initializer begins at a call of the resolved path (`Some`, kept for `Calls::of` unless it
-    /// is `Command::new`).
-    command_locals: Vec<BTreeMap<String, Option<Vec<String>>>>,
-    /// The forms that the check does not resolve, each as `line:column: what`, in the order found.
+    /// The declarations of reserved names, each as `line:column: what`, in the order found.
     rejected: Vec<String>,
-    /// How many closures are around the current code. A closure body may never run, so it supplies no I/O evidence to its
-    /// function: no I/O call, no process start and no path call for `callees` (plan 23f, #181 R6 integration note).
-    closures: usize,
-}
-
-/// The syntax of the bindings of a function that may hold a process command: each typed parameter with its type's path
-/// (a reference stripped), each `let` with the path of the call that begins its initializer's method chain, how many
-/// times the function binds each name (a parameter, a `let`, a pattern, a closure parameter), and whether its body has a
-/// `use` declaration. It also reads the arguments of every macro that parse as expressions, so it sees each binding and
-/// `use` that `Index` reads.
-#[derive(Default)]
-struct CommandBindings {
-    typed: Vec<(String, Vec<String>)>,
-    started: Vec<(String, Vec<String>)>,
-    bound: BTreeMap<String, usize>,
-    uses: bool,
-    /// The names on which the function calls a `SPAWN_METHODS` method (the receiver chain begins at the name).
-    receivers: BTreeSet<String>,
 }
 
 /// The arguments of `mac` that the check reads as code of the caller: those of an `ARGUMENT_MACROS` macro, when they parse
-/// as expressions separated by commas. `Index`, `Bindings` and `CommandBindings` read the same ones (#181 R6-3).
+/// as expressions separated by commas.
 fn macro_arguments(mac: &syn::Macro) -> Vec<syn::Expr> {
-    if macro_class(&mac.path) != MacroClass::Argument {
+    if !is_argument_macro(&mac.path) {
         return Vec::new();
     }
     mac.parse_body_with(syn::punctuated::Punctuated::<syn::Expr, syn::Token![,]>::parse_terminated)
         .map(|exprs| exprs.into_iter().collect())
         .unwrap_or_default()
-}
-
-impl<'ast> Visit<'ast> for CommandBindings {
-    fn visit_expr_method_call(&mut self, call: &'ast syn::ExprMethodCall) {
-        if SPAWN_METHODS.contains(&call.method.to_string().as_str()) {
-            let mut receiver = &*call.receiver;
-            while let syn::Expr::MethodCall(inner) = receiver {
-                receiver = &inner.receiver;
-            }
-            if let syn::Expr::Path(path) = receiver {
-                if let Some(name) = path.path.get_ident() {
-                    self.receivers.insert(name.to_string());
-                }
-            }
-        }
-        syn::visit::visit_expr_method_call(self, call);
-    }
-
-    fn visit_item_use(&mut self, item: &'ast syn::ItemUse) {
-        self.uses = true;
-        syn::visit::visit_item_use(self, item);
-    }
-
-    fn visit_macro(&mut self, mac: &'ast syn::Macro) {
-        for expr in &macro_arguments(mac) {
-            self.visit_expr(expr);
-        }
-    }
-
-    fn visit_pat_ident(&mut self, pat: &'ast syn::PatIdent) {
-        *self.bound.entry(pat.ident.to_string()).or_default() += 1;
-        syn::visit::visit_pat_ident(self, pat);
-    }
-
-    fn visit_pat_type(&mut self, pat: &'ast syn::PatType) {
-        let mut ty = &*pat.ty;
-        while let syn::Type::Reference(inner) = ty {
-            ty = &inner.elem;
-        }
-        if let (syn::Pat::Ident(name), syn::Type::Path(ty)) = (&*pat.pat, ty) {
-            self.typed.push((
-                name.ident.to_string(),
-                ty.path
-                    .segments
-                    .iter()
-                    .map(|s| s.ident.to_string())
-                    .collect(),
-            ));
-        }
-        syn::visit::visit_pat_type(self, pat);
-    }
-
-    fn visit_local(&mut self, local: &'ast syn::Local) {
-        if let (syn::Pat::Ident(name), Some(init)) = (&local.pat, &local.init) {
-            if let Some(path) = chain_root(&init.expr) {
-                self.started.push((name.ident.to_string(), path));
-            }
-        }
-        syn::visit::visit_local(self, local);
-    }
-}
-
-/// The path of the call that begins the method chain `expr` (`Command::new("git").arg(x)` gives `Command::new`).
-fn chain_root(expr: &syn::Expr) -> Option<Vec<String>> {
-    let mut root = expr;
-    while let syn::Expr::MethodCall(inner) = root {
-        root = &inner.receiver;
-    }
-    let syn::Expr::Call(syn::ExprCall { func, .. }) = root else {
-        return None;
-    };
-    let syn::Expr::Path(path) = &**func else {
-        return None;
-    };
-    Some(
-        path.path
-            .segments
-            .iter()
-            .map(|s| s.ident.to_string())
-            .collect(),
-    )
-}
-
-/// The modules with a `#[path]` attribute, as line, column and name. gate-decisions resolves `crate::`, `super::` and
-/// `m::f` from the file path of a function (`module_path`), so a `#[path]` module is a form that it does not resolve.
-#[derive(Default)]
-struct PathModules(Vec<(usize, usize, String)>);
-
-impl<'ast> Visit<'ast> for PathModules {
-    fn visit_item_mod(&mut self, module: &'ast syn::ItemMod) {
-        if let Some(attr) = module
-            .attrs
-            .iter()
-            .find(|attr| attr.path().is_ident("path"))
-        {
-            let at = attr.pound_token.span.start();
-            self.0
-                .push((at.line, at.column + 1, module.ident.to_string()));
-        }
-        syn::visit::visit_item_mod(self, module);
-    }
-}
-
-/// The names that a pattern binds, anywhere in a function, also in the macro arguments that `Index` reads.
-#[derive(Default)]
-struct Bindings(BTreeSet<String>);
-
-impl<'ast> Visit<'ast> for Bindings {
-    fn visit_pat_ident(&mut self, pat: &'ast syn::PatIdent) {
-        self.0.insert(pat.ident.to_string());
-        syn::visit::visit_pat_ident(self, pat);
-    }
-
-    fn visit_macro(&mut self, mac: &'ast syn::Macro) {
-        for expr in &macro_arguments(mac) {
-            self.visit_expr(expr);
-        }
-    }
 }
 
 fn is_test(attrs: &[syn::Attribute]) -> bool {
@@ -617,170 +208,13 @@ impl Index<'_> {
         }
     }
 
-    /// Records that the current function does I/O.
-    fn io(&mut self) {
-        if let Some(function) = self.function.last() {
-            self.calls
-                .io
-                .insert((self.file.to_string(), function.clone()));
-        }
-    }
-
-    /// Records a path call of the current function, resolved through the `use` scopes: an I/O call marks the function,
-    /// another call is kept for `callees`. A call of a local binding (a parameter `write`, a closure) is neither.
-    fn path_call(&mut self, path: &syn::Path) {
-        if self.closures > 0 {
-            return;
-        }
-        let Some(resolved) = self.resolved(path) else {
-            return;
-        };
-        if io_path(&resolved) {
-            self.io();
-        } else if let Some(function) = self.function.last() {
-            self.calls
-                .paths
-                .entry((self.file.to_string(), function.clone()))
-                .or_default()
-                .insert(resolved);
-        }
-    }
-
-    /// The full path of a called `path` through the `use` scopes; `None` for a call of a local binding (a parameter `write`,
-    /// a closure).
-    fn resolved(&self, path: &syn::Path) -> Option<Vec<String>> {
-        let segments: Vec<String> = path.segments.iter().map(|s| s.ident.to_string()).collect();
-        if let [name] = &segments[..] {
-            if self.locals.last().is_some_and(|l| l.contains(name)) {
-                return None;
-            }
-        }
-        Some(crate::process_check::resolve(&self.scopes, &segments))
-    }
-
-    /// Records a process start of the current function: a `SPAWN_METHODS` call whose receiver chain (method calls) begins
-    /// at a call of `Command::new`, or of a function that may return a command (kept for `Calls::of`). A start on any
-    /// other receiver (a local binding, a field) is not recognized, so a shell that does only that does no I/O for the
-    /// check (plan section 8: the form is not listed).
-    fn process_start(&mut self, call: &syn::ExprMethodCall) {
-        if self.closures > 0 || !SPAWN_METHODS.contains(&call.method.to_string().as_str()) {
-            return;
-        }
-        let mut receiver = &*call.receiver;
-        while let syn::Expr::MethodCall(inner) = receiver {
-            receiver = &inner.receiver;
-        }
-        let resolved = match receiver {
-            syn::Expr::Call(syn::ExprCall { func, .. }) => match &**func {
-                syn::Expr::Path(path) => self.resolved(&path.path),
-                _ => None,
-            },
-            syn::Expr::Path(path) => path.path.get_ident().and_then(|name| {
-                self.command_locals
-                    .last()
-                    .and_then(|locals| locals.get(&name.to_string()))
-                    .map(|held| {
-                        held.clone()
-                            .unwrap_or_else(|| COMMAND_NEW.map(str::to_string).to_vec())
-                    })
-            }),
-            _ => None,
-        };
-        let Some(resolved) = resolved else {
-            return;
-        };
-        if is_path(&resolved, &COMMAND_NEW) {
-            self.io();
-        } else if let Some(function) = self.function.last() {
-            self.calls
-                .starts
-                .entry((self.file.to_string(), function.clone()))
-                .or_default()
-                .insert(resolved);
-        }
-    }
-
-    /// Records that the function `name` returns a process command, when its declared return type resolves to `COMMAND`.
-    fn returns(&mut self, name: &str, output: &syn::ReturnType) {
-        let syn::ReturnType::Type(_, ty) = output else {
-            return;
-        };
-        let syn::Type::Path(ty) = &**ty else {
-            return;
-        };
-        let segments: Vec<String> = ty
-            .path
-            .segments
-            .iter()
-            .map(|s| s.ident.to_string())
-            .collect();
-        if is_path(
-            &crate::process_check::resolve(&self.scopes, &segments),
-            &COMMAND,
-        ) {
-            self.calls
-                .commands
-                .insert((self.file.to_string(), name.to_string()));
-        }
-    }
-
-    /// Visits code inside the `use` scope of `items`.
-    fn with_uses<'a>(
-        &mut self,
-        items: impl IntoIterator<Item = &'a syn::Item>,
-        module: bool,
-        visit: impl FnOnce(&mut Self),
-    ) {
-        self.scopes
-            .push(crate::process_check::Uses::of(items, module));
-        visit(self);
-        self.scopes.pop();
-    }
-
-    /// The command bindings (`command_locals`) of a function from the syntax of its bindings. A listed binding is a name
-    /// that the function binds once (plan section 8): a name that it binds again (`let cmd = Pure;` after a parameter
-    /// `cmd: Command`) is not one, so a start on it is not recognized (#181 B5 round 4).
-    fn command_locals(&self, bindings: CommandBindings) -> BTreeMap<String, Option<Vec<String>>> {
-        let once = |name: &String| bindings.bound.get(name) == Some(&1);
-        let mut held = BTreeMap::new();
-        for (name, ty) in &bindings.typed {
-            if once(name) && is_path(&crate::process_check::resolve(&self.scopes, ty), &COMMAND) {
-                held.insert(name.clone(), None);
-            }
-        }
-        for (name, root) in &bindings.started {
-            if once(name) {
-                held.insert(
-                    name.clone(),
-                    Some(crate::process_check::resolve(&self.scopes, root)),
-                );
-            }
-        }
-        held
-    }
-
     fn function(
         &mut self,
         ident: &syn::Ident,
         attrs: &[syn::Attribute],
-        (locals, mut commands): (Bindings, CommandBindings),
         visit: impl FnOnce(&mut Self),
     ) {
         let name = ident.to_string();
-        let uses = commands.uses;
-        let receivers = std::mem::take(&mut commands.receivers);
-        let commands = self.command_locals(commands);
-        if uses && commands.keys().any(|name| receivers.contains(name)) {
-            let at = ident.span().start();
-            self.rejected.push(format!(
-                "{}:{}: the function `{name}` starts a process command that it binds and has a `use` declaration in its \
-                 body, which is not a form that gate-decisions resolves (plan section 8): it resolves a command binding \
-                 through the `use` declarations around the function; move the `use` out of the function",
-                at.line,
-                at.column + 1
-            ));
-        }
-        self.command_locals.push(commands);
         let was = self.test;
         self.test |= is_test(attrs);
         self.calls
@@ -788,21 +222,15 @@ impl Index<'_> {
             .entry((self.file.to_string(), name.clone()))
             .or_default();
         self.function.push(name);
-        self.locals.push(locals.0);
-        // A function declared inside a closure is a function of its own.
-        let closures = std::mem::take(&mut self.closures);
         visit(self);
-        self.closures = closures;
-        self.locals.pop();
-        self.command_locals.pop();
         self.function.pop();
         self.test = was;
     }
 }
 
 impl<'ast> Visit<'ast> for Index<'_> {
-    /// A declaration that introduces a reserved name (`is_reserved`) fails (plan section 8, 23f; #181 R6-1, R6-2): the
-    /// check resolves that name by text, so a `struct Command`, a `type Command = ..`, a `mod anyhow` would take it.
+    /// A declaration that introduces a reserved name (`is_reserved`) fails (plan section 8, 23f; #181 R6-1): the check
+    /// reads a macro by the text of its path, so a `macro_rules! assert`, a `mod anyhow` would take it.
     fn visit_item(&mut self, item: &'ast syn::Item) {
         let declared = match item {
             syn::Item::Const(item) => Some((&item.ident, "constant")),
@@ -812,6 +240,9 @@ impl<'ast> Visit<'ast> for Index<'_> {
                 rename: Some((_, rename)),
                 ..
             }) => Some((rename, "extern crate")),
+            syn::Item::Macro(syn::ItemMacro {
+                ident: Some(ident), ..
+            }) => Some((ident, "macro")),
             syn::Item::Mod(item) => Some((&item.ident, "module")),
             syn::Item::Static(item) => Some((&item.ident, "static")),
             syn::Item::Struct(item) => Some((&item.ident, "struct")),
@@ -832,23 +263,19 @@ impl<'ast> Visit<'ast> for Index<'_> {
         syn::visit::visit_item(self, item);
     }
 
-    /// A `use` that introduces a reserved name fails unless its path ends in that name and is a listed macro, the crate
-    /// itself, or a `std` or `core` path (`use anyhow::bail;`, `use syn;`, `use std::process::Command;`). A rename (`use
-    /// syn::parse_quote as bail;`) fails, and so no local module exports a reserved name to a glob (plan 23f, #181 R6-1).
+    /// A `use` that introduces a reserved name fails unless its path ends in that name and is a listed macro or the crate
+    /// itself (`use anyhow::bail;`, `use anyhow;`). A rename (`use syn::parse_quote as bail;`) fails, and so no local
+    /// module exports a reserved name to a glob (plan 23f, #181 R6-1).
     fn visit_item_use(&mut self, item: &'ast syn::ItemUse) {
         let uses = crate::process_check::Uses::of([&syn::Item::Use(item.clone())], false);
         for (name, target) in uses.bindings() {
-            let listed = ARGUMENT_MACROS
-                .iter()
-                .chain(&OPAQUE_MACROS)
-                .any(|want| is_path(target, want));
-            let own = target.last() == Some(name)
-                && (listed || target.len() == 1 || matches!(target[0].as_str(), "std" | "core"));
+            let listed = ARGUMENT_MACROS.iter().any(|want| is_path(target, want));
+            let own = target.last() == Some(name) && (listed || target.len() == 1);
             if is_reserved(name) && !own {
                 let at = item.use_token.span.start();
                 self.rejected.push(format!(
                     "{}:{}: the `use` introduces the reserved name `{name}` of gate-decisions as `{}` (plan section 8): \
-                     only its listed path, its crate or a `std` or `core` path may introduce it",
+                     only its listed path or its crate may introduce it",
                     at.line,
                     at.column + 1,
                     target.join("::")
@@ -861,56 +288,26 @@ impl<'ast> Visit<'ast> for Index<'_> {
     fn visit_item_mod(&mut self, item: &'ast syn::ItemMod) {
         let was = self.test;
         self.test |= is_test(&item.attrs);
-        match &item.content {
-            Some((_, items)) => self.with_uses(items, true, |index| {
-                syn::visit::visit_item_mod(index, item);
-            }),
-            None => syn::visit::visit_item_mod(self, item),
-        }
+        syn::visit::visit_item_mod(self, item);
         self.test = was;
     }
 
-    fn visit_block(&mut self, block: &'ast syn::Block) {
-        let items = block.stmts.iter().filter_map(|stmt| match stmt {
-            syn::Stmt::Item(item) => Some(item),
-            _ => None,
-        });
-        self.with_uses(items, false, |index| syn::visit::visit_block(index, block));
-    }
-
     fn visit_item_fn(&mut self, item: &'ast syn::ItemFn) {
-        self.returns(&item.sig.ident.to_string(), &item.sig.output);
-        let mut locals = Bindings::default();
-        locals.visit_item_fn(item);
-        let mut commands = CommandBindings::default();
-        commands.visit_item_fn(item);
-        self.function(&item.sig.ident, &item.attrs, (locals, commands), |index| {
+        self.function(&item.sig.ident, &item.attrs, |index| {
             syn::visit::visit_item_fn(index, item)
         });
     }
 
     fn visit_impl_item_fn(&mut self, item: &'ast syn::ImplItemFn) {
-        self.returns(&item.sig.ident.to_string(), &item.sig.output);
-        let mut locals = Bindings::default();
-        locals.visit_impl_item_fn(item);
-        let mut commands = CommandBindings::default();
-        commands.visit_impl_item_fn(item);
-        self.function(&item.sig.ident, &item.attrs, (locals, commands), |index| {
+        self.function(&item.sig.ident, &item.attrs, |index| {
             syn::visit::visit_impl_item_fn(index, item)
         });
-    }
-
-    fn visit_expr_closure(&mut self, closure: &'ast syn::ExprClosure) {
-        self.closures += 1;
-        syn::visit::visit_expr_closure(self, closure);
-        self.closures -= 1;
     }
 
     fn visit_expr_call(&mut self, call: &'ast syn::ExprCall) {
         if let syn::Expr::Path(path) = &*call.func {
             if let Some(last) = path.path.segments.last() {
                 self.called(last.ident.to_string());
-                self.path_call(&path.path);
             }
         }
         syn::visit::visit_expr_call(self, call);
@@ -918,30 +315,11 @@ impl<'ast> Visit<'ast> for Index<'_> {
 
     fn visit_expr_method_call(&mut self, call: &'ast syn::ExprMethodCall) {
         self.called(call.method.to_string());
-        self.process_start(call);
         syn::visit::visit_expr_method_call(self, call);
     }
 
-    /// A macro is a listed form only when its class (`macro_class`) is `Argument`, whose arguments the check reads as code
-    /// of the caller, or `Opaque`, whose tokens it does not read. Any other macro can bind a name or import a path that the
-    /// check does not see (`let cmd = Pure;`, `use pure::Command;` in its expansion), so it fails (#181 B5 round 5).
+    /// The check reads the arguments of an `ARGUMENT_MACROS` macro as code of the caller, and no token of any other macro.
     fn visit_macro(&mut self, mac: &'ast syn::Macro) {
-        if macro_class(&mac.path) == MacroClass::Unlisted {
-            let at = mac.path.segments[0].ident.span().start();
-            let name: Vec<String> = mac
-                .path
-                .segments
-                .iter()
-                .map(|s| s.ident.to_string())
-                .collect();
-            self.rejected.push(format!(
-                "{}:{}: the macro `{}!` is not a form that gate-decisions resolves (plan section 8): its expansion can \
-                 bind a name or import a path that the check does not see; use a listed macro or a function",
-                at.line,
-                at.column + 1,
-                name.join("::")
-            ));
-        }
         for expr in &macro_arguments(mac) {
             self.visit_expr(expr);
         }
@@ -1041,9 +419,8 @@ fn glob_regex(glob: &str) -> Regex {
 /// Whether an exclusion covers a mutant.
 type Covers = Box<dyn Fn(&Mutant) -> bool>;
 
-/// The violations: each exclusion that covers a decision mutant, a mutant of a function that does no I/O itself, or a
-/// mutant of a function whose reason names no tested decision function that the function calls and that no exclusion
-/// covers. One violation per exclusion, function and kind of mutant (whole body or not).
+/// The violations: each exclusion that covers a decision mutant, or a mutant of a function whose reason cites no tested
+/// decision function that the function calls and that no exclusion covers. One violation per exclusion, function and kind of mutant (whole body or not).
 ///
 /// # Errors
 /// An exclusion is not a valid regex.
@@ -1092,7 +469,6 @@ pub fn check(
                 continue;
             }
             let short = mutant.short();
-            let io = calls.io.contains(&(mutant.file.clone(), short.to_string()));
             let callees = calls.calls(&mutant.file, short);
             // Plan section 8 (r23d): only a proof citation `decision (proof, ..)` names a decision; a name in free text
             // does not. mutants-cited checks that each proof is a test that a gate tier runs.
@@ -1108,8 +484,6 @@ pub fn check(
                 });
             let problem = if !mutant.whole_body {
                 "it is a decision mutant: an exclusion covers only the whole-body replacement of an I/O shell"
-            } else if !io {
-                "the function does no process, file or signal I/O itself, so it is a decision, which is never excluded"
             } else if !named {
                 "its reason cites no tested decision function that the shell calls and that no exclusion covers, as \
                  `decision (proof, ..)`"

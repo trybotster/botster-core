@@ -17,12 +17,6 @@ fn mutation_decision(listed: usize, run: impl FnOnce() -> Option<i32>) -> Result
     if listed == 0 { return Ok(()); }
     mutation_verdict(run())
 }
-fn forwarded(code: Option<i32>) -> Result<()> { let _ = std::process::Command::new("unused"); mutation_verdict(code) }
-fn forwarded_write(write: fn() -> Option<i32>) -> Result<()> { mutation_verdict(write()) }
-fn forwarded_split(code: Option<i32>) -> Result<()> { let _ = std::env::split_paths("fixed"); mutation_verdict(code) }
-struct Pure;
-impl Pure { fn status(&self) {} }
-fn forwarded_shadow(cmd: std::process::Command, code: Option<i32>) -> Result<()> { let cmd = Pure; cmd.status(); mutation_verdict(code) }
 #[cfg(test)]
 mod tests {
     #[test]
@@ -62,19 +56,6 @@ fn mutants() -> Vec<Mutant> {
         mutant(
             "mutation_decision",
             "replace mutation_decision -> Result<()> with Ok(())",
-        ),
-        mutant("forwarded", "replace forwarded -> Result<()> with Ok(())"),
-        mutant(
-            "forwarded_write",
-            "replace forwarded_write -> Result<()> with Ok(())",
-        ),
-        mutant(
-            "forwarded_split",
-            "replace forwarded_split -> Result<()> with Ok(())",
-        ),
-        mutant(
-            "forwarded_shadow",
-            "replace forwarded_shadow -> Result<()> with Ok(())",
         ),
         mutant("mutants_job", "delete ! in mutants_job"),
     ]
@@ -168,14 +149,14 @@ fn a_glob_or_a_reasonless_regex_that_covers_the_xtask_fails_and_the_test_globs_p
     assert!(check(&mutants(), &[], &tests, &calls()).unwrap().is_empty());
     for glob in ["xtask/**", "ci.rs", "xtask/src/*.rs", "**/ci.rs"] {
         let found = check(&mutants(), &[], &[glob.to_string()], &calls()).unwrap();
-        assert_eq!(found.len(), 10, "{glob}: {found:?}");
+        assert_eq!(found.len(), 6, "{glob}: {found:?}");
     }
     let off_macos = exclusion(r"xtask/src/ci\.rs", "");
     assert_eq!(
         check(&mutants(), &[off_macos], &[], &calls())
             .unwrap()
             .len(),
-        10
+        6
     );
 }
 
@@ -343,512 +324,139 @@ fn the_inputs_are_the_reasoned_entries_the_globs_and_the_xtask_sources() {
     assert!(inputs.calls.calls("crates/c/src/lib.rs", "c").is_none());
 }
 
-/// #181 B5: a gate decision is never excluded, whatever its reason names: the whole body of `mutation_decision` (a decision
-/// that calls the tested decision `mutation_verdict`), of a decision that only forwards to another (round 3: behind a
-/// `Command::new` builder that starts nothing), and a decision mutant inside an I/O shell.
+/// #181 B5, plan section 8 (23g): a decision mutant is never excluded, whatever its reason cites. The check does not
+/// decide whether a function does I/O, so a whole-body exclusion with a strict citation passes, also of a function that
+/// only forwards to a tested decision (`mutation_decision`): review of every change to `.cargo/mutants.toml` (HIGH)
+/// decides that the function is an I/O shell.
 #[test]
-fn a_decision_that_calls_a_tested_decision_or_a_decision_mutant_of_a_shell_is_never_excluded() {
-    let cases = [
-        (
-            r"replace mutation_decision -> Result<\(\)> with Ok\(\(\)\)$",
-            "mutation_decision",
-            "the function does no process, file or signal I/O itself",
-        ),
-        (
-            r"replace forwarded -> Result<\(\)> with Ok\(\(\)\)$",
-            "forwarded",
-            "the function does no process, file or signal I/O itself",
-        ),
-        (
-            r"replace forwarded_write -> Result<\(\)> with Ok\(\(\)\)$",
-            "forwarded_write",
-            "the function does no process, file or signal I/O itself",
-        ),
-        (
-            r"replace forwarded_split -> Result<\(\)> with Ok\(\(\)\)$",
-            "forwarded_split",
-            "the function does no process, file or signal I/O itself",
-        ),
-        (
-            r"replace forwarded_shadow -> Result<\(\)> with Ok\(\(\)\)$",
-            "forwarded_shadow",
-            "the function does no process, file or signal I/O itself",
-        ),
-        (
+fn a_decision_mutant_is_never_excluded_and_a_cited_whole_body_exclusion_passes() {
+    let found = check(
+        &mutants(),
+        &[exclusion(
             r"delete ! in mutants_job$",
-            "mutants_job",
-            "it is a decision mutant",
+            "glue; mutation_verdict (verdicts)",
+        )],
+        &[],
+        &calls(),
+    )
+    .unwrap();
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert!(
+        found[0].starts_with("`delete ! in mutants_job$` excludes mutants_job in xtask/src/ci.rs"),
+        "{found:?}"
+    );
+    assert!(found[0].contains("it is a decision mutant"), "{found:?}");
+    let forwarding = exclusion(
+        r"replace mutation_decision -> Result<\(\)> with Ok\(\(\)\)$",
+        "glue; mutation_verdict (verdicts)",
+    );
+    assert!(check(&mutants(), &[forwarding], &[], &calls())
+        .unwrap()
+        .is_empty());
+}
+
+/// #181 R6-1, plan section 8 (23f): through the whole check (`inputs`), a declaration of a reserved name fails and the
+/// check names the form, the file and the position (each reviewer fixture: `mod anyhow` with `pub use syn::parse_quote
+/// as bail;`, and an internal glob of `pub use syn::parse_quote as println;`). The same file without them gives inputs.
+#[test]
+fn a_declaration_of_a_reserved_name_fails_the_inputs() {
+    let head = "use anyhow::bail;\nfn decide() -> bool { true }\n";
+    let toml =
+        "exclude_re = [\n    # glue; decide (verdicts)\n    'replace shell with \\(\\)$',\n]\n";
+    let cases: [(&str, &[&str]); 3] = [
+        ("fn shell() { decide(); }", &[]),
+        (
+            "mod anyhow { pub use syn::parse_quote as bail; }\nfn shell() { let _: syn::Expr = anyhow::bail!(decide()); }",
+            &[
+                "xtask/src/ci.rs:3:5: the module `anyhow` declares a reserved name of gate-decisions",
+                "xtask/src/ci.rs:3:14: the `use` introduces the reserved name `bail` of gate-decisions as `syn::parse_quote`",
+            ],
+        ),
+        (
+            "mod macros { pub use syn::parse_quote as println; }\nuse self::macros::*;\nfn shell() { let _: syn::Expr = println!(decide()); }",
+            &["xtask/src/ci.rs:3:14: the `use` introduces the reserved name `println` of gate-decisions as `syn::parse_quote`"],
         ),
     ];
-    for (pattern, function, problem) in cases {
-        let found = check(
-            &mutants(),
-            &[exclusion(pattern, "glue; mutation_verdict (verdicts)")],
-            &[],
-            &calls(),
-        )
-        .unwrap();
-        assert_eq!(found.len(), 1, "{pattern}: {found:?}");
-        assert!(
-            found[0].starts_with(&format!(
-                "`{pattern}` excludes {function} in xtask/src/ci.rs"
-            )),
-            "{found:?}"
-        );
-        assert!(found[0].contains(problem), "{found:?}");
-    }
-}
-
-/// #181 B5 rounds 2 and 3, plan section 8: a function does I/O only through a listed operation, resolved through the
-/// `use` declarations in its scope (a block's included): a free function of `std::fs` or `std::env`, a signal,
-/// `run_to_completion`, or a `status`, `output` or `spawn` call on a process command. A command is a method chain that
-/// begins at `Command::new(..)` or at a function declared to return `Command`, a parameter typed `Command` (also by
-/// reference), or a `let` bound to such a chain. `Command::new` alone is a builder and starts nothing, and so is a type's
-/// function of `std::fs` (`OpenOptions::new`). A name alone is not I/O: a parameter or a local named `write` or
-/// `read_to_string`, a method `status` on another type, a module `fs` of another crate, another function of the signal
-/// module. Round 4: `std::fs` and `std::env` count by an explicit list (`split_paths` and `join_paths` parse data only), and
-/// a command binding counts only when the function binds its name once.
-#[test]
-fn a_function_does_io_when_a_call_resolves_to_an_io_function() {
-    let text = "\
-use std::process::Command;
-use std::fs;
-use botster_core_sys::signal::{signal_group, Signal};
-use other::fs as other_fs;
-fn by_fs_module() { fs::metadata(p); }
-fn by_env() { std::env::args(); }
-fn by_signal() { signal_group(g, Signal::KILL); }
-fn by_other_signals() { botster_core_sys::signal::signal_process(p, s); }
-fn by_own_group() { botster_core_sys::signal::signal_own_group(s); }
-fn by_block_use() { use std::fs::write as put; put(p, b); }
-fn by_run() { botster_test_process::run_to_completion(&mut c, d); }
-fn by_chain() { Command::new(\"git\").arg(\"x\").status(); }
-fn by_full_path_chain() { std::process::Command::new(\"git\").output(); }
-fn by_typed_parameter(c: &mut Command) { c.spawn(); }
-fn by_owned_parameter(mut c: Command) { c.status(); }
-fn by_let() { let mut c = Command::new(\"git\"); c.arg(\"x\"); c.output(); }
-fn by_command_new() { Command::new(\"git\"); }
-fn by_full_path() { let _ = std::process::Command::new(\"unused\"); }
-fn by_builder() { std::fs::OpenOptions::new(); }
-fn by_type_function() { fs::File::open(p); }
-fn by_method(c: &mut Other, p: &Path) { c.status(); c.output(); c.spawn(); p.exists(); }
-fn by_let_of_another_type() { let c = Other::new(); c.status(); }
-fn by_field(s: &mut S) { s.command.status(); }
-fn by_parameter(write: fn() -> Option<i32>) { write(); }
-fn by_local() { let read_to_string = f; read_to_string(); }
-fn by_other_fs() { other_fs::write(p); }
-fn by_longer_path() { serde_json::value::to_value(x); }
-fn by_module_alone() { std::fs(); }
-fn by_signal_target() { botster_core_sys::signal::target(1, 2); }
-fn by_plain_name() { write(p); }
-fn by_new_of_another_type() { std::process::Stdio::new(); }
-fn by_longer_function() { std::process::Command::new::extra(); }
-fn by_split_paths() { std::env::split_paths(\"fixed\"); std::env::join_paths([\"fixed\"]); }
-fn by_shadowed_parameter(cmd: Command) { let cmd = Pure; cmd.status(); }
-fn by_shadowed_let() { let c = Command::new(\"git\"); let c = Pure; c.status(); }
-fn by_closure_rebinding(c: &mut Command) { let f = |c: Pure| c.status(); f(Pure); }
-fn by_fs_write() { std::fs::write(p, b); }
-fn by_env_var() { std::env::var(k); }
-fn by_let_after_a_macro() { println!(\"x\"); let c = Command::new(\"git\"); c.status(); }
-";
-    let calls = Calls::of(&[("xtask/src/a.rs".to_string(), text.to_string())]).unwrap();
-    let io: BTreeSet<&str> = calls.io.iter().map(|(_, f)| f.as_str()).collect();
-    let expected: BTreeSet<&str> = [
-        "by_fs_module",
-        "by_env",
-        "by_signal",
-        "by_other_signals",
-        "by_own_group",
-        "by_block_use",
-        "by_run",
-        "by_chain",
-        "by_full_path_chain",
-        "by_typed_parameter",
-        "by_owned_parameter",
-        "by_let",
-        "by_fs_write",
-        "by_env_var",
-        "by_let_after_a_macro",
-    ]
-    .into();
-    assert_eq!(io, expected);
-}
-
-/// #181 B5 round 3: a process start reaches through an xtask function declared to return `Command` (as
-/// `tools::cargo`), in a chain or through a `let`; a function that returns another type is not a command.
-#[test]
-fn a_start_on_a_command_of_an_xtask_function_is_io() {
-    let files = [
-        (
-            "xtask/src/tools.rs",
-            "use std::process::Command;\npub fn cargo(root: &Path) -> Command { Command::new(\"cargo\") }\n\
-             pub fn other() -> Other { Other }\n",
-        ),
-        (
-            "xtask/src/a.rs",
-            "use crate::tools::cargo;\n\
-             fn by_chain(root: &Path) { cargo(root).args([\"x\"]).status(); }\n\
-             fn by_let(root: &Path) { let mut cmd = cargo(root); cmd.arg(\"x\"); cmd.output(); }\n\
-             fn by_module_path() { crate::tools::cargo(r).spawn(); }\n\
-             fn by_builder_only(root: &Path) { let _ = cargo(root); }\n\
-             fn by_other_type() { crate::tools::other().status(); }\n",
-        ),
-    ]
-    .map(|(file, text)| (file.to_string(), text.to_string()));
-    let calls = Calls::of(&files).unwrap();
-    let io: BTreeSet<(&str, &str)> = calls
-        .io
-        .iter()
-        .map(|(file, function)| (file.as_str(), function.as_str()))
-        .collect();
-    let expected: BTreeSet<(&str, &str)> = [
-        ("xtask/src/a.rs", "by_chain"),
-        ("xtask/src/a.rs", "by_let"),
-        ("xtask/src/a.rs", "by_module_path"),
-    ]
-    .into();
-    assert_eq!(io, expected);
-}
-
-/// A function also does I/O when a resolved path call names an xtask function that does I/O. Paths resolve by module:
-/// `xtask/src/main.rs` is the crate root, `crate::m::f` names the `f` of `xtask/src/m.rs` (or `m/mod.rs`), `super` and
-/// `self` are relative to the module of the file, and `m::f` names the `f` of the child `m` first, else of the root
-/// module `m`. `Self::f` names the `f` of its own file, and a plain `f` (also through a `use` rename) the `f` of its own
-/// file first, else each `f` of the xtask. A call of a parameter or another local binding names no function, and a path
-/// of another crate, of the wrong module, or with a `super` above the crate root names none.
-#[test]
-fn io_reaches_a_function_through_the_xtask_functions_it_calls() {
-    let files = [
-        (
-            "xtask/src/tools.rs",
-            "pub fn run(c: &str) { std::process::Command::new(c).status(); }\npub fn pure() {}\n",
-        ),
-        (
-            "xtask/src/fsutil/mod.rs",
-            "pub fn base() { std::process::Command::new(\"git\").output(); }\n",
-        ),
-        (
-            "xtask/src/a.rs",
-            "use crate::tools::run as go;\n\
-             fn by_module() { tools::run(c); }\n\
-             fn by_mod_rs() { crate::fsutil::base(); }\n\
-             fn by_import() { run(c); }\n\
-             fn by_rename() { go(c); }\n\
-             fn by_chain() { by_import(); }\n\
-             fn by_self() { Self::local_io(); }\n\
-             fn local_io() { std::fs::write(p, b); }\n\
-             fn by_parameter(run: impl FnOnce()) { run(); }\n\
-             fn by_pattern(chosen: Chosen) { if let Chosen::Run(run) = chosen { run(); } }\n\
-             fn by_pure_module() { tools::pure(); }\n\
-             fn by_unknown_module() { serde_json::run(x); }\n\
-             fn by_crate() { crate::pure(); }\n\
-             fn by_crate_io() { crate::root_io(); }\n\
-             fn by_crate_wrong_module() { crate::local_io(); }\n\
-             fn by_super_io() { super::root_io(); }\n\
-             fn by_super_wrong_module() { super::local_io(); }\n\
-             fn by_super_above_root() { super::super::root_io(); }\n",
-        ),
-        (
-            "xtask/src/main.rs",
-            "fn root_io() { std::env::args(); }\nfn pure() {}\n",
-        ),
-        (
-            "xtask/src/fsutil/inner.rs",
-            "fn by_super() { super::base(); }\nfn by_self_module() { self::helper(); }\n\
-             fn helper() { std::fs::read(p); }\nfn by_child() { deep::leaf(); }\n\
-             fn by_root_module() { tools::run(c); }\n",
-        ),
-        (
-            "xtask/src/fsutil/inner/deep.rs",
-            "pub fn leaf() { std::env::var(k); }\n",
-        ),
-        ("xtask/src/deep.rs", "pub fn leaf() {}\n"),
-        (
-            "xtask/src/b.rs",
-            "fn run() {}\nfn by_own_file() { run(); }\nfn by_late_chain() { by_late_link(); }\n\
-             fn by_late_link() { tools::run(c); }\n",
-        ),
-    ]
-    .map(|(file, text)| (file.to_string(), text.to_string()));
-    let calls = Calls::of(&files).unwrap();
-    let io: BTreeSet<(&str, &str)> = calls
-        .io
-        .iter()
-        .map(|(file, function)| (file.as_str(), function.as_str()))
-        .collect();
-    let expected: BTreeSet<(&str, &str)> = [
-        ("xtask/src/tools.rs", "run"),
-        ("xtask/src/fsutil/mod.rs", "base"),
-        ("xtask/src/a.rs", "by_module"),
-        ("xtask/src/a.rs", "by_mod_rs"),
-        ("xtask/src/a.rs", "by_import"),
-        ("xtask/src/a.rs", "by_rename"),
-        ("xtask/src/a.rs", "by_chain"),
-        ("xtask/src/a.rs", "by_crate_io"),
-        ("xtask/src/a.rs", "by_super_io"),
-        ("xtask/src/main.rs", "root_io"),
-        ("xtask/src/fsutil/inner.rs", "by_super"),
-        ("xtask/src/fsutil/inner.rs", "by_self_module"),
-        ("xtask/src/fsutil/inner.rs", "helper"),
-        ("xtask/src/fsutil/inner.rs", "by_child"),
-        ("xtask/src/fsutil/inner.rs", "by_root_module"),
-        ("xtask/src/fsutil/inner/deep.rs", "leaf"),
-        ("xtask/src/b.rs", "by_late_chain"),
-        ("xtask/src/b.rs", "by_late_link"),
-        ("xtask/src/a.rs", "by_self"),
-        ("xtask/src/a.rs", "local_io"),
-    ]
-    .into();
-    assert_eq!(io, expected);
-}
-
-/// Plan section 8: gate-decisions reads the module of a function from its file path, so a `#[path]` module (declared or
-/// inline, at any depth) is not a form that it resolves, and the check fails and names the form and the file.
-#[test]
-fn a_path_module_in_the_xtask_fails_the_index() {
-    for (text, at, name) in [
-        ("#[path = \"other.rs\"]\nmod m;\n", "1:1", "m"),
-        (
-            "mod outer {\n    #[path = \"x\"]\n    mod inner {}\n}\n",
-            "2:5",
-            "inner",
-        ),
-    ] {
-        let error = Calls::of(&[("xtask/src/a.rs".to_string(), text.to_string())])
-            .unwrap_err()
-            .to_string();
-        assert_eq!(
-            error,
-            format!(
-                "xtask/src/a.rs:{at}: `#[path]` on the module `{name}` is not a form that gate-decisions resolves \
-                 (plan section 8): it reads the module of a function from its file path"
-            ),
-            "{text}"
-        );
-    }
-}
-
-/// #181 B5 rounds 5 and 6, plan section 8 (23f): through the whole check (`inputs`, then `check`), a whole-body exclusion of
-/// `forwarded`, which starts nothing, is rejected (each reviewer fixture):
-/// - a command `let` under a block `use`: a function that starts a command binding and has a `use` in its body fails
-///   (and here the `use` also introduces the reserved name `Command`);
-/// - a statement macro that binds the command name again (`rebind! { let cmd = .. }`): the macro is not a listed form;
-/// - a binding in the arguments of a listed macro (`assert!({ let cmd = ..; .. })`, `assert!({ let write = ..; .. })`):
-///   the check counts it, so the start is on another type and the call is of a local;
-/// - B5, R6-2: a block-local `struct Command` or `type Command = ..`, and R6-1: `mod anyhow` with `pub use
-///   syn::parse_quote as bail;`, an internal glob of `pub use syn::parse_quote as println;`: each declares a reserved name;
-/// - R6-3: a `let` in the tokens of an opaque macro (`syn::parse_quote!({ let CMD = Command::new(..); })`): no part of the
-///   check reads them, so `CMD.status()` on a static is no start;
-/// - a closure that is never called (`let _load = || std::fs::read(..);`): a closure body supplies no I/O evidence.
-///
-/// The same fixture with a real start is accepted, so each rejection comes from its form.
-#[test]
-fn a_binding_or_a_use_that_the_check_does_not_resolve_rejects_the_exclusion() {
-    let head = "use anyhow::bail; use std::fs::write; use std::process::Command;\n\
-                fn mutation_verdict(code: Option<i32>) -> Result<()> { if code == Some(0) { return Ok(()); } bail!(\"x\") }\n\
-                #[cfg(test)]\n\
-                mod tests { #[test] fn verdicts() { assert!(super::mutation_verdict(Some(0)).is_ok()); } }\n\
-                struct Pure; impl Pure { fn status(&self) {} }\n";
-    let pure =
-        "pub struct Fake;\nimpl Fake { pub fn new() -> Self { Self } pub fn status(&self) {} }\n";
-    let toml = "exclude_re = [\n    # glue; mutation_verdict (verdicts)\n    'replace forwarded -> Result<\\(\\)> with Ok\\(\\(\\)\\)$',\n]\n";
-    let no_io = "the function does no process, file or signal I/O itself";
-    // What the check gives: accepted, one finding, or an error that holds each of these texts.
-    #[derive(Clone, Copy)]
-    enum Want {
-        Accepted,
-        Finding(&'static str),
-        Rejected(&'static [&'static str]),
-    }
-    let cases = [
-        (
-            "fn forwarded(code: Option<i32>) -> Result<()> { let cmd = Command::new(\"git\"); cmd.status(); mutation_verdict(code) }",
-            Want::Accepted,
-        ),
-        (
-            "fn forwarded(code: Option<i32>) -> Result<()> { { use crate::pure::Fake as Command; let cmd = Command::new(); cmd.status(); } mutation_verdict(code) }",
-            Want::Rejected(&[
-                "xtask/src/ci.rs:6:4: the function `forwarded` starts a process command that it binds and has a `use` \
-                 declaration in its body",
-                "xtask/src/ci.rs:6:51: the `use` introduces the reserved name `Command` of gate-decisions as \
-                 `crate::pure::Fake`",
-            ]),
-        ),
-        (
-            "fn forwarded(code: Option<i32>) -> Result<()> { let cmd = Command::new(\"unused\"); rebind! { let cmd = crate::pure::Fake::new(); } cmd.status(); mutation_verdict(code) }",
-            Want::Rejected(&["xtask/src/ci.rs:6:83: the macro `rebind!` is not a form that gate-decisions resolves"]),
-        ),
-        (
-            "fn forwarded(cmd: Command, code: Option<i32>) -> Result<()> { assert!({ let cmd = crate::pure::Fake::new(); cmd.status(); true }); mutation_verdict(code) }",
-            Want::Finding(no_io),
-        ),
-        (
-            "fn forwarded(code: Option<i32>) -> Result<()> { assert!({ let write = |_: u8| (); write(1); true }); mutation_verdict(code) }",
-            Want::Finding(no_io),
-        ),
-        (
-            "fn forwarded(code: Option<i32>) -> Result<()> { struct Command; impl Command { fn new() -> Self { Self } fn status(&self) {} } let cmd = Command::new(); cmd.status(); mutation_verdict(code) }",
-            Want::Rejected(&["xtask/src/ci.rs:6:56: the struct `Command` declares a reserved name of gate-decisions"]),
-        ),
-        (
-            "fn forwarded(code: Option<i32>) -> Result<()> { type Command = crate::pure::Fake; let cmd = Command::new(); cmd.status(); mutation_verdict(code) }",
-            Want::Rejected(&["xtask/src/ci.rs:6:54: the type alias `Command` declares a reserved name of gate-decisions"]),
-        ),
-        (
-            "mod anyhow { pub use syn::parse_quote as bail; }\n\
-             fn forwarded(code: Option<i32>) -> Result<()> { let _: syn::Expr = anyhow::bail!(std::fs::read(\"unused\")); mutation_verdict(code) }",
-            Want::Rejected(&[
-                "xtask/src/ci.rs:6:5: the module `anyhow` declares a reserved name of gate-decisions",
-                "xtask/src/ci.rs:6:18: the `use` introduces the reserved name `bail` of gate-decisions as `syn::parse_quote`",
-            ]),
-        ),
-        (
-            "mod macros { pub use syn::parse_quote as println; }\nuse self::macros::*;\n\
-             fn forwarded(code: Option<i32>) -> Result<()> { let _: syn::Expr = println!(std::fs::read(\"unused\")); mutation_verdict(code) }",
-            Want::Rejected(&[
-                "xtask/src/ci.rs:6:18: the `use` introduces the reserved name `println` of gate-decisions as \
-                 `syn::parse_quote`",
-            ]),
-        ),
-        (
-            "static CMD: Pure = Pure;\n\
-             fn forwarded(code: Option<i32>) -> Result<()> { let _: syn::Expr = syn::parse_quote!({ let CMD = Command::new(\"unused\"); }); CMD.status(); mutation_verdict(code) }",
-            Want::Finding(no_io),
-        ),
-        (
-            "fn forwarded(code: Option<i32>) -> Result<()> { let _load = || std::fs::read(\"config\"); mutation_verdict(code) }",
-            Want::Finding(no_io),
-        ),
-    ];
-    for (forwarded, want) in cases {
-        let source = format!("{head}{forwarded}\n");
-        let repo = crate::fsutil::test_repo(&[
-            (MUTANTS_FILE, toml),
-            ("xtask/src/ci.rs", source.as_str()),
-            ("xtask/src/pure.rs", pure),
-        ]);
-        let inputs = inputs(repo.path()).map_err(|error| error.to_string());
-        match (inputs, want) {
-            (Ok(inputs), Want::Accepted | Want::Finding(_)) => {
-                let found = check(
-                    &[mutant(
-                        "forwarded",
-                        "replace forwarded -> Result<()> with Ok(())",
-                    )],
-                    &inputs.exclusions[..1],
-                    &[],
-                    &inputs.calls,
-                )
-                .unwrap();
-                match want {
-                    Want::Finding(problem) => {
-                        assert_eq!(found.len(), 1, "{forwarded}: {found:?}");
-                        assert!(found[0].contains(problem), "{forwarded}: {found:?}");
-                    }
-                    _ => assert!(found.is_empty(), "{forwarded}: {found:?}"),
-                }
-            }
-            (Err(error), Want::Rejected(texts)) => {
+    for (shell, texts) in cases {
+        let source = format!("{head}{shell}\n");
+        let repo =
+            crate::fsutil::test_repo(&[(MUTANTS_FILE, toml), ("xtask/src/ci.rs", source.as_str())]);
+        match inputs(repo.path()) {
+            Ok(_) => assert!(texts.is_empty(), "{shell}"),
+            Err(error) => {
+                let error = error.to_string();
+                assert!(!texts.is_empty(), "{shell}: {error}");
                 for text in texts {
-                    assert!(error.contains(text), "{forwarded}: {error}\nwant: {text}");
+                    assert!(error.contains(text), "{shell}: {error}\nwant: {text}");
                 }
+                assert_eq!(error.lines().count(), texts.len(), "{error}");
             }
-            (got, _) => panic!("{forwarded}: {:?}", got.map(|_| ())),
         }
     }
-    // A binding that the function never starts is no command binding for the rule (prebuild.rs, a test with a block
-    // `use` and `let root = TempRoot::new()`), and a start on a name that the function does not bind is none either.
-    for text in [
-        "fn t() { use std::os::unix::fs::MetadataExt; let root = TempRoot::new(); root.path().metadata(); }\n",
-        "fn t(c: Command) { use std::fs::write; other.status(); }\n",
-    ] {
-        Calls::of(&[("xtask/src/a.rs".to_string(), text.to_string())]).unwrap();
-    }
 }
 
-/// #181 B5 rounds 5 and 6, plan section 8 (23f): a macro is a listed form by its path as written, the listed path or its
-/// last segment alone (`bail!` is `anyhow::bail!`). The check reads the arguments of an `ARGUMENT_MACROS` macro as code of
-/// the caller, does not read the tokens of an `OPAQUE_MACROS` macro (also in a type), and fails on any other macro, a
-/// `macro_rules!` definition included.
+/// #181 B5 rounds 5 and 6, plan section 8 (23f, 23g): a macro is an `ARGUMENT_MACROS` macro by its path as written, the
+/// listed path or its last segment alone (`bail!` is `anyhow::bail!`). The check reads its arguments as code of the
+/// caller, also in a test, and reads no token of any other macro (an unlisted one, another path to a listed name, an
+/// opaque one, a `macro_rules!` body), so a call there does not count.
 #[test]
 fn a_macro_is_read_only_when_its_path_is_listed() {
-    for (text, at, name) in [
-        ("fn f() { custom!(x); }\n", "1:10", "custom"),
-        ("macro_rules! m { () => {} }\n", "1:1", "macro_rules"),
-        (
-            "fn f() { other::println!(\"x\"); }\n",
-            "1:10",
-            "other::println",
-        ),
-    ] {
-        let error = Calls::of(&[("xtask/src/a.rs".to_string(), text.to_string())])
-            .unwrap_err()
-            .to_string();
-        assert_eq!(
-            error,
-            format!(
-                "xtask/src/a.rs:{at}: the macro `{name}!` is not a form that gate-decisions resolves (plan section 8): \
-                 its expansion can bind a name or import a path that the check does not see; use a listed macro or a \
-                 function"
-            ),
-            "{text}"
-        );
-    }
-    let io = |text: &str| -> BTreeSet<String> {
-        let calls = Calls::of(&[("xtask/src/a.rs".to_string(), text.to_string())]).unwrap();
-        calls.io.into_iter().map(|(_, function)| function).collect()
-    };
-    assert_eq!(
-        io("use anyhow::{anyhow, bail};\n\
-            fn read() { println!(\"{}\", std::fs::read_to_string(p)); }\n\
-            fn bailed() { bail!(\"{:?}\", std::fs::read(p)); }\n\
-            fn qualified() { anyhow::ensure!(true, \"{:?}\", std::fs::read(p)); }\n\
-            fn made() { let e = anyhow::anyhow!(\"{:?}\", std::fs::read(p)); }\n\
-            fn opaque() { matches!(std::fs::write(p, b), Ok(())); }\n\
-            fn quoted() { let _: syn::Expr = syn::parse_quote!(std::fs::write(p, b)); }\n\
-            fn typed() -> syn::Token![,] { std::fs::write(p, b) }\n"),
-        ["bailed", "made", "qualified", "read", "typed"]
-            .map(str::to_string)
-            .into()
-    );
+    let text = "use anyhow::{anyhow, bail};\n\
+                fn printed() { println!(\"{}\", x()); }\n\
+                fn bailed() { bail!(\"{:?}\", x()); }\n\
+                fn qualified() { anyhow::ensure!(true, \"{:?}\", x()); }\n\
+                fn made() { let e = anyhow::anyhow!(\"{:?}\", x()); }\n\
+                fn custom() { custom!(x()); }\n\
+                fn other_path() { other::println!(\"{}\", x()); }\n\
+                fn opaque() { matches!(x(), Ok(())); }\n\
+                fn quoted() { let _: syn::Expr = syn::parse_quote!(x()); }\n\
+                fn defined() { macro_rules! m { () => { x() } } }\n\
+                #[test]\n\
+                fn asserted() { assert!(decide()); custom!(hidden()); }\n";
+    let calls = Calls::of(&[("xtask/src/a.rs".to_string(), text.to_string())]).unwrap();
+    let callers: BTreeSet<&str> = calls
+        .by_function
+        .iter()
+        .filter(|(_, called)| called.contains("x"))
+        .map(|((_, function), _)| function.as_str())
+        .collect();
+    assert_eq!(callers, ["bailed", "made", "printed", "qualified"].into());
+    assert!(calls.tested.contains("decide"));
+    assert!(!calls.tested.contains("hidden"));
 }
 
-/// #181 R6, plan section 8 (23f): a declaration that introduces a reserved name fails, in a block or a module, whatever
-/// its kind; a `use` that introduces one passes only with its listed path, its crate or a `std` or `core` path. Other
-/// names, a function named like a macro, `extern crate` without a rename and a function inside a function pass.
+/// #181 R6, plan section 8 (23f, 23g): a declaration that introduces a reserved name (the name or the crate of an
+/// `ARGUMENT_MACROS` macro) fails, in a block or a module, whatever its kind, a `macro_rules!` definition included; a
+/// `use` that introduces one passes only with its listed path, its crate or a `std` or `core` path. Other names (the
+/// names that only the removed I/O classification read: `Command`, `std`, `syn`, `json`), a function named like a macro,
+/// `extern crate` without a rename and a function inside a function pass.
 #[test]
 fn a_declaration_of_a_reserved_name_fails() {
     let text = "mod m {\n\
-                const json: u8 = 0; enum vec {} mod anyhow {} static env: u8 = 0; struct Command; trait println {}\n\
-                type Token = u8; union format { x: u8 } extern crate libc as syn; mod std {} mod core {}\n\
-                mod botster_core_sys {} struct botster_test_process; struct serde_json; enum parse_quote {}\n\
+                const vec: u8 = 0; enum println {} mod anyhow {} static format: u8 = 0; struct bail; trait ensure {}\n\
+                type write = u8; union assert { x: u8 } extern crate libc as panic; macro_rules! assert_eq { () => {} }\n\
+                struct Command; mod std {} mod syn {} const json: u8 = 0; enum parse_quote {}\n\
                 }\n\
-                fn outer() { struct bail; }\n\
-                use crate::m::bail; use other::env; use std::env as format; use syn::parse_quote as println;\n\
-                use crate::pure::Command;\n\
-                use std::env; use std::fs::write; use anyhow::{anyhow, bail}; use syn; use serde_json::json;\n\
-                use std::process::Command; use core::cmp::max; use botster_core_sys::signal::signal_group;\n\
-                extern crate syn; fn format() {} fn vec() {} struct Local; mod tools {} fn outer2() { fn inner() {} }\n";
+                fn outer() { struct todo; }\n\
+                use crate::m::bail; use other::format; use std::env as print; use syn::parse_quote as println;\n\
+                use std::fs::write; use anyhow::{anyhow, ensure}; use anyhow; use std::format;\n\
+                use crate::pure::Command; use std::process::Command; use syn::parse_quote;\n\
+                extern crate syn; fn format() {} fn vec() {} struct Local; fn outer2() { fn inner() {} }\n";
     let error = Calls::of(&[("xtask/src/a.rs".to_string(), text.to_string())])
         .unwrap_err()
         .to_string();
     let declared = [
-        ("constant", "json"),
-        ("enum", "vec"),
+        ("constant", "vec"),
+        ("enum", "println"),
         ("module", "anyhow"),
-        ("static", "env"),
-        ("struct", "Command"),
-        ("trait", "println"),
-        ("type alias", "Token"),
-        ("union", "format"),
-        ("extern crate", "syn"),
-        ("module", "std"),
-        ("module", "core"),
-        ("module", "botster_core_sys"),
-        ("struct", "botster_test_process"),
-        ("struct", "serde_json"),
-        ("enum", "parse_quote"),
+        ("static", "format"),
         ("struct", "bail"),
+        ("trait", "ensure"),
+        ("type alias", "write"),
+        ("union", "assert"),
+        ("extern crate", "panic"),
+        ("macro", "assert_eq"),
+        ("struct", "todo"),
     ];
     for (kind, name) in declared {
         assert!(
@@ -860,10 +468,9 @@ fn a_declaration_of_a_reserved_name_fails() {
     }
     let used = [
         ("bail", "crate::m::bail"),
-        ("env", "other::env"),
-        ("format", "std::env"),
+        ("format", "other::format"),
+        ("print", "std::env"),
         ("println", "syn::parse_quote"),
-        ("Command", "crate::pure::Command"),
     ];
     for (name, target) in used {
         assert!(
@@ -878,20 +485,4 @@ fn a_declaration_of_a_reserved_name_fails() {
         declared.len() + used.len(),
         "{error}"
     );
-}
-
-/// #181 R6 (integration note on plan 23f): a closure may never run, so I/O in its body is no I/O of its function, even
-/// when the function calls it; a function declared in a closure is a function of its own.
-#[test]
-fn a_closure_body_supplies_no_io() {
-    let text = "use std::process::Command;\n\
-                fn uncalled() { let _load = || std::fs::read(p); }\n\
-                fn called() { let start = || Command::new(\"git\").status(); start(); }\n\
-                fn through() { let f = || io_fn(); f(); }\n\
-                fn io_fn() { std::fs::write(p, b); }\n\
-                fn direct() { let _f = || 1; std::fs::write(p, b); }\n\
-                fn holder() { let _f = || { fn own() { std::fs::write(p, b); } }; }\n";
-    let calls = Calls::of(&[("xtask/src/a.rs".to_string(), text.to_string())]).unwrap();
-    let io: BTreeSet<&str> = calls.io.iter().map(|(_, f)| f.as_str()).collect();
-    assert_eq!(io, ["direct", "io_fn", "own"].into());
 }
