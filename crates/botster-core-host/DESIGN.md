@@ -104,6 +104,12 @@ ids stay pending until the real harness of P6 (`botster-test-process`, #171) can
    **this connection only**: its current link, its payload and its highest epoch do not change (A11).
 4. On success the worker records E, closes its old link (the fence: DP-8 "adoption fences the previous host"), and answers
    `Hello{protocol: P, instance, proof: worker(token, instance, E), host_epoch: E}`, then its adoption report (4).
+   **The fence retires every request of the old host** (P3's review): request numbers are per link, so an old `Done{req}`
+   on the new link would complete the new host's request of the same number.
+   - Queued writes of the old host are dropped with no report: no host is there to hear it.
+   - The PTY write in progress runs to its end (AM-2: its bytes are contiguous), and it reports nothing.
+   - Bytes queued for the old link are cleared. They are never sent on the new link.
+   - Test: a write in flight at the fence, and the new host's first request has the same number as the old one.
 5. The host checks the instance and the worker proof. A failure: Core never signals that process and decodes no later
    frame of the link (A10-1, A11-1; tmux's `PEER_BAD`). The row is `Lost(WorkerUnreachable)`, because a live worker may
    still be at the identity (AD-2: indeterminate; `Adopt(id)` may be retried).
@@ -122,6 +128,8 @@ old daemon's lesson; vault: evidence comes from protocol primitives, not default
 - the terminal state that the host serves (size, modes, title, cwd, the reads of ST-5) and the current focus (DP-12: one
   `FocusChanged` at adoption, with the current value);
 - its features (AD-4: `worker_features` of an N - 1 worker);
+- the input revisions (host and client) and the model revision (IN-10, ST-1), so that the new host can form a guard that
+  the worker accepts (P3's review);
 - its routes (DP-8 `RouteAdopted`): P4a; until then the worker reports none, and the route ids stay pending with that reason.
 
 ### 5. AdoptAll per row (AD-1, AD-2, AD-6)
@@ -153,6 +161,12 @@ Each row is decoded and checked before any connect (vault: "validate before the 
 
 - The worker machine gets candidate links: a connection on the endpoint is a candidate until its hello passes 3.3. Only a
   passed candidate replaces the current link. Inputs and actions grow by a link id.
+- **A candidate is unauthenticated input, so it is bounded** (P3's review):
+  - at most one candidate at a time: a connection that comes while one is pending is closed at once;
+  - a candidate whose hello has not passed by the `startup` deadline is closed;
+  - until its hello passes, a candidate's frame bound is one `Hello`.
+  These are sans-IO decisions of `botster-worker-core`, with default-tier tests; the binary only accepts and passes the
+  connection on.
 - The worker binary binds and polls the endpoint (`mio`), and passes accepted connections to the machine.
 - A worker that has no payload and no host for `startup` exits by itself (AD-7,
   `conf::ad_7_crash_between_steps_leaves_no_unregistered_payload`). The worker does not have this rule yet (no `startup`
@@ -163,8 +177,13 @@ Each row is decoded and checked before any connect (vault: "validate before the 
 - **A52, `PayloadId.start_time`:** `Option<u64>`, `None` when the start time is unknown, and an unknown start time never
   matches an identity. A sentinel 0 is a value that looks valid (lead asked P5 to decide this).
 - **The reachability deadline** is `startup` (3.7).
-- **A missing endpoint is never repaired by Core** (1). Whether the worker binds its endpoint again when the path disappears
-  is a worker choice for P3; the contract does not ask for it.
+- **A missing endpoint is never repaired** (1). Core does not bind in its place, and the worker does not bind its endpoint
+  again (P3's choice: a rebind races the cleaner and hides AD-2's `Lost`).
+- **Peer uid:** optional defense in depth. The proof is the authority (AD-6), and the `0700` directory is the fence; the
+  workspace's `rustix` reads the peer uid only on Linux.
+- **Ownership** (agreed with P3): P5 codes the worker parts; P3 reviews the `botster-worker-core` and `botster-worker`
+  parts. The worker-machine work is based on #168's `worker.rs` (the input state that the fence retires), or starts after
+  #168 merges.
 
 ### Prior art
 
