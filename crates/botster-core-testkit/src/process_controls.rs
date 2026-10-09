@@ -34,12 +34,11 @@ const UNSUPPORTED: &[(&str, &str)] = &[
     ("host_crash", "a real host process (slow tier)"),
     ("reuse_pid", "real processes and pids (slow tier)"),
     ("bystander_alive", "real processes and pids (slow tier)"),
-    // Built when an id that uses them can pass: a2_1 and ad_2 need the route data plane (P4a) and the service lanes, ad_1
-    // and ad_7 need adoption and the scheduler's start holds.
+    // Built when an id that uses them can pass: a2_1 and ad_2 need the route data plane (P4a) and the service lanes. The
+    // start holds of AD-7 step 4 and `payload_alive` are in `start_controls`.
     ("hold_start", "a minimum id that it can flip"),
     ("release_start", "a minimum id that it can flip"),
     ("lose_worker", "a minimum id that it can flip"),
-    ("payload_alive", "a minimum id that it can flip"),
 ];
 
 pub(crate) fn register_controls(registry: &mut ControlRegistry) {

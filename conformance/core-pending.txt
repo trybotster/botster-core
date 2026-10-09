@@ -218,7 +218,6 @@ conf::ad_6_exited_worker_adopts_as_exited
 conf::ad_6_reused_pid_is_never_killed
 conf::ad_6_token_and_instance_checked
 conf::ad_7_crash_between_steps_leaves_no_unregistered_payload
-conf::ad_7_payload_launches_after_durable_identity
 conf::ad_7_uncertain_registry_write_is_reported
 conf::am_1_start_then_remove_refused
 conf::am_2_fairness_bound_across_routes
@@ -364,13 +363,11 @@ conf::ev_3_clipboard_write_surfaced
 conf::ev_3_oversize_write_is_reported_not_dropped
 conf::ev_5_full_queue_defers_transition_not_output
 conf::ev_5_keyed_events_bounded_by_keys
-conf::ev_5_poll_wakes_pending_work
 conf::ev_5_released_retires_keyed_droppable_and_loss_events
 conf::ev_5_repeated_attach_detach_without_polling_stays_bounded
 conf::ev_5_route_closed_retires_route_keyed_events
 conf::ev_5_service_released_retires_service_keyed_events
 conf::ev_5_slot_held_until_polled
-conf::ev_5_stop_kills_while_queue_full
 conf::ev_6_keyed_event_carries_latest
 conf::ev_6_loss_leaves_marker_then_state_is_readable
 conf::ev_7_each_terminal_feature_reaches_the_host
@@ -645,9 +642,7 @@ conf::tm_3_wake_handle_ignores_deadlines
 conf::tm_4_silent_fires_once_at_threshold
 conf::tm_5_deadlines_in_order
 conf::tm_6_begin_and_attach_signal_wake
-conf::tm_6_more_means_runnable_not_blocked
 conf::tm_6_parked_work_does_not_spin
-conf::tm_6_poll_room_unparks_and_wakes
 conf::tp_1_at_most_one_unacknowledged_tap_frame_on_the_control_link
 conf::tp_1_control_frames_not_delayed_by_tap
 conf::tp_1_full_tap_drops_oldest_with_loss_marker_and_never_slows_the_pty
