@@ -6,6 +6,7 @@
 //! edges: it passes the time and every edge result as an input, and it performs the engine's actions (plan 2.1).
 
 pub mod admit;
+pub mod adopt;
 pub mod driver;
 pub mod engine;
 pub mod flow;

@@ -205,7 +205,7 @@ fn workers_expose_the_payload_grace_deadline() {
     use botster_core_link::frame::{encode_frame, FrameType};
     use botster_core_link::hello::Hello;
     use botster_core_link::msg::{HostMsg, LaunchSpec};
-    use botster_core_link::proof::token_proof;
+    use botster_core_link::proof::host_proof;
 
     let (edges, _peer, mut worker, now) = fixture(1024);
     while worker.poll_action().is_some() {}
@@ -213,7 +213,7 @@ fn workers_expose_the_payload_grace_deadline() {
         protocol: 1,
         instance: InstanceId("1-1".into()),
         host_epoch: 1,
-        proof: token_proof(&[1; TOKEN_LEN], &InstanceId("1-1".into()), 1),
+        proof: host_proof(&[1; TOKEN_LEN], &InstanceId("1-1".into()), 1),
     };
     let mut payload = Vec::new();
     hello.encode(&mut payload).unwrap();

@@ -1,0 +1,42 @@
+[package]
+name = "botster-test-process"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+# A dev-dependency only (brief-p6-test-process): no production crate depends on it.
+
+# The workspace's lint table, copied with exactly one difference (lead ruling 2026-10-09 on #171 TP3): `unsafe_code` is
+# "deny", not "forbid", so that ONE function of the anchor binary (`close_inherited`) can allow it. `cargo xtask ci` checks
+# that this table differs from the workspace's in that entry only, and that no other item allows `unsafe_code`.
+[lints.rust]
+unsafe_code = "deny"
+
+[features]
+# The real-process tests of this crate (BUILD.md testing rule 2): `cargo xtask slow` runs them.
+slow = []
+
+[[bin]]
+name = "botster-test-anchor"
+path = "src/bin/botster-test-anchor.rs"
+
+[dependencies]
+# libc: `close` in the anchor's `close_inherited` (it reports its error, which rustix's `close` does not), and the signal
+# and state numbers of the macOS adapters.
+libc = "0.2"
+rustix = { workspace = true, features = ["event", "fs", "process"] }
+signal-hook.workspace = true
+
+# The platform adapters (src/platform.rs): libproc lists the members of a group and reads a start time, and kqueue awaits
+# an exit and a SIGCHLD.
+[target.'cfg(target_os = "macos")'.dependencies]
+kqueue = "1.2.1"
+libproc = "0.14"
+
+[dev-dependencies]
+pty-process.workspace = true
+# `pipe`: a pipe with no close-on-exec, which production hands its program (the #171 TP3 test).
+rustix = { workspace = true, features = ["pipe"] }
+tempfile.workspace = true
