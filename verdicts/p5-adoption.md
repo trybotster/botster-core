@@ -2111,3 +2111,52 @@ Integration owns those findings and their terminal closure. The reviewer did not
 This is a design verdict only. It does not change any conformance record or close P5 deliverable 2.
 
 VERDICT: NOT CLEAN
+
+
+## P5 adoption design — Round 2
+
+- Branch: `stage1/p5-adopt-1`.
+- Exact head: `78f4be5c11de2bab2a48d01cc24b07e8069f5aaa`.
+- Previous reviewed head: `0682aabe47f18b6756cc8c5655068f5a9e27e7b9`.
+- Base: `a0f78fe4c4e4faff1fee926e072ceb5e94ba8649`.
+- Tree: `056f30fa2f8b5ec2490b492d2f0370c1abb0ffe4`.
+- Scope: the design correction only. The reviewer read the complete delta.
+- The reviewer changed no product code and ran no builds, tests, mutation jobs, or gates.
+
+### Closed findings
+
+P5-F20 is CLOSED at the design level.
+An authenticated equal epoch now replaces the current link through the same request fence.
+A lower epoch remains refused. A failed proof changes only the candidate connection.
+The draft requires a behavior proof of a lost response followed by successful same-handle retry and lower-epoch refusal.
+
+P5-F21 is CLOSED at the design level.
+The handshake uses Core's exposed adoptable protocol set, with T minus one only when it is at least one.
+At T equal to one, the set is {1}. The two A6-2 deferrals remain unchanged.
+
+### P5-F22 — HIGH — Recovery still omits Lost retry rows
+
+The report now distinguishes NotLaunched, Spawning, Running, Exited, and LaunchFailed.
+The draft specifies Starting recovery, avoids a second launch during Spawning, and gives startup to the worker before Launch.
+Those changes close the corresponding parts of the original finding.
+
+The no-payload recovery table covers Starting, Stopping, Running, and Exited rows, but no Lost row.
+Section 5 still applies the same path to Adopt(id) for Lost(WorkerUnreachable) and Lost(WorkerVersion).
+A worker can accept E and then lose or delay its NotLaunched or Spawning report.
+The first adoption times out and gives Lost(WorkerUnreachable). The equal-epoch retry now authenticates successfully.
+That retry still needs a defined branch for those payload states.
+The draft must distinguish a Starting intent that can finish launch from a Stopping intent that must not launch an absent payload.
+
+Required change: define recovery for these Lost retries and state where the original lifecycle intent is retained or learned.
+Preserve one payload launch and the resumed stop behavior.
+P5 also sent the lead a QUESTION about its AD-1/AD-7 recovery interpretation and said it would await the answer before coding.
+The answer and the resulting design rule remain pending for closure of this finding.
+Status: OPEN. The reviewer sent the remaining requirement directly to P5 and copied integration.
+
+### Integration and scope
+
+The correction includes the startup launch argument, endpoint unlink ownership, and the fixed hello/proof rule across protocols.
+Integration owns terminal closure of D1 through D4.
+This verdict does not certify implementation, change conformance records, or close P5 deliverable 2.
+
+VERDICT: NOT CLEAN
