@@ -6032,3 +6032,71 @@ The reviewer changed no product code and ran no tests, builds, measurements, mut
 All earlier findings, closures, and verdict rounds remain preserved at their named heads and scopes.
 
 VERDICT: CLEAN
+
+
+## Round 115 — EV-4 review after the contracts-v0.1.20 base merge
+
+Reviewed head: `f2f667f90614532b2ec2403dbf01e88d3193f42a`, PR #189, branch `stage1/p3-flip-ev4`.
+Base: `dd07eabd3fb5801ff8438f32d08924a7f440ddfa`.
+Merge parents: `a5d64425bc57f0115598265794c49c7d7f82ce2c` and the base above.
+Authority: BUILD.md Risk tiers, the lead's pending-removal ruling, and revision 23a at 48c14ab8dd40341295b004b1dfc679eb27207a52.
+The reviewer checked the tier first. HIGH remains correct under rule 3 for the shared testkit change.
+F59 remains closed. The complete final description states HIGH and requests both reviews.
+
+### Merge review and contracts coverage
+
+The base-merge-check reports FAIL because both changes touch core-pending.txt and the canonical diff has different blob indexes.
+The merge has no conflict. The reviewer does not apply the exemption for a base merge with a passing check.
+The proposed set rule is not part of this head. The reviewer applies the current merge rule.
+The reviewer inspected all three imported paths, the contracts tag delta, and the final two-file PR diff.
+The reviewer also read both complete PR descriptions, the lead's #188 merge record, and completed evidence.
+
+The base imports #188's pin update from contracts-v0.1.19 to contracts-v0.1.20 at 03891658e793e5400ba46b5bc003b5d9f952f5e2.
+All six workspace dependencies use the new tag. All nine contracts package source entries in Cargo.lock use the new commit.
+The other imported changes update two A15 reason comments. They change no pending ID.
+The contracts delta changes no crate API, runner implementation, frozen contract, ledger, or replacement-map entry.
+Its only crate change adds test vocabulary for five controls.
+The tag adds two transcripts: conf::dp_3_frame_limit_checked_before_allocation and conf::ou_9_attach_is_sync_baseline_in_pump.
+Both remain pending in Core, as the lead requires until P4a's controls exist.
+R-37 and the control documentation define their allocation and handoff observers. This merge adds no observer implementation.
+The amendment candidates in the tag do not change the frozen contracts.
+BUILD.md in the tag includes the risk rules already in force for this review.
+
+The EV-4 transcript is byte-identical across the two contracts tags.
+Its replacement-map entry remains core-testkit+edge with the process edge and the same real-signal note.
+Revision 23a therefore still permits the passing TestkitHarness trial to remove EV-4 from pending.
+The final PR diff still removes only EV-4 and its duplicate worker transcript run.
+The worker_transcripts.rs blob remains unchanged from rounds 113 and 114.
+All prior pending removals remain preserved. The runtime, harness, driver, schemas, and seed set remain unchanged.
+No new process fixture or timer is added. No package interaction finding remains.
+The reviewer accepts this merge without replacing #188's recorded P5 and integration reviews.
+The lead records P5 CLEAN 88884ebd and integration CLEAN 8e44ba28 for #188 at b7980e6d27d2fb4ad25b2575cac1326cdff22014.
+The reviewer also read #188's passing ten-step gate summary at that head.
+
+### Completed evidence
+
+Exact-head log: `~/botster-sessions/gates/botster-core-stage1-p3-flip-ev4-f2f667f9-pool-20261009-094813-6570.log`.
+The log names the reviewed head and base. The run uses msa1 with kernel 6.12.111+deb13-amd64.
+All ten CI steps pass. The default tier passes 947 tests in 2.536 seconds.
+The slow tier passes 243 tests in 10.135 seconds. EV-4 passes in 0.186 seconds.
+Conformance reports 23 passed and zero failed, 591 pending, and 57 without transcripts.
+The pending total remains 648. Two IDs remain deferred, and two remain withdrawn.
+The two new transcripts account for the shift from IDs without transcripts to pending IDs with transcripts.
+Signals scan 153 Rust files. Timers scan 137 Rust files.
+Both mutation commands explicitly report INFO No mutants to filter for the PR's own test-only Rust diff.
+The separate command uses NEXTEST_PROFILE=slow. Fuzz reports no changed crate with a decoder harness.
+Full CI takes 57.3 seconds. Separate mutants take 0.4 seconds. The gate exits 0 after 70 seconds on msa1.
+The complete final PR description names the head, base, HIGH tier, gate, history, and full failing merge-check output.
+
+### Verdict and scope
+
+PR #189 is CLEAN at `f2f667f90614532b2ec2403dbf01e88d3193f42a` for the P3 package review.
+F59 remains closed. No package finding remains open for this change.
+The integration reviewer controls its own verdict and must cover this final head because the base-merge-check fails.
+This package CLEAN covers only this exact head, base, and completed evidence. It covers no later source or base merge.
+#189 has no recorded NOT CLEAN round. The round-limit notice is not due.
+#168 retains its separate single planned real-PTY HOLD. Part B retains its earlier open duties.
+The reviewer changed no product code and ran no tests, builds, measurements, mutants, or gates.
+All earlier findings, closures, and verdict rounds remain preserved at their named heads and scopes.
+
+VERDICT: CLEAN
