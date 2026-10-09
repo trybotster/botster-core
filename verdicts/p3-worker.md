@@ -5960,3 +5960,75 @@ The reviewer changed no product code and ran no tests, builds, measurements, mut
 All earlier findings, closures, and verdict rounds remain preserved at their named heads and scopes.
 
 VERDICT: CLEAN
+
+
+## Round 114 — EV-4 review after the #187 base merge
+
+Reviewed head: `a5d64425bc57f0115598265794c49c7d7f82ce2c`, PR #189, branch `stage1/p3-flip-ev4`.
+Base: `8bc21dd516f20f26002f99683b63c6a11adf0d43`.
+Merge parents: `489285047b18f1d736a35e2a4adbda0f29f7903c` and the base above.
+Authority: BUILD.md Risk tiers, the lead's pending-removal ruling, and plan revision 23a at 48c14ab8dd40341295b004b1dfc679eb27207a52.
+The reviewer checked the tier first. HIGH remains correct under rule 3 because the PR changes the shared testkit crate.
+F59 remains closed. The complete final description retains HIGH and requests both reviews.
+
+### Merge review and source coverage
+
+The base-merge-check reports FAIL. Both changes touch conformance/core-pending.txt, and the canonical diff has different blob indexes.
+The no-conflict check passes. The reviewer does not apply the exemption for a base merge with a passing check.
+The reviewer inspected all three imported paths, the final two-file PR diff, the completed gate, and #187's complete description.
+The merge preserves EV-4's removal and #187's AM-3, LC-7, and OR-2 removals.
+The PR's own pending change still removes only conf::ev_4_exit_has_signal.
+The worker_transcripts.rs blob is unchanged from round 113.
+Its two remaining IDs, clause line, revision 23a explanation, and real-only exception remain intact.
+The EV-4 transcript, harness, driver, schemas, and default seed set remain unchanged.
+Round 113's source coverage and replacement-map classification therefore remain applicable.
+
+The imported host change retains the link after process exit during Remove's AwaitTeardown phase.
+The host can then read an already-written RemoveResult before LinkClosed.
+When the result is absent, link closure after worker exit permits teardown to continue with OutcomeUnknown.
+When link closure occurs first, the host waits for worker exit unless the removal grace expires.
+A worker exit before the host asks for teardown still completes removal without a RemoveResult.
+The new tests cover results of Deleted and Unknown after process exit, and exit before the teardown request.
+The extended test verifies that link closure alone does not complete removal while the worker remains alive.
+These conditions apply to Remove. They do not change the ordinary process-exit path used by EV-4.
+No package interaction finding remains.
+
+The reviewer read #187's completed HIGH evidence and its accepted TestkitHarness scope.
+That change varies the order of ProcessExited, link messages, and LinkClosed in the World and TestkitHarness tests.
+It changes no OS adapter, socket read, reaper, or worker path.
+The lead's hold on new process fixture code remains in force until P6 PRB lands.
+The imported AM-3, LC-7, and OR-2 IDs are not real-only IDs under revision 23a.
+#187 reports all ten CI steps passing, 946 default tests, 243 slow tests, and five caught mutants with no survivors.
+This package review checks the imported source and its interaction with #189. It does not replace #187's recorded reviews.
+
+### Completed evidence
+
+Exact-head log: `~/botster-sessions/gates/botster-core-stage1-p3-flip-ev4-a5d64425-pool-20261009-094159-89893.log`.
+The log names the reviewed head and base. The Linux run uses msa1 with kernel 6.12.111+deb13-amd64.
+All ten CI steps pass. The default tier passes 947 tests in 2.352 seconds.
+The slow tier passes 243 tests in 10.126 seconds.
+The active conformance report gives 23 passed and zero failed.
+The report retains 589 pending IDs, 59 IDs without transcripts, two deferred IDs, and two withdrawn IDs.
+The pending total is 648. The run list contains 23 IDs.
+EV-4 passes in 0.167 seconds. AM-3 passes in 0.157 seconds.
+LC-7 passes in 0.149 seconds. OR-2 passes in 0.141 seconds.
+Both new host tests pass. Signals scan 153 Rust files. Timers scan 137 Rust files.
+Both mutation commands explicitly report INFO No mutants to filter.
+The PR's own changed Rust code remains test-only. Those mutation commands cover the PR diff from the new base.
+The imported host change has separate mutation evidence in #187; this result does not exempt that source from mutation testing.
+The separate command uses NEXTEST_PROFILE=slow. Fuzz reports no changed crate with a decoder harness.
+Full CI takes 28.8 seconds. Separate mutants take 0.4 seconds. The gate exits 0 after 37 seconds on msa1.
+The complete final description names the head, base, HIGH tier, gate, and full failing base-merge-check output.
+
+### Verdict and scope
+
+PR #189 is CLEAN at `a5d64425bc57f0115598265794c49c7d7f82ce2c` for the P3 package review.
+F59 remains closed. No package finding remains open for this change.
+The integration reviewer controls its own verdict and must review this final head because the base-merge-check fails.
+This package CLEAN covers only this exact head, base, and completed evidence. It covers no later source or base merge.
+#189 has no recorded NOT CLEAN round. The round-limit notice is not due.
+#168 retains its separate single planned real-PTY HOLD. Part B retains its earlier open duties.
+The reviewer changed no product code and ran no tests, builds, measurements, mutants, or gates.
+All earlier findings, closures, and verdict rounds remain preserved at their named heads and scopes.
+
+VERDICT: CLEAN
