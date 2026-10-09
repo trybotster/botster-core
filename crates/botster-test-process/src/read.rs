@@ -159,15 +159,21 @@ fn poll_by(fds: &mut [rustix::event::PollFd<'_>], deadline: Deadline) -> Result<
 }
 
 /// Both readers to their end of file by `deadline`, read together: one `poll` waits on each reader that has not ended, so a
-/// writer that fills one pipe while the test waits on the other does not block. No read starts after the deadline.
+/// writer that fills one pipe while the test waits on the other does not block. No read starts after the deadline. Both
+/// descriptors are set non-blocking first: a read of a descriptor that `poll` did not report ready fails at once
+/// (`WouldBlock`), never blocks.
 ///
 /// # Errors
-/// The deadline passed first (the error keeps what `first` read; `second` keeps its own bytes), or a read failed.
+/// A descriptor cannot be set non-blocking, the deadline passed first (the error keeps what `first` read; `second` keeps its
+/// own bytes), or a read failed.
 pub(crate) fn both_to_eof<A: Read + AsFd, B: Read + AsFd>(
     first: &mut Bounded<A>,
     second: &mut Bounded<B>,
     deadline: Deadline,
 ) -> Result<(Vec<u8>, Vec<u8>), ReadError> {
+    for fd in [first.reader.as_fd(), second.reader.as_fd()] {
+        rustix::io::ioctl_fionbio(fd, true).map_err(|error| ReadError::Io(error.into()))?;
+    }
     loop {
         if first.eof && second.eof {
             return Ok((
@@ -347,6 +353,24 @@ mod tests {
         writer.join().unwrap();
         assert_eq!(one, b"early");
         assert_eq!(two.len(), 1 << 20);
+    }
+
+    /// The first pipe holds more than its capacity and the second stays silent until the first ends: each read waits for
+    /// its own pipe, so the second is not read before it is ready.
+    #[test]
+    fn a_silent_second_pipe_is_not_read_before_it_is_ready() {
+        let (first, mut first_writer) = std::io::pipe().unwrap();
+        let (second, second_writer) = std::io::pipe().unwrap();
+        let writer = std::thread::spawn(move || {
+            first_writer.write_all(&[7; 1 << 20]).unwrap();
+            drop(first_writer);
+            drop(second_writer);
+        });
+        let (mut first, mut second) = (Bounded::new(first), Bounded::new(second));
+        let (one, two) = both_to_eof(&mut first, &mut second, Deadline::cleanup()).unwrap();
+        writer.join().unwrap();
+        assert_eq!(one.len(), 1 << 20);
+        assert!(two.is_empty());
     }
 
     /// A silent writer fails the read at the deadline, with what the first reader read; the second keeps its own bytes.

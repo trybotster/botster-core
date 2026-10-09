@@ -5,7 +5,8 @@
 //! or busy loop: the crate's owned child, guard, bounded reads and blocked fixture do each of these with a deadline and an
 //! owner. The check parses every Rust file with `syn`, so a `use` rename, a glob import, a path call (`Child::wait`), a
 //! function reference and a macro body are found as well as a plain method call. Test code is a file under a `tests`
-//! directory (or a `tests.rs` or `*_test.rs` file), an item with `#[test]` or `#[cfg(test)]`, and the testkit library.
+//! directory (or a `tests.rs` or `*_test.rs` file), an item with `#[test]` or `#[cfg(test)]`, and the testkit library. The
+//! xtask's tests are test code too (lead ruling on #170 G2); its commands, which run the gate's own tools, are not.
 //!
 //! An exception is allowed per call site only: one entry per site in `.config/process-check-allow.txt`, `<file> | <item> |
 //! <rule>`, under a comment that gives the reason (the style of the `exclude_re` entries). An entry that matches no site
@@ -99,7 +100,7 @@ pub struct Finding {
 /// Which code of a file is test code.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Scope {
-    /// Not checked: not Rust, the owner crate, or the xtask (tooling whose waits are on its own processes).
+    /// Not checked: not Rust, the owner crate, or an xtask fixture (its own workspace, the code that a fixture test mutates).
     Skip,
     /// The whole file is test code.
     All,
@@ -108,7 +109,7 @@ enum Scope {
 }
 
 fn scope(file: &str) -> Scope {
-    if !file.ends_with(".rs") || file.starts_with(OWNER) || file.starts_with("xtask/") {
+    if !file.ends_with(".rs") || file.starts_with(OWNER) || file.starts_with("xtask/fixtures/") {
         return Scope::Skip;
     }
     if TEST_SUPPORT.iter().any(|prefix| file.starts_with(prefix)) {
