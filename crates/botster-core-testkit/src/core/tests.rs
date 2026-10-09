@@ -922,8 +922,8 @@ impl Spawner for GuardedSpawner {
 
 /// A10-2, AD-6, the pattern rule: a row whose worker and payload pids were corrupted to 1 never signals anything. After the
 /// reopen, `AdoptAll`, `Stop` and `Remove` of that session, every group signal that the host asks for names pid 1, and the
-/// refusal stops each one: the worker that the row named before the corruption still runs. (Until the adoption handshake
-/// (AD-6), the adopted session is `Lost(Other)`; its `Remove` asks for the kills.)
+/// refusal stops each one: the worker that the row named before the corruption still runs. (The worker does not complete
+/// the adoption, so the session is `Lost(WorkerUnreachable)` and its `Stop` ends at once; its `Remove` asks for the kills.)
 #[test]
 fn a_corrupt_row_with_pid_1_never_signals_anything() {
     let start = Instant::now();
