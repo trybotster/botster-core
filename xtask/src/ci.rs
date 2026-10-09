@@ -257,8 +257,17 @@ fn parse_outcomes(json: &str) -> Result<MutantSummary> {
 ///   `the_key_bound_of_an_alt_key_with_long_text_covers_the_states_with_modes_off`. When `every_key_state`, the key
 ///   encoding or the Ghostty pin changes, a focused Mac mutation run of `every_key_state` must show both mutants caught.
 ///   The proof at aeda1cac, pin 3f8eb681 (PR #167): ~/.local/state/jobq/logs/jobq-botster-core-aeda1cac-20261008222501-7480.log.
+/// - botster-test-process `platform/macos.rs` (P6): the macOS adapters (libproc, kqueue) are `cfg(target_os = "macos")`
+///   code, one entry per function. Off macOS the file is not compiled, so no test there can show a mutant in it. The Mac
+///   slow tier runs them in every real-process test of `crates/botster-test-process/tests/slow_process.rs`, and the default
+///   tier on macOS in the `platform` unit tests (`this_process_has_a_start_time_and_is_a_live_member_of_its_group`,
+///   `processes_that_started_at_different_times_have_different_start_times`, `a_wait_for_a_pid_with_no_process_reports_it_gone`).
 const OFF_MACOS_EXCLUSIONS: &[&str] = &[
     r"crates/botster-terminal-ghostty/src/encode\.rs:\d+:40: replace & with [|^] in EncoderState::every_key_state$",
+    r"crates/botster-test-process/src/platform/macos\.rs:\d+:\d+: (replace start_time( ->| with)|.* in start_time$)",
+    r"crates/botster-test-process/src/platform/macos\.rs:\d+:\d+: (replace await_end( ->| with)|.* in await_end$)",
+    r"crates/botster-test-process/src/platform/macos\.rs:\d+:\d+: (replace live_members( ->| with)|.* in live_members$)",
+    r"crates/botster-test-process/src/platform/macos\.rs:\d+:\d+: (replace exiting_or_gone( ->| with)|.* in exiting_or_gone$)",
 ];
 
 /// The exclusions that a gate on `os` (`std::env::consts::OS`) adds to the configured ones.
