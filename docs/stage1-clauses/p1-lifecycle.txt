@@ -1,3 +1,5 @@
+conf::a15_1_host_key_text_over_the_bound_is_invalid_input_sync	A15-1	pending
+conf::a15_1_key_text_bound_out_of_range_is_invalid_config	A15-1	pending
 conf::a2_1_attach_state_rules	A2-1	transcript
 conf::a2_1_cancel_non_input_is_not_cancellable	A2-1	transcript
 conf::a2_1_empty_argv_is_invalid_input	A2-1	transcript

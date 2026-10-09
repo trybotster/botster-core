@@ -1,3 +1,10 @@
+conf::a16_1_epoch_exhausted_stop_posts_exited	A16-1	pending
+conf::a16_1_guardian_lost_after_a_recorded_exit_keeps_the_exit	A16-1	pending
+conf::a16_1_guardian_lost_during_stop_completes_lost	A16-1	pending
+conf::a16_1_guardian_lost_stop_posts_completed_but_no_service_state	A16-1	pending
+conf::a16_1_lost_result_carries_payload_may_remain	A16-1	pending
+conf::a16_1_stop_epoch_exhausted_service_runs_sv_9_and_completes_exited	A16-1	pending
+conf::a16_1_stop_guardian_lost_service_completes_lost_and_sends_no_signal	A16-1	pending
 conf::a2_5_lane_end_reason_values	A2-5	pending
 conf::a2_5_peer_identity_and_required_bounds	A2-5	transcript
 conf::a2_5_recv_after_exit_until_remove	A2-5	transcript

@@ -25,8 +25,16 @@ def owner(x):
         return "p1-lifecycle"
     if c.startswith("A9-"):
         return "p4a-routes"
-    if c.startswith("A13-"):
+    if c.startswith("A13-") or c.startswith("A14-"):
         return "p3-worker"
+    if c.startswith("A15-"):
+        if "route" in i:
+            return "p4a-routes"
+        if "at_the_bound_is_admitted" in i:
+            return "p3-worker"
+        return "p1-lifecycle"
+    if c.startswith("A16-"):
+        return "p7-services"
     if c.startswith("E4-"):
         return "p4b-queries-files"
     if c.startswith("A11-"):
