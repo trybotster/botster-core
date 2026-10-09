@@ -214,8 +214,31 @@ mod tests {
         }
     }
 
+    /// The host's clock: every pump is one millisecond after the last.
+    struct Clock {
+        start: std::time::Instant,
+        step: u64,
+    }
+
+    impl Clock {
+        fn new() -> Clock {
+            Clock {
+                start: std::time::Instant::now(),
+                step: 0,
+            }
+        }
+
+        fn next(&mut self) -> Now {
+            self.step += 1;
+            Now {
+                monotonic: self.start + std::time::Duration::from_millis(self.step),
+                unix: 1,
+            }
+        }
+    }
+
     /// Starts session `s1` on `core` (Create, then Start), pumping until the Start completes. The program holds.
-    fn start_s1(core: &mut dyn CoreApi) {
+    fn start_s1(core: &mut dyn CoreApi, clock: &mut Clock) {
         let request = SpawnRequest {
             argv: vec![
                 botster_probe_script::PROBE_BINARY.to_string(),
@@ -239,14 +262,9 @@ mod tests {
             request,
         })
         .unwrap();
-        let start = std::time::Instant::now();
-        let now = |i: u64| Now {
-            monotonic: start + std::time::Duration::from_millis(i),
-            unix: 1,
-        };
         let mut started = None;
-        for i in 0..200 {
-            core.pump(now(i));
+        for _ in 0..200 {
+            core.pump(clock.next());
             for event in core.poll_events(64) {
                 if matches!(event, Event::Completed { op, .. } if Some(op) == started) {
                     return;
@@ -257,6 +275,182 @@ mod tests {
             }
         }
         panic!("s1 did not start");
+    }
+
+    /// Begins a host write of `bytes` to `s1`.
+    fn write_s1(core: &mut dyn CoreApi, bytes: &[u8]) -> OpId {
+        core.begin(Op::WriteInput {
+            session: SessionId("s1".into()),
+            payload: InputPayload::Bytes {
+                bytes: HexBytes(bytes.to_vec()),
+            },
+            guard: None,
+        })
+        .unwrap()
+    }
+
+    /// Pumps `core` 200 times; the result of the write `op` if it completed.
+    fn pump_for(core: &mut dyn CoreApi, clock: &mut Clock, op: OpId) -> Option<InputResult> {
+        let mut result = None;
+        for _ in 0..200 {
+            core.pump(clock.next());
+            for event in core.poll_events(64) {
+                if let Event::Completed {
+                    op: done,
+                    result: OpResult::Ok(OpOutput::Input(input)),
+                } = event
+                {
+                    if done == op {
+                        result = Some(input);
+                    }
+                }
+            }
+        }
+        result
+    }
+
+    fn pty_input(harness: &mut TestkitHarness) -> Vec<u8> {
+        let input = harness
+            .control("h", "pty_input", &json!({"session": "s1"}))
+            .unwrap();
+        hex_decode(input["bytes"]["$bytes_hex"].as_str().unwrap()).unwrap()
+    }
+
+    fn control(
+        harness: &mut TestkitHarness,
+        name: &str,
+        args: Value,
+    ) -> Result<Value, ControlError> {
+        harness.control("h", name, &args)
+    }
+
+    /// `pty_blocked` (Core A5-2): the PTY takes no input while it is on; with `on: false` the write goes on and completes.
+    #[test]
+    fn a_blocked_pty_takes_input_only_after_it_is_unblocked() {
+        let mut harness = TestkitHarness::new(0);
+        let mut core = harness.open(&spec()).expect("a Core");
+        let mut clock = Clock::new();
+        start_s1(core.as_mut(), &mut clock);
+        control(&mut harness, "pty_blocked", json!({"session": "s1"})).unwrap();
+        let op = write_s1(core.as_mut(), b"abc");
+        assert_eq!(pump_for(core.as_mut(), &mut clock, op), None);
+        assert_eq!(pty_input(&mut harness), b"");
+        control(
+            &mut harness,
+            "pty_blocked",
+            json!({"session": "s1", "on": false}),
+        )
+        .unwrap();
+        let result = pump_for(core.as_mut(), &mut clock, op).expect("written");
+        assert_eq!(result.outcome, WriteOutcome::Written);
+        assert_eq!(pty_input(&mut harness), b"abc");
+    }
+
+    /// `pty_accept` and `pty_fail_after` (Core A5-2, IN-2): the PTY takes the accepted bytes only; a write past the failure
+    /// point fails with the exact count.
+    #[test]
+    fn accept_and_fail_after_bound_the_input_that_the_pty_takes() {
+        let mut harness = TestkitHarness::new(0);
+        let mut core = harness.open(&spec()).expect("a Core");
+        let mut clock = Clock::new();
+        start_s1(core.as_mut(), &mut clock);
+        control(
+            &mut harness,
+            "pty_accept",
+            json!({"session": "s1", "bytes": 2}),
+        )
+        .unwrap();
+        let op = write_s1(core.as_mut(), b"abc");
+        assert_eq!(pump_for(core.as_mut(), &mut clock, op), None);
+        assert_eq!(pty_input(&mut harness), b"ab");
+        control(
+            &mut harness,
+            "pty_blocked",
+            json!({"session": "s1", "on": false}),
+        )
+        .unwrap();
+        assert!(pump_for(core.as_mut(), &mut clock, op).is_some());
+
+        control(
+            &mut harness,
+            "pty_fail_after",
+            json!({"session": "s1", "bytes": 2}),
+        )
+        .unwrap();
+        let op = write_s1(core.as_mut(), b"defg");
+        let result = pump_for(core.as_mut(), &mut clock, op).expect("failed");
+        assert_eq!(
+            (result.outcome, result.pty_bytes_written),
+            (WriteOutcome::Failed, 2)
+        );
+        assert_eq!(pty_input(&mut harness), b"abcde");
+    }
+
+    /// `program_write_once` (Core A5-2): the program writes the bytes, which wait for the worker's read.
+    #[test]
+    fn write_once_adds_unread_output() {
+        let mut harness = TestkitHarness::new(0);
+        let mut core = harness.open(&spec()).expect("a Core");
+        start_s1(core.as_mut(), &mut Clock::new());
+        control(
+            &mut harness,
+            "program_write_once",
+            json!({"session": "s1", "bytes_hex": "616263"}),
+        )
+        .unwrap();
+        let unread = control(&mut harness, "pty_output_unread", json!({"session": "s1"})).unwrap();
+        assert_eq!(unread["bytes"], 3);
+    }
+
+    /// A control refuses arguments that it cannot use: a missing count, a session with no payload or no worker.
+    #[test]
+    fn a_control_refuses_what_it_cannot_act_on() {
+        let mut harness = TestkitHarness::new(0);
+        let mut core = harness.open(&spec()).expect("a Core");
+        start_s1(core.as_mut(), &mut Clock::new());
+        assert!(matches!(
+            control(&mut harness, "program_write_size", json!({"session": "s1"})),
+            Err(ControlError::Bad(_))
+        ));
+        control(
+            &mut harness,
+            "program_write_size",
+            json!({"session": "s1", "bytes": 1}),
+        )
+        .unwrap();
+        assert!(matches!(
+            control(&mut harness, "pty_blocked", json!({"session": "s2"})),
+            Err(ControlError::Bad(_))
+        ));
+        assert!(matches!(
+            control(&mut harness, "break_control", json!({"session": "s2"})),
+            Err(ControlError::Bad(_))
+        ));
+    }
+
+    /// `break_control` (Core LC-5, A2-1): the link of the session's live worker breaks, so the host no longer reaches the
+    /// payload: a later write never reaches the PTY.
+    #[test]
+    fn break_control_cuts_the_host_from_the_worker() {
+        let mut harness = TestkitHarness::new(0);
+        let mut core = harness.open(&spec()).expect("a Core");
+        let mut clock = Clock::new();
+        start_s1(core.as_mut(), &mut clock);
+        control(&mut harness, "break_control", json!({"session": "s1"})).unwrap();
+        for _ in 0..200 {
+            core.pump(clock.next());
+            core.poll_events(64);
+        }
+        if let Ok(op) = core.begin(Op::WriteInput {
+            session: SessionId("s1".into()),
+            payload: InputPayload::Bytes {
+                bytes: HexBytes(b"x".to_vec()),
+            },
+            guard: None,
+        }) {
+            pump_for(core.as_mut(), &mut clock, op);
+        }
+        assert_eq!(pty_input(&mut harness), b"");
     }
 
     /// F9: two data directories each mint the instance `1-1`; a program control on one handle reaches that handle's payload
@@ -272,8 +466,8 @@ mod tests {
                 ..spec()
             })
             .expect("a second Core");
-        start_s1(a.as_mut());
-        start_s1(b.as_mut());
+        start_s1(a.as_mut(), &mut Clock::new());
+        start_s1(b.as_mut(), &mut Clock::new());
         harness
             .control(
                 "h",

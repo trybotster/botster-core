@@ -1017,6 +1017,20 @@ fn a_full_pty_waits_for_writability() {
     assert_eq!(pty_writes(&w.feed(Input::PtyWritable)), [b"abc".to_vec()]);
 }
 
+/// AM-2: one PTY write is out at a time: a `PtyWritable` while a write is out hands the PTY nothing more.
+#[test]
+fn a_writable_pty_gets_no_second_write_while_one_is_out() {
+    let mut w = World::running();
+    assert_eq!(
+        pty_writes(&w.send(&write(1, b"abc", None))),
+        [b"abc".to_vec()]
+    );
+    assert!(pty_writes(&w.feed(Input::PtyWritable)).is_empty());
+    let actions = w.feed(Input::PtyWritten(Ok(3)));
+    let result = input_result(&mut w, &actions, 1).expect("done");
+    assert_eq!(outcome(&result), (WriteOutcome::Written, 3, 3));
+}
+
 /// IN-6: a queued write is cancelled with exact zero and never reaches the PTY; the active one keeps its order.
 #[test]
 fn a_cancel_of_a_queued_write_is_an_exact_zero() {
@@ -1125,6 +1139,49 @@ fn a_write_during_a_stop_is_not_written_stopping() {
         (WriteOutcome::NotWritten(NotWrittenReason::Stopping), 0, 0)
     );
     assert!(pty_writes(&actions).is_empty());
+}
+
+/// IN-10: a write after a kill is `Stopping` too: a killed payload takes no input, with or without a grace before it.
+#[test]
+fn a_write_after_a_kill_is_not_written_stopping() {
+    let mut w = World::running();
+    w.send(&HostMsg::Kill);
+    let actions = w.send(&write(1, b"x", None));
+    let result = input_result(&mut w, &actions, 1).expect("done");
+    assert_eq!(
+        outcome(&result),
+        (WriteOutcome::NotWritten(NotWrittenReason::Stopping), 0, 0)
+    );
+    assert!(pty_writes(&actions).is_empty());
+}
+
+/// IN-10: a guard of the client class compares the client revision: it passes at that revision, and is `Stale` at
+/// another, whatever the host wrote.
+#[test]
+fn a_client_guard_compares_the_client_revision() {
+    let mut w = World::running();
+    let client = |rev| Guard {
+        input: Some(InputGuard {
+            source_class: SourceClass::Client,
+            rev: InputRev(rev),
+        }),
+        model_rev: None,
+    };
+    w.send(&write(1, b"a", None));
+    w.feed(Input::PtyWritten(Ok(1)));
+    let actions = w.send(&write(2, b"b", Some(client(0))));
+    assert_eq!(
+        pty_writes(&actions),
+        [b"b".to_vec()],
+        "no client input came"
+    );
+    w.feed(Input::PtyWritten(Ok(1)));
+    let actions = w.send(&write(3, b"c", Some(client(1))));
+    let result = input_result(&mut w, &actions, 3).expect("done");
+    assert_eq!(
+        outcome(&result),
+        (WriteOutcome::NotWritten(NotWrittenReason::Stale), 0, 0)
+    );
 }
 
 /// IN-10: the input guard passes iff no input of its class was admitted after its revision; the guard of a queued write is

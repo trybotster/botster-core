@@ -147,20 +147,14 @@ impl Worker {
             let bytes = match &write.payload {
                 InputPayload::Bytes { bytes } => bytes.0.clone(),
                 InputPayload::Text { text } => text.as_bytes().to_vec(),
-                other => {
+                _ => {
                     // IN-8, IN-9: the modes and the encoders are the terminal model's (libghostty), which comes next.
-                    let name = match other {
-                        InputPayload::Paste { .. } => "Paste",
-                        InputPayload::Key(_) => "Key",
-                        InputPayload::Mouse(_) => "Mouse",
-                        InputPayload::Focus { .. } => "Focus",
-                        _ => "this payload kind",
-                    };
                     self.report(&WorkerMsg::Done {
                         req: write.req,
                         result: OpResult::Err(CoreError::new(
                             ErrorCode::Internal,
-                            format!("this worker does not write {name} yet"),
+                            "this worker writes only Bytes and Text until the terminal model"
+                                .to_string(),
                         )),
                     });
                     continue;
