@@ -1195,3 +1195,133 @@ fn an_adopted_idle_session_is_silent_a_threshold_after_its_adoption() {
         "{events:?}"
     );
 }
+
+/// Core A18-2: with a 3 s threshold set after the adoption, `Silent` for `name` comes 3 s after the adoption point and not
+/// earlier, with `since` the adoption point's unix time `adopted_at`. The world's clock is at the adoption point.
+fn silent_three_seconds_after_the_adoption(w: &mut World, name: &str, adopted_at: UnixSeconds) {
+    w.engine
+        .set_silence_threshold(&sid(name), Some(Duration::from_secs(3)))
+        .unwrap();
+    w.advance(Duration::from_millis(2999));
+    w.pump();
+    let early = w.engine.poll_events(64);
+    assert!(
+        !early.iter().any(|e| matches!(e, Event::Silent { .. })),
+        "{early:?}"
+    );
+    w.advance(Duration::from_millis(1));
+    let events = w.until(|e| matches!(e, Event::Silent { .. }));
+    assert!(
+        matches!(events.last(), Some(Event::Silent { id, since, .. }) if *id == sid(name) && *since == adopted_at),
+        "{events:?}"
+    );
+}
+
+/// The `Launched` report of an adopted spawn that was in flight.
+fn spawn_answers(w: &mut World) {
+    w.worker_says(
+        "s",
+        WorkerMsg::Launched {
+            features: BTreeSet::from([Feature::FocusReport]),
+            terminal: terminal_state(),
+            formats: vec![],
+            payload: botster_core_link::msg::PayloadId {
+                pid: 900,
+                start_time: 3,
+            },
+        },
+    );
+}
+
+/// Core A18-2 (review #207 A18-F1, R1-1): a `Starting` row whose worker got no `Launch` posts its `Running` from the start
+/// flow. That pump is the adoption point.
+#[test]
+fn an_adopted_start_is_silent_a_threshold_after_its_running() {
+    let first = crashed_before_launch("s");
+    let mut again = adopting(&first, "s", AdoptedPayload::NotLaunched);
+    again.advance(Duration::from_secs(7));
+    let adopted_at = again.unix;
+    let events = adopt_all(&mut again);
+    assert_eq!(states_of(&events, "s"), vec![SessionState::Running]);
+    silent_three_seconds_after_the_adoption(&mut again, "s", adopted_at);
+}
+
+/// Core A18-2 (review #207 A18-F1, R1-1): a spawn in flight posts `Running` in the pump that reads its `Launched`, later than
+/// `AdoptAll`. That pump is the adoption point, for `AdoptAll` and for an `Adopt(id)` retry.
+#[test]
+fn an_adopted_spawn_in_flight_is_silent_a_threshold_after_its_running() {
+    let first = crashed_before_launch("s");
+    let mut again = adopting(&first, "s", AdoptedPayload::Spawning);
+    let adopt = again.engine.begin(Op::AdoptAll).unwrap();
+    again.pump();
+    again.advance(Duration::from_secs(2));
+    let adopted_at = again.unix;
+    spawn_answers(&mut again);
+    let events = again.until(|e| matches!(e, Event::Completed { op, .. } if *op == adopt));
+    assert_eq!(states_of(&events, "s"), vec![SessionState::Running]);
+    silent_three_seconds_after_the_adoption(&mut again, "s", adopted_at);
+
+    let (first, mut again) = lost_before_the_launch();
+    retry_reports(&mut again, &first, AdoptedPayload::Spawning);
+    let retry = again.engine.begin(Op::Adopt { id: sid("s") }).unwrap();
+    again.pump();
+    again.advance(Duration::from_secs(2));
+    let adopted_at = again.unix;
+    spawn_answers(&mut again);
+    let events = again.until(|e| matches!(e, Event::Completed { op, .. } if *op == retry));
+    assert_eq!(states_of(&events, "s"), vec![SessionState::Running]);
+    silent_three_seconds_after_the_adoption(&mut again, "s", adopted_at);
+}
+
+/// Core A18-2 (review #207 A18-F2, R1-2): an adopted `Exited` session (its final-model worker lives, ST-5) and an adopted
+/// `Stopping` session have their adoption point too. No clause limits the idle start to `Running`.
+#[test]
+fn adopted_exited_and_stopping_sessions_are_silent_a_threshold_after_their_adoption() {
+    let mut first = World::default();
+    first.running("s");
+    first.worker_says(
+        "s",
+        WorkerMsg::Exited {
+            code: Some(3),
+            signal: None,
+        },
+    );
+    first.until(|e| {
+        matches!(
+            e,
+            Event::SessionState {
+                state: SessionState::Exited(_),
+                ..
+            }
+        )
+    });
+    let mut again = adopting(
+        &first,
+        "s",
+        AdoptedPayload::Exited {
+            code: Some(3),
+            signal: None,
+        },
+    );
+    again.advance(Duration::from_secs(7));
+    let adopted_at = again.unix;
+    let events = adopt_all(&mut again);
+    assert!(matches!(
+        states_of(&events, "s").as_slice(),
+        [SessionState::Exited(_)]
+    ));
+    silent_three_seconds_after_the_adoption(&mut again, "s", adopted_at);
+
+    let mut first = World::default();
+    first.running("s");
+    first.autopilot = Autopilot::Silent;
+    first.engine.begin(Op::Stop { id: sid("s") }).unwrap();
+    first.pump();
+    let mut again = adopting(&first, "s", running_payload());
+    again.autopilot = Autopilot::Silent;
+    again.advance(Duration::from_secs(7));
+    let adopted_at = again.unix;
+    let events = adopt_all(&mut again);
+    assert_eq!(states_of(&events, "s"), vec![SessionState::Stopping]);
+    silent_three_seconds_after_the_adoption(&mut again, "s", adopted_at);
+}
