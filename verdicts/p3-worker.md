@@ -6519,3 +6519,89 @@ The reviewer changed no product code and ran no tests, builds, measurements, mut
 All earlier findings, closures, and verdict rounds remain preserved at their named heads and scopes.
 
 VERDICT: NOT CLEAN
+
+
+## Round 121 — Testkit PTY controls, event-based lock-order proof
+
+Reviewed head: `b42f47a64326d391aace2d1bca92a06ca0515853`, PR #195, branch `stage1/p3-pty-controls`.
+Base: `1f157c29b3d58e4097d1a0969847cadc2475ec90`.
+Parent: `ab430951006a5aeee2f054b363679940356d9bbb`.
+The reviewer checked the tier first. HIGH remains correct under BUILD.md rule 3 for the shared testkit.
+Authority: BUILD.md, including testing rules 3, 5 and 8, plan 2.1, the pinned program-control documentation, and the lead's anchor rulings.
+The reviewer inspected the entire two-file correction and confirmed that no other source or base changed since round 120.
+The seven-file PR scope and imported #196 start controls retain the full source coverage recorded in rounds 119 and 120.
+The reviewer read the complete final description, reported revert proof, and completed exact-head gate.
+
+### F63 — MEDIUM — CLOSED
+
+program_edge delegates to a private program_edge_between with an empty callback.
+The helper validates the cell and clones ProgramControl within the separate cell-guard scope.
+It calls the supplied callback after that guard ends and before it locks the owner to clone the wake.
+The normal control therefore retains the accepted lock-order correction.
+This callback is dependency injection within the testkit fake, not a test branch in production process code.
+It changes no production worker, core process edge, environment selection, or public control.
+
+The regression now waits on events instead of a sleep.
+The control reads the cell, signals at_owner, and waits for go before taking the owner lock.
+Only after at_owner does the test start process end. That thread takes the owner lock, signals owner_held,
+and calls Processes::end, which needs the cell. The test waits for owner_held before sending go.
+All three recv_timeout sites have marked completion deadlines. No delay chooses the thread order.
+The control must return Ok: it reads the cell before process end, so the previous accepted after-end branch is gone.
+The test proves the actual F63 lock cycle rather than only a helper result.
+
+With the old cell guard held across the callback and owner lock, process end holds the owner and waits for the cell.
+After go, the control holds the cell and waits for the owner. This cycle exists on every schedule that reaches those events.
+With the corrected guard scope, process end can acquire the cell and release the owner; both operations finish.
+The completion deadline turns a regression into a bounded failure.
+The description reports five old-order revert failures at the deadline and a passing corrected test.
+The exact-head gate runs the corrected regression in 0.003 seconds.
+The source and event order close both the original lock defect and round 120's regression-proof gap.
+
+### Retained whole-change coverage and limits
+
+The registered controls use strict argument parsing and the existing session-row lookup.
+They reject invalid handles, sessions, arguments, absent workers or payloads, and invalid output hex.
+pty_output checks payload_alive and refuses output after payload exit, including before reap.
+Its eight-seed test confirms the program edge still exists in that interval and requires refusal.
+Plain output uses the existing seeded program reader and readiness path; the host wake is signalled.
+The worker sets the program handle on payload spawn and clears program and payload_alive together on reap or worker end.
+pty_blocked uses the existing block edge; release clears the block and acceptance limit and wakes the host.
+The wake tests disable seeded spurious wakes before checking an idle wake.
+No new lock cycle is introduced by the correction.
+
+The existing program test remains the proof of blocked writes and later acceptance.
+The harness still has no input-write action, so no transcript counts as proof of pty_blocked.
+The M1 worker still reports no output or terminal read; output proof stops at worker consumption.
+The description states both limits and keeps the separate output-activity branch's reported passes outside this head's proof.
+No pending ID leaves through #195. The five removals and start controls remain part of merged #196 at the unchanged base.
+No production process code, real-process fixture, pin, or mutation exclusion changes in this PR.
+No package finding remains.
+
+### Completed exact-head evidence
+
+Log: `~/botster-sessions/gates/botster-core-stage1-p3-pty-controls-b42f47a6-pool-20261009-112955-39079.log`.
+The log names this head and base. The run uses msa1 with kernel 6.12.111+deb13-amd64.
+All ten CI steps pass. The default tier passes 993 tests in 3.427 seconds.
+The slow tier passes 243 tests in 10.165 seconds.
+All five pty_controls tests and the event-based F63 regression run and pass.
+Signals scan 161 Rust files. Timers scan 145 Rust files.
+The lists report gives 675 ledger IDs, 640 pending, two deferred, two withdrawn, and 31 to run.
+The conformance run passes all 31 active IDs, with 583 pending and 57 without transcripts.
+Both mutation commands report 20 tested: 13 caught, zero missed, zero timeout, and seven unviable.
+The separate mutation command uses NEXTEST_PROFILE=slow. Fuzz reports no changed crate with a decoder harness.
+Full CI takes 138.1 seconds. Separate mutants take 99.9 seconds. The gate exits 0 after 246 seconds.
+The complete final description names the correct tier, head, base, proof, limits, and gate.
+
+### Verdict and scope
+
+PR #195 is CLEAN at `b42f47a64326d391aace2d1bca92a06ca0515853` for the P3 package review.
+F63 is closed. This covers only the exact head and base above, not a later source change or base merge.
+#195 had two NOT CLEAN rounds; no third NOT CLEAN or round-limit notice is due.
+The integration reviewer controls its own verdict.
+#190 retains round 118 CLEAN and is merged at 67fd748a.
+#192 retains round 117 NOT CLEAN with F61 and F62 open, awaiting a new exact-head READY after the shared-resolver correction.
+#168 retains its separate single planned real-PTY HOLD. Part B retains its earlier open duties, including F39 for the merge change.
+The reviewer changed no product code and ran no tests, builds, measurements, mutants, or gates.
+All earlier findings, closures, and verdict rounds remain preserved at their named heads and scopes.
+
+VERDICT: CLEAN
