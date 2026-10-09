@@ -125,3 +125,79 @@ No package CLEAN is assumed.
 Both findings remain open. Wait for the replacement READY head and its completed gate.
 
 VERDICT: NOT CLEAN (2 open)
+
+## Round 2 — PR #199 — 2026-10-09
+
+Reviewed head: `f2a8237c249ac6f9aa1169dda4db19b7c75bc5c6`.
+Previous reviewed head: `f50bf6beb486007c16e49ca13a3c5d39058da15c`.
+Base and supplied gate base: `58d6663204b50ce6c42d467e4fd6715ab46145dd`.
+
+HIGH remains correct. The reviewer checked the complete four-file correction and its binding/worker effects.
+The correction also applies steward ruling R-41, read at contracts commit `c2a04f8`.
+The reviewer ran no tests, builds, mutants, or gates and changed no product code.
+
+### R1-1 / F68 and R1-2 / F67 — CLOSED
+
+`after_step` now queues every `clipboard_acks` entry through the existing reply path as a separate transaction.
+The queue preserves their order. Replies have no host request and advance no input revision.
+The new acknowledgement proof derives three distinct acknowledgements from an independent libghostty terminal.
+It puts a host write before them and another host write after them.
+It checks a short write of the first acknowledgement, its remaining bytes, and the subsequent acknowledgements.
+It checks that acknowledgements produce no host completion or `HostInput` report.
+The next host revision is exactly the first host revision plus one.
+The acknowledgement drain remains independent of the droppable event buffer and host report delivery.
+
+`read_cursor` now concatenates the binding's cell strings without replacing empty strings.
+It trims trailing U+0020 only from `row_text` and leaves the prefix untrimmed.
+The new wide-character proof derives both fields and the cursor column from an independent terminal.
+It also asserts that the model supplied a wide-character spacer, so the proof exercises the reported defect.
+
+Both proofs pass in the exact-head gate.
+P3 reports that both fail with the old model source. The reviewer did not run or read a saved reversal log.
+Source inspection establishes that the old implementation fails the new acknowledgement and wide-character assertions.
+The package reviewer independently confirms both closures on this head.
+
+### R2-1 / package F69 — LOW — A selection string bypasses the unknown-location loss path
+
+Location: `crates/botster-worker-core/src/worker/model.rs:76-84`, `clipboard_selection`.
+
+R-41 requires an unknown clipboard location to produce no `ClipboardWrite`.
+The worker must instead record `EventsLost` with `ClipboardWrite` in its kinds.
+An OSC 5522 write at that location still receives exactly one `IO_ERROR` acknowledgement.
+
+The new binding decision correctly returns `IO_ERROR` for `ClipboardLocation::Other`.
+However, `clipboard_selection` returns a nonempty selection string before checking the location.
+For example, `clipboard_selection(Some("s0"), ClipboardLocation::Other(9))` returns `Some("s0")`.
+`after_step` therefore posts `ClipboardWrite` and bypasses the loss path for this combination.
+The binding's refusal and the worker's event disagree with the required R-41 outcome.
+
+Reject `Other` before accepting the selection string.
+Extend the existing selection proof to cover `Other` with nonempty and empty selection strings.
+Preserve selection-string precedence for the three known locations.
+The pinned model cannot produce `Other`, so this finding is LOW and needs no new conformance id or process fixture.
+Every finding must close before CLEAN on this HIGH PR.
+
+The package reviewer found F69 and sent it to integration.
+The integration reviewer confirmed the source path against R-41.
+No integration CLEAN was issued for this replacement head.
+
+### Evidence and retained scope
+
+Full log: `~/botster-sessions/gates/botster-core-stage1-p3-capture-snapshot-f2a8237c-pool-20261009-140746-68630.log`.
+The log names the exact head and base and runs on Linux msa1, allocation `34d16280`.
+The fetched v1 tip still equals the supplied base and is an ancestor of the head.
+All ten CI jobs pass. The default tier passes 1103 tests; the slow tier passes 249 tests.
+Conformance reports 88 passed and zero failed.
+Both mutation runs report 70 mutants: 62 caught, eight unviable, zero missed, and zero timeouts.
+The separate mutation run uses `NEXTEST_PROFILE=slow`. The gate exits 0 after 343 seconds.
+The new acknowledgement, wide-character, and binding-status proofs all have PASS records.
+The source diff has no whitespace error.
+
+The correction changes no pending ids, pins, mutation exclusions, host capture behavior, testkit controls, or process waits.
+Round 1's conformance and interface coverage remains applicable to those unchanged paths.
+R-41 requires the existing `EventsLost` marker; this change adds no event variant.
+The new status decision tests all three known locations and `Other`, but the selection proof misses F69's combination.
+The package verdict is being recorded; its exact-head message confirms the two closures and F69.
+One finding remains open. Wait for the replacement READY head and completed gate.
+
+VERDICT: NOT CLEAN (1 open)
