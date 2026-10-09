@@ -205,3 +205,19 @@ Fix: give the two rules separately.
   reason and names the Mac run that catches it.
 
 VERDICT: NOT CLEAN (1 open: PR9 LOW)
+
+## Round 6 — CLEAN on head 81f146e5
+
+Reviewed head: `81f146e50e4f5611b7fd9cc62afc952e7e91837e`. Delta `2b117c4c..81f146e5`, one commit, `docs/stage1-plan.md`
+only.
+
+- **PR9 CLOSED.** The plan now gives two separate rules:
+  - **`cfg(macos)` code (2026-10-04):** it is not compiled off macOS, so the Linux gate makes no mutants of it. It needs a
+    focused Mac run, with its log named in the READY and the PR.
+  - **A portable mutant that only macOS can show (#167 F51):** an off-macOS exclusion whose entry gives the platform reason
+    and names the Mac run. It is a coverage exception, not an equivalence claim.
+
+  Both rules match their sources: the lead handoff's 2026-10-04 ruling and v1 `xtask/src/ci.rs:249-259`.
+- Rounds 1 to 6 together read the whole revision-22 delta `ad03636f..81f146e5`. No other text changed after round 4.
+
+VERDICT: CLEAN (0 open) at 81f146e50e4f5611b7fd9cc62afc952e7e91837e
