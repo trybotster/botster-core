@@ -474,3 +474,19 @@ The fetched plan ref names the reviewed head. `git diff --check` passes.
 No execution gate applies to this documentation-only change.
 
 VERDICT: NOT CLEAN (1 open: R13-1 LOW) at 193cb3bcee4abbbd887fc534f71f4ad24c39cd31
+
+## Round 14 — revision 23k correction — CLEAN
+
+Reviewed head: `2cec1a39f65b86798bea993c1bbcd8015cabaa7c`.
+Previous reviewed head: `193cb3bcee4abbbd887fc534f71f4ad24c39cd31`.
+The reviewer read the complete two-line correction in the minimum Core document.
+R13-1 closes: Step 6 now names 13 active IDs and labels 14 as the earlier count.
+The progress instruction now names separate testkit-passing and real-passing counts out of 69.
+It identifies the earlier denominator of 70 as history.
+
+Round 13's acceptance checks remain valid. The minimum list and other plan text are unchanged.
+The full Stage 1 requirement remains intact; this revision changes only the service-free minimum scope.
+The fetched plan ref names the reviewed head. `git diff --check` passes.
+The reviewer changed no product code and ran no builds, tests, mutants, or gates.
+
+VERDICT: CLEAN (0 open) at 2cec1a39f65b86798bea993c1bbcd8015cabaa7c
