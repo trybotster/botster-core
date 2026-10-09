@@ -1373,3 +1373,46 @@ The PR description attributes the previous focused Mac proof to its original `47
 The combined #162 head must merge this dependency and receive a new delta review before its next authorized gate.
 
 VERDICT: CLEAN
+
+
+## PR #162 — Round 10
+
+- Exact head: `d650e31fe0111721f2d59e3d23bfe2d3f6b29af2`.
+- Parents: accepted combined head `debc9b1b5e2fdb7288be5179a429e406f6edc91c` and accepted #165 head `29b37890efeffa4410d7dfc34f5c2344bfad1ba4`.
+- Current v1: `9ea0c9c22d0d0595a166becbba7f9e8872247c22`.
+- Tree: `32cf311158c460726e5c7b20dbcfbda77c4bb49b`.
+- Scope: the dependency merge delta and the updated PR description.
+- The reviewer ran no builds, tests, mutation jobs, or gates.
+
+### Combined source
+
+The reviewer verified both merge parents and read the complete delta from the preceding combined head.
+The delta only moves the timer comment directly above `.recv_timeout(CLEANUP)` in `guard_cleanup.rs`.
+The complete changed file matches accepted #165 head `29b37890` exactly.
+Every other file matches accepted combined head `debc9b1b` exactly.
+No conflict edit, expression change, timeout value change, or cleanup order change occurs.
+Round 9's combined source conclusions remain valid at this exact head.
+P5-F4/C2 and the dependency findings C3 through C7 remain closed within this scope.
+The separate #163 guard-drop duty remains outside this closure.
+This review does not close #164's future merge, the other P5 audit work, or P5 adoption.
+
+### Description and evidence
+
+The reviewer verified the remote head and read the current PR description.
+It names this combined head and the accepted dependency head.
+It records the failed Linux gate under its original `debc9b1b` head and marks this head's gate pending.
+It retains the A10 proof, prior review history, and Prior art section.
+No description finding remains open.
+
+The reviewer read the failed gate log:
+`~/botster-sessions/gates/botster-core-stage1-p5-a10-debc9b1b-pool-20261008-205639-1469.log`.
+Job: `jobq-botster-core-debc9b1b-20261008205639-b149`.
+The log reports formatting and Clippy PASS, then one timer comment violation at `guard_cleanup.rs:432`.
+All later gate steps report NOT RUN; exit 1 after 102 seconds.
+The accepted dependency delta corrects that comment placement.
+The dependency's supplied Linux static checks pass, as recorded in #165 Round 8.
+Those checks do not replace the required full gate for this combined head.
+No execution result was supplied for this exact combined head.
+The implementer remains responsible for the authorized gate after both exact-head source reviews report CLEAN.
+
+VERDICT: CLEAN
