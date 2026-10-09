@@ -418,3 +418,16 @@ Reviewed head: `4064d251885b18a13c4ea6db8677919efbc89748`. Delta `e24fcce4..4064
   Linux gate.
 
 VERDICT: CLEAN (0 open) at 4064d251885b18a13c4ea6db8677919efbc89748
+
+## Round 14 — CLEAN on head e1624ca1 (package P5-F14)
+
+Reviewed head: `e1624ca1b35d53b5ce00ee7a4092950219165348`. Delta `4064d251..e1624ca1`, one commit, `.cargo/mutants.toml` only.
+This reviewer ran no build, test or gate.
+
+- The P1 storage note now names current tests and functions. Mechanical check at this head: all 12 cited test names exist
+  as `fn` in `botster-core-sys/src`, and `row_path`, `key_of`, `valid_kind`, `is_dir_component` and `errno` exist.
+- The two removed entries named `FileStorage::path` and `FileStorage::read_file`; neither function exists at this head
+  (`git grep 'fn read_file\|fn path('` in `storage.rs` finds nothing), so the entries matched no mutant.
+- P5 package CLEAN at this head: `6f9ccf4`. The merge rules of rounds 11-13 stand for the v1 merge after #167.
+
+VERDICT: CLEAN (0 open) at e1624ca1b35d53b5ce00ee7a4092950219165348
