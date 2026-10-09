@@ -141,3 +141,74 @@ This verdict closes no conformance ID or separate package proof hold.
 Integration owns its cross-package review. The lead owns the merge decision.
 
 VERDICT: CLEAN
+
+## PR #188 Round 1 — contracts-v0.1.20 — 2026-10-09
+
+- Exact head: `e05d603bde49985015031f676dc64950fa2d7324`.
+- Branch: `stage1/p5-pin-v0.1.20`.
+- Accepted v1 base and parent: `a14e9dc2b61a5426485f9c7f0f829c900e03bdc7`.
+- Tree: `6506cce83b99ed52fa3fb5cfd6bf6a747712cffc`.
+- New contracts tag: `contracts-v0.1.20` = `03891658e793e5400ba46b5bc003b5d9f952f5e2`.
+- Previous tag: `contracts-v0.1.19` = `636bc1babcb410464bc40a5862895a1dc3260f5c`.
+- Risk tier checked first: HIGH, BUILD.md at contracts `56bd0a5347a537d25bbee65a67854e0e317a9b9a`, rule 4.
+
+### C20-F1 — LOW — CLOSED — The PR contains its required Prior art note
+
+The initial PR body lacked the note required for every PR by pair-common.md.
+The reviewer sent this finding directly to P5 and copied integration.
+P5 added the note: nothing was reused or hand-rolled; the pin changed through cargo update with no code change.
+The reviewer verified the edited PR body and unchanged exact head.
+This closes C20-F1 within this round.
+
+### Pin and contracts checks
+
+The reviewer read the complete three-file Core delta, new contracts delta, new transcripts, control documentation, R-37, PR body, and supplied gate.
+All six workspace contracts dependencies name contracts-v0.1.20.
+All nine contracts lock entries name the same tag and full commit 03891658.
+Replacing their source strings with the previous strings reproduces the entire previous lockfile byte for byte.
+No version, checksum, dependency list, or other lock data changes.
+The pin comment names the correct tag, commit, and rulings through R-37.
+
+The only contracts crate change is twelve added lines in botster-core-conformance/tests/vocabulary.rs.
+They recognize five documented controls: hold_handoff, release_handoff, oracle_screen_payload, alloc_window, and alloc_peak.
+No crate implementation or API changes.
+The only Core transcript changes are two additions:
+
+- `conf::dp_3_frame_limit_checked_before_allocation`
+- `conf::ou_9_attach_is_sync_baseline_in_pump`
+
+Both are marked fake: structural under R-12. A structural fake result does not prove real Core behavior.
+The allocation transcript compares allocation peaks for lengths 4097 and 0x7FFFFFFF and expects the typed frame-too-large close.
+R-37 permits an observer only at the allocator boundary in botster-core-testkit, without worker instrumentation, waits, or locks.
+The observer must measure the process that runs the route reader. A different process must report unsupported_control.
+The baseline transcript holds handoff, verifies synchronous registration, changes the model, then compares the released baseline with the fresh oracle screen.
+It reads the screen payload through a libghostty oracle and does not write expected terminal bytes.
+
+Both new transcript ids remain in Core's pending list, as the lead requires. Their controls belong to P4a.
+The reviewer checked that the pending-id set is identical to the accepted base.
+Only the two A15 reason comments change to name contracts-v0.1.20.
+The new tag still contains no A15 transcript.
+The 675-id Core ledger, Core deferral table, and copied contracts deferred and withdrawn files remain byte-identical to the base.
+The copied status files match the new tag.
+The contracts ledger, deferrals, withdrawals, and replacement-map JSON are unchanged between tags.
+No existing Core transcript or frozen/current contract text changes.
+The candidate Core A17, HC A8, and HP A9 documents do not change the frozen contracts or withdraw ids in this pin.
+This review does not approve those candidate amendments or the future P4a control implementation.
+
+### Supplied exact-head gate and scope
+
+The full Linux gate is `~/botster-sessions/shared/core-stage1/gate-logs/pin-v0.1.20-e05d603b.log`.
+It names the exact reviewed head and accepted v1 base.
+The default tier reports 941 tests passed and 656 skipped.
+The slow tier reports 243 tests passed and 962 skipped.
+All ten listed CI stages pass. Both the job and gate exit zero.
+Mutants reports that the diff changes no Rust source and produces no outcomes.json; no mutation campaign ran.
+Fuzz reports no changed crate with a decoder harness and runs no harness.
+The unchanged harness keeps both new transcript ids pending and never counts them as passes.
+
+No package finding remains open. This verdict closes no conformance id or separate proof hold.
+Integration must supply its separate CLEAN before this HIGH pin move merges.
+The reviewer changed no product code and ran no builds, tests, mutation jobs, or gates.
+The lead owns the merge decision.
+
+VERDICT: CLEAN
