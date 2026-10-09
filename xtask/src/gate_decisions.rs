@@ -63,8 +63,15 @@ const IO_CALLS: [&str; 11] = [
     "run_to_completion",
 ];
 
-/// The method calls that start a process (`Command::status`, `output`, `spawn`).
-const IO_METHODS: [&str; 3] = ["status", "output", "spawn"];
+/// The method calls that start a process (`Command::status`, `output`, `spawn`) or probe the file system
+/// (`Path::is_file`, `is_dir`, `exists`).
+const IO_METHODS: [&str; 6] = ["status", "output", "spawn", "is_file", "is_dir", "exists"];
+
+/// The modules whose every path call is I/O: the environment of the process (`std::env::args`) and the file system.
+const IO_MODULES: [&str; 2] = ["env", "fs"];
+
+/// A path call: the module segment before the name, if any, and the name.
+type PathCall = (Option<String>, String);
 
 /// The calls of the xtask, from its syntax: what each function calls, by file and name, what the tests call, and which
 /// functions do I/O themselves.
@@ -74,7 +81,7 @@ pub struct Calls {
     tested: BTreeSet<String>,
     /// The path calls of each function, by file and name, as (the module segment before the name, if any; the name). A
     /// call of a local binding (a parameter, a closure) is not among them.
-    paths: BTreeMap<(String, String), BTreeSet<(Option<String>, String)>>,
+    paths: BTreeMap<(String, String), BTreeSet<PathCall>>,
     /// The functions, by file and name, that do I/O: an I/O call (`IO_CALLS`, `IO_METHODS`), an xtask command run by its
     /// module path (`taint::command(..)`), or a path call of an xtask function that does I/O (`tools::run(..)`).
     io: BTreeSet<(String, String)>,
@@ -282,8 +289,14 @@ impl<'ast> Visit<'ast> for Index<'_> {
         if let syn::Expr::Path(path) = &*call.func {
             if let Some(last) = path.path.segments.last() {
                 let name = last.ident.to_string();
-                let command = name == "command" && path.path.segments.len() == 2;
-                if command || IO_CALLS.contains(&name.as_str()) {
+                let segments = &path.path.segments;
+                let module = segments
+                    .len()
+                    .checked_sub(2)
+                    .map(|at| segments[at].ident.to_string());
+                let command = name == "command" && segments.len() == 2;
+                let io_module = module.is_some_and(|m| IO_MODULES.contains(&m.as_str()));
+                if command || io_module || IO_CALLS.contains(&name.as_str()) {
                     self.io();
                 }
                 self.called(name);
