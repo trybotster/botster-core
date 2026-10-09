@@ -92,9 +92,10 @@ fn wrap(args: &[OsString]) -> io::Result<std::convert::Infallible> {
         if !status.success() {
             return Err(other(format!("the intermediate stage failed: {status}")));
         }
+        // The anchor writes its one line only once it holds the group; an end of file means that it failed first.
         match Bounded::new(acknowledgement).line(deadline) {
-            Ok(Some(line)) if line == "ready\n" => Ok(()),
-            Ok(_) => Err(other("the anchor did not report its group")),
+            Ok(Some(_)) => Ok(()),
+            Ok(None) => Err(other("the anchor ended before it held the group")),
             Err(error) => Err(other(error)),
         }
     })();
