@@ -138,3 +138,44 @@ test in `botster-test-process`'s own suite. So G1 is open again until #177 conta
 round 2 acceptance of the carry is withdrawn.
 
 VERDICT: NOT CLEAN (2 open here: G1 MEDIUM, the proof only; L1 LOW. F55 and F56 are the P3 package reviewer's.)
+
+## Round 3 — NOT CLEAN on head 05c70358
+
+Reviewed head: `05c70358eab8f1a8e1ca77280a68b135dc2f990f`, one commit on `f16eed6f` (16 files, +242 -54). The base is still
+v1 `fc23cd97`. P3's gate log: `…-05c70358-pool-20261009-042155-67173.log` (69 mutants: 66 caught, 0 missed, 0 timeout, 3
+unviable). This reviewer did not read it.
+
+- **G1 CLOSED (the proof, per the lead's ruling).** `rounds::end_group` is now `end_group_reserved(group, deadline,
+  reserve)`, and `reserve` is the old code, unchanged. `slow_process.rs`
+  `an_unreserved_cleanup_ends_every_member_by_its_last_kill` runs a helper that leads its own group (`spawn_group`). The
+  helper holds a `/bin/cat` member that reads the test's held stdin, so only a signal can end the member. The helper then
+  calls `end_group_reserved` with a reserve that fails.
+  - The stderr EOF proves that the helper and its member both ended.
+  - The helper's `KILL` status proves that the last kill ended it.
+  - Red on revert: a refused kill lets the helper print, drop its member, and exit 0.
+  - P6 accepted the proof (P3's READY message).
+  - The two new `.cargo/mutants.toml` entries (`end_group_reserved`, `reserve`) cover the body of the old `end_group`, which
+    the #171 E1 `--no-config` run covered. The reserve-failure branch has no operator to mutate, and the
+    `end_group_reserved -> Ok(())` mutant fails the new test. `reserve`'s body replacement is unviable (`Child` has no
+    default). This reviewer accepts the entries.
+- **L1 mostly CLOSED.** Every `clippy.toml` list bans `libc::kill` and `libc::killpg`, and `signal_bans` checks for both. The
+  scan flags `killpg`, the path `libc :: kill`, and `kill` in a `libc :: { … }` import list. `Child::kill`,
+  `test_budget::kill` and `libc::killer` are not flagged. The fixture has each case. See L2 for the rest.
+- **F55 and F56 (the P3 package reviewer's).** The signal test now waits for one byte from a `signal_hook` pipe, under a
+  marked 10 s read deadline. The scan decodes escapes with `syn::LitStr`, and it follows `Command as X` and `type X =
+  …Command…`. Both are the package reviewer's to close.
+
+### L2 LOW — a glob import of libc hides `kill` from the scan
+
+`libc_kill` matches `libc :: kill` and `libc :: { … kill … }` only. After `use libc::*;`, a bare `kill(-1, SIGKILL)` is
+neither form, and `kill` is not in `RAW_CALLS` (by design, because a bare `kill` is also `Child::kill`). In a file with
+`#![allow(clippy::disallowed_methods)]`, the clippy ban cannot see it either, and that is the case the scan exists for. For
+rustix, the round 1 fixture already covers a glob (`use rustix::process::{…, *}` with a bare call). At the head, no file
+glob-imports libc, so this is a gap in the tripwire, not a live call. Fix: flag a glob import of libc (`libc :: *`, and `*`
+inside a `libc :: { … }` list) as a violation outside the guard, and add it to the fixture.
+
+Observation (not counted): `helper_unreserved_cleanup` relies on `spawn_group` to make the helper a group leader before it
+sends `KILL` to its own group. A one-line assert (`getpgrp() == getpid()`) before the call would keep a future defect in
+`spawn_group` from sending that `KILL` to the test runner's group.
+
+VERDICT: NOT CLEAN (1 open: L2 LOW. F55 and F56 are the P3 package reviewer's.)
