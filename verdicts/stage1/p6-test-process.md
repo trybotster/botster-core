@@ -254,3 +254,24 @@ the deadline (`Waited::Deadline` and `ReadError` for the deadline). Add a test w
 loops through one pure function.
 
 VERDICT: NOT CLEAN (1 open: R2 LOW)
+
+## Round 5 — CLEAN on head b37f8647
+
+Reviewed head: `b37f8647f096cbc1b4260a43a211cc0d3af501cd`. Delta on `f04c240d`: `6f538525` (the R2 fix) and the merge
+`b37f8647` of v1 `0b684a19` (#174). P6's logs: full gate `…-b37f8647-pool-20261009-033807-68988.log` (0 missed, 0
+timeouts) and Mac `…-034232-72752.log` (71/71). This reviewer did not read them.
+
+- **R2 CLOSED.** `deadline::retry_interrupted` repeats an interrupted wait only while `expired()` is false. An EINTR after
+  the deadline gives `Ok(None)`, and any other result returns as it is. The Linux `await_end` maps `None | Some(0)` to
+  `Waited::Deadline`, and `Bounded::fill` maps it to the deadline `ReadError`. The decision test covers repeated
+  interruptions, expiry with a next result that is never taken, a result, and a failure.
+- **No other EINTR loop.** At the head, the only remaining `Err(INTR) => continue` is `anchor.rs:331`, which its outer
+  `deadline.expired()` check at :304 bounds (round 4).
+- **The merge.** `git merge-tree --write-tree 6f538525 0b684a19` gives tree `5bfb2ba9`, which is the tree of `b37f8647`.
+  So the merge has no change of its own.
+- **Carries (not counted):** the v1 `guard_cleanup.rs` group-1 check now goes to #177 (P3). #177's G1 (its
+  `signal_group` refuses our own group) also affects this crate's own-group signals (`botster-test-anchor.rs:193`,
+  `rounds.rs:141`). P6 will not switch those to `signal_group`. The crate that lands second must still satisfy #177's
+  `clippy.toml` rule.
+
+VERDICT: CLEAN (0 open) at b37f8647f096cbc1b4260a43a211cc0d3af501cd
