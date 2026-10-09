@@ -357,28 +357,26 @@ fn payload_ready() {
 fn a_payload_cleanup_that_cannot_finish_fails_through_the_guard() {
     use std::os::unix::process::CommandExt;
     let dir = tempfile::tempdir().unwrap();
-    let never = dir.path().join("never");
-    assert!(std::process::Command::new("/usr/bin/mkfifo")
-        .arg(&never)
-        .status()
-        .unwrap()
-        .success());
+    let never = super::process_guard::never_fifo(dir.path());
     let mut guard = PayloadGuard::with_cleanup(dir.path(), std::time::Duration::ZERO);
-    // The payload blocks without CPU on a FIFO that nothing opens for writing, and holds the pipe until it ends.
-    let mut payload = std::process::Command::new("/bin/sh")
-        .args([
-            "-c",
-            &format!(
-                "{}/bin/echo up; exec /bin/cat {} >/dev/null",
-                guard.prefix(),
-                quoted(&never)
-            ),
-        ])
-        .stdout(std::process::Stdio::piped())
-        .process_group(0)
-        .spawn()
-        .unwrap();
-    let (pipe, line) = super::process_guard::first_line(payload.stdout.take().unwrap());
+    // The payload blocks without CPU on a FIFO that nothing opens for writing. Its stdout stays the pipe and it writes
+    // nothing, so it holds the pipe until it ends.
+    let mut payload = super::process_guard::cleanup::Owned(
+        std::process::Command::new("/bin/sh")
+            .args([
+                "-c",
+                &format!(
+                    "{}/bin/echo up; exec /bin/cat {}",
+                    guard.prefix(),
+                    quoted(&never)
+                ),
+            ])
+            .stdout(std::process::Stdio::piped())
+            .process_group(0)
+            .spawn()
+            .unwrap(),
+    );
+    let (pipe, line) = super::process_guard::first_line(payload.0.stdout.take().unwrap());
     assert_eq!(line, "up\n");
     guard.release();
     let failed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || drop(guard)))
@@ -386,7 +384,7 @@ fn a_payload_cleanup_that_cannot_finish_fails_through_the_guard() {
     let report = failed.downcast_ref::<String>().expect("a report").clone();
     assert!(report.contains("members left"), "{report}");
     super::process_guard::eof(pipe);
-    payload.wait().unwrap();
+    payload.status();
 }
 
 /// A registration that cannot be trusted fails the guard, and the registrant is never told that the payload is ready: a
