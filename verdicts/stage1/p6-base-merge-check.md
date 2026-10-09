@@ -75,3 +75,43 @@ drivers, and `diff.relative`. Use plumbing (`git diff-tree -r --binary --full-in
 must show a FAIL.
 
 VERDICT (unchanged): NOT CLEAN (G1 open; the gitlink false acceptance is the P6 package reviewer's finding)
+
+## Round 2 — NOT CLEAN on head bcd5f18e
+
+Reviewed head: `bcd5f18ea4d2ea6d38377ca5ab3206b5c41707f5`. Delta `df04024b..bcd5f18e`, one commit: `base_merge.rs`, its
+tests, `main.rs` and `.cargo/mutants.toml`. v1 is still `ee7dd16c`.
+
+- **G1 CLOSED.**
+  - `judge` returns the report as `Ok` on PASS and as `Err` on FAIL, and `succeeded` decides a git exit code. Both are
+    pure and tested.
+  - `check` and `command` only propagate with `?`, so the exit status comes from `judge`.
+  - Only the whole-body `command -> Ok(())` and `run -> Ok(())` replacements stay excluded. Each entry names its decision
+    functions and states that the replaced body prints no report, which is the #167 `mutants_job` rule (plan r22,
+    section 8).
+- **The diff config class (the package reviewer's BM1) is covered.**
+  - The diffs use plumbing `diff-tree -r --no-renames --no-ext-diff --no-textconv --ignore-submodules=none
+    --no-relative`.
+  - git runs with `GIT_CONFIG_NOSYSTEM=1` and `GIT_CONFIG_GLOBAL=/dev/null`, with `GIT_EXTERNAL_DIFF` and `GIT_DIFF_OPTS`
+    removed.
+  - Repository-local config is still read. The flags defeat its diff settings, and a hostile merge driver cannot matter:
+    a conflict needs a path that both sides changed, and condition 2 already fails on any such path.
+  - Each hostile-config test first proves that its setting hides the change from a plain `git diff`, then that `check`
+    fails on condition 3. That is a good red-on-revert design.
+
+### G2 MEDIUM — new real-process test code outside `botster-test-process`, with an unbounded child wait
+
+`xtask/src/base_merge/tests.rs` `Repo::git` starts `git` with `Command::new("git")...output()` in the default tier. The
+tests `a_real_base_only_merge_passes`, the three hostile-config tests and `a_git_failure_fails_the_check` all use it.
+Plan r22 (CLEAN at `eeb31087`) applies:
+- Section 6.1: "Real-process test code (spawn, group ownership, waits, cleanup, leak detection) lives only in
+  `botster-test-process`".
+- The section 8 check: "test code outside `botster-test-process` uses no raw `Child::wait` or `wait_with_output`".
+  `Command::output()` is that same unbounded wait.
+
+git is a short-lived tool that exits by itself, so this may be outside the rule's intent. But the plan does not say so,
+and P6's own check will have to decide it. Close it one of two ways:
+- (a) a lead ruling that short-lived tool processes (git, cargo) in xtask tests are outside the real-process rule, with
+  that scope written into the check; or
+- (b) start git through `botster-test-process`'s bounded wait, after PR A lands.
+
+VERDICT: NOT CLEAN (1 open: G2 MEDIUM; the package reviewer's BM1 to BM3 are theirs)
