@@ -95,11 +95,6 @@ impl<R: Read + AsFd> Bounded<R> {
         }
     }
 
-    /// The bytes read and not yet returned.
-    pub(crate) fn buffered(&self) -> &[u8] {
-        &self.buffer
-    }
-
     /// The next line, with its newline, read by `deadline`. `None` at the end of file with nothing left; a last line with no
     /// newline is returned as it is. A line already buffered is returned at any time; no read starts after the deadline.
     ///

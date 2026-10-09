@@ -193,7 +193,8 @@ impl OwnedChild {
 /// output or the exit does not come by the deadline, the run fails.
 ///
 /// # Errors
-/// The spawn or a read failed, or the deadline came first (`ErrorKind::TimedOut`, with the output read so far).
+/// The spawn or a read failed, or the deadline came first (`ErrorKind::TimedOut`; when only the exit was late, with the
+/// tool's stderr).
 pub fn run_to_completion(command: &mut Command, deadline: Deadline) -> io::Result<Output> {
     command
         .stdin(Stdio::null())
@@ -203,21 +204,18 @@ pub fn run_to_completion(command: &mut Command, deadline: Deadline) -> io::Resul
     let mut child = OwnedChild::spawn_group(command)?;
     let mut stdout = Bounded::new(child.take_stdout().expect("stdout is piped"));
     let mut stderr = Bounded::new(child.take_stderr().expect("stderr is piped"));
-    let late = |what: &str, stderr: &[u8]| {
+    let late = |what: &str| {
         io::Error::new(
             io::ErrorKind::TimedOut,
             format!(
-                "{command:?} did not end within {:?}: {what} (stderr so far: {:?})",
-                deadline.limit(),
-                String::from_utf8_lossy(stderr)
+                "{command:?} did not end within {:?}: {what}",
+                deadline.limit()
             ),
         )
     };
     let (out, err) = match both_to_eof(&mut stdout, &mut stderr, deadline) {
         Ok(output) => output,
-        Err(error @ ReadError::Deadline { .. }) => {
-            return Err(late(&error.to_string(), stderr.buffered()))
-        }
+        Err(error @ ReadError::Deadline { .. }) => return Err(late(&error.to_string())),
         Err(ReadError::Io(error)) => return Err(error),
     };
     // Both pipes have ended; closing them before the wait makes a writer that is still there fail (EPIPE), never block.
@@ -228,7 +226,10 @@ pub fn run_to_completion(command: &mut Command, deadline: Deadline) -> io::Resul
             stdout: out,
             stderr: err,
         }),
-        None => Err(late("its output ended, its exit did not come", &err)),
+        None => Err(late(&format!(
+            "its output ended, its exit did not come (stderr: {:?})",
+            String::from_utf8_lossy(&err)
+        ))),
     }
 }
 

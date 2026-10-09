@@ -434,11 +434,14 @@ fn io_reaches_a_function_through_the_xtask_functions_it_calls() {
              fn by_pattern(chosen: Chosen) { if let Chosen::Run(run) = chosen { run(); } }\n\
              fn by_pure_module() { tools::pure(); }\n\
              fn by_unknown_module() { serde_json::run(x); }\n\
-             fn by_crate() { crate::pure(); }\n",
+             fn by_crate() { crate::pure(); }\n\
+             fn by_crate_io() { crate::run(c); }\n\
+             fn by_super_io() { super::local_io(); }\n",
         ),
         (
             "xtask/src/b.rs",
-            "fn run() {}\nfn by_own_file() { run(); }\n",
+            "fn run() {}\nfn by_own_file() { run(); }\nfn by_late_chain() { by_late_link(); }\n\
+             fn by_late_link() { tools::run(c); }\n",
         ),
     ]
     .map(|(file, text)| (file.to_string(), text.to_string()));
@@ -455,6 +458,10 @@ fn io_reaches_a_function_through_the_xtask_functions_it_calls() {
         ("xtask/src/a.rs", "by_mod_rs"),
         ("xtask/src/a.rs", "by_import"),
         ("xtask/src/a.rs", "by_chain"),
+        ("xtask/src/a.rs", "by_crate_io"),
+        ("xtask/src/a.rs", "by_super_io"),
+        ("xtask/src/b.rs", "by_late_chain"),
+        ("xtask/src/b.rs", "by_late_link"),
         ("xtask/src/a.rs", "by_self"),
         ("xtask/src/a.rs", "local_io"),
     ]

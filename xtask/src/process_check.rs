@@ -803,7 +803,8 @@ pub(crate) fn whole_test_files<'a>(
     declared: &BTreeMap<&'a str, Vec<Declared>>,
     mut whole: BTreeSet<&'a str>,
 ) -> Result<BTreeSet<&'a str>, String> {
-    loop {
+    // Each round adds a file or ends the search, so there are at most as many rounds as files.
+    for _ in 0..=declared.len() {
         let mut added = Vec::new();
         for (file, modules) in declared {
             let all = whole.contains(file);
@@ -820,9 +821,10 @@ pub(crate) fn whole_test_files<'a>(
         let before = whole.len();
         whole.extend(added);
         if whole.len() == before {
-            return Ok(whole);
+            break;
         }
     }
+    Ok(whole)
 }
 
 /// The findings of `sources` (each file of the run with its text). A module file is test code as a whole as
