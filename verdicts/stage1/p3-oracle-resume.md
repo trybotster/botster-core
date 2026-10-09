@@ -112,3 +112,75 @@ The package review is pending at the time of this verdict. No package CLEAN is a
 One integration finding remains open. Wait for the replacement READY and its completed evidence.
 
 VERDICT: NOT CLEAN (1 open)
+
+## Round 2 — PR #200 — 2026-10-09
+
+Reviewed head: `63b3b280fb1b21625f18297a15bff41d66a3f65e`.
+Base and supplied gate base: `a6555ebaf221042ca7b777ca2f2425e4a63dd960`.
+Previous reviewed head: `61ab4501df234c3da74e6e2c24c1de3b12db2c8e`.
+HIGH remains correct under rules 3 and 5.
+The reviewer read the complete six-file correction, its callers, tests, updated PR description, and supplied gate.
+The unchanged source and pending-map assessment retain the round 1 review.
+The reviewer changed no product code and ran no tests, builds, mutants, or gates.
+
+### R1-1 / F70 — CLOSED
+
+The lead approved the live-model observation interface in ruling (1), message `msg_plugin-w_1791583451_c908fe`.
+P3 records that ruling in its shared handoff. The ruling keeps replay only to find the suffix.
+The PR description names both public getters and their scopes.
+
+`Worker::model_snapshot` reads the current `model.term.snapshot()` through `&self`.
+It uses the same encoder as `CaptureSnapshot`, without the capture size bound.
+It returns `None` before the model exists. It changes no worker state or protocol action.
+The getter test compares the result with an independent terminal and the actual capture page.
+
+The testkit stores the same worker machine in the simulation and process cell through `SharedWorker`.
+The wrapper delegates each machine call to that worker. It creates no second worker or comparison model.
+Each machine lock ends before the simulation performs an edge action.
+Snapshot lookup clones the shared worker and releases the process and cell locks before it locks the machine.
+The readiness path also releases the machine lock before it records the revision in the cell.
+No new reverse lock order was found.
+
+`oracle_resume` retains Core's actual capture pages from `TestkitCore::poll_events`.
+It retains the revision cut and computes the exact consumed suffix with the existing step rule.
+It restores the capture, applies that suffix, and compares the resulting snapshot with the live worker snapshot.
+An unknown capture, unknown revision, or absent model returns an error instead of an equality verdict.
+
+Two new negative tests exercise the former false positive:
+
+- `a_live_model_that_diverged_is_not_equal` keeps the capture and logged suffix unchanged, then changes the live model.
+  The control returns `equal: false` after previously returning true.
+- `a_worker_that_stopped_stepping_is_not_equal` appends output to the edge log without applying it to the live model.
+  The control returns `equal: false` with the original valid capture.
+
+Both tests have PASS records in the exact-head gate.
+The positive partial-sequence and distinct-cut tests remain selected and pass.
+P3 reports that the new negative tests fail against the prior control.
+The reviewer establishes closure from the source, test bodies, and passing replacement gate; the reviewer did not execute that baseline experiment.
+
+### Accounting and evidence
+
+The pending list does not change in this correction.
+All three ST-6b ids listed in round 1 pass in the new gate and retain their `core-testkit` replacement-map assignments.
+R1-1 no longer blocks those removals. The change raises the testkit minimum from 30/70 to 31/70 against this base.
+It establishes no additional real-harness progress.
+The other oracle controls remain outside this PR's scope.
+
+The fetched branch and PR description name the reviewed head. The head contains the stated base.
+`git diff --check` reports no error.
+The correction changes no dependency, contracts pin, transcript, mutation exclusion, or real-process fixture.
+
+Full gate:
+`~/botster-sessions/gates/botster-core-stage1-p3-oracle-resume-63b3b280-pool-20261009-151955-30889.log`.
+It names the exact head and base. It ran on Linux node `msa1`, allocation `9438fb70`.
+All ten CI checks passed. The default tier passed 1115 tests. The slow tier passed 249 tests.
+Conformance reports 91 passed and zero failed. The three removed ids have individual PASS records.
+Both mutation runs report 49 mutants: 36 caught, 13 unviable, zero missed, and zero timeouts.
+The separate mutation run uses `NEXTEST_PROFILE=slow`.
+The gate exited zero after 332 seconds.
+
+The reviewer read package round 130 at `ccbe1c8c623cf7734b1c9360447f38d89fc0aa01`, file `verdicts/p3-worker.md`.
+That verdict is CLEAN on this exact head and independently closes F70.
+No integration or package finding remains for this PR.
+
+VERDICT: CLEAN (0 open) at 63b3b280fb1b21625f18297a15bff41d66a3f65e
