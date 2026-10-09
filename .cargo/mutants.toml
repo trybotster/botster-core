@@ -270,7 +270,8 @@ exclude_re = [
     # botster-core-sys storage, the descriptor walk of audit A1 (#164): the same real-disk rule as the entries above. The
     # slow tier runs storage.rs `slow_tests` (xtask's `SLOW_FILTER` selects every module named `slow_*`), and a Linux
     # slow-tier mutation run of 2026-10-08 (`--features slow`, those tests) catches every mutant of these functions except
-    # the equivalent ones named below. Catching tests: `any_id_is_a_row_and_lists_back_sorted` (chain, place, scan, walk, entries, open_dir),
+    # the equivalent ones named below.
+    # Catching tests: `any_id_is_a_row_and_lists_back_sorted` (chain, place, scan, walk, entries, open_dir),
     # `a_written_row_reads_back_and_a_missing_row_is_none`, `delete_removes_the_row_and_its_empty_directories` and
     # `only_a_missing_row_is_none_or_deleted_quietly` (existing, child_dir), `a_link_in_a_row_path_is_never_followed`
     # (open_dir O_NOFOLLOW, child_dir's not-found guard), `a_write_never_reuses_a_temporary_file_that_it_did_not_create`
