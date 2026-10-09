@@ -7,7 +7,6 @@
 //! link).
 #![cfg(feature = "slow")]
 // The test is the host: it reads the real clock and passes the time to `pump` (Core TM-1).
-#![allow(clippy::disallowed_methods)]
 
 mod common;
 
@@ -21,7 +20,7 @@ use botster_core_link::proof::token_proof;
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::{Read, Write};
 use std::os::unix::net::UnixStream;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 fn sid(name: &str) -> SessionId {
     SessionId(name.into())
@@ -131,7 +130,7 @@ fn stand_in_worker(mut stream: UnixStream, launch: WorkerLaunch) {
 /// Pumps until `done` holds for the events so far. The host pumps only after a wake (TM-6): the worker's frames wake it.
 fn pump_until(core: &mut Core, done: impl Fn(&[Event]) -> bool) -> Vec<Event> {
     let wake = core.wake_handle();
-    let began = Instant::now();
+    let began = common::real_now();
     let mut events = Vec::new();
     loop {
         // timer: deadline — a host that never settles must fail the test, not spin
@@ -141,7 +140,7 @@ fn pump_until(core: &mut Core, done: impl Fn(&[Event]) -> bool) -> Vec<Event> {
         );
         loop {
             let report = core.pump(Now {
-                monotonic: Instant::now(),
+                monotonic: common::real_now(),
                 unix: 1_000_000,
             });
             events.extend(core.poll_events(64));

@@ -1,0 +1,157 @@
+botster-gate: botster-core stage1/p2-fork-a6 6e4a55aa439f62818f21c01862fe1766b6790732
+botster-gate: base origin/v1 = d15579dadd7cf1ed65b768139d2a668f041bd932 (BOTSTER_CI_BASE_REF)
+botster-gate: pool, --on linux (needs linux,docker,botster)
+botster-gate: command bash docs/stage1/ghostty-upstream-sync-20261009/evidence.sh
+botster-gate: log /Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-p2-fork-a6-6e4a55aa-pool-20261009-060555-37309.log
+botster-gate: note: macOS-only code is not compiled on a Linux node; the Mac slow tier covers it:
+  crates/botster-core-sys/Cargo.toml
+  crates/botster-core-sys/src/payload.rs
+  crates/botster-core-sys/src/process.rs
+  crates/botster-core-sys/tests/common/guard_platform.rs
+  crates/botster-core/Cargo.toml
+  crates/botster-terminal-ghostty/build.rs
+  crates/botster-test-process/Cargo.toml
+  crates/botster-test-process/src/bin/botster-test-anchor.rs
+  crates/botster-test-process/src/platform.rs
+  crates/botster-worker/Cargo.toml
+  xtask/src/ci.rs
+jobq: jobq-botster-core-6e4a55aa-20261009060555-49b4
+jobq: botster-core 6e4a55aa439f62818f21c01862fe1766b6790732, lane ci (priority 40: tier 3 of 3, project cap 3), needs linux,docker,botster, 4 CPUs, medium (16384 MB, 8192 MB disk)
+jobq: command bash -c project=$1 cpus=$2 volume_branch=$3 base_sha=$4; shift 4
+if [ "$(uname -s)" = Darwin ]; then
+  # Public sources, as on Linux: the repo's ci/remote/fetch-public.sh (botster-core: the libghostty submodule and its
+  # Zig packages); else the submodules at the pinned commits. Every submodule is then cleaned.
+  if [ -f ci/remote/fetch-public.sh ]; then
+    bash ci/remote/fetch-public.sh || exit 3
+  elif [ -f .gitmodules ]; then
+    git submodule update -q --init --force || exit 3
+  fi
+  [ -f .gitmodules ] && { git submodule foreach -q --recursive git clean -q -ffdx || exit 3; }
+  exec "$@"
+fi
+# Linux: one gate of a branch at a time on this host (they share its target volume); the same lock files as testq gates.
+locks=$HOME/testq/projects/botster-locks
+lock=$locks/branch-$(printf %s "$project:$volume_branch" | sha1sum | cut -c1-16).lock
+{ mkdir -p "$locks" && exec 6>"$lock"; } || { echo "botster-gate: cannot open the branch lock $lock"; exit 3; }
+if ! flock -n 6; then
+  echo "botster-gate: waiting: another gate of $project $volume_branch runs on this host"
+  flock 6 || { echo "botster-gate: cannot take the branch lock $lock"; exit 3; }
+fi
+# job.sh keeps its shared state (image and volume locks, target stamps, artifacts) relative to its checkout, in testq's
+# layout <projects>/<project>/jobs/<snapshot>, and removes the snapshot when it ends. So the gate runs, as under testq,
+# in a snapshot under ~/testq/projects: a repository fetched from the warm pool slot (another filesystem), checked out at
+# the exact commit, base ref included.
+snap=$HOME/testq/projects/$project/jobs/$POOL_JOB
+mkdir -p "${snap%/*}" || exit 3
+# Until job.sh owns the snapshot (it removes it when it ends), a stop or a failure removes it here.
+trap 'rm -rf -- "$snap"; exit 143' TERM INT HUP
+if ! { git init -q "$snap" && git -C "$snap" fetch -q --no-tags "$PWD" "+refs/pool/head:refs/pool/head" \
+    "+refs/remotes/*:refs/remotes/*" && git -C "$snap" checkout -q --detach "$POOL_SHA"; }; then
+  echo "botster-gate: could not make the snapshot $snap"
+  rm -rf -- "$snap"
+  exit 3
+fi
+trap - TERM INT HUP
+exec "$snap/ci/remote/job.sh" "$snap" "$cpus" --run="$POOL_JOB" --branch="$volume_branch" --base="$base_sha" -- "$@" botster-gate botster-core 4 stage1/p2-fork-a6 d15579dadd7cf1ed65b768139d2a668f041bd932 bash docs/stage1/ghostty-upstream-sync-20261009/evidence.sh
+jobq: log /Users/jasonconigliari/.local/state/jobq/logs/jobq-botster-core-6e4a55aa-20261009060555-49b4.log
+jobq: running on msa1 (allocation f44e98ec)
+pool-run: botster-core 6e4a55aa439f on MS-A1 in botster-core/slot-1 (job jobq-botster-core-6e4a55aa-20261009060555-49b4), 597262 MB free in the pool
+gate job: botster-core 6e4a55aa439f62818f21c01862fe1766b6790732 on MS-A1, 4 CPUs, image botster-core-gate:bbc12a44852f, target botster-core-target-stage1-p2-fork-a6-a209cc7e
+gate job: 705 GiB free on the host
+fetch: dependencies of the workspace and of botster-contracts a8db5c9a are in the cargo volume
+fetch: submodules at the pinned commits, clean
+fetch: every Zig package of build_data.rs is in /zig/packages
+core head 6e4a55aa439f62818f21c01862fe1766b6790732, tracked changes 0
+fork head 39a68e822e505685d1e7fa9c6abeff21125b489c, tracked changes 0
+zig /usr/local/zig/zig 0.16.0
+project-local crates/botster-terminal-ghostty/vendor/ghostty/zig-pkg: absent
+== 1. lib-vt build, empty global cache: zig build -Demit-lib-vt -Doptimize=ReleaseFast -Dsimd=false -Dcpu=baseline -Demit-xcframework=false
+lib build exit 1: NOT RUN, no network (the empty-cache check fetches every package)
+            .url = "https://github.com/jacobsandlund/uucode/archive/9d55524551411b493cca41ca06363625d90aff1e.tar.gz",
+                   ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/work/crates/botster-terminal-ghostty/vendor/ghostty/pkg/translate-c/build.zig.zon:15:20: error: unable to connect to server: NameServerFailure
+            .url = "https://codeberg.org/vancluever/translate-c/archive/4e879eb8aba615de112eabd1231ea6e01920cead.tar.gz",
+                   ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ls: cannot access '/tmp/tmp.1fV04Lkzih/prefix/lib': No such file or directory
+fetched packages (0):
+
+package list: not compared (no network)
+== 2a. zig build test-lib-vt --summary all, upstream default configuration
+test-lib-vt default: NOT RUN, no network (the test packages are not in the package store)
+== 2b. zig build test-lib-vt --summary all -Demit-lib-vt -Dsimd=false -Dcpu=baseline -Demit-xcframework=false, Debug, global cache seeded with ZIG_PACKAGES from /zig/packages
+project-local crates/botster-terminal-ghostty/vendor/ghostty/zig-pkg before 2b: absent
+seeded 7 packages
+test-lib-vt shipped exit 0
+Build Summary: 41/41 steps succeeded; 6733/6805 tests passed (72 skipped)
+test-lib-vt success
++- run test 3114 pass, 36 skip (3150 total) 7m MaxRSS:148M
+|  +- compile test Debug native-native success 10s MaxRSS:899M
+|     +- options cached
+|     +- options success
+|     +- WriteFile props.zig success
+|     |  +- run exe props-unigen success 252ms
+|     |  |  +- compile exe props-unigen Debug native success 3s MaxRSS:403M
+|     |  |     +- run exe uucode_generate (tables.zig) success 743ms
+|     |  |        +- compile exe uucode_generate Debug native success 2s MaxRSS:398M
+|     |  +- run exe symbols-unigen success 44ms
+|     |     +- compile exe symbols-unigen Debug native success 3s MaxRSS:385M
+|     |        +- run exe uucode_generate (tables.zig) (+1 more reused dependencies)
+|     +- WriteFile props.zig (+2 more reused dependencies)
+|     +- run exe uucode_generate (tables.zig) (+1 more reused dependencies)
+|     +- translate-c wuffs_c.h success 1s
+|        +- compile exe translate-c Debug native success 1s MaxRSS:363M
+|        |  +- options success
+|        |  +- options success
+|        |  +- options success
+|        |  +- run exe generate-def (aarch64.zig) success 105ms
+|        |  |  +- compile exe generate-def Debug native success 246ms MaxRSS:172M
+|        |  +- run exe generate-def (amdgcn.zig) success 217ms
+|        |  |  +- compile exe generate-def Debug native (reused)
+|        |  +- run exe generate-def (arm.zig) success 92ms
+|        |  |  +- compile exe generate-def Debug native (reused)
+|        |  +- run exe generate-def (bpf.zig) success 2ms
+|        |  |  +- compile exe generate-def Debug native (reused)
+|        |  +- run exe generate-def (common.zig) success 222ms
+|        |  |  +- compile exe generate-def Debug native (reused)
+|        |  +- run exe generate-def (hexagon.zig) success 246ms
+|        |  |  +- compile exe generate-def Debug native (reused)
+|        |  +- run exe generate-def (loongarch.zig) success 125ms
+|        |  |  +- compile exe generate-def Debug native (reused)
+|        |  +- run exe generate-def (mips.zig) success 96ms
+|        |  |  +- compile exe generate-def Debug native (reused)
+|        |  +- run exe generate-def (neon.zig) success 210ms
+|        |  |  +- compile exe generate-def Debug native (reused)
+|        |  +- run exe generate-def (nvptx.zig) success 206ms
+|        |  |  +- compile exe generate-def Debug native (reused)
+|        |  +- run exe generate-def (powerpc.zig) success 108ms
+|        |  |  +- compile exe generate-def Debug native (reused)
+|        |  +- run exe generate-def (riscv.zig) success 6ms
+|        |  |  +- compile exe generate-def Debug native (reused)
+|        |  +- run exe generate-def (s390x.zig) success 10ms
+|        |  |  +- compile exe generate-def Debug native (reused)
+|        |  +- run exe generate-def (ve.zig) success 203ms
+|        |  |  +- compile exe generate-def Debug native (reused)
+|        |  +- run exe generate-def (wasm.zig) success 97ms
+|        |  |  +- compile exe generate-def Debug native (reused)
+|        |  +- run exe generate-def (x86_64.zig) success 104ms
+|        |  |  +- compile exe generate-def Debug native (reused)
+|        |  +- run exe generate-def (x86.zig) success 294ms
+|        |  |  +- compile exe generate-def Debug native (reused)
+|        |  +- run exe generate-def (xcore.zig) success 1ms
+|        |     +- compile exe generate-def Debug native (reused)
+|        +- WriteFile wuffs_c.h success
++- run test 3619 pass, 36 skip (3655 total) 7m MaxRSS:139M
+   +- compile test Debug native-native success 17s MaxRSS:842M
+      +- options success
+      +- options success
+      +- WriteFile props.zig (+2 more reused dependencies)
+      +- WriteFile props.zig (+2 more reused dependencies)
+      +- run exe uucode_generate (tables.zig) (+1 more reused dependencies)
+      +- translate-c wuffs_c.h (+2 more reused dependencies)
+project-local crates/botster-terminal-ghostty/vendor/ghostty/zig-pkg after 2b: PRESENT (the step wrote it)
+shipped test packages: none fetched, ZIG_PACKAGES is sufficient
+== 3. cargo nextest run -p botster-terminal-ghostty
+binding tests exit 0
+     Summary [   0.237s] 134 tests run: 134 passed, 0 skipped
+jobq: exit 0 after 481 s on msa1 (botster-core 6e4a55aa) (queued 0 s, ran 481 s)
+botster-gate: exit 0 after 481 s on msa1 (botster-core 6e4a55aa)
