@@ -30,17 +30,29 @@ const USAGE: &str = "usage: cargo xtask base-merge-check <reviewed-head> <new-he
 /// Only these paths have condition 4; every other path keeps the byte rules of conditions 2 and 3.
 pub const SET_FILES: &[&str] = &["conformance/core-pending.txt"];
 
-/// The text of a line-set file at the four commits; `None` where the file does not exist.
+/// The tree entry of a line-set file at one commit.
+#[derive(Clone, PartialEq, Eq)]
+pub struct Blob {
+    /// The entry's mode and type from `git ls-tree`, for example `100644 blob`.
+    pub mode: String,
+    pub text: String,
+}
+
+/// The only entry kind that a line-set file may have: a regular, non-executable file (#190 review F60: a mode change is
+/// a change, and condition 4 reads only the text).
+const REGULAR: &str = "100644 blob";
+
+/// A line-set file at the four commits; `None` where the file does not exist.
 pub struct SetTexts {
     pub path: String,
-    /// At the reviewed merge base: the text that both sides change.
-    pub old: Option<String>,
+    /// At the reviewed merge base: the file that both sides change.
+    pub old: Option<Blob>,
     /// At the reviewed head.
-    pub reviewed: Option<String>,
+    pub reviewed: Option<Blob>,
     /// At the new merge base.
-    pub base: Option<String>,
+    pub base: Option<Blob>,
     /// At the new head.
-    pub new: Option<String>,
+    pub new: Option<Blob>,
 }
 
 /// What git says about the two heads, gathered by `check`.
@@ -148,14 +160,51 @@ pub fn set_merge(
     Ok((by_pr.len(), by_base.len()))
 }
 
+/// Condition 4 for one line-set file that exists at the four commits. Each entry must be a regular file. When one side
+/// leaves the file as it was, the new head must hold the other side's file byte for byte (the rule of conditions 2 and 3);
+/// only when both sides change it does [`set_merge`] decide (#190 review R1).
+fn judge_set(old: &Blob, reviewed: &Blob, base: &Blob, new: &Blob) -> Result<String, String> {
+    for (at, blob) in [
+        ("the reviewed merge base", old),
+        ("the reviewed head", reviewed),
+        ("the new merge base", base),
+        ("the new head", new),
+    ] {
+        if blob.mode != REGULAR {
+            return Err(format!(
+                "at {at} it is `{}`, not a regular file `{REGULAR}`",
+                blob.mode
+            ));
+        }
+    }
+    if reviewed == old {
+        return if new == base {
+            Ok("the pull request leaves it alone; the new head holds the base's file".into())
+        } else {
+            Err(
+                "the pull request leaves it alone, but the new head does not hold the base's file"
+                    .into(),
+            )
+        };
+    }
+    if base == old {
+        return if new == reviewed {
+            Ok("the base leaves it alone; the new head holds the reviewed file".into())
+        } else {
+            Err("the base leaves it alone, but the new head does not hold the reviewed file".into())
+        };
+    }
+    set_merge(&old.text, &reviewed.text, &base.text, &new.text).map(|(pr, base)| {
+        format!("the pull request removes {pr} id lines and the base removes {base} others; the new head holds the old file without both")
+    })
+}
+
 /// The line of condition 4 for one line-set file, and whether it holds.
 fn set_line(texts: &SetTexts) -> (bool, String) {
     let path = &texts.path;
     let outcome = match (&texts.old, &texts.reviewed, &texts.base, &texts.new) {
         (None, None, None, None) => Ok("it exists at none of the four commits".to_string()),
-        (Some(old), Some(reviewed), Some(base), Some(new)) => set_merge(old, reviewed, base, new).map(|(pr, base)| {
-            format!("the pull request removes {pr} id lines and the base removes {base} others; the new head holds the old file without both")
-        }),
+        (Some(old), Some(reviewed), Some(base), Some(new)) => judge_set(old, reviewed, base, new),
         _ => Err("it is missing at one of the four commits".to_string()),
     };
     match outcome {
@@ -392,16 +441,20 @@ pub fn check(root: &Path, reviewed: &str, new: &str, base: &str) -> Result<Strin
         };
         ok(&[&["diff-tree"][..], &CANONICAL, form, &[from, to], &paths].concat())
     };
-    // The text of `path` at `commit`, or `None` when the commit has no such file.
-    let text_at = |commit: &str, path: &str| -> Result<Option<String>> {
-        if ok(&["ls-tree", "--name-only", commit, "--", path])?.is_empty() {
+    // The entry of `path` at `commit` with its mode and text, or `None` when the commit has no such entry.
+    let text_at = |commit: &str, path: &str| -> Result<Option<Blob>> {
+        // `<mode> <type> <id>\t<path>`, or nothing when the commit has no such entry.
+        let entry = String::from_utf8(ok(&["ls-tree", commit, "--", path])?)?;
+        let Some((meta, _)) = entry.split_once('\t') else {
             return Ok(None);
-        }
-        Ok(Some(String::from_utf8(ok(&[
-            "cat-file",
-            "blob",
-            &format!("{commit}:{path}"),
-        ])?)?))
+        };
+        let mode = meta.split(' ').take(2).collect::<Vec<_>>().join(" ");
+        let text = if mode.ends_with(" blob") {
+            String::from_utf8(ok(&["cat-file", "blob", &format!("{commit}:{path}")])?)?
+        } else {
+            String::new()
+        };
+        Ok(Some(Blob { mode, text }))
     };
     let commit = |name: &str| line(&["rev-parse", "--verify", &format!("{name}^{{commit}}")]);
     let (reviewed, new, base) = (commit(reviewed)?, commit(new)?, commit(base)?);
