@@ -5891,3 +5891,72 @@ The reviewer changed no product code and ran no tests, builds, measurements, mut
 All earlier findings, closures, and verdict rounds remain preserved at their named heads and scopes.
 
 VERDICT: CLEAN
+
+## Round 113 — EV-4 leaves the pending list
+
+Reviewed head: `489285047b18f1d736a35e2a4adbda0f29f7903c`, PR #189, branch `stage1/p3-flip-ev4`.
+Base: `a14e9dc2b61a5426485f9c7f0f829c900e03bdc7`.
+Merge parents: `5409483b9a7283da6346adfc794f0cd0f01beec7` and the base above.
+The reviewer inspected the full two-file diff, the merge conflict resolution, the conformance harness, the pinned transcript, and completed evidence.
+Authority: BUILD.md Risk tiers, the lead's pending-removal ruling, and plan revision 23a at 48c14ab8dd40341295b004b1dfc679eb27207a52.
+The contracts source is contracts-v0.1.19, as the reviewed workspace specifies.
+
+### F59 — HIGH — Wrong STANDARD tier; CLOSED in this round
+
+The reviewer checked the stated tier first and found STANDARD incorrect.
+The PR changes worker_transcripts.rs in the shared testkit crate, so BUILD.md rule 3 makes the PR HIGH.
+The lead's exception applies only to a PR that removes IDs from core-pending.txt and changes nothing else.
+The reviewer sent F59 directly to P3 and notified the integration reviewer.
+P3 accepted F59 and corrected the complete description to HIGH under rule 3 at the same source head.
+P3 requested integration review. The final description names both required reviews.
+The reviewer read and accepted the corrected description before recording this verdict.
+F59 is closed. The correction changed no source code or gate input.
+
+### Source and proof coverage
+
+Only conf::ev_4_exit_has_signal leaves core-pending.txt.
+The corresponding duplicate run leaves worker_transcripts.rs, and its comments remove EV-4.
+The conformance harness now runs that ID as an active trial through TestkitHarness.
+The harness uses the same pinned transcript, driver_for, schemas, and run_transcript function as the former duplicate run.
+The default CI environment supplies seeds 0-31.
+The pinned transcript checks an exit signal of 15 with no exit code and an exit code of 3 with no signal.
+The replacement map classifies this ID as core-testkit+edge, with the process edge, rather than slow.
+Under plan 23a, its passing TestkitHarness trial permits the ID to leave pending.
+This does not claim that RealCoreHarness has run the ID or that a real signal proof is replaced.
+
+The merge conflict resolution preserves both parents' removals.
+The final IDS contains only a2_8_terminal_identity_names_the_entry and lc_3_remove_created.
+Both remaining IDs are still pending. The clause line retains TI-1, LC-3, and LC-7.
+The resolution preserves v1's revision 23a explanation and the real-only exception.
+No extra ID leaves pending, and no required duplicate run remains after the active trial replaces it.
+The diff changes no runtime machine, process adapter, conformance runner, seed set, or mutation exclusion.
+No new real-process fixture, timer, sleep, polling loop, or gate-decision function is added.
+No package source finding remains.
+
+### Completed evidence
+
+Exact-head log: `~/botster-sessions/gates/botster-core-stage1-p3-flip-ev4-48928504-pool-20261009-093335-59628.log`.
+It names this reviewed head and base and runs on msa1, kernel 6.12.111+deb13-amd64.
+All ten CI steps pass. The active conformance report gives 20 passed and zero failed.
+The default tier selects conf::ev_4_exit_has_signal and passes it in 0.166 seconds.
+The default tier passes 942 tests in 2.265 seconds. The slow tier passes 243 tests in 10.117 seconds.
+Signals scan 153 Rust files. Timers scan 137 Rust files.
+Both mutation commands explicitly report INFO No mutants to filter.
+The changed Rust code is test-only. The reviewer accepts that result from the diff and actual tool output.
+The separate command uses NEXTEST_PROFILE=slow. Fuzz reports no changed crate with a decoder harness.
+Full CI takes 161.7 seconds. Separate mutants take 0.4 seconds. The gate exits 0 after 228 seconds on msa1.
+The corrected complete PR description names the exact head, gate, tier, conflict resolution, and replacement-map classification.
+
+### Verdict and scope
+
+PR #189 is CLEAN at `489285047b18f1d736a35e2a4adbda0f29f7903c` for the P3 package review.
+F59 is closed. No package finding remains open for this change.
+HIGH requires the integration review. The integration reviewer controls its own verdict.
+This package CLEAN covers only this exact head, base, and completed evidence. It covers no later source or base merge.
+#189 has no recorded NOT CLEAN round. The round-limit notice is not due.
+#186 retains round 112 CLEAN at its exact head and scope.
+#168 retains its separate single planned real-PTY HOLD. Part B retains its earlier open duties.
+The reviewer changed no product code and ran no tests, builds, measurements, mutants, or gates.
+All earlier findings, closures, and verdict rounds remain preserved at their named heads and scopes.
+
+VERDICT: CLEAN
