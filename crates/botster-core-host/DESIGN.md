@@ -296,7 +296,7 @@ Sources, read on 2026-10-09:
 - zellij `main`: `zellij-utils/src/consts.rs`, and the session-resurrection page of the documentation.
 - abduco: the README.
 - Old botster-core at `72b2e33` (read with `git show` only): `crates/botster-core/src/runtime/worker_process.rs`
-  (`adopt_reserved_inner`), `crates/botster-core-daemon/src/daemon.rs` (`adoption_scan`), and the test
+  (`adopt_reserved_inner`), the old daemon crate's `src/daemon.rs` (`adoption_scan`), and the test
   `adoption_of_live_process_with_reaped_socket_fails_without_rebinding`.
 - Vault notes:
   - "botster hub socket liveness requires a protocol handshake";
