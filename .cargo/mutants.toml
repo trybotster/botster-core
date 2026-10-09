@@ -39,10 +39,10 @@ exclude_re = [
     # any_other_lint_difference_fails, only_the_three_lint_entries_name_unsafe_code, only_close_inherited_allows_unsafe_code,
     # the_verdict_counts_the_files_or_reports_every_problem).
     'xtask/src/unsafe_exception\.rs:\d+:\d+: replace command -> Result<\(\)> with Ok\(\(\)\)$',
-    # xtask ci.rs taint_job -> Ok(()): the shell runs three checks (taint, timers, unsafe_exception) and only propagates their
-    # errors with `?`; the body replaced by Ok(()) runs none. Only this whole-body replacement is excluded. Each check's
-    # decisions have their own tests: taint (scan_files, hits_in_line), timers, and unsafe_code (verdict, lint_drift,
-    # other_manifests, other_attributes, checked).
+    # xtask ci.rs taint_job -> Ok(()): the shell runs the static checks (taint, timers, unsafe_exception, process_check,
+    # mutants_cited, gate_decisions) and the platform-only code derivation, and only propagates their errors with `?`; the
+    # body replaced by Ok(()) runs none. Only this whole-body replacement is excluded. Each check's decisions have their own
+    # tests, and the derivation is the tested derived_exclusions (each_gate_os_excludes_the_adapters_of_the_other_os).
     'xtask/src/ci\.rs:\d+:\d+: replace taint_job -> Result<\(\)> with Ok\(\(\)\)$',
     # xtask mutants_job -> Ok(()): process glue. The body runs `git diff`, writes the diff file, starts `cargo mutants` and
     # prints its summary; a test cannot start a mutation run inside a mutation run, so no test can run the body. Only this
