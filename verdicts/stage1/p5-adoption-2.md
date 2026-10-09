@@ -79,3 +79,19 @@ excluded.
 
 VERDICT: NOT CLEAN (0 integration findings open; waits for #168's HOLD, and for the #171 proofs that catch the 13 HOLD
 mutants)
+
+## Round 2 — no integration finding open on head 9f038991 (draft; HOLDs remain)
+
+Reviewed head: `9f0389912b588c9a9a4b0c9d58f3be333127b3b7`, one commit on `dad9a58a` (5 files, +119 -15).
+
+- **The P5 package reviewer's F27 (theirs).** `expire_adoption` applies the due candidate deadline and the due AD-7
+  self-exit before every input (`handle` calls it first). So a late hello cannot pass, and a late host cannot cancel a
+  due self-exit, whatever order the driver gives. After the self-exit, `end` has taken the candidate, so a later
+  candidate byte is ignored.
+- **P3's L1.** `adopt_link` now drops the old link before it looks up the candidate. A candidate that the driver no longer
+  holds fails closed: the old link is gone, and `fence(…, false)` drops its queued inputs.
+- **F28 (theirs).** `DESIGN.md` part 7 is rewritten.
+- No cross-package change beyond these. The 13 missed mutants are the same HOLD set (141 caught, 13 missed, 0 TIMEOUT).
+
+VERDICT: NOT CLEAN (0 integration findings open; waits for #168's HOLD and for the #171 proofs that catch the 13 HOLD
+mutants)
