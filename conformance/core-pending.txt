@@ -492,6 +492,7 @@ conf::lc_12_drop_leaves_workers_running
 conf::lc_12_stop_all_keeps_final_model_workers_until_remove
 conf::lc_12_stop_all_leaves_created_exited_lost
 conf::lc_12_stop_all_target_set
+conf::lc_2_data_dir_is_exclusive
 conf::lc_3_remove_created
 conf::lc_5_stop_with_broken_control
 conf::lc_5_worker_survives_stop
