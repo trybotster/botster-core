@@ -1,5 +1,5 @@
-//! The edges of the flows: a start that fails each way, a stop whose row fails, a remove whose row delete fails, and the
-//! rows that `AdoptAll` takes or leaves (Core AD-7, LC-4, LC-7, LC-12, R-16, AD-1).
+//! The edges of the flows: a start that fails each way, a stop whose row fails, and a remove whose row delete fails (Core
+//! AD-7, LC-4, LC-7, LC-12, R-16, A2-1).
 
 use super::*;
 use crate::flow::{Flow, RemovePhase};
@@ -212,58 +212,41 @@ fn a_failed_row_delete_restores_the_admission_state() {
     }
 }
 
-/// Core AD-1, LC-9: `AdoptAll` takes the rows of the registry: a `Created` row is kept as it is, a row of a session that ran is
-/// `Lost`, a row that is damaged or of another version is left, and a session that exists already is not replaced.
+/// Core A2-1 (`Stop`: `RegistryFailed` is its only asynchronous error), AD-7: a `Stop` that waits for a start whose `Starting`
+/// row cannot be written completes with the same registry failure as the `Start`, certain or uncertain as the write was.
 #[test]
-fn adopt_all_takes_the_good_rows_and_leaves_the_others() {
-    let mut first = World::default();
-    first.autopilot = Autopilot::Silent;
-    first.ok(create("a"));
-    first.running("b");
-    first.ok(create("kept"));
-    let mut rows = first.rows.clone();
-    let mut other_version: serde_json::Value = serde_json::from_slice(&rows["session/a"]).unwrap();
-    other_version["version"] = serde_json::json!(99);
-    other_version["id"] = serde_json::json!("v99");
-    rows.insert(
-        "session/v99".into(),
-        serde_json::to_vec(&other_version).unwrap(),
-    );
-    rows.insert("session/bad".into(), b"{not json".to_vec());
-    let mut again = World::default();
-    again.rows = rows;
-    again.ok(create("kept"));
-    again.engine.poll_events(64);
-    let kept_instance = again.instance_of("kept");
-    let adopt = again.engine.begin(Op::AdoptAll).unwrap();
-    for _ in 0..30 {
-        again.pump();
-        again.engine.poll_events(64);
+fn a_stop_that_waited_for_a_failed_start_row_has_the_registry_failure() {
+    for error in [
+        botster_core_edges::edges::StorageError::Failed { errno: 5 },
+        botster_core_edges::edges::StorageError::Uncertain { errno: 5 },
+    ] {
+        let mut w = World::default();
+        w.ok(create("s1"));
+        let start = w.engine.begin(Op::Start { id: sid("s1") }).unwrap();
+        let stop = w.engine.begin(Op::Stop { id: sid("s1") }).unwrap();
+        w.fail_row = Some(error);
+        let expected = ErrorCode::RegistryFailed {
+            uncertain: matches!(
+                error,
+                botster_core_edges::edges::StorageError::Uncertain { .. }
+            ),
+        };
+        let mut results = BTreeMap::new();
+        for _ in 0..10 {
+            w.pump();
+            for event in w.engine.poll_events(64) {
+                if let Event::Completed { op, result } = event {
+                    results.insert(op, result);
+                }
+            }
+        }
+        for op in [start, stop] {
+            match &results[&op] {
+                OpResult::Err(e) => assert_eq!(e.code, expected, "{error:?}"),
+                other => panic!("{error:?}: {other:?}"),
+            }
+        }
     }
-    let _ = adopt;
-    assert_eq!(
-        again.engine.get(&sid("a")).unwrap().state,
-        SessionState::Created
-    );
-    assert_eq!(
-        again.engine.get(&sid("b")).unwrap().state,
-        SessionState::Lost(LostReason::Other)
-    );
-    assert!(
-        again.engine.get(&sid("v99")).is_err(),
-        "another version is left"
-    );
-    assert!(
-        again.engine.get(&sid("bad")).is_err(),
-        "a damaged row is left"
-    );
-    assert_eq!(
-        again.instance_of("kept"),
-        kept_instance,
-        "an existing session is not replaced"
-    );
-    assert_eq!(again.engine.sessions[&sid("a")].admit, Admit::Created);
-    assert_eq!(again.engine.sessions[&sid("b")].admit, Admit::Lost);
 }
 
 /// Core OR-2, EV-5, plan 2.5 rule 7: the engine does not take an observation while the start is not through, also while

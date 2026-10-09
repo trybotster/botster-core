@@ -3,7 +3,8 @@
 
 use botster_core_contract::prelude::*;
 use botster_core_edges::edges::{
-    ExitStatus, GroupSignal, ProcessIdentity, SpawnError, SpawnSpec, Storage, StorageError,
+    ExitStatus, GroupSignal, IdentityState, ProcessIdentity, SpawnError, SpawnSpec, Storage,
+    StorageError,
 };
 use botster_core_edges::scheduler::Production;
 use botster_core_edges::{Entropy, Scheduler, Wake as WakeEdge};
@@ -199,6 +200,8 @@ pub struct RealEdges {
     socket: PathBuf,
     streams: BTreeMap<LinkId, LinkIo>,
     next_link: u64,
+    /// Files of the registry directory that are not rows, at the last read of the rows.
+    foreign_registry_files: usize,
     wake: Arc<PollWake>,
     scheduler: Production,
 }
@@ -228,6 +231,7 @@ impl RealEdges {
                 socket,
                 streams: BTreeMap::new(),
                 next_link: 1,
+                foreign_registry_files: 0,
                 wake,
                 scheduler: Production::new(),
             },
@@ -261,8 +265,11 @@ impl HostEdges for RealEdges {
     }
 
     fn read_rows(&mut self, prefix: &str) -> Result<Vec<(String, Vec<u8>)>, StorageError> {
+        let scan = self.storage.scan()?;
+        // A file that Core did not write is not a row: it is counted and left alone (lead ruling on audit A1).
+        self.foreign_registry_files = scan.foreign;
         let mut rows = Vec::new();
-        for key in self.storage.list_rows()? {
+        for key in scan.keys {
             if key.starts_with(prefix) {
                 if let Some(bytes) = self.storage.read_row(&key)? {
                     rows.push((key, bytes));
@@ -289,6 +296,10 @@ impl HostEdges for RealEdges {
 
     fn signal_group(&mut self, identity: ProcessIdentity, signal: GroupSignal) {
         self.children.signal_group(identity, signal);
+    }
+
+    fn identity_state(&self, identity: ProcessIdentity) -> IdentityState {
+        botster_core_sys::process::identity_state(identity)
     }
 
     fn poll_process_exit(&mut self) -> Option<(ProcessIdentity, ExitStatus)> {
@@ -382,6 +393,10 @@ impl HostEdges for RealEdges {
 
     fn scheduler(&mut self) -> &mut dyn Scheduler {
         &mut self.scheduler
+    }
+
+    fn diagnostics(&self) -> serde_json::Value {
+        serde_json::json!({ "foreign_registry_files": self.foreign_registry_files })
     }
 }
 

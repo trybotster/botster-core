@@ -1,6 +1,7 @@
 //! Checks of the injected host edges (Core A5-1, A5-2, A5-3).
 
 use super::*;
+use std::time::Instant;
 
 fn edges(seed: u64) -> SimEdges {
     SimEdges {
@@ -172,6 +173,11 @@ impl Spawner for RecordedSpawner {
         lock(&self.0).signals.push((identity, signal));
     }
 
+    /// The log only records: no process of it ever ends by itself.
+    fn identity_state(&self, _identity: ProcessIdentity) -> IdentityState {
+        IdentityState::Matches
+    }
+
     fn poll_exit(&mut self) -> Option<(ProcessIdentity, ExitStatus)> {
         lock(&self.0).exits.pop_front()
     }
@@ -212,13 +218,10 @@ fn each_spawn_has_its_own_link_and_process_events_reach_the_spawner() {
 
 /// LC-2, LC-12, and DP-8: dropping the host releases the directory, retains rows, and advances the epoch.
 #[test]
-#[allow(clippy::disallowed_methods)] // The test initializes the injected clock once.
 fn reopen_retains_rows_and_advances_the_host_epoch() {
-    let start = Instant::now();
     let run = || RunInputs {
         seed: 4,
         scheduler: SchedulerHandle::with_seed(4),
-        start,
     };
     let config = OpenConfig {
         data_dir: "memory".into(),
@@ -288,7 +291,7 @@ fn the_testkit_facade_forwards_configuration_and_typed_failures() {
     };
     let edges = edges(5);
     let wake = edges.wake();
-    let driver = HostDriver::new(cfg, edges, start);
+    let driver = HostDriver::open(cfg, edges).unwrap();
     let mut core = crate::worker::TestkitCore::new(driver, wake, workers, "h", "facade");
     assert_eq!(core.limits(), limits);
     assert_eq!(core.features(), features);
@@ -443,11 +446,7 @@ fn the_testkit_facade_releases_captures_by_id_and_owner() {
                 worker_path: Some("worker".into()),
                 limits: CoreLimits::default(),
             },
-            RunInputs {
-                seed: 7,
-                scheduler,
-                start,
-            },
+            RunInputs { seed: 7, scheduler },
             core_features(),
             Some(Box::new(RecordedSpawner(log.clone()))),
         )
@@ -683,7 +682,6 @@ fn the_worker_keeps_complete_operations_at_each_buffer_bound() {
                 RunInputs {
                     seed: 11,
                     scheduler,
-                    start,
                 },
                 core_features(),
                 Some(Box::new(workers.spawner("buffers"))),
@@ -762,4 +760,115 @@ fn settle_partial(core: &mut crate::worker::TestkitCore, start: Instant) -> Vec<
         }
     }
     panic!("partial progress did not complete the operation");
+}
+
+/// LC-12, AD-6, LC-7 (integration finding K1): the handles of one run share one process table. After a drop and a reopen
+/// the earlier handle's worker still runs in the `Sim`; the new handle's identity probe sees it (`Matches`, not a false
+/// `Absent`), its `Remove` of the adopted session kills it, and the remove completes.
+#[test]
+fn a_reopened_handle_sees_and_ends_the_worker_of_the_earlier_handle() {
+    let start = Instant::now();
+    let scheduler = SchedulerHandle::with_seed(13);
+    scheduler.with(|s| {
+        s.overrides_mut().no_spurious_wakes = true;
+    });
+    let workers = crate::worker::Workers::new(scheduler.clone(), start);
+    let mut dirs = Directories::default();
+    let config = OpenConfig {
+        data_dir: "reopen".into(),
+        worker_path: Some("worker".into()),
+        limits: CoreLimits::default(),
+    };
+    let open = |dirs: &mut Directories| {
+        let opened = dirs
+            .open(
+                "reopen",
+                &config,
+                RunInputs {
+                    seed: 13,
+                    scheduler: scheduler.clone(),
+                },
+                core_features(),
+                Some(Box::new(workers.spawner("reopen"))),
+            )
+            .unwrap();
+        crate::worker::TestkitCore::new(opened.driver, opened.wake, workers.clone(), "h", "reopen")
+    };
+    let session = SessionId("s".into());
+    let mut first = open(&mut dirs);
+    first
+        .begin(Op::Create {
+            session: session.clone(),
+            request: SpawnRequest {
+                argv: vec!["program".into()],
+                env: BTreeMap::new(),
+                cwd: "/".into(),
+                size: Size {
+                    rows: 24,
+                    cols: 80,
+                    cell_px: None,
+                },
+                labels: BTreeMap::new(),
+                color_profile: None,
+                notification_policy: None,
+                size_policy: None,
+            },
+        })
+        .unwrap();
+    settle_partial(&mut first, start);
+    first
+        .begin(Op::Start {
+            id: session.clone(),
+        })
+        .unwrap();
+    settle_partial(&mut first, start);
+    assert_eq!(first.get(&session).unwrap().state, SessionState::Running);
+    drop(first);
+    // The identity that the registry recorded for the worker (AD-6), read with Core's own decoder.
+    let row = lock(&dirs.dirs["reopen"]).rows["session/s"].clone();
+    let identity = botster_core_host::session::Row::decode(&session, &row)
+        .and_then(|row| row.worker)
+        .expect("the row names its worker")
+        .identity();
+    let probe = workers.spawner("reopen");
+    assert_eq!(
+        probe.identity_state(identity),
+        IdentityState::Matches,
+        "LC-12: the worker outlives its handle"
+    );
+    let mut second = open(&mut dirs);
+    let adopt = second.begin(Op::AdoptAll).unwrap();
+    let mut events = settle_partial(&mut second, start);
+    let remove = second
+        .begin(Op::Remove {
+            id: session.clone(),
+        })
+        .unwrap();
+    events.extend(settle_partial(&mut second, start));
+    // The kill is not an observed exit: after `stop_grace` the host checks the identity again (LC-7, AD-6).
+    let grace = start + CoreLimits::default().stop_grace;
+    for _ in 0..64 {
+        let report = second.pump(Now {
+            monotonic: grace,
+            unix: 1_000_000,
+        });
+        events.extend(second.poll_events(64));
+        if !report.more {
+            break;
+        }
+    }
+    for op in [adopt, remove] {
+        assert!(
+            events.iter().any(
+                |e| matches!(e, Event::Completed { op: o, result: OpResult::Ok(_) } if *o == op)
+            ),
+            "{op:?}: {events:?}"
+        );
+    }
+    assert_eq!(
+        probe.identity_state(identity),
+        IdentityState::Absent,
+        "the remove ended the earlier worker"
+    );
+    assert!(second.list().is_empty());
 }
