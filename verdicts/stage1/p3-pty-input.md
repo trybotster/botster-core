@@ -138,3 +138,49 @@ P3 reports that the interim accept needs a `process-check` allow entry until P6 
 That entry and its scope must be checked in the union; this review does not approve an absent entry.
 
 VERDICT: NOT CLEAN (1 open: R2-1 HIGH) at 8a762ac00a354b032432a5a26963d93c91e0284c
+
+## Round 3 — CLEAN on head 546f8084
+
+Reviewer: integration reviewer (Astra), `sess-1791575341-0172-bec01ec06119f11c948f14371195fa92`.
+
+Reviewed head: `546f8084f6bbcbfe9ca2ba9ef323dc74f68bec15`.
+The complete delta from `8a762ac00a354b032432a5a26963d93c91e0284c` changes only the session fixture.
+The preceding rounds cover the unchanged product code and shared testkit. The HIGH tier remains correct.
+
+### R2-1 closed
+
+- Both the worker and driver observer now start through `Guard::wrapper` and `OwnedChild::spawn_group`.
+  The fixture verifies the worker anchor's leader before launching the payload, then verifies the second anchor's payload leader.
+  That sequence makes the two report indices deterministic.
+- Test-parent death closes both guard connections. Each anchor ends its group without a test destructor.
+  Normal cleanup releases both anchors, ends and reaps the worker, then reads guard outcomes.
+  The fixture keeps shared identity checks and group reservation. Production's DP-8 behavior and payload reaping are unchanged.
+- `a_guarded_session_ends_when_its_test_parent_dies` waits for the fixture parent's report before killing that parent.
+  Shared helpers bound the report read and status wait. The helper's own stdin wait is also bounded.
+  `rounds::await_group_end` then observes both groups without signalling them.
+- The reviewer read the saved rollback patch, failure log, failing source excerpt, and survivor listing in
+  `~/botster-sessions/shared/core-stage1/evidence/p3-198-r2-1/`.
+  The patch removes the worker wrapper use and its anchor wait, and adjusts the payload anchor count.
+  Both binaries fail at the group-end observation after parent death, not at startup.
+  The saved listing identifies the surviving worker and observer, each with PPID 1.
+  This verifies that the proof detects R2-1. P3 reports that it then ended both survivors by their exact PIDs.
+
+### Exact-head evidence
+
+- The full Linux pool gate names this head and base `7aec2bb917f48994d1705301d2383873a219c031`.
+  Ancestry passes. A final remote-reference check confirms that `v1` and the PR head still equal those commits.
+  Log: `~/botster-sessions/gates/botster-core-stage1-p3-pty-input-546f8084-pool-20261009-130637-72222.log`.
+- All ten CI steps pass: 1040 default tests and 249 slow tests.
+  Both parent-death proofs pass (lines 2448 and 2481), as do both real-PTY cancellation proofs (lines 2453 and 2484).
+  Both mutation runs report 108 caught, 0 missed, 0 timeout, and 10 unviable.
+  The supplemental run uses `NEXTEST_PROFILE=slow`. The gate exits 0.
+- The reviewer read package round 125 at verdict commit `c24571c34aef5ba5d1c0e1b9c0aaeadc7f8bce97`.
+  It reports CLEAN on this exact head and closes F64, F65, and F66 (integration R2-1).
+- The PR description names the corrected ownership, proof, and exact-head gate. `git diff --check` passes.
+  This reviewer ran no test, build, or gate.
+
+The #181/#198 union condition remains: the second PR to merge needs an integration union review and a full gate.
+The lead's accepted bounded-accept carry also remains. The second PR adds the temporary allow entry;
+P6's next crate PR supplies shared bounded accept, migrates this site, and removes that entry.
+
+VERDICT: CLEAN (0 open) at 546f8084f6bbcbfe9ca2ba9ef323dc74f68bec15
