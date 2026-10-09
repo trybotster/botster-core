@@ -8,6 +8,7 @@
 use crate::controls::ControlRegistry;
 use crate::core::{core_features, Directories, RunInputs};
 use crate::refusal::{RefusalHandle, RefusalLayer};
+use crate::resume_controls::CaptureLog;
 use crate::scheduler::SchedulerHandle;
 use crate::worker::{ProcessTable, TestkitCore, Workers};
 use botster_core_conformance::{
@@ -38,6 +39,8 @@ pub struct TestkitHarness {
 struct HandleEdges {
     dir: String,
     processes: ProcessTable,
+    /// The captures that its host completed (`oracle_resume`).
+    captures: CaptureLog,
 }
 
 impl std::fmt::Debug for HandleEdges {
@@ -81,6 +84,11 @@ impl TestkitHarness {
     /// The data directory of `handle`, once `open` built it.
     pub(crate) fn directory_of(&self, handle: &str) -> Option<&str> {
         self.handles.get(handle).map(|h| h.dir.as_str())
+    }
+
+    /// The captures that the host of `handle` completed, once `open` built it.
+    pub(crate) fn captures_of(&self, handle: &str) -> Option<CaptureLog> {
+        self.handles.get(handle).map(|h| h.captures.clone())
     }
 
     /// The process table of the host of `handle`, once `open` built it.
@@ -140,18 +148,19 @@ impl CoreHarness for TestkitHarness {
             Some(Box::new(spawner)),
         )?;
         table.set_wake(Arc::clone(&opened.wake));
-        self.handles.insert(
-            spec.handle.clone(),
-            HandleEdges {
-                dir: spec.data_dir.0.clone(),
-                processes: table,
-            },
-        );
         let core = Box::new(TestkitCore::new(
             opened.driver,
             opened.wake,
             self.workers.clone(),
         ));
+        self.handles.insert(
+            spec.handle.clone(),
+            HandleEdges {
+                dir: spec.data_dir.0.clone(),
+                processes: table,
+                captures: core.captures(),
+            },
+        );
         Ok(self.with_refusals(&spec.handle, core))
     }
 
