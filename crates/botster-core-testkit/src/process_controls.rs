@@ -13,19 +13,8 @@ use serde_json::Value;
 
 /// The process controls that the testkit cannot build yet, each with what it waits for.
 const UNSUPPORTED: &[(&str, &str)] = &[
-    // The adoption handshake of the in-process worker (#176).
-    (
-        "impostor_worker",
-        "the adoption endpoint of the in-process worker",
-    ),
-    (
-        "signals_received",
-        "the adoption endpoint of the in-process worker",
-    ),
-    (
-        "withhold_control_link",
-        "the adoption endpoint of the in-process worker",
-    ),
+    // The adoption handshake of the in-process worker (#176). `impostor_worker`, `signals_received` and
+    // `withhold_control_link` are in `adopt_controls`.
     (
         "announce_protocol",
         "the adoption endpoint of the in-process worker",
