@@ -45,7 +45,7 @@ pub fn tokens(text: &str) -> Tokens {
     let at = |i: usize| chars.get(i).copied();
     // The code so far without whitespace, comments or literal text: what precedes the next token.
     let mut code = String::new();
-    let mut literal = |found: &mut Tokens, code: &mut String, line: usize, text: String| {
+    let literal = |found: &mut Tokens, code: &mut String, line: usize, text: String| {
         if code.ends_with(PROGRAM_CALL) {
             found.programs.push((line, text.clone()));
         }
