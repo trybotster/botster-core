@@ -1,7 +1,7 @@
 # P3 worker review
 
-Current verdict: NOT CLEAN for PR #167 Part A at `c95b4d7646fb5388ce6421bcc4baa708c73685e9`.
-Round 92 records F49 LOW, an inaccurate test name and comment after the split from #163.
+Current verdict: CLEAN for PR #167 Part A at `4592ba9c4e5657ef0d5856b6b55af40f2471c9bb`.
+Round 93 closes F49 LOW and records the exact-head evidence and corrected PR description.
 PR #163 Part B retains F28, F33 execution, and F39 for its later merge delta.
 PR #165 remains CLEAN at `29b37890efeffa4410d7dfc34f5c2344bfad1ba4` and landed through #162.
 F45 through F48 are CLOSED. F39 is CLOSED within #165.
@@ -4321,3 +4321,49 @@ The reviewer changed no product code and ran no tests, builds, measurements, mut
 All earlier findings, closures, and verdict rounds remain preserved.
 
 VERDICT: NOT CLEAN
+
+
+## Round 93 — Part A drain claims corrected
+
+Reviewed head: `4592ba9c4e5657ef0d5856b6b55af40f2471c9bb`, PR #167, branch `stage1/p3-audit-fixes-a`.
+Source base: `a22811b61cd52aa503dc57e66b47c3d3bbd4746d`.
+Reviewed delta: `c95b4d76..4592ba9c`, one commit, two files, comments and one test name.
+Round 92 records the whole Part A source review and the approved split scope.
+
+### F49 — LOW — CLOSED at 4592ba9c
+
+The test name is now `the_edge_drain_is_bounded_by_the_asked_count`.
+Its comment describes the bounded testkit drain and its one flushing read, without claiming parity with the real driver.
+The drain field comment and the readiness comment also describe the testkit path directly.
+The remaining real-driver comparisons concern link setup and queued link writes. Neither comparison claims drain parity.
+The delta changes no statement, assertion, expected value, mutation exclusion, or process ownership.
+The Drain module documentation still states that A31 remains open in the real driver.
+
+### Evidence and description
+
+The reviewer read the completed exact-head Linux log:
+`~/botster-sessions/gates/botster-core-stage1-p3-audit-fixes-a-4592ba9c-pool-20261008-212212-55802.log`.
+Its job base is `0b0eecc06d0cd4c39af5e33e59c0b3f643aba6d4`, distinct from the source base above.
+Formatting, taint, the timer scan of 112 Rust files, lists, and clippy pass.
+The renamed test passes. The nextest selection runs one test and skips 198 tests.
+The job exits 0 after 16 seconds on msa1.
+The earlier focused evidence at d823a40e remains applicable because the later deltas change only comments and one test name.
+These jobs are focused evidence, not the landing gate.
+
+The reviewer verified the current PR description and exact head through GitHub.
+The description names the current log, its job base, and the earlier logs as history.
+It distinguishes the source base from each job base and states F49's corrected scope.
+It preserves the open A31 statement and the Part B obligations.
+
+### Verdict and limits
+
+PR #167 Part A has no open package finding, including LOW, at this exact head.
+F33's selection source is included; its required failed-watch execution remains in Part B.
+Part B retains F28 native mutation evidence, F33 execution, and F39's later merge duty.
+A31 remains open after Part A. The lead keeps #161 parked until Part B.
+This CLEAN does not clear Part B, M2a, M2b, the A32/A33 follow-up, or pending conformance IDs.
+The cross-package integration review and the implementer's landing gate remain required.
+The reviewer changed no product code and ran no tests, builds, measurements, mutants, or gates.
+All earlier findings, closures, and verdict rounds remain preserved at their named heads and scopes.
+
+VERDICT: CLEAN
