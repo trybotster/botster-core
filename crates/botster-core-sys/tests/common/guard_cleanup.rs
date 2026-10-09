@@ -323,7 +323,7 @@ impl Owned {
     }
 
     /// The child's exit status, once its exit was observed within the cleanup limit.
-    fn status(&mut self) -> std::process::ExitStatus {
+    pub(crate) fn status(&mut self) -> std::process::ExitStatus {
         self.status_within(CLEANUP)
     }
 
