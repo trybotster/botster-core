@@ -1,6 +1,6 @@
 //! The inputs of the engine: edge results, worker links and processes (plan 2.1).
 
-use crate::engine::{CaptureEntry, HostEngine, Next, Owner, Step};
+use crate::engine::{CaptureEntry, HostEngine, Next, Owner, ParkedRoute, Step};
 use crate::flow::*;
 use crate::io::{Action, Input, LinkId, Ticket};
 use crate::run::registry_failed;
@@ -26,7 +26,8 @@ impl HostEngine {
                 match self.take_ticket(ticket) {
                     Some(Owner::Session(id)) => self.flow_row(&id, result),
                     Some(Owner::Op(op)) => self.op_row(op, result),
-                    Some(Owner::Ignored) | None => {}
+                    Some(Owner::FinalRow) if result.is_err() => self.final_row_failures += 1,
+                    Some(Owner::FinalRow) | None => {}
                 }
             }
             Input::Spawned { ticket, result } => {
@@ -47,16 +48,10 @@ impl HostEngine {
             }
             Input::LinkClosed { link } => self.on_link_closed(link),
             Input::HandoffFailed { route } => {
-                if self.routes.contains_key(&route)
-                    && !self.close_route(route, RouteCloseReason::HandoffFailed)
-                {
-                    self.parked_closes
-                        .push_back((route, RouteCloseReason::HandoffFailed));
-                }
+                self.route_close(route, RouteCloseReason::HandoffFailed);
             }
             Input::ProcessExited { identity, status } => self.on_process_exited(identity, status),
             Input::IdentityState { identity, state } => self.flow_remove_probed(identity, state),
-            Input::Features(features) => self.features = features,
         }
     }
 
@@ -141,7 +136,7 @@ impl HostEngine {
             .find(|(_, s)| s.instance == hello.instance)
             .map(|(id, _)| id.clone());
         let Some(id) = found else {
-            self.act(Action::CloseLink { link });
+            self.close_link(link, "the hello names an instance of no session (AD-6)");
             return;
         };
         let session = &self.sessions[&id];
@@ -153,18 +148,28 @@ impl HostEngine {
             .token
             .filter(|_| accepting && session.worker.link.is_none())
         else {
-            self.act(Action::CloseLink { link });
+            self.close_link(
+                link,
+                "the hello comes for a session that waits for none (AD-6)",
+            );
             return;
         };
         let proof = token_proof(&token, &hello.instance, self.cfg.host_epoch);
         if hello.proof != proof || hello.host_epoch != self.cfg.host_epoch {
             // AD-6: a link that does not prove the token and the epoch is closed, and the start keeps waiting.
-            self.act(Action::CloseLink { link });
+            self.close_link(
+                link,
+                "the hello does not prove the token or the host epoch (AD-6)",
+            );
             return;
         }
         if !self.adoptable_worker_protocols().contains(&hello.protocol) {
             // AD-4, A6-2: a worker outside {T, T - 1} is `Lost(WorkerVersion)`, and Core never misbehaves.
-            self.act(Action::CloseLink { link });
+            let why = format!(
+                "the worker protocol {} is not adoptable (AD-4)",
+                hello.protocol
+            );
+            self.close_link(link, &why);
             if let Some(identity) = self.identity_of(&id) {
                 self.act(Action::SignalGroup {
                     identity,
@@ -269,9 +274,7 @@ impl HostEngine {
                 reason,
                 route_tag: _,
             } => {
-                if self.routes.contains_key(&route) && !self.close_route(route, reason) {
-                    self.parked_closes.push_back((route, reason));
-                }
+                self.route_close(route, reason);
             }
             WorkerMsg::RouteStalled { route } => self.route_event(route, true),
             WorkerMsg::RouteResumed { route } => self.route_event(route, false),
@@ -281,18 +284,34 @@ impl HostEngine {
         }
     }
 
-    fn route_event(&mut self, route: RouteId, stalled: bool) {
+    /// Closes a route now, or after the route events that wait ahead of it (EV-5b, EV-6).
+    fn route_close(&mut self, route: RouteId, reason: RouteCloseReason) {
         if !self.routes.contains_key(&route) {
             return;
+        }
+        if !self.parked.is_empty() || !self.close_route(route, reason) {
+            self.parked.push_back(ParkedRoute::Close(route, reason));
+        }
+    }
+
+    fn route_event(&mut self, route: RouteId, stalled: bool) {
+        // An event waits behind the ones parked before it, so the worker's order holds (EV-6).
+        if !self.parked.is_empty() || !self.post_route_progress(route, stalled) {
+            self.parked.push_back(ParkedRoute::Progress(route, stalled));
+        }
+    }
+
+    /// Posts `RouteStalled` or `RouteResumed` of a route that still exists. False when the queue has no room.
+    fn post_route_progress(&mut self, route: RouteId, stalled: bool) -> bool {
+        if !self.routes.contains_key(&route) {
+            return true;
         }
         let event = if stalled {
             Event::RouteStalled { route }
         } else {
             Event::RouteResumed { route }
         };
-        if let Err(event) = self.queue.post_mandatory(event) {
-            self.parked_events.push_back(*event);
-        }
+        self.queue.post_mandatory(event).is_ok()
     }
 
     fn on_done(&mut self, id: &SessionId, req: u64, result: OpResult) {
@@ -606,13 +625,8 @@ impl HostEngine {
         let shown = self.sessions[&id].shown;
         let flow = self.sessions[&id].flow.clone();
         // The worker is gone: its link is gone with it.
-        if let Some(link) = self
-            .sessions
-            .get_mut(&id)
-            .and_then(|s| s.worker.link.take())
-        {
-            self.links.remove(&link);
-            self.act(Action::CloseLink { link });
+        if self.sessions[&id].worker.link.is_some() {
+            self.close_worker_link(&id, "the worker process ended");
             self.sessions
                 .get_mut(&id)
                 .expect("found above")
@@ -647,20 +661,21 @@ impl HostEngine {
 
     /// The wake of a parked route event: it posts when the queue has room again (EV-5d).
     pub(crate) fn run_parked(&mut self) {
-        if let Some((route, reason)) = self.parked_closes.pop_front() {
-            if self.routes.contains_key(&route) && !self.close_route(route, reason) {
-                self.parked_closes.push_front((route, reason));
-            }
+        let Some(next) = self.parked.pop_front() else {
             return;
-        }
-        if let Some(event) = self.parked_events.pop_front() {
-            if let Err(event) = self.queue.post_mandatory(event) {
-                self.parked_events.push_front(*event);
+        };
+        let posted = match next {
+            ParkedRoute::Close(route, reason) => {
+                !self.routes.contains_key(&route) || self.close_route(route, reason)
             }
+            ParkedRoute::Progress(route, stalled) => self.post_route_progress(route, stalled),
+        };
+        if !posted {
+            self.parked.push_front(next);
         }
     }
 
     pub(crate) fn parked_work(&self) -> bool {
-        !self.parked_closes.is_empty() || !self.parked_events.is_empty()
+        !self.parked.is_empty()
     }
 }

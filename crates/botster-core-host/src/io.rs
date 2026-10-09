@@ -160,8 +160,6 @@ pub enum Input {
         identity: ProcessIdentity,
         state: IdentityState,
     },
-    /// The platform and the edges now support exactly these features (A2-6). The testkit uses it for `withhold_feature`.
-    Features(Features),
 }
 
 /// The proof of a hello as the engine needs it: the engine recomputes it from the token (AD-6).
