@@ -687,12 +687,16 @@ const KEY_MODE_BITS: u32 = 6;
 /// Kitty flag 16, "report associated text": the flag under which the key's text is written as code points.
 const KITTY_REPORT_TEXT: u8 = 16;
 
+/// The states of the key search: the 64 key-mode combinations with each of the 32 kitty flag combinations.
+const KEY_STATES: u32 = 1 << (KEY_MODE_BITS + KITTY_FLAG_BITS);
+const _: () = assert!(KEY_STATES == 64 * 32);
+
 impl EncoderState {
     /// Every state that the key encoder reads: each of the six key modes on and off, with each of the 32 kitty flag
     /// combinations (5.1A: "any legacy or kitty flag combination"). The order puts the states that report associated text
     /// first: the kitty flags are the low bits of the index with flag 16 inverted, so the first 16 states have it on.
     fn every_key_state() -> impl Iterator<Item = EncoderState> {
-        (0u32..1 << (KEY_MODE_BITS + KITTY_FLAG_BITS)).map(|bits| {
+        (0..KEY_STATES).map(|bits| {
             let mode = |bit: u32| bits & (1 << (KITTY_FLAG_BITS + bit)) != 0;
             EncoderState {
                 cursor_key_application: mode(0),
