@@ -326,6 +326,17 @@ exclude_re = [
     # errors (EMFILE, ENFILE, ENOBUFS, ECONNABORTED) need a process-wide descriptor or memory limit, or a peer reset inside
     # the kernel's accept queue; a test cannot cause one without breaking the other tests of the process.
     'crates/botster-test-process/src/anchor\.rs:\d+:\d+: replace match guard error\.kind\(\) == io::ErrorKind::WouldBlock with true in Guard::accept$',
+    # reserved_kill: `EXITED | NOWAIT | NOHANG` joins disjoint bits (WEXITED, WNOWAIT and WNOHANG), so `^` gives the same value.
+    'crates/botster-test-process/src/rounds\.rs:\d+:\d+: replace \| with \^ in reserved_kill$',
+    # platform/linux.rs await_end: with the guard always true, every pidfd_open error reads as "gone". The other errors
+    # (EMFILE, ENFILE, ENOMEM, ENODEV) need a process-wide descriptor or memory limit; a test cannot cause one without
+    # breaking the other tests of the process. `gone_at_open` and the ESRCH case (a_wait_for_a_pid_with_no_process_reports_it_gone)
+    # stay tested.
+    'crates/botster-test-process/src/platform/linux\.rs:\d+:\d+: replace match guard gone_at_open\(error\) with true in await_end$',
+    # platform/linux.rs live_members: with the guard always true, every error of the read of /proc/<pid>/stat reads as "ended".
+    # The file is readable by every user, so the other errors (EIO, ENOMEM) need a failing kernel; `ended_since_listing` stays
+    # tested.
+    'crates/botster-test-process/src/platform/linux\.rs:\d+:\d+: replace match guard ended_since_listing\(&error\) with true in live_members$',
     # botster-test-process (P6): the default tier starts no real process (BUILD.md testing rules 1 and 2), so the code that
     # starts, waits for, signals or reads a real process is proved by the crate's slow tier, tests/slow_process.rs (slow-tier
     # mutation run of the crate, P6 PR A evidence). Each entry names one function and the slow tests that exercise it. The

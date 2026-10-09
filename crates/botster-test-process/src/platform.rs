@@ -111,6 +111,16 @@ mod tests {
         assert_eq!(start_time(pid(i32::MAX.unsigned_abs()).unwrap()), None);
     }
 
+    /// No process has the largest pid (both systems' pid limits are lower): the wait reports it gone at once.
+    #[test]
+    fn a_wait_for_a_pid_with_no_process_reports_it_gone() {
+        let none = pid(i32::MAX.unsigned_abs()).unwrap();
+        assert_eq!(
+            await_end(none, crate::Deadline::after(std::time::Duration::ZERO)).unwrap(),
+            Waited::Gone
+        );
+    }
+
     #[test]
     fn members_are_the_same_when_their_pids_are_the_same() {
         let member = |raw, state: &str| Member {
