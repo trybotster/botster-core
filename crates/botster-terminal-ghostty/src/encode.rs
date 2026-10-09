@@ -804,6 +804,11 @@ pub fn longest_focus_report(focused: bool) -> u64 {
     encode_focus(true, focused).map_or(0, |bytes| bytes.len() as u64)
 }
 
+// A pointer to a `c_void` is the type of every handle above.
+const _: () = {
+    let _ = std::mem::size_of::<*mut c_void>();
+};
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -838,8 +843,3 @@ mod tests {
         }
     }
 }
-
-// A pointer to a `c_void` is the type of every handle above.
-const _: () = {
-    let _ = std::mem::size_of::<*mut c_void>();
-};
