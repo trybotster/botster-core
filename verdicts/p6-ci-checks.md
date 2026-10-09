@@ -323,3 +323,175 @@ The shared crate keeps bounded event waits and production's exclusive reap owner
 Four findings remain open. This is the second NOT CLEAN round; the round-limit report is not yet due.
 
 VERDICT: NOT CLEAN
+
+## Round 3 — PR #181 — 2026-10-09
+
+Reviewed head: `7bb34d7618238f116613319f0883fae0d1fe82f7`.
+Previous reviewed head: `a4b803e435553d7e8f9851991515189d62dfe67d`.
+Merge base and full gate base: `67fd748a369d0ed544e3373d20c887024af31fa8`.
+
+The reviewer checked the stated tier first. HIGH remains correct under BUILD.md rules 1 and 3.
+The reviewer inspected the delta, regression fixtures, base merges, and supplied evidence.
+The reviewer ran no gate, build, test, or mutation job and changed no product code.
+The remaining cases below are source findings. The reviewer did not execute these cases.
+
+### Fixes that address the reported examples
+
+The module tree now parses reached files regardless of their extension. The `gen.inc` fixture is covered.
+The process, timer, and platform checks resolve an inner `#[path]` under its inline module directory.
+The new fixtures include the previous decoy-file cases.
+
+The I/O classifier rejects callback and method names alone. It filters local bindings before path classification.
+It follows scoped imports and module paths for transitive calls.
+The `forwarded_write` fixture rejects the previously reported pure callback decision.
+
+The proof-name fallback excludes test modules and test files.
+The new fixture rejects a function without `#[test]` inside a `#[cfg(test)]` module.
+The citation check evaluates conditional `cfg` attributes and keeps the conditional-ignore regressions.
+
+B1, B2, B4, B7, and B9 remain closed for the reported cases.
+The shared process crate has no code delta in this round. Its group ownership and production reap separation remain as reviewed.
+Four related cases below keep B3, B5, B6, and B8 open.
+
+### B3 — HIGH — The module walk ignores an inline module's own path
+
+Location: `xtask/src/process_check.rs:750-759`.
+
+The fix applies `#[path]` to an external module declared inside an inline module.
+It still ignores `#[path]` on the inline module itself.
+For example, `src/lib.rs` can declare this test module:
+
+```rust
+#[cfg(test)]
+#[path = "alt"]
+mod checks {
+    #[path = "support.rs"]
+    mod helper;
+}
+```
+
+Rust reads `src/alt/support.rs`. The check reads a decoy `src/checks/support.rs` when that file exists.
+A raw wait in an unannotated helper in the actual file escapes the check.
+The timer check shares this walk. The citation walk also appends the inline module name and ignores its own path attribute.
+The [Rust module reference](https://doc.rust-lang.org/reference/items/modules.html#the-path-attribute) gives this combined path form.
+
+Apply the inline module's own path attribute, or reject the unsupported form explicitly.
+Add a fixture with the actual file and a decoy file. Keep the extension and inner-path fixtures.
+
+### B5 — HIGH — Constructing a builder qualifies a decision as an I/O shell
+
+Location: `xtask/src/gate_decisions.rs:54-77`.
+
+`IO_FUNCTIONS` classifies `std::process::Command::new` as I/O.
+That call constructs a command builder. It starts no process, as the [Command documentation](https://doc.rust-lang.org/std/process/struct.Command.html#method.new) specifies.
+
+For example, this function contains a gate decision and starts no process:
+
+```rust
+fn forwarded(code: Option<i32>) -> Result<()> {
+    let _ = std::process::Command::new("unused");
+    mutation_verdict(code)
+}
+```
+
+The classifier marks `forwarded` as I/O.
+Its whole-body exclusion with reason `mutation_verdict` passes when that decision is tested and unexcluded.
+The `std::fs` prefix has the same problem with `std::fs::OpenOptions::new`, which only constructs an options builder.
+
+Require an actual I/O operation for the shell exemption. Construction alone must not exempt a gate decision.
+Add rejected fixtures for both builders. Keep the callback-name and method-name regressions.
+
+### B6 — HIGH — A top-level proof still passes after it loses its test attribute
+
+Location: `xtask/src/mutants_cited.rs:568-599`.
+
+The new fixture removes `#[test]` only inside an enclosing test module.
+Rust also permits a top-level proof function in `src/lib.rs` without an enclosing `#[cfg(test)]` module:
+
+```rust
+#[test]
+pub fn the_cited_proof() {}
+```
+
+Remove `#[test]`, and `Items` records `the_cited_proof` as a non-test-code identifier.
+The reason still passes, although no tier runs that function as a test.
+The [Rust testing reference](https://doc.rust-lang.org/reference/attributes/testing.html#the-test-attribute) defines the test attribute on a free function.
+
+Distinguish proof-test citations explicitly from source references. Require proof-test citations to name selected tests.
+Add a rejected fixture for the top-level attribute removal. Keep the test-module and conditional-cfg fixtures.
+
+### B8 — MEDIUM — An inline module path can still exclude the compiled file
+
+Location: `xtask/src/platform_code.rs:160-179`, `visit_item_mod`.
+
+The inner-path fix does not apply an inline module's own `#[path]`.
+For example, `src/lib.rs` can declare these modules:
+
+```rust
+#[cfg(target_os = "macos")]
+#[path = "alt/shared.rs"]
+mod mac;
+#[cfg(target_os = "linux")]
+#[path = "alt"]
+mod linux {
+    #[path = "shared.rs"]
+    mod live;
+}
+```
+
+On Linux, Rust compiles `src/alt/shared.rs`.
+With a decoy `src/linux/shared.rs`, the derivation records the decoy as active.
+The Mac declaration then excludes the compiled `src/alt/shared.rs` as a whole file.
+The [Rust module reference](https://doc.rust-lang.org/reference/items/modules.html#the-path-attribute) specifies the applicable path.
+
+Apply the inline module's own path attribute, or reject this form explicitly.
+Add the shared-file fixture with the decoy. Keep the root-level and inner-path regressions.
+
+### Base merges and preserved assertions
+
+Merge `927fd2e3e40e80328919594f5a7ba751893518b2` imports v1 `dd07eabd3fb5801ff8438f32d08924a7f440ddfa`.
+Its twelve base-only paths match the base parent. `Cargo.lock` is the only overlapping path.
+The lockfile preserves the base pin and the two previously reviewed xtask dependencies.
+Merge `21c32f4a0f49cb888cfde40c2c2c147c1b74476c` imports v1 `3000ae14bf8b05efe410c22ac66d5915cf36ff45`.
+Its two base-only paths match the base parent. It has no overlapping path.
+Merge `7bb34d7618238f116613319f0883fae0d1fe82f7` imports v1 `67fd748a369d0ed544e3373d20c887024af31fa8`.
+Its one base-only path matches the base parent. The base-merge test file is the only overlapping path.
+That test file matches v1 except for the previously reviewed bounded Git helper. Its result assertions remain intact.
+No merge adds an unexpected path. The allowlist delta only renames two entries to match the imported guard test name.
+The reviewer compared Git objects. The reviewer did not run `base-merge-check` or claim a carried CLEAN verdict.
+The Prior-art note remains as reviewed. No process-guard migration enters this round.
+
+### Supplied evidence and its limits
+
+The supplied full log is `botster-core-stage1-p6-ci-checks-7bb34d76-pool-20261009-102251-20084.log` under `~/botster-sessions/gates/`.
+It names the exact reviewed head and base `67fd748a369d0ed544e3373d20c887024af31fa8`.
+All ten jobs pass. It passes 1047 default tests and 248 slow tests.
+It lists 602 mutants: 576 caught and 26 unviable, with no misses or timeouts.
+The supplied slow-profile run is `botster-core-stage1-p6-ci-checks-7bb34d76-pool-20261009-103639-53749.log`.
+It has no immediate fail-fast argument and reports the same mutation counts.
+The existing real hang fixture and process descendant proof remain covered.
+
+The supplied Mac log is `botster-core-stage1-p6-ci-checks-7bb34d76-pool-20261009-105725-95729.log`.
+It passes 79 process tests and skips the prebuilt-anchor test that the Linux gate runs.
+Its focused read and child mutation run reports 38 caught and 15 unviable mutants, with no misses or timeouts.
+Its xtask run reports 216 passed tests and twelve timeouts. The enclosing shell's exit 0 does not make that test run pass.
+The later `-113103-54442.log` reports 227 passed tests and one base-merge timeout.
+
+The timing comparison is `botster-core-stage1-p6-ci-checks-7bb34d76-pool-20261009-113223-66706.log`.
+It uses the slow profile and temporarily substitutes v1 `1dd1657a2c53f4da6953f7a349d7fa9d59b97ec6`'s base-merge test file.
+Both versions pass the 26 base-merge tests under that profile. Several tests exceed two seconds with either helper.
+This supports the reported inherited budget problem. It does not provide a passing default-tier Mac xtask run.
+The implementer reports that P3 owns the move of these Git-heavy tests to the slow tier.
+The reviewer did not treat the repeated runs as a structural fix or change a timeout value.
+
+The evidence proves the recorded regression cases. It does not cover the four remaining cases.
+This is the third NOT CLEAN round on #181. BUILD.md requires a lead decision before round four.
+The lead supplied that decision before this verdict commit, in plan revision 23c, `stage1/plan` commit `def1d25e`.
+Each source-reading check must list its supported forms. It must reject other forms and name the form and file.
+For round four, B3/B8 close when the checks reject `#[path]` on an inline module.
+B5 requires an explicit list of I/O operations and rejection when classification fails.
+B6 requires strict `decision (proof, …)` citations. Wrong results on supported forms remain in scope.
+The reviewer will report QUESTION with this exact head and the pushed verdict commit to acknowledge the round-limit decision.
+The reviewer will wait for the replacement READY head before round four.
+
+VERDICT: NOT CLEAN
