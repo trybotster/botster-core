@@ -165,6 +165,11 @@ impl Uses {
         uses
     }
 
+    /// Each name that a `use` of this scope binds, with its path.
+    pub(crate) fn bindings(&self) -> impl Iterator<Item = (&String, &Vec<String>)> {
+        self.names.iter()
+    }
+
     /// The path that a `use` of this scope binds to `name`, if any.
     pub(crate) fn binding(&self, name: &str) -> Option<&[String]> {
         self.names.get(name).map(Vec::as_slice)

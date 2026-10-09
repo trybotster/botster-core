@@ -626,13 +626,18 @@ fn a_path_module_in_the_xtask_fails_the_index() {
     }
 }
 
-/// #181 B5 round 5, plan section 8: the check reads each binding and `use` of a function where it is, or fails. Through the
-/// whole check (`inputs`, then `check`), a whole-body exclusion of `forwarded`, which starts nothing, is rejected:
-/// - a command `let` under a block `use` (`use crate::ci::pure::Command;`): a function with a command binding and a `use`
-///   in its body is not a listed form;
+/// #181 B5 rounds 5 and 6, plan section 8: the check reads each binding, `use` and item of a function where it is, or
+/// fails. Through the whole check (`inputs`, then `check`), a whole-body exclusion of `forwarded`, which starts nothing, is
+/// rejected (each reviewer fixture):
+/// - a command `let` under a block `use`: a function that starts a command binding and has a `use` in its body fails;
 /// - a statement macro that binds the command name again (`rebind! { let cmd = .. }`): the macro is not a listed form;
 /// - a binding in the arguments of a listed macro (`assert!({ let cmd = ..; .. })`, `assert!({ let write = ..; .. })`):
-///   the check counts it, so the start is on another type and the call is of a local.
+///   the check counts it, so the start is on another type and the call is of a local;
+/// - a block-local `struct Command` or `type Command` under `use std::process::Command;` (B5, R6-2), a local `mod anyhow`
+///   that re-exports `syn::parse_quote` as `bail` and an internal glob of `parse_quote as println` (R6-1): an item or a
+///   `use` that takes a name the check resolves elsewhere fails;
+/// - a `let` in the tokens of an opaque macro (`syn::parse_quote!({ let CMD = Command::new(..); })`, R6-3): it holds no
+///   command, so `CMD.status()` on a static is no start.
 ///
 /// The same fixture with a real start is accepted, so each rejection comes from its form.
 #[test]
@@ -641,46 +646,80 @@ fn a_binding_or_a_use_that_the_check_does_not_resolve_rejects_the_exclusion() {
                 fn mutation_verdict(code: Option<i32>) -> Result<()> { if code == Some(0) { return Ok(()); } bail!(\"x\") }\n\
                 #[cfg(test)]\n\
                 mod tests { #[test] fn verdicts() { assert!(super::mutation_verdict(Some(0)).is_ok()); } }\n\
-                mod pure { pub struct Command; impl Command { pub fn new() -> Self { Self } pub fn status(&self) {} } }\n";
+                struct Pure; impl Pure { fn status(&self) {} }\n";
+    let pure = "pub struct Command;\nimpl Command { pub fn new() -> Self { Self } pub fn status(&self) {} }\n";
     let toml = "exclude_re = [\n    # glue; mutation_verdict (verdicts)\n    'replace forwarded -> Result<\\(\\)> with Ok\\(\\(\\)\\)$',\n]\n";
     let no_io = "the function does no process, file or signal I/O itself";
+    // What the check gives: accepted, one finding, or an error that holds each of these texts.
+    enum Want {
+        Accepted,
+        Finding(&'static str),
+        Rejected(&'static [&'static str]),
+    }
     let cases = [
         (
             "fn forwarded(code: Option<i32>) -> Result<()> { let cmd = Command::new(\"git\"); cmd.status(); mutation_verdict(code) }",
-            Ok(None),
+            Want::Accepted,
         ),
         (
-            "fn forwarded(code: Option<i32>) -> Result<()> { { use crate::ci::pure::Command; let cmd = Command::new(); cmd.status(); } mutation_verdict(code) }",
-            Err(
-                "xtask/src/ci.rs:6:4: the function `forwarded` starts a process command that it binds and has a `use` \
-                 declaration in its body, which is not a form that gate-decisions resolves (plan section 8): it resolves a \
-                 command binding through the `use` declarations around the function; move the `use` out of the function",
-            ),
+            "fn forwarded(code: Option<i32>) -> Result<()> { { use crate::pure::Command; let cmd = Command::new(); cmd.status(); } mutation_verdict(code) }",
+            Want::Rejected(&["xtask/src/ci.rs:6:4: the function `forwarded` starts a process command that it binds and has \
+                              a `use` declaration in its body"]),
         ),
         (
-            "fn forwarded(code: Option<i32>) -> Result<()> { let cmd = Command::new(\"unused\"); rebind! { let cmd = pure::Command::new(); } cmd.status(); mutation_verdict(code) }",
-            Err(
-                "xtask/src/ci.rs:6:83: the macro `rebind!` is not a form that gate-decisions resolves (plan section 8): \
-                 its expansion can bind a name or import a path that the check does not see; use a listed macro or a \
-                 function",
-            ),
+            "fn forwarded(code: Option<i32>) -> Result<()> { let cmd = Command::new(\"unused\"); rebind! { let cmd = crate::pure::Command::new(); } cmd.status(); mutation_verdict(code) }",
+            Want::Rejected(&["xtask/src/ci.rs:6:83: the macro `rebind!` is not a form that gate-decisions resolves"]),
         ),
         (
-            "fn forwarded(cmd: Command, code: Option<i32>) -> Result<()> { assert!({ let cmd = pure::Command::new(); cmd.status(); true }); mutation_verdict(code) }",
-            Ok(Some(no_io)),
+            "fn forwarded(cmd: Command, code: Option<i32>) -> Result<()> { assert!({ let cmd = crate::pure::Command::new(); cmd.status(); true }); mutation_verdict(code) }",
+            Want::Finding(no_io),
         ),
         (
             "fn forwarded(code: Option<i32>) -> Result<()> { assert!({ let write = |_: u8| (); write(1); true }); mutation_verdict(code) }",
-            Ok(Some(no_io)),
+            Want::Finding(no_io),
+        ),
+        (
+            "fn forwarded(code: Option<i32>) -> Result<()> { struct Command; impl Command { fn new() -> Self { Self } fn status(&self) {} } let cmd = Command::new(); cmd.status(); mutation_verdict(code) }",
+            Want::Rejected(&[
+                "xtask/src/ci.rs:6:56: the struct `Command` declares a name that gate-decisions resolves through a `use` \
+                 declaration or as a crate root",
+                "xtask/src/ci.rs:6:83: the function `new` is declared inside the function `forwarded`",
+            ]),
+        ),
+        (
+            "fn forwarded(code: Option<i32>) -> Result<()> { type Command = crate::pure::Command; let cmd = Command::new(); cmd.status(); mutation_verdict(code) }",
+            Want::Rejected(&["xtask/src/ci.rs:6:54: the type alias `Command` declares a name"]),
+        ),
+        (
+            "mod anyhow { pub use syn::parse_quote as bail; }\n\
+             fn forwarded(code: Option<i32>) -> Result<()> { let _: syn::Expr = anyhow::bail!(std::fs::read(\"unused\")); mutation_verdict(code) }",
+            Want::Rejected(&[
+                "xtask/src/ci.rs:6:5: the module `anyhow` declares a name",
+                "xtask/src/ci.rs:6:18: the `use` binds `bail`, the name of a listed macro or of its crate, to \
+                 `syn::parse_quote`",
+            ]),
+        ),
+        (
+            "mod macros { pub use syn::parse_quote as println; }\nuse self::macros::*;\n\
+             fn forwarded(code: Option<i32>) -> Result<()> { let _: syn::Expr = println!(std::fs::read(\"unused\")); mutation_verdict(code) }",
+            Want::Rejected(&["xtask/src/ci.rs:6:18: the `use` binds `println`"]),
+        ),
+        (
+            "static CMD: Pure = Pure;\n\
+             fn forwarded(code: Option<i32>) -> Result<()> { let _: syn::Expr = syn::parse_quote!({ let CMD = Command::new(\"unused\"); }); CMD.status(); mutation_verdict(code) }",
+            Want::Finding(no_io),
         ),
     ];
     for (forwarded, want) in cases {
         let source = format!("{head}{forwarded}\n");
-        let repo =
-            crate::fsutil::test_repo(&[(MUTANTS_FILE, toml), ("xtask/src/ci.rs", source.as_str())]);
+        let repo = crate::fsutil::test_repo(&[
+            (MUTANTS_FILE, toml),
+            ("xtask/src/ci.rs", source.as_str()),
+            ("xtask/src/pure.rs", pure),
+        ]);
         let inputs = inputs(repo.path()).map_err(|error| error.to_string());
         match (inputs, want) {
-            (Ok(inputs), Ok(problem)) => {
+            (Ok(inputs), Want::Accepted | Want::Finding(_)) => {
                 let found = check(
                     &[mutant(
                         "forwarded",
@@ -691,16 +730,20 @@ fn a_binding_or_a_use_that_the_check_does_not_resolve_rejects_the_exclusion() {
                     &inputs.calls,
                 )
                 .unwrap();
-                match problem {
-                    None => assert!(found.is_empty(), "{forwarded}: {found:?}"),
-                    Some(problem) => {
+                match want {
+                    Want::Finding(problem) => {
                         assert_eq!(found.len(), 1, "{forwarded}: {found:?}");
                         assert!(found[0].contains(problem), "{forwarded}: {found:?}");
                     }
+                    _ => assert!(found.is_empty(), "{forwarded}: {found:?}"),
                 }
             }
-            (Err(error), Err(want)) => assert_eq!(error, want, "{forwarded}"),
-            (got, want) => panic!("{forwarded}: {:?}, want {want:?}", got.map(|_| ())),
+            (Err(error), Want::Rejected(texts)) => {
+                for text in texts {
+                    assert!(error.contains(text), "{forwarded}: {error}\nwant: {text}");
+                }
+            }
+            (got, _) => panic!("{forwarded}: {:?}", got.map(|_| ())),
         }
     }
     // A binding that the function never starts is no command binding for the rule (prebuild.rs, a test with a block
@@ -786,4 +829,69 @@ fn a_macro_is_read_only_when_its_path_is_listed() {
             use evil::ensure;\nfn nearest() { use anyhow::ensure; ensure!(true, \"{:?}\", std::fs::read(p)); }\n"),
         BTreeSet::from(["bound".to_string(), "nearest".to_string()])
     );
+}
+
+/// #181 R6, plan section 8: each kind of item that declares a name, in a block or a module, fails when a visible `use`
+/// binds that name or when it is a crate root of the lists; a function inside a function (or a method of an `impl` there)
+/// fails; a `use` that binds a listed macro name or its crate to another path fails, and one that binds that macro, that
+/// crate or a `std` path of the same name passes.
+#[test]
+fn an_item_or_a_use_that_takes_a_resolved_name_fails() {
+    let text = "use a::{K, E, F, M, S, St, T, TA, Ty, U, FF, FS, FT};\n\
+                mod m {\n\
+                const K: u8 = 0; enum E {} fn F() {} mod M {} static S: u8 = 0; struct St; trait T {} trait TA = Clone;\n\
+                type Ty = u8; union U { x: u8 } extern \"C\" { fn FF(); static FS: u8; type FT; }\n\
+                mod std {} struct botster_core_sys; extern crate libc as serde_json; extern crate syn;\n\
+                }\n\
+                fn outer() { fn inner() {} struct Local; impl Local { fn method(&self) {} } }\n\
+                use crate::m::bail; use other::env; use std::env as format;\n\
+                use std::env; use std::fs::write; use anyhow::{anyhow, bail as bail2}; use syn; use serde_json::json;\n";
+    let error = Calls::of(&[("xtask/src/a.rs".to_string(), text.to_string())])
+        .unwrap_err()
+        .to_string();
+    for (kind, name) in [
+        ("constant", "K"),
+        ("enum", "E"),
+        ("function", "F"),
+        ("module", "M"),
+        ("static", "S"),
+        ("struct", "St"),
+        ("trait", "T"),
+        ("trait alias", "TA"),
+        ("type alias", "Ty"),
+        ("union", "U"),
+        ("function", "FF"),
+        ("static", "FS"),
+        ("type", "FT"),
+        ("module", "std"),
+        ("struct", "botster_core_sys"),
+        ("extern crate", "serde_json"),
+    ] {
+        assert!(
+            error.contains(&format!(
+                "the {kind} `{name}` declares a name that gate-decisions resolves"
+            )),
+            "{kind} {name}: {error}"
+        );
+    }
+    for nested in ["inner", "method"] {
+        assert!(
+            error.contains(&format!(
+                "the function `{nested}` is declared inside the function `outer`"
+            )),
+            "{nested}: {error}"
+        );
+    }
+    for (name, target) in [
+        ("bail", "crate::m::bail"),
+        ("env", "other::env"),
+        ("format", "std::env"),
+    ] {
+        assert!(
+            error.contains(&format!("the `use` binds `{name}`, the name of a listed macro or of its crate, to `{target}`")),
+            "{name}: {error}"
+        );
+    }
+    // 16 items, 2 nested functions, 3 uses; `extern crate syn;`, `struct Local` and the allowed uses add none.
+    assert_eq!(error.lines().count(), 21, "{error}");
 }
