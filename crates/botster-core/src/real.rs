@@ -778,9 +778,13 @@ mod slow_tests {
         assert_ne!(read.kind(), io::ErrorKind::WouldBlock, "{read}");
         assert_eq!(read.kind(), write.kind());
         edges.link_close(link);
+        // The edges closed the link with the client's bytes unread: the client sees a reset.
         let mut rest = Vec::new();
-        client.read_to_end(&mut rest).unwrap();
-        assert!(rest.is_empty(), "the client sees the end of the stream");
+        assert_eq!(
+            client.read_to_end(&mut rest).unwrap_err().kind(),
+            io::ErrorKind::ConnectionReset
+        );
+        assert!(rest.is_empty(), "the edges sent nothing");
     }
 
     /// Audit A28, LC-10: the host closes a link whose registration the poll refuses, and its diagnostics say why. The refusal
