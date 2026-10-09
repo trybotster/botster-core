@@ -17,10 +17,12 @@
 //! - a call path, through the `use` declarations of its file, inline module and block (`process_check::resolve`);
 //! - the module of a function from its file path: `xtask/src/main.rs` is the crate root, `crate::`, `super::` and a child
 //!   or root module `m::f` (`Calls::callees`); a plain `f` is the `f` of its file, else each `f` of the xtask;
-//! - the I/O operations: a free function of `std::fs` or `std::env` (`IO_MODULES`; not a type's function such as the
-//!   builder `OpenOptions::new`), a signal or `run_to_completion` (`IO_FUNCTIONS`), and a `status`, `output` or `spawn`
+//! - the I/O operations: a listed function of `std::fs` (`FS_FUNCTIONS`; not a type's function such as the builder
+//!   `OpenOptions::new`) or of `std::env` (`ENV_FUNCTIONS`; not `split_paths`), a signal or `run_to_completion`
+//!   (`IO_FUNCTIONS`), and a `status`, `output` or `spawn`
 //!   call on a process command: a method chain that begins at `Command::new(..)` or at a call of an xtask function
-//!   declared to return `Command`, a parameter typed `Command` (also by reference), or a `let` bound to such a chain.
+//!   declared to return `Command`, a parameter typed `Command` (also by reference), or a `let` bound to such a chain; a
+//!   parameter or a `let` counts only when the function binds its name once.
 //!   `Command::new` alone is a builder and starts nothing.
 //!
 //! A `#[path]` module in the xtask is not a listed form, so the check fails on it. Any other way of doing I/O (a start on
@@ -63,13 +65,52 @@ pub struct Exclusion {
     pub reason: String,
 }
 
-/// The modules whose free functions do I/O: the file system and the environment of the process. A free function is one
-/// lowercase segment after the module (`std::fs::write`, `std::env::var`); a function of a type (`std::fs::OpenOptions::new`,
-/// a builder) is not one. A call does I/O by the full path that it resolves to through the `use` declarations in its scope;
-/// a name alone (a parameter `write`, a method `status`) does not (#181 B5 round 2).
-const IO_MODULES: [&[&str]; 2] = [&["std", "fs"], &["std", "env"]];
+/// The functions of `std::fs` that do file system I/O: every free function of the module (round 4: an explicit list, plan
+/// section 8). A function of a type (`std::fs::OpenOptions::new`, a builder) is not one. A call does I/O by the full path
+/// that it resolves to through the `use` declarations in its scope; a name alone (a parameter `write`, a method `status`)
+/// does not (#181 B5 round 2).
+const FS_FUNCTIONS: [&str; 19] = [
+    "canonicalize",
+    "copy",
+    "create_dir",
+    "create_dir_all",
+    "exists",
+    "hard_link",
+    "metadata",
+    "read",
+    "read_dir",
+    "read_link",
+    "read_to_string",
+    "remove_dir",
+    "remove_dir_all",
+    "remove_file",
+    "rename",
+    "set_permissions",
+    "soft_link",
+    "symlink_metadata",
+    "write",
+];
 
-/// The functions that do I/O, by their full path: a signal and the bounded run of a tool.
+/// The functions of `std::env` that read or change the environment of the process: its variables, arguments and
+/// directories. `split_paths` and `join_paths` only parse the data that they are given, so they are not I/O (#181 B5
+/// round 4).
+const ENV_FUNCTIONS: [&str; 13] = [
+    "args",
+    "args_os",
+    "current_dir",
+    "current_exe",
+    "home_dir",
+    "remove_var",
+    "set_current_dir",
+    "set_var",
+    "temp_dir",
+    "var",
+    "var_os",
+    "vars",
+    "vars_os",
+];
+
+/// The other functions that do I/O, by their full path: a signal and the bounded run of a tool.
 const IO_FUNCTIONS: [&[&str]; 4] = [
     &["botster_core_sys", "signal", "signal_group"],
     &["botster_core_sys", "signal", "signal_process"],
@@ -92,15 +133,16 @@ fn is_path(path: &[String], want: &[&str]) -> bool {
     path.len() == want.len() && path.iter().zip(want).all(|(segment, want)| segment == want)
 }
 
-/// Whether a call of the resolved path `path` does I/O: a free function of an `IO_MODULES` module, or an `IO_FUNCTIONS`
-/// function.
+/// Whether a call of the resolved path `path` does I/O: an `FS_FUNCTIONS` function of `std::fs`, an `ENV_FUNCTIONS`
+/// function of `std::env`, or an `IO_FUNCTIONS` function.
 fn io_path(path: &[String]) -> bool {
+    let listed = |module: &[&str], names: &[&str]| {
+        path.split_last()
+            .is_some_and(|(name, prefix)| is_path(prefix, module) && names.contains(&name.as_str()))
+    };
     IO_FUNCTIONS.iter().any(|function| is_path(path, function))
-        || IO_MODULES.iter().any(|module| {
-            path.split_last().is_some_and(|(name, prefix)| {
-                is_path(prefix, module) && name.starts_with(|c: char| c.is_ascii_lowercase())
-            })
-        })
+        || listed(&["std", "fs"], &FS_FUNCTIONS)
+        || listed(&["std", "env"], &ENV_FUNCTIONS)
 }
 
 /// The calls of the xtask, from its syntax: what each function calls, by file and name, what the tests call, and which
@@ -287,14 +329,21 @@ struct Index<'a> {
 }
 
 /// The syntax of the bindings of a function that may hold a process command: each typed parameter with its type's path
-/// (a reference stripped), and each `let` with the path of the call that begins its initializer's method chain.
+/// (a reference stripped), each `let` with the path of the call that begins its initializer's method chain, and how
+/// many times the function binds each name (a parameter, a `let`, a pattern, a closure parameter).
 #[derive(Default)]
 struct CommandBindings {
     typed: Vec<(String, Vec<String>)>,
     started: Vec<(String, Vec<String>)>,
+    bound: BTreeMap<String, usize>,
 }
 
 impl<'ast> Visit<'ast> for CommandBindings {
+    fn visit_pat_ident(&mut self, pat: &'ast syn::PatIdent) {
+        *self.bound.entry(pat.ident.to_string()).or_default() += 1;
+        syn::visit::visit_pat_ident(self, pat);
+    }
+
     fn visit_pat_type(&mut self, pat: &'ast syn::PatType) {
         let mut ty = &*pat.ty;
         while let syn::Type::Reference(inner) = ty {
@@ -520,19 +569,24 @@ impl Index<'_> {
         self.scopes.pop();
     }
 
-    /// The command bindings (`command_locals`) of a function from the syntax of its bindings.
+    /// The command bindings (`command_locals`) of a function from the syntax of its bindings. A listed binding is a name
+    /// that the function binds once (plan section 8): a name that it binds again (`let cmd = Pure;` after a parameter
+    /// `cmd: Command`) is not one, so a start on it is not recognized (#181 B5 round 4).
     fn command_locals(&self, bindings: CommandBindings) -> BTreeMap<String, Option<Vec<String>>> {
+        let once = |name: &String| bindings.bound.get(name) == Some(&1);
         let mut held = BTreeMap::new();
-        for (name, ty) in bindings.typed {
-            if is_path(&crate::process_check::resolve(&self.scopes, &ty), &COMMAND) {
-                held.insert(name, None);
+        for (name, ty) in &bindings.typed {
+            if once(name) && is_path(&crate::process_check::resolve(&self.scopes, ty), &COMMAND) {
+                held.insert(name.clone(), None);
             }
         }
-        for (name, root) in bindings.started {
-            held.insert(
-                name,
-                Some(crate::process_check::resolve(&self.scopes, &root)),
-            );
+        for (name, root) in &bindings.started {
+            if once(name) {
+                held.insert(
+                    name.clone(),
+                    Some(crate::process_check::resolve(&self.scopes, root)),
+                );
+            }
         }
         held
     }
