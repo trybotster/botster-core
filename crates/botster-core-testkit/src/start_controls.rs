@@ -5,8 +5,9 @@
 
 use crate::controls::{parse, session_row, ControlRegistry};
 use crate::harness::TestkitHarness;
+use crate::worker::StartKey;
 use botster_core_conformance::ControlError;
-use botster_core_contract::prelude::{SessionId, SessionState};
+use botster_core_contract::prelude::{InstanceId, SessionId, SessionState};
 use serde::Deserialize;
 use serde_json::{json, Value};
 
@@ -37,6 +38,22 @@ fn registry_row(
         "identity_recorded": row.worker.is_some(),
         "labels": row.labels,
     }))
+}
+
+/// The start of the session `instance` on the host of `handle`: its data directory and the instance. Core ID-1 scopes an
+/// instance to its registry, so two directories of one run can have the same one.
+fn start_key(
+    harness: &TestkitHarness,
+    handle: &str,
+    instance: InstanceId,
+) -> Result<StartKey, ControlError> {
+    let dir = harness
+        .directory_of(handle)
+        .ok_or_else(|| ControlError::Bad(format!("the handle '{handle}' is not open")))?;
+    Ok(StartKey {
+        dir: dir.to_string(),
+        instance,
+    })
 }
 
 /// The step of AD-7 that `hold_start_at` holds.
@@ -73,6 +90,7 @@ fn hold_start_at(
         Before::Identity | Before::Running => return Err(ControlError::Unsupported),
     }
     let row = session_row(harness, handle, &session)?;
+    let key = start_key(harness, handle, row.instance.clone())?;
     if row.state != SessionState::Created {
         return Err(ControlError::Bad(format!(
             "the start of {} has begun: its row is {:?}",
@@ -81,7 +99,7 @@ fn hold_start_at(
     }
     harness
         .workers()
-        .hold_start(&row.instance)
+        .hold_start(key)
         .map_err(ControlError::Bad)?;
     Ok(Value::Null)
 }
@@ -94,9 +112,10 @@ fn release_start_at(
 ) -> Result<Value, ControlError> {
     let OfSession { session } = parse(args)?;
     let row = session_row(harness, handle, &session)?;
+    let key = start_key(harness, handle, row.instance)?;
     harness
         .workers()
-        .release_start(&row.instance, row.worker.map(|w| w.identity()))
+        .release_start(&key, row.worker.map(|w| w.identity()))
         .map_err(ControlError::Bad)?;
     Ok(Value::Null)
 }

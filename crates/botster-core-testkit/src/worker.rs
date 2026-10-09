@@ -128,14 +128,23 @@ impl Pids {
     }
 }
 
+/// A held start (`hold_start_at`): the data directory of the host and the session's instance. An `InstanceId` names one
+/// incarnation in its registry (Core ID-1), and each new directory starts its host epoch at 1 (DP-8), so two directories of
+/// one run can have the same instance: the directory is part of the key.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) struct StartKey {
+    pub(crate) dir: String,
+    pub(crate) instance: InstanceId,
+}
+
 /// The `Sim` of one harness: every in-process worker of every handle (plan 4.1: "a `Sim` owns ... every `Worker`").
 #[derive(Clone)]
 pub struct Workers {
     sim: Arc<Mutex<Sim>>,
     pids: Arc<Mutex<Pids>>,
     run_processes: Arc<Mutex<RunProcesses>>,
-    /// The instances whose start is held before the payload's launch (`hold_start_at`, AD-7 step 4).
-    held_starts: Arc<Mutex<BTreeSet<InstanceId>>>,
+    /// The starts that are held before the payload's launch (`hold_start_at`, AD-7 step 4).
+    held_starts: Arc<Mutex<BTreeSet<StartKey>>>,
     scheduler: SchedulerHandle,
     read_chunk: usize,
 }
@@ -220,16 +229,17 @@ impl Workers {
         Ok(())
     }
 
-    /// Holds the start of the session `instance` before the payload's launch (`hold_start_at`, AD-7 step 4): its worker takes
-    /// the host's `Launch`, and no payload is spawned until [`Workers::release_start`].
+    /// Holds the start `key` before the payload's launch (`hold_start_at`, AD-7 step 4): its worker takes the host's
+    /// `Launch`, and no payload is spawned until [`Workers::release_start`].
     ///
     /// # Errors
-    /// The start of `instance` is already held.
-    pub(crate) fn hold_start(&self, instance: &InstanceId) -> Result<(), String> {
-        if lock(&self.held_starts).insert(instance.clone()) {
+    /// The start of `key` is already held.
+    pub(crate) fn hold_start(&self, key: StartKey) -> Result<(), String> {
+        let text = format!("{} in {}", key.instance.0, key.dir);
+        if lock(&self.held_starts).insert(key) {
             Ok(())
         } else {
-            Err(format!("the start of {} is already held", instance.0))
+            Err(format!("the start of {text} is already held"))
         }
     }
 
@@ -237,14 +247,17 @@ impl Workers {
     /// next turn, and the host that owns it is woken.
     ///
     /// # Errors
-    /// No hold of `instance` remains: none was set, it was released, or its worker ended.
+    /// No hold of `key` remains: none was set, it was released, or its worker ended.
     pub(crate) fn release_start(
         &self,
-        instance: &InstanceId,
+        key: &StartKey,
         worker: Option<ProcessIdentity>,
     ) -> Result<(), String> {
-        if !lock(&self.held_starts).remove(instance) {
-            return Err(format!("no hold of the start of {}", instance.0));
+        if !lock(&self.held_starts).remove(key) {
+            return Err(format!(
+                "no hold of the start of {} in {}",
+                key.instance.0, key.dir
+            ));
         }
         let owner = worker.and_then(|id| lock(&self.run_processes).get(&id).cloned());
         if let Some((_, owner)) = owner {
@@ -273,10 +286,11 @@ impl Workers {
         !self.has_ready() && !table.holds_reports()
     }
 
-    /// The `Process` edge of one host for its workers.
-    pub fn spawner(&self) -> WorkerSpawner {
+    /// The `Process` edge of the host of the data directory `dir` for its workers.
+    pub fn spawner(&self, dir: &str) -> WorkerSpawner {
         WorkerSpawner {
             workers: self.clone(),
+            dir: dir.to_string(),
             processes: Arc::default(),
         }
     }
@@ -285,6 +299,8 @@ impl Workers {
 /// The `Process` edge of the testkit's `Core` for workers (P1's [`Spawner`]).
 pub struct WorkerSpawner {
     workers: Workers,
+    /// The data directory of the host: with an instance, it names a start (`StartKey`).
+    dir: String,
     processes: Arc<Mutex<Processes>>,
 }
 
@@ -322,7 +338,10 @@ impl Spawner for WorkerSpawner {
             cell,
             processes: Arc::clone(&self.processes),
             pids: Arc::clone(&self.workers.pids),
-            instance: spec.instance.clone(),
+            start: StartKey {
+                dir: self.dir.clone(),
+                instance: spec.instance.clone(),
+            },
             held_starts: Arc::clone(&self.workers.held_starts),
             held_spawn: None,
             scheduler: self.workers.scheduler.clone(),
@@ -415,10 +434,10 @@ struct WorkerEdges {
     cell: Arc<Mutex<ProcessCell>>,
     processes: Arc<Mutex<Processes>>,
     pids: Arc<Mutex<Pids>>,
-    /// The instance of the session that the worker serves.
-    instance: InstanceId,
+    /// The start of the session that the worker serves.
+    start: StartKey,
     /// The run's held starts (`hold_start_at`).
-    held_starts: Arc<Mutex<BTreeSet<InstanceId>>>,
+    held_starts: Arc<Mutex<BTreeSet<StartKey>>>,
     /// The payload spawn that the worker asked for while its start was held (AD-7 step 4).
     held_spawn: Option<PayloadSpec>,
     scheduler: SchedulerHandle,
@@ -452,11 +471,11 @@ impl WorkerEdges {
         self.payload = None;
         lock(&self.cell).payload_alive = false;
         self.held_spawn = None;
-        lock(&self.held_starts).remove(&self.instance);
+        lock(&self.held_starts).remove(&self.start);
     }
 
     fn start_held(&self) -> bool {
-        lock(&self.held_starts).contains(&self.instance)
+        lock(&self.held_starts).contains(&self.start)
     }
 
     /// Queues the payload's exit for the worker once its process ended. From then on, the payload is not alive.
