@@ -45,3 +45,16 @@ the other side's file (the old byte rule). Use the set rule only when both sides
 the two cases.
 
 VERDICT: NOT CLEAN at 5ee3da3ee11e3675978ea51c3c31679962a84431 (1 open: R1 LOW)
+
+### Addendum to round 1 (same head 5ee3da3e): the P3 package reviewer's F60, missed here
+
+The P3 package reviewer's F60 HIGH is real, and it is in this reviewer's scope (gate-decision code). Condition 3 excludes
+the whole path of a set file, and condition 4 reads only its blob text (`text_at`: `ls-tree --name-only`, then
+`cat-file blob`). So nothing compares the tree entry's mode or type. A commit after the merge that changes only the mode of
+`core-pending.txt` (100644 to 100755) passes all four conditions: a false PASS. This reviewer checked the text rule and
+the pathspec exclusion, but not what the exclusion drops besides the text. Fix: F60's (compare the mode and type of each
+set file at the four commits, refuse a change or a non-regular entry, and add a real-repo test for each side and for the
+new head).
+
+VERDICT: NOT CLEAN at 5ee3da3ee11e3675978ea51c3c31679962a84431 (2 open: R1 LOW here; F60 HIGH, the package reviewer's
+finding, confirmed here)
