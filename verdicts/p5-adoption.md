@@ -1672,3 +1672,56 @@ This CLEAN covers the merge source and configuration; it does not certify those 
 The prior audit closures and scope limits remain as recorded in Round 11.
 
 VERDICT: CLEAN
+
+
+## PR #164 — Round 13
+
+- Exact head: `dffa7b12a61034ac57bd0fe83003456c1bd6fb0a`.
+- Parent: `152dbb07891b362935048533f406cc3bf26f86d4` (CLEAN in Round 12).
+- Tree: `75007c2eb81342ccad9a5819547b8474c042625c`.
+- Scope: the bounded World settling path, finite Silent scheduling, and the new deadline regression.
+- The reviewer ran no builds, tests, mutation jobs, or gates.
+
+### Source closure
+
+The reviewer read the complete six-file delta and the surrounding driver, deadline, and test-helper code.
+`World::settle` keeps the existing `guard < 10_000` assertion and failure message.
+Its callers retain their prior work choice and event collection.
+The two World tests now fail at that bound when a changed engine does not progress.
+
+`due_deadlines` retains the sorted deadline list and the prior due-time and deadline-kind predicates.
+`due_deadline` takes the first item from that iterator; `due_silences` counts the same iterator for silences.
+Each ordinary Silent step marks one due silence fired and creates no new silence deadline.
+The driver therefore retains the previous Silent ordering and budget check with a finite initial count.
+The new regression checks three due silences across a two-event budget, excludes a future silence, and observes newer link input.
+The production scheduling change has no source finding in this review.
+
+### P5-F15 — MEDIUM — The new test repeats an unbounded pump loop
+
+The new regression adds `while rig.pump().more { rig.drain_events(); }` at `tests/driver/deadlines.rs:133`.
+It has no iteration bound. A broken engine or pump that keeps returning `more` can hang the test.
+This is the same non-progress test-loop pattern that the World change addresses.
+The touched file also contains unbounded setup loops at lines 87, 222, and 257.
+Its helpers at lines 13 and 25 already enforce `guard < 200`; the separate loop at line 483 enforces `guard < 100`.
+
+**Required change:** Use one bounded Rig settling path at all four unbounded sites in this file.
+Preserve the existing iteration bound and event assertions. Do not add a new timeout value.
+The already bounded loops need no change.
+Status: OPEN. The reviewer sent the finding and complete site list directly to P5.
+The integration reviewer independently reports the same finding as L1, Round 16, verdict `df15a265e59c8076d5f8913ba0e641ae8ee5b9e9`.
+
+### Supplied evidence and description
+
+The reviewer read the predecessor's `224553-90534` mutation log under `~/botster-sessions/gates/`.
+It reports 97 mutants tested, 73 caught, 20 unviable, and four timeouts; exit 1.
+The timeouts name driver `pump`, `flow_row`, `on_input`, and `adopt_next_row`.
+The reviewer read both exact-head logs named in the READY message:
+- `botster-core-stage1-p5-audit-contract-dffa7b12-pool-20261008-225702-14189.log`: formatting, taint, lists, and Clippy pass; 337 unit tests passed, zero skipped; exit 0.
+- `botster-core-stage1-p5-audit-contract-dffa7b12-pool-20261008-225724-14730.log`: 104 mutants tested, 82 caught, 22 unviable, zero missed, zero timeouts; exit 0.
+The focused passing mutation result does not establish that the new test loop has a bound.
+P5 updated the description during review. The reviewer verified the remote head and read the current sections.
+The description names this delta, attributes the four earlier timeouts to the predecessor, and records the current focused results.
+P5 reports that the full Linux gate is running; no completed result was supplied.
+All prior audit and package scope limits remain as recorded in Round 12.
+
+VERDICT: NOT CLEAN (1 open)
