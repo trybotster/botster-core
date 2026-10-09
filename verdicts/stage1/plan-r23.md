@@ -82,3 +82,74 @@ mechanical: `cargo xtask lists` could refuse a non-pending `slow:*` id unless it
 rule "a rule that a gate can check is checked by the gate". It is the lead's call.
 
 VERDICT: CLEAN (0 open) at 48c14ab8dd40341295b004b1dfc679eb27207a52
+
+## Round 4 — revisions 23b and 23c (48c14ab8..def1d25e) — NOT CLEAN
+
+Reviewed: `stage1/plan` `def1d25e375c7c7615c329573986fe4692ef3c18`, two commits on `48c14ab8` (`e637ccc2` 23b, `def1d25e`
+23c). The lead asked for a case in which a merge-base comparison lets an addition through on the merging gate. The code
+read is `xtask/src/lists.rs` at v1 `1f157c29`.
+
+### P23b-1 MEDIUM — the merging-gate claim depends on a rule that the plan does not state and no step checks
+
+23b says: "The merge rule requires the head to contain the current `v1`, so on the merging gate the merge base is the
+base revision." The plan has no such rule. The Merge bullet (section 8) needs only the CLEANs and a green gate on the exact
+head. `lists` does not check that `BOTSTER_CI_BASE_REF` is an ancestor of `HEAD`, and the gate's base ref can be older than
+the v1 tip at the time of the merge.
+
+When the head does not contain the base, an addition gets through. Example:
+1. The merge base `M` lists `X`.
+2. v1 removes `X` after `M` (a flip).
+3. The PR moves the line of `X` to another place in the file, for example under another `#` comment group. The file is not
+   sorted: `lists` rejects only duplicates (`lists.rs:51-60`).
+4. The PR's gate compares with `M`: `X` is in `M` and in `HEAD`, so `X` is no gain, and the step passes. Under the
+   revision 23a rule (compare with the base tip), the same head fails.
+5. A merge of that head into v1 applies the PR's delete hunk (v1 deletes the same line) and its add hunk (clean). So `X`
+   is pending again on v1.
+
+The same gap applies to `core-deferred.toml` (any edit that v1's removal does not conflict with).
+
+When the head contains the base, `git merge-base <base> HEAD` is the base, and the check is the 23a check. So the fix
+is to make that condition real:
+- Add the rule to the Merge bullet: the lead merges only a head that contains the current v1 tip, and only on a gate
+  whose recorded base is that tip. The merge is then a fast-forward or a merge with no change to the tree.
+- Make it mechanical: `lists` prints the base, the merge base and whether the base is an ancestor of `HEAD`, and the
+  lead's merge step (or `base-merge-check`) refuses a head that does not contain the base.
+
+### P23b-2 LOW — the merge base is read at two places where it can mislead
+
+- With criss-cross history, `git merge-base` prints one of several bases. When the base is an ancestor of `HEAD`, there
+  is only one. Otherwise, `lists` should use `--all` and fail with "merge v1" when it gets more than one.
+- `lists` takes the initialization branch when the base has no pending file (`lists.rs:140`, `:283`). At a merge base
+  older than the file, the check is initialization, which allows any ledger id back. Keep that decision on the base tip,
+  which always has the file now, or remove the initialization branch.
+
+Neither case reaches the merging gate if P23b-1 is fixed.
+
+### P23c-1 LOW — the source-reading rule names the checks incompletely, and a proof can be outside the parentheses
+
+- The rule names `process_check`, `platform_code` and `mutants_cited` "and later ones". `gate_decisions` (B5's check)
+  and the timer-marker check (`timers`) also read Rust source and are in #181 now. Name every source-reading check, or
+  say "every check that parses Rust source".
+- "Any other word is a source reference": a shell entry whose reason names its tests in text, without parentheses, is not
+  checked as a proof. Section 8 says the check "accepts a shell entry only when the shell's decision function is named in
+  the entry's reason and has its tests". State that this entry must use the `decision (proof, …)` form with at least one
+  proof, and that the check fails otherwise.
+
+### P23c-2 LOW — Mac text that 23c did not change contradicts its new rule
+
+- THE GATE bullet (`:492`) still says "A green log counts as CI green on either machine", and it still names `botsterq` on
+  the Mac. 23c says that a Mac run covers only macOS-only code, so a Mac log is not a full gate and is not the merging gate.
+- The "Heavy work" bullet (`:494`) still says `botsterq`. The pool bullet (`:497`) overrides it ("where the bullets above
+  name them, read the pool gate"), but the 23c changelog says the `botsterq` text is removed.
+
+Correct the first line, so that only a Linux pool gate is the merging gate. Then remove or point the others to `:497`.
+
+### Checked, no finding
+
+- 23b covers the four base files that `lists` reads (`core-pending.txt`, `core-deferred.toml`, `core-ledger-ids.txt`,
+  the `Cargo.toml` pin). The pin exemption (`new_in_ledger`) and rule 2 (`tag_moved`) are then judged at the same point.
+- 23c (1) is the right root fix for #181: a closed set of forms with a fail-closed refusal ends the chain of
+  inference findings. `#[path]` on an inline module is refused as an unlisted form.
+- 23c (2): Mac runs through `botster-gate --on mac`, only for macOS-only code (R8), agree with the pool bullet.
+
+VERDICT: NOT CLEAN at def1d25e375c7c7615c329573986fe4692ef3c18 (4 open: P23b-1 MEDIUM; P23b-2, P23c-1, P23c-2 LOW)
