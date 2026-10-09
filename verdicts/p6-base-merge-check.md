@@ -88,3 +88,54 @@ The reviewer ran no build, test suite, mutation job, or gate.
 The integration reviewer owns G1 separately: the excluded shell still contains the exit decision.
 
 VERDICT: NOT CLEAN
+
+## Round 2 — 2026-10-09
+
+Reviewed head: `bcd5f18ea4d2ea6d38377ca5ab3206b5c41707f5`.
+Previous reviewed head: `df04024b20e4213944a12360a991930facaf03bc`.
+Review base: `ee7dd16c73a6991b6ef9b3a85d84fd93e57a3230`.
+PR: [#170](https://github.com/trybotster/botster-core/pull/170).
+Plan pin remains `stage1-plan.71a623ef.md`.
+Open package findings: 0, including LOW findings.
+
+### Findings closed
+
+- **BM1 closed.** `check` collects recursive `diff-tree` output.
+  The options disable external diff and text conversion, include submodules, and disable relative path filtering.
+  Git runs without system or global configuration, `GIT_EXTERNAL_DIFF`, or `GIT_DIFF_OPTS`.
+  Tests build real repositories and assert that external diff, text conversion, and ignored submodules cannot hide an unreviewed change.
+  Each test first proves that plain `git diff` hides its fixture change.
+  The passing merge test and Git failure test check both other outcomes.
+  These tests run in the supplied gate.
+- **BM2 closed.** The test now supplies independent command names, functions, and arguments.
+  It does not read `COMMANDS` for its expectations.
+  A wrong handler or wrong arguments now fail the test.
+  `choose` also supplies the fixed `--slow` arguments as its tested result.
+  The help and error assertions remain.
+- **BM3 closed.** The supplied in-diff mutation log identifies this exact head and selects `NEXTEST_PROFILE=slow`.
+  It reports 37 mutants: 36 caught, 1 unviable, 0 missed, and 0 timeout.
+  The log records `SLOW_PROFILE_MUTANTS_EXIT=0`.
+  Log: `/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-p6-base-merge-check-bcd5f18e-pool-20261009-000516-82476.log`.
+
+### Other delta and proof
+
+`judge` now returns an error with the report when a condition fails.
+`succeeded` tests Git exit status before the caller consumes its output.
+The excluded `command` shell propagates these errors.
+`check` has no mutation exclusion.
+The `command` and `run` exclusions cover only each function's whole-body `Ok(())` replacement.
+Their reasons name the tested decisions and their tests.
+The integration reviewer decides closure of G1 separately.
+
+The supplied full pool gate identifies this exact head and exits zero.
+It reports 820 default tests and 213 slow tests passed.
+It reports 37 mutants: 36 caught, 1 unviable, 0 missed, and 0 timeout.
+Log: `/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-p6-base-merge-check-bcd5f18e-pool-20261009-000702-84775.log`.
+
+The reviewer inspected the complete delta and the supplied logs.
+The reviewer ran no build, test suite, mutation job, or gate in this round.
+This verdict covers PR #170 only.
+The shared crate, syntax-aware check, run-wrapper, and migrations still require their own reviews.
+Integration CLEAN remains required before merge.
+
+VERDICT: CLEAN
