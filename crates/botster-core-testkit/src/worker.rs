@@ -33,9 +33,6 @@ const ENOEXEC: i32 = rustix::io::Errno::NOEXEC.raw_os_error();
 /// `EIO`: the errno of a write to a PTY that is gone or that fails.
 const EIO: i32 = rustix::io::Errno::IO.raw_os_error();
 
-/// `EPIPE`: the errno of a write to a program that ended.
-const EPIPE: i32 = rustix::io::Errno::PIPE.raw_os_error();
-
 /// The most inputs that one `Sim` run handles before it reports a livelock: far above what a transcript's workers do between
 /// two host pumps.
 const SIM_STEP_LIMIT: usize = 100_000;
@@ -543,8 +540,6 @@ impl Binding<Worker> for WorkerEdges {
                         buf.truncate(n);
                         Input::LinkBytes(buf)
                     }
-                    // Readable with no byte: a descriptor waits on the link (DP-2, P4a takes it). Nothing arrived yet.
-                    Err(e) if e.kind() == io::ErrorKind::WouldBlock => Input::LinkBytes(Vec::new()),
                     _ => {
                         self.outbound.clear();
                         self.link_open = false;
@@ -566,7 +561,6 @@ impl Binding<Worker> for WorkerEdges {
                         self.wait_writable = true;
                         Ok(0)
                     }
-                    Err(e) if e.kind() == io::ErrorKind::BrokenPipe => Err(EPIPE),
                     Err(e) => Err(e.raw_os_error().unwrap_or(EIO)),
                 })
             }

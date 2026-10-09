@@ -441,7 +441,10 @@ impl Program for ScriptedProgram {
     fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
         self.advance();
         if self.exit.is_some() {
-            return Err(io::ErrorKind::BrokenPipe.into());
+            // The program ended: a write fails as a write to a closed PTY does, with its errno.
+            return Err(io::Error::from_raw_os_error(
+                rustix::io::Errno::PIPE.raw_os_error(),
+            ));
         }
         let taken = {
             let mut controls = self.controls.lock();
@@ -1090,6 +1093,37 @@ mod tests {
         assert!(p.is_writable(), "the next write fails at once");
         let mut ended = program(json!({"program": [{"exit": {"code": 0}}]}), true, 0);
         assert!(ended.is_writable());
+    }
+
+    /// `pty_chunk` (Core AM-2): only a write that finds the step's cap spent waits for the next step; a write that
+    /// `pty_blocked` or `pty_accept` refuses waits for no step.
+    #[test]
+    fn only_a_spent_chunk_waits_for_the_next_step() {
+        let would_block = |r: io::Result<usize>| r.unwrap_err().kind() == io::ErrorKind::WouldBlock;
+        let mut p = program(json!({"program": [{"hold": {}}]}), true, 0);
+        let control = p.control();
+        control.input_chunk(Some(1));
+        assert_eq!(p.write(b"ab").unwrap(), 1);
+        assert!(would_block(p.write(b"b")));
+        assert!(control.waits_for_next_step(), "the cap is spent");
+        control.new_step();
+        assert!(!control.waits_for_next_step());
+        assert_eq!(p.write(b"b").unwrap(), 1);
+        control.set_blocked(true);
+        assert!(would_block(p.write(b"c")));
+        assert!(
+            !control.waits_for_next_step(),
+            "blocked, with the cap spent"
+        );
+
+        let mut q = program(json!({"program": [{"hold": {}}]}), true, 0);
+        let control = q.control();
+        control.accept_at_most(0);
+        assert!(would_block(q.write(b"a")));
+        assert!(
+            !control.waits_for_next_step(),
+            "refused by pty_accept, with no cap"
+        );
     }
 
     /// `pty_output` (Core A5-2): plain bytes follow the script's output, every byte arrives in order, and the unread count
