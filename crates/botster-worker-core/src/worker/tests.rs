@@ -2046,6 +2046,11 @@ fn a_candidate_that_proves_the_host_role_replaces_the_link() {
     assert_eq!(report.payload, AdoptedPayload::Running { payload: PAYLOAD });
     assert_eq!(report.features, worker_features());
     assert_eq!(report.terminal.map(|t| t.size), Some(size()));
+    // P5 #201 R1-2: the adopting host keeps the formats of `Launched`.
+    assert_eq!(
+        report.formats,
+        [botster_terminal_ghostty::snapshot_format()]
+    );
     // The new link obeys the new host.
     let stop = w.send(&HostMsg::Stop);
     assert_eq!(signals(&stop), [SIGTERM]);
@@ -2217,6 +2222,11 @@ fn the_adoption_report_gives_the_payload_state() {
         }
     );
     assert!(report.terminal.is_some(), "ST-5: the final model");
+    // P5 #201 R1-2: the final model keeps the formats of `Launched`.
+    assert_eq!(
+        report.formats,
+        [botster_terminal_ghostty::snapshot_format()]
+    );
 }
 
 /// DESIGN.md part 4: an exit that is not reported yet is `Running` in the report; the exit follows on the new link after
@@ -2390,6 +2400,77 @@ fn a_removing_worker_takes_no_candidate() {
         w.feed(Input::Candidate(ADOPTER)),
         [Action::CandidateClose(ADOPTER)],
         "the worker waits to end"
+    );
+}
+
+/// P5 #201 R1-1: the new link counts its bytes from zero. When the old link carried more bytes than the new handshake,
+/// output after the adoption still reaches the new host as an `Output` report.
+#[test]
+fn output_after_an_adoption_is_reported_on_the_new_link() {
+    let mut w = World::running();
+    for _ in 0..64 {
+        let actions = w.feed(Input::PtyOutput(b"x".to_vec()));
+        assert!(observations(&mut w, &actions)
+            .iter()
+            .any(|o| matches!(o, Observation::Output { .. })));
+    }
+    let old = w.sent;
+    let actions = adopt(&mut w, EPOCH + 1);
+    adopted(&mut w, &actions);
+    assert!(
+        w.sent < old,
+        "the case of R1-1: the handshake is shorter than the old link's bytes"
+    );
+    let actions = w.feed(Input::PtyOutput(b"y".to_vec()));
+    assert!(
+        observations(&mut w, &actions)
+            .iter()
+            .any(|o| matches!(o, Observation::Output { .. })),
+        "{actions:?}"
+    );
+}
+
+/// P5 #201 R1-3: a candidate that the worker took before a `Remove` is closed when the removal begins. Its valid hello
+/// later adopts nothing: the removal completes on the old link, and the worker ends after the result is written.
+#[test]
+fn a_remove_closes_the_waiting_candidate_and_completes_on_the_old_link() {
+    let mut w = World::running();
+    assert_eq!(w.feed(Input::Candidate(ADOPTER)), []);
+    let actions = w.send(&HostMsg::Remove);
+    assert!(
+        actions.contains(&Action::CandidateClose(ADOPTER)),
+        "{actions:?}"
+    );
+    w.instant_link = false;
+    let hello = World::host_hello(instance(), EPOCH + 1, TOKEN);
+    assert_eq!(w.feed(Input::CandidateBytes(ADOPTER, hello.clone())), []);
+    w.feed(Input::PayloadExited(ExitStatus::Signal(9)));
+    let actions = w.feed(Input::PtyDrained);
+    assert!(
+        w.reports(&actions)
+            .iter()
+            .any(|m| matches!(m, WorkerMsg::RemoveResult { .. })),
+        "{actions:?}"
+    );
+    // The result is queued and not written: a hello on the closed candidate still adopts nothing.
+    assert_eq!(w.feed(Input::CandidateBytes(ADOPTER, hello)), []);
+    let actions = w.feed(Input::LinkWritten { total: w.sent });
+    assert!(
+        !actions.contains(&Action::AdoptLink(ADOPTER)),
+        "{actions:?}"
+    );
+    assert_eq!(actions, [Action::LinkClose, Action::Exit]);
+}
+
+/// P5 #201 R1-3: a `Terminate` closes the waiting candidate too.
+#[test]
+fn a_terminate_closes_the_waiting_candidate() {
+    let mut w = World::running();
+    assert_eq!(w.feed(Input::Candidate(ADOPTER)), []);
+    let actions = w.feed(Input::Terminate);
+    assert!(
+        actions.contains(&Action::CandidateClose(ADOPTER)),
+        "{actions:?}"
     );
 }
 

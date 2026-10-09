@@ -1418,3 +1418,148 @@ fn a_silent_candidate_is_closed_at_the_spawning_handles_startup() {
         "the candidate is closed at startup"
     );
 }
+
+/// [`handle_over`], with the host's process table and wake object, as the harness keeps them.
+fn handle_and_table(
+    dirs: &mut Directories,
+    dir: &str,
+    workers: &crate::worker::Workers,
+    scheduler: &SchedulerHandle,
+) -> (
+    crate::worker::TestkitCore,
+    crate::worker::ProcessTable,
+    Arc<dyn botster_core_host::driver::HostWake>,
+) {
+    let config = OpenConfig {
+        data_dir: dir.into(),
+        worker_path: Some("worker".into()),
+        limits: CoreLimits::default(),
+    };
+    let spawner = workers.spawner(dir);
+    let table = spawner.table();
+    let opened = dirs
+        .open(
+            dir,
+            &config,
+            RunInputs {
+                seed: 13,
+                scheduler: scheduler.clone(),
+            },
+            core_features(),
+            Some(Box::new(spawner)),
+        )
+        .unwrap();
+    table.set_wake(Arc::clone(&opened.wake));
+    let core =
+        crate::worker::TestkitCore::new(opened.driver, Arc::clone(&opened.wake), workers.clone());
+    (core, table, opened.wake)
+}
+
+/// True when `wake` is set. The run has no spurious wakes, so a set flag is the only `Woken`.
+fn woken(wake: &Arc<dyn botster_core_host::driver::HostWake>) -> bool {
+    matches!(
+        botster_core_contract::prelude::WakeHandle::wait(&**wake, std::time::Duration::ZERO),
+        Wake::Woken
+    )
+}
+
+/// Clears the wake objects of `wakes`.
+fn drain_all(wakes: &[&Arc<dyn botster_core_host::driver::HostWake>]) {
+    for wake in wakes {
+        WakeEdge::drain(&***wake);
+    }
+}
+
+/// P5 #201 A1-F1, A1-F2 (TM-6, `edges_quiet`): the host that holds a worker's control link reads its reports and gets the
+/// wakes of its controls. The spawning host keeps only the exit. A candidate that the worker refuses moves nothing; a
+/// successful adoption moves the link, again at each adoption, and also when the earlier host's table is gone.
+#[test]
+fn the_adopting_host_takes_the_control_links_reports_and_wakes() {
+    let start = Instant::now();
+    let (scheduler, workers) = adoption_run(start);
+    let mut dirs = Directories::default();
+    let session = SessionId("s".into());
+    let (mut a, table_a, wake_a) = handle_and_table(&mut dirs, "ctl", &workers, &scheduler);
+    create_and_start(&mut a, &session, start);
+    let worker = worker_of(&dirs, "ctl", &session);
+    drop(a);
+
+    // A stranger holds the one candidate place, so B's candidate is refused: the session is `Lost(WorkerUnreachable)`,
+    // and the control link stays with A.
+    let mut stranger = workers
+        .connect_endpoint(&key_of(&dirs, "ctl", &session))
+        .expect("the worker listens");
+    workers.run(start);
+    let (mut b, table_b, wake_b) = handle_and_table(&mut dirs, "ctl", &workers, &scheduler);
+    b.begin(Op::AdoptAll).unwrap();
+    let events = settle_partial(&mut b, start);
+    assert_eq!(
+        b.get(&session).unwrap().state,
+        SessionState::Lost(LostReason::WorkerUnreachable),
+        "{events:?}"
+    );
+    drain_all(&[&wake_a, &wake_b]);
+    let (program, wake) = workers.program_edge(worker).unwrap();
+    program.write(b"x");
+    wake.expect("the control host has a wake").signal();
+    assert!(woken(&wake_a), "a refused candidate moves nothing");
+    assert!(!woken(&wake_b));
+
+    // A's table is gone (its host is retired). The stranger leaves, and B's retry adopts the worker.
+    drop((table_a, wake_a));
+    stranger.close();
+    workers.run(start);
+    let adopt = b
+        .begin(Op::Adopt {
+            id: session.clone(),
+        })
+        .unwrap();
+    let events = settle_partial(&mut b, start);
+    assert!(
+        events
+            .iter()
+            .any(|e| matches!(e, Event::Completed { op, result: OpResult::Ok(_) } if *op == adopt)),
+        "{events:?}"
+    );
+    assert_eq!(b.get(&session).unwrap().state, SessionState::Running);
+    assert!(workers.edges_quiet(&table_b));
+
+    // A1-F1: the program edge's wake is B's. A1-F2: the worker's report waits on B's link, and B's edges are not quiet
+    // until B reads it.
+    drain_all(&[&wake_b]);
+    let (program, wake) = workers.program_edge(worker).unwrap();
+    program.write(b"y");
+    wake.expect("the control host has a wake").signal();
+    assert!(woken(&wake_b));
+    workers.run(start);
+    assert!(
+        !workers.edges_quiet(&table_b),
+        "B holds the worker's report"
+    );
+    settle_partial(&mut b, start);
+    assert!(workers.edges_quiet(&table_b));
+
+    // A second adoption moves the link again: `break_control` wakes C, not B.
+    drop(b);
+    let (mut c, table_c, wake_c) = handle_and_table(&mut dirs, "ctl", &workers, &scheduler);
+    c.begin(Op::AdoptAll).unwrap();
+    let events = settle_partial(&mut c, start);
+    assert_eq!(
+        c.get(&session).unwrap().state,
+        SessionState::Running,
+        "{events:?}"
+    );
+    drain_all(&[&wake_b, &wake_c]);
+    workers.break_link(worker).unwrap();
+    assert!(woken(&wake_c));
+    assert!(!woken(&wake_b));
+    workers.run(start);
+    assert!(
+        !workers.edges_quiet(&table_c),
+        "C holds the end of the broken link"
+    );
+    assert!(
+        workers.edges_quiet(&table_b),
+        "B no longer holds the worker's link"
+    );
+}
