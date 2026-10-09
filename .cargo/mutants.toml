@@ -498,7 +498,14 @@ exclude_re = [
     # and number run in every guard test: the_guard_ends_the_group_and_production_still_reaps_its_own_child,
     # the_anchor_ends_the_group_when_the_test_dies, an_anchor_survives_the_hangup_of_its_session_leader. verify:
     # a_leader_that_moved_to_another_group_is_refused_and_not_signalled. terminate: a_grace_ends_the_members_by_term.
-    # close_inherited (#171 TP3): a_writer_that_production_hands_the_program_reaches_no_helper_stage. group_of (#171 TP6):
+    # close_inherited (#171 TP3): a_writer_that_production_hands_the_program_reaches_no_helper_stage kills its whole-body
+    # replacement and its descriptor filter. Six mutants survive the slow tier (Linux --no-config run, #171 round 2 E1), each
+    # equivalent or unreachable. The open flags (`|` with `&` or `^`, both operators): `RDONLY` is 0 and the flags share no
+    # bit, so `^` is `|`; `&` drops `DIRECTORY` and `CLOEXEC`, but the listing is a directory and is closed by its drop before
+    # the stage forks or execs. `== -1` with `== 1` (delete `-`): `close` returns 0 or -1, so the mutant ignores every
+    # failed close, and `!= EBADF` with `==`: EBADF fails the stage and other errors are ignored. Both differ only for a
+    # failed close: EBADF needs a listed descriptor closed before its `close`, which the one-thread stage never does, and
+    # EINTR or EIO need a signal handler or a device error that no test can give the stage. group_of (#171 TP6):
     # a_member_that_moves_after_term_is_refused_and_no_kill_is_sent. The decisions verdict and stayed stay in the default
     # tier (anchor.rs).
     'crates/botster-test-process/src/bin/botster-test-anchor\.rs:\d+:\d+: (replace close_inherited( ->| with)|.* in close_inherited$)',
