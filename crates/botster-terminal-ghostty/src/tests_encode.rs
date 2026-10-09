@@ -1106,6 +1106,23 @@ fn the_key_bound_is_the_longest_sequence_of_any_mode() {
     }
 }
 
+/// 5.1A: an Alt key with long text can write the most bytes with some key modes off. On macOS, with every mode on,
+/// the legacy Alt prefix writes ESC and the unshifted key, and the kitty states report no text for Alt; with the Alt
+/// prefix off, the legacy encoding writes all the text. So the bound must cover the states with key modes off.
+#[test]
+fn the_key_bound_of_an_alt_key_with_long_text_covers_the_states_with_modes_off() {
+    let mut input = character('a', &[Modifier::Alt]);
+    input.text = Some("a".repeat(64));
+    let bound = longest_key_sequence(&input, u64::MAX).unwrap();
+    let longest = every_key_mode()
+        .iter()
+        .map(|m| written(encode_key_with_modes(m, &input)))
+        .max()
+        .unwrap();
+    assert!(bound >= 64, "{bound}");
+    assert_eq!(bound, longest);
+}
+
 /// 5.1A: the mouse bound is the longest report of any mouse encoding, on any screen.
 #[test]
 fn the_mouse_bound_is_the_longest_report_of_any_encoding() {
