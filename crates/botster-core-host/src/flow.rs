@@ -5,8 +5,8 @@
 //! Every step of a flow changes the state of the session and posts at most one event, so that "a state change and its event
 //! are one atomic step" (EV-5b) and `pump_events` is a bound that a step cannot overshoot (9B).
 
-use botster_core_contract::prelude::*;
 pub use crate::session::End;
+use botster_core_contract::prelude::*;
 use std::time::Instant;
 
 /// What the session is working on. At most one flow runs at a time: the admission table (AM-1) allows no other.
