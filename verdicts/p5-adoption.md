@@ -1416,3 +1416,59 @@ No execution result was supplied for this exact combined head.
 The implementer remains responsible for the authorized gate after both exact-head source reviews report CLEAN.
 
 VERDICT: CLEAN
+
+
+## PR #164 — Round 8
+
+- Exact head: `e3c1fabf754ddce9439d653783b083969f2057be`.
+- Parents: accepted audit head `b8b37a6d1161b83138a5e5e0e73bb68fc57e2db7` and current v1 `a22811b61cd52aa503dc57e66b47c3d3bbd4746d`.
+- Common base: `144b0234fb632bcbb5176b17c2fe55f3239405df`.
+- Tree: `f21b1eb633239189de381a570390c2d084ecdbaa`.
+- Scope: the v1 merge delta, including the three files that both parents changed, and the updated PR description.
+- The reviewer ran no builds, tests, mutation jobs, or gates.
+
+### Merge preservation
+
+The reviewer verified the merge parents and compared file entries across the base, both parents, and the merge.
+Only `Cargo.lock`, `crates/botster-core-sys/Cargo.toml`, and `crates/botster-core/tests/slow_real_core.rs` differ from both parents.
+Those are also the only files that both parents changed from the common base.
+Every change made by only one parent survives exactly in the merge.
+The complete documentation tree matches current v1.
+The reviewed host, testkit, and core-sys production files match the accepted audit parent exactly.
+The v1 tree matches the accepted combined #162 head `d650e31fe0111721f2d59e3d23bfe2d3f6b29af2` exactly.
+The shared guard and its consumers therefore retain the accepted #165 and #162 changes.
+
+### Combined files
+
+The reviewer read both parent deltas for all three combined files and read the complete merged slow test file.
+`botster-core-sys/Cargo.toml` retains `data-encoding` and the removal of `atomic-write-file` and `sha2`.
+It also retains the macOS guard's `libc` development dependency.
+`Cargo.lock` adds only the seven accepted guard dependency entries relative to the audit parent.
+It retains the audit parent's package removals and resolved versions without a new package or version change.
+The implementer reports that `cargo metadata --locked` accepts the merged lock; the reviewer did not run that command.
+
+The slow test file retains the audit parent's A7 wake and EOF proof and A1 damaged-row regression.
+It also retains #162's A10 FIFO EOF proof, production reaper ownership, derived cleanup allowance, and panic propagation.
+The common module still exposes the shared guard's `CLEANUP` constant to that test.
+`Instant` remains used by the existing pump helper and early-exit test.
+No finding remains open within this merge's package review scope.
+P5-F5 through P5-F11 and audits A1, A2, A4, A5, A7, and A9 retain their prior closures in this scope.
+
+### Description, evidence, and scope limits
+
+The reviewer verified the remote head and read the updated PR description.
+It names both merge parents, the current head, prior accepted reviews, and the pending full Linux gate.
+It preserves earlier results under their original heads and retains the Prior art section.
+The reviewer read the raw exact-head Linux static log:
+`~/botster-sessions/gates/botster-core-stage1-p5-audit-contract-e3c1fabf-pool-20261008-211127-38031.log`.
+Job: `jobq-botster-core-e3c1fabf-20261008211127-0987`.
+The log reports successful formatting, taint/timers, and lists checks; exit 0 after 18 seconds.
+The lists result reports zero conformance tests passed and 654 ignored.
+These static checks do not establish a full landing gate, slow test execution, or mutation closure.
+The implementer remains responsible for the authorized full gate after both exact-head source reviews report CLEAN.
+
+This verdict does not close issues #155 or #157, the P1 part of #156, or P5 deliverable 2.
+The declared live-worker adoption placeholder remains P5 deliverable 2 and is not certified as AD-1 recovery behavior.
+The separate #163 guard-drop duty remains outside this merge closure.
+
+VERDICT: CLEAN
