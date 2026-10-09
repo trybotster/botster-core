@@ -756,14 +756,12 @@ fn e3_1_eventless_effect_overtakes_a_carried_or_parked_step() {
     let _ = stop2;
 }
 
-/// Core A2-1, IN-7, IN-9 (F17): a `SetNotificationPolicy` of an `Exited` session ends `WorkerLinkFailed` when a `Remove`
-/// retires it (the registry path is only the one of `Created`), and a sent repeated key is `Unknown` with the bound of
-/// every repeat.
+/// Core A2-1 (F17): a `SetNotificationPolicy` of an `Exited` session ends `WorkerLinkFailed` when a `Remove` retires it
+/// (the registry path is only the one of `Created`). The bound of a sent key is proved by
+/// `a_write_in_flight_when_the_link_fails_is_unknown`.
 #[test]
-fn retirement_keeps_the_result_path_and_bounds_a_repeated_key() {
-    let mut w = World::new(limits(|l| {
-        l.max_key_repeat = 100;
-    }));
+fn retirement_keeps_the_result_path_of_a_running_setter() {
+    let mut w = World::default();
     w.autopilot = Autopilot::Silent;
     w.ok(create("s1"));
     let start = w.engine.begin(Op::Start { id: sid("s1") }).unwrap();
@@ -822,16 +820,4 @@ fn retirement_keeps_the_result_path_and_bounds_a_repeated_key() {
         done.get(&policy)
     );
     assert!(done.contains_key(&remove));
-    assert_eq!(
-        HostEngine::held_bytes(&InputPayload::Key(KeyInput {
-            key: botster_route_codec::prelude::Key::Char('a'.into()),
-            shifted_key: None,
-            base_layout_key: None,
-            mods: vec![],
-            event: botster_route_codec::prelude::KeyEvent::Press,
-            text: None,
-            repeat: Some(100),
-        })),
-        6400
-    );
 }
