@@ -22,44 +22,66 @@ exclude_re = [
     'xtask/src/prebuild\.rs:\d+:\d+: replace command -> Result<\(\)> with Ok\(\(\)\)$',
     # xtask main.rs run -> Ok(()): the shell reads the process arguments and runs what choose decides; a test cannot run the
     # binary's entry without a real process, and the body replaced by Ok(()) runs no command and prints nothing. Only this
-    # whole-body replacement is excluded. The decision is choose, a pure function with tests that do not read its table:
-    # each_name_runs_its_own_function_with_its_arguments, the_help_names_choose_the_help_and_others_fail_with_the_usage
-    # and the_usage_lists_every_command_and_only_those.
+    # whole-body replacement is excluded. The decision is choose (each_name_runs_its_own_function_with_its_arguments,
+    # the_help_names_choose_the_help_and_others_fail_with_the_usage, the_usage_lists_every_command_and_only_those), a pure
+    # function whose tests do not read its table.
     'xtask/src/main\.rs:\d+:\d+: replace run -> Result<\(\)> with Ok\(\(\)\)$',
     # xtask base_merge.rs command -> Ok(()): the shell resolves the base of the run (fsutil::base, one value for the
     # process) and prints the report of check; the body replaced by Ok(()) prints no report, and the PR must carry the
-    # report. Only this whole-body replacement is excluded. check runs on real repositories in its tests
-    # (a_real_base_only_merge_passes, an_unreviewed_change_fails_under_an_external_diff, a_git_failure_fails_the_check) and
-    # its decisions are judge, conflicts, overlap, first_difference, ancestry and succeeded, each with tests.
+    # report. Only this whole-body replacement is excluded. Its decision check (a_real_base_only_merge_passes,
+    # an_unreviewed_change_fails_under_an_external_diff, a_git_failure_fails_the_check) runs on real repositories in its
+    # tests, and the decisions of check are judge, conflicts, overlap, first_difference, ancestry and succeeded, each with
+    # tests.
     'xtask/src/base_merge\.rs:\d+:\d+: replace command -> Result<\(\)> with Ok\(\(\)\)$',
     # xtask unsafe_exception.rs command -> Ok(()): the shell lists the tracked files, reads them and prints the verdict; the
     # body replaced by Ok(()) reads nothing and prints no summary. Only this whole-body replacement is excluded. The decision
     # is verdict, with lint_drift, other_manifests and other_attributes, each tested on the real manifests, the real Cargo
-    # configuration and the real anchor source (the_crate_differs_from_the_workspace_only_by_deny,
+    # configuration and the real anchor source: verdict (the_crate_differs_from_the_workspace_only_by_deny,
     # any_other_lint_difference_fails, only_the_three_lint_entries_name_unsafe_code, only_close_inherited_allows_unsafe_code,
     # the_verdict_counts_the_files_or_reports_every_problem).
     'xtask/src/unsafe_exception\.rs:\d+:\d+: replace command -> Result<\(\)> with Ok\(\(\)\)$',
-    # xtask ci.rs taint_job -> Ok(()): the shell runs four checks (taint, timers, unsafe_exception, signals) and only
-    # propagates their errors with `?`; the body replaced by Ok(()) runs none. Only this whole-body replacement is excluded.
-    # Each check's decisions have their own tests: taint (scan_files, hits_in_line), timers, unsafe_code (verdict,
-    # lint_drift, other_manifests, other_attributes, checked), and signals (scan, verdict, string_text: the tests of
-    # xtask/src/signals.rs, a_raw_signal_call_outside_the_guard_is_a_violation_under_any_allow_or_cfg among them).
+    # xtask ci.rs taint_job -> Ok(()): the shell runs the static checks (`taint`, `timers`, `unsafe_exception`, `signals`,
+    # `process_check`, `mutants_cited`, `gate_decisions`) and the platform-only code derivation, and only propagates their errors
+    # with `?`; the body replaced by Ok(()) runs none. Only this whole-body replacement is excluded. Each check's decisions
+    # have their own tests (signals: scan, verdict, string_text, the tests of xtask/src/signals.rs,
+    # a_raw_signal_call_outside_the_guard_is_a_violation_under_any_allow_or_cfg among them), and the derivation is the
+    # tested derived_exclusions (each_gate_os_excludes_the_adapters_of_the_other_os).
     'xtask/src/ci\.rs:\d+:\d+: replace taint_job -> Result<\(\)> with Ok\(\(\)\)$',
     # xtask ci.rs clippy_job -> Ok(()): process glue. The body starts `cargo clippy` over the workspace with every feature
     # and returns its exit; a test cannot run clippy inside the test run. Only this whole-body replacement is excluded. A
-    # body replaced by Ok(()) gives no clippy output, which every gate log of the step shows.
+    # body replaced by Ok(()) gives no clippy output, which every gate log of the step shows. Its decision is the tested
+    # succeeded (only_a_successful_run_passes), the verdict on the exit.
     'xtask/src/ci\.rs:\d+:\d+: replace clippy_job -> Result<\(\)> with Ok\(\(\)\)$',
-    # xtask mutants_job -> Ok(()): process glue. The body runs `git diff`, writes the diff file, starts `cargo mutants` and
-    # prints its summary; a test cannot start a mutation run inside a mutation run, so no test can run the body. Only this
-    # whole-body replacement is excluded: every other mutant of mutants_job stays tested. Its decisions are pure functions
-    # with unit tests, which stay mutation-tested: mutation_verdict, the pass or fail of the step from the exit code
-    # (only_a_mutation_run_with_every_mutant_caught_passes), parse_outcomes (the_mutation_summary_is_read_from_outcomes_json)
-    # and platform_exclusions (only_a_gate_off_macos_adds_the_off_macos_exclusions). A body replaced by Ok(()) skips the
+    # xtask mutants_job -> Ok(()): process glue. The body runs `git diff`, writes the diff file, lists the mutants of the
+    # diff, starts `cargo mutants` and prints its summary; a test cannot start a mutation run inside a mutation run, so no
+    # test can run the body. Only this whole-body replacement is excluded: every other mutant of mutants_job stays tested.
+    # Its decisions are pure functions with unit tests, which stay mutation-tested: mutation_decision
+    # (a_mutation_step_passes_only_with_no_mutant_or_every_outcome_and_exit_code_0), the pass or fail of the step from the
+    # listed count, the outcomes and the exit code, mutation_verdict
+    # (only_a_mutation_run_with_every_mutant_caught_passes), parse_listing (a_mutant_listing_is_counted_and_anything_else_fails),
+    # parse_outcomes (the_mutation_summary_is_read_from_outcomes_json),
+    # platform_exclusions (only_a_gate_off_macos_adds_the_off_macos_exclusions) and derived_exclusions, the code that the
+    # gate's OS does not compile (each_gate_os_excludes_the_adapters_of_the_other_os), and package_rust_files
+    # (the_package_sources_are_the_rust_files_outside_the_fixtures). A body replaced by Ok(()) skips the
     # step without its summary line, which every gate log of the step shows ("mutants: N mutants: ...").
     'xtask/src/ci\.rs:\d+:\d+: replace mutants_job -> Result<\(\)> with Ok\(\(\)\)$',
+    # xtask gate-decisions command -> Ok(()): process glue. It runs `cargo mutants --list` on the xtask and reads the
+    # repository; a test cannot list the mutants of the real xtask inside a mutation run of it. Only this whole-body
+    # replacement is excluded; the body has no operator. Its decisions stay mutation-tested: stdout_of
+    # (a_tool_output_is_read_only_after_a_success), parse_mutants (the_mutant_list_is_read_from_the_json_of_cargo_mutants),
+    # inputs (the_inputs_are_the_reasoned_entries_the_globs_and_the_xtask_sources), check
+    # (a_shell_entry_that_names_the_tested_decision_it_calls_passes) and verdict (a_check_passes_only_with_no_violation).
+    'xtask/src/gate_decisions\.rs:\d+:\d+: replace command -> Result<\(\)> with Ok\(\(\)\)$',
+    # xtask mutants-cited command -> Ok(()): process glue. It reads the mutants file, `cargo metadata` and the git file
+    # list of the real repository, which a cargo-mutants copy does not have (no .git). Only this whole-body replacement is
+    # excluded; the body has no operator. Its decisions stay mutation-tested: check
+    # (a_cited_test_that_no_tier_runs_fails_and_the_slow_filter_runs_slow_test_modules), packages
+    # (the_packages_come_from_cargo_metadata), tracked_with_submodules (the_tracked_files_come_from_git) and verdict
+    # (a_check_passes_only_with_no_violation).
+    'xtask/src/mutants_cited\.rs:\d+:\d+: replace command -> Result<\(\)> with Ok\(\(\)\)$',
     # xtask test_budget.rs kill -> (): process glue. The body sends SIGKILL to the leftovers of a test run; a default-tier
     # test cannot give it a real leftover to end. Only this whole-body replacement is excluded. Its decisions are tested:
-    # target, the parse of each argument (a_cleanup_argument_names_a_process_or_a_group), and the refusal of 0, 1 and our
+    # target (a_cleanup_argument_names_a_process_or_a_group), the parse of each argument, and the refusal of 0, 1 and our
     # own in botster_core_sys::signal (a_target_of_0_1_out_of_range_or_our_own_is_refused,
     # our_own_group_and_process_are_never_signalled).
     'xtask/src/test_budget\.rs:\d+:\d+: replace kill with \(\)$',
@@ -201,10 +223,10 @@ exclude_re = [
     'crates/botster-core-testkit/src/worker\.rs:38:30: replace \* with \+$',
     # botster-core-testkit process_group (P6): process glue of a real process group (BUILD.md testing rule 10), one entry per
     # function. They start or signal real processes, which the default tier never does; the proof is the slow tier,
-    # `tests/slow_process_group.rs`: `dropping_the_guard_ends_the_whole_group` (spawn, pid, take_stdout, drop),
-    # `a_panic_ends_the_group` (drop), `cleanup_is_idempotent_and_retires_the_group_id` (kill, is_active),
-    # `a_leader_that_exited_still_has_its_group_ended` (leader_exited, wait_for_leader_exit, kill) and
-    # `the_leader_streams_are_taken_by_the_caller` (take_stdin, take_stderr). A replaced `kill` or `drop` leaves the group
+    # `tests/slow_process_group.rs`: `dropping_the_guard_ends_the_whole_group` (`spawn`, `pid`, `take_stdout`, `drop`),
+    # `a_panic_ends_the_group` (`drop`), `cleanup_is_idempotent_and_retires_the_group_id` (`kill`, `is_active`),
+    # `a_leader_that_exited_still_has_its_group_ended` (`leader_exited`, `wait_for_leader_exit`, `kill`) and
+    # `the_leader_streams_are_taken_by_the_caller` (`take_stdin`, `take_stderr`). A replaced `kill` or `drop` leaves the group
     # alive, and those tests then wait on a pipe that never ends: the slow tier fails at its deadline, not at an assertion.
     # `leader_exited` and `wait_for_leader_exit` join disjoint `waitid` option flags with `|`, so `^` gives the same value:
     # those mutants are equivalent. A pure decision added to this file later is not covered: it is tested in the default tier.
@@ -251,8 +273,8 @@ exclude_re = [
     # decisions (`wake_after`, `interest_of`, `registration`, `retry_interrupted`, and from audit A28 `broken_after`,
     # `LinkIo::record`, `AcceptFailures::take`, `edge_diagnostics`) are pure functions tested in the default tier. Each function
     # below is caught by the slow tier (slow-tier mutation run of 2026-10-04), in real.rs `slow_tests`:
-    # `the_edges_keep_rows_in_the_registry` (write_row, read_rows, delete_row), `the_edges_draw_random_bytes_and_refuse_the_handoff`
-    # (fill_random, handoff_route, which P4a PR1 renamed link_send_descriptor, poll_process_exit, accept_link),
+    # `the_edges_keep_rows_in_the_registry` (`write_row`, `read_rows`, `delete_row`), `the_edges_draw_random_bytes_and_refuse_the_handoff`
+    # (`fill_random`, `handoff_route`, which P4a PR1 renamed `link_send_descriptor`, `poll_process_exit`, `accept_link`),
     # `a_link_reads_writes_and_closes` (accept_link, link_recv,
     # link_send, link_close, set_read_interest, set_write_interest, LinkIo::apply), `the_socket_lives_with_the_edges`
     # (socket_path, the Drop of RealEdges), `the_wake_follows_its_flag` (PollWake signal, drain, wait, fd, consume,
@@ -292,18 +314,14 @@ exclude_re = [
     'crates/botster-core/src/real\.rs:\d+:\d+: (replace <impl HostEdges for RealEdges>::diagnostics( ->| with)|.* in <impl HostEdges for RealEdges>::diagnostics$)',
     # botster-core-sys process (P1): `Children` waits for, reaps and signals real children, so the proof is the slow tier,
     # `tests/slow_process.rs` (slow-tier mutation run of 2026-10-04): `a_child_exit_calls_the_notifier_and_is_polled` and every
-    # test through `next_exit` (poll_exit), `wait_exit_takes_the_exit_of_its_own_child` (wait_exit), and
+    # test through `next_exit` (`poll_exit`), `wait_exit_takes_the_exit_of_its_own_child` (`wait_exit`), and
     # `a_spawned_child_matches_its_identity_and_dies_by_the_group_kill` and `the_worker_control_signal_reaches_the_worker_handler`
-    # (signal_group, kill_group). Those tests never wait through the code under test, so a defect fails them within their
+    # (`signal_group`, `kill_group`). Those tests never wait through the code under test, so a defect fails them within their
     # deadlines.
     'crates/botster-core-sys/src/process\.rs:\d+:\d+: (replace Children::poll_exit( ->| with)|.* in Children::poll_exit$)',
     'crates/botster-core-sys/src/process\.rs:\d+:\d+: (replace Children::wait_exit( ->| with)|.* in Children::wait_exit$)',
     'crates/botster-core-sys/src/process\.rs:\d+:\d+: (replace Children::signal_group( ->| with)|.* in Children::signal_group$)',
     'crates/botster-core-sys/src/process\.rs:\d+:\d+: (replace Children::kill_group( ->| with)|.* in Children::kill_group$)',
-    # process.rs `start_time` of macOS is `cfg(target_os = "macos")` code: the Linux gate does not compile it, so a mutant in
-    # it cannot change a test result there. Only equality has a meaning (AD-6), and the macOS slow tier runs
-    # `a_spawned_child_matches_its_identity_and_dies_by_the_group_kill`.
-    'crates/botster-core-sys/src/process\.rs:\d+:\d+: replace [*+] with [-+*/] in start_time$',
     # process.rs `exit_status`: the code `-1` is for a reaped child with neither an exit code nor a signal, which a wait
     # status cannot be (a process ends by `exit` or by a signal).
     'crates/botster-core-sys/src/process\.rs:\d+:\d+: delete - in exit_status$',
@@ -319,7 +337,7 @@ exclude_re = [
     # `a_written_row_reads_back_and_a_missing_row_is_none`, `a_second_write_replaces_the_row`,
     # `any_id_is_a_row_and_lists_back_sorted`, `delete_removes_the_row_and_its_empty_directories`,
     # `only_a_missing_row_is_none_or_deleted_quietly`, `a_write_that_cannot_start_is_failed_with_no_effect`,
-    # `a_damaged_row_is_still_named_by_its_path` (write_row, read_row, list_rows, delete_row);
+    # `a_damaged_row_is_still_named_by_its_path` (`write_row`, `read_row`, `list_rows`, `delete_row`);
     # `a_link_in_a_row_path_is_never_followed` (read_row's O_NOFOLLOW, which the 2026-10-04 run did not catch; its `|` to
     # `^` mutants are the pre-accepted disjoint-bits class); `the_directory_is_exclusive_until_it_is_dropped`,
     # `the_host_epoch_strictly_increases_across_opens`, `a_corrupt_epoch_refuses_the_open` (DataDir::open, DataDir::epoch);
@@ -338,18 +356,18 @@ exclude_re = [
     # slow tier runs storage.rs `slow_tests` (xtask's `SLOW_FILTER` selects every module named `slow_*`), and a Linux
     # slow-tier mutation run of 2026-10-08 (`--features slow`, those tests) catches every mutant of these functions except
     # the equivalent ones named below.
-    # Catching tests: `any_id_is_a_row_and_lists_back_sorted` (chain, place, scan, walk, entries, open_dir),
+    # Catching tests: `any_id_is_a_row_and_lists_back_sorted` (`chain`, `place`, `scan`, `walk`, `entries`, `open_dir`),
     # `a_written_row_reads_back_and_a_missing_row_is_none`, `delete_removes_the_row_and_its_empty_directories` and
-    # `only_a_missing_row_is_none_or_deleted_quietly` (existing, child_dir), `a_link_in_a_row_path_is_never_followed`
+    # `only_a_missing_row_is_none_or_deleted_quietly` (`existing`, `child_dir`), `a_link_in_a_row_path_is_never_followed`
     # (open_dir O_NOFOLLOW, child_dir's not-found guard), `a_write_never_reuses_a_temporary_file_that_it_did_not_create`
     # (place O_EXCL), `a_failed_write_removes_the_directories_that_it_made` (unmake, chain's record of made directories),
     # `a_foreign_file_is_counted_untouched_and_not_listed` (scan, walk, entries: foreign files and directories),
     # `a_missing_parent_fails_the_open`, `a_retried_open_syncs_the_parent_that_a_failed_open_left` and
-    # `open_tells_an_existing_file_from_a_failed_create` (create_data_dir, sync_dir).
+    # `open_tells_an_existing_file_from_a_failed_create` (`create_data_dir`, `sync_dir`).
     # Equivalent mutants of these functions (cargo-mutants swaps the operator as text, so `a | b & c | d` drops b and c):
     # - `|` to `^` in the flags of open_dir and place: the flags are distinct bits (pre-accepted class).
-    # - open_dir, `RDONLY & DIRECTORY` (drops O_DIRECTORY): every caller opens an entry typed as a directory (scan, walk) or
-    #   one that `mkdirat` just found existing (chain); on a non-directory, the next *at call on the descriptor fails with
+    # - open_dir, `RDONLY & DIRECTORY` (drops O_DIRECTORY): every caller opens an entry typed as a directory (`scan`, `walk`) or
+    #   one that `mkdirat` just found existing (`chain`); on a non-directory, the next *at call on the descriptor fails with
     #   ENOTDIR, the errno that O_DIRECTORY gives, so the result is the same `Failed`.
     # - place, `NOFOLLOW & CLOEXEC` (drops both): O_CREAT | O_EXCL already fails on any existing name, a link included, so
     #   O_NOFOLLOW adds nothing; O_CLOEXEC matters only for an exec while the descriptor is open, and `place` opens and
@@ -442,7 +460,7 @@ exclude_re = [
     # file is readable by every user, so the other errors need a failing kernel. Always false is killed by
     # processes_that_started_at_different_times_have_different_start_times (no process has the largest pid: None).
     'crates/botster-test-process/src/platform/linux\.rs:\d+:\d+: replace match guard ended_since_listing\(&error\) with true in start_time$',
-    # anchor.rs Connection::read -> Ok(()) and read.rs Bounded::fill -> Ok(true): a read that reports progress without
+    # anchor.rs Connection::read -> Ok(()) and read.rs Bounded::fill -> `Ok(true)`: a read that reports progress without
     # reading. Every loop around them ends at its deadline (no_wait_for_anchors_starts_after_its_deadline,
     # a_silent_writer_fails_the_read_at_the_deadline_with_what_was_read), so each guard or read test fails at its cleanup
     # bound and the drop of its guard at the guard's bound: later than the default tier's mutation timeout, which counts
@@ -454,6 +472,10 @@ exclude_re = [
     # and the microseconds field is below 1_000_000, so the mapping stays one-to-one. The two `*` mutants are killed by
     # a_start_time_on_macos_is_in_microseconds_since_the_epoch.
     'crates/botster-test-process/src/platform/macos\.rs:\d+:\d+: replace \+ with - in start_time$',
+    # core-sys process.rs start_time on macOS, `+` with `-`: equivalent. Only equality has a meaning (AD-6), and the
+    # microseconds field is below 1_000_000, so the mapping stays one-to-one. The two `*` mutants are killed by
+    # a_start_time_on_macos_is_in_microseconds_since_the_epoch (focused Mac run of P6 PR B at d1738933).
+    'crates/botster-core-sys/src/process\.rs:\d+:\d+: replace \+ with - in start_time$',
     # platform/macos.rs await_end and exiting_or_gone: with the guard always true, every kqueue error at the registration
     # reads as "gone". The other errors (ENOMEM, EMFILE for the queue) need a process-wide memory or descriptor limit; a test
     # cannot cause one without breaking the other tests of the process. `gone` stays tested (only_esrch_proves_a_process_gone).
@@ -463,7 +485,7 @@ exclude_re = [
     # information is never SZOMB, and the mutant differs only for a process that the group listing returned and that moved to
     # another group before the read. Only that race reaches the difference; no test can cause it on demand.
     'crates/botster-test-process/src/platform/macos\.rs:\d+:\d+: replace && with \|\| in live_members$',
-    # platform/macos.rs exiting_or_gone -> Ok(true): live_members calls it only for a process whose information macOS
+    # platform/macos.rs exiting_or_gone -> `Ok(true)`: live_members calls it only for a process whose information macOS
     # refused. A test process can cause that refusal only with a zombie, for which the answer is true. A live process of the
     # group whose information is refused needs another user's process in the test's group.
     'crates/botster-test-process/src/platform/macos\.rs:\d+:\d+: replace exiting_or_gone -> std::io::Result<bool> with Ok\(true\)$',
@@ -474,7 +496,7 @@ exclude_re = [
     # botster-test-process (P6): the default tier starts no real process (BUILD.md testing rules 1 and 2), so the code that
     # starts, waits for, signals or reads a real process is proved by the crate's slow tier, tests/slow_process.rs (slow-tier
     # mutation run of the crate, P6 PR A evidence). Each entry names one function and the slow tests that exercise it. The
-    # decisions stay in the default tier: end_members (rounds), Line and the guard's outcome (anchor), Bounded (read).
+    # decisions stay in the default tier: end_members (`rounds`), Line and the guard's outcome (`anchor`), Bounded (`read`).
     # child.rs OwnedChild::id: a_child_that_does_not_end_fails_its_status_and_its_drop_still_ends_it names the pid in its panic.
     'crates/botster-test-process/src/child\.rs:\d+:\d+: (replace OwnedChild::id( ->| with)|.* in OwnedChild::id$)',
     # OwnedChild::take_stdin: a_child_reads_what_the_test_writes_to_its_stdin.
@@ -524,7 +546,7 @@ exclude_re = [
     # the_start_needs_an_intermediate_that_ends_with_code_0_and_an_acknowledgement,
     # a_stalled_intermediate_fails_the_start_and_leaves_no_orphan, and every guard test.
     'crates/botster-test-process/src/anchor\.rs:\d+:\d+: (replace start_anchor( ->| with)|.* in start_anchor$)',
-    # bin/botster-test-anchor.rs: the anchor binary. Its stages (wrap, intermediate, anchor), main, and the helpers group_now
+    # bin/botster-test-anchor.rs: the anchor binary. Its stages (`wrap`, `intermediate`, `anchor`), main, and the helpers group_now
     # and number run in every guard test: the_guard_ends_the_group_and_production_still_reaps_its_own_child,
     # the_anchor_ends_the_group_when_the_test_dies, an_anchor_survives_the_hangup_of_its_session_leader. verify:
     # a_leader_that_moved_to_another_group_is_refused_and_not_signalled. terminate: a_grace_ends_the_members_by_term.
