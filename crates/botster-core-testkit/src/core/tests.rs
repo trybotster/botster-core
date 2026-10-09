@@ -4,12 +4,13 @@ use super::*;
 use std::time::Instant;
 
 fn edges(seed: u64) -> SimEdges {
+    let scheduler = SchedulerHandle::with_seed(seed);
     SimEdges {
         registry: Arc::default(),
         faults: Arc::default(),
         entropy: SeededEntropy::with_seed(seed),
-        scheduler: HandleScheduler(SchedulerHandle::with_seed(seed)),
-        wake: Arc::default(),
+        wake: Arc::new(SimHostWake::new(scheduler.clone())),
+        scheduler: HandleScheduler(scheduler),
         spawner: None,
         pending: VecDeque::new(),
         links: BTreeMap::new(),
