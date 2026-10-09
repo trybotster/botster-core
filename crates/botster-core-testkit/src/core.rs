@@ -318,6 +318,11 @@ pub struct Opened {
 }
 
 impl Directories {
+    /// The stored bytes of the row `key` in the directory `name`, as the storage edge holds them.
+    pub(crate) fn row(&self, name: &str, key: &str) -> Option<Vec<u8>> {
+        lock(self.dirs.get(name)?).rows.get(key).cloned()
+    }
+
     /// Opens a `Core` over the in-memory directory `name`, as `Core::open` opens a real one (LC-1, LC-2, 9B, DP-8).
     ///
     /// # Errors

@@ -16,6 +16,7 @@ use botster_core_conformance::{
 use botster_core_contract::prelude::*;
 use serde_json::Value;
 use std::collections::BTreeMap;
+use std::sync::Arc;
 use std::time::Instant;
 
 /// The default-tier harness for one seed (foundation design 6.1: seeds 0 to 31).
@@ -29,6 +30,8 @@ pub struct TestkitHarness {
     /// The scripted synchronous refusals of each handle (plan 4.2a). The harness arms them; the layer in front of the handle's
     /// Core consumes them.
     refusals: BTreeMap<String, RefusalHandle>,
+    /// The data directory of each handle that `open` built, for the controls that read a session's row.
+    handle_dirs: BTreeMap<String, String>,
 }
 
 impl TestkitHarness {
@@ -40,6 +43,7 @@ impl TestkitHarness {
             directories: Directories::default(),
             workers: Workers::new(SchedulerHandle::with_seed(seed), start),
             refusals: BTreeMap::new(),
+            handle_dirs: BTreeMap::new(),
         }
     }
 
@@ -58,6 +62,21 @@ impl TestkitHarness {
     /// Returns the refusal script for a handle. The refusal module arms this script.
     pub(crate) fn refusal_script(&mut self, handle: &str) -> RefusalHandle {
         self.refusals.entry(handle.to_string()).or_default().clone()
+    }
+
+    /// The data directory of `handle`, once `open` built it.
+    pub(crate) fn directory_of(&self, handle: &str) -> Option<&str> {
+        self.handle_dirs.get(handle).map(String::as_str)
+    }
+
+    /// The data directories of the run.
+    pub(crate) fn directories(&self) -> &Directories {
+        &self.directories
+    }
+
+    /// The in-process workers of the run.
+    pub(crate) fn workers(&self) -> &Workers {
+        &self.workers
     }
 
     fn no_route(what: &str) -> CoreError {
@@ -89,6 +108,8 @@ impl CoreHarness for TestkitHarness {
             }),
             limits,
         };
+        let spawner = self.workers.spawner();
+        let table = spawner.table();
         let opened = self.directories.open(
             &spec.data_dir.0,
             &config,
@@ -97,8 +118,11 @@ impl CoreHarness for TestkitHarness {
                 scheduler: self.workers.scheduler(),
             },
             core_features(),
-            Some(Box::new(self.workers.spawner())),
+            Some(Box::new(spawner)),
         )?;
+        table.set_wake(Arc::clone(&opened.wake));
+        self.handle_dirs
+            .insert(spec.handle.clone(), spec.data_dir.0.clone());
         let core = Box::new(TestkitCore::new(
             opened.driver,
             opened.wake,
@@ -135,8 +159,11 @@ impl CoreHarness for TestkitHarness {
         })
     }
 
-    /// No handle exists, so there is nothing to drop (Core LC-12 is proven once `open` returns a Core).
-    fn drop_handle(&mut self, _handle: &str) {}
+    /// The runner dropped the handle's Core (LC-12: its workers and its rows stay). The handle is gone, so a control that
+    /// names it is `Bad`; a later `open` of the same directory, under any handle, reaches the rows and the workers again.
+    fn drop_handle(&mut self, handle: &str) {
+        self.handle_dirs.remove(handle);
+    }
 
     /// The controls that the testkit builds (design 6.3, `docs/core-testkit-controls.md`). The others come with the machines
     /// and edges that they need.
