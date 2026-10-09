@@ -446,6 +446,11 @@ exclude_re = [
     # reads as "ended". A test process can cause that refusal only for a process that has ended; a live one needs another
     # user's process. Always false is killed by processes_that_started_at_different_times_have_different_start_times.
     'crates/botster-test-process/src/platform/macos\.rs:\d+:\d+: replace match guard exiting_or_gone\(pid\)\? with true in start_time$',
+    # platform/macos.rs await_status, the error-event arm of the SIGCHLD poll (Mac focused run at bbedbac9): kqueue reports
+    # an error event only for a change that failed at its registration, and `watch` has already registered the filter and
+    # returns that error itself. Deleted, an error event reads as "an event came": the loop checks the status again and
+    # stays bounded by its deadline. No test can make a registered signal filter fail.
+    'crates/botster-test-process/src/platform/macos\.rs:\d+:\d+: delete match arm Some\(kqueue::Event\{data:kqueue::EventData::Error\(error\), \.\.\}\) in await_status$',
     # botster-test-process (P6): the default tier starts no real process (BUILD.md testing rules 1 and 2), so the code that
     # starts, waits for, signals or reads a real process is proved by the crate's slow tier, tests/slow_process.rs (slow-tier
     # mutation run of the crate, P6 PR A evidence). Each entry names one function and the slow tests that exercise it. The
