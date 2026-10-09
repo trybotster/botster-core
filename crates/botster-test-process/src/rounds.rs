@@ -130,15 +130,34 @@ pub fn reserved_kill(group: Pid, reserve: Pid) -> std::io::Result<()> {
 /// # Errors
 /// What was left: the members still live at the deadline, or why they could not be signalled, listed or awaited.
 pub fn end_group(group: Pid, deadline: Deadline) -> Result<(), String> {
-    // The reserve inherits this process's group. Without it, the one kill left also ends this process, after the report.
-    let reserve = std::process::Command::new("/usr/bin/true")
+    end_group_reserved(group, deadline, reserve)
+}
+
+/// The reserve of [`end_group`]: a child that inherits this process's group, after which this process leaves the group.
+///
+/// # Errors
+/// The child could not be started, or this process could not leave the group.
+pub fn reserve() -> std::io::Result<std::process::Child> {
+    std::process::Command::new("/usr/bin/true")
         .spawn()
         .and_then(|reserve| {
             rustix::process::setpgid(None, None)
                 .map(|()| reserve)
                 .map_err(Into::into)
-        });
-    let mut reserve = match reserve {
+        })
+}
+
+/// [`end_group`] with the reserve that `reserve` makes. When it cannot make one, this process is still in `group`, its own:
+/// the one kill left (`signal_own_group`) ends every member and this process, after the report.
+///
+/// # Errors
+/// See [`end_group`].
+pub fn end_group_reserved(
+    group: Pid,
+    deadline: Deadline,
+    reserve: impl FnOnce() -> std::io::Result<std::process::Child>,
+) -> Result<(), String> {
+    let mut reserve = match reserve() {
         Ok(reserve) => reserve,
         Err(error) => {
             // This process is still in `group`, its own: the last kill ends it too. A group of 0 or 1 is refused.

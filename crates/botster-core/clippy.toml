@@ -5,6 +5,8 @@ disallowed-methods = [
   { path = "rustix::process::kill_process_group", reason = "signal through botster_core_sys::signal, which refuses a target of 0 or 1 and our own (the pattern rule: kill(-1) signals every process of the user)", allow-invalid = true },
   { path = "rustix::process::kill_process", reason = "signal through botster_core_sys::signal, which refuses a target of 0 or 1 and our own (the pattern rule: kill(-1) signals every process of the user)", allow-invalid = true },
   { path = "rustix::process::kill_current_process_group", reason = "signal through botster_core_sys::signal, which refuses a target of 0 or 1 and our own (the pattern rule: kill(-1) signals every process of the user)", allow-invalid = true },
+  { path = "libc::kill", reason = "signal through botster_core_sys::signal, which refuses a target of 0 or 1 and our own (the pattern rule: kill(-1) signals every process of the user)", allow-invalid = true },
+  { path = "libc::killpg", reason = "signal through botster_core_sys::signal, which refuses a target of 0 or 1 and our own (the pattern rule: kill(-1) signals every process of the user)", allow-invalid = true },
   { path = "std::time::Instant::now", reason = "Core reads no clock; the host passes the time to pump (Core TM-1)" },
   { path = "std::time::SystemTime::now", reason = "Core reads no clock; the host passes the time to pump (Core TM-1)" },
 ]

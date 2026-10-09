@@ -164,23 +164,23 @@ mod tests {
     }
 
     /// The real call reaches our own group, this process included. `SIGURG` is the signal: its default action is to ignore
-    /// it, so no other member of the group is affected, and the handler of this process records it.
+    /// it, so no other member of the group is affected. The handler of this process writes one byte to a socket, and the
+    /// test waits for that byte (the event), not for a flag.
     #[test]
     fn a_signal_to_our_own_group_reaches_this_process() {
-        let seen = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        use std::io::Read;
+        use std::time::Duration;
+        let (mut reader, writer) = std::os::unix::net::UnixStream::pair().unwrap();
         let handler =
-            signal_hook::flag::register(signal_hook::consts::SIGURG, std::sync::Arc::clone(&seen))
-                .unwrap();
+            signal_hook::low_level::pipe::register(signal_hook::consts::SIGURG, writer).unwrap();
+        // timer: deadline — bounds the wait for the handler's byte; the signal is sent before the wait starts.
+        let deadline = Some(Duration::from_secs(10));
+        reader.set_read_timeout(deadline).unwrap();
         signal_own_group(Signal::URG).unwrap();
-        // The signal is delivered to some thread of this process; yield until the handler ran (a bound, not a timer).
-        for _ in 0..1_000_000 {
-            if seen.load(std::sync::atomic::Ordering::SeqCst) {
-                break;
-            }
-            std::thread::yield_now();
-        }
+        let mut byte = [0];
+        let read = reader.read_exact(&mut byte);
         signal_hook::low_level::unregister(handler);
-        assert!(seen.load(std::sync::atomic::Ordering::SeqCst));
+        read.expect("the signal reached the handler of this process");
     }
 
     /// A caller of `io::Result` keeps the errno of the operating system and sees a refusal as invalid input.
