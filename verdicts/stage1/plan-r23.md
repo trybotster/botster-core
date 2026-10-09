@@ -190,3 +190,67 @@ The complete revision changes `docs/stage1-plan.md` from revision 23d at
   `git diff --check` passes. This staffing-only plan review needs no gate, as recorded for this verdict file.
 
 VERDICT: CLEAN (0 open) at 7a6adf84102a6bfcd5f69c631a16fe40e916257c
+
+## Round 7 — revision 23f — CLEAN
+
+Reviewed head: `ae89651169810dce96a1c54ab862db11447283a7`.
+Previous reviewed head: `7a6adf84102a6bfcd5f69c631a16fe40e916257c`.
+The lead assigned this plan review on 2026-10-09.
+The complete delta adds the section 8 threat model and the revision 23f row.
+The reviewer used the orchestrate-delivery skill to check the changed premise against the existing acceptance rules.
+The reviewer changed no product code and ran no tests, builds, mutants, or gates.
+
+### Acceptance rules
+
+The plan explicitly limits the source-reading checks to honest drift and mistakes in reviewed code.
+It does not require compiler-level resistance to deliberate evasion.
+The existing closed-form rule still requires a named failure for unsupported forms.
+The rule against excluding gate decisions remains in force.
+
+The reserved-name rule provides a mechanical refusal for the reported crate, type, and macro shadowing cases.
+R6-1's local `anyhow` module and internal macro glob fall under that rule.
+R6-2's local `Command` type falls under that rule.
+R6-3's quoted binding requires the shared-list rule: binding collection must skip the same opaque tokens as the expression index.
+The opaque-token case does not require an actual runtime declaration of a reserved name outside the quotation.
+Its closure therefore depends on consistent opaque handling, not merely on a reserved-name scan.
+
+The plan requires rejection fixtures and shared lists within each check.
+Those requirements are implementation acceptance conditions, not evidence that the current #181 code satisfies them.
+The #181 verdict at `60a80f21d9e0da84deb47f471faddd4944b00ed7` remains NOT CLEAN pending a replacement review.
+
+### Ordinary mistakes remain in scope
+
+The reviewer checked an ordinary refactor case that declares no reserved name:
+
+```rust
+fn forwarded(code: Option<i32>) -> Result<()> {
+    let _load = || std::fs::read("config");
+    mutation_verdict(code)
+}
+```
+
+The closure is never called, so its construction performs no file I/O.
+The current #181 visitor enters its body under `forwarded` and can treat the function as an I/O shell.
+With the existing tested decision citation, that classification can accept the pure forwarding function's exclusion.
+Moving an immediate read into an uncalled loader is an ordinary refactor mistake, without reserved-name shadowing.
+Revision 23f's good-faith exception therefore keeps this case within blocking review scope.
+It does not invalidate the plan's stated boundary; the replacement implementation must respect that boundary.
+Rejecting an unsupported deferred body with the form and file is sufficient under the existing closed-form rule.
+
+The reviewer sent this source observation directly to P6 and its reviewer for the replacement READY.
+The reviewer did not execute a fixture or issue a new #181 verdict before that READY.
+
+### Compatibility and verification
+
+The reviewer searched current v1 `a6555ebaf221042ca7b777ca2f2425e4a63dd960` for declarations using the relevant reserved names.
+The search covered the current gate-decision crate roots, `Command`, argument and opaque macro names, and process-check type names.
+No required declaration conflict was found in those forms.
+Ordinary canonical imports remain distinct from the reserved rename and replacement declarations described in the plan.
+The implementation must publish its actual lists and pass the full tree; this source survey does not replace that gate.
+
+The remote plan ref still names the reviewed head. `git diff --check` passes.
+The delta changes no product source, contracts pin, pending list, package owner, or gate command.
+No gate was run for this documentation-only review.
+The next #181 review will apply revision 23f to the actual correction and its evidence.
+
+VERDICT: CLEAN (0 open) at ae89651169810dce96a1c54ab862db11447283a7
