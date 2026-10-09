@@ -72,7 +72,7 @@ fn bounded(text: String, max: usize) -> (String, bool) {
 
 /// The `selection` of a clipboard write (A13-1): a non-empty OSC 52 selection string as the program wrote it; otherwise
 /// the model's location, in OSC 52's own letters. `None` for a location that this binding does not know: A13-1 names no
-/// letter for it.
+/// letter for it (R-41).
 fn clipboard_selection(selection: Option<String>, location: ClipboardLocation) -> Option<String> {
     if let Some(selection) = selection.filter(|s| !s.is_empty()) {
         return Some(selection);
@@ -179,7 +179,8 @@ impl Worker {
                 TerminalEvent::ClipboardWrite(write) => {
                     let Some(selection) = clipboard_selection(write.selection, write.location)
                     else {
-                        // A location that A13-1 names no letter for: the write is not silent (EV-2), it is lost.
+                        // R-41: a location that A13-1 names no letter for has no `ClipboardWrite` and no letter. The
+                        // loss marker records it (EV-6), and the binding answered the write IO_ERROR.
                         lost.insert(LostKind::ClipboardWrite);
                         continue;
                     };
@@ -217,6 +218,10 @@ impl Worker {
             });
         }
         self.enqueue_reply(drained.pty_writes);
+        // A13-1b: each OSC 5522 acknowledgement is its own transaction at the admission point, in the order of its write.
+        for ack in drained.clipboard_acks {
+            self.enqueue_reply(ack);
+        }
         if modes_changed {
             self.report(&WorkerMsg::Observed {
                 observation: Observation::Modes {
@@ -254,18 +259,11 @@ impl Worker {
             return no_model(ErrorCode::CursorReadUnsupported);
         };
         let cursor = model.term.cursor();
+        // The binding's cells are already text: a space for an empty cell, nothing for the second cell of a wide character.
         let cells = model.term.row_cells(cursor.row).unwrap_or_default();
-        let cell_text = |cell: &String| {
-            if cell.is_empty() {
-                " ".to_string()
-            } else {
-                cell.clone()
-            }
-        };
         let col = usize::try_from(cursor.col).unwrap_or(usize::MAX);
-        let text_before_cursor: String = cells.iter().take(col).map(cell_text).collect();
-        let row_text: String = cells.iter().map(cell_text).collect();
-        let row_text = row_text.trim_end_matches(' ').to_string();
+        let text_before_cursor = cells[..col.min(cells.len())].concat();
+        let row_text = cells.concat().trim_end_matches(' ').to_string();
         OpResult::Ok(OpOutput::Cursor(Cursor {
             row: cursor.row,
             col: cursor.col,
