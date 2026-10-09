@@ -3,6 +3,7 @@
 //!
 //! - [`OwnedChild`]: a child that the test starts and owns; bounded status; its drop ends and reaps it (and, in group mode,
 //!   every member of its group).
+//! - [`run_to_completion`]: a short-lived tool run to its exit with its output, as `Command::output` but bounded.
 //! - [`Guard`]: the anchor of a process that production starts and reaps; its drop ends the process's group. One design for
 //!   every guard (the double-forked anchor, `anchor.rs`).
 //! - [`Bounded`], [`first_line`], [`eof`]: reads of pipes, FIFOs and sockets, bounded by deadlines.
@@ -22,7 +23,7 @@ mod read;
 pub mod rounds;
 
 pub use anchor::Guard;
-pub use child::OwnedChild;
+pub use child::{run_to_completion, OwnedChild};
 pub use deadline::{Deadline, CLEANUP};
 pub use fixture::{quoted, Blocker};
 pub use read::{eof, first_line, Bounded, ReadError};

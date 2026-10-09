@@ -10,7 +10,8 @@ use botster_test_process::anchor::start_anchor;
 use botster_test_process::anchor::Report;
 use botster_test_process::platform::{await_end, await_status, peek, pid, start_time, Waited};
 use botster_test_process::{
-    eof, first_line, quoted, Blocker, Bounded, Deadline, Guard, OwnedChild, CLEANUP,
+    eof, first_line, quoted, run_to_completion, Blocker, Bounded, Deadline, Guard, OwnedChild,
+    CLEANUP,
 };
 use std::os::unix::process::{CommandExt, ExitStatusExt};
 use std::path::{Path, PathBuf};
@@ -81,6 +82,41 @@ fn a_child_that_does_not_end_fails_its_status_and_its_drop_still_ends_it() {
     );
     // The drop kills and reaps it; a drop that could not would fail this test.
     drop(child);
+}
+
+/// A short-lived tool runs to its exit: its status, its stdout and its stderr come back. Its stdin is null (`cat` reads the end
+/// of file at once), and a stderr larger than a pipe's capacity, written before the stdout, does not block the run.
+#[test]
+fn a_tool_runs_to_its_exit_with_its_output_and_a_null_stdin() {
+    let output = run_to_completion(
+        Command::new("/bin/sh").args([
+            "-c",
+            "/bin/cat; printf err >&2; /usr/bin/head -c 1048576 /dev/zero >&2; printf out; exit 3",
+        ]),
+        Deadline::cleanup(),
+    )
+    .unwrap();
+    assert_eq!(output.status.code(), Some(3));
+    assert_eq!(output.stdout, b"out");
+    assert_eq!(output.stderr.len(), 3 + (1 << 20));
+    assert!(output.stderr.starts_with(b"err"));
+}
+
+/// A tool that does not end by the deadline fails the run with `TimedOut`; the run kills and reaps it (a drop that could
+/// not would fail this test).
+#[test]
+fn a_tool_that_does_not_end_by_the_deadline_fails_the_run() {
+    let dir = tempfile::tempdir().unwrap();
+    let blocker = Blocker::new(dir.path(), "block").unwrap();
+    let error = run_to_completion(&mut blocker.command(), Deadline::after(Duration::ZERO))
+        .expect_err("a blocked tool does not end");
+    assert_eq!(error.kind(), std::io::ErrorKind::TimedOut);
+    assert!(
+        error
+            .to_string()
+            .contains(" did not end within 0ns: nothing ended the read within 0ns"),
+        "{error}"
+    );
 }
 
 #[test]
