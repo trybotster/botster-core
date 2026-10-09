@@ -35,7 +35,7 @@ pub struct ReadyState {
     pub control_readable: bool,
     pub pty_registered: bool,
     pub pty_readable: bool,
-    pub draining: Option<usize>,
+    pub draining: bool,
     pub queued_inputs: usize,
 }
 
@@ -43,7 +43,7 @@ impl ReadyState {
     pub fn timeout(&self, deadline: Option<Instant>, now: Instant) -> Option<Duration> {
         let busy = (self.link_open && self.control_readable)
             || (self.pty_registered && self.pty_readable)
-            || self.draining.is_some()
+            || self.draining
             || self.queued_inputs != 0;
         if busy {
             Some(Duration::ZERO)
@@ -65,8 +65,8 @@ pub fn read_control(link_open: bool, readable: bool) -> bool {
     link_open && readable
 }
 
-pub fn read_pty(registered: bool, readable: bool, draining: Option<usize>) -> bool {
-    (registered && readable) || draining.is_some()
+pub fn read_pty(registered: bool, readable: bool, draining: bool) -> bool {
+    (registered && readable) || draining
 }
 
 pub fn flush(link_open: bool, bytes: usize) -> bool {
@@ -117,7 +117,7 @@ mod tests {
                 control_readable: bits & 2 != 0,
                 pty_registered: bits & 4 != 0,
                 pty_readable: bits & 8 != 0,
-                draining: (bits & 16 != 0).then_some(0),
+                draining: bits & 16 != 0,
                 queued_inputs: usize::from(bits & 32 != 0),
             };
             let ready = match bits {
@@ -160,10 +160,10 @@ mod tests {
         for open in [false, true] {
             for ready in [false, true] {
                 assert_eq!(read_control(open, ready), (open, ready) == (true, true));
-                for drain in [None, Some(0), Some(3)] {
+                for drain in [false, true] {
                     assert_eq!(
                         read_pty(open, ready, drain),
-                        drain.is_some() || (open, ready) == (true, true)
+                        drain || (open, ready) == (true, true)
                     );
                 }
                 for bytes in [0, 1, 4096] {
