@@ -1573,6 +1573,70 @@ fn a_worker_with_no_payload_and_no_host_ends_after_startup() {
     assert_eq!(w.worker.next_deadline(), None);
 }
 
+/// P5-F27, DESIGN.md part 7: a hello that comes at the candidate's deadline does not pass, though no `Timer` came first.
+/// The candidate is closed; the control link, the epoch and the payload do not change.
+#[test]
+fn a_hello_at_the_candidates_deadline_does_not_pass_without_a_timer_first() {
+    let mut w = World::running();
+    assert!(w.feed(Input::Candidate(ADOPTER)).is_empty());
+    w.now += cfg().startup;
+    let actions = w.feed(Input::CandidateBytes(
+        ADOPTER,
+        World::host_hello(instance(), EPOCH + 1, TOKEN),
+    ));
+    assert_eq!(actions, [Action::CandidateClose(ADOPTER)]);
+    assert_eq!(
+        w.worker.next_deadline(),
+        None,
+        "the payload keeps the worker"
+    );
+    // The epoch did not change: a later host at `EPOCH + 1` still adopts it.
+    let actions = adopt(&mut w, EPOCH + 1);
+    let (hello, _) = adopted(&mut w, &actions);
+    assert_eq!(hello.host_epoch, EPOCH + 1);
+}
+
+/// P5-F27, AD-7: a host that adopts the worker at its self-exit deadline is too late, though no `Timer` came first. The
+/// worker ends, and the adoption does not pass.
+#[test]
+fn an_adoption_at_the_self_exit_deadline_is_too_late_without_a_timer_first() {
+    let mut w = World::linked();
+    w.feed(Input::LinkClosed);
+    let deadline = w.worker.next_deadline().expect("the self-exit deadline");
+    // The candidate comes later, so its own deadline is after the self-exit: only the self-exit can refuse it.
+    w.now += cfg().startup / 2;
+    assert!(w.feed(Input::Candidate(ADOPTER)).is_empty());
+    w.now = deadline;
+    let actions = w.feed(Input::CandidateBytes(
+        ADOPTER,
+        World::host_hello(instance(), EPOCH + 1, TOKEN),
+    ));
+    assert!(actions.contains(&Action::Exit), "{actions:?}");
+    assert!(
+        actions.contains(&Action::CandidateClose(ADOPTER)),
+        "{actions:?}"
+    );
+    assert!(
+        !actions.contains(&Action::AdoptLink(ADOPTER)),
+        "{actions:?}"
+    );
+}
+
+/// AD-7 (P3 review of #176, L2): a host that connects and then never speaks is no host. The worker's own hello is its
+/// first input (`LinkWritten`, which needs nothing from the host), so the deadline arms at the start and the worker ends
+/// after `startup`.
+#[test]
+fn a_worker_whose_host_never_speaks_ends_after_startup() {
+    let mut w = World::new();
+    let first = w.initial();
+    assert_eq!(w.frames(&first).len(), 1, "the worker's hello");
+    w.worker.handle(w.now, Input::LinkWritten { total: w.sent });
+    assert_eq!(w.worker.next_deadline(), Some(w.now + cfg().startup));
+    w.now += cfg().startup;
+    // The silent host's link is still open: the worker closes it, then ends.
+    assert_eq!(w.feed(Input::Timer), [Action::LinkClose, Action::Exit]);
+}
+
 /// LC-7, DESIGN.md part 7: a worker that is removing its session, or that waits to end after the removal, takes no
 /// candidate: the removal ends the session.
 #[test]

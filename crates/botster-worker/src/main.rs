@@ -648,12 +648,14 @@ impl Driver {
     }
 
     /// The fence (DP-8): the old link and every byte still unwritten on it are dropped, and the candidate becomes the
-    /// control link. `LinkWritten` counts from zero on it.
+    /// control link. `LinkWritten` counts from zero on it. A candidate that the driver no longer holds fails closed
+    /// (`io_decisions::fence`): the old link is dropped all the same.
     fn adopt_link(&mut self, id: CandidateId) -> io::Result<()> {
+        self.drop_link();
         let Some(mut candidate) = self.candidates.remove(&id) else {
+            io_decisions::fence(&mut self.inputs, id, false);
             return Ok(());
         };
-        self.drop_link();
         self.poll.registry().deregister(&mut candidate.stream)?;
         self.poll
             .registry()
@@ -664,7 +666,7 @@ impl Driver {
         self.writable_interest = false;
         self.control_readable = true;
         self.control_writable = true;
-        io_decisions::fence(&mut self.inputs, id);
+        io_decisions::fence(&mut self.inputs, id, true);
         Ok(())
     }
 
