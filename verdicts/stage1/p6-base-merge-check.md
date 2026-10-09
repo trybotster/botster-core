@@ -115,3 +115,19 @@ and P6's own check will have to decide it. Close it one of two ways:
 - (b) start git through `botster-test-process`'s bounded wait, after PR A lands.
 
 VERDICT: NOT CLEAN (1 open: G2 MEDIUM; the package reviewer's BM1 to BM3 are theirs)
+
+## Round 3 — CLEAN on head bcd5f18e (lead ruling on G2)
+
+Reviewed head: `bcd5f18ea4d2ea6d38377ca5ab3206b5c41707f5`, unchanged since round 2. v1 is still `ee7dd16c`.
+
+- **G2 CLOSED by lead ruling (a), for #170 only, with no permanent exemption.** The tests prove the HIGH config fix
+  today. git runs with no group or descendants, and nextest's leak-timeout sees a git child that holds the output pipes.
+  Because BUILD rule 5 requires every wait to be bounded, the lead also ruled on the follow-up:
+  - `botster-test-process` gets a bounded `run_to_completion` helper for short-lived tools (git, cargo).
+  - The section 8 check covers raw `Command::output`, `status` and `wait` in ALL test code, xtask included.
+  - P6 migrates these tests to the helper in PR C.
+
+  Carry for P6 PR C: this reviewer checks that `xtask/src/base_merge/tests.rs` `Repo::git` uses the helper.
+- No other finding is open. The P6 package reviewer is CLEAN at this head (`cd12645d`, BM1 to BM3 closed).
+
+VERDICT: CLEAN (0 open) at bcd5f18ea4d2ea6d38377ca5ab3206b5c41707f5
