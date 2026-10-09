@@ -1563,3 +1563,35 @@ fn the_adopting_host_takes_the_control_links_reports_and_wakes() {
         "B no longer holds the worker's link"
     );
 }
+
+/// P5 #201 A1-F2 (round 2): the end of file of a candidate that the worker refused is a report for the host that connected,
+/// until that host reads it. The refusal moves no control link.
+#[test]
+fn a_refused_candidates_end_of_file_keeps_the_connecting_host_busy() {
+    let start = Instant::now();
+    let (scheduler, workers) = adoption_run(start);
+    let mut dirs = Directories::default();
+    let session = SessionId("s".into());
+    let mut first = handle_over(&mut dirs, "eof", &workers, &scheduler);
+    create_and_start(&mut first, &session, start);
+    drop(first);
+    let key = key_of(&dirs, "eof", &session);
+    let _stranger = workers.connect_endpoint(&key).expect("the worker listens");
+    workers.run(start);
+
+    // A host's edge connects (`SimEdges::connect_worker` gives the spawner the worker's end of a new link).
+    let mut spawner = workers.spawner("eof");
+    let table = spawner.table();
+    assert!(workers.edges_quiet(&table));
+    let (mut host, worker) = crate::net::link_pair(1024);
+    assert!(spawner.connect_worker(&key.instance, worker));
+    workers.run(start);
+    assert!(
+        !workers.edges_quiet(&table),
+        "the refused candidate's end of file waits for the host"
+    );
+    let mut buf = [0u8; 16];
+    assert_eq!(host.recv(&mut buf).unwrap(), 0, "the candidate was closed");
+    host.close();
+    assert!(workers.edges_quiet(&table));
+}
