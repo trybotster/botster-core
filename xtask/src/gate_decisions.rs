@@ -10,11 +10,12 @@
 //! - the mutant replaces the whole body of F (genre `FnValue`): an operator or a match-arm mutant is a decision mutant;
 //! - its reason cites a proof (plan section 8, r23d), written `D (proof, ..)`, where D is the name of at least one xtask
 //!   function that has a mutant, and no exclusion covers a mutant of any xtask function with that name. So every mutant of
-//!   D runs in the mutation step, and the run proves that D is tested. mutants-cited checks that each proof is a test that
-//!   a gate tier runs. A decision named only in free text does not count.
+//!   D stays eligible for the mutation step. The step runs only the mutants of the diff (`--in-diff`), so only a run that
+//!   records a mutant of D as executed is mutation evidence for D; an unchanged D has none from this check. mutants-cited
+//!   checks that each proof is a test that a gate tier runs. A decision named only in free text does not count.
 //!
 //! The check reads no source: it does not decide whether F does I/O (plan section 8, 23g), whether F calls D, or whether a
-//! test calls D (23i). These rest on the reason of the exclusion and on review: every change to `.cargo/mutants.toml` is
+//! test calls D (23i). These, and what each proof test asserts, rest on the reason of the exclusion and on review: every change to `.cargo/mutants.toml` is
 //! HIGH (`ci/high-tier-paths.txt`), so the package reviewer and the integration reviewer each read every new or changed
 //! exclusion. The functions are matched by name only (the last segment of the cargo-mutants name, so `Type::d` is a `d`):
 //! a name that several functions share only makes the check reject more.
@@ -197,8 +198,8 @@ pub fn check(
                 continue;
             }
             // Plan section 8 (r23d, 23i): only a proof citation `decision (proof, ..)` names a decision; a name in free
-            // text does not. A cited decision has mutants and none of them is excluded, so the mutation run tests it;
-            // F itself is covered, so it never counts as its own decision.
+            // text does not. A cited decision has mutants and none of them is excluded, so each stays eligible for the
+            // mutation step; F itself is covered, so it never counts as its own decision.
             let named = crate::mutants_cited::citations(&exclusion.reason)
                 .iter()
                 .map(|citation| citation.decision.as_str())
