@@ -30,8 +30,8 @@
 //!
 //! These forms are not listed, so the check fails on them and names the form and the file (#181 B5 round 5): any other
 //! macro, a macro path whose first segment no `use` binds where a glob `use` of another crate is visible, and a function
-//! that has a command binding and a `use` declaration in its body (the check resolves a command binding through the
-//! `use` declarations around the function). A `#[path]` module in the xtask is not a listed form either. Any other way
+//! that starts a command binding and has a `use` declaration in its body (the check resolves a command binding
+//! through the `use` declarations around the function). A `#[path]` module in the xtask is not a listed form either. Any other way
 //! of doing I/O (a start on a field, a closure that holds a command) is not recognized: a shell that does only that is
 //! no shell for the check, so its exclusion fails until the code takes a listed form or a reviewed change extends the
 //! list.
@@ -393,6 +393,8 @@ struct CommandBindings {
     started: Vec<(String, Vec<String>)>,
     bound: BTreeMap<String, usize>,
     uses: bool,
+    /// The names on which the function calls a `SPAWN_METHODS` method (the receiver chain begins at the name).
+    receivers: BTreeSet<String>,
 }
 
 /// The arguments of `mac` when they parse as expressions separated by commas.
@@ -404,6 +406,21 @@ fn macro_arguments(
 }
 
 impl<'ast> Visit<'ast> for CommandBindings {
+    fn visit_expr_method_call(&mut self, call: &'ast syn::ExprMethodCall) {
+        if SPAWN_METHODS.contains(&call.method.to_string().as_str()) {
+            let mut receiver = &*call.receiver;
+            while let syn::Expr::MethodCall(inner) = receiver {
+                receiver = &inner.receiver;
+            }
+            if let syn::Expr::Path(path) = receiver {
+                if let Some(name) = path.path.get_ident() {
+                    self.receivers.insert(name.to_string());
+                }
+            }
+        }
+        syn::visit::visit_expr_method_call(self, call);
+    }
+
     fn visit_item_use(&mut self, item: &'ast syn::ItemUse) {
         self.uses = true;
         syn::visit::visit_item_use(self, item);
@@ -677,18 +694,19 @@ impl Index<'_> {
         &mut self,
         ident: &syn::Ident,
         attrs: &[syn::Attribute],
-        (locals, commands): (Bindings, CommandBindings),
+        (locals, mut commands): (Bindings, CommandBindings),
         visit: impl FnOnce(&mut Self),
     ) {
         let name = ident.to_string();
         let uses = commands.uses;
+        let receivers = std::mem::take(&mut commands.receivers);
         let commands = self.command_locals(commands);
-        if uses && !commands.is_empty() {
+        if uses && commands.keys().any(|name| receivers.contains(name)) {
             let at = ident.span().start();
             self.rejected.push(format!(
-                "{}:{}: the function `{name}` binds a process command and has a `use` declaration in its body, which is \
-                 not a form that gate-decisions resolves (plan section 8): it resolves a command binding through the `use` \
-                 declarations around the function; move the `use` out of the function",
+                "{}:{}: the function `{name}` starts a process command that it binds and has a `use` declaration in its \
+                 body, which is not a form that gate-decisions resolves (plan section 8): it resolves a command binding \
+                 through the `use` declarations around the function; move the `use` out of the function",
                 at.line,
                 at.column + 1
             ));

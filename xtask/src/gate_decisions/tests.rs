@@ -652,9 +652,9 @@ fn a_binding_or_a_use_that_the_check_does_not_resolve_rejects_the_exclusion() {
         (
             "fn forwarded(code: Option<i32>) -> Result<()> { { use crate::ci::pure::Command; let cmd = Command::new(); cmd.status(); } mutation_verdict(code) }",
             Err(
-                "xtask/src/ci.rs:6:4: the function `forwarded` binds a process command and has a `use` declaration in its \
-                 body, which is not a form that gate-decisions resolves (plan section 8): it resolves a command binding \
-                 through the `use` declarations around the function; move the `use` out of the function",
+                "xtask/src/ci.rs:6:4: the function `forwarded` starts a process command that it binds and has a `use` \
+                 declaration in its body, which is not a form that gate-decisions resolves (plan section 8): it resolves a \
+                 command binding through the `use` declarations around the function; move the `use` out of the function",
             ),
         ),
         (
@@ -702,6 +702,14 @@ fn a_binding_or_a_use_that_the_check_does_not_resolve_rejects_the_exclusion() {
             (Err(error), Err(want)) => assert_eq!(error, want, "{forwarded}"),
             (got, want) => panic!("{forwarded}: {:?}, want {want:?}", got.map(|_| ())),
         }
+    }
+    // A binding that the function never starts is no command binding for the rule (prebuild.rs, a test with a block
+    // `use` and `let root = TempRoot::new()`), and a start on a name that the function does not bind is none either.
+    for text in [
+        "fn t() { use std::os::unix::fs::MetadataExt; let root = TempRoot::new(); root.path().metadata(); }\n",
+        "fn t(c: Command) { use std::fs::write; other.status(); }\n",
+    ] {
+        Calls::of(&[("xtask/src/a.rs".to_string(), text.to_string())]).unwrap();
     }
 }
 
