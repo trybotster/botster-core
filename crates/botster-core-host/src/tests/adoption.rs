@@ -389,10 +389,10 @@ fn a_row_whose_worker_is_gone_is_worker_gone() {
     assert!(again.signals.is_empty());
 }
 
-/// Core AD-6, A10-1, A11-1: a worker whose hello does not prove the token is never signalled, and its link is closed. A
-/// live worker may be at the identity, so the row is `Lost(WorkerUnreachable)` and keeps its id (AD-2).
+/// Core AD-6, A10-1, A11-1: a process whose hello does not prove the token is not the session's worker. It is never
+/// signalled, its link is closed, and the row is `Lost(WorkerGone)` with its id kept (lead ruling on #176a-2).
 #[test]
-fn a_hello_with_a_wrong_proof_is_unreachable_and_never_signalled() {
+fn a_hello_with_a_wrong_proof_is_worker_gone_and_never_signalled() {
     let first = crashed_before_launch("s");
     let mut again = adopting(&first, "s", AdoptedPayload::NotLaunched);
     again
@@ -403,7 +403,7 @@ fn a_hello_with_a_wrong_proof_is_unreachable_and_never_signalled() {
     let events = adopt_all(&mut again);
     assert_eq!(
         states_of(&events, "s"),
-        vec![SessionState::Lost(LostReason::WorkerUnreachable)]
+        vec![SessionState::Lost(LostReason::WorkerGone)]
     );
     assert!(again.signals.is_empty(), "{:?}", again.signals);
     assert_eq!(again.closed.len(), 1, "the link is closed");
@@ -412,6 +412,14 @@ fn a_hello_with_a_wrong_proof_is_unreachable_and_never_signalled() {
         again.engine.begin(create("s")).unwrap_err().code,
         ErrorCode::IdInUse
     );
+    // A10-1, AD-6: `Remove` never signals the recorded identity either, and the worker's cleanup is not known (A6-3).
+    let remove = again.engine.begin(Op::Remove { id: sid("s") }).unwrap();
+    assert!(matches!(
+        again.complete(remove),
+        OpResult::Ok(OpOutput::RemoveReport(r))
+            if r.uploads == UploadsOutcome::NotDeleted(NotDeleted::OutcomeUnknown)
+    ));
+    assert!(again.signals.is_empty(), "{:?}", again.signals);
 }
 
 /// Core AD-4, A6-2, LC-9: a worker whose protocol is outside the adoptable set is `Lost(WorkerVersion)`. Its protocol is
@@ -457,6 +465,78 @@ fn an_unanswered_adoption_is_unreachable_at_the_startup_deadline() {
     );
     assert_eq!(again.engine.get(&sid("s")).unwrap().worker_protocol, None);
     assert!(again.signals.is_empty());
+}
+
+/// Core LC-9, AD-2: the row of a running session records its worker's protocol. A new host that never reads the worker's
+/// hello does not show that protocol: the session is `Lost(WorkerUnreachable)` with no protocol. The `Lost` row keeps the
+/// protocol that it recorded (R-36: it records only its end).
+#[test]
+fn an_unanswered_adoption_drops_the_protocol_that_the_row_recorded() {
+    let mut first = World::default();
+    first.ok(create("s"));
+    first.ok(Op::Start { id: sid("s") });
+    let row = Row::decode(&sid("s"), &first.rows[&row_key("s")]).expect("the row decodes");
+    assert_eq!(row.worker_protocol, Some(HELLO_PROTOCOL));
+    let mut again = with_endpoint(&first, "s", None);
+    let adopt = again.engine.begin(Op::AdoptAll).unwrap();
+    again.pump();
+    let startup = again.engine.cfg.limits.startup;
+    again.advance(startup);
+    let events = again.until(|e| matches!(e, Event::Completed { op, .. } if *op == adopt));
+    assert_eq!(
+        states_of(&events, "s"),
+        vec![SessionState::Lost(LostReason::WorkerUnreachable)]
+    );
+    assert_eq!(again.engine.get(&sid("s")).unwrap().worker_protocol, None);
+    let lost = Row::decode(&sid("s"), &again.rows[&row_key("s")]).expect("the row decodes");
+    assert_eq!(
+        lost.state,
+        SessionState::Lost(LostReason::WorkerUnreachable)
+    );
+    assert_eq!(lost.worker_protocol, Some(HELLO_PROTOCOL));
+    // Review A2-F2: a later host posts the `Lost` row and reads no hello either. `get` and `list` show no protocol, and
+    // the row keeps it.
+    let mut third = World::over(&again);
+    adopt_all(&mut third);
+    assert_eq!(third.engine.get(&sid("s")).unwrap().worker_protocol, None);
+    assert!(third
+        .engine
+        .list()
+        .iter()
+        .all(|r| r.worker_protocol.is_none()));
+    let kept = Row::decode(&sid("s"), &third.rows[&row_key("s")]).expect("the row decodes");
+    assert_eq!(kept.worker_protocol, Some(HELLO_PROTOCOL));
+}
+
+/// Core A10-1, AD-6 (review A2-F1): the refusal outlives its host. A later host posts the `Lost(WorkerGone)` row, and its
+/// `Remove` never probes or signals the recorded identity: the outcome is `NotDeleted(OutcomeUnknown)`, and the process at
+/// the identity lives on.
+#[test]
+fn a_refused_worker_stays_unsignalled_after_a_restart() {
+    let first = crashed_before_launch("s");
+    let worker = first.identity_of("s");
+    let mut again = adopting(&first, "s", AdoptedPayload::NotLaunched);
+    again
+        .endpoints
+        .get_mut(&first.instance_of("s"))
+        .unwrap()
+        .token = [0xEE; TOKEN_LEN];
+    adopt_all(&mut again);
+    let mut third = World::over(&again);
+    assert!(third.alive.contains(&worker));
+    let events = adopt_all(&mut third);
+    assert_eq!(
+        states_of(&events, "s"),
+        vec![SessionState::Lost(LostReason::WorkerGone)]
+    );
+    let remove = third.engine.begin(Op::Remove { id: sid("s") }).unwrap();
+    assert!(matches!(
+        third.complete(remove),
+        OpResult::Ok(OpOutput::RemoveReport(r))
+            if r.uploads == UploadsOutcome::NotDeleted(NotDeleted::OutcomeUnknown)
+    ));
+    assert!(third.signals.is_empty(), "{:?}", third.signals);
+    assert!(third.alive.contains(&worker), "the process lives on");
 }
 
 /// Core AD-2; steward ruling R-36 (contracts `main` `c62085f`): an adoption whose link is lost after the `Launch` is

@@ -658,6 +658,7 @@ pub(crate) fn new_session(
         request,
         exit: None,
         worker_protocol: None,
+        row_protocol: None,
         worker_features: None,
         token: None,
         worker: no_worker(),

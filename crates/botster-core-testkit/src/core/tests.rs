@@ -1604,3 +1604,164 @@ fn a_refused_candidates_end_of_file_keeps_the_connecting_host_busy() {
     host.close();
     assert!(workers.edges_quiet(&table));
 }
+
+/// The frames that `bytes` hold, in order.
+fn frames_of(bytes: &[u8]) -> Vec<botster_core_link::frame::Frame> {
+    let mut decoder =
+        botster_core_link::frame::FrameDecoder::new(botster_core_link::frame::DEFAULT_MAX_PAYLOAD);
+    let mut rest = bytes;
+    let mut frames = Vec::new();
+    while !rest.is_empty() {
+        let took = decoder.push(rest);
+        rest = &rest[took..];
+        while let Some(frame) = decoder.next_frame().expect("the bytes are frames") {
+            frames.push(frame);
+        }
+    }
+    frames
+}
+
+/// One frame of `kind` with `payload`.
+fn frame_bytes(kind: botster_core_link::frame::FrameType, payload: &[u8]) -> Vec<u8> {
+    let mut out = Vec::new();
+    botster_core_link::frame::encode_frame(
+        kind,
+        payload,
+        botster_core_link::frame::DEFAULT_MAX_PAYLOAD,
+        &mut out,
+    )
+    .expect("a small frame encodes");
+    out
+}
+
+/// Core A10-1, A11-1, AD-6; steward ruling R-42 (`impostor_worker`, `signals_received`): the impostor at a session's endpoint
+/// answers the host's first hello once, with a hello that fails Core's check and its scripted frames in the same write. The
+/// edges are not quiet while it holds bytes that it has not read. A signal to the recorded identity counts for that
+/// session's impostor only, and only once a host connected to it.
+#[test]
+fn an_impostor_answers_the_first_hello_and_counts_only_its_own_signals() {
+    use crate::worker::{ImpostorField, ImpostorFrame, ImpostorPlan};
+    use botster_core_link::frame::FrameType;
+    use botster_core_link::hello::Hello;
+    use botster_core_link::msg::{Observation, WorkerMsg};
+    use botster_core_link::proof::{token_proof, TOKEN_LEN};
+
+    let start = Instant::now();
+    let (scheduler, workers) = adoption_run(start);
+    let mut dirs = Directories::default();
+    let (one, two) = (SessionId("one".into()), SessionId("two".into()));
+    let mut first = handle_over(&mut dirs, "imp", &workers, &scheduler);
+    create_and_start(&mut first, &one, start);
+    create_and_start(&mut first, &two, start);
+    drop(first);
+    let (worker_one, worker_two) = (worker_of(&dirs, "imp", &one), worker_of(&dirs, "imp", &two));
+    let key = key_of(&dirs, "imp", &one);
+    let token = [7u8; TOKEN_LEN];
+    for (id, worker) in [(&one, worker_one), (&two, worker_two)] {
+        let plan = ImpostorPlan {
+            session: id.clone(),
+            field: ImpostorField::Token,
+            script: vec![
+                ImpostorFrame::CleanupDeleted,
+                ImpostorFrame::StateExited,
+                ImpostorFrame::Notification,
+            ],
+            token,
+            worker,
+        };
+        workers.impostor(key_of(&dirs, "imp", id), plan).unwrap();
+    }
+    let mut spawner = workers.spawner("imp");
+    let table = spawner.table();
+    workers.run(start);
+    assert!(
+        workers.edges_quiet(&table),
+        "an impostor that no host reached is quiet"
+    );
+
+    let (mut host, end) = crate::net::link_pair(LINK_CAPACITY);
+    assert!(spawner.connect_worker(&key.instance, end));
+    workers.run(start);
+    assert!(
+        workers.edges_quiet(&table),
+        "a connected impostor with nothing to read is quiet"
+    );
+
+    // A frame that is not a hello and the hello arrive in one read: the impostor answers the hello.
+    let host_hello = Hello {
+        protocol: botster_worker_core::WORKER_PROTOCOL,
+        instance: key.instance.clone(),
+        proof: token_proof(&token, &key.instance, 9),
+        host_epoch: 9,
+    };
+    let mut payload = Vec::new();
+    host_hello.encode(&mut payload).unwrap();
+    let mut bytes = frame_bytes(FrameType::HOST_MSG, b"{}");
+    bytes.extend(frame_bytes(FrameType::HELLO, &payload));
+    assert_eq!(host.send(&bytes).unwrap(), bytes.len());
+    assert!(
+        !workers.edges_quiet(&table),
+        "the impostor holds the host's bytes"
+    );
+    workers.run(start);
+    let mut buf = vec![0u8; LINK_CAPACITY];
+    let n = host.recv(&mut buf).unwrap();
+    let frames = frames_of(&buf[..n]);
+    assert_eq!(
+        frames.len(),
+        4,
+        "the hello and the three scripted frames: {frames:?}"
+    );
+    assert_eq!(frames[0].kind, FrameType::HELLO);
+    let answer = Hello::decode(&frames[0].payload).unwrap();
+    assert_eq!(answer.instance, key.instance);
+    assert_eq!(answer.host_epoch, 9);
+    assert_ne!(answer.proof, token_proof(&token, &key.instance, 9));
+    let scripted: Vec<WorkerMsg> = frames[1..]
+        .iter()
+        .map(|f| {
+            assert_eq!(f.kind, FrameType::WORKER_MSG);
+            WorkerMsg::decode(&f.payload).unwrap()
+        })
+        .collect();
+    assert_eq!(
+        scripted,
+        [
+            WorkerMsg::RemoveResult {
+                uploads: UploadsOutcome::Deleted
+            },
+            WorkerMsg::Exited {
+                code: Some(0),
+                signal: None
+            },
+            WorkerMsg::Observed {
+                observation: Observation::Notification {
+                    source: NotificationSource::Osc9,
+                    title: None,
+                    body: "impostor".into(),
+                    truncated: false,
+                },
+            },
+        ]
+    );
+
+    // A second hello gets no second answer.
+    let again = frame_bytes(FrameType::HELLO, &payload);
+    assert_eq!(host.send(&again).unwrap(), again.len());
+    workers.run(start);
+    assert_eq!(
+        host.recv(&mut buf).map_err(|e| e.kind()),
+        Err(io::ErrorKind::WouldBlock)
+    );
+
+    // Each impostor counts the signals to its own recorded identity, once a host connected to it: no host reached the
+    // impostor of `two`.
+    spawner.signal_group(worker_two, GroupSignal::EndPayload);
+    spawner.signal_group(worker_one, GroupSignal::Term);
+    workers.run(start);
+    assert_eq!(
+        workers.impostor_signals("imp", &one),
+        Some(vec![GroupSignal::Term])
+    );
+    assert_eq!(workers.impostor_signals("imp", &two), Some(Vec::new()));
+}
