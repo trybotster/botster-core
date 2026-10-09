@@ -151,3 +151,19 @@ reviewer's F26: `adopt.rs` +7 -1, `run.rs` +7, tests and `DESIGN.md`. v1 is stil
   160 tested, 142 caught, 0 missed, 0 TIMEOUT, 18 unviable. The full gate on this exact head stays the lead's check.
 
 VERDICT: CLEAN (0 open) at 4a5a71585d0abb1470c2ffda56b59780272fba0c
+
+### Note after round 3 (same head 4a5a7158) — the RED full gate is not caused by this PR's code
+
+The full pool gate at this head (`…021843-68853.log`) is RED in the slow tier only:
+`botster-worker::bin/botster-worker slow_driver::ev_4_a_real_exit_carries_the_code_or_the_signal` panicked in the payload
+guard's drop (`botster-core-sys/tests/common/payload_guard.rs:254`): "the member's report could not be read: Connection
+reset by peer (os error 104)". The test failed in the guard's cleanup, not at the hello, where this PR's helper line
+(`driver_edges.rs:429`, `host_proof`) is used.
+
+The full gate at `6a09f29b` was green with the same slow tier. Between `6a09f29b` and `4a5a7158`, the only change in a
+crate that `botster-worker` depends on (`botster-core-contract`, `-edges`, `-link`, `-sys`, `botster-worker-core`) is
+`botster-worker-core/src/worker/tests.rs`, a test module that is not compiled into `botster-worker`. So the failing test
+ran the same code as in the green gate. The failure is a race in v1's payload guard (P6-owned real-process test code), not
+a defect of #174. This reviewer did not run the test. The gate disposition is the lead's.
+
+VERDICT (unchanged): CLEAN (0 open) at 4a5a71585d0abb1470c2ffda56b59780272fba0c
