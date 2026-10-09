@@ -8,9 +8,6 @@
 # conf::a15_1_key_text_at_the_bound_is_admitted: A15: P3 (worker).
 # conf::a15_1_key_text_bound_out_of_range_is_invalid_config: A15: P1 lifecycle (limits; owners.py), worked by P5; host proof open_refuses_a_key_text_bound_out_of_its_range; waits for a contracts transcript (pending in contracts-v0.1.21).
 # conf::a15_1_route_key_text_over_the_bound_is_too_large: A15: P4a (route).
-conf::a10_1_wrong_instance_is_never_signalled
-conf::a10_1_wrong_token_is_never_signalled
-conf::a10_2_corrupted_row_is_lost_registry_corrupt
 conf::a11_1_frames_after_a_failed_handshake_change_nothing
 conf::a12_1_held_report_released_proceeds_normally
 conf::a12_1b_partial_cleanup_claims_no_paths
@@ -50,7 +47,6 @@ conf::a18_1_adopted_last_output_at_is_none_until_output
 conf::a18_1_adopted_last_output_at_is_set_by_the_first_output
 conf::a18_2_adopted_idle_session_is_silent_a_threshold_after_adoption
 conf::a18_2_adopted_silent_due_at_an_exhausted_budget_is_carried
-conf::a2_1_adopt_completes_ok_with_the_state_it_reached
 conf::a2_1_attach_state_rules
 conf::a2_1_cancel_non_input_is_not_cancellable
 conf::a2_1_env_is_exact
@@ -199,13 +195,9 @@ conf::a9_3_scripted_compression_choice_is_the_workers_only_decision
 conf::ad_1_starting_with_identity_adopts
 conf::ad_1_starting_without_identity_is_lost
 conf::ad_2_lost_reasons
-conf::ad_2_lost_row_keeps_id_and_allows_retry
 conf::ad_3_adopted_equals_started
-conf::ad_4_absent_worker_protocol_is_unknown_never_compatible
-conf::ad_4_compatibility_is_not_a_guarantee_of_adoption_auth_and_reachability_can_still_fail
 conf::ad_4_unknown_version_is_lost
 conf::ad_6_reused_pid_is_never_killed
-conf::ad_6_token_and_instance_checked
 conf::ad_7_crash_between_steps_leaves_no_unregistered_payload
 conf::ad_7_uncertain_registry_write_is_reported
 conf::am_1_start_then_remove_refused
@@ -441,7 +433,6 @@ conf::lc_7_id_free_after_completion
 conf::lc_7_remove_created
 conf::lc_9_record_exposes_the_worker_protocol
 conf::lc_9_update_metadata_is_durable
-conf::lc_9_worker_protocol_absent_for_an_unreachable_worker_whose_hello_was_never_read
 conf::or_3_unspecified_orders_are_randomized
 conf::ou_10_no_authorization_in_core
 conf::ou_11_transport_ownership_is_defined
