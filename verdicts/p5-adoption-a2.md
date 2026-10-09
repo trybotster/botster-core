@@ -93,3 +93,45 @@ Three findings remain open. The reviewer changed no product code and ran no buil
 No NOT CLEAN report went to the lead. Await replacement READY and the required evidence.
 
 VERDICT: NOT CLEAN
+
+## PR #204 — Round 2 — 2026-10-09
+
+Exact head: `58e3a314c4bbe4082637abe86fa6bbb048748442`.
+Exact tree: `7b7cdb31eaeb7cf74ddfbd042b6d83a0a4465c03`.
+PR and gate base: `cd97009e93c2641843c05bd46793265b3580b2a9`.
+Parent: `c0676f7ced289412a6d0950d612fa011aad181a6`.
+
+The reviewer checked the risk tier first. HIGH rule 3 remains correct.
+The PR retains Prior art and maps all three findings to their fixes and proof.
+The reviewer read the complete three-file delta from the Round 1 head.
+
+- **A2-F1 CLOSED:** session_of_row recovers Lost(WorkerGone) with worker.gone=true.
+  Remove therefore uses the unknown-outcome branch without probing or signalling that identity.
+  The new host test proves refusal, persistence, reopen, AdoptAll, and Remove leave the process alive with zero signals and OutcomeUnknown.
+  The testkit test covers both wrong token and wrong instance across a third handle.
+  It checks payload_alive before removal and signals_received after removal, when the row has been deleted.
+  Adopt admission remains unchanged. A WorkerGone outcome cannot retry Adopt.
+- **A2-F2 CLOSED:** recovery of a posted Lost(WorkerUnreachable) moves the saved protocol into row_protocol.
+  The visible worker_protocol stays None. The extended test reopens a third host and checks get, list, and the saved row.
+  The row retains P while the visible records show None.
+- **A2-F3 CLOSED:** the exact-head pool job runs the full gate, then NEXTEST_PROFILE=slow cargo xtask ci --job mutants.
+  The supplied log contains both mutation summaries. The second run uses the same exact base and diff.
+  The command inherits the profile override; cargo() and tier_env(false) do not replace it.
+  The unchanged slow profile has no terminate-after. The second run reports zero missed mutants and zero timeouts.
+
+The pending list equals Round 1. All nine removed IDs and all 39 active minimum IDs have PASS lines in the new log.
+Minimum count remains 35 -> 39 / 70. No real-harness gain is claimed.
+No pin, dependency, transcript, mutation exclusion, or existing timeout value changes.
+
+Gate: `~/botster-sessions/gates/botster-core-stage1-p5-adopt-a2-v1-58e3a314-pool-20261009-161258-9135.log`.
+The log names the exact head and base above. The recovery regression tests PASS.
+Results: 1170 default passed / 562 skipped; 249 slow passed / 1023 skipped; 113 conformance trials passed, zero failed.
+Both mutation runs report 57 tested, 51 caught, 0 missed, 0 timeout, 6 unviable.
+All ten full-gate stages report PASS. The extra mutation stage reports PASS.
+Fuzz reports PASS in 0.0 seconds. Job and gate exit zero.
+
+No package finding remains. Integration must supply its separate CLEAN on this exact head.
+The #176b real-driver proof hold and the pending control-dependent IDs remain outside this verdict.
+The reviewer changed no product code and ran no builds, tests, mutation jobs, or gates.
+
+VERDICT: CLEAN
