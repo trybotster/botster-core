@@ -412,6 +412,14 @@ fn a_hello_with_a_wrong_proof_is_worker_gone_and_never_signalled() {
         again.engine.begin(create("s")).unwrap_err().code,
         ErrorCode::IdInUse
     );
+    // A10-1, AD-6: `Remove` never signals the recorded identity either, and the worker's cleanup is not known (A6-3).
+    let remove = again.engine.begin(Op::Remove { id: sid("s") }).unwrap();
+    assert!(matches!(
+        again.complete(remove),
+        OpResult::Ok(OpOutput::RemoveReport(r))
+            if r.uploads == UploadsOutcome::NotDeleted(NotDeleted::OutcomeUnknown)
+    ));
+    assert!(again.signals.is_empty(), "{:?}", again.signals);
 }
 
 /// Core AD-4, A6-2, LC-9: a worker whose protocol is outside the adoptable set is `Lost(WorkerVersion)`. Its protocol is

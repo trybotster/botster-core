@@ -60,6 +60,8 @@ impl HostEngine {
         // LC-9: the protocol is what this host reads in the worker's hello. Until it reads one, the session has none, also
         // when the row recorded one (a worker whose hello was never read is never guessed).
         s.worker_protocol = None;
+        // AD-6: each adoption proves the worker again, so a refusal of an earlier one is not kept.
+        s.worker.gone = false;
         s.admit = Admit::Adopting;
         s.adopting = Some(op);
         s.flow = Flow::Adopt(AdoptFlow {
@@ -189,7 +191,13 @@ impl HostEngine {
         if !proved {
             // A10-1, A11-1, AD-6: the process that answered is not the session's worker. "A process that does not match is
             // never signalled", and its row is `WorkerGone` (A10-1: "a non-matching process at the recorded pid is
-            // `WorkerGone`"). Core decodes no later frame of the link.
+            // `WorkerGone`"). Core decodes no later frame of the link. The worker is gone for this host, so `Remove` never
+            // probes or signals the recorded identity either.
+            self.sessions
+                .get_mut(id)
+                .expect("checked above")
+                .worker
+                .gone = true;
             self.adopt_end(
                 id,
                 End::Lost(LostReason::WorkerGone),
