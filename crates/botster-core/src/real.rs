@@ -808,10 +808,8 @@ mod slow_tests {
     fn the_host_closes_a_link_that_the_poll_refuses_and_records_why() {
         use crate::Core;
         use std::io::Read;
-        use std::time::Instant;
         let pump = |core: &mut Core| {
-            #[allow(clippy::disallowed_methods)] // a test passes a real instant to the pump
-            let monotonic = Instant::now();
+            let monotonic = crate::real_now();
             core.pump(Now {
                 monotonic,
                 unix: 1_000_000,

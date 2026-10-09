@@ -53,14 +53,20 @@ struct World {
     sent: u64,
 }
 
+/// The real instant that a test gives its injected clock as the start. It is the one call of the crate's tests that reads the
+/// real clock, so its allowance covers that one call (the machine crates read no clock: plan 2.3c).
+#[allow(clippy::disallowed_methods)]
+fn real_now() -> std::time::Instant {
+    std::time::Instant::now()
+}
+
 impl World {
     fn new() -> World {
         World::with(cfg())
     }
 
     fn with(cfg: WorkerConfig) -> World {
-        #[allow(clippy::disallowed_methods)] // a test starts the injected clock at a real instant
-        let now = Instant::now();
+        let now = real_now();
         World {
             worker: Worker::new(cfg),
             now,

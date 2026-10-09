@@ -328,8 +328,7 @@ mod tests {
 
     #[test]
     fn a_silence_deadline_needs_a_threshold_an_output_and_an_unfired_period() {
-        #[allow(clippy::disallowed_methods)] // a test starts the injected clock at a real instant
-        let now = Instant::now();
+        let now = crate::tests::real_now();
         let mut silence = Silence::default();
         assert_eq!(silence.deadline(), None);
         silence.threshold = Some(Duration::from_secs(2));
