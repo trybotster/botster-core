@@ -71,3 +71,32 @@ Mechanical check, in the PR body: list every operator, branch and match arm that
 gives no reason. If the intent is "diagnostics keys are not contract", say so. If not, keep the counts.
 
 VERDICT: NOT CLEAN (1 open: H1 MEDIUM)
+
+## Round 2 — CLEAN on head a7c73feb
+
+Reviewed head: `a7c73febcfeafca0f462ea14d5121a516d5a1a10`. Delta `b9903f94..a7c73feb`: five commits, fast-forward, in
+`botster-core` `real.rs`, `.cargo/mutants.toml`, two host test files and `DESIGN.md`. v1 is still `ee7dd16c`. This reviewer
+ran no build, test or gate.
+
+- **H1 CLOSED.** The A28 decisions are pure functions. They are not excluded, and they have default-tier tests:
+  - `AcceptFailures::take`: WouldBlock gives `None`; any other error is counted and recorded.
+  - `broken_after` and `LinkIo::record`: a refusal breaks the link, and a broken link stays broken.
+  - `edge_diagnostics`: `a_failed_accept_is_counted_and_reported` asserts every key.
+- **The shells.** The excluded functions now only call these decision functions, except for one remaining branch: the
+  `if !io.apply(..) { WakeEdge::signal }` of `set_read_interest` and `set_write_interest`.
+  - The Linux slow test `a_link_that_the_poll_refuses_wakes_the_host_and_fails` catches that branch's `delete !` mutant.
+    It asserts no wake after an accepted change and a wake after a refused one, for both functions.
+  - The `LinkIo::apply` entry stays. Its `-> bool` mutants are caught by the Linux slow tests that the entry names.
+  - The real-edges section of `mutants.toml` now names the new decision functions and both slow tests.
+  - `RealEdges::diagnostics` names `edge_diagnostics` and its test.
+- **The one uncaught hand mutation.** At the `accept_link` call site, `broken_after(&registered, None)` → `None` is not
+  caught. cargo-mutants does not generate argument substitutions, and the PR body gives the reason: a first registration
+  is refused only on kernel resource exhaustion.
+- **The hold.** Neither new slow test starts a process. `Core::open` spawns nothing, and the tests use real sockets and the
+  poll only. The one wait is a socket read timeout, with its timer marker directly above the call, as a failsafe for a
+  link that the host does not close.
+- **Evidence (from the READY):** static, test-budget and slow passed, and the no-terminate in-diff mutation run had 0
+  missed and 0 TIMEOUT, on this exact head. The P5 package findings F16 to F18 are the package reviewer's. The gate on
+  this exact head is the lead's check.
+
+VERDICT: CLEAN (0 open) at a7c73febcfeafca0f462ea14d5121a516d5a1a10
