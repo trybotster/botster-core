@@ -58,8 +58,10 @@ impl HostEngine {
             s.killed = false;
         }
         // LC-9: the protocol is what this host reads in the worker's hello. Until it reads one, the session has none, also
-        // when the row recorded one (a worker whose hello was never read is never guessed).
-        s.worker_protocol = None;
+        // when the row recorded one (a worker whose hello was never read is never guessed). The row keeps its own (R-36).
+        if let Some(recorded) = s.worker_protocol.take() {
+            s.row_protocol = Some(recorded);
+        }
         // AD-6: each adoption proves the worker again, so a refusal of an earlier one is not kept.
         s.worker.gone = false;
         s.admit = Admit::Adopting;
