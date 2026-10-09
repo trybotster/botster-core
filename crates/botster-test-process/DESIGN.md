@@ -20,6 +20,7 @@ or sleep (PR B).
 | `Guard` + `botster-test-anchor` | the anchor of a process that production starts and reaps: the double-forked anchor holds the group; the guard's drop (or the test's death) makes it end the group | rule 10; lead rulings 2026-10-04 and 2026-10-08 |
 | `rounds` | the cleanup decision: list, kill, await, until no live member; a reserve holds the group id | the macOS fork race; no stale group id |
 | `Bounded`, `first_line`, `eof` | reads of pipes, FIFOs and sockets that `poll` bounds | no unbounded `read_line` |
+| `run_to_completion` | a short-lived tool (`git`, `tic`, `nm`) run to its exit with its output: stdin null, stdout and stderr read together by one `poll`, the exit awaited by the caller's deadline; on timeout the `OwnedChild` drop kills and reaps the tool | no raw `Command::output` or `status` (#170 G2 ruling) |
 | `Blocker` | the blocked fixture child: `/bin/cat` on a FIFO that the test holds | no sleep loop, no spin; ends when the test is gone |
 | `platform` | the live members of a group, the wait for an exit, the wait for a child's status (`await_status`), the start time (libproc and kqueue on macOS, /proc and pidfd on Linux) | observe only; a failed read is an error, never "gone" |
 

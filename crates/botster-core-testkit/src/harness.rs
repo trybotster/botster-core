@@ -8,14 +8,16 @@
 use crate::controls::ControlRegistry;
 use crate::core::{core_features, Directories, RunInputs};
 use crate::refusal::{RefusalHandle, RefusalLayer};
+use crate::resume_controls::CaptureLog;
 use crate::scheduler::SchedulerHandle;
-use crate::worker::{TestkitCore, Workers};
+use crate::worker::{ProcessTable, TestkitCore, Workers};
 use botster_core_conformance::{
     ControlError, CoreHarness, DataDirRef, OpenSpec, RouteClient, WorkerBuild, WorkerRef,
 };
 use botster_core_contract::prelude::*;
 use serde_json::Value;
 use std::collections::BTreeMap;
+use std::sync::Arc;
 use std::time::Instant;
 
 /// The default-tier harness for one seed (foundation design 6.1: seeds 0 to 31).
@@ -29,6 +31,26 @@ pub struct TestkitHarness {
     /// The scripted synchronous refusals of each handle (plan 4.2a). The harness arms them; the layer in front of the handle's
     /// Core consumes them.
     refusals: BTreeMap<String, RefusalHandle>,
+    /// The data directory and the process table of each handle that `open` built, for the controls.
+    handles: BTreeMap<String, HandleEdges>,
+    /// Core TH-1 for the facade's `Core` type, as the runner checked it at compile time (`with_core_type`).
+    core_send_not_sync: Option<bool>,
+}
+
+/// What the controls reach of one handle: its data directory and the process table of its host.
+struct HandleEdges {
+    dir: String,
+    processes: ProcessTable,
+    /// The captures that its host completed (`oracle_resume`).
+    captures: CaptureLog,
+}
+
+impl std::fmt::Debug for HandleEdges {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("HandleEdges")
+            .field("dir", &self.dir)
+            .finish_non_exhaustive()
+    }
 }
 
 impl TestkitHarness {
@@ -40,7 +62,16 @@ impl TestkitHarness {
             directories: Directories::default(),
             workers: Workers::new(SchedulerHandle::with_seed(seed), start),
             refusals: BTreeMap::new(),
+            handles: BTreeMap::new(),
+            core_send_not_sync: None,
         }
+    }
+
+    /// Core TH-1: the runner names the facade's `Core` type, which this crate does not see. It checks the type at compile
+    /// time and passes the answer here; `type_check: send_not_sync` reads it.
+    pub fn with_core_type(mut self, send_not_sync: bool) -> TestkitHarness {
+        self.core_send_not_sync = Some(send_not_sync);
+        self
     }
 
     /// The seed of this run. `with_seed` of every `Sim` that `open` builds takes it (Core A5-2).
@@ -58,6 +89,31 @@ impl TestkitHarness {
     /// Returns the refusal script for a handle. The refusal module arms this script.
     pub(crate) fn refusal_script(&mut self, handle: &str) -> RefusalHandle {
         self.refusals.entry(handle.to_string()).or_default().clone()
+    }
+
+    /// The data directory of `handle`, once `open` built it.
+    pub(crate) fn directory_of(&self, handle: &str) -> Option<&str> {
+        self.handles.get(handle).map(|h| h.dir.as_str())
+    }
+
+    /// The captures that the host of `handle` completed, once `open` built it.
+    pub(crate) fn captures_of(&self, handle: &str) -> Option<CaptureLog> {
+        self.handles.get(handle).map(|h| h.captures.clone())
+    }
+
+    /// The process table of the host of `handle`, once `open` built it.
+    pub(crate) fn processes_of(&self, handle: &str) -> Option<&ProcessTable> {
+        self.handles.get(handle).map(|h| &h.processes)
+    }
+
+    /// The data directories of the run.
+    pub(crate) fn directories(&self) -> &Directories {
+        &self.directories
+    }
+
+    /// The in-process workers of the run.
+    pub(crate) fn workers(&self) -> &Workers {
+        &self.workers
     }
 
     fn no_route(what: &str) -> CoreError {
@@ -89,6 +145,8 @@ impl CoreHarness for TestkitHarness {
             }),
             limits,
         };
+        let spawner = self.workers.spawner(&spec.data_dir.0);
+        let table = spawner.table();
         let opened = self.directories.open(
             &spec.data_dir.0,
             &config,
@@ -97,13 +155,22 @@ impl CoreHarness for TestkitHarness {
                 scheduler: self.workers.scheduler(),
             },
             core_features(),
-            Some(Box::new(self.workers.spawner())),
+            Some(Box::new(spawner)),
         )?;
+        table.set_wake(Arc::clone(&opened.wake));
         let core = Box::new(TestkitCore::new(
             opened.driver,
             opened.wake,
             self.workers.clone(),
         ));
+        self.handles.insert(
+            spec.handle.clone(),
+            HandleEdges {
+                dir: spec.data_dir.0.clone(),
+                processes: table,
+                captures: core.captures(),
+            },
+        );
         Ok(self.with_refusals(&spec.handle, core))
     }
 
@@ -135,8 +202,11 @@ impl CoreHarness for TestkitHarness {
         })
     }
 
-    /// No handle exists, so there is nothing to drop (Core LC-12 is proven once `open` returns a Core).
-    fn drop_handle(&mut self, _handle: &str) {}
+    /// The runner dropped the handle's Core (LC-12: its workers and its rows stay). The handle is gone, so a control that
+    /// names it is `Bad`; a later `open` of the same directory, under any handle, reaches the rows and the workers again.
+    fn drop_handle(&mut self, handle: &str) {
+        self.handles.remove(handle);
+    }
 
     /// The controls that the testkit builds (design 6.3, `docs/core-testkit-controls.md`). The others come with the machines
     /// and edges that they need.
@@ -144,9 +214,9 @@ impl CoreHarness for TestkitHarness {
         self.controls.contains(op)
     }
 
-    /// Core TH-1 has no concrete Core type to ask yet.
+    /// Core TH-1: the runner's compile-time answer for the facade's `Core` (`with_core_type`); `None` without one.
     fn core_is_send_not_sync(&self) -> Option<bool> {
-        None
+        self.core_send_not_sync
     }
 
     fn control(&mut self, handle: &str, op: &str, args: &Value) -> Result<Value, ControlError> {
@@ -262,6 +332,14 @@ mod tests {
             Err(ControlError::Unsupported)
         );
         assert_eq!(harness.core_is_send_not_sync(), None);
+        for answer in [true, false] {
+            assert_eq!(
+                TestkitHarness::new(2)
+                    .with_core_type(answer)
+                    .core_is_send_not_sync(),
+                Some(answer)
+            );
+        }
         assert!(!harness.is_fake());
         assert!(harness.injects_clock());
         assert_eq!(harness.seed(), 2);

@@ -752,6 +752,9 @@ impl HostEngine {
         session.worker_features = row.worker_features.clone();
         session.worker.identity = row.worker.map(|w| w.identity());
         session.payload = row.payload.map(|p| p.identity());
+        // A10-1, AD-6 (review A2-F1): a `WorkerGone` row records a worker that is gone, or a process that the AD-6 check
+        // refused. No later host probes or signals that identity; only an adoption proves a worker again.
+        session.worker.gone = row.state == SessionState::Lost(LostReason::WorkerGone);
         let names_worker = session.worker.identity.is_some() && session.token.is_some();
         let recovery = match row.state {
             // AD-1: no process exists.
@@ -786,6 +789,14 @@ impl HostEngine {
             // (AD-2; R-35 correction `c3ed727`). Core never posts `Lost(Other)`.
             _ => Recovery::Post(SessionState::Lost(LostReason::RegistryCorrupt)),
         };
+        // LC-9 (review A2-F2): this host reads no hello of a posted `Lost(WorkerUnreachable)` row's worker, so `get` shows no
+        // protocol. The row keeps the one that it recorded (R-36).
+        if matches!(
+            recovery,
+            Recovery::Post(SessionState::Lost(LostReason::WorkerUnreachable))
+        ) {
+            session.row_protocol = session.worker_protocol.take();
+        }
         (session, recovery)
     }
 
@@ -803,6 +814,7 @@ impl HostEngine {
             link_frame_bound: self.link_frame_bound(),
             stop_grace_ms: u64::try_from(self.cfg.limits.stop_grace.as_millis())
                 .unwrap_or(u64::MAX),
+            limits: self.cfg.limits.clone(),
         }
     }
 }

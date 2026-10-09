@@ -6,10 +6,10 @@
 
 use crate::tools::{cargo, cargo_nightly, ensure_nightly, require_cargo_tool, run};
 use crate::{
-    caps, fsutil, high_tier, lists, prebuild, public_api, signals, taint, test_budget, timers,
-    unsafe_exception,
+    caps, fsutil, gate_decisions, high_tier, lists, mutants_cited, platform_code, prebuild,
+    process_check, public_api, signals, taint, test_budget, timers, unsafe_exception,
 };
-use anyhow::{bail, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use std::path::Path;
 use std::process::Command;
 use std::time::{Duration, Instant};
@@ -32,7 +32,7 @@ const JOBS: &[(&str, &str, JobFn)] = &[
     ),
     (
         "taint",
-        "banned old-world names; unmarked timers; the one unsafe_code exception; raw signal calls; the HIGH-path list",
+        "banned old-world names; unmarked timers; the one unsafe_code exception; raw signal calls; real-process test code outside its owner; cited mutants tests; no excluded gate decision; platform-only code; the HIGH-path list",
         taint_job,
     ),
     (
@@ -94,7 +94,8 @@ fn clippy_job(root: &Path) -> Result<()> {
         "-D",
         "warnings",
     ]);
-    run(cmd)
+    let status = cmd.status().context("start cargo clippy")?;
+    crate::tools::succeeded("cargo clippy", status)
 }
 
 fn taint_job(root: &Path) -> Result<()> {
@@ -102,7 +103,21 @@ fn taint_job(root: &Path) -> Result<()> {
     timers::command(root, &[])?;
     unsafe_exception::command(root, &[])?;
     signals::command(root, &[])?;
-    high_tier::command(root, &[])
+    process_check::command(root, &[])?;
+    mutants_cited::command(root, &[])?;
+    gate_decisions::command(root, &[])?;
+    high_tier::command(root, &[])?;
+    // The mutation step derives the platform-only code on its own OS; this static step fails early, on both gate OSes,
+    // when the derivation cannot place some code.
+    let files = package_sources(root)?;
+    for os in ["linux", "macos"] {
+        let patterns = derived_exclusions(root, &files, os)?;
+        println!(
+            "platform-only code: {} files not compiled on {os}",
+            patterns.len()
+        );
+    }
+    Ok(())
 }
 
 /// The passed count of a conformance report: the number after `passed ` in its `conformance:` line.
@@ -264,22 +279,10 @@ fn parse_outcomes(json: &str) -> Result<MutantSummary> {
 ///   `the_key_bound_of_an_alt_key_with_long_text_covers_the_states_with_modes_off`. When `every_key_state`, the key
 ///   encoding or the Ghostty pin changes, a focused Mac mutation run of `every_key_state` must show both mutants caught.
 ///   The proof at aeda1cac, pin 3f8eb681 (PR #167): ~/.local/state/jobq/logs/jobq-botster-core-aeda1cac-20261008222501-7480.log.
-/// - botster-test-process `platform/macos.rs` (P6): the macOS adapters (libproc, kqueue) are `cfg(target_os = "macos")`
-///   code, one entry per function. Off macOS the file is not compiled, so no test there can show a mutant in it. The Mac
-///   slow tier runs them in every real-process test of `crates/botster-test-process/tests/slow_process.rs`, and the default
-///   tier on macOS in the `platform` unit tests (`this_process_has_a_start_time_and_is_a_live_member_of_its_group`,
-///   `processes_that_started_at_different_times_have_different_start_times`, `a_wait_for_a_pid_with_no_process_reports_it_gone`).
-///   Temporary: P6 PR B removes these entries and derives the exclusions of platform-only code from `cfg` (plan r22
-///   section 8, "Platform-only code").
-const OFF_MACOS_EXCLUSIONS: &[&str] = &[
+///
+/// Code under a platform `cfg` is not here: [`derived_exclusions`] finds it from the attributes.
+pub(crate) const OFF_MACOS_EXCLUSIONS: &[&str] = &[
     r"crates/botster-terminal-ghostty/src/encode\.rs:\d+:40: replace & with [|^] in EncoderState::every_key_state$",
-    r"crates/botster-test-process/src/platform/macos\.rs:\d+:\d+: (replace start_time( ->| with)|.* in start_time$)",
-    r"crates/botster-test-process/src/platform/macos\.rs:\d+:\d+: (replace await_end( ->| with)|.* in await_end$)",
-    r"crates/botster-test-process/src/platform/macos\.rs:\d+:\d+: (replace live_members( ->| with)|.* in live_members$)",
-    r"crates/botster-test-process/src/platform/macos\.rs:\d+:\d+: (replace exiting_or_gone( ->| with)|.* in exiting_or_gone$)",
-    r"crates/botster-test-process/src/platform/macos\.rs:\d+:\d+: (replace await_status( ->| with)|.* in await_status$)",
-    r"crates/botster-test-process/src/platform/macos\.rs:\d+:\d+: (replace polled( ->| with)|.* in polled$)",
-    r"crates/botster-test-process/src/platform/macos\.rs:\d+:\d+: (replace exit_after_polls( ->| with)|.* in exit_after_polls$)",
 ];
 
 /// The exclusions that a gate on `os` (`std::env::consts::OS`) adds to the configured ones.
@@ -289,6 +292,32 @@ fn platform_exclusions(os: &str) -> &'static [&'static str] {
     } else {
         OFF_MACOS_EXCLUSIONS
     }
+}
+
+/// The tracked Rust files of the packages.
+fn package_sources(root: &Path) -> Result<Vec<String>> {
+    Ok(package_rust_files(fsutil::tracked_files(root)?))
+}
+
+/// The Rust files of the packages among `files`: the fixtures are left out (each one is its own workspace).
+fn package_rust_files(files: Vec<String>) -> Vec<String> {
+    files
+        .into_iter()
+        .filter(|file| file.ends_with(".rs") && !file.starts_with("xtask/fixtures/"))
+        .collect()
+}
+
+/// The exclusions of the code that `os` does not compile (plan section 8, "Platform-only code"), derived from the `cfg`
+/// attributes of `files` (paths relative to `root`). The run on the OS that compiles the code tests its mutants.
+fn derived_exclusions(root: &Path, files: &[String], os: &str) -> Result<Vec<String>> {
+    let mut sources = Vec::new();
+    for file in files {
+        let text =
+            std::fs::read_to_string(root.join(file)).with_context(|| format!("read {file}"))?;
+        sources.push((file.clone(), text));
+    }
+    platform_code::exclusions(&sources, os)
+        .map_err(|errors| anyhow!("platform-only code on {os}:\n{}", errors.join("\n")))
 }
 
 /// The step's verdict from the exit code of `cargo mutants` (`None`: ended by a signal). Only 0, every mutant caught or
@@ -302,6 +331,30 @@ fn mutation_verdict(code: Option<i32>) -> Result<()> {
          mutant or a timeout is a review finding"
     )
 }
+
+/// The options of the mutation run, after the mutant selection.
+const MUTANTS_OPTIONS: [&str; 7] = [
+    "--jobs",
+    "1",
+    "--no-shuffle",
+    "--test-tool",
+    "nextest",
+    "--timeout-multiplier",
+    "5",
+];
+
+/// The nextest arguments of the mutation run. The `mutants` profile (`.config/nextest.toml`) never terminates a test for
+/// its time, so a mutant that hangs and fails no test reaches the timeout of cargo-mutants and counts as TIMEOUT, not as
+/// CAUGHT. `--max-fail 1:immediate` ends the run at the first failed test, with the tests still running: a mutant that a
+/// test fails is CAUGHT even when it also hangs another test.
+const MUTANTS_TEST_ARGS: [&str; 6] = [
+    "--",
+    "--profile",
+    "mutants",
+    "--max-fail",
+    "1:immediate",
+    "--no-tests=pass",
+];
 
 /// Mutation tests of the code that the diff changes (plan section 8, step 8). A missed mutant or a timeout is a review
 /// finding, so it fails the step.
@@ -331,42 +384,94 @@ fn mutants_job(root: &Path) -> Result<()> {
     let diff_path = target.join("landing.diff");
     std::fs::write(&diff_path, &diff.stdout)?;
 
-    let mut cmd = cargo(root);
-    cmd.args(["mutants", "--in-diff"])
-        .arg(&diff_path)
-        .args([
-            "--jobs",
-            "1",
-            "--no-shuffle",
-            "--test-tool",
-            "nextest",
-            "--timeout-multiplier",
-            "5",
-        ])
-        .arg("--output")
-        .arg(&target);
-    for re in platform_exclusions(std::env::consts::OS) {
-        cmd.arg("--exclude-re").arg(re);
-    }
-    cmd.args(["--", "--no-tests=pass"])
-        .envs(test_budget::tier_env(false));
-    let status = cmd.status().context("start cargo mutants")?;
-    let outcomes = target.join("mutants.out/outcomes.json");
-    let summary = match std::fs::read_to_string(&outcomes) {
-        Ok(text) => Some(parse_outcomes(&text)?),
-        Err(_) => None,
+    let exclusions: Vec<String> = platform_exclusions(std::env::consts::OS)
+        .iter()
+        .map(|re| (*re).to_string())
+        .chain(derived_exclusions(
+            root,
+            &package_sources(root)?,
+            std::env::consts::OS,
+        )?)
+        .collect();
+    let mutants = |cmd: &mut Command| {
+        cmd.args(["mutants", "--in-diff"])
+            .arg(&diff_path)
+            .args(MUTANTS_OPTIONS);
+        for re in &exclusions {
+            cmd.arg("--exclude-re").arg(re);
+        }
     };
-    match &summary {
-        Some(s) => println!(
-            "mutants: {} mutants: {} caught, {} missed, {} timeout, {} unviable",
-            s.total, s.caught, s.missed, s.timeout, s.unviable
-        ),
-        None => println!(
-            "mutants: no outcomes.json (no Rust change in the diff, or the run failed early)"
-        ),
-    }
-    mutation_verdict(status.code())?;
+    // The mutants of the diff, listed without a build, with the run's own filters.
+    let mut list = cargo(root);
+    mutants(&mut list);
+    list.args(["--list", "--json"]);
+    let listed = parse_listing(&list.output().context("start cargo mutants --list")?)?;
+    let line = mutation_decision(listed, || {
+        // An outcomes file left by an earlier run must not stand for this one.
+        let out = target.join("mutants.out");
+        if out.exists() {
+            std::fs::remove_dir_all(&out).with_context(|| format!("remove {}", out.display()))?;
+        }
+        let mut cmd = cargo(root);
+        mutants(&mut cmd);
+        cmd.arg("--output").arg(&target);
+        cmd.args(MUTANTS_TEST_ARGS)
+            .envs(test_budget::tier_env(false));
+        let status = cmd.status().context("start cargo mutants")?;
+        let summary = match std::fs::read_to_string(out.join("outcomes.json")) {
+            Ok(text) => Some(parse_outcomes(&text)?),
+            Err(_) => None,
+        };
+        Ok((status.code(), summary))
+    })?;
+    println!("{line}");
     Ok(())
+}
+
+/// The number of mutants that `cargo mutants --list --json` lists (a JSON array, one object per mutant).
+///
+/// # Errors
+/// The listing failed, or its output is not a JSON array.
+fn parse_listing(listing: &std::process::Output) -> Result<usize> {
+    let json = crate::tools::stdout_of(listing, "cargo mutants --list")?;
+    let v: serde_json::Value = serde_json::from_str(&json).context("parse the mutant listing")?;
+    v.as_array()
+        .map(Vec::len)
+        .context("the mutant listing is not an array")
+}
+
+/// The verdict of the mutation step, from the number of mutants that the diff lists and the run (its exit code and its
+/// outcomes; `None`: no `outcomes.json`). With no mutant listed, the run does not start, and the step passes with that
+/// reason. Otherwise the run must report every listed mutant: a run that ended before it wrote its outcomes (a failed
+/// start, a failed build, a signal) fails the step, whatever its exit code. Then the exit code decides (`mutation_verdict`).
+///
+/// # Errors
+/// The run failed to start, it wrote no outcomes or outcomes for another number of mutants, or its exit code fails.
+fn mutation_decision(
+    listed: usize,
+    run: impl FnOnce() -> Result<(Option<i32>, Option<MutantSummary>)>,
+) -> Result<String> {
+    if listed == 0 {
+        return Ok(
+            "mutants: the diff has no mutant (cargo mutants --list), so no run starts".into(),
+        );
+    }
+    let (code, summary) = run()?;
+    let Some(s) = summary else {
+        bail!(
+            "cargo mutants wrote no outcomes.json for the {listed} mutants of the diff (exit code {code:?}): the run \
+             failed before its outcomes"
+        );
+    };
+    let line = format!(
+        "mutants: {} mutants: {} caught, {} missed, {} timeout, {} unviable",
+        s.total, s.caught, s.missed, s.timeout, s.unviable
+    );
+    if usize::try_from(s.total).ok() != Some(listed) {
+        bail!("{line}; the diff lists {listed} mutants: the run did not report every one");
+    }
+    mutation_verdict(code).with_context(|| line.clone())?;
+    Ok(line)
 }
 
 /// Bolero fuzzing of the harnesses of the changed crates, on the pinned nightly (plan section 8, step 9).
@@ -542,6 +647,56 @@ mod tests {
         assert!(!OFF_MACOS_EXCLUSIONS.is_empty());
     }
 
+    /// Plan section 8, "Platform-only code": the mutation step on each gate OS excludes the other OS's adapters of
+    /// botster-test-process, derived from their `cfg` attributes. The test reads the files from the source tree, not from
+    /// git: a cargo-mutants copy has no `.git`.
+    #[test]
+    fn each_gate_os_excludes_the_adapters_of_the_other_os() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("the repository");
+        let files: Vec<String> = ["platform.rs", "platform/linux.rs", "platform/macos.rs"]
+            .iter()
+            .map(|file| format!("crates/botster-test-process/src/{file}"))
+            .collect();
+        let linux = derived_exclusions(root, &files, "linux").unwrap();
+        let macos = derived_exclusions(root, &files, "macos").unwrap();
+        let adapter = |os: &str| format!(r"^crates/botster\-test\-process/src/platform/{os}\.rs:");
+        assert!(
+            linux.contains(&adapter("macos")) && !linux.contains(&adapter("linux")),
+            "{linux:?}"
+        );
+        assert!(
+            macos.contains(&adapter("linux")) && !macos.contains(&adapter("macos")),
+            "{macos:?}"
+        );
+    }
+
+    /// The package sources of a repository are its tracked Rust files outside the fixtures.
+    #[test]
+    fn the_package_sources_are_read_from_the_tracked_files() {
+        let repo = crate::fsutil::test_repo(&[
+            ("a/lib.rs", ""),
+            ("a/Cargo.toml", ""),
+            ("xtask/fixtures/x/src/lib.rs", ""),
+        ]);
+        assert_eq!(package_sources(repo.path()).unwrap(), ["a/lib.rs"]);
+    }
+
+    /// The fixtures are their own workspaces, so their files are not package sources; files that are not Rust are not either.
+    #[test]
+    fn the_package_sources_are_the_rust_files_outside_the_fixtures() {
+        let files = [
+            "a/lib.rs",
+            "xtask/fixtures/x/src/lib.rs",
+            "a/Cargo.toml",
+            "xtask/src/ci.rs",
+        ]
+        .map(String::from)
+        .to_vec();
+        assert_eq!(package_rust_files(files), ["a/lib.rs", "xtask/src/ci.rs"]);
+    }
+
     /// Plan section 8, step 8: only a run with every mutant caught passes the mutation step.
     #[test]
     fn only_a_mutation_run_with_every_mutant_caught_passes() {
@@ -608,6 +763,75 @@ mod tests {
                 });
             assert!(found, "no harness `{harness}` in {krate}");
         }
+    }
+
+    /// The lead's ruling after #175: a run that failed early must not pass. No mutant listed passes with its reason and
+    /// starts no run; a listed diff passes only with outcomes for every listed mutant and exit code 0.
+    #[test]
+    fn a_mutation_step_passes_only_with_no_mutant_or_every_outcome_and_exit_code_0() {
+        let summary = |total| MutantSummary {
+            total,
+            caught: total,
+            missed: 0,
+            timeout: 0,
+            unviable: 0,
+        };
+        let decide = |listed, code, outcomes: Option<MutantSummary>| {
+            mutation_decision(listed, || Ok((code, outcomes)))
+        };
+        assert_eq!(
+            mutation_decision(0, || panic!("no mutant listed, so no run")).unwrap(),
+            "mutants: the diff has no mutant (cargo mutants --list), so no run starts"
+        );
+        assert_eq!(
+            decide(3, Some(0), Some(summary(3))).unwrap(),
+            "mutants: 3 mutants: 3 caught, 0 missed, 0 timeout, 0 unviable"
+        );
+        assert_eq!(
+            decide(3, Some(0), None).unwrap_err().to_string(),
+            "cargo mutants wrote no outcomes.json for the 3 mutants of the diff (exit code Some(0)): the run failed \
+             before its outcomes"
+        );
+        assert!(decide(3, None, None).is_err(), "a signal");
+        let failed = mutation_decision(3, || Err(anyhow::anyhow!("start cargo mutants")));
+        assert_eq!(failed.unwrap_err().to_string(), "start cargo mutants");
+        let partial = decide(3, Some(0), Some(summary(2)))
+            .unwrap_err()
+            .to_string();
+        assert!(
+            partial.ends_with("the diff lists 3 mutants: the run did not report every one"),
+            "{partial}"
+        );
+        let missed = decide(3, Some(2), Some(summary(3))).unwrap_err();
+        assert_eq!(
+            missed.to_string(),
+            "mutants: 3 mutants: 3 caught, 0 missed, 0 timeout, 0 unviable"
+        );
+        assert!(
+            format!("{missed:#}").contains("exit code Some(2)"),
+            "{missed:#}"
+        );
+    }
+
+    #[test]
+    fn a_mutant_listing_is_counted_and_anything_else_fails() {
+        use std::os::unix::process::ExitStatusExt;
+        let listing = |code: i32, stdout: &str| std::process::Output {
+            status: std::process::ExitStatus::from_raw(code << 8),
+            stdout: stdout.into(),
+            stderr: b"no manifest".to_vec(),
+        };
+        assert_eq!(parse_listing(&listing(0, "[]")).unwrap(), 0);
+        assert_eq!(
+            parse_listing(&listing(0, r#"[{"name": "a"}, {"name": "b"}]"#)).unwrap(),
+            2
+        );
+        assert!(parse_listing(&listing(0, "{}")).is_err());
+        assert!(parse_listing(&listing(0, "not json")).is_err());
+        assert_eq!(
+            parse_listing(&listing(1, "[]")).unwrap_err().to_string(),
+            "cargo mutants --list failed: no manifest"
+        );
     }
 
     #[test]
@@ -696,5 +920,155 @@ mod tests {
         assert!(failed.contains("FAIL") && failed.contains("boom") && !failed.contains("second"));
         assert!(summary_line("fmt", &Status::NotRun, took).contains("NOT RUN"));
         assert!(summary_line("fmt", &Status::Pass, took).contains("1.5 s"));
+    }
+
+    /// The profile that the mutation step names, and the slow profile of the slow mutation runs, never terminate a test:
+    /// no `slow-timeout` with a `terminate-after` applies to them, through `inherits`. The default profile terminates a test
+    /// (2 s), which would count a mutant that hangs as CAUGHT.
+    #[test]
+    fn the_mutation_runs_use_profiles_that_never_terminate_a_test() {
+        let config: toml::Table = include_str!("../../.config/nextest.toml").parse().unwrap();
+        let profile = MUTANTS_TEST_ARGS
+            .windows(2)
+            .find(|pair| pair[0] == "--profile")
+            .map(|pair| pair[1])
+            .expect("the mutation step names a profile");
+        for name in [profile, "slow"] {
+            assert_eq!(terminate_after(&config, name), None, "profile {name}");
+        }
+        assert_eq!(terminate_after(&config, "default"), Some(1));
+    }
+
+    /// The `terminate-after` of `profile`'s `slow-timeout`, through `inherits` (a profile with none inherits `default`).
+    fn terminate_after(config: &toml::Table, profile: &str) -> Option<i64> {
+        let mut name = profile;
+        loop {
+            let table = config["profile"][name].as_table().expect("a profile");
+            if let Some(timeout) = table.get("slow-timeout") {
+                return timeout
+                    .get("terminate-after")
+                    .and_then(toml::Value::as_integer);
+            }
+            name = match table.get("inherits").and_then(toml::Value::as_str) {
+                Some(parent) => parent,
+                None if name != "default" => "default",
+                None => return None,
+            };
+        }
+    }
+}
+
+/// The red-on-revert proof of the mutants profile, on a real cargo-mutants run (slow tier: it starts cargo).
+#[cfg(all(test, feature = "slow"))]
+mod slow_tests {
+    use super::*;
+    use botster_test_process::{Deadline, OwnedChild};
+
+    /// The fixture `xtask/fixtures/mutants-hang`: three of its eight mutants park a test thread for ever, and two of those
+    /// also fail another test. With the step's options and nextest arguments, those two are caught at their first failure,
+    /// and the third, which fails no test, is a TIMEOUT: cargo-mutants exits with 3, which fails the step. Under the
+    /// default profile nextest terminates the hang at 2 s and cargo-mutants counts all eight as caught (exit 0).
+    #[test]
+    fn a_mutant_that_hangs_fails_the_mutation_step_as_a_timeout() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("the repository");
+        let fixture = root.join("xtask/fixtures/mutants-hang");
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("src")).unwrap();
+        std::fs::create_dir_all(dir.path().join(".config")).unwrap();
+        std::fs::copy(fixture.join("Cargo.toml.in"), dir.path().join("Cargo.toml")).unwrap();
+        std::fs::copy(fixture.join("src/lib.rs"), dir.path().join("src/lib.rs")).unwrap();
+        for file in ["nextest.toml", "test-wrapper.sh"] {
+            std::fs::copy(
+                root.join(".config").join(file),
+                dir.path().join(".config").join(file),
+            )
+            .unwrap();
+        }
+        let out = dir.path().join("out");
+        let mut command = Command::new("cargo");
+        command
+            .current_dir(dir.path())
+            .arg("mutants")
+            .args(MUTANTS_OPTIONS)
+            .arg("--output")
+            .arg(&out)
+            .args(MUTANTS_TEST_ARGS)
+            .envs(test_budget::tier_env(false))
+            .stdout(std::process::Stdio::null());
+        let mut run = OwnedChild::spawn_group(&mut command).unwrap();
+        let status = run.status_by(Deadline::after(test_budget::SLOW_DEADLINE));
+        let outcomes = parse_outcomes(
+            &std::fs::read_to_string(out.join("mutants.out/outcomes.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            (
+                status.code(),
+                outcomes.total,
+                outcomes.timeout,
+                outcomes.missed
+            ),
+            (Some(3), 8, 1, 0),
+            "{status}"
+        );
+    }
+
+    /// The fixture `xtask/fixtures/mutants-platform`: `triple` is `cfg(windows)` code, which no gate OS compiles. Without
+    /// the derived exclusions its mutants are MISSED and cargo-mutants exits with 2, which fails the step; with them, only
+    /// the mutants of `double` are tested, each one is caught, and the run passes.
+    #[test]
+    fn the_mutants_of_code_that_the_gate_os_does_not_compile_are_excluded() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("the repository");
+        let fixture = root.join("xtask/fixtures/mutants-platform");
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("src")).unwrap();
+        std::fs::create_dir_all(dir.path().join(".config")).unwrap();
+        std::fs::copy(fixture.join("Cargo.toml.in"), dir.path().join("Cargo.toml")).unwrap();
+        std::fs::copy(fixture.join("src/lib.rs"), dir.path().join("src/lib.rs")).unwrap();
+        for file in ["nextest.toml", "test-wrapper.sh"] {
+            std::fs::copy(
+                root.join(".config").join(file),
+                dir.path().join(".config").join(file),
+            )
+            .unwrap();
+        }
+        let derived = derived_exclusions(
+            dir.path(),
+            &["src/lib.rs".to_string()],
+            std::env::consts::OS,
+        )
+        .unwrap();
+        let run = |exclusions: &[String], name: &str| {
+            let out = dir.path().join(name);
+            let mut command = Command::new("cargo");
+            command
+                .current_dir(dir.path())
+                .arg("mutants")
+                .args(MUTANTS_OPTIONS)
+                .arg("--output")
+                .arg(&out);
+            for re in exclusions {
+                command.arg("--exclude-re").arg(re);
+            }
+            command
+                .args(MUTANTS_TEST_ARGS)
+                .envs(test_budget::tier_env(false))
+                .stdout(std::process::Stdio::null());
+            let mut run = OwnedChild::spawn_group(&mut command).unwrap();
+            let status = run.status_by(Deadline::after(test_budget::SLOW_DEADLINE));
+            let outcomes = parse_outcomes(
+                &std::fs::read_to_string(out.join("mutants.out/outcomes.json")).unwrap(),
+            )
+            .unwrap();
+            (status.code(), outcomes.missed, outcomes.caught)
+        };
+        let (code, missed, _) = run(&[], "without");
+        assert_eq!((code, missed > 0), (Some(2), true));
+        let (code, missed, caught) = run(&derived, "derived");
+        assert_eq!((code, missed, caught > 0), (Some(0), 0, true));
     }
 }

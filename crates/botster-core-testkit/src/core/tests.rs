@@ -4,12 +4,13 @@ use super::*;
 use std::time::Instant;
 
 fn edges(seed: u64) -> SimEdges {
+    let scheduler = SchedulerHandle::with_seed(seed);
     SimEdges {
         registry: Arc::default(),
         faults: Arc::default(),
         entropy: SeededEntropy::with_seed(seed),
-        scheduler: HandleScheduler(SchedulerHandle::with_seed(seed)),
-        wake: Arc::default(),
+        wake: Arc::new(SimHostWake::new(scheduler.clone())),
+        scheduler: HandleScheduler(scheduler),
         spawner: None,
         pending: VecDeque::new(),
         links: BTreeMap::new(),
@@ -73,10 +74,13 @@ fn entropy_and_choices_follow_the_seeded_streams() {
     assert!(bounds.iter().any(|&n| n != 1));
 }
 
-/// TM-6 and TH-2: the wake is a level flag with no descriptor, and an unset wake waits for its deadline.
+/// TM-6 and TH-2: the wake is a level flag with no descriptor, and an unset wake with no spurious wakes waits for its
+/// deadline.
 #[test]
 fn the_wake_keeps_its_level_until_drained() {
-    let wake = SimHostWake::default();
+    let scheduler = SchedulerHandle::with_seed(0);
+    scheduler.set_overrides(|o| o.no_spurious_wakes = true);
+    let wake = SimHostWake::new(scheduler);
     assert_eq!(wake.fd(), -1);
     wake.signal();
     assert_eq!(wake.wait(Duration::ZERO), Wake::Woken);
@@ -149,6 +153,7 @@ struct ProcessLog {
     spawns: Vec<WorkerSpawn>,
     signals: Vec<(ProcessIdentity, GroupSignal)>,
     exits: VecDeque<(ProcessIdentity, ExitStatus)>,
+    unlinks: Vec<InstanceId>,
 }
 
 struct RecordedSpawner(Arc<Mutex<ProcessLog>>);
@@ -180,6 +185,15 @@ impl Spawner for RecordedSpawner {
     fn poll_exit(&mut self) -> Option<(ProcessIdentity, ExitStatus)> {
         lock(&self.0).exits.pop_front()
     }
+
+    /// The log's processes bind no endpoint: no worker listens there.
+    fn connect_worker(&mut self, _instance: &InstanceId, _end: LinkEnd) -> bool {
+        false
+    }
+
+    fn remove_endpoint(&mut self, instance: &InstanceId) {
+        lock(&self.0).unlinks.push(instance.clone());
+    }
 }
 
 /// A5-1 and A5-3: the host edge forwards process events and assigns a distinct link to each spawn.
@@ -188,6 +202,7 @@ fn each_spawn_has_its_own_link_and_process_events_reach_the_spawner() {
     let log = Arc::new(Mutex::new(ProcessLog::default()));
     let mut edges = edges(3).with_spawner(Box::new(RecordedSpawner(Arc::clone(&log))));
     let spec = WorkerSpawn {
+        startup: CoreLimits::default().startup,
         program: "worker".into(),
         instance: InstanceId("1-1".into()),
         token: [3; 32],
@@ -213,6 +228,11 @@ fn each_spawn_has_its_own_link_and_process_events_reach_the_spawner() {
         Some((ids[1], ExitStatus::Signal(9)))
     );
     assert_eq!(edges.poll_process_exit(), None);
+    // DESIGN.md parts 1 and 6: a connect where no worker listens is no link, and the removal of an endpoint reaches the
+    // spawner.
+    assert_eq!(edges.connect_worker(&spec.instance), None);
+    edges.remove_endpoint(&spec.instance);
+    assert_eq!(lock(&log).unlinks, vec![spec.instance.clone()]);
 }
 
 /// LC-2, LC-12, and DP-8: dropping the host releases the directory, retains rows, and advances the epoch.
@@ -600,6 +620,7 @@ fn spawned_links_retain_frames_at_each_queue_capacity() {
         edges.link_capacity = capacity;
         edges
             .spawn_worker(&WorkerSpawn {
+                startup: CoreLimits::default().startup,
                 program: "worker".into(),
                 instance: InstanceId("1-1".into()),
                 token: [9; 32],
@@ -647,6 +668,7 @@ fn a_spawn_refuses_zero_queue_capacity() {
     edges.link_capacity = 0;
     edges
         .spawn_worker(&WorkerSpawn {
+            startup: CoreLimits::default().startup,
             program: "worker".into(),
             instance: InstanceId("1-1".into()),
             token: [9; 32],
@@ -679,7 +701,7 @@ fn the_worker_keeps_complete_operations_at_each_buffer_bound() {
                     scheduler,
                 },
                 core_features(),
-                Some(Box::new(workers.spawner())),
+                Some(Box::new(workers.spawner("buffers"))),
             )
             .unwrap();
         opened.driver.edges().link_capacity = bound;
@@ -758,7 +780,8 @@ fn settle_partial(core: &mut crate::worker::TestkitCore, start: Instant) -> Vec<
 
 /// LC-12, AD-6, LC-7 (integration finding K1): the handles of one run share one process table. After a drop and a reopen
 /// the earlier handle's worker still runs in the `Sim`; the new handle's identity probe sees it (`Matches`, not a false
-/// `Absent`), its `Remove` of the adopted session kills it, and the remove completes.
+/// `Absent`). A cleaner removed its endpoint, so the adoption is `Lost(WorkerUnreachable)` (DESIGN.md part 1, AD-2), and the
+/// new handle's `Remove` of that session kills the worker, and the remove completes.
 #[test]
 fn a_reopened_handle_sees_and_ends_the_worker_of_the_earlier_handle() {
     let start = Instant::now();
@@ -783,7 +806,7 @@ fn a_reopened_handle_sees_and_ends_the_worker_of_the_earlier_handle() {
                     scheduler: scheduler.clone(),
                 },
                 core_features(),
-                Some(Box::new(workers.spawner())),
+                Some(Box::new(workers.spawner("reopen"))),
             )
             .unwrap();
         crate::worker::TestkitCore::new(opened.driver, opened.wake, workers.clone())
@@ -824,15 +847,21 @@ fn a_reopened_handle_sees_and_ends_the_worker_of_the_earlier_handle() {
         .and_then(|row| row.worker)
         .expect("the row names its worker")
         .identity();
-    let probe = workers.spawner();
+    let probe = workers.spawner("reopen");
     assert_eq!(
         probe.identity_state(identity),
         IdentityState::Matches,
         "LC-12: the worker outlives its handle"
     );
+    assert!(workers.unlink_endpoint(&key_of(&dirs, "reopen", &session)));
     let mut second = open(&mut dirs);
     let adopt = second.begin(Op::AdoptAll).unwrap();
     let mut events = settle_partial(&mut second, start);
+    assert_eq!(
+        second.get(&session).unwrap().state,
+        SessionState::Lost(LostReason::WorkerUnreachable),
+        "a missing endpoint is never repaired (DESIGN.md part 1)"
+    );
     let remove = second
         .begin(Op::Remove {
             id: session.clone(),
@@ -914,6 +943,16 @@ impl Spawner for GuardedSpawner {
     fn poll_exit(&mut self) -> Option<(ProcessIdentity, ExitStatus)> {
         self.inner.poll_exit()
     }
+
+    /// This test checks the signal refusal only, so no adoption completes: `Stop` and `Remove` then ask for group signals.
+    /// The adoption through the endpoint has its own tests.
+    fn connect_worker(&mut self, _instance: &InstanceId, _end: LinkEnd) -> bool {
+        false
+    }
+
+    fn remove_endpoint(&mut self, instance: &InstanceId) {
+        self.inner.remove_endpoint(instance);
+    }
 }
 
 /// A10-2, AD-6, the pattern rule: a row whose worker and payload pids were corrupted to 1 never signals anything. After the
@@ -950,7 +989,7 @@ fn a_corrupt_row_with_pid_1_never_signals_anything() {
         crate::worker::TestkitCore::new(opened.driver, opened.wake, workers.clone())
     };
     let session = SessionId("s".into());
-    let mut first = open(&mut dirs, Box::new(workers.spawner()));
+    let mut first = open(&mut dirs, Box::new(workers.spawner("corrupt")));
     first
         .begin(Op::Create {
             session: session.clone(),
@@ -1003,7 +1042,7 @@ fn a_corrupt_row_with_pid_1_never_signals_anything() {
     let mut second = open(
         &mut dirs,
         Box::new(GuardedSpawner {
-            inner: workers.spawner(),
+            inner: workers.spawner("corrupt"),
             corrupt,
             real,
             asked: Arc::clone(&asked),
@@ -1043,8 +1082,677 @@ fn a_corrupt_row_with_pid_1_never_signals_anything() {
         assert!(*pid == 1 && *refused, "{pid} {signal:?}");
     }
     assert_eq!(
-        workers.spawner().identity_state(real),
+        workers.spawner("corrupt").identity_state(real),
         IdentityState::Matches,
         "no signal reached the worker"
     );
+}
+
+/// The endpoint key of the session `id` of the data directory `dir`: the instance of its stored row, read with Core's own
+/// decoder.
+fn key_of(dirs: &Directories, dir: &str, id: &SessionId) -> crate::worker::InstanceKey {
+    let bytes = dirs
+        .row(dir, &botster_core_host::session::row_key(id))
+        .expect("the session has a row");
+    let row = botster_core_host::session::Row::decode(id, &bytes).expect("the row decodes");
+    crate::worker::InstanceKey {
+        dir: dir.into(),
+        instance: row.instance,
+    }
+}
+
+/// The worker identity that the row of the session `id` of the data directory `dir` records (AD-6).
+fn worker_of(dirs: &Directories, dir: &str, id: &SessionId) -> ProcessIdentity {
+    let bytes = dirs
+        .row(dir, &botster_core_host::session::row_key(id))
+        .expect("the session has a row");
+    botster_core_host::session::Row::decode(id, &bytes)
+        .and_then(|row| row.worker)
+        .expect("the row names its worker")
+        .identity()
+}
+
+/// A handle over the data directory `dir` of a run, with the run's in-process workers.
+fn handle_over(
+    dirs: &mut Directories,
+    dir: &str,
+    workers: &crate::worker::Workers,
+    scheduler: &SchedulerHandle,
+) -> crate::worker::TestkitCore {
+    handle_with(dirs, dir, workers, scheduler, CoreLimits::default())
+}
+
+/// [`handle_over`] with the limits `limits`.
+fn handle_with(
+    dirs: &mut Directories,
+    dir: &str,
+    workers: &crate::worker::Workers,
+    scheduler: &SchedulerHandle,
+    limits: CoreLimits,
+) -> crate::worker::TestkitCore {
+    let config = OpenConfig {
+        data_dir: dir.into(),
+        worker_path: Some("worker".into()),
+        limits,
+    };
+    let opened = dirs
+        .open(
+            dir,
+            &config,
+            RunInputs {
+                seed: 13,
+                scheduler: scheduler.clone(),
+            },
+            core_features(),
+            Some(Box::new(workers.spawner(dir))),
+        )
+        .unwrap();
+    crate::worker::TestkitCore::new(opened.driver, opened.wake, workers.clone())
+}
+
+/// Creates the session `id` running `program` on `core`, and starts it.
+fn create_and_start(core: &mut crate::worker::TestkitCore, id: &SessionId, start: Instant) {
+    core.begin(Op::Create {
+        session: id.clone(),
+        request: SpawnRequest {
+            argv: vec!["program".into()],
+            env: BTreeMap::new(),
+            cwd: "/".into(),
+            size: Size {
+                rows: 24,
+                cols: 80,
+                cell_px: None,
+            },
+            labels: BTreeMap::new(),
+            color_profile: None,
+            notification_policy: None,
+            size_policy: None,
+        },
+    })
+    .unwrap();
+    settle_partial(core, start);
+    core.begin(Op::Start { id: id.clone() }).unwrap();
+    settle_partial(core, start);
+    assert_eq!(core.get(id).unwrap().state, SessionState::Running);
+}
+
+/// The run's scheduler and in-process workers, with no spurious wakes.
+fn adoption_run(start: Instant) -> (SchedulerHandle, crate::worker::Workers) {
+    let scheduler = SchedulerHandle::with_seed(13);
+    scheduler.with(|s| {
+        s.overrides_mut().no_spurious_wakes = true;
+    });
+    let workers = crate::worker::Workers::new(scheduler.clone(), start);
+    (scheduler, workers)
+}
+
+/// The completed `Stop` of `id`, which a host stop of the payload ends (AD-1: the stop reaches the adopted payload).
+fn stopped_by_the_host(
+    core: &mut crate::worker::TestkitCore,
+    id: &SessionId,
+    start: Instant,
+) -> bool {
+    let stop = core.begin(Op::Stop { id: id.clone() }).unwrap();
+    settle_partial(core, start).iter().any(|e| {
+        matches!(
+            e,
+            Event::Completed {
+                op,
+                result: OpResult::Ok(OpOutput::End(SessionEnd::Exited(Exit {
+                    cause: ExitCause::HostStop,
+                    ..
+                })))
+            } if *op == stop
+        )
+    })
+}
+
+/// Core AD-1, AD-6, DP-8, LC-12 (DESIGN.md "Adoption (P5)", parts 3, 4, 6): a new handle adopts the running session of a
+/// dropped one through the worker endpoint, in memory. The session is `Running` with no second payload, and the new
+/// handle's `Stop` reaches the same payload: the old link is fenced, and the new link carries the stop and the exit.
+#[test]
+fn a_reopened_handle_adopts_the_running_worker_through_its_endpoint() {
+    let start = Instant::now();
+    let (scheduler, workers) = adoption_run(start);
+    let mut dirs = Directories::default();
+    let session = SessionId("s".into());
+    let mut first = handle_over(&mut dirs, "adopt", &workers, &scheduler);
+    create_and_start(&mut first, &session, start);
+    let worker = worker_of(&dirs, "adopt", &session);
+    drop(first);
+
+    let mut second = handle_over(&mut dirs, "adopt", &workers, &scheduler);
+    let adopt = second.begin(Op::AdoptAll).unwrap();
+    let events = settle_partial(&mut second, start);
+    assert!(
+        events
+            .iter()
+            .any(|e| matches!(e, Event::Completed { op, result: OpResult::Ok(_) } if *op == adopt)),
+        "{events:?}"
+    );
+    let record = second.get(&session).unwrap();
+    assert_eq!(record.state, SessionState::Running, "{events:?}");
+    assert_eq!(
+        record.worker_protocol,
+        Some(botster_worker_core::WORKER_PROTOCOL)
+    );
+    assert_eq!(
+        worker_of(&dirs, "adopt", &session),
+        worker,
+        "the adopted worker is the worker that the first handle spawned"
+    );
+
+    let stop = second
+        .begin(Op::Stop {
+            id: session.clone(),
+        })
+        .unwrap();
+    let events = settle_partial(&mut second, start);
+    assert!(
+        events.iter().any(|e| matches!(
+            e,
+            Event::Completed {
+                op,
+                result: OpResult::Ok(OpOutput::End(SessionEnd::Exited(Exit {
+                    signal: Some(15),
+                    cause: ExitCause::HostStop,
+                    ..
+                })))
+            } if *op == stop
+        )),
+        "{events:?}"
+    );
+}
+
+/// AD-1, DESIGN.md parts 3 and 6: one `AdoptAll` adopts every running session, each over its own new link. Each stop
+/// reaches its own payload.
+#[test]
+fn an_adopt_all_gives_each_adopted_worker_its_own_link() {
+    let start = Instant::now();
+    let (scheduler, workers) = adoption_run(start);
+    let mut dirs = Directories::default();
+    let sessions = [SessionId("a".into()), SessionId("b".into())];
+    let mut first = handle_over(&mut dirs, "two", &workers, &scheduler);
+    for id in &sessions {
+        create_and_start(&mut first, id, start);
+    }
+    drop(first);
+
+    let mut second = handle_over(&mut dirs, "two", &workers, &scheduler);
+    second.begin(Op::AdoptAll).unwrap();
+    let events = settle_partial(&mut second, start);
+    for id in &sessions {
+        assert_eq!(
+            second.get(id).unwrap().state,
+            SessionState::Running,
+            "{id:?}: {events:?}"
+        );
+    }
+    for id in &sessions {
+        assert!(stopped_by_the_host(&mut second, id, start), "{id:?}");
+    }
+}
+
+/// AD-6, DESIGN.md parts 3 and 7: the worker takes one candidate at a time and closes another one at once. A candidate
+/// that closes frees the place: a host that connects later adopts the worker.
+#[test]
+fn a_second_candidate_is_closed_and_a_closed_candidate_frees_the_place() {
+    let start = Instant::now();
+    let (scheduler, workers) = adoption_run(start);
+    let mut dirs = Directories::default();
+    let session = SessionId("s".into());
+    let mut first = handle_over(&mut dirs, "strangers", &workers, &scheduler);
+    create_and_start(&mut first, &session, start);
+    drop(first);
+
+    let key = key_of(&dirs, "strangers", &session);
+    let mut held = workers.connect_endpoint(&key).expect("the worker listens");
+    let mut refused = workers.connect_endpoint(&key).expect("the worker listens");
+    workers.run(start);
+    let mut buf = [0u8; 1];
+    assert_eq!(
+        refused.recv(&mut buf).unwrap(),
+        0,
+        "the second candidate is closed"
+    );
+    assert_eq!(
+        held.recv(&mut buf).unwrap_err().kind(),
+        std::io::ErrorKind::WouldBlock,
+        "the first candidate waits for its hello"
+    );
+    held.close();
+    workers.run(start);
+
+    let mut second = handle_over(&mut dirs, "strangers", &workers, &scheduler);
+    second.begin(Op::AdoptAll).unwrap();
+    let events = settle_partial(&mut second, start);
+    assert_eq!(
+        second.get(&session).unwrap().state,
+        SessionState::Running,
+        "{events:?}"
+    );
+    assert!(stopped_by_the_host(&mut second, &session, start));
+}
+
+/// DESIGN.md part 1: a killed worker cannot remove its endpoint, so the endpoint stays and no worker listens on it.
+/// `Remove` (step 4) removes it; the endpoint of a session that is not removed stays.
+#[test]
+fn remove_unlinks_the_endpoint_that_a_killed_worker_left() {
+    let start = Instant::now();
+    let (scheduler, workers) = adoption_run(start);
+    let mut dirs = Directories::default();
+    let (removed, kept) = (SessionId("r".into()), SessionId("k".into()));
+    let mut core = handle_over(&mut dirs, "killed", &workers, &scheduler);
+    let mut killer = workers.spawner("killed");
+    for id in [&removed, &kept] {
+        create_and_start(&mut core, id, start);
+        let worker = worker_of(&dirs, "killed", id);
+        assert_eq!(killer.identity_state(worker), IdentityState::Matches);
+        killer.signal_group(worker, GroupSignal::Kill);
+    }
+    let events = settle_partial(&mut core, start);
+    for id in [&removed, &kept] {
+        assert!(
+            !matches!(core.get(id).unwrap().state, SessionState::Running),
+            "{id:?}: {events:?}"
+        );
+        assert!(
+            workers
+                .connect_endpoint(&key_of(&dirs, "killed", id))
+                .is_none(),
+            "no worker listens on the endpoint of a killed worker"
+        );
+    }
+    // The row goes with the session: its key is read before the `Remove`.
+    let removed_key = key_of(&dirs, "killed", &removed);
+    let remove = core
+        .begin(Op::Remove {
+            id: removed.clone(),
+        })
+        .unwrap();
+    let events = settle_partial(&mut core, start);
+    assert!(
+        events.iter().any(
+            |e| matches!(e, Event::Completed { op, result: OpResult::Ok(_) } if *op == remove)
+        ),
+        "{events:?}"
+    );
+    assert!(
+        !workers.unlink_endpoint(&removed_key),
+        "Remove removed the endpoint"
+    );
+    assert!(
+        workers.unlink_endpoint(&key_of(&dirs, "killed", &kept)),
+        "the killed worker left its endpoint"
+    );
+}
+
+/// DESIGN.md part 3 (3.3): a candidate that sends no hello is closed at the `startup` of the handle that spawned the worker
+/// (`WorkerSpawn.startup`), not at a default.
+#[test]
+fn a_silent_candidate_is_closed_at_the_spawning_handles_startup() {
+    let start = Instant::now();
+    let (scheduler, workers) = adoption_run(start);
+    let mut dirs = Directories::default();
+    let session = SessionId("s".into());
+    let limits = CoreLimits {
+        startup: CoreLimits::default().startup / 2,
+        ..CoreLimits::default()
+    };
+    let mut core = handle_with(&mut dirs, "silent", &workers, &scheduler, limits.clone());
+    create_and_start(&mut core, &session, start);
+    let mut silent = workers
+        .connect_endpoint(&key_of(&dirs, "silent", &session))
+        .expect("the worker listens");
+    workers.run(start);
+    let mut buf = [0u8; 1];
+    assert_eq!(
+        silent.recv(&mut buf).unwrap_err().kind(),
+        std::io::ErrorKind::WouldBlock,
+        "the candidate waits for its hello"
+    );
+    workers.run(start + limits.startup);
+    assert_eq!(
+        silent.recv(&mut buf).unwrap(),
+        0,
+        "the candidate is closed at startup"
+    );
+}
+
+/// [`handle_over`], with the host's process table and wake object, as the harness keeps them.
+fn handle_and_table(
+    dirs: &mut Directories,
+    dir: &str,
+    workers: &crate::worker::Workers,
+    scheduler: &SchedulerHandle,
+) -> (
+    crate::worker::TestkitCore,
+    crate::worker::ProcessTable,
+    Arc<dyn botster_core_host::driver::HostWake>,
+) {
+    let config = OpenConfig {
+        data_dir: dir.into(),
+        worker_path: Some("worker".into()),
+        limits: CoreLimits::default(),
+    };
+    let spawner = workers.spawner(dir);
+    let table = spawner.table();
+    let opened = dirs
+        .open(
+            dir,
+            &config,
+            RunInputs {
+                seed: 13,
+                scheduler: scheduler.clone(),
+            },
+            core_features(),
+            Some(Box::new(spawner)),
+        )
+        .unwrap();
+    table.set_wake(Arc::clone(&opened.wake));
+    let core =
+        crate::worker::TestkitCore::new(opened.driver, Arc::clone(&opened.wake), workers.clone());
+    (core, table, opened.wake)
+}
+
+/// True when `wake` is set. The run has no spurious wakes, so a set flag is the only `Woken`.
+fn woken(wake: &Arc<dyn botster_core_host::driver::HostWake>) -> bool {
+    matches!(
+        botster_core_contract::prelude::WakeHandle::wait(&**wake, std::time::Duration::ZERO),
+        Wake::Woken
+    )
+}
+
+/// Clears the wake objects of `wakes`.
+fn drain_all(wakes: &[&Arc<dyn botster_core_host::driver::HostWake>]) {
+    for wake in wakes {
+        WakeEdge::drain(&***wake);
+    }
+}
+
+/// P5 #201 A1-F1, A1-F2 (TM-6, `edges_quiet`): the host that holds a worker's control link reads its reports and gets the
+/// wakes of its controls. The spawning host keeps only the exit. A candidate that the worker refuses moves nothing; a
+/// successful adoption moves the link, again at each adoption, and also when the earlier host's table is gone.
+#[test]
+fn the_adopting_host_takes_the_control_links_reports_and_wakes() {
+    let start = Instant::now();
+    let (scheduler, workers) = adoption_run(start);
+    let mut dirs = Directories::default();
+    let session = SessionId("s".into());
+    let (mut a, table_a, wake_a) = handle_and_table(&mut dirs, "ctl", &workers, &scheduler);
+    create_and_start(&mut a, &session, start);
+    let worker = worker_of(&dirs, "ctl", &session);
+    drop(a);
+
+    // A stranger holds the one candidate place, so B's candidate is refused: the session is `Lost(WorkerUnreachable)`,
+    // and the control link stays with A.
+    let mut stranger = workers
+        .connect_endpoint(&key_of(&dirs, "ctl", &session))
+        .expect("the worker listens");
+    workers.run(start);
+    let (mut b, table_b, wake_b) = handle_and_table(&mut dirs, "ctl", &workers, &scheduler);
+    b.begin(Op::AdoptAll).unwrap();
+    let events = settle_partial(&mut b, start);
+    assert_eq!(
+        b.get(&session).unwrap().state,
+        SessionState::Lost(LostReason::WorkerUnreachable),
+        "{events:?}"
+    );
+    drain_all(&[&wake_a, &wake_b]);
+    let (program, wake) = workers.program_edge(worker).unwrap();
+    program.write(b"x");
+    wake.expect("the control host has a wake").signal();
+    assert!(woken(&wake_a), "a refused candidate moves nothing");
+    assert!(!woken(&wake_b));
+
+    // A's table is gone (its host is retired). The stranger leaves, and B's retry adopts the worker.
+    drop((table_a, wake_a));
+    stranger.close();
+    workers.run(start);
+    let adopt = b
+        .begin(Op::Adopt {
+            id: session.clone(),
+        })
+        .unwrap();
+    let events = settle_partial(&mut b, start);
+    assert!(
+        events
+            .iter()
+            .any(|e| matches!(e, Event::Completed { op, result: OpResult::Ok(_) } if *op == adopt)),
+        "{events:?}"
+    );
+    assert_eq!(b.get(&session).unwrap().state, SessionState::Running);
+    assert!(workers.edges_quiet(&table_b));
+
+    // A1-F1: the program edge's wake is B's. A1-F2: the worker's report waits on B's link, and B's edges are not quiet
+    // until B reads it.
+    drain_all(&[&wake_b]);
+    let (program, wake) = workers.program_edge(worker).unwrap();
+    program.write(b"y");
+    wake.expect("the control host has a wake").signal();
+    assert!(woken(&wake_b));
+    workers.run(start);
+    assert!(
+        !workers.edges_quiet(&table_b),
+        "B holds the worker's report"
+    );
+    settle_partial(&mut b, start);
+    assert!(workers.edges_quiet(&table_b));
+
+    // A second adoption moves the link again: `break_control` wakes C, not B.
+    drop(b);
+    let (mut c, table_c, wake_c) = handle_and_table(&mut dirs, "ctl", &workers, &scheduler);
+    c.begin(Op::AdoptAll).unwrap();
+    let events = settle_partial(&mut c, start);
+    assert_eq!(
+        c.get(&session).unwrap().state,
+        SessionState::Running,
+        "{events:?}"
+    );
+    drain_all(&[&wake_b, &wake_c]);
+    workers.break_link(worker).unwrap();
+    assert!(woken(&wake_c));
+    assert!(!woken(&wake_b));
+    workers.run(start);
+    assert!(
+        !workers.edges_quiet(&table_c),
+        "C holds the end of the broken link"
+    );
+    assert!(
+        workers.edges_quiet(&table_b),
+        "B no longer holds the worker's link"
+    );
+}
+
+/// P5 #201 A1-F2 (round 2): the end of file of a candidate that the worker refused is a report for the host that connected,
+/// until that host reads it. The refusal moves no control link.
+#[test]
+fn a_refused_candidates_end_of_file_keeps_the_connecting_host_busy() {
+    let start = Instant::now();
+    let (scheduler, workers) = adoption_run(start);
+    let mut dirs = Directories::default();
+    let session = SessionId("s".into());
+    let mut first = handle_over(&mut dirs, "eof", &workers, &scheduler);
+    create_and_start(&mut first, &session, start);
+    drop(first);
+    let key = key_of(&dirs, "eof", &session);
+    let _stranger = workers.connect_endpoint(&key).expect("the worker listens");
+    workers.run(start);
+
+    // A host's edge connects (`SimEdges::connect_worker` gives the spawner the worker's end of a new link).
+    let mut spawner = workers.spawner("eof");
+    let table = spawner.table();
+    assert!(workers.edges_quiet(&table));
+    let (mut host, worker) = crate::net::link_pair(1024);
+    assert!(spawner.connect_worker(&key.instance, worker));
+    workers.run(start);
+    assert!(
+        !workers.edges_quiet(&table),
+        "the refused candidate's end of file waits for the host"
+    );
+    let mut buf = [0u8; 16];
+    assert_eq!(host.recv(&mut buf).unwrap(), 0, "the candidate was closed");
+    host.close();
+    assert!(workers.edges_quiet(&table));
+}
+
+/// The frames that `bytes` hold, in order.
+fn frames_of(bytes: &[u8]) -> Vec<botster_core_link::frame::Frame> {
+    let mut decoder =
+        botster_core_link::frame::FrameDecoder::new(botster_core_link::frame::DEFAULT_MAX_PAYLOAD);
+    let mut rest = bytes;
+    let mut frames = Vec::new();
+    while !rest.is_empty() {
+        let took = decoder.push(rest);
+        rest = &rest[took..];
+        while let Some(frame) = decoder.next_frame().expect("the bytes are frames") {
+            frames.push(frame);
+        }
+    }
+    frames
+}
+
+/// One frame of `kind` with `payload`.
+fn frame_bytes(kind: botster_core_link::frame::FrameType, payload: &[u8]) -> Vec<u8> {
+    let mut out = Vec::new();
+    botster_core_link::frame::encode_frame(
+        kind,
+        payload,
+        botster_core_link::frame::DEFAULT_MAX_PAYLOAD,
+        &mut out,
+    )
+    .expect("a small frame encodes");
+    out
+}
+
+/// Core A10-1, A11-1, AD-6; steward ruling R-42 (`impostor_worker`, `signals_received`): the impostor at a session's endpoint
+/// answers the host's first hello once, with a hello that fails Core's check and its scripted frames in the same write. The
+/// edges are not quiet while it holds bytes that it has not read. A signal to the recorded identity counts for that
+/// session's impostor only, and only once a host connected to it.
+#[test]
+fn an_impostor_answers_the_first_hello_and_counts_only_its_own_signals() {
+    use crate::worker::{ImpostorField, ImpostorFrame, ImpostorPlan};
+    use botster_core_link::frame::FrameType;
+    use botster_core_link::hello::Hello;
+    use botster_core_link::msg::{Observation, WorkerMsg};
+    use botster_core_link::proof::{token_proof, TOKEN_LEN};
+
+    let start = Instant::now();
+    let (scheduler, workers) = adoption_run(start);
+    let mut dirs = Directories::default();
+    let (one, two) = (SessionId("one".into()), SessionId("two".into()));
+    let mut first = handle_over(&mut dirs, "imp", &workers, &scheduler);
+    create_and_start(&mut first, &one, start);
+    create_and_start(&mut first, &two, start);
+    drop(first);
+    let (worker_one, worker_two) = (worker_of(&dirs, "imp", &one), worker_of(&dirs, "imp", &two));
+    let key = key_of(&dirs, "imp", &one);
+    let token = [7u8; TOKEN_LEN];
+    for (id, worker) in [(&one, worker_one), (&two, worker_two)] {
+        let plan = ImpostorPlan {
+            session: id.clone(),
+            field: ImpostorField::Token,
+            script: vec![
+                ImpostorFrame::CleanupDeleted,
+                ImpostorFrame::StateExited,
+                ImpostorFrame::Notification,
+            ],
+            token,
+            worker,
+        };
+        workers.impostor(key_of(&dirs, "imp", id), plan).unwrap();
+    }
+    let mut spawner = workers.spawner("imp");
+    let table = spawner.table();
+    workers.run(start);
+    assert!(
+        workers.edges_quiet(&table),
+        "an impostor that no host reached is quiet"
+    );
+
+    let (mut host, end) = crate::net::link_pair(LINK_CAPACITY);
+    assert!(spawner.connect_worker(&key.instance, end));
+    workers.run(start);
+    assert!(
+        workers.edges_quiet(&table),
+        "a connected impostor with nothing to read is quiet"
+    );
+
+    // A frame that is not a hello and the hello arrive in one read: the impostor answers the hello.
+    let host_hello = Hello {
+        protocol: botster_worker_core::WORKER_PROTOCOL,
+        instance: key.instance.clone(),
+        proof: token_proof(&token, &key.instance, 9),
+        host_epoch: 9,
+    };
+    let mut payload = Vec::new();
+    host_hello.encode(&mut payload).unwrap();
+    let mut bytes = frame_bytes(FrameType::HOST_MSG, b"{}");
+    bytes.extend(frame_bytes(FrameType::HELLO, &payload));
+    assert_eq!(host.send(&bytes).unwrap(), bytes.len());
+    assert!(
+        !workers.edges_quiet(&table),
+        "the impostor holds the host's bytes"
+    );
+    workers.run(start);
+    let mut buf = vec![0u8; LINK_CAPACITY];
+    let n = host.recv(&mut buf).unwrap();
+    let frames = frames_of(&buf[..n]);
+    assert_eq!(
+        frames.len(),
+        4,
+        "the hello and the three scripted frames: {frames:?}"
+    );
+    assert_eq!(frames[0].kind, FrameType::HELLO);
+    let answer = Hello::decode(&frames[0].payload).unwrap();
+    assert_eq!(answer.instance, key.instance);
+    assert_eq!(answer.host_epoch, 9);
+    assert_ne!(answer.proof, token_proof(&token, &key.instance, 9));
+    let scripted: Vec<WorkerMsg> = frames[1..]
+        .iter()
+        .map(|f| {
+            assert_eq!(f.kind, FrameType::WORKER_MSG);
+            WorkerMsg::decode(&f.payload).unwrap()
+        })
+        .collect();
+    assert_eq!(
+        scripted,
+        [
+            WorkerMsg::RemoveResult {
+                uploads: UploadsOutcome::Deleted
+            },
+            WorkerMsg::Exited {
+                code: Some(0),
+                signal: None
+            },
+            WorkerMsg::Observed {
+                observation: Observation::Notification {
+                    source: NotificationSource::Osc9,
+                    title: None,
+                    body: "impostor".into(),
+                    truncated: false,
+                },
+            },
+        ]
+    );
+
+    // A second hello gets no second answer.
+    let again = frame_bytes(FrameType::HELLO, &payload);
+    assert_eq!(host.send(&again).unwrap(), again.len());
+    workers.run(start);
+    assert_eq!(
+        host.recv(&mut buf).map_err(|e| e.kind()),
+        Err(io::ErrorKind::WouldBlock)
+    );
+
+    // Each impostor counts the signals to its own recorded identity, once a host connected to it: no host reached the
+    // impostor of `two`.
+    spawner.signal_group(worker_two, GroupSignal::EndPayload);
+    spawner.signal_group(worker_one, GroupSignal::Term);
+    workers.run(start);
+    assert_eq!(
+        workers.impostor_signals("imp", &one),
+        Some(vec![GroupSignal::Term])
+    );
+    assert_eq!(workers.impostor_signals("imp", &two), Some(Vec::new()));
 }

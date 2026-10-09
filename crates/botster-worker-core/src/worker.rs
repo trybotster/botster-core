@@ -11,7 +11,12 @@
 //! **The payload leader stays unreaped** until its group kill is complete (lead ruling on P1 finding F7): the driver reaps it
 //! only on [`Action::ReapPayload`], so while the machine can still signal the group, its id cannot be reused.
 //!
-//! Clause: Core AD-6, Core AD-7, Core DP-8, Core EV-4, Core LC-5, Core LC-6, Core LC-7, Core A6-2.
+//! **Adoption** (P5; `botster-core-host` DESIGN.md "Adoption (P5)", parts 3, 4 and 7): a connection on the worker endpoint
+//! is a *candidate* until its hello proves the host role for this instance at an epoch at least the highest one seen. A
+//! candidate that passes replaces the control link (the fence, DP-8), and the worker answers with its hello and one
+//! `Adopted` report. A worker with no payload and no host for `startup` ends by itself (AD-7).
+//!
+//! Clause: Core AD-1, Core AD-3, Core AD-6, Core AD-7, Core DP-8, Core EV-4, Core LC-5, Core LC-6, Core LC-7, Core A6-2.
 
 use crate::{WORKER_FEATURES_BY_PROTOCOL, WORKER_PROTOCOL};
 use botster_core_contract::prelude::*;
@@ -19,7 +24,9 @@ use botster_core_edges::edges::ExitStatus;
 use botster_core_edges::Machine;
 use botster_core_link::frame::{encode_frame, FrameDecoder, FrameType, DEFAULT_MAX_PAYLOAD};
 use botster_core_link::hello::Hello;
-use botster_core_link::msg::{HostMsg, LaunchSpec, PayloadId, WorkerMsg};
+use botster_core_link::msg::{
+    AdoptReport, AdoptedPayload, HostMsg, LaunchSpec, Observation, PayloadId, WorkerMsg,
+};
 use botster_core_link::proof::{host_proof, token_proof, TOKEN_LEN};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::time::{Duration, Instant};
@@ -39,6 +46,9 @@ pub struct WorkerConfig {
     /// The worker protocol number that the hello announces: [`WORKER_PROTOCOL`] in production. It is a construction input,
     /// so a harness can make a real worker announce another number (plan section 3, A6-2), never a test branch.
     pub protocol: u8,
+    /// `CoreLimits.startup`: the bound of a candidate's hello, and of a worker with no payload and no host (AD-7). The
+    /// launch argument `--startup-ms` carries it (DESIGN.md part 1).
+    pub startup: Duration,
 }
 
 impl std::fmt::Debug for WorkerConfig {
@@ -48,6 +58,7 @@ impl std::fmt::Debug for WorkerConfig {
             .field("instance", &self.instance)
             .field("host_epoch", &self.host_epoch)
             .field("protocol", &self.protocol)
+            .field("startup", &self.startup)
             .finish_non_exhaustive()
     }
 }
@@ -60,6 +71,7 @@ impl WorkerConfig {
             token,
             host_epoch,
             protocol: WORKER_PROTOCOL,
+            startup: CoreLimits::default().startup,
         }
     }
 }
@@ -84,6 +96,10 @@ pub struct PayloadSpec {
     pub size: Size,
 }
 
+/// A connection on the worker endpoint, named by the driver (DESIGN.md part 7).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct CandidateId(pub u64);
+
 /// An input of the worker.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Input {
@@ -99,6 +115,11 @@ pub enum Input {
     Spawned(Result<PayloadId, SpawnFailure>),
     /// Bytes that the payload wrote on the PTY.
     PtyOutput(Vec<u8>),
+    /// The answer to [`Action::PtyWrite`]: the bytes that the PTY took (`Ok(0)`: none now, and [`Input::PtyWritable`]
+    /// follows when it takes bytes again), or the OS error of the write.
+    PtyWritten(Result<usize, i32>),
+    /// The PTY takes input again after a write that it did not take.
+    PtyWritable,
     /// The answer to [`Action::DrainPty`]: the drain read what the PTY held when it was asked, or a read found no byte
     /// (it would block) or the end of the output first.
     PtyDrained,
@@ -111,6 +132,12 @@ pub enum Input {
     Terminate,
     /// A deadline of [`Machine::next_deadline`] is due.
     Timer,
+    /// A connection came on the worker endpoint: a candidate for the control link until its hello passes.
+    Candidate(CandidateId),
+    /// Bytes that a candidate delivered, in order.
+    CandidateBytes(CandidateId, Vec<u8>),
+    /// A candidate's connection ended.
+    CandidateClosed(CandidateId),
 }
 
 /// An action of the worker, for its driver.
@@ -127,12 +154,21 @@ pub enum Action {
     /// its exit is read before the exit is reported (EV-4, ST-5: the final model holds it). The drain is bounded by what the
     /// PTY held when it was asked, so output that a remaining process of the group writes later cannot hold the exit back.
     DrainPty,
+    /// Write these bytes to the payload's PTY, and answer with [`Input::PtyWritten`]. One write is out at a time (AM-2).
+    PtyWrite(Vec<u8>),
     /// Send this signal to the payload's process group. It is emitted only while the leader is unreaped.
     SignalPayload(i32),
     /// Reap the payload's leader: its group kill is complete, so its id may be reused from now on.
     ReapPayload,
     /// End the worker process (LC-7 step 3 is done).
     Exit,
+    /// Close this candidate's connection. Nothing was sent on it.
+    CandidateClose(CandidateId),
+    /// The fence (DP-8): close the control link and drop every byte that is still unwritten on it, then make this
+    /// candidate the control link. Every later `LinkSend`, `LinkClose`, [`Input::LinkBytes`], [`Input::LinkClosed`] and
+    /// [`Input::LinkWritten`] is about the new link, and `LinkWritten` counts from zero on it. The driver reports no input of
+    /// the old link after this action.
+    AdoptLink(CandidateId),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -161,10 +197,32 @@ enum PayloadState {
     Reaped,
 }
 
+/// A connection on the endpoint whose hello has not passed.
+#[derive(Debug)]
+struct Candidate {
+    id: CandidateId,
+    /// Bounded to one hello of this instance until the hello passes (DESIGN.md part 7).
+    decoder: FrameDecoder,
+    /// The `startup` deadline of its hello.
+    deadline: Instant,
+}
+
 /// The session worker.
 #[derive(Debug)]
 pub struct Worker {
     cfg: WorkerConfig,
+    /// The highest host epoch that the worker has seen (DP-8: the worker obeys it). It starts at `cfg.host_epoch`.
+    epoch: u64,
+    /// The one candidate for the control link, if a connection on the endpoint is pending.
+    candidate: Option<Candidate>,
+    /// The largest hello frame of this instance: the bound of a candidate's decoder.
+    hello_bound: u32,
+    /// AD-7: the end of a worker with no payload and no host, while that lasts.
+    orphan: Option<Instant>,
+    /// The worker sent `Exit`: nothing more is accepted.
+    ended: bool,
+    /// Why the spawn failed, for the adoption report.
+    failure: Option<StartFailReason>,
     link: LinkState,
     decoder: FrameDecoder,
     /// The bound of the frames that this worker sends, and of the decoder after the launch (`LaunchSpec.link_frame_bound`).
@@ -181,6 +239,8 @@ pub struct Worker {
     stop_grace: Duration,
     /// The size of the launch, for the state that `Launched` carries.
     launch_size: Option<Size>,
+    /// The session's read-visible revision (Core ST-1): an opaque token that each model step of the output advances.
+    model_rev: ModelRev,
     /// The kill of the worker-control signal's grace (LC-5).
     grace: Option<Instant>,
     /// LC-7 step 3: the worker ends once the payload is reaped and the result is sent.
@@ -190,11 +250,25 @@ pub struct Worker {
     /// The bytes of every `LinkSend` so far, and the bytes that the driver reported written.
     queued_total: u64,
     written_total: u64,
+    /// The end of the last `Output` report in the sent bytes (`queued_total` after it): until the driver writes it, a new
+    /// read is not reported on its own. Reads alone queue at most one `Output` report; another report first sends the
+    /// waiting one, so the bound is one, plus one for each other report. A host that reads slowly cannot grow the
+    /// worker's queue with output.
+    output_sent_to: u64,
+    /// A read advanced `model_rev` while the last `Output` report was not written: one report of the latest revision
+    /// follows when it is written, or before the next other report, so the order of reports stays the order of events.
+    output_unsent: bool,
     /// `Terminate` came: the worker ends as soon as no payload leader is held.
     terminating: bool,
     /// Inputs about the payload that came while its spawn was out (the drivers may deliver them before the spawn's answer):
     /// they apply once the spawn succeeds, and are dropped when it fails (no group to signal).
     early: Early,
+    /// The admission point and the host's writes (AM-2, IN-1 to IN-10).
+    input: input::InputState,
+    /// The terminal model (libghostty), from the launch.
+    model: Option<model::Model>,
+    /// Core's limits that the worker applies itself (`LaunchSpec.limits`).
+    limits: CoreLimits,
     actions: VecDeque<Action>,
 }
 
@@ -213,6 +287,12 @@ impl Worker {
         let mut worker = Worker {
             decoder: FrameDecoder::new(DEFAULT_MAX_PAYLOAD),
             frame_bound: DEFAULT_MAX_PAYLOAD,
+            epoch: cfg.host_epoch,
+            candidate: None,
+            hello_bound: hello_bound(&cfg),
+            orphan: None,
+            ended: false,
+            failure: None,
             cfg,
             link: LinkState::AwaitHello,
             payload: PayloadState::None,
@@ -222,33 +302,57 @@ impl Worker {
             killed: false,
             stop_grace: CoreLimits::default().stop_grace,
             launch_size: None,
+            model_rev: ModelRev(0),
             grace: None,
             removing: false,
             exit_pending: false,
             queued_total: 0,
             written_total: 0,
+            output_sent_to: 0,
+            output_unsent: false,
             terminating: false,
             early: Early::default(),
+            input: input::InputState::default(),
+            model: None,
+            limits: CoreLimits::default(),
             actions: VecDeque::new(),
         };
-        let hello = Hello {
-            protocol: worker.cfg.protocol,
-            instance: worker.cfg.instance.clone(),
-            proof: worker.proof(),
-            host_epoch: worker.cfg.host_epoch,
-        };
-        let mut payload = Vec::new();
-        if hello.encode(&mut payload).is_ok() {
-            worker.send_frame(FrameType::HELLO, &payload);
-        } else {
+        if !worker.send_hello() {
             // An `InstanceId` that the hello cannot carry cannot be proven: no host will accept this worker.
             worker.close_link();
         }
         worker
     }
 
+    /// The worker's hello at the current epoch. False when the instance cannot be encoded.
+    fn send_hello(&mut self) -> bool {
+        let hello = Hello {
+            protocol: self.cfg.protocol,
+            instance: self.cfg.instance.clone(),
+            proof: self.proof(),
+            host_epoch: self.epoch,
+        };
+        let mut payload = Vec::new();
+        let encoded = hello.encode(&mut payload).is_ok();
+        if encoded {
+            self.send_frame(FrameType::HELLO, &payload);
+        }
+        encoded
+    }
+
+    /// The session's `model_rev` now (Core ST-1): the revision that a read or a capture of the model at this point carries.
+    pub fn model_rev(&self) -> ModelRev {
+        self.model_rev
+    }
+
     fn proof(&self) -> botster_core_link::hello::TokenProof {
-        token_proof(&self.cfg.token, &self.cfg.instance, self.cfg.host_epoch)
+        token_proof(&self.cfg.token, &self.cfg.instance, self.epoch)
+    }
+
+    /// AD-6, DP-8: a host hello proves the host role for this instance at its own epoch.
+    fn host_proven(&self, hello: &Hello) -> bool {
+        hello.instance == self.cfg.instance
+            && hello.proof == host_proof(&self.cfg.token, &self.cfg.instance, hello.host_epoch)
     }
 
     /// True while the payload's group can be signalled: it was launched and its leader is not reaped.
@@ -273,9 +377,50 @@ impl Worker {
         if self.link != LinkState::Ready {
             return;
         }
+        if self.output_unsent {
+            self.report_output();
+        }
+        self.send_report(msg);
+    }
+
+    fn send_report(&mut self, msg: &WorkerMsg) {
         let mut payload = Vec::new();
         msg.encode(&mut payload);
         self.send_frame(FrameType::WORKER_MSG, &payload);
+    }
+
+    /// A read of the payload's output: the model takes it in steps, each of which advances the read-visible revision, and
+    /// the output is reported to the host (Core ST-1, 6.2). A read that completes no step changes nothing yet. While the
+    /// last `Output` report is not written, the read is not reported on its own: the next report carries the latest
+    /// revision (the host keeps only the latest `Activity` too).
+    fn on_output(&mut self, bytes: &[u8]) {
+        if bytes.is_empty() || !self.feed_model(bytes) {
+            return;
+        }
+        self.output_advanced();
+    }
+
+    /// The model took output: the latest revision is reported, now or after the waiting `Output` report is written.
+    fn output_advanced(&mut self) {
+        if self.link != LinkState::Ready {
+            return;
+        }
+        if self.written_total < self.output_sent_to {
+            self.output_unsent = true;
+        } else {
+            self.report_output();
+        }
+    }
+
+    /// Sends the `Output` report of the latest revision.
+    fn report_output(&mut self) {
+        self.output_unsent = false;
+        self.send_report(&WorkerMsg::Observed {
+            observation: Observation::Output {
+                model_rev: self.model_rev,
+            },
+        });
+        self.output_sent_to = self.queued_total;
     }
 
     /// Closes the link after the bytes already sent are written (LC-7: the result reaches the host first).
@@ -294,7 +439,7 @@ impl Worker {
         }
         if self.exit_pending && self.link == LinkState::Closed {
             self.exit_pending = false;
-            self.actions.push_back(Action::Exit);
+            self.end();
         }
     }
 
@@ -351,12 +496,8 @@ impl Worker {
     /// AD-6, DP-8: the host proves the same token for the same instance and epoch. Anything else closes the link.
     fn on_host_hello(&mut self, kind: FrameType, payload: &[u8]) {
         let proven = kind == FrameType::HELLO
-            && Hello::decode(payload).is_ok_and(|hello| {
-                hello.instance == self.cfg.instance
-                    && hello.host_epoch == self.cfg.host_epoch
-                    && hello.proof
-                        == host_proof(&self.cfg.token, &self.cfg.instance, self.cfg.host_epoch)
-            });
+            && Hello::decode(payload)
+                .is_ok_and(|hello| hello.host_epoch == self.epoch && self.host_proven(&hello));
         if !proven {
             self.close_link();
             return;
@@ -375,9 +516,9 @@ impl Worker {
                 self.reap_when_complete();
             }
             HostMsg::Op { req, op } => self.on_op(now, req, op),
+            HostMsg::Cancel { req } => self.on_cancel(req),
             HostMsg::Remove => self.on_remove(),
-            // `Cancel`, `AttachRoute` and `Detach` belong to the input and route milestones (P3 M2, P4a); a later variant
-            // of the enum is a later host's.
+            // `AttachRoute` and `Detach` belong to the route milestone (P4a); a later variant of the enum is a later host's.
             _ => {}
         }
     }
@@ -388,6 +529,16 @@ impl Worker {
         if self.payload != PayloadState::None {
             return;
         }
+        // The model exists before the payload, so no byte of its output is missed (BUILD.md: libghostty is the model).
+        let Some(model) = model::Model::new(&spec.size, spec.limits.clipboard_bytes) else {
+            self.payload = PayloadState::Failed;
+            self.report(&WorkerMsg::LaunchFailed {
+                reason: StartFailReason::WorkerFailed,
+            });
+            return;
+        };
+        self.model = Some(model);
+        self.limits = spec.limits;
         self.frame_bound = spec.link_frame_bound;
         self.decoder = rebound(&self.decoder, spec.link_frame_bound);
         self.stop_grace = Duration::from_millis(spec.stop_grace_ms);
@@ -412,7 +563,7 @@ impl Worker {
                 let msg = WorkerMsg::Launched {
                     features: worker_features(),
                     terminal: self.initial_terminal(),
-                    formats: Vec::new(),
+                    formats: model::snapshot_formats(),
                     payload: id,
                 };
                 self.report(&msg);
@@ -426,9 +577,14 @@ impl Worker {
                 if early.end_payload {
                     self.on_end_payload(now);
                 }
+                // Output that came while the spawn was out reaches the model now, after `Launched`.
+                if self.feed_model(&[]) {
+                    self.output_advanced();
+                }
                 if let Some(status) = early.exit {
                     self.on_exited(status);
                 }
+                self.try_start();
             }
             Err(failure) => {
                 self.payload = PayloadState::Failed;
@@ -436,16 +592,18 @@ impl Worker {
                     SpawnFailure::CwdMissing => StartFailReason::CwdMissing,
                     SpawnFailure::Exec { errno } => StartFailReason::ExecFailed { errno },
                 };
+                self.failure = Some(reason);
                 self.report(&WorkerMsg::LaunchFailed { reason });
+                self.try_start();
                 self.finish_remove();
                 self.finish_terminate();
             }
         }
     }
 
-    /// PLACEHOLDER until the terminal model (P3 M2): the state that `terminal_state` caches at the launch. It carries the
-    /// launch size and no tracked mode, title or cwd. M2 replaces it with the state of the libghostty model (BUILD.md: the
-    /// terminal semantics are libghostty's), and no terminal-state id leaves `core-pending.txt` before that.
+    /// The state that `terminal_state` caches from the launch (ST-4): the size, the modes of the fresh model, and the
+    /// revisions. The model has read no output yet (output that comes while the spawn is out waits), so it has no title
+    /// and no cwd.
     fn initial_terminal(&self) -> TerminalState {
         TerminalState {
             size: self.launch_size.unwrap_or(Size {
@@ -453,23 +611,46 @@ impl Worker {
                 cols: 0,
                 cell_px: None,
             }),
-            modes: ModeFlags::default(),
+            modes: self
+                .model
+                .as_ref()
+                .map(model::Model::modes)
+                .unwrap_or_default(),
             title: None,
             cwd: None,
             last_output_at: None,
             focused: None,
-            model_rev: ModelRev(0),
-            input_rev: InputRevs {
-                client: InputRev(0),
-                host: InputRev(0),
-            },
+            model_rev: self.model_rev,
+            input_rev: self.input.input_revs(),
         }
     }
 
-    /// The operations that need the worker. In this milestone it serves `Signal` (LC-6); the reads, the input and the
-    /// setters come with the terminal model (M2), and the worker answers them `Internal` until then.
+    /// The terminal state of the `Adopted` report (AD-3: the adopting host reads what the earlier host read): the model's
+    /// size, modes and revisions, and the last title and cwd that the output set. `last_output_at` and `focused` are the
+    /// host's own facts (TM-1: the worker reads no unix clock); the adopting host starts them again (Core Amendment 18,
+    /// candidate 1).
+    fn adopted_terminal(&self) -> TerminalState {
+        let model = self.model.as_ref();
+        TerminalState {
+            title: model.and_then(|m| m.title.clone()),
+            cwd: model.and_then(|m| m.cwd.clone()),
+            ..self.initial_terminal()
+        }
+    }
+
+    /// The operations that need the worker: `Signal` (LC-6), `WriteInput` (IN-1), the reads of the model (ST-1 to ST-3) and
+    /// `CaptureSnapshot` (ST-6). The setters and the facts come next, and the worker answers them `Internal` until then.
     fn on_op(&mut self, _now: Instant, req: u64, op: Op) {
         let result = match op {
+            Op::WriteInput { payload, guard, .. } => {
+                // Its `Done` comes when its transaction ends (IN-3).
+                self.on_write_input(req, payload, guard);
+                return;
+            }
+            Op::ReadScreen { history, .. } => self.read_screen(history),
+            Op::ReadCursor { .. } => self.read_cursor(),
+            Op::ReadModeFlags { .. } => self.read_modes(),
+            Op::CaptureSnapshot { .. } => self.capture(req),
             Op::Signal { sig, .. } => {
                 if let (true, Some(number)) = (self.group_live(), signal_number(sig)) {
                     self.signal(number);
@@ -502,6 +683,9 @@ impl Worker {
     /// so the result is `Deleted` (A6-3: every file is gone, or there were none).
     fn on_remove(&mut self) {
         self.removing = true;
+        // A worker that is ending takes no candidate, and the one that waits for its hello is closed: the removal
+        // completes on the old link, and no `AdoptLink` follows (P5 #201 R1-3).
+        self.close_candidate();
         match self.payload {
             PayloadState::Live(_) => {
                 if !self.killed {
@@ -542,6 +726,7 @@ impl Worker {
         }
         self.exit = Some(status);
         self.actions.push_back(Action::DrainPty);
+        self.input_payload_ended();
     }
 
     /// The first drain after the exit reports the exit, once, after the output written before it was read.
@@ -577,6 +762,7 @@ impl Worker {
     /// and the worker ends once no leader is held.
     fn on_terminate(&mut self) {
         self.terminating = true;
+        self.close_candidate();
         match self.payload {
             PayloadState::Live(_) => {
                 if !self.killed {
@@ -604,6 +790,16 @@ impl Worker {
             self.actions.push_back(Action::LinkClose);
         }
         self.exit_pending = false;
+        self.end();
+    }
+
+    /// The worker ends: a pending candidate is closed, and nothing more is accepted.
+    fn end(&mut self) {
+        if let Some(candidate) = self.candidate.take() {
+            self.actions.push_back(Action::CandidateClose(candidate.id));
+        }
+        self.orphan = None;
+        self.ended = true;
         self.actions.push_back(Action::Exit);
     }
 
@@ -637,6 +833,160 @@ impl Worker {
             self.reap_when_complete();
         }
     }
+
+    /// The adoption deadlines that are due at `now`. Every input applies them first, so an input at or after a deadline
+    /// never comes before it, whatever order the driver gives (P5-F27): a late hello cannot pass, and a late host cannot
+    /// cancel a due self-exit.
+    fn expire_adoption(&mut self, now: Instant) {
+        if self.candidate.as_ref().is_some_and(|c| c.deadline <= now) {
+            // A candidate whose hello has not passed by `startup` is closed (DESIGN.md part 7).
+            self.close_candidate();
+        }
+        if self.orphan.is_some_and(|at| at <= now) {
+            // AD-7: no payload and no host for `startup`. The worker ends; no unregistered payload can follow.
+            if self.link != LinkState::Closed {
+                self.link = LinkState::Closed;
+                self.actions.push_back(Action::LinkClose);
+            }
+            self.end();
+        }
+    }
+
+    /// AD-7: the self-exit deadline runs while the worker has no payload and no host.
+    fn arm_orphan(&mut self, now: Instant) {
+        let orphan =
+            !self.ended && self.payload == PayloadState::None && self.link != LinkState::Ready;
+        if !orphan {
+            self.orphan = None;
+        } else if self.orphan.is_none() {
+            self.orphan = Some(now + self.cfg.startup);
+        }
+    }
+
+    // ---- adoption: candidates on the endpoint (DESIGN.md parts 3, 4, 7) ----
+
+    fn close_candidate(&mut self) {
+        if let Some(candidate) = self.candidate.take() {
+            self.actions.push_back(Action::CandidateClose(candidate.id));
+        }
+    }
+
+    /// A worker that is ending (a removal, a `Terminate`, a staged exit, or its end) takes no candidate.
+    fn ending(&self) -> bool {
+        self.ended || self.removing || self.exit_pending || self.terminating
+    }
+
+    /// At most one candidate at a time. A worker that is ending takes none.
+    fn on_candidate(&mut self, now: Instant, id: CandidateId) {
+        if self.candidate.is_some() || self.ending() {
+            self.actions.push_back(Action::CandidateClose(id));
+            return;
+        }
+        self.candidate = Some(Candidate {
+            id,
+            decoder: FrameDecoder::new(self.hello_bound),
+            deadline: now + self.cfg.startup,
+        });
+    }
+
+    fn on_candidate_bytes(&mut self, now: Instant, id: CandidateId, bytes: &[u8]) {
+        let Some(candidate) = self.candidate.as_mut().filter(|c| c.id == id) else {
+            return;
+        };
+        let took = candidate.decoder.push(bytes);
+        let hello = match candidate.decoder.next_frame() {
+            Ok(None) => return,
+            Ok(Some(frame)) if frame.kind == FrameType::HELLO => Hello::decode(&frame.payload).ok(),
+            // Any other frame, or one above the bound of one hello.
+            Ok(Some(_)) | Err(_) => None,
+        };
+        // DESIGN.md 3.3: the instance, the host proof, and an epoch at least the highest one seen. A failure closes this
+        // connection only: the control link, the payload and the epoch do not change (A11).
+        match hello.filter(|h| h.host_epoch >= self.epoch && self.host_proven(h)) {
+            Some(hello) => self.adopt(now, id, hello.host_epoch, &bytes[took..]),
+            None => self.close_candidate(),
+        }
+    }
+
+    /// DESIGN.md 3.4: the candidate replaces the control link. The fence retires every request of the old host, then the
+    /// worker answers with its hello and its report.
+    fn adopt(&mut self, now: Instant, id: CandidateId, epoch: u64, rest: &[u8]) {
+        self.candidate = None;
+        self.epoch = epoch;
+        // The driver drops the bytes that are still unwritten on the old link; they never reach the new one.
+        self.actions.push_back(Action::AdoptLink(id));
+        self.queued_total = 0;
+        self.written_total = 0;
+        // The new link counts its bytes from zero, so an `Output` report of the old link waits for nothing on it. The
+        // report carries the current `model_rev` (P5 #201 R1-1).
+        self.output_sent_to = 0;
+        self.output_unsent = false;
+        self.link = LinkState::Ready;
+        self.decoder = FrameDecoder::new(self.frame_bound);
+        self.input_fence();
+        self.send_hello();
+        let report = self.adoption_report();
+        self.report(&report);
+        // Bytes that came after the hello in the same read belong to the new link.
+        self.on_link_bytes(now, rest);
+    }
+
+    /// DESIGN.md part 4: the live state, never values remembered from the spawn.
+    fn adoption_report(&self) -> WorkerMsg {
+        let exited = || {
+            let (code, signal) = match self.exit {
+                Some(ExitStatus::Code(code)) => (Some(code), None),
+                Some(ExitStatus::Signal(signal)) => (None, Some(signal)),
+                None => (None, None),
+            };
+            AdoptedPayload::Exited { code, signal }
+        };
+        let (payload, ran) = match self.payload {
+            PayloadState::None => (AdoptedPayload::NotLaunched, false),
+            PayloadState::Spawning => (AdoptedPayload::Spawning, false),
+            // An exit that is not reported yet follows after the drain, as on any link.
+            PayloadState::Live(payload) if !self.exit_drained => {
+                (AdoptedPayload::Running { payload }, true)
+            }
+            PayloadState::Live(_) | PayloadState::Reaped => (exited(), true),
+            PayloadState::Failed => (
+                AdoptedPayload::LaunchFailed {
+                    reason: self.failure.unwrap_or(StartFailReason::WorkerFailed),
+                },
+                false,
+            ),
+        };
+        WorkerMsg::Adopted {
+            report: Box::new(AdoptReport {
+                payload,
+                features: worker_features(),
+                terminal: ran.then(|| self.adopted_terminal()),
+                // The formats of `Launched`: a model that ran keeps them (P5 #201 R1-2).
+                formats: if ran {
+                    model::snapshot_formats()
+                } else {
+                    Vec::new()
+                },
+            }),
+        }
+    }
+}
+
+/// The size of the largest hello frame of this instance: the highest protocol and epoch, and a proof (D4: the hello fields
+/// never change between protocols).
+fn hello_bound(cfg: &WorkerConfig) -> u32 {
+    let hello = Hello {
+        protocol: u8::MAX,
+        instance: cfg.instance.clone(),
+        proof: botster_core_link::hello::TokenProof([0; botster_core_link::hello::PROOF_LEN]),
+        host_epoch: u64::MAX,
+    };
+    let mut payload = Vec::new();
+    match hello.encode(&mut payload) {
+        Ok(()) => u32::try_from(payload.len()).unwrap_or(u32::MAX),
+        // A worker whose instance has no hello takes no candidate's bytes.
+        Err(_) => 0,
+    }
 }
 
 impl Machine for Worker {
@@ -644,6 +994,7 @@ impl Machine for Worker {
     type Action = Action;
 
     fn handle(&mut self, now: Instant, input: Input) {
+        self.expire_adoption(now);
         match input {
             Input::LinkBytes(bytes) => self.on_link_bytes(now, &bytes),
             Input::LinkClosed => {
@@ -654,18 +1005,35 @@ impl Machine for Worker {
             }
             Input::LinkWritten { total } => {
                 self.written_total = self.written_total.max(total);
+                if self.output_unsent
+                    && self.link == LinkState::Ready
+                    && self.written_total >= self.output_sent_to
+                {
+                    self.report_output();
+                }
                 self.finish_close();
             }
             Input::Spawned(result) => self.on_spawned(now, result),
             // The terminal model takes the output in M2. Until then the worker reads it, so the payload never blocks on a
-            // full PTY.
-            Input::PtyOutput(_) => {}
+            // full PTY, and reports it: the output advances `model_rev` (Core ST-1: "every read-visible mutation
+            // (output, ...)"), and the host posts `Activity{source: Output}` from the observation (Core 6.2).
+            Input::PtyOutput(bytes) => self.on_output(&bytes),
+            Input::PtyWritten(result) => self.on_pty_written(result),
+            Input::PtyWritable => self.on_pty_writable(),
             Input::PtyDrained => self.on_drained(),
             Input::PayloadExited(status) => self.on_exited(status),
             Input::EndPayload => self.on_end_payload(now),
             Input::Terminate => self.on_terminate(),
             Input::Timer => self.on_timer(now),
+            Input::Candidate(id) => self.on_candidate(now, id),
+            Input::CandidateBytes(id, bytes) => self.on_candidate_bytes(now, id, &bytes),
+            Input::CandidateClosed(id) => {
+                if self.candidate.as_ref().is_some_and(|c| c.id == id) {
+                    self.candidate = None;
+                }
+            }
         }
+        self.arm_orphan(now);
     }
 
     fn poll_action(&mut self) -> Option<Action> {
@@ -673,7 +1041,14 @@ impl Machine for Worker {
     }
 
     fn next_deadline(&self) -> Option<Instant> {
-        self.grace
+        [
+            self.grace,
+            self.orphan,
+            self.candidate.as_ref().map(|c| c.deadline),
+        ]
+        .into_iter()
+        .flatten()
+        .min()
     }
 }
 
@@ -715,6 +1090,9 @@ fn op_name(op: &Op) -> String {
         .and_then(|v| v.as_object().and_then(|o| o.keys().next().cloned()))
         .unwrap_or_else(|| "this operation".to_string())
 }
+
+mod input;
+mod model;
 
 #[cfg(test)]
 mod tests;

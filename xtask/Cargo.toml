@@ -16,12 +16,21 @@ botster-core-sys.workspace = true
 botster-core-testkit.workspace = true
 botster-test-support.workspace = true
 botster-worker-core.workspace = true
+# The syntax-aware checks (unsafe-code, process-check, timers, mutants-cited, platform-only code) parse with line numbers:
+# the workspace's proc-macro2 has `span-locations`.
 proc-macro2.workspace = true
-syn.workspace = true
+# platform-only code reads the outer attributes of any node from its tokens.
+quote = "1"
 regex.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
+syn = { workspace = true, features = ["full", "visit"] }
 toml.workspace = true
 
+[features]
+# The real-process tests of the xtask (BUILD.md testing rule 2): `cargo xtask slow` runs them.
+slow = []
+
 [dev-dependencies]
+botster-test-process = { path = "../crates/botster-test-process" }
 tempfile.workspace = true

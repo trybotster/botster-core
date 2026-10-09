@@ -326,7 +326,8 @@ fn a_failed_handoff_closes_a_known_route_once_and_ignores_an_unknown_one() {
     assert_eq!(closes(&later), 1, "{later:?}");
 }
 
-/// Core LC-7, A6-3: a link that closes while the worker tears down leaves the uploads `OutcomeUnknown`.
+/// Core LC-7, A6-3: a link that closes while the worker tears down leaves the uploads `OutcomeUnknown`. The worker may still
+/// run, so the removal waits for its end (LC-7 step 3) before it completes.
 #[test]
 fn a_link_closing_during_the_remove_teardown_leaves_the_uploads_unknown() {
     let mut w = World::default();
@@ -349,6 +350,15 @@ fn a_link_closing_during_the_remove_teardown_leaves_the_uploads_unknown() {
     );
     let link = w.link_of("s1");
     w.feed(Input::LinkClosed { link });
+    w.pump();
+    assert!(
+        !w.engine
+            .poll_events(64)
+            .iter()
+            .any(|e| matches!(e, Event::Completed { op, .. } if *op == remove)),
+        "the removal waits for the worker to end"
+    );
+    assert_eq!(w.engine.list().len(), 1, "the session is not removed yet");
     w.exited("s1");
     match w.complete(remove) {
         OpResult::Ok(OpOutput::RemoveReport(report)) => {
@@ -359,6 +369,81 @@ fn a_link_closing_during_the_remove_teardown_leaves_the_uploads_unknown() {
         }
         other => panic!("{other:?}"),
     }
+}
+
+/// Core LC-7, A6-3: the worker writes its cleanup result and closes its link before it ends, but the host can see the exit
+/// first. The result that it reads after the exit still decides the uploads; with no result before the link's end of file,
+/// they are `OutcomeUnknown`. Either way the removal completes.
+#[test]
+fn a_worker_exit_seen_before_its_remove_result_keeps_the_result() {
+    for result in [Some(UploadsOutcome::Deleted), None] {
+        let mut w = World::default();
+        w.autopilot = Autopilot::Silent;
+        w.running("s1");
+        w.worker_says(
+            "s1",
+            WorkerMsg::Exited {
+                code: Some(0),
+                signal: None,
+            },
+        );
+        w.pump();
+        w.engine.poll_events(64);
+        let remove = w.engine.begin(Op::Remove { id: sid("s1") }).unwrap();
+        w.pump();
+        assert!(
+            w.sent.iter().any(|(_, m)| matches!(m, HostMsg::Remove)),
+            "the worker was asked for its teardown"
+        );
+        let link = w.link_of("s1");
+        w.exited("s1");
+        if let Some(uploads) = result.clone() {
+            w.worker_says("s1", WorkerMsg::RemoveResult { uploads });
+        }
+        w.feed(Input::LinkClosed { link });
+        let expected = result.unwrap_or(UploadsOutcome::NotDeleted(NotDeleted::OutcomeUnknown));
+        match w.complete(remove) {
+            OpResult::Ok(OpOutput::RemoveReport(report)) => {
+                assert_eq!(report.uploads, expected);
+            }
+            other => panic!("{other:?}"),
+        }
+        assert!(w.engine.list().is_empty(), "the session is removed");
+    }
+}
+
+/// Core LC-7 step 3, A6-3 (review findings REO-F2, R1): a worker that ends before the host asks for its teardown wrote no
+/// cleanup result. The `Remove` completes with `OutcomeUnknown` and releases the id with no wait for the link's end of file
+/// or the remove grace, and the host never asks the gone worker.
+#[test]
+fn a_worker_exit_before_the_teardown_is_asked_completes_the_remove() {
+    let mut w = World::default();
+    w.autopilot = Autopilot::Silent;
+    w.running("s1");
+    w.worker_says(
+        "s1",
+        WorkerMsg::Exited {
+            code: Some(0),
+            signal: None,
+        },
+    );
+    w.pump();
+    w.engine.poll_events(64);
+    let remove = w.engine.begin(Op::Remove { id: sid("s1") }).unwrap();
+    // No pump ran, so the `Remove` has not reached its teardown request; the link stays open with no end of file.
+    w.exited("s1");
+    match w.complete(remove) {
+        OpResult::Ok(OpOutput::RemoveReport(report)) => assert_eq!(
+            report.uploads,
+            UploadsOutcome::NotDeleted(NotDeleted::OutcomeUnknown)
+        ),
+        other => panic!("{other:?}"),
+    }
+    assert!(w.engine.list().is_empty(), "the session is removed");
+    assert!(
+        !w.sent.iter().any(|(_, m)| matches!(m, HostMsg::Remove)),
+        "the gone worker was not asked for its teardown"
+    );
 }
 
 /// Core AM-3, IN-7, A2-1, A5-2: the scheduler may run a session's work before an op's (OR-3), so a `Remove` can retire ops
