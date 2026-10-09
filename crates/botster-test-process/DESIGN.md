@@ -33,7 +33,8 @@ its reserve, by that exact pid. Production keeps every reaping of its own childr
 `the_guard_ends_the_group_and_production_still_reaps_its_own_child` proves it.
 
 No group signal goes to group 1: a signal to the group of pid 1 is `kill(-1, ...)`, which reaches every process that the
-caller may signal. Every group signal takes its target from `platform::signal_target`, which refuses 1. In the #171 round 2
+caller may signal. Every group signal goes through `botster_core_sys::signal`: `signal_group` (another group) and
+`signal_own_group` (the group of the caller) refuse a group of 0 or 1 (#177). In the #171 round 2
 mutation run, the mutant `OwnedChild::id -> 1` put a test's production process into group 1, and the cleanup then ended
 every process of the gate's container (exit 137).
 

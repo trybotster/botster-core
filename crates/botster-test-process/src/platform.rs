@@ -38,22 +38,6 @@ pub fn gone(error: &std::io::Error) -> bool {
     error.raw_os_error() == Some(rustix::io::Errno::SRCH.raw_os_error())
 }
 
-/// `group` as the target of a group signal. Group 1 is refused: `kill(-1, ...)` (rustix's `kill_process_group` of pid 1)
-/// signals every process that the caller may signal, not a group. So a wrong group id of 1 would end every process of the
-/// user, the test runner included: a mutant of `OwnedChild::id` that returns 1 ended the whole mutation run (#171 round 2,
-/// E1). Every group signal of this crate takes its target from here.
-///
-/// # Errors
-/// `group` is 1.
-pub fn signal_target(group: Pid) -> std::io::Result<Pid> {
-    if group.as_raw_nonzero().get() == 1 {
-        return Err(std::io::Error::other(
-            "group 1 is not signalled: kill(-1) signals every process",
-        ));
-    }
-    Ok(group)
-}
-
 /// A pid from a `u32`, as `std::process::Child::id` gives it.
 ///
 /// # Errors
@@ -138,19 +122,6 @@ mod tests {
         assert_eq!(state_and_group("41 (a (b) c) S 7 40 40 0"), Some(("S", 40)));
         assert_eq!(state_and_group("41 (cat) Z 7 x 40"), None);
         assert_eq!(state_and_group("41 cat S 7 40"), None);
-    }
-
-    /// #171 round 2, E1: group 1 is never a signal target (`kill(-1, ...)` signals every process); another group is kept.
-    /// The test sends no signal.
-    #[test]
-    fn group_1_is_refused_as_a_signal_target_and_another_group_is_kept() {
-        let one = Pid::from_raw(1).unwrap();
-        assert_eq!(
-            signal_target(one).unwrap_err().to_string(),
-            "group 1 is not signalled: kill(-1) signals every process"
-        );
-        let two = Pid::from_raw(2).unwrap();
-        assert_eq!(signal_target(two).unwrap(), two);
     }
 
     #[test]

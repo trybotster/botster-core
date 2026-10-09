@@ -11,7 +11,7 @@
 //! reserve, by that exact pid; it never waits for any pid, any group or a negative id, so production keeps the reaping of
 //! its own children.
 
-use crate::platform::{await_end, gone, live_members, signal_target, Waited};
+use crate::platform::{await_end, gone, live_members, Waited};
 use crate::Deadline;
 use rustix::process::Pid;
 
@@ -115,8 +115,12 @@ pub fn reserved_kill(group: Pid, reserve: Pid) -> std::io::Result<()> {
             group.as_raw_nonzero()
         )));
     }
-    rustix::process::kill_process_group(signal_target(group)?, rustix::process::Signal::KILL)
-        .map_err(Into::into)
+    // From outside the group: `signal_group` refuses a group of 0 or 1 and our own group.
+    botster_core_sys::signal::signal_group(
+        group.as_raw_nonzero().get().unsigned_abs(),
+        botster_core_sys::signal::Signal::KILL,
+    )
+    .map_err(Into::into)
 }
 
 /// Ends every member of `group`, the group of this process, within `deadline`: a reserve child holds the group, this process
@@ -137,9 +141,9 @@ pub fn end_group(group: Pid, deadline: Deadline) -> Result<(), String> {
     let mut reserve = match reserve {
         Ok(reserve) => reserve,
         Err(error) => {
-            if let Ok(group) = signal_target(group) {
-                let _ = rustix::process::kill_process_group(group, rustix::process::Signal::KILL);
-            }
+            // This process is still in `group`, its own: the last kill ends it too. A group of 0 or 1 is refused.
+            let _ =
+                botster_core_sys::signal::signal_own_group(botster_core_sys::signal::Signal::KILL);
             return Err(format!("the group guard cannot reserve the group: {error}"));
         }
     };
