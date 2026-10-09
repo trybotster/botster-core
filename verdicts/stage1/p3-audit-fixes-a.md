@@ -81,3 +81,20 @@ name in `botster-core-testkit/src/worker.rs` and `worker/tests.rs`. This reviewe
 - The landing gate on this exact head is still owed.
 
 VERDICT: CLEAN (0 open) at 4592ba9c4e5657ef0d5856b6b55af40f2471c9bb
+
+## Round 4 — CLEAN on head b7085535 (merge of v1 0b0eecc, #142)
+
+Reviewed head: `b70855356aa243996edabf8bfb3c9f6d2c2f5db6`, parents `4592ba9c` (round 3 CLEAN; P3 package CLEAN `1cd0487`)
+and `0b0eecc0` (= `origin/v1`, #142 merged). Tree `ba1aa02ad88aaecd248f50acfb80e91389c67d67`, equal to this reviewer's
+`git merge-tree --write-tree origin/v1 4592ba9c`. No edit in the merge. This reviewer ran no build, test or gate.
+
+- `a22811b..0b0eecc` adds only #142's guardian-core crate and its two shared-file entries (14 files, +2,310).
+- `git diff origin/v1 b7085535` touches the same 21 files as the round 3 diff. 19 blobs are identical to `4592ba9c`. The
+  two files that both sides changed, `.cargo/mutants.toml` and `Cargo.lock`, have the same added and removed lines as the
+  round 3 diff.
+- Cross-package: guardian-core has no `slow_` module, so F33's filter selects nothing new. Guardian-core does not depend on
+  the host, the binding, the testkit, worker-core or sys, so A3, A30 and A53 do not reach it.
+- Evidence: static Linux run at this head (`…p3-audit-fixes-a-b7085535-pool-20261008-213359-76310.log`, base `0b0eecc0`):
+  fmt, taint, lists PASS, exit 0. The ONE landing gate on this exact head is owed.
+
+VERDICT: CLEAN (0 open) at b70855356aa243996edabf8bfb3c9f6d2c2f5db6
