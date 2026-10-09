@@ -53,3 +53,24 @@ one `stop_grace` with OutcomeUnknown. At the head, that test hangs (the teardown
 The P5 package reviewer's REO-F1 (a real-process proof) is theirs and is not counted here.
 
 VERDICT: NOT CLEAN at f545722f94ce97fff087d66c88a62c494f0d1d1a (1 open: R1 MEDIUM)
+
+## Round 2 — CLEAN on head 2b5ba07e
+
+Reviewed head: `2b5ba07e5bcff471370fab07e2436a103cfef91b`, one commit on `f545722f` (`inbound.rs` +6 -3, `flow_edges.rs`
++34). v1 is `a14e9dc2` (#186 since the branch's merge). #186 changes only `guard_platform.rs`, and
+`git merge-tree --write-tree origin/v1 2b5ba07e` has no conflict.
+
+- **R1 closed.** The early return now needs `RemovePhase::AwaitTeardown`. An exit in an earlier phase takes the old path:
+  it closes the link, sets `link_failed`, and `flow_remove_worker_gone` sets `worker_gone` and OutcomeUnknown. Then
+  `SendRemove` finds no link and takes the `(Some(_), true)` branch: OutcomeUnknown, `worker_gone` true, no deadline, and no
+  `HostMsg::Remove`. So the Remove does not depend on the end of file. In `AwaitTeardown`, the grace bounds the wait as in
+  round 1.
+- **The new test** begins the Remove with no pump (so before `SendRemove`), feeds the exit with the link open and no end of
+  file, and asserts completion with OutcomeUnknown, the session removed, and no `HostMsg::Remove` sent. At `f545722f`, the
+  head sent `HostMsg::Remove` on this path, so the last assertion fails there.
+- **No new real-process test code**, as the HOLD requires (the lead's ruling). The P5 package reviewer closed REO-F1 on the
+  lead's proof boundary: the delta changes only `HostEngine` decisions over ordered inputs.
+- **The gate log** (`remove-exit-2b5ba07e.log`) names the head and the base `a14e9dc2`. The slow tier runs 243 tests, all
+  pass, and the mutants step reports 5 caught, 0 missed, 0 timeout.
+
+VERDICT: CLEAN (0 open) at 2b5ba07e5bcff471370fab07e2436a103cfef91b
