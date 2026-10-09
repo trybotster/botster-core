@@ -14,8 +14,8 @@ crates/botster-core-sys/tests/common/guard_cleanup.rs | drop | child-wait
 crates/botster-core-sys/tests/common/guard_cleanup.rs | end_group | child-wait
 crates/botster-core-sys/tests/common/guard_cleanup.rs | end_group | spawn
 crates/botster-core-sys/tests/common/guard_cleanup.rs | status_within | child-wait
-crates/botster-core-sys/tests/common/guard_platform.rs | a_wait_for_a_pid_with_no_thread_group_task_reports_it_gone | blocking-read
-crates/botster-core-sys/tests/common/guard_platform.rs | a_wait_for_a_pid_with_no_thread_group_task_reports_it_gone | blocking-read
+crates/botster-core-sys/tests/common/guard_platform.rs | a_wait_for_a_pid_with_no_thread_group_task_follows_the_kernels_answer | blocking-read
+crates/botster-core-sys/tests/common/guard_platform.rs | a_wait_for_a_pid_with_no_thread_group_task_follows_the_kernels_answer | blocking-read
 crates/botster-core-sys/tests/common/payload_guard.rs | a_member_that_ends_with_the_readiness_unread_ended_without_a_report | blocking-read
 crates/botster-core-sys/tests/common/payload_guard.rs | a_member_that_ends_with_the_readiness_unread_ended_without_a_report | spawn
 crates/botster-core-sys/tests/common/payload_guard.rs | a_payload_cleanup_that_cannot_finish_fails_through_the_guard | spawn
