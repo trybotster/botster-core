@@ -614,3 +614,51 @@ The #181/#184 union review remains required for the second PR to merge.
 The prior #181/#198 union review and the later bounded-accept work retain their Round 8 scope.
 
 VERDICT: CLEAN (0 open findings) at 2063eace36e48e81e333a333ccf24931564a4f9d; current-base merge checks remain required.
+
+## Round 10 — current v1 merge — 2026-10-09 — CLEAN
+
+Reviewed head: `028fa8fa726a8d0ddaaecccc7090e0041786ac42`.
+First parent: the CLEAN head `2063eace36e48e81e333a333ccf24931564a4f9d`.
+Second parent and gate base: `77c4b472626e35052cc6298bb521f1f1e4868c1e`.
+The base includes the reviewed #204 and #205 changes.
+HIGH remains correct. This delta review covers Cargo.lock and the contracts-v0.1.21 pin's effect on #181.
+The reviewer changed no product code and ran no builds, tests, mutants, gates, or reversals.
+
+### Merge review
+
+The supplied base-merge-check log is:
+`~/botster-sessions/gates/botster-core-stage1-p6-ci-checks-028fa8fa-pool-20261009-163255-69562.log`.
+It confirms ancestry and a merge without conflicts. The pending-file set check passes.
+It rejects automatic review carryover because both branches change Cargo.lock and the raw patch headers differ.
+That rejection requires this delta review. This verdict does not claim the mechanical check passed.
+
+The complete PR diff matches the previously reviewed diff after removing blob indexes and normalizing hunk offsets.
+Cargo.lock retains exactly the reviewed additions of botster-test-process and quote to xtask's dependencies.
+The imported lockfile delta also matches the base's pin delta after the same normalization.
+All other 17 imported files exactly match the new base, including Cargo.toml, the ledger, pending list, host, and testkit files.
+No conflict resolution adds behavior or drops a reviewed change.
+
+The six direct contracts dependencies and nine lockfile sources retain #205's contracts-v0.1.21 pin.
+The ledger contains 679 IDs; its four new A18 IDs remain pending.
+The imported pending list retains #204's removals. The minimum testkit count remains 39 of 70 on this head.
+The imported pin changes no P6 assertion or gate command. The supplied gate checks the new ledger and contract consumers.
+Round 9's finding closures and mutation-evidence limits remain valid.
+
+### Supplied full gate
+
+Gate:
+`~/botster-sessions/gates/botster-core-stage1-p6-ci-checks-028fa8fa-pool-20261009-163334-70729.log`.
+The log names the exact merge head and base. Linux node `msa1` used allocation `5c57b903`.
+All ten CI stages passed. Default: 1260 passed. Slow: 254 passed. Conformance: 113 passed and zero failed.
+The lists check reports 679 ledger IDs, 562 pending, two deferred, two withdrawn, and 113 to run.
+Mutants: 547 tested, 518 caught, 29 unviable, zero missed, and zero timeouts.
+The gate exited zero after 828 seconds.
+The process check scanned 163 files and retained 111 allowed sites. The citation check read 157 names.
+The decision check read 1090 xtask mutants, 188 regex entries, and two globs.
+
+The fetched v1 tip equals the gate base and is a parent of the reviewed head.
+`git diff --check` passes. This closes Round 9's current-base merge condition for this head.
+The #181/#184 union review remains required for the second PR to merge.
+No later base move or future merge tree is approved by this verdict.
+
+VERDICT: CLEAN (0 open) at 028fa8fa726a8d0ddaaecccc7090e0041786ac42
