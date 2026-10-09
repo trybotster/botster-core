@@ -39,3 +39,16 @@ warnings. Before this PR, the allowance sat inside the slow-only code, so no suc
 `#[cfg(all(test, feature = "slow"))]`, or move it into the slow-only code.
 
 VERDICT: NOT CLEAN (1 open: W1 LOW)
+
+## Round 2 — CLEAN on head 770cc9f7
+
+Reviewed head: `770cc9f786222c1dd2a13f6b456e7c9f1fbfea25`, one commit on `25e1dbe3` (`crates/botster-core/src/lib.rs`, +2
+-1). The base is still v1 `da43a1b1`. P3's gate log: `…-p3-clock-helpers-770cc9f7-pool-20261009-050449-83939.log` (every
+step passes). This reviewer did not read it.
+
+- **W1 CLOSED.** `real_now` now has `#[cfg(test)]` and `#[cfg(feature = "slow")]`, the same gates as `mod slow_tests` in
+  `lib.rs` and `real.rs`, which hold its two users. P3 reports no code warning from `cargo check --workspace --tests` with
+  and without `--all-features`.
+- Round 1 stands for the rest.
+
+VERDICT: CLEAN (0 open) at 770cc9f786222c1dd2a13f6b456e7c9f1fbfea25
