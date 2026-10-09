@@ -65,8 +65,8 @@ VERDICT: NOT CLEAN (1 open: G1 MEDIUM)
 Round 1 said that condition 3 covers "modes and gitlinks". That is false under user git config. The P6 package reviewer
 proved a false PASS: with `diff.ignoreSubmodules=all`, a merge carries an unreviewed gitlink change (for example
 `vendor/ghostty`), but the porcelain `git diff` hides it from both diffs and from `--name-only`. Every condition then
-passes. That finding is the P6 package reviewer's. This reviewer agrees, and the root is the same as G1's class: the
-shell trusts output that the user's config can change.
+passes. That finding is the P6 package reviewer's. This reviewer agrees. Its root differs from G1's: the shell trusts git
+output that the user's config can change.
 
 What the fix must cover (the whole class, not only submodules): the shell must not read porcelain diff config that can
 hide or rewrite content. That config includes `diff.ignoreSubmodules`, `diff.external`/`GIT_EXTERNAL_DIFF`, textconv
