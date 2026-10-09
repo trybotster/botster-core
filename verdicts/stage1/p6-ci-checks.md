@@ -465,3 +465,106 @@ The #181/#198 union remains checked, but these gate holes prevent acceptance.
 The separate #181/#184 union condition remains.
 
 VERDICT: NOT CLEAN (2 open: R7-1 and B5; both HIGH) at 7826ba0adab5962089a7e3279f78cd5f4a8425c9
+
+
+## Round 8 — plan 23g/23i removal — 2026-10-09
+
+Reviewed head: `2383e18636d15970d43892597cffd0bf9612d24a`.
+Base: `cd97009e93c2641843c05bd46793265b3580b2a9`.
+Previous integration head: `7826ba0adab5962089a7e3279f78cd5f4a8425c9`.
+P6 withdrew the intermediate `a94e02d6` integration request. This round reviews the complete replacement delta.
+HIGH remains correct under BUILD.md rules 1 and 3.
+The reviewer applied the accepted plan 23g and 23i changes to the acceptance premise.
+The reviewer changed no product code and ran no builds, tests, mutants, gates, or reversals.
+
+### Closed by removal
+
+**R7-1 and B5 close.** The check no longer classifies I/O from source.
+The I/O lists, bindings, call propagation, and deferred-execution boundary are removed.
+An unpolled future or a local reader can no longer supply false evidence to that removed condition.
+Review now determines whether an excluded function is an I/O shell, as plan 23g requires.
+
+**B10 closes.** The check no longer infers calls or forwarding between functions.
+The source index, callee lookup, test-call inference, macro argument lists, and their reserved-name rules are removed.
+The check reads cargo-mutants' list and the configured exclusions, not Rust source.
+`process_check::Uses` and `resolve` become private again. The unused `bindings` accessor is removed.
+Their remaining resolution behavior does not change.
+
+The new acceptance rule requires a strict `D (proof, ...)` citation.
+D must name a function in the xtask mutant list, and no exclusion may cover a mutant of any function with that short name.
+The covered-name set includes regex and glob exclusions.
+A method or free function with the same name can therefore reject a citation; it cannot supply inferred call evidence.
+Self citation fails because the excluded function's name is already covered.
+An operator or match-arm mutant remains ineligible for exclusion, whatever its reason says.
+Reasonless globs and platform regexes still fail when they cover xtask mutants.
+
+The reviewer read the complete replacement check, its callers, and all remaining fixtures.
+The shared-name fixture checks the accepted citation and rejection when a same-named method is excluded.
+Other fixtures retain rejection of absent citations, absent decision names, excluded decisions, self citations, and prose disguised as a citation.
+The input fixture proves that invalid Rust source does not affect a check that no longer reads source.
+`mutants_cited` still checks that cited proofs exist and run in a gate tier.
+The excluded command still forwards to its cited `parse_mutants`, `inputs`, `check`, and result-handling functions.
+Their cited test bodies remain present. No mutation exclusion changes in this delta.
+
+These closures follow the approved division between mechanical checks and review.
+They do not claim that the new check verifies forwarding or test-to-decision call identity.
+
+### R8-1 — MEDIUM — The new documentation overstates mutation evidence
+
+`gate_decisions.rs:12-14` says every mutant of D runs and the run proves that D is tested.
+The comment at lines 200-201 repeats that claim. PR description part 5 makes the same statement.
+
+The check establishes that the listed mutants of D are not excluded.
+The mutation command separately uses `--in-diff`, so an unchanged D can have no executed mutant in this run.
+For example, a change to an exclusion comment alone does not put the cited decision's body in the diff.
+A passing run therefore does not establish that every cited decision was tested by mutation in that run.
+
+Describe the actual guarantee: D has listed mutants and those mutants remain eligible for mutation testing.
+State that the run proves only the outcomes of mutants selected by the diff.
+Review still checks the cited proof bodies and their relevance to the decision.
+No code, mutation scope, or new test is requested for this wording correction.
+
+The package reviewer identified the same documentation issue. Integration independently checked the check and mutation command.
+The plan 23i integration verdict already records this evidence limit.
+Status: OPEN.
+
+### Merge and retained acceptance
+
+The own delta changes `gate_decisions.rs`, its tests, the command help, and the private process-check interface described above.
+The reviewer checked each base merge against its base parent:
+
+- `580ec541`: all 11 imported paths match base `3fa51cd2`.
+- `cb50b8ce`: all 18 imported paths match base `fe0e6d6d`.
+- `a94e02d6`: all three imported paths match base `cc2e86ee`.
+- `2383e186`: the imported design document matches base `cd97009e`.
+
+None of these imports changes `xtask`, `.cargo`, `.config`, or `ci`.
+The mutation configuration, process allowlist, shared process crate, `mutants_cited`, `platform_code`, and `timers` remain unchanged from round 7.
+The prior #181/#198 union review remains applicable.
+The separate #181/#184 union remains required for the second PR to merge.
+`ci/high-tier-paths.txt` is still #184's dependency. This verdict does not claim that its enforcement has landed.
+The plan already requires HIGH review for every `.cargo/mutants.toml` change.
+P6 still owes the shared bounded accept capability and removal of the temporary #198 allowance in the assigned later work.
+
+### Supplied evidence
+
+Gate:
+`~/botster-sessions/gates/botster-core-stage1-p6-ci-checks-2383e186-pool-20261009-160312-81805.log`.
+It names the exact reviewed head and base. The base is the fetched v1 tip and is an ancestor of the head.
+Linux node `msa1` used allocation `8592b0cb`. All ten stages passed.
+The default tier passed 1242 tests. The slow tier passed 254 tests. Conformance reports 104 passed and zero failed.
+Mutants: 547 tested, 518 caught, 29 unviable, zero missed, and zero timeouts.
+The gate exited zero after 769 seconds.
+The mutation command uses the existing `mutants` profile, which has no test termination count.
+This branch contains the permanent timeout-classification change; it does not use v1's default two-second termination for mutants.
+
+The process check scanned 161 files and retained 111 allowed sites.
+The citation check read 157 names. The decision check read 1090 xtask mutants, 188 regex entries, and two globs.
+These results establish the executed checks. R8-1 limits the claim about unchanged cited decisions.
+`git diff --check` passes.
+
+The reviewer read the package round 8 verdict at `b9e64bea93372cc8f85ff9c7c57ebf197115c275` for the withdrawn intermediate head.
+Its B10 finding closes here by the approved removal. The package review of this replacement head is still in progress.
+The reviewer sent the closure assessment and documentation correction directly to P6 and its reviewer.
+
+VERDICT: NOT CLEAN (1 open: R8-1 MEDIUM) at 2383e18636d15970d43892597cffd0bf9612d24a
