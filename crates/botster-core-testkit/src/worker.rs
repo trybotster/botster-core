@@ -91,6 +91,9 @@ struct Processes {
     /// The workers whose control link this host holds: the ones that it spawned and did not lose to an adoption, and the
     /// ones that it adopted (`edges_quiet` reads their links).
     links: BTreeMap<ProcessIdentity, Arc<Mutex<ProcessCell>>>,
+    /// The worker's end of every connection that this host made to a worker endpoint, from its connect on: its bytes, or
+    /// the end of file of a refused candidate, are a report for this host until it reads them (`edges_quiet`).
+    connections: Vec<EndControl>,
     /// The wake object of the host that owns the table. An edge event that a control causes between two pumps wakes that
     /// host, as the real event wakes a real host (TM-6).
     wake: Option<Arc<dyn HostWake>>,
@@ -111,6 +114,7 @@ impl ProcessTable {
     pub(crate) fn holds_reports(&self) -> bool {
         let processes = lock(&self.0);
         !processes.exits.is_empty()
+            || processes.connections.iter().any(EndControl::holds_for_peer)
             || processes.links.values().any(|cell| {
                 lock(cell)
                     .link
@@ -534,7 +538,7 @@ impl Spawner for WorkerSpawner {
     }
 
     /// A live worker of this data directory listens on its endpoint: it takes `end` as a candidate.
-    fn connect_worker(&mut self, instance: &InstanceId, end: LinkEnd) -> bool {
+    fn connect_worker(&mut self, instance: &InstanceId, mut end: LinkEnd) -> bool {
         let Some(endpoint) = lock(&self.workers.endpoints)
             .get(&self.key(instance))
             .cloned()
@@ -542,6 +546,7 @@ impl Spawner for WorkerSpawner {
         else {
             return false;
         };
+        lock(&self.processes).connections.push(end.end().control());
         lock(&endpoint).push_back((end, Some(Arc::clone(&self.processes))));
         true
     }
