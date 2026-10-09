@@ -375,3 +375,41 @@ The fetched plan ref names the reviewed head. `git diff --check` passes.
 No gate was run for this documentation-only plan review.
 
 VERDICT: CLEAN (0 open) at 5e0a7500fa3f150d9f4a2ae6ba7a7b69e116ef88
+
+## Round 11 — revision 23j — NOT CLEAN
+
+Reviewed head: `83b2afcc1cc7a785e1459eb65a5820f9e1f1d169`.
+Previous reviewed head: `5e0a7500fa3f150d9f4a2ae6ba7a7b69e116ef88`.
+The reviewer read the complete one-commit, three-file delta and the affected plan sections.
+The reviewer changed no product code and ran no builds, tests, mutation jobs, or gates.
+
+### R11-1 — MEDIUM — The fixed inputs do not include the stated manifest and ruling
+
+Section 0 now names contracts-v0.1.21 and final36, but its Joint manifest row still pins final35.
+That row excludes the A18 amendment that this revision adds to the work lists.
+Update the current manifest pin to final36, commit `01814c0e1e34ef4336bb62a2d8e9862dcd740cd8`, and retain final35 as history.
+
+The same section adds R-42 but instructs implementers to read only its fixed revisions.
+R-42 is absent from contracts-v0.1.21 at `60a4169978e3f704f46ab0578f9993013fd4b810`.
+The reviewer read R-42 in contracts origin/main at `c2df50c3b6f7721cfc314cb1052d66915d88124e`.
+Name a fixed revision containing R-42 for the ruling input. This does not require another crate pin move.
+The short R-41 and R-42 descriptions match the rulings.
+
+### R11-2 — LOW — The package count and active total exclude the new A18 IDs
+
+Section 6.1 still lists 55 IDs for P5 and 673 active IDs at the pinned tag.
+The generated lists contain 59 P5 IDs and 677 active IDs.
+Update the P5 count and total. Add the four A18 IDs to the total's amendment arithmetic.
+These are required IDs, not passing IDs. The minimum list remains unchanged.
+
+### Completed checks
+
+The reviewer compared every generated package list with the pinned ledger, pending list, withdrawals, and unchanged owners.py rules.
+Every list matches exactly, including each clause and transcript status.
+The four new A18 IDs belong to P5 and remain pending without transcripts.
+The two P4a status changes correctly record transcript availability. They do not claim that Core passes either transcript.
+The minimum list is byte-identical to the previous plan revision.
+The complete delta changes no product code, gate command, or acceptance requirement.
+`git diff --check` passes. No execution gate applies to this documentation-only delta.
+
+VERDICT: NOT CLEAN (2 open) at 83b2afcc1cc7a785e1459eb65a5820f9e1f1d169
