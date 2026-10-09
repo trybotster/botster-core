@@ -1,5 +1,6 @@
 //! Repo tooling: `cargo xtask <command>`. The gate is `cargo xtask ci` (plan section 8).
 
+mod base_merge;
 mod caps;
 mod ci;
 mod fsutil;
@@ -17,6 +18,7 @@ const USAGE: &str = "usage: cargo xtask <command>
 
 commands:
   ci [--job <name>] [--keep-going]   every step of the merge gate, in order
+  base-merge-check <reviewed> <new>  a base-only merge after CLEAN: no conflict, no shared path, the same own diff
   taint                              banned old-world names (contracts list plus Core's additions)
   timers                             unmarked sleeps in test code; timers in machine crates
   lists                              check core-ledger-ids, core-pending and core-deferred
@@ -45,6 +47,7 @@ fn run() -> Result<()> {
     let root = fsutil::repo_root()?;
     match command.as_str() {
         "ci" => ci::command(&root, &rest),
+        "base-merge-check" => base_merge::command(&root, &rest),
         "taint" => taint::command(&root, &rest),
         "timers" => timers::command(&root, &rest),
         "lists" => lists::command(&root, &rest),

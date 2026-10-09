@@ -11,6 +11,14 @@
 exclude_globs = ["**/tests/**", "tests/**"]
 
 exclude_re = [
+    # xtask base_merge.rs command (base-merge-check, P6): the I/O shell runs git and prints. A test cannot run it without a
+    # real repository and real git processes, which the default tier does not start. Its decisions are pure functions with
+    # unit tests, which stay mutation-tested: judge (each_failed_condition_fails_the_check_and_names_its_cause,
+    # a_base_only_merge_that_keeps_the_diff_passes_with_its_report), conflicts
+    # (a_clean_merge_has_no_conflict_and_a_conflict_names_its_paths), overlap (only_a_path_of_both_diffs_overlaps),
+    # first_difference (the_first_difference_of_two_diffs_names_its_line) and ancestry
+    # (only_exit_code_0_proves_an_ancestor_and_1_disproves_it). The PR shows the shell on real v1 merges.
+    'xtask/src/base_merge\.rs:\d+:\d+: (replace command( ->| with)|.* in command$)',
     # xtask mutants_job -> Ok(()): process glue. The body runs `git diff`, writes the diff file, starts `cargo mutants` and
     # prints its summary; a test cannot start a mutation run inside a mutation run, so no test can run the body. Only this
     # whole-body replacement is excluded: every other mutant of mutants_job stays tested. Its decisions are pure functions
