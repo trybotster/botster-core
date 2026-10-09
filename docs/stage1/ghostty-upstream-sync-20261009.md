@@ -86,8 +86,10 @@ None merged, so no patch needs a re-audit for them.
 ## Zig packages
 
 No `build.zig.zon`, `build.zig` or `pkg/` file changed upstream. The Mac run with an empty Zig global cache fetched
-exactly the 7 packages of `build_data.rs` `ZIG_PACKAGES` (run 1 below). The Linux gate's fetch step mirrors the
-submodule URL and checks out the pinned commit, and its package store needs nothing new.
+exactly the 7 packages of `build_data.rs` `ZIG_PACKAGES` (final Mac run below). The Linux gate's fetch step mirrors the
+submodule URL and checks out the pinned commit, and its package store needs nothing new. `test-lib-vt` with the
+shipped options needs no package outside `ZIG_PACKAGES`, on Mac and on Linux (step 2b below), so the list gets no
+test-only part.
 
 ## Patch decisions
 
@@ -128,36 +130,61 @@ No upstream change covers a patch, so nothing is dropped. Patch 14 is described 
 
 ## Test results
 
-Raw logs and the script are in `docs/stage1/ghostty-upstream-sync-20261009/`: `evidence.sh` runs, inside a
-botster-core gate tree, (1) the lib-vt build with the binding's `GHOSTTY_BUILD_ARGS` and an empty Zig global cache, and
-the fetched package list against `build_data.rs`; (2) `zig build test-lib-vt --summary all`; (3) `cargo nextest run -p
-botster-terminal-ghostty`. Every run is at fork `39a68e822` with 0 tracked changes, Zig 0.16.0.
+Raw logs and the script are in `docs/stage1/ghostty-upstream-sync-20261009/`. `evidence.sh` runs inside a botster-core
+gate tree. It reads the build options and the package list from `crates/botster-terminal-ghostty/build_data.rs`, so the
+tested configuration cannot drift from the shipped one. Its steps:
 
-### Mac (Apple Silicon, `botster-gate --on mac`)
+1. The lib-vt build with the binding's `GHOSTTY_BUILD_ARGS` and an empty Zig global cache, and the fetched package list
+   against `ZIG_PACKAGES`. This step needs network.
+2. `zig build test-lib-vt --summary all`, in two configurations:
+   - 2a. upstream's default configuration (SIMD, and the Ghostty application's packages). This step needs network.
+   - 2b. the shipped options: `GHOSTTY_BUILD_ARGS` without `build` and without `-Doptimize` (`-Demit-lib-vt -Dsimd=false
+     -Dcpu=baseline -Demit-xcframework=false`), in Debug, so the tests run with the safety checks. Its Zig global cache
+     holds only the 7 packages of `ZIG_PACKAGES`, copied from the gate's package store. The step reports any package
+     that the run fetched outside that list.
+3. `cargo nextest run -p botster-terminal-ghostty`.
 
-| Run | Core head | (1) empty-cache build and packages | (2) `test-lib-vt` | (3) binding tests |
-|---|---|---|---|---|
-| 1 (`mac-run1-d1e747ca.log`) | `d1e747ca` | exit 0; `libghostty-vt.a` 10341912 bytes; **the 7 packages of `ZIG_PACKAGES`, the same list** | not run: the fetch of a test-only package (`zig_objc`) failed, `TlsInitializationFailed` | exit 0, **134 passed** |
-| 2 (`mac-run2-7095fb76.log`) | `7095fb76` | not run: a fetch from codeberg failed, `HttpConnectionClosing` | exit 0, **Build Summary: 46/46 steps succeeded; 6751/6805 tests passed (54 skipped)** | exit 0, **134 passed** |
+The script also reports whether the fork tree has a project-local `zig-pkg/` directory, because Zig 0.16 takes packages
+from it too. Both final runs report it absent.
 
-The two Core heads differ only in `evidence.sh` (run 2 retries the test packages' fetch). Each failure is a network
-fetch before any build step, so each step has one complete run on the same fork head.
+**Scope.** Linux test-lib-vt uses the shipped options (emit-lib-vt, `simd=false`, `cpu=baseline`, Debug). Upstream's
+default configuration (SIMD, the application packages) is covered by the Mac run only. The gate has no network, and the
+package store is filled for `ZIG_PACKAGES`, the packages of the shipped build.
 
-### Linux (`botster-gate --on linux`, no network)
+### Final runs (fork `39a68e822`, Core `2c636dbe`, 0 tracked changes in both, Zig 0.16.0)
 
-At Core `7095fb76`, fork `39a68e822` (`linux-run-7095fb76.log`), x86_64, image `botster-core-gate:bbc12a44852f`,
-Zig 0.16.0 at `/usr/local/zig/zig`:
+The commit after `2c636dbe` adds only these records and logs; it changes no source and not `evidence.sh`.
 
-- The gate's fetch step mirrored the fork and checked out `39a68e822`. It found 1 package of `ZIG_PACKAGES` missing from
-  the pool's package store, ran `prefetch-zig.sh` and published it.
-- (1) The lib-vt build with `GHOSTTY_BUILD_ARGS`: exit 0 (`libghostty-vt.a` 16276478 bytes). It fetched no package,
-  so this run is not an empty-cache check; the Mac run 1 is.
-- (2) `test-lib-vt`: **not run on Linux.** With the package store as its cache, the test build still needs packages of
-  the Ghostty application (JetBrainsMono, NerdFontsSymbolsOnly, fontconfig, harfbuzz, dcimgui, ...), which are not in
-  the store, and the gate has no network (`NameServerFailure`). The 2026-10-02 sync ran it in raw testq jobs with
-  network; those are retired. The lead decides how this step is covered.
-- (3) The binding tests: exit 0, **134 passed**. They build libghostty-vt from the fork through `build.rs` and link it
-  statically, so the Linux-only patch 10 (link libc) is exercised.
+| Step | Mac (`mac-run3-2c636dbe.log`) | Linux (`linux-run2-2c636dbe.log`) |
+|---|---|---|
+| 1. empty-cache build and packages | exit 0; `libghostty-vt.a` 10341912 bytes; **the 7 packages of `ZIG_PACKAGES`, the same list** | not run: no network (`NameServerFailure`) |
+| 2a. `test-lib-vt`, default configuration | exit 0, **46/46 steps succeeded; 6751/6805 tests passed (54 skipped)** (the first fetch try failed with `TlsInitializationFailed`; the second passed) | not run: no network |
+| 2b. `test-lib-vt`, shipped options, `ZIG_PACKAGES` only | exit 0, **42/42 steps succeeded; 6749/6805 tests passed (56 skipped)**; nothing fetched | exit 0, **41/41 steps succeeded; 6733/6805 tests passed (72 skipped)**; nothing fetched |
+| 3. binding tests | exit 0, **134 passed** | exit 0, **134 passed** |
+
+Linux: x86_64, image `botster-core-gate:bbc12a44852f`, Zig at `/usr/local/zig/zig`. The binding tests build
+libghostty-vt from the fork through `build.rs` and link it statically, so the Linux-only patch 10 (link libc) is
+exercised.
+
+### How the Linux test configuration was found
+
+- The default `test-lib-vt` needs the packages of the Ghostty application (JetBrainsMono, NerdFontsSymbolsOnly,
+  fontconfig, harfbuzz, dcimgui, ...). The gate has no network (`NameServerFailure`).
+- With `-Demit-lib-vt`, the build does not add the application's dependencies to the test and app executables
+  (`build.zig` line 379, `src/build/GhosttyExe.zig` line 34). Alone, it still needs the `highway` package for SIMD
+  (`linux-test-emit-lib-vt-b10a1dda.log`).
+- With all the shipped options, the tests pass from the package store with no network
+  (`linux-test-binding-options-b10a1dda.log`, the first pass, at Core `b10a1dda`, seeded from the whole store). Step 2b
+  of the final runs shows that the 7 packages of `ZIG_PACKAGES` are sufficient.
+- The lead chose this configuration for Linux. So `ZIG_PACKAGES` gets no test-only list, and the pool needs no change.
+
+### Earlier runs
+
+| Log | Core head | Result |
+|---|---|---|
+| `mac-run1-d1e747ca.log` | `d1e747ca` | (1) and (3) pass; (2) not run: a test-only package fetch failed, `TlsInitializationFailed`. |
+| `mac-run2-7095fb76.log` | `7095fb76` | (2) default and (3) pass; (1) not run: a fetch from codeberg failed, `HttpConnectionClosing`. |
+| `linux-run-7095fb76.log` | `7095fb76` | (3) passes. (1) reports exit 0 with no package fetched. It is not an empty-cache check: probably the gate's `prefetch-zig.sh` ran in the same fork tree first and left the packages in `zig-pkg/`. (2) default cannot run without network. |
 
 ## Pin candidate
 
