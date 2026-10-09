@@ -134,3 +134,20 @@ Reviewed head: `36688882d42e24130f4419689f8415d48a7f7bb4`, a fast-forward from `
   TIMEOUT, 18 unviable. That run is not the full pool gate. The full gate on this exact head stays the lead's check.
 
 VERDICT: CLEAN (0 open) at 36688882d42e24130f4419689f8415d48a7f7bb4
+
+## Round 3 — CLEAN on head 4a5a7158
+
+Reviewed head: `4a5a71585d0abb1470c2ffda56b59780272fba0c`. Delta `36688882..4a5a7158`, one commit for the P5 package
+reviewer's F26: `adopt.rs` +7 -1, `run.rs` +7, tests and `DESIGN.md`. v1 is still `a0f78fe4`.
+
+- **F26 (theirs) does not change the integration review.** At recovery, a `Lost(WorkerUnreachable)` or
+  `Lost(WorkerVersion)` row with an identity and no valid token is `Lost(RegistryCorrupt)`. At the probe, a session with no
+  worker identity ends `Lost(StartInterrupted)` with no probe and no connect. The two `token.expect` calls left in
+  `adopt.rs` (`:155`, `:182`) are reached only after a probe of an identity. Recovery now refuses an identity without a
+  token, and a session that this handle creates always has its token.
+- **R-36 admission stays.** A valid `Lost(WorkerUnreachable)` or `Lost(WorkerVersion)` row is still posted as recorded,
+  and `Adopt(id)` admits it. Only the rows that cannot be authenticated become `RegistryCorrupt`.
+- **Evidence** (`…021336-63942.log`, targeted, not the full pool gate): 489 tests passed; slow-profile in-diff mutants
+  160 tested, 142 caught, 0 missed, 0 TIMEOUT, 18 unviable. The full gate on this exact head stays the lead's check.
+
+VERDICT: CLEAN (0 open) at 4a5a71585d0abb1470c2ffda56b59780272fba0c
