@@ -963,8 +963,8 @@ fn a_new_handle_retries_the_row_of_a_broken_link_stop() {
 }
 
 /// Core AD-4, AD-2; steward ruling R-36: a start whose worker announces a protocol outside the set is `Lost(WorkerVersion)`,
-/// and the row records it with the protocol. `Adopt(id)` is admitted; the start ended that worker, so the retry finds it
-/// gone.
+/// and the row records it with the worker's identity. `Adopt(id)` is admitted; the start ended that worker, so the retry
+/// finds it gone.
 #[test]
 fn a_start_lost_to_the_worker_version_is_written_and_may_be_retried() {
     let mut w = World::default();
@@ -987,7 +987,10 @@ fn a_start_lost_to_the_worker_version_is_written_and_may_be_retried() {
     assert_eq!(w.engine.get(&sid("s")).unwrap().state, version);
     let row = Row::decode(&sid("s"), &w.rows[&row_key("s")]).unwrap();
     assert_eq!(row.state, version);
-    assert_eq!(row.worker_protocol, Some(9));
+    assert!(
+        row.worker.is_some(),
+        "R-36: the row keeps the worker's identity"
+    );
     let record = match w.ok(Op::Adopt { id: sid("s") }) {
         OpOutput::Record(record) => record,
         other => panic!("{other:?}"),

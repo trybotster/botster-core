@@ -118,7 +118,8 @@ fn a_corrupt_row_is_removed_with_an_unknown_outcome_and_frees_its_id() {
 }
 
 /// Core ID-1, LC-3, AD-2: a new handle refuses `Create` of an id that a durable row holds, before `AdoptAll` and after it,
-/// and writes no row: the earlier row, with its worker's identity and token (AD-6), stays as it was.
+/// and writes no row: the earlier row, with its worker's identity and token (AD-6), stays as it was. The adoption of `ran`
+/// finds no worker at the endpoint, and its row records only that end (steward ruling R-36).
 #[test]
 fn create_refuses_an_id_that_a_durable_row_holds() {
     let mut first = World::default();
@@ -140,7 +141,15 @@ fn create_refuses_an_id_that_a_durable_row_holds() {
             "after AdoptAll: {name}"
         );
     }
-    assert_eq!(again.rows, first.rows, "no row was written");
+    assert_eq!(again.rows[&row_key("kept")], first.rows[&row_key("kept")]);
+    let mut ran = crate::session::Row::decode(&sid("ran"), &again.rows[&row_key("ran")]).unwrap();
+    assert_eq!(ran.state, SessionState::Lost(LostReason::WorkerUnreachable));
+    ran.state = SessionState::Starting;
+    assert_eq!(
+        serde_json::to_vec(&ran).unwrap(),
+        first.rows[&row_key("ran")],
+        "only the state changed"
+    );
 }
 
 /// Core LC-7, AD-2, AD-6, A6-3 (audit A9): `Remove` of an adopted session whose worker this handle did not spawn, and whose
