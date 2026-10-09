@@ -238,6 +238,9 @@ fn the_filter_has_binary_and_test_terms_joined_by_or() {
     assert!(!filter.selects(&test("sys", "storage::tests::t")));
     let gate = Filter::parse(crate::test_budget::SLOW_FILTER).unwrap();
     assert!(gate.selects(&test("worker", "slow_driver::t")));
+    // A top-level `slow_tests` module has no `::` before its name: the filter of #164 alone misses it.
+    assert!(gate.selects(&test("botster_core", "slow_tests::t")));
+    assert!(!filter.selects(&test("botster_core", "slow_tests::t")));
     for unknown in [
         "kind(test)",
         "binary(/^slow/) & test(/x/)",
