@@ -636,9 +636,7 @@ conf::th_2_wake_handle_cross_thread
 conf::th_3_no_route_io_in_the_host
 conf::tm_1_clocks_are_injected
 conf::tm_1_deadlines_use_monotonic
-conf::tm_3_due_deadline_fires_in_pump
 conf::tm_3_next_deadline_is_host_armed
-conf::tm_3_wake_handle_ignores_deadlines
 conf::tm_4_silent_fires_once_at_threshold
 conf::tm_5_deadlines_in_order
 conf::tm_6_begin_and_attach_signal_wake

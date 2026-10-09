@@ -416,7 +416,9 @@ fn the_exit_waits_for_a_drain_of_the_pty() {
         w.feed(Input::PayloadExited(ExitStatus::Code(0))),
         [Action::DrainPty]
     );
-    assert_eq!(w.feed(Input::PtyOutput(b"tail".to_vec())), []);
+    // The tail is reported as output before the exit (ST-5, 6.2).
+    let actions = w.feed(Input::PtyOutput(b"tail".to_vec()));
+    assert_eq!(w.reports(&actions), [output(1)]);
     let actions = w.feed(Input::PtyDrained);
     assert_eq!(w.reports(&actions).len(), 1);
     assert_eq!(w.feed(Input::PtyDrained), []);
@@ -946,4 +948,69 @@ fn terminate_without_a_held_leader_signals_nothing() {
     let actions = w.feed(Input::Terminate);
     assert!(signals(&actions).is_empty(), "{actions:?}");
     assert_eq!(actions, [Action::LinkClose, Action::Exit]);
+}
+
+fn output(rev: u64) -> WorkerMsg {
+    WorkerMsg::Observed {
+        observation: Observation::Output {
+            model_rev: ModelRev(rev),
+        },
+    }
+}
+
+/// Core ST-1, 6.2: each read of the payload's output advances the session's read-visible revision and is reported, so the
+/// host posts `Activity{source: Output}`. An empty read changes nothing, and two reads give two different tokens.
+#[test]
+fn each_output_read_advances_model_rev_and_is_reported() {
+    let mut w = World::running();
+    let actions = w.feed(Input::PtyOutput(b"a".to_vec()));
+    assert_eq!(w.reports(&actions), [output(1)]);
+    assert_eq!(w.feed(Input::PtyOutput(Vec::new())), []);
+    let actions = w.feed(Input::PtyOutput(b"bc".to_vec()));
+    assert_eq!(w.reports(&actions), [output(2)]);
+}
+
+/// A host that reads slowly does not grow the worker's queue: while the last `Output` report is not written, reads give no
+/// report of their own. When it is written, one report of the latest revision follows; another report first sends the
+/// waiting `Output`, so the reports keep the order of the events.
+#[test]
+fn output_reports_wait_for_the_link_and_keep_the_order() {
+    let mut w = World::running();
+    w.instant_link = false;
+    let actions = w.feed(Input::PtyOutput(b"a".to_vec()));
+    assert_eq!(w.reports(&actions), [output(1)]);
+    let first = w.sent;
+    for bytes in [&b"b"[..], b"c", b"d"] {
+        assert_eq!(w.feed(Input::PtyOutput(bytes.to_vec())), []);
+    }
+    assert_eq!(w.feed(Input::LinkWritten { total: first - 1 }), []);
+    let actions = w.feed(Input::LinkWritten { total: first });
+    assert_eq!(w.reports(&actions), [output(4)]);
+    assert_eq!(w.feed(Input::LinkWritten { total: w.sent }), []);
+    let actions = w.feed(Input::PtyOutput(b"e".to_vec()));
+    assert_eq!(w.reports(&actions), [output(5)]);
+    assert_eq!(w.feed(Input::PtyOutput(b"f".to_vec())), []);
+    w.feed(Input::PayloadExited(ExitStatus::Code(3)));
+    let actions = w.feed(Input::PtyDrained);
+    assert_eq!(
+        w.reports(&actions),
+        [
+            output(6),
+            WorkerMsg::Exited {
+                code: Some(3),
+                signal: None
+            }
+        ]
+    );
+}
+
+/// A worker whose link is gone reports nothing (DP-8): it still reads the output, so the payload never blocks.
+#[test]
+fn output_after_the_link_closed_is_read_and_not_sent() {
+    let mut w = World::running();
+    assert!(w
+        .feed(Input::LinkClosed)
+        .iter()
+        .all(|a| !matches!(a, Action::LinkSend(_))));
+    assert_eq!(w.feed(Input::PtyOutput(b"a".to_vec())), []);
 }

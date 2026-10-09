@@ -19,7 +19,7 @@ use botster_core_edges::edges::ExitStatus;
 use botster_core_edges::Machine;
 use botster_core_link::frame::{encode_frame, FrameDecoder, FrameType, DEFAULT_MAX_PAYLOAD};
 use botster_core_link::hello::Hello;
-use botster_core_link::msg::{HostMsg, LaunchSpec, PayloadId, WorkerMsg};
+use botster_core_link::msg::{HostMsg, LaunchSpec, Observation, PayloadId, WorkerMsg};
 use botster_core_link::proof::{host_proof, token_proof, TOKEN_LEN};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::time::{Duration, Instant};
@@ -181,6 +181,9 @@ pub struct Worker {
     stop_grace: Duration,
     /// The size of the launch, for the state that `Launched` carries.
     launch_size: Option<Size>,
+    /// The session's read-visible revision (Core ST-1): an opaque token that every output read advances. The terminal
+    /// model (M2) advances it at the same points, and on a resize and a mode, title or cwd change.
+    model_rev: ModelRev,
     /// The kill of the worker-control signal's grace (LC-5).
     grace: Option<Instant>,
     /// LC-7 step 3: the worker ends once the payload is reaped and the result is sent.
@@ -190,6 +193,14 @@ pub struct Worker {
     /// The bytes of every `LinkSend` so far, and the bytes that the driver reported written.
     queued_total: u64,
     written_total: u64,
+    /// The end of the last `Output` report in the sent bytes (`queued_total` after it): until the driver writes it, a new
+    /// read is not reported on its own. Reads alone queue at most one `Output` report; another report first sends the
+    /// waiting one, so the bound is one, plus one for each other report. A host that reads slowly cannot grow the
+    /// worker's queue with output.
+    output_sent_to: u64,
+    /// A read advanced `model_rev` while the last `Output` report was not written: one report of the latest revision
+    /// follows when it is written, or before the next other report, so the order of reports stays the order of events.
+    output_unsent: bool,
     /// `Terminate` came: the worker ends as soon as no payload leader is held.
     terminating: bool,
     /// Inputs about the payload that came while its spawn was out (the drivers may deliver them before the spawn's answer):
@@ -222,11 +233,14 @@ impl Worker {
             killed: false,
             stop_grace: CoreLimits::default().stop_grace,
             launch_size: None,
+            model_rev: ModelRev(0),
             grace: None,
             removing: false,
             exit_pending: false,
             queued_total: 0,
             written_total: 0,
+            output_sent_to: 0,
+            output_unsent: false,
             terminating: false,
             early: Early::default(),
             actions: VecDeque::new(),
@@ -273,9 +287,45 @@ impl Worker {
         if self.link != LinkState::Ready {
             return;
         }
+        if self.output_unsent {
+            self.report_output();
+        }
+        self.send_report(msg);
+    }
+
+    fn send_report(&mut self, msg: &WorkerMsg) {
         let mut payload = Vec::new();
         msg.encode(&mut payload);
         self.send_frame(FrameType::WORKER_MSG, &payload);
+    }
+
+    /// A read of the payload's output: it advances the read-visible revision and reports the output to the host (Core
+    /// ST-1, 6.2). An empty read changes nothing. While the last `Output` report is not written, the read is not reported
+    /// on its own: the next report carries the latest revision (the host keeps only the latest `Activity` too).
+    fn on_output(&mut self, bytes: &[u8]) {
+        if bytes.is_empty() {
+            return;
+        }
+        self.model_rev = ModelRev(self.model_rev.0.wrapping_add(1));
+        if self.link != LinkState::Ready {
+            return;
+        }
+        if self.written_total < self.output_sent_to {
+            self.output_unsent = true;
+        } else {
+            self.report_output();
+        }
+    }
+
+    /// Sends the `Output` report of the latest revision.
+    fn report_output(&mut self) {
+        self.output_unsent = false;
+        self.send_report(&WorkerMsg::Observed {
+            observation: Observation::Output {
+                model_rev: self.model_rev,
+            },
+        });
+        self.output_sent_to = self.queued_total;
     }
 
     /// Closes the link after the bytes already sent are written (LC-7: the result reaches the host first).
@@ -458,7 +508,7 @@ impl Worker {
             cwd: None,
             last_output_at: None,
             focused: None,
-            model_rev: ModelRev(0),
+            model_rev: self.model_rev,
             input_rev: InputRevs {
                 client: InputRev(0),
                 host: InputRev(0),
@@ -654,12 +704,19 @@ impl Machine for Worker {
             }
             Input::LinkWritten { total } => {
                 self.written_total = self.written_total.max(total);
+                if self.output_unsent
+                    && self.link == LinkState::Ready
+                    && self.written_total >= self.output_sent_to
+                {
+                    self.report_output();
+                }
                 self.finish_close();
             }
             Input::Spawned(result) => self.on_spawned(now, result),
             // The terminal model takes the output in M2. Until then the worker reads it, so the payload never blocks on a
-            // full PTY.
-            Input::PtyOutput(_) => {}
+            // full PTY, and reports it: the output advances `model_rev` (Core ST-1: "every read-visible mutation
+            // (output, ...)"), and the host posts `Activity{source: Output}` from the observation (Core 6.2).
+            Input::PtyOutput(bytes) => self.on_output(&bytes),
             Input::PtyDrained => self.on_drained(),
             Input::PayloadExited(status) => self.on_exited(status),
             Input::EndPayload => self.on_end_payload(now),
