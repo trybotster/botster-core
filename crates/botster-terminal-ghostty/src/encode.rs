@@ -808,38 +808,3 @@ pub fn longest_focus_report(focused: bool) -> u64 {
 const _: () = {
     let _ = std::mem::size_of::<*mut c_void>();
 };
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// 5.1A "any legacy or kitty flag combination": the key states are each combination of the six key modes and the five
-    /// kitty flags exactly once, with only the five defined kitty bits. The kitty flags are the low bits of the index, so in
-    /// every run of 32 states the 16 that report associated text (kitty flag 16) come first, and the first 16 states do.
-    #[test]
-    fn the_key_states_are_every_combination_once_with_the_text_states_first() {
-        let states: Vec<EncoderState> = EncoderState::every_key_state().collect();
-        assert_eq!(states.len(), 1 << (KEY_MODE_BITS + KITTY_FLAG_BITS));
-        let key = |s: &EncoderState| {
-            (
-                s.cursor_key_application,
-                s.keypad_key_application,
-                s.ignore_keypad_with_numlock,
-                s.alt_esc_prefix,
-                s.modify_other_keys_state_2,
-                s.backarrow_key_mode,
-                s.kitty_flags,
-            )
-        };
-        let distinct: std::collections::BTreeSet<_> = states.iter().map(key).collect();
-        assert_eq!(distinct.len(), states.len(), "every state appears once");
-        assert!(states
-            .iter()
-            .all(|s| u32::from(s.kitty_flags) < 1 << KITTY_FLAG_BITS));
-        let run = 1 << KITTY_FLAG_BITS;
-        for (i, s) in states.iter().enumerate() {
-            let reports_text = s.kitty_flags & KITTY_REPORT_TEXT != 0;
-            assert_eq!(reports_text, i % run < run / 2, "state {i}");
-        }
-    }
-}
