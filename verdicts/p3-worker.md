@@ -6914,3 +6914,94 @@ The reviewer changed no product code and ran no tests, builds, measurements, mut
 All earlier findings and verdict rounds remain preserved at their named heads and scopes.
 
 VERDICT: NOT CLEAN
+
+
+## Round 125 — PR #198 worker anchor and parent-death proof — 2026-10-09
+
+Reviewed head: `546f8084f6bbcbfe9ca2ba9ef323dc74f68bec15`.
+Base: `7aec2bb917f48994d1705301d2383873a219c031`.
+Parent and previous reviewed head: `8a762ac00a354b032432a5a26963d93c91e0284c`, round 124.
+The head contains the current v1 base. The tier remains HIGH under BUILD.md rule 3 and the lead's PTY scope ruling.
+Authority: BUILD.md rule 5 and testing rule 10; the lead's anchor rulings; plan 23b-23e.
+The reviewer read the complete one-file correction, shared Guard/OwnedChild/read/wait helpers, full description, and completed gate.
+Rounds 123 and 124 cover the whole product change and shared-crate migration.
+This correction changes no product code, testkit behavior, mutation exclusions, counters, or pending IDs.
+
+### F66 — HIGH — Worker and observer ownership after test-parent death; CLOSED
+
+GuardedSession now starts both possible worker programs through the shared Guard wrapper.
+The real-worker branch retains the worker arguments and launch environment.
+The observer branch retains the test selector and control environment, so it still runs the changed Driver under mutation.
+OwnedChild::spawn_group makes the worker or observer the leader of a separate group.
+Guard::anchors(1) verifies the worker's leader pid before the payload launch.
+Guard::anchors(2) verifies the payload's leader pid after Launched.
+The worker anchor reports first because the fixture waits for it before starting the payload.
+The payload retains its separate session and anchor. Production alone reaps the payload.
+DP-8 remains unchanged: link loss preserves the worker, while the test fixture's anchor ends it when the test dies.
+
+Both anchors use the shared identity checks, group reservation, cleanup rounds, and exact reserve reaping.
+OwnedChild retains worker ownership and exact worker reaping.
+On Drop, the fixture releases both anchors before ending and reaping the worker, then reads the guard outcomes.
+A construction failure also leaves the started worker with its shared owner and guard.
+Test-parent death closes the guard connections without requiring Rust Drop.
+The worker anchor and payload anchor then clean their respective groups.
+No local process guard or cleanup implementation is added.
+
+The new named proof is a_guarded_session_ends_when_its_test_parent_dies.
+It starts guarded_parent in the same test binary through OwnedChild and keeps the parent's stdin open.
+The helper starts GuardedSession, reports the worker and payload group IDs, and waits on a bounded stdin read.
+The helper also ends after stdin EOF or the shared cleanup bound, so the outer test does not leave an unbounded helper.
+The test reads the report through shared first_line, kills the parent, and reads its exit status through the shared owner.
+It then uses rounds::await_group_end for each reported group within Deadline::cleanup.
+These observations send no signal to either subject group. Thus the proof observes anchor cleanup after parent death.
+Both integration and driver-observer binaries run and pass this proof at the exact reviewed head.
+This closes package F66 and confirms the correction for integration R2-1. Integration controls its own verdict.
+
+P3 reports that removing the worker wrapper makes both tests fail and leaves the worker or observer alive.
+The reviewer did not read that red-check patch or log and does not count it as independently verified evidence.
+The source and completed exact-head positive proof support this package closure.
+Integration requested the reported red-check evidence and owns that verification.
+
+### Retained whole-change coverage and accepted carry
+
+F64's shared-crate migration and F65's structured citations remain CLOSED.
+The required in_6_real_pty_cancel_keeps_counts_and_resumes_the_next_write still runs in both binaries.
+It checks the certain cancelled prefix, the next transaction's completion, and the exact received bytes.
+Rounds 123 and 124 retain their admission, driver, testkit, control, and transcript coverage at this unchanged product source.
+The thirteen pending removals remain supported. Minimum counts remain testkit 28/70 and real 0/70.
+Route contiguity, terminal-model work, CaptureSnapshot, and later route duties remain outside this PR's scope.
+
+The lead's accepted bounded-accept carry remains required.
+The second of #181 and #198 to land adds one temporary allow entry for this launch site's deadline poll.
+P6's next crate PR adds bounded accept, removes that entry, and moves the regression to the shared function.
+The listener stays nonblocking, and the interim poll waits on a real event within the existing shared deadline.
+This accepted carry is not a finding or BLOCKED state.
+
+### Completed exact-head evidence
+
+Log: `~/botster-sessions/gates/botster-core-stage1-p3-pty-input-546f8084-pool-20261009-130637-72222.log`.
+The log names this exact head and base. It runs on msa1, kernel 6.12.111+deb13-amd64.
+All ten CI steps pass. The default tier passes 1040 tests in 3.765 seconds.
+The slow tier passes 249 tests in 10.127 seconds.
+The parent-death proof passes in the integration binary in 0.007 seconds and driver binary in 0.008 seconds.
+The real-PTY cancellation proof passes in the integration binary in 0.013 seconds and driver binary in 0.014 seconds.
+Signals scan 162 Rust files. Timers scan 146 Rust files.
+The ledger retains 675 IDs: 625 pending, two deferred, two withdrawn, and 46 active. All 46 active IDs pass.
+Both mutation runs test 118 mutants: 108 caught, ten unviable, zero missed, and zero timeouts.
+The separate mutation command uses NEXTEST_PROFILE=slow. Both logs set the mutation timeout to 20 seconds.
+Fuzz has no changed decoder harness. Full CI takes 235.7 seconds; separate mutants take 232.9 seconds.
+The gate exits 0 after 476 seconds. The reviewer read the completed results and ran no gate.
+
+### Verdict and scope
+
+PR #198 is CLEAN at `546f8084f6bbcbfe9ca2ba9ef323dc74f68bec15` for the P3 package review.
+F64, F65, and F66 are CLOSED. No package finding remains on this PR.
+The ported PTY path now has its required named shared-crate real proof and parent-death cleanup proof at this exact head.
+This verdict does not change #168's original head verdict or authorize merging that original PR.
+Integration still requires its own exact-head verdict. The accepted bounded-accept carry remains required at merge.
+#197 retains round 122 CLEAN and its merge at 7aec2bb9. #195 retains round 121 CLEAN with F63 closed.
+#192 retains round 117 NOT CLEAN with F61 and F62 open. Part B retains F39 and its other recorded duties.
+The reviewer changed no product code and ran no tests, builds, measurements, mutants, or gates.
+All earlier findings and verdict rounds remain preserved at their named heads and scopes.
+
+VERDICT: CLEAN
