@@ -5,7 +5,9 @@
 use crate::io::{Action, Input, LinkId, Work};
 use crate::{EngineConfig, HostEngine};
 use botster_core_contract::prelude::*;
-use botster_core_edges::edges::{ExitStatus, ProcessIdentity, SpawnError, StorageError};
+use botster_core_edges::edges::{
+    ExitStatus, IdentityState, ProcessIdentity, SpawnError, StorageError,
+};
 use botster_core_edges::Machine;
 use botster_core_link::hello::Hello;
 use botster_core_link::msg::{HostMsg, Observation, WorkerMsg};
@@ -73,6 +75,9 @@ pub(crate) fn limits(change: impl FnOnce(&mut CoreLimits)) -> CoreLimits {
     limits
 }
 
+/// The worker protocol number in the hello of the scripted worker.
+pub(crate) const HELLO_PROTOCOL: u8 = 1;
+
 /// What a scripted worker does when the engine speaks to it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Autopilot {
@@ -89,6 +94,8 @@ pub(crate) struct World {
     pub rows: BTreeMap<String, Vec<u8>>,
     pub row_writes: Vec<String>,
     pub fail_row: Option<StorageError>,
+    /// The next row write takes effect and is then reported with this error (AD-7: an uncertain write that happened).
+    pub fail_row_after_write: Option<StorageError>,
     pub refuse_spawn: Option<i32>,
     pub autopilot: Autopilot,
     pub sent: Vec<(LinkId, HostMsg)>,
@@ -97,6 +104,9 @@ pub(crate) struct World {
     pub closed: Vec<LinkId>,
     pub trace: Vec<String>,
     spawned: BTreeMap<InstanceId, (ProcessIdentity, [u8; TOKEN_LEN], LinkId)>,
+    /// The processes that the operating system runs: a worker is in it from its spawn until it ends. It outlives a host
+    /// (LC-12), so a handle opened `over` another one sees its workers.
+    pub alive: BTreeSet<ProcessIdentity>,
     identities: BTreeMap<LinkId, ProcessIdentity>,
     next_pid: u32,
     pub(crate) next_link: u64,
@@ -106,15 +116,57 @@ pub(crate) struct World {
 
 impl World {
     pub fn new(limits: CoreLimits) -> World {
+        World::open(config(limits), BTreeMap::new(), BTreeSet::new(), 100)
+    }
+
+    /// A handle whose platform offers `feature` too (A2-6).
+    pub fn offering(feature: Feature) -> World {
+        let mut cfg = config(CoreLimits::default());
+        cfg.features.names.insert(feature);
+        World::configured(cfg)
+    }
+
+    /// A handle opened with `cfg`: the features, limits and lists that `open` gives the engine (A2-6, 9B, EV-8).
+    pub fn configured(cfg: EngineConfig) -> World {
+        World::open(cfg, BTreeMap::new(), BTreeSet::new(), 100)
+    }
+
+    /// A new handle over the registry and the processes of `earlier` (a host that was dropped, LC-12). The handle reads the
+    /// ids of the rows when it opens (ID-1), as `HostDriver::open` does. Its host epoch is above `earlier`'s (DP-8: every
+    /// open raises it), and its spawns take pids after `earlier`'s, as the operating system gives no live process's pid to a
+    /// new one.
+    pub fn over(earlier: &World) -> World {
+        let mut cfg = earlier.engine.cfg.clone();
+        cfg.host_epoch += 1;
+        World::open(
+            cfg,
+            earlier.rows.clone(),
+            earlier.alive.clone(),
+            earlier.next_pid,
+        )
+    }
+
+    fn open(
+        cfg: EngineConfig,
+        rows: BTreeMap<String, Vec<u8>>,
+        alive: BTreeSet<ProcessIdentity>,
+        next_pid: u32,
+    ) -> World {
         #[allow(clippy::disallowed_methods)] // a test starts the injected clock at a real instant
         let start = Instant::now();
+        let registry_ids = rows
+            .keys()
+            .filter_map(|key| key.strip_prefix(crate::session::ROW_PREFIX))
+            .map(sid)
+            .collect();
         World {
-            engine: HostEngine::new(config(limits), start),
+            engine: HostEngine::new(cfg, registry_ids),
             now: start,
             unix: 1_000_000,
-            rows: BTreeMap::new(),
+            rows,
             row_writes: Vec::new(),
             fail_row: None,
+            fail_row_after_write: None,
             refuse_spawn: None,
             autopilot: Autopilot::Full,
             sent: Vec::new(),
@@ -123,8 +175,9 @@ impl World {
             closed: Vec::new(),
             trace: Vec::new(),
             spawned: BTreeMap::new(),
+            alive,
             identities: BTreeMap::new(),
-            next_pid: 100,
+            next_pid,
             next_link: 1,
             random: 1,
             inject: Vec::new(),
@@ -141,8 +194,16 @@ impl World {
     }
 
     pub fn feed(&mut self, input: Input) {
+        self.end_exited(&input);
         self.engine.handle(self.now, input);
         self.perform();
+    }
+
+    /// A process whose exit the engine is told of is no longer running.
+    fn end_exited(&mut self, input: &Input) {
+        if let Input::ProcessExited { identity, .. } = input {
+            self.alive.remove(identity);
+        }
     }
 
     /// Performs every action that the engine queued, and feeds the answers back (plan 2.1).
@@ -156,6 +217,7 @@ impl World {
             }
             let inputs = std::mem::take(&mut self.inject);
             for input in inputs {
+                self.end_exited(&input);
                 self.engine.handle(self.now, input);
             }
         }
@@ -177,7 +239,7 @@ impl World {
                     None => {
                         self.rows.insert(key.clone(), bytes);
                         self.row_writes.push(key);
-                        Ok(())
+                        self.fail_row_after_write.take().map_or(Ok(()), Err)
                     }
                 };
                 self.inject.push(Input::RowWritten { ticket, result });
@@ -227,6 +289,7 @@ impl World {
                 let link = LinkId(self.next_link);
                 self.next_link += 1;
                 self.identities.insert(link, identity);
+                self.alive.insert(identity);
                 self.spawned
                     .insert(instance.clone(), (identity, token, link));
                 self.inject.push(Input::Spawned {
@@ -234,8 +297,13 @@ impl World {
                     result: Ok(identity),
                 });
                 if self.autopilot == Autopilot::Full {
-                    self.inject
-                        .push(self.hello_input(&instance, 1, token, 7, link));
+                    self.inject.push(self.hello_input(
+                        &instance,
+                        HELLO_PROTOCOL,
+                        token,
+                        self.engine.cfg.host_epoch,
+                        link,
+                    ));
                 }
             }
             Action::SendHello { link, hello } => self.hellos.push((link, hello)),
@@ -260,7 +328,23 @@ impl World {
                 self.sent.push((link, msg));
             }
             Action::CloseLink { link } => self.closed.push(link),
-            Action::SignalGroup { identity, signal } => self.signals.push((identity, signal)),
+            Action::ProbeIdentity { identity } => {
+                let state = if self.alive.contains(&identity) {
+                    IdentityState::Matches
+                } else if self.alive.iter().any(|p| p.pid == identity.pid) {
+                    IdentityState::Reused
+                } else {
+                    IdentityState::Absent
+                };
+                self.inject.push(Input::IdentityState { identity, state });
+            }
+            Action::SignalGroup { identity, signal } => {
+                // The operating system ends a process that a kill reaches (AD-6: only a matching one is signalled).
+                if signal == botster_core_edges::edges::GroupSignal::Kill {
+                    self.alive.remove(&identity);
+                }
+                self.signals.push((identity, signal));
+            }
             Action::HandoffRoute { .. } => self.trace.push("handoff".into()),
         }
     }
@@ -330,34 +414,33 @@ impl World {
         }
     }
 
-    /// Runs the first ready work, and tells whether there was any.
-    pub fn step(&mut self) -> bool {
-        match self.engine.ready().into_iter().next() {
-            Some(work) => {
-                self.feed(Input::Run(work));
-                true
-            }
-            None => false,
-        }
-    }
-
-    /// One `pump` of a driver with the production policy: the clock, then ready work until none is left.
-    pub fn pump(&mut self) -> PumpReport {
-        self.feed(Input::Clock(self.unix));
+    /// Runs the ready work that `choose` picks, one step at a time, until it picks none. An engine whose steps make no
+    /// progress fails the test at the step bound, instead of hanging it.
+    pub fn settle(&mut self, mut choose: impl FnMut(&[Work]) -> Option<Work>) {
         let mut guard = 0;
-        loop {
-            let ready = self.engine.ready();
-            let Some(work) = ready.into_iter().next() else {
-                break;
-            };
+        while let Some(work) = choose(&self.engine.ready()) {
             self.feed(Input::Run(work));
             guard += 1;
             assert!(guard < 10_000, "the engine does not settle");
         }
+    }
+
+    /// One `pump` with no budget and no deferral: the clock, then the first ready work until none is left. Budgets, deferral and
+    /// the order of a seeded scheduler are the driver's, and the driver's own tests prove them (`tests::driver`).
+    pub fn pump(&mut self) -> PumpReport {
+        self.feed(Input::Clock(self.unix));
+        self.settle(|ready| ready.first().cloned());
         PumpReport {
             more: self.engine.runnable(),
             events_posted: self.engine.take_posted(),
         }
+    }
+
+    /// One `pump` whose scheduler always picks the last ready work: an order that the contract leaves open (OR-3, A5-2), so
+    /// an order that a clause fixes must hold under it too.
+    pub fn pump_last_first(&mut self) {
+        self.feed(Input::Clock(self.unix));
+        self.settle(|ready| ready.last().cloned());
     }
 
     /// Pumps and polls until `event` shows up, and returns the events up to it.
@@ -374,6 +457,25 @@ impl World {
             }
         }
         panic!("the event never came: {seen:?}");
+    }
+
+    /// Pumps and polls until every op of `ops` completed, and returns their results.
+    pub fn complete_all(&mut self, ops: &[OpId]) -> BTreeMap<OpId, OpResult> {
+        let mut results = BTreeMap::new();
+        for _ in 0..50 {
+            self.pump();
+            for event in self.engine.poll_events(64) {
+                if let Event::Completed { op, result } = event {
+                    if ops.contains(&op) {
+                        results.insert(op, result);
+                    }
+                }
+            }
+            if results.len() == ops.len() {
+                return results;
+            }
+        }
+        panic!("not every op completed: {results:?} of {ops:?}");
     }
 
     pub fn complete(&mut self, op: OpId) -> OpResult {
@@ -435,6 +537,19 @@ impl World {
             .worker
             .link
             .expect("the session has a link")
+    }
+
+    /// The request number of the last op that the host sent to the worker of `session`, as the worker read it.
+    pub fn last_request(&self, session: &str) -> u64 {
+        let link = self.link_of(session);
+        self.sent
+            .iter()
+            .rev()
+            .find_map(|(l, m)| match m {
+                HostMsg::Op { req, .. } if *l == link => Some(*req),
+                _ => None,
+            })
+            .expect("an op was sent to the worker")
     }
 
     pub fn identity_of(&self, session: &str) -> ProcessIdentity {
@@ -509,10 +624,6 @@ pub(crate) fn observation(msg: Observation) -> WorkerMsg {
     WorkerMsg::Observed { observation: msg }
 }
 
-pub(crate) fn run_work(world: &mut World, work: Work) {
-    world.feed(Input::Run(work));
-}
-
 mod admission;
 mod boundaries;
 mod driver;
@@ -521,5 +632,6 @@ mod lifecycle;
 mod losses;
 mod queue_pressure;
 mod ready;
-mod review;
+mod registry;
+mod remove;
 mod worker_link;
