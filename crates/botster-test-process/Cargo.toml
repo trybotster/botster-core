@@ -1,0 +1,35 @@
+[package]
+name = "botster-test-process"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+# A dev-dependency only (brief-p6-test-process): no production crate depends on it.
+
+[lints]
+workspace = true
+
+[features]
+# The real-process tests of this crate (BUILD.md testing rule 2): `cargo xtask slow` runs them.
+slow = []
+
+[[bin]]
+name = "botster-test-anchor"
+path = "src/bin/botster-test-anchor.rs"
+
+[dependencies]
+rustix = { workspace = true, features = ["event", "fs", "process"] }
+signal-hook.workspace = true
+
+# The platform adapters (src/platform.rs): libproc lists the members of a group and reads a start time, kqueue awaits an
+# exit, and libc names the zombie state.
+[target.'cfg(target_os = "macos")'.dependencies]
+kqueue = "1.2.1"
+libc = "0.2"
+libproc = "0.14"
+
+[dev-dependencies]
+pty-process.workspace = true
+tempfile.workspace = true
