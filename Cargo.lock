@@ -389,6 +389,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "botster-guardian-core"
+version = "0.1.0"
+dependencies = [
+ "bolero",
+ "botster-core-contract",
+ "botster-core-edges",
+ "botster-core-link",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "botster-hub-conformance"
 version = "0.1.0"
 source = "git+https://github.com/trybotster/botster-contracts?tag=contracts-v0.1.13#a8db5c9a0f43fc440564989fd38a55121fdda38b"
