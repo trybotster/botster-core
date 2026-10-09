@@ -200,6 +200,15 @@ impl Workers {
         true
     }
 
+    /// A cleaner removes the endpoint of the session's live worker (DESIGN.md part 1): the worker keeps running, and a new
+    /// host's connect fails. Returns false when the session has no endpoint.
+    pub fn unlink_endpoint(&self, handle: &str, session: &SessionId) -> bool {
+        let Some(key) = self.key_of(handle, session) else {
+            return false;
+        };
+        lock(&self.endpoints).remove(&key).is_some()
+    }
+
     /// The controls of the payload of the session `session` of the handle `handle`.
     pub fn program_control(&self, handle: &str, session: &SessionId) -> Option<ProgramControl> {
         let key = self.key_of(handle, session)?;
