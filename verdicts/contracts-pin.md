@@ -266,3 +266,54 @@ The reviewer changed no product code and ran no builds, tests, mutation jobs, or
 The lead owns the merge decision.
 
 VERDICT: CLEAN
+
+## PR #205 Round 1 — contracts-v0.1.21 — 2026-10-09
+
+- Exact head: `dd2002e51390a812401d6d3d0a21575cb60474f9`.
+- Tree: `c770dfcdf9981664c170ca59591b20b5d03b5b2a`.
+- First parent: `8debbea28d31746c9efd7f6439a9dbbe1ce7e5c8`.
+- Second parent, PR base, and gate base: `7e35566614bc61140ec254331db48ed7f568f710`.
+- Risk tier checked first: HIGH, BUILD.md rule 4. The PR body names this rule and both reviewers.
+
+The lead authorized this pin move after contracts-v0.1.21 became available.
+The reviewer read the four-file Core delta, relevant contracts crate delta, A18 candidate 2, and manifest-final36.
+The PR cites #188 as prior art.
+
+All six direct contracts dependencies use contracts-v0.1.21.
+The tag resolves to `60a4169978e3f704f46ab0578f9993013fd4b810`, which matches all nine contracts sources in Cargo.lock.
+The lock retains 222 packages. Its only other change adds data-encoding to botster-hub-contract's dependencies.
+The new contracts manifest requires that dependency. The lock already contains its package.
+The pin comment identifies the correct commit and manifest.
+
+The new Core crate items are additive constants: CORE_SERVICE_TRANSPORT_UNIX_LANES_1 and ROUTE_FEATURES.
+No Core source defines a conflicting name. Core has no service transport environment value to replace yet.
+The conformance driver adds `let without`, which removes only the named object field.
+Its tests cover present and absent fields, and invalid object and field-name arguments.
+The ad_3 transcript excludes only last_output_at from both terminal_state values, as A18-1 requires.
+No Core transcript changes in this worktree. ad_3 remains pending for the separate A18 implementation.
+
+The checked Core ledger exactly matches all 679 Core entries in the pinned contracts ledger.
+The four new entries are the four A18 IDs. All four enter core-pending.txt and have no transcript in this tag.
+The contracts pending file also lists all four. No prior pending ID leaves or returns.
+The two A15 reasons name the new tag, which still has no A15 transcript.
+Copied contracts deferred and withdrawn files match the new tag exactly.
+
+The merge retains the four new A18 IDs and all nine pending removals from accepted #204.
+The final pending set equals the new v1 pending set plus the four new ledger IDs.
+No Rust source, mutation exclusion, timeout, or Core behavior changes relative to the gate base.
+The head contains the current v1 tip. The gate records that same tip as its base.
+The lead owns the plan pin update and clause-list regeneration when this ledger lands, as plan section 6.1 states.
+
+The supplied Linux gate is `~/botster-sessions/gates/botster-core-stage1-p5-pin-v0.1.21-dd2002e5-pool-20261009-162431-34685.log`.
+It names the exact reviewed head and base. All ten CI stages PASS; job and gate exit zero.
+Default: 1170 tests passed, 566 skipped. Slow: 249 passed, 1027 skipped.
+Conformance: 113 passed, zero failed, 501 pending with transcripts, 61 pending without transcripts, two deferred, and two withdrawn.
+The default and explicit NEXTEST_PROFILE=slow mutation stages both report no Rust source change and PASS.
+No mutation campaign runs. Fuzz reports no changed crate with a decoder harness.
+All 39 active minimum IDs have PASS lines. The minimum count stays 39 / 70; no real-harness gain is claimed.
+
+No package finding remains open. Integration must supply its separate exact-head CLEAN for this HIGH pin move.
+This verdict approves only the pin move. It closes no pending ID or separate real-driver proof hold.
+The reviewer changed no product code and ran no builds, tests, mutation jobs, or gates.
+
+VERDICT: CLEAN
