@@ -65,3 +65,19 @@ one commit, the module doc of `drain.rs` only. Base v1 `a22811b6` (current). Thi
 - The landing gate (slow tier and mutants in-diff) is still owed on this exact head.
 
 VERDICT: CLEAN (0 open) at c95b4d7646fb5388ce6421bcc4baa708c73685e9
+
+## Round 3 — CLEAN on head 4592ba9c (package F49, the D1 class in the testkit)
+
+Reviewed head: `4592ba9c4e5657ef0d5856b6b55af40f2471c9bb`. Delta `c95b4d76..4592ba9c`, one commit: comments and one test
+name in `botster-core-testkit/src/worker.rs` and `worker/tests.rs`. This reviewer ran no build, test or gate.
+
+- The edge's drain field doc, its readiness comment and the test doc no longer say that the edge drains as the real driver
+  does. The test is renamed `the_edge_drain_is_bounded_by_the_asked_count`; its body is unchanged.
+- Mechanical check of the class (`git grep -i 'real driver'` in the testkit, worker-core and the worker binary at this
+  head): the remaining hits are `drain.rs:1-4` (true since round 2), the spawn-order comment (`worker.rs:207`), the socket
+  flush comment (`worker.rs:455`) and `command_line.rs:1`. None of them is about the drain.
+- Evidence: Linux run at this head (`…p3-audit-fixes-a-4592ba9c-pool-20261008-212212-55802.log`): fmt, taint, lists,
+  clippy PASS; the renamed test passes (1 run, 1 passed); exit 0.
+- The landing gate on this exact head is still owed.
+
+VERDICT: CLEAN (0 open) at 4592ba9c4e5657ef0d5856b6b55af40f2471c9bb
