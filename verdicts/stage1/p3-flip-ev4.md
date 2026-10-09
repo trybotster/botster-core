@@ -38,3 +38,18 @@ and `ev_4`).
   all of them pass. Exit 0.
 
 VERDICT: CLEAN (0 open) at a5d64425bc57f0115598265794c49c7d7f82ce2c
+
+## Round 3 — CLEAN on head f2f667f9 (delta: the merge of v1 dd07eabd)
+
+Reviewed head: `f2f667f90614532b2ec2403dbf01e88d3193f42a`, the merge of v1 `dd07eabd` (#188, the pin to
+`contracts-v0.1.20`) into `a5d64425`. v1 is still `dd07eabd`. Base-merge-check cannot carry the CLEAN (`core-pending.txt`
+changed on both sides: #188's two A15 comment lines and `ev_4`).
+
+- The merge's tree is the tree of `git merge-tree --write-tree a5d64425 dd07eabd` (`8b075264`): no conflict, and no
+  change by hand.
+- The PR's own diff on the new base is the same as on the old base, apart from the `index` and hunk lines.
+- The gate log (`…-p3-flip-ev4-f2f667f9-pool-20261009-094813-6570.log`) names the head and base `dd07eabd`. The conformance
+  binary reports 23 passed and 652 ignored. The default tier runs 947 tests and the slow tier 243, and all of them pass.
+  Exit 0.
+
+VERDICT: CLEAN (0 open) at f2f667f90614532b2ec2403dbf01e88d3193f42a
