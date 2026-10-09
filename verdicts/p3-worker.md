@@ -7132,3 +7132,84 @@ The reviewer changed no product code and ran no tests, builds, measurements, mut
 All earlier findings and verdict rounds remain preserved at their exact heads and scopes.
 
 VERDICT: NOT CLEAN
+
+
+## Round 127 — PR #199 cursor and acknowledgement correction — 2026-10-09
+
+Reviewed head: `f2a8237c249ac6f9aa1169dda4db19b7c75bc5c6`.
+Base: `58d6663204b50ce6c42d467e4fd6715ab46145dd`.
+Parent and previous reviewed head: `f50bf6beb486007c16e49ca13a3c5d39058da15c`, round 126.
+The head contains the current v1 base. The tier remains HIGH; the correction also changes the terminal binding's callback decision.
+Authority: BUILD.md, plan 23b-23e, ST-3, A13-1b, and steward ruling R-41 at contracts main c2a04f8.
+The reviewer read the complete four-file correction, the full description, R-41, the host loss-marker path, and completed gate.
+Round 126 covers the whole change. This correction changes no launch interface, snapshot implementation, pending list, or mutation exclusion.
+
+### F67 — MEDIUM — Wide-character cursor text; CLOSED
+
+read_cursor now joins the binding's cells without replacing empty continuation strings.
+It takes the prefix by terminal-cell count and trims only trailing U+0020 from row_text.
+The new a_wide_character_adds_no_text_for_its_second_cell proof feeds a日b to the worker and an independent libghostty terminal.
+It derives the expected row and prefix from the oracle's row_cells and checks the cursor's cell coordinate.
+The proof also checks that its input reaches a wide continuation cell.
+The exact-head default gate selects and passes this proof. No expected terminal text is hand-written in the new proof.
+
+### F68 — HIGH — OSC 5522 acknowledgement delivery; CLOSED
+
+After each model step, after_step now queues each clipboard_acks entry through enqueue_reply as its own transaction.
+The existing reply path preserves arrival order, short-write contiguity, and the absence of a host request or input revision.
+The new osc_5522_acknowledgements_are_written_in_order_through_the_admission_point proof obtains three acknowledgements from an independent terminal.
+A host write owns the PTY before the acknowledgements arrive. A later host write waits behind all three.
+The proof gives the first acknowledgement a partial write and checks that its remaining bytes precede the next acknowledgement.
+It checks the acknowledgement order, exact oracle bytes, absence of Done and HostInput, and the later host revision's single increment.
+The exact-head default gate selects and passes this proof. The source still drops replies after payload exit.
+P3 reports red checks against the previous model.rs; the reviewer did not run those checks.
+The source and selected positive proofs support both closures.
+
+### F69 — LOW — Unknown-location loss path accepts a nonempty selection; OPEN
+
+R-41 outcome (1) requires no ClipboardWrite for an unknown location, plus EventsLost with ClipboardWrite in its kinds.
+The binding now correctly gives IO_ERROR for ClipboardLocation::Other, regardless of size.
+However, clipboard_selection at model.rs:76-84 returns a nonempty selection before examining the location.
+clipboard_selection(Some("s0"), ClipboardLocation::Other(9)) therefore returns Some("s0").
+after_step then posts ClipboardWrite and skips the loss branch, contrary to the new ruling and description.
+The current selection proof covers Other only with no selection. It does not cover this bypass.
+The existing internal Observation::Lost is the correct transport for the loss branch: the unchanged host calls post_lost and emits EventsLost.
+No new event or enum variant is required.
+
+Required correction: reject Other before accepting any selection string.
+Preserve the nonempty selection's precedence for the three known locations.
+Extend the existing pure proof to cover Other with nonempty, empty, and absent selection strings.
+Keep the binding's IO_ERROR result and each acknowledgement's admission transaction.
+The severity is LOW because the pinned model cannot produce Other; R-41 explicitly defines this defensive path.
+BUILD.md requires all findings to close on a HIGH PR, including LOW. This finding therefore prevents CLEAN.
+The reviewer sent F69 directly to P3 and integration. No lead decision or new conformance ID is needed.
+
+### Completed evidence and retained coverage
+
+Log: `~/botster-sessions/gates/botster-core-stage1-p3-capture-snapshot-f2a8237c-pool-20261009-140746-68630.log`.
+The log names this exact head and base. It runs on msa1, kernel 6.12.111+deb13-amd64.
+All ten CI steps pass. The default tier passes 1103 tests in 5.404 seconds.
+The slow tier passes 249 tests in 10.115 seconds.
+The two correction proofs and a_write_is_io_error_over_the_bound_or_at_an_unknown_location run and pass in the default tier.
+The existing real-PTY and test-parent-death proofs remain selected in both binaries.
+Signals scan 163 Rust files. Timers scan 147 Rust files.
+The ledger retains 675 IDs: 583 pending, two deferred, two withdrawn, and 88 active. All 88 active IDs pass.
+The report retains 526 pending and 57 without transcripts.
+Both mutation runs test 70 mutants: 62 caught, eight unviable, zero missed, and zero timeouts.
+Both logs set the mutation timeout to 20 seconds. The separate command uses NEXTEST_PROFILE=slow.
+The fuzz step passes. Full CI takes 255.7 seconds; separate mutants take 80.0 seconds. The gate exits 0 after 343 seconds.
+The unchanged 42 removals retain round 126's transcript, baseline, map, and source coverage.
+Minimum counts remain testkit 30/70 at this head and real 0/70.
+Passing evidence does not cover or close F69's nonempty-selection branch.
+
+### Verdict and scope
+
+PR #199 is NOT CLEAN at `f2a8237c249ac6f9aa1169dda4db19b7c75bc5c6` for the P3 package review.
+F67 and F68 are CLOSED. F69 LOW is OPEN. This is #199's second recorded NOT CLEAN round.
+No round-limit notice is due. Normal findings go to P3 and integration, not to the lead as BLOCKED.
+F39 remains open for #163's guard merge change. This correction changes no guard wait or registration wait.
+#198 retains round 125 CLEAN and its merge at 58d66632. #192 retains F61/F62 and its last exact-head verdict.
+The reviewer changed no product code and ran no tests, builds, measurements, mutants, or gates.
+All earlier findings and verdict rounds remain preserved at their exact heads and scopes.
+
+VERDICT: NOT CLEAN
