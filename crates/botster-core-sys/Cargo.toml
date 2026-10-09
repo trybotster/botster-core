@@ -28,3 +28,8 @@ tempfile.workspace = true
 [target.'cfg(target_os = "macos")'.dependencies]
 libproc = "0.14"
 kqueue = "1.2.1"
+
+# The guard fixture (tests/common/process_guard.rs) ends every member of a group: libproc lists them, kqueue awaits their
+# exits, and libc names the zombie state.
+[target.'cfg(target_os = "macos")'.dev-dependencies]
+libc = "0.2"

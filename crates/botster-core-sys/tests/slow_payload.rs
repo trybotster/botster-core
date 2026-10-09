@@ -49,7 +49,12 @@ impl GuardedPayload {
 
 impl Drop for GuardedPayload {
     fn drop(&mut self) {
-        // The test ends the group before production can block in its reaper.
+        // The guard's member starts ending the group before production can block in its reaper; its report is read after
+        // production closed the PTY master (see `PayloadGuard::release`).
+        if let Some(guard) = self.guard.as_mut() {
+            guard.release();
+        }
+        drop(self.payload.take());
         drop(self.guard.take());
     }
 }
@@ -319,8 +324,10 @@ fn a_panic_ends_the_payload_while_it_waits_for_input() {
         }));
         done.send(outcome.is_err()).unwrap();
     });
+    // The payload's drop releases the guard, then production's reaper can wait for the guard's member (up to CLEANUP),
+    // then the guard reports: the outer limit allows both, as in `Bounded`.
     // timer: deadline — the independent guard and production reaper must finish.
-    match result.recv_timeout(Duration::from_secs(10)) {
+    match result.recv_timeout(2 * process_guard::cleanup::CLEANUP) {
         Ok(panicked) => assert!(panicked),
         Err(error) => {
             cleanup_state(payload_pid);
