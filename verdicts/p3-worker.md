@@ -6100,3 +6100,79 @@ The reviewer changed no product code and ran no tests, builds, measurements, mut
 All earlier findings, closures, and verdict rounds remain preserved at their named heads and scopes.
 
 VERDICT: CLEAN
+
+
+## Round 116 — Pending line-set rule in base-merge-check
+
+Reviewed head: `5ee3da3ee11e3675978ea51c3c31679962a84431`, PR #190, branch `stage1/p3-pending-set-merge`.
+Base: `3000ae14bf8b05efe410c22ac66d5915cf36ff45`.
+Merge parents: `83df54b0488187eb2cd6ee6ad3e4d3faee07cab3` and the base above.
+The reviewer checked the tier first. HIGH is correct under BUILD.md rule 1 because base-merge-check decides whether review is required.
+The lead approved the set rule instead of the package-file split. P6 approved P3's work in this P6-owned module.
+The lead's scope is an explicit path list and pure, disjoint whole-line removals. Anything else must fail.
+The reviewer read the full implementation, the changed tests, mutation settings, the complete description, and completed evidence.
+
+### F60 — HIGH — The set rule ignores file mode and type; OPEN
+
+Locations at the reviewed head: xtask/src/base_merge.rs:381-393, 395-404, and 418-427.
+Condition (3) excludes each SET_FILES path from the complete patch.
+Condition (4) reads that path's blob text with cat-file and stores only Option<String>.
+The code does not retain or compare the tree entry's mode or type.
+The name-only path list and set-file overlap exception do not restore that information.
+
+A concrete source counterexample starts from a passing merge of two disjoint pending-ID removals.
+Keep the correct merged text. Add a commit that changes only core-pending.txt's mode from 100644 to 100755.
+The new head still descends from the reviewed head. The new merge base still descends from the old merge base.
+The merge-tree check still compares the reviewed head and new merge base, so the extra commit does not change its result.
+Condition (2) excludes the pending path. Condition (3) excludes the pending patch, including the mode change.
+Condition (4) sees the same four text values and passes.
+The command therefore reports PASS for an unreviewed change outside the approved whole-line-removal rule.
+A blob's mode can also identify a symlink; text equality alone does not prove a regular pending file.
+
+Required correction: retain each set-file entry's mode and type at all four commits.
+Permit the set rule only for regular files with unchanged metadata, or the existing all-absent case.
+A mode or type change on either side or at the final head must fail.
+Add a real-repository regression that changes only the pending entry's mode after a valid merge and requires FAIL.
+Cover mode and type changes on the two sides as well.
+The reviewer sent F60 directly to P3 and the integration reviewer.
+The reviewer established this counterexample from source inspection and ran no test or gate.
+
+### Other source coverage
+
+SET_FILES contains only conformance/core-pending.txt.
+The pure text decision rejects duplicate ID lines in the old file, additions, edits, reordered lines, and removed non-ID lines.
+It requires disjoint removed sets and compares the new text with the exact old-order union of removals.
+Partial file absence fails. Absence at all four commits passes.
+The command collects text for every configured set path before it calls judge.
+The original ancestry, forward-base, conflict, and canonical-patch conditions remain in the decision.
+The command removes all four GIT_*_PATHSPECS variables before it invokes git.
+The new real-repository tests cover a valid two-flip merge, an overlapping removal, and extra text changes after a merge.
+The hostile GIT_LITERAL_PATHSPECS case requires the check to reject an extra change to another path.
+The description reports red-on-revert runs for the set-path list and environment removal.
+No new mutation exclusion is added. The existing command-only whole-body exclusion leaves the decision functions exposed.
+The change adds no production process behavior or new real-process fixture.
+No other package finding remains after this source review.
+
+### Completed evidence and its limit
+
+Exact-head log: `~/botster-sessions/gates/botster-core-stage1-p3-pending-set-merge-5ee3da3e-pool-20261009-095726-42960.log`.
+The log names this head and base. It runs on msa1, kernel 6.12.111+deb13-amd64.
+All ten CI steps pass. The default tier passes 955 tests in 2.607 seconds.
+The slow tier passes 243 tests in 10.130 seconds. The new set-rule tests run and pass in the default tier.
+Both mutation commands report 32 caught, zero missed, zero timeout, and zero unviable.
+The separate command uses NEXTEST_PROFILE=slow.
+Full CI takes 233.5 seconds. Separate mutants take 118.8 seconds. The gate exits 0 after 360 seconds.
+The passing gate and caught mutants do not cover F60's omitted file metadata.
+The complete final description states the correct tier, head, base, gate, prior failed gate, and reported revert checks.
+
+### Verdict and scope
+
+PR #190 is NOT CLEAN at `5ee3da3ee11e3675978ea51c3c31679962a84431` for the P3 package review.
+F60 is open. This is #190's first recorded NOT CLEAN round; the round-limit notice is not due.
+The integration reviewer controls its own verdict.
+#189 retains round 115 CLEAN at f2f667f90614532b2ec2403dbf01e88d3193f42a; the lead records its merge as 3000ae14.
+#168 retains its separate single planned real-PTY HOLD. Part B retains its earlier open duties.
+The reviewer changed no product code and ran no tests, builds, measurements, mutants, or gates.
+All earlier findings, closures, and verdict rounds remain preserved at their named heads and scopes.
+
+VERDICT: NOT CLEAN
