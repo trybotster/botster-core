@@ -36,3 +36,19 @@ a review of its union resolution (both fields, both registrations, both end path
 carry this CLEAN to that merge.
 
 VERDICT: CLEAN (0 open) at 2745781b7c9bd74b1c6f65eb16f3e97726e39d0b
+
+### Correction after round 1 (same head 2745781b) — CLEAN WITHDRAWN (the P5 package reviewer's SC-F1, missed here)
+
+The P5 package reviewer's SC-F1 MEDIUM is real, and it is in this reviewer's scope (shared testkit state). Round 1 said
+"an instance id is never reused". That is false across data directories: `HostEngine::mint_instance` (`engine.rs:246-249`)
+returns `<host_epoch>-<n>` from a counter of each host, and each new directory starts at epoch 1. So two handles on two new
+directories both give their first session the instance `1-1`. `Workers::held_starts` is per run and is keyed by the
+instance only. So:
+- a hold on A makes a hold on B fail as "already held";
+- `Start` of B with no hold parks B's spawn;
+- a release of B, or the end of B's worker (`ended()`), removes A's hold.
+
+Fix: SC-F1's (key the hold by the owning host or directory as well as the instance, and add a test with two directories).
+
+VERDICT: NOT CLEAN at 2745781b7c9bd74b1c6f65eb16f3e97726e39d0b (1 open: SC-F1 MEDIUM, the package reviewer's finding,
+confirmed here)
