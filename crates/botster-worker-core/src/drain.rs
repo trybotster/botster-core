@@ -112,6 +112,24 @@ mod tests {
         assert_eq!(drain_with(3, &[3, 0], &[], chunk), (3, 2));
     }
 
+    /// Each read moves the drain by exactly the bytes it found: a short read leaves the rest of the count, a read of the whole
+    /// count moves to the next step, and a read of 0 ends the drain.
+    #[test]
+    fn a_read_moves_the_drain_by_the_bytes_it_found() {
+        let after = |drain: Drain, n: usize| {
+            drain
+                .after_read(n, || Ok::<_, std::convert::Infallible>(4))
+                .unwrap()
+        };
+        assert_eq!(after(Drain::Counted(5), 2), Drain::Counted(3));
+        assert_eq!(after(Drain::Counted(5), 5), Drain::Flush);
+        assert_eq!(after(Drain::Counted(5), 0), Drain::Done);
+        assert_eq!(after(Drain::Flush, 1), Drain::Flushed(4));
+        assert_eq!(after(Drain::Flushed(5), 2), Drain::Flushed(3));
+        assert_eq!(after(Drain::Flushed(5), 5), Drain::Done);
+        assert_eq!(after(Drain::Flushed(5), 0), Drain::Done);
+    }
+
     /// A31: a process that keeps writing cannot hold the exit back: past the count, the drain reads at most one flushing
     /// read and the count measured once after it.
     #[test]

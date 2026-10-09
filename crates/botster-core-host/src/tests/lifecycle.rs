@@ -1043,7 +1043,8 @@ fn a_lost_worker_completes_the_pending_op_once() {
 }
 
 /// Core IN-7, A2-2, 5.1A: a write that was sent and not acknowledged when the link fails is `Unknown`, never a certain
-/// zero. Its bound is the payload's bytes, or for a key the worst-case sequence over every mode times its repeats.
+/// zero. Its bound is the payload's bytes, or for a key the worst-case sequence over every mode times its repeats, or for
+/// focus the longest focus report.
 #[test]
 fn a_write_in_flight_when_the_link_fails_is_unknown() {
     let key = KeyInput {
@@ -1073,18 +1074,21 @@ fn a_write_in_flight_when_the_link_fails_is_unknown() {
         bytes: botster_route_codec::prelude::HexBytes(vec![1, 2, 3]),
     });
     let keys = begin(InputPayload::Key(key));
+    let focus = begin(InputPayload::Focus { focused: true });
     w.pump();
     let link = w.link_of("s1");
     w.feed(Input::LinkClosed { link });
-    // Both writes complete; one poll can hold both completions, so they are collected together.
-    let mut left = 2;
+    // Every write completes; one poll can hold several completions, so they are collected together.
+    let mut left = 3;
     let events = w.until(|e| {
-        if matches!(e, Event::Completed { op, .. } if *op == bytes || *op == keys) {
+        if matches!(e, Event::Completed { op, .. } if *op == bytes || *op == keys || *op == focus) {
             left -= 1;
         }
         left == 0
     });
-    for (write, max_payload_bytes) in [(bytes, 3), (keys, key_bound)] {
+    let focus_bound = botster_terminal_ghostty::longest_focus_report(true);
+    assert!(focus_bound > 0);
+    for (write, max_payload_bytes) in [(bytes, 3), (keys, key_bound), (focus, focus_bound)] {
         let result = events.iter().find_map(|e| match e {
             Event::Completed { op, result } if *op == write => Some(result),
             _ => None,

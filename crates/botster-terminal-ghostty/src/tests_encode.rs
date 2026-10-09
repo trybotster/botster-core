@@ -1157,3 +1157,35 @@ fn the_focus_bound_is_the_report_of_focus_reporting() {
         assert_eq!(longest_focus_report(focused), report.len() as u64);
     }
 }
+
+/// 5.1A worst-case bound: under any stop limit below the worst case, the search returns a length over that limit, so a
+/// key over the limit is never admitted with a smaller size; with the worst case as the limit it returns the worst case.
+#[test]
+fn the_key_search_returns_a_length_over_any_limit_below_the_worst_case() {
+    let mut with_text = character('a', &[]);
+    with_text.text = Some("a".into());
+    for input in [
+        named("F5", &[Modifier::Ctrl, Modifier::Shift]),
+        character('a', &[]),
+        with_text,
+    ] {
+        let worst = longest_key_sequence(&input, u64::MAX).unwrap();
+        assert!(worst > 0, "{input:?}");
+        assert_eq!(longest_key_sequence(&input, worst).unwrap(), worst);
+        for limit in 0..worst {
+            let found = longest_key_sequence(&input, limit).unwrap();
+            assert!(found > limit, "{input:?}: {found} at limit {limit}");
+        }
+    }
+}
+
+/// 5.1A: the mouse bound is the report of one notch; the caller multiplies it by the notches.
+#[test]
+fn the_mouse_bound_is_the_report_of_one_notch() {
+    let one = mouse(MouseAction::Wheel, MouseButton::WheelUp, 2, 2);
+    let mut five = one.clone();
+    five.notches = Some(5);
+    let bound = longest_mouse_report(&one);
+    assert!(bound > 0);
+    assert_eq!(longest_mouse_report(&five), bound);
+}
