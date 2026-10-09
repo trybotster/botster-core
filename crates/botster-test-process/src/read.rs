@@ -330,12 +330,16 @@ mod tests {
             first_writer.write_all(b"done").unwrap();
         });
         let (mut first, mut second) = (Bounded::new(first), Bounded::new(second));
-        let (one, two) = both_to_eof(&mut first, &mut second, Deadline::cleanup()).unwrap();
+        let read = both_to_eof(&mut first, &mut second, Deadline::cleanup());
+        let again = both_to_eof(&mut first, &mut second, Deadline::cleanup());
+        // The readers go first: a writer still blocked on a full pipe then fails (EPIPE), never hangs the join.
+        drop((first, second));
         writer.join().unwrap();
+        let (one, two) = read.unwrap();
         assert_eq!(one, b"done");
         assert_eq!(two.len(), 1 << 20);
         assert!(two.iter().all(|&b| b == 7));
-        let (one, two) = both_to_eof(&mut first, &mut second, Deadline::cleanup()).unwrap();
+        let (one, two) = again.unwrap();
         assert!(one.is_empty() && two.is_empty(), "both ended");
     }
 
@@ -349,8 +353,11 @@ mod tests {
         drop(first_writer);
         let writer = std::thread::spawn(move || second_writer.write_all(&[7; 1 << 20]).unwrap());
         let (mut first, mut second) = (Bounded::new(first), Bounded::new(second));
-        let (one, two) = both_to_eof(&mut first, &mut second, Deadline::cleanup()).unwrap();
+        let read = both_to_eof(&mut first, &mut second, Deadline::cleanup());
+        // The readers go first: a writer still blocked on a full pipe then fails (EPIPE), never hangs the join.
+        drop((first, second));
         writer.join().unwrap();
+        let (one, two) = read.unwrap();
         assert_eq!(one, b"early");
         assert_eq!(two.len(), 1 << 20);
     }
@@ -367,8 +374,11 @@ mod tests {
             drop(second_writer);
         });
         let (mut first, mut second) = (Bounded::new(first), Bounded::new(second));
-        let (one, two) = both_to_eof(&mut first, &mut second, Deadline::cleanup()).unwrap();
+        let read = both_to_eof(&mut first, &mut second, Deadline::cleanup());
+        // The readers go first: a writer still blocked on a full pipe then fails (EPIPE), never hangs the join.
+        drop((first, second));
         writer.join().unwrap();
+        let (one, two) = read.unwrap();
         assert_eq!(one.len(), 1 << 20);
         assert!(two.is_empty());
     }

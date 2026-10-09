@@ -218,6 +218,8 @@ pub fn run_to_completion(command: &mut Command, deadline: Deadline) -> io::Resul
         }
         Err(ReadError::Io(error)) => return Err(error),
     };
+    // Both pipes have ended; closing them before the wait makes a writer that is still there fail (EPIPE), never block.
+    drop((stdout, stderr));
     match child.exit_by(deadline)? {
         Some(status) => Ok(Output {
             status,
