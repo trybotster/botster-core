@@ -7275,3 +7275,95 @@ The reviewer changed no product code and ran no tests, builds, measurements, mut
 All earlier findings and verdict rounds remain preserved at their exact heads and scopes.
 
 VERDICT: CLEAN
+
+
+## Round 129 — PR #200 oracle_resume dispatch — 2026-10-09
+
+Reviewed head: `61ab4501df234c3da74e6e2c24c1de3b12db2c8e`.
+Base: `a6555ebaf221042ca7b777ca2f2425e4a63dd960`.
+Parent: `f581deb3857e23a6a640f6adba300d1c44928458`.
+The head contains the current v1 base. The tier is HIGH under BUILD.md rules 3 and 5.
+The change crosses the testkit and worker packages and adds a public worker getter.
+Authority: BUILD.md, plan 23b-23f, pinned contracts v0.1.20 at 03891658, and the lead's getter ruling (a).
+Plan pin: stage1-plan.baa0d2a6.md, sha256 baa0d2a6c96d156ba50a17693948fe844a3d64adb4de9fc9776a44ad756a0818.
+The reviewer read the complete nine-file change, full description, helper, simulation dispatch, refusal layer, three pinned transcripts, replacement map, and completed evidence.
+
+### F70 — HIGH — The resume comparison does not observe the current worker model; OPEN
+
+This is integration finding R1-1. Integration independently confirms the finding, and P3 accepts it.
+In crates/botster-core-testkit/src/resume_controls.rs:149-156, the control constructs its comparison target with replay(size, log.output).
+The helper then compares that target's native snapshot with Core's capture pages after the logged suffix.
+The control never reads the current worker model. Worker::model_rev supplies a cut label, not that model's state.
+
+A worker can produce a valid capture and then stop applying later output.
+The edge still records those output bytes. Both comparison states still apply the logged suffix and can agree.
+The control can therefore return equal=true while the actual worker model remains at the capture state.
+The proof pages_of_another_state_are_not_equal changes the capture bytes. It does not cover this case.
+
+The pinned docs/core-testkit-controls.md requires oracle_resume to compare with the session's model.
+The existing snapshot_controls::oracle_resume helper also takes the actual model as its comparison target.
+The lead's ruling (a) authorizes the read-only model_rev getter. It does not authorize replacing the subject with a replay.
+This is an observation gap, not a demand for new product behavior or a production test hook.
+
+Required correction: use the current worker model as the comparison target through the lead-approved observation interface.
+Keep the actual Core capture pages and the exact output suffix as the independent restored side.
+Add a negative proof with an unchanged valid capture and suffix, but a different live subject state.
+The proof must return equal=false for that state. Preserve the positive partial-sequence and distinct-cut proofs.
+P3 has already asked the lead about the observation interface. No duplicate reviewer escalation is needed.
+
+### Source and conformance scope
+
+The model_rev getter returns the existing field and changes no worker behavior.
+Its proof checks unchanged revision for an unfed ESC, revision advance after a step, and agreement with ReadCursor.
+The testkit records output at the program edge and records revision positions in Binding::ready.
+The simulation calls ready before choosing an input. The capture log records pages when Completed passes through poll_events.
+The refusal layer continues to wrap TestkitCore. The new control uses the existing control registry and parser.
+The replay retains the unconsumed suffix. Its loop reduces the remaining input after every nonterminal step.
+The change introduces no real-process fixture, sleep, production reaping change, guard change, or mutation exclusion.
+The existing shared real-process proofs remain selected in the slow tier.
+No additional package finding is recorded at this head.
+
+The pending list removes exactly these three IDs:
+- conf::st_6b_model_after_baseline_plus_output_equals_the_sessions_model
+- conf::st_6b_cut_inside_an_sgr_sequence_applies_the_suffix_not_prints_it
+- conf::st_6b_saved_cursor_tab_stops_margins_rendition_and_charsets_survive_a_cut
+
+The replacement map at 0389165 assigns all three to core-testkit. None requires a new real-only proof for removal.
+Each transcript takes an actual capture, writes a later suffix, and asks oracle_resume for equal=true.
+F70 invalidates the comparison that supports all three removals. A passing report does not close F70.
+The reported minimum rises from testkit 30/70 to 31/70; the reviewer does not accept that increase until F70 closes.
+The real minimum remains 0/70. oracle_restore, oracle_graphics, and oracle_resume_every_cut remain pending.
+The all-pending probe reports 135 passed and 479 failed, compared with the base's 132 passed and 482 failed.
+These three IDs are the reported gains. No existing passing ID is reported lost.
+
+### Completed exact-head evidence
+
+Log: ~/botster-sessions/gates/botster-core-stage1-p3-oracle-resume-61ab4501-pool-20261009-145718-80866.log.
+Probe: ~/botster-sessions/shared/core-stage1/evidence/p3-pr-c/probe-pr-c.out.
+The gate names this exact head and base. It runs on msa1, kernel 6.12.111+deb13-amd64.
+All ten CI steps pass. The default tier passes 1112 tests in 6.037 seconds.
+The slow tier passes 249 tests in 10.116 seconds.
+All five new resume control proofs and the worker getter proof run and pass in the default tier.
+Signals scan 165 Rust files. Timers scan 149 Rust files.
+The ledger retains 675 IDs: 580 pending, two deferred, two withdrawn, and 91 active. All 91 active IDs pass.
+The report retains 523 pending and 57 without transcripts.
+Both mutation runs test 35 mutants: 23 caught, 12 unviable, zero missed, and zero timeouts.
+Both runs record a 20-second mutation timeout. The separate run uses NEXTEST_PROFILE=slow.
+The fuzz step passes because the diff changes no crate with a decoder harness.
+Full CI takes 152.8 seconds. Separate mutants take 118.3 seconds. The gate exits 0 after 279 seconds.
+The reviewer reads completed evidence only. Passing evidence does not establish the missing live-model comparison.
+
+### Verdict and retained scope
+
+PR #200 is NOT CLEAN at `61ab4501df234c3da74e6e2c24c1de3b12db2c8e` for the P3 package review.
+F70 HIGH is OPEN. This is #200's first recorded NOT CLEAN round.
+The reviewer sent F70 directly to P3 and integration. No round-limit notice is due.
+The ordinary correction remains in that loop. It is not a BLOCKED report to the lead.
+#199 retains round 128 CLEAN and its merge at a6555eba. F67, F68, and F69 remain CLOSED.
+F39 remains OPEN for #163's guard merge change and its registration and anchor-owner wait bounds.
+#198 retains round 125 CLEAN and its merge at 58d66632. #192 retains F61/F62 and its last exact-head verdict.
+The accepted bounded-accept carry remains with #181, which lands second after #198.
+The reviewer changed no product code and ran no tests, builds, gates, measurements, or mutants.
+All earlier findings and exact-head verdicts remain preserved.
+
+VERDICT: NOT CLEAN
