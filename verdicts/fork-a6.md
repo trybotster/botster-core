@@ -282,3 +282,85 @@ No source finding remains open. Integration owns its separate review and platfor
 The lead retains the pin record and merge decision. This verdict closes no conformance id.
 
 VERDICT: NOT CLEAN
+
+
+## Round 5 — 2026-10-09
+
+- Exact Core head: `c085c1b99cb306cbd89b6331ecee28f554494694`, PR #179, branch `stage1/p2-fork-a6-r2`.
+- Core tree: `898524dc3b51679cb68cc7505eee7528b2a73250`.
+- Exact fork head: `39a68e822e505685d1e7fa9c6abeff21125b489c`, branch `botster/upstream-sync-20261009` in `trybotster/ghostty`.
+- Fork tree: `bd8386949d687724e37cbd88f6516f37fc9f280f`.
+- Upstream base: `9d479dcb1664e8dc3c66c7302ce596dc56b36d6d`.
+- Previous reviewed Core head: `338f3ecb20bde1c47db4aa374b7fe987894dbee2`.
+- Accepted v1 merge base: `d15579dadd7cf1ed65b768139d2a668f041bd932`.
+
+The reviewer read the merge delta, evidence script, records, raw native logs, exact-head Linux gate, and current PR body.
+The fork head and tree remain unchanged from Round 4.
+The merge at `475bee89` has the previous reviewed head and accepted v1 head as its parents.
+The A6 diff before and after that merge is byte-identical against each corresponding v1 base.
+The later correction changes the evidence script, records, and logs. The final commit changes records and logs only.
+The reviewer changed no product code and ran no builds, tests, mutation jobs, or gates.
+
+### F-A6-04 — CLOSED — The evidence states the package scope
+
+Before step 2b, evidence.sh reports the project-local zig-pkg directory and moves any existing directory outside the fork tree.
+The latest Mac log reports 39 entries before that move. The Linux log reports that the directory was absent.
+Each step 2b starts with fresh caches and the seven seeded packages.
+
+The record, README, audit, and PR body distinguish the evidence scopes.
+Linux step 2b proves that the seven packages suffice for shipped-options tests without network access.
+Mac step 2b proves the shipped-options test result. Mac has network access, and its extra-package check covers the global cache only.
+The accepted Mac step 1 from Round 4 proves the empty-cache shipped-library build.
+The latest Mac step 1 fails during a Codeberg fetch with HttpConnectionClosing. The record does not count that result as passing.
+
+### Native evidence and retained closure
+
+The latest logs are:
+
+- `docs/stage1/ghostty-upstream-sync-20261009/mac-run4-6e4a55aa.log`.
+- `docs/stage1/ghostty-upstream-sync-20261009/linux-run3-6e4a55aa.log`.
+
+Both logs name Core `6e4a55aa439f62818f21c01862fe1766b6790732` and the exact fork head, with zero tracked changes and Zig 0.16.0.
+The delta from that Core head to the reviewed head changes only records and logs.
+
+Mac default tests pass: 46/46 steps, 6751/6805 tests passed, 54 skipped.
+Mac shipped-options tests pass: 42/42 steps, 6749/6805 tests passed, 56 skipped.
+Linux shipped-options tests pass: 41/41 steps, 6733/6805 tests passed, 72 skipped.
+Each platform reports 134 binding tests passed.
+Linux step 1 and default tests remain explicitly NOT RUN because the gate has no network.
+The reviewer does not count those steps as passing.
+
+The accepted Mac empty-cache library proof remains `mac-run3-2c636dbe.log` at Core `2c636dbe411c2a2d4d5b8b8fcc867b976b019602`.
+The fork remains unchanged. The native build data, submodule configuration, events, library, and sys source blobs match the reviewed head.
+The later v1 clock-helper changes do not change native build flags. The latest binding tests cover the merged source.
+F-A6-02 remains CLOSED.
+
+The reviewer checked the platform explanation against native test guards and the full step trees.
+Both vt modules skip one SIMD decoder test when simd=false, which gives two additional skipped tests.
+Both modules also skip eight Mac-only input tests on Linux, which gives sixteen additional skipped tests.
+The default configuration has four additional SIMD build steps.
+Mac also has one additional WriteFile libc.txt step for the Apple SDK translate-c configuration.
+Integration owns its separate review closure.
+
+### Exact-head Linux gate
+
+The supplied full gate is `~/botster-sessions/shared/core-stage1/gate-logs/fork-a6-c085c1b9.log`.
+It names the exact reviewed Core head and accepted base `d15579da`.
+The result is 920 default tests passed with 654 skipped, and 243 slow tests passed with 941 skipped.
+The in-diff mutation run catches one mutant, with zero missed, zero timeouts, and zero unviable.
+All listed CI stages pass. Fuzz reports no changed crate with a decoder harness.
+The remote job and gate exit zero.
+
+### USER RULE and final scope
+
+No new fork commit, fork push, or upstream action appears in this delta.
+The current PR retains the fetch-only upstream action and the explicit new-branch push to trybotster/ghostty.
+The inspected local refs retain the old fork branch heads and the reviewed new head.
+This check covers the supplied records and local refs, not every external action.
+The reviewer made no upstream contact.
+
+F-A6-01 and F-A6-03 remain CLOSED. F-A6-02 remains CLOSED. F-A6-04 is CLOSED.
+No A6 package finding remains open. The lead owns the pin record and merge decision.
+This verdict closes no conformance id and does not change the separate #176 F29 proof hold.
+
+VERDICT: CLEAN
