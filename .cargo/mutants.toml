@@ -311,9 +311,17 @@ exclude_re = [
     # - `&` to `^` in the kitty flags inverts the five flag bits, which maps the 32 combinations onto themselves, and sets
     #   bits above them, which libghostty does not read: the C API truncates the flags to five bits
     #   (bits_above_the_five_kitty_flags_change_no_key_bytes).
-    # The column names the operator: 36 is the `&` of the kitty flags (whose `|` is caught). The `&` of the mode bits is
-    # not excluded: its mutants keep only the all-modes-on states, and a test catches them.
+    # - `&` to `|` or `^` in the mode bits keeps, for every kitty combination, only the state with all six key modes on.
+    #   This is NOT an equivalence on macOS (review finding F51): there, the legacy Alt prefix writes ESC and the
+    #   unshifted key, not the text (pinned Ghostty src/input/key_encode.zig:642-650, `builtin.os.tag == .macos` only),
+    #   so an Alt key with long text writes the most with the Alt prefix off.
+    #   the_key_bound_of_an_alt_key_with_long_text_covers_the_states_with_modes_off catches both mutants on macOS; the
+    #   P3 pull request names the focused Mac mutation run. The Linux gate compiles the other branch, which writes ESC and
+    #   the complete text: there the test passes, and the focused Linux run (also named there) shows the two survivors.
+    #   This entry is for the Linux gate only. Recheck it when the key encoding or the Ghostty pin changes.
+    # The columns name the operator: 40 the `&` of the mode bits, 36 the `&` of the kitty flags (whose `|` is caught).
     'crates/botster-terminal-ghostty/src/encode\.rs:\d+:\d+: replace != with == in EncoderState::every_key_state$',
+    'crates/botster-terminal-ghostty/src/encode\.rs:\d+:40: replace & with [|^] in EncoderState::every_key_state$',
     'crates/botster-terminal-ghostty/src/encode\.rs:\d+:36: replace & with \^ in EncoderState::every_key_state$',
     # set_query_request_limit_default: the library's own default (terminal.zig `default_query_max_bytes`) is 4096, the
     # value that this call sets (`DEFAULT_QUERY_REQUEST_BYTES`, `CoreLimits.max_query_bytes`, tested). Skipping the call
