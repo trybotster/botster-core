@@ -143,6 +143,11 @@ fn an_impostor_is_refused_and_never_signalled() {
             state(c.as_ref(), "s1"),
             SessionState::Lost(LostReason::WorkerGone)
         );
+        assert_eq!(
+            harness.control("c", "payload_alive", &json!({"session": "s1"})),
+            Ok(json!({"alive": true})),
+            "the real worker runs on at the later handle"
+        );
         let (removed, _) = run(c.as_mut(), &mut at, json!({"Remove": {"id": "s1"}}));
         assert!(
             matches!(
@@ -152,14 +157,10 @@ fn an_impostor_is_refused_and_never_signalled() {
             ),
             "{removed:?}"
         );
+        // `payload_alive` reads the row, which the `Remove` deletes: the signal count is the proof after it.
         assert_eq!(
             harness.control("c", "signals_received", &json!({"session": "s1"})),
             Ok(signals())
-        );
-        assert_eq!(
-            harness.control("c", "payload_alive", &json!({"session": "s1"})),
-            Ok(json!({"alive": true})),
-            "the real worker runs on after the Remove"
         );
     }
 }
