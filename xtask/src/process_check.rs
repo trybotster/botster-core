@@ -746,7 +746,7 @@ fn declared_modules(
     (dir, inline): (&str, bool),
     test: bool,
     files: &BTreeSet<&str>,
-    declared: &mut Vec<Declared>,
+    (declared, rejected): (&mut Vec<Declared>, &mut Vec<String>),
 ) {
     use crate::platform_code::{parent_dir, path_attr};
     for item in items {
@@ -756,8 +756,19 @@ fn declared_modules(
         let name = module.ident.to_string();
         let test = test || is_test_item(&module.attrs);
         if let Some((_, inner)) = &module.content {
+            if let Some(rejection) = unlisted_module_form(file, module) {
+                rejected.push(rejection);
+                continue;
+            }
             let inner_dir = format!("{dir}{name}/");
-            declared_modules(file, inner, (&inner_dir, true), test, files, declared);
+            declared_modules(
+                file,
+                inner,
+                (&inner_dir, true),
+                test,
+                files,
+                (declared, rejected),
+            );
             continue;
         }
         let beside = parent_dir(file);
@@ -798,8 +809,12 @@ pub(crate) fn normalize(path: &str) -> String {
 }
 
 /// The module declarations of the parsed `file`; `files` are the files of the run.
-pub(crate) fn declarations(file: &str, tree: &syn::File, files: &BTreeSet<&str>) -> Vec<Declared> {
-    let mut declared = Vec::new();
+pub(crate) fn declarations(
+    file: &str,
+    tree: &syn::File,
+    files: &BTreeSet<&str>,
+) -> (Vec<Declared>, Vec<String>) {
+    let (mut declared, mut rejected) = (Vec::new(), Vec::new());
     let dir = crate::platform_code::module_dir(file);
     declared_modules(
         file,
@@ -807,9 +822,30 @@ pub(crate) fn declarations(file: &str, tree: &syn::File, files: &BTreeSet<&str>)
         (&dir, false),
         false,
         files,
-        &mut declared,
+        (&mut declared, &mut rejected),
     );
-    declared
+    (declared, rejected)
+}
+
+/// The module forms that the source-reading checks resolve (plan section 8, "Source-reading checks accept a closed set of
+/// forms"): `mod name;` (as `<name>.rs` or `<name>/mod.rs`), `#[path = ".."] mod name;` (beside the file at its top,
+/// under the inline module's directory inside one), and an inline `mod name { .. }` without `#[path]`. Any other form is
+/// an error that names the form and the file: today, a `#[path]` on an inline module. The check does not model it, so
+/// the author gives the module its own file or extends this list in a reviewed change.
+pub(crate) fn unlisted_module_form(file: &str, module: &syn::ItemMod) -> Option<String> {
+    module.content.as_ref()?;
+    let attr = module
+        .attrs
+        .iter()
+        .find(|attr| attr.path().is_ident("path"))?;
+    let at = attr.pound_token.span.start();
+    Some(format!(
+        "{file}:{}:{}: `#[path]` on the inline module `{}` is not a form that the check resolves (plan section 8): give \
+         the module its own file, or remove the attribute",
+        at.line,
+        at.column + 1,
+        module.ident
+    ))
 }
 
 /// The parsed module tree of a run: each file that `include` takes, and each file that a parsed file declares as a module
@@ -819,6 +855,8 @@ pub(crate) struct Tree<'a> {
     pub(crate) parsed: BTreeMap<&'a str, syn::File>,
     pub(crate) declared: BTreeMap<&'a str, Vec<Declared>>,
     pub(crate) errors: Vec<(&'a str, syn::Error)>,
+    /// The module forms that no check resolves (`unlisted_module_form`), sorted.
+    pub(crate) rejected: Vec<String>,
 }
 
 /// The module tree of `sources` (each file of the run with its text). See `Tree`.
@@ -832,13 +870,15 @@ pub(crate) fn module_tree<'a>(
         parsed: BTreeMap::new(),
         declared: BTreeMap::new(),
         errors: Vec::new(),
+        rejected: Vec::new(),
     };
     let mut pending: Vec<&str> = files.iter().copied().filter(|file| include(file)).collect();
     let mut seen: BTreeSet<&str> = pending.iter().copied().collect();
     while let Some(file) = pending.pop() {
         match syn::parse_file(&sources[file]) {
             Ok(parsed) => {
-                let declared = declarations(file, &parsed, &files);
+                let (declared, rejected) = declarations(file, &parsed, &files);
+                tree.rejected.extend(rejected);
                 for module in &declared {
                     let reached = module.file.as_deref().and_then(|child| files.get(child));
                     if let Some(child) = reached.filter(|child| !skip(child)) {
@@ -854,6 +894,7 @@ pub(crate) fn module_tree<'a>(
         }
     }
     tree.errors.sort_by(|a, b| a.0.cmp(b.0));
+    tree.rejected.sort();
     tree
 }
 
@@ -902,6 +943,9 @@ pub fn scan_files(sources: &BTreeMap<String, String>) -> Result<(usize, Vec<Find
     let tree = module_tree(sources, |file| scope(file) != Scope::Skip, skipped);
     if let Some((file, error)) = tree.errors.first() {
         return Err(parse_error(file, error));
+    }
+    if !tree.rejected.is_empty() {
+        return Err(tree.rejected.join("\n"));
     }
     let all = tree
         .parsed

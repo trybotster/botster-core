@@ -737,3 +737,21 @@ fn a_path_is_normalized() {
     assert_eq!(normalize("a/./b/../c.rs"), "a/c.rs");
     assert_eq!(normalize("../a/../../b.rs"), "../../b.rs");
 }
+
+/// #181 B3 round 3, plan section 8: a `#[path]` on an inline module is not a listed form. The check rejects it, names the
+/// form and the file, and reads neither the real file (`alt/support.rs`) nor the decoy (`checks/support.rs`).
+#[test]
+fn a_path_on_an_inline_module_is_rejected() {
+    let sources: BTreeMap<String, String> = [
+        ("crates/x/src/lib.rs", "#[cfg(test)]\n#[path = \"alt\"]\nmod checks {\n    #[path = \"support.rs\"]\n    mod helper;\n}\n"),
+        ("crates/x/src/alt/support.rs", "fn f() { std::thread::sleep(d); }\n"),
+        ("crates/x/src/checks/support.rs", "fn g() {}\n"),
+    ]
+    .into_iter()
+    .map(|(file, text)| (file.to_string(), text.to_string()))
+    .collect();
+    assert_eq!(
+        scan_files(&sources).unwrap_err(),
+        "crates/x/src/lib.rs:2:1: `#[path]` on the inline module `checks` is not a form that the check resolves (plan section 8): give the module its own file, or remove the attribute"
+    );
+}

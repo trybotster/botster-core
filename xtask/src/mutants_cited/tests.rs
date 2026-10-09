@@ -617,3 +617,39 @@ fn a_conditionally_ignored_test_runs_only_where_its_condition_does_not_hold() {
         assert!(read(malformed).is_err(), "{malformed}");
     }
 }
+
+/// #181 B3 round 3, plan section 8: a `#[path]` on an inline module is not a listed form, in a test target's module tree and
+/// in the code whose identifiers a citation may name. The check fails and names the form and the file.
+#[test]
+fn a_path_on_an_inline_module_fails_the_check() {
+    let repo = Repo::new()
+        .package("a", false, &[])
+        .file("crates/a/src/lib.rs", "#[cfg(test)]\n#[path = \"alt\"]\nmod checks {\n    #[path = \"support.rs\"]\n    mod helper;\n}\n")
+        .file("crates/a/src/alt/support.rs", "#[test]\nfn the_cited_check() {}\n");
+    let read = |path: &str| repo.files.get(path).cloned();
+    let paths: Vec<String> = repo.files.keys().cloned().collect();
+    let rejection = "crates/a/src/lib.rs:2:1: `#[path]` on the inline module `checks` is not a form that the check resolves (plan section 8): give the module its own file, or remove the attribute";
+    assert_eq!(
+        check(
+            "# the_cited_check\n",
+            &repo.packages,
+            &read,
+            &paths,
+            &Filter::parse(OLD_FILTER).unwrap(),
+        )
+        .unwrap_err()
+        .to_string(),
+        rejection
+    );
+    let code = BTreeMap::from([(
+        "crates/a/src/lib.rs".to_string(),
+        "#[path = \"alt\"]\nmod inline {}\n".to_string(),
+    )]);
+    let read = |path: &str| code.get(path).cloned();
+    assert_eq!(
+        defined_names(&read, &["crates/a/src/lib.rs".to_string()])
+            .unwrap_err()
+            .to_string(),
+        "crates/a/src/lib.rs:1:1: `#[path]` on the inline module `inline` is not a form that the check resolves (plan section 8): give the module its own file, or remove the attribute"
+    );
+}
