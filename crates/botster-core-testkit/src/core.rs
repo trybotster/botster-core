@@ -381,6 +381,20 @@ impl Directories {
         lock(self.dirs.get(name)?).rows.get(key).cloned()
     }
 
+    /// The storage edge damages the stored row `key` of the directory `name` (`corrupt_registry_row`, Core A10-2): it keeps
+    /// the first half of the bytes that Core's encoder wrote. False when there is no such row.
+    pub(crate) fn damage_row(&self, name: &str, key: &str) -> bool {
+        let Some(registry) = self.dirs.get(name) else {
+            return false;
+        };
+        let mut registry = lock(registry);
+        let Some(bytes) = registry.rows.get_mut(key) else {
+            return false;
+        };
+        bytes.truncate(bytes.len() / 2);
+        true
+    }
+
     /// Opens a `Core` over the in-memory directory `name`, as `Core::open` opens a real one (LC-1, LC-2, 9B, DP-8).
     ///
     /// # Errors
