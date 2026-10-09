@@ -1762,3 +1762,101 @@ P5 reports that the full Linux gate at 44f2f7f9 is running; no completed result 
 This CLEAN verdict covers the reviewed delta. All prior audit and package scope limits remain as recorded in Round 12.
 
 VERDICT: CLEAN
+
+
+## PR #169 — Round 1
+
+- Exact head: `b9903f948579fd3958a24a6caf69db3c474a9447`.
+- Base: `ee7dd16c73a6991b6ef9b3a85d84fd93e57a3230`.
+- Tree: `4d0be7a0a4e6c82828b380667ee9274790748abe`.
+- Plan: revision 22, pin `71a623ef93f487754e400dc186429216357e39fe251933675cc7f851843d519d`.
+- Scope: #155 host audit fixes, plus #157 A28 and A47. The lead permitted one PR with a guided description.
+- The reviewer ran no builds, tests, mutation jobs, or gates. The reviewer changed no product code.
+
+### Review and scope
+
+The reviewer read the complete 33-file delta, the audit findings, the guided description, and the surrounding code.
+The reviewer started with merge commit 9d794383 and split commit 75552515.
+The merge retains the earlier bounded World and Rig helpers, the due-silence test, and the accepted host audit paths.
+The reviewer checked the deleted host test names against the description's survivor map and read the moved Remove tests.
+The held process.rs, slow_process.rs, common/mod.rs, and slow_facade_worker.rs files match the base exactly.
+The changed slow_real_core assertion checks configuration before directory creation and starts no process.
+
+The stop callers now share `request_stop`. The final-row owner records failed and uncertain writes without changing the stop result.
+The route queue now retains arrival order across progress and close events.
+The TM-5 test observes two due silences through the driver in both session-id orders.
+The frame-bound test checks message fit and the half-u32 cap instead of restating the formula.
+The hex helper serves launch tokens, hello proofs, and registry tokens with the same lowercase codec.
+The feature tests construct EngineConfig instead of using a test-only engine input.
+The diagnostic session-count assertions became opaque-value checks as audit A19 requires; this is not a finding.
+
+The review does not close #156 A16, A25, A27, or A50, or #157 A24 or A49.
+Those items wait for botster-test-process. A15 belongs to P6's PR B.
+The review does not certify P5 deliverable 2 or the non-Created live-worker adoption placeholder.
+
+### P5-F16 — LOW — The A49 note states the wrong scope and owner
+
+At `crates/botster-core-host/DESIGN.md:54`, the new note says every Rust host ignores SIGPIPE.
+It says only a C embedder can have the default disposition and assigns the fix to the later C ABI package.
+Audit A49 also names a Rust host that restores the default disposition.
+The PR assigns A49 to the follow-up that waits for botster-test-process.
+The note therefore narrows the known issue and states a different owner from the PR.
+
+Required change: state Rust's current default without a universal host claim.
+Name the actual held follow-up. Remove the unsupported C-ABI-only assignment.
+Status: OPEN. The reviewer sent this finding directly to P5 and copied integration.
+
+### P5-F17 — MEDIUM — The A28 test does not prove the claimed edge and driver behavior
+
+At `crates/botster-core/src/real.rs:515-542`, `a_link_whose_registration_fails_is_broken` calls only private `LinkIo::apply` and `check`.
+The test induces a registration refusal and checks those helper results.
+It never reads or writes through HostEdges, observes the wake, observes the driver close, or reads its diagnostic reason.
+Its documentation claims that the registration failure causes read/write failure and driver closure.
+The private helper assertions do not establish that behavior or its connection to the driver.
+This repeats the A17/A23 proof pattern that this PR is meant to remove.
+Revision 22 requires behavior-level mutation proofs.
+
+Required change: prove the registration-refusal path through the real edge and driver boundary.
+Check the observable I/O failure, close, and diagnostic reason. Check the wake if the test claims it.
+The proof needs no real child and can remain within this PR's scope.
+Status: OPEN. The reviewer sent this finding directly to P5 and copied integration.
+
+### P5-F18 — MEDIUM — Two full-queue tests lose the wait proof
+
+At `tests/ready.rs:181-217`, `a_local_detach_waits_for_room` combines the first poll with all later polls.
+Its final assertion checks only RouteClosed before the detach completion.
+At `tests/flow_edges.rs:304-320`, the full-queue half of the handoff-failure test also combines the first poll with later polls.
+Its final assertion checks only that one matching close appeared.
+Both tests claim that the close waits for the poll to free room.
+An early close, and an early detach completion in the first test, would satisfy their final assertions.
+The PR deletes the old private wait checks without a behavior check of that interval.
+
+Required change: retain the first poll separately.
+Assert that it contains no close for the waiting route and no detach completion where applicable.
+Then verify that the later close and completion occur once, with the required order.
+Status: OPEN. The reviewer sent the complete two-site finding directly to P5.
+
+### Retained integration finding H1
+
+Integration reports H1 MEDIUM on this exact head, verdict `0c481bdfe28e7411a3ba66cdf8ee7e7f11392f02`.
+The unchanged whole-function exclusions hide new A28 decisions in accept_link, LinkIo::apply, set_read_interest, set_write_interest, and diagnostics.
+The existing exclusion reasons and old slow proofs do not establish those new failure paths.
+Integration sent H1 directly to P5. H1 remains OPEN and requires its own closure.
+
+### Supplied evidence
+
+The reviewer checked the exact-head full Linux log's header, relevant steps, test summaries, mutation summary, and final result:
+`~/botster-sessions/gates/botster-core-stage1-p5-audit-host-fixes-b9903f94-pool-20261008-234145-92248.log`.
+It names base ee7dd16c. All CI steps report PASS; 792 default tests and 206 slow tests passed; exit 0 after 344 seconds.
+The reviewer read the exact-head in-diff mutation log `...b9903f94-pool-20261008-233821-85346.log`.
+Its command uses `NEXTEST_PROFILE=slow`; the baseline passes.
+It reports 129 tested, 112 caught, 17 unviable, zero missed, zero timeouts; exit 0.
+These passing results do not close the proof and exclusion findings above.
+
+The reviewer also read both supplied hand-applied forward-mutant diagnostic logs.
+At 621f04c0, the Starting comparison mutant fails the read-behind-create test; the write-state mutant fails seven tests.
+That earlier flow_busy mutant passes. At b9903f94, the focused baseline passes and the same mutant fails the startup-deadline read test.
+The failure is the bounded event wait's assertion, not a nextest termination.
+The diagnostic pipelines return zero independently of the test failures; the reviewer used their explicit test summaries as evidence.
+
+VERDICT: NOT CLEAN
