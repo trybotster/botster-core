@@ -179,3 +179,106 @@ The lead's gate-evidence closure rule applies if completing the evidence require
 The evidence must still be accepted before CLEAN.
 
 VERDICT: NOT CLEAN (1 open)
+
+
+## Round 4 — 2026-10-09
+
+- Exact fork head: `39a68e822e505685d1e7fa9c6abeff21125b489c` on `trybotster/ghostty` branch `botster/upstream-sync-20261009`.
+- Fork tree: `bd8386949d687724e37cbd88f6516f37fc9f280f`.
+- Exact Core head: `338f3ecb20bde1c47db4aa374b7fe987894dbee2`, PR #179, branch `stage1/p2-fork-a6-r2`.
+- Core tree: `7d38fa503f48de41e213a8c0786b114da211f84b`.
+- Previous reviewed fork head: `0bfddc16fdf1e9b71f7662fbfa8314cd497fd92a`.
+- Previous reviewed Core head: `65b2064de09a7a8c72f4edf42d6e1c2f467708ed`.
+- New upstream base: `9d479dcb1664e8dc3c66c7302ce596dc56b36d6d`.
+
+The reviewer read the fork comparison, binding delta, sync records, audit revision 12, evidence script, raw final logs, and PR metadata.
+The Core delta against the accepted v1 base separates the A6 changes from the inherited A3 binding code.
+The reviewer ran no builds, tests, mutation jobs, or gates and changed no product code.
+
+### USER RULE and fork policy
+
+The user permits only a fetch from ghostty-org. The user forbids upstream pushes and every other upstream contact.
+Ghostty pushes must go only to trybotster/ghostty, with the remote and branch named explicitly.
+
+The action audit reports only `git fetch ghostty-org` against upstream.
+It reports one successful explicit push of the new branch to trybotster/ghostty after verification of the origin URL.
+The first push attempt failed because of email privacy. The author correction kept the tree unchanged and used no force-push.
+The reviewer found no sign of an upstream push or other contact in the inspected material.
+This statement covers the supplied records and local refs, not every external action.
+The reviewer made no upstream contact.
+
+The upstream reflog records the fetch at 2026-10-09 03:17:55 -0700.
+The new branch reflog records its creation from the old candidate and its rebase onto that upstream head afterward.
+Local remote refs retain the old 20261002 and 20261004 heads and name the new 20261009 head.
+The sync therefore precedes the proposed pin move. The submodule and .gitmodules name the new fork branch and head.
+
+### Patch decisions and source
+
+The reviewer independently compared the 24 old and new commits with `git patch-id --stable` and `git range-diff`.
+Twenty-one patches are identical. Patch 6 and patch 14 have context changes only.
+Patch 1 moves QUERY and QUERY_MAX_BYTES from 46/47 to 47/48 and keeps upstream's program_status arm.
+The binding uses the new option numbers. The decision table correctly gives KEEP 23, REWORK 1, and DROP 0.
+The reviewed upstream changes replace no retained patch.
+
+The reviewer read the upstream changes that affect the terminal, stream, formatter, mouse encoder, and C callback configuration.
+OSC 7501 has no reply or effect without a program_status callback. The binding sets no such callback.
+DECSTR changes the model state through the new native softReset function. The binding continues to read that model state.
+The formatter change requires VT output with restored modes and margins; the binding uses plain text with those extras off.
+The snapshot and terminfo source comparison is empty. This sync requires no GHOSTSNP format change.
+The watched merge check uses fetched Git history and reports no merge for the listed watched PRs.
+
+Patch 14 retains the R-32 callback, decoded-size counting, bounded count buffer, and one reply owner.
+The R-33 tests retain the exclusion of ignored MIME types. F-A6-01 remains CLOSED under R-33.
+The binding's A14 setter, callback shape, and two size checks remain unchanged from Round 3.
+The constructor and snapshot restore both call the setter. Option 39 accepts the supplied limit.
+F-A6-03 remains CLOSED. The current PR has the required Prior art note.
+
+### F-A6-02 — CLOSED — Required final-source evidence is supplied
+
+Both final native evidence logs name fork `39a68e822` and Core `2c636dbe411c2a2d4d5b8b8fcc867b976b019602`, with zero tracked changes.
+The reviewer verified that the later delta to `338f3ecb` changes only records and logs, not source or evidence.sh.
+
+The final Mac log is `docs/stage1/ghostty-upstream-sync-20261009/mac-run3-2c636dbe.log`.
+It records a successful empty-cache library build with GHOSTTY_BUILD_ARGS and exactly the seven expected packages.
+The fork's project-local zig-pkg directory is absent before that build.
+Default test-lib-vt passes: 46/46 steps, 6751/6805 tests, 54 skipped.
+Shipped-options test-lib-vt passes: 42/42 steps, 6749/6805 tests, 56 skipped.
+The binding reports 134 tests passed. Each listed executed step exits zero.
+
+The final Linux log is `docs/stage1/ghostty-upstream-sync-20261009/linux-run2-2c636dbe.log`.
+Under the recorded lead scope, Linux runs test-lib-vt with shipped options in Debug from the seven-package store.
+It passes: 41/41 steps, 6733/6805 tests, 72 skipped. The binding reports 134 tests passed.
+The Linux empty-cache build and default-configuration tests are explicitly NOT RUN because the gate has no network.
+The reviewer does not count those two steps as passing.
+The earlier Linux step-1 result is explicitly disclaimed as an empty-cache proof.
+
+The full Linux log at the exact Core head is:
+`~/botster-sessions/shared/core-stage1/gate-logs/fork-a6-338f3ecb.log`.
+It records 903 default tests and 241 slow tests passed.
+Every listed CI stage passes. The in-diff run reports one mutant caught, zero missed, and zero timeouts.
+Fuzz reports that the diff changes no crate with a decoder harness. The remote job exits zero.
+The evidence closes the required native build, Zig tests, binding tests, and empty-cache library package check.
+The remaining finding concerns a separate package-isolation claim in the record.
+
+### F-A6-04 — LOW — Mac step 2b does not establish the claimed package isolation
+
+Status: OPEN. The reviewer sent this finding directly to P5 and copied integration.
+
+At `docs/stage1/ghostty-upstream-sync-20261009/evidence.sh:28`, the script checks project-local zig-pkg only before step 1.
+Steps 1 and 2a can populate that directory before step 2b.
+Step 2b uses fresh global and local caches, but it uses the same fork tree.
+At line 73, its extra-package check reads only the new global cache.
+Zig 0.16 can also use project-local packages, as the script and audit explain.
+The Mac run therefore does not establish that step 2b had access to only ZIG_PACKAGES.
+This limitation does not invalidate its shipped-options test result or the empty-cache library proof in step 1.
+
+Required change: qualify the Mac step-2b package-sufficiency claim in the sync record and PR description.
+Update the README or audit where those documents repeat the claim.
+Keep the passing Mac test result. Attribute the seven-package shipped-test proof to the Linux run.
+Alternatively, isolate the project-local package directory before Mac step 2b and supply the resulting evidence.
+A documentation correction needs no new native evidence run.
+
+No source finding remains open. Integration owns its separate review and platform-result explanation.
+The lead retains the pin record and merge decision. This verdict closes no conformance id.
+
+VERDICT: NOT CLEAN
