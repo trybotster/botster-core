@@ -123,17 +123,22 @@ fn links_forward_bytes_descriptors_interests_and_close() {
     edges.link_send(link, b"answer").unwrap();
     let n = peer.recv(&mut bytes).unwrap();
     assert_eq!(&bytes[..n], b"answer");
-    let options: AttachOptions =
-        serde_json::from_value(serde_json::json!({"file_directory": "/"})).unwrap();
-    edges
-        .handoff_route(link, RouteId(1), StreamEndpoint::new(71u64), &options)
-        .unwrap();
+    assert_eq!(
+        edges
+            .link_send_descriptor(link, b"frame", StreamEndpoint::new(71u64))
+            .unwrap(),
+        5
+    );
     let descriptor = peer.recv_descriptor().unwrap();
     let transport = descriptor.downcast::<StreamEndpoint>().unwrap();
     assert_eq!(transport.downcast::<u64>().unwrap(), 71);
-    assert!(edges
-        .handoff_route(LinkId(99), RouteId(1), StreamEndpoint::new(0u64), &options)
-        .is_err());
+    let n = peer.recv(&mut bytes).unwrap();
+    assert_eq!(&bytes[..n], b"frame", "the descriptor rode on these bytes");
+    let (back, why) = edges
+        .link_send_descriptor(LinkId(99), b"f", StreamEndpoint::new(0u64))
+        .unwrap_err();
+    assert_eq!(why, DescriptorSendError::Failed, "no such link");
+    assert_eq!(back.downcast::<u64>().unwrap(), 0, "the endpoint comes back");
     edges.link_close(link);
     assert_eq!(peer.recv(&mut bytes).unwrap(), 0);
     assert_eq!(
