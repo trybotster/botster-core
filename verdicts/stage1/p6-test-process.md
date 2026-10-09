@@ -179,3 +179,46 @@ each miss with its reason, or kill it with a test.
 - PR C: `run_to_completion`, and `xtask/src/base_merge/tests.rs` `Repo::git` uses it.
 
 VERDICT: NOT CLEAN (2 open: U1 MEDIUM, E1 MEDIUM)
+
+## Round 3 — CLEAN on head 414b0ab1
+
+Reviewed head: `414b0ab1e6e3d3ad55da56c87fe2f12f4fe18b32`, a fast-forward from `5d0d89c7` (7 commits, 13 files, +675 -327).
+The branch is still on v1 `59ce1268`. v1 is `a0f78fe4`, and both sides change `.cargo/mutants.toml`, so the v1 merge needs
+a delta round (the base-merge-check fails condition 2 on that path).
+
+- **U1 CLOSED** (with the P6 package reviewer's TP7, which is theirs). `xtask/src/unsafe_exception.rs` replaces the
+  line check:
+  - Rust sources are read as `proc_macro2` tokens. Every `unsafe_code` identifier in any group is reported (a raw
+    identifier too), except the one in the first top-level `#[allow(unsafe_code)]` whose item is `fn close_inherited` in
+    the anchor binary. A split attribute, `cfg_attr`, `expect`, an inner attribute and a macro body are all caught.
+    Comments and strings are not identifiers.
+  - Manifests and Cargo configurations (`.cargo/config*`, `rustflags` included) are parsed as TOML. Every key or string
+    that names the lint (`-` read as `_`) is reported, except the three lint entries. An escaped key is read as Cargo
+    reads it. A file that does not parse or lex is reported.
+- **E1 CLOSED.** The slow-tier `--no-config` run at `5ae04611` (`…025755-11248.log`; only the prebuilt-anchor test is
+  skipped, because cargo-mutants' copy has no `target/candidate`, and the gate's slow job runs it): 234 tested, 187
+  caught, 35 unviable, 12 missed, 0 TIMEOUT. `414b0ab1` changes only `mutants.toml` after it. The 12:
+  - `peek` `|` with `^` (2): equivalent, because `EXITED`, `NOWAIT` and `NOHANG` are distinct bits.
+  - `close_inherited` (6): the open flags (`RDONLY` is 0 and the flags share no bit, so `^` is `|`; `&` drops
+    `DIRECTORY` and `CLOEXEC`, and the listing is a directory that its drop closes before any fork or exec), and the two
+    failed-`close` branches, which need a descriptor closed under the one-thread stage, or a signal or device error. The
+    reasons are written in the entry.
+  - `Guard::accept` and the three Linux guards (4): existing entries with reasons.
+- **The exit-137 kill was a real defect, and it is fixed.** A mutant `OwnedChild::id -> 1` made the cleanup send
+  `kill(-1, KILL)`, which signals every process of the user. `platform::signal_target` now refuses group 1, and every
+  group signal of the crate takes its target from it (`reserved_kill`, the anchor's `terminate`, and the `end_group`
+  failure path). The macOS `test_kill_process_group` sends signal 0 only. The test sends no signal.
+- **TP8 (theirs).** An interrupted kqueue poll is polled again, and the excluded error arm is removed.
+- **Evidence.** The full gate at this head is green (`…030617-17472.log`). The Mac run at this head
+  (`…031627-28957.log`) passes 69 tests, and the `platform/macos.rs` mutants are 19 caught, 3 unviable, 0 missed, 0
+  TIMEOUT.
+
+### Carry
+
+- **v1's guards in `botster-core-sys/tests/common`** (shared by the slow tests of three crates) also signal a negative
+  group id with no group-1 check. The same mutant class there could signal every process of the user. PR C migrates them to
+  this crate. Until then, a mutation run over them is not safe. P6: say in PR C that the migration removes them, or add the
+  same refusal there.
+- PR B: the mutants profile with `--max-fail 1:immediate`. PR C: `run_to_completion`, and `Repo::git` uses it.
+
+VERDICT: CLEAN (0 open) at 414b0ab1e6e3d3ad55da56c87fe2f12f4fe18b32
