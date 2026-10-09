@@ -6,6 +6,7 @@ mod ci;
 mod fsutil;
 mod lists;
 mod prebuild;
+mod process_check;
 mod public_api;
 mod taint;
 mod test_budget;
@@ -23,6 +24,7 @@ commands:
   base-merge-check <reviewed> <new>  a base-only merge after CLEAN: no conflict, no shared path, the same own diff
   taint                              banned old-world names (contracts list plus Core's additions)
   timers                             unmarked sleeps in test code; timers in machine crates
+  process-check                      real-process test code outside botster-test-process (waits, reads, sleeps)
   lists                              check core-ledger-ids, core-pending and core-deferred
   ledger-ids [--write]               check or write conformance/core-ledger-ids.txt from the pinned ledger
   public-api [--update]              check or write the facade snapshot api/botster-core.txt
@@ -49,6 +51,7 @@ const COMMANDS: &[(&str, CommandFn, Option<&[&str]>)] = &[
     ("base-merge-check", base_merge::command, None),
     ("taint", taint::command, None),
     ("timers", timers::command, None),
+    ("process-check", process_check::command, None),
     ("lists", lists::command, None),
     ("ledger-ids", lists::ledger_ids_command, None),
     ("public-api", public_api::command, None),
@@ -116,6 +119,7 @@ mod tests {
             ("base-merge-check", base_merge::command, given.clone()),
             ("taint", taint::command, given.clone()),
             ("timers", timers::command, given.clone()),
+            ("process-check", process_check::command, given.clone()),
             ("lists", lists::command, given.clone()),
             ("ledger-ids", lists::ledger_ids_command, given.clone()),
             ("public-api", public_api::command, given.clone()),
