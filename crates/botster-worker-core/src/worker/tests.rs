@@ -1885,3 +1885,106 @@ fn key_and_mouse_events_are_encoded_by_the_model() {
         }
     }
 }
+
+/// The `input_rev` of each `HostInput` that `actions` report.
+fn host_input_revs(w: &mut World, actions: &[Action]) -> Vec<InputRev> {
+    observations(w, actions)
+        .into_iter()
+        .filter_map(|o| match o {
+            Observation::HostInput { input_rev } => Some(input_rev),
+            _ => None,
+        })
+        .collect()
+}
+
+/// A13-1b: each OSC 5522 acknowledgement is the model's own (an independent terminal's answer to the same output). Each
+/// is one contiguous transaction at the admission point, in the order of its write. It waits behind the host write that
+/// is out, a host write that comes later waits behind it, and it advances no `input_rev` and completes no operation.
+#[test]
+fn osc_5522_acknowledgements_are_written_in_order_through_the_admission_point() {
+    let commit = |id: u32| {
+        format!(
+            "\x1b]5522;type=write:id={id}\x1b\\\x1b]5522;type=wdata:mime=dGV4dC9wbGFpbg==;aGk=\x1b\\\x1b]5522;type=wdata\x1b\\"
+        )
+    };
+    let output = [commit(1), commit(2), commit(3)].concat().into_bytes();
+    let mut expected = oracle();
+    expected.vt_write(&output);
+    let acks = expected.drain_events().clipboard_acks;
+    assert_eq!(acks.len(), 3);
+    assert!(acks.iter().all(|ack| ack.len() > 1));
+
+    let mut w = World::running();
+    let actions = w.send(&write(1, b"x", None));
+    assert_eq!(pty_writes(&actions), [b"x".to_vec()]);
+    let first_rev = host_input_revs(&mut w, &actions);
+    assert_eq!(first_rev.len(), 1);
+    let actions = w.feed(Input::PtyOutput(output));
+    assert!(
+        pty_writes(&actions).is_empty(),
+        "the host write owns the PTY input"
+    );
+    let writes = observations(&mut w, &actions)
+        .into_iter()
+        .filter(|o| matches!(o, Observation::ClipboardWrite { .. }))
+        .count();
+    assert_eq!(writes, 3);
+
+    let actions = w.feed(Input::PtyWritten(Ok(1)));
+    assert_eq!(pty_writes(&actions), [acks[0].clone()]);
+    assert!(input_result(&mut w, &actions, 1).is_some());
+    assert!(host_input_revs(&mut w, &actions).is_empty());
+    // A host write that comes now waits for every acknowledgement.
+    assert!(pty_writes(&w.send(&write(2, b"y", None))).is_empty());
+    // A partial write keeps the acknowledgement contiguous: its rest comes next.
+    let actions = w.feed(Input::PtyWritten(Ok(1)));
+    assert_eq!(pty_writes(&actions), [acks[0][1..].to_vec()]);
+    let mut actions = w.feed(Input::PtyWritten(Ok(acks[0].len() - 1)));
+    for ack in &acks[1..] {
+        assert_eq!(pty_writes(&actions), std::slice::from_ref(ack));
+        assert!(!w.reports(&actions).iter().any(|m| matches!(
+            m,
+            WorkerMsg::Done { .. }
+                | WorkerMsg::Observed {
+                    observation: Observation::HostInput { .. }
+                }
+        )));
+        actions = w.feed(Input::PtyWritten(Ok(ack.len())));
+    }
+    assert_eq!(pty_writes(&actions), [b"y".to_vec()]);
+    assert_eq!(
+        host_input_revs(&mut w, &actions),
+        [InputRev(first_rev[0].0 + 1)],
+        "the acknowledgements advanced no input_rev"
+    );
+    let actions = w.feed(Input::PtyWritten(Ok(1)));
+    assert!(input_result(&mut w, &actions, 2).is_some());
+}
+
+/// ST-3, R-7: the cursor's row text is the model's cells as they are. The second cell of a wide character has no text,
+/// so it adds nothing to the row or to the text before the cursor.
+#[test]
+fn a_wide_character_adds_no_text_for_its_second_cell() {
+    let output = "a日b".as_bytes();
+    let mut w = World::running();
+    w.feed(Input::PtyOutput(output.to_vec()));
+    let mut expected = oracle();
+    expected.vt_write(output);
+    let at = expected.cursor();
+    let cells = expected.row_cells(at.row).expect("the cursor's row");
+    let OpResult::Ok(OpOutput::Cursor(cursor)) = op(&mut w, 1, Op::ReadCursor { session: sid() })
+    else {
+        panic!("a cursor");
+    };
+    assert_eq!(cursor.col, at.col);
+    assert_eq!(
+        cursor.row_text,
+        cells.concat().trim_end_matches(' '),
+        "trailing spaces are trimmed"
+    );
+    assert_eq!(cursor.text_before_cursor, cells[..at.col as usize].concat());
+    assert!(
+        cells.iter().any(String::is_empty),
+        "the model has a wide character's second cell"
+    );
+}

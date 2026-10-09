@@ -365,15 +365,11 @@ pub(crate) unsafe extern "C" fn on_clipboard_write(
     };
 
     // The reply must come before the callback returns, and a return without one denies the write. The binding decides
-    // here, by size alone (A13-1b): SUCCESS within the limit, IO_ERROR over it or over the model's own limit. It never
-    // answers DENIED, UNSUPPORTED or BUSY. The model writes the OSC 5522 acknowledgement while it handles the reply; it is captured, not written.
+    // here (A13-1b, R-41): see `write_result`. The model writes the OSC 5522 acknowledgement while it handles the reply;
+    // it is captured, not written.
     let reply = sys::ClipboardWriteReply {
         size: std::mem::size_of::<sys::ClipboardWriteReply>(),
-        result: if too_large {
-            sys::CLIPBOARD_WRITE_IO_ERROR
-        } else {
-            sys::CLIPBOARD_WRITE_SUCCESS
-        },
+        result: write_result(too_large, location),
         remember: false,
     };
     shared(userdata).ack = Some(Vec::new());
@@ -394,6 +390,17 @@ pub(crate) unsafe extern "C" fn on_clipboard_write(
         total_bytes,
         too_large,
     }));
+}
+
+/// The status of a clipboard write (A13-1b), decided by size alone: SUCCESS within the limit, IO_ERROR over it or over
+/// the model's own limit. It is never DENIED, UNSUPPORTED or BUSY. A location that A13-1 names no letter for is
+/// IO_ERROR (R-41): the worker posts no `ClipboardWrite` for it, only the loss marker.
+pub(crate) fn write_result(too_large: bool, location: ClipboardLocation) -> i32 {
+    if too_large || matches!(location, ClipboardLocation::Other(_)) {
+        sys::CLIPBOARD_WRITE_IO_ERROR
+    } else {
+        sys::CLIPBOARD_WRITE_SUCCESS
+    }
 }
 
 pub(crate) unsafe extern "C" fn on_query(
