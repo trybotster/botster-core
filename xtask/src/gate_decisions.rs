@@ -826,19 +826,21 @@ impl<'ast> Visit<'ast> for Index<'_> {
         syn::visit::visit_item(self, item);
     }
 
-    /// A `use` that binds the name of a listed macro (or of a crate root of the macro lists) fails unless it binds that
-    /// macro, that crate, or a `std` or `core` path of the same name (`use std::env;`): through a glob of the crate it
-    /// could give a listed name to another macro (`pub use syn::parse_quote as println;`, #181 R6-1).
+    /// A `use` that binds the name of a listed macro (or of a crate root of the macro lists) fails unless the path ends in
+    /// that name and is a listed macro, the crate, or a `std` or `core` path (`use std::env;`): through a glob of the crate
+    /// it could give a listed name to another macro (`pub use syn::parse_quote as println;`, #181 R6-1).
     fn visit_item_use(&mut self, item: &'ast syn::ItemUse) {
         let uses = crate::process_check::Uses::of([&syn::Item::Use(item.clone())], false);
         for (name, target) in uses.bindings() {
+            // Allowed: the name itself, as a listed macro (`anyhow::bail`), a crate (`syn`) or a `std` path (`std::env`);
+            // never a rename (`use syn::parse_quote as bail;`, though `syn::parse_quote` is listed itself).
             let listed = ARGUMENT_MACROS
                 .iter()
                 .chain(&OPAQUE_MACROS)
                 .any(|want| is_path(target, want));
-            let same = target.last() == Some(name)
-                && (target.len() == 1 || matches!(target[0].as_str(), "std" | "core"));
-            if is_macro_name(name) && !listed && !same {
+            let own = target.last() == Some(name)
+                && (listed || target.len() == 1 || matches!(target[0].as_str(), "std" | "core"));
+            if is_macro_name(name) && !own {
                 let at = item.use_token.span.start();
                 self.rejected.push(format!(
                     "{}:{}: the `use` binds `{name}`, the name of a listed macro or of its crate, to `{}`, which is not a \
