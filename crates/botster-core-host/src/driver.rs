@@ -37,6 +37,8 @@ pub struct WorkerSpawn {
     pub instance: InstanceId,
     pub token: [u8; TOKEN_LEN],
     pub host_epoch: u64,
+    /// `CoreLimits.startup`: the worker's bound of a candidate's hello and of its life with no payload and no host (AD-7).
+    pub startup: std::time::Duration,
 }
 
 /// The handoff of a route's stream failed (DP-2): the route closes `HandoffFailed`.
@@ -75,6 +77,9 @@ pub trait HostEdges: Send {
     fn connect_worker(&mut self, _instance: &InstanceId) -> Option<LinkId> {
         None
     }
+    /// Removes the endpoint of the worker of `instance` if it is there (DESIGN.md "Adoption (P5)" part 1). Edges with no
+    /// worker endpoints have nothing to remove. A failure is the edges' to record in their diagnostics.
+    fn remove_endpoint(&mut self, _instance: &InstanceId) {}
     /// `Ok(0)` means that the peer closed the link.
     fn link_recv(&mut self, link: LinkId, buf: &mut [u8]) -> io::Result<usize>;
     fn link_send(&mut self, link: LinkId, bytes: &[u8]) -> io::Result<usize>;
@@ -277,15 +282,18 @@ impl<E: HostEdges> HostDriver<E> {
                 instance,
                 token,
                 host_epoch,
+                startup,
             } => {
                 let result = self.edges.spawn_worker(&WorkerSpawn {
                     program,
                     instance,
                     token,
                     host_epoch,
+                    startup,
                 });
                 self.feed(Input::Spawned { ticket, result });
             }
+            Action::RemoveEndpoint { instance } => self.edges.remove_endpoint(&instance),
             Action::SendHello { link, hello } => {
                 let mut payload = Vec::new();
                 if hello.encode(&mut payload).is_ok() {

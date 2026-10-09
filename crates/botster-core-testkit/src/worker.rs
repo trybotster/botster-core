@@ -22,7 +22,9 @@ use botster_core_edges::{Link, Machine, Program};
 use botster_core_host::driver::{HostDriver, HostWake, WorkerSpawn};
 use botster_core_link::msg::PayloadId;
 use botster_route_codec::prelude::QueryKind;
-use botster_worker_core::{Action, Drain, Input, PayloadSpec, SpawnFailure, Worker, WorkerConfig};
+use botster_worker_core::{
+    Action, CandidateId, Drain, Input, PayloadSpec, SpawnFailure, Worker, WorkerConfig,
+};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::io;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
@@ -134,14 +136,23 @@ impl Pids {
     }
 }
 
-/// A held start (`hold_start_at`): the data directory of the host and the session's instance. An `InstanceId` names one
+/// A session instance of the run: the data directory of its host and its `InstanceId`. It keys a held start
+/// (`hold_start_at`) and a worker endpoint (`<data_dir>/w/<InstanceId>`, DESIGN.md part 1). An `InstanceId` names one
 /// incarnation in its registry (Core ID-1), and each new directory starts its host epoch at 1 (DP-8), so two directories of
 /// one run can have the same instance: the directory is part of the key.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) struct StartKey {
+pub(crate) struct InstanceKey {
     pub(crate) dir: String,
     pub(crate) instance: InstanceId,
 }
+
+/// The connections that wait on one worker endpoint, oldest first (DESIGN.md part 6).
+type Endpoint = Arc<Mutex<VecDeque<LinkEnd>>>;
+
+/// The endpoint of each worker of the run (DESIGN.md parts 1, 6): bound at the spawn, before the first hello. A worker that
+/// exits removes its own. A killed worker cannot: its endpoint stays as `None`, a socket file that no worker listens on,
+/// until the host's `Remove` or a cleaner removes it. Every handle of the run reaches it, as a path in one file system.
+type Endpoints = Arc<Mutex<BTreeMap<InstanceKey, Option<Endpoint>>>>;
 
 /// The `Sim` of one harness: every in-process worker of every handle (plan 4.1: "a `Sim` owns ... every `Worker`").
 #[derive(Clone)]
@@ -150,7 +161,8 @@ pub struct Workers {
     pids: Arc<Mutex<Pids>>,
     run_processes: Arc<Mutex<RunProcesses>>,
     /// The starts that are held before the payload's launch (`hold_start_at`, AD-7 step 4).
-    held_starts: Arc<Mutex<BTreeSet<StartKey>>>,
+    held_starts: Arc<Mutex<BTreeSet<InstanceKey>>>,
+    endpoints: Endpoints,
     scheduler: SchedulerHandle,
     read_chunk: usize,
 }
@@ -184,6 +196,7 @@ impl Workers {
             pids: Arc::new(Mutex::new(Pids { next: 1000 })),
             run_processes: Arc::default(),
             held_starts: Arc::default(),
+            endpoints: Arc::default(),
             scheduler,
             read_chunk,
         }
@@ -256,7 +269,7 @@ impl Workers {
     ///
     /// # Errors
     /// The start of `key` is already held.
-    pub(crate) fn hold_start(&self, key: StartKey) -> Result<(), String> {
+    pub(crate) fn hold_start(&self, key: InstanceKey) -> Result<(), String> {
         let text = format!("{} in {}", key.instance.0, key.dir);
         if lock(&self.held_starts).insert(key) {
             Ok(())
@@ -272,7 +285,7 @@ impl Workers {
     /// No hold of `key` remains: none was set, it was released, or its worker ended.
     pub(crate) fn release_start(
         &self,
-        key: &StartKey,
+        key: &InstanceKey,
         worker: Option<ProcessIdentity>,
     ) -> Result<(), String> {
         if !lock(&self.held_starts).remove(key) {
@@ -340,6 +353,21 @@ impl Workers {
         Ok((program, wake))
     }
 
+    /// A cleaner removes the endpoint of the worker of `key` (DESIGN.md part 1): a live worker keeps running, and a new
+    /// host's connect fails. False when there is no endpoint (it was never bound, or it was removed).
+    pub(crate) fn unlink_endpoint(&self, key: &InstanceKey) -> bool {
+        lock(&self.endpoints).remove(key).is_some()
+    }
+
+    /// A process of this user that is not a host connects to the endpoint of the live worker of `key` (AD-6: the endpoint
+    /// is closed to other users only). The caller holds the connection's other end. `None` when no worker listens there.
+    pub(crate) fn connect_endpoint(&self, key: &InstanceKey) -> Option<LinkEnd> {
+        let endpoint = lock(&self.endpoints).get(key).cloned().flatten()?;
+        let (stranger, worker) = crate::net::link_pair(self.read_chunk);
+        lock(&endpoint).push_back(worker);
+        Some(stranger)
+    }
+
     /// True when no edge toward the host of `table` holds a report that it has not consumed: no worker has ready work (input
     /// to read, bytes to write, a payload's output or exit, a signal), and the host's process table holds no exit and no
     /// unread link report (`edges_quiet`). The fence of `await_quiet` (Core A5-2).
@@ -360,7 +388,7 @@ impl Workers {
 /// The `Process` edge of the testkit's `Core` for workers (P1's [`Spawner`]).
 pub struct WorkerSpawner {
     workers: Workers,
-    /// The data directory of the host: with an instance, it names a start (`StartKey`).
+    /// The data directory of the host: with an instance, it names a start (`InstanceKey`).
     dir: String,
     processes: Arc<Mutex<Processes>>,
 }
@@ -372,8 +400,18 @@ impl WorkerSpawner {
     }
 }
 
+impl WorkerSpawner {
+    fn key(&self, instance: &InstanceId) -> InstanceKey {
+        InstanceKey {
+            dir: self.dir.clone(),
+            instance: instance.clone(),
+        }
+    }
+}
+
 impl Spawner for WorkerSpawner {
-    /// AD-7 step 2: the worker exists and connects to the host; its payload waits for the host's `Launch`.
+    /// AD-7 step 2: the worker exists, binds its endpoint and connects to the host; its payload waits for the host's
+    /// `Launch`.
     fn spawn(
         &mut self,
         spec: &WorkerSpawn,
@@ -387,23 +425,26 @@ impl Spawner for WorkerSpawner {
         lock(&self.processes).cells.insert(id, Arc::clone(&cell));
         lock(&self.workers.run_processes)
             .insert(id, (Arc::clone(&cell), Arc::clone(&self.processes)));
+        let key = self.key(&spec.instance);
+        let endpoint = Endpoint::default();
+        lock(&self.workers.endpoints).insert(key.clone(), Some(Arc::clone(&endpoint)));
         let mut link = connect();
         lock(&cell).link = Some(link.end().control());
-        let worker = Worker::new(WorkerConfig::new(
-            spec.instance.clone(),
-            spec.token,
-            spec.host_epoch,
-        ));
+        let worker = Worker::new(WorkerConfig {
+            startup: spec.startup,
+            ..WorkerConfig::new(spec.instance.clone(), spec.token, spec.host_epoch)
+        });
         let mut edges = WorkerEdges {
             id,
             cell,
             processes: Arc::clone(&self.processes),
             pids: Arc::clone(&self.workers.pids),
-            start: StartKey {
-                dir: self.dir.clone(),
-                instance: spec.instance.clone(),
-            },
+            key,
             held_starts: Arc::clone(&self.workers.held_starts),
+            endpoint,
+            endpoints: Arc::clone(&self.workers.endpoints),
+            candidates: BTreeMap::new(),
+            next_candidate: 0,
             held_spawn: None,
             scheduler: self.workers.scheduler.clone(),
             link,
@@ -466,6 +507,23 @@ impl Spawner for WorkerSpawner {
     fn poll_exit(&mut self) -> Option<(ProcessIdentity, ExitStatus)> {
         lock(&self.processes).exits.pop_front()
     }
+
+    /// A live worker of this data directory listens on its endpoint: it takes `end` as a candidate.
+    fn connect_worker(&mut self, instance: &InstanceId, end: LinkEnd) -> bool {
+        let Some(endpoint) = lock(&self.workers.endpoints)
+            .get(&self.key(instance))
+            .cloned()
+            .flatten()
+        else {
+            return false;
+        };
+        lock(&endpoint).push_back(end);
+        true
+    }
+
+    fn remove_endpoint(&mut self, instance: &InstanceId) {
+        lock(&self.workers.endpoints).remove(&self.key(instance));
+    }
 }
 
 /// One ready input of a worker, in the order of plan 2.4: control first, then the payload.
@@ -477,6 +535,10 @@ enum Ready {
     Link,
     /// `break_control` broke the worker's end of the link.
     LinkBroken,
+    /// A connection waits on the endpoint.
+    Accept,
+    /// A candidate has bytes, or its peer closed it.
+    Candidate(CandidateId),
     /// The link takes bytes and some of `outbound` waits for it.
     Flush,
     Spawned,
@@ -501,12 +563,18 @@ struct WorkerEdges {
     cell: Arc<Mutex<ProcessCell>>,
     processes: Arc<Mutex<Processes>>,
     pids: Arc<Mutex<Pids>>,
-    /// The start of the session that the worker serves.
-    start: StartKey,
+    /// The session instance that the worker serves.
+    key: InstanceKey,
     /// The run's held starts (`hold_start_at`).
-    held_starts: Arc<Mutex<BTreeSet<StartKey>>>,
+    held_starts: Arc<Mutex<BTreeSet<InstanceKey>>>,
     /// The payload spawn that the worker asked for while its start was held (AD-7 step 4).
     held_spawn: Option<PayloadSpec>,
+    /// This worker's endpoint, and the run's table of endpoints (the worker's exit removes its own).
+    endpoint: Endpoint,
+    endpoints: Endpoints,
+    /// The accepted connections whose hello has not passed.
+    candidates: BTreeMap<CandidateId, LinkEnd>,
+    next_candidate: u64,
     scheduler: SchedulerHandle,
     link: LinkEnd,
     link_open: bool,
@@ -531,12 +599,26 @@ struct WorkerEdges {
 }
 
 impl WorkerEdges {
-    /// The end of the worker process: the OS closes its descriptors, so its link closes, and its payload's PTY is gone. A
-    /// spawn that a hold kept is dropped with its hold: no payload runs for the session later.
-    fn ended(&mut self) {
+    /// The end of the worker process: the OS closes its descriptors, so its link, its endpoint and every connection on it
+    /// close, and its payload's PTY is gone. A worker that exits (`exited`) removes its endpoint; a killed one leaves it,
+    /// and no worker listens on it. A spawn that a hold kept is dropped with its hold: no payload runs for the session later.
+    fn ended(&mut self, exited: bool) {
         if self.link_open {
             self.link_open = false;
             self.link.close();
+        }
+        let mut endpoints = lock(&self.endpoints);
+        if exited {
+            endpoints.remove(&self.key);
+        } else if let Some(endpoint) = endpoints.get_mut(&self.key) {
+            *endpoint = None;
+        }
+        drop(endpoints);
+        for mut end in std::mem::take(&mut *lock(&self.endpoint)) {
+            end.close();
+        }
+        for (_, mut end) in std::mem::take(&mut self.candidates) {
+            end.close();
         }
         self.outbound.clear();
         self.payload = None;
@@ -545,11 +627,11 @@ impl WorkerEdges {
         cell.program = None;
         drop(cell);
         self.held_spawn = None;
-        lock(&self.held_starts).remove(&self.start);
+        lock(&self.held_starts).remove(&self.key);
     }
 
     fn start_held(&self) -> bool {
-        lock(&self.held_starts).contains(&self.start)
+        lock(&self.held_starts).contains(&self.key)
     }
 
     /// Queues the payload's exit for the worker once its process ended. From then on, the payload is not alive.
@@ -620,7 +702,7 @@ impl Binding<Worker> for WorkerEdges {
     fn ready(&mut self, _now: Instant, _machine: &Worker) -> usize {
         self.ready.clear();
         if lock(&self.cell).ended {
-            self.ended();
+            self.ended(false);
             return 0;
         }
         if lock(&self.cell).end_payload {
@@ -644,6 +726,18 @@ impl Binding<Worker> for WorkerEdges {
             }
             if flags.writable && !self.outbound.is_empty() {
                 self.ready.push(Ready::Flush);
+            }
+        }
+        if !lock(&self.endpoint).is_empty() {
+            self.ready.push(Ready::Accept);
+        }
+        for (id, end) in &mut self.candidates {
+            end.end().set_interest(Interest {
+                read: true,
+                write: false,
+            });
+            if end.end().readiness().readable {
+                self.ready.push(Ready::Candidate(*id));
             }
         }
         if self.pty_write.is_some() && self.spawned.is_none() {
@@ -712,6 +806,29 @@ impl Binding<Worker> for WorkerEdges {
                 self.link_open = false;
                 self.link.close();
                 Input::LinkClosed
+            }
+            Ready::Accept => {
+                let end = lock(&self.endpoint).pop_front().expect("counted as ready");
+                self.next_candidate += 1;
+                let id = CandidateId(self.next_candidate);
+                self.candidates.insert(id, end);
+                Input::Candidate(id)
+            }
+            Ready::Candidate(id) => {
+                let end = self.candidates.get_mut(&id).expect("counted as ready");
+                let mut buf = vec![0u8; self.read_chunk];
+                match end.recv(&mut buf) {
+                    Ok(n) if n > 0 => {
+                        buf.truncate(n);
+                        Input::CandidateBytes(id, buf)
+                    }
+                    _ => {
+                        if let Some(mut end) = self.candidates.remove(&id) {
+                            end.close();
+                        }
+                        Input::CandidateClosed(id)
+                    }
+                }
             }
             Ready::Flush => self.flush(),
             Ready::Spawned => Input::Spawned(self.spawned.take().expect("counted as ready")),
@@ -805,11 +922,31 @@ impl Binding<Worker> for WorkerEdges {
             }
             Action::Exit => {
                 lock(&self.processes).end(self.id, ExitStatus::Code(0));
-                self.ended();
+                self.ended(true);
             }
-            // The `Sim`'s worker endpoints come after `botster-test-process` (#171; DESIGN.md part 6). Until then this
-            // driver gives no `Input::Candidate`, so the machine names no candidate.
-            Action::CandidateClose(_) | Action::AdoptLink(_) => {}
+            Action::CandidateClose(id) => {
+                if let Some(mut end) = self.candidates.remove(&id) {
+                    end.close();
+                }
+            }
+            // The fence (DP-8): the old link closes with its unwritten bytes, and the candidate is the link from now on. A
+            // break of the old link (`break_control`) ends with it.
+            Action::AdoptLink(id) => {
+                if self.link_open {
+                    self.link.close();
+                }
+                self.outbound.clear();
+                self.written = 0;
+                // The machine adopts a candidate in the input that gave its hello, so the candidate is still here.
+                self.link = self
+                    .candidates
+                    .remove(&id)
+                    .expect("the machine adopts only a candidate that it holds");
+                self.link_open = true;
+                let mut cell = lock(&self.cell);
+                cell.break_link = false;
+                cell.link = Some(self.link.end().control());
+            }
         }
     }
 }
