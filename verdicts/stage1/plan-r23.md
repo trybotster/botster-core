@@ -329,3 +329,49 @@ The fetched `v1` contains #200 at `3fa51cd2d148315883002af96495b3096242ba42`, co
 The earlier 23h head receives no separate CLEAN because the second commit supersedes its fourth-pair assignment.
 
 VERDICT: CLEAN (0 open) at 93fd39704e27fdf596127d0ab655ef6b88da1ead
+
+
+## Round 10 — revision 23i — CLEAN
+
+Reviewed head: `5e0a7500fa3f150d9f4a2ae6ba7a7b69e116ef88`.
+Previous reviewed head: `93fd39704e27fdf596127d0ab655ef6b88da1ead`.
+The lead assigned the complete two-commit delta. It adds the revision 23i paragraph and its revision row.
+The reviewer applied orchestrate-delivery to the changed acceptance premise.
+The reviewer read the complete delta and section 8. The reviewer changed no product code and ran no tests, builds, or gates.
+
+### Changed responsibility
+
+The gate no longer infers that one function calls or forwards to another function.
+Review must establish that an excluded shell forwards to the cited decision.
+This extends revision 23g's explicit review responsibility to the call relation that used the same invalid syntax inference.
+
+The remaining mechanical contract is explicit:
+
+- The exclusion must use the strict citation form.
+- The cited decision name must name at least one xtask function.
+- No exclusion may cover any xtask function with that name.
+- Each cited proof must be a test selected by a gate tier.
+
+A name collision can therefore reject an exclusion; it cannot supply evidence that an unrelated function calls the cited decision.
+The gate-decision exclusion ban stays in force. Every `.cargo/mutants.toml` change remains HIGH.
+Both package and integration reviewers retain responsibility for each new or changed exclusion.
+The other checks retain their closed-form and reserved-name rules.
+
+### Implementation acceptance and evidence scope
+
+The next #181 review must verify removal of the call-relation inference and its acceptance callers.
+It must verify both the cited-name existence rule and rejection when any same-named xtask function is excluded.
+It must retain strict proof selection and the other source checks.
+This plan verdict grants no CLEAN verdict to #181 and supplies no implementation proof.
+P6 withdrew the `a94e02d6` request while it prepares the replacement head and exact-head gate.
+
+The statement that mutation tests prove the decision is tested remains subject to section 8's actual mutation scope.
+The gate uses `--in-diff`; a passing run proves only its executed mutants, not arbitrary unchanged decisions.
+The review must continue to inspect the cited test body and the actual mutation outcomes.
+The revision changes no mutation command, evidence requirement, or merge condition.
+
+No contract pin, pending id, package owner, product interface, or gate command changes.
+The fetched plan ref names the reviewed head. `git diff --check` passes.
+No gate was run for this documentation-only plan review.
+
+VERDICT: CLEAN (0 open) at 5e0a7500fa3f150d9f4a2ae6ba7a7b69e116ef88
