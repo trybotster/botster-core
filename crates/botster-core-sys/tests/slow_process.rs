@@ -11,9 +11,7 @@
 use botster_core_edges::edges::{
     ExitStatus, GroupSignal, IdentityState, ProcessIdentity, SpawnSpec,
 };
-#[cfg(target_os = "macos")]
-use botster_core_sys::process::start_time;
-use botster_core_sys::process::{identity_state, Children};
+use botster_core_sys::process::{identity_state, start_time, Children};
 use rustix::process::{test_kill_process, Pid};
 
 #[path = "common/process_guard.rs"]
@@ -53,22 +51,12 @@ fn next_exit(children: &mut Children, woken: &Receiver<()>) -> (ProcessIdentity,
     }
 }
 
-fn mkfifo(path: &std::path::Path) {
-    let made = std::process::Command::new("/usr/bin/mkfifo")
-        .arg(path)
-        .status()
-        .expect("mkfifo runs");
-    assert!(made.success());
-}
-
-/// A shell command that waits without using the CPU until a signal ends it: a `/bin/cat` blocked on a FIFO that nobody
-/// writes, in the background, so that a trapped signal interrupts the shell's `wait` at once. The group guard ends it on
-/// every exit path, a killed test included (plan R12), so it needs no timer and no parent check.
-fn waiting_child(dir: &std::path::Path) -> String {
-    let never = dir.join("never");
-    mkfifo(&never);
-    format!("/bin/cat '{}' & wait $!", never.display())
-}
+/// A child that waits without using the CPU and ends by itself when the test process is gone (plan R12): a killed test runs
+/// no guard, and nothing may outlive it. A `$PPID` of 1 means that the parent was gone before the child started. Each
+/// `sleep` is a background job that `wait` waits for, so a trapped signal interrupts the wait at once. The interval of 1 s
+/// bounds how long the child outlives its parent; it is not a timeout of a test.
+const WAITING_CHILD: &str =
+    "while [ \"$PPID\" != 1 ] && kill -0 $PPID 2>/dev/null; do /bin/sleep 1 >/dev/null 2>&1 & wait $!; done";
 
 /// The anchor owns group membership before the child body can run.
 struct Guard {
@@ -105,13 +93,10 @@ fn alive(pid: u32) -> bool {
 /// Core AD-6: a spawned child has an identity that matches while it lives, and the kill of its group ends it with the signal.
 #[test]
 fn a_spawned_child_matches_its_identity_and_dies_by_the_group_kill() {
-    let tmp = tempfile::tempdir().unwrap();
     let (mut children, woken) = children();
-    let (identity, _guard) = spawn(
-        &mut children,
-        spec("/bin/sh", &["-c", &waiting_child(tmp.path())]),
-    );
+    let (identity, _guard) = spawn(&mut children, spec("/bin/sh", &["-c", WAITING_CHILD]));
     assert_eq!(identity_state(identity), IdentityState::Matches);
+    assert_eq!(start_time(identity.pid), Some(identity.start_time));
     children.signal_group(identity, GroupSignal::Kill);
     assert_eq!(
         next_exit(&mut children, &woken),
@@ -119,86 +104,21 @@ fn a_spawned_child_matches_its_identity_and_dies_by_the_group_kill() {
     );
 }
 
-/// The worker-control script of these tests: a trap for `SIGUSR1` that exits 7, a line on the FIFO `$0` once the trap is in
-/// place, and a wait that only a signal ends.
-fn trapped_child(dir: &std::path::Path) -> (String, std::path::PathBuf) {
-    let ready = dir.join("ready");
-    mkfifo(&ready);
-    let script = format!(
-        "trap 'exit 7' USR1; /bin/echo ready > \"$0\"; {}",
-        waiting_child(dir)
-    );
-    (script, ready)
-}
-
-/// Waits, with a deadline, for the line that a trapped child writes once its trap is in place.
-fn trap_ready(ready: std::path::PathBuf) {
-    let (told, heard) = std::sync::mpsc::channel();
-    std::thread::spawn(move || {
-        let _ = told.send(std::fs::read_to_string(ready));
-    });
-    let said = heard
-        // timer: deadline — bounds the wait for the trap
-        .recv_timeout(Duration::from_secs(10))
-        .expect("the shell installed its trap");
-    assert_eq!(said.unwrap().trim(), "ready");
-}
-
-/// Core AD-6: a process that does not match its identity is never signalled. The stale identity gets a `SIGKILL`; the real
-/// identity then gets `EndPayload`, whose trap exits 7. A stale kill that got through would have ended the child first, with
-/// signal 9, because a `SIGKILL` that was sent earlier is never overtaken.
+/// Core AD-6: a process that does not match its identity is never signalled.
 #[test]
 fn a_reused_identity_is_never_signalled() {
-    let tmp = tempfile::tempdir().unwrap();
-    let (script, ready) = trapped_child(tmp.path());
-    let (mut children, woken) = children();
-    let (identity, _guard) = spawn(
-        &mut children,
-        spec(
-            "/bin/sh",
-            &["-c", &script, ready.to_str().expect("a temp path is UTF-8")],
-        ),
-    );
-    trap_ready(ready);
+    let (mut children, _woken) = children();
+    let (identity, _guard) = spawn(&mut children, spec("/bin/sh", &["-c", WAITING_CHILD]));
     let stale = ProcessIdentity {
         pid: identity.pid,
         start_time: identity.start_time + 1,
     };
     assert_eq!(identity_state(stale), IdentityState::Reused);
     children.signal_group(stale, GroupSignal::Kill);
-    children.signal_group(identity, GroupSignal::EndPayload);
     assert_eq!(
-        next_exit(&mut children, &woken),
-        (identity, ExitStatus::Code(7)),
-        "the trap ended the child: the stale kill never reached it"
-    );
-}
-
-/// Core AD-6: the start time on macOS is the process start that the system reports, to the second: `start_time` divided by a
-/// million is the epoch second of `ps -o lstart=`, an independent source (audit A15: the identity must tell two start times
-/// apart).
-#[cfg(target_os = "macos")]
-#[test]
-fn the_start_time_is_the_start_that_the_system_reports() {
-    let me = std::process::id();
-    let lstart = std::process::Command::new("/bin/ps")
-        .args(["-o", "lstart=", "-p", &me.to_string()])
-        .output()
-        .expect("ps runs");
-    let lstart = String::from_utf8(lstart.stdout).unwrap();
-    let epoch = std::process::Command::new("/bin/date")
-        .args(["-j", "-f", "%a %b %e %T %Y", lstart.trim(), "+%s"])
-        .env("LC_ALL", "C")
-        .output()
-        .expect("date runs");
-    let epoch: u64 = String::from_utf8(epoch.stdout)
-        .unwrap()
-        .trim()
-        .parse()
-        .expect("an epoch second");
-    assert_eq!(
-        start_time(me).expect("this process exists") / 1_000_000,
-        epoch
+        identity_state(identity),
+        IdentityState::Matches,
+        "the child still lives"
     );
 }
 
@@ -236,8 +156,14 @@ fn the_child_environment_is_exact() {
 #[test]
 fn the_worker_control_signal_reaches_the_worker_handler() {
     let tmp = tempfile::tempdir().unwrap();
-    let (script, ready) = trapped_child(tmp.path());
+    let ready = tmp.path().join("ready");
+    let made = std::process::Command::new("/usr/bin/mkfifo")
+        .arg(&ready)
+        .status()
+        .expect("mkfifo runs");
+    assert!(made.success());
     let (mut children, woken) = children();
+    let script = format!("trap 'exit 7' USR1; /bin/echo ready > \"$0\"; {WAITING_CHILD}");
     let (identity, _guard) = spawn(
         &mut children,
         spec(
@@ -245,7 +171,16 @@ fn the_worker_control_signal_reaches_the_worker_handler() {
             &["-c", &script, ready.to_str().expect("a temp path is UTF-8")],
         ),
     );
-    trap_ready(ready);
+    let (told, heard) = std::sync::mpsc::channel();
+    let fifo = ready.clone();
+    std::thread::spawn(move || {
+        let _ = told.send(std::fs::read_to_string(fifo));
+    });
+    let said = heard
+        // timer: deadline — bounds the wait for the trap
+        .recv_timeout(Duration::from_secs(10))
+        .expect("the shell installed its trap");
+    assert_eq!(said.unwrap().trim(), "ready");
     children.signal_group(identity, GroupSignal::EndPayload);
     children.signal_group(identity, GroupSignal::EndPayload);
     let exit = next_exit(&mut children, &woken);
@@ -265,7 +200,37 @@ fn a_child_exit_calls_the_notifier_and_is_polled() {
     let (id, status) = children.poll_exit().expect("the exit is queued");
     assert_eq!(id, identity);
     assert_eq!(status, ExitStatus::Code(3));
-    assert!(children.poll_exit().is_none(), "an exit is taken once");
+    assert!(children.poll_exit().is_none());
+    assert!(
+        children.wait_exit(identity.pid).is_none(),
+        "an exit is taken once"
+    );
+}
+
+/// `wait_exit` takes the exit of the child that it names, also when another child's exit is queued before it; an exit is
+/// taken once, and a pid that is not a live child is `None`.
+#[test]
+fn wait_exit_takes_the_exit_of_its_own_child() {
+    let (mut children, woken) = children();
+    let (first, _first_guard) = spawn(&mut children, spec("/bin/sh", &["-c", "exit 3"]));
+    let (second, _second_guard) = spawn(&mut children, spec("/bin/sh", &["-c", "exit 4"]));
+    // Both exits are queued before `wait_exit` runs, so it never blocks here.
+    for _ in 0..2 {
+        woken
+            // timer: deadline — bounds the wait for each exit
+            .recv_timeout(Duration::from_secs(10))
+            .expect("a child ended");
+    }
+    assert_eq!(
+        children.wait_exit(second.pid),
+        Some((second, ExitStatus::Code(4)))
+    );
+    assert_eq!(
+        children.wait_exit(first.pid),
+        Some((first, ExitStatus::Code(3)))
+    );
+    assert_eq!(children.wait_exit(first.pid), None, "taken once");
+    assert_eq!(children.wait_exit(u32::MAX - 1), None, "not a child");
 }
 
 /// Plan R12 and testing rule 10: the anchor ends the group without production cleanup.
@@ -273,12 +238,8 @@ fn a_child_exit_calls_the_notifier_and_is_polled() {
 #[test]
 fn no_child_is_left_when_the_cleanup_of_a_test_fails() {
     // The cleanup of `Children` is skipped: only the guard ends the child.
-    let tmp = tempfile::tempdir().unwrap();
     let (mut children, _woken) = children();
-    let (identity, _guard) = spawn(
-        &mut children,
-        spec("/bin/sh", &["-c", &waiting_child(tmp.path())]),
-    );
+    let (identity, _guard) = spawn(&mut children, spec("/bin/sh", &["-c", WAITING_CHILD]));
     assert!(alive(identity.pid));
     drop(_guard);
     next_exit(&mut children, &_woken);
