@@ -437,3 +437,40 @@ The fetched plan ref names the reviewed head. `git diff --check` passes.
 No execution gate applies to this documentation-only correction.
 
 VERDICT: CLEAN (0 open) at 96c5537660230687c645198894b574caa186622b
+
+## Round 13 — revision 23k — NOT CLEAN
+
+Reviewed head: `193cb3bcee4abbbd887fc534f71f4ad24c39cd31`.
+Previous reviewed head: `96c5537660230687c645198894b574caa186622b`.
+The reviewer read the complete one-commit, three-file delta and the affected acceptance text.
+The reviewer applied orchestrate-delivery to the changed minimum acceptance scope.
+The reviewer changed no product code and ran no builds, tests, mutants, or gates.
+
+### Acceptance premise
+
+Pinned Core A10-3 item 2 requires `conf::ad_2_lost_reasons` to cover every listed Lost reason through the testkit.
+It explicitly includes GuardianLost and EpochExhausted, which require service behavior.
+The approved minimum configuration starts no services. A partial transcript result cannot count as this ID passing.
+Removing this ID from the minimum therefore preserves that configuration without weakening the full Stage 1 requirement.
+The ID remains owned by P5 in its full clause list. This revision changes no product pending list or contract ledger.
+
+The minimum list removes exactly this one ID. It contains 69 IDs with P5 reduced from 15 to 14.
+The other package counts are unchanged and sum to 69.
+The pinned A6-1 transcript includes a WorkerGone outcome after restart, as well as the distinct WorkerUnreachable outcome.
+The minimum also retains the AD-6 reused-pid proof. Removing AD-2 does not remove all WorkerGone acceptance coverage.
+The plan retains separate testkit and real-process passing counts and the full Stage 1 done criteria.
+
+### R13-1 — LOW — Two active statements retain the old minimum counts
+
+`docs/stage1-minimum-core.md:137` labels Step 6 as 14 IDs, but only 13 rows remain active after the AD-2 removal.
+Change the heading to 13, retaining the struck-through row as the removal record.
+
+At line 299, section 7 still says that milestones report passing IDs out of 70 "From now on".
+Update that instruction to 69, or label it explicitly as superseded history.
+The unchanged historical ledger snapshot and its earlier pass counts need not be rewritten as current evidence.
+These corrections will align the detailed document with the new list and the plan's revised progress measure.
+
+The fetched plan ref names the reviewed head. `git diff --check` passes.
+No execution gate applies to this documentation-only change.
+
+VERDICT: NOT CLEAN (1 open: R13-1 LOW) at 193cb3bcee4abbbd887fc534f71f4ad24c39cd31
