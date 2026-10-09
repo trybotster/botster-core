@@ -151,6 +151,7 @@ fn worker_exit_closes_the_link_and_posts_its_exit_once() {
     );
     let mut spawner = WorkerSpawner {
         workers,
+        dir: edges.start.dir.clone(),
         processes: Arc::clone(&edges.processes),
     };
     for signal in [GroupSignal::EndPayload, GroupSignal::Term] {
