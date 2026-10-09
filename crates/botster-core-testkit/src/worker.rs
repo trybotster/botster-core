@@ -280,7 +280,7 @@ struct WorkerEdges {
     spawned: Option<Result<PayloadId, SpawnFailure>>,
     /// The exit of the payload that the program edge reported and the worker has not taken yet.
     exit: Option<ExitStatus>,
-    /// The drain that a `DrainPty` asked for, the same decision as the real driver's; `None` when no drain is asked.
+    /// The drain that a `DrainPty` asked for (`Drain`); `None` when no drain is asked.
     drain: Option<Drain>,
     /// The inputs counted by the last `ready`.
     ready: Vec<Ready>,
@@ -381,8 +381,8 @@ impl Binding<Worker> for WorkerEdges {
             if self.exit.is_none() {
                 self.exit = program.poll_exit();
             }
-            // As the real driver: a complete drain gives `PtyDrained`, and a drain whose next read would find nothing is
-            // complete; output is read while it waits.
+            // A complete drain gives `PtyDrained`, and a drain whose next read would find nothing is complete; output is read
+            // while it waits.
             match (self.drain, program.unread()) {
                 (Some(Drain::Done), _) | (Some(_), 0) => self.ready.push(Ready::PtyDrained),
                 (None, 0) => {}
