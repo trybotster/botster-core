@@ -2,9 +2,9 @@
 
 Current verdict: CLEAN for PR #165; NOT CLEAN for the separate PR #163 review unit.
 PR #163 at `40b63dceb6e3f3d7be69a1488ac77eccc121a071` has F28 and F33 OPEN for completed evidence.
-PR #165 at `47ae53a79b95e5499b8548c456a2fbaceacba992` has no open package finding. F45 through F48 are CLOSED.
+PR #165 at `29b37890efeffa4410d7dfc34f5c2344bfad1ba4` has no open package finding. F45 through F48 are CLOSED.
 F39 is CLOSED within #165 and remains OPEN for #163's later merge delta.
-Round 90 records the C7 correction delta and exact-head CLEAN. All earlier findings, closures, and rounds remain preserved.
+Round 91 records the timer-marker delta and exact-head CLEAN. All earlier findings, closures, and rounds remain preserved.
 F1 through F27 and F29 through F32 remain CLOSED at their recorded heads and scopes.
 F34 records the earlier unsafe PID signals and their source correction at `81ccd17`.
 Each cross-package PR also requires the integration reviewer's exact-head CLEAN and the implementer's landing gate.
@@ -4220,6 +4220,36 @@ The combined #162 Linux landing gate remains required.
 
 PR #165 has no open package finding, including LOW, at this exact head.
 Round 89's source closures and scope limits remain valid after this delta.
+PR #163 separately retains F28, F33, and its later F39 merge duty.
+This CLEAN does not clear #163, M2a, M2b, the A32/A33 follow-up, or pending conformance IDs.
+The reviewer changed no product code and ran no tests, builds, measurements, mutants, or gates.
+All earlier findings, closures, and verdict rounds remain preserved.
+
+VERDICT: CLEAN
+
+
+## Round 91 — Deadline marker placement
+
+Reviewed head: `29b37890efeffa4410d7dfc34f5c2344bfad1ba4`, PR #165, branch `stage1/p3-guard-macos`.
+Base: `144b0234fb632bcbb5176b17c2fe55f3239405df`.
+Reviewed delta: `47ae53a7..29b37890`, one commit, one file, one comment moved.
+The implementer reports that the combined #162 Linux gate failed the timer scan.
+
+The deadline marker now sits directly above writer.recv_timeout(CLEANUP) inside the method chain in guard_cleanup.rs.
+The reviewer checked the timer scanner's rule: the marker must be on the call's line or directly above it.
+The new placement satisfies that rule after formatting.
+The delta changes no statement, timeout value, expected value, process ownership, or cleanup order.
+Round 90's source closures remain valid.
+
+The reviewer read the completed exact-head Linux log:
+`~/botster-sessions/gates/botster-core-stage1-p3-guard-macos-29b37890-pool-20261008-210034-20788.log`.
+The log names this exact head and base `9ea0c9c22d0d0595a166becbba7f9e8872247c22`.
+Formatting, taint, the timer scan of 111 Rust files, and lists pass.
+The job exits 0 after 18 seconds on the Linux node msa1.
+This is static-check evidence, not a full landing gate or a real-process test result.
+The combined #162 landing gate remains required on its new reviewed head.
+
+PR #165 has no open package finding, including LOW, at this exact head.
 PR #163 separately retains F28, F33, and its later F39 merge duty.
 This CLEAN does not clear #163, M2a, M2b, the A32/A33 follow-up, or pending conformance IDs.
 The reviewer changed no product code and ran no tests, builds, measurements, mutants, or gates.
