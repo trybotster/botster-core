@@ -79,3 +79,47 @@ The reviewer changed no product code and ran no builds, tests, mutation jobs, or
 The lead owns the merge decision.
 
 VERDICT: CLEAN
+
+## PR #185 Round 2 — 2026-10-09
+
+- Exact head: `3f9ca34e9e1639216a1b8933476cf127b907bd75`.
+- Tree: `b7989c88abe4a14aea3bcf6c52df110788bc0c34`.
+- Accepted v1 base: `aaac0c0d1f44172ca5d5dd5dd6986c9787be4aa6`.
+- Risk tier checked first: HIGH, rule 3, as the current PR body states.
+- Delta from Round 1: commits `663b35c084b8b40a1a0d5c6e34a0616d72f776c5` and `3f9ca34e9e1639216a1b8933476cf127b907bd75`.
+
+### M20-F2 — LOW — OPEN — The documentation must match plan 23a and the current proof
+
+The changed worker_transcripts.rs header states the pending-removal rule without the real-only exception.
+Plan 23a, section 5, requires a passing real-process proof before a real-only id leaves pending.
+P5 must add that exception or scope the statement to this file's non-real-only ids.
+The PR's Why paragraph still says the ruling is not yet in the plan. Plan 23a now records it.
+The PR's Proof section still cites only head 539a4c7b and 20 new trials.
+P5 must cite the supplied gate for head 3f9ca34e and its 19 new trials.
+The reviewer sent this finding directly to P5 and copied integration.
+All findings must close before a HIGH review is CLEAN.
+
+### Delta and supplied proof
+
+Relative to the accepted v1 base, the pending list removes 19 ids and adds none.
+LC-2 remains pending. All other removals are the Round 1 set minus LC-2.
+The reviewer checked each removed id against the pinned contracts replacement map at `636bc1babcb410464bc40a5862895a1dc3260f5c`.
+None of these 19 ids has a slow proof classification.
+LC-2 has `slow:data-dir-lock`; its map note includes release when the process dies.
+The existing real test `a_second_open_is_refused_until_the_first_is_dropped` checks real flock exclusion and release after handle Drop.
+It does not end a process. This review does not certify a process-death proof for LC-2.
+
+The only other changed file is worker_transcripts.rs. Its new header replaces the old requirement to await RealCoreHarness.
+The three Round 1 IDS deletions and all executable code remain unchanged from the previous reviewed head.
+The reviewer checked a distinct PASS conformance trial for every removed id in `~/botster-sessions/shared/core-stage1/gate-logs/flip20-3f9ca34e.log`.
+The gate names the exact head and accepted v1 base.
+The default tier reports 941 tests passed and 656 skipped.
+The slow tier reports 243 tests passed and 962 skipped.
+All ten listed CI stages pass. Both the job and gate exit zero.
+Mutants reports No mutants to filter and no outcomes.json; no mutation campaign ran.
+Fuzz reports no changed crate with a decoder harness; no fuzz harness ran.
+
+No other package finding arose. Integration owns its separate findings and review.
+The reviewer changed no product code and ran no builds, tests, mutation jobs, or gates.
+
+VERDICT: NOT CLEAN
