@@ -1472,3 +1472,85 @@ The declared live-worker adoption placeholder remains P5 deliverable 2 and is no
 The separate #163 guard-drop duty remains outside this merge closure.
 
 VERDICT: CLEAN
+
+
+## PR #164 — Round 9
+
+- Exact head: `4064d251885b18a13c4ea6db8677919efbc89748`.
+- Reviewed predecessor: `e3c1fabf754ddce9439d653783b083969f2057be` (CLEAN in Round 8).
+- Current v1: `0b0eecc06d0cd4c39af5e33e59c0b3f643aba6d4`.
+- Tree: `28e81771334586f27520c51f3e8d0e84d623f48d`.
+- Scope: the v1 merge, failed-write rollback, test coverage, slow selection, mutation exclusions, and description.
+- The implementer first requested `e9864aaa`, then `e24fcce4`, and finally the exact head above during this review.
+- The reviewer issued no terminal verdict for those intermediate heads.
+- The reviewer ran no builds, tests, mutation jobs, or gates.
+
+### Merge and source review
+
+The reviewer compared the base and both parents of merge `cb521e9e0c475ad10528d8ca4d5fba940d9c487a`.
+Only `Cargo.lock` combines changes from both parents; its delta adds only the guardian package entry.
+All changes made by only one parent survive exactly.
+The merge tree is `3eb84d6f26580c41d4327b370c108827a7d3f50d`.
+The reviewer does not reopen the guardian implementation in this P5 merge review.
+
+The reviewer read the full fix delta and the affected production storage paths.
+`child_dir` records a created directory before a later sync or open can fail.
+`chain` retains the opened parents and records the deepest created directory, including one whose open failed.
+`unmake` removes only directories created by this write, deepest first, with `rmdir` semantics.
+An existing directory or a directory that contains a foreign file remains intact.
+`place` retains exclusive temporary creation, write, file sync, and atomic rename.
+A failure before rename returns `Failed` after cleanup; a directory-sync failure after rename still returns `Uncertain`.
+Read and delete retain the same read-only path walk through `existing`.
+The confinement limit is documented in storage, DESIGN.md, and the public open documentation under the lead's ruling.
+The proposed session-id ceiling remains an open steward question; this head adds no ceiling.
+
+The new tests cover noncanonical row paths, Start after Created adoption, and two concurrent adopted Removes with different identity answers.
+`World::over` raises the host epoch and continues the pid counter; its automatic hello uses the current epoch.
+The slow tests cover confinement success or clean refusal, foreign blockers, descriptor exhaustion cleanup, links, temporary-name collisions, and foreign directories.
+The broader `SLOW_FILTER` selects slow binaries and `slow_*` modules at any depth, including a top-level module.
+It retains the slow packages and their enabled features.
+The supplied logs confirm that the previously missed facade and worker modules run with this selection.
+No source finding remains open in these changes.
+
+### Mutation evidence
+
+The reviewer read the failed full gate log at the predecessor:
+`~/botster-sessions/gates/botster-core-stage1-p5-audit-contract-e3c1fabf-pool-20261008-211422-42727.log`.
+It reports 140 mutants: 73 caught, 42 missed, zero timeouts, and 25 unviable.
+Mutants failed; fuzz did not run; exit 1. This review does not reclassify that gate.
+
+The reviewer read these raw focused pool logs under `~/.local/state/jobq/logs/`:
+- `jobq-botster-core-5b7617f3-20261008213518-b3eb.log`: 239 unit tests passed; 80 mutants tested, 68 caught, 11 unviable, one missed diagnostic body.
+- `jobq-botster-core-2121aaca-20261008214504-d069.log`: 91 slow-tier mutants tested, 68 caught, ten unviable, 13 missed flag changes.
+- `jobq-botster-core-b48a6d8d-20261008215154-f1b6.log`: successful baseline; eight read-row mutants tested, six caught, two disjoint-bit XOR mutants missed.
+The linked-row test closes the earlier missing O_NOFOLLOW proof.
+The new exclusions name each real-disk function and its catching tests.
+The reviewer checked the written arguments for the remaining flag mutants and the equivalent default diagnostic body.
+Focused commands that mask their exit status are not full gate evidence; the reviewer used the explicit test and mutant summaries.
+
+### P5-F14 — LOW — The storage exclusion note cites removed tests and functions
+
+The existing storage exclusion paragraph at `.cargo/mutants.toml:249-261` remains stale after its new read-row correction.
+It cites removed tests, including `a_damaged_row_file_is_not_a_row` and `a_row_is_found_only_under_its_own_key`.
+It also describes removed `read_file`, `encode`, `decode`, and `key_hash` functions as current tested parts.
+The reviewer checked the exact head and found no such storage tests or functions.
+The newer descriptor-walk paragraph is current, but it does not correct this separate justification for the existing storage exclusions.
+
+**Required change:** Replace the obsolete tests and function mapping with the current catching tests and accurate head attribution.
+Remove or identify historical text that no longer describes the current implementation.
+This correction needs no product change or new execution.
+Status: OPEN. The reviewer sent this finding directly to P5 and copied the integration reviewer.
+
+### Remaining evidence and scope
+
+The reviewer read the exact `e9864aaa` Linux static/unit log and Mac slow log named in the description.
+They report formatting, taint, lists, and Clippy PASS, 334 unit tests passed, and 171 Mac slow tests passed.
+The reviewer read both `e24fcce4` slow logs named in the description.
+They report 206 slow tests passed on each platform, with 884 skipped; Linux also reports 95 xtask tests passed.
+The changes after `e24fcce4` only correct comments in the exclusion note.
+No full gate result was supplied for this exact head.
+The description names the final head, preserves the failed predecessor gate, and marks the full gate pending.
+The prior audit closures remain scoped as recorded in Round 8.
+Issues #155/#157, the P1 part of #156, P5 deliverable 2, and #163's guard-drop duty remain outside this closure.
+
+VERDICT: NOT CLEAN (1 open)
