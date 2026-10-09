@@ -246,6 +246,28 @@ fn parse_outcomes(json: &str) -> Result<MutantSummary> {
     })
 }
 
+/// The exclusions of `.cargo/mutants.toml` that hold off macOS only: a test catches each of these mutants on macOS, where
+/// the behavior that shows it is compiled, and a focused Mac mutation run is the proof. `cargo mutants` adds each
+/// `--exclude-re` to the configured ones.
+/// - `every_key_state`, the `&` of the mode bits (`|` or `^`) keeps only the all-modes-on state of each kitty
+///   combination. On macOS the legacy Alt prefix writes ESC and the unshifted key, not the text (pinned Ghostty
+///   src/input/key_encode.zig:642-650, macOS only), so an Alt key with long text writes the most with that prefix off:
+///   the_key_bound_of_an_alt_key_with_long_text_covers_the_states_with_modes_off catches both mutants. Off macOS the
+///   other branch writes ESC and the complete text, and the test passes with the mutants. Recheck this entry when the
+///   key encoding or the Ghostty pin changes.
+const OFF_MACOS_EXCLUSIONS: &[&str] = &[
+    r"crates/botster-terminal-ghostty/src/encode\.rs:\d+:40: replace & with [|^] in EncoderState::every_key_state$",
+];
+
+/// The exclusions that a gate on `os` (`std::env::consts::OS`) adds to the configured ones.
+fn platform_exclusions(os: &str) -> &'static [&'static str] {
+    if os == "macos" {
+        &[]
+    } else {
+        OFF_MACOS_EXCLUSIONS
+    }
+}
+
 /// Mutation tests of the code that the diff changes (plan section 8, step 8). A missed mutant or a timeout is a review
 /// finding, so it fails the step.
 fn mutants_job(root: &Path) -> Result<()> {
@@ -287,8 +309,11 @@ fn mutants_job(root: &Path) -> Result<()> {
             "5",
         ])
         .arg("--output")
-        .arg(&target)
-        .args(["--", "--no-tests=pass"])
+        .arg(&target);
+    for re in platform_exclusions(std::env::consts::OS) {
+        cmd.arg("--exclude-re").arg(re);
+    }
+    cmd.args(["--", "--no-tests=pass"])
         .envs(test_budget::tier_env(false));
     // Exit status: 0 all caught (or no mutant in the diff), 2 a mutant was missed, 3 a timeout, 4 the baseline failed.
     let status = cmd.status().context("start cargo mutants")?;
@@ -475,6 +500,14 @@ mod tests {
                 "fuzz"
             ]
         );
+    }
+
+    /// A gate off macOS adds the exclusions that hold off macOS only; a Mac gate adds none, so it tests those mutants.
+    #[test]
+    fn only_a_gate_off_macos_adds_the_off_macos_exclusions() {
+        assert!(platform_exclusions("macos").is_empty());
+        assert_eq!(platform_exclusions("linux"), OFF_MACOS_EXCLUSIONS);
+        assert!(!OFF_MACOS_EXCLUSIONS.is_empty());
     }
 
     #[test]
