@@ -9,12 +9,22 @@
 //! workspace; the slow tier runs the tests of the packages that have a `slow` feature, with that feature, that
 //! `test_budget::SLOW_FILTER` selects.
 //!
-//! A cited name is a snake_case word with at least three parts in a comment of the file. It must be a test that some tier
-//! runs, a test target with such a test, an identifier of the code of a tracked Rust file other than a test function's name
-//! (an item, a field, a method, a crate, also of a dependency), or a word of a vendored file (a file of a git submodule). A word that names nothing else fails the
-//! check: a renamed or deleted test leaves its old name behind in the reason, and a mention in a document, a comment or a
-//! string does not keep it alive (#181 B6). A test with `#[ignore]` runs in no tier, and a test with `#[cfg_attr(<predicate>,
-//! ignore)]` runs in no tier where the predicate holds; a predicate that the check does not know fails the check.
+//! A comment cites names in two forms (plan section 8, lead ruling B of 2026-10-09):
+//! - a proof citation, `decision (proof_a, proof_b)`: each bare lowercase identifier in the parentheses is a proof, and it
+//!   must be a test that some tier runs or a test target with such a test. A list with any other item (prose, a path, a
+//!   backticked name) and a code span in backticks that holds a parenthesis (`Ok(true)`) are not citations;
+//! - any other snake_case word with at least three parts is a source reference: a test that some tier runs, a test target
+//!   with such a test, an identifier of non-test code of a tracked Rust file (an item, a field, a method, a crate, also of a
+//!   dependency), or a word of a vendored file (a file of a git submodule).
+//! A name that fails its form fails the check: a renamed or deleted test leaves its old name behind in the reason, a mention
+//! in a document, a comment or a string does not keep it alive, and a proof that loses its `#[test]` is no proof (#181
+//! B6). A test with `#[ignore]` runs in no tier, and a test with `#[cfg_attr(<predicate>, ignore)]` runs in no tier where
+//! the predicate holds; `cfg_attr(<predicate>, cfg(..))` is evaluated too; a predicate that the check does not know fails
+//! the check.
+//!
+//! The module forms that the check resolves (plan section 8, `process_check::unlisted_module_form`): `mod name;`,
+//! `#[path = ".."] mod name;`, and an inline `mod name { .. }` without `#[path]`. A `#[path]` on an inline module fails
+//! the check with the form and the file.
 
 use anyhow::{bail, Context, Result};
 use regex::Regex;
@@ -446,19 +456,115 @@ fn tiers_of(test: &TestFn, packages: &[Package], slow: &Filter) -> Result<Vec<St
     Ok(runs)
 }
 
-/// The cited names of the file and the line of each one's first citation.
-pub fn cited(toml: &str) -> BTreeMap<String, usize> {
+/// A proof citation of a reason (plan section 8): a decision, then in parentheses the proofs that test it,
+/// `decision (proof_a, proof_b)`. Each proof is a bare lowercase identifier; a parenthesized text with any other item (a
+/// space inside an item, a `#`, a path, a backticked name) is prose or code, not a citation. Backticks around the decision
+/// are allowed.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct Citation {
+    pub(crate) decision: String,
+    pub(crate) proofs: Vec<String>,
+    /// The byte range of the proofs in the text.
+    pub(crate) proofs_at: std::ops::Range<usize>,
+}
+
+/// The proof citations of `text` (`Citation`), in order. A code span in backticks that holds a parenthesis (`Ok(true)`,
+/// `run(cmd)`) is code, not a citation, and so is a list with a backticked name (`test` (`spawn`, `pid`)).
+pub(crate) fn citations(text: &str) -> Vec<Citation> {
+    let pattern = Regex::new(r"`?([A-Za-z_][A-Za-z0-9_]*)`?\s*\(([^()]*)\)").expect("regex");
+    let proof = Regex::new(r"^[a-z_][a-z0-9_]*$").expect("regex");
+    // Backticks pair in order (the first with the second), and a span with a parenthesis becomes spaces of the same
+    // length, so the offsets of the citations stay those of `text`.
+    let code = Regex::new(r"`[^`]*`").expect("regex");
+    let text = code.replace_all(text, |span: &regex::Captures| {
+        if span[0].contains(['(', ')']) {
+            " ".repeat(span[0].len())
+        } else {
+            span[0].to_string()
+        }
+    });
+    pattern
+        .captures_iter(&text)
+        .filter_map(|found| {
+            let inside = found.get(2).expect("group 2");
+            let proofs: Vec<String> = inside
+                .as_str()
+                .split(',')
+                .map(|item| item.trim().to_string())
+                .collect();
+            proofs.iter().all(|p| proof.is_match(p)).then(|| Citation {
+                decision: found[1].to_string(),
+                proofs,
+                proofs_at: inside.range(),
+            })
+        })
+        .collect()
+}
+
+/// The names that the comments of the mutants file cite, each with the line of its first citation: the proofs of each
+/// proof citation (`citations`, also across the lines of one comment block), and the other words, which are source
+/// references (a snake_case word with at least three parts).
+#[derive(Debug, Default)]
+pub struct Cited {
+    pub proofs: BTreeMap<String, usize>,
+    pub words: BTreeMap<String, usize>,
+}
+
+impl Cited {
+    pub fn len(&self) -> usize {
+        self.proofs.len() + self.words.len()
+    }
+}
+
+/// The cited names of the file (`Cited`).
+pub fn cited(toml: &str) -> Cited {
     let word = Regex::new(r"\b[a-z][a-z0-9]*(?:_[a-z0-9]+){2,}\b").expect("regex");
-    let mut names = BTreeMap::new();
+    let mut cited = Cited::default();
+    // Each comment block as one text, with the line of each byte offset where a comment line starts.
+    let mut blocks: Vec<(String, Vec<(usize, usize)>)> = Vec::new();
+    let mut open = false;
     for (index, line) in toml.lines().enumerate() {
-        let line = line.trim_start();
-        if let Some(comment) = line.strip_prefix('#') {
-            for found in word.find_iter(comment) {
-                names.entry(found.as_str().to_string()).or_insert(index + 1);
+        let Some(comment) = line.trim_start().strip_prefix('#') else {
+            open = false;
+            continue;
+        };
+        if !open {
+            blocks.push((String::new(), Vec::new()));
+            open = true;
+        }
+        let (text, lines) = blocks.last_mut().expect("a block is open");
+        text.push(' ');
+        lines.push((text.len(), index + 1));
+        text.push_str(comment);
+    }
+    for (text, lines) in &blocks {
+        let line_of = |at: usize| {
+            lines
+                .iter()
+                .rev()
+                .find(|(start, _)| *start <= at)
+                .map_or(0, |(_, line)| *line)
+        };
+        let found = citations(text);
+        for citation in &found {
+            let mut at = citation.proofs_at.start;
+            for proof in &citation.proofs {
+                let offset = text[at..].find(proof.as_str()).map_or(at, |o| at + o);
+                cited.proofs.entry(proof.clone()).or_insert(line_of(offset));
+                at = offset + proof.len();
             }
         }
+        for name in word.find_iter(text) {
+            if found.iter().any(|c| c.proofs_at.contains(&name.start())) {
+                continue;
+            }
+            cited
+                .words
+                .entry(name.as_str().to_string())
+                .or_insert(line_of(name.start()));
+        }
     }
-    names
+    cited
 }
 
 /// The violations: each cited name that is not a test that some tier runs, a test target with such a test, an identifier
@@ -476,7 +582,16 @@ pub fn check(
     let tests = tests(packages, read)?;
     let mut violations = Vec::new();
     let mut words = BTreeMap::new();
-    for (name, line) in cited(toml) {
+    let cited = cited(toml);
+    let proofs = cited
+        .proofs
+        .into_iter()
+        .map(|(name, line)| (name, line, true));
+    let others = cited
+        .words
+        .into_iter()
+        .map(|(name, line)| (name, line, false));
+    for (name, line, proof) in proofs.chain(others) {
         let named: Vec<&TestFn> = tests.iter().filter(|t| t.name == name).collect();
         if !named.is_empty() {
             let mut runs = 0;
@@ -495,11 +610,11 @@ pub fn check(
             }
             continue;
         }
-        let target: Vec<&TestFn> = tests.iter().filter(|t| t.binary == name).collect();
         if packages
             .iter()
             .any(|p| p.targets.iter().any(|t| t.kind == "test" && t.name == name))
         {
+            let target: Vec<&TestFn> = tests.iter().filter(|t| t.binary == name).collect();
             let mut runs = 0;
             for test in &target {
                 runs += tiers_of(test, packages, slow)?.len();
@@ -509,6 +624,13 @@ pub fn check(
                     "{MUTANTS_FILE}:{line}: cites the test target `{name}`, which no gate tier runs a test of"
                 ));
             }
+            continue;
+        }
+        if proof {
+            violations.push(format!(
+                "{MUTANTS_FILE}:{line}: cites `{name}` as a proof (a name in parentheses after a decision), which names no test \
+                 and no test target; write code in backticks, which is not a citation"
+            ));
             continue;
         }
         words.insert(name, line);

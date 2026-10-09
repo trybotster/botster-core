@@ -11,6 +11,10 @@
 //! Test code is a file under a `tests` directory, a `*_test.rs` file, a `#[test]` or `#[cfg(test)]` item, and a module file
 //! that test code declares (`#[cfg(test)] mod tests;`), as in `process-check`. The xtask's tests are test code too; only its
 //! fixture workspace (`xtask/fixtures/`) is not checked.
+//!
+//! The module forms that the check resolves (plan section 8, `process_check::unlisted_module_form`): `mod name;`,
+//! `#[path = ".."] mod name;`, and an inline `mod name { .. }` without `#[path]`. A `#[path]` on an inline module is a
+//! violation with the form and the file.
 
 use crate::fsutil::tracked_files;
 use crate::process_check::{module_tree, whole_test_files};

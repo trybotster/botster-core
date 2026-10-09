@@ -8,6 +8,10 @@
 //! and `any` of them). Any other predicate (a feature, `test`, an architecture) can be true, so code under it counts as
 //! compiled and keeps its mutants. Code that the derivation cannot place fails it: a gated `mod` whose file is not found,
 //! and a `cfg_if!` macro (its branches are tokens, not items).
+//!
+//! The module forms that the check resolves (plan section 8, `process_check::unlisted_module_form`): `mod name;`,
+//! `#[path = ".."] mod name;`, and an inline `mod name { .. }` without `#[path]`. A `#[path]` on an inline module fails
+//! the check with the form and the file. It fails on every system, before a gate can hide the module.
 
 use proc_macro2::{Delimiter, TokenTree};
 use quote::ToTokens;

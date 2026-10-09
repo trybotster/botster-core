@@ -8,12 +8,24 @@
 //!
 //! An exclusion that covers a mutant of xtask function F passes only when all of these hold (#181 B5):
 //! - the mutant replaces the whole body of F (genre `FnValue`): an operator or a match-arm mutant is a decision mutant;
-//! - F does I/O, so F is an I/O shell: a call of F resolves, through the `use` declarations in its scope, to a function
-//!   of `std::fs` or `std::env`, to `std::process::Command::new`, to a signal of `botster_core_sys::signal`, to
-//!   `botster_test_process::run_to_completion`, or to an xtask function that does I/O. A name alone is not I/O: a
-//!   parameter named `write` and a method named `status` are not. A function without I/O is a decision, also when it
-//!   only forwards to another;
-//! - its reason names a function D of the xtask that F calls, that a test calls, and that no exclusion covers.
+//! - F does I/O, so F is an I/O shell: F performs a listed I/O operation, or calls an xtask function that does I/O;
+//! - its reason cites a proof (plan section 8, r23d): a function D of the xtask that F calls, that a test calls and that no
+//!   exclusion covers, written `D (proof, ..)`; mutants-cited checks that each proof is a test that a gate tier runs. A
+//!   decision named only in free text does not count.
+//!
+//! The forms that the check resolves (plan section 8, "Source-reading checks accept a closed set of forms"):
+//! - a call path, through the `use` declarations of its file, inline module and block (`process_check::resolve`);
+//! - the module of a function from its file path: `xtask/src/main.rs` is the crate root, `crate::`, `super::` and a child
+//!   or root module `m::f` (`Calls::callees`); a plain `f` is the `f` of its file, else each `f` of the xtask;
+//! - the I/O operations: a free function of `std::fs` or `std::env` (`IO_MODULES`; not a type's function such as the
+//!   builder `OpenOptions::new`), a signal or `run_to_completion` (`IO_FUNCTIONS`), and a `status`, `output` or `spawn`
+//!   call on a process command: a method chain that begins at `Command::new(..)` or at a call of an xtask function
+//!   declared to return `Command`, a parameter typed `Command` (also by reference), or a `let` bound to such a chain.
+//!   `Command::new` alone is a builder and starts nothing.
+//!
+//! A `#[path]` module in the xtask is not a listed form, so the check fails on it. Any other way of doing I/O (a start on
+//! a field, a closure that holds a command) is not recognized: a shell that does only that is no shell for the check, so
+//! its exclusion fails until the code takes a listed form or a reviewed change extends the list.
 //!
 //! The check reads the calls from the syntax of the xtask. Every other exclusion of an xtask mutant fails, a glob or an
 //! `OFF_MACOS_EXCLUSIONS` regex included (neither has a reason here).
@@ -51,30 +63,44 @@ pub struct Exclusion {
     pub reason: String,
 }
 
-/// The modules whose every function does I/O: the file system and the environment of the process. A call does I/O by
-/// the full path that it resolves to through the `use` declarations in its scope; a name alone (a parameter `write`, a
-/// method `status`) does not (#181 B5 round 2).
+/// The modules whose free functions do I/O: the file system and the environment of the process. A free function is one
+/// lowercase segment after the module (`std::fs::write`, `std::env::var`); a function of a type (`std::fs::OpenOptions::new`,
+/// a builder) is not one. A call does I/O by the full path that it resolves to through the `use` declarations in its scope;
+/// a name alone (a parameter `write`, a method `status`) does not (#181 B5 round 2).
 const IO_MODULES: [&[&str]; 2] = [&["std", "fs"], &["std", "env"]];
 
-/// The functions that do I/O, by their full path: the start of a process command, a signal, and the bounded run of a tool.
-const IO_FUNCTIONS: [&[&str]; 5] = [
-    &["std", "process", "Command", "new"],
+/// The functions that do I/O, by their full path: a signal and the bounded run of a tool.
+const IO_FUNCTIONS: [&[&str]; 4] = [
     &["botster_core_sys", "signal", "signal_group"],
     &["botster_core_sys", "signal", "signal_process"],
     &["botster_core_sys", "signal", "signal_own_group"],
     &["botster_test_process", "run_to_completion"],
 ];
 
-/// Whether a call of the resolved path `path` does I/O: a function of an `IO_MODULES` module, or an `IO_FUNCTIONS` function.
+/// The constructor of a process command. It is a builder and starts nothing (#181 B5 round 3): only a `SPAWN_METHODS`
+/// call on it starts a process.
+const COMMAND_NEW: [&str; 4] = ["std", "process", "Command", "new"];
+
+/// The type of a process command, as a function's declared return type.
+const COMMAND: [&str; 3] = ["std", "process", "Command"];
+
+/// The methods of a process command that start the process.
+const SPAWN_METHODS: [&str; 3] = ["status", "output", "spawn"];
+
+/// Whether `path` is `want`, segment by segment.
+fn is_path(path: &[String], want: &[&str]) -> bool {
+    path.len() == want.len() && path.iter().zip(want).all(|(segment, want)| segment == want)
+}
+
+/// Whether a call of the resolved path `path` does I/O: a free function of an `IO_MODULES` module, or an `IO_FUNCTIONS`
+/// function.
 fn io_path(path: &[String]) -> bool {
-    // The callers compare the lengths first, so `zip` reads every segment of `want`.
-    let starts = |want: &[&str]| path.iter().zip(want).all(|(segment, want)| segment == want);
-    IO_FUNCTIONS
-        .iter()
-        .any(|function| path.len() == function.len() && starts(function))
-        || IO_MODULES
-            .iter()
-            .any(|module| path.len() > module.len() && starts(module))
+    IO_FUNCTIONS.iter().any(|function| is_path(path, function))
+        || IO_MODULES.iter().any(|module| {
+            path.split_last().is_some_and(|(name, prefix)| {
+                is_path(prefix, module) && name.starts_with(|c: char| c.is_ascii_lowercase())
+            })
+        })
 }
 
 /// The calls of the xtask, from its syntax: what each function calls, by file and name, what the tests call, and which
@@ -86,9 +112,14 @@ pub struct Calls {
     /// The path calls of each function, by file and name, each resolved through the `use` declarations in its scope. A
     /// call of a local binding (a parameter, a closure) is not among them.
     paths: BTreeMap<(String, String), BTreeSet<Vec<String>>>,
-    /// The functions, by file and name, that do I/O: a call that resolves to an I/O path (`io_path`), or to an xtask
-    /// function that does I/O (`callees`).
+    /// The functions, by file and name, that do I/O: a call that resolves to an I/O path (`io_path`), a process start, or
+    /// a call of an xtask function that does I/O (`callees`).
     io: BTreeSet<(String, String)>,
+    /// The functions, by file and name, whose declared return type is `std::process::Command`.
+    commands: BTreeSet<(String, String)>,
+    /// The process starts of each function, by file and name, whose receiver chain begins at a call of the resolved path
+    /// (other than `Command::new`): a start when the path names an xtask function of `commands`.
+    starts: BTreeMap<(String, String), BTreeSet<Vec<String>>>,
 }
 
 impl Calls {
@@ -101,6 +132,14 @@ impl Calls {
         for (file, text) in files {
             let parsed = syn::parse_file(text)
                 .map_err(|error| anyhow::anyhow!("{file}: does not parse: {error}"))?;
+            let mut paths = PathModules::default();
+            paths.visit_file(&parsed);
+            if let Some((line, column, name)) = paths.0.first() {
+                bail!(
+                    "{file}:{line}:{column}: `#[path]` on the module `{name}` is not a form that gate-decisions resolves \
+                     (plan section 8): it reads the module of a function from its file path"
+                );
+            }
             let mut index = Index {
                 file,
                 calls: &mut calls,
@@ -108,9 +147,24 @@ impl Calls {
                 locals: Vec::new(),
                 scopes: vec![crate::process_check::Uses::of(&parsed.items, true)],
                 test: false,
+                command_locals: Vec::new(),
             };
             index.visit_file(&parsed);
         }
+        let started: Vec<(String, String)> = calls
+            .starts
+            .iter()
+            .filter(|(function, roots)| {
+                roots.iter().any(|root| {
+                    calls
+                        .callees(&function.0, root)
+                        .iter()
+                        .any(|callee| calls.commands.contains(callee))
+                })
+            })
+            .map(|(function, _)| function.clone())
+            .collect();
+        calls.io.extend(started);
         // Each round adds a function or ends the search, so there are at most as many rounds as functions.
         for _ in 0..=calls.paths.len() {
             let before = calls.io.len();
@@ -226,6 +280,88 @@ struct Index<'a> {
     /// The `use` scopes around the current code, the file's own first.
     scopes: Vec<crate::process_check::Uses>,
     test: bool,
+    /// The bindings of the function being read that hold a process command, innermost last: a parameter typed `Command`
+    /// (`None`), or a `let` whose initializer begins at a call of the resolved path (`Some`, kept for `Calls::of` unless it
+    /// is `Command::new`).
+    command_locals: Vec<BTreeMap<String, Option<Vec<String>>>>,
+}
+
+/// The syntax of the bindings of a function that may hold a process command: each typed parameter with its type's path
+/// (a reference stripped), and each `let` with the path of the call that begins its initializer's method chain.
+#[derive(Default)]
+struct CommandBindings {
+    typed: Vec<(String, Vec<String>)>,
+    started: Vec<(String, Vec<String>)>,
+}
+
+impl<'ast> Visit<'ast> for CommandBindings {
+    fn visit_pat_type(&mut self, pat: &'ast syn::PatType) {
+        let mut ty = &*pat.ty;
+        while let syn::Type::Reference(inner) = ty {
+            ty = &inner.elem;
+        }
+        if let (syn::Pat::Ident(name), syn::Type::Path(ty)) = (&*pat.pat, ty) {
+            self.typed.push((
+                name.ident.to_string(),
+                ty.path
+                    .segments
+                    .iter()
+                    .map(|s| s.ident.to_string())
+                    .collect(),
+            ));
+        }
+        syn::visit::visit_pat_type(self, pat);
+    }
+
+    fn visit_local(&mut self, local: &'ast syn::Local) {
+        if let (syn::Pat::Ident(name), Some(init)) = (&local.pat, &local.init) {
+            if let Some(path) = chain_root(&init.expr) {
+                self.started.push((name.ident.to_string(), path));
+            }
+        }
+        syn::visit::visit_local(self, local);
+    }
+}
+
+/// The path of the call that begins the method chain `expr` (`Command::new("git").arg(x)` gives `Command::new`).
+fn chain_root(expr: &syn::Expr) -> Option<Vec<String>> {
+    let mut root = expr;
+    while let syn::Expr::MethodCall(inner) = root {
+        root = &inner.receiver;
+    }
+    let syn::Expr::Call(syn::ExprCall { func, .. }) = root else {
+        return None;
+    };
+    let syn::Expr::Path(path) = &**func else {
+        return None;
+    };
+    Some(
+        path.path
+            .segments
+            .iter()
+            .map(|s| s.ident.to_string())
+            .collect(),
+    )
+}
+
+/// The modules with a `#[path]` attribute, as line, column and name. gate-decisions resolves `crate::`, `super::` and
+/// `m::f` from the file path of a function (`module_path`), so a `#[path]` module is a form that it does not resolve.
+#[derive(Default)]
+struct PathModules(Vec<(usize, usize, String)>);
+
+impl<'ast> Visit<'ast> for PathModules {
+    fn visit_item_mod(&mut self, module: &'ast syn::ItemMod) {
+        if let Some(attr) = module
+            .attrs
+            .iter()
+            .find(|attr| attr.path().is_ident("path"))
+        {
+            let at = attr.pound_token.span.start();
+            self.0
+                .push((at.line, at.column + 1, module.ident.to_string()));
+        }
+        syn::visit::visit_item_mod(self, module);
+    }
 }
 
 /// The names that a pattern binds, anywhere in a function.
@@ -279,15 +415,9 @@ impl Index<'_> {
     /// Records a path call of the current function, resolved through the `use` scopes: an I/O call marks the function,
     /// another call is kept for `callees`. A call of a local binding (a parameter `write`, a closure) is neither.
     fn path_call(&mut self, path: &syn::Path) {
-        let segments: Vec<String> = path.segments.iter().map(|s| s.ident.to_string()).collect();
-        let local = match &segments[..] {
-            [name] => self.locals.last().is_some_and(|l| l.contains(name)),
-            _ => false,
-        };
-        if local {
+        let Some(resolved) = self.resolved(path) else {
             return;
-        }
-        let resolved = crate::process_check::resolve(&self.scopes, &segments);
+        };
         if io_path(&resolved) {
             self.io();
         } else if let Some(function) = self.function.last() {
@@ -296,6 +426,84 @@ impl Index<'_> {
                 .entry((self.file.to_string(), function.clone()))
                 .or_default()
                 .insert(resolved);
+        }
+    }
+
+    /// The full path of a called `path` through the `use` scopes; `None` for a call of a local binding (a parameter `write`,
+    /// a closure).
+    fn resolved(&self, path: &syn::Path) -> Option<Vec<String>> {
+        let segments: Vec<String> = path.segments.iter().map(|s| s.ident.to_string()).collect();
+        if let [name] = &segments[..] {
+            if self.locals.last().is_some_and(|l| l.contains(name)) {
+                return None;
+            }
+        }
+        Some(crate::process_check::resolve(&self.scopes, &segments))
+    }
+
+    /// Records a process start of the current function: a `SPAWN_METHODS` call whose receiver chain (method calls) begins
+    /// at a call of `Command::new`, or of a function that may return a command (kept for `Calls::of`). A start on any
+    /// other receiver (a local binding, a field) is not recognized, so a shell that does only that does no I/O for the
+    /// check (plan section 8: the form is not listed).
+    fn process_start(&mut self, call: &syn::ExprMethodCall) {
+        if !SPAWN_METHODS.contains(&call.method.to_string().as_str()) {
+            return;
+        }
+        let mut receiver = &*call.receiver;
+        while let syn::Expr::MethodCall(inner) = receiver {
+            receiver = &inner.receiver;
+        }
+        let resolved = match receiver {
+            syn::Expr::Call(syn::ExprCall { func, .. }) => match &**func {
+                syn::Expr::Path(path) => self.resolved(&path.path),
+                _ => None,
+            },
+            syn::Expr::Path(path) => path.path.get_ident().and_then(|name| {
+                self.command_locals
+                    .last()
+                    .and_then(|locals| locals.get(&name.to_string()))
+                    .map(|held| {
+                        held.clone()
+                            .unwrap_or_else(|| COMMAND_NEW.map(str::to_string).to_vec())
+                    })
+            }),
+            _ => None,
+        };
+        let Some(resolved) = resolved else {
+            return;
+        };
+        if is_path(&resolved, &COMMAND_NEW) {
+            self.io();
+        } else if let Some(function) = self.function.last() {
+            self.calls
+                .starts
+                .entry((self.file.to_string(), function.clone()))
+                .or_default()
+                .insert(resolved);
+        }
+    }
+
+    /// Records that the function `name` returns a process command, when its declared return type resolves to `COMMAND`.
+    fn returns(&mut self, name: &str, output: &syn::ReturnType) {
+        let syn::ReturnType::Type(_, ty) = output else {
+            return;
+        };
+        let syn::Type::Path(ty) = &**ty else {
+            return;
+        };
+        let segments: Vec<String> = ty
+            .path
+            .segments
+            .iter()
+            .map(|s| s.ident.to_string())
+            .collect();
+        if is_path(
+            &crate::process_check::resolve(&self.scopes, &segments),
+            &COMMAND,
+        ) {
+            self.calls
+                .commands
+                .insert((self.file.to_string(), name.to_string()));
         }
     }
 
@@ -312,13 +520,32 @@ impl Index<'_> {
         self.scopes.pop();
     }
 
+    /// The command bindings (`command_locals`) of a function from the syntax of its bindings.
+    fn command_locals(&self, bindings: CommandBindings) -> BTreeMap<String, Option<Vec<String>>> {
+        let mut held = BTreeMap::new();
+        for (name, ty) in bindings.typed {
+            if is_path(&crate::process_check::resolve(&self.scopes, &ty), &COMMAND) {
+                held.insert(name, None);
+            }
+        }
+        for (name, root) in bindings.started {
+            held.insert(
+                name,
+                Some(crate::process_check::resolve(&self.scopes, &root)),
+            );
+        }
+        held
+    }
+
     fn function(
         &mut self,
         name: String,
         attrs: &[syn::Attribute],
-        locals: Bindings,
+        (locals, commands): (Bindings, CommandBindings),
         visit: impl FnOnce(&mut Self),
     ) {
+        let commands = self.command_locals(commands);
+        self.command_locals.push(commands);
         let was = self.test;
         self.test |= is_test(attrs);
         self.calls
@@ -329,6 +556,7 @@ impl Index<'_> {
         self.locals.push(locals.0);
         visit(self);
         self.locals.pop();
+        self.command_locals.pop();
         self.function.pop();
         self.test = was;
     }
@@ -356,19 +584,31 @@ impl<'ast> Visit<'ast> for Index<'_> {
     }
 
     fn visit_item_fn(&mut self, item: &'ast syn::ItemFn) {
+        self.returns(&item.sig.ident.to_string(), &item.sig.output);
         let mut locals = Bindings::default();
         locals.visit_item_fn(item);
-        self.function(item.sig.ident.to_string(), &item.attrs, locals, |index| {
-            syn::visit::visit_item_fn(index, item)
-        });
+        let mut commands = CommandBindings::default();
+        commands.visit_item_fn(item);
+        self.function(
+            item.sig.ident.to_string(),
+            &item.attrs,
+            (locals, commands),
+            |index| syn::visit::visit_item_fn(index, item),
+        );
     }
 
     fn visit_impl_item_fn(&mut self, item: &'ast syn::ImplItemFn) {
+        self.returns(&item.sig.ident.to_string(), &item.sig.output);
         let mut locals = Bindings::default();
         locals.visit_impl_item_fn(item);
-        self.function(item.sig.ident.to_string(), &item.attrs, locals, |index| {
-            syn::visit::visit_impl_item_fn(index, item)
-        });
+        let mut commands = CommandBindings::default();
+        commands.visit_impl_item_fn(item);
+        self.function(
+            item.sig.ident.to_string(),
+            &item.attrs,
+            (locals, commands),
+            |index| syn::visit::visit_impl_item_fn(index, item),
+        );
     }
 
     fn visit_expr_call(&mut self, call: &'ast syn::ExprCall) {
@@ -383,6 +623,7 @@ impl<'ast> Visit<'ast> for Index<'_> {
 
     fn visit_expr_method_call(&mut self, call: &'ast syn::ExprMethodCall) {
         self.called(call.method.to_string());
+        self.process_start(call);
         syn::visit::visit_expr_method_call(self, call);
     }
 
@@ -527,7 +768,6 @@ pub fn check(
         .filter(|m| all.iter().any(|(_, covers)| covers(m)))
         .map(Mutant::short)
         .collect();
-    let word = Regex::new(r"[A-Za-z_][A-Za-z0-9_]*").expect("regex");
     let mut seen = BTreeSet::new();
     let mut violations = Vec::new();
     for mutant in mutants {
@@ -545,9 +785,11 @@ pub fn check(
             let short = mutant.short();
             let io = calls.io.contains(&(mutant.file.clone(), short.to_string()));
             let callees = calls.calls(&mutant.file, short);
-            let named = word
-                .find_iter(&exclusion.reason)
-                .map(|w| w.as_str())
+            // Plan section 8 (r23d): only a proof citation `decision (proof, ..)` names a decision; a name in free text
+            // does not. mutants-cited checks that each proof is a test that a gate tier runs.
+            let named = crate::mutants_cited::citations(&exclusion.reason)
+                .iter()
+                .map(|citation| citation.decision.as_str())
                 .any(|d| {
                     d != short
                         && callees.is_some_and(|c| c.contains(d))
@@ -560,7 +802,8 @@ pub fn check(
             } else if !io {
                 "the function does no process, file or signal I/O itself, so it is a decision, which is never excluded"
             } else if !named {
-                "its reason names no tested decision function that the shell calls and that no exclusion covers"
+                "its reason cites no tested decision function that the shell calls and that no exclusion covers, as \
+                 `decision (proof, ..)`"
             } else {
                 continue;
             };
