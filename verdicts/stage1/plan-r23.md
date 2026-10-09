@@ -153,3 +153,22 @@ Correct the first line, so that only a Linux pool gate is the merging gate. Then
 - 23c (2): Mac runs through `botster-gate --on mac`, only for macOS-only code (R8), agree with the pool bullet.
 
 VERDICT: NOT CLEAN at def1d25e375c7c7615c329573986fe4692ef3c18 (4 open: P23b-1 MEDIUM; P23b-2, P23c-1, P23c-2 LOW)
+
+## Round 5 — revision 23d (def1d25e..9b7bc5a0) — CLEAN
+
+Reviewed: `stage1/plan` `9b7bc5a065c62943aaa03f6bb8860f2cfb6b4c9f`, two commits on `def1d25e` (`c7c39437`, and `9b7bc5a0`, which
+only removes a pool time-limit claim from mutation step 8).
+
+- **P23b-1 closed.** The Merge bullet now says: the head contains the current v1 tip; the gate's `BOTSTER_CI_BASE_REF`
+  is that tip; `lists` prints the base, the merge base and whether the base is an ancestor of `HEAD`; the lead refuses a
+  merge when the base is not an ancestor or v1 moved after the gate started. With the base an ancestor of `HEAD`, the
+  merge base is the base, so the round 4 line-move case cannot reach v1.
+- **P23b-2 closed.** `git merge-base --all <base> HEAD`, and the check fails on more than one commit. The initialization
+  decision stays at the base revision.
+- **P23c-1 closed.** The rule names every check that parses Rust source (`process_check`, `platform_code`,
+  `mutants_cited`, `gate_decisions`, `timers` and every later one). An I/O shell exclusion cites at least one proof in the
+  `decision (proof, ...)` form, and a proof named only in free text fails.
+- **P23c-2 closed.** THE GATE bullet: only a green Linux pool gate is the merging gate, and a Mac run adds evidence for
+  macOS-only code only. `botsterq` remains only in notes that say it is retired (`:409`, `:472`, `:493`, `:497`).
+
+VERDICT: CLEAN (0 open) at 9b7bc5a065c62943aaa03f6bb8860f2cfb6b4c9f
