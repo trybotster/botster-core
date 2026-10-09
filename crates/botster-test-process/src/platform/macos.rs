@@ -5,8 +5,8 @@ use super::{gone, Member, Waited};
 use crate::Deadline;
 use rustix::process::Pid;
 
-/// The start time of `pid` in the unit of the platform, or `None` when no such process exists. Only equality has a meaning.
-/// It reads the same field as `botster_core_sys::process::start_time`, so the two agree.
+/// The start time of `pid` in microseconds since the Unix epoch, or `None` when no such process exists. Callers compare
+/// start times only for equality. It reads the same field as `botster_core_sys::process::start_time`, so the two agree.
 pub fn start_time(pid: Pid) -> Option<u64> {
     use libproc::bsd_info::BSDInfo;
     use libproc::proc_pid::pidinfo;

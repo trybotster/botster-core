@@ -349,6 +349,24 @@ exclude_re = [
     # it as TIMEOUT. The slow mutation run of the crate (timeout 120 s, P6 PR A evidence at d2338cb6) catches both.
     'crates/botster-test-process/src/anchor\.rs:\d+:\d+: replace Connection::read -> Result<\(\), String> with Ok\(\(\)\)$',
     'crates/botster-test-process/src/read\.rs:\d+:\d+: replace Bounded<R>::fill -> Result<bool, ReadError> with Ok\(true\)$',
+    # platform/macos.rs (the focused Mac mutation run of P6 PR A at 06b13590 missed these; a gate off macOS also excludes
+    # them, by OFF_MACOS_EXCLUSIONS). start_time `+` with `-`: equivalent. Callers compare start times only for equality,
+    # and the microseconds field is below 1_000_000, so the mapping stays one-to-one. The two `*` mutants are killed by
+    # a_start_time_on_macos_is_in_microseconds_since_the_epoch.
+    'crates/botster-test-process/src/platform/macos\.rs:\d+:\d+: replace \+ with - in start_time$',
+    # platform/macos.rs await_end and exiting_or_gone: with the guard always true, every kqueue error at the registration
+    # reads as "gone". The other errors (ENOMEM, EMFILE for the queue) need a process-wide memory or descriptor limit; a test
+    # cannot cause one without breaking the other tests of the process. `gone` stays tested (only_esrch_proves_a_process_gone).
+    'crates/botster-test-process/src/platform/macos\.rs:\d+:\d+: replace match guard gone\(&error\) with true in await_end$',
+    'crates/botster-test-process/src/platform/macos\.rs:\d+:\d+: replace match guard gone\(&error\) with true in exiting_or_gone$',
+    # platform/macos.rs live_members `&&` with `||`: macOS refuses the information of a zombie, so a listed process with
+    # information is never SZOMB, and the mutant differs only for a process that the group listing returned and that moved to
+    # another group before the read. Only that race reaches the difference; no test can cause it on demand.
+    'crates/botster-test-process/src/platform/macos\.rs:\d+:\d+: replace && with \|\| in live_members$',
+    # platform/macos.rs exiting_or_gone -> Ok(true): live_members calls it only for a process whose information macOS
+    # refused. A test process can cause that refusal only with a zombie, for which the answer is true. A live process of the
+    # group whose information is refused needs another user's process in the test's group.
+    'crates/botster-test-process/src/platform/macos\.rs:\d+:\d+: replace exiting_or_gone -> std::io::Result<bool> with Ok\(true\)$',
     # botster-test-process (P6): the default tier starts no real process (BUILD.md testing rules 1 and 2), so the code that
     # starts, waits for, signals or reads a real process is proved by the crate's slow tier, tests/slow_process.rs (slow-tier
     # mutation run of the crate, P6 PR A evidence). Each entry names one function and the slow tests that exercise it. The
