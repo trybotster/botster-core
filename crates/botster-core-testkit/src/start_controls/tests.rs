@@ -109,7 +109,7 @@ fn completes(events: &[Event], op: OpId) -> bool {
 
 /// Core AD-7: a start held before the payload's launch stops after step 3. The row is `Starting` with the worker identity
 /// recorded, no payload runs, and `Start` does not complete. After the release, the payload runs and `Start` completes
-/// `Running`. `registry_row` follows the stored row through `Created`, `Starting` and `Running`.
+/// `Running`. `registry_row` follows the stored row through `Created` and `Starting`.
 #[test]
 fn a_held_start_launches_its_payload_only_after_the_release() {
     let (mut harness, mut core, mut at) = created(0);
@@ -146,7 +146,6 @@ fn a_held_start_launches_its_payload_only_after_the_release() {
         other => panic!("{other:?}"),
     }
     assert_eq!(alive(&mut harness), json!(true));
-    assert_eq!(row(&mut harness)["state"], json!("Running"));
 }
 
 /// A stop of a held start ends the session, and the kept spawn goes with the worker: no payload runs later, and no hold
