@@ -30,11 +30,18 @@ const DEFERRED: &str = include_str!("../conformance/core-deferred.toml");
 const CONTRACTS_DEFERRED: &str = include_str!("../conformance/contracts-deferred.txt");
 const CONTRACTS_WITHDRAWN: &str = include_str!("../conformance/contracts-withdrawn.txt");
 
+// Core TH-1, checked when this suite compiles: the facade's handle is `Send` and not `Sync` (no nightly feature).
+static_assertions::assert_impl_all!(botster_core::Core: Send);
+static_assertions::assert_not_impl_any!(botster_core::Core: Sync);
+
+/// The answer of `type_check: send_not_sync` (Core TH-1): true, because the two assertions above compile.
+const CORE_IS_SEND_NOT_SYNC: bool = true;
+
 /// Builds the harness of one seed: `TestkitHarness` for the default tier. P6 adds the `slow` feature with `RealCoreHarness`
 /// for the real-process tier (plan section 5). Until P1 provides the engine, `open` reports that no Core exists, so a trial
 /// that is not pending fails; the ids stay in `conformance/core-pending.txt`.
 fn harness_factory() -> Option<fn(u64) -> Box<dyn CoreHarness>> {
-    Some(|seed| Box::new(TestkitHarness::new(seed)))
+    Some(|seed| Box::new(TestkitHarness::new(seed).with_core_type(CORE_IS_SEND_NOT_SYNC)))
 }
 
 fn id_list(text: &str) -> BTreeSet<String> {
