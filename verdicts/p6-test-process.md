@@ -320,3 +320,49 @@ TP9 went directly to the implementer. No lead decision is required.
 The reviewer ran no gate, build, test, or mutation job. The reviewer changed no product code.
 
 VERDICT: NOT CLEAN
+
+## Round 4 — 2026-10-09
+
+PR: https://github.com/trybotster/botster-core/pull/171
+
+Reviewed head: `f04c240dd96da4fd8e16d46e72197ba09cb5373a`.
+Previous reviewed head: `414b0ab1e6e3d3ad55da56c87fe2f12f4fe18b32`.
+Merged v1 head and gate base: `0f78957224e0496e2b5d18a4717b155fcfb1ac79`.
+Merge commit: `0842b77e4317d9868d92eecd4cae08c5d9c9f171`.
+
+TP9 closes. `exit_after_polls` stops an interrupted wait when its deadline expires.
+An exit event returns `Exited`. A timeout returns `Deadline`. Other errors remain errors.
+The regression test supplies repeated interruptions and makes the third expiry check true.
+It expects `Deadline` after three polls, although the next supplied result is an exit event.
+Removal of the expiry arm produces `Exited` after four polls and fails that assertion.
+The test also proves the event, timeout, and error paths.
+The implementation permits an available event at expiry and starts no retry after an interruption at expiry.
+`await_status` keeps its existing status and expiry checks before each event wait.
+
+The merge introduces no additional P6 product change.
+All product files brought from v1 match the merged v1 head.
+The merged mutation exclusions match both parents' additions and removals from their common base.
+No P6 exclusion is lost. No additional exclusion appears.
+The delta after the merge changes only the Mac adapter and its temporary Linux exclusion in xtask.
+PR #175's payload guard fix remains the reviewed v1 change; its package verdict is `59ed7f57d7bb65e6ecc683142520778deefe8954`.
+
+Supplied evidence, under `~/botster-sessions/gates/`:
+
+- `botster-core-stage1-p6-test-process-f04c240d-pool-20261009-032745-50628.log`: all ten Linux jobs pass. The run passes 864 default tests and 241 slow tests. It reports 183 caught mutants, 33 unviable mutants, no misses, and no timeouts.
+- `botster-core-stage1-p6-test-process-f04c240d-pool-20261009-033146-55205.log`: the Mac run passes 70 tests and skips the prebuilt-anchor test. Clippy passes. Mac mutation results are 21 caught, four unviable, no misses, and no timeouts. Two caught mutants name `exit_after_polls`.
+
+The full Linux gate runs the prebuilt-anchor test that the focused Mac run skips.
+The earlier Linux slow-tier mutation evidence remains applicable to the unchanged shared crate code.
+The Mac delta has evidence at this exact head.
+
+The TP7 scratch mutation output also confirms 61 caught mutants, two unviable mutants, no misses, and no timeouts.
+Path: `/private/tmp/claude-501/-Users-jasonconigliari-botster-sessions-trybotster-botster-core-stage1-p6-test-process/ea3b5694-91da-4e8e-bb26-31fe1acbe912/scratchpad/ucx/xtask/mutants.out/`.
+Its copied check differs from the reviewed check only in formatting of two test tuples.
+The exact-head full gate runs the repository's check and fixtures.
+
+TP1 through TP9 are closed. The integration reviewer owns its independent verdict and E1 closure.
+The Prior-art decisions, group reservation, derived bounds, and production's exclusive reap remain as reviewed in earlier rounds.
+This verdict covers PR #171. PR A2, PR B, and the migrations still require their own reviews.
+The reviewer ran no gate, build, test, or mutation job. The reviewer changed only review documentation.
+
+VERDICT: CLEAN
