@@ -308,16 +308,22 @@ fn a_failed_handoff_closes_a_known_route_once_and_ignores_an_unknown_one() {
     w.pump();
     w.feed(Input::HandoffFailed { route });
     w.pump();
-    let mut events = Vec::new();
+    let closes = |events: &[Event]| {
+        events
+            .iter()
+            .filter(|e| matches!(e, Event::RouteClosed { route: r, reason: RouteCloseReason::HandoffFailed, .. } if *r == route))
+            .count()
+    };
+    // The queue was full when the handoff failed: the first poll has the creates' events, not the close.
+    let first = w.engine.poll_events(64);
+    assert_eq!(closes(&first), 0, "the close waits for room: {first:?}");
+    w.pump();
+    let mut later = Vec::new();
     for _ in 0..4 {
-        events.extend(w.engine.poll_events(64));
+        later.extend(w.engine.poll_events(64));
         w.pump();
     }
-    let closes = events
-        .iter()
-        .filter(|e| matches!(e, Event::RouteClosed { route: r, reason: RouteCloseReason::HandoffFailed, .. } if *r == route))
-        .count();
-    assert_eq!(closes, 1, "{events:?}");
+    assert_eq!(closes(&later), 1, "{later:?}");
 }
 
 /// Core LC-7, A6-3: a link that closes while the worker tears down leaves the uploads `OutcomeUnknown`.
