@@ -16,6 +16,7 @@
 //! - any other snake_case word with at least three parts is a source reference: a test that some tier runs, a test target
 //!   with such a test, an identifier of non-test code of a tracked Rust file (an item, a field, a method, a crate, also of a
 //!   dependency), or a word of a vendored file (a file of a git submodule).
+//!
 //! A name that fails its form fails the check: a renamed or deleted test leaves its old name behind in the reason, a mention
 //! in a document, a comment or a string does not keep it alive, and a proof that loses its `#[test]` is no proof (#181
 //! B6). A test with `#[ignore]` runs in no tier, and a test with `#[cfg_attr(<predicate>, ignore)]` runs in no tier where

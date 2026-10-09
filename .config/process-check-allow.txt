@@ -69,6 +69,11 @@ crates/botster-core/tests/slow_real_core.rs | a_hello_for_an_unknown_instance_is
 crates/botster-core/tests/slow_real_core.rs | a_worker_is_not_left_when_the_cleanup_of_a_test_fails | blocking-read
 crates/botster-core/tests/slow_real_core.rs | a_worker_is_not_left_when_the_cleanup_of_a_test_fails | blocking-read
 
+# The F63 regression of the testkit worker (#195/#196): its control thread waits on the test's go channel with no
+# deadline. The test sends on it after the end thread holds the owner, and an unwinding test drops the sender, so the
+# wait ends either way. PR C bounds the wait (owner P3).
+crates/botster-core-testkit/src/worker/tests.rs | a_program_edge_control_concurrent_with_the_process_end_does_not_deadlock | blocking-read
+
 # OwnedGroup and its slow tests. PR C replaces them with OwnedChild::spawn_group (owner P6).
 crates/botster-core-testkit/src/process_group.rs | kill | child-wait
 crates/botster-core-testkit/src/process_group.rs | spawn | spawn
