@@ -62,3 +62,20 @@ lands, the `signals` token scan shrinks to `Command::new` with kill program lite
 
 VERDICT: CLEAN (0 open) at f5652517262ee7ce6d64b1787d2b02fc28df72ae (the carry-over to a v1 merge needs base-merge-check
 and a full gate on that merge)
+
+### Correction after round 1 (same head f5652517) — CLEAN WITHDRAWN (the P6 package reviewer's B7, missed here)
+
+The P6 package reviewer's B7 HIGH is real, and it is in this reviewer's scope (a shared crate). `run_to_completion`
+starts the tool with `OwnedChild::spawn`, not `spawn_group` (`child.rs:36` against `:44`). A tool that starts a child
+(for example `git` with a hook, a credential helper or `ssh`) passes the pipes to that child. Then `both_to_eof` waits
+until the deadline, and on the timeout the drop kills and reaps only the leader. The descendants stay, with no owner. This
+is the leak that `botster-test-process` exists to prevent. This reviewer checked only that the leader is killed and
+reaped. Fix: start the tool with `spawn_group`, so the drop ends every member of its group, and add a test whose tool
+leaves a child that holds stdout open.
+
+The package reviewer's other findings (B1 to B6, B8, B9) are in the xtask checks and theirs. B5 (an exclusion of
+`mutation_decision` that passes because it names its callee `mutation_verdict`) touches the exclusions that round 1
+accepted. Round 1 checked only the reasons, not the gate-decisions rule that accepts them.
+
+VERDICT: NOT CLEAN at f5652517262ee7ce6d64b1787d2b02fc28df72ae (1 open here: B7 HIGH, the package reviewer's finding,
+confirmed here; B1 to B6, B8 and B9 are theirs)
