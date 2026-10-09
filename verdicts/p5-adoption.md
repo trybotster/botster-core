@@ -1191,3 +1191,64 @@ This focused result does not establish a full landing gate or Linux execution.
 The combined #162 head still needs its own delta reviews and authorized gate.
 
 VERDICT: CLEAN
+
+
+## PR #165 — Round 6 — Correction of Round 5
+
+- Exact head: `9eaea51ccb47230f4ee19e14056c17dfb607a826` (unchanged).
+- Base: `144b0234fb632bcbb5176b17c2fe55f3239405df`.
+- Scope: integration C7 from verdict `e91cd835851668f9c95d3e8ab67c3bdff759ebeb`.
+- The reviewer ran no builds, tests, mutation jobs, or gates.
+
+### C7 — LOW — The payload panic test omits cleanup completion time
+
+The reviewer independently checked `crates/botster-core-sys/tests/slow_payload.rs:312-334` at this head.
+`a_panic_ends_the_payload_while_it_waits_for_input` waits ten seconds for panic cleanup on a helper thread.
+That cleanup drops `GuardedPayload`, which releases the guard, runs production cleanup, and reads the guard report.
+The member can use the full ten-second `CLEANUP` interval before production finishes its reap.
+The outer wait therefore omits the reap and report allowance required by the accepted composition rule.
+
+**Required change:** Derive this outer wait from `2 * process_guard::cleanup::CLEANUP`.
+Keep the inner limit and the drop order unchanged.
+
+Status: OPEN at this head. The reviewer sent the finding directly to P3.
+Round 5's dependency CLEAN is superseded by this correction.
+The real-loop F39 closure remains valid.
+
+VERDICT: NOT CLEAN (1 open)
+
+## PR #165 — Round 7
+
+- Exact head: `47ae53a79b95e5499b8548c456a2fbaceacba992`.
+- Base: `144b0234fb632bcbb5176b17c2fe55f3239405df`.
+- Scope: the delta from `9eaea51ccb47230f4ee19e14056c17dfb607a826` and closure of C7.
+- The reviewer ran no builds, tests, mutation jobs, or gates.
+
+### C7 — CLOSED — The payload panic wait includes cleanup completion
+
+The one-file delta uses `recv_timeout(2 * process_guard::cleanup::CLEANUP)` for the outer panic-cleanup wait.
+It retains the deadline marker and explains the guard, reap, and report sequence.
+The inner limit and the drop order remain unchanged.
+The test still checks that the panic occurred and joins the helper after receiving its result.
+The reviewer also checked the other channel waits in the guard consumers.
+Those waits observe individual events rather than enclosing this cleanup sequence.
+The previously reviewed source fixes remain present.
+No finding remains open within this #165 review scope.
+The separate F39/G2 duty in #163 remains outside this closure.
+
+### Description and evidence
+
+The reviewer read the updated PR description and verified the exact submitted head.
+It names all three outer cleanup waits and records the separate #163 guard-drop duty.
+It retains the combined #162 landing rule and the Prior art section.
+
+The reviewer read the raw exact-head focused Mac log:
+`~/botster-sessions/gates/botster-core-stage1-p3-guard-macos-47ae53a7-pool-20261008-204957-86837.log`.
+Job: `jobq-botster-core-47ae53a7-20261008204957-4a68`.
+The log reports successful Clippy and worker prebuild steps.
+It reports 168 tests passed with zero skipped, then 15 selected guard tests passed with nine skipped; exit 0.
+The changed payload panic test passes.
+This focused result does not establish a full landing gate or Linux execution.
+The combined #162 head still needs its own delta reviews and authorized gate.
+
+VERDICT: CLEAN
