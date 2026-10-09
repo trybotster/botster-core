@@ -28,3 +28,17 @@ output after an exit step would then test something that cannot happen. When a t
 the control could refuse a payload that has exited.
 
 VERDICT: CLEAN (0 open) at 46642d85de52c98ce8fe1cfbd0bf7afa27847c4d
+
+### Correction after round 1 (same head 46642d85) — CLEAN WITHDRAWN (the P3 package reviewer's F63, missed here)
+
+The P3 package reviewer's F63 MEDIUM is real, and it is in this reviewer's scope (shared testkit code). `program_edge`
+(`worker.rs:234-242`) keeps the `ProcessCell` guard while it locks `owner` (the host's `Processes`) to read the wake.
+`Processes::end` (`worker.rs:102-110`) runs under the `owner` lock (`lock(&self.processes).end(...)`, from `Action::Exit`
+and from a kill by `signal_group`) and then locks the cell. `ProcessTable::holds_reports` also locks owner, then cell. So
+the order is reversed. If one thread runs a program-edge control while another ends the worker, each waits for the other's
+lock. `break_link` drops the cell guard before it locks `owner`. This reviewer checked the new field's end paths, but not
+the lock order. Fix: F63's (drop the cell guard after the clone of `ProgramControl`, before `owner`; add a bounded test of
+a control that runs at the same time as the process end).
+
+VERDICT: NOT CLEAN at 46642d85de52c98ce8fe1cfbd0bf7afa27847c4d (1 open: F63 MEDIUM, the package reviewer's finding,
+confirmed here)
