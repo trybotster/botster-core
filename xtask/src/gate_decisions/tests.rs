@@ -1,6 +1,7 @@
 use super::*;
 
 const CI: &str = r#"
+use anyhow::bail;
 fn mutation_verdict(code: Option<i32>) -> Result<()> { if code == Some(0) { return Ok(()); } bail!("x") }
 fn parse_outcomes(json: &str) -> Result<u64> { Ok(json.len() as u64) }
 fn untested_decision(code: i32) -> bool { code == 0 }
@@ -623,4 +624,131 @@ fn a_path_module_in_the_xtask_fails_the_index() {
             "{text}"
         );
     }
+}
+
+/// #181 B5 round 5, plan section 8: the check reads each binding and `use` of a function where it is, or fails. Through the
+/// whole check (`inputs`, then `check`), a whole-body exclusion of `forwarded`, which starts nothing, is rejected:
+/// - a command `let` under a block `use` (`use crate::ci::pure::Command;`): a function with a command binding and a `use`
+///   in its body is not a listed form;
+/// - a statement macro that binds the command name again (`rebind! { let cmd = .. }`): the macro is not a listed form;
+/// - a binding in the arguments of a listed macro (`assert!({ let cmd = ..; .. })`, `assert!({ let write = ..; .. })`):
+///   the check counts it, so the start is on another type and the call is of a local.
+///
+/// The same fixture with a real start is accepted, so each rejection comes from its form.
+#[test]
+fn a_binding_or_a_use_that_the_check_does_not_resolve_rejects_the_exclusion() {
+    let head = "use anyhow::bail; use std::fs::write; use std::process::Command;\n\
+                fn mutation_verdict(code: Option<i32>) -> Result<()> { if code == Some(0) { return Ok(()); } bail!(\"x\") }\n\
+                #[cfg(test)]\n\
+                mod tests { #[test] fn verdicts() { assert!(super::mutation_verdict(Some(0)).is_ok()); } }\n\
+                mod pure { pub struct Command; impl Command { pub fn new() -> Self { Self } pub fn status(&self) {} } }\n";
+    let toml = "exclude_re = [\n    # glue; mutation_verdict (verdicts)\n    'replace forwarded -> Result<\\(\\)> with Ok\\(\\(\\)\\)$',\n]\n";
+    let no_io = "the function does no process, file or signal I/O itself";
+    let cases = [
+        (
+            "fn forwarded(code: Option<i32>) -> Result<()> { let cmd = Command::new(\"git\"); cmd.status(); mutation_verdict(code) }",
+            Ok(None),
+        ),
+        (
+            "fn forwarded(code: Option<i32>) -> Result<()> { { use crate::ci::pure::Command; let cmd = Command::new(); cmd.status(); } mutation_verdict(code) }",
+            Err(
+                "xtask/src/ci.rs:6:4: the function `forwarded` binds a process command and has a `use` declaration in its \
+                 body, which is not a form that gate-decisions resolves (plan section 8): it resolves a command binding \
+                 through the `use` declarations around the function; move the `use` out of the function",
+            ),
+        ),
+        (
+            "fn forwarded(code: Option<i32>) -> Result<()> { let cmd = Command::new(\"unused\"); rebind! { let cmd = pure::Command::new(); } cmd.status(); mutation_verdict(code) }",
+            Err(
+                "xtask/src/ci.rs:6:83: the macro `rebind!` is not a form that gate-decisions resolves (plan section 8): \
+                 its expansion can bind a name or import a path that the check does not see; use a listed macro or a \
+                 function",
+            ),
+        ),
+        (
+            "fn forwarded(cmd: Command, code: Option<i32>) -> Result<()> { assert!({ let cmd = pure::Command::new(); cmd.status(); true }); mutation_verdict(code) }",
+            Ok(Some(no_io)),
+        ),
+        (
+            "fn forwarded(code: Option<i32>) -> Result<()> { assert!({ let write = |_: u8| (); write(1); true }); mutation_verdict(code) }",
+            Ok(Some(no_io)),
+        ),
+    ];
+    for (forwarded, want) in cases {
+        let source = format!("{head}{forwarded}\n");
+        let repo =
+            crate::fsutil::test_repo(&[(MUTANTS_FILE, toml), ("xtask/src/ci.rs", source.as_str())]);
+        let inputs = inputs(repo.path()).map_err(|error| error.to_string());
+        match (inputs, want) {
+            (Ok(inputs), Ok(problem)) => {
+                let found = check(
+                    &[mutant(
+                        "forwarded",
+                        "replace forwarded -> Result<()> with Ok(())",
+                    )],
+                    &inputs.exclusions[..1],
+                    &[],
+                    &inputs.calls,
+                )
+                .unwrap();
+                match problem {
+                    None => assert!(found.is_empty(), "{forwarded}: {found:?}"),
+                    Some(problem) => {
+                        assert_eq!(found.len(), 1, "{forwarded}: {found:?}");
+                        assert!(found[0].contains(problem), "{forwarded}: {found:?}");
+                    }
+                }
+            }
+            (Err(error), Err(want)) => assert_eq!(error, want, "{forwarded}"),
+            (got, want) => panic!("{forwarded}: {:?}, want {want:?}", got.map(|_| ())),
+        }
+    }
+}
+
+/// #181 B5 round 5, plan section 8: a macro is a listed form only by its resolved path. The check reads the arguments of
+/// an `ARGUMENT_MACROS` macro as code of the caller, does not read the tokens of an `OPAQUE_MACROS` macro, and fails on any
+/// other macro (a `macro_rules!` definition included), and on a one-segment name where a glob of another crate can hide
+/// the standard macro. A glob of `crate`, `self` or `super` hides none, and a path of two segments is not hidden.
+#[test]
+fn a_macro_is_read_only_when_its_resolved_path_is_listed() {
+    let rejected = |at: &str, name: &str| {
+        format!(
+            "xtask/src/a.rs:{at}: the macro `{name}!` is not a form that gate-decisions resolves (plan section 8): its \
+             expansion can bind a name or import a path that the check does not see; use a listed macro or a function"
+        )
+    };
+    for (text, at, name) in [
+        ("fn f() { custom!(x); }\n", "1:10", "custom"),
+        ("macro_rules! m { () => {} }\n", "1:1", "macro_rules"),
+        (
+            "use evil::*;\nfn f() { println!(\"x\"); }\n",
+            "2:10",
+            "println",
+        ),
+        ("use evil::*;\nfn f() { env!(\"X\"); }\n", "2:10", "env"),
+        (
+            "use std::fs::write as format;\nfn f() { format!(\"x\"); }\n",
+            "2:10",
+            "format",
+        ),
+    ] {
+        let error = Calls::of(&[("xtask/src/a.rs".to_string(), text.to_string())])
+            .unwrap_err()
+            .to_string();
+        assert_eq!(error, rejected(at, name), "{text}");
+    }
+    let io = |text: &str| -> BTreeSet<String> {
+        let calls = Calls::of(&[("xtask/src/a.rs".to_string(), text.to_string())]).unwrap();
+        calls.io.into_iter().map(|(_, function)| function).collect()
+    };
+    assert_eq!(
+        io("use super::*;\nuse crate::x::*;\nuse self::y::*;\n\
+            fn read() { println!(\"{}\", std::fs::read_to_string(p)); }\n\
+            fn opaque() { matches!(std::fs::write(p, b), Ok(())); }\n"),
+        BTreeSet::from(["read".to_string()])
+    );
+    assert_eq!(
+        io("use evil::*;\nfn bailed() { anyhow::bail!(\"{:?}\", std::fs::read(p)); }\n"),
+        BTreeSet::from(["bailed".to_string()])
+    );
 }

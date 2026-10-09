@@ -23,9 +23,14 @@
 //!   call on a process command: a method chain that begins at `Command::new(..)` or at a call of an xtask function
 //!   declared to return `Command`, a parameter typed `Command` (also by reference), or a `let` bound to such a chain; a
 //!   parameter or a `let` counts only when the function binds its name once.
-//!   `Command::new` alone is a builder and starts nothing.
+//!   `Command::new` alone is a builder and starts nothing;
+//! - a macro by its resolved path: an `ARGUMENT_MACROS` macro, whose arguments the check reads as code of the caller
+//!   (their bindings and `use` declarations included), or an `OPAQUE_MACROS` macro, whose tokens it does not read.
 //!
-//! A `#[path]` module in the xtask is not a listed form, so the check fails on it. Any other way of doing I/O (a start on
+//! These forms are not listed, so the check fails on them and names the form and the file (#181 B5 round 5): any other
+//! macro, a one-segment macro name where a glob `use` of another crate is visible, and a function that has a command
+//! binding and a `use` declaration in its body (the check resolves a command binding through the `use` declarations
+//! around the function). A `#[path]` module in the xtask is not a listed form, so the check fails on it. Any other way of doing I/O (a start on
 //! a field, a closure that holds a command) is not recognized: a shell that does only that is no shell for the check, so
 //! its exclusion fails until the code takes a listed form or a reviewed change extends the list.
 //!
@@ -128,6 +133,46 @@ const COMMAND: [&str; 3] = ["std", "process", "Command"];
 /// The methods of a process command that start the process.
 const SPAWN_METHODS: [&str; 3] = ["status", "output", "spawn"];
 
+/// The macros whose arguments are expressions of the caller, by their resolved path: each expands to an expression and
+/// binds or imports no name of the caller, so the check reads its arguments as code of the caller (#181 B5 round 5).
+const ARGUMENT_MACROS: [&[&str]; 22] = [
+    &["assert"],
+    &["assert_eq"],
+    &["assert_ne"],
+    &["debug_assert"],
+    &["debug_assert_eq"],
+    &["debug_assert_ne"],
+    &["eprint"],
+    &["eprintln"],
+    &["format"],
+    &["panic"],
+    &["print"],
+    &["println"],
+    &["todo"],
+    &["unimplemented"],
+    &["unreachable"],
+    &["vec"],
+    &["write"],
+    &["writeln"],
+    &["anyhow", "anyhow"],
+    &["anyhow", "bail"],
+    &["anyhow", "ensure"],
+    &["format_args"],
+];
+
+/// The macros that expand to a value and bind or import no name of the caller, whose tokens the check does not read: a
+/// call inside them is not seen, so it cannot make a function an I/O shell.
+const OPAQUE_MACROS: [&[&str]; 8] = [
+    &["concat"],
+    &["env"],
+    &["include_str"],
+    &["matches"],
+    &["stringify"],
+    &["serde_json", "json"],
+    &["syn", "parse_quote"],
+    &["cfg"],
+];
+
 /// Whether `path` is `want`, segment by segment.
 fn is_path(path: &[String], want: &[&str]) -> bool {
     path.len() == want.len() && path.iter().zip(want).all(|(segment, want)| segment == want)
@@ -190,8 +235,12 @@ impl Calls {
                 scopes: vec![crate::process_check::Uses::of(&parsed.items, true)],
                 test: false,
                 command_locals: Vec::new(),
+                rejected: Vec::new(),
             };
             index.visit_file(&parsed);
+            if let Some(rejected) = index.rejected.first() {
+                bail!("{file}:{rejected}");
+            }
         }
         let started: Vec<(String, String)> = calls
             .starts
@@ -326,19 +375,43 @@ struct Index<'a> {
     /// (`None`), or a `let` whose initializer begins at a call of the resolved path (`Some`, kept for `Calls::of` unless it
     /// is `Command::new`).
     command_locals: Vec<BTreeMap<String, Option<Vec<String>>>>,
+    /// The forms that the check does not resolve, each as `line:column: what`, in the order found.
+    rejected: Vec<String>,
 }
 
 /// The syntax of the bindings of a function that may hold a process command: each typed parameter with its type's path
-/// (a reference stripped), each `let` with the path of the call that begins its initializer's method chain, and how
-/// many times the function binds each name (a parameter, a `let`, a pattern, a closure parameter).
+/// (a reference stripped), each `let` with the path of the call that begins its initializer's method chain, how many
+/// times the function binds each name (a parameter, a `let`, a pattern, a closure parameter), and whether its body has a
+/// `use` declaration. It also reads the arguments of every macro that parse as expressions, so it sees each binding and
+/// `use` that `Index` reads.
 #[derive(Default)]
 struct CommandBindings {
     typed: Vec<(String, Vec<String>)>,
     started: Vec<(String, Vec<String>)>,
     bound: BTreeMap<String, usize>,
+    uses: bool,
+}
+
+/// The arguments of `mac` when they parse as expressions separated by commas.
+fn macro_arguments(
+    mac: &syn::Macro,
+) -> Option<syn::punctuated::Punctuated<syn::Expr, syn::Token![,]>> {
+    mac.parse_body_with(syn::punctuated::Punctuated::<syn::Expr, syn::Token![,]>::parse_terminated)
+        .ok()
 }
 
 impl<'ast> Visit<'ast> for CommandBindings {
+    fn visit_item_use(&mut self, item: &'ast syn::ItemUse) {
+        self.uses = true;
+        syn::visit::visit_item_use(self, item);
+    }
+
+    fn visit_macro(&mut self, mac: &'ast syn::Macro) {
+        for expr in macro_arguments(mac).iter().flatten() {
+            self.visit_expr(expr);
+        }
+    }
+
     fn visit_pat_ident(&mut self, pat: &'ast syn::PatIdent) {
         *self.bound.entry(pat.ident.to_string()).or_default() += 1;
         syn::visit::visit_pat_ident(self, pat);
@@ -413,7 +486,7 @@ impl<'ast> Visit<'ast> for PathModules {
     }
 }
 
-/// The names that a pattern binds, anywhere in a function.
+/// The names that a pattern binds, anywhere in a function, also in the macro arguments that `Index` reads.
 #[derive(Default)]
 struct Bindings(BTreeSet<String>);
 
@@ -421,6 +494,12 @@ impl<'ast> Visit<'ast> for Bindings {
     fn visit_pat_ident(&mut self, pat: &'ast syn::PatIdent) {
         self.0.insert(pat.ident.to_string());
         syn::visit::visit_pat_ident(self, pat);
+    }
+
+    fn visit_macro(&mut self, mac: &'ast syn::Macro) {
+        for expr in macro_arguments(mac).iter().flatten() {
+            self.visit_expr(expr);
+        }
     }
 }
 
@@ -593,12 +672,24 @@ impl Index<'_> {
 
     fn function(
         &mut self,
-        name: String,
+        ident: &syn::Ident,
         attrs: &[syn::Attribute],
         (locals, commands): (Bindings, CommandBindings),
         visit: impl FnOnce(&mut Self),
     ) {
+        let name = ident.to_string();
+        let uses = commands.uses;
         let commands = self.command_locals(commands);
+        if uses && !commands.is_empty() {
+            let at = ident.span().start();
+            self.rejected.push(format!(
+                "{}:{}: the function `{name}` binds a process command and has a `use` declaration in its body, which is \
+                 not a form that gate-decisions resolves (plan section 8): it resolves a command binding through the `use` \
+                 declarations around the function; move the `use` out of the function",
+                at.line,
+                at.column + 1
+            ));
+        }
         self.command_locals.push(commands);
         let was = self.test;
         self.test |= is_test(attrs);
@@ -643,12 +734,9 @@ impl<'ast> Visit<'ast> for Index<'_> {
         locals.visit_item_fn(item);
         let mut commands = CommandBindings::default();
         commands.visit_item_fn(item);
-        self.function(
-            item.sig.ident.to_string(),
-            &item.attrs,
-            (locals, commands),
-            |index| syn::visit::visit_item_fn(index, item),
-        );
+        self.function(&item.sig.ident, &item.attrs, (locals, commands), |index| {
+            syn::visit::visit_item_fn(index, item)
+        });
     }
 
     fn visit_impl_item_fn(&mut self, item: &'ast syn::ImplItemFn) {
@@ -657,12 +745,9 @@ impl<'ast> Visit<'ast> for Index<'_> {
         locals.visit_impl_item_fn(item);
         let mut commands = CommandBindings::default();
         commands.visit_impl_item_fn(item);
-        self.function(
-            item.sig.ident.to_string(),
-            &item.attrs,
-            (locals, commands),
-            |index| syn::visit::visit_impl_item_fn(index, item),
-        );
+        self.function(&item.sig.ident, &item.attrs, (locals, commands), |index| {
+            syn::visit::visit_impl_item_fn(index, item)
+        });
     }
 
     fn visit_expr_call(&mut self, call: &'ast syn::ExprCall) {
@@ -681,14 +766,38 @@ impl<'ast> Visit<'ast> for Index<'_> {
         syn::visit::visit_expr_method_call(self, call);
     }
 
+    /// A macro is a listed form only when its resolved path is an `ARGUMENT_MACROS` macro, whose arguments the check reads
+    /// as code of the caller, or an `OPAQUE_MACROS` macro, whose tokens it does not read. Any other macro can bind a name
+    /// or import a path that the check does not see (`let cmd = Pure;`, `use pure::Command;` in its expansion), so it
+    /// fails (#181 B5 round 5). A one-segment name fails also where a `use` of another crate imports a glob, which can
+    /// hide the standard macro of that name.
     fn visit_macro(&mut self, mac: &'ast syn::Macro) {
-        // A call inside `assert!`, `format!` and the like: the macro's arguments, when they are expressions.
-        if let Ok(exprs) = mac.parse_body_with(
-            syn::punctuated::Punctuated::<syn::Expr, syn::Token![,]>::parse_terminated,
-        ) {
-            for expr in &exprs {
+        let segments: Vec<String> = mac
+            .path
+            .segments
+            .iter()
+            .map(|s| s.ident.to_string())
+            .collect();
+        let resolved = crate::process_check::resolve(&self.scopes, &segments);
+        let listed = |list: &[&[&str]]| list.iter().any(|want| is_path(&resolved, want));
+        let hidden = resolved.len() == 1
+            && self
+                .scopes
+                .iter()
+                .any(crate::process_check::Uses::has_foreign_glob);
+        if listed(&ARGUMENT_MACROS) && !hidden {
+            for expr in macro_arguments(mac).iter().flatten() {
                 self.visit_expr(expr);
             }
+        } else if !(listed(&OPAQUE_MACROS) && !hidden) {
+            let at = mac.path.segments[0].ident.span().start();
+            self.rejected.push(format!(
+                "{}:{}: the macro `{}!` is not a form that gate-decisions resolves (plan section 8): its expansion can \
+                 bind a name or import a path that the check does not see; use a listed macro or a function",
+                at.line,
+                at.column + 1,
+                segments.join("::")
+            ));
         }
     }
 }

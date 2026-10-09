@@ -164,6 +164,16 @@ impl Uses {
         }
         uses
     }
+
+    /// Whether the scope imports a glob of another crate (not `crate::`, `self::` or `super::`).
+    pub(crate) fn has_foreign_glob(&self) -> bool {
+        self.globs.iter().any(|glob| {
+            !matches!(
+                glob.first().map(String::as_str),
+                Some("crate" | "self" | "super")
+            )
+        })
+    }
 }
 
 /// The full path of `segments`, seen from the innermost of `scopes`: the first segment is expanded through its nearest
