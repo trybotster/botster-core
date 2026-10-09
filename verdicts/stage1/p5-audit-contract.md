@@ -403,3 +403,18 @@ only. The head moved while round 11 was written. This reviewer ran no build, tes
   PR body.
 
 VERDICT: NOT CLEAN (1 open: K8)
+
+## Round 13 — CLEAN on head 4064d251 (K8 fix)
+
+Reviewed head: `4064d251885b18a13c4ea6db8677919efbc89748`. Delta `e24fcce4..4064d251`, two commits, comments in
+`.cargo/mutants.toml` only. This reviewer ran no build, test or gate.
+
+- **K8 CLOSED.** The storage comment now says "xtask's `SLOW_FILTER` selects every module named `slow_*`", which matches
+  `binary(/^slow/) | test(/(^|::)slow_/)`. The PR body (`gh pr view 164`, head `4064d251`) names the three fix-round
+  mutants logs (`…5b7617f3-pool-20261008-213813-83022.log`, `…2121aaca-pool-20261008-214504-93381.log`,
+  `…b48a6d8d-pool-20261008-215154-3101.log`) and records round 11 as superseded.
+- The merge rules of rounds 11 and 12 stand for the v1 merge after #167 (a trial merge still conflicts in
+  `.cargo/mutants.toml` and on the `pub` line). That merge head needs a merge-only check by this reviewer before the ONE
+  Linux gate.
+
+VERDICT: CLEAN (0 open) at 4064d251885b18a13c4ea6db8677919efbc89748
