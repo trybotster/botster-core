@@ -83,3 +83,15 @@ Reviewed head: `3f9ca34e9e1639216a1b8933476cf127b907bd75`, two commits on `539a4
   656 ignored. The default tier runs 941 tests and the slow tier 243, and all of them pass.
 
 VERDICT: CLEAN (0 open) at 3f9ca34e9e1639216a1b8933476cf127b907bd75
+
+### Correction after round 2 (same head 3f9ca34e) — CLEAN WITHDRAWN (the P5 package reviewer's M20-F2, missed here)
+
+The P5 package reviewer's M20-F2 LOW is real. Round 2 closed H1 on the new header of `worker_transcripts.rs`, which says
+"an id whose transcript passes on `TestkitHarness` leaves `conformance/core-pending.txt`". It does not state plan 23a's
+exception: a real-only id leaves only with its real proof. `lc_2` at this head is that exception. So the header replaces
+one incomplete rule with another. The PR body also says that the plan does not yet record the ruling (23a records it), and
+its proof section still cites `539a4c7b` and 20 trials. Fix: M20-F2's (add the exception to the header, and update the body
+to `3f9ca34e` and 19 trials).
+
+VERDICT: NOT CLEAN at 3f9ca34e9e1639216a1b8933476cf127b907bd75 (1 open: M20-F2 LOW, the package reviewer's finding,
+confirmed here)
