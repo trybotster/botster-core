@@ -254,3 +254,44 @@ No gate was run for this documentation-only review.
 The next #181 review will apply revision 23f to the actual correction and its evidence.
 
 VERDICT: CLEAN (0 open) at ae89651169810dce96a1c54ab862db11447283a7
+
+## Round 8 — revision 23g — CLEAN
+
+Reviewed head: `6dece66f00144bd36e627dac739699c4579e0dd0`.
+Previous reviewed head: `ae89651169810dce96a1c54ab862db11447283a7`.
+The lead assigned this review and reported the user's approval of the changed policy.
+The complete delta adds one section 8 paragraph and the revision 23g row.
+The reviewer applied orchestrate-delivery to the changed acceptance premise.
+The reviewer changed no product code and ran no tests, builds, mutants, or gates.
+
+### Changed responsibility
+
+The plan removes automatic classification of whether a function performs I/O.
+Review now establishes that an excluded whole-body function is an I/O shell and forwards to the cited decision.
+The strict `decision (proof, ...)` citation remains required, with at least one proof that a gate tier runs.
+Every `.cargo/mutants.toml` change becomes HIGH and requires both package and integration review.
+
+This replaces the failed classification mechanism with a defined review responsibility.
+It does not allow a gate decision to be excluded.
+The existing prohibition on excluding gate decisions and the remaining decision checks stay in force.
+The remaining source-reading checks retain the closed-form and reserved-name rules for the names they resolve.
+The explicit 23g paragraph supersedes the earlier 23f claim that the check detects a function that stops doing I/O.
+
+### Implementation acceptance
+
+R7-1 and B5 can close by removal of the mechanism that produces their false I/O evidence.
+Their round-7 verdict remains an accurate record for `7826ba0adab5962089a7e3279f78cd5f4a8425c9`.
+This plan verdict does not close them on that implementation head or grant #181 CLEAN.
+
+The next #181 review must verify the actual removal and its callers.
+It must verify that whole-body exclusions still require strict proof citations and cannot cover gate decisions.
+The remaining checks must still reject unsupported forms under 23f.
+The next #184 review must verify that `ci/high-tier-paths.txt` includes `.cargo/mutants.toml`.
+The #181/#184 union review remains required for the second PR to merge.
+Until that path rule lands, the explicit plan rule still requires HIGH review for every change to the file.
+
+The plan changes no contract pin, pending id, package owner, gate command, or exact-head merge requirement.
+The remote plan ref names the reviewed head. `git diff --check` passes.
+No gate was run for this documentation-only review.
+
+VERDICT: CLEAN (0 open) at 6dece66f00144bd36e627dac739699c4579e0dd0
