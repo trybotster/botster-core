@@ -465,13 +465,8 @@ fn packages(root: &Path) -> Result<Vec<Package>> {
         .args(["metadata", "--format-version", "1", "--no-deps", "--locked"])
         .output()
         .context("run cargo metadata")?;
-    if !out.status.success() {
-        bail!(
-            "cargo metadata failed: {}",
-            String::from_utf8_lossy(&out.stderr)
-        );
-    }
-    let json: serde_json::Value = serde_json::from_slice(&out.stdout)?;
+    let json: serde_json::Value =
+        serde_json::from_str(&crate::tools::stdout_of(&out, "cargo metadata")?)?;
     let root = std::fs::canonicalize(root)?;
     let strings = |value: &serde_json::Value| -> Vec<String> {
         value
@@ -519,13 +514,7 @@ fn tracked_with_submodules(root: &Path) -> Result<Vec<String>> {
         .args(["ls-files", "-z", "--recurse-submodules"])
         .output()
         .context("run git ls-files")?;
-    if !output.status.success() {
-        bail!(
-            "git ls-files failed: {}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-    }
-    Ok(String::from_utf8(output.stdout)?
+    Ok(crate::tools::stdout_of(&output, "git ls-files")?
         .split('\0')
         .filter(|s| !s.is_empty())
         .map(str::to_string)
@@ -543,14 +532,8 @@ pub fn command(root: &Path, args: &[String]) -> Result<()> {
     let slow = Filter::parse(crate::test_budget::SLOW_FILTER)?;
     let read = |path: &str| std::fs::read_to_string(root.join(path)).ok();
     let violations = check(&toml, &packages, &read, &paths, &slow)?;
-    for violation in &violations {
-        eprintln!("{violation}");
-    }
     println!("mutants-cited: {} cited names checked", cited(&toml).len());
-    if !violations.is_empty() {
-        bail!("{} violation(s)", violations.len());
-    }
-    Ok(())
+    crate::tools::verdict(&violations)
 }
 
 #[cfg(test)]

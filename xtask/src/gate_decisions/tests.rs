@@ -212,3 +212,92 @@ fn the_mutant_list_is_read_from_the_json_of_cargo_mutants() {
         "visit_item"
     );
 }
+
+const INDEX: &str = r#"
+fn shell() { decide(); lib_call(); }
+fn decide() {}
+impl S { fn method() { from_impl(); } }
+#[test]
+fn top_level() { decide(); lib_call(); }
+#[cfg(unix)]
+fn unix_only() { by_cfg_unix(); }
+#[inline]
+fn inlined() { by_inline(); }
+#[cfg(test)]
+mod t { fn helper() { by_test_module(); } }
+"#;
+
+fn index() -> Calls {
+    Calls::of(&[("xtask/src/a.rs".to_string(), INDEX.to_string())]).unwrap()
+}
+
+/// Test code is a `#[test]` function or the code of a `#[cfg(test)]` module, at any level; another attribute does not make
+/// test code. The calls of an impl's methods are indexed under the method.
+#[test]
+fn test_code_is_a_test_function_or_a_test_module_and_methods_are_indexed() {
+    let calls = index();
+    for name in ["decide", "lib_call", "by_test_module"] {
+        assert!(calls.tested.contains(name), "{name}");
+    }
+    for name in ["by_cfg_unix", "by_inline", "from_impl"] {
+        assert!(!calls.tested.contains(name), "{name}");
+    }
+    assert!(calls
+        .calls("xtask/src/a.rs", "method")
+        .unwrap()
+        .contains("from_impl"));
+}
+
+/// A named decision must be a function of the xtask: a tested library call that the shell makes is not one.
+#[test]
+fn a_named_decision_must_be_a_function_of_the_xtask() {
+    let shell = Mutant {
+        file: "xtask/src/a.rs".into(),
+        function: "shell".into(),
+        name: "xtask/src/a.rs:2:1: replace shell with ()".into(),
+    };
+    let entry = |reason: &str| exclusion(r"replace shell with \(\)$", reason);
+    let named = |reason| {
+        check(
+            std::slice::from_ref(&shell),
+            &[entry(reason)],
+            &[],
+            &index(),
+        )
+        .unwrap()
+    };
+    assert!(named("glue; decide decides").is_empty());
+    assert_eq!(named("glue; lib_call decides").len(), 1);
+}
+
+/// The inputs come from the repository: the reasoned `exclude_re` entries with the gate's off-macOS exclusions, the
+/// `exclude_globs`, and the calls of the tracked Rust sources under `xtask/src/` only.
+#[test]
+fn the_inputs_are_the_reasoned_entries_the_globs_and_the_xtask_sources() {
+    let toml = "exclude_globs = [\"**/tests/**\"]\n\nexclude_re = [\n    # a reason\n    'x',\n]\n";
+    let repo = crate::fsutil::test_repo(&[
+        (MUTANTS_FILE, toml),
+        ("xtask/src/a.rs", "fn a() { b(); }\n"),
+        ("xtask/src/notes.md", "not Rust {\n"),
+        ("crates/c/src/lib.rs", "fn c() { d(); }\n"),
+    ]);
+    let inputs = inputs(repo.path()).unwrap();
+    assert_eq!(inputs.globs, ["**/tests/**"]);
+    assert_eq!(
+        inputs.exclusions.len(),
+        1 + crate::ci::OFF_MACOS_EXCLUSIONS.len()
+    );
+    assert_eq!(
+        (
+            inputs.exclusions[0].pattern.as_str(),
+            inputs.exclusions[0].reason.as_str()
+        ),
+        ("x", "a reason")
+    );
+    assert!(inputs
+        .calls
+        .calls("xtask/src/a.rs", "a")
+        .unwrap()
+        .contains("b"));
+    assert!(inputs.calls.calls("crates/c/src/lib.rs", "c").is_none());
+}

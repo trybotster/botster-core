@@ -185,17 +185,13 @@ fn add_use_tree(uses: &mut Uses, prefix: &mut Vec<String>, tree: &syn::UseTree) 
             add_use_tree(uses, prefix, &path.tree);
             prefix.pop();
         }
+        // `{self}` needs no entry of its own: a path through the module name ends in the same two segments, which are all
+        // that the rules read.
         syn::UseTree::Name(name) => {
             let ident = name.ident.to_string();
-            if ident == "self" {
-                if let Some(last) = prefix.last() {
-                    uses.names.insert(last.clone(), prefix.clone());
-                }
-            } else {
-                let mut full = prefix.clone();
-                full.push(ident.clone());
-                uses.names.insert(ident, full);
-            }
+            let mut full = prefix.clone();
+            full.push(ident.clone());
+            uses.names.insert(ident, full);
         }
         syn::UseTree::Rename(rename) => {
             let mut full = prefix.clone();
@@ -303,23 +299,20 @@ fn is_test_item(attrs: &[syn::Attribute]) -> bool {
     })
 }
 
+/// The attributes of an item that can hold code. A function's own visit reads its attributes (`visit_item_fn`); a `use`, an
+/// `extern crate`, an `extern` block and a trait alias hold no expression.
 fn item_attrs(item: &syn::Item) -> &[syn::Attribute] {
     match item {
         syn::Item::Const(i) => &i.attrs,
         syn::Item::Enum(i) => &i.attrs,
-        syn::Item::ExternCrate(i) => &i.attrs,
-        syn::Item::Fn(i) => &i.attrs,
-        syn::Item::ForeignMod(i) => &i.attrs,
         syn::Item::Impl(i) => &i.attrs,
         syn::Item::Macro(i) => &i.attrs,
         syn::Item::Mod(i) => &i.attrs,
         syn::Item::Static(i) => &i.attrs,
         syn::Item::Struct(i) => &i.attrs,
         syn::Item::Trait(i) => &i.attrs,
-        syn::Item::TraitAlias(i) => &i.attrs,
         syn::Item::Type(i) => &i.attrs,
         syn::Item::Union(i) => &i.attrs,
-        syn::Item::Use(i) => &i.attrs,
         _ => &[],
     }
 }
@@ -733,10 +726,21 @@ pub fn judge(findings: &[Finding], allowed: &[Allowed]) -> Vec<String> {
     violations
 }
 
-pub fn command(root: &Path, args: &[String]) -> Result<()> {
-    if let Some(arg) = args.first() {
-        bail!("unknown argument '{arg}'");
-    }
+/// What the check found in a repository.
+#[derive(Debug, PartialEq, Eq)]
+pub struct Report {
+    /// The Rust files whose test code was scanned.
+    pub scanned: usize,
+    /// The entries of the allowlist.
+    pub allowed: usize,
+    pub violations: Vec<String>,
+}
+
+/// The check of the tracked files of `root` against its allowlist.
+///
+/// # Errors
+/// The files cannot be listed, the allowlist is malformed, or a file does not parse.
+pub fn check(root: &Path) -> Result<Report> {
     let allow_text = std::fs::read_to_string(root.join(ALLOW_FILE)).unwrap_or_default();
     let allowed = parse_allowlist(&allow_text).map_err(anyhow::Error::msg)?;
     let mut findings = Vec::new();
@@ -751,18 +755,23 @@ pub fn command(root: &Path, args: &[String]) -> Result<()> {
         scanned += 1;
         findings.extend(scan(&file, &text).map_err(anyhow::Error::msg)?);
     }
-    let violations = judge(&findings, &allowed);
-    for violation in &violations {
-        eprintln!("{violation}");
+    Ok(Report {
+        scanned,
+        allowed: allowed.len(),
+        violations: judge(&findings, &allowed),
+    })
+}
+
+pub fn command(root: &Path, args: &[String]) -> Result<()> {
+    if let Some(arg) = args.first() {
+        bail!("unknown argument '{arg}'");
     }
+    let report = check(root)?;
     println!(
-        "process-check: {scanned} Rust files scanned, {} allowed sites",
-        allowed.len()
+        "process-check: {} Rust files scanned, {} allowed sites",
+        report.scanned, report.allowed
     );
-    if !violations.is_empty() {
-        bail!("{} violation(s)", violations.len());
-    }
-    Ok(())
+    crate::tools::verdict(&report.violations)
 }
 
 #[cfg(test)]

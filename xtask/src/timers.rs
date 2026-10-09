@@ -127,6 +127,7 @@ impl Scan<'_> {
     }
 }
 
+/// The attributes of an item that can hold code (a `use` holds none).
 fn item_attrs(item: &syn::Item) -> &[syn::Attribute] {
     match item {
         syn::Item::Const(i) => &i.attrs,
@@ -138,7 +139,6 @@ fn item_attrs(item: &syn::Item) -> &[syn::Attribute] {
         syn::Item::Static(i) => &i.attrs,
         syn::Item::Struct(i) => &i.attrs,
         syn::Item::Trait(i) => &i.attrs,
-        syn::Item::Use(i) => &i.attrs,
         _ => &[],
     }
 }
@@ -266,14 +266,12 @@ pub fn command(root: &Path, args: &[String]) -> Result<()> {
         }
     }
     let (scanned, violations) = scan_files(&files);
-    for (file, line, message) in &violations {
-        eprintln!("{file}:{line}: {message}");
-    }
     println!("timers: {scanned} Rust files scanned");
-    if !violations.is_empty() {
-        bail!("{} violation(s)", violations.len());
-    }
-    Ok(())
+    let violations: Vec<String> = violations
+        .iter()
+        .map(|(file, line, message)| format!("{file}:{line}: {message}"))
+        .collect();
+    crate::tools::verdict(&violations)
 }
 
 #[cfg(test)]
@@ -428,5 +426,46 @@ mod tests {
             (found[0].0.as_str(), found[0].1),
             ("crates/x/tests/a.rs", 2)
         );
+    }
+
+    /// A `#[cfg(test)]` item of each kind that can hold code makes its timers test timers, which need a marker; the same items
+    /// in production code of a crate that is not a machine are not checked.
+    #[test]
+    fn each_kind_of_test_item_holds_test_timers() {
+        let items = concat!(
+            "#[cfg(test)]\nconst C: () = { sleep(d); };\n",
+            "#[cfg(test)]\nenum E { A = { sleep(d); 0 } }\n",
+            "#[cfg(test)]\nm! { sleep(d) }\n",
+            "#[cfg(test)]\nmod t { fn f() { sleep(d); } }\n",
+            "#[cfg(test)]\nstatic S: () = { sleep(d); };\n",
+            "#[cfg(test)]\nstruct T([u8; { sleep(d); 1 }]);\n",
+            "#[cfg(test)]\ntrait U { fn f() { sleep(d); } }\n",
+        );
+        let src = "crates/x/src/a.rs";
+        assert_eq!(violations(src, items), [2, 4, 6, 8, 10, 12, 14]);
+        assert!(violations(src, &items.replace("#[cfg(test)]\n", "")).is_empty());
+    }
+
+    /// A macro body that does not parse as expressions is read token by token, into nested groups; only a timer name followed
+    /// by parentheses is a timer.
+    #[test]
+    fn a_token_scan_finds_timers_in_nested_groups_and_only_timers() {
+        let text = "fn f() {\n    m! { a; [sleep(d)]; wait(d); sleep; }\n}\n";
+        assert_eq!(violations(TEST, text), [2]);
+        let other = "fn f() {\n    m! { a; wait(d); }\n}\n";
+        assert!(violations(TEST, other).is_empty());
+    }
+
+    /// The command checks the tracked files of a repository.
+    #[test]
+    fn the_command_fails_on_an_unmarked_timer_in_a_tracked_test_file() {
+        let unmarked = crate::fsutil::test_repo(&[(TEST, "fn f() {\n    sleep(d);\n}\n")]);
+        assert_eq!(
+            command(unmarked.path(), &[]).unwrap_err().to_string(),
+            "1 violation(s)"
+        );
+        let clean = crate::fsutil::test_repo(&[(TEST, "fn f() {}\n")]);
+        command(clean.path(), &[]).unwrap();
+        assert!(command(clean.path(), &["x".into()]).is_err());
     }
 }

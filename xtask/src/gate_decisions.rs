@@ -339,26 +339,20 @@ pub fn check(
     Ok(violations)
 }
 
-pub fn command(root: &Path, args: &[String]) -> Result<()> {
-    if let Some(arg) = args.first() {
-        bail!("unknown argument '{arg}'");
-    }
-    require_cargo_tool(
-        root,
-        &["mutants", "--version"],
-        "cargo install cargo-mutants --version 27.1.0 --locked",
-    )?;
-    let output = cargo(root)
-        .args(["mutants", "--list", "--json", "--no-config", "-p", "xtask"])
-        .output()
-        .context("run cargo mutants --list")?;
-    if !output.status.success() {
-        bail!(
-            "cargo mutants --list failed: {}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-    }
-    let mutants = parse_mutants(&String::from_utf8(output.stdout)?)?;
+/// What the check reads from a repository: the `exclude_re` entries of the mutants file with their reasons and the
+/// off-macOS exclusions of the gate, the `exclude_globs`, and the calls of the xtask's sources.
+struct Inputs {
+    exclusions: Vec<Exclusion>,
+    globs: Vec<String>,
+    calls: Calls,
+}
+
+/// The inputs of the check in `root`.
+///
+/// # Errors
+/// The mutants file cannot be read or parsed, an `exclude_re` entry has no reason block, or a source cannot be read or
+/// parsed.
+fn inputs(root: &Path) -> Result<Inputs> {
     let text = std::fs::read_to_string(root.join(MUTANTS_FILE))
         .with_context(|| format!("read {MUTANTS_FILE}"))?;
     let config: toml::Table = text
@@ -389,20 +383,40 @@ pub fn command(root: &Path, args: &[String]) -> Result<()> {
             files.push((file.clone(), std::fs::read_to_string(root.join(&file))?));
         }
     }
-    let calls = Calls::of(&files)?;
-    let violations = check(&mutants, &exclusions, &globs, &calls)?;
-    for violation in &violations {
-        eprintln!("{violation}");
+    Ok(Inputs {
+        exclusions,
+        globs,
+        calls: Calls::of(&files)?,
+    })
+}
+
+pub fn command(root: &Path, args: &[String]) -> Result<()> {
+    if let Some(arg) = args.first() {
+        bail!("unknown argument '{arg}'");
     }
+    require_cargo_tool(
+        root,
+        &["mutants", "--version"],
+        "cargo install cargo-mutants --version 27.1.0 --locked",
+    )?;
+    let output = cargo(root)
+        .args(["mutants", "--list", "--json", "--no-config", "-p", "xtask"])
+        .output()
+        .context("run cargo mutants --list")?;
+    let mutants = parse_mutants(&crate::tools::stdout_of(&output, "cargo mutants --list")?)?;
+    let inputs = inputs(root)?;
     println!(
-        "gate-decisions: {} mutants of the xtask, {} exclusions",
+        "gate-decisions: {} mutants of the xtask, {} exclude_re entries, {} exclude_globs",
         mutants.len(),
-        exclusions.len() + globs.len()
+        inputs.exclusions.len(),
+        inputs.globs.len()
     );
-    if !violations.is_empty() {
-        bail!("{} violation(s)", violations.len());
-    }
-    Ok(())
+    crate::tools::verdict(&check(
+        &mutants,
+        &inputs.exclusions,
+        &inputs.globs,
+        &inputs.calls,
+    )?)
 }
 
 #[cfg(test)]
