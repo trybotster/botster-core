@@ -5,7 +5,9 @@
 //! is the full gate. The pending and deferred file checks (`lists`) run right after the taint check, because they are fast.
 
 use crate::tools::{cargo, cargo_nightly, ensure_nightly, require_cargo_tool, run};
-use crate::{caps, fsutil, lists, prebuild, public_api, signals, taint, test_budget, timers};
+use crate::{
+    caps, fsutil, lists, prebuild, public_api, signals, taint, test_budget, timers, unsafe_exception,
+};
 use anyhow::{bail, Context, Result};
 use std::path::Path;
 use std::process::Command;
@@ -29,7 +31,7 @@ const JOBS: &[(&str, &str, JobFn)] = &[
     ),
     (
         "taint",
-        "banned old-world names; unmarked timers; raw signal calls",
+        "banned old-world names; unmarked timers; the one unsafe_code exception; raw signal calls",
         taint_job,
     ),
     (
@@ -97,6 +99,7 @@ fn clippy_job(root: &Path) -> Result<()> {
 fn taint_job(root: &Path) -> Result<()> {
     taint::command(root, &[])?;
     timers::command(root, &[])?;
+    unsafe_exception::command(root, &[])?;
     signals::command(root, &[])
 }
 
@@ -259,8 +262,22 @@ fn parse_outcomes(json: &str) -> Result<MutantSummary> {
 ///   `the_key_bound_of_an_alt_key_with_long_text_covers_the_states_with_modes_off`. When `every_key_state`, the key
 ///   encoding or the Ghostty pin changes, a focused Mac mutation run of `every_key_state` must show both mutants caught.
 ///   The proof at aeda1cac, pin 3f8eb681 (PR #167): ~/.local/state/jobq/logs/jobq-botster-core-aeda1cac-20261008222501-7480.log.
+/// - botster-test-process `platform/macos.rs` (P6): the macOS adapters (libproc, kqueue) are `cfg(target_os = "macos")`
+///   code, one entry per function. Off macOS the file is not compiled, so no test there can show a mutant in it. The Mac
+///   slow tier runs them in every real-process test of `crates/botster-test-process/tests/slow_process.rs`, and the default
+///   tier on macOS in the `platform` unit tests (`this_process_has_a_start_time_and_is_a_live_member_of_its_group`,
+///   `processes_that_started_at_different_times_have_different_start_times`, `a_wait_for_a_pid_with_no_process_reports_it_gone`).
+///   Temporary: P6 PR B removes these entries and derives the exclusions of platform-only code from `cfg` (plan r22
+///   section 8, "Platform-only code").
 const OFF_MACOS_EXCLUSIONS: &[&str] = &[
     r"crates/botster-terminal-ghostty/src/encode\.rs:\d+:40: replace & with [|^] in EncoderState::every_key_state$",
+    r"crates/botster-test-process/src/platform/macos\.rs:\d+:\d+: (replace start_time( ->| with)|.* in start_time$)",
+    r"crates/botster-test-process/src/platform/macos\.rs:\d+:\d+: (replace await_end( ->| with)|.* in await_end$)",
+    r"crates/botster-test-process/src/platform/macos\.rs:\d+:\d+: (replace live_members( ->| with)|.* in live_members$)",
+    r"crates/botster-test-process/src/platform/macos\.rs:\d+:\d+: (replace exiting_or_gone( ->| with)|.* in exiting_or_gone$)",
+    r"crates/botster-test-process/src/platform/macos\.rs:\d+:\d+: (replace await_status( ->| with)|.* in await_status$)",
+    r"crates/botster-test-process/src/platform/macos\.rs:\d+:\d+: (replace polled( ->| with)|.* in polled$)",
+    r"crates/botster-test-process/src/platform/macos\.rs:\d+:\d+: (replace exit_after_polls( ->| with)|.* in exit_after_polls$)",
 ];
 
 /// The exclusions that a gate on `os` (`std::env::consts::OS`) adds to the configured ones.
