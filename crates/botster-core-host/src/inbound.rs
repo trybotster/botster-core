@@ -599,7 +599,7 @@ impl HostEngine {
         s.worker.link_failed = true;
         match s.flow.clone() {
             // The start of an adoption: the worker may have accepted the `Launch` before the link ended, so the session is
-            // indeterminate, and the row keeps its intent for a retry (R-35, the retry rule).
+            // indeterminate, and `Adopt(id)` may retry it (AD-2; steward ruling R-36).
             Flow::Start(f)
                 if f.adopted
                     && matches!(f.phase, StartPhase::SendLaunch | StartPhase::AwaitLaunched) =>

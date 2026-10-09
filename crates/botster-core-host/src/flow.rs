@@ -126,8 +126,10 @@ pub struct AdoptFlow {
     /// The `AdoptAll` or `Adopt` op that waits for the row's state.
     pub op: OpId,
     pub phase: AdoptPhase,
-    /// The state that the row records: the intent. The report gives the facts (steward ruling R-35, the retry rule).
-    pub recorded: SessionState,
+    /// The state that the row records, for `AdoptAll`: the intent. The report gives the facts (steward ruling R-35).
+    /// `None` for `Adopt(id)` of a `Lost` session: a `Lost` row keeps the worker's identity, not an intent, so the
+    /// result is re-read from the worker only (steward ruling R-36, contracts `main` `c62085f`).
+    pub recorded: Option<SessionState>,
     /// The `startup` deadline: the connect, the hello and the report complete before it (DESIGN.md 3.7).
     pub deadline: Option<Instant>,
     /// The state that `AdoptPhase::Post` posts.

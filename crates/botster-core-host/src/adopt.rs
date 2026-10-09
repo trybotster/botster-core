@@ -1,9 +1,10 @@
 //! The adoption of a row whose worker may live (AD-1, AD-2, AD-6; DESIGN.md "Adoption (P5)", parts 3 to 5).
 //!
 //! The host probes the recorded worker identity, connects to the worker endpoint, speaks first with its own proof and epoch,
-//! checks the worker's answer, and reads the worker's report. The row's recorded state (the intent) and the report's payload
-//! state (the facts) decide the row's one `SessionState` (LC-11; steward ruling R-35, contracts `main` `f969f5e`, with the
-//! correction `c3ed727`).
+//! checks the worker's answer, and reads the worker's report. For `AdoptAll`, the row's recorded state (the intent) and the
+//! report's payload state (the facts) decide the row's one `SessionState` (LC-11; steward ruling R-35, contracts `main`
+//! `f969f5e`, with the correction `c3ed727`). For `Adopt(id)` of a `Lost` session, the report alone decides it, and nothing
+//! is launched (steward ruling R-36, contracts `main` `c62085f`, with the follow-up `d18b6de`).
 
 use crate::engine::{HostEngine, Owner};
 use crate::flow::*;
@@ -38,13 +39,24 @@ impl HostEngine {
         }
     }
 
-    /// Starts the adoption of `id` for `op`, with the row's recorded state `recorded`. No operation is admitted on the
-    /// session until the adoption posts its state.
-    pub(crate) fn begin_adoption(&mut self, op: OpId, id: &SessionId, recorded: SessionState) {
+    /// Starts the adoption of `id` for `op`, with the row's recorded state `recorded` (`None` for `Adopt(id)`). No operation
+    /// is admitted on the session until the adoption posts its state.
+    pub(crate) fn begin_adoption(
+        &mut self,
+        op: OpId,
+        id: &SessionId,
+        recorded: Option<SessionState>,
+    ) {
         let s = self
             .sessions
             .get_mut(id)
             .expect("an adoption has a session");
+        if recorded.is_none() {
+            // R-36: the `Stop` that ended in `Lost` completed (LC-5), so a retry keeps nothing that the host asked for. The
+            // exit cause follows the report alone, as for a new handle that reads the same row.
+            s.host_ended = false;
+            s.killed = false;
+        }
         s.admit = Admit::Adopting;
         s.adopting = Some(op);
         s.flow = Flow::Adopt(AdoptFlow {
@@ -191,7 +203,8 @@ impl HostEngine {
         self.set_adopt_phase(id, AdoptPhase::AwaitReport);
     }
 
-    /// The worker's report decides the row's state with the row's intent (R-35; DESIGN.md 5).
+    /// The worker's report decides the row's state, with the row's intent for `AdoptAll` (R-35) and without it for
+    /// `Adopt(id)` (R-36; DESIGN.md 5).
     pub(crate) fn adopt_report(&mut self, id: &SessionId, report: AdoptReport) {
         let Some(f) = self.adopt_flow(id).cloned() else {
             return;
@@ -213,7 +226,11 @@ impl HostEngine {
         }
         use AdoptedPayload as P;
         use SessionState as R;
-        match (f.recorded, report.payload) {
+        let Some(recorded) = f.recorded else {
+            self.adopt_retry(id, f, report.payload);
+            return;
+        };
+        match (recorded, report.payload) {
             // R-35 (a): Core does AD-7 step 4 with the `Launch` built from the row. The worker accepts at most one `Launch`
             // in its life, so a `Launch` that it accepted earlier is reported as one of the other states, never this one.
             (R::Starting, P::NotLaunched) => self.adopt_start(id, f, StartPhase::SendLaunch),
@@ -255,6 +272,30 @@ impl HostEngine {
             // `Exited` row is written only after the end that it records, and a `Running` row only after `Launched`. A
             // row of any other state never reaches the handshake (`session_of_row`).
             _ => self.adopt_end(id, End::Lost(LostReason::RegistryCorrupt), ""),
+        }
+    }
+
+    /// R-36, with the follow-up `d18b6de`: `Adopt(id)` of a `Lost` session re-reads the worker (AD-3), and no `Launch` is
+    /// sent (AD-2). There is no `Stopping` outcome: a host that still wants the payload ended calls `Stop` after the
+    /// adoption.
+    fn adopt_retry(&mut self, id: &SessionId, f: AdoptFlow, payload: AdoptedPayload) {
+        match payload {
+            AdoptedPayload::Running { .. } => self.adopt_end_with(id, SessionState::Running, ""),
+            AdoptedPayload::Exited { code, signal } => {
+                let exit = self.exit_of(id, code, signal);
+                self.adopt_end(id, End::Exited(exit), "");
+            }
+            // AD-2 `StartInterrupted`: the start never reached its payload, and a `Lost` row gets no `Launch`.
+            AdoptedPayload::NotLaunched => {
+                self.adopt_end(id, End::Lost(LostReason::StartInterrupted), "")
+            }
+            // As R-35 (b): the spawn's answer, bounded by the `startup` of the adoption (TM-3), with no `Launch` sent.
+            AdoptedPayload::Spawning => self.adopt_start(id, f, StartPhase::AwaitLaunched),
+            // The same outcome as a failed launch of an ordinary `Start` (LC-4).
+            AdoptedPayload::LaunchFailed { reason } => {
+                self.adopt_start(id, f, StartPhase::AwaitLaunched);
+                self.fail_start(id, reason, End::Exited(never_ran(ExitCause::Other)));
+            }
         }
     }
 
@@ -322,6 +363,8 @@ impl HostEngine {
     /// Posts the row's one state (LC-11, EV-5b: only with room, so this step posts it).
     fn post_adoption(&mut self, id: &SessionId, f: AdoptFlow) {
         let state = f.post.expect("Post has its state");
+        // The state that the row records: the row's own for `AdoptAll`, the shown `Lost` for `Adopt(id)`.
+        let row = f.recorded.or(self.sessions[id].shown);
         // A retry that ends in the state that the session shows posts no second event for it (A2-1 `Adopt`: the record
         // tells the outcome).
         let shown = self.sessions[id].shown == Some(state);
@@ -330,28 +373,28 @@ impl HostEngine {
         }
         let s = self.sessions.get_mut(id).expect("a flow has a session");
         s.shown = Some(state);
-        s.row_state = None;
         match state {
             SessionState::Running => s.admit = Admit::Running,
             SessionState::Exited(exit) => {
                 s.exit = Some(exit);
                 s.admit = Admit::Exited;
             }
-            SessionState::Lost(reason) => {
-                s.admit = Admit::Lost;
-                // R-35, the retry rule: an indeterminate end never rewrites the row, and a retry has its intent.
-                if End::Lost(reason).indeterminate() {
-                    s.row_state = Some(f.recorded);
-                }
-            }
+            SessionState::Lost(_) => s.admit = Admit::Lost,
             _ => unreachable!("an adoption posts Running, Exited or Lost"),
         }
-        // An end that the row does not record yet is written, as at the end of any session.
-        if matches!(state, SessionState::Exited(_)) && state != f.recorded {
+        // A state that the row does not record yet is written. A `Lost` row keeps the worker's identity, so `Adopt(id)`
+        // may retry it (R-36).
+        if row != Some(state) {
             self.write_final_row(id, state);
         }
         self.flow_done(id);
         self.adoption_posted(id);
+        // An end that the worker reported while the state waited (review P5-F25) applies after `Running`, in contract
+        // order (OR-2). Another adoption end already is the session's end.
+        let pending = self.sessions.get_mut(id).and_then(|s| s.pending_end.take());
+        if let (SessionState::Running, Some(end)) = (state, pending) {
+            self.begin_end_flow(id, end);
+        }
     }
 
     /// The row's state is posted: an `Adopt` op completes with the record, and an `AdoptAll` op counts the row as done.

@@ -47,8 +47,8 @@ impl End {
         }
     }
 
-    /// `Lost(WorkerUnreachable)` or `Lost(WorkerVersion)`: a live worker may remain, so `Adopt(id)` may retry (AD-2). Such
-    /// an end is never written to the row: the row keeps the intent that the retry needs (R-35, the retry rule).
+    /// `Lost(WorkerUnreachable)` or `Lost(WorkerVersion)`: a live worker may remain, so `Adopt(id)` is always admitted
+    /// (AD-2, A2-1; steward ruling R-36, contracts `main` `c62085f`). The row records the end, with the worker's identity.
     pub fn indeterminate(self) -> bool {
         matches!(
             self,
@@ -291,10 +291,6 @@ pub struct Session {
     pub pending_end: Option<End>,
     /// The `AdoptAll` or `Adopt` op that waits for this session's state (LC-11).
     pub adopting: Option<OpId>,
-    /// The state that the row keeps while the session shows another one: an adoption that ends `Lost(WorkerUnreachable)`
-    /// or `Lost(WorkerVersion)` never rewrites the row, so a retry has the row's intent (steward ruling R-35, the retry
-    /// rule).
-    pub row_state: Option<SessionState>,
 }
 
 impl Session {
@@ -312,12 +308,10 @@ impl Session {
         })
     }
 
-    /// The state that a row write of this session records: the row's kept intent, or the shown state (R-35, the retry
-    /// rule).
+    /// The state that a row write of this session records: the shown state. A `Lost` row keeps the worker's identity, not
+    /// an earlier state (steward ruling R-36, contracts `main` `c62085f`).
     pub fn recorded_state(&self) -> SessionState {
-        self.row_state
-            .or(self.shown)
-            .unwrap_or(SessionState::Created)
+        self.shown.unwrap_or(SessionState::Created)
     }
 
     pub fn to_row(&self) -> Row {
