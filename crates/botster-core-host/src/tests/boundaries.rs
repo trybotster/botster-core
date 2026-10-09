@@ -1067,6 +1067,7 @@ fn the_engine_reads_return_what_open_and_the_worker_gave() {
 fn a_link_frame_holds_the_largest_message_and_stays_under_half_of_u32() {
     use botster_core_link::frame::{encode_frame, FrameType};
     for (paste, snapshot) in [
+        (1, 1),
         (1000, 3000),
         (5000, 3000),
         ((1 << 29) + 1, 3000),
