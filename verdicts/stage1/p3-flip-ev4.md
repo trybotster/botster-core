@@ -22,3 +22,19 @@ P3 package reviewer's F59. That is correct, as for #185.
 - **The current v1** is `8bc21dd5` (#187 since the merge). `git merge-tree --write-tree origin/v1 48928504` has no conflict.
 
 VERDICT: CLEAN (0 open) at 489285047b18f1d736a35e2a4adbda0f29f7903c
+
+## Round 2 — CLEAN on head a5d64425 (delta: the merge of v1 8bc21dd5)
+
+Reviewed head: `a5d64425bc57f0115598265794c49c7d7f82ce2c`, the merge of v1 `8bc21dd5` (#187) into `48928504`. v1 is still
+`8bc21dd5`. Base-merge-check cannot carry the CLEAN, because `core-pending.txt` changed on both sides (#187's three flips
+and `ev_4`).
+
+- The merge's tree is the tree of `git merge-tree --write-tree 48928504 8bc21dd5` (`4d790ccc`): no conflict, and no
+  change by hand.
+- The PR's own diff on the new base (`git diff 8bc21dd5 a5d64425`) is the same as on the old base, apart from the `index`
+  and hunk lines.
+- The gate log (`…-p3-flip-ev4-a5d64425-pool-20261009-094159-89893.log`) names the head and base `8bc21dd5`. The conformance
+  binary reports 23 passed and 652 ignored (v1's 22 and `ev_4`). The default tier runs 947 tests and the slow tier 243, and
+  all of them pass. Exit 0.
+
+VERDICT: CLEAN (0 open) at a5d64425bc57f0115598265794c49c7d7f82ce2c
