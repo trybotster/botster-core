@@ -115,26 +115,32 @@ impl TestkitHarness {
     pub(crate) fn workers(&self) -> &Workers {
         &self.workers
     }
+}
 
-    fn no_route(what: &str) -> CoreError {
+/// The `CoreLimits` of an `OpenSpec` (Core 9B). Both harnesses read them the same way.
+pub(crate) fn limits_of(spec: &OpenSpec) -> Result<CoreLimits, CoreError> {
+    serde_json::from_value(spec.limits.clone()).map_err(|error| {
         CoreError::new(
-            ErrorCode::Unsupported { what: None },
-            format!("unsupported_control: {what} needs the route data plane (P4a)"),
+            ErrorCode::InvalidConfig {
+                field: "limits".to_string(),
+            },
+            format!("the limits are not CoreLimits: {error}"),
         )
-    }
+    })
+}
+
+/// The refusal of `attach_stream` while no route data plane exists (P4a). Both harnesses give it.
+pub(crate) fn no_route(what: &str) -> CoreError {
+    CoreError::new(
+        ErrorCode::Unsupported { what: None },
+        format!("unsupported_control: {what} needs the route data plane (P4a)"),
+    )
 }
 
 impl CoreHarness for TestkitHarness {
     /// Builds the real `Core` over an in-memory data directory (LC-1, LC-2, 9B).
     fn open(&mut self, spec: &OpenSpec) -> Result<Box<dyn CoreApi>, CoreError> {
-        let limits: CoreLimits = serde_json::from_value(spec.limits.clone()).map_err(|error| {
-            CoreError::new(
-                ErrorCode::InvalidConfig {
-                    field: "limits".to_string(),
-                },
-                format!("the limits are not CoreLimits: {error}"),
-            )
-        })?;
+        let limits = limits_of(spec)?;
         let config = OpenConfig {
             data_dir: spec.data_dir.0.clone().into(),
             worker_path: spec.worker.as_ref().map(|w| {
@@ -248,7 +254,7 @@ impl CoreHarness for TestkitHarness {
         _session: &SessionId,
         _options: AttachOptions,
     ) -> Result<(AttachResult, Box<dyn RouteClient>), CoreError> {
-        Err(TestkitHarness::no_route("attach_stream"))
+        Err(no_route("attach_stream"))
     }
 }
 

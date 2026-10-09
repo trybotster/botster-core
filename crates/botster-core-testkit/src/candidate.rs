@@ -1,6 +1,7 @@
 //! The prebuilt binaries of the real-process tier and their provenance (plan 4.2 and section 5).
 //!
-//! `cargo xtask prebuild-worker` builds `botster-worker` and `botster-conformance-probe` into `target/candidate/` and writes
+//! `cargo xtask prebuild-worker` builds `botster-worker`, `botster-conformance-probe` and `botster-test-anchor` into
+//! `target/candidate/` and writes
 //! `manifest.json` last, with the sha256 of each binary. A test never builds a binary (testing rule 7, which also avoids the
 //! first-launch stall of macOS inside a test). [`Candidate::locate`] reads the manifest, hashes each binary and refuses to
 //! return one that is missing, unlisted or different from its manifest entry. The idea is the old `real_worker.rs` provenance
@@ -8,12 +9,15 @@
 
 use serde_json::Value;
 use sha2::{Digest, Sha256};
+use std::io;
 use std::path::{Path, PathBuf};
 
 /// The worker binary (HC RT-3 names it `botster-worker`).
 pub const WORKER: &str = "botster-worker";
 /// The program of the real-process tier, from botster-contracts.
 pub const PROBE: &str = "botster-conformance-probe";
+/// The anchor of the group guard of the real-process tier (`botster_test_process::anchor`).
+pub const ANCHOR: &str = "botster-test-anchor";
 
 /// Why the candidate directory cannot be used.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -72,6 +76,7 @@ impl std::error::Error for CandidateError {}
 pub struct Candidate {
     pub worker: PathBuf,
     pub probe: PathBuf,
+    pub anchor: PathBuf,
 }
 
 fn sha256_hex(bytes: &[u8]) -> String {
@@ -82,6 +87,18 @@ fn sha256_hex(bytes: &[u8]) -> String {
 }
 
 impl Candidate {
+    /// `target/candidate`, found from the running test binary (`target/<profile>/deps/<test>`), so it holds for any target
+    /// directory.
+    pub fn beside_test_binary() -> io::Result<PathBuf> {
+        let exe = std::env::current_exe()?;
+        exe.ancestors()
+            .nth(3)
+            .map(|target| target.join("candidate"))
+            .ok_or_else(|| {
+                io::Error::other(format!("{} is not in target/<profile>/deps", exe.display()))
+            })
+    }
+
     /// Verifies the binaries of `dir` (`target/candidate`) against its `manifest.json`.
     pub fn locate(dir: &Path) -> Result<Candidate, CandidateError> {
         let path = dir.join("manifest.json");
@@ -128,6 +145,7 @@ impl Candidate {
         Ok(Candidate {
             worker: verify(WORKER)?,
             probe: verify(PROBE)?,
+            anchor: verify(ANCHOR)?,
         })
     }
 }
@@ -141,15 +159,21 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join(WORKER), b"worker bytes").unwrap();
         std::fs::write(dir.path().join(PROBE), b"probe bytes").unwrap();
+        std::fs::write(dir.path().join(ANCHOR), b"anchor bytes").unwrap();
         let manifest = manifest(&sha256_hex(b"worker bytes"), &sha256_hex(b"probe bytes"));
         std::fs::write(dir.path().join("manifest.json"), manifest.to_string()).unwrap();
         dir
+    }
+
+    fn anchor_entry() -> Value {
+        json!({"name": ANCHOR, "path": ANCHOR, "sha256": sha256_hex(b"anchor bytes")})
     }
 
     fn good(worker: &str, probe: &str) -> Value {
         json!({"binaries": [
             {"name": WORKER, "path": WORKER, "sha256": worker},
             {"name": PROBE, "path": PROBE, "sha256": probe},
+            anchor_entry(),
         ]})
     }
 
@@ -159,6 +183,7 @@ mod tests {
         let found = Candidate::locate(dir.path()).unwrap();
         assert_eq!(found.worker, dir.path().join(WORKER));
         assert_eq!(found.probe, dir.path().join(PROBE));
+        assert_eq!(found.anchor, dir.path().join(ANCHOR));
     }
 
     #[test]
@@ -171,13 +196,15 @@ mod tests {
 
     #[test]
     fn a_binary_that_differs_from_its_entry_is_refused() {
-        let dir = candidate_dir(good);
-        std::fs::write(dir.path().join(WORKER), b"rebuilt later").unwrap();
-        let error = Candidate::locate(dir.path()).unwrap_err();
-        assert!(
-            matches!(&error, CandidateError::Mismatch { name, .. } if name == WORKER),
-            "{error}"
-        );
+        for binary in [WORKER, PROBE, ANCHOR] {
+            let dir = candidate_dir(good);
+            std::fs::write(dir.path().join(binary), b"rebuilt later").unwrap();
+            let error = Candidate::locate(dir.path()).unwrap_err();
+            assert!(
+                matches!(&error, CandidateError::Mismatch { name, .. } if name == binary),
+                "{error}"
+            );
+        }
         // The comparison ignores the case of the hex digits.
         let upper = candidate_dir(|w, p| good(&w.to_uppercase(), &p.to_uppercase()));
         assert!(Candidate::locate(upper.path()).is_ok());
@@ -186,7 +213,7 @@ mod tests {
     #[test]
     fn a_missing_duplicate_or_unreadable_entry_is_refused() {
         let missing = candidate_dir(
-            |_, probe| json!({"binaries": [{"name": PROBE, "path": PROBE, "sha256": probe}]}),
+            |_, probe| json!({"binaries": [{"name": PROBE, "path": PROBE, "sha256": probe}, anchor_entry()]}),
         );
         assert_eq!(
             Candidate::locate(missing.path()).unwrap_err(),
@@ -200,6 +227,7 @@ mod tests {
                 {"name": WORKER, "path": WORKER, "sha256": w},
                 {"name": WORKER, "path": WORKER, "sha256": w},
                 {"name": PROBE, "path": PROBE, "sha256": p},
+                anchor_entry(),
             ]})
         });
         assert_eq!(
