@@ -131,8 +131,15 @@ ids stay pending until the real harness of P6 (`botster-test-process`, #171) can
    - Bytes queued for the old link are cleared. They are never sent on the new link.
    - Test: a write in flight at the fence, and the new host's first request has the same number as the old one.
 5. The host checks the instance and the worker proof. A failure: Core never signals that process and decodes no later
-   frame of the link (A10-1, A11-1; tmux's `PEER_BAD`). The row is `Lost(WorkerUnreachable)`, because a live worker may
-   still be at the identity (AD-2: indeterminate; `Adopt(id)` may be retried).
+   frame of the link (A10-1, A11-1; tmux's `PEER_BAD`). The row is `Lost(WorkerGone)`.
+   - The text: AD-6 "A process that does not match is never signalled: an unrelated process that reuses the pid is
+     `WorkerGone`." A10-1 "the row's outcome is what AD-6 and AD-2 give. For example, a non-matching process at the
+     recorded pid is `WorkerGone`." The four A10-1 and A11-1 transcripts expect `Lost(WorkerGone)`.
+   - The residual case: a live worker behind an endpoint that another process answered becomes `WorkerGone`, and Core
+     does not end it at `Remove`. AD-6 forbids a signal to a process that does not match, so Core could not end it in
+     any case.
+   - This reverses the first design (`Lost(WorkerUnreachable)`, "indeterminate"), which #176's review accepted. That
+     reading was ours, not the contract's (lead ruling on #176a-2, 2026-10-09).
 6. The host checks P against **the adoptable set that Core exposes** (`adoptable_worker_protocols()`: {T, T - 1}, with
    T - 1 only when it is at least 1; at T = 1 the set is {1}, A6-2). P in the set adopts; any other P is
    `Lost(WorkerVersion)` (AD-4, A6-2). One function decides both the exposed set and this check, so they cannot differ

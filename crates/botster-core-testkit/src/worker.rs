@@ -21,7 +21,10 @@ use botster_core_edges::edges::{
 };
 use botster_core_edges::{Link, Machine, Program};
 use botster_core_host::driver::{HostDriver, HostWake, WorkerSpawn};
-use botster_core_link::msg::PayloadId;
+use botster_core_link::frame::{encode_frame, FrameDecoder, FrameType, DEFAULT_MAX_PAYLOAD};
+use botster_core_link::hello::Hello;
+use botster_core_link::msg::{Observation, PayloadId, WorkerMsg};
+use botster_core_link::proof::{token_proof, TOKEN_LEN};
 use botster_route_codec::prelude::QueryKind;
 use botster_worker_core::{
     Action, CandidateId, Drain, Input, PayloadSpec, SpawnFailure, Worker, WorkerConfig,
@@ -203,6 +206,169 @@ type Endpoint = Arc<Mutex<VecDeque<Connection>>>;
 /// until the host's `Remove` or a cleaner removes it. Every handle of the run reaches it, as a path in one file system.
 type Endpoints = Arc<Mutex<BTreeMap<InstanceKey, Option<Endpoint>>>>;
 
+/// The field of the handshake that an impostor gets wrong (`impostor_worker`, Core A10-1).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ImpostorField {
+    /// The proof is made with another token.
+    Token,
+    /// The hello names another `InstanceId`.
+    Instance,
+}
+
+/// A worker-shaped frame that an impostor sends behind its hello, so that Core meets it after its check rejected the
+/// handshake (Core A11-1, steward ruling R-42).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ImpostorFrame {
+    /// A cleanup result of a `Remove` that claims every upload deleted.
+    CleanupDeleted,
+    /// A state report that claims the payload ended.
+    StateExited,
+    /// A notification.
+    Notification,
+}
+
+/// What `impostor_worker` sets for one session: the process that answers its endpoint at the next adoption instead of its
+/// worker. The real worker keeps running and is never connected.
+pub(crate) struct ImpostorPlan {
+    /// The session, so that `signals_received` finds the impostor after `Remove` deleted the row.
+    pub(crate) session: SessionId,
+    pub(crate) field: ImpostorField,
+    pub(crate) script: Vec<ImpostorFrame>,
+    /// The session's recorded token, so that a wrong instance is the only fault of an `Instance` impostor.
+    pub(crate) token: [u8; TOKEN_LEN],
+    /// The worker identity that the row records: the process that Core's AD-6 check refuses is at it.
+    pub(crate) worker: ProcessIdentity,
+}
+
+/// The state of one impostor of the run.
+struct Impostor {
+    plan: ImpostorPlan,
+    /// The connection that it answered, once a host connected.
+    link: Option<ImpostorLink>,
+    /// The group signals that Core sent to the recorded identity after the impostor answered (`signals_received`).
+    signals: Vec<GroupSignal>,
+}
+
+/// An impostor's end of a host's connection.
+struct ImpostorLink {
+    end: LinkEnd,
+    decoder: FrameDecoder,
+    answered: bool,
+    done: bool,
+}
+
+impl Impostor {
+    /// The impostor's connection has bytes or an end of file that it has not read.
+    fn has_ready(&self) -> bool {
+        self.link
+            .as_ref()
+            .is_some_and(|l| !l.done && l.end.is_ready())
+    }
+
+    /// Reads what the host sent. On the host's first hello it answers with the wrong hello of its plan (Core A10-1) and its
+    /// scripted frames, in one write (Core A11-1, steward ruling R-42: "after the rejection" is the order in which Core meets
+    /// the frames). At the end of file, Core has closed the link: the impostor closes its end.
+    ///
+    /// # Panics
+    /// When the link does not take the whole write: R-42 makes a short or failed write a setup failure, never a pass.
+    fn step(&mut self) {
+        let plan = &self.plan;
+        let Some(link) = self.link.as_mut().filter(|l| !l.done) else {
+            return;
+        };
+        let mut buf = [0u8; 4096];
+        loop {
+            match link.end.recv(&mut buf) {
+                Ok(0) => {
+                    link.done = true;
+                    link.end.close();
+                    return;
+                }
+                Ok(n) => {
+                    let mut rest = &buf[..n];
+                    while !rest.is_empty() {
+                        let took = link.decoder.push(rest);
+                        rest = &rest[took..];
+                        while let Ok(Some(frame)) = link.decoder.next_frame() {
+                            if frame.kind != FrameType::HELLO || link.answered {
+                                continue;
+                            }
+                            if let Ok(hello) = Hello::decode(&frame.payload) {
+                                let mut answer = impostor_hello(plan, &hello);
+                                for scripted in &plan.script {
+                                    answer.extend(script_frame(*scripted));
+                                }
+                                let sent = link.end.send(&answer).ok();
+                                assert_eq!(
+                                    sent,
+                                    Some(answer.len()),
+                                    "R-42: the impostor's hello and its script are one whole write"
+                                );
+                                link.answered = true;
+                            }
+                        }
+                        if took == 0 {
+                            break;
+                        }
+                    }
+                }
+                Err(_) => return,
+            }
+        }
+    }
+}
+
+/// The impostor's hello to the host's hello `host`: the instance of the endpoint and a proof from another token, or another
+/// instance with a proof from the recorded token (Core A10-1). Either one fails Core's AD-6 check.
+fn impostor_hello(plan: &ImpostorPlan, host: &Hello) -> Vec<u8> {
+    let (instance, token) = match plan.field {
+        ImpostorField::Token => (host.instance.clone(), plan.token.map(|b| !b)),
+        ImpostorField::Instance => (
+            InstanceId(format!("{}-impostor", host.instance.0)),
+            plan.token,
+        ),
+    };
+    let hello = Hello {
+        protocol: botster_worker_core::WORKER_PROTOCOL,
+        proof: token_proof(&token, &instance, host.host_epoch),
+        instance,
+        host_epoch: host.host_epoch,
+    };
+    let mut payload = Vec::new();
+    hello.encode(&mut payload).expect("a hello encodes");
+    framed(FrameType::HELLO, &payload)
+}
+
+/// A scripted worker-shaped frame of Core A11-1.
+fn script_frame(frame: ImpostorFrame) -> Vec<u8> {
+    let msg = match frame {
+        ImpostorFrame::CleanupDeleted => WorkerMsg::RemoveResult {
+            uploads: UploadsOutcome::Deleted,
+        },
+        ImpostorFrame::StateExited => WorkerMsg::Exited {
+            code: Some(0),
+            signal: None,
+        },
+        ImpostorFrame::Notification => WorkerMsg::Observed {
+            observation: Observation::Notification {
+                source: NotificationSource::Osc9,
+                title: None,
+                body: "impostor".into(),
+                truncated: false,
+            },
+        },
+    };
+    let mut payload = Vec::new();
+    msg.encode(&mut payload);
+    framed(FrameType::WORKER_MSG, &payload)
+}
+
+fn framed(kind: FrameType, payload: &[u8]) -> Vec<u8> {
+    let mut out = Vec::new();
+    encode_frame(kind, payload, DEFAULT_MAX_PAYLOAD, &mut out).expect("a small frame encodes");
+    out
+}
+
 /// The `Sim` of one harness: every in-process worker of every handle (plan 4.1: "a `Sim` owns ... every `Worker`").
 #[derive(Clone)]
 pub struct Workers {
@@ -212,6 +378,12 @@ pub struct Workers {
     /// The starts that are held before the payload's launch (`hold_start_at`, AD-7 step 4).
     held_starts: Arc<Mutex<BTreeSet<InstanceKey>>>,
     endpoints: Endpoints,
+    /// `withhold_control_link`: the sessions whose live worker does not take a host's connection. The connections wait in
+    /// `withheld_links`, never read, so the host's deadline ends the adoption (Core A6-1, AD-2).
+    withheld: Arc<Mutex<BTreeSet<InstanceKey>>>,
+    withheld_links: Arc<Mutex<Vec<LinkEnd>>>,
+    /// `impostor_worker`: the session endpoints that an impostor answers at the next adoption (Core A10-1, A11-1).
+    impostors: Arc<Mutex<BTreeMap<InstanceKey, Impostor>>>,
     scheduler: SchedulerHandle,
     read_chunk: usize,
 }
@@ -246,6 +418,9 @@ impl Workers {
             run_processes: Arc::default(),
             held_starts: Arc::default(),
             endpoints: Arc::default(),
+            withheld: Arc::default(),
+            withheld_links: Arc::default(),
+            impostors: Arc::default(),
             scheduler,
             read_chunk,
         }
@@ -261,20 +436,77 @@ impl Workers {
         for program in self.programs() {
             program.new_step();
         }
-        let mut sim = lock(&self.sim);
-        sim.advance_to(now);
-        if let Err(livelock) = sim.run_until_idle(SIM_STEP_LIMIT) {
-            panic!("the in-process workers did not settle: {livelock:?}");
+        {
+            let mut sim = lock(&self.sim);
+            sim.advance_to(now);
+            if let Err(livelock) = sim.run_until_idle(SIM_STEP_LIMIT) {
+                panic!("the in-process workers did not settle: {livelock:?}");
+            }
+        }
+        for impostor in lock(&self.impostors).values_mut() {
+            impostor.step();
         }
     }
 
-    /// True when a worker has ready work at the virtual clock, or a PTY write waits for the next step of `pty_chunk`.
+    /// True when a worker has ready work at the virtual clock, a PTY write waits for the next step of `pty_chunk`, or an
+    /// impostor has bytes or an end of file to read.
     pub fn has_ready(&self) -> bool {
-        lock(&self.sim).has_ready()
+        lock(&self.impostors).values().any(Impostor::has_ready)
+            || lock(&self.sim).has_ready()
             || self
                 .programs()
                 .iter()
                 .any(ProgramControl::waits_for_next_step)
+    }
+
+    /// `withhold_control_link`: the live worker of `key` takes no host's connection from now on (Core A6-1).
+    ///
+    /// # Errors
+    /// Its connections are already withheld.
+    pub(crate) fn withhold(&self, key: InstanceKey) -> Result<(), String> {
+        let text = format!("{} in {}", key.instance.0, key.dir);
+        if lock(&self.withheld).insert(key) {
+            Ok(())
+        } else {
+            Err(format!("the control link of {text} is already withheld"))
+        }
+    }
+
+    /// `impostor_worker`: an impostor answers the endpoint of `key` at the next adoption (Core A10-1).
+    ///
+    /// # Errors
+    /// An impostor is already set for `key`.
+    pub(crate) fn impostor(&self, key: InstanceKey, plan: ImpostorPlan) -> Result<(), String> {
+        let text = format!("{} in {}", key.instance.0, key.dir);
+        let mut impostors = lock(&self.impostors);
+        if impostors.contains_key(&key) {
+            return Err(format!("an impostor already answers for {text}"));
+        }
+        impostors.insert(
+            key,
+            Impostor {
+                plan,
+                link: None,
+                signals: Vec::new(),
+            },
+        );
+        Ok(())
+    }
+
+    /// `signals_received`: the group signals that Core sent to the process that the AD-6 check refused, the impostor of the
+    /// session `session` of the data directory `dir`, in order. `None` when no impostor was set for that session.
+    pub(crate) fn impostor_signals(
+        &self,
+        dir: &str,
+        session: &SessionId,
+    ) -> Option<Vec<GroupSignal>> {
+        let impostors = lock(&self.impostors);
+        let mut found = impostors
+            .iter()
+            .filter(|(key, i)| key.dir == dir && i.plan.session == *session)
+            .peekable();
+        found.peek()?;
+        Some(found.flat_map(|(_, i)| i.signals.iter().copied()).collect())
     }
 
     /// The program edges of every payload of the run that is not reaped.
@@ -456,7 +688,7 @@ impl Workers {
 
     /// A cleaner removes the endpoint of the worker of `key` (DESIGN.md part 1): a live worker keeps running, and a new
     /// host's connect fails. False when there is no endpoint (it was never bound, or it was removed).
-    // Only tests use it until the controls of #176a-2 (`impostor_worker`, `withhold_control_link`) do.
+    // Only the tests of the endpoint use it: the adoption controls act at the spawner's connect.
     #[cfg(test)]
     pub(crate) fn unlink_endpoint(&self, key: &InstanceKey) -> bool {
         lock(&self.endpoints).remove(key).is_some()
@@ -464,7 +696,7 @@ impl Workers {
 
     /// A process of this user that is not a host connects to the endpoint of the live worker of `key` (AD-6: the endpoint
     /// is closed to other users only). The caller holds the connection's other end. `None` when no worker listens there.
-    // Only tests use it until the controls of #176a-2 (`impostor_worker`, `withhold_control_link`) do.
+    // Only the tests of the endpoint use it: the adoption controls act at the spawner's connect.
     #[cfg(test)]
     pub(crate) fn connect_endpoint(&self, key: &InstanceKey) -> Option<LinkEnd> {
         let endpoint = lock(&self.endpoints).get(key).cloned().flatten()?;
@@ -587,6 +819,12 @@ impl Spawner for WorkerSpawner {
     /// process, and its exit is reported to the handle that spawned it. A worker of an earlier handle of the run is reached
     /// too: the signal goes to a process, not to a handle.
     fn signal_group(&mut self, identity: ProcessIdentity, signal: GroupSignal) {
+        // `signals_received`: a signal to the identity that an impostor answered for reaches that process too.
+        for impostor in lock(&self.workers.impostors).values_mut() {
+            if impostor.link.is_some() && impostor.plan.worker == identity {
+                impostor.signals.push(signal);
+            }
+        }
         let Some((cell, owner)) = lock(&self.workers.run_processes).get(&identity).cloned() else {
             return;
         };
@@ -629,6 +867,28 @@ impl Spawner for WorkerSpawner {
             return false;
         };
         lock(&self.processes).connections.push(end.end().control());
+        let key = self.key(instance);
+        if lock(&self.workers.withheld).contains(&key) {
+            // The worker never reads the connection: the host's hello waits until the host's deadline.
+            lock(&self.workers.withheld_links).push(end);
+            return true;
+        }
+        if let Some(impostor) = lock(&self.workers.impostors)
+            .get_mut(&key)
+            .filter(|i| i.link.is_none())
+        {
+            end.end().set_interest(Interest {
+                read: true,
+                write: false,
+            });
+            impostor.link = Some(ImpostorLink {
+                end,
+                decoder: FrameDecoder::new(DEFAULT_MAX_PAYLOAD),
+                answered: false,
+                done: false,
+            });
+            return true;
+        }
         lock(&endpoint).push_back((end, Some(Arc::clone(&self.processes))));
         true
     }

@@ -57,6 +57,13 @@ impl HostEngine {
             s.host_ended = false;
             s.killed = false;
         }
+        // LC-9: the protocol is what this host reads in the worker's hello. Until it reads one, the session has none, also
+        // when the row recorded one (a worker whose hello was never read is never guessed). The row keeps its own (R-36).
+        if let Some(recorded) = s.worker_protocol.take() {
+            s.row_protocol = Some(recorded);
+        }
+        // AD-6: each adoption proves the worker again, so a refusal of an earlier one is not kept.
+        s.worker.gone = false;
         s.admit = Admit::Adopting;
         s.adopting = Some(op);
         s.flow = Flow::Adopt(AdoptFlow {
@@ -184,11 +191,18 @@ impl HostEngine {
             && hello.host_epoch == self.cfg.host_epoch
             && hello.proof == token_proof(&token, &s.instance, self.cfg.host_epoch);
         if !proved {
-            // A10-1, A11-1: Core never signals that process and decodes no later frame of the link. A live worker may still
-            // be at the identity, so the row is indeterminate (AD-2).
+            // A10-1, A11-1, AD-6: the process that answered is not the session's worker. "A process that does not match is
+            // never signalled", and its row is `WorkerGone` (A10-1: "a non-matching process at the recorded pid is
+            // `WorkerGone`"). Core decodes no later frame of the link. The worker is gone for this host, so `Remove` never
+            // probes or signals the recorded identity either.
+            self.sessions
+                .get_mut(id)
+                .expect("checked above")
+                .worker
+                .gone = true;
             self.adopt_end(
                 id,
-                End::Lost(LostReason::WorkerUnreachable),
+                End::Lost(LostReason::WorkerGone),
                 "the worker's hello does not prove the token, the instance or the host epoch (AD-6)",
             );
             return;
