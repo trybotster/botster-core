@@ -22,5 +22,10 @@ sha2.workspace = true
 syn = { version = "2", features = ["full", "visit"] }
 toml.workspace = true
 
+[features]
+# The real-process tests of the xtask (BUILD.md testing rule 2): `cargo xtask slow` runs them.
+slow = []
+
 [dev-dependencies]
+botster-test-process = { path = "../crates/botster-test-process" }
 tempfile.workspace = true
