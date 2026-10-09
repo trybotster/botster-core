@@ -74,12 +74,12 @@ fn a_control_link_eof_closes_the_link() {
     assert_eq!(edges.ready(now, &worker), 0);
 }
 
-/// EV-4, `Action::DrainPty`: the edge offers no output before the spawn answer, and output precedes its drain. The drain
-/// is the real driver's (`Drain`): the count that the program held when it was asked, then one flushing read, then at
-/// most the count measured once after that read. A writer that keeps writing cannot extend it, and `PtyDrained` answers
+/// EV-4, `Action::DrainPty`: the edge offers no output before the spawn answer, and output precedes its drain. The edge's
+/// drain is bounded (`Drain`): the count that the program held when it was asked, then one flushing read, then at most
+/// the count measured once after that read. A writer that keeps writing cannot extend it, and `PtyDrained` answers
 /// only an asked drain.
 #[test]
-fn the_edge_drains_as_the_real_driver_does() {
+fn the_edge_drain_is_bounded_by_the_asked_count() {
     let (mut edges, _peer, worker, now) = fixture(8);
     let script = serde_json::from_value(serde_json::json!({"program": [
         {"print": {"bytes_hex": "616263"}}, {"hold": {}}
