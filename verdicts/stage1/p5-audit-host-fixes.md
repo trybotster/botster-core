@@ -112,3 +112,19 @@ for raw blocking reads and waits before a CLEAN. `real.rs:704` and `:722` are on
 
 VERDICT: NOT CLEAN at a7c73febcfeafca0f462ea14d5121a516d5a1a10 (P5-F19 open, the package reviewer's; no integration
 finding open)
+
+## Round 3 — CLEAN on head 9343f20d
+
+Reviewed head: `9343f20df613c2756c7cdf781fc3dd6bfa9bfad1`. Delta `a7c73feb..9343f20d`, one commit, test only. v1 is still
+`ee7dd16c`.
+
+- **P5-F19 fixed (the package reviewer's finding).** `real.rs:792-795` sets a marked 8 s read timeout before
+  `read_to_end`. This is the same value as the adjacent host test, so the PR adds no new time value. If the link stays
+  open, the read ends with a timeout error, and the `ConnectionReset` assertion fails instead of the test hanging.
+- **Mechanical check, whole PR.** I grepped every added line of `origin/v1..9343f20d` under `crates/` for `read_line(`,
+  `read_to_end`, `read_exact`, `.recv()`, `.wait()`, `wait_with_output`, `sleep(`, `.join()`, `loop {` and `while`. The
+  only blocking calls are the two `read_to_end`s, at `:798` and `:844`, and both are now bounded. The other hits are
+  comments.
+- Round 2's review of H1 stands.
+
+VERDICT: CLEAN (0 open) at 9343f20df613c2756c7cdf781fc3dd6bfa9bfad1
