@@ -1165,7 +1165,8 @@ fn the_key_search_returns_a_length_over_any_limit_below_the_worst_case() {
     let mut with_text = character('a', &[]);
     with_text.text = Some("a".into());
     for input in [
-        named("F5", &[Modifier::Ctrl, Modifier::Shift]),
+        named("f5", &[Modifier::Ctrl, Modifier::Shift]),
+        named("arrow_up", &[]),
         character('a', &[]),
         with_text,
     ] {
