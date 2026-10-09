@@ -80,6 +80,53 @@ pub fn keep_writing(writable: bool, bytes: usize) -> bool {
     writable && bytes != 0
 }
 
+/// The errno of a PTY that is gone, and of an OS failure that carries no errno.
+pub const EIO: i32 = rustix::io::Errno::IO.raw_os_error();
+
+/// What the driver does with the result of one PTY write of `len` bytes (`None`: no PTY any more).
+#[derive(Debug, PartialEq, Eq)]
+pub enum PtyWrite {
+    /// The write was interrupted: keep the bytes for the next turn.
+    Retry,
+    /// Give `Input::PtyWritten(result)`; with `wait_writable`, after write interest is on (the PTY took no byte).
+    Report {
+        result: Result<usize, i32>,
+        wait_writable: bool,
+    },
+}
+
+pub fn pty_write(written: Option<io::Result<usize>>, len: usize) -> PtyWrite {
+    let result = match written {
+        // A write to a PTY that is gone fails as a write to a closed PTY does.
+        None => Err(EIO),
+        Some(Ok(n)) => Ok(n),
+        Some(Err(error)) => match failure(&error) {
+            IoFailure::Retry => return PtyWrite::Retry,
+            IoFailure::Blocked => Ok(0),
+            IoFailure::Closed => Err(error.raw_os_error().unwrap_or(EIO)),
+        },
+    };
+    PtyWrite::Report {
+        wait_writable: result == Ok(0) && len != 0,
+        result,
+    }
+}
+
+/// The PTY's write interest after asking for `on` (plan 2.5): `reregister` when the poll must change, and the new state.
+/// A PTY that left the loop has no write interest.
+#[derive(Debug, PartialEq, Eq)]
+pub struct WriteInterest {
+    pub reregister: bool,
+    pub wants_write: bool,
+}
+
+pub fn pty_write_interest(registered: bool, wants_write: bool, on: bool) -> WriteInterest {
+    WriteInterest {
+        reregister: registered && on != wants_write,
+        wants_write: registered && on,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -178,5 +225,56 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// Plan 2.4: a PTY write reports what the PTY took, or its errno; it waits for write readiness only when the PTY took
+    /// no byte of a non-empty write; an interrupted write keeps its bytes.
+    #[test]
+    fn a_pty_write_reports_its_result_and_waits_only_when_no_byte_was_taken() {
+        let report = |result, wait_writable| PtyWrite::Report {
+            result,
+            wait_writable,
+        };
+        assert_eq!(pty_write(Some(Ok(3)), 5), report(Ok(3), false));
+        assert_eq!(pty_write(Some(Ok(0)), 5), report(Ok(0), true));
+        assert_eq!(pty_write(Some(Ok(0)), 0), report(Ok(0), false));
+        let blocked = || Some(Err(io::ErrorKind::WouldBlock.into()));
+        assert_eq!(pty_write(blocked(), 5), report(Ok(0), true));
+        assert_eq!(pty_write(blocked(), 0), report(Ok(0), false));
+        assert_eq!(
+            pty_write(Some(Err(io::ErrorKind::Interrupted.into())), 5),
+            PtyWrite::Retry
+        );
+        let pipe = rustix::io::Errno::PIPE.raw_os_error();
+        assert_eq!(
+            pty_write(Some(Err(io::Error::from_raw_os_error(pipe))), 5),
+            report(Err(pipe), false)
+        );
+        assert_eq!(
+            pty_write(Some(Err(io::ErrorKind::BrokenPipe.into())), 5),
+            report(Err(EIO), false)
+        );
+        assert_eq!(pty_write(None, 5), report(Err(EIO), false));
+    }
+
+    /// Plan 2.5: write interest changes the poll only when the PTY is in it and the interest differs.
+    #[test]
+    fn write_interest_changes_the_poll_only_for_a_registered_pty_and_a_new_value() {
+        let change = |reregister, wants_write| WriteInterest {
+            reregister,
+            wants_write,
+        };
+        for wants_write in [false, true] {
+            for on in [false, true] {
+                assert_eq!(
+                    pty_write_interest(false, wants_write, on),
+                    change(false, false)
+                );
+            }
+        }
+        assert_eq!(pty_write_interest(true, false, true), change(true, true));
+        assert_eq!(pty_write_interest(true, true, false), change(true, false));
+        assert_eq!(pty_write_interest(true, true, true), change(false, true));
+        assert_eq!(pty_write_interest(true, false, false), change(false, false));
     }
 }

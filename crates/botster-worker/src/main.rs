@@ -46,9 +46,6 @@ const EXIT: Token = Token(3);
 /// The bytes of one read of the control socket or the PTY.
 const READ_CHUNK: NonZeroUsize = NonZeroUsize::new(64 * 1024).expect("positive driver read bound");
 
-/// The errno of a PTY that is gone, and of an OS failure that carries no errno.
-const EIO: i32 = rustix::io::Errno::IO.raw_os_error();
-
 fn main() -> ExitCode {
     let args: Vec<std::ffi::OsString> = std::env::args_os().skip(1).collect();
     let token = std::env::var(TOKEN_VAR).ok();
@@ -311,7 +308,7 @@ impl Driver {
             let _ = self.poll.registry().deregister(&mut SourceFd(&fd));
             drop(payload);
             return Err(SpawnFailure::Exec {
-                errno: error.raw_os_error().unwrap_or(EIO),
+                errno: error.raw_os_error().unwrap_or(io_decisions::EIO),
             });
         }
         self.pty_registered = true;
@@ -333,45 +330,41 @@ impl Driver {
         let Some(bytes) = self.pty_write.take() else {
             return Ok(());
         };
-        let result = match self.payload.as_ref() {
-            // No PTY any more: the write fails as a write to a closed PTY does.
-            None => Err(EIO),
-            Some(payload) => match payload.write(&bytes) {
-                Ok(n) => Ok(n),
-                Err(e) if e.kind() == io::ErrorKind::Interrupted => {
-                    self.pty_write = Some(bytes);
-                    return Ok(());
+        let written = self.payload.as_ref().map(|payload| payload.write(&bytes));
+        match io_decisions::pty_write(written, bytes.len()) {
+            io_decisions::PtyWrite::Retry => self.pty_write = Some(bytes),
+            io_decisions::PtyWrite::Report {
+                result,
+                wait_writable,
+            } => {
+                if wait_writable {
+                    self.set_pty_write_interest(true)?;
                 }
-                Err(e) if e.kind() == io::ErrorKind::WouldBlock => Ok(0),
-                Err(e) => Err(e.raw_os_error().unwrap_or(EIO)),
-            },
-        };
-        if result == Ok(0) && !bytes.is_empty() {
-            self.set_pty_write_interest(true)?;
+                self.inputs.push_back(Input::PtyWritten(result));
+            }
         }
-        self.inputs.push_back(Input::PtyWritten(result));
         Ok(())
     }
 
     /// Write interest on the PTY follows a write that it did not take (plan 2.5). A PTY that left the loop takes none.
     fn set_pty_write_interest(&mut self, on: bool) -> io::Result<()> {
-        if !self.pty_registered || on == self.pty_wants_write {
-            self.pty_wants_write = on && self.pty_registered;
-            return Ok(());
+        let change =
+            io_decisions::pty_write_interest(self.pty_registered, self.pty_wants_write, on);
+        if change.reregister {
+            let Some(payload) = self.payload.as_ref() else {
+                return Ok(());
+            };
+            let fd = payload.master().as_raw_fd();
+            let interest = if on {
+                Interest::READABLE | Interest::WRITABLE
+            } else {
+                Interest::READABLE
+            };
+            self.poll
+                .registry()
+                .reregister(&mut SourceFd(&fd), PTY, interest)?;
         }
-        let Some(payload) = self.payload.as_ref() else {
-            return Ok(());
-        };
-        let fd = payload.master().as_raw_fd();
-        let interest = if on {
-            Interest::READABLE | Interest::WRITABLE
-        } else {
-            Interest::READABLE
-        };
-        self.poll
-            .registry()
-            .reregister(&mut SourceFd(&fd), PTY, interest)?;
-        self.pty_wants_write = on;
+        self.pty_wants_write = change.wants_write;
         Ok(())
     }
 
