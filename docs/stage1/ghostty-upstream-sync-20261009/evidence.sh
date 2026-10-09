@@ -10,7 +10,8 @@
 #       network to fetch the test packages, and without network it says so and does not run;
 #   2b. zig build test-lib-vt --summary all with the shipped options: GHOSTTY_BUILD_ARGS without "build" and without
 #       -Doptimize, so the tests run in Debug with the safety checks; its global cache is seeded only with the packages
-#       of build_data.rs ZIG_PACKAGES, from the gate's package store, so the step also shows that the list is sufficient;
+#       of build_data.rs ZIG_PACKAGES, from the gate's package store, and the fork tree's zig-pkg directory is moved out
+#       first, so the step also shows that the list is sufficient;
 #   3. the binding tests, cargo nextest run -p botster-terminal-ghostty.
 set -u
 g=crates/botster-terminal-ghostty
@@ -66,12 +67,21 @@ fi
 options=$(echo "$args" | grep -v -e '^build$' -e '^-Doptimize=')
 store=${BOTSTER_ZIG_PACKAGES:-$HOME/.cache/botster/zig-packages}
 echo "== 2b. zig build test-lib-vt --summary all $(echo $options), Debug, global cache seeded with ZIG_PACKAGES from $store"
+# Steps 1 and 2a run in the same fork tree and can fill its project-local zig-pkg directory, which Zig 0.16 also reads.
+# It leaves the fork tree here, so the step uses only its seeded cache.
+if [ -e "$f/zig-pkg" ]; then
+  mv "$f/zig-pkg" "$scratch/zig-pkg-before-2b"
+  echo "project-local $f/zig-pkg before 2b: PRESENT ($(ls "$scratch/zig-pkg-before-2b" | wc -l | tr -d ' ') entries), moved out of the fork tree"
+else
+  echo "project-local $f/zig-pkg before 2b: absent"
+fi
 mkdir -p "$scratch/shipped/p"
 for hash in $packages; do cp "$store/p/$hash.tar.gz" "$scratch/shipped/p/" || echo "seed: $hash MISSING from $store"; done
 echo "seeded $(ls "$scratch/shipped/p" | wc -l | tr -d ' ') packages"
 (cd "$f" && "$zig" build test-lib-vt --summary all $options --cache-dir "$scratch/local-shipped" --global-cache-dir "$scratch/shipped") > "$scratch/test-shipped.txt" 2>&1
 echo "test-lib-vt shipped exit $?"
 sed -n '/^Build Summary/,$p' "$scratch/test-shipped.txt" | grep . || tail -40 "$scratch/test-shipped.txt"
+[ -e "$f/zig-pkg" ] && echo "project-local $f/zig-pkg after 2b: PRESENT (the step wrote it)"
 extra=$(ls "$scratch/shipped/p" | sed -n 's/\.tar\.gz$//p' | sort | comm -13 <(echo "$packages") -)
 if [ -z "$extra" ]; then echo "shipped test packages: none fetched, ZIG_PACKAGES is sufficient"; else
   echo "shipped test packages: FETCHED outside ZIG_PACKAGES:"; echo "$extra"; fi
