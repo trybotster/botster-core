@@ -401,7 +401,9 @@ fn helper_moves_its_group() {
     }
     rustix::process::setpgid(None, None).unwrap();
     eprintln!("moved {}", std::process::id());
-    let _ = Bounded::new(std::io::stdin()).to_eof(Deadline::cleanup());
+    // It must outlive a TERM grace of CLEANUP (a_member_that_moves_after_term_is_refused_and_no_kill_is_sent), so its bound
+    // is that grace and then the cleanup bound, as the guard's own outcome bound adds them.
+    let _ = Bounded::new(std::io::stdin()).to_eof(Deadline::after(CLEANUP + CLEANUP));
 }
 
 /// An anchor in a terminal session survives the hangup that the exit of the session's leader sends to its group, and its
@@ -615,9 +617,10 @@ fn a_member_that_moves_after_term_is_refused_and_no_kill_is_sent() {
         ),
     )
     .unwrap();
-    // The member reads the leader's stdin, the test's pipe, so it lives until the test closes that pipe.
+    // The member reads the leader's stdin, the test's pipe, so it lives until the test closes that pipe. A shell gives an
+    // asynchronous command /dev/null as stdin before its own redirections (dash), so the pipe goes through descriptor 3.
     let leader = format!(
-        "/bin/sh {} 0<&0 & trap '' TERM; /bin/echo leader >&2; wait",
+        "exec 3<&0; /bin/sh {} 0<&3 3<&- & trap '' TERM; /bin/echo leader >&2; wait",
         quoted(&member)
     );
     let mut guard = guard(dir.path()).grace(CLEANUP);
