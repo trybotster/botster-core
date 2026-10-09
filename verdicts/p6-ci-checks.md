@@ -912,3 +912,141 @@ The package and integration reviewers sent the cases directly to P6. No reviewer
 Wait for the replacement READY head.
 
 VERDICT: NOT CLEAN
+
+## Round 7 — PR #181 — 2026-10-09
+
+Reviewed head: `7826ba0adab5962089a7e3279f78cd5f4a8425c9`.
+Previous reviewed head: `60a80f21d9e0da84deb47f471faddd4944b00ed7`.
+Merge base and full gate base: `a6555ebaf221042ca7b777ca2f2425e4a63dd960`.
+
+The reviewer checked the stated tier first. HIGH remains correct under BUILD.md rules 1 and 3.
+The reviewer applied the lead's plan 23f, `stage1/plan` commit `ae896511`, section 8.
+The checks defend against honest drift and mistakes. They do not need to defeat deliberate evasion.
+Reserved-name rejection with a fixture closes a construction that requires such a declaration.
+Every part of a check must use the same lists and opaque-macro boundary.
+A gate hole blocks when good-faith code without a reserved-name declaration can produce it.
+
+The reviewer inspected the final implementation delta, fixtures, base merge, and supplied full log.
+The reviewer ran no gate, build, test, or mutation job and changed no product code.
+The remaining cases below are source findings. The reviewer did not execute them.
+
+### The reported round-six cases close under plan 23f
+
+The reserved-name check rejects the local `Command` struct and type alias.
+It rejects the local `anyhow` module and the `parse_quote` renames to `bail` and `println`.
+The check-level fixtures assert rejection of those forms and include the name, file, and position.
+The declaration fixture covers the specified item kinds and accepts the listed canonical imports.
+
+`macro_class` now drives one `macro_arguments` function for the index and both binding visitors.
+All three visitors skip opaque macro tokens.
+The quoted `CMD` fixture no longer creates a command binding. Its forwarding exclusion is rejected for lack of I/O.
+The fixtures retain argument-macro bindings, unknown-macro rejection, and acceptance of a real process start.
+Integration R6-1 and R6-3 close. B5 / integration R6-2 closes for the reported reserved-name declarations.
+
+The closure depth prevents direct and propagated I/O evidence from a closure body.
+The uncalled-loader fixture rejects the forwarding exclusion through `inputs` and `check`.
+The additional closure fixture retains direct I/O and treats a function declared inside a closure as a separate function.
+The `ci.rs` test restores the qualified `anyhow::anyhow!` form. Its result assertion remains identical.
+The previously closed process, timer, proof-citation, group-ownership, and platform-rejection cases have no adverse delta.
+
+### B5 — HIGH — A non-reserved local function still inherits a file import's I/O identity
+
+Location: `xtask/src/gate_decisions.rs:575-588`, `Bindings`, and lines 649-658, `resolved`.
+
+The local binding set records pattern names but not local function names.
+For example, in `xtask/src/ci.rs`:
+
+```rust
+use std::fs::read;
+pub fn load_file(path: &str) -> std::io::Result<Vec<u8>> {
+    read(path)
+}
+fn forwarded(code: Option<i32>) -> Result<()> {
+    fn read(input: &str) -> &str { input }
+    let _ = read("fixed");
+    mutation_verdict(code)
+}
+```
+
+The local `read` function replaces the file import inside `forwarded`. It returns its input and performs no I/O.
+`read` is not reserved. The reserved-declaration visitor does not reject functions.
+The [Rust item-declaration reference](https://doc.rust-lang.org/reference/statements.html#item-declarations) specifies the block scope of the local function.
+
+`resolved(read)` does not find a pattern binding. It expands the file's `std::fs::read` import.
+`path_call` marks `forwarded` as I/O.
+Its whole-body exclusion passes with reason `mutation_verdict (verdicts)` when that decision is tested and unexcluded.
+The real `load_file` keeps the file import in use. It is not called by `forwarded`.
+
+Adding a pure local reader can cause this error during an ordinary refactor.
+The case declares no reserved name and needs no crate, type, or macro identity construction.
+It remains a blocking gate hole under plan 23f.
+
+Reject the unsupported local-function/import combination and name the form and file, or resolve the listed form correctly.
+Add a check-level fixture that rejects the forwarding exclusion.
+The package reviewer sent this case directly to P6 and the integration reviewer.
+
+### Integration R7-1 — HIGH — Unpolled async work still supplies I/O evidence
+
+Location: `xtask/src/gate_decisions.rs:631-645`, `path_call`, and the closure-only boundary at lines 903-907.
+
+The closure fix does not cover an async block:
+
+```rust
+fn forwarded(code: Option<i32>) -> Result<()> {
+    let _load = async { std::fs::read("config") };
+    mutation_verdict(code)
+}
+```
+
+The block creates a future. The function never polls that future and performs no file read.
+The [Rust async-block reference](https://doc.rust-lang.org/reference/expressions/block-expr.html#async-blocks) specifies creation of the future value.
+The index visits the async body with `closures == 0` and marks `forwarded` as I/O.
+The usual whole-body exclusion with `mutation_verdict (verdicts)` passes.
+
+The async-function form has the same result:
+
+```rust
+async fn load() { let _ = std::fs::read("config"); }
+fn forwarded(code: Option<i32>) -> Result<()> {
+    let _load = load();
+    mutation_verdict(code)
+}
+```
+
+The index marks `load` as I/O and propagates that classification to `forwarded`.
+The caller only creates an unpolled future. It performs no I/O.
+Both forms declare no reserved name. A normal deferred-loader refactor can produce either case.
+
+Apply the deferred-execution boundary consistently, or reject unsupported async forms and name the form and file.
+Add check-level fixtures for both forms. Retain visibility of decision calls.
+The integration reviewer sent both forms to P6. The package reviewer confirmed both source traces.
+
+### Base merge and preserved contracts
+
+Merge `31cc9bb8fa6103fb4b209e9956be77c1c5b154e4` imports v1 `a6555ebaf221042ca7b777ca2f2425e4a63dd960`.
+Its thirteen base-only paths match the base parent. `Cargo.lock` is the only overlapping path.
+The lockfile matches the base except for the two previously reviewed xtask dependencies.
+The merge adds no unexpected path and changes no xtask source.
+The final implementation commit after that merge changes only the authorized check and its fixtures.
+The reviewer compared Git objects. The reviewer did not run a gate or claim a carried CLEAN verdict.
+
+The mutation configuration, process allowlist, shared process crate, and Prior-art note have no delta.
+No process-guard migration enters this review.
+The group-ownership rules, bounded event waits, and production reap separation remain as reviewed.
+The changed gate fixtures assert accepted or rejected exclusions and retain the result assertions.
+The reviewer did not broaden this review to untouched product code.
+
+### Supplied evidence and its limits
+
+The full Linux log is `botster-core-stage1-p6-ci-checks-7826ba0a-pool-20261009-150011-87634.log` under `~/botster-sessions/gates/`.
+It names the exact reviewed head and base `a6555ebaf221042ca7b777ca2f2425e4a63dd960`.
+All ten jobs pass. It passes 1204 default tests and 254 slow tests.
+It reports 709 mutants: 672 caught and 37 unviable, with no misses or timeouts.
+The reserved-name, macro-boundary, forwarding-exclusion, and closure fixtures pass.
+The supplied run covers the recorded cases. It does not cover the two remaining gate holes.
+The reviewer did not execute a reversal or claim a new Mac pass.
+
+B5 and integration R7-1 remain open under plan 23f's ordinary-drift frame.
+Both findings went directly to P6. Wait for the replacement READY head.
+
+VERDICT: NOT CLEAN
