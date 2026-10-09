@@ -369,12 +369,12 @@ fn a_declaration_of_a_reserved_name_fails_the_inputs() {
             "mod anyhow { pub use syn::parse_quote as bail; }\nfn shell() { let _: syn::Expr = anyhow::bail!(decide()); }",
             &[
                 "xtask/src/ci.rs:3:5: the module `anyhow` declares a reserved name of gate-decisions",
-                "xtask/src/ci.rs:3:14: the `use` introduces the reserved name `bail` of gate-decisions as `syn::parse_quote`",
+                "xtask/src/ci.rs:3:18: the `use` introduces the reserved name `bail` of gate-decisions as `syn::parse_quote`",
             ],
         ),
         (
             "mod macros { pub use syn::parse_quote as println; }\nuse self::macros::*;\nfn shell() { let _: syn::Expr = println!(decide()); }",
-            &["xtask/src/ci.rs:3:14: the `use` introduces the reserved name `println` of gate-decisions as `syn::parse_quote`"],
+            &["xtask/src/ci.rs:3:18: the `use` introduces the reserved name `println` of gate-decisions as `syn::parse_quote`"],
         ),
     ];
     for (shell, texts) in cases {
