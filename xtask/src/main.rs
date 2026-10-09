@@ -7,6 +7,7 @@ mod fsutil;
 mod gate_decisions;
 mod lists;
 mod mutants_cited;
+mod platform_code;
 mod prebuild;
 mod process_check;
 mod public_api;

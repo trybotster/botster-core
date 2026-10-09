@@ -6,9 +6,9 @@
 
 use crate::tools::{cargo, cargo_nightly, ensure_nightly, require_cargo_tool, run};
 use crate::{
-    caps, fsutil, gate_decisions, lists, mutants_cited, prebuild, process_check, public_api, taint, test_budget, timers, unsafe_exception,
+    caps, fsutil, gate_decisions, lists, mutants_cited, platform_code, prebuild, process_check, public_api, taint, test_budget, timers, unsafe_exception,
 };
-use anyhow::{bail, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use std::path::Path;
 use std::process::Command;
 use std::time::{Duration, Instant};
@@ -31,7 +31,7 @@ const JOBS: &[(&str, &str, JobFn)] = &[
     ),
     (
         "taint",
-        "banned old-world names; unmarked timers; the one unsafe_code exception; real-process test code outside its owner; cited mutants tests; no excluded gate decision",
+        "banned old-world names; unmarked timers; the one unsafe_code exception; real-process test code outside its owner; cited mutants tests; no excluded gate decision; platform-only code",
         taint_job,
     ),
     (
@@ -101,7 +101,18 @@ fn taint_job(root: &Path) -> Result<()> {
     unsafe_exception::command(root, &[])?;
     process_check::command(root, &[])?;
     mutants_cited::command(root, &[])?;
-    gate_decisions::command(root, &[])
+    gate_decisions::command(root, &[])?;
+    // The mutation step derives the platform-only code on its own OS; this static step fails early, on both gate OSes,
+    // when the derivation cannot place some code.
+    let files = package_sources(root)?;
+    for os in ["linux", "macos"] {
+        let patterns = derived_exclusions(root, &files, os)?;
+        println!(
+            "platform-only code: {} files not compiled on {os}",
+            patterns.len()
+        );
+    }
+    Ok(())
 }
 
 /// The passed count of a conformance report: the number after `passed ` in its `conformance:` line.
@@ -270,7 +281,7 @@ fn parse_outcomes(json: &str) -> Result<MutantSummary> {
 ///   `processes_that_started_at_different_times_have_different_start_times`, `a_wait_for_a_pid_with_no_process_reports_it_gone`).
 ///   Temporary: P6 PR B removes these entries and derives the exclusions of platform-only code from `cfg` (plan r22
 ///   section 8, "Platform-only code").
-pub(crate) const OFF_MACOS_EXCLUSIONS: &[&str] = &[
+pub(crate) pub(crate) const OFF_MACOS_EXCLUSIONS: &[&str] = &[
     r"crates/botster-terminal-ghostty/src/encode\.rs:\d+:40: replace & with [|^] in EncoderState::every_key_state$",
     r"crates/botster-test-process/src/platform/macos\.rs:\d+:\d+: (replace start_time( ->| with)|.* in start_time$)",
     r"crates/botster-test-process/src/platform/macos\.rs:\d+:\d+: (replace await_end( ->| with)|.* in await_end$)",
@@ -288,6 +299,27 @@ fn platform_exclusions(os: &str) -> &'static [&'static str] {
     } else {
         OFF_MACOS_EXCLUSIONS
     }
+}
+
+/// The tracked Rust files of the packages: the fixtures are left out (each one is its own workspace).
+fn package_sources(root: &Path) -> Result<Vec<String>> {
+    Ok(fsutil::tracked_files(root)?
+        .into_iter()
+        .filter(|file| file.ends_with(".rs") && !file.starts_with("xtask/fixtures/"))
+        .collect())
+}
+
+/// The exclusions of the code that `os` does not compile (plan section 8, "Platform-only code"), derived from the `cfg`
+/// attributes of `files` (paths relative to `root`). The run on the OS that compiles the code tests its mutants.
+fn derived_exclusions(root: &Path, files: &[String], os: &str) -> Result<Vec<String>> {
+    let mut sources = Vec::new();
+    for file in files {
+        let text =
+            std::fs::read_to_string(root.join(file)).with_context(|| format!("read {file}"))?;
+        sources.push((file.clone(), text));
+    }
+    platform_code::exclusions(&sources, os)
+        .map_err(|errors| anyhow!("platform-only code on {os}:\n{}", errors.join("\n")))
 }
 
 /// The step's verdict from the exit code of `cargo mutants` (`None`: ended by a signal). Only 0, every mutant caught or
@@ -361,6 +393,9 @@ fn mutants_job(root: &Path) -> Result<()> {
         .arg("--output")
         .arg(&target);
     for re in platform_exclusions(std::env::consts::OS) {
+        cmd.arg("--exclude-re").arg(re);
+    }
+    for re in derived_exclusions(root, &package_sources(root)?, std::env::consts::OS)? {
         cmd.arg("--exclude-re").arg(re);
     }
     cmd.args(MUTANTS_TEST_ARGS)
@@ -555,6 +590,28 @@ mod tests {
         assert!(platform_exclusions("macos").is_empty());
         assert_eq!(platform_exclusions("linux"), OFF_MACOS_EXCLUSIONS);
         assert!(!OFF_MACOS_EXCLUSIONS.is_empty());
+    }
+
+    /// Plan section 8, "Platform-only code": the mutation step on each gate OS excludes the other OS's adapters of
+    /// botster-test-process, derived from the tracked packages; the fixtures (their own workspaces) are not read.
+    #[test]
+    fn each_gate_os_excludes_the_adapters_of_the_other_os() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("the repository");
+        let files = package_sources(root).unwrap();
+        let linux = derived_exclusions(root, &files, "linux").unwrap();
+        let macos = derived_exclusions(root, &files, "macos").unwrap();
+        let adapter = |os: &str| format!(r"^crates/botster\-test\-process/src/platform/{os}\.rs:");
+        assert!(
+            linux.contains(&adapter("macos")) && !linux.contains(&adapter("linux")),
+            "{linux:?}"
+        );
+        assert!(
+            macos.contains(&adapter("linux")) && !macos.contains(&adapter("macos")),
+            "{macos:?}"
+        );
+        assert!(!linux.iter().chain(&macos).any(|p| p.contains("fixtures")));
     }
 
     /// Plan section 8, step 8: only a run with every mutant caught passes the mutation step.
@@ -804,5 +861,62 @@ mod slow_tests {
             (Some(3), 8, 1, 0),
             "{status}"
         );
+    }
+
+    /// The fixture `xtask/fixtures/mutants-platform`: `triple` is `cfg(windows)` code, which no gate OS compiles. Without
+    /// the derived exclusions its mutants are MISSED and cargo-mutants exits with 2, which fails the step; with them, only
+    /// the mutants of `double` are tested, each one is caught, and the run passes.
+    #[test]
+    fn the_mutants_of_code_that_the_gate_os_does_not_compile_are_excluded() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("the repository");
+        let fixture = root.join("xtask/fixtures/mutants-platform");
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("src")).unwrap();
+        std::fs::create_dir_all(dir.path().join(".config")).unwrap();
+        std::fs::copy(fixture.join("Cargo.toml.in"), dir.path().join("Cargo.toml")).unwrap();
+        std::fs::copy(fixture.join("src/lib.rs"), dir.path().join("src/lib.rs")).unwrap();
+        for file in ["nextest.toml", "test-wrapper.sh"] {
+            std::fs::copy(
+                root.join(".config").join(file),
+                dir.path().join(".config").join(file),
+            )
+            .unwrap();
+        }
+        let derived = derived_exclusions(
+            dir.path(),
+            &["src/lib.rs".to_string()],
+            std::env::consts::OS,
+        )
+        .unwrap();
+        let run = |exclusions: &[String], name: &str| {
+            let out = dir.path().join(name);
+            let mut command = Command::new("cargo");
+            command
+                .current_dir(dir.path())
+                .arg("mutants")
+                .args(MUTANTS_OPTIONS)
+                .arg("--output")
+                .arg(&out);
+            for re in exclusions {
+                command.arg("--exclude-re").arg(re);
+            }
+            command
+                .args(MUTANTS_TEST_ARGS)
+                .envs(test_budget::tier_env(false))
+                .stdout(std::process::Stdio::null());
+            let mut run = OwnedChild::spawn_group(&mut command).unwrap();
+            let status = run.status_by(Deadline::after(test_budget::SLOW_DEADLINE));
+            let outcomes = parse_outcomes(
+                &std::fs::read_to_string(out.join("mutants.out/outcomes.json")).unwrap(),
+            )
+            .unwrap();
+            (status.code(), outcomes.missed, outcomes.caught)
+        };
+        let (code, missed, _) = run(&[], "without");
+        assert_eq!((code, missed > 0), (Some(2), true));
+        let (code, missed, caught) = run(&derived, "derived");
+        assert_eq!((code, missed, caught > 0), (Some(0), 0, true));
     }
 }

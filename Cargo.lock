@@ -2022,6 +2022,7 @@ dependencies = [
  "botster-test-support",
  "botster-worker-core",
  "proc-macro2",
+ "quote",
  "regex",
  "serde_json",
  "sha2",

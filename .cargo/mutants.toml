@@ -49,7 +49,8 @@ exclude_re = [
     # whole-body replacement is excluded: every other mutant of mutants_job stays tested. Its decisions are pure functions
     # with unit tests, which stay mutation-tested: mutation_verdict, the pass or fail of the step from the exit code
     # (only_a_mutation_run_with_every_mutant_caught_passes), parse_outcomes (the_mutation_summary_is_read_from_outcomes_json)
-    # and platform_exclusions (only_a_gate_off_macos_adds_the_off_macos_exclusions). A body replaced by Ok(()) skips the
+    # platform_exclusions (only_a_gate_off_macos_adds_the_off_macos_exclusions) and derived_exclusions, the code that the
+    # gate's OS does not compile (each_gate_os_excludes_the_adapters_of_the_other_os). A body replaced by Ok(()) skips the
     # step without its summary line, which every gate log of the step shows ("mutants: N mutants: ...").
     'xtask/src/ci\.rs:\d+:\d+: replace mutants_job -> Result<\(\)> with Ok\(\(\)\)$',
     # P7 GuardianConfig::fmt: the debug text has no contract format. An empty successful
@@ -270,10 +271,6 @@ exclude_re = [
     'crates/botster-core-sys/src/process\.rs:\d+:\d+: (replace Children::wait_exit( ->| with)|.* in Children::wait_exit$)',
     'crates/botster-core-sys/src/process\.rs:\d+:\d+: (replace Children::signal_group( ->| with)|.* in Children::signal_group$)',
     'crates/botster-core-sys/src/process\.rs:\d+:\d+: (replace Children::kill_group( ->| with)|.* in Children::kill_group$)',
-    # process.rs `start_time` of macOS is `cfg(target_os = "macos")` code: the Linux gate does not compile it, so a mutant in
-    # it cannot change a test result there. Only equality has a meaning (AD-6), and the macOS slow tier runs
-    # `a_spawned_child_matches_its_identity_and_dies_by_the_group_kill`.
-    'crates/botster-core-sys/src/process\.rs:\d+:\d+: replace [*+] with [-+*/] in start_time$',
     # process.rs `exit_status`: the code `-1` is for a reaped child with neither an exit code nor a signal, which a wait
     # status cannot be (a process ends by `exit` or by a signal).
     'crates/botster-core-sys/src/process\.rs:\d+:\d+: delete - in exit_status$',
