@@ -5,10 +5,14 @@
 //!   `kill(-1, …)`. A target of 0 is our own group.
 //! - So [`signal_group`] and [`signal_process`] refuse a target of 0 or 1, a target above the pid range, and our own group
 //!   or our own process, with a typed error. Only an allowed target reaches the operating system.
+//! - A guard that ends its own group on purpose uses [`signal_own_group`]. It takes no target: no record can give one. It
+//!   still refuses when our own group is 0 or 1, because then the whole system's first group is ours.
 //!
-//! `clippy.toml` bans `rustix::process::kill_process_group` and `rustix::process::kill_process` in every crate except here.
+//! `clippy.toml` bans `rustix::process::kill_process_group`, `rustix::process::kill_process` and
+//! `rustix::process::kill_current_process_group` in every crate except here.
 
-use rustix::process::{getpgrp, Pid, Signal};
+pub use rustix::process::Signal;
+use rustix::process::{getpgrp, Pid};
 use std::io;
 
 /// Why a signal was not sent.
@@ -69,6 +73,30 @@ pub fn signal_process(pid: u32, signal: Signal) -> Result<(), SignalError> {
     rustix::process::kill_process(pid, signal).map_err(|error| SignalError::Os(error.into()))
 }
 
+/// Our own process group, when [`signal_own_group`] may signal it: never group 0 or 1.
+///
+/// # Errors
+/// [`SignalError::NotATarget`].
+pub fn own_group(own: u32) -> Result<(), SignalError> {
+    if own <= 1 {
+        return Err(SignalError::NotATarget(own));
+    }
+    Ok(())
+}
+
+/// Sends `signal` to our own process group, this process included, unless [`own_group`] refuses it. Only a guard that
+/// ends its own group uses it.
+///
+/// # Errors
+/// The refusal of [`own_group`], or the operating-system error.
+pub fn signal_own_group(signal: Signal) -> Result<(), SignalError> {
+    own_group(getpgrp().as_raw_nonzero().get().unsigned_abs())?;
+    #[allow(clippy::disallowed_methods)]
+    // The one signal to our own group: the group passed the refusal above.
+    rustix::process::kill_current_process_group(signal)
+        .map_err(|error| SignalError::Os(error.into()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -122,6 +150,37 @@ mod tests {
                 "{sent:?}"
             );
         }
+    }
+
+    /// The pattern rule for our own group: group 0 or 1 is never signalled; any other group of ours is.
+    #[test]
+    fn our_own_group_of_0_or_1_is_refused() {
+        for own in [0, 1] {
+            assert!(matches!(own_group(own), Err(SignalError::NotATarget(g)) if g == own));
+        }
+        for own in [2, 500, u32::MAX] {
+            assert!(own_group(own).is_ok(), "{own}");
+        }
+    }
+
+    /// The real call reaches our own group, this process included. `SIGURG` is the signal: its default action is to ignore
+    /// it, so no other member of the group is affected, and the handler of this process records it.
+    #[test]
+    fn a_signal_to_our_own_group_reaches_this_process() {
+        let seen = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let handler =
+            signal_hook::flag::register(signal_hook::consts::SIGURG, std::sync::Arc::clone(&seen))
+                .unwrap();
+        signal_own_group(Signal::URG).unwrap();
+        // The signal is delivered to some thread of this process; yield until the handler ran (a bound, not a timer).
+        for _ in 0..1_000_000 {
+            if seen.load(std::sync::atomic::Ordering::SeqCst) {
+                break;
+            }
+            std::thread::yield_now();
+        }
+        signal_hook::low_level::unregister(handler);
+        assert!(seen.load(std::sync::atomic::Ordering::SeqCst));
     }
 
     /// A caller of `io::Result` keeps the errno of the operating system and sees a refusal as invalid input.

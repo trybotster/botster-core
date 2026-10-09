@@ -31,6 +31,12 @@ exclude_re = [
     # and platform_exclusions (only_a_gate_off_macos_adds_the_off_macos_exclusions). A body replaced by Ok(()) skips the
     # step without its summary line, which every gate log of the step shows ("mutants: N mutants: ...").
     'xtask/src/ci\.rs:\d+:\d+: replace mutants_job -> Result<\(\)> with Ok\(\(\)\)$',
+    # xtask test_budget.rs kill -> (): process glue. The body sends SIGKILL to the leftovers of a test run; a default-tier
+    # test cannot give it a real leftover to end. Only this whole-body replacement is excluded. Its decisions are tested:
+    # target, the parse of each argument (a_cleanup_argument_names_a_process_or_a_group), and the refusal of 0, 1 and our
+    # own in botster_core_sys::signal (a_target_of_0_1_out_of_range_or_our_own_is_refused,
+    # our_own_group_and_process_are_never_signalled).
+    'xtask/src/test_budget\.rs:\d+:\d+: replace kill with \(\)$',
     # P7 GuardianConfig::fmt: the debug text has no contract format. An empty successful
     # debug result still omits the service token, which is the only required property.
     # only_a_valid_host_hello_authenticates checks token omission.

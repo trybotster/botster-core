@@ -5,9 +5,10 @@
 use anyhow::Result;
 
 /// The calls that only `botster_core_sys::signal` may make.
-pub const SIGNAL_CALLS: [&str; 2] = [
+pub const SIGNAL_CALLS: [&str; 3] = [
     "rustix::process::kill_process_group",
     "rustix::process::kill_process",
+    "rustix::process::kill_current_process_group",
 ];
 
 /// The signal calls that the `disallowed-methods` list of a `clippy.toml` text does not ban.
@@ -38,14 +39,18 @@ mod tests {
             r#"disallowed-methods = [{ path = "rustix::process::kill_process", reason = "r" }]"#;
         assert_eq!(
             missing(one).unwrap(),
-            ["rustix::process::kill_process_group"]
+            [
+                "rustix::process::kill_process_group",
+                "rustix::process::kill_current_process_group"
+            ]
         );
-        let both = r#"disallowed-methods = [
+        let all = r#"disallowed-methods = [
             "std::thread::spawn",
             { path = "rustix::process::kill_process_group", reason = "r" },
             { path = "rustix::process::kill_process", reason = "r" },
+            { path = "rustix::process::kill_current_process_group", reason = "r" },
         ]"#;
-        assert!(missing(both).unwrap().is_empty());
+        assert!(missing(all).unwrap().is_empty());
         assert!(missing("disallowed-methods = [").is_err());
     }
 
