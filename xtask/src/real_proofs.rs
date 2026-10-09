@@ -4,8 +4,13 @@
 //! `TestkitHarness` today, so its passing run there proves nothing about the real behavior. Such an id may leave the pending
 //! list only when the file names the real test that proves it, and that test exists and runs in the slow tier.
 //!
-//! One `[[proof]]` table per id: `id` (the Core id), `file` (the Rust file that holds the test, from the repo root) and
-//! `test` (the test's path inside its binary, `module::name` or `name`).
+//! One `[[proof]]` table per id: `id` (the Core id), `binary` (the test binary, the name of an integration test target) and
+//! `test` (the test's nextest path inside that binary, `module::name` or `name`). The binary and the path are the key that
+//! nextest and the slow filter use.
+//!
+//! Until `mutants_cited` (P6 PR B) is on v1, this module models the target and the tier itself: only an integration test
+//! binary (`tests/<binary>.rs` or `tests/<binary>/main.rs`) is resolved. After PR B, `mutants_cited::tests` and `tiers_of`
+//! replace the model, and a test of any target can be named.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -16,14 +21,14 @@ pub const FILE: &str = "conformance/real-proofs.toml";
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Proof {
     pub id: String,
-    pub file: String,
+    pub binary: String,
     pub test: String,
 }
 
 /// The entries of the file's `text`.
 ///
 /// # Errors
-/// The text is not TOML, or an entry lacks a string `id`, `file` or `test`, or has another key.
+/// The text is not TOML, or an entry lacks a string `id`, `binary` or `test`, or has another key.
 pub fn parse(text: &str) -> Result<Vec<Proof>, String> {
     let table: toml::Table = text
         .parse()
@@ -46,7 +51,7 @@ pub fn parse(text: &str) -> Result<Vec<Proof>, String> {
                 .ok_or_else(|| format!("{FILE}: proof {} is not a table", index + 1))?;
             if let Some(key) = entry
                 .keys()
-                .find(|key| !["id", "file", "test"].contains(&key.as_str()))
+                .find(|key| !["id", "binary", "test"].contains(&key.as_str()))
             {
                 return Err(format!(
                     "{FILE}: proof {} has the unknown key `{key}`",
@@ -62,21 +67,34 @@ pub fn parse(text: &str) -> Result<Vec<Proof>, String> {
             };
             Ok(Proof {
                 id: field("id")?,
-                file: field("file")?,
+                binary: field("binary")?,
                 test: field("test")?,
             })
         })
         .collect()
 }
 
-/// Whether the test `test` of the file `file` runs in the slow tier: the nextest filter `test_budget::SLOW_FILTER` selects
-/// a binary whose name starts with `slow` (an integration test file `tests/slow*.rs`) and a test with a `slow_` module in
-/// its path.
-fn in_slow_tier(file: &str, test: &str) -> bool {
-    let slow_binary = file
-        .rsplit_once("/tests/")
-        .is_some_and(|(_, binary)| !binary.contains('/') && binary.starts_with("slow"));
-    slow_binary || test.split("::").any(|segment| segment.starts_with("slow_"))
+/// Whether the test `test` of the binary `binary` runs in the slow tier: the nextest filter `test_budget::SLOW_FILTER`
+/// selects a binary whose name starts with `slow` and a test with a `slow_` segment in its path.
+fn in_slow_tier(binary: &str, test: &str) -> bool {
+    binary.starts_with("slow") || test.split("::").any(|segment| segment.starts_with("slow_"))
+}
+
+/// The `tests/` directories (with the trailing `/`) of the crates that have the integration test binary `binary`.
+fn crates_with_binary(binary: &str, sources: &BTreeMap<String, String>) -> Vec<String> {
+    let roots = [
+        format!("/tests/{binary}.rs"),
+        format!("/tests/{binary}/main.rs"),
+    ];
+    sources
+        .keys()
+        .filter_map(|path| {
+            roots
+                .iter()
+                .find_map(|root| path.strip_suffix(root.as_str()))
+                .map(|krate| format!("{krate}/tests/"))
+        })
+        .collect()
 }
 
 /// The ids that the conformance runner runs: the ids of `ledger` that no list of `skipped` (pending, deferred, withdrawn)
@@ -98,7 +116,7 @@ pub struct Input<'a> {
     /// The replacement map's proof of each id (`slow:fsync`, `core-testkit`, ...).
     pub proof_of: &'a BTreeMap<String, String>,
     pub proofs: &'a [Proof],
-    /// The text of each tracked Rust file, by its path.
+    /// The text of each tracked Rust file, by its path from the repository root.
     pub sources: &'a BTreeMap<String, String>,
 }
 
@@ -122,20 +140,24 @@ pub fn verdict(input: &Input<'_>) -> Vec<String> {
                 "{FILE}: {id} has no `slow:*` proof in the replacement map; only a real-only id is listed"
             ));
         }
-        let name = proof.test.rsplit("::").next().unwrap_or_default();
-        let defined = input
-            .sources
-            .get(&proof.file)
-            .is_some_and(|text| text.contains(&format!("fn {name}(")));
-        if !defined {
+        let (binary, test) = (&proof.binary, &proof.test);
+        let dirs = crates_with_binary(binary, input.sources);
+        let name = test.rsplit("::").next().unwrap_or_default();
+        let needle = format!("fn {name}(");
+        let defined = input.sources.iter().any(|(path, text)| {
+            dirs.iter().any(|dir| path.starts_with(dir.as_str())) && text.contains(&needle)
+        });
+        if dirs.is_empty() {
             problems.push(format!(
-                "{FILE}: {id}: no test `{}` is defined in the tracked file {}",
-                proof.test, proof.file
+                "{FILE}: {id}: no integration test binary `{binary}` is tracked"
             ));
-        } else if !in_slow_tier(&proof.file, &proof.test) {
+        } else if !defined {
             problems.push(format!(
-                "{FILE}: {id}: the test {} in {} does not run in the slow tier",
-                proof.test, proof.file
+                "{FILE}: {id}: the binary {binary} defines no test `{test}`"
+            ));
+        } else if !in_slow_tier(binary, test) {
+            problems.push(format!(
+                "{FILE}: {id}: the test {binary} {test} does not run in the slow tier"
             ));
         }
     }
@@ -191,27 +213,28 @@ mod tests {
             .collect()
     }
 
-    fn proof(id: &str, file: &str, test: &str) -> Proof {
+    fn proof(id: &str, binary: &str, test: &str) -> Proof {
         Proof {
             id: id.into(),
-            file: file.into(),
+            binary: binary.into(),
             test: test.into(),
         }
     }
 
-    const SLOW_FILE: &str = "crates/c/tests/slow_real.rs";
+    const TEST: &str = "the_real_lock_is_exclusive";
 
     fn sources() -> BTreeMap<String, String> {
+        let test = format!("#[test]\nfn {TEST}() {{}}\n");
         map(&[
-            (SLOW_FILE, "#[test]\nfn the_real_lock_is_exclusive() {}\n"),
+            ("crates/c/tests/slow_real.rs", "mod common;\n"),
+            ("crates/c/tests/common/mod.rs", &test),
+            ("crates/c/tests/fast.rs", &test),
             (
-                "crates/c/tests/fast.rs",
-                "#[test]\nfn the_real_lock_is_exclusive() {}\n",
+                "crates/c/tests/real/main.rs",
+                &format!("mod slow_cases {{\n{test}}}\n"),
             ),
-            (
-                "crates/c/src/lib.rs",
-                "mod slow_tests {\n    fn the_real_lock_is_exclusive() {}\n}\n",
-            ),
+            ("crates/d/tests/slow_other.rs", ""),
+            ("crates/d/src/lib.rs", &test),
         ])
     }
 
@@ -244,76 +267,79 @@ mod tests {
 
     #[test]
     fn a_running_real_only_id_with_its_slow_test_passes() {
-        let named = [proof("conf::a", SLOW_FILE, "the_real_lock_is_exclusive")];
+        let in_module_file = [proof("conf::a", "slow_real", &format!("common::{TEST}"))];
         assert_eq!(
-            verdict_of(&["conf::a", "conf::b"], &named),
+            verdict_of(&["conf::a", "conf::b"], &in_module_file),
             Vec::<String>::new()
         );
-        let in_module = [proof(
-            "conf::a",
-            "crates/c/src/lib.rs",
-            "slow_tests::the_real_lock_is_exclusive",
-        )];
-        assert_eq!(verdict_of(&["conf::a"], &in_module), Vec::<String>::new());
+        let slow_module = [proof("conf::a", "real", &format!("slow_cases::{TEST}"))];
+        assert_eq!(verdict_of(&["conf::a"], &slow_module), Vec::<String>::new());
     }
 
     /// An entry for a pending id is allowed: the real test can land before the id leaves the pending list.
     #[test]
     fn an_entry_for_a_pending_real_only_id_passes() {
-        let named = [proof("conf::c", SLOW_FILE, "the_real_lock_is_exclusive")];
+        let named = [proof("conf::c", "slow_real", TEST)];
         assert_eq!(verdict_of(&[], &named), Vec::<String>::new());
     }
 
     #[test]
     fn a_named_test_that_is_missing_or_not_in_the_slow_tier_is_a_problem() {
-        let missing = [proof("conf::a", SLOW_FILE, "no_such_test")];
         assert_eq!(
-            verdict_of(&["conf::a"], &missing),
-            vec![format!("{FILE}: conf::a: no test `no_such_test` is defined in the tracked file {SLOW_FILE}")]
-        );
-        let untracked = [proof(
-            "conf::a",
-            "crates/c/tests/gone.rs",
-            "the_real_lock_is_exclusive",
-        )];
-        assert_eq!(verdict_of(&["conf::a"], &untracked).len(), 1);
-        // A name that only ends like the test is another test.
-        let suffix = [proof("conf::a", SLOW_FILE, "lock_is_exclusive")];
-        assert_eq!(verdict_of(&["conf::a"], &suffix).len(), 1);
-        let fast = [proof(
-            "conf::a",
-            "crates/c/tests/fast.rs",
-            "the_real_lock_is_exclusive",
-        )];
-        assert_eq!(
-            verdict_of(&["conf::a"], &fast),
+            verdict_of(
+                &["conf::a"],
+                &[proof("conf::a", "slow_real", "no_such_test")]
+            ),
             vec![format!(
-                "{FILE}: conf::a: the test the_real_lock_is_exclusive in crates/c/tests/fast.rs does not run in the slow tier"
+                "{FILE}: conf::a: the binary slow_real defines no test `no_such_test`"
+            )]
+        );
+        // A name that only ends like the test is another test.
+        let suffix = [proof("conf::a", "slow_real", "lock_is_exclusive")];
+        assert_eq!(verdict_of(&["conf::a"], &suffix).len(), 1);
+        // The test of another crate's file is not in the binary's crate.
+        let other_crate = [proof("conf::a", "slow_other", TEST)];
+        assert_eq!(
+            verdict_of(&["conf::a"], &other_crate),
+            vec![format!(
+                "{FILE}: conf::a: the binary slow_other defines no test `{TEST}`"
+            )]
+        );
+        for binary in ["slow_gone", "common", "c"] {
+            assert_eq!(
+                verdict_of(&["conf::a"], &[proof("conf::a", binary, TEST)]),
+                vec![format!(
+                    "{FILE}: conf::a: no integration test binary `{binary}` is tracked"
+                )],
+                "{binary}: a module file or a library is not an integration test binary"
+            );
+        }
+        assert_eq!(
+            verdict_of(&["conf::a"], &[proof("conf::a", "fast", TEST)]),
+            vec![format!(
+                "{FILE}: conf::a: the test fast {TEST} does not run in the slow tier"
             )]
         );
     }
 
     #[test]
     fn an_entry_for_an_unknown_id_a_testkit_id_or_a_second_time_is_a_problem() {
-        let test = "the_real_lock_is_exclusive";
         assert_eq!(
-            verdict_of(&[], &[proof("conf::x", SLOW_FILE, test)]),
+            verdict_of(&[], &[proof("conf::x", "slow_real", TEST)]),
             vec![format!("{FILE}: conf::x is not a Core id of the ledger")]
         );
         assert_eq!(
-            verdict_of(&[], &[proof("conf::b", SLOW_FILE, test)]),
+            verdict_of(&[], &[proof("conf::b", "slow_real", TEST)]),
             vec![format!(
                 "{FILE}: conf::b has no `slow:*` proof in the replacement map; only a real-only id is listed"
             )]
         );
+        let twice = [
+            proof("conf::a", "slow_real", TEST),
+            proof("conf::a", "slow_real", TEST),
+        ];
         assert_eq!(
-            verdict_of(
-                &["conf::a"],
-                &[
-                    proof("conf::a", SLOW_FILE, test),
-                    proof("conf::a", SLOW_FILE, test)
-                ]
-            ),
+            verdict_of(&["conf::a"], &twice),
             vec![format!("{FILE}: conf::a is listed twice")]
         );
     }
@@ -339,40 +365,48 @@ mod tests {
     }
 
     #[test]
-    fn the_slow_tier_is_a_slow_binary_or_a_slow_module() {
-        assert!(in_slow_tier("crates/c/tests/slow_real.rs", "t"));
-        assert!(in_slow_tier("crates/c/tests/slow.rs", "t"));
-        assert!(!in_slow_tier("crates/c/tests/real.rs", "t"));
-        assert!(
-            !in_slow_tier("crates/c/tests/common/slow_x.rs", "t"),
-            "a module file is not a binary"
+    fn the_slow_tier_is_a_slow_binary_or_a_slow_segment() {
+        assert!(in_slow_tier("slow_real", "t"));
+        assert!(in_slow_tier("slow", "t"));
+        assert!(!in_slow_tier("real", "t"));
+        assert!(in_slow_tier("real", "slow_tests::t"));
+        assert!(in_slow_tier("real", "outer::slow_cases::t"));
+        assert!(in_slow_tier("real", "slow_t"));
+        assert!(!in_slow_tier("real", "tests::slowly"));
+    }
+
+    #[test]
+    fn a_binary_is_a_tests_root_file_or_a_main_file() {
+        let sources = sources();
+        assert_eq!(
+            crates_with_binary("slow_real", &sources),
+            vec!["crates/c/tests/"]
         );
-        assert!(in_slow_tier("crates/c/src/lib.rs", "slow_tests::t"));
-        assert!(in_slow_tier(
-            "crates/c/tests/real.rs",
-            "outer::slow_cases::t"
-        ));
-        assert!(!in_slow_tier("crates/c/src/lib.rs", "tests::slowly"));
+        assert_eq!(
+            crates_with_binary("real", &sources),
+            vec!["crates/c/tests/"]
+        );
+        assert_eq!(crates_with_binary("mod", &sources), Vec::<String>::new());
     }
 
     #[test]
     fn the_file_parses_its_entries_and_refuses_other_shapes() {
         assert_eq!(parse("# none yet\n").unwrap(), Vec::new());
         assert_eq!(
-            parse("[[proof]]\nid = \"conf::a\"\nfile = \"f.rs\"\ntest = \"m::t\"\n").unwrap(),
-            vec![proof("conf::a", "f.rs", "m::t")]
+            parse("[[proof]]\nid = \"conf::a\"\nbinary = \"slow_b\"\ntest = \"m::t\"\n").unwrap(),
+            vec![proof("conf::a", "slow_b", "m::t")]
         );
         for (text, error) in [
             ("x = 1\n", "unknown key `x`"),
             ("proof = 1\n", "`proof` is not an array of tables"),
             ("proof = [1]\n", "proof 1 is not a table"),
             (
-                "[[proof]]\nid = \"a\"\nfile = \"f\"\n",
+                "[[proof]]\nid = \"a\"\nbinary = \"b\"\n",
                 "proof 1 needs a string `test`",
             ),
             (
-                "[[proof]]\nid = \"a\"\nfile = \"f\"\ntest = \"t\"\nwhy = \"\"\n",
-                "proof 1 has the unknown key `why`",
+                "[[proof]]\nid = \"a\"\nfile = \"f\"\ntest = \"t\"\n",
+                "proof 1 has the unknown key `file`",
             ),
             ("[[proof", "is not TOML"),
         ] {
