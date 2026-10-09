@@ -11,7 +11,7 @@
 
 use crate::core::{SimEdges, Spawner};
 use crate::net::{EndControl, Interest, LinkEnd};
-use crate::program::ScriptedProgram;
+use crate::program::{ProgramControl, ScriptedProgram};
 use crate::scheduler::SchedulerHandle;
 use crate::sim::{Binding, MachineNode, Sim};
 use botster_core_contract::prelude::*;
@@ -61,6 +61,9 @@ struct ProcessCell {
     /// The worker's payload runs: true from its spawn until its sim process ends (its exit is queued for the worker), its
     /// reap, or the end of the worker (`payload_alive`).
     payload_alive: bool,
+    /// The controls of the payload's program edge, from the spawn until the reap or the end of the worker (`pty_output`,
+    /// `pty_blocked`): the PTY stays readable after the payload's exit until the worker reaps it.
+    program: Option<ProgramControl>,
 }
 
 /// The process table of the workers that one host spawned: identities and the exits that the host has not polled.
@@ -279,6 +282,45 @@ impl Workers {
             })
     }
 
+    /// The program edge of the payload of the worker process `identity` (`pty_output`, `pty_blocked`), and the wake of the
+    /// host that owns the process. A control that makes the edge ready signals that wake, as the real edge event wakes a
+    /// real host (TM-6).
+    ///
+    /// # Errors
+    /// The process is not a worker of this run, it has ended, or it has no payload.
+    pub(crate) fn program_edge(
+        &self,
+        identity: ProcessIdentity,
+    ) -> Result<(ProgramControl, Option<Arc<dyn HostWake>>), String> {
+        self.program_edge_between(identity, || {})
+    }
+
+    /// [`Workers::program_edge`]: `between` runs after the cell is read and before the owner is locked, so a test can put
+    /// the end of the process exactly there (F63).
+    fn program_edge_between(
+        &self,
+        identity: ProcessIdentity,
+        between: impl FnOnce(),
+    ) -> Result<(ProgramControl, Option<Arc<dyn HostWake>>), String> {
+        let (cell, owner) = lock(&self.run_processes)
+            .get(&identity)
+            .cloned()
+            .ok_or_else(|| format!("no worker process {identity:?} in this run"))?;
+        // The cell guard ends before the owner is locked: `Processes::end` locks the owner, then the cell.
+        let program = {
+            let cell = lock(&cell);
+            if cell.ended {
+                return Err(format!("the worker process {identity:?} has ended"));
+            }
+            cell.program
+                .clone()
+                .ok_or_else(|| format!("the worker process {identity:?} has no payload"))?
+        };
+        between();
+        let wake = lock(&owner).wake.clone();
+        Ok((program, wake))
+    }
+
     /// True when no edge toward the host of `table` holds a report that it has not consumed: no worker has ready work (input
     /// to read, bytes to write, a payload's output or exit, a signal), and the host's process table holds no exit and no
     /// unread link report (`edges_quiet`). The fence of `await_quiet` (Core A5-2).
@@ -469,7 +511,10 @@ impl WorkerEdges {
         }
         self.outbound.clear();
         self.payload = None;
-        lock(&self.cell).payload_alive = false;
+        let mut cell = lock(&self.cell);
+        cell.payload_alive = false;
+        cell.program = None;
+        drop(cell);
         self.held_spawn = None;
         lock(&self.held_starts).remove(&self.start);
     }
@@ -507,6 +552,7 @@ impl WorkerEdges {
         program
             .resize(window)
             .map_err(|_| SpawnFailure::Exec { errno: ENOEXEC })?;
+        lock(&self.cell).program = Some(program.control());
         self.payload = Some(program);
         lock(&self.cell).payload_alive = true;
         Ok(PayloadId {
@@ -692,7 +738,9 @@ impl Binding<Worker> for WorkerEdges {
             }
             Action::ReapPayload => {
                 self.payload = None;
-                lock(&self.cell).payload_alive = false;
+                let mut cell = lock(&self.cell);
+                cell.payload_alive = false;
+                cell.program = None;
             }
             Action::Exit => {
                 lock(&self.processes).end(self.id, ExitStatus::Code(0));
