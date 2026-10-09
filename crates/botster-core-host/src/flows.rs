@@ -6,7 +6,7 @@ use crate::io::Action;
 use crate::run::registry_failed;
 use crate::session::Admit;
 use botster_core_contract::prelude::*;
-use botster_core_edges::edges::{GroupSignal, StorageError};
+use botster_core_edges::edges::{GroupSignal, IdentityState, ProcessIdentity, StorageError};
 use botster_core_link::msg::HostMsg;
 
 /// `RemoveReport` is `#[non_exhaustive]` and has no constructor in `contracts-v0.1.2`, so an external crate builds it through
@@ -499,9 +499,14 @@ impl HostEngine {
                 let instance = self.sessions[id].instance.clone();
                 self.captures.retain(|_, c| c.instance != instance);
                 self.retire_session_ops(id, Some(f.op), None);
-                let (link, worker, gone) = {
+                let (link, worker, gone, corrupt) = {
                     let s = &self.sessions[id];
-                    (s.worker.link.is_some(), s.worker.identity, s.worker.gone)
+                    (
+                        s.worker.link.is_some(),
+                        s.worker.identity,
+                        s.worker.gone,
+                        s.shown == Some(SessionState::Lost(LostReason::RegistryCorrupt)),
+                    )
                 };
                 let deadline = self.mono().map(|now| now + self.cfg.limits.stop_grace);
                 let (uploads, worker_gone, deadline) = if link && self.send_msg(id, HostMsg::Remove)
@@ -515,15 +520,20 @@ impl HostEngine {
                         None,
                     )
                 } else if let Some(identity) = worker {
-                    // A worker that cannot be asked is a stray worker: it is ended (LC-7 step 3, A6-3).
-                    self.act(Action::SignalGroup {
-                        identity,
-                        signal: GroupSignal::Kill,
-                    });
+                    // A worker that cannot be asked may still run: a stray worker. The host checks its identity, ends it if it
+                    // matches, and waits until it is gone (LC-7 step 3, A6-3, AD-6).
+                    self.act(Action::ProbeIdentity { identity });
                     (
                         Some(UploadsOutcome::NotDeleted(NotDeleted::OutcomeUnknown)),
                         false,
                         deadline,
+                    )
+                } else if corrupt {
+                    // A corrupt row tells nothing of what ran, so nothing is claimed (A6-3).
+                    (
+                        Some(UploadsOutcome::NotDeleted(NotDeleted::OutcomeUnknown)),
+                        true,
+                        None,
                     )
                 } else {
                     // A session that never had a worker has no uploads.
@@ -573,14 +583,12 @@ impl HostEngine {
         }
     }
 
-    /// The worker did not end within `stop_grace` after its teardown: it is killed, and the wait goes on. A signal is not an
-    /// observed exit: steps 4 and 5 wait for the exit input, and the kill is repeated each `stop_grace` (LC-7, A6-3).
+    /// The worker did not end within `stop_grace` after its teardown. A signal is not an observed exit, so the host checks the
+    /// worker's identity again: a worker that still matches is killed, and the check repeats each `stop_grace`; a worker
+    /// that is gone lets steps 4 and 5 run (LC-7, A6-3, AD-6).
     pub(crate) fn remove_grace_expired(&mut self, id: &SessionId) {
         if let Some(identity) = self.identity_of(id) {
-            self.act(Action::SignalGroup {
-                identity,
-                signal: GroupSignal::Kill,
-            });
+            self.act(Action::ProbeIdentity { identity });
         }
         let next = self.mono().map(|now| now + self.cfg.limits.stop_grace);
         if let Some(s) = self.sessions.get_mut(id) {
@@ -593,6 +601,33 @@ impl HostEngine {
             }
         }
         self.remove_progress(id);
+    }
+
+    /// The answer to an identity check of a removed session's worker (AD-6). A worker that matches is killed; one that is
+    /// absent, or whose pid another process now has, is gone (AD-2 `WorkerGone`), and the teardown goes on.
+    pub(crate) fn flow_remove_probed(&mut self, identity: ProcessIdentity, state: IdentityState) {
+        let found = self
+            .sessions
+            .iter()
+            .find(|(_, s)| {
+                s.worker.identity == Some(identity)
+                    && !s.worker.gone
+                    && matches!(s.flow, Flow::Remove(_))
+            })
+            .map(|(id, _)| id.clone());
+        let Some(id) = found else {
+            return;
+        };
+        match state {
+            IdentityState::Matches => self.act(Action::SignalGroup {
+                identity,
+                signal: GroupSignal::Kill,
+            }),
+            IdentityState::Absent | IdentityState::Reused => {
+                self.sessions.get_mut(&id).expect("found above").worker.gone = true;
+                self.flow_remove_worker_gone(&id);
+            }
+        }
     }
 
     /// Step 5 of LC-7 and `SessionState{Released}`, as one atomic step: the id is freed only when the event fits (EV-5b).
@@ -655,12 +690,17 @@ impl HostEngine {
                 });
             }
             (Flow::Create(f), Err(e)) => {
-                // The row was not written: the session never existed (LC-3). The ops that were admitted after the `Create`
-                // (AM-1) end with the same failure, so none stays attached to a session that is gone (AM-3).
+                // The session did not come into being (LC-3). The ops that were admitted after the `Create` (AM-1) end with
+                // the same failure, so none stays attached to it (AM-3).
                 let error = registry_failed(e);
                 self.retire_session_ops(id, Some(f.op), Some(error.clone()));
                 if let Some(session) = self.sessions.remove(id) {
                     self.retired_ops.extend(&session.ops);
+                }
+                // AD-7: an uncertain write may have left the row. Core assumes neither outcome: the id stays in use until
+                // `AdoptAll` reads the registry, which is authoritative.
+                if matches!(e, StorageError::Uncertain { .. }) {
+                    self.unadopted.insert(id.clone());
                 }
                 self.complete(f.op, OpResult::Err(error));
             }
@@ -677,14 +717,9 @@ impl HostEngine {
                     s.stop_after_start = false;
                     self.flow_done(id);
                     self.complete(f.op, OpResult::Err(registry_failed(e)));
+                    // A2-1: `RegistryFailed` is the only asynchronous error of `Stop`. The stop waited for this row write.
                     for op in waiters {
-                        self.complete(
-                            op,
-                            OpResult::Err(CoreError::new(
-                                ErrorCode::WrongState,
-                                "the start that the stop waited for failed",
-                            )),
-                        );
+                        self.complete_later(op, OpResult::Err(registry_failed(e)));
                     }
                 }
                 (StartPhase::RowIdentity, Ok(())) => {
