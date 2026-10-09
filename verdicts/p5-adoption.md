@@ -2030,3 +2030,84 @@ It does not close #156 A16/A25/A27/A50, #157 A24/A49, or P5 deliverable 2.
 A15 remains P6's item. Integration retains its separate verdict ownership.
 
 VERDICT: CLEAN
+
+
+## P5 adoption design — Round 1
+
+- Branch: `stage1/p5-adopt-1`.
+- Exact head: `0682aabe47f18b6756cc8c5655068f5a9e27e7b9`.
+- Base: `a0f78fe4c4e4faff1fee926e072ceb5e94ba8649`.
+- Tree: `a697b9d68b4940caf8f14a4e7a849ecc30d9caa5`.
+- Scope: the new Adoption design section in `crates/botster-core-host/DESIGN.md`; no implementation exists in this delta.
+- Plan: revision 22, pin `71a623ef93f487754e400dc186429216357e39fe251933675cc7f851843d519d`.
+- The reviewer changed no product code and ran no builds, tests, mutation jobs, or gates.
+
+### Read scope and accepted choices
+
+The reviewer read the complete initial draft at c2a2e99a and both requested design deltas at d6c2cf6d and this head.
+The reviewer read the prior-art note, the P5 clause list, AD-1 through AD-7, DP-8, LC-9, LC-11, ST-5, ID-2, A6-2, A10, and A11.
+The reviewer also read the current row decoder, hello codec, host hello path, and worker launch states.
+The workspace currently pins contracts-v0.1.13. This review uses the revision 22 plan's applicable rules and deferrals.
+
+The worker endpoint and host connection direction fit the worker's independent life.
+Role-specific token proofs address the stated reflection defect in the current identical proofs.
+The report must use live worker state. The draft now includes input and model revisions.
+The old-host request fence must retire request identity and queued replies, as the P3 delta states.
+The bounded candidate connection and in-memory Sim process table fit the machine and driver boundaries.
+An unknown payload start time must not match a process identity; Option expresses that decision directly.
+These accepted choices do not close the following design defects or certify their future implementation.
+
+### P5-F20 — HIGH — The epoch rule prevents retry after partial adoption
+
+Design section 3 requires E to exceed every epoch the worker has seen.
+The worker then records E before the host receives its hello and adoption report.
+If the connection loses the response, or the report misses the deadline, the host records Lost(WorkerUnreachable).
+Section 5 permits Adopt(id) on that same handle. That handle retains its host epoch E.
+Every retry sends E again, so the worker rejects it permanently under section 3's strict comparison.
+AD-2 permits retry. DP-8 refuses lower epochs and requires the worker to obey the highest epoch it has seen.
+
+Required change: define authenticated retry on the same handle after the worker has accepted its epoch.
+Preserve lower-epoch fencing and candidate authentication. Specify the effect on any current link.
+Require a behavior proof where the worker accepts E, its response is lost, and a later retry recovers the same worker.
+Status: OPEN. The reviewer sent the finding directly to P5 and copied integration.
+Integration D1 describes the same defect.
+
+### P5-F21 — MEDIUM — The protocol predicate accepts protocol zero
+
+Design section 3.6 adopts P when P equals T or T minus one, without the first-protocol exception.
+The current worker protocol T is 1, so this rule accepts P equal to zero.
+A6-2 requires the adoptable set to be exactly {1} at T equal to 1.
+The previous protocol applies only when T minus one is at least one.
+
+Required change: use the exposed adoptable protocol set for the handshake decision.
+State A6-2's first-protocol exception and retain its two exact deferrals with their start conditions.
+An out-of-set hello must remain Lost(WorkerVersion).
+Status: OPEN. The reviewer sent the finding directly to P5 and copied integration.
+
+### P5-F22 — HIGH — The report and recovery omit the pre-launch worker
+
+Design section 4 reports the payload as running or exited.
+Sections 5 and 7 do not specify adoption of a worker whose identity is durable but whose Launch has not arrived.
+AD-7 permits this crash point between steps 3 and 4.
+The current worker also has distinct None and Spawning payload states; neither is an exited payload.
+A host cannot derive Running from that report, and a repeated Launch must not duplicate an existing or pending spawn.
+AD-1 requires recovery of a Starting row with an authenticated recorded worker.
+ID-2 also requires that old accepted operations and their completions are not replayed.
+
+Required change: define the report and recovery for no launch yet and for a spawn in flight.
+Preserve durable identity before any payload launch. Do not invent Running or replay a launch that already happened.
+Specify the outcome if payload launch fails during recovery.
+Define how the worker receives CoreLimits.startup before Launch, so its AD-7 orphan deadline covers these crash points.
+Status: OPEN. The reviewer sent the finding directly to P5 and copied integration.
+Integration D2 covers the missing startup launch argument; it overlaps this finding's deadline requirement.
+
+### Retained integration findings
+
+Integration reports design verdict `aec33a8dfea34f621c3f7d4ac253700b80e1581e` on this head.
+D1 overlaps P5-F20. D2 overlaps the startup part of P5-F22.
+D3 concerns endpoint unlink ownership. D4 concerns the hello and proof rule across T and T minus one.
+Integration owns those findings and their terminal closure. The reviewer did not duplicate D3 or D4.
+
+This is a design verdict only. It does not change any conformance record or close P5 deliverable 2.
+
+VERDICT: NOT CLEAN
