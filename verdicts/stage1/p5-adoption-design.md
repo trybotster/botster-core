@@ -123,3 +123,20 @@ table and the retry rule.
 - The ids stay pending until the real harness can run them (plan 5).
 
 VERDICT: CLEAN (0 open) at 4fec490a97f291c05622aa92be2f02c74a891c30
+
+## Round 4 — CLEAN (design only) on head 135cce8c
+
+Reviewed head: `135cce8c899b45a94a4d8c64f6e63aeb58a347fa`. The `DESIGN.md` delta `4fec490a..135cce8c` is 9 added and 4
+removed lines in the retry rule. The branch also has two code commits (`d9817395` the role byte, `47eee56e` rustfmt).
+This round does not review or accept them. They get an integration review as a PR.
+
+- **The retry condition is the worker's acceptance of a `Launch`, not the host's send** (the P5 package reviewer's LOW).
+  - A worker that accepted a `Launch` reports `Spawning`, `Running`, `Exited` or `LaunchFailed`, and the retry sends none.
+  - A worker that did not accept it reports `NotLaunched`, and the retry sends the one `Launch` (R-35 (a)).
+  - The worker accepts at most one `Launch` in its life, so a second `Launch` can never spawn a second payload. That is a
+    new worker invariant, and the code PR must prove it with a default-tier test in `botster-worker-core`.
+- The three named tests cover acceptance before the loss, a loss before acceptance, and a `Stopping` row. Each asserts
+  exactly one spawn, or none.
+- Round 3's review stands for the rest of the design.
+
+VERDICT: CLEAN (0 open, design only) at 135cce8c899b45a94a4d8c64f6e63aeb58a347fa
