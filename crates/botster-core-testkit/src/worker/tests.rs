@@ -36,6 +36,10 @@ fn fixture(capacity: usize) -> (WorkerEdges, LinkEnd, Worker, Instant) {
         drain: None,
         ready: Vec::new(),
         read_chunk: READ_CHUNK,
+        endpoint: Endpoint::default(),
+        endpoints: Arc::default(),
+        candidates: BTreeMap::new(),
+        next_candidate: 0,
     };
     let worker = Worker::new(WorkerConfig::new(
         InstanceId("1-1".into()),
