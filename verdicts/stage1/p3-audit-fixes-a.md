@@ -266,3 +266,32 @@ native rule). E2 now requires: the mechanical off-macOS scope with its unit test
 (`key_encode.zig:642-650`), the Mac regression test and the Mac mutation log; and the PR naming them.
 
 VERDICT: NOT CLEAN (2 open: E2, E3)
+
+## Round 9 — CLEAN on head 9ddbdf89 (E2 and E3)
+
+Reviewed head: `9ddbdf897e33aa4fa2c742c20670588bfdabddad`. Delta `3d5237b2..9ddbdf89`, three commits: `.cargo/mutants.toml`,
+`encode.rs` (the state count), `xtask/src/ci.rs` (the off-macOS exclusion). The head contains v1 `0b0eecc0`. This reviewer
+ran no build, test or gate.
+
+- **E2 CLOSED.** The column 40 regex is gone from `.cargo/mutants.toml`. `xtask/src/ci.rs` `OFF_MACOS_EXCLUSIONS` holds it,
+  and `mutants_job` adds each entry as `--exclude-re` only when `std::env::consts::OS != "macos"` (the gate builds and runs
+  on its own host, so the xtask's OS is the target OS). Unit test `only_a_gate_off_macos_adds_the_off_macos_exclusions`.
+  The doc of the constant says that it is a platform coverage exception, not an equivalence, cites
+  `key_encode.zig:642-650`, the regression test and the Mac proof, and says when to rerun it. Mac proof read by this
+  reviewer: `~/.local/state/jobq/logs/jobq-botster-core-aeda1cac-20261008222501-7480.log`, both `700:40` mutants caught,
+  14 tested, 12 caught, 2 unviable, no timeout; `aeda1cac..9ddbdf89` adds one comment line.
+- **E3 CLOSED.** `KEY_STATES = 1 << (KEY_MODE_BITS + KITTY_FLAG_BITS)` with `const _: () = assert!(KEY_STATES == 64 * 32)`;
+  the search ranges over `0..KEY_STATES`. A const item is not mutated by cargo-mutants, and the value is fixed at compile
+  time, so the `+` to `*` mutant no longer exists and the count cannot change silently.
+- **The lead's ruling for #167 (the list of mutants killed only by the 2 s limit).** The in-diff mutants step at this
+  head with `NEXTEST_PROFILE=slow` (no `terminate-after`; `tier_env(false)` sets no profile, so the variable reaches
+  nextest): 111 mutants, 95 caught, 0 missed, 0 timeout, 16 unviable; fmt, taint, lists, clippy PASS
+  (`~/botster-sessions/gates/botster-core-stage1-p3-audit-fixes-a-9ddbdf89-pool-20261008-222643-62154.log`). The list is
+  empty at this head; at `f1cee834` its one entry was `encode.rs:695:36`. This run does not itself prove that the profile
+  took effect (no hanging mutant remained); P6's PR B owns that red-on-revert proof.
+- **New exclusion** `xtask mutants_job` (process glue: it starts `cargo mutants`): one function, with its reason and the
+  unit tests of its two decisions (`parse_outcomes`, `platform_exclusions`). Accepted.
+- The PR body (`gh pr view 167`, head `9ddbdf89`) names the Mac proof and the no-terminate run.
+- The ONE Linux landing gate on this exact head is owed.
+
+VERDICT: CLEAN (0 open) at 9ddbdf897e33aa4fa2c742c20670588bfdabddad
