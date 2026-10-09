@@ -290,6 +290,15 @@ impl Guard {
             if reports.len() >= count {
                 return Ok(reports);
             }
+            let late = format!(
+                "{} of {count} anchors reported within {:?}",
+                reports.len(),
+                deadline.limit()
+            );
+            // No wait starts after the deadline, so the loop ends at it even when a read makes no progress.
+            if deadline.expired() {
+                return Err(late);
+            }
             let waiting: Vec<usize> = (0..self.connections.len())
                 .filter(|&i| self.connections[i].end.is_none())
                 .collect();
@@ -309,13 +318,7 @@ impl Guard {
                 }
                 // timer: deadline — bounds the wait for the anchors' reports.
                 match rustix::event::poll(&mut fds, Some(&deadline.timespec())) {
-                    Ok(0) => {
-                        return Err(format!(
-                            "{} of {count} anchors reported within {:?}",
-                            reports.len(),
-                            deadline.limit()
-                        ))
-                    }
+                    Ok(0) => return Err(late),
                     Ok(_) => fds
                         .iter()
                         .map(|fd| !fd.revents().is_empty())
@@ -356,7 +359,10 @@ impl Guard {
         let mut failures = Vec::new();
         for connection in &mut self.connections {
             while connection.end.is_none() {
-                if let Err(why) = connection.read(deadline) {
+                // No read starts after the deadline, so the loop ends at it even when a read makes no progress.
+                if deadline.expired() {
+                    connection.end = Some(Err(format!("no report within {:?}", deadline.limit())));
+                } else if let Err(why) = connection.read(deadline) {
                     connection.end = Some(Err(format!("no report: {why}")));
                 }
             }
@@ -643,6 +649,20 @@ mod tests {
     }
 
     /// A line other than a report before any report fails the wait for anchors at once.
+    /// A report is ready, but the deadline passed: no wait or read starts after it.
+    #[test]
+    fn no_wait_for_anchors_starts_after_its_deadline() {
+        let (_dir, mut guard) = guard_after(&format!("{}ok\n", anchor_line(13)));
+        assert_eq!(
+            guard.anchors(1, Deadline::after(Duration::ZERO)),
+            Err("0 of 1 anchors reported within 0ns".into())
+        );
+        assert_eq!(
+            guard.anchors(1, Deadline::cleanup()).map(|r| r.len()),
+            Ok(1)
+        );
+    }
+
     #[test]
     fn an_unexpected_line_before_the_report_fails_the_wait_for_anchors() {
         let (_dir, mut guard) = guard_after("hello\n");
