@@ -492,7 +492,6 @@ conf::lc_12_stop_all_leaves_created_exited_lost
 conf::lc_12_stop_all_target_set
 conf::lc_2_data_dir_is_exclusive
 conf::lc_3_remove_created
-conf::lc_5_stop_with_broken_control
 conf::lc_5_worker_survives_stop
 conf::lc_6_signal_reaches_group
 conf::lc_7_id_free_after_completion

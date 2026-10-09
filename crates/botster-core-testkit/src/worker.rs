@@ -53,13 +53,29 @@ struct ProcessCell {
     terminate: bool,
     /// The worker process ended: by its own `Exit`, or by a signal of the `Process` edge.
     ended: bool,
+    /// The worker's end of its control link breaks at the next turn of the worker (`break_control`): the host reads the end of
+    /// the link, the worker takes `LinkClosed`, and the process keeps running.
+    break_link: bool,
 }
 
 /// The process table of the workers that one host spawned: identities and the exits that the host has not polled.
-#[derive(Debug, Default)]
+#[derive(Default)]
 struct Processes {
     cells: BTreeMap<ProcessIdentity, Arc<Mutex<ProcessCell>>>,
     exits: VecDeque<(ProcessIdentity, ExitStatus)>,
+    /// The wake object of the host that owns the table. An edge event that a control causes between two pumps wakes that
+    /// host, as the real event wakes a real host (TM-6).
+    wake: Option<Arc<dyn HostWake>>,
+}
+
+/// The process table of one host, kept by the harness once the spawner belongs to the host's edges.
+pub(crate) struct ProcessTable(Arc<Mutex<Processes>>);
+
+impl ProcessTable {
+    /// The wake object of the host that owns the table.
+    pub(crate) fn set_wake(&self, wake: Arc<dyn HostWake>) {
+        lock(&self.0).wake = Some(wake);
+    }
 }
 
 impl Processes {
@@ -159,6 +175,29 @@ impl Workers {
         lock(&self.sim).next_deadline()
     }
 
+    /// The worker's end of the control link of the process `identity` breaks (`break_control`). The break is an edge event:
+    /// the worker's edges deliver it at the worker's next turn, and the host that owns the process is woken.
+    ///
+    /// # Errors
+    /// The process is not a worker of this run, or it has ended.
+    pub(crate) fn break_link(&self, identity: ProcessIdentity) -> Result<(), String> {
+        let (cell, owner) = lock(&self.run_processes)
+            .get(&identity)
+            .cloned()
+            .ok_or_else(|| format!("no worker process {identity:?} in this run"))?;
+        {
+            let mut cell = lock(&cell);
+            if cell.ended {
+                return Err(format!("the worker process {identity:?} has ended"));
+            }
+            cell.break_link = true;
+        }
+        if let Some(wake) = &lock(&owner).wake {
+            wake.signal();
+        }
+        Ok(())
+    }
+
     /// The `Process` edge of one host for its workers.
     pub fn spawner(&self) -> WorkerSpawner {
         WorkerSpawner {
@@ -172,6 +211,13 @@ impl Workers {
 pub struct WorkerSpawner {
     workers: Workers,
     processes: Arc<Mutex<Processes>>,
+}
+
+impl WorkerSpawner {
+    /// The process table of this host, for the harness.
+    pub(crate) fn table(&self) -> ProcessTable {
+        ProcessTable(Arc::clone(&self.processes))
+    }
 }
 
 impl Spawner for WorkerSpawner {
@@ -268,6 +314,8 @@ enum Ready {
     Terminate,
     /// The link has bytes, or its peer closed it.
     Link,
+    /// `break_control` broke the worker's end of the link.
+    LinkBroken,
     /// The link takes bytes and some of `outbound` waits for it.
     Flush,
     Spawned,
@@ -378,6 +426,9 @@ impl Binding<Worker> for WorkerEdges {
         if lock(&self.cell).terminate {
             self.ready.push(Ready::Terminate);
         }
+        if self.link_open && lock(&self.cell).break_link {
+            self.ready.push(Ready::LinkBroken);
+        }
         if self.link_open {
             // Plan 2.5: read interest always; write interest while bytes wait.
             self.link.end().set_interest(Interest {
@@ -436,6 +487,14 @@ impl Binding<Worker> for WorkerEdges {
                         Input::LinkClosed
                     }
                 }
+            }
+            // The break loses the unwritten bytes, as a broken socket does.
+            Ready::LinkBroken => {
+                lock(&self.cell).break_link = false;
+                self.outbound.clear();
+                self.link_open = false;
+                self.link.close();
+                Input::LinkClosed
             }
             Ready::Flush => self.flush(),
             Ready::Spawned => Input::Spawned(self.spawned.take().expect("counted as ready")),
