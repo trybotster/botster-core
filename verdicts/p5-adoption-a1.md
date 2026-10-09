@@ -145,3 +145,48 @@ One package finding remains open. The reviewer changed no product code and ran n
 No NOT CLEAN report went to the lead. Await replacement READY.
 
 VERDICT: NOT CLEAN
+
+## PR #201 — Round 3 — 2026-10-09
+
+Exact head: `2e3414446503c0c2c14a9d2fc691028523464030`.
+Exact tree: `093a89b117e31dfc075b419e25d5b340ef7e9899`.
+PR and gate base: `3fa51cd2d148315883002af96495b3096242ba42`.
+Parents: fix head `660d6e8a5e515531563b4af2a777688a6aa1741b` and the base above.
+
+The reviewer checked the risk tier first. HIGH rule 3 remains correct.
+The PR retains Prior art and updates the exact-head proof and finding table.
+
+**A1-F2 CLOSED:** Processes.connections records the worker's EndControl when the host connects, before candidate admission.
+ProcessTable::holds_reports checks those connections as well as exits and accepted control links.
+Candidate rejection therefore retains EOF observation until the host consumes EOF and closes its end.
+The new test runs workers without a host pump while a stranger occupies the candidate place.
+It proves rejected EOF alone prevents quiet, then proves host consumption and closure permit quiet.
+The connection record does not change the control wake target or the process-exit owner.
+The four findings closed in Round 2 remain closed.
+
+The reviewer read the complete fix delta and the merge resolutions.
+ProcessCell retains control, model_log, and worker. WorkerEdges retains its endpoint fields and the SharedWorker binding.
+Both WorkerEdges literals retain the merged fields. send_hello and model_rev() both remain in Worker.
+The merge retains the model_snapshot() getter and both sets of worker tests.
+Static comparisons show the incoming changed lines match for worker.rs and its tests in both crates.
+The imported controls, harness, lib, and resume-control files match the v1 base blobs exactly.
+The model delta adds only the incoming SnapshotError import and model_snapshot() getter; the adoption title and cwd changes remain.
+The pending set equals the intersection of the two parents' sets.
+These merge checks preserve accepted v1 work. They do not replace #200's separate review.
+
+Only the original 12 adoption IDs leave pending relative to the new base. No ID enters pending.
+All 12 removed IDs and all 34 active minimum IDs have PASS lines in the supplied exact-head gate.
+The approved minimum list gives 31 -> 34 / 70.
+The PR adds no pin, dependency, transcript, or existing timeout value change.
+
+Gate: `~/botster-sessions/gates/botster-core-stage1-p5-adopt-a1-2e341444-pool-20261009-153141-83310.log`.
+The log names the exact head and new base above. The new rejected-EOF proof and the earlier regression proofs PASS.
+Results: 1151 default passed / 572 skipped; 249 slow passed / 1016 skipped.
+Mutants: 116 tested, 101 caught, 0 missed, 0 timeout, 15 unviable.
+All ten stages report PASS. Fuzz reports PASS in 0.0 seconds. Job and gate exit zero.
+
+No package finding remains. Integration must supply its separate CLEAN on this exact head.
+This verdict covers the authorized #176a-1 split. It does not certify #176a-2, #176b, or the pending A18 behavior.
+The reviewer changed no product code and ran no builds, tests, mutation jobs, or gates.
+
+VERDICT: CLEAN
