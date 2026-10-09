@@ -71,18 +71,20 @@ fn bounded(text: String, max: usize) -> (String, bool) {
 }
 
 /// The `selection` of a clipboard write (A13-1): a non-empty OSC 52 selection string as the program wrote it; otherwise
-/// the model's location, in OSC 52's own letters. `None` for a location that this binding does not know: A13-1 names no
-/// letter for it (R-41).
+/// the model's location, in OSC 52's own letters. `None` for a location that this binding does not know, with or without
+/// a selection string: R-41 allows no `ClipboardWrite` for it.
 fn clipboard_selection(selection: Option<String>, location: ClipboardLocation) -> Option<String> {
-    if let Some(selection) = selection.filter(|s| !s.is_empty()) {
-        return Some(selection);
-    }
-    match location {
-        ClipboardLocation::Standard => Some("c".into()),
-        ClipboardLocation::Primary => Some("p".into()),
-        ClipboardLocation::Selection => Some("s".into()),
-        ClipboardLocation::Other(_) => None,
-    }
+    let letter = match location {
+        ClipboardLocation::Standard => "c",
+        ClipboardLocation::Primary => "p",
+        ClipboardLocation::Selection => "s",
+        ClipboardLocation::Other(_) => return None,
+    };
+    Some(
+        selection
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| letter.into()),
+    )
 }
 
 impl Worker {
@@ -384,10 +386,6 @@ mod tests {
     /// letter for a location that the binding does not know.
     #[test]
     fn the_clipboard_selection_is_the_string_or_the_locations_letter() {
-        assert_eq!(
-            clipboard_selection(Some("s0".into()), ClipboardLocation::Standard),
-            Some("s0".into())
-        );
         for (location, letter) in [
             (ClipboardLocation::Standard, "c"),
             (ClipboardLocation::Primary, "p"),
@@ -395,12 +393,23 @@ mod tests {
         ] {
             assert_eq!(clipboard_selection(None, location), Some(letter.into()));
             assert_eq!(
+                clipboard_selection(Some("s0".into()), location),
+                Some("s0".into()),
+                "the program's string comes first"
+            );
+            assert_eq!(
                 clipboard_selection(Some(String::new()), location),
                 Some(letter.into()),
                 "an empty string is no selection"
             );
         }
-        assert_eq!(clipboard_selection(None, ClipboardLocation::Other(9)), None);
+        // R-41: an unknown location has no `ClipboardWrite`, with or without a selection string.
+        for selection in [None, Some(String::new()), Some("s0".into())] {
+            assert_eq!(
+                clipboard_selection(selection, ClipboardLocation::Other(9)),
+                None
+            );
+        }
     }
 
     /// A2-4: a text over the bound is cut at a character boundary at or below it, and flagged; one at the bound is not.
