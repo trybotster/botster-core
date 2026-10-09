@@ -201,3 +201,52 @@ The package verdict is being recorded; its exact-head message confirms the two c
 One finding remains open. Wait for the replacement READY head and completed gate.
 
 VERDICT: NOT CLEAN (1 open)
+
+## Round 3 — PR #199 — 2026-10-09
+
+Reviewed head: `086bd814b72f8bc3730bbb9ed6c5bdd5aaf395a3`.
+Previous reviewed head: `f2a8237c249ac6f9aa1169dda4db19b7c75bc5c6`.
+Base and supplied gate base: `58d6663204b50ce6c42d467e4fd6715ab46145dd`.
+Package CLEAN: `af3aa56860afddbd45e19d93c1de5ea9205f4241`, `verdicts/p3-worker.md`, round 128, read in full.
+
+HIGH remains correct. The reviewer checked the complete one-file correction and its existing binding/host paths.
+The reviewer changed no product code and ran no tests, builds, mutants, or gates.
+
+### R2-1 / F69 — CLOSED
+
+`clipboard_selection` now checks the location before the selection string.
+`Other` returns `None` for absent, empty, and nonempty strings.
+The three known locations retain their defined letters and nonempty-selection precedence.
+The expanded pure proof checks all three string forms for every known location and for `Other`.
+The exact-head default gate selects and passes that proof.
+
+The unchanged worker loss branch sends `Observation::Lost`; the host records the defined `EventsLost` marker.
+The binding retains its `IO_ERROR` result for `Other` and the worker retains each acknowledgement's separate admission transaction.
+The correction satisfies R-41 without a new event variant, conformance id, or process fixture.
+P3 reports failure with the previous function. The reviewer did not execute that reversal or read a saved reversal log.
+Source inspection confirms that the previous function fails the new nonempty-selection assertion for `Other`.
+
+R1-1 / F68 and R1-2 / F67 remain CLOSED.
+Their ordered-acknowledgement and wide-character proofs remain selected and pass.
+The package reviewer records all three findings closed on this exact head.
+No additional integration finding remains.
+
+### Completed evidence and retained scope
+
+Full log: `~/botster-sessions/gates/botster-core-stage1-p3-capture-snapshot-086bd814-pool-20261009-141545-4327.log`.
+The log names the exact head and base and runs on Linux msa1, allocation `16e4e4d5`.
+All ten CI jobs pass. The default tier passes 1103 tests; the slow tier passes 249 tests.
+Conformance reports 88 passed and zero failed.
+Both mutation runs report 70 mutants: 62 caught, eight unviable, zero missed, and zero timeouts.
+The separate mutation run uses `NEXTEST_PROFILE=slow`. The gate exits 0 after 349 seconds.
+The source diff has no whitespace error.
+
+The reviewer rechecked the remote refs before this verdict.
+The PR head is unchanged. Current v1 remains the supplied gate base and is an ancestor of the head.
+The correction changes no pending ids, pins, exclusions, capture path, launch interface, testkit control, or process wait.
+Rounds 1 and 2 retain the whole-change review and evidence for those unchanged paths.
+The 42 removals remain supported, with minimum testkit progress from 28/70 to 30/70 and no new real-harness claim.
+The separate #163 F39 duty and P6's accepted bounded-accept carry remain outside this correction.
+This verdict covers this exact head and does not close later route, resize, facts, setter, or `oracle_resume` work.
+
+VERDICT: CLEAN (0 open)
