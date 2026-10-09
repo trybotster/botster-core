@@ -830,7 +830,7 @@ fn a_macro_is_read_only_when_its_path_is_listed() {
     // A bound name is not hidden by a glob, and the nearest `use` binds it (a block's before the file's).
     assert_eq!(
         io("use evil::*;\nuse anyhow::bail;\nfn bound() { bail!(\"{:?}\", std::fs::read(p)); }\n\
-            use evil::ensure;\nfn nearest() { use anyhow::ensure; ensure!(true, \"{:?}\", std::fs::read(p)); }\n"),
+            use std::ensure;\nfn nearest() { use anyhow::ensure; ensure!(true, \"{:?}\", std::fs::read(p)); }\n"),
         BTreeSet::from(["bound".to_string(), "nearest".to_string()])
     );
 }
@@ -848,7 +848,7 @@ fn an_item_or_a_use_that_takes_a_resolved_name_fails() {
                 mod std {} struct botster_core_sys; extern crate libc as serde_json; extern crate syn;\n\
                 }\n\
                 fn outer() { fn inner() {} struct Local; impl Local { fn method(&self) {} } }\n\
-                use crate::m::bail; use other::env; use std::env as format;\n\
+                use crate::m::bail; use other::env; use std::env as format; use syn::parse_quote as println;\n\
                 use std::env; use std::fs::write; use anyhow::{anyhow, bail as bail2}; use syn; use serde_json::json;\n";
     let error = Calls::of(&[("xtask/src/a.rs".to_string(), text.to_string())])
         .unwrap_err()
@@ -890,12 +890,13 @@ fn an_item_or_a_use_that_takes_a_resolved_name_fails() {
         ("bail", "crate::m::bail"),
         ("env", "other::env"),
         ("format", "std::env"),
+        ("println", "syn::parse_quote"),
     ] {
         assert!(
             error.contains(&format!("the `use` binds `{name}`, the name of a listed macro or of its crate, to `{target}`")),
             "{name}: {error}"
         );
     }
-    // 16 items, 2 nested functions, 3 uses; `extern crate syn;`, `struct Local` and the allowed uses add none.
-    assert_eq!(error.lines().count(), 21, "{error}");
+    // 16 items, 2 nested functions, 4 uses; `extern crate syn;`, `struct Local` and the allowed uses add none.
+    assert_eq!(error.lines().count(), 22, "{error}");
 }
