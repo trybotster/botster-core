@@ -55,7 +55,7 @@ impl RealCoreHarness {
     /// stop grace of the Core limits.
     ///
     /// # Errors
-    /// The root directory, a guard's socket or the probe's wrapper could not be made.
+    /// The root directory, the parent of the data directories, a guard's socket or the probe's wrapper could not be made.
     pub fn new(candidate: Candidate) -> io::Result<RealCoreHarness> {
         let mut harness = RealCoreHarness {
             guards: BTreeMap::new(),
@@ -65,6 +65,8 @@ impl RealCoreHarness {
             core_send_not_sync: None,
             root: tempfile::tempdir()?,
         };
+        // `Core::open` creates the data directory itself, not its parent.
+        std::fs::create_dir(harness.root.path().join("d"))?;
         harness.probe = harness.wrapper(PROBE, CoreLimits::default().stop_grace)?;
         Ok(harness)
     }
@@ -162,7 +164,8 @@ impl CoreHarness for RealCoreHarness {
         false
     }
 
-    /// A directory under the harness's root, kept across a drop and a reopen (Core LC-12, AD-1). `Core::open` creates it.
+    /// A directory under the harness's root (`<root>/d/<name>`), kept across a drop and a reopen (Core LC-12, AD-1).
+    /// `Core::open` creates it; `new` made its parent.
     fn data_dir(&mut self, name: &str) -> DataDirRef {
         DataDirRef(self.root.path().join("d").join(name).display().to_string())
     }
