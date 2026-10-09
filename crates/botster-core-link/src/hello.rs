@@ -14,6 +14,7 @@
 //!
 //! Clause: Core AD-4, Core AD-6, Core DP-8, Core A6-2.
 
+use crate::proof::{from_hex, to_hex};
 use botster_core_contract::prelude::InstanceId;
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -82,27 +83,6 @@ struct Wire {
     instance: String,
     proof: String,
     host_epoch: u64,
-}
-
-fn to_hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|b| format!("{b:02x}")).collect()
-}
-
-fn from_hex(text: &str) -> Option<[u8; PROOF_LEN]> {
-    let digits = text.as_bytes();
-    if digits.len() != PROOF_LEN * 2 {
-        return None;
-    }
-    let nibble = |d: u8| match d {
-        b'0'..=b'9' => Some(d - b'0'),
-        b'a'..=b'f' => Some(d - b'a' + 10),
-        _ => None,
-    };
-    let mut out = [0u8; PROOF_LEN];
-    for (byte, pair) in out.iter_mut().zip(digits.chunks(2)) {
-        *byte = nibble(pair[0])? * 16 + nibble(pair[1])?;
-    }
-    Some(out)
 }
 
 impl Hello {
@@ -284,7 +264,7 @@ mod tests {
         proof.copy_from_slice(&all);
         assert_eq!(from_hex(&to_hex(&proof)), Some(proof));
         assert_eq!(
-            from_hex(&"0123456789abcdef".repeat(4)).unwrap()[..2],
+            from_hex::<PROOF_LEN>(&"0123456789abcdef".repeat(4)).unwrap()[..2],
             [0x01, 0x23]
         );
     }

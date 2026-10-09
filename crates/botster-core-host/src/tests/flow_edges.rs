@@ -761,7 +761,8 @@ fn a_plain_stop_keeps_registry_failed_when_the_row_write_fails() {
 
 /// Core AD-7, LC-10 (audit A48): the final row of a session that ended is written with no operation waiting for it. A write
 /// that fails changes nothing that the session reached (the stop completes with the exit), the registry keeps the earlier
-/// row, and the failure is recorded: `diagnostics()` counts it, since no completion can carry it.
+/// row, and the failure is recorded: `diagnostics()` counts it, since no completion can carry it. A final row that is
+/// written is not counted.
 #[test]
 fn a_failed_final_row_is_counted_and_changes_no_end() {
     let mut w = World::default();
@@ -792,4 +793,26 @@ fn a_failed_final_row_is_counted_and_changes_no_end() {
         "the failed write left the row"
     );
     assert_eq!(w.engine.diagnostics()["final_row_failures"], 1);
+    w.running("s2");
+    let stop = w.engine.begin(Op::Stop { id: sid("s2") }).unwrap();
+    w.pump();
+    w.worker_says(
+        "s2",
+        WorkerMsg::Exited {
+            code: Some(0),
+            signal: None,
+        },
+    );
+    w.complete(stop);
+    let written = crate::session::Row::decode(&sid("s2"), &w.rows["session/s2"])
+        .expect("Core decodes its row");
+    assert!(
+        matches!(written.state, SessionState::Exited(_)),
+        "{written:?}"
+    );
+    assert_eq!(
+        w.engine.diagnostics()["final_row_failures"],
+        1,
+        "a written final row is not counted"
+    );
 }

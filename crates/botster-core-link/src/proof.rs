@@ -19,13 +19,23 @@ const DOMAIN: &[u8] = b"botster-core-link/v1/hello-proof";
 
 /// A token as 64 lowercase hex digits: its form in the worker's environment and in the registry row (AD-6).
 pub fn token_hex(token: &[u8; TOKEN_LEN]) -> String {
-    token.iter().map(|b| format!("{b:02x}")).collect()
+    to_hex(token)
 }
 
 /// The token that `text` holds as 64 lowercase hex digits, or `None` for any other text.
 pub fn token_from_hex(text: &str) -> Option<[u8; TOKEN_LEN]> {
+    from_hex(text)
+}
+
+/// `bytes` as lowercase hex digits, two for each byte: the one hex form of the link (tokens and proofs).
+pub(crate) fn to_hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+/// The `N` bytes that `text` holds as `2 * N` lowercase hex digits, or `None` for any other text.
+pub(crate) fn from_hex<const N: usize>(text: &str) -> Option<[u8; N]> {
     let digits = text.as_bytes();
-    if digits.len() != TOKEN_LEN * 2 {
+    if digits.len() != N * 2 {
         return None;
     }
     let nibble = |d: u8| match d {
@@ -33,7 +43,7 @@ pub fn token_from_hex(text: &str) -> Option<[u8; TOKEN_LEN]> {
         b'a'..=b'f' => Some(d - b'a' + 10),
         _ => None,
     };
-    let mut out = [0u8; TOKEN_LEN];
+    let mut out = [0u8; N];
     for (byte, pair) in out.iter_mut().zip(digits.chunks(2)) {
         *byte = nibble(pair[0])? * 16 + nibble(pair[1])?;
     }

@@ -497,6 +497,44 @@ mod tests {
         assert_eq!(registration(None, true), Registration::Deregister);
         assert_eq!(registration(None, false), Registration::Keep);
     }
+
+    /// Audit A47: a data directory whose control socket path fits a Unix socket address passes the check, and one whose path
+    /// does not is `InvalidConfig{data_dir}`, which `open` reports before it touches the directory.
+    #[test]
+    fn a_control_socket_path_that_cannot_be_bound_is_a_config_error() {
+        assert!(check_socket_path(Path::new("/tmp/d")).is_ok());
+        let long = Path::new("/tmp").join("x".repeat(200));
+        assert_eq!(
+            check_socket_path(&long).unwrap_err().code,
+            ErrorCode::InvalidConfig {
+                field: "data_dir".into()
+            }
+        );
+    }
+
+    /// Audit A28: a link whose poll registration fails is broken: `apply` reports it, and every later read or write of the
+    /// link fails with the registration's error, so the driver closes the link instead of keeping one that cannot wake the
+    /// host. The failure is made on Linux, where epoll refuses to change a descriptor that it does not hold (`ENOENT`):
+    /// the link is registered with one poll, and its interest changes through another. kqueue has no such refusal.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_link_whose_registration_fails_is_broken() {
+        let held = Poll::new().unwrap();
+        let other = Poll::new().unwrap();
+        let (stream, _peer) = UnixStream::pair().unwrap();
+        let mut io = LinkIo {
+            stream,
+            read: true,
+            write: false,
+            registered: false,
+            broken: None,
+        };
+        assert!(io.apply(held.registry(), LinkId(1)), "registered");
+        assert!(io.check().is_ok());
+        io.write = true;
+        assert!(!io.apply(other.registry(), LinkId(1)), "refused");
+        assert_eq!(io.check().unwrap_err().kind(), io::ErrorKind::NotFound);
+    }
 }
 
 /// The tests that open real edges (a data directory, a socket, a poll) start a process that links the whole crate, which is

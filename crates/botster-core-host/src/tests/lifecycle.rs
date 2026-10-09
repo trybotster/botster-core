@@ -44,22 +44,6 @@ fn create_posts_the_state_and_then_the_completion() {
     );
 }
 
-/// Core A2-7, 9B: one `pump` posts at most `pump_events`... a step posts at most one event, so the first pump of a create
-/// posts the state and the completion in two steps.
-#[test]
-fn every_step_posts_at_most_one_event() {
-    let mut w = World::default();
-    w.engine.begin(create("s1")).unwrap();
-    w.feed(Input::Clock(w.unix));
-    let mut counts = Vec::new();
-    w.settle(
-        |ready| ready.first().cloned(),
-        |w| counts.push(w.engine.take_posted()),
-    );
-    assert!(counts.iter().all(|c| *c <= 1), "{counts:?}");
-    assert_eq!(counts.iter().sum::<u32>(), 2);
-}
-
 /// Core LC-3, OR-2: `Start` posts `Starting`, then `Running`, then its completion.
 #[test]
 fn start_posts_starting_then_running_then_the_completion() {

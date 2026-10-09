@@ -414,17 +414,12 @@ impl World {
         }
     }
 
-    /// Runs the ready work that `choose` picks, one step at a time, until it picks none; `after` sees the World after each
-    /// step. An engine whose steps make no progress fails the test at the step bound, instead of hanging it.
-    pub fn settle(
-        &mut self,
-        mut choose: impl FnMut(&[Work]) -> Option<Work>,
-        mut after: impl FnMut(&mut Self),
-    ) {
+    /// Runs the ready work that `choose` picks, one step at a time, until it picks none. An engine whose steps make no
+    /// progress fails the test at the step bound, instead of hanging it.
+    pub fn settle(&mut self, mut choose: impl FnMut(&[Work]) -> Option<Work>) {
         let mut guard = 0;
         while let Some(work) = choose(&self.engine.ready()) {
             self.feed(Input::Run(work));
-            after(self);
             guard += 1;
             assert!(guard < 10_000, "the engine does not settle");
         }
@@ -434,7 +429,7 @@ impl World {
     /// the order of a seeded scheduler are the driver's, and the driver's own tests prove them (`tests::driver`).
     pub fn pump(&mut self) -> PumpReport {
         self.feed(Input::Clock(self.unix));
-        self.settle(|ready| ready.first().cloned(), |_| {});
+        self.settle(|ready| ready.first().cloned());
         PumpReport {
             more: self.engine.runnable(),
             events_posted: self.engine.take_posted(),
@@ -445,7 +440,7 @@ impl World {
     /// an order that a clause fixes must hold under it too.
     pub fn pump_last_first(&mut self) {
         self.feed(Input::Clock(self.unix));
-        self.settle(|ready| ready.last().cloned(), |_| {});
+        self.settle(|ready| ready.last().cloned());
     }
 
     /// Pumps and polls until `event` shows up, and returns the events up to it.

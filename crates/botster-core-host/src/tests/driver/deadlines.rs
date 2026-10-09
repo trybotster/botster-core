@@ -188,6 +188,71 @@ fn a_pump_runs_each_due_silence_first_until_the_budget_runs_out() {
     }
 }
 
+/// 9B `pump_events`: a worker's `Bell` and the `Done` of an op that arrive together, with `pump_events = 1`, post one event
+/// in each pump: the completion is carried to the next pump, and it is not lost.
+#[test]
+fn a_completion_behind_an_event_of_its_pump_comes_in_the_next_pump() {
+    let mut rig = Rig::new(limits(|l| {
+        l.pump_events = 1;
+        l.mandatory_events = 64;
+    }));
+    run_session(&mut rig, "s1", LinkId(1));
+    let op = rig
+        .driver
+        .begin(Op::UpdateMetadata {
+            id: sid("s1"),
+            labels: Default::default(),
+        })
+        .unwrap();
+    rig.settle();
+    let req = rig
+        .host_frames(LinkId(1))
+        .iter()
+        .rev()
+        .find_map(|(k, p)| match HostMsg::decode(p) {
+            Ok(HostMsg::Op {
+                req,
+                op: Op::UpdateMetadata { .. },
+            }) if *k == FrameType::HOST_MSG => Some(req),
+            _ => None,
+        })
+        .expect("the setter went to the worker");
+    rig.worker_says(
+        LinkId(1),
+        WorkerMsg::Observed {
+            observation: Observation::Bell,
+        },
+    );
+    rig.worker_says(
+        LinkId(1),
+        WorkerMsg::Done {
+            req,
+            result: OpResult::Ok(OpOutput::Unit),
+        },
+    );
+    let first = rig.pump();
+    let events = rig.drain_events();
+    assert_eq!(first.events_posted, 1, "{events:?}");
+    assert!(first.more, "the completion is carried");
+    assert!(
+        events.iter().any(|e| matches!(e, Event::Bell { .. })),
+        "{events:?}"
+    );
+    assert!(
+        !events.iter().any(|e| matches!(e, Event::Completed { .. })),
+        "{events:?}"
+    );
+    rig.pump();
+    let events = rig.drain_events();
+    assert!(
+        events.iter().any(|e| matches!(
+            e,
+            Event::Completed { op: o, result: OpResult::Ok(OpOutput::Unit) } if *o == op
+        )),
+        "{events:?}"
+    );
+}
+
 /// E3-1 item 1: an effect with no event (the kill at the end of `stop_grace`) runs in its due pump whatever the budget.
 #[test]
 fn e3_1_due_effect_without_event_runs_in_its_pump_with_no_budget() {
