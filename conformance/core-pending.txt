@@ -218,7 +218,6 @@ conf::ad_6_exited_worker_adopts_as_exited
 conf::ad_6_reused_pid_is_never_killed
 conf::ad_6_token_and_instance_checked
 conf::ad_7_crash_between_steps_leaves_no_unregistered_payload
-conf::ad_7_payload_launches_after_durable_identity
 conf::ad_7_uncertain_registry_write_is_reported
 conf::am_1_start_then_remove_refused
 conf::am_2_fairness_bound_across_routes
