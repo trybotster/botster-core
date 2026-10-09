@@ -893,3 +893,18 @@ fn a_start_lost_to_the_worker_version_keeps_its_intent_for_a_retry() {
     };
     assert_eq!(record.state, SessionState::Lost(LostReason::WorkerGone));
 }
+
+/// Core AD-1, AD-2; R-35, the retry rule (review P5-F24): a new handle recovers the row of a stop that met a broken link.
+/// The row records `Stopping`, never the indeterminate end, so `AdoptAll` adopts `Stopping` and resends the stop.
+#[test]
+fn a_new_handle_adopts_the_row_of_a_broken_link_stop_as_stopping() {
+    let first = stopped_with_a_broken_link();
+    let mut again = adopting(&first, "s", running_payload());
+    let events = adopt_all(&mut again);
+    assert_eq!(states_of(&events, "s"), vec![SessionState::Stopping]);
+    assert!(
+        again.sent.iter().any(|(_, m)| matches!(m, HostMsg::Stop)),
+        "AD-1: Core re-issues the stop"
+    );
+    assert_eq!(launches(&again), 0);
+}
