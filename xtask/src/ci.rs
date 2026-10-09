@@ -6,8 +6,7 @@
 
 use crate::tools::{cargo, cargo_nightly, ensure_nightly, require_cargo_tool, run};
 use crate::{
-    caps, fsutil, lists, prebuild, process_check, public_api, taint, test_budget, timers,
-    unsafe_exception,
+    caps, fsutil, lists, mutants_cited, prebuild, process_check, public_api, taint, test_budget, timers, unsafe_exception,
 };
 use anyhow::{bail, Context, Result};
 use std::path::Path;
@@ -32,7 +31,7 @@ const JOBS: &[(&str, &str, JobFn)] = &[
     ),
     (
         "taint",
-        "banned old-world names; unmarked timers; the one unsafe_code exception; real-process test code outside its owner",
+        "banned old-world names; unmarked timers; the one unsafe_code exception; real-process test code outside its owner; cited mutants tests",
         taint_job,
     ),
     (
@@ -100,7 +99,8 @@ fn taint_job(root: &Path) -> Result<()> {
     taint::command(root, &[])?;
     timers::command(root, &[])?;
     unsafe_exception::command(root, &[])?;
-    process_check::command(root, &[])
+    process_check::command(root, &[])?;
+    mutants_cited::command(root, &[])
 }
 
 /// The passed count of a conformance report: the number after `passed ` in its `conformance:` line.
