@@ -657,8 +657,9 @@ fn an_operation_of_a_later_milestone_is_answered_internal() {
     let mut w = World::running();
     let actions = w.send(&HostMsg::Op {
         req: 2,
-        op: Op::ReadCursor {
+        op: Op::ReadFacts {
             session: SessionId("s".into()),
+            after: None,
         },
     });
     let reports = w.reports(&actions);
@@ -670,7 +671,7 @@ fn an_operation_of_a_later_milestone_is_answered_internal() {
         panic!("{reports:?}");
     };
     assert_eq!(error.code, ErrorCode::Internal);
-    assert!(error.detail.contains("ReadCursor"), "{}", error.detail);
+    assert!(error.detail.contains("ReadFacts"), "{}", error.detail);
 }
 
 /// LC-7 step 3, A6-3: `Remove` of a running payload kills the group, reaps the leader once it ended, sends the complete
@@ -1363,5 +1364,416 @@ fn a_write_waits_for_the_spawn() {
     assert_eq!(
         pty_writes(&w.feed(Input::Spawned(Ok(PAYLOAD)))),
         [b"a".to_vec()]
+    );
+}
+
+// ---- the terminal model (libghostty) ----
+// Expected terminal values come from an independent libghostty terminal (the oracle, R-7) or from the clause's relations;
+// no expected terminal byte or state is written by hand. Only the program's output bytes are inputs.
+
+use botster_terminal_ghostty::{History, Terminal};
+
+fn oracle() -> Terminal {
+    Terminal::new(&size(), History::On).expect("a terminal")
+}
+
+fn observations(w: &mut World, actions: &[Action]) -> Vec<Observation> {
+    w.reports(actions)
+        .into_iter()
+        .filter_map(|m| match m {
+            WorkerMsg::Observed { observation } => Some(observation),
+            _ => None,
+        })
+        .collect()
+}
+
+fn op(w: &mut World, req: u64, op: Op) -> OpResult {
+    let actions = w.send(&HostMsg::Op { req, op });
+    w.reports(&actions)
+        .into_iter()
+        .find_map(|m| match m {
+            WorkerMsg::Done { req: r, result } if r == req => Some(result),
+            _ => None,
+        })
+        .expect("a Done")
+}
+
+fn sid() -> SessionId {
+    SessionId("s".into())
+}
+
+/// ST-4, ST-6: the launch carries the model's state (a fresh model's modes, and no title or cwd) and the binding's snapshot
+/// format.
+#[test]
+fn the_launch_carries_the_models_state() {
+    let mut w = World::linked();
+    w.send(&HostMsg::Launch(Box::new(spec())));
+    let actions = w.feed(Input::Spawned(Ok(PAYLOAD)));
+    let reports = w.reports(&actions);
+    let [WorkerMsg::Launched {
+        terminal, formats, ..
+    }] = reports.as_slice()
+    else {
+        panic!("{reports:?}");
+    };
+    assert_eq!(terminal.modes, oracle().modes());
+    assert_eq!(
+        (terminal.title.as_ref(), terminal.cwd.as_ref()),
+        (None, None)
+    );
+    assert_eq!(formats, &[botster_terminal_ghostty::snapshot_format()]);
+}
+
+/// E2-1, EV-1, EV-7: OSC 2 gives a title; OSC 1 gives none (and stays in the output, the model's concern). A BEL is a bell.
+/// Each step's output advances model_rev, and an `Output` is reported.
+#[test]
+fn title_bell_and_output_reach_the_host() {
+    let mut w = World::running();
+    let actions = w.feed(Input::PtyOutput(b"\x1b]2;hello\x07".to_vec()));
+    let obs = observations(&mut w, &actions);
+    assert!(
+        obs.iter()
+            .any(|o| matches!(o, Observation::Title { title, .. } if title == "hello")),
+        "{obs:?}"
+    );
+    assert!(obs.iter().any(|o| matches!(o, Observation::Output { .. })));
+    let actions = w.feed(Input::PtyOutput(b"\x1b]1;icon\x07".to_vec()));
+    let obs = observations(&mut w, &actions);
+    assert!(
+        !obs.iter().any(|o| matches!(o, Observation::Title { .. })),
+        "{obs:?}"
+    );
+    let actions = w.feed(Input::PtyOutput(b"\x07".to_vec()));
+    assert!(observations(&mut w, &actions)
+        .iter()
+        .any(|o| matches!(o, Observation::Bell)));
+}
+
+/// Plan 2.4, rule 1: the model keeps an ESC that may start the string terminator of an unfinished string. A read of only
+/// that ESC completes no step and changes nothing yet: no revision and no report. The next byte completes it, in order. The
+/// oracle decides which bytes the model keeps.
+#[test]
+fn a_read_that_completes_no_step_waits_for_the_rest() {
+    let (open, esc, rest) = (b"\x1b]2;t", b"\x1b", b"\\");
+    let mut expected = oracle();
+    assert_eq!(
+        expected.vt_write_until_query(open).unwrap().consumed,
+        open.len()
+    );
+    assert_eq!(
+        expected.vt_write_until_query(esc).unwrap().consumed,
+        0,
+        "the oracle keeps the ESC"
+    );
+    let mut whole = esc.to_vec();
+    whole.extend_from_slice(rest);
+    expected.vt_write(&whole);
+    let mut w = World::running();
+    let rev = |result: OpResult| match result {
+        OpResult::Ok(OpOutput::Modes(modes)) => modes.model_rev,
+        other => panic!("{other:?}"),
+    };
+    w.feed(Input::PtyOutput(open.to_vec()));
+    let before = rev(op(&mut w, 1, Op::ReadModeFlags { session: sid() }));
+    let actions = w.feed(Input::PtyOutput(esc.to_vec()));
+    assert_eq!(w.reports(&actions), []);
+    let after = rev(op(&mut w, 2, Op::ReadModeFlags { session: sid() }));
+    assert_eq!(before, after, "no step, no change");
+    let actions = w.feed(Input::PtyOutput(rest.to_vec()));
+    let title = expected.title();
+    assert!(!title.is_empty());
+    assert!(observations(&mut w, &actions)
+        .iter()
+        .any(|o| matches!(o, Observation::Title { title: t, .. } if *t == title)));
+}
+
+/// E2-3: a step whose final flags differ posts one `ModesChanged` with the model's flags; a step that sets and resets the
+/// same mode posts none.
+#[test]
+fn modes_changed_compares_the_final_flags_of_a_step() {
+    let mut w = World::running();
+    let set = b"\x1b[?2004h";
+    let actions = w.feed(Input::PtyOutput(set.to_vec()));
+    let modes: Vec<ModeFlags> = observations(&mut w, &actions)
+        .into_iter()
+        .filter_map(|o| match o {
+            Observation::Modes { flags, .. } => Some(flags),
+            _ => None,
+        })
+        .collect();
+    let mut expected = oracle();
+    expected.vt_write(set);
+    assert_eq!(modes, [expected.modes()]);
+    assert_ne!(modes[0], oracle().modes(), "the mode changed");
+    let actions = w.feed(Input::PtyOutput(b"\x1b[?2004l\x1b[?2004h".to_vec()));
+    assert!(!observations(&mut w, &actions)
+        .iter()
+        .any(|o| matches!(o, Observation::Modes { .. })));
+}
+
+/// ST-1, ST-2, ST-3: the reads come from the model, with the model's revision; the cursor's coordinates are cells; the row
+/// text is trimmed and the text before the cursor is not.
+#[test]
+fn reads_come_from_the_model() {
+    let mut w = World::running();
+    w.feed(Input::PtyOutput(b"ab  ".to_vec()));
+    let mut expected = oracle();
+    expected.vt_write(b"ab  ");
+    let OpResult::Ok(OpOutput::Screen(screen)) = op(
+        &mut w,
+        1,
+        Op::ReadScreen {
+            session: sid(),
+            history: false,
+        },
+    ) else {
+        panic!("a screen");
+    };
+    assert_eq!(screen.text, expected.screen_text(false).unwrap().text);
+    assert_eq!(
+        (screen.rows, screen.cols),
+        (u32::from(expected.rows()), u32::from(expected.cols()))
+    );
+    let OpResult::Ok(OpOutput::Cursor(cursor)) = op(&mut w, 2, Op::ReadCursor { session: sid() })
+    else {
+        panic!("a cursor");
+    };
+    let at = expected.cursor();
+    assert_eq!(
+        (cursor.row, cursor.col, cursor.visible),
+        (at.row, at.col, at.visible)
+    );
+    assert_eq!(cursor.row_text, "ab", "trailing spaces are trimmed");
+    assert_eq!(
+        cursor.text_before_cursor.len(),
+        cursor.col as usize,
+        "never trimmed"
+    );
+    assert_eq!(
+        cursor.model_rev, screen.model_rev,
+        "no change between the reads"
+    );
+    let OpResult::Ok(OpOutput::Modes(modes)) = op(&mut w, 3, Op::ReadModeFlags { session: sid() })
+    else {
+        panic!("modes");
+    };
+    assert_eq!(modes.flags, expected.modes());
+    assert_eq!(modes.model_rev, screen.model_rev);
+}
+
+fn paste(req: u64, require_bracketed: bool) -> HostMsg {
+    HostMsg::Op {
+        req,
+        op: Op::WriteInput {
+            session: sid(),
+            payload: InputPayload::Paste {
+                bytes: HexBytes(b"hi".to_vec()),
+                require_bracketed,
+            },
+            guard: None,
+        },
+    }
+}
+
+/// IN-8, IN-2: a paste is bare while bracketed paste is off, refused with exact zero when it is required, and wrapped by the
+/// model's frame once the mode is on; the payload count excludes the markers, the PTY count includes them.
+#[test]
+fn a_paste_follows_the_bracketed_mode_at_its_start() {
+    let mut w = World::running();
+    assert_eq!(pty_writes(&w.send(&paste(1, false))), [b"hi".to_vec()]);
+    w.feed(Input::PtyWritten(Ok(2)));
+    let actions = w.send(&paste(2, true));
+    let result = input_result(&mut w, &actions, 2).expect("done");
+    assert_eq!(
+        outcome(&result),
+        (
+            WriteOutcome::NotWritten(NotWrittenReason::ModePreconditionFailed),
+            0,
+            0
+        )
+    );
+    w.feed(Input::PtyOutput(b"\x1b[?2004h".to_vec()));
+    let mut expected = oracle();
+    expected.vt_write(b"\x1b[?2004h");
+    let (start, end) = expected.paste_frame().expect("the mode is on");
+    let mut wrapped = start.clone();
+    wrapped.extend_from_slice(b"hi");
+    wrapped.extend_from_slice(&end);
+    assert_eq!(pty_writes(&w.send(&paste(3, true))), [wrapped.clone()]);
+    let actions = w.feed(Input::PtyWritten(Ok(wrapped.len())));
+    let result = input_result(&mut w, &actions, 3).expect("done");
+    assert_eq!(
+        outcome(&result),
+        (WriteOutcome::Written, 2, wrapped.len() as u64)
+    );
+}
+
+/// IN-9: focus without focus reporting is a certain zero (`NotReported`).
+#[test]
+fn focus_needs_the_reporting_mode() {
+    let mut w = World::running();
+    let actions = w.send(&HostMsg::Op {
+        req: 1,
+        op: Op::WriteInput {
+            session: sid(),
+            payload: InputPayload::Focus { focused: true },
+            guard: None,
+        },
+    });
+    let result = input_result(&mut w, &actions, 1).expect("done");
+    assert_eq!(
+        outcome(&result),
+        (
+            WriteOutcome::NotWritten(NotWrittenReason::NotReported),
+            0,
+            0
+        )
+    );
+}
+
+/// EV-8 (no route yet): a query is answered by the model's shadow reply, written to the PTY as a transaction that advances
+/// no input revision and completes no operation. A host write that came first is written first (arrival order, AM-2).
+#[test]
+fn a_query_with_no_route_is_answered_by_the_shadow_reply() {
+    let mut w = World::running();
+    let query = b"\x1b[c";
+    let mut expected = oracle();
+    let step = expected.vt_write_until_query(query).unwrap();
+    let reply = step.query.expect("a query").shadow_reply;
+    assert!(!reply.is_empty());
+    let actions = w.feed(Input::PtyOutput(query.to_vec()));
+    assert_eq!(pty_writes(&actions), std::slice::from_ref(&reply));
+    assert!(!w.reports(&actions).iter().any(|m| matches!(
+        m,
+        WorkerMsg::Done { .. }
+            | WorkerMsg::Observed {
+                observation: Observation::HostInput { .. }
+            }
+    )));
+    // The reply's write completes, and no `Done` follows: it is no operation.
+    let actions = w.feed(Input::PtyWritten(Ok(reply.len())));
+    assert!(!w
+        .reports(&actions)
+        .iter()
+        .any(|m| matches!(m, WorkerMsg::Done { .. })));
+    // A host write that is out when the query comes is written first; the reply follows it.
+    assert_eq!(pty_writes(&w.send(&write(1, b"x", None))), [b"x".to_vec()]);
+    assert!(pty_writes(&w.feed(Input::PtyOutput(query.to_vec()))).is_empty());
+    let actions = w.feed(Input::PtyWritten(Ok(1)));
+    assert_eq!(pty_writes(&actions), [reply]);
+    assert!(input_result(&mut w, &actions, 1).is_some());
+}
+
+/// A2-4: a notification's body is bounded by clipboard_bytes, cut at a character boundary, and flagged.
+#[test]
+fn a_long_notification_is_truncated_and_flagged() {
+    let mut w = World::linked();
+    w.send(&HostMsg::Launch(Box::new(LaunchSpec {
+        limits: CoreLimits {
+            clipboard_bytes: 4,
+            ..CoreLimits::default()
+        },
+        ..spec()
+    })));
+    w.feed(Input::Spawned(Ok(PAYLOAD)));
+    let actions = w.feed(Input::PtyOutput(
+        "\x1b]9;héllo world\x07".as_bytes().to_vec(),
+    ));
+    let obs = observations(&mut w, &actions);
+    let Some(Observation::Notification {
+        body, truncated, ..
+    }) = obs
+        .iter()
+        .find(|o| matches!(o, Observation::Notification { .. }))
+    else {
+        panic!("{obs:?}");
+    };
+    assert!(*truncated);
+    assert!(
+        body.len() <= 4 && "héllo world".starts_with(body.as_str()),
+        "{body:?}"
+    );
+}
+
+fn capture(w: &mut World, req: u64) -> Vec<WorkerMsg> {
+    let actions = w.send(&HostMsg::Op {
+        req,
+        op: Op::CaptureSnapshot {
+            session: sid(),
+            owner: ClientId("c".into()),
+        },
+    });
+    w.reports(&actions)
+}
+
+/// ST-6: a capture is the model's snapshot at this point, as one page (index 0, last), and then its `Capture` with the
+/// page count, the byte count and the model's revision. The bytes are the oracle's snapshot of the same output.
+#[test]
+fn a_capture_is_the_models_snapshot_as_one_page() {
+    let mut w = World::running();
+    w.feed(Input::PtyOutput(b"hello\r\nworld".to_vec()));
+    let OpResult::Ok(OpOutput::Modes(modes)) = op(&mut w, 1, Op::ReadModeFlags { session: sid() })
+    else {
+        panic!("modes");
+    };
+    let mut expected = oracle();
+    expected.vt_write(b"hello\r\nworld");
+    let snapshot = expected.snapshot().expect("a snapshot");
+    let reports = capture(&mut w, 2);
+    let [WorkerMsg::Pages { req: 2, pages }, WorkerMsg::Done {
+        req: 2,
+        result: OpResult::Ok(OpOutput::Capture(done)),
+    }] = reports.as_slice()
+    else {
+        panic!("{reports:?}");
+    };
+    assert_eq!(
+        pages,
+        &[Page {
+            index: 0,
+            bytes: HexBytes(snapshot.clone()),
+            last: true,
+        }]
+    );
+    assert_eq!(
+        (done.page_count, done.total_bytes, done.model_rev),
+        (1, snapshot.len() as u64, modes.model_rev)
+    );
+}
+
+/// ST-6: a snapshot over `max_snapshot_bytes` is `SnapshotTooLarge`, and no page is sent.
+#[test]
+fn a_capture_over_the_bound_is_snapshot_too_large_with_no_page() {
+    let size = oracle().snapshot().expect("a snapshot").len() as u64;
+    let mut w = World::linked();
+    w.send(&HostMsg::Launch(Box::new(LaunchSpec {
+        limits: CoreLimits {
+            max_snapshot_bytes: size - 1,
+            ..CoreLimits::default()
+        },
+        ..spec()
+    })));
+    w.feed(Input::Spawned(Ok(PAYLOAD)));
+    let reports = capture(&mut w, 1);
+    let [WorkerMsg::Done {
+        req: 1,
+        result: OpResult::Err(error),
+    }] = reports.as_slice()
+    else {
+        panic!("{reports:?}");
+    };
+    assert_eq!(error.code, ErrorCode::SnapshotTooLarge);
+    let mut w = World::linked();
+    w.send(&HostMsg::Launch(Box::new(LaunchSpec {
+        limits: CoreLimits {
+            max_snapshot_bytes: size,
+            ..CoreLimits::default()
+        },
+        ..spec()
+    })));
+    w.feed(Input::Spawned(Ok(PAYLOAD)));
+    assert!(
+        matches!(capture(&mut w, 1).as_slice(), [WorkerMsg::Pages { .. }, _]),
+        "a snapshot at the bound is sent"
     );
 }
