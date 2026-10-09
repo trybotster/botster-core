@@ -389,10 +389,10 @@ fn a_row_whose_worker_is_gone_is_worker_gone() {
     assert!(again.signals.is_empty());
 }
 
-/// Core AD-6, A10-1, A11-1: a worker whose hello does not prove the token is never signalled, and its link is closed. A
-/// live worker may be at the identity, so the row is `Lost(WorkerUnreachable)` and keeps its id (AD-2).
+/// Core AD-6, A10-1, A11-1: a process whose hello does not prove the token is not the session's worker. It is never
+/// signalled, its link is closed, and the row is `Lost(WorkerGone)` with its id kept (lead ruling on #176a-2).
 #[test]
-fn a_hello_with_a_wrong_proof_is_unreachable_and_never_signalled() {
+fn a_hello_with_a_wrong_proof_is_worker_gone_and_never_signalled() {
     let first = crashed_before_launch("s");
     let mut again = adopting(&first, "s", AdoptedPayload::NotLaunched);
     again
@@ -403,7 +403,7 @@ fn a_hello_with_a_wrong_proof_is_unreachable_and_never_signalled() {
     let events = adopt_all(&mut again);
     assert_eq!(
         states_of(&events, "s"),
-        vec![SessionState::Lost(LostReason::WorkerUnreachable)]
+        vec![SessionState::Lost(LostReason::WorkerGone)]
     );
     assert!(again.signals.is_empty(), "{:?}", again.signals);
     assert_eq!(again.closed.len(), 1, "the link is closed");

@@ -184,11 +184,12 @@ impl HostEngine {
             && hello.host_epoch == self.cfg.host_epoch
             && hello.proof == token_proof(&token, &s.instance, self.cfg.host_epoch);
         if !proved {
-            // A10-1, A11-1: Core never signals that process and decodes no later frame of the link. A live worker may still
-            // be at the identity, so the row is indeterminate (AD-2).
+            // A10-1, A11-1, AD-6: the process that answered is not the session's worker. "A process that does not match is
+            // never signalled", and its row is `WorkerGone` (A10-1: "a non-matching process at the recorded pid is
+            // `WorkerGone`"). Core decodes no later frame of the link.
             self.adopt_end(
                 id,
-                End::Lost(LostReason::WorkerUnreachable),
+                End::Lost(LostReason::WorkerGone),
                 "the worker's hello does not prove the token, the instance or the host epoch (AD-6)",
             );
             return;
