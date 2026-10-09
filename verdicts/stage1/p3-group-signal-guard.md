@@ -206,3 +206,25 @@ decision and no longer block #177. P3's next head adds the alias resolution anyw
 no defect. **Carries:** P6's attribute ban, and P3's clock-helper PR. Both close the `allow` hole that L1 and L2 depended on.
 
 VERDICT: NOT CLEAN at 05c70358 until the next head (0 integration findings open; L1 and L2 superseded)
+
+## Round 4 — CLEAN on head 0e0becfb
+
+Reviewed head: `0e0becfbe04a4236206fa56402b38d343c062581`, one commit on `05c70358` (`xtask/src/signals.rs` and one assert
+in `slow_process.rs`). The base is v1 `fc23cd97`, which is the current v1. P3's gate log:
+`…-0e0becfb-pool-20261009-044148-62086.log` (every CI step passes; 76 mutants: 73 caught, 0 missed, 0 timeout, 3
+unviable). This reviewer did not read it.
+
+- **The alias resolution adds no defect** (L1 and L2 are superseded, so this round checks only that):
+  - `reaching` ends: each pass adds only names that are not yet known, and a file has a finite number of identifiers.
+  - `libc_kill` matches `<name> :: kill`, `<name> :: *`, and `kill` or `*` in a `<name> :: { … }` list. `libc::SIGKILL * 2`
+    and `libc::[*]` are not flagged (fixture).
+  - `the_repo_has_no_raw_signal_call` still runs over the whole tree, so the scan gives no false positive at this head.
+- **The helper assert.** `helper_unreserved_cleanup` asserts `getpgrp() == getpid()` before the `KILL` to its own group.
+  If the assert fails, the helper panics, the drop of its member ends the `cat`, and the test fails on the status (not
+  `KILL`). So a `spawn_group` defect cannot send the `KILL` to the runner's group.
+- Earlier rounds stand: G1 (the source fix and the proof), S1, and the merge of v1 `fc23cd97`.
+- **Carries (the lead's decision):** P6's ban of `allow(clippy::disallowed_methods)` in the syntax-aware xtask check, and
+  P3's follow-up PR that moves the 17 clock allowances onto one helper per crate (this reviewer reviews it). After both
+  land, the token scan shrinks to `Command::new` with kill program literals.
+
+VERDICT: CLEAN (0 open) at 0e0becfbe04a4236206fa56402b38d343c062581
