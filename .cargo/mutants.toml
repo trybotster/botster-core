@@ -38,6 +38,11 @@ exclude_re = [
     # source (the_crate_differs_from_the_workspace_only_by_deny, any_other_lint_difference_fails,
     # only_close_inherited_allows_unsafe_code, the_verdict_counts_the_files_or_reports_every_problem).
     'xtask/src/unsafe_code\.rs:\d+:\d+: replace command -> Result<\(\)> with Ok\(\(\)\)$',
+    # xtask ci.rs taint_job -> Ok(()): the shell runs three checks (taint, timers, unsafe_code) and only propagates their
+    # errors with `?`; the body replaced by Ok(()) runs none. Only this whole-body replacement is excluded. Each check's
+    # decisions have their own tests: taint (scan_files, hits_in_line), timers, and unsafe_code (verdict, lint_drift,
+    # other_manifests, other_attributes, checked).
+    'xtask/src/ci\.rs:\d+:\d+: replace taint_job -> Result<\(\)> with Ok\(\(\)\)$',
     # xtask mutants_job -> Ok(()): process glue. The body runs `git diff`, writes the diff file, starts `cargo mutants` and
     # prints its summary; a test cannot start a mutation run inside a mutation run, so no test can run the body. Only this
     # whole-body replacement is excluded: every other mutant of mutants_job stays tested. Its decisions are pure functions
