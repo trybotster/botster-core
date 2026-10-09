@@ -132,3 +132,31 @@ only.
   before the first READY, which counts as the merge gate when the CLEAN head is the same head).
 
 VERDICT: NOT CLEAN (3 open: PR4, PR5, PR7, all LOW)
+
+## Round 3 — NOT CLEAN on head be9b9c7a
+
+Reviewed head: `be9b9c7a316085e9ac7741e32c47222fc4a43564`. Delta `ada086b8..be9b9c7a`, one commit, `docs/stage1-plan.md`
+only. The whole revision-22 delta `ad03636f..be9b9c7a` was read across rounds 1 to 3. The section 0 pins and the
+`owners.py` lists did not change after round 1.
+
+- **PR7 CLOSED.** Q7 and Q8 are marked ANSWERED and cite BUILD.md at contracts `main` `629c177`. The Q7 text matches
+  BUILD.md's three conditions exactly. The Q8 rule makes BUILD.md's "may run ONE full gate" mandatory in this stage. That
+  is stricter than BUILD.md, and BUILD.md allows it, so it is not a finding. P6 owning the script is the lead's
+  assignment.
+- **PR4 still open (LOW)**, unchanged at this head: "with a unit test of the off-macOS argument". See round 2.
+- **PR5 still open (LOW)**, unchanged at this head: the "else a QUESTION; no production change to suit the wrapper" branch
+  of item 12. See round 2.
+
+### PR8 LOW — three citations do not match their sources
+
+1. The pool-gate bullet cites "the orchestrator's RESUME order of 2026-10-08, item 4". Neither the orchestrator state log
+   (line 630) nor `brief-resume-20261008.md` ("What changed" item 1) numbers that rule 4. BUILD.md at `629c177` now
+   states it ("Gates run on the shared Nomad pool (2026-10-05)"). Cite that, as Q7 and Q8 do.
+2. BUILD.md at `629c177` dates the Q7 and Q8 rules "orchestrator, 2026-10-09". The plan says "2026-10-08". The log
+   time, 23:20 local, is 2026-10-09 in UTC. Use the date that the cited document gives.
+3. BUILD.md's Q7 rule says: "the integration reviewer's CLEAN is still required where rule 3 below applies". The plan
+   says "the integration reviewer's CLEAN still applies where required". Neither text says whether the integration
+   reviewer must give a new CLEAN on the merged head, or whether the CLEAN on the reviewed head carries over. State which,
+   because it decides whether a cross-package base-only merge needs a round from this reviewer.
+
+VERDICT: NOT CLEAN (3 open: PR4, PR5, PR8, all LOW)
