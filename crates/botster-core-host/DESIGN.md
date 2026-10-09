@@ -251,6 +251,20 @@ second `Launch` for a launch that already happened.
   - until its hello passes, a candidate's frame bound is one `Hello`.
   These are sans-IO decisions of `botster-worker-core`, with default-tier tests; the binary only accepts and passes the
   connection on.
+- **What part 2 builds (sans-IO, `botster-worker-core`):**
+  - Only a candidate has an id (`CandidateId`, named by the driver): `Input::Candidate`, `CandidateBytes`,
+    `CandidateClosed`; `Action::CandidateClose`. The control link stays the one link of the existing inputs and actions.
+    A passed candidate gives `Action::AdoptLink(id)`: the driver closes the control link, drops its unwritten bytes, and
+    makes the candidate the control link, whose `LinkWritten` counts from zero. So the drivers' existing link code does not
+    change. (This replaces "inputs and actions grow by a link id" above.)
+  - The candidate's frame bound is the size of the largest hello of this instance (D4 fixes the hello fields).
+  - A worker that is removing, waiting to end, terminating or ended takes no candidate.
+  - Bytes after the hello in the same read go to the new link.
+  - The `LaunchFailed` report keeps the spawn's reason; `terminal` is present only for a payload that ran.
+  - The self-exit deadline runs while the worker has no payload and its link is not ready; a worker that gets no input at
+    all never arms it (its host's own `startup` deadline ends it).
+  - `WorkerConfig.startup` defaults to `CoreLimits.startup`. `--startup-ms` and `--endpoint` come with the launch
+    arguments after #171. Until then the binary and the testkit give no candidate.
 - The worker binary binds and polls the endpoint (`mio`), and passes accepted connections to the machine.
 - A worker that has no payload and no host for `startup` exits by itself (AD-7,
   `conf::ad_7_crash_between_steps_leaves_no_unregistered_payload`). The worker does not have this rule yet (no `startup`
