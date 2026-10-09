@@ -153,7 +153,7 @@ package store is filled for `ZIG_PACKAGES`, the packages of the shipped build.
 
 ### Final runs (fork `39a68e822`, Core `2c636dbe`, 0 tracked changes in both, Zig 0.16.0)
 
-The commit after `2c636dbe` adds only these records and logs; it changes no source and not `evidence.sh`.
+The commits after `2c636dbe` change only these records and logs; they change no source and not `evidence.sh`.
 
 | Step | Mac (`mac-run3-2c636dbe.log`) | Linux (`linux-run2-2c636dbe.log`) |
 |---|---|---|
@@ -194,7 +194,7 @@ exercised.
 - Head: `39a68e822e505685d1e7fa9c6abeff21125b489c`.
 - Upstream base: `9d479dcb1664e8dc3c66c7302ce596dc56b36d6d`.
 
-## What the P2-crate PR changes (branch `stage1/p2-fork-a6`), on top of the 2026-10-04 record's list
+## What the P2-crate PR changes (branch `stage1/p2-fork-a6-r2`), on top of the 2026-10-04 record's list
 
 1. The submodule moves to `39a68e822`, and the `.gitmodules` branch to `botster/upstream-sync-20261009`.
 2. `sys.rs`: `opt::QUERY` 47 and `opt::QUERY_MAX_BYTES` 48.
@@ -208,4 +208,4 @@ exercised.
 |---|---|
 | trybotster/ghostty | One push, `git push origin botster/upstream-sync-20261009`, of the new branch at `39a68e822`, after `git remote get-url origin` showed `git@github.com:trybotster/ghostty.git` and `git ls-remote` showed no branch of that name. A first push at `750d3a4c2` (the same tree) was refused by GitHub's email privacy setting, because the commits' author email was the private one. Before the second push the author of each of the 24 commits was set to the GitHub noreply address with its author date kept (`git rebase --exec 'git commit --amend --author=... --date=...'`); the tree did not change. No force-push. |
 | ghostty-org/ghostty (upstream) | `git fetch ghostty-org` only. No `gh` command, no API call, no PR, issue, comment or reaction. |
-| trybotster/botster-core | Branch `stage1/p2-fork-a6` (this PR). |
+| trybotster/botster-core | Branch `stage1/p2-fork-a6-r2` (this PR), a new branch. It contains the 2026-10-04 branch `stage1/p2-fork-a6` (`65b2064d`, no PR), which is unchanged on origin. |
