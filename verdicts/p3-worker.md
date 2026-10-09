@@ -5576,3 +5576,81 @@ The reviewer changed no product code and ran no tests, builds, measurements, mut
 All earlier findings, closures, and verdict rounds remain preserved at their named heads and scopes.
 
 VERDICT: CLEAN
+
+## Round 109 — HIGH-path list coverage
+
+Reviewed head: `b1992a0f349466deef5b3aef75ce4b9595a637c2`, PR #184, branch `stage1/p3-high-tier-paths`.
+Branch parent: `b520f8324d6a55be7b3b521e8c6a5b9a066039f1`.
+Completed gate base: `aaac0c0d1f44172ca5d5dd5dd6986c9787be4aa6`.
+The merge base of the reviewed head and the completed gate base is the branch parent above.
+The PR changes only `ci/high-tier-paths.txt`: 36 added lines.
+Authority: BUILD.md at contracts main `56bd0a5347a537d25bbee65a67854e0e317a9b9a`, Risk tiers and Round limit.
+This head starts after the lead's new review rules. Those rules apply to this round.
+The reviewer checked the stated tier first. HIGH is correct under rule 1 because the PR changes a HIGH-path list.
+HIGH requires package and integration reviews, and every finding must close.
+
+### F57 — MEDIUM — The list omits current process-control and adoption behavior
+
+The list names OS adapters and several machines, but it excludes other files that own rule-5 behavior.
+The PR description explicitly excludes the decision files because listed files contain the target checks, proof checks, and OS calls.
+Those checks do not protect the ordering, timing, or absence of process actions.
+A PR confined to an omitted file can receive STANDARD even when it changes the following behavior:
+
+- `crates/botster-core-host/src/run.rs:275`: `kill_payload` selects the stop-grace signal and worker identity.
+- `crates/botster-core-host/src/run.rs:667`: row recovery starts adoption after a restart.
+- `crates/botster-core-host/src/run.rs:739`: `session_of_row` restores the token and identity and decides whether to adopt.
+- `crates/botster-core-host/src/flows.rs:597`: Remove repeats identity checks and waits for the worker to end.
+- `crates/botster-core-host/src/flows.rs:618`: `flow_remove_probed` permits a kill only when the recorded identity matches.
+- `crates/botster-core-host/src/driver.rs:274`: the driver dispatches worker spawn, identity checks, and signals to the real edges.
+- `crates/botster-core-host/src/admit.rs:285`: adoption admission limits which Lost sessions can retry.
+- `crates/botster-core-host/src/admit.rs:751`: an admitted adoption starts the adoption flow.
+- `crates/botster-core-host/src/engine.rs:463`: the engine defines the protocols that adoption accepts.
+- `crates/botster-core-host/src/engine.rs:608`: the engine selects the worker identity for process actions.
+- `crates/botster-guardian-core/src/guardian.rs:433`: the guardian permits reaping only after cleanup settles.
+- `crates/botster-guardian-core/src/guardian.rs:534`: the guardian chooses the kill target and known descendants.
+- `crates/botster-guardian-core/src/guardian.rs:543`: the guardian orders the descendant enumeration before TERM or KILL.
+
+The specific rule-5 areas take priority over the generic STANDARD example for sans-IO logic.
+The list already applies this principle to the pure PTY decisions in io_decisions.rs and drain.rs.
+Add the six files above to cover their current risky behavior.
+This finding does not require every transitive helper or codec to be listed.
+
+The description must also correct its fallback claim for future fd handoff.
+BUILD.md applies the area-based fallback only when a repo has no HIGH-path list.
+After this list exists, new rule-5 code must extend the list. The lead or reviewer may also raise a tier.
+The reviewer accepts no current fd-handoff entry because the source delegates descriptor passing to future P4a work.
+The reviewer sent F57 and its complete scope directly to P3.
+
+### Accepted scope and completed evidence
+
+The reviewer accepts the whole worker.rs and inbound.rs entries because each file contains a proof check.
+The reviewer accepts io_decisions.rs and drain.rs for PTY behavior, and session.rs for restart decoding.
+The listed process adapters, durable storage files, entropy source, launch parser, and proof files belong to their stated areas.
+All 19 entries match tracked files at this exact head.
+Rules 1 through 4 independently cover gate code, unsafe and FFI code, cross-package changes, shared crates, workspace configuration, and pins.
+A mechanical stale-entry check is outside this PR. BUILD.md does not require that new check for this list.
+The PR changes no runtime behavior and adds no real-process test.
+
+Exact-head log: `~/botster-sessions/gates/botster-core-stage1-p3-high-tier-paths-b1992a0f-pool-20261009-083957-49200.log`.
+The log names the reviewed head and the gate base above.
+All ten CI steps pass. The default tier passes 920 tests in 1.668 seconds.
+The slow tier passes 243 tests in 10.141 seconds.
+Signals scan 153 Rust files. Timers scan 137 Rust files.
+Both mutation commands explicitly report `INFO Diff changes no Rust source files`.
+The reviewer accepts that result because the PR changes only the text list.
+The separate mutation command uses NEXTEST_PROFILE=slow. Fuzz reports no changed crate with a decoder harness.
+Full CI takes 164.0 seconds. Separate mutants take 0.4 seconds.
+The combined job exits 0 after 229 seconds on msa1.
+The gate passes but does not close the source-coverage finding.
+
+### Verdict and scope
+
+PR #184 is NOT CLEAN at this exact head for F57.
+This is the first NOT CLEAN round for #184. The round-limit notice is not due.
+The integration reviewer controls its own verdict.
+Round 108 CLEAN for #178 remains valid at its named head and scope.
+#168 retains its separate single planned real-PTY HOLD. Part B retains its earlier open duties.
+The reviewer changed no product code and ran no tests, builds, measurements, mutants, or gates.
+All earlier findings, closures, and verdict rounds remain preserved at their named heads and scopes.
+
+VERDICT: NOT CLEAN
