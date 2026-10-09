@@ -138,7 +138,11 @@ fn links_forward_bytes_descriptors_interests_and_close() {
         .link_send_descriptor(LinkId(99), b"f", StreamEndpoint::new(0u64))
         .unwrap_err();
     assert_eq!(why, DescriptorSendError::Failed, "no such link");
-    assert_eq!(back.downcast::<u64>().unwrap(), 0, "the endpoint comes back");
+    assert_eq!(
+        back.downcast::<u64>().unwrap(),
+        0,
+        "the endpoint comes back"
+    );
     edges.link_close(link);
     assert_eq!(peer.recv(&mut bytes).unwrap(), 0);
     assert_eq!(

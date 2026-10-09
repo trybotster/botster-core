@@ -105,8 +105,15 @@ fn a_handoff_sends_attach_route_with_the_stream_on_its_first_byte_and_the_return
     assert_eq!(sent.len(), 1, "one AttachRoute frame");
     let (at, route, limits) = sent[0].clone();
     assert_eq!(route, result.route);
-    assert_eq!(limits, result.limits, "the worker gets the values that attach returned (OU-1)");
-    assert_eq!(descriptors(&rig), vec![(at, 7)], "the stream rides on the frame's first byte");
+    assert_eq!(
+        limits, result.limits,
+        "the worker gets the values that attach returned (OU-1)"
+    );
+    assert_eq!(
+        descriptors(&rig),
+        vec![(at, 7)],
+        "the stream rides on the frame's first byte"
+    );
 }
 
 /// A link that takes no byte at the mark gives the stream back: the frame stays unstarted, and the next write readiness sends
@@ -127,8 +134,15 @@ fn a_blocked_handoff_keeps_the_stream_and_sends_it_once_later() {
     rig.pump();
     let sent = attach_frames(&rig);
     assert_eq!(sent.len(), 1, "the frame went once");
-    assert_eq!(descriptors(&rig), vec![(sent[0].0, 3)], "the stream went once");
-    assert!(rig.drain_events().iter().all(|e| !matches!(e, Event::RouteClosed { .. })));
+    assert_eq!(
+        descriptors(&rig),
+        vec![(sent[0].0, 3)],
+        "the stream went once"
+    );
+    assert!(rig
+        .drain_events()
+        .iter()
+        .all(|e| !matches!(e, Event::RouteClosed { .. })));
 }
 
 /// A short write at the mark sends the stream with the first bytes; the rest of the frame goes as plain bytes, once.
@@ -140,7 +154,11 @@ fn a_short_write_at_the_mark_sends_the_rest_as_plain_bytes() {
     rig.pump();
     let sent = attach_frames(&rig);
     assert_eq!(sent.len(), 1);
-    assert_eq!(descriptors(&rig), vec![(sent[0].0, 5)], "one stream, on the first byte");
+    assert_eq!(
+        descriptors(&rig),
+        vec![(sent[0].0, 5)],
+        "one stream, on the first byte"
+    );
 }
 
 /// A frame that was partly written when the handoff was queued is completed first: the stream rides on the byte after it.
@@ -153,7 +171,11 @@ fn an_earlier_partial_frame_is_complete_before_the_stream_rides() {
         .begin(Op::ReadModeFlags { session: sid("s1") })
         .unwrap();
     rig.pump();
-    assert_eq!(with_link(&rig, |l| l.from_host.len()), before + 3, "the op frame is partly written");
+    assert_eq!(
+        with_link(&rig, |l| l.from_host.len()),
+        before + 3,
+        "the op frame is partly written"
+    );
     attach(&mut rig, Arc::new(9));
     rig.pump();
     with_link(&rig, |l| l.send_budget = None);
@@ -189,7 +211,9 @@ fn repeated_handoffs_ride_on_their_own_frames_in_order() {
 #[test]
 fn a_failed_handoff_drops_the_unstarted_frame_and_closes_handoff_failed() {
     let mut rig = running();
-    with_link(&rig, |l| l.fail_descriptor = vec![DescriptorSendError::Failed]);
+    with_link(&rig, |l| {
+        l.fail_descriptor = vec![DescriptorSendError::Failed]
+    });
     let token = Arc::new(4);
     let result = attach(&mut rig, Arc::clone(&token));
     rig.pump();
@@ -197,7 +221,10 @@ fn a_failed_handoff_drops_the_unstarted_frame_and_closes_handoff_failed() {
         .begin(Op::ReadModeFlags { session: sid("s1") })
         .unwrap();
     rig.pump();
-    assert!(attach_frames(&rig).is_empty(), "no byte of the frame was sent");
+    assert!(
+        attach_frames(&rig).is_empty(),
+        "no byte of the frame was sent"
+    );
     assert_eq!(Arc::strong_count(&token), 1, "the stream closed");
     let events = rig.drain_events();
     assert!(
@@ -219,7 +246,11 @@ fn a_link_closed_with_a_handoff_pending_closes_the_stream_and_the_route() {
     for _ in 0..4 {
         rig.pump();
     }
-    assert_eq!(Arc::strong_count(&token), 1, "the stream closed with the link");
+    assert_eq!(
+        Arc::strong_count(&token),
+        1,
+        "the stream closed with the link"
+    );
     let closes = rig
         .drain_events()
         .into_iter()

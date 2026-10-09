@@ -332,7 +332,9 @@ impl HostEdges for SimEdges {
                     .downcast::<StreamEndpoint>()
                     .expect("the descriptor that was sent");
                 let why = match error.kind() {
-                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::Interrupted => DescriptorSendError::Blocked,
+                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::Interrupted => {
+                        DescriptorSendError::Blocked
+                    }
                     _ => DescriptorSendError::Failed,
                 };
                 (endpoint, why)
