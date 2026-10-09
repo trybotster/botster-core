@@ -43,14 +43,45 @@ pub fn await_end(pid: Pid, deadline: Deadline) -> std::io::Result<Waited> {
         Err(error) if gone(&error) => return Ok(Waited::Gone),
         other => other?,
     }
-    // timer: deadline — bounds the wait for an exit event.
-    match watcher.poll(Some(deadline.remaining())) {
-        None => Ok(Waited::Deadline),
+    loop {
+        // timer: deadline — bounds the wait for an exit event.
+        match polled(watcher.poll(Some(deadline.remaining())))? {
+            Polled::Timeout => return Ok(Waited::Deadline),
+            Polled::Event => return Ok(Waited::Exited),
+            Polled::Interrupted => {}
+        }
+    }
+}
+
+/// The meaning of one poll of a watcher.
+#[derive(Debug, PartialEq, Eq)]
+enum Polled {
+    /// The timeout passed with no event.
+    Timeout,
+    /// An event came.
+    Event,
+    /// A signal interrupted the wait before any event (EINTR): the caller polls again, with the time that remains.
+    Interrupted,
+}
+
+/// What `event`, the result of `Watcher::poll`, means. The kqueue crate returns a failed `kevent` call as an error event
+/// (`Event::from_error`), and `kevent` fails with EINTR when a signal is delivered before the timeout and before any event
+/// (kevent(2)).
+///
+/// # Errors
+/// The `kevent` call failed for another reason.
+fn polled(event: Option<kqueue::Event>) -> std::io::Result<Polled> {
+    match event {
+        None => Ok(Polled::Timeout),
+        Some(kqueue::Event {
+            data: kqueue::EventData::Error(error),
+            ..
+        }) if error.kind() == std::io::ErrorKind::Interrupted => Ok(Polled::Interrupted),
         Some(kqueue::Event {
             data: kqueue::EventData::Error(error),
             ..
         }) => Err(error),
-        Some(_) => Ok(Waited::Exited),
+        Some(_) => Ok(Polled::Event),
     }
 }
 
@@ -79,14 +110,9 @@ pub fn await_status(
     watcher.watch()?;
     super::status_after_events(
         || super::peek(pid),
+        // An interrupted poll, as a timeout, only makes the loop check the status and the deadline again.
         // timer: deadline — bounds the wait for a SIGCHLD.
-        || match watcher.poll(Some(deadline.remaining())) {
-            Some(kqueue::Event {
-                data: kqueue::EventData::Error(error),
-                ..
-            }) => Err(error),
-            _ => Ok(()),
-        },
+        || polled(watcher.poll(Some(deadline.remaining()))).map(drop),
         || deadline.expired(),
     )
 }
@@ -151,5 +177,34 @@ fn exiting_or_gone(pid: Pid) -> std::io::Result<bool> {
         Ok(()) => Ok(false),
         Err(error) if gone(&error) => Ok(true),
         Err(error) => Err(error),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn failed(kind: std::io::ErrorKind) -> Option<kqueue::Event> {
+        Some(kqueue::Event {
+            ident: kqueue::Ident::Fd(-1),
+            data: kqueue::EventData::Error(kind.into()),
+        })
+    }
+
+    /// #171 TP8: a signal that interrupts the wait makes the caller poll again; any other failure of `kevent` fails the wait.
+    #[test]
+    fn an_interrupted_poll_is_polled_again_and_another_failure_fails_the_wait() {
+        assert_eq!(polled(None).unwrap(), Polled::Timeout);
+        let signal = Some(kqueue::Event {
+            ident: kqueue::Ident::Fd(libc::SIGCHLD),
+            data: kqueue::EventData::Signal(1),
+        });
+        assert_eq!(polled(signal).unwrap(), Polled::Event);
+        assert_eq!(
+            polled(failed(std::io::ErrorKind::Interrupted)).unwrap(),
+            Polled::Interrupted
+        );
+        let error = polled(failed(std::io::ErrorKind::InvalidInput)).unwrap_err();
+        assert_eq!(error.kind(), std::io::ErrorKind::InvalidInput);
     }
 }
