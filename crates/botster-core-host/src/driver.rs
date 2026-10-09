@@ -20,7 +20,7 @@ use botster_core_edges::scheduler::{ChoicePoint, Scheduler};
 use botster_core_edges::Machine;
 use botster_core_link::frame::{encode_frame, FrameDecoder, FrameType};
 use botster_core_link::hello::Hello;
-use botster_core_link::msg::{HostMsg, WorkerMsg};
+use botster_core_link::msg::WorkerMsg;
 use botster_core_link::proof::TOKEN_LEN;
 use botster_route_codec::prelude::QueryKind;
 use std::collections::{BTreeMap, BTreeSet};
@@ -68,6 +68,13 @@ pub trait HostEdges: Send {
 
     /// The control links (`Link`). A worker connects to the host; `accept_link` returns the next new link, or `None`.
     fn accept_link(&mut self) -> Option<LinkId>;
+    /// Connects to the endpoint of the worker of `instance` for an adoption (DESIGN.md "Adoption (P5)" 3.1, 6), and returns
+    /// the new link, or `None` when no worker answers there. The edge owns the endpoint's path. The default has no worker
+    /// endpoint: until an edge binds one, every adoption of a live worker ends `Lost(WorkerUnreachable)` (AD-2), which
+    /// `Adopt(id)` may retry.
+    fn connect_worker(&mut self, _instance: &InstanceId) -> Option<LinkId> {
+        None
+    }
     /// `Ok(0)` means that the peer closed the link.
     fn link_recv(&mut self, link: LinkId, buf: &mut [u8]) -> io::Result<usize>;
     fn link_send(&mut self, link: LinkId, bytes: &[u8]) -> io::Result<usize>;
@@ -93,7 +100,7 @@ pub trait HostEdges: Send {
     fn settle_wake(&mut self);
     /// The scheduling policy (`Scheduler`): the production policy, or the seeded policy of the testkit.
     fn scheduler(&mut self) -> &mut dyn Scheduler;
-    /// What the edges know that the engine cannot, for `diagnostics()` (LC-10, one opaque value). None by default.
+    /// What the edges know that the engine cannot: for example accept failures and foreign registry files (LC-10, one opaque value). None by default.
     fn diagnostics(&self) -> serde_json::Value {
         serde_json::Value::Null
     }
@@ -219,8 +226,7 @@ impl<E: HostEdges> HostDriver<E> {
         let i = self
             .edges
             .scheduler()
-            .pick(ChoicePoint::Session, sessions.len())
-            .min(sessions.len() - 1);
+            .pick(ChoicePoint::Session, sessions.len());
         sessions[i].clone()
     }
 
@@ -292,6 +298,13 @@ impl<E: HostEdges> HostDriver<E> {
                 self.send_frame(link, FrameType::HOST_MSG, &payload);
             }
             Action::CloseLink { link } => self.close_link(link),
+            Action::ConnectWorker { ticket, instance } => {
+                let link = self.edges.connect_worker(&instance);
+                if let Some(link) = link {
+                    self.add_link(link);
+                }
+                self.feed(Input::WorkerConnected { ticket, link });
+            }
             Action::ProbeIdentity { identity } => {
                 let state = self.edges.identity_state(identity);
                 self.feed(Input::IdentityState { identity, state });
@@ -320,9 +333,9 @@ impl<E: HostEdges> HostDriver<E> {
         let Some(state) = self.links.get_mut(&link) else {
             return;
         };
-        if encode_frame(kind, payload, self.frame_bound, &mut state.out).is_err() {
+        if let Err(error) = encode_frame(kind, payload, self.frame_bound, &mut state.out) {
             // A frame over the bound can never be sent: the link is broken.
-            self.close_link(link);
+            self.close_link_because(link, &error);
             return;
         }
         self.flush(link);
@@ -340,14 +353,22 @@ impl<E: HostEdges> HostDriver<E> {
                 }
                 Err(e) if e.kind() == io::ErrorKind::WouldBlock => break,
                 Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
-                Err(_) => {
-                    self.close_link(link);
+                Err(error) => {
+                    self.close_link_because(link, &error);
                     return;
                 }
             }
         }
         let wanted = !state.out.is_empty();
         self.edges.set_write_interest(link, wanted);
+    }
+
+    /// Closes a link that the driver gives up on, and records why (LC-10 diagnostics).
+    fn close_link_because(&mut self, link: LinkId, why: &dyn std::fmt::Display) {
+        if self.links.contains_key(&link) {
+            self.engine.record_link_close(link, why);
+        }
+        self.close_link(link);
     }
 
     fn close_link(&mut self, link: LinkId) {
@@ -357,21 +378,26 @@ impl<E: HostEdges> HostDriver<E> {
         }
     }
 
+    /// A new link, accepted or made: its first frame in is a hello (AD-6).
+    fn add_link(&mut self, link: LinkId) {
+        self.links.insert(
+            link,
+            LinkState {
+                decoder: FrameDecoder::new(self.frame_bound),
+                out: Vec::new(),
+                hello_seen: false,
+                pending: Vec::new(),
+                held: None,
+            },
+        );
+    }
+
     /// Reads every link that has input, and gives the engine what it decoded (plan 2.5). Control comes before data: this runs
     /// before the work of a `pump`. A link is read only as far as the engine can take what it decoded and as far as the
     /// budget of the pump allows: the rest stays unread (kernel buffer, or the one frame in `held`).
     fn service_links(&mut self, budget: &mut Budget) {
         while let Some(link) = self.edges.accept_link() {
-            self.links.insert(
-                link,
-                LinkState {
-                    decoder: FrameDecoder::new(self.frame_bound),
-                    out: Vec::new(),
-                    hello_seen: false,
-                    pending: Vec::new(),
-                    held: None,
-                },
-            );
+            self.add_link(link);
         }
         let ids: Vec<LinkId> = self.links.keys().copied().collect();
         for link in ids {
@@ -439,16 +465,16 @@ impl<E: HostEdges> HostDriver<E> {
                         match self.deliver(link, first, frame.kind, &frame.payload, budget) {
                             Delivery::Done => {}
                             Delivery::Held => return,
-                            Delivery::Bad => {
-                                self.close_link(link);
+                            Delivery::Bad(why) => {
+                                self.close_link_because(link, &why);
                                 return;
                             }
                         }
                     }
                     Ok(None) => {}
-                    Err(_) => {
+                    Err(error) => {
                         // A frame over the bound ends the link (plan section 3).
-                        self.close_link(link);
+                        self.close_link_because(link, &error);
                         return;
                     }
                 }
@@ -468,14 +494,14 @@ impl<E: HostEdges> HostDriver<E> {
             }
             let n = match self.edges.link_recv(link, &mut buf[..slice]) {
                 Ok(0) => {
-                    self.close_link(link);
+                    self.close_link_because(link, &"the peer closed it");
                     return;
                 }
                 Ok(n) => n,
                 Err(e) if e.kind() == io::ErrorKind::WouldBlock => return,
                 Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
-                Err(_) => {
-                    self.close_link(link);
+                Err(error) => {
+                    self.close_link_because(link, &error);
                     return;
                 }
             };
@@ -497,19 +523,25 @@ impl<E: HostEdges> HostDriver<E> {
     ) -> Delivery {
         let input = if first {
             if kind != FrameType::HELLO {
-                return Delivery::Bad;
+                return Delivery::Bad(format!(
+                    "the first frame is of type {}, not a hello",
+                    kind.0
+                ));
             }
             match Hello::decode(payload) {
                 Ok(hello) => Input::LinkHello { link, hello },
-                Err(_) => return Delivery::Bad,
+                Err(error) => return Delivery::Bad(error.to_string()),
             }
         } else {
             if kind != FrameType::WORKER_MSG {
-                return Delivery::Bad;
+                return Delivery::Bad(format!(
+                    "a frame of type {} is not a worker message",
+                    kind.0
+                ));
             }
             match WorkerMsg::decode(payload) {
                 Ok(msg) => Input::LinkMsg { link, msg },
-                Err(_) => return Delivery::Bad,
+                Err(error) => return Delivery::Bad(error.to_string()),
             }
         };
         if !self.engine.can_accept(&input) {
@@ -528,7 +560,8 @@ impl<E: HostEdges> HostDriver<E> {
 enum Delivery {
     Done,
     Held,
-    Bad,
+    /// The frame is not what the link carries here: the link closes, for this reason.
+    Bad(String),
 }
 
 /// The bounds of one `pump` (9B `pump_events`, `pump_bytes`, plan 2.4).
@@ -617,8 +650,7 @@ impl<E: HostEdges> CoreApi for HostDriver<E> {
             let at = self
                 .edges
                 .scheduler()
-                .pick(ChoicePoint::ReadyWork, ready.len())
-                .min(ready.len() - 1);
+                .pick(ChoicePoint::ReadyWork, ready.len());
             let work = self.pick_session(&ready, at);
             // A5-2: the scheduler may defer the progress of an operation to a later pump. A deadline is never deferred.
             if !matches!(work, Work::Deadline | Work::Silent)
@@ -805,7 +837,3 @@ impl<E: HostEdges> CoreApi for HostDriver<E> {
         self.engine.terminal_identity()
     }
 }
-
-// The driver sends host messages through the engine's `SendMsg` action: this keeps the type in the public docs.
-#[allow(dead_code)]
-fn _host_msg_is_the_wire(_: &HostMsg) {}

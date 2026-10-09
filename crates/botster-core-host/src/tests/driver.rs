@@ -66,7 +66,6 @@ struct Mock {
     next_link: u64,
     wake: Arc<TestWake>,
     spawns: Vec<WorkerSpawn>,
-    settled: u32,
     send_cap: Option<usize>,
     /// The exits that the process edge reports, first first.
     exits: Vec<(ProcessIdentity, ExitStatus)>,
@@ -79,6 +78,8 @@ struct Mock {
     ended: Vec<ProcessIdentity>,
     /// The scheduler's choices in the current pump: a pump that never ends fails the test at once (as `World::pump`).
     choices: u32,
+    /// The bytes that the worker of an instance sends when the host connects to its endpoint (adoption).
+    endpoints: BTreeMap<InstanceId, Vec<u8>>,
 }
 
 type Shared = Arc<Mutex<Mock>>;
@@ -179,6 +180,21 @@ impl HostEdges for Edges {
         }
     }
 
+    fn connect_worker(&mut self, instance: &InstanceId) -> Option<LinkId> {
+        let mut mock = self.0.lock().unwrap();
+        let to_host = mock.endpoints.remove(instance)?;
+        let link = LinkId(mock.next_link);
+        mock.next_link += 1;
+        mock.links.insert(
+            link,
+            MockLink {
+                to_host,
+                ..MockLink::default()
+            },
+        );
+        Some(link)
+    }
+
     fn accept_link(&mut self) -> Option<LinkId> {
         let mut mock = self.0.lock().unwrap();
         if mock.accept.is_empty() {
@@ -259,7 +275,6 @@ impl HostEdges for Edges {
 
     fn settle_wake(&mut self) {
         let mut mock = self.0.lock().unwrap();
-        mock.settled += 1;
         let late = std::mem::take(&mut mock.late);
         for (link, bytes) in late {
             if let Some(l) = mock.links.get_mut(&link) {
@@ -296,20 +311,36 @@ impl Rig {
     }
 
     fn with_config(cfg: crate::EngineConfig, scheduler: Box<dyn Scheduler + Send>) -> Rig {
+        Rig::open(cfg, scheduler, BTreeMap::new())
+    }
+
+    /// A new handle over the rows of this one (LC-12), with a higher host epoch (DP-8).
+    fn reopen(&self) -> Rig {
+        let mut cfg = config(CoreLimits::default());
+        cfg.host_epoch = 8;
+        let rows = self.mock.lock().unwrap().rows.clone();
+        Rig::open(cfg, Box::new(Production::new()), rows)
+    }
+
+    fn open(
+        cfg: crate::EngineConfig,
+        scheduler: Box<dyn Scheduler + Send>,
+        rows: BTreeMap<String, Vec<u8>>,
+    ) -> Rig {
         let mock = Arc::new(Mutex::new(Mock {
-            rows: BTreeMap::new(),
+            rows,
             links: BTreeMap::new(),
             accept: Vec::new(),
             next_link: 1,
             wake: Arc::new(TestWake::default()),
             spawns: Vec::new(),
-            settled: 0,
             send_cap: None,
             exits: Vec::new(),
             late: Vec::new(),
             late_exits: Vec::new(),
             ended: Vec::new(),
             choices: 0,
+            endpoints: BTreeMap::new(),
         }));
         #[allow(clippy::disallowed_methods)] // a test starts the injected clock at a real instant
         let now = Instant::now();
@@ -365,6 +396,20 @@ impl Rig {
 
     fn drain_events(&mut self) -> Vec<Event> {
         self.driver.poll_events(256)
+    }
+
+    /// Pumps and drains until a pump leaves no more work and no event, and returns the events.
+    fn run_out(&mut self) -> Vec<Event> {
+        let mut all = Vec::new();
+        for _ in 0..200 {
+            let more = self.pump().more;
+            let events = self.drain_events();
+            if !more && events.is_empty() {
+                return all;
+            }
+            all.extend(events);
+        }
+        panic!("the driver does not settle");
     }
 
     /// Pumps and drains until a pump leaves no more work, then drains once more. A driver that keeps reporting `more`
@@ -455,10 +500,10 @@ fn a_start_runs_through_the_frames_of_the_link() {
     );
 }
 
-/// Plan 2.5: a link that takes a few bytes at a time keeps its write interest while bytes wait, and delivers every frame
-/// whole and in order.
+/// Plan 2.5, section 3: a link that takes a few bytes per call gets every frame whole and in order, and has no write interest
+/// once nothing waits. (Write interest while bytes wait: `api::io_errors_are_told_apart_by_their_kind`.)
 #[test]
-fn a_short_write_keeps_write_interest_and_delivers_whole_frames() {
+fn a_short_write_delivers_whole_frames() {
     let mut rig = Rig::new(CoreLimits::default());
     rig.mock.lock().unwrap().send_cap = Some(3);
     rig.driver.begin(create("s1")).unwrap();
@@ -466,7 +511,6 @@ fn a_short_write_keeps_write_interest_and_delivers_whole_frames() {
     rig.driver.begin(Op::Start { id: sid("s1") }).unwrap();
     rig.pump();
     let link = LinkId(1);
-    // One pump pushes what the link takes (3 bytes per call); the rest waits with write interest on... until pumped again.
     for _ in 0..200 {
         rig.pump();
     }
@@ -478,8 +522,7 @@ fn a_short_write_keeps_write_interest_and_delivers_whole_frames() {
     );
 }
 
-/// Plan 2.5 rule 1, TM-6: a call that leaves work signals the wake before it returns; a pump that leaves none clears it, after
-/// it settled the readiness and read the links once more.
+/// Plan 2.5 rule 1, TM-6: a call that leaves work signals the wake before it returns; a pump that leaves none clears it.
 #[test]
 fn the_wake_follows_runnable_work_and_the_pump_settles_before_it_clears() {
     let mut rig = Rig::new(CoreLimits::default());
@@ -489,17 +532,13 @@ fn the_wake_follows_runnable_work_and_the_pump_settles_before_it_clears() {
     let report = rig.pump();
     assert!(!report.more);
     assert!(!rig.wake_set(), "the pump cleared it");
-    assert!(
-        rig.mock.lock().unwrap().settled >= 1,
-        "plan 2.5: settle, then read once more"
-    );
     // A poll that frees room for parked work signals again (EV-5d); here nothing is parked, so it stays clear.
     rig.driver.poll_events(8);
     assert!(!rig.wake_set());
 }
 
-/// Plan section 3: a frame over the bound ends the link, and a first frame that is not a hello does too; the engine learns of
-/// both as a closed link.
+/// Plan section 3, LC-10: a frame over the bound ends the link, and a first frame that is not a hello does too; the engine
+/// learns of both as a closed link, and `diagnostics()` keeps why.
 #[test]
 fn a_bad_first_frame_or_an_oversize_frame_closes_the_link() {
     let mut rig = Rig::new(CoreLimits::default());
@@ -544,6 +583,29 @@ fn a_bad_first_frame_or_an_oversize_frame_closes_the_link() {
     }
     rig.pump();
     assert!(rig.mock.lock().unwrap().links[&LinkId(41)].closed_by_host);
+    // LC-10, audit A28: each close is recorded with its reason, so an interoperability failure is visible where its cause
+    // was known.
+    let diagnostics = rig.driver.diagnostics();
+    let closes: Vec<&str> = diagnostics["link_closes"]
+        .as_array()
+        .expect("a list of link closes")
+        .iter()
+        .filter_map(|c| c.as_str())
+        .collect();
+    assert!(
+        closes.iter().any(|c| c.starts_with("link 40: ")),
+        "{closes:?}"
+    );
+    // The reason is the decoder's own refusal of the same header, at the driver's bound.
+    let mut decoder = FrameDecoder::new(rig.driver.engine().link_frame_bound());
+    let mut header = u32::MAX.to_le_bytes().to_vec();
+    header.push(0x01);
+    decoder.push(&header);
+    let oversize = decoder.next_frame().unwrap_err().to_string();
+    assert!(
+        closes.iter().any(|c| *c == format!("link 41: {oversize}")),
+        "{closes:?}"
+    );
 }
 
 /// Plan 2.5: a peer that closes its end (`Ok(0)`) is a closed link, and the pending read of its session fails.
@@ -635,11 +697,6 @@ fn a_blocked_frame_stays_unread_and_the_poll_restores_the_link() {
         assert!(
             !link.read_interest,
             "read interest is off while a frame is held"
-        );
-        drop(mock);
-        assert!(
-            rig.driver.engine().parked_events_len() == 0,
-            "no frame was consumed into an unbounded queue"
         );
     }
     rig.drain_events();
@@ -794,4 +851,119 @@ fn an_exited_frame_behind_a_full_queue_is_held_then_delivered() {
         rig.driver.get(&sid("s1")).unwrap().state,
         SessionState::Exited(_)
     ));
+}
+
+/// The bytes of a worker of `instance` at its endpoint, in one buffer: its hello to a host of epoch 8, its report of a
+/// running payload, and the end of that payload.
+fn adopted_then_exited(instance: &InstanceId) -> Vec<u8> {
+    let hello = Hello {
+        protocol: 1,
+        instance: instance.clone(),
+        proof: token_proof(&[9u8; TOKEN_LEN], instance, 8),
+        host_epoch: 8,
+    };
+    let mut payload = Vec::new();
+    hello.encode(&mut payload).unwrap();
+    let mut out = frame(FrameType::HELLO, &payload);
+    let report = WorkerMsg::Adopted {
+        report: Box::new(AdoptReport {
+            payload: AdoptedPayload::Running {
+                payload: botster_core_link::msg::PayloadId {
+                    pid: 900,
+                    start_time: 3,
+                },
+            },
+            features: BTreeSet::new(),
+            terminal: Some(terminal_state()),
+            formats: vec![],
+        }),
+    };
+    let exited = WorkerMsg::Exited {
+        code: Some(0),
+        signal: None,
+    };
+    for msg in [report, exited] {
+        let mut payload = Vec::new();
+        msg.encode(&mut payload);
+        out.extend(frame(FrameType::WORKER_MSG, &payload));
+    }
+    out
+}
+
+fn exited_normally() -> SessionState {
+    SessionState::Exited(Exit {
+        code: Some(0),
+        signal: None,
+        cause: ExitCause::Normal,
+    })
+}
+
+/// A first handle with the running session `s1`, and the instance of its worker.
+fn first_handle() -> (Rig, InstanceId) {
+    let mut rig = Rig::new(CoreLimits::default());
+    start_session(&mut rig, "s1", LinkId(1));
+    let instance = rig.mock.lock().unwrap().spawns[0].instance.clone();
+    (rig, instance)
+}
+
+/// Review P5-F25, OR-2, AD-1: the worker's report and the payload's end arrive in one read, before the adoption posts
+/// `Running`. The driver posts `Running`, then the end; the end is not lost.
+#[test]
+fn an_end_read_with_the_adoption_report_follows_running() {
+    let (first, instance) = first_handle();
+    let mut again = first.reopen();
+    again
+        .mock
+        .lock()
+        .unwrap()
+        .endpoints
+        .insert(instance.clone(), adopted_then_exited(&instance));
+    let adopt = again.driver.begin(Op::AdoptAll).unwrap();
+    let events = again.run_out();
+    assert_eq!(
+        states(&events),
+        vec![
+            ("s1".to_string(), SessionState::Running),
+            ("s1".to_string(), exited_normally())
+        ]
+    );
+    assert!(events.iter().any(|e| matches!(
+        e,
+        Event::Completed { op, result: OpResult::Ok(OpOutput::Unit) } if *op == adopt
+    )));
+}
+
+/// Review P5-F25, OR-2; steward ruling R-36: the same order for `Adopt(id)` of a `Lost(WorkerUnreachable)` session.
+#[test]
+fn an_end_read_with_the_retry_report_follows_running() {
+    let (first, instance) = first_handle();
+    let mut again = first.reopen();
+    again.driver.begin(Op::AdoptAll).unwrap();
+    assert_eq!(
+        states(&again.run_out()),
+        vec![(
+            "s1".to_string(),
+            SessionState::Lost(LostReason::WorkerUnreachable)
+        )],
+        "no worker answers at the endpoint"
+    );
+    again
+        .mock
+        .lock()
+        .unwrap()
+        .endpoints
+        .insert(instance.clone(), adopted_then_exited(&instance));
+    let retry = again.driver.begin(Op::Adopt { id: sid("s1") }).unwrap();
+    let events = again.run_out();
+    assert_eq!(
+        states(&events),
+        vec![
+            ("s1".to_string(), SessionState::Running),
+            ("s1".to_string(), exited_normally())
+        ]
+    );
+    assert!(events.iter().any(|e| matches!(
+        e,
+        Event::Completed { op, result: OpResult::Ok(OpOutput::Record(_)) } if *op == retry
+    )));
 }

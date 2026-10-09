@@ -8,7 +8,7 @@
 //!
 //! Clause: Core AD-6, Core DP-8, Core AD-7 (the worker exits by itself when no host attaches within `startup`).
 
-use crate::proof::TOKEN_LEN;
+use crate::proof::{token_from_hex, token_hex, TOKEN_LEN};
 use botster_core_contract::prelude::InstanceId;
 use std::ffi::{OsStr, OsString};
 use std::path::PathBuf;
@@ -25,27 +25,6 @@ pub struct WorkerLaunch {
     /// The host epoch that the worker obeys at the start (DP-8).
     pub host_epoch: u64,
     pub token: [u8; TOKEN_LEN],
-}
-
-fn hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|b| format!("{b:02x}")).collect()
-}
-
-fn unhex(text: &str) -> Option<[u8; TOKEN_LEN]> {
-    let digits = text.as_bytes();
-    if digits.len() != TOKEN_LEN * 2 {
-        return None;
-    }
-    let nibble = |d: u8| match d {
-        b'0'..=b'9' => Some(d - b'0'),
-        b'a'..=b'f' => Some(d - b'a' + 10),
-        _ => None,
-    };
-    let mut out = [0u8; TOKEN_LEN];
-    for (byte, pair) in out.iter_mut().zip(digits.chunks(2)) {
-        *byte = nibble(pair[0])? * 16 + nibble(pair[1])?;
-    }
-    Some(out)
 }
 
 impl WorkerLaunch {
@@ -65,7 +44,7 @@ impl WorkerLaunch {
 
     /// The whole environment of the worker: exactly the token (AD-6, A2-1: nothing is inherited).
     pub fn env(&self) -> Vec<(OsString, OsString)> {
-        vec![(TOKEN_VAR.into(), hex(&self.token).into())]
+        vec![(TOKEN_VAR.into(), token_hex(&self.token).into())]
     }
 
     /// Reads a launch from the arguments after the program name and the value of [`TOKEN_VAR`].
@@ -100,7 +79,9 @@ impl WorkerLaunch {
             control: control.ok_or(LaunchError::Missing("--control"))?,
             instance: instance.ok_or(LaunchError::Missing("--instance"))?,
             host_epoch: epoch.ok_or(LaunchError::Missing("--epoch"))?,
-            token: token.and_then(unhex).ok_or(LaunchError::BadToken)?,
+            token: token
+                .and_then(token_from_hex)
+                .ok_or(LaunchError::BadToken)?,
         })
     }
 }
@@ -163,7 +144,7 @@ mod tests {
     fn a_launch_with_a_missing_part_is_refused() {
         let l = launch();
         let args = l.args();
-        let token = hex(&l.token);
+        let token = token_hex(&l.token);
         assert_eq!(WorkerLaunch::parse(&args, None), Err(LaunchError::BadToken));
         assert_eq!(
             WorkerLaunch::parse(&args, Some("zz")),
@@ -189,23 +170,6 @@ mod tests {
             WorkerLaunch::parse(&["--role"], Some(&token)),
             Err(LaunchError::MissingValue)
         );
-    }
-
-    /// AD-6: a token of every hex digit decodes to its bytes, and a non-digit or a short text does not.
-    #[test]
-    fn unhex_reads_every_digit() {
-        let text: String = (0..TOKEN_LEN)
-            .map(|i| format!("{:02x}", (i * 7 + 9) % 256))
-            .collect();
-        let bytes = unhex(&text).expect("a token");
-        for (i, b) in bytes.iter().enumerate() {
-            assert_eq!(usize::from(*b), (i * 7 + 9) % 256);
-        }
-        assert_eq!(unhex(&"09".repeat(TOKEN_LEN)).unwrap(), [9u8; TOKEN_LEN]);
-        assert_eq!(unhex(&"90".repeat(TOKEN_LEN)).unwrap(), [0x90u8; TOKEN_LEN]);
-        assert_eq!(unhex(&"af".repeat(TOKEN_LEN)).unwrap(), [0xAFu8; TOKEN_LEN]);
-        assert!(unhex(&"0g".repeat(TOKEN_LEN)).is_none());
-        assert!(unhex("00").is_none());
     }
 
     /// Every launch error has its own words.
