@@ -1,14 +1,23 @@
 //! `cargo xtask timers`: no sleeps in test code unless a marker names a deadline timer, and no timer in a machine crate
 //! (BUILD.md Testing rule 5, plan 2.3c).
 //!
-//! A timer call in test code needs `// timer: deadline — <reason>` next to it: on a line of the statement that holds the
-//! call, from the statement's first line to the call's line, or on the line directly above that statement. The
-//! check parses the file (`syn`), so the marker binds to the statement, not to a line: a chain that rustfmt splits keeps
-//! its marker (lead, 2026-10-08: the #162 gate went red when `.recv_timeout` moved two lines below the marker).
+//! A timer in test code (a call, or a function reference such as `Receiver::recv_timeout`, also through a `use` rename)
+//! needs `// timer: deadline — <reason>` next to it, in a comment: on a line of the statement that holds the timer, from the
+//! statement's first line to the timer's line, or on the line directly above that statement. The check parses the file
+//! (`syn`), so the marker binds to the statement, not to a line: a chain that rustfmt splits keeps its marker (lead,
+//! 2026-10-08: the #162 gate went red when `.recv_timeout` moved two lines below the marker). The marker text in a string
+//! is not a marker.
+//!
+//! Test code is a file under a `tests` directory, a `*_test.rs` file, a `#[test]` or `#[cfg(test)]` item, and a module file
+//! that test code declares (`#[cfg(test)] mod tests;`), as in `process-check`. The xtask's tests are test code too; only its
+//! fixture workspace (`xtask/fixtures/`) is not checked.
 
 use crate::fsutil::tracked_files;
+use crate::process_check::{declarations, whole_test_files};
 use anyhow::{bail, Result};
 use proc_macro2::{Delimiter, TokenStream, TokenTree};
+use quote::ToTokens;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use syn::visit::Visit;
 
@@ -59,23 +68,76 @@ fn requires_test(meta: &syn::Meta) -> bool {
     }
 }
 
-/// Whether line `index` (0-based) holds the marker with a reason.
-fn has_marker(lines: &[&str], index: usize) -> bool {
-    lines.get(index).is_some_and(|line| {
-        line.find(MARKER)
-            .is_some_and(|at| !line[at + MARKER.len()..].trim().is_empty())
-    })
+/// The start and the end (exclusive) of each literal in `tokens`, as `(1-based line, 0-based column)`, into nested groups.
+fn literal_spans(tokens: TokenStream, spans: &mut Vec<((usize, usize), (usize, usize))>) {
+    for token in tokens {
+        match token {
+            TokenTree::Group(group) => literal_spans(group.stream(), spans),
+            TokenTree::Literal(literal) => {
+                let (start, end) = (literal.span().start(), literal.span().end());
+                spans.push(((start.line, start.column), (end.line, end.column)));
+            }
+            TokenTree::Ident(_) | TokenTree::Punct(_) => {}
+        }
+    }
+}
+
+/// The 1-based lines of `text` that hold the marker with a reason outside every literal of `parsed`: in a comment, not in a
+/// string.
+fn marker_lines(text: &str, parsed: &syn::File) -> BTreeSet<usize> {
+    let mut literals = Vec::new();
+    literal_spans(parsed.to_token_stream(), &mut literals);
+    let mut lines = BTreeSet::new();
+    for (index, line) in text.lines().enumerate() {
+        let marked = line.match_indices(MARKER).any(|(at, _)| {
+            let here = (index + 1, line[..at].chars().count());
+            !line[at + MARKER.len()..].trim().is_empty()
+                && !literals
+                    .iter()
+                    .any(|(start, end)| *start <= here && here < *end)
+        });
+        if marked {
+            lines.insert(index + 1);
+        }
+    }
+    lines
+}
+
+/// The names that a `use` rename gives to a timer (`use std::thread::sleep as nap;`), through chains of renames.
+fn timer_aliases(parsed: &syn::File) -> BTreeSet<String> {
+    struct Renames(Vec<(String, String)>);
+    impl<'ast> Visit<'ast> for Renames {
+        fn visit_use_rename(&mut self, rename: &'ast syn::UseRename) {
+            self.0
+                .push((rename.rename.to_string(), rename.ident.to_string()));
+        }
+    }
+    let mut renames = Renames(Vec::new());
+    renames.visit_file(parsed);
+    let mut aliases = BTreeSet::new();
+    loop {
+        let before = aliases.len();
+        for (name, target) in &renames.0 {
+            if TIMERS.contains(&target.as_str()) || aliases.contains(target) {
+                aliases.insert(name.clone());
+            }
+        }
+        if aliases.len() == before {
+            return aliases;
+        }
+    }
 }
 
 /// Whether the timer on line `call` (1-based), in the statement that starts on line `start`, is marked: on a line from
 /// `start` to `call`, or on the line directly above `start`.
-fn marked(lines: &[&str], start: usize, call: usize) -> bool {
+fn marked(markers: &BTreeSet<usize>, start: usize, call: usize) -> bool {
     let start = start.clamp(1, call.max(1));
-    (start - 1..=call).any(|line| line > 0 && has_marker(lines, line - 1))
+    (start - 1..=call).any(|line| markers.contains(&line))
 }
 
-struct Scan<'a> {
-    lines: Vec<&'a str>,
+struct Scan {
+    markers: BTreeSet<usize>,
+    aliases: BTreeSet<String>,
     machine: bool,
     in_test: bool,
     /// The first lines of the statements that hold the current position, innermost last.
@@ -83,11 +145,15 @@ struct Scan<'a> {
     found: Vec<(usize, String)>,
 }
 
-impl Scan<'_> {
+impl Scan {
+    fn is_timer(&self, name: &str) -> bool {
+        TIMERS.contains(&name) || self.aliases.contains(name)
+    }
+
     fn timer(&mut self, call: usize) {
         if self.in_test {
             let start = self.statements.last().copied().unwrap_or(call);
-            if !marked(&self.lines, start, call) {
+            if !marked(&self.markers, start, call) {
                 self.found.push((
                     call,
                     "timer without `// timer: deadline \u{2014} <reason>` on its statement or the line above it"
@@ -102,13 +168,13 @@ impl Scan<'_> {
         }
     }
 
-    /// A macro body that does not parse as expressions: each identifier in `TIMERS` followed by parentheses.
+    /// A macro body that does not parse as expressions: each timer name followed by parentheses.
     fn scan_tokens(&mut self, tokens: TokenStream) {
         let tokens: Vec<TokenTree> = tokens.into_iter().collect();
         for (i, token) in tokens.iter().enumerate() {
             match token {
                 TokenTree::Group(group) => self.scan_tokens(group.stream()),
-                TokenTree::Ident(ident) if TIMERS.contains(&ident.to_string().as_str()) => {
+                TokenTree::Ident(ident) if self.is_timer(&ident.to_string()) => {
                     if matches!(tokens.get(i + 1), Some(TokenTree::Group(g)) if g.delimiter() == Delimiter::Parenthesis)
                     {
                         self.timer(ident.span().start().line);
@@ -143,7 +209,7 @@ fn item_attrs(item: &syn::Item) -> &[syn::Attribute] {
     }
 }
 
-impl<'ast> Visit<'ast> for Scan<'_> {
+impl<'ast> Visit<'ast> for Scan {
     fn visit_item(&mut self, item: &'ast syn::Item) {
         self.with_test(is_test_item(item_attrs(item)), |scan| {
             syn::visit::visit_item(scan, item);
@@ -182,15 +248,14 @@ impl<'ast> Visit<'ast> for Scan<'_> {
         syn::visit::visit_expr_method_call(self, call);
     }
 
-    fn visit_expr_call(&mut self, call: &'ast syn::ExprCall) {
-        if let syn::Expr::Path(path) = &*call.func {
-            if let Some(last) = path.path.segments.last() {
-                if TIMERS.contains(&last.ident.to_string().as_str()) {
-                    self.timer(last.ident.span().start().line);
-                }
+    /// A call of a timer by its path (`thread::sleep(d)`, `nap(d)`) or a reference to one (`Receiver::recv_timeout`).
+    fn visit_expr_path(&mut self, path: &'ast syn::ExprPath) {
+        if let Some(last) = path.path.segments.last() {
+            if self.is_timer(&last.ident.to_string()) {
+                self.timer(last.ident.span().start().line);
             }
         }
-        syn::visit::visit_expr_call(self, call);
+        syn::visit::visit_expr_path(self, path);
     }
 
     fn visit_macro(&mut self, mac: &'ast syn::Macro) {
@@ -212,44 +277,60 @@ fn first_line(expr: &syn::Expr) -> usize {
     syn::spanned::Spanned::span(expr).start().line
 }
 
-/// The violations of one file: `(1-based line, message)`.
-fn scan(file: &str, text: &str) -> Vec<(usize, String)> {
-    let parsed = match syn::parse_file(text) {
-        Ok(parsed) => parsed,
-        Err(error) => {
-            let line = error.span().start().line;
-            return vec![(
-                line,
-                format!("does not parse, so it cannot be checked: {error}"),
-            )];
-        }
-    };
+/// The violations of one parsed file: `(1-based line, message)`. With `whole`, all of it is test code.
+fn scan_parsed(file: &str, text: &str, parsed: &syn::File, whole: bool) -> Vec<(usize, String)> {
     let mut scan = Scan {
-        lines: text.lines().collect(),
+        markers: marker_lines(text, parsed),
+        aliases: timer_aliases(parsed),
         machine: MACHINE_CRATES.iter().any(|c| file.starts_with(c)),
-        in_test: is_test_file(file),
+        in_test: whole,
         statements: Vec::new(),
         found: Vec::new(),
     };
-    scan.visit_file(&parsed);
+    scan.visit_file(parsed);
     let mut found = scan.found;
     found.sort();
-    found.dedup();
     found
 }
 
-/// The violations over files given as `(path, text)`: `(file, 1-based line, message)`, and the number of Rust files scanned.
-/// The xtask is tooling: its own waits are on child processes and carry no test timer.
-pub fn scan_files(files: &[(String, String)]) -> (usize, Vec<(String, usize, String)>) {
-    let mut scanned = 0;
+/// The violations over files given as `(path, text)`, as `<file>:<line>: <message>`, and the number of Rust files scanned.
+/// A file that does not parse cannot be checked, which is a violation.
+pub fn scan_files(files: &[(String, String)]) -> (usize, Vec<String>) {
+    let names: BTreeSet<&str> = files.iter().map(|(file, _)| file.as_str()).collect();
     let mut found = Vec::new();
+    let mut parsed = BTreeMap::new();
+    let mut declared = BTreeMap::new();
+    let mut scanned = 0;
     for (file, text) in files {
-        if !file.ends_with(".rs") || file.starts_with("xtask/") {
+        if !file.ends_with(".rs") || file.starts_with("xtask/fixtures/") {
             continue;
         }
         scanned += 1;
-        for (line, message) in scan(file, text) {
-            found.push((file.clone(), line, message));
+        match syn::parse_file(text) {
+            Ok(tree) => {
+                declared.insert(file.as_str(), declarations(file, &tree, &names));
+                parsed.insert(file.as_str(), (text, tree));
+            }
+            Err(error) => found.push(format!(
+                "{file}:{}: does not parse, so it cannot be checked: {error}",
+                error.span().start().line
+            )),
+        }
+    }
+    let tests = parsed
+        .keys()
+        .copied()
+        .filter(|file| is_test_file(file))
+        .collect();
+    let whole = whole_test_files(&declared, tests).unwrap_or_else(|error| {
+        found.push(error);
+        BTreeSet::new()
+    });
+    for (file, (text, tree)) in &parsed {
+        for (line, message) in
+            scan_parsed(file, text, tree, whole.contains(file) || is_test_file(file))
+        {
+            found.push(format!("{file}:{line}: {message}"));
         }
     }
     (scanned, found)
@@ -267,16 +348,22 @@ pub fn command(root: &Path, args: &[String]) -> Result<()> {
     }
     let (scanned, violations) = scan_files(&files);
     println!("timers: {scanned} Rust files scanned");
-    let violations: Vec<String> = violations
-        .iter()
-        .map(|(file, line, message)| format!("{file}:{line}: {message}"))
-        .collect();
     crate::tools::verdict(&violations)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The violations of one file, whose own path tells whether it is test code.
+    fn scan(file: &str, text: &str) -> Vec<(usize, String)> {
+        scan_parsed(
+            file,
+            text,
+            &syn::parse_file(text).unwrap(),
+            is_test_file(file),
+        )
+    }
 
     fn violations(file: &str, text: &str) -> Vec<usize> {
         scan(file, text).into_iter().map(|(l, _)| l).collect()
@@ -402,30 +489,89 @@ mod tests {
 
     #[test]
     fn a_file_that_does_not_parse_is_a_violation() {
-        let found = scan(TEST, "fn f( {\n");
+        let (scanned, found) = scan_files(&[file(TEST, "fn f( {\n")]);
+        assert_eq!(scanned, 1);
         assert_eq!(found.len(), 1);
-        assert!(found[0].1.starts_with("does not parse"), "{found:?}");
+        assert!(
+            found[0].starts_with(&format!("{TEST}:1: does not parse")),
+            "{found:?}"
+        );
     }
 
     fn file(path: &str, text: &str) -> (String, String) {
         (path.to_string(), text.to_string())
     }
 
+    const UNMARKED: &str = "timer without `// timer: deadline \u{2014} <reason>` on its statement or the line above it";
+
+    /// #181 B4: the xtask's tests are test code too, a module file that test code declares included; only the fixture
+    /// workspace is not checked.
     #[test]
-    fn files_are_scanned_with_their_path_and_line_and_xtask_is_skipped() {
+    fn files_are_scanned_with_their_path_and_line_and_xtask_tests_are_test_code() {
         let files = [
             file("crates/x/tests/a.rs", "fn f() {\n    sleep(d);\n}\n"),
-            file("xtask/src/a.rs", "fn f() { sleep(d); }\n"),
+            file(
+                "xtask/src/a.rs",
+                "fn f() { sleep(d); }\n#[cfg(test)]\nmod tests;\n",
+            ),
+            file("xtask/src/a/tests.rs", "fn t() {\n    sleep(d);\n}\n"),
+            file("xtask/fixtures/w/tests/b.rs", "fn t() { sleep(d); }\n"),
             file("README.md", "sleep(d);\n"),
             file("crates/x/tests/b.rs", "fn fine() {}\n"),
         ];
         let (scanned, found) = scan_files(&files);
-        assert_eq!(scanned, 2);
-        assert_eq!(found.len(), 1);
+        assert_eq!(scanned, 4);
         assert_eq!(
-            (found[0].0.as_str(), found[0].1),
-            ("crates/x/tests/a.rs", 2)
+            found,
+            [
+                format!("crates/x/tests/a.rs:2: {UNMARKED}"),
+                format!("xtask/src/a/tests.rs:2: {UNMARKED}"),
+            ]
         );
+    }
+
+    /// When the file of a test module is missing, that is a violation, and the files under `tests` are still test code.
+    #[test]
+    fn a_missing_test_module_is_a_violation() {
+        let files = [
+            file("crates/x/src/lib.rs", "#[cfg(test)]\nmod gone;\n"),
+            file("crates/x/tests/a.rs", "fn f() {\n    sleep(d);\n}\n"),
+        ];
+        assert_eq!(
+            scan_files(&files).1,
+            [
+                "crates/x/src/lib.rs:2: the file of the test module `gone` is not found"
+                    .to_string(),
+                format!("crates/x/tests/a.rs:2: {UNMARKED}"),
+            ]
+        );
+    }
+
+    /// #181 B4: the marker counts only in a comment; the same text in a string (on one line or across lines) marks nothing.
+    #[test]
+    fn a_marker_in_a_string_is_not_a_marker() {
+        let above =
+            "fn f() {\n    let s = \"// timer: deadline \u{2014} reason\";\n    sleep(d);\n}\n";
+        assert_eq!(violations(TEST, above), [3]);
+        let same = "fn f() {\n    sleep(d); let s = \"// timer: deadline \u{2014} reason\";\n}\n";
+        assert_eq!(violations(TEST, same), [2]);
+        let raw =
+            "fn f() {\n    let s = r\"\n// timer: deadline \u{2014} reason\";\n    sleep(d);\n}\n";
+        assert_eq!(violations(TEST, raw), [4]);
+        let after_string =
+            "fn f() {\n    sleep(d); let s = \"a\"; // timer: deadline \u{2014} reason\n}\n";
+        assert!(violations(TEST, after_string).is_empty());
+    }
+
+    /// #181 B4: a reference to a timer is a timer, and so is a `use` rename of one, through a chain of renames.
+    #[test]
+    fn a_timer_reference_and_a_renamed_timer_are_timers() {
+        let reference = "fn f() {\n    let wait = Receiver::recv_timeout;\n}\n";
+        assert_eq!(violations(TEST, reference), [2]);
+        let marked = "fn f() {\n    // timer: deadline \u{2014} reason\n    let wait = Receiver::recv_timeout;\n}\n";
+        assert!(violations(TEST, marked).is_empty());
+        let renamed = "use std::thread::sleep as nap;\nuse nap as rest;\nuse other::f as g;\nfn f() {\n    nap(d);\n    rest(d);\n    m! { a; rest(d); }\n    g(d);\n}\n";
+        assert_eq!(violations(TEST, renamed), [5, 6, 7]);
     }
 
     /// A `#[cfg(test)]` item of each kind that can hold code makes its timers test timers, which need a marker; the same items

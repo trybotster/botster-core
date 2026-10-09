@@ -718,7 +718,7 @@ fn scan_parsed(file: &str, parsed: &syn::File, whole: bool) -> Vec<Finding> {
 }
 
 /// A module that a file declares without a body (`mod name;`).
-struct Declared {
+pub(crate) struct Declared {
     name: String,
     line: usize,
     /// Whether the declaration is test code: a test attribute on it or on an inline module around it.
@@ -784,57 +784,72 @@ fn normalize(path: &str) -> String {
     segments.join("/")
 }
 
-/// The findings of `sources` (each file of the run with its text). A module file is test code as a whole when a test
-/// declaration (`#[cfg(test)] mod helpers;`, `#[path]` included) or a file that is test code as a whole declares it, to a
-/// fixed point through the module tree.
+/// The module declarations of the parsed `file`; `files` are the files of the run.
+pub(crate) fn declarations(file: &str, tree: &syn::File, files: &BTreeSet<&str>) -> Vec<Declared> {
+    let mut declared = Vec::new();
+    let dir = crate::platform_code::module_dir(file);
+    declared_modules(file, &tree.items, &dir, false, files, &mut declared);
+    declared
+}
+
+/// The files of `declared` (each parsed file with its module declarations) that are test code as a whole: those of
+/// `whole`, and, to a fixed point through the module tree, each module file that a test declaration (`#[cfg(test)] mod
+/// helpers;`, `#[path]` included) or a file that is test code as a whole declares. A declared file that is not parsed
+/// (one that the run skips) stays out.
+///
+/// # Errors
+/// The file of a module that is test code is not among the files of the run.
+pub(crate) fn whole_test_files<'a>(
+    declared: &BTreeMap<&'a str, Vec<Declared>>,
+    mut whole: BTreeSet<&'a str>,
+) -> Result<BTreeSet<&'a str>, String> {
+    loop {
+        let mut added = Vec::new();
+        for (file, modules) in declared {
+            let all = whole.contains(file);
+            for module in modules.iter().filter(|module| all || module.test) {
+                let Some(child) = &module.file else {
+                    return Err(format!(
+                        "{file}:{}: the file of the test module `{}` is not found",
+                        module.line, module.name
+                    ));
+                };
+                added.extend(declared.get_key_value(child.as_str()).map(|(key, _)| *key));
+            }
+        }
+        let before = whole.len();
+        whole.extend(added);
+        if whole.len() == before {
+            return Ok(whole);
+        }
+    }
+}
+
+/// The findings of `sources` (each file of the run with its text). A module file is test code as a whole as
+/// `whole_test_files` tells.
 ///
 /// # Errors
 /// A file does not parse, or the file of a module that is test code is not among `sources`.
 pub fn scan_files(sources: &BTreeMap<String, String>) -> Result<Vec<Finding>, String> {
     let files: BTreeSet<&str> = sources.keys().map(String::as_str).collect();
     let mut parsed = BTreeMap::new();
+    let mut declared = BTreeMap::new();
     for (file, text) in sources {
         if scope(file) == Scope::Skip {
             continue;
         }
         let tree = parse(file, text)?;
-        let mut declared = Vec::new();
-        let dir = crate::platform_code::module_dir(file);
-        declared_modules(file, &tree.items, &dir, false, &files, &mut declared);
-        parsed.insert(file.as_str(), (tree, declared));
+        declared.insert(file.as_str(), declarations(file, &tree, &files));
+        parsed.insert(file.as_str(), tree);
     }
-    let mut whole: BTreeSet<&str> = parsed
+    let all = parsed
         .keys()
         .copied()
         .filter(|file| scope(file) == Scope::All)
         .collect();
-    loop {
-        let mut added = Vec::new();
-        for (file, (_, declared)) in &parsed {
-            let all = whole.contains(file);
-            for module in declared.iter().filter(|module| all || module.test) {
-                match &module.file {
-                    Some(child) if parsed.contains_key(child.as_str()) => {
-                        added.push(child.as_str());
-                    }
-                    Some(_) => {}
-                    None => {
-                        return Err(format!(
-                            "{file}:{}: the file of the test module `{}` is not found",
-                            module.line, module.name
-                        ))
-                    }
-                }
-            }
-        }
-        let before = whole.len();
-        whole.extend(added);
-        if whole.len() == before {
-            break;
-        }
-    }
+    let whole = whole_test_files(&declared, all)?;
     let mut findings = Vec::new();
-    for (file, (tree, _)) in &parsed {
+    for (file, tree) in &parsed {
         findings.extend(scan_parsed(file, tree, whole.contains(file)));
     }
     Ok(findings)
