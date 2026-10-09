@@ -185,22 +185,31 @@ second `Launch` for a launch that already happened.
 | `Running` or `Exited` | `NotLaunched` or `Spawning` | `Lost(RegistryCorrupt)`: the worker is authenticated (AD-6), so the durable row is the wrong record, which is a corrupt registry record although its bytes decode (R-35 correction, contracts `main` `c3ed727`). Defensive: it cannot happen under AD-7 (those rows are written after `Launched`), and it needs no transcript. |
 
 - **Steward ruling R-35** (contracts `main` `f969f5e`; no amendment) settles this table. The code cites R-35.
-- **A retry keeps the intent** (P5-F22, round 2). An adoption that ends `Lost(WorkerUnreachable)` or
-  `Lost(WorkerVersion)` **never rewrites the row**: the row keeps the state that its last write recorded (`Starting` or
-  `Stopping`), and the session keeps that recorded state in memory. `Adopt(id)` runs the handshake again and applies the
-  two tables above with **the recorded state of the row** (the intent) and **the payload state of the new report** (the
-  facts). So:
-  - **exactly one payload spawn.** The condition is the worker's **acceptance** of a `Launch`, not the host's send: a sent
-    frame can be lost, partial, or not decoded before the fence closes the connection. A worker that accepted a `Launch`
-    reports `Spawning`, `Running`, `Exited` or `LaunchFailed`, and the retry sends no `Launch`. A worker that did not accept
-    it reports `NotLaunched`, and the retry performs R-35 (a): it sends the one `Launch`. The worker accepts at most one
-    `Launch` in its life, so a second one can never spawn a second payload;
-  - a `Stopping` row never gets a `Launch`, on the first attempt or on a retry;
-  - a `Lost(WorkerGone)` or `Lost(RegistryCorrupt)` row is not adoptable (AD-2), so the retry rule does not apply to it.
-  - Tests: (1) a `Starting` row whose first attempt's `Launch` the worker accepted, then the link was lost; the retry
-    adopts with no second `Launch` and one spawn. (2) A `Starting` row whose first attempt's `Launch` was lost before the
-    worker accepted it; the retry's report is `NotLaunched`, the retry sends the `Launch`, and there is one spawn. (3) A
-    `Stopping` row whose first attempt was lost; the retry ends `Exited{cause: HostStop}` with no `Launch`.
+- **`Adopt(id)` re-reads the worker** (steward ruling R-36, contracts `main` `c62085f`, with the follow-up `d18b6de`; no
+  amendment). This replaces the round 2 rule "a retry keeps the intent" (P5-F22).
+  - Every end is written to the row, `Lost(WorkerUnreachable)` and `Lost(WorkerVersion)` too. A `Lost` row keeps the
+    worker's identity and token, **not** the earlier state.
+  - `Adopt(id)` is always admitted for a `Lost(WorkerUnreachable | WorkerVersion)` session, whatever path ended it (A2-1).
+    `WrongState` is only for a session in another state.
+  - The handshake of 3 runs again. The report alone decides the result (AD-3), and no `Launch` and no stop is sent:
+
+    | Report | Result |
+    |---|---|
+    | `Running` | `Running` |
+    | `Exited` | `Exited`, with the cause from the report alone (no earlier `Stop` counts: it completed, LC-5) |
+    | `NotLaunched` | `Lost(StartInterrupted)`: a start that never reached its payload (AD-2). No `Launch` on a `Lost` row. |
+    | `Spawning` | the host waits for the spawn's answer with no `Launch`, bounded by `startup` (TM-3), as R-35 (b); then `Running` or the row below |
+    | `LaunchFailed` | the outcome of a failed ordinary start (LC-4) |
+
+    A probe, connect, hello or deadline failure is `Lost` with the reason that applies now (AD-2).
+  - There is no `Stopping` outcome. A host that still wants the payload ended calls `Stop` after the adoption.
+  - **Exactly one payload spawn:** the first adoption of a `Starting` row sends at most one `Launch` (R-35 (a)), and a
+    retry sends none. The worker also accepts at most one `Launch` in its life.
+  - A row that records `Lost(WorkerUnreachable)` or `Lost(WorkerVersion)` is posted as recorded by `AdoptAll`, with no
+    handshake; `Adopt(id)` may retry it.
+  - Tests: an adoption that loses its link after the `Launch`, then a retry with each report (`Running` with no second
+    `Launch`; `NotLaunched` gives `Lost(StartInterrupted)`; `Spawning` waits; `LaunchFailed`); a stop that meets a broken
+    link, then a retry with `Running`, `Exited` and `NotLaunched`, on the same handle and on a new one.
 - **Core never posts `Lost(Other)`** (R-35 correction: AD-2 names `Other` only as the value a host maps an unknown reason
   to). Every `Lost` that Core posts carries a listed AD-2 reason. P1's placeholder `Lost(Other)` for every decodable row
   violates AD-1, and this per-state adoption replaces it. The PR lists every Core-side construction of `Lost(Other)` in the
@@ -214,7 +223,7 @@ second `Launch` for a launch that already happened.
 
 - Each row posts one `SessionState` (LC-11, EV-5); `Completed{AdoptAll}` follows the last one. Rows whose handshakes are
   in flight do not block each other; a row posts when its handshake ends.
-- `Adopt(id)`: the same row path for one `Lost(WorkerUnreachable | WorkerVersion)` session (AD-2 retry).
+- `Adopt(id)`: the handshake for one `Lost(WorkerUnreachable | WorkerVersion)` session, with the R-36 table above.
 - AD-5 is LC-2: a live host holds the data-dir lock, so a second host cannot open.
 - ID-2: the session keeps its `InstanceId` from the row; operations of the old host do not survive (ID-2).
 
@@ -270,15 +279,13 @@ second `Launch` for a launch that already happened.
   stop's own flow, so the outcomes are the ordinary ones.
 - **No session before its state.** An adopting row is in the admission state `Adopting`: `get`, `list` and every
   operation see no session until the row's one `SessionState` is posted (`UnknownSession`). `StopAll` does not target it.
-- **The retry rule** keeps the row's intent in `Session.row_state`. Every row write of the session (`to_row`,
-  `UpdateMetadata`, `SetNotificationPolicy`) records that state, so no write rewrites the intent. A lost link during an
-  adopted start is `Lost(WorkerUnreachable)` (the worker may have accepted the `Launch`), not the ordinary start's
-  `Exited`. **No row records an indeterminate end** (`End::indeterminate`; integration A1): every path that ends
-  `Lost(WorkerUnreachable)` or `Lost(WorkerVersion)` keeps the intent instead. The start's out-of-set protocol keeps
-  `Starting`; the stop path (`stop_grace` with a broken link) keeps `Stopping`, so a retry resends the stop or finds the
-  payload ended (`Exited{HostStop}`); an adoption keeps the row's recorded state. So `Adopt(id)` always has an intent
-  (A2-1 gives it only `UnknownSession` and `WrongState`), and a row that records either end is a corrupt record. A retry
-  that ends in the state that the session shows posts no second event; the `Adopt` result is the record.
+- **The retry** follows R-36 (part 5). `AdoptFlow.recorded` is the row's state for `AdoptAll` and `None` for `Adopt(id)`.
+  Every end is written, with the worker's identity; an adoption also writes a state that it posts when the row records
+  another one (a retried `Lost` row that is `Running` again records `Running`). A lost link during an adopted start is
+  `Lost(WorkerUnreachable)` (the worker may have accepted the `Launch`), not the ordinary start's `Exited`. A retry that
+  ends in the state that the session shows posts no second event; the `Adopt` result is the record.
+- **An end during the post** (review P5-F25): an end that the worker reports while the adoption waits to post `Running`
+  is applied after `Running` (OR-2).
 - **An `Exited` row** is adopted with the exit that the row recorded (the report confirms that the payload ended).
 - **`connect_worker(instance)`**, not `connect_worker(endpoint)`: the edge owns the endpoint path, because the edge also
   passes `--endpoint` at the spawn. The default of the `HostEdges` method answers `None`: until the worker binds its
