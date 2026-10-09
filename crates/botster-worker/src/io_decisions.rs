@@ -120,6 +120,11 @@ pub struct WriteInterest {
     pub wants_write: bool,
 }
 
+/// A PTY event ends the wait of a write that the PTY did not take only when the PTY is writable and that write waits.
+pub fn pty_writable(wants_write: bool, writable: bool) -> bool {
+    wants_write && writable
+}
+
 pub fn pty_write_interest(registered: bool, wants_write: bool, on: bool) -> WriteInterest {
     WriteInterest {
         reregister: registered && on != wants_write,
@@ -255,6 +260,16 @@ mod tests {
             report(Err(EIO), false)
         );
         assert_eq!(pty_write(None, 5), report(Err(EIO), false));
+    }
+
+    /// Plan 2.5: only a writable PTY with a waiting write gives `PtyWritable`; a readable-only event or a write that does
+    /// not wait gives none.
+    #[test]
+    fn only_a_writable_event_ends_the_wait_of_a_write() {
+        assert!(pty_writable(true, true));
+        assert!(!pty_writable(true, false));
+        assert!(!pty_writable(false, true));
+        assert!(!pty_writable(false, false));
     }
 
     /// Plan 2.5: write interest changes the poll only when the PTY is in it and the interest differs.

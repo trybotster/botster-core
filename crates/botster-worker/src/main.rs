@@ -201,7 +201,7 @@ impl Driver {
                             event.is_read_closed(),
                             event.is_error(),
                         );
-                        if event.is_writable() && self.pty_wants_write {
+                        if io_decisions::pty_writable(self.pty_wants_write, event.is_writable()) {
                             self.set_pty_write_interest(false)?;
                             self.inputs.push_back(Input::PtyWritable);
                         }
