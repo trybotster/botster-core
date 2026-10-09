@@ -6,10 +6,11 @@
 //! no-ops otherwise.
 #![cfg(feature = "slow")]
 
+use botster_test_process::anchor::start_anchor;
 use botster_test_process::anchor::Report;
-use botster_test_process::platform::{await_end, pid, start_time, Waited};
+use botster_test_process::platform::{await_end, await_status, peek, pid, start_time, Waited};
 use botster_test_process::{
-    eof, first_line, Blocker, Bounded, Deadline, Guard, OwnedChild, CLEANUP,
+    eof, first_line, quoted, Blocker, Bounded, Deadline, Guard, OwnedChild, CLEANUP,
 };
 use std::os::unix::process::{CommandExt, ExitStatusExt};
 use std::path::{Path, PathBuf};
@@ -38,12 +39,16 @@ fn helper_dir() -> Option<PathBuf> {
     std::env::var_os(HELPER).map(PathBuf::from)
 }
 
-/// Production's reap of its own child: it observes the exit within the cleanup bound, then reaps by the exact pid. A child
-/// that someone else reaped fails here (the wait would report no such child).
+/// Production's reap of its own child: its status is available within the cleanup bound, then it is reaped by the exact pid
+/// (a wait that cannot block). A child that someone else reaped fails here (the check would report no such child).
 fn production_reap(child: &mut Child) -> ExitStatus {
-    let waited = await_end(pid(child.id()).unwrap(), Deadline::cleanup()).unwrap();
-    assert_ne!(waited, Waited::Deadline, "the child did not end");
-    child.wait().expect("production still owns its child")
+    let status = await_status(pid(child.id()).unwrap(), Deadline::cleanup())
+        .expect("production still owns its child");
+    assert!(status.is_some(), "the child did not end");
+    child
+        .try_wait()
+        .expect("production still owns its child")
+        .expect("a status is available")
 }
 
 /// This process's stderr, for a child's stdout: a helper reports on stderr, because the test harness writes its own lines
@@ -204,11 +209,11 @@ fn the_guard_ends_the_group_and_production_still_reaps_its_own_child() {
     let leader = production.id();
     assert_eq!((report.leader.pid, report.group), (leader, leader));
     assert_eq!(
-        start_time(pid(leader).unwrap()),
+        start_time(pid(leader).unwrap()).unwrap(),
         Some(report.leader.start_time)
     );
     assert_eq!(
-        start_time(pid(report.anchor.pid).unwrap()),
+        start_time(pid(report.anchor.pid).unwrap()).unwrap(),
         Some(report.anchor.start_time)
     );
     let (mut rest, member) = first_line(production.stdout.take().unwrap());
@@ -371,7 +376,7 @@ fn a_leader_that_moved_to_another_group_is_refused_and_not_signalled() {
     let report = one_anchor(&mut guard);
     assert_eq!(report.group, holder.id());
     let (_rest, line) = first_line(production.take_stderr().unwrap());
-    assert_eq!(line, "moved\n");
+    assert_eq!(line, format!("moved {}\n", production.id()));
     let message = drop_failure(guard);
     assert_eq!(
         message,
@@ -395,7 +400,7 @@ fn helper_moves_its_group() {
         return;
     }
     rustix::process::setpgid(None, None).unwrap();
-    eprintln!("moved");
+    eprintln!("moved {}", std::process::id());
     let _ = Bounded::new(std::io::stdin()).to_eof(Deadline::cleanup());
 }
 
@@ -417,7 +422,7 @@ fn an_anchor_survives_the_hangup_of_its_session_leader() {
     assert_eq!(production_reap(&mut production).code(), Some(4));
     let anchor = pid(report.anchor.pid).unwrap();
     assert_eq!(
-        start_time(anchor),
+        start_time(anchor).unwrap(),
         Some(report.anchor.start_time),
         "the anchor survived its leader's exit"
     );
@@ -429,4 +434,227 @@ fn an_anchor_survives_the_hangup_of_its_session_leader() {
         "the anchor ended with its group"
     );
     drop(pty);
+}
+
+/// #171 TP1: the status of an exited child is awaited within the deadline and read without a reap: a second check finds it
+/// again, and the child's own reap gets it. Once the child is reaped, its pid names no child of this process: the check fails.
+#[test]
+fn the_status_of_an_exited_child_is_awaited_without_a_reap() {
+    let mut child = Command::new("/bin/sh")
+        .args(["-c", "exit 7"])
+        .spawn()
+        .unwrap();
+    let id = pid(child.id()).unwrap();
+    let status = await_status(id, Deadline::cleanup()).unwrap();
+    assert_eq!(status.unwrap().code(), Some(7));
+    assert_eq!(peek(id).unwrap().unwrap().code(), Some(7), "not reaped");
+    assert_eq!(child.try_wait().unwrap().unwrap().code(), Some(7));
+    assert!(peek(id).is_err(), "reaped: no longer a child");
+}
+
+/// #171 TP4: an intermediate stage that does not end fails the start at the deadline, and on that path it is killed and
+/// reaped. The end of file of a pipe that only the intermediate held proves that no orphan is left.
+#[test]
+fn a_stalled_intermediate_fails_the_start_and_leaves_no_orphan() {
+    let dir = tempfile::tempdir().unwrap();
+    let blocker = Blocker::new(dir.path(), "block").unwrap();
+    let (reader, writer) = std::io::pipe().unwrap();
+    let error = start_anchor(
+        blocker.command().stderr(writer),
+        Deadline::after(Duration::ZERO),
+    )
+    .unwrap_err();
+    assert_eq!(error.to_string(), "the intermediate stage did not end");
+    eof(reader);
+}
+
+/// #171 TP4: the start needs an intermediate that ends with code 0 and the anchor's acknowledgement.
+#[test]
+fn the_start_needs_an_intermediate_that_ends_with_code_0_and_an_acknowledgement() {
+    let start = |script: &str| {
+        start_anchor(
+            Command::new("/bin/sh").args(["-c", script]),
+            Deadline::cleanup(),
+        )
+        .map_err(|error| error.to_string())
+    };
+    assert_eq!(
+        start("exit 1"),
+        Err("the intermediate stage failed: exit status: 1".into())
+    );
+    assert_eq!(
+        start("exit 0"),
+        Err("the anchor ended before it held the group".into())
+    );
+    assert_eq!(start("/bin/echo ready"), Ok(()));
+}
+
+/// #171 TP4: when the test dies before any anchor registered with its guard, no process of the wrapped program is left: the
+/// wrapper fails to connect or to start its anchor, or the anchor sees its connection end and ends the group. The end of
+/// file of a pipe that the wrapped program holds proves it, whichever of these happened.
+#[test]
+fn a_test_that_dies_before_its_anchor_registers_leaves_no_orphan() {
+    let dir = tempfile::tempdir().unwrap();
+    let _blocker = Blocker::new(dir.path(), "block").unwrap();
+    let mut parent = OwnedChild::spawn_group(
+        helper("helper_unregistered_parent", dir.path())
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped()),
+    )
+    .unwrap();
+    let (rest, line) = first_line(parent.take_stderr().unwrap());
+    assert_eq!(line, "started\n");
+    parent.kill().unwrap();
+    eof(rest.into_inner());
+    assert_eq!(parent.status().signal(), Some(KILL));
+}
+
+#[test]
+fn helper_unregistered_parent() {
+    let Some(dir) = helper_dir() else { return };
+    let guard = guard(&dir);
+    let script = dir.join("wrapped.sh");
+    guard
+        .wrapper(
+            &script,
+            Path::new("/bin/cat"),
+            &[dir.join("block").to_str().unwrap()],
+        )
+        .unwrap();
+    // Production's child holds this process's stderr, the test's pipe, in its own group. No anchor is awaited.
+    let _production = OwnedChild::spawn(
+        Command::new(&script)
+            .stdin(Stdio::null())
+            .stdout(stderr())
+            .process_group(0),
+    )
+    .unwrap();
+    eprintln!("started");
+    // The test kills this process while it waits here: neither the guard's drop nor any other cleanup runs.
+    let _ = Bounded::new(std::io::stdin()).to_eof(Deadline::cleanup());
+    std::mem::forget(guard);
+}
+
+/// #171 TP3: production hands its wrapped program a pipe writer with no close-on-exec. Once production and the program have
+/// closed it, the reader gets its end of file while the anchor still lives: no helper stage holds the writer.
+#[test]
+fn a_writer_that_production_hands_the_program_reaches_no_helper_stage() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut guard = guard(dir.path());
+    let script = dir.path().join("wrapped.sh");
+    guard
+        .wrapper(&script, Path::new("/bin/sh"), &["-c", "exit 4"])
+        .unwrap();
+    // `pipe` sets no close-on-exec: the writer is inherited by every child that production starts.
+    let (reader, writer) = rustix::pipe::pipe().unwrap();
+    let mut production = Command::new(&script)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .process_group(0)
+        .spawn()
+        .unwrap();
+    let report = one_anchor(&mut guard);
+    drop(writer);
+    assert_eq!(production_reap(&mut production).code(), Some(4));
+    eof(std::fs::File::from(reader));
+    assert_eq!(
+        start_time(pid(report.anchor.pid).unwrap()).unwrap(),
+        Some(report.anchor.start_time),
+        "the anchor still lives"
+    );
+    drop(guard);
+}
+
+/// #171 TP5: a test that panics drops its guard while the panic unwinds. The guard still ends production's group, and
+/// production still reaps its own child.
+#[test]
+fn a_guard_dropped_by_a_test_panic_ends_the_group_and_production_still_reaps_its_child() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut blocker = Blocker::new(dir.path(), "block").unwrap();
+    let mut production = None;
+    let mut output = None;
+    let panicked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let mut guard = guard(dir.path());
+        let child = production.insert(start(
+            &guard,
+            dir.path(),
+            Path::new("/bin/cat"),
+            &[blocker.path().to_str().unwrap()],
+        ));
+        one_anchor(&mut guard);
+        blocker.send(b"up\n").unwrap();
+        let (rest, line) = first_line(child.stdout.take().unwrap());
+        assert_eq!(line, "up\n");
+        output = Some(rest);
+        panic!("the test fails");
+    }))
+    .expect_err("the test panicked");
+    assert_eq!(panicked.downcast_ref::<&str>(), Some(&"the test fails"));
+    assert_eq!(
+        production_reap(production.as_mut().unwrap()).signal(),
+        Some(KILL)
+    );
+    eof(output.unwrap().into_inner());
+}
+
+/// #171 TP6: a member that moves to its own group when `TERM` reaches it is not left live by a `KILL` of the old group. After
+/// the grace the anchor verifies the members again, refuses, and sends no `KILL`: the leader, which ignores `TERM`, later
+/// ends by itself with code 0. The leader keeps a member live through the grace, so this test waits the whole grace.
+#[test]
+fn a_member_that_moves_after_term_is_refused_and_no_kill_is_sent() {
+    let dir = tempfile::tempdir().unwrap();
+    let blocker = Blocker::new(dir.path(), "block").unwrap();
+    let member = dir.path().join("member.sh");
+    std::fs::write(
+        &member,
+        format!(
+            "exe={}\ntrap 'exec \"$exe\" --exact helper_moves_its_group --nocapture' TERM\n/bin/echo member >&2\n{} & wait\n",
+            quoted(&std::env::current_exe().unwrap()),
+            blocker.shell()
+        ),
+    )
+    .unwrap();
+    // The member reads the leader's stdin, the test's pipe, so it lives until the test closes that pipe.
+    let leader = format!(
+        "/bin/sh {} 0<&0 & trap '' TERM; /bin/echo leader >&2; wait",
+        quoted(&member)
+    );
+    let mut guard = guard(dir.path()).grace(CLEANUP);
+    let script = dir.path().join("wrapped.sh");
+    guard
+        .wrapper(&script, Path::new("/bin/sh"), &["-c", &leader])
+        .unwrap();
+    let mut production = OwnedChild::spawn(
+        Command::new(&script)
+            .env(HELPER, dir.path())
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped())
+            .process_group(0),
+    )
+    .unwrap();
+    let report = one_anchor(&mut guard);
+    let (mut rest, first) = first_line(production.take_stderr().unwrap());
+    let second = rest.line(Deadline::cleanup()).unwrap().unwrap();
+    let mut ready = [first, second];
+    ready.sort();
+    assert_eq!(ready, ["leader\n", "member\n"]);
+    let message = drop_failure(guard);
+    let moved = rest.line(Deadline::cleanup()).unwrap().unwrap();
+    let mover: u32 = moved
+        .strip_prefix("moved ")
+        .and_then(|rest| rest.trim().parse().ok())
+        .unwrap_or_else(|| panic!("{moved}"));
+    assert_eq!(
+        message,
+        format!(
+            "the group guard's cleanup failed: refused: the member {mover} moved from group {0} to group {mover}",
+            report.group
+        )
+    );
+    // No KILL reached the old group: the leader ends by itself once the member ends at the end of its stdin.
+    drop(production.take_stdin());
+    assert_eq!(production.status().code(), Some(0));
+    eof(rest.into_inner());
 }

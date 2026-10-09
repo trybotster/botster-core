@@ -1,10 +1,12 @@
 //! The anchor binary of the group guard: `botster-test-anchor wrap <socket> <grace ns> <cleanup ns> <program> [args...]`. The stages and
 //! the protocol are in `botster_test_process::anchor`.
 
-use botster_test_process::anchor::{identity, send, Identity, Line, Report, WRAP_FAILED};
-use botster_test_process::platform::{await_end, live_members, pid, start_time, Waited};
+use botster_test_process::anchor::{
+    identity, send, start_anchor, stayed, verdict, Identity, Line, Report, WRAP_FAILED,
+};
+use botster_test_process::platform::{await_end, live_members, pid, start_time};
 use botster_test_process::rounds::{end_group, end_members};
-use botster_test_process::{Bounded, Deadline};
+use botster_test_process::Deadline;
 use rustix::process::{getpgid, getpgrp, kill_process_group, Signal};
 use std::ffi::OsString;
 use std::io::{self, Read};
@@ -64,7 +66,8 @@ fn wrap(args: &[OsString]) -> io::Result<std::convert::Infallible> {
         // the anchor's one acknowledgement back here.
         let input: OwnedFd = guard.try_clone()?.into();
         let output: OwnedFd = guard.try_clone()?.into();
-        let mut intermediate = Command::new(std::env::current_exe()?)
+        let mut intermediate = Command::new(std::env::current_exe()?);
+        intermediate
             .args([
                 "intermediate".to_string(),
                 leader.pid.to_string(),
@@ -74,30 +77,10 @@ fn wrap(args: &[OsString]) -> io::Result<std::convert::Infallible> {
                 cleanup.to_string(),
             ])
             .stdin(Stdio::from(input))
-            .stderr(Stdio::from(output))
-            .stdout(Stdio::piped())
-            .spawn()?;
-        let acknowledgement = intermediate
-            .stdout
-            .take()
-            .ok_or_else(|| other("no pipe from the anchor"))?;
-        // The only child of this process, reaped by its exact pid once its exit was observed. The real program inherits no
-        // child.
-        let deadline = Deadline::cleanup();
-        if await_end(pid(intermediate.id())?, deadline)? == Waited::Deadline {
-            return Err(other("the intermediate stage did not end"));
-        }
-        // A wait for the exact pid of the exited child: it returns once the exit completes.
-        let status = intermediate.wait()?;
-        if !status.success() {
-            return Err(other(format!("the intermediate stage failed: {status}")));
-        }
-        // The anchor writes its one line only once it holds the group; an end of file means that it failed first.
-        match Bounded::new(acknowledgement).line(deadline) {
-            Ok(Some(_)) => Ok(()),
-            Ok(None) => Err(other("the anchor ended before it held the group")),
-            Err(error) => Err(other(error)),
-        }
+            .stderr(Stdio::from(output));
+        // The intermediate is the only child of this process: owned, and reaped by its exact pid within the cleanup bound
+        // on every path. The real program inherits no child.
+        start_anchor(&mut intermediate, Deadline::cleanup())
     })();
     if let Err(error) = result {
         let _ = send(
@@ -121,8 +104,9 @@ fn wrap(args: &[OsString]) -> io::Result<std::convert::Infallible> {
     Err(error)
 }
 
-/// Intermediate: starts the anchor with the inherited descriptors and exits without waiting for it.
+/// Intermediate: starts the anchor with the inherited descriptors 0 to 2 and exits without waiting for it.
 fn intermediate(args: &[OsString]) -> io::Result<()> {
+    close_inherited()?;
     Command::new(std::env::current_exe()?)
         .arg("anchor")
         .args(args)
@@ -130,27 +114,74 @@ fn intermediate(args: &[OsString]) -> io::Result<()> {
     Ok(())
 }
 
+/// The directory that lists this process's open descriptors.
+#[cfg(target_os = "linux")]
+const OPEN_DESCRIPTORS: &str = "/proc/self/fd";
+#[cfg(target_os = "macos")]
+const OPEN_DESCRIPTORS: &str = "/dev/fd";
+
+/// Closes every descriptor above 2 that this helper stage inherited (#171 TP3; lead ruling 2026-10-09, (A)). Production's
+/// descriptors that lack close-on-exec reach the wrapper for the real program, and through it the intermediate; the anchor
+/// lives for the whole test, so a pipe or FIFO writer that it held would keep production's reader from its end of file. It is
+/// the first act of the intermediate and anchor stages. It lists the open descriptors, closes each one above 2 but the
+/// listing's own, and closes the listing last.
+///
+/// # Errors
+/// The listing failed, or a close failed with an error other than EBADF.
+#[allow(unsafe_code)]
+fn close_inherited() -> io::Result<()> {
+    use rustix::fs::{Mode, OFlags};
+    use std::os::fd::AsRawFd;
+    let listing = rustix::fs::open(
+        OPEN_DESCRIPTORS,
+        OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC,
+        Mode::empty(),
+    )?;
+    let own = listing.as_raw_fd();
+    let mut descriptors = Vec::new();
+    let mut entries = rustix::fs::Dir::new(listing)?;
+    for entry in entries.by_ref() {
+        let entry = entry?;
+        let Some(fd) = entry
+            .file_name()
+            .to_str()
+            .ok()
+            .and_then(|n| n.parse::<i32>().ok())
+        else {
+            continue;
+        };
+        if fd > 2 && fd != own {
+            descriptors.push(fd);
+        }
+    }
+    for fd in descriptors {
+        // SAFETY: this stage owns no descriptor yet (this is its first act, and it starts no thread), so nothing in this
+        // process aliases the closed descriptors; the listing's own descriptor is excluded, and it is closed last, by its
+        // drop. A descriptor that the listing named but that is closed meanwhile gives EBADF, which is ignored.
+        if unsafe { libc::close(fd) } == -1 {
+            let error = io::Error::last_os_error();
+            if error.raw_os_error() != Some(libc::EBADF) {
+                return Err(error);
+            }
+        }
+    }
+    drop(entries);
+    Ok(())
+}
+
 /// Whether the group may be signalled now: the anchor is still a member of it, and the leader, while it lives, has not moved
-/// to another group (ruling item 13).
+/// to another group (ruling item 13). An identity or a group that cannot be read refuses (`verdict`).
 fn verify(report: &Report) -> Result<(), String> {
-    if group_now() != report.group {
-        return Err("the anchor left the group".into());
-    }
     let leader = pid(report.leader.pid).map_err(|e| e.to_string())?;
-    if start_time(leader) != Some(report.leader.start_time) {
-        // The leader has ended (its pid is gone or names another process): only the group id is left to signal.
-        return Ok(());
-    }
-    match getpgid(Some(leader)) {
-        Ok(group) if group.as_raw_nonzero().get().unsigned_abs() != report.group => Err(format!(
-            "the leader {} moved from group {} to group {}",
-            report.leader.pid,
-            report.group,
-            group.as_raw_nonzero()
-        )),
-        // ESRCH: the leader ended between the two reads.
-        _ => Ok(()),
-    }
+    verdict(report, group_now(), start_time(leader), || {
+        getpgid(Some(leader)).map(|group| group.as_raw_nonzero().get().unsigned_abs())
+    })
+}
+
+/// The group of the process `member` now.
+fn group_of(member: u32) -> rustix::io::Result<u32> {
+    let member = pid(member).map_err(|_| rustix::io::Errno::INVAL)?;
+    getpgid(Some(member)).map(|group| group.as_raw_nonzero().get().unsigned_abs())
 }
 
 /// The members other than the anchor end within `grace` after a `TERM`. The anchor is a member, so the group id is held
@@ -176,6 +207,7 @@ fn terminate(group: rustix::process::Pid, grace: Duration) -> io::Result<()> {
 
 /// Anchor: guard connection on fds 0 and 2, acknowledgement on fd 1.
 fn anchor(args: &[OsString]) -> io::Result<()> {
+    close_inherited()?;
     let leader = Identity {
         pid: u32::try_from(number(args.first())?).map_err(other)?,
         start_time: number(args.get(1))?,
@@ -203,7 +235,19 @@ fn anchor(args: &[OsString]) -> io::Result<()> {
         std::process::exit(1);
     }
     let group = pid(report.group)?;
+    // The members that `TERM` reaches: after the grace, each one must still be in the group, or gone (#171 TP6).
+    let me = rustix::process::getpid();
+    let members: Vec<u32> = live_members(group)?
+        .into_iter()
+        .filter(|member| member.pid != me)
+        .map(|member| member.pid.as_raw_nonzero().get().unsigned_abs())
+        .collect();
     terminate(group, grace)?;
+    // The grace can move a member or the leader to another group: verify again before any `KILL`.
+    if let Err(reason) = verify(&report).and_then(|()| stayed(report.group, &members, group_of)) {
+        let _ = send(io::stderr(), &Line::Refused(reason));
+        std::process::exit(1);
+    }
     // The rounds are bounded by the guard's cleanup bound: the existing `CLEANUP` (lead ruling 2026-10-08, condition 1b).
     match end_group(group, Deadline::after(cleanup)) {
         Ok(()) => {

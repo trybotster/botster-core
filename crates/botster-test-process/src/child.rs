@@ -6,7 +6,7 @@
 //! The owner hands out the pipes of the child, never the `Child`: nothing outside it can reap the child early, so its pid
 //! (and, in group mode, the group id) stays its own until the drop. It reaps only this child, by its exact pid.
 
-use crate::platform::{await_end, live_members, pid, Waited};
+use crate::platform::{await_end, await_status, live_members, pid, Waited};
 use crate::rounds::{end_members, reserved_kill};
 use crate::{fail, Deadline};
 use rustix::process::Pid;
@@ -14,9 +14,6 @@ use std::io;
 use std::os::unix::process::CommandExt;
 use std::process::{Child, ChildStderr, ChildStdin, ChildStdout, Command, ExitStatus};
 
-/// The wait of an observed exit: it returns once the exit completes, and it never reaps.
-const OBSERVE: rustix::process::WaitIdOptions =
-    rustix::process::WaitIdOptions::EXITED.union(rustix::process::WaitIdOptions::NOWAIT);
 /// A child of the test, owned on every path. See the module documentation.
 #[derive(Debug)]
 pub struct OwnedChild {
@@ -98,8 +95,8 @@ impl OwnedChild {
         Ok(await_end(self.pid, deadline)? != Waited::Deadline)
     }
 
-    /// The exit status of the child, once its exit was observed within the cleanup bound. In group mode the drop still ends
-    /// the group's other members; the leader's reap releases the group id only after it.
+    /// The exit status of the child, once it is available within the cleanup bound. In group mode the drop still ends the
+    /// group's other members; the leader's reap releases the group id only after it.
     ///
     /// # Panics
     /// The child did not end within the bound (it stays owned, and the drop still ends it), or it cannot be observed.
@@ -107,54 +104,38 @@ impl OwnedChild {
         self.status_by(Deadline::cleanup())
     }
 
-    /// The exit status of the child, once its exit was observed by `deadline`.
+    /// The exit status of the child, once it is available by `deadline`.
     ///
     /// # Panics
     /// The child did not end by the deadline (it stays owned, and the drop still ends it), or it cannot be observed.
     pub fn status_by(&mut self, deadline: Deadline) -> ExitStatus {
-        if let Some(status) = self.status {
-            return status;
-        }
-        match self.exited_within(deadline) {
-            Ok(true) => {}
-            Ok(false) => panic!(
+        match self.exit_by(deadline) {
+            Ok(Some(status)) => status,
+            Ok(None) => panic!(
                 "the test child {} did not end within {:?}",
                 self.id(),
                 deadline.limit()
             ),
             Err(error) => panic!("the test child {} cannot be observed: {error}", self.id()),
         }
+    }
+
+    /// The exit status of the child once it is available by `deadline`, or `None` when the deadline came first (the child
+    /// stays owned, and the drop still ends it). Outside group mode the child is then reaped, by its exact pid. In group
+    /// mode the leader stays unreaped: it holds the group id until the drop has ended the group's other members.
+    ///
+    /// # Errors
+    /// The child could not be observed or reaped.
+    pub fn exit_by(&mut self, deadline: Deadline) -> io::Result<Option<ExitStatus>> {
+        if let Some(status) = self.status {
+            return Ok(Some(status));
+        }
         if self.group {
-            // The leader holds the group id until the group's other members are ended: the drop does both.
-            return self.observed_status();
+            return await_status(self.pid, deadline);
         }
-        let status = self.reap().unwrap_or_else(|error| {
-            panic!("the test child {} cannot be reaped: {error}", self.id())
-        });
-        self.status = Some(status);
-        status
-    }
-
-    /// The status of the exited, unreaped leader, read without reaping it.
-    fn observed_status(&self) -> ExitStatus {
-        use rustix::process::{waitid, WaitId};
-        use std::os::unix::process::ExitStatusExt;
-        // The exit was observed: the wait (which never reaps) returns once the exit completes.
-        match waitid(WaitId::Pid(self.pid), OBSERVE) {
-            Ok(Some(status)) => match (status.exit_status(), status.terminating_signal()) {
-                (Some(code), _) => ExitStatus::from_raw((code & 0xff) << 8),
-                (None, Some(signal)) => ExitStatus::from_raw(signal & 0x7f),
-                (None, None) => panic!("the test child {} has no exit status", self.id()),
-            },
-            Ok(None) => panic!("the test child {} has not exited", self.id()),
-            Err(error) => panic!("the test child {} cannot be observed: {error}", self.id()),
-        }
-    }
-
-    /// Reaps the child, whose exit was observed: a wait for its exact pid, which returns once the exit completes. (macOS
-    /// sends the exit event when the exit starts, so a `WNOHANG` wait can still find nothing at that moment.)
-    fn reap(&mut self) -> io::Result<ExitStatus> {
-        self.child.wait()
+        let status = reap_within(&mut self.child, deadline)?;
+        self.status = status;
+        Ok(status)
     }
 
     /// The end of the child on the drop path: in group mode the rounds over its group (the unreaped leader is the reserve),
@@ -188,21 +169,35 @@ impl OwnedChild {
                 .kill()
                 .map_err(|error| format!("the test child {id} cannot be killed: {error}"))?;
         }
-        match await_end(self.pid, deadline) {
-            Ok(Waited::Exited | Waited::Gone) => {}
-            Ok(Waited::Deadline) => {
-                return Err(format!(
-                    "the test child {id} did not end within {:?} after SIGKILL",
-                    deadline.limit()
-                ))
+        match reap_within(&mut self.child, deadline) {
+            Ok(Some(status)) => {
+                self.status = Some(status);
+                Ok(())
             }
-            Err(error) => return Err(format!("the test child {id} cannot be observed: {error}")),
+            Ok(None) => Err(format!(
+                "the test child {id} did not end within {:?} after SIGKILL",
+                deadline.limit()
+            )),
+            Err(error) => Err(format!("the test child {id} cannot be reaped: {error}")),
         }
-        let status = self
-            .reap()
-            .map_err(|error| format!("the test child {id} cannot be reaped: {error}"))?;
-        self.status = Some(status);
-        Ok(())
+    }
+}
+
+/// Reaps `child`, a child of this process, once its status is available by `deadline`: `None` when the deadline came first
+/// (the child stays unreaped). The status is available before the reap, so the reap of the exact pid does not block.
+///
+/// # Errors
+/// The child could not be observed or reaped.
+pub(crate) fn reap_within(child: &mut Child, deadline: Deadline) -> io::Result<Option<ExitStatus>> {
+    if await_status(pid(child.id())?, deadline)?.is_none() {
+        return Ok(None);
+    }
+    match child.try_wait()? {
+        Some(status) => Ok(Some(status)),
+        None => Err(io::Error::other(format!(
+            "the child {} has no status after its exit",
+            child.id()
+        ))),
     }
 }
 

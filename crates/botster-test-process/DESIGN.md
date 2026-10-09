@@ -21,7 +21,7 @@ or sleep (PR B).
 | `rounds` | the cleanup decision: list, kill, await, until no live member; a reserve holds the group id | the macOS fork race; no stale group id |
 | `Bounded`, `first_line`, `eof` | reads of pipes, FIFOs and sockets that `poll` bounds | no unbounded `read_line` |
 | `Blocker` | the blocked fixture child: `/bin/cat` on a FIFO that the test holds | no sleep loop, no spin; ends when the test is gone |
-| `platform` | the live members of a group, the wait for an exit, the start time (libproc and kqueue on macOS, /proc and pidfd on Linux) | observe only |
+| `platform` | the live members of a group, the wait for an exit, the wait for a child's status (`await_status`), the start time (libproc and kqueue on macOS, /proc and pidfd on Linux) | observe only; a failed read is an error, never "gone" |
 
 ### The reserve (amended anchor item 10, lead ruling 2026-10-08)
 
@@ -31,6 +31,17 @@ id. The killer keeps one child, the reserve, in the group, then leaves the group
 reserve is unreaped, the group exists and its id cannot be reused (POSIX, "Process Group Lifetime"). The killer reaps only
 its reserve, by that exact pid. Production keeps every reaping of its own children (ruling item 11):
 `the_guard_ends_the_group_and_production_still_reaps_its_own_child` proves it.
+
+### Every wait after an exit is bounded (#171 TP1)
+
+An exit event does not prove that the status is available: XNU's `proc_exit` posts `NOTE_EXIT`, then makes the child a
+zombie, then sends `SIGCHLD` to the parent (`bsd/kern/kern_exit.c`). So no owner reads a status or reaps with a blocking
+wait. `platform::await_status` loops: a non-reaping, non-blocking check of the exact pid (`waitid` with `NOWAIT | NOHANG`),
+the deadline check, then a block on one real event, at most until the deadline. The event is a readable pidfd on Linux
+(readable once the child is a zombie) and a kqueue `EVFILT_SIGNAL` for `SIGCHLD` on macOS. The filter installs no
+handler, and kqueue records the signal even when its action is the default (`bsd/kern/kern_sig.c` posts the event before
+the ignore check). The reap that follows is `try_wait`, by the exact pid, which cannot block. `OwnedChild`, the reserve of
+`end_group`, and the wrapper's intermediate all use it.
 
 ### One anchor for every guard
 
@@ -46,6 +57,31 @@ The guard is passive: a non-blocking listener and the accepted connections, hand
 anchors and at the drop. It starts no thread. An owner whose production must clean up after the anchors started calls
 `release` first and drops the guard after production (on macOS a member's exit can wait in a terminal drain until production
 closes the PTY master).
+
+The wrapper owns its intermediate as an `OwnedChild` (`anchor::start_anchor`, #171 TP4): on every error path the
+intermediate is killed and reaped within the cleanup bound, so a stalled start leaves no orphan.
+
+The anchor verifies the leader's identity and group, and its own membership, when its connection ends. After the `TERM`
+grace, and before any `KILL`, it verifies them again, and it checks that every member that `TERM` reached is still in the
+group or gone (#171 TP6, `anchor::stayed`). A member that moved, or an identity or group that cannot be read (#171 TP2,
+`anchor::verdict`), refuses: the anchor signals nothing more and reports the refusal.
+
+### Descriptor isolation and the one `unsafe` function (lead ruling 2026-10-09, #171 TP3)
+
+Production's descriptors that lack close-on-exec reach the wrapper on purpose: the real program needs them, so the wrapper
+keeps them. The helper stages must not keep them: the anchor lives for the whole test, and a pipe writer that it held
+would keep production's reader from its end of file. So the first act of the intermediate and of the anchor is
+`close_inherited`: it lists `/proc/self/fd` (Linux) or `/dev/fd` (macOS) and closes every descriptor above 2 but the
+listing's own, which it closes last. EBADF for a listed descriptor is ignored; any other error fails the stage.
+
+Closing a raw inherited descriptor has no safe API (std has none; rustix's `close` is `unsafe`). The lead chose (A): this
+crate's lint table is the workspace's with one difference, `unsafe_code = "deny"` in place of `"forbid"`, and one
+function, `close_inherited` in the anchor binary, allows it, with a SAFETY comment: the stage owns no descriptor yet, so
+nothing in the process aliases the closed ones. Rejected: (B) nix 0.29's safe `close(RawFd)`, which hides the same
+`unsafe` in a new dependency; (C) a shell stage that closes descriptors by redirection, which is fragile (dash handles only
+0 to 9). `cargo xtask ci` (taint job, `xtask/src/unsafe_code.rs`) fails on any other lint difference, any other attribute
+that names `unsafe_code`, and any other manifest with an `unsafe_code` entry. The libghostty-vt binding keeps its earlier
+crate-wide allow, by name (#173 tracks its SAFETY comments and clippy `undocumented_unsafe_blocks`).
 
 An anchor that ended with no report was ended by production's own group kill; the guard then observes, without a signal,
 that the group is empty within the cleanup bound.

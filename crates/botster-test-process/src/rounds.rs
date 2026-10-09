@@ -144,7 +144,6 @@ pub fn end_group(group: Pid, deadline: Deadline) -> Result<(), String> {
         Ok(pid) => pid,
         Err(error) => {
             let _ = reserve.kill();
-            let _ = reserve.wait();
             return Err(error.to_string());
         }
     };
@@ -155,11 +154,25 @@ pub fn end_group(group: Pid, deadline: Deadline) -> Result<(), String> {
         || deadline.expired(),
     );
     // The rounds can stop with an error before any kill (a failed listing, for example), so the reserve can still be live,
-    // or stopped. The reserve is this process's own unreaped child, so its pid is safe to signal, and KILL also ends a
-    // stopped process. Then its reap, by its exact pid, gives the id back, and the wait is bounded by that kill.
+    // or stopped. It is this process's own unreaped child, so its pid is safe to signal, and KILL also ends a stopped
+    // process. Its reap, by its exact pid and within the deadline, then gives the group id back.
     let _ = reserve.kill();
-    let _ = reserve.wait();
-    ended.map_err(|failure| failure.report(deadline.limit()))
+    let reaped = match crate::child::reap_within(&mut reserve, deadline) {
+        Ok(Some(_)) => Ok(()),
+        Ok(None) => Err(format!(
+            "the reserve {} of group {} was not reaped within {:?}",
+            reserve.id(),
+            group.as_raw_nonzero(),
+            deadline.limit()
+        )),
+        Err(error) => Err(format!(
+            "the reserve {} of group {} cannot be reaped: {error}",
+            reserve.id(),
+            group.as_raw_nonzero()
+        )),
+    };
+    ended.map_err(|failure| failure.report(deadline.limit()))?;
+    reaped
 }
 
 /// Waits until `group` has no live member, within `deadline`, without a signal: the caller holds no reservation of the group,
