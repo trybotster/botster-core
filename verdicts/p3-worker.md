@@ -5280,3 +5280,28 @@ The reviewer changed no product code and ran no tests, builds, measurements, mut
 All earlier findings, closures, and verdict rounds remain preserved at their named heads and scopes.
 
 VERDICT: NOT CLEAN
+
+## Round 105 — Lead ruling on G1's required proof
+
+Reviewed head: `f16eed6fb50da9581060c06acc6f2dded1d61ca0`, PR #177.
+Base: `fc23cd9747e64e24f99565543b45ae5f7400a71c`.
+No new source head or gate exists in this round. Round 104's source review and evidence remain in force.
+
+The lead answered the package question on 2026-10-09:
+G1's reserve-failure proof does not carry to P6 PR B. It must pass before PR #177 is CLEAN.
+The new-test HOLD does not block this proof because the crate owner's exception permits botster-test-process's own tests.
+The proof belongs in that crate's own test suite, within PR #177.
+P3 writes it with the crate's fixtures. P6, the crate owner, checks it.
+If the behavior reduces to a decision, a pure decision test plus the existing I/O shell is acceptable.
+The lead requires the integration reviewer to reopen G1 until the proof exists.
+This ruling resolves the review difference recorded in round 104.
+It does not change the accepted own-group source correction or the required guard and anchor invariants.
+
+G1's proof remains OPEN. F55, F56, and L1 remain OPEN.
+F54 and S1 remain CLOSED at this head.
+PR #177 is NOT CLEAN. PR #168 retains its separate real-PTY HOLD. Part B retains its earlier duties.
+The reviewer sent the ruling to the P3 implementer and integration reviewer.
+The reviewer changed no product code and ran no tests, builds, measurements, mutants, or gates.
+All earlier verdict rounds remain preserved at their named heads and scopes.
+
+VERDICT: NOT CLEAN
