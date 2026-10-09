@@ -135,3 +135,18 @@ all in part A code); the implementer did not re-gate it. This reviewer ran no bu
   name the earlier `repeat` refusal in the `payload_size` entry, which makes `limit / times` defined.
 
 VERDICT: NOT CLEAN (1 open: E1)
+
+## Round 6 — CLEAN on head 723bc8d5 (E1 fix)
+
+Reviewed head: `723bc8d5c937d905a918a8063deedaaf5326b8c7`. Delta `7be3184c..723bc8d5`, one commit, comments in
+`.cargo/mutants.toml` only; the two regex lines are unchanged. The head contains `origin/v1` `0b0eecc0`. This reviewer ran
+no build, test or gate.
+
+- **E1 CLOSED.** Both entries cite Core 9.3 (`core-contract-v1.17.md:318`, "The code is the contract; the detail is for
+  humans"): the code stays `PayloadTooLarge`, and only the size in the detail can differ. The `payload_size` entry also
+  names the repeat-0 refusal (`admit.rs:326`).
+- Evidence: static Linux run at this head (`…p3-audit-fixes-a-723bc8d5-pool-20261008-214836-98013.log`): fmt, taint, lists
+  PASS, exit 0. The round 5 mutants run at `7be3184c` covers the code; comments do not change the mutant set.
+- The ONE Linux landing gate on this exact head is owed.
+
+VERDICT: CLEAN (0 open) at 723bc8d5c937d905a918a8063deedaaf5326b8c7
