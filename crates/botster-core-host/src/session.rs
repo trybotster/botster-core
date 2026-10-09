@@ -47,15 +47,6 @@ impl End {
         }
     }
 
-    /// `Lost(WorkerUnreachable)` or `Lost(WorkerVersion)`: a live worker may remain, so `Adopt(id)` is always admitted
-    /// (AD-2, A2-1; steward ruling R-36, contracts `main` `c62085f`). The row records the end, with the worker's identity.
-    pub fn indeterminate(self) -> bool {
-        matches!(
-            self,
-            End::Lost(LostReason::WorkerUnreachable | LostReason::WorkerVersion)
-        )
-    }
-
     /// The end that a shown state names, or `None` for a state that is not an end.
     pub fn of(state: SessionState) -> Option<End> {
         match state {
