@@ -212,6 +212,47 @@ pub enum WorkerMsg {
     RemoveResult {
         uploads: UploadsOutcome,
     },
+    /// The worker's live state, sent once right after its hello in an adoption (AD-1, AD-3; steward ruling R-35). Every value
+    /// is read from the worker's live state, never remembered from the spawn.
+    Adopted {
+        report: Box<AdoptReport>,
+    },
+}
+
+/// What an adopted worker reports about itself (AD-1, AD-3, DP-12, R-35).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AdoptReport {
+    pub payload: AdoptedPayload,
+    /// The worker's own features (A2-6; AD-4: the `worker_features` of a worker of protocol N - 1).
+    pub features: BTreeSet<Feature>,
+    /// The terminal state, with the focus and the model and input revisions (ST-1, IN-10, DP-12). Present once the payload
+    /// was launched; absent while no payload ever ran.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub terminal: Option<TerminalState>,
+    /// The snapshot formats that the worker can emit (ST-6).
+    #[serde(default)]
+    pub formats: Vec<SnapshotFormat>,
+}
+
+/// The payload of an adopted worker (R-35: the host's recovery depends on it).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "state", rename_all = "snake_case")]
+pub enum AdoptedPayload {
+    /// No `Launch` came (a crash between AD-7 steps 3 and 4).
+    NotLaunched,
+    /// A `Launch` came and its spawn has not answered yet.
+    Spawning,
+    /// The payload runs.
+    Running { payload: PayloadId },
+    /// The payload ended.
+    Exited {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        code: Option<i32>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        signal: Option<i32>,
+    },
+    /// The spawn failed (LC-4).
+    LaunchFailed { reason: StartFailReason },
 }
 
 /// Why a message is not a message of this wire: the reason that the decoder gave.
@@ -346,6 +387,32 @@ mod tests {
                 uploads: UploadsOutcome::Deleted,
             },
         ];
+        let adopted = [
+            AdoptedPayload::NotLaunched,
+            AdoptedPayload::Spawning,
+            AdoptedPayload::Running {
+                payload: PayloadId {
+                    pid: 41,
+                    start_time: 7,
+                },
+            },
+            AdoptedPayload::Exited {
+                code: Some(3),
+                signal: None,
+            },
+            AdoptedPayload::LaunchFailed {
+                reason: StartFailReason::CwdMissing,
+            },
+        ]
+        .map(|payload| WorkerMsg::Adopted {
+            report: Box::new(AdoptReport {
+                payload,
+                features: BTreeSet::from([Feature::FocusReport]),
+                terminal: None,
+                formats: vec![],
+            }),
+        });
+        let msgs = msgs.into_iter().chain(adopted);
         for msg in msgs {
             let mut bytes = Vec::new();
             msg.encode(&mut bytes);
