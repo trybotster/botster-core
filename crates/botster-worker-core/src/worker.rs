@@ -99,7 +99,8 @@ pub enum Input {
     Spawned(Result<PayloadId, SpawnFailure>),
     /// Bytes that the payload wrote on the PTY.
     PtyOutput(Vec<u8>),
-    /// A read of the PTY found no byte (it would block) or found the end of the output.
+    /// The answer to [`Action::DrainPty`]: the drain read what the PTY held when it was asked, or a read found no byte
+    /// (it would block) or the end of the output first.
     PtyDrained,
     /// The payload's leader ended. It is not reaped: the driver reaps it only on [`Action::ReapPayload`].
     PayloadExited(ExitStatus),
