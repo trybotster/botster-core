@@ -221,3 +221,26 @@ only.
 - Rounds 1 to 6 together read the whole revision-22 delta `ad03636f..81f146e5`. No other text changed after round 4.
 
 VERDICT: CLEAN (0 open) at 81f146e50e4f5611b7fd9cc62afc952e7e91837e
+
+## Round 7 — CLEAN on head eeb31087 (correction after CLEAN)
+
+Reviewed head: `eeb3108728e7973960498a91340fc49f47a5a3f6`. Delta `81f146e5..eeb31087`, one commit, `docs/stage1-plan.md`
+only.
+
+- **Correction of this reviewer's round 5.** Round 5's PR9 said: "`cfg(macos)` Rust code is not compiled off macOS, so a
+  Linux gate generates no mutants of it". That is false. cargo-mutants (27.1.0 here) finds mutants by syntax and does not
+  evaluate `cfg`. v1's own config proves it: `.cargo/mutants.toml:233-236` excludes `replace [*+] with [-+*/] in
+  start_time$` because the `cfg(target_os = "macos")` block of `botster-core-sys/src/process.rs` `start_time` is listed
+  on the Linux gate and cannot be caught there. Round 6 then accepted "the Linux gate makes no mutants of it".
+- **The new rule is correct and complete.**
+  - The xtask derives the per-OS exclusions from the `cfg` attributes, through the syntax-aware check.
+  - A hand entry is allowed only where derivation is impossible. It names its `cfg`, and the check verifies that the named
+    code is gated.
+  - Each exclusion is matched by the run where the code compiles: the Linux gate for Linux-only code, or the focused Mac
+    run (log in the READY and the PR) for macOS-only code.
+  - Owner: P6, with a red-on-revert proof.
+- **No conflict with #167.** The rule for a portable mutant that only macOS can show (#167 F51, `OFF_MACOS_EXCLUSIONS`)
+  is unchanged and remains a separate bullet. The existing hand entry at `mutants.toml:233-236` is the kind of entry that
+  the derivation replaces when P6's check lands.
+
+VERDICT: CLEAN (0 open) at eeb3108728e7973960498a91340fc49f47a5a3f6
