@@ -185,3 +185,19 @@ in `encode.rs` is removed; `tests_encode.rs` gains `bits_above_the_five_kitty_fl
   place of the scratch log. The A6 pin move then rechecks it.
 
 VERDICT: NOT CLEAN (1 open: E2)
+
+## Round 7 note — E2 confirmed by a counterexample (same head f1cee834)
+
+The P3 package reviewer (F51, MEDIUM) reports a contract input whose worst case needs a key mode off, on macOS: `Char('a')`,
+`Alt`, text of 64 `a`, press. With kitty flags off and `alt_esc_prefix` off, libghostty writes the 64 text bytes; with all
+six modes on, macOS's legacy Alt prefix writes 2 bytes; the kitty states with Alt do not report the text. So the mutants
+of column 40 under-bound IN-9 on macOS, and the entry is not an equivalence. The Linux exploration of `f3611957` could not
+see this, because the behavior is native to the macOS build of libghostty.
+
+E2's required change is replaced: the column 40 entry must be removed (no equivalence exists). The mutants then need a
+test that kills them where the gate runs (Linux), or, if they are killable only on macOS, a written per-platform argument
+with the lead's native rule applied: a test that kills them on macOS and a focused Mac mutation run named in the READY and
+the PR. The macOS regression (the input above, bound at least 64 bytes, checked against every explicit mode) is required
+in any case. E2 stays OPEN until then; it closes together with F51.
+
+VERDICT: NOT CLEAN (1 open: E2)
