@@ -18,7 +18,7 @@ use botster_core_contract::prelude::*;
 use botster_core_link::msg::{Observation, WorkerMsg};
 use botster_route_codec::prelude::HexBytes;
 use botster_terminal_ghostty::{
-    ClipboardLocation, EncodeError, History, ModeFlags, Terminal, TerminalEvent,
+    ClipboardLocation, EncodeError, History, ModeFlags, SnapshotError, Terminal, TerminalEvent,
 };
 
 /// The model of a launched session.
@@ -88,6 +88,12 @@ fn clipboard_selection(selection: Option<String>, location: ClipboardLocation) -
 }
 
 impl Worker {
+    /// A snapshot of the session's model now (ST-6): the bytes that `CaptureSnapshot` would send as its pages at this point,
+    /// with the same encoder and no size bound. `None` before the launch made the model.
+    pub fn model_snapshot(&self) -> Option<Result<Vec<u8>, SnapshotError>> {
+        self.model.as_ref().map(|model| model.term.snapshot())
+    }
+
     /// Keeps `bytes` after the output that waits. False while the spawn's answer is out: the output waits, and it is fed
     /// after `Launched`, so no observation comes before it (the link's rule) and the launch carries a fresh model's state.
     fn hold_output(&mut self, bytes: &[u8]) -> bool {
