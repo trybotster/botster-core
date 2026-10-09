@@ -2160,3 +2160,41 @@ Integration owns terminal closure of D1 through D4.
 This verdict does not certify implementation, change conformance records, or close P5 deliverable 2.
 
 VERDICT: NOT CLEAN
+
+
+## P5 adoption design — Round 3
+
+- Exact head: `4fec490a97f291c05622aa92be2f02c74a891c30`.
+- Previous reviewed head: `78f4be5c11de2bab2a48d01cc24b07e8069f5aaa`.
+- Tree: `072c49261372bd3a1dfc1454e99352513aa2dbdf`.
+- Scope: the complete design correction. The reviewer changed no product code and ran no gates or tests.
+
+### Ruling and recovery closure
+
+The reviewer read R-35 at contracts commit `f969f5e76263775b30c2773d5763ff63da4dfec8`.
+The reviewer read its correction at `c3ed727190ef6d2239e1741c87b883fdf3c1029c`.
+The draft applies the ruling's ordinary failed-launch outcome and the Stopping outcome with no code or signal.
+An authenticated report that contradicts a Running or Exited row gives RegistryCorrupt under the corrected ruling.
+Core must remove its Lost(Other) constructions; the draft requires the code PR to list those sites and their fixes.
+
+Failed reachability or version adoption retains the durable row and its original lifecycle intent.
+A Lost retry uses that intent with the worker's new report, so it can distinguish Starting recovery from a resumed stop.
+This addresses the original HIGH P5-F22 recovery gap and its pending ruling.
+P5-F20 and P5-F21 remain CLOSED at design level.
+
+### P5-F22 — LOW — The retry proof confuses a sent frame with worker acceptance
+
+The new retry paragraph says that a first attempt which sent Launch can never produce NotLaunched on retry.
+A frame that the host sends can be lost, partial, or not yet decoded when the worker fences the earlier link.
+The worker then correctly reports NotLaunched. R-35(a) requires the retry to complete the launch from the durable row.
+The no-second-launch condition applies when the worker accepted Launch, not merely when the host sent it.
+
+Required change: state worker acceptance as the condition for Spawning or a later payload state.
+Allow the NotLaunched recovery path when the earlier frame was not accepted.
+Require exactly one payload spawn across these attempts, rather than one host send across a lost connection.
+Specify retry proofs for loss before and after worker acceptance.
+Status: OPEN at reduced LOW severity. The reviewer sent the correction directly to P5 and copied integration.
+
+This is a design verdict only. Implementation proofs, conformance records, and P5 deliverable 2 remain open.
+
+VERDICT: NOT CLEAN
