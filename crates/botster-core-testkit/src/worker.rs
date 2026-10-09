@@ -292,6 +292,16 @@ impl Workers {
         &self,
         identity: ProcessIdentity,
     ) -> Result<(ProgramControl, Option<Arc<dyn HostWake>>), String> {
+        self.program_edge_between(identity, || {})
+    }
+
+    /// [`Workers::program_edge`]: `between` runs after the cell is read and before the owner is locked, so a test can put
+    /// the end of the process exactly there (F63).
+    fn program_edge_between(
+        &self,
+        identity: ProcessIdentity,
+        between: impl FnOnce(),
+    ) -> Result<(ProgramControl, Option<Arc<dyn HostWake>>), String> {
         let (cell, owner) = lock(&self.run_processes)
             .get(&identity)
             .cloned()
@@ -306,6 +316,7 @@ impl Workers {
                 .clone()
                 .ok_or_else(|| format!("the worker process {identity:?} has no payload"))?
         };
+        between();
         let wake = lock(&owner).wake.clone();
         Ok((program, wake))
     }
