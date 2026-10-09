@@ -6,7 +6,7 @@
 
 use crate::tools::{cargo, cargo_nightly, ensure_nightly, require_cargo_tool, run};
 use crate::{
-    caps, fsutil, lists, prebuild, public_api, signals, taint, test_budget, timers,
+    caps, fsutil, high_tier, lists, prebuild, public_api, signals, taint, test_budget, timers,
     unsafe_exception,
 };
 use anyhow::{bail, Context, Result};
@@ -32,7 +32,7 @@ const JOBS: &[(&str, &str, JobFn)] = &[
     ),
     (
         "taint",
-        "banned old-world names; unmarked timers; the one unsafe_code exception; raw signal calls",
+        "banned old-world names; unmarked timers; the one unsafe_code exception; raw signal calls; the HIGH-path list",
         taint_job,
     ),
     (
@@ -101,7 +101,8 @@ fn taint_job(root: &Path) -> Result<()> {
     taint::command(root, &[])?;
     timers::command(root, &[])?;
     unsafe_exception::command(root, &[])?;
-    signals::command(root, &[])
+    signals::command(root, &[])?;
+    high_tier::command(root, &[])
 }
 
 /// The passed count of a conformance report: the number after `passed ` in its `conformance:` line.

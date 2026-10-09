@@ -4,13 +4,20 @@
 # here. A change to this file is gate-decision code (rule 1), so it is HIGH too.
 #
 # Only rule 5 is listed. Rules 1 to 4 (gate code, unsafe/FFI/C ABI, cross-package and shared crates, pins) are decided by
-# the PR itself and need no entry. An entry names the file that holds the risky code, not its whole crate.
+# the PR itself and need no entry. An entry names the file that holds the risky code, not its whole crate. A file that
+# decides when or whom to spawn, signal, adopt or reap is listed, not only the file that makes the OS call: the OS wrappers
+# cannot prevent a wrong timing, a missing cleanup or an early reap. The rule-5 area comes before the sans-IO example.
+# `cargo xtask high-tier` (in the taint step) fails on an entry that matches no tracked file or gives no reason.
 
 # Process control: spawn, signal, wait, reap.
 crates/botster-core-sys/src/signal.rs  # process control: the one signal path; refuses pid 0, 1, our own group (A10-2)
 crates/botster-core-sys/src/process.rs  # process control: worker spawn, child exit, identity by pid and start time
 crates/botster-core-sys/src/payload.rs  # process control and PTY: payload spawn on the PTY, exit watch, group signal, reap
 crates/botster-core/src/real.rs  # process control: the real host edges spawn and signal workers, and own the control socket
+crates/botster-core-host/src/driver.rs  # process control: dispatches worker spawn, identity probes and group signals to the edges
+crates/botster-core-host/src/run.rs  # process control and restart: the stop-grace signal and target; the recovery and adoption of rows
+crates/botster-core-host/src/flows.rs  # process control and token: Remove's identity checks and worker kill; the session token draw
+crates/botster-guardian-core/src/guardian.rs  # process control: TermService and KillTree targets; ReapService only after cleanup
 
 # The PTY.
 crates/botster-worker/src/main.rs  # PTY and process control: the real worker driver (PTY reads and writes, signals, exit watch)
@@ -19,6 +26,8 @@ crates/botster-worker-core/src/drain.rs  # PTY: the drain at the payload's exit;
 
 # Adoption and restart.
 crates/botster-core-host/src/adopt.rs  # adoption: identity probe, endpoint connect, proof and epoch (AD-1, AD-2, AD-6)
+crates/botster-core-host/src/admit.rs  # adoption: the admission of AdoptAll and the start of the adoption step
+crates/botster-core-host/src/engine.rs  # adoption and process control: adoptable protocols; the worker identity to probe and signal
 crates/botster-core-host/src/session.rs  # restart: the registry row codec; a decoded row names the worker to signal (AD-6, A10-2)
 
 # Durable storage.
