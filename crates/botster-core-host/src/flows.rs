@@ -61,6 +61,7 @@ impl HostEngine {
             Flow::Start(f) => self.run_start(id, f),
             Flow::Stop(f) => self.run_stop(id, f),
             Flow::Remove(f) => self.run_remove(id, f),
+            Flow::Adopt(f) => self.run_adopt(id, f),
         }
     }
 
@@ -200,7 +201,9 @@ impl HostEngine {
             }
             StartPhase::PostFailed => {
                 let failure = f.failure.expect("a failed start has its failure");
-                if self.post_state(id, failure.state.state()) {
+                // A retried adoption that ends in the state that the session shows posts no second event for it.
+                let shown = self.sessions[id].shown == Some(failure.state.state());
+                if shown || self.post_state(id, failure.state.state()) {
                     let s = self.sessions.get_mut(id).expect("a flow has a session");
                     s.shown = Some(failure.state.state());
                     match failure.state {
@@ -210,7 +213,16 @@ impl HostEngine {
                         }
                         End::Lost(_) => s.admit = Admit::Lost,
                     }
-                    self.write_final_row(id, failure.state.state());
+                    let indeterminate = matches!(
+                        failure.state,
+                        End::Lost(LostReason::WorkerUnreachable | LostReason::WorkerVersion)
+                    );
+                    if f.adopted && indeterminate {
+                        // R-35, the retry rule: the row keeps its `Starting` intent, and `Adopt(id)` may retry.
+                        s.row_state = Some(SessionState::Starting);
+                    } else {
+                        self.write_final_row(id, failure.state.state());
+                    }
                     self.set_start_phase(id, StartPhase::Finish);
                 }
             }
@@ -241,7 +253,12 @@ impl HostEngine {
                 s.pending_end.take(),
             )
         };
-        self.complete(f.op, result);
+        if f.adopted {
+            // The start of an adoption posted the row's one state; the adopting op counts it (R-35 (a), LC-11).
+            self.adoption_posted(id);
+        } else {
+            self.complete(f.op, result);
+        }
         if running {
             if let Some(end) = pending_end {
                 // The payload ended while the start was finishing: the exit is applied now, after `Running` (OR-2).
@@ -335,6 +352,11 @@ impl HostEngine {
                         .get_mut(id)
                         .expect("a flow has a session")
                         .shown = Some(SessionState::Stopping);
+                    if self.sessions[id].admit == Admit::Adopting {
+                        // An adopted `Stopping` row: this is its one state (AD-1, LC-11).
+                        self.sessions.get_mut(id).expect("kept").admit = Admit::Stopping;
+                        self.adoption_posted(id);
+                    }
                     if let Some(f) = self.stop_flow(id) {
                         f.phase = if f.end.is_some() {
                             StopPhase::PostEnd

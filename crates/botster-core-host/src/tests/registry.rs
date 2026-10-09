@@ -1,8 +1,8 @@
 //! The registry across handles: what a new handle does with the rows that an earlier host left (Core AD-1, AD-2, ID-1,
 //! LC-3, LC-7, LC-11, A10-2). The rows are bytes that Core's own encoder wrote; a damaged row starts from them (A10-2).
 //!
-//! A row that names a worker is recovered by the adoption handshake (AD-6), which is not built yet: these tests assert
-//! nothing about the state of such a row beyond the one `SessionState` that every row posts (LC-11).
+//! A row that names a worker is recovered by the adoption handshake (AD-6): `tests::adoption` proves it. These tests
+//! assert nothing about the state of such a row beyond the one `SessionState` that every row posts (LC-11).
 
 use super::*;
 use crate::io::Work;

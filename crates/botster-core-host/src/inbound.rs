@@ -51,7 +51,20 @@ impl HostEngine {
                 self.route_close(route, RouteCloseReason::HandoffFailed);
             }
             Input::ProcessExited { identity, status } => self.on_process_exited(identity, status),
-            Input::IdentityState { identity, state } => self.flow_remove_probed(identity, state),
+            Input::WorkerConnected { ticket, link } => match self.take_ticket(ticket) {
+                Some(Owner::Session(id)) => self.adopt_connected(&id, link),
+                // No adoption waits for this link: it is closed, and nothing is read from it.
+                _ => {
+                    if let Some(link) = link {
+                        self.close_link(link, "no adoption waits for the link (AD-6)");
+                    }
+                }
+            },
+            Input::IdentityState { identity, state } => {
+                if !self.adopt_probed(identity, state) {
+                    self.flow_remove_probed(identity, state);
+                }
+            }
         }
     }
 
@@ -130,6 +143,11 @@ impl HostEngine {
     // ---- the hello (AD-6, AD-4, A6-2) ----
 
     fn on_hello(&mut self, link: LinkId, hello: Hello) {
+        // A link that the host made for an adoption: this hello is the worker's answer (DESIGN.md 3.5).
+        if let Some(id) = self.links.get(&link).cloned() {
+            self.adopt_hello(link, &id, hello);
+            return;
+        }
         let found = self
             .sessions
             .iter()
@@ -280,6 +298,7 @@ impl HostEngine {
             WorkerMsg::RouteStalled { route } => self.route_event(route, true),
             WorkerMsg::RouteResumed { route } => self.route_event(route, false),
             WorkerMsg::RemoveResult { uploads } => self.flow_remove_result(id, uploads),
+            WorkerMsg::Adopted { report } => self.adopt_report(id, *report),
             // The enum is non-exhaustive: a report that a later worker adds is ignored by this host.
             _ => {}
         }
@@ -579,6 +598,18 @@ impl HostEngine {
         s.worker.link = None;
         s.worker.link_failed = true;
         match s.flow.clone() {
+            // The start of an adoption: the worker may have accepted the `Launch` before the link ended, so the session is
+            // indeterminate, and the row keeps its intent for a retry (R-35, the retry rule).
+            Flow::Start(f)
+                if f.adopted
+                    && matches!(f.phase, StartPhase::SendLaunch | StartPhase::AwaitLaunched) =>
+            {
+                self.fail_start(
+                    &id,
+                    StartFailReason::WorkerFailed,
+                    End::Lost(LostReason::WorkerUnreachable),
+                );
+            }
             Flow::Start(f)
                 if matches!(
                     f.phase,
@@ -594,6 +625,11 @@ impl HostEngine {
                         cause: ExitCause::Other,
                     }),
                 );
+            }
+            Flow::Adopt(f)
+                if matches!(f.phase, AdoptPhase::AwaitHello | AdoptPhase::AwaitReport) =>
+            {
+                self.adopt_link_closed(&id);
             }
             Flow::Stop(f) if f.end.is_none() && f.phase != StopPhase::RowWrite => {
                 // LC-5: a session whose control link is broken still ends: the host signals the verified worker (pid and
@@ -646,6 +682,9 @@ impl HostEngine {
             }
             Flow::Remove(_) => self.flow_remove_worker_gone(&id),
             Flow::Create(_) => {}
+            Flow::Adopt(f) if f.phase != AdoptPhase::Post => {
+                self.adopt_end(&id, End::Lost(LostReason::WorkerGone), "");
+            }
             _ => {
                 if matches!(
                     shown,

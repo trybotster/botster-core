@@ -68,6 +68,8 @@ pub enum Admit {
     Lost,
     /// `Remove` was admitted. The id is still in use until step 5 of LC-7.
     Removing,
+    /// An adoption runs (AD-1, AD-2 retry). Until it posts the row's state, no operation is admitted on the session.
+    Adopting,
 }
 
 /// The durable row of a session: one JSON object per row, version 1.
@@ -278,6 +280,12 @@ pub struct Session {
     pub metadata_pending: bool,
     /// How the payload ended while a start flow was still running: applied when the flow ends.
     pub pending_end: Option<End>,
+    /// The `AdoptAll` or `Adopt` op that waits for this session's state (LC-11).
+    pub adopting: Option<OpId>,
+    /// The state that the row keeps while the session shows another one: an adoption that ends `Lost(WorkerUnreachable)`
+    /// or `Lost(WorkerVersion)` never rewrites the row, so a retry has the row's intent (steward ruling R-35, the retry
+    /// rule).
+    pub row_state: Option<SessionState>,
 }
 
 impl Session {
@@ -295,12 +303,20 @@ impl Session {
         })
     }
 
+    /// The state that a row write of this session records: the row's kept intent, or the shown state (R-35, the retry
+    /// rule).
+    pub fn recorded_state(&self) -> SessionState {
+        self.row_state
+            .or(self.shown)
+            .unwrap_or(SessionState::Created)
+    }
+
     pub fn to_row(&self) -> Row {
         Row {
             version: ROW_VERSION,
             id: self.id.clone(),
             instance: self.instance.clone(),
-            state: self.shown.unwrap_or(SessionState::Created),
+            state: self.recorded_state(),
             request: self.request.clone(),
             labels: self.labels.clone(),
             token: self.token.as_ref().map(token_hex),
