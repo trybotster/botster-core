@@ -1554,3 +1554,39 @@ The prior audit closures remain scoped as recorded in Round 8.
 Issues #155/#157, the P1 part of #156, P5 deliverable 2, and #163's guard-drop duty remain outside this closure.
 
 VERDICT: NOT CLEAN (1 open)
+
+
+## PR #164 — Round 10
+
+- Exact head: `e1624ca1b35d53b5ce00ee7a4092950219165348`.
+- Parent: `4064d251885b18a13c4ea6db8677919efbc89748`.
+- Tree: `12509092250a61d61259f725fc51e70b81f31f52`.
+- Scope: the exclusion proof correction and its evidence attribution.
+- The reviewer ran no builds, tests, mutation jobs, or gates.
+
+### P5-F14 — Source note corrected; evidence link still OPEN at LOW
+
+The complete source delta changes only `.cargo/mutants.toml`.
+The storage note now names current catching tests and accurately separates the 2026-10-04 and 2026-10-08 evidence.
+The reviewer checked every named storage test against this exact head.
+The two removed exclusion entries name functions that no longer exist and therefore matched no current mutant.
+The remaining exclusion expressions do not change.
+The configuration parses as TOML. No production or test source changes.
+Round 9's source conclusions remain valid.
+
+The updated PR description names the exact head and pending full gate.
+Its default-tier `5b7617f3` result cites the wrong log:
+`~/botster-sessions/gates/botster-core-stage1-p5-audit-contract-5b7617f3-pool-20261008-213813-83022.log`.
+That log records a different slow run: 69 mutants tested, 43 caught, nine unviable, and 17 missed.
+The stated default result is supported by:
+`~/botster-sessions/gates/botster-core-stage1-p5-audit-contract-5b7617f3-pool-20261008-213518-79582.log`.
+The reviewer read both logs and verified their jobs and summaries.
+The latter log reports 239 unit tests passed and 80 mutants tested: 68 caught, 11 unviable, and one missed diagnostic body.
+
+**Required change:** Use the matching `213518-79582` log for the default-tier result in the PR description.
+This needs only a description edit, with no new source commit or execution.
+Status: OPEN. The reviewer sent the exact correction and matching log to P5.
+The corrected exclusion note closes the original stale-name defect; this evidence attribution remains part of P5-F14.
+All prior scope limits and the pending full gate remain as recorded in Round 9.
+
+VERDICT: NOT CLEAN (1 open)
