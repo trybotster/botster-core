@@ -103,7 +103,7 @@ fn a_handoff_sends_attach_route_with_the_stream_on_its_first_byte_and_the_return
     rig.pump();
     let sent = attach_frames(&rig);
     assert_eq!(sent.len(), 1, "one AttachRoute frame");
-    let (at, route, limits) = sent[0].clone();
+    let (at, route, limits) = sent[0];
     assert_eq!(route, result.route);
     assert_eq!(
         limits, result.limits,

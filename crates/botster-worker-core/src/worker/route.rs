@@ -298,7 +298,7 @@ impl Worker {
             }
         }
         if route.queue.is_empty() {
-            if let Some(reason) = route.closing.clone() {
+            if let Some(reason) = route.closing {
                 self.end_route(id, reason);
                 return;
             }
