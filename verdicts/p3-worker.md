@@ -1,7 +1,7 @@
 # P3 worker review
 
-Current verdict: CLEAN for PR #167 Part A at `4592ba9c4e5657ef0d5856b6b55af40f2471c9bb`.
-Round 93 closes F49 LOW and records the exact-head evidence and corrected PR description.
+Current verdict: CLEAN for PR #167 Part A at `b70855356aa243996edabf8bfb3c9f6d2c2f5db6`.
+Round 94 records the merge-delta review. Round 93 closes F49 LOW.
 PR #163 Part B retains F28, F33 execution, and F39 for its later merge delta.
 PR #165 remains CLEAN at `29b37890efeffa4410d7dfc34f5c2344bfad1ba4` and landed through #162.
 F45 through F48 are CLOSED. F39 is CLOSED within #165.
@@ -4363,6 +4363,45 @@ Part B retains F28 native mutation evidence, F33 execution, and F39's later merg
 A31 remains open after Part A. The lead keeps #161 parked until Part B.
 This CLEAN does not clear Part B, M2a, M2b, the A32/A33 follow-up, or pending conformance IDs.
 The cross-package integration review and the implementer's landing gate remain required.
+The reviewer changed no product code and ran no tests, builds, measurements, mutants, or gates.
+All earlier findings, closures, and verdict rounds remain preserved at their named heads and scopes.
+
+VERDICT: CLEAN
+
+
+## Round 94 — Part A merge with v1
+
+Reviewed head: `b70855356aa243996edabf8bfb3c9f6d2c2f5db6`, PR #167, branch `stage1/p3-audit-fixes-a`.
+Previous CLEAN head: `4592ba9c4e5657ef0d5856b6b55af40f2471c9bb`.
+Merged v1 head and current PR base: `0b0eecc06d0cd4c39af5e33e59c0b3f643aba6d4`.
+The commit has exactly those two parents. The lead ordered Part A to land first.
+
+The delta adds v1's guardian-core change from #142: 14 files and 2310 added lines.
+All 19 Part A source and documentation files are byte-identical to the previous CLEAN head.
+The two shared files are .cargo/mutants.toml and Cargo.lock.
+Their changes add only the guardian's two exclusions and its package record. Part A's entries and dependency remain intact.
+The two new exclusions name one guardian function and one guardian constant; neither exclusion matches a P3 function.
+All 12 other upstream files are byte-identical to the merged v1 head.
+The upstream xtask change adds two guardian fuzz harnesses in ci.rs; it does not alter the test-budget selection.
+Guardian-core has no slow feature, slow_* module, or slow_* test target.
+F33's slow-tier filter therefore selects no additional guardian tests.
+Guardian-core does not depend on the host, payload edge, binding, worker-core, or testkit.
+The merge adds no call into Part A's changed functions.
+This review checks the merge's effect on P3. It does not replace #142's package or integration review.
+
+The reviewer read the completed exact-head static log:
+`~/botster-sessions/gates/botster-core-stage1-p3-audit-fixes-a-b7085535-pool-20261008-213359-76310.log`.
+The log names this exact head and job base `0b0eecc06d0cd4c39af5e33e59c0b3f643aba6d4`.
+Formatting, taint, the timer scan of 120 Rust files, and lists pass.
+The job exits 0 after nine seconds on msa1.
+These static checks are not the landing gate or new executable proof.
+The reviewer verified the updated PR description. It names the merge head and log and labels earlier evidence as history.
+
+PR #167 Part A has no open package finding, including LOW, at this exact head.
+The prior source closures remain valid. A31 stays open in the real driver after Part A.
+Part B retains F28 native mutation evidence, F33 required failed-watch execution, and F39's later merge duty.
+This CLEAN does not clear Part B, M2a, M2b, the A32/A33 follow-up, or pending conformance IDs.
+The cross-package integration review and the implementer's landing gate remain required at the submitted head.
 The reviewer changed no product code and ran no tests, builds, measurements, mutants, or gates.
 All earlier findings, closures, and verdict rounds remain preserved at their named heads and scopes.
 
