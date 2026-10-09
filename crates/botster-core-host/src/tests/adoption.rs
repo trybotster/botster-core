@@ -1156,3 +1156,42 @@ fn a_lost_row_with_no_valid_token_is_registry_corrupt() {
         "AdoptAll connects to no Lost row"
     );
 }
+
+/// Core A18-2, TM-4: the idle start of an adopted session with no output under this host is the adoption point, the pump
+/// that posts its `Running`. `Silent` is due a threshold after that pump's monotonic time, with `since` that pump's unix
+/// time. A18-1: `last_output_at` stays `None` until this host observes output.
+#[test]
+fn an_adopted_idle_session_is_silent_a_threshold_after_its_adoption() {
+    let first = crashed_before_launch("s");
+    let mut again = adopting(&first, "s", running_payload());
+    // The adoption point is later than the new host's start.
+    again.advance(Duration::from_secs(7));
+    let adopted_at = again.unix;
+    let events = adopt_all(&mut again);
+    assert_eq!(states_of(&events, "s"), vec![SessionState::Running]);
+    assert_eq!(
+        again
+            .engine
+            .terminal_state(&sid("s"))
+            .unwrap()
+            .last_output_at,
+        None
+    );
+    again
+        .engine
+        .set_silence_threshold(&sid("s"), Some(Duration::from_secs(3)))
+        .unwrap();
+    again.advance(Duration::from_millis(2999));
+    again.pump();
+    assert!(again
+        .engine
+        .poll_events(64)
+        .iter()
+        .all(|e| !matches!(e, Event::Silent { .. })));
+    again.advance(Duration::from_millis(1));
+    let events = again.until(|e| matches!(e, Event::Silent { .. }));
+    assert!(
+        matches!(events.last(), Some(Event::Silent { since, .. }) if *since == adopted_at),
+        "{events:?}"
+    );
+}

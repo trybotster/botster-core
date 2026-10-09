@@ -391,8 +391,14 @@ impl HostEngine {
         if !shown && !self.post_state(id, state) {
             return;
         }
+        let (mono, unix) = (self.mono(), self.unix);
         let s = self.sessions.get_mut(id).expect("a flow has a session");
         s.shown = Some(state);
+        // A18-2: this pump is the adoption point. It is the idle start of a session that this host has seen no output of
+        // (TM-4, on the monotonic clock; `since` is the unix time). `last_output_at` stays `None` (A18-1).
+        if let (SessionState::Running, Some(now), None) = (state, mono, s.silence.idle_start) {
+            s.silence.idle_start = Some((now, unix));
+        }
         match state {
             SessionState::Running => s.admit = Admit::Running,
             SessionState::Exited(exit) => {
