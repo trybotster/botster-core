@@ -645,7 +645,6 @@ conf::tm_3_wake_handle_ignores_deadlines
 conf::tm_4_silent_fires_once_at_threshold
 conf::tm_5_deadlines_in_order
 conf::tm_6_begin_and_attach_signal_wake
-conf::tm_6_create_without_worker_input_wakes
 conf::tm_6_more_means_runnable_not_blocked
 conf::tm_6_parked_work_does_not_spin
 conf::tm_6_poll_room_unparks_and_wakes
