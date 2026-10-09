@@ -160,3 +160,20 @@ only. The whole revision-22 delta `ad03636f..be9b9c7a` was read across rounds 1 
    because it decides whether a cross-package base-only merge needs a round from this reviewer.
 
 VERDICT: NOT CLEAN (3 open: PR4, PR5, PR8, all LOW)
+
+## Round 4 — CLEAN on head dbd34da7
+
+Reviewed head: `dbd34da7968b29f1ade0da9f49ffa9aad28e33ca`. Delta `be9b9c7a..dbd34da7`, one commit, `docs/stage1-plan.md`
+only. Rounds 1 to 4 together read the whole revision-22 delta `ad03636f..dbd34da7`.
+
+- **PR4 CLOSED.** Each `OFF_MACOS_EXCLUSIONS` entry states its equivalence argument. The unit test proves only the per-OS
+  scope.
+- **PR5 CLOSED.** Item 12 now has its other branch: reliance on pid-1 reparenting is a QUESTION to the lead, and
+  production code is not changed to suit the wrapper.
+- **PR8 CLOSED.** (1) The pool gate cites BUILD.md `629c177` ("Gates run on the shared Nomad pool (2026-10-05)") as
+  superseding the pinned tag's `botsterq`/`testq` text. (2) Q7 and Q8 carry BUILD.md's date, 2026-10-09. (3) Lead ruling:
+  for a cross-package pull request, the integration CLEAN on the reviewed head carries over to a script-verified base-only
+  merge. A merge that fails any of the three conditions gets delta rounds from both reviewers. BUILD.md requires the
+  integration CLEAN where rule 3 applies, but does not say "on the new head", so this reading does not contradict it.
+
+VERDICT: CLEAN (0 open) at dbd34da7968b29f1ade0da9f49ffa9aad28e33ca
