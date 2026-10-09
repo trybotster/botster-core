@@ -43,11 +43,29 @@ pub fn await_end(pid: Pid, deadline: Deadline) -> std::io::Result<Waited> {
         Err(error) if gone(&error) => return Ok(Waited::Gone),
         other => other?,
     }
-    loop {
+    exit_after_polls(
         // timer: deadline — bounds the wait for an exit event.
-        match polled(watcher.poll(Some(deadline.remaining())))? {
+        || polled(watcher.poll(Some(deadline.remaining()))),
+        || deadline.expired(),
+    )
+}
+
+/// The outcome of the polls of a wait for an exit event: an event ends it as `Exited`, a timeout as `Deadline`. An
+/// interrupted poll polls again only before the deadline: a poll with no time left can still return EINTR (XNU arms the
+/// timer of a wait after it marks the thread waiting, and an aborted wait returns before that), so repeated interruptions
+/// end at the deadline (#171 TP9).
+///
+/// # Errors
+/// A poll failed.
+fn exit_after_polls(
+    mut poll: impl FnMut() -> std::io::Result<Polled>,
+    expired: impl Fn() -> bool,
+) -> std::io::Result<Waited> {
+    loop {
+        match poll()? {
             Polled::Timeout => return Ok(Waited::Deadline),
             Polled::Event => return Ok(Waited::Exited),
+            Polled::Interrupted if expired() => return Ok(Waited::Deadline),
             Polled::Interrupted => {}
         }
     }
@@ -189,6 +207,54 @@ mod tests {
             ident: kqueue::Ident::Fd(-1),
             data: kqueue::EventData::Error(kind.into()),
         })
+    }
+
+    /// #171 TP9: an exit event or a timeout ends the polls; interruptions poll again until the deadline, and then end the
+    /// wait as at a timeout, whatever the poll would return next; a failed poll fails the wait.
+    #[test]
+    fn interrupted_polls_end_at_the_deadline_and_an_event_or_a_timeout_ends_them_at_once() {
+        let run = |results: Vec<std::io::Result<Polled>>, expired_after: usize| {
+            let mut results = results.into_iter();
+            let polls = std::cell::Cell::new(0);
+            let checks = std::cell::Cell::new(0);
+            let waited = exit_after_polls(
+                || {
+                    polls.set(polls.get() + 1);
+                    results.next().expect("no poll after the outcome")
+                },
+                || {
+                    checks.set(checks.get() + 1);
+                    checks.get() > expired_after
+                },
+            );
+            (waited.map_err(|e| e.kind()), polls.get())
+        };
+        let interrupted = || Ok(Polled::Interrupted);
+        assert_eq!(
+            run(vec![interrupted(), interrupted(), Ok(Polled::Event)], 5),
+            (Ok(Waited::Exited), 3)
+        );
+        assert_eq!(
+            run(vec![interrupted(), Ok(Polled::Timeout)], 5),
+            (Ok(Waited::Deadline), 2)
+        );
+        assert_eq!(
+            run(
+                vec![
+                    interrupted(),
+                    interrupted(),
+                    interrupted(),
+                    Ok(Polled::Event)
+                ],
+                2
+            ),
+            (Ok(Waited::Deadline), 3)
+        );
+        assert_eq!(run(vec![Ok(Polled::Event)], 0), (Ok(Waited::Exited), 1));
+        assert_eq!(
+            run(vec![Err(std::io::ErrorKind::InvalidInput.into())], 5),
+            (Err(std::io::ErrorKind::InvalidInput), 1)
+        );
     }
 
     /// #171 TP8: a signal that interrupts the wait makes the caller poll again; any other failure of `kevent` fails the wait.

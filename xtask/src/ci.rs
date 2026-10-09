@@ -275,6 +275,7 @@ const OFF_MACOS_EXCLUSIONS: &[&str] = &[
     r"crates/botster-test-process/src/platform/macos\.rs:\d+:\d+: (replace exiting_or_gone( ->| with)|.* in exiting_or_gone$)",
     r"crates/botster-test-process/src/platform/macos\.rs:\d+:\d+: (replace await_status( ->| with)|.* in await_status$)",
     r"crates/botster-test-process/src/platform/macos\.rs:\d+:\d+: (replace polled( ->| with)|.* in polled$)",
+    r"crates/botster-test-process/src/platform/macos\.rs:\d+:\d+: (replace exit_after_polls( ->| with)|.* in exit_after_polls$)",
 ];
 
 /// The exclusions that a gate on `os` (`std::env::consts::OS`) adds to the configured ones.
