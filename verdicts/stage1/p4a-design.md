@@ -163,7 +163,8 @@ The note must distinguish that sequence from the initial attach sequence.
 Define the resync boundary and the queue classes that survive it.
 Only permitted unstarted output and baseline frames may be discarded.
 Retain `input_refused`, `input_done`, and `route_closed` on the continuing route.
-Apply DP-5's bounded coalescing rule for modes and retirement rule for unresolved-query frames.
+Apply DP-5's bounded coalescing rule for modes.
+Retire an unstarted `terminal_query` frame when its query resolves or falls back.
 Require a proof with a partial output frame and retained exception frames across resync.
 
 Status: OPEN.
