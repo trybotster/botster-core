@@ -341,6 +341,8 @@ fn a_key_with_long_text_is_refused_by_its_worst_case() {
     assert!(longest_key(&short) <= limit);
     let mut w = World::new(limits(|l| {
         l.max_paste_bytes = limit;
+        // A15-1: the text bound admits the text, so the worst case decides.
+        l.max_key_text_bytes = 4096;
         l.input_ops_per_session = 64;
         l.input_retained_bytes = 1 << 20;
     }));
@@ -350,6 +352,75 @@ fn a_key_with_long_text_is_refused_by_its_worst_case() {
         ErrorCode::PayloadTooLarge
     );
     assert!(w.engine.begin(write(short)).is_ok());
+}
+
+fn key_with_text(text: &str, repeat: Option<u16>) -> InputPayload {
+    InputPayload::Key(KeyInput {
+        key: Key::Char('a'.into()),
+        shifted_key: None,
+        base_layout_key: None,
+        mods: vec![],
+        event: KeyEvent::Press,
+        text: Some(text.into()),
+        repeat,
+    })
+}
+
+/// Core A15-1, A15-2 (5.1A, 9.3), the host's proof of `conf::a15_1_host_key_text_over_the_bound_is_invalid_input_sync`:
+/// a key's `text` over `max_key_text_bytes` UTF-8 bytes is refused at `begin` with `InvalidInput{field: "text"}`. The
+/// refusal takes no `OpId` and posts no event. The bound counts bytes, not characters. The check comes before the
+/// worst-case size of IN-9, and a text at the bound is admitted.
+#[test]
+fn a_key_text_over_the_bound_is_invalid_input_at_begin() {
+    let bound = 8;
+    let mut w = World::new(limits(|l| {
+        l.max_key_text_bytes = bound;
+        // The smallest paste bound (9B: 1 KiB), so a long repeat has a worst case over it.
+        l.max_paste_bytes = 1024;
+        l.max_key_repeat = 4096;
+        l.input_ops_per_session = 64;
+        l.input_retained_bytes = 1 << 20;
+    }));
+    w.running("s1");
+    w.engine.poll_events(64);
+    let first = w
+        .engine
+        .begin(write(key_with_text("ab", None)))
+        .expect("a short text is admitted");
+    // A15-1: `InvalidInput{field: "text"}`.
+    let text_field = ErrorCode::InvalidInput {
+        field: Some("text".into()),
+    };
+    // 9 ASCII bytes; 5 two-byte characters (10 bytes, 5 characters).
+    for text in ["x".repeat(9), "é".repeat(5)] {
+        let refusal = refusal_of(&mut w, key_with_text(&text, None));
+        assert_eq!(refusal.code, text_field, "{text}");
+    }
+    // With a repeat whose worst case is over `max_paste_bytes`, the text bound still decides.
+    let repeat = 4096;
+    let worst = longest_key(&key_with_text(&"x".repeat(9), None)) * u64::from(repeat);
+    assert!(worst > w.engine.limits().max_paste_bytes);
+    assert_eq!(
+        refusal_of(&mut w, key_with_text(&"x".repeat(9), Some(repeat))).code,
+        text_field
+    );
+    assert!(
+        w.engine.poll_events(64).is_empty(),
+        "a refusal posts no event"
+    );
+    // At the bound: 8 ASCII bytes, and 4 two-byte characters. The refusals took no `OpId`.
+    let at = w
+        .engine
+        .begin(write(key_with_text(&"x".repeat(8), None)))
+        .expect("a text at the bound is admitted");
+    assert_eq!(at.0, first.0 + 1, "the refusals took no OpId");
+    accepted(&mut w, write(key_with_text(&"é".repeat(4), None)));
+}
+
+fn refusal_of(w: &mut World, payload: InputPayload) -> CoreError {
+    w.engine
+        .begin(write(payload))
+        .expect_err("the key is refused")
 }
 
 /// Core IN-9, A2-1: a repeat is from 1 to `max_key_repeat` and only with a press; `shifted_key` needs shift; a wheel button
