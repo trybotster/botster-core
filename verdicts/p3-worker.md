@@ -1,7 +1,8 @@
 # P3 worker review
 
-Current verdict: NOT CLEAN for PR #167 Part A at `f1cee83415af0962b83ccadc45b29e006120e443`.
-Round 96 closes F50 and records F51 MEDIUM: a non-equivalent exclusion on macOS. F49 remains CLOSED.
+Current verdict: NOT CLEAN for PR #167 Part A at `3d5237b2b1650424f6f23a27c841407014a165aa`.
+Round 97 accepts the F51 regression and Mac catches. F51 remains OPEN because its exclusion applies on every platform.
+F50 and F49 remain CLOSED.
 PR #163 Part B retains F28, F33 execution, and F39 for its later merge delta.
 PR #165 remains CLEAN at `29b37890efeffa4410d7dfc34f5c2344bfad1ba4` and landed through #162.
 F45 through F48 are CLOSED. F39 is CLOSED within #165.
@@ -4578,6 +4579,82 @@ The PR description names the current head and evidence but repeats F51's incorre
 
 PR #167 Part A is NOT CLEAN for F51 MEDIUM at this exact head.
 F50 and F49 are CLOSED. No other package finding is open within Part A's submitted scope.
+A31 remains open in the real driver after Part A.
+Part B retains F28 native evidence, F33 failed-watch execution, and F39's later merge duty.
+M2a, M2b, the A32/A33 follow-up, and pending conformance IDs remain outside this verdict.
+The reviewer changed no product code and ran no tests, builds, measurements, mutants, or gates.
+All earlier findings, closures, and verdict rounds remain preserved at their named heads and scopes.
+
+VERDICT: NOT CLEAN
+
+
+## Round 97 — F51 regression and unenforced platform scope
+
+Reviewed head: `3d5237b2b1650424f6f23a27c841407014a165aa`, PR #167, branch `stage1/p3-audit-fixes-a`.
+Base: `0b0eecc06d0cd4c39af5e33e59c0b3f643aba6d4`.
+Reviewed delta: `f1cee834..3d5237b2`, two commits, two files.
+The delta adds F51's native behavior test and revises the exclusion comments.
+The final head restores the same column-40 exclusion pattern.
+
+### F51 — MEDIUM — Regression and Mac catches accepted; platform scope remains OPEN
+
+The new test is `the_key_bound_of_an_alt_key_with_long_text_covers_the_states_with_modes_off`.
+It uses the valid Char("a"), Alt, 64-byte text input from round 96.
+It compares the public key bound with the maximum native result over the independent explicit-mode enumeration.
+It requires the bound to cover the supplied text. It invents no terminal sequence and tests no private helper layout.
+The test is valid behavior coverage for F51.
+The Mac focused run catches both column-40 mutants at this exact head.
+The Linux focused run reports both mutants MISSED, consistent with the platform difference in legacyAltPrefix.
+The Mac regression and required catches close F51's behavior/proof portion.
+
+The final .cargo/mutants.toml entry remains:
+`crates/botster-terminal-ghostty/src/encode\.rs:\d+:40: replace & with [|^] in EncoderState::every_key_state`.
+The comment says, "This entry is for the Linux gate only."
+The configuration has no platform condition, and xtask::mutants_job supplies no platform-specific configuration.
+Cargo-mutants therefore excludes both mutants during a configured Mac gate as well as a configured Linux gate.
+A comment does not enforce the proposed Linux-only scope.
+The entry still excludes mutations known to change Mac behavior under the default configuration.
+
+Enforce the exclusion's platform scope mechanically so a Mac gate includes both mutants.
+Keep the named Mac proof required when this function or its native dependency changes.
+Give the Linux equivalence a pinned-source argument that covers all valid inputs.
+The Linux Alt branch explains the new long-text case; it does not alone prove the maximum under the other five key modes.
+A finite survey cannot establish the universal equivalence claim.
+Update the configuration comments and PR description to match the enforced scope and its proof.
+The reviewer sent these remaining F51 requirements directly to the implementer.
+The other three accepted equivalence arguments remain unchanged.
+
+### Completed evidence
+
+The reviewer read the exact-head Mac log:
+`~/.local/state/jobq/logs/jobq-botster-core-3d5237b2-20261008221247-efb1.log`.
+Its command uses cargo mutants --no-config, selects every_key_state, and runs with two build jobs.
+Both column-40 mutants are caught. The full diagnostic result is 19 tested: 14 caught, two missed, two unviable, one timeout.
+The two misses are the accepted !=/== permutation and kitty-flag XOR equivalences.
+The timeout is `695:36: replace + with *`, which expands the state search to 2^30 states under cargo test.
+The diagnostic job exits 3 after 109 seconds, so it is not a green mutation job.
+The per-mutant catches supply the specific F51 Mac proof; they do not supply a green landing gate.
+
+The reviewer read the exact-head Linux log:
+`~/.local/state/jobq/logs/jobq-botster-core-3d5237b2-20261008221445-9d9c.log`.
+It uses the same --no-config selection and four build jobs.
+It reports 19 tested: 12 caught, four missed, two unviable, one timeout.
+The four misses include both column-40 mutants and the two accepted equivalences above.
+The same expanded-search mutant times out. The job exits 3 after 77 seconds.
+Both diagnostic commands use cargo test; the configured gate uses nextest with the default two-second per-test deadline.
+The earlier configured f1cee834 job reports no timeouts. The diagnostics do not prove a new production timeout defect.
+
+The exact-head static log is:
+`~/botster-sessions/gates/botster-core-stage1-p3-audit-fixes-a-3d5237b2-pool-20261008-221607-45188.log`.
+Formatting, taint, timers for 120 Rust files, lists, and clippy pass. It exits 0 after ten seconds on msa1.
+The static log names this exact head and base `0b0eecc06d0cd4c39af5e33e59c0b3f643aba6d4`.
+The PR description names the current head, both native diagnostic results, and their known timeout.
+It still claims a Linux-only configuration scope that the code does not enforce.
+
+### Verdict and limits
+
+PR #167 Part A is NOT CLEAN for the remaining F51 MEDIUM requirements at this exact head.
+F50 and F49 remain CLOSED. No other package finding is open within Part A's submitted scope.
 A31 remains open in the real driver after Part A.
 Part B retains F28 native evidence, F33 failed-watch execution, and F39's later merge duty.
 M2a, M2b, the A32/A33 follow-up, and pending conformance IDs remain outside this verdict.
