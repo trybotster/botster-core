@@ -13,7 +13,7 @@
 //! fixture workspace (`xtask/fixtures/`) is not checked.
 
 use crate::fsutil::tracked_files;
-use crate::process_check::{declarations, whole_test_files};
+use crate::process_check::{module_tree, whole_test_files};
 use anyhow::{bail, Result};
 use proc_macro2::{Delimiter, TokenStream, TokenTree};
 use quote::ToTokens;
@@ -298,47 +298,44 @@ fn scan_parsed(file: &str, text: &str, parsed: &syn::File, whole: bool) -> Vec<(
     found
 }
 
-/// The violations over files given as `(path, text)`, as `<file>:<line>: <message>`, and the number of Rust files scanned.
-/// A file that does not parse cannot be checked, which is a violation.
+/// The violations over files given as `(path, text)`, as `<file>:<line>: <message>`, and the number of files scanned:
+/// the Rust files outside the xtask fixtures, and every module file that they reach, whatever its extension. A file that
+/// does not parse cannot be checked, which is a violation.
 pub fn scan_files(files: &[(String, String)]) -> (usize, Vec<String>) {
-    let names: BTreeSet<&str> = files.iter().map(|(file, _)| file.as_str()).collect();
-    let mut found = Vec::new();
-    let mut parsed = BTreeMap::new();
-    let mut declared = BTreeMap::new();
-    let mut scanned = 0;
-    for (file, text) in files {
-        if !file.ends_with(".rs") || file.starts_with("xtask/fixtures/") {
-            continue;
-        }
-        scanned += 1;
-        match syn::parse_file(text) {
-            Ok(tree) => {
-                declared.insert(file.as_str(), declarations(file, &tree, &names));
-                parsed.insert(file.as_str(), (text, tree));
-            }
-            Err(error) => found.push(format!(
+    let sources: BTreeMap<String, String> = files.iter().cloned().collect();
+    let fixture = |file: &str| file.starts_with("xtask/fixtures/");
+    let tree = module_tree(
+        &sources,
+        |file| file.ends_with(".rs") && !fixture(file),
+        fixture,
+    );
+    let mut found: Vec<String> = tree
+        .errors
+        .iter()
+        .map(|(file, error)| {
+            format!(
                 "{file}:{}: does not parse, so it cannot be checked: {error}",
                 error.span().start().line
-            )),
-        }
-    }
-    let tests = parsed
+            )
+        })
+        .collect();
+    let tests = tree
+        .parsed
         .keys()
         .copied()
         .filter(|file| is_test_file(file))
         .collect();
-    let whole = whole_test_files(&declared, tests).unwrap_or_else(|error| {
+    let whole = whole_test_files(&tree.declared, tests).unwrap_or_else(|error| {
         found.push(error);
         BTreeSet::new()
     });
-    for (file, (text, tree)) in &parsed {
-        for (line, message) in
-            scan_parsed(file, text, tree, whole.contains(file) || is_test_file(file))
-        {
+    for (file, parsed) in &tree.parsed {
+        let test = whole.contains(file) || is_test_file(file);
+        for (line, message) in scan_parsed(file, &sources[*file], parsed, test) {
             found.push(format!("{file}:{line}: {message}"));
         }
     }
-    (scanned, found)
+    (tree.parsed.len() + tree.errors.len(), found)
 }
 
 pub fn command(root: &Path, args: &[String]) -> Result<()> {
@@ -517,20 +514,24 @@ mod tests {
             file("crates/x/tests/a.rs", "fn f() {\n    sleep(d);\n}\n"),
             file(
                 "xtask/src/a.rs",
-                "fn f() { sleep(d); }\n#[cfg(test)]\nmod tests;\n",
+                "fn f() { sleep(d); }\n#[cfg(test)]\nmod tests;\n#[cfg(test)]\n#[path = \"gen.inc\"]\nmod generated;\n\
+                 #[cfg(test)]\n#[path = \"../fixtures/w/tests/b.rs\"]\nmod fixture;\n",
             ),
+            file("xtask/src/gen.inc", "fn g() {\n    sleep(d);\n}\n"),
             file("xtask/src/a/tests.rs", "fn t() {\n    sleep(d);\n}\n"),
             file("xtask/fixtures/w/tests/b.rs", "fn t() { sleep(d); }\n"),
             file("README.md", "sleep(d);\n"),
             file("crates/x/tests/b.rs", "fn fine() {}\n"),
         ];
         let (scanned, found) = scan_files(&files);
-        assert_eq!(scanned, 4);
+        // The Rust files outside the fixtures, and the `.inc` module that test code declares.
+        assert_eq!(scanned, 5);
         assert_eq!(
             found,
             [
                 format!("crates/x/tests/a.rs:2: {UNMARKED}"),
                 format!("xtask/src/a/tests.rs:2: {UNMARKED}"),
+                format!("xtask/src/gen.inc:2: {UNMARKED}"),
             ]
         );
     }

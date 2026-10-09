@@ -110,7 +110,7 @@ enum Scope {
 }
 
 fn scope(file: &str) -> Scope {
-    if !file.ends_with(".rs") || file.starts_with(OWNER) || file.starts_with("xtask/fixtures/") {
+    if !file.ends_with(".rs") || skipped(file) {
         return Scope::Skip;
     }
     if TEST_SUPPORT.iter().any(|prefix| file.starts_with(prefix)) {
@@ -694,11 +694,19 @@ fn scan(file: &str, text: &str) -> Result<Vec<Finding>, String> {
     Ok(scan_parsed(file, &parse(file, text)?, scope == Scope::All))
 }
 
+#[cfg(test)]
 fn parse(file: &str, text: &str) -> Result<syn::File, String> {
-    syn::parse_file(text).map_err(|e| {
-        let at = e.span().start();
-        format!("{file}:{}:{}: does not parse: {e}", at.line, at.column + 1)
-    })
+    syn::parse_file(text).map_err(|e| parse_error(file, &e))
+}
+
+/// Why `file` cannot be proved clean: it does not parse, at the error's position.
+fn parse_error(file: &str, error: &syn::Error) -> String {
+    let at = error.span().start();
+    format!(
+        "{file}:{}:{}: does not parse: {error}",
+        at.line,
+        at.column + 1
+    )
 }
 
 /// The findings of a parsed file; with `whole`, all of it is test code.
@@ -728,13 +736,14 @@ pub(crate) struct Declared {
 }
 
 /// The modules that `items` declare without a body, recursively through inline modules. `dir` holds the files of the
-/// modules of `items`; `test` tells whether `items` are test code. A `#[path]` is relative to the directory of `file`.
-/// Without `#[path]`, the file is `<dir><name>.rs` or `<dir><name>/mod.rs`, and then, for a crate root such as
-/// `tests/a.rs`, the same beside `file`.
+/// modules of `items`; `inline` tells whether `items` are inside an inline module; `test` tells whether `items` are test
+/// code. A `#[path]` is relative to the directory of `file` at the top of the file, and relative to `dir` inside an inline
+/// module (the Rust reference, "The path attribute"). Without `#[path]`, the file is `<dir><name>.rs` or
+/// `<dir><name>/mod.rs`, and then, for a crate root such as `tests/a.rs`, the same beside `file`.
 fn declared_modules(
     file: &str,
     items: &[syn::Item],
-    dir: &str,
+    (dir, inline): (&str, bool),
     test: bool,
     files: &BTreeSet<&str>,
     declared: &mut Vec<Declared>,
@@ -747,12 +756,16 @@ fn declared_modules(
         let name = module.ident.to_string();
         let test = test || is_test_item(&module.attrs);
         if let Some((_, inner)) = &module.content {
-            declared_modules(file, inner, &format!("{dir}{name}/"), test, files, declared);
+            let inner_dir = format!("{dir}{name}/");
+            declared_modules(file, inner, (&inner_dir, true), test, files, declared);
             continue;
         }
         let beside = parent_dir(file);
         let candidates = match path_attr(&module.attrs) {
-            Some(path) => vec![normalize(&format!("{beside}{path}"))],
+            Some(path) => {
+                let base = if inline { dir } else { beside };
+                vec![normalize(&format!("{base}{path}"))]
+            }
             None => vec![
                 format!("{dir}{name}.rs"),
                 format!("{dir}{name}/mod.rs"),
@@ -788,8 +801,60 @@ pub(crate) fn normalize(path: &str) -> String {
 pub(crate) fn declarations(file: &str, tree: &syn::File, files: &BTreeSet<&str>) -> Vec<Declared> {
     let mut declared = Vec::new();
     let dir = crate::platform_code::module_dir(file);
-    declared_modules(file, &tree.items, &dir, false, files, &mut declared);
+    declared_modules(
+        file,
+        &tree.items,
+        (&dir, false),
+        false,
+        files,
+        &mut declared,
+    );
     declared
+}
+
+/// The parsed module tree of a run: each file that `include` takes, and each file that a parsed file declares as a module
+/// (`mod x;`, `#[path]` included, whatever its extension), unless `skip` takes it. A file that does not parse is an
+/// error.
+pub(crate) struct Tree<'a> {
+    pub(crate) parsed: BTreeMap<&'a str, syn::File>,
+    pub(crate) declared: BTreeMap<&'a str, Vec<Declared>>,
+    pub(crate) errors: Vec<(&'a str, syn::Error)>,
+}
+
+/// The module tree of `sources` (each file of the run with its text). See `Tree`.
+pub(crate) fn module_tree<'a>(
+    sources: &'a BTreeMap<String, String>,
+    include: impl Fn(&str) -> bool,
+    skip: impl Fn(&str) -> bool,
+) -> Tree<'a> {
+    let files: BTreeSet<&str> = sources.keys().map(String::as_str).collect();
+    let mut tree = Tree {
+        parsed: BTreeMap::new(),
+        declared: BTreeMap::new(),
+        errors: Vec::new(),
+    };
+    let mut pending: Vec<&str> = files.iter().copied().filter(|file| include(file)).collect();
+    let mut seen: BTreeSet<&str> = pending.iter().copied().collect();
+    while let Some(file) = pending.pop() {
+        match syn::parse_file(&sources[file]) {
+            Ok(parsed) => {
+                let declared = declarations(file, &parsed, &files);
+                for module in &declared {
+                    let reached = module.file.as_deref().and_then(|child| files.get(child));
+                    if let Some(child) = reached.filter(|child| !skip(child)) {
+                        if seen.insert(child) {
+                            pending.push(child);
+                        }
+                    }
+                }
+                tree.declared.insert(file, declared);
+                tree.parsed.insert(file, parsed);
+            }
+            Err(error) => tree.errors.push((file, error)),
+        }
+    }
+    tree.errors.sort_by(|a, b| a.0.cmp(b.0));
+    tree
 }
 
 /// The files of `declared` (each parsed file with its module declarations) that are test code as a whole: those of
@@ -827,34 +892,35 @@ pub(crate) fn whole_test_files<'a>(
     Ok(whole)
 }
 
-/// The findings of `sources` (each file of the run with its text). A module file is test code as a whole as
+/// The number of files scanned and the findings of `sources` (each file of the run with its text): its Rust files, and
+/// every module file that they reach, whatever its extension. A module file is test code as a whole as
 /// `whole_test_files` tells.
 ///
 /// # Errors
 /// A file does not parse, or the file of a module that is test code is not among `sources`.
-pub fn scan_files(sources: &BTreeMap<String, String>) -> Result<Vec<Finding>, String> {
-    let files: BTreeSet<&str> = sources.keys().map(String::as_str).collect();
-    let mut parsed = BTreeMap::new();
-    let mut declared = BTreeMap::new();
-    for (file, text) in sources {
-        if scope(file) == Scope::Skip {
-            continue;
-        }
-        let tree = parse(file, text)?;
-        declared.insert(file.as_str(), declarations(file, &tree, &files));
-        parsed.insert(file.as_str(), tree);
+pub fn scan_files(sources: &BTreeMap<String, String>) -> Result<(usize, Vec<Finding>), String> {
+    let tree = module_tree(sources, |file| scope(file) != Scope::Skip, skipped);
+    if let Some((file, error)) = tree.errors.first() {
+        return Err(parse_error(file, error));
     }
-    let all = parsed
+    let all = tree
+        .parsed
         .keys()
         .copied()
         .filter(|file| scope(file) == Scope::All)
         .collect();
-    let whole = whole_test_files(&declared, all)?;
+    let whole = whole_test_files(&tree.declared, all)?;
     let mut findings = Vec::new();
-    for (file, tree) in &parsed {
-        findings.extend(scan_parsed(file, tree, whole.contains(file)));
+    for (file, parsed) in &tree.parsed {
+        findings.extend(scan_parsed(file, parsed, whole.contains(file)));
     }
-    Ok(findings)
+    Ok((tree.parsed.len(), findings))
+}
+
+/// Whether the check never reads `file`, not even as a module that test code declares: the owner crate and the xtask
+/// fixtures.
+fn skipped(file: &str) -> bool {
+    file.starts_with(OWNER) || file.starts_with("xtask/fixtures/")
 }
 
 /// One allowlist entry: the site's key and the 1-based line of the entry.
@@ -968,18 +1034,19 @@ pub struct Report {
 pub fn check(root: &Path) -> Result<Report> {
     let allow_text = std::fs::read_to_string(root.join(ALLOW_FILE)).unwrap_or_default();
     let allowed = parse_allowlist(&allow_text).map_err(anyhow::Error::msg)?;
+    // Every tracked text file: a test module may have any extension (`#[path = "gen.inc"]`).
     let mut sources = BTreeMap::new();
     for file in tracked_files(root)? {
-        if scope(&file) == Scope::Skip {
+        if skipped(&file) {
             continue;
         }
         if let Ok(text) = std::fs::read_to_string(root.join(&file)) {
             sources.insert(file, text);
         }
     }
-    let findings = scan_files(&sources).map_err(anyhow::Error::msg)?;
+    let (scanned, findings) = scan_files(&sources).map_err(anyhow::Error::msg)?;
     Ok(Report {
-        scanned: sources.len(),
+        scanned,
         allowed: allowed.len(),
         violations: judge(&findings, &allowed),
     })

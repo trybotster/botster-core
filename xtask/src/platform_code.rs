@@ -157,14 +157,21 @@ impl Scan<'_> {
         gated
     }
 
-    /// The file of the module `item`, declared without a body, when it is among the files of the run.
+    /// The file of the module `item`, declared without a body, when it is among the files of the run. A `#[path]` is
+    /// relative to the directory of the file at its top, and to the inline module's directory inside an inline module (the
+    /// Rust reference, "The path attribute").
     fn module_file(&self, item: &syn::ItemMod) -> Option<String> {
         let name = item.ident.to_string();
         let candidates = match path_attr(&item.attrs) {
-            Some(path) => vec![crate::process_check::normalize(&format!(
-                "{}{path}",
-                parent_dir(self.file)
-            ))],
+            Some(path) => {
+                let inline = self.dir != module_dir(self.file);
+                let base = if inline {
+                    self.dir.as_str()
+                } else {
+                    parent_dir(self.file)
+                };
+                vec![crate::process_check::normalize(&format!("{base}{path}"))]
+            }
             None => vec![
                 format!("{}{name}.rs", self.dir),
                 format!("{}{name}/mod.rs", self.dir),

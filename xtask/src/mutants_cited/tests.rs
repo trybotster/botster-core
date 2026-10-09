@@ -185,8 +185,26 @@ fn a_test_of_one_system_runs_in_a_tier_and_a_windows_test_does_not() {
 fn module_files_are_followed_and_named_as_nextest_names_them() {
     let repo = Repo::new()
         .package("a", true, &["slow_x"])
-        .file("crates/a/src/lib.rs", "mod outer;\n")
-        .file("crates/a/src/outer.rs", "mod inner;\n")
+        .file(
+            "crates/a/src/lib.rs",
+            "mod outer;\nmod wrap {\n    #[path = \"w.rs\"]\n    mod w;\n}\n",
+        )
+        .file(
+            "crates/a/src/outer.rs",
+            "mod inner;\n#[path = \"side.rs\"]\nmod side;\n",
+        )
+        // A top-level `#[path]` of `outer.rs` is beside it; an inline one is under the inline module's directory. The
+        // other two files are decoys.
+        .file("crates/a/src/side.rs", "#[test]\nfn beside_test() {}\n")
+        .file(
+            "crates/a/src/outer/side.rs",
+            "#[test]\nfn wrong_file_test() {}\n",
+        )
+        .file(
+            "crates/a/src/wrap/w.rs",
+            "#[test]\nfn inline_path_test() {}\n",
+        )
+        .file("crates/a/src/w.rs", "#[test]\nfn wrong_inline_test() {}\n")
         .file(
             "crates/a/src/outer/inner/mod.rs",
             "#[cfg(test)]\nmod tests {\n    #[test]\n    fn deep_test_is_found() {}\n}\n",
@@ -209,6 +227,8 @@ fn module_files_are_followed_and_named_as_nextest_names_them() {
         names,
         [
             ("a", "outer::inner::tests::deep_test_is_found"),
+            ("a", "outer::side::beside_test"),
+            ("a", "wrap::w::inline_path_test"),
             ("slow_x", "common::more::shared_helper_test")
         ]
     );
