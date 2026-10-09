@@ -34,6 +34,8 @@ fn fixture(capacity: usize) -> (WorkerEdges, LinkEnd, Worker, Instant) {
         spawned: None,
         exit: None,
         drain: None,
+        pty_write: None,
+        wait_writable: false,
         ready: Vec::new(),
         read_chunk: READ_CHUNK,
     };

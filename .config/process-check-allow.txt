@@ -141,3 +141,9 @@ xtask/src/process_check/tests.rs | shell_sleeps_and_loops_that_never_end_by_them
 # The signal guard's own-group test (#177): its socket read is bounded by set_read_timeout, which the check cannot see.
 # PR C moves it to botster_test_process::Bounded (owner P3, core-sys signal).
 crates/botster-core-sys/src/signal.rs | a_signal_to_our_own_group_reaches_this_process | blocking-read
+
+# The real-PTY regression of #198 (P3): GuardedSession::launch accepts the worker's control link in a loop on a
+# non-blocking listener, which polls to a Deadline (WouldBlock polls again), so the accept is bounded; the check cannot
+# see that. Temporary: the next botster-test-process PR (owner P6) adds a bounded accept to the crate, moves this loop
+# onto it and removes this entry. The legacy Session::launch accept keeps its own entry above.
+crates/botster-worker/tests/common/session.rs | launch | blocking-read

@@ -292,3 +292,181 @@ fn pty_output_refuses_a_payload_that_has_exited() {
         );
     }
 }
+
+/// The input controls refuse what they cannot do, with `Bad`: an unknown handle or session, a session with no worker yet,
+/// an argument that they do not take, a missing `bytes`, and (`pty_chunk`) a cap of zero, which would let no input through.
+#[test]
+fn the_input_controls_refuse_what_they_cannot_do() {
+    let mut harness = TestkitHarness::new(0);
+    let (_core, _at) = session(&mut harness, false);
+    for op in ["pty_input", "pty_chunk", "pty_accept", "pty_fail_after"] {
+        let args = if op == "pty_input" {
+            json!({"session": "s1"})
+        } else {
+            json!({"session": "s1", "bytes": 1})
+        };
+        assert!(bad(harness.control("a", op, &args)), "{op}: no worker yet");
+    }
+    let mut harness = TestkitHarness::new(0);
+    let (_core, _at) = session(&mut harness, true);
+    for op in ["pty_chunk", "pty_accept", "pty_fail_after"] {
+        for args in [
+            json!({"session": "s9", "bytes": 1}),
+            json!({"session": "s1"}),
+            json!({"session": "s1", "bytes": 1, "on": true}),
+            json!({"session": "s1", "bytes": -1}),
+        ] {
+            assert!(bad(harness.control("a", op, &args)), "{op} {args}");
+        }
+        assert!(bad(harness.control(
+            "b",
+            op,
+            &json!({"session": "s1", "bytes": 1})
+        )));
+        assert_eq!(
+            harness.control("a", op, &json!({"session": "s1", "bytes": 1})),
+            Ok(Value::Null),
+            "{op}"
+        );
+    }
+    assert!(bad(harness.control(
+        "a",
+        "pty_chunk",
+        &json!({"session": "s1", "bytes": 0})
+    )));
+    for args in [
+        json!({"session": "s9"}),
+        json!({"session": "s1", "bytes": 1}),
+    ] {
+        assert!(bad(harness.control("a", "pty_input", &args)), "{args}");
+    }
+}
+
+/// `pty_input` is the observer of the input controls: the bytes that the program edge took, in order, as hex. A `hold`
+/// program that took no input gives an empty log.
+#[test]
+fn pty_input_reports_the_input_that_the_program_took() {
+    let mut harness = TestkitHarness::new(0);
+    let (_core, _at) = session(&mut harness, true);
+    assert_eq!(
+        harness.control("a", "pty_input", &json!({"session": "s1"})),
+        Ok(json!({"bytes": {"$bytes_hex": ""}}))
+    );
+}
+
+/// Begins a host write of `bytes` to `s1` (Core IN-1).
+fn write(core: &mut dyn CoreApi, bytes: &[u8]) -> OpId {
+    core.begin(Op::WriteInput {
+        session: sid("s1"),
+        payload: InputPayload::Bytes {
+            bytes: botster_route_codec::prelude::HexBytes(bytes.to_vec()),
+        },
+        guard: None,
+    })
+    .unwrap()
+}
+
+/// The input that the program edge of `s1` on `a` took, as `pty_input` reports it.
+fn input(harness: &mut TestkitHarness) -> Value {
+    harness
+        .control("a", "pty_input", &json!({"session": "s1"}))
+        .unwrap()["bytes"]["$bytes_hex"]
+        .clone()
+}
+
+fn outcome(result: OpResult) -> (WriteOutcome, u64) {
+    let OpResult::Ok(OpOutput::Input(result)) = result else {
+        panic!("a host write completes with an InputResult: {result:?}");
+    };
+    (result.outcome, result.pty_bytes_written)
+}
+
+/// `pty_chunk` (Core AM-2, IN-6): at most the cap reaches the PTY in one pump, and each pump is a new step, so one host
+/// write reaches the PTY in pieces and completes with every byte, in order.
+#[test]
+fn a_pty_chunk_write_reaches_the_pty_in_pieces_across_pumps() {
+    let mut harness = TestkitHarness::new(0);
+    let (mut core, mut at) = session(&mut harness, true);
+    settle(core.as_mut(), at);
+    assert_eq!(
+        harness.control("a", "pty_chunk", &json!({"session": "s1", "bytes": 2})),
+        Ok(Value::Null)
+    );
+    let op = write(core.as_mut(), b"abcde");
+    let mut more = false;
+    for _ in 0..PUMPS {
+        more = core
+            .pump(Now {
+                monotonic: at,
+                unix: 1_000_000,
+            })
+            .more;
+        if input(&mut harness) != json!("") {
+            break;
+        }
+    }
+    assert_eq!(
+        input(&mut harness),
+        json!("6162"),
+        "one step, one piece of the cap"
+    );
+    assert!(
+        more,
+        "the rest of the write is runnable work at the next step"
+    );
+    assert_eq!(
+        outcome(complete(core.as_mut(), &mut at, op)),
+        (WriteOutcome::Written, 5)
+    );
+    assert_eq!(input(&mut harness), json!("6162636465"));
+}
+
+/// A program that takes no input now (`pty_blocked`) makes the write wait, not fail: it completes with every byte once
+/// the program takes input again (Core AM-2: the program edge's write readiness).
+#[test]
+fn a_blocked_program_makes_the_write_wait_until_it_takes_input() {
+    let mut harness = TestkitHarness::new(0);
+    let (mut core, mut at) = session(&mut harness, true);
+    settle(core.as_mut(), at);
+    assert_eq!(
+        harness.control("a", "pty_blocked", &json!({"session": "s1"})),
+        Ok(Value::Null)
+    );
+    let op = write(core.as_mut(), b"ab");
+    settle(core.as_mut(), at);
+    assert!(
+        core.poll_events(64)
+            .iter()
+            .all(|e| !matches!(e, Event::Completed { op: o, .. } if *o == op)),
+        "the write waits while the program takes nothing"
+    );
+    assert_eq!(input(&mut harness), json!(""));
+    assert_eq!(
+        harness.control("a", "pty_blocked", &json!({"session": "s1", "on": false})),
+        Ok(Value::Null)
+    );
+    assert_eq!(
+        outcome(complete(core.as_mut(), &mut at, op)),
+        (WriteOutcome::Written, 2)
+    );
+    assert_eq!(input(&mut harness), json!("6162"));
+}
+
+/// A write that fails with an OS error (`pty_fail_after`) completes `Failed` with its exact count (Core IN-2), and never
+/// waits for a readiness that the error does not give.
+#[test]
+fn a_failed_pty_write_completes_failed_with_its_exact_count() {
+    let mut harness = TestkitHarness::new(0);
+    let (mut core, mut at) = session(&mut harness, true);
+    settle(core.as_mut(), at);
+    assert_eq!(
+        harness.control("a", "pty_fail_after", &json!({"session": "s1", "bytes": 1})),
+        Ok(Value::Null)
+    );
+    let op = write(core.as_mut(), b"abc");
+    assert_eq!(
+        outcome(complete(core.as_mut(), &mut at, op)),
+        (WriteOutcome::Failed, 1)
+    );
+    assert_eq!(input(&mut harness), json!("61"));
+}

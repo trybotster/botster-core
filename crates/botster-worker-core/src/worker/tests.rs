@@ -1014,3 +1014,353 @@ fn output_after_the_link_closed_is_read_and_not_sent() {
         .all(|a| !matches!(a, Action::LinkSend(_))));
     assert_eq!(w.feed(Input::PtyOutput(b"a".to_vec())), []);
 }
+
+use botster_route_codec::prelude::HexBytes;
+
+// ---- the admission point and the host's writes (AM-2, IN-1 to IN-10) ----
+
+fn write(req: u64, bytes: &[u8], guard: Option<Guard>) -> HostMsg {
+    HostMsg::Op {
+        req,
+        op: Op::WriteInput {
+            session: SessionId("s".into()),
+            payload: InputPayload::Bytes {
+                bytes: HexBytes(bytes.to_vec()),
+            },
+            guard,
+        },
+    }
+}
+
+fn pty_writes(actions: &[Action]) -> Vec<Vec<u8>> {
+    actions
+        .iter()
+        .filter_map(|a| match a {
+            Action::PtyWrite(b) => Some(b.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+/// The `InputResult` of the `Done` of `req` among the reports of `actions`.
+fn input_result(w: &mut World, actions: &[Action], req: u64) -> Option<InputResult> {
+    w.reports(actions).into_iter().find_map(|m| match m {
+        WorkerMsg::Done {
+            req: r,
+            result: OpResult::Ok(OpOutput::Input(result)),
+        } if r == req => Some(result),
+        _ => None,
+    })
+}
+
+fn outcome(result: &InputResult) -> (WriteOutcome, u64, u64) {
+    (
+        result.outcome,
+        result.payload_bytes_written,
+        result.pty_bytes_written,
+    )
+}
+
+/// AM-2, IN-2, IN-3: a write is one transaction across short writes: the rest of it goes to the PTY after each count, and
+/// its `Done` comes when the last byte is taken, with exact counts.
+#[test]
+fn a_write_is_one_transaction_across_short_writes() {
+    let mut w = World::running();
+    let actions = w.send(&write(1, b"abcde", None));
+    assert_eq!(pty_writes(&actions), [b"abcde".to_vec()]);
+    let actions = w.feed(Input::PtyWritten(Ok(2)));
+    assert_eq!(pty_writes(&actions), [b"cde".to_vec()]);
+    assert!(input_result(&mut w, &actions, 1).is_none());
+    let actions = w.feed(Input::PtyWritten(Ok(3)));
+    let result = input_result(&mut w, &actions, 1).expect("done");
+    assert_eq!(outcome(&result), (WriteOutcome::Written, 5, 5));
+}
+
+/// AM-2: the next write starts only after the previous one completed; host writes are admitted in their order, and each
+/// admission advances the host's revision and reports it (IN-10, IN-4).
+#[test]
+fn writes_are_admitted_one_at_a_time_in_order() {
+    let mut w = World::running();
+    let first = w.send(&write(1, b"ab", None));
+    let second = w.send(&write(2, b"cd", None));
+    assert_eq!(pty_writes(&first), [b"ab".to_vec()]);
+    assert!(
+        pty_writes(&second).is_empty(),
+        "the first owns the PTY input"
+    );
+    let actions = w.feed(Input::PtyWritten(Ok(2)));
+    assert_eq!(pty_writes(&actions), [b"cd".to_vec()]);
+    let reports = w.reports(&actions);
+    assert!(
+        matches!(reports[0], WorkerMsg::Done { req: 1, .. }),
+        "{reports:?}"
+    );
+    assert_eq!(
+        reports[1],
+        WorkerMsg::Observed {
+            observation: Observation::HostInput {
+                input_rev: InputRev(2)
+            }
+        }
+    );
+}
+
+/// The PTY takes nothing now: the rest waits for `PtyWritable`, with no spin.
+#[test]
+fn a_full_pty_waits_for_writability() {
+    let mut w = World::running();
+    w.send(&write(1, b"abc", None));
+    assert!(pty_writes(&w.feed(Input::PtyWritten(Ok(0)))).is_empty());
+    assert!(pty_writes(&w.feed(Input::PtyOutput(b"x".to_vec()))).is_empty());
+    assert_eq!(pty_writes(&w.feed(Input::PtyWritable)), [b"abc".to_vec()]);
+}
+
+/// AM-2: one PTY write is out at a time: a `PtyWritable` while a write is out hands the PTY nothing more.
+#[test]
+fn a_writable_pty_gets_no_second_write_while_one_is_out() {
+    let mut w = World::running();
+    assert_eq!(
+        pty_writes(&w.send(&write(1, b"abc", None))),
+        [b"abc".to_vec()]
+    );
+    assert!(pty_writes(&w.feed(Input::PtyWritable)).is_empty());
+    let actions = w.feed(Input::PtyWritten(Ok(3)));
+    let result = input_result(&mut w, &actions, 1).expect("done");
+    assert_eq!(outcome(&result), (WriteOutcome::Written, 3, 3));
+}
+
+/// IN-6: a queued write is cancelled with exact zero and never reaches the PTY; the active one keeps its order.
+#[test]
+fn a_cancel_of_a_queued_write_is_an_exact_zero() {
+    let mut w = World::running();
+    w.send(&write(1, b"ab", None));
+    w.send(&write(2, b"cd", None));
+    let actions = w.send(&HostMsg::Cancel { req: 2 });
+    let result = input_result(&mut w, &actions, 2).expect("done");
+    assert_eq!(outcome(&result), (WriteOutcome::Cancelled, 0, 0));
+    let actions = w.feed(Input::PtyWritten(Ok(2)));
+    assert!(
+        pty_writes(&actions).is_empty(),
+        "the cancelled write never starts"
+    );
+}
+
+/// IN-6, IN-2: a cancel during a write waits for the count of the write that is out, and reports exactly what was written;
+/// a write that finished first reports its real outcome.
+#[test]
+fn a_cancel_during_a_write_reports_exact_progress() {
+    let mut w = World::running();
+    w.send(&write(1, b"abcde", None));
+    let actions = w.send(&HostMsg::Cancel { req: 1 });
+    assert!(
+        input_result(&mut w, &actions, 1).is_none(),
+        "a write is out"
+    );
+    let actions = w.feed(Input::PtyWritten(Ok(2)));
+    assert!(pty_writes(&actions).is_empty());
+    let result = input_result(&mut w, &actions, 1).expect("done");
+    assert_eq!(outcome(&result), (WriteOutcome::Cancelled, 2, 2));
+
+    let mut w = World::running();
+    w.send(&write(1, b"ab", None));
+    w.send(&HostMsg::Cancel { req: 1 });
+    let actions = w.feed(Input::PtyWritten(Ok(2)));
+    let result = input_result(&mut w, &actions, 1).expect("done");
+    assert_eq!(outcome(&result), (WriteOutcome::Written, 2, 2));
+
+    let mut w = World::running();
+    w.send(&write(1, b"abc", None));
+    w.feed(Input::PtyWritten(Ok(1)));
+    w.feed(Input::PtyWritten(Ok(0)));
+    let actions = w.send(&HostMsg::Cancel { req: 1 });
+    let result = input_result(&mut w, &actions, 1).expect("no write is out");
+    assert_eq!(outcome(&result), (WriteOutcome::Cancelled, 1, 1));
+}
+
+/// IN-2: a PTY write that fails reports `Failed` with the exact counts up to the failure.
+#[test]
+fn a_failed_pty_write_is_failed_with_exact_counts() {
+    let mut w = World::running();
+    w.send(&write(1, b"abc", None));
+    w.feed(Input::PtyWritten(Ok(1)));
+    let actions = w.feed(Input::PtyWritten(Err(5)));
+    let result = input_result(&mut w, &actions, 1).expect("done");
+    assert_eq!(outcome(&result), (WriteOutcome::Failed, 1, 1));
+}
+
+/// IN-2, IN-7: the payload's end makes a started write `Partial` with exact counts, a write that wrote nothing a certain
+/// zero, and a write after it `NotWritten(SessionEnded)`.
+#[test]
+fn the_payload_end_ends_writes_with_exact_counts() {
+    let mut w = World::running();
+    w.send(&write(1, b"abc", None));
+    w.feed(Input::PtyWritten(Ok(1)));
+    w.feed(Input::PtyWritten(Ok(0)));
+    let actions = w.feed(Input::PayloadExited(ExitStatus::Code(0)));
+    let result = input_result(&mut w, &actions, 1).expect("done");
+    assert_eq!(outcome(&result), (WriteOutcome::Partial, 1, 1));
+    let actions = w.send(&write(2, b"x", None));
+    let result = input_result(&mut w, &actions, 2).expect("done");
+    assert_eq!(
+        outcome(&result),
+        (
+            WriteOutcome::NotWritten(NotWrittenReason::SessionEnded),
+            0,
+            0
+        )
+    );
+
+    let mut w = World::running();
+    w.send(&write(1, b"abc", None));
+    w.feed(Input::PayloadExited(ExitStatus::Code(0)));
+    let actions = w.feed(Input::PtyWritten(Err(5)));
+    let result = input_result(&mut w, &actions, 1).expect("done");
+    assert_eq!(
+        outcome(&result),
+        (
+            WriteOutcome::NotWritten(NotWrittenReason::SessionEnded),
+            0,
+            0
+        )
+    );
+}
+
+/// IN-2: a write that starts while the payload is being stopped is `NotWritten(Stopping)`.
+#[test]
+fn a_write_during_a_stop_is_not_written_stopping() {
+    let mut w = World::running();
+    w.send(&HostMsg::Stop);
+    let actions = w.send(&write(1, b"x", None));
+    let result = input_result(&mut w, &actions, 1).expect("done");
+    assert_eq!(
+        outcome(&result),
+        (WriteOutcome::NotWritten(NotWrittenReason::Stopping), 0, 0)
+    );
+    assert!(pty_writes(&actions).is_empty());
+}
+
+/// IN-10: a write after a kill is `Stopping` too: a killed payload takes no input, with or without a grace before it.
+#[test]
+fn a_write_after_a_kill_is_not_written_stopping() {
+    let mut w = World::running();
+    w.send(&HostMsg::Kill);
+    let actions = w.send(&write(1, b"x", None));
+    let result = input_result(&mut w, &actions, 1).expect("done");
+    assert_eq!(
+        outcome(&result),
+        (WriteOutcome::NotWritten(NotWrittenReason::Stopping), 0, 0)
+    );
+    assert!(pty_writes(&actions).is_empty());
+}
+
+/// IN-10: a guard of the client class compares the client revision: it passes at that revision, and is `Stale` at
+/// another, whatever the host wrote.
+#[test]
+fn a_client_guard_compares_the_client_revision() {
+    let mut w = World::running();
+    let client = |rev| Guard {
+        input: Some(InputGuard {
+            source_class: SourceClass::Client,
+            rev: InputRev(rev),
+        }),
+        model_rev: None,
+    };
+    w.send(&write(1, b"a", None));
+    w.feed(Input::PtyWritten(Ok(1)));
+    let actions = w.send(&write(2, b"b", Some(client(0))));
+    assert_eq!(
+        pty_writes(&actions),
+        [b"b".to_vec()],
+        "no client input came"
+    );
+    w.feed(Input::PtyWritten(Ok(1)));
+    let actions = w.send(&write(3, b"c", Some(client(1))));
+    let result = input_result(&mut w, &actions, 3).expect("done");
+    assert_eq!(
+        outcome(&result),
+        (WriteOutcome::NotWritten(NotWrittenReason::Stale), 0, 0)
+    );
+}
+
+/// IN-10: the input guard passes iff no input of its class was admitted after its revision; the guard of a queued write is
+/// checked at its start, so a write admitted before it makes it `Stale` with exact zero.
+#[test]
+fn the_input_guard_is_checked_at_the_start() {
+    let mut w = World::running();
+    let guard = |rev| Guard {
+        input: Some(InputGuard {
+            source_class: SourceClass::Host,
+            rev: InputRev(rev),
+        }),
+        model_rev: None,
+    };
+    w.send(&write(1, b"a", None));
+    // Queued behind write 1, with the revision from before it.
+    let actions = w.send(&write(2, b"b", Some(guard(0))));
+    assert!(input_result(&mut w, &actions, 2).is_none(), "queued");
+    let actions = w.feed(Input::PtyWritten(Ok(1)));
+    let result = input_result(&mut w, &actions, 2).expect("stale at its start");
+    assert_eq!(
+        outcome(&result),
+        (WriteOutcome::NotWritten(NotWrittenReason::Stale), 0, 0)
+    );
+    assert!(pty_writes(&actions).is_empty());
+    let actions = w.send(&write(3, b"c", Some(guard(1))));
+    assert_eq!(
+        pty_writes(&actions),
+        [b"c".to_vec()],
+        "unchanged: it passes"
+    );
+}
+
+/// IN-10: the terminal guard passes iff the model's revision is unchanged; output moves it.
+#[test]
+fn the_terminal_guard_refuses_after_output() {
+    let mut w = World::running();
+    let guard = |rev| Guard {
+        input: None,
+        model_rev: Some(ModelRev(rev)),
+    };
+    let actions = w.send(&write(1, b"a", Some(guard(0))));
+    assert_eq!(pty_writes(&actions), [b"a".to_vec()]);
+    w.feed(Input::PtyWritten(Ok(1)));
+    w.feed(Input::PtyOutput(b"redraw".to_vec()));
+    let actions = w.send(&write(2, b"b", Some(guard(0))));
+    let result = input_result(&mut w, &actions, 2).expect("done");
+    assert_eq!(
+        outcome(&result),
+        (WriteOutcome::NotWritten(NotWrittenReason::Stale), 0, 0)
+    );
+}
+
+/// IN-1, IN-9: `Text` is written as its UTF-8 bytes; an empty payload completes `Written` with zero counts.
+#[test]
+fn text_is_its_utf8_and_an_empty_write_is_written() {
+    let mut w = World::running();
+    let actions = w.send(&HostMsg::Op {
+        req: 1,
+        op: Op::WriteInput {
+            session: SessionId("s".into()),
+            payload: InputPayload::Text { text: "é!".into() },
+            guard: None,
+        },
+    });
+    assert_eq!(pty_writes(&actions), ["é!".as_bytes().to_vec()]);
+    w.feed(Input::PtyWritten(Ok(3)));
+    let actions = w.send(&write(2, b"", None));
+    let result = input_result(&mut w, &actions, 2).expect("done");
+    assert_eq!(outcome(&result), (WriteOutcome::Written, 0, 0));
+    assert!(pty_writes(&actions).is_empty());
+}
+
+/// A write before the spawn's answer waits for it, then starts on the live payload.
+#[test]
+fn a_write_waits_for_the_spawn() {
+    let mut w = World::linked();
+    w.send(&HostMsg::Launch(Box::new(spec())));
+    assert!(pty_writes(&w.send(&write(1, b"a", None))).is_empty());
+    assert_eq!(
+        pty_writes(&w.feed(Input::Spawned(Ok(PAYLOAD)))),
+        [b"a".to_vec()]
+    );
+}
