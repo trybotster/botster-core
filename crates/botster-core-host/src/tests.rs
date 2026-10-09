@@ -2,7 +2,7 @@
 //! performs the actions on a map for the registry and records the rest, and a scripted worker answers on the link. Nothing
 //! here is a test branch of the engine: the engine is built from its public config like any other.
 
-use crate::io::{Action, Input, LinkId};
+use crate::io::{Action, Input, LinkId, Work};
 use crate::{EngineConfig, HostEngine};
 use botster_core_contract::prelude::*;
 use botster_core_edges::edges::{
