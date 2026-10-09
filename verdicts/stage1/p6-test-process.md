@@ -106,3 +106,76 @@ has no deadline (for example, a process in uninterruptible sleep). Follow TP1's 
 is bounded by the deadline (`await_end` within the deadline, then the reap), on every path.
 
 VERDICT: NOT CLEAN (R1 is a duplicate of TP1, the package reviewer's; no integration finding open of its own)
+
+## Round 2 — NOT CLEAN on head 5d0d89c7
+
+Reviewed head: `5d0d89c7d443146418117e5db991d3ea81b61c36`, a fast-forward from `dc7fca5a` (6 commits, 14 files, +1,229
+-159). The base is still v1 `59ce1268`. v1 is now `a0f78fe4`, so a merge comes before the merge to v1.
+
+### Checked, no finding
+
+- **TP1 (R1's call; the package reviewer's finding).** `end_group` kills the reserve, then reaps it with `reap_within`:
+  `await_status` within the deadline, then `try_wait`. No `Child::wait` is left in the crate. The decision loop
+  `status_after_events` checks the status before the deadline, so an available status is never lost, and it has four
+  default-tier tests with fakes.
+- **`await_status`.** On Linux the event is the readable pidfd. On macOS it is `EVFILT_SIGNAL` for `SIGCHLD`. The filter
+  is registered before the first check, so a `SIGCHLD` after the check wakes the wait. The comment cites the XNU sources
+  for the order "`NOTE_EXIT`, zombie, `SIGCHLD`".
+- **`start_time` returns `Result`.** An error is "not verified", never "gone". Only a proved end gives `None`.
+- **The lint table and `libc`.** The crate copies the workspace table with only `unsafe_code = "deny"`. `lint_drift`
+  proves that against the real manifests, and each other difference fails. `libc` is a dependency on every target, for
+  `close` in `close_inherited`.
+- **`ci.rs`.** The `OFF_MACOS_EXCLUSIONS` comment now says that the entries are temporary until PR B (round 1
+  observation), and `await_status` is added. The focused Mac run at this head (`…014149-19171.log`): the slow suite
+  passes, and the mutants of `platform/macos.rs` are 16 caught and 2 unviable.
+- **The two `xtask` shell exclusions** (`unsafe_code.rs command`, `ci.rs taint_job`) exclude only the whole-body
+  `Ok(())` replacements, and each names its decision functions (plan r22 section 8).
+- **Blocking calls.** I grepped the added lines of the delta. The one new loop is `status_after_events`, which is bounded.
+  The two `.status()` calls are `OwnedChild::status`, which is bounded by `CLEANUP`.
+- **Evidence.** The full gate at this head is green (`…013207-11707.log`). The two TIMEOUTs of the slow-profile in-diff
+  run (`…013552-15018.log`) are caught in 2 ms with `--max-fail 1:immediate` (`…014137-18902.log`), as in round 1.
+
+### U1 MEDIUM — the `unsafe_code` check misses an attribute that spans lines
+
+`xtask/src/unsafe_code.rs` `other_attributes` reports only a line that starts with `#[` or `#![` **and** contains
+`unsafe_code`. rustfmt splits an attribute that is longer than the line limit:
+
+    #[allow(
+        clippy::too_many_lines,
+        unsafe_code
+    )]
+    fn another() { unsafe { … } }
+
+In `botster-test-process`, `unsafe_code` is `deny`, so this attribute compiles. No line starts with `#[` and also names
+`unsafe_code`, so the check passes. The lead's ruling (TP3, as the crate's manifest comment says): "no other item allows
+`unsafe_code`". In every other crate, `forbid` makes such an attribute a compile error. So the hole is in the one crate
+that has the exception.
+
+Fix: read each attribute until its closing `]`, not only its first line. Or report every occurrence of the identifier
+`unsafe_code` in a Rust source, outside comments, except the one `#[allow(unsafe_code)]` of `close_inherited`. Add a
+red test with the multi-line form. Also consider `rustflags` in `.cargo/config*.toml` (`-A unsafe_code` or
+`--allow=unsafe_code`), which can lower `deny` for the crate without any attribute.
+
+### E1 MEDIUM — no slow-tier mutation evidence for the new and changed slow-tier exclusions
+
+Round 1 accepted the slow-tier whole-function exclusions because a slow-tier run with `--no-config` tested them
+(`d2338cb6`, `…231333-45540.log`). This round adds new excluded functions and changes excluded ones:
+- new: `reap_within`, `OwnedChild::exit_by`, `peek`, the Linux `await_status`, `start_anchor`, `close_inherited` and
+  `group_of`;
+- changed: `end_group`, `OwnedChild::end`, and the anchor binary's `wrap` and `anchor`.
+
+No run at this head tests their mutants on Linux. The slow-profile in-diff run (`…013552-15018.log`) uses the config, so
+its exclusions apply. Its log names none of these functions, except the macOS `await_status` (MISSED there, and covered
+by the Mac run). The `d2338cb6` run predates all of them. Each entry names slow tests, but no mutation run shows that
+those tests catch the mutants.
+
+Fix: run the slow-tier mutation run with `--no-config` on this head, as at `d2338cb6` (`-p botster-test-process
+--features slow`, nextest `--profile slow`, `--max-fail 1:immediate`, macOS file excluded), and post the log. Exclude
+each miss with its reason, or kill it with a test.
+
+### Carry (unchanged)
+
+- PR B: the mutants profile with `--max-fail 1:immediate`.
+- PR C: `run_to_completion`, and `xtask/src/base_merge/tests.rs` `Repo::git` uses it.
+
+VERDICT: NOT CLEAN (2 open: U1 MEDIUM, E1 MEDIUM)
