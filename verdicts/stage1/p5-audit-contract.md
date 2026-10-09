@@ -331,3 +331,49 @@ build, test or gate.
   a docs-free merge-only delta check.
 
 VERDICT: CLEAN (0 open) at e3c1fabf754ddce9439d653783b083969f2057be
+
+## Round 11 — CLEAN on head e9864aaa (fix round after the red mutants gate at e3c1fabf)
+
+Reviewed head: `e9864aaa1d71cd75c7f22adda988205ace3125bb`. It contains the merge `cb521e9e` of v1 `0b0eecc0` (tree `3eb84d6`,
+equal to this reviewer's trial merge of #142 and #164 in round 10) and five fix commits after it. The full Linux gate at
+`e3c1fabf` (`…p5-audit-contract-e3c1fabf-pool-20261008-211422-42727.log`) was red in mutants only (42 missed). This
+reviewer ran no build, test or gate. The delta is now cross-package (xtask, nextest config, the facade rustdoc, the host
+test `World`, core-sys storage).
+
+- **xtask (cross-package, shared).** `pub const SLOW_FILTER = "binary(/^slow/) or test(/::slow_tests::/)"`. The in-crate
+  `slow_tests` of core-sys `storage.rs` and botster-core `real.rs` never ran in a gate before, while `mutants.toml` cited
+  them; this closes that gap for #164. nextest names a unit test by its module path without the crate
+  (`storage::slow_tests::…`, `real::slow_tests::…`), so `::slow_tests::` matches both.
+- **`.config/nextest.toml`:** one `success-output = "immediate"` override for the confinement test, so the gate log shows
+  which branch ran. No other profile change.
+- **Facade rustdoc (`Core::open`) and host `DESIGN.md`:** the AppArmor path limit (about 8 KiB; `Create` fails
+  `RegistryFailed` and leaves nothing) under the lead's ruling on #164, with the `max_session_id_bytes` ceiling recorded as
+  an open steward question. The docs agree on both sides.
+- **Host test `World::over`:** the new handle has a higher host epoch (DP-8) and continues the pids. Test code only; it
+  removes two reuses that real Core never makes.
+- **Storage (P5 package scope):** `write_row` removes the directories that it made on a failure; new slow tests use the real
+  disk only. No process is started, so the HOLD on real-process test code does not apply.
+- **mutants.toml.** One entry per function, each naming its catching slow tests; written arguments for the flag mutants
+  (`|` to `^` on distinct bits, the pre-accepted class; `|` to `&` dropping `O_DIRECTORY`, or `O_NOFOLLOW` and `O_CLOEXEC`,
+  argued per caller); `HostEdges::diagnostics`'s default body (`Value::Null` = `Value::default()`). Evidence, read by
+  this reviewer:
+  - `…p5-audit-contract-2121aaca-pool-20261008-214504-93381.log`: slow-tier mutants of `storage.rs` and `real.rs`
+    (`--features slow`, nextest): 91 tested, 68 caught, 10 unviable, 13 missed = the `open_dir` and `place` flag mutants
+    named as equivalent, and four `read_row` flag mutants.
+  - `…p5-audit-contract-b48a6d8d-pool-20261008-215154-3101.log`: `read_row` after the link test: 8 tested, 6 caught, 2
+    missed = `|` to `^` (distinct bits).
+  - The gate's mutants step runs with `--test-tool nextest` (`xtask/src/ci.rs:284`), so each test has its own process.
+    This matters for `a_failed_write_removes_the_directories_that_it_made`, which lowers the process's `RLIMIT_NOFILE`
+    around one call; it is safe only with one test per process (nextest). P6's PR B check should know this pattern.
+- Other evidence: `e9864aa` Linux static steps and unit tests (`…e9864aaa-pool-20261008-215328-5780.log`); `e9864aa` Mac
+  slow tier with the new selection, 171 passed (`…e9864aaa-pool-20261008-215235-3778.log`).
+
+**Merge requirements (not findings at this head; #167 lands first by the lead's order).** A trial merge of #167
+`723bc8d5` with this head CONFLICTS in `xtask/src/test_budget.rs` and `.cargo/mutants.toml`. The resolution must:
+1. keep one `SLOW_FILTER`, `pub` (P6's PR B reads it), whose set includes both filters: #167's
+   `binary(/^slow/) | test(/(^|::)slow_/)` includes `::slow_tests::`, so take it;
+2. update the `mutants.toml` storage comment "xtask selects `::slow_tests::` since #164" to the merged filter;
+3. keep every entry of both sides in `mutants.toml`, and update the xtask selection test to the merged string.
+That merge head gets a merge-only check by this reviewer before the ONE Linux gate.
+
+VERDICT: CLEAN (0 open) at e9864aaa1d71cd75c7f22adda988205ace3125bb
