@@ -707,7 +707,9 @@ mod slow_tests {
     }
 
     /// Lead ruling on A1: a name that does not decode was not written by Core: it is counted as foreign, left on disk, and
-    /// not listed; the rows around it list as before.
+    /// not listed; the rows around it list as before. That holds for files and for directories: a directory whose name is
+    /// not a kind, and a directory below a kind whose name is not a full component, each count once, and the scan does not
+    /// look inside them.
     #[test]
     fn a_foreign_file_is_counted_untouched_and_not_listed() {
         let tmp = dir();
@@ -722,14 +724,24 @@ mod slow_tests {
         for path in &foreign {
             fs::write(path, b"someone else's").unwrap();
         }
+        let foreign_dirs = [rows.join("NOT-A-KIND"), rows.join("session").join("abc")];
+        for path in &foreign_dirs {
+            fs::create_dir(path).unwrap();
+            // Two files inside, one named like a row: had the scan looked in, the directory would count twice.
+            fs::write(path.join(row_path("session/z").unwrap().file), b"inside").unwrap();
+            fs::write(path.join("notes.txt"), b"inside").unwrap();
+        }
         let scan = storage.scan().unwrap();
-        assert_eq!(scan.foreign, foreign.len());
+        assert_eq!(scan.foreign, foreign.len() + foreign_dirs.len());
         assert_eq!(
             scan.keys,
             vec![EPOCH_KEY.to_string(), "session/a".to_string()]
         );
         for path in &foreign {
             assert_eq!(fs::read(path).unwrap(), b"someone else's");
+        }
+        for path in &foreign_dirs {
+            assert!(path.is_dir(), "{}", path.display());
         }
     }
 
@@ -795,6 +807,71 @@ mod slow_tests {
         assert_eq!(scan.keys, vec![EPOCH_KEY.to_string()]);
         assert_eq!(scan.foreign, 1);
         assert_eq!(fs::read(&blocker).unwrap(), b"someone else's");
+    }
+
+    /// AD-6 (the directory is the host's alone), lead ruling on A1: no operation follows a link in a row's path. With a link
+    /// where a kind directory goes, pointing at another kind's directory, a read, a write and a delete through it fail with
+    /// `Failed`, and the rows behind the link are as they were. A scan counts the link as foreign.
+    #[test]
+    fn a_link_in_a_row_path_is_never_followed() {
+        let tmp = dir();
+        let rows = tmp.path().join("d").join("rows");
+        let mut data = DataDir::open(&tmp.path().join("d")).unwrap();
+        let storage = data.storage();
+        storage.write_row("session/a", b"a row").unwrap();
+        std::os::unix::fs::symlink(rows.join("session"), rows.join("linked")).unwrap();
+        match storage.read_row("linked/a") {
+            Err(StorageError::Failed { .. }) => {}
+            other => panic!("read: {other:?}"),
+        }
+        match storage.write_row("linked/b", b"x") {
+            Err(StorageError::Failed { .. }) => {}
+            other => panic!("write: {other:?}"),
+        }
+        match storage.delete_row("linked/a") {
+            Err(StorageError::Failed { .. }) => {}
+            other => panic!("delete: {other:?}"),
+        }
+        assert_eq!(
+            storage.read_row("session/a").unwrap(),
+            Some(b"a row".to_vec())
+        );
+        assert_eq!(storage.read_row("session/b").unwrap(), None);
+        let scan = storage.scan().unwrap();
+        assert_eq!(
+            scan.keys,
+            vec![EPOCH_KEY.to_string(), "session/a".to_string()]
+        );
+        assert_eq!(scan.foreign, 1);
+    }
+
+    /// AD-7: a write never opens a temporary file that it did not create. Names that the temporary files of this process
+    /// would take next are already taken (an earlier process with the same pid left them); the write goes past them,
+    /// and every one of them is left as it was.
+    #[test]
+    fn a_write_never_reuses_a_temporary_file_that_it_did_not_create() {
+        let tmp = dir();
+        let rows = tmp.path().join("d").join("rows");
+        let mut data = DataDir::open(&tmp.path().join("d")).unwrap();
+        let storage = data.storage();
+        storage.write_row("session/a", b"one").unwrap();
+        let taken: Vec<PathBuf> = (0..64)
+            .map(|n| {
+                rows.join("session")
+                    .join(format!("{TEMP_PREFIX}{}.{n}", std::process::id()))
+            })
+            .collect();
+        for path in &taken {
+            fs::write(path, b"old").unwrap();
+        }
+        storage.write_row("session/a", b"two").unwrap();
+        assert_eq!(
+            storage.read_row("session/a").unwrap(),
+            Some(b"two".to_vec())
+        );
+        for path in &taken {
+            assert_eq!(fs::read(path).unwrap(), b"old", "{}", path.display());
+        }
     }
 
     /// AD-7 (lead ruling on #164, 2026-10-08): a write that fails after it made directories of its path removes them again,
