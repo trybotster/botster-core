@@ -127,12 +127,7 @@ pub struct Sim {
 impl Sim {
     /// A `Sim` whose virtual clock starts at `start` and whose scheduler is seeded by `seed` (Core A5-2, `with_seed`).
     pub fn with_seed(seed: u64, start: Instant) -> Sim {
-        Sim {
-            now: start,
-            scheduler: SchedulerHandle::with_seed(seed),
-            nodes: Vec::new(),
-            trace: Vec::new(),
-        }
+        Sim::with_scheduler(SchedulerHandle::with_seed(seed), start)
     }
 
     /// A `Sim` that draws from `scheduler`, the one seeded stream of a run that it shares with the host's edges (Core A5-2).
@@ -485,5 +480,22 @@ mod tests {
         let before = sim.now();
         sim.advance_by(Duration::from_secs(5));
         assert_eq!(sim.now(), before + Duration::from_secs(5));
+    }
+
+    /// A5-2: two `Sim`s built from one scheduler handle draw from one stream, so one seed fixes one order across them; a
+    /// `Sim` from the same seed alone draws the same first choices.
+    #[test]
+    fn sims_from_one_handle_share_the_stream() {
+        let start = Instant::now();
+        let handle = SchedulerHandle::with_seed(9);
+        let a = Sim::with_scheduler(handle.clone(), start);
+        let b = Sim::with_scheduler(handle, start);
+        let first = a.scheduler().with(|s| s.ready_work(1 << 20));
+        let second = b.scheduler().with(|s| s.ready_work(1 << 20));
+        let alone = Sim::with_seed(9, start);
+        let replay: Vec<usize> = (0..2)
+            .map(|_| alone.scheduler().with(|s| s.ready_work(1 << 20)))
+            .collect();
+        assert_eq!(replay, [first, second], "b took the stream's second draw");
     }
 }

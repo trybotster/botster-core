@@ -25,6 +25,8 @@ signal-hook.workspace = true
 signal-hook-mio.workspace = true
 
 [dev-dependencies]
+# The shared owner of real-process test code: the group guard of the real-PTY regression (tests/common/session.rs).
+botster-test-process.workspace = true
 rustix = { workspace = true, features = ["net"] }
 tempfile.workspace = true
 
