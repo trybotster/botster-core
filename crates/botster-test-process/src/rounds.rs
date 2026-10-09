@@ -119,7 +119,8 @@ pub fn reserved_kill(group: Pid, reserve: Pid) -> std::io::Result<()> {
 }
 
 /// Ends every member of `group`, the group of this process, within `deadline`: a reserve child holds the group, this process
-/// leaves it, and the rounds of `end_members` kill it from outside. Then this process reaps its reserve, by its exact pid.
+/// leaves it, and the rounds of `end_members` kill it from outside. Then this process kills and reaps its reserve, by its
+/// exact pid.
 ///
 /// # Errors
 /// What was left: the members still live at the deadline, or why they could not be signalled, listed or awaited.
@@ -141,7 +142,11 @@ pub fn end_group(group: Pid, deadline: Deadline) -> Result<(), String> {
     };
     let reserve_pid = match crate::platform::pid(reserve.id()) {
         Ok(pid) => pid,
-        Err(error) => return Err(error.to_string()),
+        Err(error) => {
+            let _ = reserve.kill();
+            let _ = reserve.wait();
+            return Err(error.to_string());
+        }
     };
     let ended = end_members(
         || reserved_kill(group, reserve_pid),
@@ -149,7 +154,10 @@ pub fn end_group(group: Pid, deadline: Deadline) -> Result<(), String> {
         |member| await_end(member.pid, deadline),
         || deadline.expired(),
     );
-    // The reserve has ended (by itself or by a kill); its reap, by its exact pid, gives the id back.
+    // The rounds can stop with an error before any kill (a failed listing, for example), so the reserve can still be live,
+    // or stopped. The reserve is this process's own unreaped child, so its pid is safe to signal, and KILL also ends a
+    // stopped process. Then its reap, by its exact pid, gives the id back, and the wait is bounded by that kill.
+    let _ = reserve.kill();
     let _ = reserve.wait();
     ended.map_err(|failure| failure.report(deadline.limit()))
 }
