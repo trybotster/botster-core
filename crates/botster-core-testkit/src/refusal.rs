@@ -772,6 +772,7 @@ mod tests {
     fn sample(code: &str) -> Value {
         match code {
             "Unsupported" => json!({"Unsupported": {}}),
+            "InvalidInput" => json!({"InvalidInput": {}}),
             "InvalidConfig" => json!({"InvalidConfig": {"field": "x"}}),
             "BoundUnavailable" => json!({"BoundUnavailable": {"bound": "cpu_seconds"}}),
             "Refused(Full)" => json!({"Refused": "Full"}),
@@ -1400,7 +1401,9 @@ mod tests {
         assert_eq!(*reached.lock().unwrap(), ["attach", "attach"]);
         assert!(handle.is_empty());
         // The transport that is not a stream comes back too.
-        handle.arm("attach", 1, &json!("InvalidInput")).unwrap();
+        handle
+            .arm("attach", 1, &json!({"InvalidInput": {}}))
+            .unwrap();
         let web = RouteTransport::WebRtc {
             offer: "o".into(),
             expected_fingerprint: "f".into(),

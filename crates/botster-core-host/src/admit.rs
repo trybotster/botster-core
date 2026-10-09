@@ -33,8 +33,19 @@ fn wrong_state(what: &str, id: &SessionId, admit: Admit) -> CoreError {
     )
 }
 
+/// `InvalidInput` with no `field`: no clause names the refused input.
 fn invalid(detail: impl Into<String>) -> CoreError {
-    err(ErrorCode::InvalidInput, detail)
+    err(ErrorCode::InvalidInput { field: None }, detail)
+}
+
+/// `InvalidInput` whose `field` names the refused input, where a clause names it (A7-1, A9-1, A15-1).
+fn invalid_field(field: &str, detail: impl Into<String>) -> CoreError {
+    err(
+        ErrorCode::InvalidInput {
+            field: Some(field.into()),
+        },
+        detail,
+    )
 }
 
 fn size_valid(size: &Size) -> Result<(), CoreError> {
@@ -929,28 +940,41 @@ impl HostEngine {
                 .as_ref()
                 .is_some_and(|t| t.len() > limits.max_route_tag_bytes as usize)
             {
-                return Err(invalid(format!("{name} is over max_route_tag_bytes")));
+                return Err(invalid_field(
+                    name,
+                    format!("{name} is over max_route_tag_bytes"),
+                ));
             }
         }
         let choices = options.route_limits.unwrap_or_default();
         let frame_cap = limits.effective_max_route_frame_bytes();
         let max_frame_bytes = choices.max_frame_bytes.unwrap_or(frame_cap);
         if max_frame_bytes == 0 || max_frame_bytes > frame_cap {
-            return Err(invalid(
+            return Err(invalid_field(
+                "route_limits.max_frame_bytes",
                 "max_frame_bytes is from 1 to max_route_frame_bytes",
             ));
         }
         let screen_floor = limits.max_snapshot_bytes + 1;
         let max_screen_frame_bytes = choices.max_screen_frame_bytes.unwrap_or(screen_floor);
         if max_screen_frame_bytes < screen_floor {
-            return Err(invalid(
+            return Err(invalid_field(
+                "route_limits.max_screen_frame_bytes",
                 "max_screen_frame_bytes is at least max_snapshot_bytes + 1",
             ));
         }
         let query_deadline = match (options.answers_queries, options.query_deadline) {
-            (true, None) => return Err(invalid("answers_queries needs a query_deadline")),
+            (true, None) => {
+                return Err(invalid_field(
+                    "query_deadline",
+                    "answers_queries needs a query_deadline",
+                ))
+            }
             (true, Some(d)) if d < Duration::from_millis(1) || d > limits.max_query_deadline => {
-                return Err(invalid("query_deadline is from 1 ms to max_query_deadline"))
+                return Err(invalid_field(
+                    "query_deadline",
+                    "query_deadline is from 1 ms to max_query_deadline",
+                ))
             }
             (true, Some(d)) => d,
             (false, _) => Duration::ZERO,
