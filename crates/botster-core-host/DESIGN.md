@@ -251,10 +251,36 @@ second `Launch` for a launch that already happened.
   - until its hello passes, a candidate's frame bound is one `Hello`.
   These are sans-IO decisions of `botster-worker-core`, with default-tier tests; the binary only accepts and passes the
   connection on.
-- The worker binary binds and polls the endpoint (`mio`), and passes accepted connections to the machine.
-- A worker that has no payload and no host for `startup` exits by itself (AD-7,
-  `conf::ad_7_crash_between_steps_leaves_no_unregistered_payload`). The worker does not have this rule yet (no `startup`
-  deadline in `botster-worker-core` at `a0f78fe4`). It is P5's id, so P5 adds it to the worker, with P3's agreement.
+- **What part 2 builds in the machine (`botster-worker-core`):**
+  - Only a candidate has an id (`CandidateId`, named by the driver): `Input::Candidate`, `CandidateBytes`,
+    `CandidateClosed`; `Action::CandidateClose`. The control link stays the one link of the existing inputs and actions.
+    A passed candidate gives `Action::AdoptLink(id)`: the driver closes the control link, drops its unwritten bytes, and
+    makes the candidate the control link, whose `LinkWritten` counts from zero. So the drivers' existing link code does not
+    change. (This replaces "inputs and actions grow by a link id" above.)
+  - The candidate's frame bound is the size of the largest hello of this instance (D4 fixes the hello fields).
+  - A worker that is removing, waiting to end, terminating or ended takes no candidate.
+  - Bytes after the hello in the same read go to the new link.
+  - The `LaunchFailed` report keeps the spawn's reason; `terminal` is present only for a payload that ran.
+  - The self-exit deadline runs while the worker has no payload and its link is not ready (AD-7,
+    `conf::ad_7_crash_between_steps_leaves_no_unregistered_payload`). The worker's first input is the write of its own
+    hello (`LinkWritten`), which needs nothing from the host, so a host that connects and never speaks does not keep the
+    worker alive.
+  - Every input first applies the adoption deadlines that are due at its instant (the candidate's deadline and the
+    self-exit; P5-F27). A hello at the candidate's deadline does not pass, and a host at the self-exit deadline is too
+    late, whatever order the driver gives the inputs. The stop grace stays a `Timer` deadline.
+  - `WorkerConfig.startup` defaults to `CoreLimits.startup`.
+- **What part 2 builds in the drivers (#176):**
+  - The host launches the worker with `--endpoint` (`<data_dir>/w/<InstanceId>`) and `--startup-ms`
+    (`CoreLimits.startup`).
+  - The worker binary binds the endpoint (`mio`) before its first hello and removes it at every end of its driver. It
+    accepts one connection a turn as a candidate and reads one chunk of each candidate a turn. `AdoptLink` drops the old
+    link and the inputs that the driver queued for it (`io_decisions::fence`). An `AdoptLink` of a candidate that the
+    driver no longer holds fails closed: the old link is dropped, and the machine hears `LinkClosed` of the new link.
+  - The testkit gives candidates through the run's endpoints (`SimEdges::connect_worker`, `Workers::connect_endpoint`).
+    A killed worker leaves its endpoint, and no worker listens on it; `Remove` removes it.
+  - The decisions are pure functions with default-tier tests. **HOLD until #171:** the real-process proofs (a real host
+    adopts a real worker through its endpoint; the endpoint file is removed at the exit and at `Remove`; the self-exit
+    of a real worker at `--startup-ms`). They kill the 13 mutants of the real I/O that the default tier cannot reach.
 
 ### 8. Decisions recorded here
 
