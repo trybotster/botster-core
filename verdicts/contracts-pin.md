@@ -74,3 +74,70 @@ This verdict closes no conformance ID, deferred behavior, or separate package pr
 Integration owns its cross-package review. The lead owns the merge decision.
 
 VERDICT: CLEAN
+
+
+## PR #182 Round 1 — 2026-10-09
+
+- Exact head: `217de31035b309dbebec582fc412323f06256785`.
+- Branch: `stage1/p5-pin-v0.1.19`.
+- Accepted v1 base and parent: `13d7db0925cd080b5734a7b118c7fb440aa28c28`.
+- Tree: `cb41e321af1cf1e9aeaabc39805f1c67677c2e63`.
+- Contracts tag: `contracts-v0.1.19`, commit `636bc1babcb410464bc40a5862895a1dc3260f5c`.
+
+The reviewer read the complete seven-file delta, changed contract API, A7-1 and A9-1, current PR body, and supplied gate.
+The reviewer changed no product code and ran no builds, tests, mutation jobs, or gates.
+
+### Pin and artifacts
+
+All six workspace contracts dependencies use v0.1.19.
+All nine contracts lockfile entries use the exact tagged commit.
+After normalization of the contracts source entries, the lockfile is identical to the accepted base's lockfile.
+No package version, checksum, or dependency list changes.
+The checked-in Core ledger matches the tagged ledger, byte for byte: 675 IDs.
+All Core conformance files remain unchanged, including the pending list and deferred table.
+The deferred and withdrawn copies match the new tag, byte for byte.
+The reviewer compared all nine changed Core transcripts as JSON values.
+Each transcript changes only InvalidInput from its string form to its object form.
+
+### InvalidInput adaptation
+
+The contract type is now `InvalidInput { field: Option<String> }`.
+Its serde options encode the error as an object, with an omitted field when the field is None.
+The numeric variant value, caller category, and synchronous timing remain unchanged.
+Core uses the contract type directly and adds no alternative error type or serialization rule.
+
+The existing invalid helper returns field None for input checks whose clauses name no field.
+The new invalid_field helper supplies the field for the existing A7-1 attach checks.
+The checked names are route_tag, owner, route_limits.max_frame_bytes, route_limits.max_screen_frame_bytes, and query_deadline.
+The comparison bounds and check order remain unchanged. The checks still return before route reservation.
+
+The adapted host tests compare each required field name and compare None for the other input errors.
+The query-deadline cases check the missing value, a positive value below 1 ms, and a value above the maximum.
+They retain acceptance at 1 ms and at the maximum.
+The worker-link proof also requires query_deadline for the missing deadline of an answering route.
+The refusal script uses the contract's object form for its InvalidInput samples and transport case.
+
+The PR body states the remaining boundaries:
+
+- Core has no A9-1 check against the route's own attached-frame size yet. A9-1 requires route_limits.max_frame_bytes for that later refusal.
+- The connect_deadline check remains with the pending AttachWebRtc path.
+- The A15 host text check remains separate work and will use the text field.
+
+This verdict does not certify those deferred checks or close their pending IDs.
+The PR body has the required Prior art note and describes the contract field and helper.
+The delta adds no dependency, mutation exclusion, platform-specific code, or native binding change.
+
+### Supplied exact-head gate
+
+The full Linux gate is `~/botster-sessions/shared/core-stage1/gate-logs/pin-v0.1.19-217de310.log`.
+It names the exact reviewed head and accepted v1 base.
+The default tier reports 920 tests passed and 675 skipped. The slow tier reports 243 tests passed and 962 skipped.
+The in-diff mutation run tests 20 mutants: 17 caught, zero missed, zero timeouts, and three unviable.
+All ten listed CI stages pass. Fuzz reports no changed crate with a decoder harness and runs no harness.
+The remote job and gate exit zero. This Linux evidence does not establish execution of Mac-only code.
+
+No finding remains open in this pin and error-payload delta.
+This verdict closes no conformance ID or separate package proof hold.
+Integration owns its cross-package review. The lead owns the merge decision.
+
+VERDICT: CLEAN
