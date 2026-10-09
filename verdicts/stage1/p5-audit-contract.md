@@ -377,3 +377,29 @@ test `World`, core-sys storage).
 That merge head gets a merge-only check by this reviewer before the ONE Linux gate.
 
 VERDICT: CLEAN (0 open) at e9864aaa1d71cd75c7f22adda988205ace3125bb
+
+## Round 12 — Head e24fcce4 (the slow filter of #167); correction of round 11
+
+Reviewed head: `e24fcce49d7153be1dc6114117f50cefdd5cab9f`. Delta `e9864aaa..e24fcce4`, one commit, `xtask/src/test_budget.rs`
+only. The head moved while round 11 was written. This reviewer ran no build, test or gate.
+
+- **Correction of round 11.** Round 11 said that `test(/::slow_tests::/)` matches the in-crate slow tests of both crates.
+  It does not: botster-core has a top-level `slow_tests` module in `lib.rs` (`lib.rs:249`), whose tests nextest names
+  `slow_tests::…`, with no leading `::`. P6's check also found the worker's `slow_edges`. The filter at `e9864aaa` would
+  have left seven cited tests out of the gate. The round 11 CLEAN at `e9864aaa` is superseded by this round.
+- **The new filter.** `SLOW_FILTER = "binary(/^slow/) | test(/(^|::)slow_/)"`, `pub`. `git diff` against #167's
+  `stage1/p3-audit-fixes-a` in this file is only `pub`. The filter matches `slow_*` modules at any depth, top level
+  included. The implementer reports the slow tier at 206/206 on Linux and on the Mac with it (logs in the PR body).
+- A trial merge with #167 still conflicts in `.cargo/mutants.toml` (and on the `pub` line); the merge rules of round 11
+  stand, except that rule 1 is now done on this branch.
+
+#### K8 [LOW] OPEN — A mutants.toml comment names the old filter
+
+- Location: `.cargo/mutants.toml:271` at this head: "(xtask selects `::slow_tests::` since #164)".
+- Evidence: the filter at this head is `binary(/^slow/) | test(/(^|::)slow_/)`. The comment is the reason that the
+  storage entries' slow proof runs in the gate, so it must name the real selection.
+- Required: name the current filter (or cite `xtask::test_budget::SLOW_FILTER`) in that comment. Also name the two
+  slow-tier mutants logs (`…2121aaca-pool-20261008-214504-93381.log`, `…b48a6d8d-pool-20261008-215154-3101.log`) in the
+  PR body.
+
+VERDICT: NOT CLEAN (1 open: K8)
