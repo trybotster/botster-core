@@ -317,3 +317,23 @@ against the exact tree.
   only the starting of `git` and `cargo mutants`.
 
 VERDICT: NOT CLEAN (1 open: E4)
+
+## Round 10 — CLEAN on head 41e99744 (E4 = F52)
+
+Reviewed head: `41e997446090afb7ac45ae9823734dfeea7eb40b`. Delta `9ddbdf89..41e99744`, one commit: `xtask/src/ci.rs` and
+`.cargo/mutants.toml`. This reviewer ran no build, test or gate.
+
+- **E4 CLOSED.** The step's pass or fail is the pure `mutation_verdict(code: Option<i32>)`: only `Some(0)` passes.
+  `mutants_job` calls it with `status.code()`. Default-tier test `only_a_mutation_run_with_every_mutant_caught_passes`:
+  0 passes; 1, 2, 3, 4 and `None` (a signal) fail. The function is not excluded, so its mutants run in the gate.
+- The exclusion now names only `replace mutants_job -> Result<()> with Ok(())`: the whole body, which starts `git` and
+  `cargo mutants` and cannot run inside a mutation run. `mutants_job` has no other operator that cargo-mutants mutates
+  after the move (no comparison or boolean is left in it). The entry gives the observable that a reviewer checks: a gate
+  log whose mutants step lacks the line "mutants: N mutants: …" ran no mutation. This reviewer checks that line in each
+  landing gate log it reads.
+- Evidence: Linux run at this head (`…p3-audit-fixes-a-41e99744-pool-20261008-223521-78736.log`): fmt, taint, lists,
+  clippy PASS; in-diff mutants with `NEXTEST_PROFILE=slow`: 113 tested, 97 caught, 16 unviable, 0 missed, 0 timeout;
+  exit 0. The new function's mutants (113 against 111) are caught.
+- The ONE Linux landing gate on this exact head is owed; its log must show the "mutants: … 0 missed, 0 timeout" line.
+
+VERDICT: CLEAN (0 open) at 41e997446090afb7ac45ae9823734dfeea7eb40b
