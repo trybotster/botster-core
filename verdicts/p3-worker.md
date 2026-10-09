@@ -7632,3 +7632,110 @@ The reviewer changed no product code and ran no tests, builds, gates, measuremen
 All earlier exact-head verdicts remain preserved.
 
 VERDICT: NOT CLEAN
+
+
+## Round 133 — PR #203 P4a stream-route design corrections — 2026-10-09
+
+Reviewed head: `c1d26778ded49180a310acf4f75e409a36161fe7`.
+Base: `cc2e86ee356c7adcfc9ab95dd50494ae98429a45`.
+Parent: `bcbd1d5bff0d6a343fc2cc4e5fc80253db80b39e`.
+The head contains the current v1 base. Its complete delta adds 230 lines to DESIGN.md only.
+Tier: STANDARD under BUILD.md's documentation example. The corrected PR body names that tier and rule.
+The PR changes no code, pin, configuration, or production behavior.
+Authority: BUILD.md, accepted plan 23h, contracts v0.1.20 at 03891658, and the lead's stream-only A17 direction.
+The reviewer read the complete design, all corrections since round 132, full PR body, and completed exact-head gate.
+The reviewer checked OU-1/2b/3/4/7/9, DP-2/3/5, and EV-8(i) against the design.
+Integration supplies independent feedback at the lead's request. STANDARD does not require an integration verdict.
+
+### F71 — MEDIUM — CLOSED as a design correction
+
+The design adds a cumulative PtyReadBudget. Zero stops reads and drains.
+The budget uses free payload capacity of Open routes and excludes Stalled routes.
+The worker recomputes it after progress, stalls, and closes. Output splitting uses each route's frame bound.
+These commitments address bounded source backpressure, lossless progress, and frame splitting.
+The exit drain obeys the same budget. A stalled route stops holding the drain.
+
+### F72 — MEDIUM — CLOSED as a design correction
+
+Healthy close completes a started frame and writes route_closed last before RouteClose.
+SessionEnded and SessionRemoved retain the whole queued tail for a progressing route.
+The design fixes the session-end reason at Exited and preserves the first reason through later failure or timeout.
+A healthy close retains the stall rules. A stall alone does not close before stall_close_after.
+Resume completes the started frame, resyncs, delivers the remaining queue, and writes route_closed last.
+An expired stall closes without more frames. StallTimeout applies only when no earlier close reason exists.
+Failed transport closes immediately. The machine receives distinct terminal write and read errors.
+The driver filters WouldBlock and retries Interrupted. These temporary conditions do not feed WriteFailed or PeerClosed.
+The worker emits one RouteClose and one host report with the first reason.
+
+### F73 — MEDIUM — CLOSED as a design correction
+
+A marked AttachRoute frame shares the host's ordered outbound writer with every earlier control frame.
+The descriptor travels with the frame's first bytes. Positive progress consumes the mark and transfers ownership.
+Later writes send only the remaining bytes and never send the descriptor again.
+Blocked returns the endpoint to the mark for retry without progress. Failed returns it for closure and drops the unstarted frame.
+Success feeds HandoffSent. Permanent failure feeds HandoffFailed. Link closure cleans pending marks and endpoints.
+The tagged testkit receive delivers Descriptor before matching LinkBytes. FIFO pairs descriptors in that enforced order.
+LinkClosed and AdoptLink close old unbound descriptors. FIFO needs no new wire ID with these order and cleanup rules.
+The design adds proof cases for blocked retry, short writes, simultaneous readiness, earlier partial frames, and cleanup.
+The real handoff remains outside the P4a testkit PRs and requires its named real-process proof before production code merges.
+
+### F74 — MEDIUM — CLOSED as a design correction
+
+R is the consumed model boundary. The retained unfed suffix follows live before later PTY output, exactly once.
+Attach and resync use the same suffix rule. This closes the pre-bind ESC gap.
+The design names the retained-suffix proof, including a lone ESC.
+
+### F75 — MEDIUM — CLOSED as a design correction
+
+The worker checks native max_snapshot_bytes before it queues any baseline frame.
+It preserves the applied per-route max_screen_frame_bytes, including larger valid host choices.
+The default and minimum are max_snapshot_bytes plus one. The frame check uses actual snapshot payload size plus one.
+The applied frame limit appears in attached.limits. The native payload bound remains a separate check.
+A refusal emits no partial baseline. The size check occurs before frame allocation.
+The full PR body now states the corrected applied-limit rule.
+
+### F76 — MEDIUM — CLOSED as a design correction
+
+The P4a prior-art note names reused codec, edge, testkit, admission, snapshot, and consumed-cut tools.
+It names rejected old daemon mechanisms with reasons and excludes a host relay and WebRTC.
+It gives the reason for FIFO without a new descriptor field. The route machine follows the worker's sans-IO design.
+This meets BUILD.md's feature prior-art note requirement.
+
+### F77 — MEDIUM — CLOSED as a design correction
+
+The design defines resync{reason}, a fresh baseline, then live after a started frame completes.
+It separates droppable output/baseline frames from kept input_refused/input_done/route_closed frames.
+Modes and terminal_query retain their DP-5 bounds.
+At stall discard and resync, an affected query loses its route opportunity and its unstarted terminal_query frame retires.
+The worker uses the saved parse-point shadow fallback. A full lane leaves the query pending on the fallback path only.
+Late client replies are query_expired before fallback admission and already_replied after it.
+Sent queries, or started queries that finish, keep their opportunity across resync.
+This explicit exception replaces the former blanket retention of all bounded frames.
+
+### Completed evidence and verdict
+
+Gate: ~/botster-sessions/gates/botster-core-stage1-p4a-design-c1d26778-pool-20261009-160005-69360.log.
+The saved gate names this exact head and base. It ran on msa1, slot 0, kernel 6.12.111+deb13-amd64.
+All ten full CI steps PASS. Default: 1152 tests in 6.301 s. Slow: 249 tests in 10.119 s.
+Active conformance: 104 passed, zero failed. Ledger: 675 IDs, 567 pending, two deferred, two withdrawn.
+Signals scan: 165 Rust files. Timers scan: 149 Rust files.
+Both mutant steps PASS and report no Rust source change. They create no mutant outcomes for this documentation delta.
+Full CI: 36.8 s. Separate slow-profile mutants: 0.4 s. Gate exit: zero after 44 s.
+No pending ID is removed. Minimum counts stay testkit 35/70 and real 0/70.
+The documentation gate does not prove future implementation. Each P4a implementation PR needs its own review and required proofs.
+
+During this round, the reviewer sent remaining findings at b23c663b and 30738078 directly to P3 and integration.
+The implementer supplied further READY heads before the reviewer committed a verdict.
+Those intermediate heads have no separate package verdict. This round records only the final exact head above.
+Integration's published 047c0551 remains NOT CLEAN at 30738078 for its earlier F72/F77 scope.
+That older integration verdict does not describe the corrected c1d26778 head.
+
+PR #203 is CLEAN at `c1d26778ded49180a310acf4f75e409a36161fe7` for the assigned package design review.
+F71-F77 are CLOSED as design corrections. No package finding remains at this head.
+#203 has one earlier recorded package NOT CLEAN round. No package round-limit notice is due.
+#202 retains round 131 CLEAN and its merge at cc2e86ee. #200 retains round 130 CLEAN and F70 CLOSED.
+P3's non-minimum queue stays parked under accepted 23h. Earlier F39, F61/F62, and scoped carry items remain preserved.
+The reviewer changed no product code and ran no tests, builds, gates, measurements, or mutants.
+All earlier exact-head verdicts remain preserved.
+
+VERDICT: CLEAN
