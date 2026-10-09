@@ -461,8 +461,7 @@ pub fn check(
 
 /// The workspace packages and their targets, from `cargo metadata`, with root files relative to `root`.
 fn packages(root: &Path) -> Result<Vec<Package>> {
-    let out = Command::new("cargo")
-        .current_dir(root)
+    let out = crate::tools::cargo(root)
         .args(["metadata", "--format-version", "1", "--no-deps", "--locked"])
         .output()
         .context("run cargo metadata")?;

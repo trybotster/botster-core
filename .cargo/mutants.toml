@@ -44,11 +44,14 @@ exclude_re = [
     # body replaced by Ok(()) runs none. Only this whole-body replacement is excluded. Each check's decisions have their own
     # tests, and the derivation is the tested derived_exclusions (each_gate_os_excludes_the_adapters_of_the_other_os).
     'xtask/src/ci\.rs:\d+:\d+: replace taint_job -> Result<\(\)> with Ok\(\(\)\)$',
-    # xtask mutants_job -> Ok(()): process glue. The body runs `git diff`, writes the diff file, starts `cargo mutants` and
-    # prints its summary; a test cannot start a mutation run inside a mutation run, so no test can run the body. Only this
-    # whole-body replacement is excluded: every other mutant of mutants_job stays tested. Its decisions are pure functions
-    # with unit tests, which stay mutation-tested: mutation_verdict, the pass or fail of the step from the exit code
-    # (only_a_mutation_run_with_every_mutant_caught_passes), parse_outcomes (the_mutation_summary_is_read_from_outcomes_json)
+    # xtask mutants_job -> Ok(()): process glue. The body runs `git diff`, writes the diff file, lists the mutants of the
+    # diff, starts `cargo mutants` and prints its summary; a test cannot start a mutation run inside a mutation run, so no
+    # test can run the body. Only this whole-body replacement is excluded: every other mutant of mutants_job stays tested.
+    # Its decisions are pure functions with unit tests, which stay mutation-tested: mutation_decision, the pass or fail of
+    # the step from the listed count, the outcomes and the exit code
+    # (a_mutation_step_passes_only_with_no_mutant_or_every_outcome_and_exit_code_0), mutation_verdict
+    # (only_a_mutation_run_with_every_mutant_caught_passes), parse_listing (a_mutant_listing_is_counted_and_anything_else_fails),
+    # parse_outcomes (the_mutation_summary_is_read_from_outcomes_json),
     # platform_exclusions (only_a_gate_off_macos_adds_the_off_macos_exclusions) and derived_exclusions, the code that the
     # gate's OS does not compile (each_gate_os_excludes_the_adapters_of_the_other_os). A body replaced by Ok(()) skips the
     # step without its summary line, which every gate log of the step shows ("mutants: N mutants: ...").

@@ -28,8 +28,8 @@ commands:
   taint                              banned old-world names (contracts list plus Core's additions)
   timers                             unmarked sleeps in test code; timers in machine crates
   process-check                      real-process test code outside botster-test-process (waits, reads, sleeps)
-  mutants-cited                      every name that a .cargo/mutants.toml reason cites is real; each cited test runs in a tier
   gate-decisions                     an xtask exclusion covers only an I/O shell and names its tested decision function
+  mutants-cited                      every name that a .cargo/mutants.toml reason cites is real; each cited test runs in a tier
   lists                              check core-ledger-ids, core-pending and core-deferred
   ledger-ids [--write]               check or write conformance/core-ledger-ids.txt from the pinned ledger
   public-api [--update]              check or write the facade snapshot api/botster-core.txt
