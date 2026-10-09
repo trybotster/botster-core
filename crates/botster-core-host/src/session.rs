@@ -226,7 +226,8 @@ pub struct WorkerHandle {
     pub link: Option<LinkId>,
     /// The link existed and ended: ops on it fail with `WorkerLinkFailed` (A2-1).
     pub link_failed: bool,
-    /// The worker process ended (the exit watch reported it).
+    /// The worker process ended (the exit watch reported it), or the AD-6 check refused the process at its endpoint (AD-2
+    /// `WorkerGone`). The host never signals a gone worker.
     pub gone: bool,
 }
 
@@ -242,7 +243,11 @@ pub struct Session {
     pub size: Size,
     pub labels: BTreeMap<String, String>,
     pub exit: Option<Exit>,
+    /// The worker protocol that this host learned from the worker's hello, or from the row when no adoption has run (LC-9).
     pub worker_protocol: Option<u8>,
+    /// The protocol of the row while an adoption has not read a hello: the row keeps it (R-36: a `Lost` row records only
+    /// its end), and `get` never shows it (LC-9: Core never guesses a protocol that it did not learn).
+    pub row_protocol: Option<u8>,
     pub worker_features: Option<BTreeSet<Feature>>,
     pub token: Option<[u8; TOKEN_LEN]>,
     pub worker: WorkerHandle,
@@ -316,7 +321,7 @@ impl Session {
             token: self.token.as_ref().map(token_hex),
             worker: self.worker.identity.map(RowWorker::from),
             payload: self.payload.map(RowWorker::from),
-            worker_protocol: self.worker_protocol,
+            worker_protocol: self.worker_protocol.or(self.row_protocol),
             worker_features: self.worker_features.clone(),
         }
     }
