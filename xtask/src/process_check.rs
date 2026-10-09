@@ -680,11 +680,13 @@ impl<'ast> Visit<'ast> for Scan<'_> {
 }
 
 /// The findings of one file, or why it could not be parsed (a file that does not parse cannot be proved clean). Only the
-/// file's own path and attributes tell its test code: `scan_files` adds the test modules that other files declare.
+/// file's own path and attributes tell its test code: `scan_files`, which the check runs, adds the test modules that other
+/// files declare.
 ///
 /// # Errors
 /// The file does not parse.
-pub fn scan(file: &str, text: &str) -> Result<Vec<Finding>, String> {
+#[cfg(test)]
+fn scan(file: &str, text: &str) -> Result<Vec<Finding>, String> {
     let scope = scope(file);
     if scope == Scope::Skip {
         return Ok(Vec::new());
