@@ -388,10 +388,11 @@ impl ScriptedProgram {
             || (!controls.blocked && controls.accept != Some(0) && !step_spent)
     }
 
-    /// True when a read would return bytes or the end of the output (readiness flag of the program edge, plan 2.5 rule 8).
-    pub fn is_readable(&mut self) -> bool {
+    /// The bytes that a read can take now: the output that the program wrote and the worker has not read (the readiness of
+    /// the program edge, plan 2.5 rule 8, and the bound of a drain, as the real PTY's pending output).
+    pub fn unread(&mut self) -> usize {
         self.advance();
-        !self.output.is_empty() || self.exit.is_some()
+        self.output.len()
     }
 
     /// Takes the output that a control injected.
@@ -592,7 +593,7 @@ mod tests {
         let sched = SchedulerHandle::with_seed(0);
         let mut held = ScriptedProgram::from_argv(&["/bin/sh".to_string()], &sched).unwrap();
         assert_eq!(held.poll_exit(), None);
-        assert!(!held.is_readable());
+        assert_eq!(held.unread(), 0);
         let argv = [
             "/x/botster-conformance-probe".to_string(),
             r#"{"program":[]}"#.to_string(),
@@ -756,20 +757,24 @@ mod tests {
         assert_eq!(p.window_size(), Some(size));
     }
 
-    /// The program is readable when output waits, and when it has ended (the end of the output); it is not readable while it
-    /// holds with nothing to read.
+    /// The readable bytes are the output that waits: none while the program holds or after it ended with nothing written,
+    /// and every printed byte until a read takes it.
     #[test]
-    fn readiness_is_output_or_the_end() {
+    fn the_readable_bytes_are_the_output_that_waits() {
         let mut holds = program(json!({"program": [{"hold": {}}]}), true, 0);
-        assert!(!holds.is_readable());
+        assert_eq!(holds.unread(), 0);
+        let printed = hex_decode("6162").unwrap();
         let mut output = program(
-            json!({"program": [{"print": {"bytes_hex": "61"}}, {"hold": {}}]}),
+            json!({"program": [{"print": {"bytes_hex": "6162"}}, {"hold": {}}]}),
             true,
             0,
         );
-        assert!(output.is_readable());
+        assert_eq!(output.unread(), printed.len());
+        let mut buf = vec![0; printed.len()];
+        let n = output.read(&mut buf).unwrap();
+        assert_eq!(output.unread(), printed.len() - n);
         let mut ended = program(json!({"program": [{"exit": {"code": 0}}]}), true, 0);
-        assert!(ended.is_readable());
+        assert_eq!(ended.unread(), 0);
     }
 
     fn holds() -> ScriptedProgram {
@@ -881,7 +886,7 @@ mod tests {
         );
         let control = p.control();
         p.control().write_size(Some(1));
-        assert!(p.is_readable());
+        assert!(p.unread() > 0);
         assert_eq!(control.output_unread(), 4);
         p.read(&mut [0u8; 8]).unwrap();
         assert_eq!(control.output_unread(), 3);
@@ -981,7 +986,7 @@ mod tests {
         let mut p = holds();
         let control = p.control();
         control.write_once(b"");
-        assert!(!p.is_readable());
+        assert_eq!(p.unread(), 0);
         assert_eq!(
             p.read(&mut [0u8; 4]).unwrap_err().kind(),
             io::ErrorKind::WouldBlock
@@ -1098,7 +1103,7 @@ mod tests {
         );
         let control = p.control();
         control.write_plain(b"!!");
-        assert!(p.is_readable());
+        assert_eq!(p.unread(), 4);
         assert_eq!(control.output_unread(), 4);
         let mut out = Vec::new();
         let mut buf = [0u8; 8];

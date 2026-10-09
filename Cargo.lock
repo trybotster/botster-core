@@ -293,6 +293,9 @@ dependencies = [
  "botster-route-codec",
  "botster-terminal-ghostty",
  "botster-worker-core",
+ "kqueue",
+ "libc",
+ "libproc",
  "libtest-mimic",
  "mio",
  "rustix",
@@ -340,6 +343,7 @@ dependencies = [
  "botster-core-edges",
  "botster-core-link",
  "botster-route-codec",
+ "botster-terminal-ghostty",
  "serde",
  "serde_json",
 ]
@@ -363,6 +367,7 @@ dependencies = [
  "botster-core-edges",
  "getrandom 0.4.3",
  "kqueue",
+ "libc",
  "libproc",
  "pty-process",
  "rustix",
@@ -393,6 +398,18 @@ dependencies = [
  "sha2",
  "tempfile",
  "toml",
+]
+
+[[package]]
+name = "botster-guardian-core"
+version = "0.1.0"
+dependencies = [
+ "bolero",
+ "botster-core-contract",
+ "botster-core-edges",
+ "botster-core-link",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -481,6 +498,9 @@ dependencies = [
  "botster-core-link",
  "botster-core-sys",
  "botster-worker-core",
+ "kqueue",
+ "libc",
+ "libproc",
  "mio",
  "rustix",
  "signal-hook",

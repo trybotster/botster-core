@@ -12,10 +12,10 @@
 #![cfg(feature = "slow")]
 
 #[path = "../../../botster-core-sys/tests/common/payload_guard.rs"]
-mod payload_guard;
+pub(crate) mod payload_guard;
 
 #[path = "../../../botster-core-sys/tests/common/process_guard.rs"]
-mod process_guard;
+pub(crate) mod process_guard;
 
 use botster_core_contract::prelude::*;
 use botster_core_link::frame::{encode_frame, FrameDecoder, FrameType};
@@ -62,7 +62,11 @@ impl Drop for OwnedWorker {
     /// Through the worker, never a payload id (lead ruling on P1 F7): while the worker is our unreaped child, `SIGTERM`
     /// makes it end the payload group that it still holds, then itself.
     fn drop(&mut self) {
-        drop(self.payload_guard.take());
+        // The payload guard's member starts ending the payload group; its report is read once the worker, which holds the
+        // PTY master, has ended (see `PayloadGuard::release`).
+        if let Some(guard) = self.payload_guard.as_mut() {
+            guard.release();
+        }
         drop(self.observer_guard.take());
         if let Ok(None) = self.worker.try_wait() {
             if let Some(pid) =
@@ -71,6 +75,7 @@ impl Drop for OwnedWorker {
                 end_child_worker(pid);
             }
         }
+        drop(self.payload_guard.take());
     }
 }
 
@@ -222,7 +227,7 @@ impl Session {
         .unwrap();
         link.send(FrameType::HELLO, &reply);
         link.msg(&HostMsg::Launch(Box::new(LaunchSpec {
-            argv: vec!["/bin/sh".into(), "-c".into(), script.into()],
+            argv: vec!["/bin/sh".into(), "-c".into(), script],
             env: BTreeMap::from([("PATH".to_string(), "/usr/bin:/bin".to_string())]),
             cwd: "/".into(),
             size: Size {
