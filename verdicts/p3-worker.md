@@ -7367,3 +7367,93 @@ The reviewer changed no product code and ran no tests, builds, gates, measuremen
 All earlier findings and exact-head verdicts remain preserved.
 
 VERDICT: NOT CLEAN
+
+
+## Round 130 — PR #200 live-model correction — 2026-10-09
+
+Reviewed head: `63b3b280fb1b21625f18297a15bff41d66a3f65e`.
+Base: `a6555ebaf221042ca7b777ca2f2425e4a63dd960`.
+Parent and previous reviewed head: `61ab4501df234c3da74e6e2c24c1de3b12db2c8e`, round 129.
+The head contains the current v1 base. The tier remains HIGH under BUILD.md rules 3 and 5.
+The reviewer read the complete six-file correction, full description, exact refs, shared-machine dispatch, lock use, and completed gate.
+Round 129 covers the whole original change, three transcripts, replacement map, pending list, and baseline evidence.
+Authority: BUILD.md, pinned contracts v0.1.20 at 03891658, plan 23b-23g, and lead ruling (1).
+The reviewer read the new plan 23g delta. It changes no conclusion on this PR, which changes no mutation exclusion.
+Plan pin: stage1-plan.0467b050.md, sha256 0467b0501dd088adebc3a6100533faf4e6270ce208cd2a1b73572c2da98dffb6.
+
+### F70 — HIGH — Missing live-model comparison; CLOSED
+
+Lead ruling (1), message msg_plugin-w_1791583451_c908fe, requires the actual live model as the comparison target.
+The ruling authorizes Worker::model_snapshot with CaptureSnapshot's encoder and permits replay only to find the suffix.
+It also requires a negative proof for a worker that stops stepping after the capture.
+P3 supplied the exact ruling text and its original proposed interface. The shared implementer handoff also records both.
+
+Worker::model_snapshot reads the existing model and calls model.term.snapshot(), the encoder that CaptureSnapshot uses.
+It returns None before launch. It returns the encoder's owned bytes or error after launch, without the capture size bound.
+It changes no model state, queue, revision, clock, action, or production path.
+The description names both public worker getters and states the facade-only public API check's scope.
+
+The testkit now gives the simulation and process cell the same SharedWorker.
+Its Machine implementation forwards handle, poll_action, and next_deadline to the existing Worker.
+The normal simulation remains the only writer. The control reads the live machine between pumps.
+The lookup clones the shared machine and releases the process table and cell locks before it locks that machine.
+Binding::ready releases the machine lock after reading model_rev and before it locks the process cell.
+MachineNode releases each machine call's lock before it performs the returned edge action.
+Construction still drains the initial hello actions before adding the node. No new scheduler choice or synchronization point is added.
+No worker owns a process cell. The new shared reference therefore adds no ownership cycle.
+
+oracle_resume retains Core's actual capture pages. It restores them in a separate native terminal and applies the exact logged suffix.
+The replay now returns only a consumed-byte count. It cannot supply the comparison target.
+The control obtains the live worker snapshot and compares the two encoded snapshots.
+An unknown capture, unknown revision, missing worker model, or encoder error cannot produce equal=true.
+
+The proof a_live_model_that_diverged_is_not_equal keeps the capture and logged suffix unchanged and changes the actual worker model.
+It first checks equal=true for the original state and then checks equal=false after the live state changes.
+The proof a_worker_that_stopped_stepping_is_not_equal keeps a valid capture and records a suffix that the worker never applied.
+It checks equal=false for that unchanged live state. This is F70's concrete failure case.
+Both helpers exist only in testkit cfg(test) code. The production Worker has no test mutation hook.
+The worker proof checks None before launch, equality with an independent native terminal, and equality with CaptureSnapshot's page.
+All three new proofs run and pass in the exact-head default tier.
+P3 reports that both negative proofs fail against the previous control. The reviewer did not run those red checks.
+The correction satisfies F70 and the lead's ruling (1). No new package finding is recorded.
+
+### Retained scope and completed evidence
+
+The original partial-SGR, distinct-cut, wrong-page, unknown-revision, first-revision-position, and unconsumed-suffix proofs remain selected and pass.
+The getter revision proof also remains selected and passes.
+The three pending removals retain round 129's transcript and replacement-map review.
+The live-model comparison now supports their required ST-6b assertion. None is real-only.
+The selected gate reports 91 active IDs passed and zero failed.
+The reported all-pending probe remains 135 passed/479 failed, against base 132/482, with exactly these three gains and no reported loss.
+The minimum is testkit 31/70 at this head and real 0/70. The base has testkit 30/70.
+oracle_restore, oracle_graphics, and oracle_resume_every_cut remain pending and outside this PR's scope.
+The change adds no real-process fixture, sleep, guard change, production reaping change, or mutation exclusion.
+The existing real-PTY cancellation and parent-death proofs remain selected and pass in both worker binaries.
+
+Log: ~/botster-sessions/gates/botster-core-stage1-p3-oracle-resume-63b3b280-pool-20261009-151955-30889.log.
+The gate names this exact head and base. It runs on msa1, allocation 9438fb70, kernel 6.12.111+deb13-amd64.
+All ten CI steps pass. The default tier passes 1115 tests in 5.847 seconds.
+The slow tier passes 249 tests in 10.114 seconds.
+Signals scan 165 Rust files. Timers scan 149 Rust files.
+The ledger retains 675 IDs: 580 pending, two deferred, two withdrawn, and 91 active.
+The report retains 523 pending and 57 without transcripts.
+Both mutation runs test 49 mutants: 36 caught, 13 unviable, zero missed, and zero timeouts.
+Both runs record a 20-second mutation timeout. The separate run uses NEXTEST_PROFILE=slow.
+The fuzz step passes because the diff changes no crate with a decoder harness.
+Full CI takes 180.6 seconds. Separate mutants take 142.9 seconds. The gate exits 0 after 332 seconds.
+The reviewer read completed evidence and ran no gate.
+
+### Verdict and retained scope
+
+PR #200 is CLEAN at `63b3b280fb1b21625f18297a15bff41d66a3f65e` for the P3 package review.
+F70 HIGH is CLOSED. No package finding remains on this PR. Integration requires its own exact-head verdict.
+No third NOT CLEAN round or round-limit notice is needed.
+#199 retains round 128 CLEAN and its merge at a6555eba. F67, F68, and F69 remain CLOSED.
+F39 remains OPEN for #163's guard merge change and its registration and anchor-owner wait bounds.
+This terminal-model PR does not close that earlier guard/reaping Part B duty. It changes no guard or registration wait.
+#198 retains round 125 CLEAN and its merge at 58d66632. #192 retains F61/F62 and its last exact-head verdict.
+The accepted bounded-accept carry remains with #181, which lands second after #198.
+The reviewer changed no product code and ran no tests, builds, gates, measurements, or mutants.
+All earlier findings and exact-head verdicts remain preserved.
+
+VERDICT: CLEAN
