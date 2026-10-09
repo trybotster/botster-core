@@ -48,7 +48,8 @@ exclude_re = [
     'xtask/src/ci\.rs:\d+:\d+: replace taint_job -> Result<\(\)> with Ok\(\(\)\)$',
     # xtask ci.rs clippy_job -> Ok(()): process glue. The body starts `cargo clippy` over the workspace with every feature
     # and returns its exit; a test cannot run clippy inside the test run. Only this whole-body replacement is excluded. A
-    # body replaced by Ok(()) gives no clippy output, which every gate log of the step shows.
+    # body replaced by Ok(()) gives no clippy output, which every gate log of the step shows. Its decision is the tested
+    # succeeded, the verdict on the exit (only_a_successful_run_passes).
     'xtask/src/ci\.rs:\d+:\d+: replace clippy_job -> Result<\(\)> with Ok\(\(\)\)$',
     # xtask mutants_job -> Ok(()): process glue. The body runs `git diff`, writes the diff file, lists the mutants of the
     # diff, starts `cargo mutants` and prints its summary; a test cannot start a mutation run inside a mutation run, so no
