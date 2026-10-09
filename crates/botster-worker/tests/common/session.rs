@@ -578,11 +578,15 @@ fn in_6_real_pty_cancel_keeps_counts_and_resumes_the_next_write() {
     let release = fifo(root.path(), "release");
     let done = fifo(root.path(), "done");
     let received = root.path().join("received");
+    // CLOEXEC: the worker and its payload must not inherit the test's ends. A write end of `release` that the payload kept
+    // would hold its `cat` from the end of file for ever.
     let open_fifo = |path: &Path| {
         std::fs::File::from(
             rustix::fs::open(
                 path,
-                rustix::fs::OFlags::RDWR | rustix::fs::OFlags::NONBLOCK,
+                rustix::fs::OFlags::RDWR
+                    | rustix::fs::OFlags::NONBLOCK
+                    | rustix::fs::OFlags::CLOEXEC,
                 rustix::fs::Mode::empty(),
             )
             .unwrap(),
@@ -658,5 +662,8 @@ fn in_6_real_pty_cancel_keeps_counts_and_resumes_the_next_write() {
     let mut expected = text.as_bytes()[..count].to_vec();
     expected.push(b'b');
     assert_eq!(std::fs::read(&received).unwrap(), expected);
+    // The program still runs (`exec sleep 30`): it ends first, so `remove` sees the complete result (LC-7).
+    s.link.msg(&HostMsg::Kill);
+    assert_eq!(s.link.report(), exited(None, Some(9)));
     s.remove();
 }
