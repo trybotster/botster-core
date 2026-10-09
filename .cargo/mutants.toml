@@ -328,13 +328,6 @@ exclude_re = [
     # value that this call sets (`DEFAULT_QUERY_REQUEST_BYTES`, `CoreLimits.max_query_bytes`, tested). Skipping the call
     # changes nothing at this pin; the call keeps Core's limit when an upstream default changes.
     'crates/botster-terminal-ghostty/src/lib\.rs:\d+:\d+: replace Terminal::set_query_request_limit_default -> Result<\(\), Error> with Ok\(\(\)\)$',
-    # botster-test-process (P6): platform/macos.rs is `cfg(target_os = "macos")` code. The Linux gate does not compile it, so
-    # a mutant in it cannot change a test result there. The focused Mac mutation run of the crate's slow tier covers it
-    # (`--on mac`, P6 PR A evidence). The Linux functions of the same names are in platform/linux.rs and stay mutation-tested.
-    'crates/botster-test-process/src/platform/macos\.rs:\d+:\d+: (replace start_time( ->| with)|.* in start_time$)',
-    'crates/botster-test-process/src/platform/macos\.rs:\d+:\d+: (replace await_end( ->| with)|.* in await_end$)',
-    'crates/botster-test-process/src/platform/macos\.rs:\d+:\d+: (replace live_members( ->| with)|.* in live_members$)',
-    'crates/botster-test-process/src/platform/macos\.rs:\d+:\d+: (replace exiting_or_gone( ->| with)|.* in exiting_or_gone$)',
     # OwnedChild::observed_status: `EXITED | NOWAIT` joins disjoint bits (WEXITED and WNOWAIT), so `^` gives the same value.
     'crates/botster-test-process/src/child\.rs:\d+:\d+: replace \| with \^ in OwnedChild::observed_status$',
     # Guard::accept: with the guard always true, an accept error other than WouldBlock reads as "no connection waits". Those
