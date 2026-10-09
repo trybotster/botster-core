@@ -366,3 +366,40 @@ This verdict covers PR #171. PR A2, PR B, and the migrations still require their
 The reviewer ran no gate, build, test, or mutation job. The reviewer changed only review documentation.
 
 VERDICT: CLEAN
+
+## Round 5 — 2026-10-09
+
+Reviewed head: `b37f8647f096cbc1b4260a43a211cc0d3af501cd`.
+Previous reviewed head: `f04c240dd96da4fd8e16d46e72197ba09cb5373a`.
+Code fix: `6f53852585abbc2fbfab842b0554b1dee41e37a4`.
+Merged v1 head and gate base: `0b684a19470c5b647e64653fd285d4cd43544278`.
+
+Integration finding R2 closes from this delta.
+The earlier package verdict preceded receipt of R2. It did not reject or close that independent finding.
+Both Linux `await_end` and `Bounded::fill` now call `deadline::retry_interrupted` with their existing deadline.
+An interrupted poll retries only before expiry. Expiry returns `None` without another poll.
+The callers map that result to `Waited::Deadline` and the existing `ReadError::Deadline`, respectively.
+Successful polls and other errors retain their previous behavior.
+No sleep, new limit, signal, or reap is introduced.
+
+`an_interrupted_wait_is_repeated_until_the_deadline` asserts the result and the number of waits.
+After three interruptions, it expects `None` and three waits, although the next supplied result is successful.
+Removal of the expiry arm produces `Some(1)` and four waits, which fails the assertion.
+The test also covers a successful retry, an immediate result, and another error.
+The supplied Linux default-tier run executes this test.
+
+The merge changes no file in the shared crate, xtask, or `.cargo` relative to its first parent.
+All product files brought from v1 match the merged v1 head.
+The P6 diff against v1 contains only the previously reviewed package files and the R2 fix.
+No contract assertion is removed by the P6 delta.
+
+Supplied evidence, under `~/botster-sessions/gates/`:
+
+- `botster-core-stage1-p6-test-process-b37f8647-pool-20261009-033807-68988.log`: all ten Linux gate jobs pass. The run passes 902 default tests and 241 slow tests. It reports 186 caught mutants, 34 unviable mutants, no misses, and no timeouts.
+- `botster-core-stage1-p6-test-process-b37f8647-pool-20261009-034232-72752.log`: the Mac run passes 71 tests and skips the prebuilt-anchor test, which the Linux gate runs. Clippy passes. Mac mutants are 21 caught, four unviable, no misses, and no timeouts.
+
+TP1 through TP9 remain closed. The lead reports an independent integration CLEAN verdict at this head.
+This verdict covers PR #171. PR A2, PR B, and the migrations still require their own reviews.
+The reviewer ran no gate, build, test, or mutation job. The reviewer changed only review documentation.
+
+VERDICT: CLEAN
