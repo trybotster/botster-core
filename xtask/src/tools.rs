@@ -14,6 +14,11 @@ pub const NIGHTLY: &str = "nightly-2026-09-30";
 pub fn run(mut cmd: Command) -> Result<()> {
     let shown = format!("{cmd:?}");
     let status = cmd.status().with_context(|| format!("start {shown}"))?;
+    succeeded(&shown, status)
+}
+
+/// The verdict of a run of `shown` from its exit status: only a success passes.
+pub fn succeeded(shown: &str, status: std::process::ExitStatus) -> Result<()> {
     if !status.success() {
         bail!("{shown} failed ({status})");
     }
@@ -71,6 +76,31 @@ pub fn require_cargo_tool(root: &Path, probe: &[&str], install: &str) -> Result<
     )
 }
 
+/// The verdict of a check: each violation on stderr, then an error that counts them. No violation passes.
+///
+/// # Errors
+/// There is a violation.
+pub fn verdict(violations: &[String]) -> Result<()> {
+    for violation in violations {
+        eprintln!("{violation}");
+    }
+    if violations.is_empty() {
+        return Ok(());
+    }
+    bail!("{} violation(s)", violations.len())
+}
+
+/// The standard output of a finished tool run, which must have succeeded; `what` names the run in the error.
+///
+/// # Errors
+/// The run failed, or its output is not UTF-8.
+pub fn stdout_of(output: &std::process::Output, what: &str) -> Result<String> {
+    if !output.status.success() {
+        bail!("{what} failed: {}", String::from_utf8_lossy(&output.stderr));
+    }
+    String::from_utf8(output.stdout.clone()).with_context(|| format!("the output of {what}"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -82,5 +112,49 @@ mod tests {
             verified(false).unwrap_err().to_string(),
             "missing prerequisite: nightly-2026-09-30"
         );
+    }
+
+    #[test]
+    fn a_check_passes_only_with_no_violation() {
+        verdict(&[]).unwrap();
+        let failed = verdict(&["a".to_string(), "b".to_string()]).unwrap_err();
+        assert_eq!(failed.to_string(), "2 violation(s)");
+    }
+
+    #[test]
+    fn a_tool_output_is_read_only_after_a_success() {
+        use std::os::unix::process::ExitStatusExt;
+        let output = |code: i32, stdout: &[u8]| std::process::Output {
+            status: std::process::ExitStatus::from_raw(code << 8),
+            stdout: stdout.to_vec(),
+            stderr: b"why".to_vec(),
+        };
+        assert_eq!(stdout_of(&output(0, b"out"), "tool").unwrap(), "out");
+        assert_eq!(
+            stdout_of(&output(1, b"out"), "tool")
+                .unwrap_err()
+                .to_string(),
+            "tool failed: why"
+        );
+        assert!(stdout_of(&output(0, &[0xff]), "tool").is_err());
+    }
+
+    #[test]
+    fn only_a_successful_run_passes() {
+        use std::os::unix::process::ExitStatusExt;
+        succeeded("tool", std::process::ExitStatus::from_raw(0)).unwrap();
+        assert_eq!(
+            succeeded("tool", std::process::ExitStatus::from_raw(2 << 8))
+                .unwrap_err()
+                .to_string(),
+            "tool failed (exit status: 2)"
+        );
+    }
+
+    /// A program that cannot start fails the run; no process starts.
+    #[test]
+    fn a_tool_that_cannot_start_fails_the_run() {
+        let failed = run(Command::new("/nonexistent/botster-tool")).unwrap_err();
+        assert!(failed.to_string().starts_with("start "), "{failed}");
     }
 }

@@ -7,12 +7,15 @@
 //! (and, in group mode, the group id) stays its own until the drop. It reaps only this child, by its exact pid.
 
 use crate::platform::{await_end, await_status, live_members, pid, Waited};
+use crate::read::{both_to_eof, Bounded, ReadError};
 use crate::rounds::{end_members, reserved_kill};
 use crate::{fail, Deadline};
 use rustix::process::Pid;
 use std::io;
 use std::os::unix::process::CommandExt;
-use std::process::{Child, ChildStderr, ChildStdin, ChildStdout, Command, ExitStatus};
+use std::process::{
+    Child, ChildStderr, ChildStdin, ChildStdout, Command, ExitStatus, Output, Stdio,
+};
 
 /// A child of the test, owned on every path. See the module documentation.
 #[derive(Debug)]
@@ -180,6 +183,53 @@ impl OwnedChild {
             )),
             Err(error) => Err(format!("the test child {id} cannot be reaped: {error}")),
         }
+    }
+}
+
+/// Runs `command`, a short-lived tool, to its exit by `deadline`, as `Command::output` does but bounded: stdin is null, and
+/// stdout and stderr are read together until both end. The caller derives `deadline` from an existing bound (for example
+/// `Deadline::cleanup()`). The tool leads a new process group, and every process of that group ends before the run returns,
+/// on every path (the drop of its group-mode `OwnedChild`): a background child that the tool left is ended too. If the
+/// output or the exit does not come by the deadline, the run fails.
+///
+/// # Errors
+/// The spawn or a read failed, or the deadline came first (`ErrorKind::TimedOut`; when only the exit was late, with the
+/// tool's stderr).
+pub fn run_to_completion(command: &mut Command, deadline: Deadline) -> io::Result<Output> {
+    command
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    // The tool leads its own group: the drop ends every process that it started, on every path (BUILD.md testing rule 10).
+    let mut child = OwnedChild::spawn_group(command)?;
+    let mut stdout = Bounded::new(child.take_stdout().expect("stdout is piped"));
+    let mut stderr = Bounded::new(child.take_stderr().expect("stderr is piped"));
+    let late = |what: &str| {
+        io::Error::new(
+            io::ErrorKind::TimedOut,
+            format!(
+                "{command:?} did not end within {:?}: {what}",
+                deadline.limit()
+            ),
+        )
+    };
+    let (out, err) = match both_to_eof(&mut stdout, &mut stderr, deadline) {
+        Ok(output) => output,
+        Err(error @ ReadError::Deadline { .. }) => return Err(late(&error.to_string())),
+        Err(ReadError::Io(error)) => return Err(error),
+    };
+    // Both pipes have ended; closing them before the wait makes a writer that is still there fail (EPIPE), never block.
+    drop((stdout, stderr));
+    match child.exit_by(deadline)? {
+        Some(status) => Ok(Output {
+            status,
+            stdout: out,
+            stderr: err,
+        }),
+        None => Err(late(&format!(
+            "its output ended, its exit did not come (stderr: {:?})",
+            String::from_utf8_lossy(&err)
+        ))),
     }
 }
 
