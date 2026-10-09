@@ -1,5 +1,5 @@
 # conf::a2_8_*: Core and TestkitCore use the pinned libghostty identity; real-harness proof remains pending.
-# conf::st_6b_*: oracle helpers exist; real Core dispatch and capture paging await P3.
+# conf::st_6b_* (the rest): oracle_restore, oracle_graphics and oracle_resume_every_cut have no dispatch yet (P3).
 # conf::st_6b_resume_invariant_holds_at_every_byte_offset_of_a_corpus_with_partial_escape_sequences: fit evidence awaits P3 M2b worker paging (R-30).
 # conf::a14_*: A14: P3 worker (M2b) + fork binding (option 39).
 # conf::a16_1_*: A16: P7 services.
@@ -502,11 +502,8 @@ conf::st_5_reads_after_exit
 conf::st_6_capture_bound
 conf::st_6_snapshot_versioned
 conf::st_6b_baseline_restores_palette_cursor_shape_hyperlinks_modes_and_kitty_flags
-conf::st_6b_cut_inside_an_sgr_sequence_applies_the_suffix_not_prints_it
 conf::st_6b_graphics_only_when_the_feature_is_advertised
-conf::st_6b_model_after_baseline_plus_output_equals_the_sessions_model
 conf::st_6b_resume_invariant_holds_at_every_byte_offset_of_a_corpus_with_partial_escape_sequences
-conf::st_6b_saved_cursor_tab_stops_margins_rendition_and_charsets_survive_a_cut
 conf::st_7_client_tail_is_exact_and_bounded
 conf::st_7_completion_appends_a_status_update_with_a_new_cursor
 conf::st_7_completion_raises_the_keyed_activity_edge
