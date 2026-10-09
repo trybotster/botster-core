@@ -7,6 +7,7 @@ mod fsutil;
 mod lists;
 mod prebuild;
 mod public_api;
+mod real_proofs;
 #[cfg(test)]
 mod signal_bans;
 mod signals;
