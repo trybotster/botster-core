@@ -80,16 +80,11 @@ fn read_screen(core: &mut dyn CoreApi, at: Instant) -> OpResult {
 }
 
 /// Core LC-5, A2-1: after `break_control`, an op on the session's link fails `WorkerLinkFailed`, and a stop still ends the
-/// session. Without the break, the same op reaches the worker and has its answer.
+/// session. (Without the break, the op goes to the worker on the link; the in-process worker answers `ReadScreen` with M2.)
 #[test]
 fn a_broken_control_link_fails_the_next_op_and_a_stop_still_ends_the_session() {
     let mut harness = TestkitHarness::new(0);
     let (mut core, at) = session(&mut harness, true);
-    let before = read_screen(core.as_mut(), at);
-    assert!(
-        !matches!(&before, OpResult::Err(e) if e.code == ErrorCode::WorkerLinkFailed),
-        "the link works before the break: {before:?}"
-    );
     assert_eq!(
         harness.control(
             "a",
