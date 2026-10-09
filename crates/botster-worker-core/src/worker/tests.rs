@@ -1777,3 +1777,111 @@ fn a_capture_over_the_bound_is_snapshot_too_large_with_no_page() {
         "a snapshot at the bound is sent"
     );
 }
+
+/// The link's rule (no observation before `Launched`) and ST-4: output that comes while the spawn's answer is out waits in
+/// the model. `Launched` carries the fresh model's state; the waiting output is fed after it, in order.
+#[test]
+fn output_before_the_spawns_answer_is_fed_after_launched() {
+    let mut w = World::linked();
+    w.send(&HostMsg::Launch(Box::new(spec())));
+    let actions = w.feed(Input::PtyOutput(b"\x1b]2;early\x07".to_vec()));
+    assert_eq!(w.reports(&actions), [], "nothing before the spawn's answer");
+    let actions = w.feed(Input::Spawned(Ok(PAYLOAD)));
+    let reports = w.reports(&actions);
+    let Some(WorkerMsg::Launched { terminal, .. }) = reports.first() else {
+        panic!("{reports:?}");
+    };
+    assert_eq!(terminal.title, None, "the fresh model's state");
+    assert!(
+        reports.iter().any(|m| matches!(
+            m,
+            WorkerMsg::Observed {
+                observation: Observation::Title { title, .. }
+            } if title == "early"
+        )),
+        "{reports:?}"
+    );
+    assert!(reports.iter().any(|m| matches!(
+        m,
+        WorkerMsg::Observed {
+            observation: Observation::Output { .. }
+        }
+    )));
+}
+
+/// EV-8: a reply goes only to a live payload. A query in the output that is read after the payload ended gets no reply.
+#[test]
+fn no_reply_is_written_after_the_payload_ended() {
+    let mut w = World::running();
+    assert_eq!(
+        w.feed(Input::PayloadExited(ExitStatus::Code(0))),
+        [Action::DrainPty]
+    );
+    let actions = w.feed(Input::PtyOutput(b"\x1b[c".to_vec()));
+    assert!(pty_writes(&actions).is_empty(), "{actions:?}");
+}
+
+/// The model's debug form names what waits, never the terminal's contents.
+#[test]
+fn the_models_debug_form_names_its_unfed_bytes() {
+    let w = World::running();
+    let shown = format!("{:?}", w.worker);
+    assert!(shown.contains("Model { unfed: 0"), "{shown}");
+}
+
+fn semantic(req: u64, payload: &str) -> HostMsg {
+    HostMsg::Op {
+        req,
+        op: Op::WriteInput {
+            session: sid(),
+            payload: serde_json::from_str(payload).expect("a payload"),
+            guard: None,
+        },
+    }
+}
+
+/// IN-9: a key and a mouse event are encoded by the model with its modes at their start. The expected bytes, or the typed
+/// zero, are the oracle's encoding with the same modes.
+#[test]
+fn key_and_mouse_events_are_encoded_by_the_model() {
+    let key = r#"{"key": {"key": {"char": "a"}, "mods": [], "event": "press", "text": "a"}}"#;
+    let mouse =
+        r#"{"mouse": {"action": "press", "button": "left", "row": 0, "col": 3, "mods": []}}"#;
+    let modes = b"\x1b[?1000h\x1b[?1006h";
+    for (req, payload, output) in [
+        (1, key, &b""[..]),
+        (2, mouse, &b""[..]),
+        (3, mouse, &modes[..]),
+    ] {
+        let mut w = World::running();
+        let mut expected = oracle();
+        if !output.is_empty() {
+            w.feed(Input::PtyOutput(output.to_vec()));
+            expected.vt_write(output);
+        }
+        let parsed: InputPayload = serde_json::from_str(payload).unwrap();
+        let want = match &parsed {
+            InputPayload::Key(k) => expected.encode_key(k),
+            InputPayload::Mouse(m) => expected.encode_mouse(m),
+            other => panic!("{other:?}"),
+        };
+        let actions = w.send(&semantic(req, payload));
+        match want {
+            Ok(bytes) => {
+                assert!(!bytes.is_empty());
+                assert_eq!(pty_writes(&actions), [bytes], "request {req}");
+            }
+            Err(_) => {
+                let result = input_result(&mut w, &actions, req).expect("done");
+                assert!(
+                    matches!(result.outcome, WriteOutcome::NotWritten(_)),
+                    "request {req}: {result:?}"
+                );
+                assert_eq!(
+                    (result.payload_bytes_written, result.pty_bytes_written),
+                    (0, 0)
+                );
+            }
+        }
+    }
+}

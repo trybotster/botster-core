@@ -111,8 +111,12 @@ impl Worker {
         self.try_start();
     }
 
-    /// A reply of the model joins the admission point (EV-8: it is written as one contiguous transaction, in order).
+    /// A reply of the model joins the admission point (EV-8: it is written as one contiguous transaction, in order). An
+    /// empty reply writes nothing, so it does not join.
     pub(super) fn enqueue_reply(&mut self, bytes: Vec<u8>) {
+        if bytes.is_empty() {
+            return;
+        }
         self.input.queue.push_back(Pending::Reply(bytes));
         self.try_start();
     }
@@ -161,10 +165,7 @@ impl Worker {
             let write = match pending {
                 Pending::Reply(bytes) => {
                     // A reply goes only to a live payload; it advances no revision and completes no operation.
-                    if matches!(self.payload, PayloadState::Live(_))
-                        && self.exit.is_none()
-                        && !bytes.is_empty()
-                    {
+                    if matches!(self.payload, PayloadState::Live(_)) && self.exit.is_none() {
                         let len = bytes.len();
                         self.input.active = Some(Active {
                             req: None,

@@ -322,6 +322,11 @@ impl Worker {
         if bytes.is_empty() || !self.feed_model(bytes) {
             return;
         }
+        self.output_advanced();
+    }
+
+    /// The model took output: the latest revision is reported, now or after the waiting `Output` report is written.
+    fn output_advanced(&mut self) {
         if self.link != LinkState::Ready {
             return;
         }
@@ -501,6 +506,10 @@ impl Worker {
                 if early.end_payload {
                     self.on_end_payload(now);
                 }
+                // Output that came while the spawn was out reaches the model now, after `Launched`.
+                if self.feed_model(&[]) {
+                    self.output_advanced();
+                }
                 if let Some(status) = early.exit {
                     self.on_exited(status);
                 }
@@ -520,8 +529,9 @@ impl Worker {
         }
     }
 
-    /// The state that `terminal_state` caches from the launch (ST-4): the model's size, modes, title and cwd, and the
-    /// revisions.
+    /// The state that `terminal_state` caches from the launch (ST-4): the size, the modes of the fresh model, and the
+    /// revisions. The model has read no output yet (output that comes while the spawn is out waits), so it has no title
+    /// and no cwd.
     fn initial_terminal(&self) -> TerminalState {
         TerminalState {
             size: self.launch_size.unwrap_or(Size {
@@ -534,8 +544,8 @@ impl Worker {
                 .as_ref()
                 .map(model::Model::modes)
                 .unwrap_or_default(),
-            title: self.model.as_ref().and_then(model::Model::title),
-            cwd: self.model.as_ref().and_then(model::Model::cwd),
+            title: None,
+            cwd: None,
             last_output_at: None,
             focused: None,
             model_rev: self.model_rev,

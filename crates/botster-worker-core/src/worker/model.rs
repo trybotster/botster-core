@@ -55,14 +55,6 @@ impl Model {
     pub(super) fn modes(&self) -> ModeFlags {
         self.term.modes()
     }
-
-    pub(super) fn title(&self) -> Option<String> {
-        Some(self.term.title()).filter(|t| !t.is_empty())
-    }
-
-    pub(super) fn cwd(&self) -> Option<String> {
-        Some(self.term.cwd()).filter(|c| !c.is_empty())
-    }
 }
 
 /// The snapshot formats of the model (ST-6, `Launched.formats`): the binding's GHOSTSNP format.
@@ -98,13 +90,22 @@ fn clipboard_selection(selection: Option<String>, location: ClipboardLocation) -
 }
 
 impl Worker {
-    /// PTY output reaches the model: it is fed in steps (rule 1: the unconsumed suffix is kept, in order). Each step that
-    /// consumes bytes advances `model_rev` (ST-1). True when a step did.
-    pub(super) fn feed_model(&mut self, bytes: &[u8]) -> bool {
+    /// Keeps `bytes` after the output that waits. False while the spawn's answer is out: the output waits, and it is fed
+    /// after `Launched`, so no observation comes before it (the link's rule) and the launch carries a fresh model's state.
+    fn hold_output(&mut self, bytes: &[u8]) -> bool {
         let Some(model) = self.model.as_mut() else {
             return false;
         };
         model.unfed.extend_from_slice(bytes);
+        self.payload != super::PayloadState::Spawning
+    }
+
+    /// PTY output reaches the model: it is fed in steps (rule 1: the unconsumed suffix is kept, in order). Each step that
+    /// consumes bytes advances `model_rev` (ST-1). True when a step did. Empty `bytes` steps the output that waits.
+    pub(super) fn feed_model(&mut self, bytes: &[u8]) -> bool {
+        if !self.hold_output(bytes) {
+            return false;
+        }
         let mut stepped = false;
         while let Some(model) = self.model.as_mut() {
             if model.unfed.is_empty() {
@@ -129,9 +130,7 @@ impl Worker {
             self.after_step();
             if let Some(query) = step.query {
                 // EV-8 (P4b offers it to a route first): with no route, the shadow reply answers it.
-                if !query.shadow_reply.is_empty() {
-                    self.enqueue_reply(query.shadow_reply);
-                }
+                self.enqueue_reply(query.shadow_reply);
             }
         }
         stepped
@@ -221,9 +220,7 @@ impl Worker {
                 },
             });
         }
-        if !drained.pty_writes.is_empty() {
-            self.enqueue_reply(drained.pty_writes);
-        }
+        self.enqueue_reply(drained.pty_writes);
         if modes_changed {
             self.report(&WorkerMsg::Observed {
                 observation: Observation::Modes {
