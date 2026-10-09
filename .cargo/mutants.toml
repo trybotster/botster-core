@@ -252,7 +252,8 @@ exclude_re = [
     # `LinkIo::record`, `AcceptFailures::take`, `edge_diagnostics`) are pure functions tested in the default tier. Each function
     # below is caught by the slow tier (slow-tier mutation run of 2026-10-04), in real.rs `slow_tests`:
     # `the_edges_keep_rows_in_the_registry` (write_row, read_rows, delete_row), `the_edges_draw_random_bytes_and_refuse_the_handoff`
-    # (fill_random, handoff_route, poll_process_exit, accept_link), `a_link_reads_writes_and_closes` (accept_link, link_recv,
+    # (fill_random, handoff_route, which P4a PR1 renamed link_send_descriptor, poll_process_exit, accept_link),
+    # `a_link_reads_writes_and_closes` (accept_link, link_recv,
     # link_send, link_close, set_read_interest, set_write_interest, LinkIo::apply), `the_socket_lives_with_the_edges`
     # (socket_path, the Drop of RealEdges), `the_wake_follows_its_flag` (PollWake signal, drain, wait, fd, consume,
     # settle_wake); and tests/slow_real_core.rs `a_worker_that_exits_before_it_connects_ends_the_start_at_once` (the reaper's
@@ -266,7 +267,7 @@ exclude_re = [
     'crates/botster-core/src/real\.rs:\d+:\d+: (replace <impl HostEdges for RealEdges>::read_rows( ->| with)|.* in <impl HostEdges for RealEdges>::read_rows$)',
     'crates/botster-core/src/real\.rs:\d+:\d+: (replace <impl HostEdges for RealEdges>::delete_row( ->| with)|.* in <impl HostEdges for RealEdges>::delete_row$)',
     'crates/botster-core/src/real\.rs:\d+:\d+: (replace <impl HostEdges for RealEdges>::fill_random( ->| with)|.* in <impl HostEdges for RealEdges>::fill_random$)',
-    'crates/botster-core/src/real\.rs:\d+:\d+: (replace <impl HostEdges for RealEdges>::handoff_route( ->| with)|.* in <impl HostEdges for RealEdges>::handoff_route$)',
+    'crates/botster-core/src/real\.rs:\d+:\d+: (replace <impl HostEdges for RealEdges>::link_send_descriptor( ->| with)|.* in <impl HostEdges for RealEdges>::link_send_descriptor$)',
     'crates/botster-core/src/real\.rs:\d+:\d+: (replace <impl HostEdges for RealEdges>::poll_process_exit( ->| with)|.* in <impl HostEdges for RealEdges>::poll_process_exit$)',
     'crates/botster-core/src/real\.rs:\d+:\d+: (replace <impl HostEdges for RealEdges>::accept_link( ->| with)|.* in <impl HostEdges for RealEdges>::accept_link$)',
     'crates/botster-core/src/real\.rs:\d+:\d+: (replace <impl HostEdges for RealEdges>::link_recv( ->| with)|.* in <impl HostEdges for RealEdges>::link_recv$)',

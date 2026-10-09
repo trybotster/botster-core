@@ -277,6 +277,75 @@ mod tests {
         }
     }
 
+    /// Core TH-3, OU-9: a stream route's frames reach the client with no host pump after the one that hands the stream over:
+    /// a read runs the workers' ready work.
+    #[test]
+    fn a_stream_route_reads_its_frames_with_no_host_pump_after_the_handoff() {
+        let mut harness = TestkitHarness::new(0);
+        let mut core = harness.open(&spec()).expect("a Core");
+        let session = SessionId("s".into());
+        let now = || Now {
+            monotonic: Instant::now(),
+            unix: 1,
+        };
+        let pump_until = |core: &mut Box<dyn CoreApi>, state: SessionState| {
+            for _ in 0..64 {
+                core.pump(now());
+                core.poll_events(64);
+                if core.get(&SessionId("s".into())).map(|r| r.state) == Ok(state) {
+                    return;
+                }
+            }
+            panic!("the session is not {state:?}");
+        };
+        core.begin(Op::Create {
+            session: session.clone(),
+            request: SpawnRequest {
+                argv: vec!["/bin/sh".into()],
+                env: BTreeMap::new(),
+                cwd: "/".into(),
+                size: Size {
+                    rows: 24,
+                    cols: 80,
+                    cell_px: None,
+                },
+                labels: BTreeMap::new(),
+                color_profile: None,
+                notification_policy: None,
+                size_policy: None,
+            },
+        })
+        .unwrap();
+        pump_until(&mut core, SessionState::Created);
+        core.begin(Op::Start {
+            id: session.clone(),
+        })
+        .unwrap();
+        pump_until(&mut core, SessionState::Running);
+        let options: AttachOptions = serde_json::from_value(
+            json!({"file_directory": "/tmp", "answers_queries": false, "input": true}),
+        )
+        .unwrap();
+        let (_, mut route) = harness
+            .attach_stream("h", core.as_mut(), ClientId("c".into()), &session, options)
+            .expect("attached");
+        // The one pump that hands the stream to the worker (Core OU-9, OR-1).
+        core.pump(now());
+        let deadline = botster_conformance::Deadline::after(None);
+        let mut bytes = Vec::new();
+        while bytes.len() < 5 {
+            match route.read(64, &deadline) {
+                botster_hub_conformance::route::RouteRead::Bytes(more) => bytes.extend(more),
+                other => panic!("the frames come with no pump: {other:?} after {bytes:?}"),
+            }
+        }
+        assert_eq!(
+            bytes[4],
+            botster_route_codec::prelude::TYPE_ATTACHED,
+            "the first frame is attached"
+        );
+    }
+
     /// Core LC-1, LC-2, 9B: `open` builds the real Core, refuses a second open of the directory while the first lives, and a
     /// reopen after the drop works.
     #[test]

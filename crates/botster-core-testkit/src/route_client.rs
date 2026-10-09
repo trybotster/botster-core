@@ -38,20 +38,13 @@ impl TestkitRoute {
 }
 
 impl RouteClient for TestkitRoute {
-    /// Writes every byte: while the stream is full, the workers run and read from it.
+    /// Writes the bytes that the stream takes. No worker reads a route's input yet (P4a PR1), so a full stream keeps the rest,
+    /// as a full socket does.
     fn write(&mut self, bytes: &[u8]) {
         let mut rest = bytes;
         while !rest.is_empty() {
             match self.end.write(rest) {
                 Ok(n) => rest = &rest[n..],
-                Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
-                    self.workers.run_ready();
-                    match self.end.write(rest) {
-                        Ok(n) => rest = &rest[n..],
-                        // No worker reads the stream now (or it failed): the rest stays unwritten, as a full socket keeps it.
-                        Err(_) => return,
-                    }
-                }
                 Err(_) => return,
             }
         }
@@ -72,5 +65,84 @@ impl RouteClient for TestkitRoute {
 
     fn has_control(&self, _op: &str) -> bool {
         false
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::scheduler::SchedulerHandle;
+    use std::time::Instant;
+
+    fn route(capacity: usize) -> (TestkitRoute, StreamEnd) {
+        let scheduler = SchedulerHandle::with_seed(0);
+        let (worker, client) = crate::net::stream_pair(&scheduler, capacity);
+        let workers = Workers::new(scheduler, Instant::now());
+        (TestkitRoute::new(client, workers), worker)
+    }
+
+    fn deadline() -> Deadline {
+        Deadline::after(None)
+    }
+
+    /// The route stream holds a socket buffer each way: 64 KiB that no one reads yet are taken whole.
+    #[test]
+    fn a_route_stream_holds_64_kib_each_way() {
+        let scheduler = SchedulerHandle::with_seed(0);
+        let (mut worker, _client) = crate::net::stream_pair(&scheduler, ROUTE_STREAM_BYTES);
+        assert_eq!(worker.write(&vec![7u8; 64 * 1024 + 1]).unwrap(), 64 * 1024);
+    }
+
+    /// A read returns the bytes that wait, `Empty` when none wait, and the end of file when the worker closes or the stream
+    /// fails.
+    #[test]
+    fn a_read_returns_bytes_then_empty_then_the_end() {
+        let (mut client, mut worker) = route(16);
+        assert_eq!(worker.write(b"xy").unwrap(), 2);
+        let mut got = Vec::new();
+        loop {
+            match client.read(8, &deadline()) {
+                RouteRead::Bytes(bytes) => got.extend(bytes),
+                RouteRead::Empty => break,
+                other => panic!("{other:?}"),
+            }
+        }
+        assert_eq!(got, b"xy", "the bytes, then Empty");
+        worker.close();
+        assert_eq!(client.read(8, &deadline()), RouteRead::Eof { ended: None });
+        let (mut client, mut worker) = route(16);
+        worker.end().control().reset();
+        assert_eq!(client.read(8, &deadline()), RouteRead::Eof { ended: None });
+    }
+
+    /// A write sends the bytes in order, and a full stream keeps the rest.
+    #[test]
+    fn a_write_sends_what_the_stream_takes() {
+        let (mut client, mut worker) = route(4);
+        let drain = |worker: &mut StreamEnd| {
+            let mut got = Vec::new();
+            let mut buf = [0u8; 8];
+            while let Ok(n) = worker.read(&mut buf) {
+                if n == 0 {
+                    break;
+                }
+                got.extend_from_slice(&buf[..n]);
+            }
+            got
+        };
+        client.write(b"abcdef");
+        assert_eq!(drain(&mut worker), b"abcd", "the stream took four bytes");
+        client.write(b"g");
+        assert_eq!(drain(&mut worker), b"g");
+    }
+
+    #[test]
+    fn a_testkit_route_has_no_controls() {
+        let (mut client, _worker) = route(4);
+        assert!(!client.has_control("route_gate"));
+        assert_eq!(
+            client.control("route_gate", &Value::Null),
+            Err("unsupported_control: route_gate".into())
+        );
     }
 }
