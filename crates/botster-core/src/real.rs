@@ -816,8 +816,10 @@ mod slow_tests {
             closes,
             &serde_json::json!(["link 1: the poll registration of the link failed"]),
         );
-        // timer: deadline — a link that the host does not close fails the test instead of hanging it
-        client.set_read_timeout(Some(Duration::from_secs(8))).unwrap();
+        client
+            // timer: deadline — a link that the host does not close fails the test instead of hanging it
+            .set_read_timeout(Some(Duration::from_secs(8)))
+            .unwrap();
         let mut rest = Vec::new();
         client.read_to_end(&mut rest).unwrap();
         assert!(rest.is_empty(), "the client sees the end of the stream");
