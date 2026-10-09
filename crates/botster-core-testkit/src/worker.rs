@@ -297,11 +297,10 @@ impl Spawner for WorkerSpawner {
         let endpoint = Endpoint::default();
         lock(&self.workers.endpoints).insert(key.clone(), Arc::clone(&endpoint));
         let link = connect();
-        let worker = Worker::new(WorkerConfig::new(
-            spec.instance.clone(),
-            spec.token,
-            spec.host_epoch,
-        ));
+        let worker = Worker::new(WorkerConfig {
+            startup: spec.startup,
+            ..WorkerConfig::new(spec.instance.clone(), spec.token, spec.host_epoch)
+        });
         let mut edges = WorkerEdges {
             id,
             key,
@@ -384,6 +383,11 @@ impl Spawner for WorkerSpawner {
         };
         lock(&endpoint).push_back(end);
         true
+    }
+
+    fn remove_endpoint(&mut self, instance: &InstanceId) {
+        let key: WorkerKey = (self.data_dir.clone(), instance.clone());
+        lock(&self.workers.endpoints).remove(&key);
     }
 }
 

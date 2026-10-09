@@ -268,6 +268,10 @@ impl World {
                 };
                 self.inject.push(Input::RowWritten { ticket, result });
             }
+            Action::RemoveEndpoint { instance } => {
+                self.trace.push(format!("unlink {}", instance.0));
+                self.endpoints.remove(&instance);
+            }
             Action::DeleteRow { ticket, key } => {
                 self.trace.push(format!("delete {key}"));
                 let result = match self.fail_row.take() {
