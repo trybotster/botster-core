@@ -11,6 +11,15 @@
 exclude_globs = ["**/tests/**", "tests/**"]
 
 exclude_re = [
+    # xtask prebuild.rs build_anchor and command (P6 PR A): the I/O shell of the prebuild-worker step runs `cargo build`
+    # and `cargo install` and installs the binaries; a default-tier test cannot run a build inside a mutation run. Only the
+    # whole-body replacements are excluded. The slow tier runs after this step and needs its output:
+    # the_prebuilt_anchor_of_guard_new_holds_the_group_of_a_wrapped_program fails without the installed anchor (P6 PR A
+    # evidence), and the real-process tests fail without the probe. The decisions stay tested: manifest_text
+    # (the_manifest_lists_binaries_sorted_with_their_hashes), install_executable
+    # (an_installed_executable_is_a_new_file_with_the_new_bytes) and sha256_hex (a_file_hash_is_the_sha256_of_its_bytes).
+    'xtask/src/prebuild\.rs:\d+:\d+: replace build_anchor -> Result<\(String, String\)> with Ok\(.*\)$',
+    'xtask/src/prebuild\.rs:\d+:\d+: replace command -> Result<\(\)> with Ok\(\(\)\)$',
     # xtask mutants_job -> Ok(()): process glue. The body runs `git diff`, writes the diff file, starts `cargo mutants` and
     # prints its summary; a test cannot start a mutation run inside a mutation run, so no test can run the body. Only this
     # whole-body replacement is excluded: every other mutant of mutants_job stays tested. Its decisions are pure functions
