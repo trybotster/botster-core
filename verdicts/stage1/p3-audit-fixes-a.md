@@ -201,3 +201,40 @@ the PR. The macOS regression (the input above, bound at least 64 bytes, checked 
 in any case. E2 stays OPEN until then; it closes together with F51.
 
 VERDICT: NOT CLEAN (1 open: E2)
+
+## Round 8 — Head 3d5237b2 (E2 with package F51)
+
+Reviewed head: `3d5237b2b1650424f6f23a27c841407014a165aa`. Delta `f1cee834..3d5237b2`, two commits: a macOS regression test in
+`tests_encode.rs`, and the rewritten column 40 entry in `.cargo/mutants.toml`. This reviewer ran no build, test or gate.
+
+- Evidence read:
+  - Mac, `--no-config` on `every_key_state` (`…3d5237b2-pool-20261008-221247-36284.log`): `696:40` `&` to `|` and `&` to
+    `^` both **caught**; missed only `696:73` (`!=` to `==`) and `704:36` (`&` to `^`), both written equivalences.
+  - Linux, the same command (`…3d5237b2-pool-20261008-221445-43317.log`): the two `696:40` mutants MISSED, as the entry
+    says.
+  - Static steps at this head (`…3d5237b2-pool-20261008-221607-45188.log`): fmt, taint, lists, clippy PASS.
+- **E2 CLOSED.** The column 40 entry no longer claims an equivalence. It states the macOS counterexample with the pinned
+  Ghostty source (`key_encode.zig:642-650`, macOS only), names the killing test
+  `the_key_bound_of_an_alt_key_with_long_text_covers_the_states_with_modes_off` (bound at least 64 and equal to the
+  maximum over every explicit mode), limits itself to the Linux gate, and says to recheck it at a Ghostty pin move. The
+  mutants are killed by a test where the behavior exists, with the focused Mac run as evidence (the lead's native rule).
+  The dropped Linux exploration is no longer cited.
+
+#### E3 [MEDIUM] OPEN — `every_key_state` `+` to `*` is "caught" only by the 2 s test limit (a timeout)
+
+- Location: `crates/botster-terminal-ghostty/src/encode.rs:695:36`, `0u32..1 << (KEY_MODE_BITS + KITTY_FLAG_BITS)`.
+- Evidence: the mutant makes the range `1 << 30`: the same 2,048 states repeated, so each full key search encodes about a
+  billion times. Both focused runs above report it as `TIMEOUT … 20s test`. The gate runs mutants through nextest with the
+  default profile, where `slow-timeout = { period = "2s", terminate-after = 1 }` (`.config/nextest.toml`): the test is
+  terminated, which fails it, so cargo-mutants counts the mutant as caught (the f1cee834 gate log shows "0 timeout"). The
+  mutant is caught by a time limit, not by an assertion. Mutation policy: "A timeout is a finding."
+- The mutant changes no bound, only the cost; the cost is what IN-9 exists to bound ("a tiny admission can never expand
+  into an unbounded loop").
+- Required: make the mutant fail without a time limit. For example, name the state count as a constant with a compile-time
+  check (`const KEY_STATES: u32 = 1 << (KEY_MODE_BITS + KITTY_FLAG_BITS); const _: () = assert!(KEY_STATES == 64 * 32);`),
+  which makes the mutant unviable, or a public-behavior test that observes the number of states the search visits. Show
+  the focused run without a TIMEOUT.
+- The same masking can hide a timeout in any crate's gate mutants step. This reviewer sends the lead that general question
+  separately; it is not part of E3.
+
+VERDICT: NOT CLEAN (1 open: E3)
