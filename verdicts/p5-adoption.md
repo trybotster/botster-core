@@ -1925,3 +1925,53 @@ The exact post-CLEAN head still requires its full gate under section 8.
 The prior held audit scope and P5 deliverable 2 limits remain unchanged.
 
 VERDICT: NOT CLEAN
+
+
+## PR #169 — Round 3
+
+- Exact head: `9343f20df613c2756c7cdf781fc3dd6bfa9bfad1`.
+- Previous reviewed head: `a7c73febcfeafca0f462ea14d5121a516d5a1a10`.
+- Base: `ee7dd16c73a6991b6ef9b3a85d84fd93e57a3230`.
+- Tree: `6965827056bca237575c6de9fc2454d5dc83766b`.
+- Plan: revision 22, pin `71a623ef93f487754e400dc186429216357e39fe251933675cc7f851843d519d`.
+- The reviewer changed no product code and ran no builds, tests, mutation jobs, or gates.
+
+### Correction and closure
+
+The reviewer read the complete one-file, four-line delta and checked the current PR head and description.
+The new A28 edge test sets an eight-second read timeout before `read_to_end`.
+Its timer marker names the failed-close case. The value matches the adjacent host test's existing deadline.
+The test retains its ConnectionReset and empty-output assertions.
+A retained peer now causes a read error that fails the assertion instead of an unbounded wait.
+P5-F19 is CLOSED. P5-F16, P5-F17, and P5-F18 remain CLOSED.
+No package finding remains within this PR's reviewed scope.
+
+The Round 2 A28 proof map and supplied hand-mutant evidence remain accepted.
+The correction changes no production branch, pure decision, exclusion, or event assertion.
+Integration owns its separate verdict; the updated description reports integration CLEAN in Round 3 at this head.
+
+### Exact-head evidence
+
+The reviewer checked the full Linux gate's head, base, test summaries, mutation summary, fuzz results, and final result.
+Log: `~/botster-sessions/gates/botster-core-stage1-p5-audit-host-fixes-9343f20d-pool-20261009-000956-91316.log`.
+It names head 9343f20d and base ee7dd16c.
+Fmt, clippy, taint, lists, public-api, prebuild-worker, test-budget, slow, mutants, and fuzz report PASS.
+The default tier passes 793 tests. The slow tier passes 208 tests, including both new A28 behavior tests.
+The mutation step reports 141 tested, 122 caught, 19 unviable, zero missed, and zero timeouts.
+Both link fuzz targets finish their 60-second runs. The full command exits zero after 558 seconds.
+
+The reviewer read the complete additional in-diff mutation log:
+`...9343f20d-pool-20261009-001923-6118.log`.
+Its command sets `NEXTEST_PROFILE=slow` and names the same exact head.
+Its base is the advanced v1 head `59ce126885e04a3b3f22d97e89337bfdbf055949`.
+The unmutated baseline passes. The step reports 141 tested, 122 caught, 19 unviable, zero missed, and zero timeouts.
+The command exits zero. The updated PR description names both logs and the correction.
+
+### Scope limits
+
+This verdict covers #155 and #157 A28/A47 at the exact head above.
+It does not close #156 A16/A25/A27/A50, #157 A24/A49, or P5 deliverable 2.
+A15 remains P6's item. The held process-test and live-worker adoption scope limits remain unchanged.
+A later base merge requires the section 8 script proof and a gate on the new exact head.
+
+VERDICT: CLEAN
