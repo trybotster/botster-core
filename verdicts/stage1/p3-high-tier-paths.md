@@ -40,3 +40,25 @@ change that reuses or shortens a token there would be STANDARD by this list, and
 raise it. P3 may add a narrow note to the file's header, so reviewers raise such a change.
 
 VERDICT: CLEAN (0 open) at b1992a0f349466deef5b3aef75ce4b9595a637c2
+
+### Correction after round 1 (same head b1992a0f) — CLEAN WITHDRAWN (the P3 package reviewer's F57, missed here)
+
+The P3 package reviewer's F57 MEDIUM (round 109, `577a4b61`) is real, and it is in this reviewer's scope (the list
+decides which PRs get integration review). Round 1 accepted the omitted decision files for one reason only: the real edge
+checks the identity again before a signal, so a sans-IO defect cannot signal an unrelated process. That reason does not
+cover the order, the timing or the absence of a process action, which rule 5 also puts in the area ("spawn, signal, wait,
+reap"). Examples at the head:
+- `botster-guardian-core/src/guardian.rs` `settle` (`:433`) decides that `ReapService` comes only after the leader is drained
+  and the tree is killed. An early reap leaves descendants with no owner, and no OS check sees it. No real guardian edge
+  exists yet, so this file is the whole process-control decision of the guardian, including the kill target and the
+  census before TERM or KILL (`:534`, `:543`).
+- `botster-core-host/src/run.rs` `kill_payload` (`:275`) chooses the stop-grace signal, and `run.rs` row recovery and
+  `session_of_row` (`:667`, `:739`) decide to adopt after a restart.
+- `flows.rs` Remove (`:597`, `:618`), `driver.rs:274`, `admit.rs` (`:285`, `:751`) and `engine.rs` (`:463`, `:608`), as F57
+  lists them.
+
+Fix: F57's (the six files, and the corrected fallback text in the PR description). This reviewer adds no finding of its
+own.
+
+VERDICT: NOT CLEAN at b1992a0f349466deef5b3aef75ce4b9595a637c2 (1 open: F57 MEDIUM, the package reviewer's finding,
+confirmed here)
