@@ -1,0 +1,36 @@
+# The HIGH-path list of botster-core (botster-contracts docs/BUILD.md "Risk tiers", rule 5).
+#
+# A PR that changes a path below is HIGH. One path or glob per line, then `#` and the rule-5 area with the code that puts it
+# here. A change to this file is gate-decision code (rule 1), so it is HIGH too.
+#
+# Only rule 5 is listed. Rules 1 to 4 (gate code, unsafe/FFI/C ABI, cross-package and shared crates, pins) are decided by
+# the PR itself and need no entry. An entry names the file that holds the risky code, not its whole crate.
+
+# Process control: spawn, signal, wait, reap.
+crates/botster-core-sys/src/signal.rs  # process control: the one signal path; refuses pid 0, 1, our own group (A10-2)
+crates/botster-core-sys/src/process.rs  # process control: worker spawn, child exit, identity by pid and start time
+crates/botster-core-sys/src/payload.rs  # process control and PTY: payload spawn on the PTY, exit watch, group signal, reap
+crates/botster-core/src/real.rs  # process control: the real host edges spawn and signal workers, and own the control socket
+
+# The PTY.
+crates/botster-worker/src/main.rs  # PTY and process control: the real worker driver (PTY reads and writes, signals, exit watch)
+crates/botster-worker/src/io_decisions.rs  # PTY: the driver's PTY read, write and readiness decisions (IN-6 cancel, A31)
+crates/botster-worker-core/src/drain.rs  # PTY: the drain at the payload's exit; both drivers run it (EV-4, ST-5, A31)
+
+# Adoption and restart.
+crates/botster-core-host/src/adopt.rs  # adoption: identity probe, endpoint connect, proof and epoch (AD-1, AD-2, AD-6)
+crates/botster-core-host/src/session.rs  # restart: the registry row codec; a decoded row names the worker to signal (AD-6, A10-2)
+
+# Durable storage.
+crates/botster-core-sys/src/storage.rs  # durable storage: registry rows on disk, fsync, the data directory (LC-2, AD-7, DP-8)
+crates/botster-core-sys/src/storage/**  # durable storage: the row path (a reversible key path, A1)
+crates/botster-core-sys/src/lock.rs  # durable storage: the data-directory lock; one host owns a directory (LC-2)
+
+# Auth, token and proof checks.
+crates/botster-core-sys/src/entropy.rs  # token: the OS CSPRNG for the per-worker token and the service secret (AD-6, SV-1)
+crates/botster-core-link/src/proof.rs  # proof: the token proofs of both roles (AD-6)
+crates/botster-core-link/src/hello.rs  # auth: the hello that carries the proof, the instance and the epoch
+crates/botster-core-link/src/launch.rs  # token: how the worker gets its token and its host at start (AD-6, DP-8)
+crates/botster-core-host/src/inbound.rs  # proof check: the host checks the worker's hello proof and answers with its own
+crates/botster-worker-core/src/worker.rs  # proof check: the worker checks the host's proof before it serves the link
+crates/botster-guardian-core/src/link.rs  # proof check: the guardian's hello and its check of the host's proof
