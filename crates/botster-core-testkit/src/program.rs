@@ -464,7 +464,12 @@ impl Program for ScriptedProgram {
                 room = room.min(left);
             }
             if (controls.blocked || room == 0) && !bytes.is_empty() {
-                if !controls.blocked && controls.input_cap.is_some() && controls.input_left == 0 {
+                // Only a spent `pty_chunk` cap waits for the next step: the step restores it, and nothing else that refuses.
+                if !controls.blocked
+                    && controls.accept != Some(0)
+                    && controls.input_cap.is_some()
+                    && controls.input_left == 0
+                {
                     controls.step_refused = true;
                 }
                 return Err(io::ErrorKind::WouldBlock.into());
@@ -1123,6 +1128,18 @@ mod tests {
         assert!(
             !control.waits_for_next_step(),
             "refused by pty_accept, with no cap"
+        );
+
+        // F53: both limits spent together; the next step restores the cap, but pty_accept still refuses.
+        let mut r = program(json!({"program": [{"hold": {}}]}), true, 0);
+        let control = r.control();
+        control.input_chunk(Some(2));
+        control.accept_at_most(2);
+        assert_eq!(r.write(b"abc").unwrap(), 2);
+        assert!(would_block(r.write(b"c")));
+        assert!(
+            !control.waits_for_next_step(),
+            "pty_accept refuses after the step too"
         );
     }
 

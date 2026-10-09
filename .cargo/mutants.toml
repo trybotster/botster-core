@@ -56,10 +56,15 @@ exclude_re = [
     # Driver::start_with_read_bound: control_and_pty_reads_retain_bytes_at_each_positive_bound uses the real constructor at all three bounds.
     'crates/botster-worker/src/main\.rs:\d+:\d+: (replace Driver::start_with_read_bound( ->| with)|.* in Driver::start_with_read_bound$)',
     # Driver::run: pty_events_resume_reads_after_would_block exercises the real poll loop after readiness clears.
+    # M2a adds no operator and no arm to run. Its PTY arm now decides readability by io_decisions::control_ready and the
+    # end of a write's wait by io_decisions::pty_writable, both tested in the default tier. The arm's write half (and so
+    # `delete match arm PTY` for writes) is proved by the parked real-PTY regression named at the M2a PTY write glue below.
     'crates/botster-worker/src/main\.rs:\d+:\d+: (replace Driver::run( ->| with)|.* in Driver::run$)',
     # Driver::settle: ev_4_a_real_exit_carries_the_code_or_the_signal requires queued machine inputs and actions to reach real edges.
     'crates/botster-worker/src/main\.rs:\d+:\d+: (replace Driver::settle( ->| with)|.* in Driver::settle$)',
     # Driver::perform: lc_6_signal_reaches_the_whole_group checks signals; pty_reads_clear_readiness_and_finish_a_bounded_drain checks ReapPayload.
+    # M2a's arm Action::PtyWrite has no mutant of its own (the match is exhaustive, with no wildcard); the replaced body is
+    # proved for writes by the parked real-PTY regression named at the M2a PTY write glue below.
     'crates/botster-worker/src/main\.rs:\d+:\d+: (replace Driver::perform( ->| with)|.* in Driver::perform$)',
     # Driver::spawn: ev_4_a_real_exit_carries_the_code_or_the_signal requires the real PTY, leader, and exit watcher.
     'crates/botster-worker/src/main\.rs:\d+:\d+: (replace Driver::spawn( ->| with)|.* in Driver::spawn$)',
@@ -82,7 +87,8 @@ exclude_re = [
     # 2026-10-08).
     # Driver::write_pty_once: one PTY write of the pending PtyWrite per turn.
     'crates/botster-worker/src/main\.rs:\d+:\d+: (replace Driver::write_pty_once( ->| with)|.* in Driver::write_pty_once$)',
-    # Driver::set_pty_write_interest: the poll reregister of the PTY's write interest.
+    # Driver::set_pty_write_interest: the poll reregister of the PTY's write interest. Its `|` of READABLE and WRITABLE joins
+    # disjoint flags, so `^` is the same value; `&` leaves no interest, which the regression catches.
     'crates/botster-worker/src/main\.rs:\d+:\d+: (replace Driver::set_pty_write_interest( ->| with)|.* in Driver::set_pty_write_interest$)',
     # P3 Payload glue owns real native descriptors and unreaped processes; the default tier has neither.
     # Each entry names one function. Pure errno/launch-error classification and wait_unreaped_with remain mutation-tested.
@@ -225,6 +231,10 @@ exclude_re = [
     'crates/botster-core/src/real\.rs:\d+:\d+: (replace PollWake::consume( ->| with)|.* in PollWake::consume$)',
     'crates/botster-core/src/real\.rs:\d+:\d+: (replace LinkIo::apply( ->| with)|.* in LinkIo::apply$)',
     'crates/botster-core/src/real\.rs:\d+:\d+: (replace socket_path( ->| with)|.* in socket_path$)',
+    # RealEdges::diagnostics (#164, audit A1): it reports the foreign registry files of the real storage; the slow tier
+    # catches it (slow-tier mutation run of 2026-10-08 on Linux), in tests/slow_real_core.rs
+    # `a_damaged_row_is_registry_corrupt_and_a_foreign_file_is_left_alone`.
+    'crates/botster-core/src/real\.rs:\d+:\d+: (replace <impl HostEdges for RealEdges>::diagnostics( ->| with)|.* in <impl HostEdges for RealEdges>::diagnostics$)',
     # botster-core-sys process (P1): `Children` waits for, reaps and signals real children, so the proof is the slow tier,
     # `tests/slow_process.rs` (slow-tier mutation run of 2026-10-04): `a_child_exit_calls_the_notifier_and_is_polled` and every
     # test through `next_exit` (poll_exit), `wait_exit_takes_the_exit_of_its_own_child` (wait_exit), and
@@ -248,26 +258,58 @@ exclude_re = [
     # ECHILD and EINVAL cannot occur under these ownership rules, so changing the error fallback's sign is equivalent.
     'crates/botster-core-sys/src/process\.rs:\d+:\d+: delete - in Children::spawn$',
     # botster-core-sys storage (P1): the registry on a real disk (AD-7, LC-2, DP-8). A real fsync takes the time of the disk
-    # of the host, so these tests run in the slow tier (BUILD.md testing rule 2), storage.rs `slow_tests` (slow-tier mutation
-    # run of 2026-10-04: every mutant of these functions is caught there): `a_written_row_reads_back_and_a_missing_row_is_none`,
-    # `a_second_write_replaces_the_row`, `any_key_is_a_valid_row_name_and_lists_back_sorted`, `delete_removes_the_row_and_is_idempotent`
-    # (write_row, read_row, list_rows, delete_row, FileStorage::path, FileStorage::read_file), `the_directory_is_exclusive_until_it_is_dropped`,
-    # `the_host_epoch_strictly_increases_across_opens`, `a_corrupt_epoch_refuses_the_open` (DataDir::open, DataDir::epoch),
+    # of the host, so these tests run in the slow tier (BUILD.md testing rule 2), storage.rs `slow_tests`. Evidence: the
+    # slow-tier mutation run of 2026-10-04 (P1's code), and for every line that #164 changed, the Linux slow-tier run of
+    # 2026-10-08 at 2121aaca and b48a6d8d (`--no-config --features slow`; logs named in PR #164). Catching tests:
+    # `a_written_row_reads_back_and_a_missing_row_is_none`, `a_second_write_replaces_the_row`,
+    # `any_id_is_a_row_and_lists_back_sorted`, `delete_removes_the_row_and_its_empty_directories`,
+    # `only_a_missing_row_is_none_or_deleted_quietly`, `a_write_that_cannot_start_is_failed_with_no_effect`,
+    # `a_damaged_row_is_still_named_by_its_path` (write_row, read_row, list_rows, delete_row);
+    # `a_link_in_a_row_path_is_never_followed` (read_row's O_NOFOLLOW, which the 2026-10-04 run did not catch; its `|` to
+    # `^` mutants are the pre-accepted disjoint-bits class); `the_directory_is_exclusive_until_it_is_dropped`,
+    # `the_host_epoch_strictly_increases_across_opens`, `a_corrupt_epoch_refuses_the_open` (DataDir::open, DataDir::epoch);
     # `an_unsafe_directory_is_refused_and_a_new_one_is_private`, `open_tells_an_existing_file_from_a_failed_create`,
-    # `open_reports_a_rows_directory_that_cannot_be_created` (DataDir::open, check_safe), `a_damaged_row_file_is_not_a_row`,
-    # `a_row_is_found_only_under_its_own_key`, `only_a_missing_row_is_none_or_deleted_quietly`,
-    # `a_write_that_cannot_start_is_failed_with_no_effect` (read_file, read_row, delete_row, write_row). The pure parts
-    # (`encode`, `decode`, `key_hash`, `errno`, the error words, `sync_directory` of a missing directory) are tested in the
-    # default tier.
+    # `open_reports_a_rows_directory_that_cannot_be_created` (DataDir::open, check_safe). The pure parts are tested in the
+    # default tier: `errno` and the error words (storage.rs `tests`), and the row path encoding (`row_path`, `key_of`,
+    # `valid_kind`, `is_dir_component`; storage/row_path.rs `tests`).
     'crates/botster-core-sys/src/storage\.rs:\d+:\d+: (replace <impl Storage for FileStorage>::write_row( ->| with)|.* in <impl Storage for FileStorage>::write_row$)',
     'crates/botster-core-sys/src/storage\.rs:\d+:\d+: (replace <impl Storage for FileStorage>::read_row( ->| with)|.* in <impl Storage for FileStorage>::read_row$)',
     'crates/botster-core-sys/src/storage\.rs:\d+:\d+: (replace <impl Storage for FileStorage>::list_rows( ->| with)|.* in <impl Storage for FileStorage>::list_rows$)',
     'crates/botster-core-sys/src/storage\.rs:\d+:\d+: (replace <impl Storage for FileStorage>::delete_row( ->| with)|.* in <impl Storage for FileStorage>::delete_row$)',
-    'crates/botster-core-sys/src/storage\.rs:\d+:\d+: (replace FileStorage::path( ->| with)|.* in FileStorage::path$)',
-    'crates/botster-core-sys/src/storage\.rs:\d+:\d+: (replace FileStorage::read_file( ->| with)|.* in FileStorage::read_file$)',
     'crates/botster-core-sys/src/storage\.rs:\d+:\d+: (replace DataDir::open( ->| with)|.* in DataDir::open$)',
     'crates/botster-core-sys/src/storage\.rs:\d+:\d+: (replace DataDir::epoch( ->| with)|.* in DataDir::epoch$)',
     'crates/botster-core-sys/src/storage\.rs:\d+:\d+: (replace check_safe( ->| with)|.* in check_safe$)',
+    # botster-core-sys storage, the descriptor walk of audit A1 (#164): the same real-disk rule as the entries above. The
+    # slow tier runs storage.rs `slow_tests` (xtask's `SLOW_FILTER` selects every module named `slow_*`), and a Linux
+    # slow-tier mutation run of 2026-10-08 (`--features slow`, those tests) catches every mutant of these functions except
+    # the equivalent ones named below.
+    # Catching tests: `any_id_is_a_row_and_lists_back_sorted` (chain, place, scan, walk, entries, open_dir),
+    # `a_written_row_reads_back_and_a_missing_row_is_none`, `delete_removes_the_row_and_its_empty_directories` and
+    # `only_a_missing_row_is_none_or_deleted_quietly` (existing, child_dir), `a_link_in_a_row_path_is_never_followed`
+    # (open_dir O_NOFOLLOW, child_dir's not-found guard), `a_write_never_reuses_a_temporary_file_that_it_did_not_create`
+    # (place O_EXCL), `a_failed_write_removes_the_directories_that_it_made` (unmake, chain's record of made directories),
+    # `a_foreign_file_is_counted_untouched_and_not_listed` (scan, walk, entries: foreign files and directories),
+    # `a_missing_parent_fails_the_open`, `a_retried_open_syncs_the_parent_that_a_failed_open_left` and
+    # `open_tells_an_existing_file_from_a_failed_create` (create_data_dir, sync_dir).
+    # Equivalent mutants of these functions (cargo-mutants swaps the operator as text, so `a | b & c | d` drops b and c):
+    # - `|` to `^` in the flags of open_dir and place: the flags are distinct bits (pre-accepted class).
+    # - open_dir, `RDONLY & DIRECTORY` (drops O_DIRECTORY): every caller opens an entry typed as a directory (scan, walk) or
+    #   one that `mkdirat` just found existing (chain); on a non-directory, the next *at call on the descriptor fails with
+    #   ENOTDIR, the errno that O_DIRECTORY gives, so the result is the same `Failed`.
+    # - place, `NOFOLLOW & CLOEXEC` (drops both): O_CREAT | O_EXCL already fails on any existing name, a link included, so
+    #   O_NOFOLLOW adds nothing; O_CLOEXEC matters only for an exec while the descriptor is open, and `place` opens and
+    #   closes it within one call, during which Core starts no process (its other threads only reap, DESIGN.md A46).
+    'crates/botster-core-sys/src/storage\.rs:\d+:\d+: (replace open_dir( ->| with)|.* in open_dir$)',
+    'crates/botster-core-sys/src/storage\.rs:\d+:\d+: (replace child_dir( ->| with)|.* in child_dir$)',
+    'crates/botster-core-sys/src/storage\.rs:\d+:\d+: (replace FileStorage::chain( ->| with)|.* in FileStorage::chain$)',
+    'crates/botster-core-sys/src/storage\.rs:\d+:\d+: (replace FileStorage::existing( ->| with)|.* in FileStorage::existing$)',
+    'crates/botster-core-sys/src/storage\.rs:\d+:\d+: (replace FileStorage::unmake( ->| with)|.* in FileStorage::unmake$)',
+    'crates/botster-core-sys/src/storage\.rs:\d+:\d+: (replace FileStorage::scan( ->| with)|.* in FileStorage::scan$)',
+    'crates/botster-core-sys/src/storage\.rs:\d+:\d+: (replace place( ->| with)|.* in place$)',
+    'crates/botster-core-sys/src/storage\.rs:\d+:\d+: (replace entries( ->| with)|.* in entries$)',
+    'crates/botster-core-sys/src/storage\.rs:\d+:\d+: (replace walk( ->| with)|.* in walk$)',
+    'crates/botster-core-sys/src/storage\.rs:\d+:\d+: (replace create_data_dir( ->| with)|.* in create_data_dir$)',
+    'crates/botster-core-sys/src/storage\.rs:\d+:\d+: (replace sync_dir( ->| with)|.* in sync_dir$)',
     # Equivalent mutants of `botster-core-host`: a change that no behavior can show.
     # - `commit`: `Stop` of a session that is `Starting` while its flow is idle, and `Flow::Create | Flow::Start` are the only
     #   flows that a `Starting` session has, so the guard `s.admit == Admit::Starting` of the last arms is never the deciding
@@ -286,6 +328,8 @@ exclude_re = [
     #   cannot exist: a worker that ends fails its link first (`link_failed`).
     # - `stop_all_start`: the guard `s.queue.iter().any(Start)` cannot be true for a session that is `Running` or `Starting`
     #   with a flow other than `Create`, `Start` and `Stop`.
+    # - `HostEdges::diagnostics` (the trait's default body): it returns `serde_json::Value::Null`, which is
+    #   `serde_json::Value::default()`, so the mutant is the same function.
     'crates/botster-core-host/src/queue\.rs:\d+:\d+: delete match arm Event::SessionState\{\.\.\} .* in class_of$',
     'crates/botster-core-host/src/queue\.rs:\d+:\d+: delete match arm ActivitySource::Output in key_of$',
     'crates/botster-core-host/src/queue\.rs:\d+:\d+: replace -= with (\+|/)= in EventQueue::remove$',
@@ -295,6 +339,7 @@ exclude_re = [
     'crates/botster-core-host/src/inbound\.rs:\d+:\d+: delete match arm Flow::Create\(_\) in HostEngine::on_process_exited$',
     'crates/botster-core-host/src/run\.rs:\d+:\d+: replace (== with != |&& with \|\| )in HostEngine::forward$',
     'crates/botster-core-host/src/run\.rs:\d+:\d+: replace match guard s\.queue\.iter\(\)\.any\(\|f\| matches!\(f, Flow::Start\(_\)\)\) with false in HostEngine::stop_all_start$',
+    'crates/botster-core-host/src/driver\.rs:\d+:\d+: replace HostEdges::diagnostics -> serde_json::Value with Default::default\(\)$',
     # payload_size (A3): `limit / times` is only where the key search may stop. With any stop limit at or over it, a key
     # within the limit gets the same size (its search never stops early), and a key over the limit stays over it, so it is
     # `PayloadTooLarge` either way. Only the cost of the search and the size quoted in the error's detail differ, and the
