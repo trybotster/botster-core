@@ -295,3 +295,25 @@ ran no build, test or gate.
 - The ONE Linux landing gate on this exact head is owed.
 
 VERDICT: CLEAN (0 open) at 9ddbdf897e33aa4fa2c742c20670588bfdabddad
+
+## Correction after round 9 — the mutants_job exclusion hides the step's failure decision (CLEAN at 9ddbdf89 WITHDRAWN)
+
+Head: `9ddbdf897e33aa4fa2c742c20670588bfdabddad` (unchanged). Source: the P3 package reviewer's F52, checked by this reviewer
+against the exact tree.
+
+#### E4 [MEDIUM] OPEN — A whole-function exclusion of `mutants_job` removes the only check that fails a bad mutation run
+
+- Location: `.cargo/mutants.toml` (new entry `replace mutants_job( ->| with)|.* in mutants_job`); `xtask/src/ci.rs:336-337`:
+  `if !status.success() { bail!(…) }`.
+- Evidence: the entry excludes every mutant of `mutants_job`, including `replace mutants_job -> Result<()> with Ok(())`
+  and the deletion or inversion of that `if`. Such a mutant makes the mutants step pass whatever cargo-mutants reports: a
+  missed mutant or a timeout no longer fails a gate. The reason given, "every gate runs it: its own step is the proof",
+  does not hold for this decision: a gate whose step wrongly passes shows nothing. The tests cited
+  (`parse_outcomes`, `platform_exclusions`) do not cover it. Round 9 accepted the entry without checking which decisions
+  stay inside the excluded function; the round 9 CLEAN is withdrawn.
+- Required (= F52): move the result decision (exit status, and the summary if it is used) into a pure function with
+  default-tier tests (exit 0 passes; 2 missed, 3 timeout, 4 baseline failure and any other failure fail), call it from
+  `mutants_job`, and keep that function mutation-tested (out of the exclusion). The process glue that stays excluded is
+  only the starting of `git` and `cargo mutants`.
+
+VERDICT: NOT CLEAN (1 open: E4)
