@@ -94,7 +94,8 @@ fn clippy_job(root: &Path) -> Result<()> {
         "-D",
         "warnings",
     ]);
-    run(cmd)
+    let status = cmd.status().context("start cargo clippy")?;
+    crate::tools::succeeded("cargo clippy", status)
 }
 
 fn taint_job(root: &Path) -> Result<()> {

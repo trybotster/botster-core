@@ -14,6 +14,11 @@ pub const NIGHTLY: &str = "nightly-2026-09-30";
 pub fn run(mut cmd: Command) -> Result<()> {
     let shown = format!("{cmd:?}");
     let status = cmd.status().with_context(|| format!("start {shown}"))?;
+    succeeded(&shown, status)
+}
+
+/// The verdict of a run of `shown` from its exit status: only a success passes.
+pub fn succeeded(shown: &str, status: std::process::ExitStatus) -> Result<()> {
     if !status.success() {
         bail!("{shown} failed ({status})");
     }
@@ -132,5 +137,24 @@ mod tests {
             "tool failed: why"
         );
         assert!(stdout_of(&output(0, &[0xff]), "tool").is_err());
+    }
+
+    #[test]
+    fn only_a_successful_run_passes() {
+        use std::os::unix::process::ExitStatusExt;
+        succeeded("tool", std::process::ExitStatus::from_raw(0)).unwrap();
+        assert_eq!(
+            succeeded("tool", std::process::ExitStatus::from_raw(2 << 8))
+                .unwrap_err()
+                .to_string(),
+            "tool failed (exit status: 2)"
+        );
+    }
+
+    /// A program that cannot start fails the run; no process starts.
+    #[test]
+    fn a_tool_that_cannot_start_fails_the_run() {
+        let failed = run(Command::new("/nonexistent/botster-tool")).unwrap_err();
+        assert!(failed.to_string().starts_with("start "), "{failed}");
     }
 }
