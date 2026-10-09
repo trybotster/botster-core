@@ -30,3 +30,16 @@ Observation (not counted): 4.2b requires the `RealCoreHarness` to build `break_c
 there when that harness lands, and a failure is a finding for P5.
 
 VERDICT: CLEAN (0 open) at 504540a93bebadb665562e2188ba06c3c2bb40ba
+
+### Correction after round 1 (same head 504540a9) — CLEAN WITHDRAWN (the P5 package reviewer's PC-F1, missed here)
+
+The P5 package reviewer's PC-F1 MEDIUM is real, and it is in this reviewer's scope (the shared testkit's harness
+contract). `TestkitHarness::drop_handle` (`harness.rs:163`) is still a no-op, so the new `handle_dirs` entry survives a
+drop. After `drop_handle("h")`, `break_control(h, s)` finds the directory, reads the row (rows and workers survive LC-12)
+and breaks the link. `CoreHarness::drop_handle` says that the handle is gone, and the contracts fake refuses a control on a
+dropped handle. So the testkit accepts a step that the reference refuses. This reviewer checked how `open` fills
+`handle_dirs`, but not the drop path. Fix: PC-F1's (remove the handle in `drop_handle`, add a test that the control is
+`Bad` after the drop and works through a reopened handle, and update the comment).
+
+VERDICT: NOT CLEAN at 504540a93bebadb665562e2188ba06c3c2bb40ba (1 open: PC-F1 MEDIUM, the package reviewer's finding,
+confirmed here)
