@@ -533,10 +533,14 @@ fn a_cited_proof_without_its_test_attribute_fails() {
     assert!(repo("#[test]")
         .check("# the_cited_proof\n", OLD_FILTER)
         .is_empty());
-    assert_eq!(
-        repo("").check("# the_cited_proof\n", OLD_FILTER),
-        [".cargo/mutants.toml:1: cites `the_cited_proof`, which names no test, no test target, no identifier of the code and no vendored word"]
-    );
+    // Another attribute, also under `cfg_attr`, does not make a test.
+    for attrs in ["", "#[inline]", "#[cfg_attr(unix, inline)]"] {
+        assert_eq!(
+            repo(attrs).check("# the_cited_proof\n", OLD_FILTER),
+            [".cargo/mutants.toml:1: cites `the_cited_proof`, which names no test, no test target, no identifier of the code and no vendored word"],
+            "{attrs}"
+        );
+    }
 }
 
 /// #181 B6: `#[cfg_attr(<predicate>, ignore)]` ignores the test where the predicate holds, also nested; `cfg_attr(..,
