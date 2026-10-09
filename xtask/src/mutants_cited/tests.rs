@@ -96,7 +96,7 @@ fn a_cited_test_that_was_renamed_fails() {
     );
     assert_eq!(
         renamed.check(CITES_STORAGE, crate::test_budget::SLOW_FILTER),
-        [".cargo/mutants.toml:2: cites `a_written_row_reads_back`, which names no test, no test target, no item and no vendored word"]
+        [".cargo/mutants.toml:2: cites `a_written_row_reads_back`, which names no test, no test target, no identifier of the code and no vendored word"]
     );
 }
 
@@ -113,7 +113,7 @@ fn a_default_tier_test_an_item_and_a_vendored_word_pass() {
     let unknown = "# no_such_thing_anywhere is cited.\n";
     assert_eq!(
         repo.check(unknown, OLD_FILTER),
-        [".cargo/mutants.toml:1: cites `no_such_thing_anywhere`, which names no test, no test target, no item and no vendored word"]
+        [".cargo/mutants.toml:1: cites `no_such_thing_anywhere`, which names no test, no test target, no identifier of the code and no vendored word"]
     );
 }
 
@@ -147,7 +147,7 @@ fn a_slow_target_runs_only_in_a_package_with_a_slow_feature() {
         no_feature.check("# the_child_ends_in_time\n# slow_process_target: slow_process\n", OLD_FILTER),
         [
             ".cargo/mutants.toml:1: cites the test `the_child_ends_in_time`, which no gate tier runs (the_child_ends_in_time in slow_process)",
-            ".cargo/mutants.toml:2: cites `slow_process_target`, which names no test, no test target, no item and no vendored word",
+            ".cargo/mutants.toml:2: cites `slow_process_target`, which names no test, no test target, no identifier of the code and no vendored word",
         ]
     );
 }
@@ -385,7 +385,7 @@ fn a_deleted_test_that_a_document_or_a_string_still_mentions_fails() {
         .file("verdicts/v.md", "a_written_row_reads_back\n");
     assert_eq!(
         deleted.check(CITES_STORAGE, OLD_FILTER),
-        [".cargo/mutants.toml:2: cites `a_written_row_reads_back`, which names no test, no test target, no item and no vendored word"]
+        [".cargo/mutants.toml:2: cites `a_written_row_reads_back`, which names no test, no test target, no identifier of the code and no vendored word"]
     );
     let item = deleted.file(
         "crates/a/src/lib.rs",
@@ -394,17 +394,20 @@ fn a_deleted_test_that_a_document_or_a_string_still_mentions_fails() {
     assert!(item.check(CITES_STORAGE, OLD_FILTER).is_empty());
 }
 
-/// Each kind of item that is not a test is a name that a citation may name; a `#[test]` function is not, and neither is
-/// a word of a file outside the vendored paths or a word of the mutants file.
+/// Each identifier of the code (an item, a field or a method of a dependency, a crate) is a name that a citation may name;
+/// the name of a `#[test]` function is not, and neither is a word of a comment, a string, a file outside the vendored
+/// paths, or the mutants file.
 #[test]
-fn the_defined_names_are_the_items_that_are_not_tests_and_the_vendored_words() {
+fn the_defined_names_are_the_identifiers_of_the_code_and_the_vendored_words() {
     let files = BTreeMap::from([
         (
             "crates/a/src/lib.rs".to_string(),
             "fn f_fn() {}\n#[test]\nfn t_test() {}\n#[tokio::test]\nasync fn t_async() {}\n\
              impl S { fn f_method() {} }\ntrait T_trait { fn f_trait_fn(); }\nconst C_CONST: u8 = 0;\n\
              static S_STATIC: u8 = 0;\nstruct S_struct { f_field: u8 }\nenum E_enum { V_variant }\n\
-             type T_type = u8;\nmod m_mod {}\nmacro_rules! m_macro { () => {} }\n"
+             type T_type = u8;\nmod m_mod {}\nmacro_rules! m_macro { () => {} }\n\
+             fn uses(l: dep_crate::Limits) -> u8 { l.dep_field + l.dep_method() }\n\
+             // c_comment\nconst Q: &str = \"s_string\";\n"
                 .to_string(),
         ),
         ("vendor/z/a.c".to_string(), "int v_vendored(void);\n".to_string()),
@@ -436,7 +439,15 @@ fn the_defined_names_are_the_items_that_are_not_tests_and_the_vendored_words() {
     ] {
         assert!(names.contains(name), "{name}");
     }
-    for name in ["t_test", "t_async", "d_doc", "m_mutants", "notes"] {
+    for name in [
+        "t_test",
+        "t_async",
+        "d_doc",
+        "m_mutants",
+        "notes",
+        "c_comment",
+        "s_string",
+    ] {
         assert!(!names.contains(name), "{name}");
     }
     let broken = BTreeMap::from([("crates/a/src/lib.rs".to_string(), "fn f( {\n".to_string())]);

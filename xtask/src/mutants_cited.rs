@@ -10,8 +10,8 @@
 //! `test_budget::SLOW_FILTER` selects.
 //!
 //! A cited name is a snake_case word with at least three parts in a comment of the file. It must be a test that some tier
-//! runs, a test target with such a test, an item of a tracked Rust file that is not a test (a function, a constant, a type,
-//! a field, a module), or a word of a vendored file (a file of a git submodule). A word that names nothing else fails the
+//! runs, a test target with such a test, an identifier of the code of a tracked Rust file other than a test function's name
+//! (an item, a field, a method, a crate, also of a dependency), or a word of a vendored file (a file of a git submodule). A word that names nothing else fails the
 //! check: a renamed or deleted test leaves its old name behind in the reason, and a mention in a document, a comment or a
 //! string does not keep it alive (#181 B6). A test with `#[ignore]` runs in no tier, and a test with `#[cfg_attr(<predicate>,
 //! ignore)]` runs in no tier where the predicate holds; a predicate that the check does not know fails the check.
@@ -440,8 +440,8 @@ pub fn cited(toml: &str) -> BTreeMap<String, usize> {
     names
 }
 
-/// The violations: each cited name that is not a test that some tier runs, a test target with such a test, an item of a
-/// Rust file in `paths` that is not a test, or a word of a vendored file in `paths` (under a `path` of `.gitmodules`).
+/// The violations: each cited name that is not a test that some tier runs, a test target with such a test, an identifier
+/// of the code of a Rust file in `paths` other than a test function's name, or a word of a vendored file in `paths` (under a `path` of `.gitmodules`).
 ///
 /// # Errors
 /// A source file cannot be walked or parsed, or a predicate is unknown.
@@ -498,15 +498,15 @@ pub fn check(
     }
     for (name, line) in words {
         violations.push(format!(
-            "{MUTANTS_FILE}:{line}: cites `{name}`, which names no test, no test target, no item and no vendored word"
+            "{MUTANTS_FILE}:{line}: cites `{name}`, which names no test, no test target, no identifier of the code and no vendored word"
         ));
     }
     violations.sort();
     Ok(violations)
 }
 
-/// The names that a citation may name besides a test: the items of the Rust files of `paths` that are not tests, and the
-/// words of the vendored files of `paths` (under a `path` of `.gitmodules`). The mutants file itself is not read.
+/// The names that a citation may name besides a test: the identifiers of the code of the Rust files of `paths` other than
+/// the names of test functions, and the words of the vendored files of `paths` (under a `path` of `.gitmodules`). The mutants file itself is not read.
 ///
 /// # Errors
 /// A Rust file outside the vendored files does not parse.
@@ -522,14 +522,13 @@ fn defined_names(
         .collect();
     let word = Regex::new(r"\b[a-z][a-z0-9_]*\b").expect("regex");
     let mut items = Items::default();
+    let mut words = BTreeSet::new();
     for path in paths.iter().filter(|path| path.as_str() != MUTANTS_FILE) {
         let Some(text) = read(path) else {
             continue;
         };
         if vendored.iter().any(|dir| path.starts_with(dir.as_str())) {
-            items
-                .0
-                .extend(word.find_iter(&text).map(|w| w.as_str().to_string()));
+            words.extend(word.find_iter(&text).map(|w| w.as_str().to_string()));
         } else if path.ends_with(".rs") {
             let parsed = syn::parse_file(&text).map_err(|error| {
                 anyhow::anyhow!(
@@ -540,80 +539,33 @@ fn defined_names(
             items.visit_file(&parsed);
         }
     }
-    Ok(items.0)
+    words.extend(
+        items
+            .0
+            .into_iter()
+            .filter(|(_, count)| *count > 0)
+            .map(|(name, _)| name),
+    );
+    Ok(words)
 }
 
-/// The names of the items of a Rust file that are not tests: functions, methods, constants, statics, types, traits,
-/// modules, macros, variants and fields.
+/// The identifiers of the code of Rust files (an item, a field, a method, a path segment, also of a dependency), with
+/// the number of times each one occurs; the name of a test function does not count. Comments and strings are not code.
 #[derive(Default)]
-struct Items(BTreeSet<String>);
+struct Items(BTreeMap<String, usize>);
 
 impl<'ast> Visit<'ast> for Items {
+    fn visit_ident(&mut self, ident: &'ast proc_macro2::Ident) {
+        *self.0.entry(ident.to_string()).or_default() += 1;
+    }
+
     fn visit_item_fn(&mut self, item: &'ast syn::ItemFn) {
-        if !item.attrs.iter().any(|attr| is_test_path(attr.path())) {
-            self.0.insert(item.sig.ident.to_string());
-        }
         syn::visit::visit_item_fn(self, item);
-    }
-
-    fn visit_impl_item_fn(&mut self, item: &'ast syn::ImplItemFn) {
-        self.0.insert(item.sig.ident.to_string());
-        syn::visit::visit_impl_item_fn(self, item);
-    }
-
-    fn visit_trait_item_fn(&mut self, item: &'ast syn::TraitItemFn) {
-        self.0.insert(item.sig.ident.to_string());
-        syn::visit::visit_trait_item_fn(self, item);
-    }
-
-    fn visit_item_const(&mut self, item: &'ast syn::ItemConst) {
-        self.0.insert(item.ident.to_string());
-        syn::visit::visit_item_const(self, item);
-    }
-
-    fn visit_item_static(&mut self, item: &'ast syn::ItemStatic) {
-        self.0.insert(item.ident.to_string());
-        syn::visit::visit_item_static(self, item);
-    }
-
-    fn visit_item_struct(&mut self, item: &'ast syn::ItemStruct) {
-        self.0.insert(item.ident.to_string());
-        syn::visit::visit_item_struct(self, item);
-    }
-
-    fn visit_item_enum(&mut self, item: &'ast syn::ItemEnum) {
-        self.0.insert(item.ident.to_string());
-        syn::visit::visit_item_enum(self, item);
-    }
-
-    fn visit_item_type(&mut self, item: &'ast syn::ItemType) {
-        self.0.insert(item.ident.to_string());
-        syn::visit::visit_item_type(self, item);
-    }
-
-    fn visit_item_trait(&mut self, item: &'ast syn::ItemTrait) {
-        self.0.insert(item.ident.to_string());
-        syn::visit::visit_item_trait(self, item);
-    }
-
-    fn visit_item_mod(&mut self, item: &'ast syn::ItemMod) {
-        self.0.insert(item.ident.to_string());
-        syn::visit::visit_item_mod(self, item);
-    }
-
-    fn visit_item_macro(&mut self, item: &'ast syn::ItemMacro) {
-        self.0.extend(item.ident.as_ref().map(ToString::to_string));
-        syn::visit::visit_item_macro(self, item);
-    }
-
-    fn visit_variant(&mut self, variant: &'ast syn::Variant) {
-        self.0.insert(variant.ident.to_string());
-        syn::visit::visit_variant(self, variant);
-    }
-
-    fn visit_field(&mut self, field: &'ast syn::Field) {
-        self.0.extend(field.ident.as_ref().map(ToString::to_string));
-        syn::visit::visit_field(self, field);
+        if item.attrs.iter().any(|attr| is_test_path(attr.path())) {
+            if let Some(count) = self.0.get_mut(&item.sig.ident.to_string()) {
+                *count -= 1;
+            }
+        }
     }
 }
 
