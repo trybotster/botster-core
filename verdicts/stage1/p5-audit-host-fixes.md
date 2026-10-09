@@ -100,3 +100,15 @@ ran no build, test or gate.
   this exact head is the lead's check.
 
 VERDICT: CLEAN (0 open) at a7c73febcfeafca0f462ea14d5121a516d5a1a10
+
+### Correction after round 2 — the CLEAN at a7c73feb is WITHDRAWN
+
+Round 2 said: "The one wait is a socket read timeout". That is false. The new test
+`a_link_that_the_poll_refuses_wakes_the_host_and_fails` ends with `client.read_to_end(&mut rest)` (`real.rs:794`), with no
+read deadline. If `link_close` kept the peer open, the test would block forever, and a no-terminate mutation run would
+show it as a TIMEOUT. The adjacent host test sets a marked deadline (`real.rs:837`). The P5 package reviewer found this
+(P5-F19 MEDIUM), and the finding is theirs. This reviewer missed it, although the rule is to grep every changed test file
+for raw blocking reads and waits before a CLEAN. `real.rs:704` and `:722` are on v1 and are outside this PR's diff.
+
+VERDICT: NOT CLEAN at a7c73febcfeafca0f462ea14d5121a516d5a1a10 (P5-F19 open, the package reviewer's; no integration
+finding open)
