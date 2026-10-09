@@ -54,3 +54,13 @@ print which branch it took. A kernel after the 2025 pidfs commit gives ENOENT, a
 the msa1 gate (kernel 6.12, EINVAL), both documented branches have run.
 
 VERDICT: CLEAN (0 open) at 1bfc6fd39fa077bec92b7fe021d5d7c9f6798618 (both kernel branches have run)
+
+## Round 2 — CLEAN on head 0f559acd (delta: the P3 package reviewer's F58)
+
+Reviewed head: `0f559acd2f0ae714774a4bd0fa42e8043b4f137a`, one commit on `1bfc6fd3`. Only the doc comment of `gone_at_open`
+changes (+4 -3), and the predicate and the test do not change. The comment no longer says that a listed member is never a
+non-leader thread. It now says that ENOENT stays an error, because the guard keeps only the numeric pid: a parent can reap
+the member, and a non-leader thread can reuse the pid before `pidfd_open`. This matches round 1's reading of the reuse case.
+The merge rule asks for a green gate on this exact head. P3 named no gate for it.
+
+VERDICT: CLEAN (0 open) at 0f559acd2f0ae714774a4bd0fa42e8043b4f137a
