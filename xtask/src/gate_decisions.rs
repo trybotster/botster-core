@@ -164,7 +164,7 @@ const ARGUMENT_MACROS: [&[&str]; 22] = [
 
 /// The macros that expand to a value and bind or import no name of the caller, whose tokens the check does not read: a
 /// call inside them is not seen, so it cannot make a function an I/O shell.
-const OPAQUE_MACROS: [&[&str]; 8] = [
+const OPAQUE_MACROS: [&[&str]; 9] = [
     &["concat"],
     &["env"],
     &["include_str"],
@@ -172,6 +172,7 @@ const OPAQUE_MACROS: [&[&str]; 8] = [
     &["stringify"],
     &["serde_json", "json"],
     &["syn", "parse_quote"],
+    &["syn", "Token"],
     &["cfg"],
 ];
 
