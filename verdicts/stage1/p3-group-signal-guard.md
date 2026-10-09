@@ -117,3 +117,14 @@ Observation (not counted): the scan cannot see `Command::new("sh")` with a `kill
 name. A shell script is outside the Rust scan. This reviewer does not ask for more.
 
 VERDICT: NOT CLEAN (1 open: L1 LOW)
+
+### Note after round 2 (same head f16eed6f) — the P3 package reviewer's F55 (theirs), missed here
+
+The P3 package reviewer's F55 MEDIUM is real. `signal.rs` `a_signal_to_our_own_group_reaches_this_process` polls an
+`AtomicBool` with up to 1,000,000 `yield_now` calls. BUILD.md testing rule 5 says: "No sleeps or polling. Tests wait on the
+real event". A loop bound is not a marked deadline timer. This reviewer read that loop and missed it. A possible fix is to
+wait on a real event: `signal_hook::low_level::pipe::register(SIGURG, write_end)`, then one read of the read end, bounded
+by a marked deadline. F55 is theirs to close. Their scope note on `kill_program` (a renamed `Command`, escaped literals)
+matches this reviewer's round 2 observation.
+
+VERDICT: NOT CLEAN (1 open here: L1 LOW. F55 is the P3 package reviewer's.)
