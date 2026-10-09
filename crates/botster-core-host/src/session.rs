@@ -206,6 +206,8 @@ pub struct Silence {
     /// The idle start (Core A18-2): the monotonic time and the unix time of the pump in which this host observed the latest
     /// output, or of the adoption point for an adopted session with no output under this host.
     pub idle_start: Option<(Instant, UnixSeconds)>,
+    /// This host observed output of the session, so the idle start is that output's, never an adoption point (A18-2).
+    pub output_seen: bool,
     /// `Silent` was posted for this idle period (TM-4: once per period).
     pub fired: bool,
 }

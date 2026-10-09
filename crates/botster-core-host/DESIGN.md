@@ -170,8 +170,12 @@ The report never carries `last_output_at` (Core Amendment 18, contracts-v0.1.21)
 (TM-1), and A18-1 makes it the host's own observation: "After adoption, it is `None` until the adopting host observes
 output." The silence of an adopted session follows A18-2: its idle start is the latest output that this host observed, or,
 with none, the adoption point, which is "the `pump` in which Core posts that session's `SessionState` for its adoption".
-`post_adoption` records that pump's monotonic time and unix time as the idle start of a `Running` session with no output
-under this host. `Silent` is then due a threshold after it, with `since` that pump's unix time. E3-1 is unchanged.
+`mark_adoption_point` records that pump's monotonic time and unix time as the idle start of a session with no output
+under this host. Every path that posts an adoption's state calls it: `post_adoption` (`Running`, `Exited`), the start
+flow of an adopted `Starting` row (`NotLaunched`, `Spawning`, also on an `Adopt(id)` retry) and the stop flow of an
+adopted `Stopping` row. No clause limits the idle start to `Running` (review #207 A18-F2). A `Lost` adoption leaves no
+worker and gets none. A retried adoption's point replaces an earlier adoption point, never an observed output's.
+`Silent` is then due a threshold after it, with `since` that pump's unix time. E3-1 is unchanged.
 
 ### 5. AdoptAll per row (AD-1, AD-2, AD-6)
 

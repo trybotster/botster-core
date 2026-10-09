@@ -427,6 +427,7 @@ impl HostEngine {
                 }
                 if let Some(now) = mono {
                     s.silence.idle_start = Some((now, unix));
+                    s.silence.output_seen = true;
                     s.silence.fired = false;
                 }
                 self.queue.post_keyed(Event::Activity {
