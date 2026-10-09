@@ -100,10 +100,15 @@ exclude_re = [
     # Driver::start_with_read_bound: control_and_pty_reads_retain_bytes_at_each_positive_bound uses the real constructor at all three bounds.
     'crates/botster-worker/src/main\.rs:\d+:\d+: (replace Driver::start_with_read_bound( ->| with)|.* in Driver::start_with_read_bound$)',
     # Driver::run: pty_events_resume_reads_after_would_block exercises the real poll loop after readiness clears.
+    # M2a adds no operator and no arm to run. Its PTY arm now decides readability by io_decisions::control_ready and the
+    # end of a write's wait by io_decisions::pty_writable, both tested in the default tier. The arm's write half (and so
+    # `delete match arm PTY` for writes) is proved by the parked real-PTY regression named at the M2a PTY write glue below.
     'crates/botster-worker/src/main\.rs:\d+:\d+: (replace Driver::run( ->| with)|.* in Driver::run$)',
     # Driver::settle: ev_4_a_real_exit_carries_the_code_or_the_signal requires queued machine inputs and actions to reach real edges.
     'crates/botster-worker/src/main\.rs:\d+:\d+: (replace Driver::settle( ->| with)|.* in Driver::settle$)',
     # Driver::perform: lc_6_signal_reaches_the_whole_group checks signals; pty_reads_clear_readiness_and_finish_a_bounded_drain checks ReapPayload.
+    # M2a's arm Action::PtyWrite has no mutant of its own (the match is exhaustive, with no wildcard); the replaced body is
+    # proved for writes by the parked real-PTY regression named at the M2a PTY write glue below.
     'crates/botster-worker/src/main\.rs:\d+:\d+: (replace Driver::perform( ->| with)|.* in Driver::perform$)',
     # Driver::spawn: ev_4_a_real_exit_carries_the_code_or_the_signal requires the real PTY, leader, and exit watcher.
     'crates/botster-worker/src/main\.rs:\d+:\d+: (replace Driver::spawn( ->| with)|.* in Driver::spawn$)',
@@ -119,6 +124,16 @@ exclude_re = [
     'crates/botster-worker/src/main\.rs:\d+:\d+: (replace Driver::link_lost( ->| with)|.* in Driver::link_lost$)',
     # Driver::drop_link: link_loss_clears_queued_bytes_and_close_is_idempotent checks socket shutdown and queued-byte retirement.
     'crates/botster-worker/src/main\.rs:\d+:\d+: (replace Driver::drop_link( ->| with)|.* in Driver::drop_link$)',
+    # M2a PTY write glue: each function makes one OS call (a PTY write, a poll reregister). The decisions are
+    # io_decisions::pty_write and io_decisions::pty_write_interest, tested in the default tier.
+    # The proof of the glue is the real-PTY regression in_6_real_pty_cancel_keeps_counts_and_resumes_the_next_write (slow
+    # tier, under the payload guard of botster-test-process). Lead ruling, 2026-10-08: it passes in the gate before the M2a
+    # PTY write path merges.
+    # Driver::write_pty_once: one PTY write of the pending PtyWrite per turn.
+    'crates/botster-worker/src/main\.rs:\d+:\d+: (replace Driver::write_pty_once( ->| with)|.* in Driver::write_pty_once$)',
+    # Driver::set_pty_write_interest: the poll reregister of the PTY's write interest. Its `|` of READABLE and WRITABLE joins
+    # disjoint flags, so `^` is the same value; `&` leaves no interest, which the regression catches.
+    'crates/botster-worker/src/main\.rs:\d+:\d+: (replace Driver::set_pty_write_interest( ->| with)|.* in Driver::set_pty_write_interest$)',
     # P3 Payload glue owns real native descriptors and unreaped processes; the default tier has neither.
     # Each entry names one function. Pure errno/launch-error classification and wait_unreaped_with remain mutation-tested.
     # Library-inclusive Linux proof: 63b5c1db, 30 tested, 25 caught, five unviable, no misses/timeouts.
