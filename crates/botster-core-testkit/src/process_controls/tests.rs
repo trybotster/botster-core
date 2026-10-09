@@ -229,3 +229,24 @@ fn parse_removes_only_the_step_keys_at_the_top_level() {
     assert_eq!(args.session, sid("s1"));
     assert!(args.on);
 }
+
+/// Review finding PC-F1: a dropped handle is gone, so `break_control` on it is `Bad`, although its row and its worker stay
+/// (LC-12); a reopen of the same directory under another handle reaches that worker again.
+#[test]
+fn a_dropped_handle_is_gone_and_a_reopen_reaches_the_surviving_worker() {
+    let mut harness = TestkitHarness::new(0);
+    let (core, _at) = session(&mut harness, true);
+    drop(core);
+    harness.drop_handle("a");
+    assert!(matches!(
+        harness.control("a", "break_control", &json!({"session": "s1"})),
+        Err(ControlError::Bad(_))
+    ));
+    let _reopened = harness
+        .open(&spec("b"))
+        .expect("the directory is free again");
+    assert_eq!(
+        harness.control("b", "break_control", &json!({"session": "s1"})),
+        Ok(Value::Null)
+    );
+}
