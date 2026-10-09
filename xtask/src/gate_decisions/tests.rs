@@ -390,3 +390,57 @@ fn a_function_does_io_when_it_starts_a_process_touches_a_file_or_signals() {
     assert_eq!(io, expected.iter().map(String::as_str).collect());
     assert!(calls.io.iter().all(|(file, _)| file == "xtask/src/a.rs"));
 }
+
+/// A function also does I/O when a path call names an xtask function that does I/O: `m::f` names the `f` of
+/// `xtask/src/m.rs` (or `m/mod.rs`), `Self::f` the `f` of its own file, and a plain `f` the `f` of its own file first, else
+/// each `f` of the xtask. A call of a parameter or another local binding names no function.
+#[test]
+fn io_reaches_a_function_through_the_xtask_functions_it_calls() {
+    let files = [
+        (
+            "xtask/src/tools.rs",
+            "pub fn run(mut c: Command) { c.status(); }\npub fn pure() {}\n",
+        ),
+        (
+            "xtask/src/fsutil/mod.rs",
+            "pub fn base() { git().output(); }\n",
+        ),
+        (
+            "xtask/src/a.rs",
+            "fn by_module() { tools::run(c); }\n\
+             fn by_mod_rs() { crate::fsutil::base(); }\n\
+             fn by_import() { run(c); }\n\
+             fn by_chain() { by_import(); }\n\
+             fn by_self() { Self::local_io(); }\n\
+             fn local_io() { std::fs::write(p, b); }\n\
+             fn by_parameter(run: impl FnOnce()) { run(); }\n\
+             fn by_pattern(chosen: Chosen) { if let Chosen::Run(run) = chosen { run(); } }\n\
+             fn by_pure_module() { tools::pure(); }\n\
+             fn by_unknown_module() { serde_json::run(x); }\n\
+             fn by_crate() { crate::pure(); }\n",
+        ),
+        (
+            "xtask/src/b.rs",
+            "fn run() {}\nfn by_own_file() { run(); }\n",
+        ),
+    ]
+    .map(|(file, text)| (file.to_string(), text.to_string()));
+    let calls = Calls::of(&files).unwrap();
+    let io: BTreeSet<(&str, &str)> = calls
+        .io
+        .iter()
+        .map(|(file, function)| (file.as_str(), function.as_str()))
+        .collect();
+    let expected: BTreeSet<(&str, &str)> = [
+        ("xtask/src/tools.rs", "run"),
+        ("xtask/src/fsutil/mod.rs", "base"),
+        ("xtask/src/a.rs", "by_module"),
+        ("xtask/src/a.rs", "by_mod_rs"),
+        ("xtask/src/a.rs", "by_import"),
+        ("xtask/src/a.rs", "by_chain"),
+        ("xtask/src/a.rs", "by_self"),
+        ("xtask/src/a.rs", "local_io"),
+    ]
+    .into();
+    assert_eq!(io, expected);
+}

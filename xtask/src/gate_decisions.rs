@@ -72,8 +72,11 @@ const IO_METHODS: [&str; 3] = ["status", "output", "spawn"];
 pub struct Calls {
     by_function: BTreeMap<(String, String), BTreeSet<String>>,
     tested: BTreeSet<String>,
-    /// The functions, by file and name, that make an I/O call (`IO_CALLS`, `IO_METHODS`) or run an xtask command by its
-    /// module path (`taint::command(..)`).
+    /// The path calls of each function, by file and name, as (the module segment before the name, if any; the name). A
+    /// call of a local binding (a parameter, a closure) is not among them.
+    paths: BTreeMap<(String, String), BTreeSet<(Option<String>, String)>>,
+    /// The functions, by file and name, that do I/O: an I/O call (`IO_CALLS`, `IO_METHODS`), an xtask command run by its
+    /// module path (`taint::command(..)`), or a path call of an xtask function that does I/O (`tools::run(..)`).
     io: BTreeSet<(String, String)>,
 }
 
@@ -91,11 +94,62 @@ impl Calls {
                 file,
                 calls: &mut calls,
                 function: Vec::new(),
+                locals: Vec::new(),
                 test: false,
             };
             index.visit_file(&parsed);
         }
-        Ok(calls)
+        loop {
+            let before = calls.io.len();
+            let found: Vec<(String, String)> = calls
+                .paths
+                .iter()
+                .filter(|(function, paths)| {
+                    !calls.io.contains(*function)
+                        && paths.iter().any(|(module, name)| {
+                            calls
+                                .callees(&function.0, module.as_deref(), name)
+                                .iter()
+                                .any(|callee| calls.io.contains(callee))
+                        })
+                })
+                .map(|(function, _)| function.clone())
+                .collect();
+            calls.io.extend(found);
+            if calls.io.len() == before {
+                return Ok(calls);
+            }
+        }
+    }
+
+    /// The xtask functions that a path call in `file` names: with a module segment `m`, the function of `xtask/src/m.rs`
+    /// or `xtask/src/m/mod.rs` (`self`, `Self`: of `file`); without one (or with `crate` or `super`), the function of
+    /// `file` with that name, else each function of the xtask with that name.
+    fn callees(&self, file: &str, module: Option<&str>, name: &str) -> Vec<(String, String)> {
+        let known = |file: &str| {
+            let key = (file.to_string(), name.to_string());
+            self.by_function.contains_key(&key).then_some(key)
+        };
+        match module {
+            Some("self" | "Self") => known(file).into_iter().collect(),
+            Some(module) if module != "crate" && module != "super" => [
+                format!("xtask/src/{module}.rs"),
+                format!("xtask/src/{module}/mod.rs"),
+            ]
+            .iter()
+            .filter_map(|file| known(file))
+            .collect(),
+            _ => known(file).map_or_else(
+                || {
+                    self.by_function
+                        .keys()
+                        .filter(|(_, function)| function == name)
+                        .cloned()
+                        .collect()
+                },
+                |key| vec![key],
+            ),
+        }
     }
 
     fn calls(&self, file: &str, function: &str) -> Option<&BTreeSet<String>> {
@@ -109,7 +163,20 @@ struct Index<'a> {
     calls: &'a mut Calls,
     /// The function being read, innermost last.
     function: Vec<String>,
+    /// The names that the function being read binds (parameters, `let`, patterns, closure parameters), innermost last.
+    locals: Vec<BTreeSet<String>>,
     test: bool,
+}
+
+/// The names that a pattern binds, anywhere in a function.
+#[derive(Default)]
+struct Bindings(BTreeSet<String>);
+
+impl<'ast> Visit<'ast> for Bindings {
+    fn visit_pat_ident(&mut self, pat: &'ast syn::PatIdent) {
+        self.0.insert(pat.ident.to_string());
+        syn::visit::visit_pat_ident(self, pat);
+    }
 }
 
 fn is_test(attrs: &[syn::Attribute]) -> bool {
@@ -149,7 +216,29 @@ impl Index<'_> {
         }
     }
 
-    fn function(&mut self, name: String, attrs: &[syn::Attribute], visit: impl FnOnce(&mut Self)) {
+    /// Records a path call of the current function, unless it calls a local binding.
+    fn path_call(&mut self, path: &syn::Path) {
+        let segments: Vec<String> = path.segments.iter().map(|s| s.ident.to_string()).collect();
+        let Some((name, before)) = segments.split_last() else {
+            return;
+        };
+        let local = before.is_empty() && self.locals.last().is_some_and(|l| l.contains(name));
+        if let (Some(function), false) = (self.function.last(), local) {
+            self.calls
+                .paths
+                .entry((self.file.to_string(), function.clone()))
+                .or_default()
+                .insert((before.last().cloned(), name.clone()));
+        }
+    }
+
+    fn function(
+        &mut self,
+        name: String,
+        attrs: &[syn::Attribute],
+        locals: Bindings,
+        visit: impl FnOnce(&mut Self),
+    ) {
         let was = self.test;
         self.test |= is_test(attrs);
         self.calls
@@ -157,7 +246,9 @@ impl Index<'_> {
             .entry((self.file.to_string(), name.clone()))
             .or_default();
         self.function.push(name);
+        self.locals.push(locals.0);
         visit(self);
+        self.locals.pop();
         self.function.pop();
         self.test = was;
     }
@@ -172,13 +263,17 @@ impl<'ast> Visit<'ast> for Index<'_> {
     }
 
     fn visit_item_fn(&mut self, item: &'ast syn::ItemFn) {
-        self.function(item.sig.ident.to_string(), &item.attrs, |index| {
+        let mut locals = Bindings::default();
+        locals.visit_item_fn(item);
+        self.function(item.sig.ident.to_string(), &item.attrs, locals, |index| {
             syn::visit::visit_item_fn(index, item)
         });
     }
 
     fn visit_impl_item_fn(&mut self, item: &'ast syn::ImplItemFn) {
-        self.function(item.sig.ident.to_string(), &item.attrs, |index| {
+        let mut locals = Bindings::default();
+        locals.visit_impl_item_fn(item);
+        self.function(item.sig.ident.to_string(), &item.attrs, locals, |index| {
             syn::visit::visit_impl_item_fn(index, item)
         });
     }
@@ -192,6 +287,7 @@ impl<'ast> Visit<'ast> for Index<'_> {
                     self.io();
                 }
                 self.called(name);
+                self.path_call(&path.path);
             }
         }
         syn::visit::visit_expr_call(self, call);
