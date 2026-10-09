@@ -45,18 +45,17 @@ pub fn await_end(pid: Pid, deadline: Deadline) -> std::io::Result<Waited> {
         Err(error) if gone_at_open(error) => return Ok(Waited::Gone),
         other => other?,
     };
-    loop {
-        let mut fds = [rustix::event::PollFd::new(
-            &pidfd,
-            rustix::event::PollFlags::IN,
-        )];
+    let mut fds = [rustix::event::PollFd::new(
+        &pidfd,
+        rustix::event::PollFlags::IN,
+    )];
+    match crate::deadline::retry_interrupted(
         // timer: deadline — bounds the wait for an exit event.
-        match rustix::event::poll(&mut fds, Some(&deadline.timespec())) {
-            Ok(0) => return Ok(Waited::Deadline),
-            Ok(_) => return Ok(Waited::Exited),
-            Err(rustix::io::Errno::INTR) => continue,
-            Err(error) => return Err(error.into()),
-        }
+        || rustix::event::poll(&mut fds, Some(&deadline.timespec())),
+        || deadline.expired(),
+    )? {
+        None | Some(0) => Ok(Waited::Deadline),
+        Some(_) => Ok(Waited::Exited),
     }
 }
 

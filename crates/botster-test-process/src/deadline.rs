@@ -54,9 +54,65 @@ impl Deadline {
     }
 }
 
+/// The result of `wait`, a wait that a signal can interrupt (EINTR) before its timeout. `wait` is repeated after an
+/// interruption only while `expired` is false; an interruption after the deadline gives `Ok(None)`, which the caller reads
+/// as its timeout. Linux `poll` returns EINTR for a pending signal even with no time left, so a steady stream of signals
+/// would otherwise keep the wait going past its deadline (#171 R2).
+///
+/// # Errors
+/// The wait failed for another reason.
+pub(crate) fn retry_interrupted<T>(
+    mut wait: impl FnMut() -> rustix::io::Result<T>,
+    expired: impl Fn() -> bool,
+) -> rustix::io::Result<Option<T>> {
+    loop {
+        match wait() {
+            Err(rustix::io::Errno::INTR) if expired() => return Ok(None),
+            Err(rustix::io::Errno::INTR) => {}
+            other => return other.map(Some),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// #171 R2: an interrupted wait is repeated before the deadline; an interruption after it ends the wait as at its
+    /// timeout, whatever the next wait would return; any other result is returned as it is.
+    #[test]
+    fn an_interrupted_wait_is_repeated_until_the_deadline() {
+        use rustix::io::Errno;
+        let run = |results: Vec<rustix::io::Result<usize>>, expired_after: usize| {
+            let mut results = results.into_iter();
+            let waits = std::cell::Cell::new(0);
+            let checks = std::cell::Cell::new(0);
+            let waited = retry_interrupted(
+                || {
+                    waits.set(waits.get() + 1);
+                    results.next().expect("no wait after the outcome")
+                },
+                || {
+                    checks.set(checks.get() + 1);
+                    checks.get() > expired_after
+                },
+            );
+            (waited, waits.get())
+        };
+        assert_eq!(
+            run(vec![Err(Errno::INTR), Err(Errno::INTR), Ok(1)], 5),
+            (Ok(Some(1)), 3)
+        );
+        assert_eq!(
+            run(
+                vec![Err(Errno::INTR), Err(Errno::INTR), Err(Errno::INTR), Ok(1)],
+                2
+            ),
+            (Ok(None), 3)
+        );
+        assert_eq!(run(vec![Ok(0)], 0), (Ok(Some(0)), 1));
+        assert_eq!(run(vec![Err(Errno::BADF)], 5), (Err(Errno::BADF), 1));
+    }
 
     #[test]
     fn a_zero_limit_has_expired_and_keeps_its_limit_for_the_message() {

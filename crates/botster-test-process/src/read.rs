@@ -64,18 +64,18 @@ impl<R: Read + AsFd> Bounded<R> {
         if self.eof {
             return Ok(false);
         }
-        loop {
-            let mut fds = [rustix::event::PollFd::new(
-                &self.reader,
-                rustix::event::PollFlags::IN,
-            )];
+        let mut fds = [rustix::event::PollFd::new(
+            &self.reader,
+            rustix::event::PollFlags::IN,
+        )];
+        match crate::deadline::retry_interrupted(
             // timer: deadline — bounds the wait for the writer.
-            match rustix::event::poll(&mut fds, Some(&deadline.timespec())) {
-                Ok(0) => return Err(self.passed(deadline)),
-                Ok(_) => break,
-                Err(rustix::io::Errno::INTR) => continue,
-                Err(error) => return Err(ReadError::Io(error.into())),
-            }
+            || rustix::event::poll(&mut fds, Some(&deadline.timespec())),
+            || deadline.expired(),
+        ) {
+            Ok(None | Some(0)) => return Err(self.passed(deadline)),
+            Ok(Some(_)) => {}
+            Err(error) => return Err(ReadError::Io(error.into())),
         }
         // `poll` reported the descriptor readable, so the read does not block, and a signal cannot interrupt it (EINTR).
         let mut chunk = [0; 4096];
