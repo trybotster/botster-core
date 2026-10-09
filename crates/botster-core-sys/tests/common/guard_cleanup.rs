@@ -427,8 +427,8 @@ fn a_kill_goes_out_only_while_the_reserve_holds_the_group() {
     std::thread::spawn(move || {
         let _ = opened.send(std::fs::OpenOptions::new().write(true).open(fifo));
     });
-    // timer: deadline — bounds the meeting with the member at its FIFO.
     let writer = writer
+        // timer: deadline — bounds the meeting with the member at its FIFO.
         .recv_timeout(CLEANUP)
         .expect("the member still reads the FIFO");
     drop(writer.unwrap());
