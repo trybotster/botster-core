@@ -120,7 +120,8 @@ ids stay pending until the real harness of P6 (`botster-test-process`, #171) can
      `Lost(WorkerUnreachable)`, and its `Adopt(id)` retry (AD-2) comes with the same E. An equal E replaces the current link
      after the proof passes, with the fence of step 4. Only one host has epoch E (LC-2: the data-dir lock), so the fence
      still holds.
-   - Test: the host abandons the handshake after step 4, then `Adopt(id)` with the same epoch adopts.
+   - Test: the host abandons the handshake after step 4 (the worker accepted, and its answer was lost or late), then
+     `Adopt(id)` on the same handle, with the same epoch, adopts (P5-F20). A lower epoch after it is still refused.
 4. On success the worker records E, closes its old link (the fence: DP-8 "adoption fences the previous host"), and answers
    `Hello{protocol: P, instance, proof: worker(token, instance, E), host_epoch: E}`, then its adoption report (4).
    **The fence retires every request of the old host** (P3's review): request numbers are per link, so an old `Done{req}`
@@ -132,8 +133,10 @@ ids stay pending until the real harness of P6 (`botster-test-process`, #171) can
 5. The host checks the instance and the worker proof. A failure: Core never signals that process and decodes no later
    frame of the link (A10-1, A11-1; tmux's `PEER_BAD`). The row is `Lost(WorkerUnreachable)`, because a live worker may
    still be at the identity (AD-2: indeterminate; `Adopt(id)` may be retried).
-6. The host checks P: P = T or P = T - 1 adopts; any other P is `Lost(WorkerVersion)` (AD-4, A6-2). P is recorded on the
-   session (LC-9), also on `Lost(WorkerVersion)`.
+6. The host checks P against **the adoptable set that Core exposes** (`adoptable_worker_protocols()`: {T, T - 1}, with
+   T - 1 only when it is at least 1; at T = 1 the set is {1}, A6-2). P in the set adopts; any other P is
+   `Lost(WorkerVersion)` (AD-4, A6-2). One function decides both the exposed set and this check, so they cannot differ
+   (P5-F21). The two A6-2 deferrals stay as they are. P is recorded on the session (LC-9), also on `Lost(WorkerVersion)`.
 7. **Deadline:** if the connect, the hello or the report does not complete within `CoreLimits.startup`, the row is
    `Lost(WorkerUnreachable)`, and the worker protocol stays absent when no hello was read (LC-9;
    `conf::a6_1_withheld_control_link_gives_worker_unreachable_not_worker_gone`). This is the startup deadline of the start,
@@ -143,7 +146,12 @@ ids stay pending until the real harness of P6 (`botster-test-process`, #171) can
 
 After its hello the worker sends one `Adopted` message with its live state, never values remembered from the spawn (the
 old daemon's lesson; vault: evidence comes from protocol primitives, not defaults):
-- the payload: running, or exited with its code and signal; its identity (A52 below);
+- the payload, one of five states (P5-F22):
+  - `NotLaunched`: no `Launch` came (a crash between AD-7 steps 3 and 4);
+  - `Spawning`: a `Launch` came and its spawn has not answered yet;
+  - `Running`, with the payload identity (A52 below);
+  - `Exited`, with its code and signal;
+  - `LaunchFailed`: the spawn failed;
 - the terminal state that the host serves (size, modes, title, cwd, the reads of ST-5) and the current focus (DP-12: one
   `FocusChanged` at adoption, with the current value);
 - its features (AD-4: `worker_features` of an N - 1 worker);
@@ -161,7 +169,29 @@ Each row is decoded and checked before any connect (vault: "validate before the 
 | `Created` | `Created` (done) |
 | `Starting` with no worker identity | `Lost(StartInterrupted)` |
 | any other, identity `Absent` or `Reused` (A9 `ProbeIdentity`) | `Lost(WorkerGone)`. Core never signals it (AD-6 "reused pid is never killed"). |
-| any other, identity `Matches` | the handshake of 3, then by the report: `Running`, or `Exited` when the payload ended; a `Stopping` row is adopted `Stopping`, the stop is sent again, and `stop_grace` counts from the adoption |
+| any other, identity `Matches` | the handshake of 3, then by the report: `Running`, or `Exited` when the payload ended; a `Stopping` row is adopted `Stopping`, the stop is sent again, and `stop_grace` counts from the adoption. A report with no running payload follows the next table. |
+
+**A worker with no running payload** (P5-F22). AD-7 makes this state possible: a crash after the identity is durable and
+before the `Launch` leaves an authenticated worker with no payload. Core never invents `Running`, and it never sends a
+second `Launch` for a launch that already happened.
+
+| Row | Report | Result |
+|---|---|---|
+| `Starting` | `NotLaunched` | The adopting host does AD-7 step 4: the identity is durable, so it sends the `Launch` built from the row. Then, as a start: `Launched` gives `Running`; `LaunchFailed` gives `Exited{cause: Other}` (the start-failure rule above). The row's one `SessionState` is posted at that answer. |
+| `Starting` | `Spawning` | No new `Launch`. The host waits for the worker's `Launched` or `LaunchFailed`, with the same result. |
+| `Starting` | `LaunchFailed` | `Exited{cause: Other}`. |
+| `Stopping` | `NotLaunched` or `LaunchFailed` | `Exited{cause: HostStop}`: nothing runs, and the stop needs nothing. No `Launch` is sent. |
+| `Stopping` | `Spawning` | The stop is sent; the worker applies it to the spawn's result (it does this today for an early stop). |
+| `Running` or `Exited` | `NotLaunched` or `Spawning` | Cannot happen with an honest worker (those rows are written after `Launched`). `Lost(Other)`: Core cannot tell (AD-2). |
+
+- This reads AD-1 ("`Starting` rows whose worker identity is recorded and authenticates are adopted as `Running`") together
+  with AD-7 (a crash leaves "at most a worker with no payload, which exits by itself when no host attaches within
+  `startup`"). The contract does not name the no-payload report, so this reading goes to the lead as a QUESTION before it
+  is coded.
+- The worker's orphan deadline covers every crash point: the worker gets `startup` at its launch (`--startup-ms`, part 1),
+  before any `Launch`.
+- Test: a crash between AD-7 steps 3 and 4, then `AdoptAll` adopts `Running` with exactly one `Launch`; a crash with the
+  spawn in flight adopts with no second `Launch`.
 
 - Each row posts one `SessionState` (LC-11, EV-5); `Completed{AdoptAll}` follows the last one. Rows whose handshakes are
   in flight do not block each other; a row posts when its handshake ends.
