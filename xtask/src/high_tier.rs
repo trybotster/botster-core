@@ -52,17 +52,24 @@ pub fn verdict(text: &str, files: &[String]) -> Vec<String> {
     problems
 }
 
-/// `cargo xtask high-tier`: the list against `git ls-files`. The I/O shell of [`verdict`].
+/// The outcome of the step: the pass line when the list has no problem, else every problem.
+///
+/// # Errors
+/// The list has a problem.
+fn outcome(problems: &[String]) -> Result<&'static str> {
+    if !problems.is_empty() {
+        bail!("the HIGH-path list has problems:\n{}", problems.join("\n"));
+    }
+    Ok("high-tier: every entry of ci/high-tier-paths.txt matches a tracked file")
+}
+
+/// `cargo xtask high-tier`: the list against `git ls-files`. The I/O shell of [`verdict`] and [`outcome`].
 ///
 /// # Errors
 /// The list cannot be read, git fails, or the list has a problem.
 pub fn command(root: &Path, _args: &[String]) -> Result<()> {
     let text = std::fs::read_to_string(root.join(LIST)).with_context(|| format!("read {LIST}"))?;
-    let problems = verdict(&text, &tracked_files(root)?);
-    if !problems.is_empty() {
-        bail!("the HIGH-path list has problems:\n{}", problems.join("\n"));
-    }
-    println!("high-tier: every entry of {LIST} matches a tracked file");
+    println!("{}", outcome(&verdict(&text, &tracked_files(root)?))?);
     Ok(())
 }
 
@@ -149,6 +156,20 @@ mod tests {
                 format!("{LIST}:1: `a.rs` matches no tracked file"),
                 format!("{LIST}:3: `b.rs` matches no tracked file"),
             ]
+        );
+    }
+
+    /// A list with a problem fails the step with every problem; a list with none passes with its line.
+    #[test]
+    fn a_list_with_a_problem_fails_the_step_and_one_without_passes() {
+        let problems = vec!["one".to_string(), "two".to_string()];
+        assert_eq!(
+            outcome(&problems).unwrap_err().to_string(),
+            "the HIGH-path list has problems:\none\ntwo"
+        );
+        assert_eq!(
+            outcome(&[]).unwrap(),
+            format!("high-tier: every entry of {LIST} matches a tracked file")
         );
     }
 

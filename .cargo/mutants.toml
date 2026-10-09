@@ -47,8 +47,9 @@ exclude_re = [
     # high_tier (verdict, matches: an_entry_that_matches_no_tracked_file_is_a_problem among them).
     'xtask/src/ci\.rs:\d+:\d+: replace taint_job -> Result<\(\)> with Ok\(\(\)\)$',
     # xtask high_tier.rs command -> Ok(()): the I/O shell reads ci/high-tier-paths.txt and runs `git ls-files`; a test that
-    # reads the repo cannot use git (the mutants copy has no .git). Only this whole-body replacement is excluded. The decision
-    # is verdict, with its unit tests, and the_repository_list_has_no_problem checks the real list against the walked tree.
+    # reads the repo cannot use git (the mutants copy has no .git). Only this whole-body replacement is excluded. The decisions
+    # are verdict and outcome, with their unit tests (a_list_with_a_problem_fails_the_step_and_one_without_passes among them),
+    # and the_repository_list_has_no_problem checks the real list against the walked tree.
     'xtask/src/high_tier\.rs:\d+:\d+: replace command -> Result<\(\)> with Ok\(\(\)\)$',
     # xtask ci.rs clippy_job -> Ok(()): process glue. The body starts `cargo clippy` over the workspace with every feature
     # and returns its exit; a test cannot run clippy inside the test run. Only this whole-body replacement is excluded. A
