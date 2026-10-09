@@ -872,3 +872,110 @@ fn a_reopened_handle_sees_and_ends_the_worker_of_the_earlier_handle() {
     );
     assert!(second.list().is_empty());
 }
+
+/// A handle over the data directory `dir` of a run, with the run's in-process workers.
+fn handle_over(
+    dirs: &mut Directories,
+    dir: &str,
+    workers: &crate::worker::Workers,
+    scheduler: &SchedulerHandle,
+) -> crate::worker::TestkitCore {
+    let config = OpenConfig {
+        data_dir: dir.into(),
+        worker_path: Some("worker".into()),
+        limits: CoreLimits::default(),
+    };
+    let opened = dirs
+        .open(
+            dir,
+            &config,
+            RunInputs {
+                seed: 13,
+                scheduler: scheduler.clone(),
+            },
+            core_features(),
+            Some(Box::new(workers.spawner(dir))),
+        )
+        .unwrap();
+    crate::worker::TestkitCore::new(opened.driver, opened.wake, workers.clone(), "h", dir)
+}
+
+/// Core AD-1, AD-6, DP-8, LC-12 (DESIGN.md "Adoption (P5)", parts 3, 4, 6): a new handle adopts the running session of a
+/// dropped one through the worker endpoint, in memory. The session is `Running` with no second payload, and the new
+/// handle's `Stop` reaches the same payload: the old link is fenced, and the new link carries the stop and the exit.
+#[test]
+fn a_reopened_handle_adopts_the_running_worker_through_its_endpoint() {
+    let start = Instant::now();
+    let scheduler = SchedulerHandle::with_seed(13);
+    scheduler.with(|s| {
+        s.overrides_mut().no_spurious_wakes = true;
+    });
+    let workers = crate::worker::Workers::new(scheduler.clone(), start);
+    let mut dirs = Directories::default();
+    let session = SessionId("s".into());
+    let mut first = handle_over(&mut dirs, "adopt", &workers, &scheduler);
+    first
+        .begin(Op::Create {
+            session: session.clone(),
+            request: SpawnRequest {
+                argv: vec!["program".into()],
+                env: BTreeMap::new(),
+                cwd: "/".into(),
+                size: Size {
+                    rows: 24,
+                    cols: 80,
+                    cell_px: None,
+                },
+                labels: BTreeMap::new(),
+                color_profile: None,
+                notification_policy: None,
+                size_policy: None,
+            },
+        })
+        .unwrap();
+    settle_partial(&mut first, start);
+    first
+        .begin(Op::Start {
+            id: session.clone(),
+        })
+        .unwrap();
+    settle_partial(&mut first, start);
+    drop(first);
+
+    let mut second = handle_over(&mut dirs, "adopt", &workers, &scheduler);
+    let adopt = second.begin(Op::AdoptAll).unwrap();
+    let events = settle_partial(&mut second, start);
+    assert!(
+        events
+            .iter()
+            .any(|e| matches!(e, Event::Completed { op, result: OpResult::Ok(_) } if *op == adopt)),
+        "{events:?}"
+    );
+    let record = second.get(&session).unwrap();
+    assert_eq!(record.state, SessionState::Running, "{events:?}");
+    assert_eq!(
+        record.worker_protocol,
+        Some(botster_worker_core::WORKER_PROTOCOL)
+    );
+
+    let stop = second
+        .begin(Op::Stop {
+            id: session.clone(),
+        })
+        .unwrap();
+    let events = settle_partial(&mut second, start);
+    assert!(
+        events.iter().any(|e| matches!(
+            e,
+            Event::Completed {
+                op,
+                result: OpResult::Ok(OpOutput::End(SessionEnd::Exited(Exit {
+                    signal: Some(15),
+                    cause: ExitCause::HostStop,
+                    ..
+                })))
+            } if *op == stop
+        )),
+        "{events:?}"
+    );
+}
