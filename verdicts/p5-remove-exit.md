@@ -76,3 +76,73 @@ The job and gate exit zero. The gate does not close the findings above.
 The reviewer changed no product code and ran no builds, tests, mutation jobs, or gates.
 
 VERDICT: NOT CLEAN
+
+## PR #187 Round 2 — 2026-10-09
+
+- Exact head: `2b5ba07e5bcff471370fab07e2436a103cfef91b`.
+- Tree: `204c4750c4bec10ad8f4be0deda17fd326ba9feb`.
+- PR base and merge base: `465978d67ff620cedc21d50a20fc193fb8397e9a`.
+- Supplied gate base: `a14e9dc2b61a5426485f9c7f0f829c900e03bdc7`.
+- Risk tier checked first: HIGH, BUILD.md rule 5, as the current PR body states.
+
+### REO-F1 — MEDIUM — CLOSED — The engine tests suffice under the lead's proof ruling
+
+The reviewer asked the lead whether the new real-process proof could use the old fixtures during the HOLD.
+The lead confirmed that the HOLD remains until PR B (#181) lands and forbids that new proof.
+The lead also directed the reviewer to decide whether TestkitHarness or sans-IO tests prove this change.
+If those tests suffice, REO-F1 closes. Otherwise, the PR waits for a proof on botster-test-process after PR B.
+The ruling is the lead's message `msg_plugin-w_1791563315_78c77a`.
+
+The reviewer chose the first option and informed P5 and integration.
+The initial real-process requirement was too broad for this engine-only delta.
+The change decides outcomes for ordered ProcessExited, LinkMsg, and LinkClosed inputs in HostEngine.
+It changes no real process edge, socket read, reaper, or worker write and close path.
+The World tests assert the public RemoveReport for exit before result, exit before EOF without result, and result before exit.
+The extended test checks that EOF while the worker still runs does not complete Remove.
+The new early-exit test covers the remaining phase transition.
+The three TestkitHarness trials run the production engine with the seeded scheduler.
+These proofs suffice for the engine decision under the lead's clarified boundary.
+The PR body records that decision and the continuing HOLD.
+
+The temporary slow test and its helper refactor are absent from the reviewed head.
+slow_facade_worker.rs is byte-identical to the PR's v1 base.
+No new real-process test code enters this PR.
+
+### REO-F2 — MEDIUM — CLOSED — The link drain applies only after the teardown request
+
+The new on_process_exited condition requires RemovePhase::AwaitTeardown and an open worker link.
+An exit in CloseRoutes or SendRemove follows the existing close path.
+That path removes the link and records the worker as gone.
+SendRemove then chooses OutcomeUnknown with worker_gone true and advances without sending to the gone worker.
+It cannot reset the exit state through the retained-link branch identified in Round 1.
+
+The new test is a_worker_exit_before_the_teardown_is_asked_completes_the_remove.
+It begins Remove, delivers ProcessExited before a pump sends the teardown request, and supplies no EOF.
+It asserts completion with OutcomeUnknown, an empty session list, and no HostMsg::Remove.
+It advances no clock. The exact-head gate reports this test PASS.
+
+### Delta and supplied evidence
+
+The reviewer read the complete delta from the Round 1 head and the current PR body.
+Only inbound.rs and flow_edges.rs change in that delta.
+The pending list is byte-identical to Round 1. Its three removals and replacement-map checks remain valid.
+The reviewer checked distinct exact-head PASS trials for am_3_exactly_one_completion, lc_7_remove_order_and_completion, and or_2_session_order.
+The gate also reports PASS for the new early-exit test and both Round 1 regression tests.
+No other package finding arose.
+
+The full Linux gate is `~/botster-sessions/shared/core-stage1/gate-logs/remove-exit-2b5ba07e.log`.
+It names the exact reviewed head and gate base a14e9dc2.
+The gate base is newer than the PR base by the disjoint #186 kernel-errno test change in guard_platform.rs.
+This verdict covers the current PR head; it does not certify a later merge head.
+The default tier reports 946 tests passed and 653 skipped.
+The slow tier reports 243 tests passed and 962 skipped.
+The mutation run reports five caught, zero missed, zero timeouts, and zero unviable.
+All ten CI stages pass. Fuzz runs no harness because no changed crate has a decoder harness.
+The job and gate exit zero.
+
+Every package finding is closed. Integration owns its separate findings and must supply CLEAN before this HIGH PR merges.
+This verdict does not close #176's proof hold or establish real-process conformance for the minimum ids.
+The reviewer changed no product code and ran no builds, tests, mutation jobs, or gates.
+The lead owns the merge decision.
+
+VERDICT: CLEAN
