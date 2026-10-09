@@ -340,3 +340,128 @@ The #181/#198 union has been reviewed at this head, but #181 cannot merge with t
 The separate #181/#184 union condition remains.
 
 VERDICT: NOT CLEAN (3 open: R6-1, R6-2/B5, R6-3; all HIGH) at 60a80f21d9e0da84deb47f471faddd4944b00ed7
+
+## Round 7 — NOT CLEAN on head 7826ba0a
+
+Reviewer: integration reviewer (Astra).
+Head: `7826ba0adab5962089a7e3279f78cd5f4a8425c9`.
+Previous reviewed head: `60a80f21d9e0da84deb47f471faddd4944b00ed7`.
+Base: `a6555ebaf221042ca7b777ca2f2425e4a63dd960`.
+Scope: the authorized delta, the imported base, and gate holes under plan 23f.
+HIGH remains correct under rules 1 and 3.
+The reviewer ran no test, build, mutation job, or gate.
+
+### Closed cases from round 6
+
+- **R6-1 closes.** Reserved declarations reject the local `anyhow` module and the `parse_quote` aliases to `bail` and `println`.
+  The check reports the declaration and its file. The check-level fixtures cover both reported paths.
+- **R6-2/B5 closes for the reported type cases.** Local `struct Command` and `type Command` declarations fail the reserved-name rule.
+  The check-level fixtures require these rejections.
+- **R6-3 closes.** `Index`, `Bindings`, and `CommandBindings` use the same `macro_class` and `macro_arguments` functions.
+  None reads the opaque `parse_quote` tokens. The pure static no longer gains an invented command binding.
+- The exact uncalled-closure observation from the plan review closes.
+  A closure supplies no I/O path, process start, or call-graph I/O evidence to its enclosing function.
+  Decision calls remain visible. The new fixtures cover an uncalled closure, a called closure, and indirect I/O inside a closure.
+
+These closures do not establish a complete boundary for deferred execution or local function names.
+
+### R7-1 — HIGH — An unpolled future supplies false I/O evidence
+
+The new execution boundary handles `ExprClosure` only.
+`Index` has no `visit_expr_async` boundary and does not distinguish an async function when it records I/O.
+This valid forwarding function declares no reserved name:
+
+```rust
+fn forwarded(code: Option<i32>) -> Result<()> {
+    let _load = async { std::fs::read("config") };
+    mutation_verdict(code)
+}
+```
+
+The async block constructs a future. Nothing polls the future, so the file read never runs.
+The default syntax visitor enters the async body with `closures == 0`.
+`path_call` marks `forwarded` as I/O.
+With a tested, unexcluded `mutation_verdict` and the usual `mutation_verdict (verdicts)` citation, its whole-body exclusion can pass.
+
+The same defect crosses the call graph through an async function:
+
+```rust
+async fn load() {
+    let _ = std::fs::read("config");
+}
+
+fn forwarded(code: Option<i32>) -> Result<()> {
+    let _load = load();
+    mutation_verdict(code)
+}
+```
+
+The call constructs another unpolled future.
+The index marks `load` as I/O, and `Calls::of` propagates that mark to `forwarded` through its callees.
+Both cases can result from an ordinary refactor that defers a loader. Neither declares a reserved name.
+They therefore remain blockers under the plan 23f threat model.
+
+Required change: apply one deferred-execution rule to async blocks and async functions, or reject these unsupported forms with their file.
+Add check-level fixtures that reject both whole-body exclusions.
+Keep decision-call visibility where the existing proof rules need it.
+No executor or compiler-style inference is required.
+
+Status: OPEN. The reviewer sent both source traces to P6 and its reviewer.
+
+### B5 — HIGH — A local function does not hide an imported I/O function
+
+The package reviewer supplied this source finding on the same head. Integration independently confirmed it.
+
+```rust
+use std::fs::read;
+
+pub fn load_file(path: &str) -> std::io::Result<Vec<u8>> {
+    read(path)
+}
+
+fn forwarded(code: Option<i32>) -> Result<()> {
+    fn read(input: &str) -> &str { input }
+    let _ = read("fixed");
+    mutation_verdict(code)
+}
+```
+
+The block-local function is pure and shadows the file import.
+`Bindings` collects pattern names but not local function names.
+`visit_item_fn` creates the nested function's record without adding its name to the enclosing local names.
+Thus, `resolved(read)` still expands the file import, and `path_call` falsely marks `forwarded` as I/O.
+Its whole-body exclusion can pass with the usual tested decision citation.
+
+The name `read` is not reserved. A pure local reader is an ordinary refactor, not deliberate evasion.
+Reject this unsupported local-function/import combination with the form and file, or resolve the listed form correctly.
+Add a check-level fixture that rejects the forwarding exclusion.
+
+Status: OPEN. The source trace, not an executed fixture, establishes this finding.
+
+### Merge, interfaces, and supplied evidence
+
+- Merge `31cc9bb8fa6103fb4b209e9956be77c1c5b154e4` has parents `a26bc359126813db98794c1580565477b5c77bde` and the base above.
+  Its committed tree equals the conflict-free automatic tree, `db30cbfad5f3b8e962ea6bc863d599a486efcb7b`.
+  The merge preserves #199. The pending removals in this delta come from the base.
+- No `.cargo` or `.config` delta exists from the previous reviewed head.
+  The #198 exclusion citations and the temporary bounded-accept allowance remain unchanged.
+  P6 still owes shared bounded accept and removal of that allowance.
+- The shared `Uses` change removes the old macro-resolution accessors and exposes `bindings` for reserved-name checks.
+  The final `ci.rs` delta qualifies one macro call as `anyhow::anyhow!`.
+  `git diff --check` reports no error. The current fetched `v1` is an ancestor of the head.
+- The supplied full gate is `~/botster-sessions/gates/botster-core-stage1-p6-ci-checks-7826ba0a-pool-20261009-150011-87634.log`.
+  It names the exact head and base. It ran on Linux node `msa1`, allocation `52d024c9`.
+  All ten stages passed. It passed 1204 default tests, 254 slow tests, and 88 conformance ids.
+  It reports 709 mutants: 672 caught, 37 unviable, zero missed, and zero timeouts.
+  The gate exited zero after 991 seconds.
+- The check reports 159 scanned process files and 111 allowed sites.
+  `gate-decisions` checks 1252 xtask mutants, 188 exclusion regexes, and two exclusion globs.
+  These passing results do not cover the two gate holes above.
+- The reviewer read the exact-head package verdict at `2de0d5debe0f679fd66383273fca82c29a6ab1f9`.
+  Round 7 of `verdicts/p6-ci-checks.md` records the same two open findings and both async forms of R7-1.
+  The package verdict is NOT CLEAN. It introduces no additional finding.
+
+The #181/#198 union remains checked, but these gate holes prevent acceptance.
+The separate #181/#184 union condition remains.
+
+VERDICT: NOT CLEAN (2 open: R7-1 and B5; both HIGH) at 7826ba0adab5962089a7e3279f78cd5f4a8425c9
