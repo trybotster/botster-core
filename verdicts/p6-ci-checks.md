@@ -1344,3 +1344,76 @@ The lead must apply the base-merge and exact-head gate rules before merge.
 The #184 union and HIGH-path enforcement remain integration work for the next merge.
 
 VERDICT: CLEAN
+
+
+## Round 11 — merge of v1 77c4b472 and the contracts pin
+
+Implementation head: `028fa8fa726a8d0ddaaecccc7090e0041786ac42`.
+Previous CLEAN head: `2063eace36e48e81e333a333ccf24931564a4f9d`.
+Integration and full gate base: `77c4b472626e35052cc6298bb521f1f1e4868c1e`.
+Scope: the Cargo.lock overlap and the contracts-v0.1.21 effect on #181.
+
+The reviewer checked HIGH first. The stated tier remains correct under BUILD.md rules 1 and 3.
+The reviewer read the exact Git objects, relevant pinned dependency changes, and supplied logs.
+The reviewer changed no product code and ran no gate, build, test, mutation job, or reversal.
+
+### The merge requires this delta review
+
+The supplied base-merge-check log is `botster-core-stage1-p6-ci-checks-028fa8fa-pool-20261009-163255-69562.log` under `~/botster-sessions/gates/`.
+It reports PASS for ancestry, the conflict-free merge tree, and the pending-list rule.
+It reports FAIL for the shared Cargo.lock path and the changed own diff metadata.
+This verdict does not treat that run as PASS or carry the previous CLEAN automatically.
+The reviewer completed the required delta review.
+
+The merge parents are the previous CLEAN head and the integration base listed above.
+All seventeen imported paths other than Cargo.lock match the base parent exactly.
+No imported path changes xtask, `.cargo`, `.config`, or `ci`.
+The complete own diff matches the previous own diff after removal of blob-index and hunk-offset lines.
+Its normalized SHA-256 is `b9f865c6392a5ada69cc0962b9964403d0081ec71a08f78c2249ea12a38f8d04`.
+The reviewer used read-only Git comparisons, not a gate.
+
+### The lockfile retains both changes
+
+The reviewer parsed the old and new Cargo.lock files and their respective bases.
+Each head has exactly the same package keys as its base.
+At each head, the only own record difference is xtask's dependency list.
+It adds the previously reviewed `botster-test-process` and `quote` dependencies.
+The corresponding manifest still uses the process crate only as a dev-dependency.
+The merged lock retains all nine contracts package source changes from #205.
+It also retains the Hub contract's added `data-encoding` dependency.
+It introduces no extra package version or source beyond the base.
+
+The peeled tags match their locked revisions:
+- `contracts-v0.1.20`: `03891658e793e5400ba46b5bc003b5d9f952f5e2`.
+- `contracts-v0.1.21`: `60a4169978e3f704f46ab0578f9993013fd4b810`.
+
+The reviewer read the relevant Core contract, route codec, conformance driver, and BUILD.md changes between those tags.
+The Core and codec additions publish constants.
+The conformance driver adds `without` for the revised adoption comparison.
+The new BUILD amendment rule governs publication in botster-contracts and requires no P6 source change here.
+The shared process crate has no direct contracts dependency.
+The pin changes no P6 interface, process ownership rule, or contract assertion.
+The imported ledger and pending files match the reviewed base.
+The exact-head gate validates the new counts.
+
+All five check source files, mutation configuration, and process allowlist match the previous CLEAN head.
+The shared process crate and Prior-art decisions remain unchanged.
+No P6 real-process test migration enters this delta.
+Group ownership, derived bounded waits, and production reap separation remain as reviewed.
+The review does not broaden to the separate product changes of #204.
+No delta finding remains.
+
+### Exact-head evidence
+
+Full Linux log: `~/botster-sessions/gates/botster-core-stage1-p6-ci-checks-028fa8fa-pool-20261009-163334-70729.log`.
+It names the exact implementation head and base above.
+All ten jobs pass. The ledger contains 679 ids and selects 113 to run.
+It reports 113 passing conformance tests, 1260 default tests, and 254 slow tests.
+It reports 547 mutants: 518 caught and 29 unviable, with no misses or timeouts.
+The mutation evidence applies to the executed diff mutants.
+The reviewer claims no new Mac pass and ran no reversal.
+
+The CLEAN applies to this exact merge head.
+It does not waive a later base merge, its required gate, or the #181/#184 union review.
+
+VERDICT: CLEAN
