@@ -789,6 +789,10 @@ mod slow_tests {
         assert_eq!(read.kind(), write.kind());
         edges.link_close(link);
         // The edges closed the link with the client's bytes unread: the client sees a reset.
+        client
+            // timer: deadline — a link that the edges do not close fails the test instead of hanging it
+            .set_read_timeout(Some(Duration::from_secs(8)))
+            .unwrap();
         let mut rest = Vec::new();
         assert_eq!(
             client.read_to_end(&mut rest).unwrap_err().kind(),
