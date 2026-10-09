@@ -71,3 +71,83 @@ worker needs `startup` on its command line for it.
   - `mio` (already in the workspace, P1), `rustix` (`event` feature added, for the slow tests' readiness waits).
 - **Hand-rolled, with reasons:** the `Worker` machine (it is the contract); the testkit bindings (they connect the machine to
   P6's in-memory edges).
+
+## P4a: the stream route (plan 23h)
+
+Scope: OU-1 to OU-12, OU-2b, DP-1 to DP-7, DP-9 and DP-12 on a `RouteTransport::Stream` (A17: no WebRTC). The route
+protocol is the codec extract of DP-3 (`botster-route-codec`, contracts v0.1.20); the extract governs every frame below.
+
+### The handoff (DP-2)
+
+- The host engine already registers the route (`attach`, OU-1) and emits `Action::HandoffRoute{link, route, transport,
+  options}` after the launch (`flush_handoffs`). Today no component sends `HostMsg::AttachRoute`, and the testkit edge drops
+  `route` and `options`.
+- Change: the driver calls `edges.handoff_route` first. On `Ok`, the engine sends `HostMsg::AttachRoute{route, options}` on
+  the same link. On `Err`, nothing is sent and the route closes `HandoffFailed` (as today).
+- The worker pairs each `AttachRoute` with the oldest descriptor that it received on that link and did not bind. The
+  descriptor is sent before the message, so it is always there when the message is decoded:
+  - testkit: `LinkEnd::send_descriptor` queues it at once;
+  - real (later, real-only): `SCM_RIGHTS` rides with link bytes that are sent before the `AttachRoute` frame.
+- An `AttachRoute` with no descriptor is a host fault: the worker closes the link (as for a bad frame). A descriptor of a
+  link that the worker replaced (`AdoptLink`, DP-8) is dropped unbound.
+
+### Worker-core inputs and actions (sans-IO)
+
+The worker holds no transport object. The driver keeps each received descriptor in a table and gives the machine an id.
+
+| New `Input` | New `Action` |
+|---|---|
+| `Descriptor(DescriptorId)`: the link delivered one | `BindRoute{descriptor, route}`: the transport of `descriptor` is `route`'s from now |
+| `RouteBytes{route, bytes}`: bytes that the route delivered, in order | `RouteWrite{route, bytes}`: one write; at most one is out per route |
+| `RouteWritten{route, n}`: the bytes that the kernel accepted (the progress point of OU-3a); `n = 0` waits for `RouteWritable` | `RouteRead{route, on}`: read interest (off while the admission point is full, DP-5) |
+| `RouteWritable{route}` | `RouteClose{route}`: close the transport; the driver reports nothing more of `route` |
+| `RouteClosedByPeer{route}`: read `Ok(0)` or an I/O error (OU-5) | |
+
+### The route machine (OU-2; new `src/worker/route.rs`)
+
+- States: `Open`, `Stalled`, `Closed`. One `Route` per route id holds the state, the negotiated format and features, the
+  options, a bounded output queue (`route_queue_bytes`) with the written offset of its first frame, a codec `StreamReader`
+  bounded by the route limits, the last progress instant, and the latest `focus` input (DP-12).
+- `Open → Stalled`: frames wait and no byte is accepted for `reader_progress_deadline`; the worker sends `RouteStalled`.
+- `Stalled → Open`: a write is accepted again; the worker queues `resync` (same content as the baseline) and sends
+  `RouteResumed`.
+- `→ Closed`: the reasons of OU-2, mapped to the wire by OU-2b. The worker completes a partly written frame first (OU-4),
+  then writes `route_closed` as the last frame, then `RouteClose`, then `WorkerMsg::RouteClosed{route, reason, route_tag}`.
+
+### Frames (OU-8, OU-9, DP-3)
+
+- On `BindRoute`, in one machine step, from the model at one point `R`: `attached{features, terminal_format, limits}`,
+  `baseline_begin{rows, cols, modes}`, `screen`, `history`, `baseline_end{history}`, `live`. `features` is the intersection
+  with `options.route_features`. `terminal_format` is negotiated against this worker's formats (OU-1).
+- A `screen` over `max_screen_frame_bytes` closes the route `SnapshotTooLarge`; the limit is checked before the frame is
+  built (DP-3 frame limit).
+- Every later `PtyOutput` is one `output` frame per route with the PTY bytes unchanged (OU-12): no gap and no duplicate after
+  `R`.
+- Client frames (`ToWorker`) go to the one admission point that host input already uses (AM-2, DP-4, DP-9). Input is
+  fire-and-forget: only `input_refused` and the `input_done` of DP-5 are written back. `Observation::ClientInput{route,
+  input_rev}` reports the admission to the host.
+- Exit (OU-7): the PTY tail is queued on every `Open` route before `Exited`; a `Stalled` route is skipped.
+
+### Testkit
+
+- `TestkitHarness::attach_stream` makes a `stream_pair`. One end goes to `Core::attach` as `RouteTransport::Stream`; the
+  other end is the `RouteClient` (`write`, `read` until the deadline, `control`).
+- The testkit worker binding reads descriptors from its link end and binds the `StreamEnd` as the route edge.
+- Controls map to the existing `EndControl` hooks where one fits: `route_gate` (gate), `route_accept` (accept_at_most),
+  `fail_handoff` (fail_next_handoff), `client_close` (close), `input_blocked` (the admission point is full). New:
+  `route_stream_holders`, `alloc_window`/`alloc_peak`, `hold_handoff`/`release_handoff`, `route_stream_written`,
+  `oracle_screen`, `oracle_screen_payload`, and a route-transport term in `edges_quiet`.
+
+### Real-only (not in the P4a testkit PRs)
+
+- `SCM_RIGHTS` in `botster-core/src/real.rs` `handoff_route` (today `Err`), and the host closing its copy of the stream
+  (`dp_2_stream_handoff_transfers_ownership_and_closes_host_copy`).
+- The `botster-worker` binary: route descriptors on the `mio` loop and the `RouteTransport` edge over the socket.
+- The testkit minimum count and the real minimum count are reported separately in each PR.
+
+### Questions for review
+
+1. Pairing by the order of descriptors (above) or a descriptor id in `AttachRoute`? Order needs no wire change; an id needs
+   a link message change (`botster-core-link`, HIGH).
+2. The engine sends `AttachRoute` after `handoff_route` returns `Ok`. The alternative is that the edge sends both; then the
+   frame bypasses the link's outbound buffer and its order with earlier frames.
