@@ -4,7 +4,7 @@
 use botster_test_process::anchor::{
     identity, send, start_anchor, stayed, verdict, Identity, Line, Report, WRAP_FAILED,
 };
-use botster_test_process::platform::{await_end, live_members, pid, start_time};
+use botster_test_process::platform::{await_end, live_members, pid, signal_target, start_time};
 use botster_test_process::rounds::{end_group, end_members};
 use botster_test_process::Deadline;
 use rustix::process::{getpgid, getpgrp, kill_process_group, Signal};
@@ -190,7 +190,7 @@ fn terminate(group: rustix::process::Pid, grace: Duration) -> io::Result<()> {
     if grace.is_zero() {
         return Ok(());
     }
-    match kill_process_group(group, Signal::TERM) {
+    match kill_process_group(signal_target(group)?, Signal::TERM) {
         Ok(()) | Err(rustix::io::Errno::SRCH) => {}
         Err(error) => return Err(error.into()),
     }
