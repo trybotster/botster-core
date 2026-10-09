@@ -347,3 +347,31 @@ mod also;
     );
     assert_eq!(derive(&files, "macos").unwrap(), Vec::<String>::new());
 }
+
+/// #181 B8 round 2: inside an inline module, a `#[path]` is relative to the inline module's directory. On Linux the
+/// compiled `mod linux { #[path = "shared.rs"] mod live; }` reaches `src/linux/shared.rs`, which the gated `mac` declaration
+/// also reaches, so that file keeps its mutants; `src/shared.rs`, beside `lib.rs`, is not the file.
+#[test]
+fn an_inline_path_is_relative_to_the_inline_module() {
+    let lib = "\
+#[cfg(target_os = \"macos\")]
+#[path = \"linux/shared.rs\"]
+mod mac;
+#[cfg(target_os = \"linux\")]
+mod linux {
+    #[path = \"shared.rs\"]
+    mod live;
+}
+";
+    let files = [
+        ("src/lib.rs", lib),
+        ("src/linux/shared.rs", "fn a() -> u8 { 1 }\n"),
+        ("src/shared.rs", "fn b() -> u8 { 2 }\n"),
+    ];
+    let shared = "src/linux/shared.rs:1:16: replace a -> u8 with 0";
+    for os in ["linux", "macos"] {
+        let patterns = derive(&files, os).unwrap();
+        assert!(!excluded(&patterns, shared), "{os}: {patterns:?}");
+    }
+    assert_eq!(derive(&files, "linux").unwrap(), Vec::<String>::new());
+}

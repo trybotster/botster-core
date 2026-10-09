@@ -669,7 +669,9 @@ fn two_calls_on_one_line_are_two_sites() {
 
 /// #181 B3: a module file is test code as a whole when a test declaration declares it (`#[path]` included, inside an
 /// inline module too), or a file that is test code as a whole does, through the module tree; a module that only
-/// production declares is not. The file of a test module must be found.
+/// production declares is not. A reached module file is parsed whatever its extension; the owner crate is never read.
+/// Inside an inline module, a `#[path]` is relative to the inline module's directory (round 2: `src/checks/support.rs`,
+/// not `src/support.rs`). The file of a test module must be found.
 #[test]
 fn a_module_that_a_test_declares_is_test_code_through_the_module_tree() {
     let banned = "fn f(c: &mut std::process::Child) { c.wait().unwrap(); }\n";
@@ -677,8 +679,10 @@ fn a_module_that_a_test_declares_is_test_code_through_the_module_tree() {
         (
             "crates/x/src/lib.rs",
             "#[cfg(test)]\nmod helpers;\n#[cfg(test)]\n#[path = \"../support/./a/../b.rs\"]\nmod support;\n\
-             mod real;\n#[cfg(test)]\nmod checks {\n    mod nested;\n}\n#[cfg(test)]\nmod tests;\n\
-             #[cfg(test)]\n#[path = \"gen.inc\"]\nmod generated;\n",
+             mod real;\n#[cfg(test)]\nmod checks {\n    mod nested;\n    #[path = \"support.rs\"]\n    mod helper;\n}\n\
+             #[cfg(test)]\nmod tests;\n#[cfg(test)]\n#[path = \"gen.inc\"]\nmod generated;\n\
+             #[path = \"prod.inc\"]\nmod prod;\n\
+             #[cfg(test)]\n#[path = \"../../botster-test-process/src/a.rs\"]\nmod owned;\n",
         ),
         ("crates/x/src/helpers.rs", "fn f(c: &mut std::process::Child) { c.wait().unwrap(); }\nmod deeper;\n"),
         ("crates/x/src/helpers/deeper.rs", banned),
@@ -688,21 +692,26 @@ fn a_module_that_a_test_declares_is_test_code_through_the_module_tree() {
         ("crates/x/src/tests.rs", "#[path = \"shared.rs\"]\nmod shared;\n"),
         ("crates/x/src/shared.rs", banned),
         ("crates/x/src/gen.inc", banned),
+        ("crates/x/src/prod.inc", banned),
+        ("crates/x/src/support.rs", "fn clean() {}\n"),
+        ("crates/x/src/checks/support.rs", banned),
+        ("crates/botster-test-process/src/a.rs", banned),
         ("crates/x/tests/a.rs", "mod common;\n"),
         ("crates/x/tests/common/mod.rs", "fn g() {}\n"),
     ]
     .into_iter()
     .map(|(file, text)| (file.to_string(), text.to_string()))
     .collect();
-    let sites: Vec<(String, usize)> = scan_files(&sources)
-        .unwrap()
-        .into_iter()
-        .map(|f| (f.file, f.line))
-        .collect();
+    let (scanned, findings) = scan_files(&sources).unwrap();
+    // Every Rust file outside the owner crate, and the two `.inc` modules; `src/support.rs` is a Rust file too.
+    assert_eq!(scanned, 14);
+    let sites: Vec<(String, usize)> = findings.into_iter().map(|f| (f.file, f.line)).collect();
     assert_eq!(
         sites,
         [
             ("crates/x/src/checks/nested.rs".to_string(), 1),
+            ("crates/x/src/checks/support.rs".into(), 1),
+            ("crates/x/src/gen.inc".into(), 1),
             ("crates/x/src/helpers.rs".into(), 1),
             ("crates/x/src/helpers/deeper.rs".into(), 1),
             ("crates/x/src/shared.rs".into(), 1),
@@ -716,7 +725,7 @@ fn a_module_that_a_test_declares_is_test_code_through_the_module_tree() {
     );
     assert_eq!(
         scan_files(&lone("mod gone;\n")).unwrap(),
-        Vec::<Finding>::new()
+        (1, Vec::<Finding>::new())
     );
     assert!(scan_files(&lone("fn f( {\n"))
         .unwrap_err()

@@ -279,14 +279,17 @@ impl Walk<'_> {
         })?;
         let mut cfgs = cfgs.to_vec();
         read_attrs(&parsed.attrs, &mut cfgs).map_err(|error| anyhow::anyhow!("{file}: {error}"))?;
-        self.items(&parsed.items, file, dir, module, &cfgs)
+        self.items(&parsed.items, file, (dir, false), module, &cfgs)
     }
 
+    /// Walks `items` of `file`, whose child modules are in `dir`; `inline` tells whether `items` are inside an inline
+    /// module. A `#[path]` is relative to the directory of `file` at its top, and to `dir` inside an inline module (the
+    /// Rust reference, "The path attribute").
     fn items(
         &mut self,
         items: &[syn::Item],
         file: &str,
-        dir: &str,
+        (dir, inline): (&str, bool),
         module: &[String],
         cfgs: &[syn::Meta],
     ) -> Result<()> {
@@ -319,12 +322,18 @@ impl Walk<'_> {
                     inner.push(name.clone());
                     let child_dir = format!("{dir}/{name}");
                     if let Some((_, items)) = &declared.content {
-                        self.items(items, file, &child_dir, &inner, &own)?;
+                        self.items(items, file, (&child_dir, true), &inner, &own)?;
                         continue;
                     }
                     let candidates = match path_attr(&declared.attrs) {
                         Some(path) => {
-                            vec![(format!("{dir}/{path}"), parent(&format!("{dir}/{path}")))]
+                            let base = if inline {
+                                dir.to_string()
+                            } else {
+                                parent(file)
+                            };
+                            let path = crate::process_check::normalize(&format!("{base}/{path}"));
+                            vec![(path.clone(), parent(&path))]
                         }
                         None => vec![
                             (format!("{dir}/{name}.rs"), child_dir.clone()),
