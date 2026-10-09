@@ -231,14 +231,16 @@ impl Workers {
             .get(&identity)
             .cloned()
             .ok_or_else(|| format!("no worker process {identity:?} in this run"))?;
-        let cell = lock(&cell);
-        if cell.ended {
-            return Err(format!("the worker process {identity:?} has ended"));
-        }
-        let program = cell
-            .program
-            .clone()
-            .ok_or_else(|| format!("the worker process {identity:?} has no payload"))?;
+        // The cell guard ends before the owner is locked: `Processes::end` locks the owner, then the cell.
+        let program = {
+            let cell = lock(&cell);
+            if cell.ended {
+                return Err(format!("the worker process {identity:?} has ended"));
+            }
+            cell.program
+                .clone()
+                .ok_or_else(|| format!("the worker process {identity:?} has no payload"))?
+        };
         let wake = lock(&owner).wake.clone();
         Ok((program, wake))
     }
