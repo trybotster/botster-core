@@ -10,7 +10,7 @@ use botster_core_edges::edges::{
 };
 use botster_core_edges::Machine;
 use botster_core_link::hello::Hello;
-use botster_core_link::msg::{HostMsg, Observation, WorkerMsg};
+use botster_core_link::msg::{AdoptReport, AdoptedPayload, HostMsg, Observation, WorkerMsg};
 use botster_core_link::proof::{token_proof, TOKEN_LEN};
 use std::collections::{BTreeMap, BTreeSet};
 use std::time::{Duration, Instant};
@@ -78,6 +78,16 @@ pub(crate) fn limits(change: impl FnOnce(&mut CoreLimits)) -> CoreLimits {
 /// The worker protocol number in the hello of the scripted worker.
 pub(crate) const HELLO_PROTOCOL: u8 = 1;
 
+/// A scripted worker at its endpoint (DESIGN.md "Adoption (P5)" 3.1): what it answers when a host connects.
+#[derive(Debug, Clone)]
+pub(crate) struct Endpoint {
+    pub token: [u8; TOKEN_LEN],
+    /// The protocol in the worker's hello.
+    pub protocol: u8,
+    /// The payload state of the report that follows the worker's hello. `None`: the worker answers no hello.
+    pub payload: Option<AdoptedPayload>,
+}
+
 /// What a scripted worker does when the engine speaks to it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Autopilot {
@@ -112,6 +122,11 @@ pub(crate) struct World {
     pub(crate) next_link: u64,
     random: u8,
     inject: Vec<Input>,
+    /// The workers that a host can connect to, by instance. A worker that is not alive answers no connect.
+    pub endpoints: BTreeMap<InstanceId, Endpoint>,
+    /// The instances that the host connected to, in order.
+    pub connects: Vec<InstanceId>,
+    adopt_links: BTreeMap<LinkId, InstanceId>,
 }
 
 impl World {
@@ -138,12 +153,18 @@ impl World {
     pub fn over(earlier: &World) -> World {
         let mut cfg = earlier.engine.cfg.clone();
         cfg.host_epoch += 1;
-        World::open(
+        let mut world = World::open(
             cfg,
             earlier.rows.clone(),
             earlier.alive.clone(),
             earlier.next_pid,
-        )
+        );
+        // The workers of `earlier` keep their endpoints (LC-12). A worker answers a connect only when a test scripts its
+        // endpoint (`tests::adoption`); otherwise the connect fails, as with the driver's default edge.
+        world.endpoints = earlier.endpoints.clone();
+        world.spawned = earlier.spawned.clone();
+        world.next_link = earlier.next_link;
+        world
     }
 
     fn open(
@@ -181,6 +202,9 @@ impl World {
             next_link: 1,
             random: 1,
             inject: Vec::new(),
+            endpoints: BTreeMap::new(),
+            connects: Vec::new(),
+            adopt_links: BTreeMap::new(),
         }
     }
 
@@ -244,6 +268,10 @@ impl World {
                 };
                 self.inject.push(Input::RowWritten { ticket, result });
             }
+            Action::RemoveEndpoint { instance } => {
+                self.trace.push(format!("unlink {}", instance.0));
+                self.endpoints.remove(&instance);
+            }
             Action::DeleteRow { ticket, key } => {
                 self.trace.push(format!("delete {key}"));
                 let result = match self.fail_row.take() {
@@ -306,7 +334,31 @@ impl World {
                     ));
                 }
             }
-            Action::SendHello { link, hello } => self.hellos.push((link, hello)),
+            Action::ConnectWorker { ticket, instance } => {
+                self.trace.push("connect".into());
+                self.connects.push(instance.clone());
+                let identity = self
+                    .spawned
+                    .get(&instance)
+                    .map(|(identity, _, _)| *identity);
+                let answers = self.endpoints.contains_key(&instance)
+                    && identity.is_some_and(|i| self.alive.contains(&i));
+                let link = answers.then(|| {
+                    let link = LinkId(self.next_link);
+                    self.next_link += 1;
+                    self.adopt_links.insert(link, instance.clone());
+                    self.identities
+                        .insert(link, identity.expect("an answering worker was spawned"));
+                    link
+                });
+                self.inject.push(Input::WorkerConnected { ticket, link });
+            }
+            Action::SendHello { link, hello } => {
+                if let Some(instance) = self.adopt_links.get(&link).cloned() {
+                    self.endpoint_answers(link, &instance, &hello);
+                }
+                self.hellos.push((link, hello));
+            }
             Action::SendMsg { link, msg } => {
                 self.trace.push(format!("send {}", msg_name(&msg)));
                 if self.autopilot == Autopilot::Full {
@@ -347,6 +399,36 @@ impl World {
             }
             Action::HandoffRoute { .. } => self.trace.push("handoff".into()),
         }
+    }
+
+    /// The scripted worker at an endpoint answers the host's hello with its own, then with its report (DESIGN.md 3.4, 4).
+    fn endpoint_answers(&mut self, link: LinkId, instance: &InstanceId, hello: &Hello) {
+        let endpoint = self.endpoints[instance].clone();
+        let Some(payload) = endpoint.payload else {
+            return;
+        };
+        self.inject.push(self.hello_input(
+            instance,
+            endpoint.protocol,
+            endpoint.token,
+            hello.host_epoch,
+            link,
+        ));
+        let launched = matches!(
+            payload,
+            AdoptedPayload::Running { .. } | AdoptedPayload::Exited { .. }
+        );
+        self.inject.push(Input::LinkMsg {
+            link,
+            msg: WorkerMsg::Adopted {
+                report: Box::new(AdoptReport {
+                    payload,
+                    features: BTreeSet::from([Feature::FocusReport]),
+                    terminal: launched.then(terminal_state),
+                    formats: Vec::new(),
+                }),
+            },
+        });
     }
 
     fn hello_input(
@@ -625,6 +707,7 @@ pub(crate) fn observation(msg: Observation) -> WorkerMsg {
 }
 
 mod admission;
+mod adoption;
 mod boundaries;
 mod driver;
 mod flow_edges;

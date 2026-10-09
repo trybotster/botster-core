@@ -2,6 +2,8 @@
 
 use super::*;
 use botster_core_link::frame::Frame;
+use botster_core_link::msg::Observation;
+use botster_route_codec::prelude::HexBytes;
 use std::time::Duration;
 
 const TOKEN: [u8; TOKEN_LEN] = [7; TOKEN_LEN];
@@ -85,8 +87,14 @@ impl World {
     fn collect(&mut self) -> Vec<Action> {
         let actions: Vec<Action> = std::iter::from_fn(|| self.worker.poll_action()).collect();
         for action in &actions {
-            if let Action::LinkSend(bytes) = action {
-                self.sent += bytes.len() as u64;
+            match action {
+                Action::LinkSend(bytes) => self.sent += bytes.len() as u64,
+                // The new link counts its written bytes from zero, and its stream starts with a new frame.
+                Action::AdoptLink(_) => {
+                    self.sent = 0;
+                    self.decoder = FrameDecoder::new(DEFAULT_MAX_PAYLOAD);
+                }
+                _ => {}
             }
         }
         actions
@@ -106,7 +114,7 @@ impl World {
     fn host_hello(instance: InstanceId, epoch: u64, token: [u8; TOKEN_LEN]) -> Vec<u8> {
         let hello = Hello {
             protocol: WORKER_PROTOCOL,
-            proof: token_proof(&token, &instance, epoch),
+            proof: host_proof(&token, &instance, epoch),
             instance,
             host_epoch: epoch,
         };
@@ -335,6 +343,31 @@ fn a_started_payload_is_reported_launched_with_its_identity() {
     assert_eq!(*payload, PAYLOAD);
     assert_eq!(*features, BTreeSet::from([Feature::FocusReport]));
     assert_eq!(terminal.size, size());
+}
+
+/// AD-7, R-35: a worker accepts at most one `Launch` in its life, so an adoption retry that sends a `Launch` again can never
+/// spawn a second payload. A `Launch` while the first spawn is in flight (R-35 (b)), after the payload runs, after it exited,
+/// and after its spawn failed starts nothing.
+#[test]
+fn a_worker_accepts_one_launch_in_its_life() {
+    let launch = || HostMsg::Launch(Box::new(spec()));
+    let mut spawning = World::linked();
+    assert_ne!(spawning.send(&launch()), [], "the first Launch spawns");
+    assert_eq!(spawning.send(&launch()), [], "the spawn is in flight");
+    let actions = spawning.feed(Input::Spawned(Ok(PAYLOAD)));
+    assert_eq!(
+        spawning.reports(&actions).len(),
+        1,
+        "one spawn answers one Launch"
+    );
+    let mut running = World::running();
+    assert_eq!(running.send(&launch()), [], "running");
+    let (mut exited, _) = World::exited(ExitStatus::Code(0));
+    assert_eq!(exited.send(&launch()), [], "exited");
+    let mut failed = World::linked();
+    failed.send(&launch());
+    failed.feed(Input::Spawned(Err(SpawnFailure::CwdMissing)));
+    assert_eq!(failed.send(&launch()), [], "the spawn failed");
 }
 
 /// LC-4, A2-1: a payload that does not start is a typed failure.
@@ -915,4 +948,735 @@ fn terminate_without_a_held_leader_signals_nothing() {
     let actions = w.feed(Input::Terminate);
     assert!(signals(&actions).is_empty(), "{actions:?}");
     assert_eq!(actions, [Action::LinkClose, Action::Exit]);
+}
+
+// ---- the admission point and the host's writes (AM-2, IN-1 to IN-10) ----
+
+fn write(req: u64, bytes: &[u8], guard: Option<Guard>) -> HostMsg {
+    HostMsg::Op {
+        req,
+        op: Op::WriteInput {
+            session: SessionId("s".into()),
+            payload: InputPayload::Bytes {
+                bytes: HexBytes(bytes.to_vec()),
+            },
+            guard,
+        },
+    }
+}
+
+fn pty_writes(actions: &[Action]) -> Vec<Vec<u8>> {
+    actions
+        .iter()
+        .filter_map(|a| match a {
+            Action::PtyWrite(b) => Some(b.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+/// The `InputResult` of the `Done` of `req` among the reports of `actions`.
+fn input_result(w: &mut World, actions: &[Action], req: u64) -> Option<InputResult> {
+    w.reports(actions).into_iter().find_map(|m| match m {
+        WorkerMsg::Done {
+            req: r,
+            result: OpResult::Ok(OpOutput::Input(result)),
+        } if r == req => Some(result),
+        _ => None,
+    })
+}
+
+fn outcome(result: &InputResult) -> (WriteOutcome, u64, u64) {
+    (
+        result.outcome,
+        result.payload_bytes_written,
+        result.pty_bytes_written,
+    )
+}
+
+/// AM-2, IN-2, IN-3: a write is one transaction across short writes: the rest of it goes to the PTY after each count, and
+/// its `Done` comes when the last byte is taken, with exact counts.
+#[test]
+fn a_write_is_one_transaction_across_short_writes() {
+    let mut w = World::running();
+    let actions = w.send(&write(1, b"abcde", None));
+    assert_eq!(pty_writes(&actions), [b"abcde".to_vec()]);
+    let actions = w.feed(Input::PtyWritten(Ok(2)));
+    assert_eq!(pty_writes(&actions), [b"cde".to_vec()]);
+    assert!(input_result(&mut w, &actions, 1).is_none());
+    let actions = w.feed(Input::PtyWritten(Ok(3)));
+    let result = input_result(&mut w, &actions, 1).expect("done");
+    assert_eq!(outcome(&result), (WriteOutcome::Written, 5, 5));
+}
+
+/// AM-2: the next write starts only after the previous one completed; host writes are admitted in their order, and each
+/// admission advances the host's revision and reports it (IN-10, IN-4).
+#[test]
+fn writes_are_admitted_one_at_a_time_in_order() {
+    let mut w = World::running();
+    let first = w.send(&write(1, b"ab", None));
+    let second = w.send(&write(2, b"cd", None));
+    assert_eq!(pty_writes(&first), [b"ab".to_vec()]);
+    assert!(
+        pty_writes(&second).is_empty(),
+        "the first owns the PTY input"
+    );
+    let actions = w.feed(Input::PtyWritten(Ok(2)));
+    assert_eq!(pty_writes(&actions), [b"cd".to_vec()]);
+    let reports = w.reports(&actions);
+    assert!(
+        matches!(reports[0], WorkerMsg::Done { req: 1, .. }),
+        "{reports:?}"
+    );
+    assert_eq!(
+        reports[1],
+        WorkerMsg::Observed {
+            observation: Observation::HostInput {
+                input_rev: InputRev(2)
+            }
+        }
+    );
+}
+
+/// The PTY takes nothing now: the rest waits for `PtyWritable`, with no spin.
+#[test]
+fn a_full_pty_waits_for_writability() {
+    let mut w = World::running();
+    w.send(&write(1, b"abc", None));
+    assert!(pty_writes(&w.feed(Input::PtyWritten(Ok(0)))).is_empty());
+    assert!(pty_writes(&w.feed(Input::PtyOutput(b"x".to_vec()))).is_empty());
+    assert_eq!(pty_writes(&w.feed(Input::PtyWritable)), [b"abc".to_vec()]);
+}
+
+/// AM-2: one PTY write is out at a time: a `PtyWritable` while a write is out hands the PTY nothing more.
+#[test]
+fn a_writable_pty_gets_no_second_write_while_one_is_out() {
+    let mut w = World::running();
+    assert_eq!(
+        pty_writes(&w.send(&write(1, b"abc", None))),
+        [b"abc".to_vec()]
+    );
+    assert!(pty_writes(&w.feed(Input::PtyWritable)).is_empty());
+    let actions = w.feed(Input::PtyWritten(Ok(3)));
+    let result = input_result(&mut w, &actions, 1).expect("done");
+    assert_eq!(outcome(&result), (WriteOutcome::Written, 3, 3));
+}
+
+/// IN-6: a queued write is cancelled with exact zero and never reaches the PTY; the active one keeps its order.
+#[test]
+fn a_cancel_of_a_queued_write_is_an_exact_zero() {
+    let mut w = World::running();
+    w.send(&write(1, b"ab", None));
+    w.send(&write(2, b"cd", None));
+    let actions = w.send(&HostMsg::Cancel { req: 2 });
+    let result = input_result(&mut w, &actions, 2).expect("done");
+    assert_eq!(outcome(&result), (WriteOutcome::Cancelled, 0, 0));
+    let actions = w.feed(Input::PtyWritten(Ok(2)));
+    assert!(
+        pty_writes(&actions).is_empty(),
+        "the cancelled write never starts"
+    );
+}
+
+/// IN-6, IN-2: a cancel during a write waits for the count of the write that is out, and reports exactly what was written;
+/// a write that finished first reports its real outcome.
+#[test]
+fn a_cancel_during_a_write_reports_exact_progress() {
+    let mut w = World::running();
+    w.send(&write(1, b"abcde", None));
+    let actions = w.send(&HostMsg::Cancel { req: 1 });
+    assert!(
+        input_result(&mut w, &actions, 1).is_none(),
+        "a write is out"
+    );
+    let actions = w.feed(Input::PtyWritten(Ok(2)));
+    assert!(pty_writes(&actions).is_empty());
+    let result = input_result(&mut w, &actions, 1).expect("done");
+    assert_eq!(outcome(&result), (WriteOutcome::Cancelled, 2, 2));
+
+    let mut w = World::running();
+    w.send(&write(1, b"ab", None));
+    w.send(&HostMsg::Cancel { req: 1 });
+    let actions = w.feed(Input::PtyWritten(Ok(2)));
+    let result = input_result(&mut w, &actions, 1).expect("done");
+    assert_eq!(outcome(&result), (WriteOutcome::Written, 2, 2));
+
+    let mut w = World::running();
+    w.send(&write(1, b"abc", None));
+    w.feed(Input::PtyWritten(Ok(1)));
+    w.feed(Input::PtyWritten(Ok(0)));
+    let actions = w.send(&HostMsg::Cancel { req: 1 });
+    let result = input_result(&mut w, &actions, 1).expect("no write is out");
+    assert_eq!(outcome(&result), (WriteOutcome::Cancelled, 1, 1));
+}
+
+/// IN-2: a PTY write that fails reports `Failed` with the exact counts up to the failure.
+#[test]
+fn a_failed_pty_write_is_failed_with_exact_counts() {
+    let mut w = World::running();
+    w.send(&write(1, b"abc", None));
+    w.feed(Input::PtyWritten(Ok(1)));
+    let actions = w.feed(Input::PtyWritten(Err(5)));
+    let result = input_result(&mut w, &actions, 1).expect("done");
+    assert_eq!(outcome(&result), (WriteOutcome::Failed, 1, 1));
+}
+
+/// IN-2, IN-7: the payload's end makes a started write `Partial` with exact counts, a write that wrote nothing a certain
+/// zero, and a write after it `NotWritten(SessionEnded)`.
+#[test]
+fn the_payload_end_ends_writes_with_exact_counts() {
+    let mut w = World::running();
+    w.send(&write(1, b"abc", None));
+    w.feed(Input::PtyWritten(Ok(1)));
+    w.feed(Input::PtyWritten(Ok(0)));
+    let actions = w.feed(Input::PayloadExited(ExitStatus::Code(0)));
+    let result = input_result(&mut w, &actions, 1).expect("done");
+    assert_eq!(outcome(&result), (WriteOutcome::Partial, 1, 1));
+    let actions = w.send(&write(2, b"x", None));
+    let result = input_result(&mut w, &actions, 2).expect("done");
+    assert_eq!(
+        outcome(&result),
+        (
+            WriteOutcome::NotWritten(NotWrittenReason::SessionEnded),
+            0,
+            0
+        )
+    );
+
+    let mut w = World::running();
+    w.send(&write(1, b"abc", None));
+    w.feed(Input::PayloadExited(ExitStatus::Code(0)));
+    let actions = w.feed(Input::PtyWritten(Err(5)));
+    let result = input_result(&mut w, &actions, 1).expect("done");
+    assert_eq!(
+        outcome(&result),
+        (
+            WriteOutcome::NotWritten(NotWrittenReason::SessionEnded),
+            0,
+            0
+        )
+    );
+}
+
+/// IN-2: a write that starts while the payload is being stopped is `NotWritten(Stopping)`.
+#[test]
+fn a_write_during_a_stop_is_not_written_stopping() {
+    let mut w = World::running();
+    w.send(&HostMsg::Stop);
+    let actions = w.send(&write(1, b"x", None));
+    let result = input_result(&mut w, &actions, 1).expect("done");
+    assert_eq!(
+        outcome(&result),
+        (WriteOutcome::NotWritten(NotWrittenReason::Stopping), 0, 0)
+    );
+    assert!(pty_writes(&actions).is_empty());
+}
+
+/// IN-10: a write after a kill is `Stopping` too: a killed payload takes no input, with or without a grace before it.
+#[test]
+fn a_write_after_a_kill_is_not_written_stopping() {
+    let mut w = World::running();
+    w.send(&HostMsg::Kill);
+    let actions = w.send(&write(1, b"x", None));
+    let result = input_result(&mut w, &actions, 1).expect("done");
+    assert_eq!(
+        outcome(&result),
+        (WriteOutcome::NotWritten(NotWrittenReason::Stopping), 0, 0)
+    );
+    assert!(pty_writes(&actions).is_empty());
+}
+
+/// IN-10: a guard of the client class compares the client revision: it passes at that revision, and is `Stale` at
+/// another, whatever the host wrote.
+#[test]
+fn a_client_guard_compares_the_client_revision() {
+    let mut w = World::running();
+    let client = |rev| Guard {
+        input: Some(InputGuard {
+            source_class: SourceClass::Client,
+            rev: InputRev(rev),
+        }),
+        model_rev: None,
+    };
+    w.send(&write(1, b"a", None));
+    w.feed(Input::PtyWritten(Ok(1)));
+    let actions = w.send(&write(2, b"b", Some(client(0))));
+    assert_eq!(
+        pty_writes(&actions),
+        [b"b".to_vec()],
+        "no client input came"
+    );
+    w.feed(Input::PtyWritten(Ok(1)));
+    let actions = w.send(&write(3, b"c", Some(client(1))));
+    let result = input_result(&mut w, &actions, 3).expect("done");
+    assert_eq!(
+        outcome(&result),
+        (WriteOutcome::NotWritten(NotWrittenReason::Stale), 0, 0)
+    );
+}
+
+/// IN-10: the input guard passes iff no input of its class was admitted after its revision; the guard of a queued write is
+/// checked at its start, so a write admitted before it makes it `Stale` with exact zero.
+#[test]
+fn the_input_guard_is_checked_at_the_start() {
+    let mut w = World::running();
+    let guard = |rev| Guard {
+        input: Some(InputGuard {
+            source_class: SourceClass::Host,
+            rev: InputRev(rev),
+        }),
+        model_rev: None,
+    };
+    w.send(&write(1, b"a", None));
+    // Queued behind write 1, with the revision from before it.
+    let actions = w.send(&write(2, b"b", Some(guard(0))));
+    assert!(input_result(&mut w, &actions, 2).is_none(), "queued");
+    let actions = w.feed(Input::PtyWritten(Ok(1)));
+    let result = input_result(&mut w, &actions, 2).expect("stale at its start");
+    assert_eq!(
+        outcome(&result),
+        (WriteOutcome::NotWritten(NotWrittenReason::Stale), 0, 0)
+    );
+    assert!(pty_writes(&actions).is_empty());
+    let actions = w.send(&write(3, b"c", Some(guard(1))));
+    assert_eq!(
+        pty_writes(&actions),
+        [b"c".to_vec()],
+        "unchanged: it passes"
+    );
+}
+
+/// IN-10: the terminal guard passes iff the model's revision is unchanged; output moves it.
+#[test]
+fn the_terminal_guard_refuses_after_output() {
+    let mut w = World::running();
+    let guard = |rev| Guard {
+        input: None,
+        model_rev: Some(ModelRev(rev)),
+    };
+    let actions = w.send(&write(1, b"a", Some(guard(0))));
+    assert_eq!(pty_writes(&actions), [b"a".to_vec()]);
+    w.feed(Input::PtyWritten(Ok(1)));
+    w.feed(Input::PtyOutput(b"redraw".to_vec()));
+    let actions = w.send(&write(2, b"b", Some(guard(0))));
+    let result = input_result(&mut w, &actions, 2).expect("done");
+    assert_eq!(
+        outcome(&result),
+        (WriteOutcome::NotWritten(NotWrittenReason::Stale), 0, 0)
+    );
+}
+
+/// IN-1, IN-9: `Text` is written as its UTF-8 bytes; an empty payload completes `Written` with zero counts.
+#[test]
+fn text_is_its_utf8_and_an_empty_write_is_written() {
+    let mut w = World::running();
+    let actions = w.send(&HostMsg::Op {
+        req: 1,
+        op: Op::WriteInput {
+            session: SessionId("s".into()),
+            payload: InputPayload::Text { text: "é!".into() },
+            guard: None,
+        },
+    });
+    assert_eq!(pty_writes(&actions), ["é!".as_bytes().to_vec()]);
+    w.feed(Input::PtyWritten(Ok(3)));
+    let actions = w.send(&write(2, b"", None));
+    let result = input_result(&mut w, &actions, 2).expect("done");
+    assert_eq!(outcome(&result), (WriteOutcome::Written, 0, 0));
+    assert!(pty_writes(&actions).is_empty());
+}
+
+/// A write before the spawn's answer waits for it, then starts on the live payload.
+#[test]
+fn a_write_waits_for_the_spawn() {
+    let mut w = World::linked();
+    w.send(&HostMsg::Launch(Box::new(spec())));
+    assert!(pty_writes(&w.send(&write(1, b"a", None))).is_empty());
+    assert_eq!(
+        pty_writes(&w.feed(Input::Spawned(Ok(PAYLOAD)))),
+        [b"a".to_vec()]
+    );
+}
+
+// ---- adoption (P5; botster-core-host DESIGN.md "Adoption (P5)", parts 3, 4 and 7) ----
+
+const ADOPTER: CandidateId = CandidateId(1);
+
+/// The actions after the fence, and the reports among them, decoded on the new link.
+fn after_fence(w: &mut World, actions: &[Action]) -> (Vec<Action>, Vec<Frame>) {
+    let at = actions
+        .iter()
+        .position(|a| *a == Action::AdoptLink(ADOPTER))
+        .expect("the candidate replaced the link");
+    let rest = actions[at + 1..].to_vec();
+    let frames = w.frames(&rest);
+    (rest, frames)
+}
+
+/// A new host at `epoch` connects to the endpoint and sends its hello.
+fn adopt(w: &mut World, epoch: u64) -> Vec<Action> {
+    let mut actions = w.feed(Input::Candidate(ADOPTER));
+    actions.extend(w.feed(Input::CandidateBytes(
+        ADOPTER,
+        World::host_hello(instance(), epoch, TOKEN),
+    )));
+    actions
+}
+
+/// The worker's hello and its report on the new link.
+fn adopted(w: &mut World, actions: &[Action]) -> (Hello, AdoptReport) {
+    let (_, frames) = after_fence(w, actions);
+    assert_eq!(frames.len(), 2, "{frames:?}");
+    assert_eq!(frames[0].kind, FrameType::HELLO);
+    let hello = Hello::decode(&frames[0].payload).unwrap();
+    let report = match WorkerMsg::decode(&frames[1].payload).unwrap() {
+        WorkerMsg::Adopted { report } => *report,
+        other => panic!("{other:?}"),
+    };
+    (hello, report)
+}
+
+/// DESIGN.md 3.3, 3.4, part 4; AD-6, DP-8: a new host proves the host role at a higher epoch. The worker fences the old
+/// link, records the epoch, answers with its own proof at that epoch, and reports a payload that runs.
+#[test]
+fn a_candidate_that_proves_the_host_role_replaces_the_link() {
+    let mut w = World::running();
+    let actions = adopt(&mut w, EPOCH + 3);
+    let (hello, report) = adopted(&mut w, &actions);
+    assert_eq!(hello.host_epoch, EPOCH + 3);
+    assert_eq!(hello.instance, instance());
+    assert_eq!(hello.proof, token_proof(&TOKEN, &instance(), EPOCH + 3));
+    assert_eq!(report.payload, AdoptedPayload::Running { payload: PAYLOAD });
+    assert_eq!(report.features, worker_features());
+    assert_eq!(report.terminal.map(|t| t.size), Some(size()));
+    // The new link obeys the new host.
+    let stop = w.send(&HostMsg::Stop);
+    assert_eq!(signals(&stop), [SIGTERM]);
+}
+
+/// DESIGN.md 3.3 (integration D1, P5-F20): an equal epoch adopts again; a lower one is refused, and the refusal closes only
+/// the candidate.
+#[test]
+fn an_equal_epoch_adopts_and_a_lower_one_is_refused() {
+    let mut w = World::running();
+    let first = adopt(&mut w, EPOCH + 1);
+    adopted(&mut w, &first);
+    let again = adopt(&mut w, EPOCH + 1);
+    adopted(&mut w, &again);
+    let lower = adopt(&mut w, EPOCH);
+    assert_eq!(lower, [Action::CandidateClose(ADOPTER)]);
+    assert_eq!(
+        signals(&w.send(&HostMsg::Stop)),
+        [SIGTERM],
+        "the link stays"
+    );
+}
+
+/// AD-6, A11: a candidate whose hello fails closes only the candidate. The worker's own proof sent back (a replay), another
+/// token, another instance, a message, and a hello in a frame of another kind are all refused.
+#[test]
+fn a_candidate_that_does_not_prove_the_host_role_is_closed_alone() {
+    let replay = {
+        let hello = Hello {
+            protocol: WORKER_PROTOCOL,
+            proof: token_proof(&TOKEN, &instance(), EPOCH + 1),
+            instance: instance(),
+            host_epoch: EPOCH + 1,
+        };
+        let mut payload = Vec::new();
+        hello.encode(&mut payload).unwrap();
+        World::frame(FrameType::HELLO, &payload)
+    };
+    let wrong = [
+        replay,
+        World::host_hello(instance(), EPOCH + 1, [8; TOKEN_LEN]),
+        World::host_hello(InstanceId("4-2".into()), EPOCH + 1, TOKEN),
+        World::msg(&HostMsg::Stop),
+        // A valid host hello in a frame that is not a hello.
+        {
+            let mut hello = World::host_hello(instance(), EPOCH + 1, TOKEN);
+            let mut decoder = FrameDecoder::new(DEFAULT_MAX_PAYLOAD);
+            decoder.push(&hello);
+            let payload = decoder.next_frame().unwrap().unwrap().payload;
+            hello = World::frame(FrameType::HOST_MSG, &payload);
+            hello
+        },
+    ];
+    for bytes in wrong {
+        let mut w = World::running();
+        w.feed(Input::Candidate(ADOPTER));
+        let actions = w.feed(Input::CandidateBytes(ADOPTER, bytes));
+        assert_eq!(actions, [Action::CandidateClose(ADOPTER)]);
+        assert_eq!(
+            signals(&w.send(&HostMsg::Stop)),
+            [SIGTERM],
+            "the link stays"
+        );
+    }
+}
+
+/// DESIGN.md part 7: at most one candidate at a time; a frame above one hello closes it; its hello has `startup`.
+#[test]
+fn a_candidate_is_bounded() {
+    let mut w = World::running();
+    assert!(w.feed(Input::Candidate(ADOPTER)).is_empty());
+    assert_eq!(
+        w.feed(Input::Candidate(CandidateId(2))),
+        [Action::CandidateClose(CandidateId(2))]
+    );
+    let big = World::frame(FrameType::HELLO, &vec![b' '; 4096]);
+    assert_eq!(
+        w.feed(Input::CandidateBytes(ADOPTER, big)),
+        [Action::CandidateClose(ADOPTER)]
+    );
+    assert!(w.feed(Input::Candidate(CandidateId(3))).is_empty());
+    let startup = cfg().startup;
+    assert_eq!(w.worker.next_deadline(), Some(w.now + startup));
+    w.now += startup;
+    assert_eq!(
+        w.feed(Input::Timer),
+        [Action::CandidateClose(CandidateId(3))]
+    );
+    // A closed candidate is gone: a new one is taken.
+    assert!(w.feed(Input::Candidate(CandidateId(4))).is_empty());
+    w.feed(Input::CandidateClosed(CandidateId(4)));
+    assert!(w.feed(Input::Candidate(CandidateId(5))).is_empty());
+}
+
+/// DESIGN.md part 4: the report gives the payload's live state: `NotLaunched`, `Spawning`, `LaunchFailed` and `Exited`,
+/// with a terminal state only for a payload that ran.
+#[test]
+fn the_adoption_report_gives_the_payload_state() {
+    let mut w = World::linked();
+    let actions = adopt(&mut w, EPOCH + 1);
+    let (_, report) = adopted(&mut w, &actions);
+    assert_eq!(report.payload, AdoptedPayload::NotLaunched);
+    assert_eq!(report.terminal, None);
+
+    let mut w = World::linked();
+    w.send(&HostMsg::Launch(Box::new(spec())));
+    let actions = adopt(&mut w, EPOCH + 1);
+    let (_, report) = adopted(&mut w, &actions);
+    assert_eq!(report.payload, AdoptedPayload::Spawning);
+    // The spawn's answer goes to the new host.
+    let reports = {
+        let actions = w.feed(Input::Spawned(Ok(PAYLOAD)));
+        w.reports(&actions)
+    };
+    assert!(
+        matches!(reports[0], WorkerMsg::Launched { .. }),
+        "{reports:?}"
+    );
+
+    let mut w = World::linked();
+    w.send(&HostMsg::Launch(Box::new(spec())));
+    w.feed(Input::Spawned(Err(SpawnFailure::CwdMissing)));
+    let actions = adopt(&mut w, EPOCH + 1);
+    let (_, report) = adopted(&mut w, &actions);
+    assert_eq!(
+        report.payload,
+        AdoptedPayload::LaunchFailed {
+            reason: StartFailReason::CwdMissing
+        }
+    );
+    assert_eq!(report.terminal, None);
+
+    let (mut w, _) = World::exited(ExitStatus::Signal(9));
+    let actions = adopt(&mut w, EPOCH + 1);
+    let (_, report) = adopted(&mut w, &actions);
+    assert_eq!(
+        report.payload,
+        AdoptedPayload::Exited {
+            code: None,
+            signal: Some(9)
+        }
+    );
+    assert!(report.terminal.is_some(), "ST-5: the final model");
+}
+
+/// DESIGN.md part 4: an exit that is not reported yet is `Running` in the report; the exit follows on the new link after
+/// the drain.
+#[test]
+fn an_exit_before_its_drain_follows_the_report() {
+    let mut w = World::running();
+    w.feed(Input::PayloadExited(ExitStatus::Code(3)));
+    let actions = adopt(&mut w, EPOCH + 1);
+    let (_, report) = adopted(&mut w, &actions);
+    assert_eq!(report.payload, AdoptedPayload::Running { payload: PAYLOAD });
+    let actions = w.feed(Input::PtyDrained);
+    assert_eq!(
+        w.reports(&actions),
+        [WorkerMsg::Exited {
+            code: Some(3),
+            signal: None
+        }]
+    );
+}
+
+/// DESIGN.md 3.4 (P3's review): the fence retires every request of the old host. Its queued write never runs, the write in
+/// progress runs to its end and reports nothing, and the new host's request of the same number completes only for itself.
+#[test]
+fn the_fence_retires_the_old_hosts_requests() {
+    let mut w = World::running();
+    w.send(&write(1, b"abc", None));
+    w.send(&write(2, b"zz", None));
+    let actions = adopt(&mut w, EPOCH + 1);
+    adopted(&mut w, &actions);
+    // The new host's first request has the number of the old host's write in flight.
+    let new = w.send(&write(1, b"n", None));
+    assert!(
+        pty_writes(&new).is_empty(),
+        "the old write owns the PTY input"
+    );
+    let actions = w.feed(Input::PtyWritten(Ok(3)));
+    assert_eq!(
+        pty_writes(&actions),
+        [b"n".to_vec()],
+        "the old write ran to its end; the old queued write never runs"
+    );
+    assert!(
+        input_result(&mut w, &actions, 1).is_none(),
+        "the old write reports nothing"
+    );
+    let actions = w.feed(Input::PtyWritten(Ok(1)));
+    let result = input_result(&mut w, &actions, 1).expect("the new write's own result");
+    assert_eq!(outcome(&result), (WriteOutcome::Written, 1, 1));
+}
+
+/// AD-7 (`conf::ad_7_crash_between_steps_leaves_no_unregistered_payload`): a worker with no payload and no host ends by
+/// itself after `startup`, and a `Launch` can never reach it later. A host that is linked, or a payload, keeps it alive.
+#[test]
+fn a_worker_with_no_payload_and_no_host_ends_after_startup() {
+    let startup = cfg().startup;
+    let mut w = World::linked();
+    assert_eq!(w.worker.next_deadline(), None, "a linked host keeps it");
+    w.feed(Input::LinkClosed);
+    assert_eq!(w.worker.next_deadline(), Some(w.now + startup));
+    w.now += startup;
+    let actions = w.feed(Input::Timer);
+    assert_eq!(actions, [Action::Exit]);
+    assert_eq!(
+        w.feed(Input::Candidate(ADOPTER)),
+        [Action::CandidateClose(ADOPTER)],
+        "an ended worker takes no candidate"
+    );
+
+    let mut w = World::running();
+    w.feed(Input::LinkClosed);
+    assert_eq!(w.worker.next_deadline(), None, "a payload keeps it (DP-8)");
+
+    // An adoption before the deadline keeps it.
+    let mut w = World::linked();
+    w.feed(Input::LinkClosed);
+    let actions = adopt(&mut w, EPOCH + 1);
+    adopted(&mut w, &actions);
+    assert_eq!(w.worker.next_deadline(), None);
+}
+
+/// P5-F27, DESIGN.md part 7: a hello that comes at the candidate's deadline does not pass, though no `Timer` came first.
+/// The candidate is closed; the control link, the epoch and the payload do not change.
+#[test]
+fn a_hello_at_the_candidates_deadline_does_not_pass_without_a_timer_first() {
+    let mut w = World::running();
+    assert!(w.feed(Input::Candidate(ADOPTER)).is_empty());
+    w.now += cfg().startup;
+    let actions = w.feed(Input::CandidateBytes(
+        ADOPTER,
+        World::host_hello(instance(), EPOCH + 1, TOKEN),
+    ));
+    assert_eq!(actions, [Action::CandidateClose(ADOPTER)]);
+    assert_eq!(
+        w.worker.next_deadline(),
+        None,
+        "the payload keeps the worker"
+    );
+    // The epoch did not change: a later host at `EPOCH + 1` still adopts it.
+    let actions = adopt(&mut w, EPOCH + 1);
+    let (hello, _) = adopted(&mut w, &actions);
+    assert_eq!(hello.host_epoch, EPOCH + 1);
+}
+
+/// P5-F27, AD-7: a host that adopts the worker at its self-exit deadline is too late, though no `Timer` came first. The
+/// worker ends, and the adoption does not pass.
+#[test]
+fn an_adoption_at_the_self_exit_deadline_is_too_late_without_a_timer_first() {
+    let mut w = World::linked();
+    w.feed(Input::LinkClosed);
+    let deadline = w.worker.next_deadline().expect("the self-exit deadline");
+    // The candidate comes later, so its own deadline is after the self-exit: only the self-exit can refuse it.
+    w.now += cfg().startup / 2;
+    assert!(w.feed(Input::Candidate(ADOPTER)).is_empty());
+    w.now = deadline;
+    let actions = w.feed(Input::CandidateBytes(
+        ADOPTER,
+        World::host_hello(instance(), EPOCH + 1, TOKEN),
+    ));
+    assert!(actions.contains(&Action::Exit), "{actions:?}");
+    assert!(
+        actions.contains(&Action::CandidateClose(ADOPTER)),
+        "{actions:?}"
+    );
+    assert!(
+        !actions.contains(&Action::AdoptLink(ADOPTER)),
+        "{actions:?}"
+    );
+}
+
+/// AD-7 (P3 review of #176, L2): a host that connects and then never speaks is no host. The worker's own hello is its
+/// first input (`LinkWritten`, which needs nothing from the host), so the deadline arms at the start and the worker ends
+/// after `startup`.
+#[test]
+fn a_worker_whose_host_never_speaks_ends_after_startup() {
+    let mut w = World::new();
+    let first = w.initial();
+    assert_eq!(w.frames(&first).len(), 1, "the worker's hello");
+    w.worker.handle(w.now, Input::LinkWritten { total: w.sent });
+    assert_eq!(w.worker.next_deadline(), Some(w.now + cfg().startup));
+    w.now += cfg().startup;
+    // The silent host's link is still open: the worker closes it, then ends.
+    assert_eq!(w.feed(Input::Timer), [Action::LinkClose, Action::Exit]);
+}
+
+/// LC-7, DESIGN.md part 7: a worker that is removing its session, or that waits to end after the removal, takes no
+/// candidate: the removal ends the session.
+#[test]
+fn a_removing_worker_takes_no_candidate() {
+    let mut w = World::running();
+    w.send(&HostMsg::Remove);
+    assert_eq!(
+        w.feed(Input::Candidate(ADOPTER)),
+        [Action::CandidateClose(ADOPTER)],
+        "the removal is under way"
+    );
+    w.instant_link = false;
+    w.feed(Input::PayloadExited(ExitStatus::Signal(9)));
+    let actions = w.feed(Input::PtyDrained);
+    assert!(
+        w.reports(&actions)
+            .iter()
+            .any(|m| matches!(m, WorkerMsg::RemoveResult { .. })),
+        "{actions:?}"
+    );
+    assert!(
+        !actions.contains(&Action::Exit),
+        "the result is not written yet"
+    );
+    assert_eq!(
+        w.feed(Input::Candidate(ADOPTER)),
+        [Action::CandidateClose(ADOPTER)],
+        "the worker waits to end"
+    );
+}
+
+/// DESIGN.md 3.4, AM-2: a cancel from the new host never reaches the old host's write in progress, even with the same
+/// request number: the old write runs to its end.
+#[test]
+fn a_new_hosts_cancel_never_stops_the_retired_write() {
+    let mut w = World::running();
+    w.send(&write(1, b"abc", None));
+    let actions = adopt(&mut w, EPOCH + 1);
+    adopted(&mut w, &actions);
+    w.send(&HostMsg::Cancel { req: 1 });
+    let actions = w.feed(Input::PtyWritten(Ok(1)));
+    assert_eq!(pty_writes(&actions), [b"bc".to_vec()]);
 }

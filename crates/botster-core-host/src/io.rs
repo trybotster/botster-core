@@ -73,6 +73,21 @@ pub enum Action {
         instance: InstanceId,
         token: [u8; TOKEN_LEN],
         host_epoch: u64,
+        /// `CoreLimits.startup`, for the worker (DESIGN.md "Adoption (P5)", parts 1 and 7).
+        startup: std::time::Duration,
+    },
+    /// Removes the endpoint of the worker of `instance`, if it is still there (DESIGN.md "Adoption (P5)" part 1; SV-9): the
+    /// worker's end is verified (LC-7 step 3), and a worker that was killed could not remove it. No answer: a failure is
+    /// recorded in the edges' diagnostics and does not fail the `Remove`.
+    RemoveEndpoint {
+        instance: InstanceId,
+    },
+    /// Connects to the endpoint of the worker of `instance` (DESIGN.md "Adoption (P5)" 3.1); the answer is
+    /// [`Input::WorkerConnected`]. The host speaks first on the new link: the worker cannot prove the epoch of a host that
+    /// it has not heard (DP-8).
+    ConnectWorker {
+        ticket: Ticket,
+        instance: InstanceId,
     },
     /// The host's side of the hello, on a link that sent a valid one (AD-6).
     SendHello {
@@ -134,7 +149,13 @@ pub enum Input {
         ticket: Ticket,
         result: Result<ProcessIdentity, SpawnError>,
     },
-    /// A worker connected and sent a valid-framed hello on a new link.
+    /// The answer to [`Action::ConnectWorker`]: the new link, or `None` when no worker answers at the endpoint.
+    WorkerConnected {
+        ticket: Ticket,
+        link: Option<LinkId>,
+    },
+    /// The first frame of a link, a valid-framed hello: of a worker that connected, or the worker's answer on a link that
+    /// the host made (`Action::ConnectWorker`).
     LinkHello {
         link: LinkId,
         hello: Hello,

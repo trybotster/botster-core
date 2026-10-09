@@ -183,13 +183,95 @@ impl AcceptFailures {
     }
 }
 
-/// What the real edges report in the host's diagnostics (LC-10): the failed accepts and the foreign registry files.
-fn edge_diagnostics(accepts: &AcceptFailures, foreign_registry_files: usize) -> serde_json::Value {
+/// The removals of worker endpoints that failed (DESIGN.md "Adoption (P5)" part 1: recorded, never a failed `Remove`).
+#[derive(Debug, Default, PartialEq, Eq)]
+struct UnlinkFailures {
+    count: u64,
+    last: Option<String>,
+}
+
+impl UnlinkFailures {
+    /// What a removal returned. An endpoint that is not there is no failure: the worker removed its own when it ended.
+    fn record(&mut self, result: io::Result<()>) {
+        match result {
+            Ok(()) => {}
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Err(error) => {
+                self.count += 1;
+                self.last = Some(error.to_string());
+            }
+        }
+    }
+}
+
+/// What the real edges report in the host's diagnostics (LC-10): the failed accepts, the foreign registry files and the
+/// failed endpoint removals.
+fn edge_diagnostics(
+    accepts: &AcceptFailures,
+    foreign_registry_files: usize,
+    unlinks: &UnlinkFailures,
+) -> serde_json::Value {
     serde_json::json!({
         "accept_failures": accepts.count,
         "last_accept_error": accepts.last,
         "foreign_registry_files": foreign_registry_files,
+        "endpoint_unlink_failures": unlinks.count,
+        "last_endpoint_unlink_error": unlinks.last,
     })
+}
+
+/// The directory of the worker endpoints inside the data directory (DESIGN.md "Adoption (P5)" part 1).
+fn endpoint_dir(data_dir: &Path) -> PathBuf {
+    data_dir.join("w")
+}
+
+/// The endpoint of the worker of `instance`: `<data_dir>/w/<InstanceId>`.
+pub(crate) fn endpoint_path(data_dir: &Path, instance: &InstanceId) -> PathBuf {
+    endpoint_dir(data_dir).join(&instance.0)
+}
+
+/// What `lstat` tells about the endpoint directory.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct DirFacts {
+    /// A directory itself, not a link to one (`lstat`).
+    is_dir: bool,
+    owner: u32,
+    mode: u32,
+}
+
+/// AD-6 ("worker endpoints are connectable only by the host's uid"): the endpoint directory is a directory, not a link, owned
+/// by `uid`, with no group or other bits. `uid` is the owner of the data directory, which `DataDir::open` proved is this
+/// user (the effective uid).
+fn endpoint_dir_safe(facts: DirFacts, uid: u32) -> bool {
+    facts.is_dir && facts.owner == uid && facts.mode & 0o077 == 0
+}
+
+/// Creates the endpoint directory with mode `0700` when it is missing, and refuses one that is not safe.
+fn open_endpoint_dir(data_dir: &Path) -> io::Result<()> {
+    use std::os::unix::fs::{DirBuilderExt, MetadataExt};
+    let dir = endpoint_dir(data_dir);
+    match std::fs::DirBuilder::new().mode(0o700).create(&dir) {
+        Err(error) if error.kind() != io::ErrorKind::AlreadyExists => return Err(error),
+        _ => {}
+    }
+    let owner = std::fs::metadata(data_dir)?.uid();
+    let meta = std::fs::symlink_metadata(&dir)?;
+    let facts = DirFacts {
+        is_dir: meta.file_type().is_dir(),
+        owner: meta.uid(),
+        mode: meta.mode(),
+    };
+    if endpoint_dir_safe(facts, owner) {
+        Ok(())
+    } else {
+        Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            format!(
+                "the worker endpoint directory {} is not a 0700 directory of this user (AD-6)",
+                dir.display()
+            ),
+        ))
+    }
 }
 
 /// The path of the control socket inside the data directory. A Unix socket path is limited to about 100 bytes, so the name is
@@ -198,23 +280,23 @@ fn socket_path(data_dir: &Path) -> PathBuf {
     data_dir.join("c")
 }
 
-/// The control socket of `data_dir` must fit a Unix socket address. `open` checks it before it touches the directory or
-/// the host epoch, and a directory whose socket cannot be bound is a configuration error of `data_dir`.
+/// The control socket and the longest worker endpoint of `data_dir` must fit a Unix socket address. `open` checks them
+/// before it touches the directory or the host epoch, and a directory whose sockets cannot be bound is a configuration error
+/// of `data_dir`.
 pub(crate) fn check_socket_path(data_dir: &Path) -> Result<(), CoreError> {
-    let socket = socket_path(data_dir);
-    std::os::unix::net::SocketAddr::from_pathname(&socket)
-        .map(drop)
-        .map_err(|error| {
+    // The longest worker endpoint has the longest `InstanceId`, `"<u64>-<u64>"` (DESIGN.md "Adoption (P5)" part 1).
+    let longest = InstanceId(format!("{}-{}", u64::MAX, u64::MAX));
+    for socket in [socket_path(data_dir), endpoint_path(data_dir, &longest)] {
+        std::os::unix::net::SocketAddr::from_pathname(&socket).map_err(|error| {
             CoreError::new(
                 ErrorCode::InvalidConfig {
                     field: "data_dir".into(),
                 },
-                format!(
-                    "the control socket {} cannot be bound: {error}",
-                    socket.display()
-                ),
+                format!("the socket {} cannot be bound: {error}", socket.display()),
             )
-        })
+        })?;
+    }
+    Ok(())
 }
 
 /// One accepted control link and what is registered for it (plan 2.5: read interest follows what the engine can take, write
@@ -272,6 +354,9 @@ pub struct RealEdges {
     children: Children,
     listener: UnixListener,
     socket: PathBuf,
+    /// The data directory: the worker endpoints are in it.
+    data_dir: PathBuf,
+    unlinks: UnlinkFailures,
     streams: BTreeMap<LinkId, LinkIo>,
     next_link: u64,
     accepts: AcceptFailures,
@@ -285,6 +370,7 @@ impl RealEdges {
     /// Opens the edges of a host over an open data directory. The directory's lock and registry move into the edges.
     pub fn new(data: DataDir, data_dir: &Path) -> io::Result<(RealEdges, u64)> {
         let (lock, storage, epoch) = data.into_storage();
+        open_endpoint_dir(data_dir)?;
         let socket = socket_path(data_dir);
         // A socket file of an earlier host is stale: the lock proves that no host holds the directory now.
         let _ = std::fs::remove_file(&socket);
@@ -304,6 +390,8 @@ impl RealEdges {
                 }),
                 listener,
                 socket,
+                data_dir: data_dir.to_path_buf(),
+                unlinks: UnlinkFailures::default(),
                 streams: BTreeMap::new(),
                 next_link: 1,
                 accepts: AcceptFailures::default(),
@@ -357,6 +445,8 @@ impl HostEdges for RealEdges {
             instance: spec.instance.clone(),
             host_epoch: spec.host_epoch,
             token: spec.token,
+            endpoint: endpoint_path(&self.data_dir, &spec.instance),
+            startup_ms: WorkerLaunch::millis(spec.startup),
         };
         self.children.spawn(&SpawnSpec {
             program: spec.program.clone(),
@@ -378,29 +468,27 @@ impl HostEdges for RealEdges {
         self.children.poll_exit()
     }
 
+    /// DESIGN.md "Adoption (P5)" 3.1: a non-blocking connect to the worker endpoint, registered as an accepted link is. A
+    /// connect that fails (no endpoint, no worker listening) is `None`: the adoption is `Lost(WorkerUnreachable)`.
+    fn connect_worker(&mut self, instance: &InstanceId) -> Option<LinkId> {
+        let stream =
+            retry_interrupted(|| UnixStream::connect(endpoint_path(&self.data_dir, instance)))
+                .ok()?;
+        Some(self.add_stream(stream))
+    }
+
+    fn remove_endpoint(&mut self, instance: &InstanceId) {
+        self.unlinks.record(std::fs::remove_file(endpoint_path(
+            &self.data_dir,
+            instance,
+        )));
+    }
+
     fn accept_link(&mut self) -> Option<LinkId> {
-        let (mut stream, _) = self
+        let (stream, _) = self
             .accepts
             .take(retry_interrupted(|| self.listener.accept()))?;
-        let link = LinkId(self.next_link);
-        self.next_link += 1;
-        let registered =
-            self.wake
-                .registry
-                .register(&mut stream, Token(link.0 as usize), Interest::READABLE);
-        // A link that the poll does not take is accepted broken: its first read fails, and the driver closes it and records
-        // why.
-        self.streams.insert(
-            link,
-            LinkIo {
-                stream,
-                read: true,
-                write: false,
-                registered: registered.is_ok(),
-                broken: broken_after(&registered, None),
-            },
-        );
-        Some(link)
+        Some(self.add_stream(stream))
     }
 
     fn link_recv(&mut self, link: LinkId, buf: &mut [u8]) -> io::Result<usize> {
@@ -475,7 +563,31 @@ impl HostEdges for RealEdges {
     }
 
     fn diagnostics(&self) -> serde_json::Value {
-        edge_diagnostics(&self.accepts, self.foreign_registry_files)
+        edge_diagnostics(&self.accepts, self.foreign_registry_files, &self.unlinks)
+    }
+}
+
+impl RealEdges {
+    /// A link of an accepted or a connected stream, registered for reading. A link that the poll does not take is broken:
+    /// its first read fails, and the driver closes it and records why.
+    fn add_stream(&mut self, mut stream: UnixStream) -> LinkId {
+        let link = LinkId(self.next_link);
+        self.next_link += 1;
+        let registered =
+            self.wake
+                .registry
+                .register(&mut stream, Token(link.0 as usize), Interest::READABLE);
+        self.streams.insert(
+            link,
+            LinkIo {
+                stream,
+                read: true,
+                write: false,
+                registered: registered.is_ok(),
+                broken: broken_after(&registered, None),
+            },
+        );
+        link
     }
 }
 
@@ -592,13 +704,137 @@ mod tests {
                 last: Some("second".into())
             }
         );
+        let mut unlinks = UnlinkFailures::default();
+        unlinks.record(Ok(()));
+        unlinks.record(Err(io::ErrorKind::NotFound.into()));
         assert_eq!(
-            edge_diagnostics(&accepts, 3),
+            unlinks,
+            UnlinkFailures::default(),
+            "a missing endpoint is no failure"
+        );
+        unlinks.record(Err(io::Error::other("busy")));
+        assert_eq!(
+            edge_diagnostics(&accepts, 3, &unlinks),
             serde_json::json!({
                 "accept_failures": 2,
                 "last_accept_error": "second",
                 "foreign_registry_files": 3,
+                "endpoint_unlink_failures": 1,
+                "last_endpoint_unlink_error": "busy",
             })
+        );
+    }
+
+    /// DESIGN.md "Adoption (P5)" part 1: the endpoint of an instance is `<data_dir>/w/<InstanceId>`.
+    #[test]
+    fn a_worker_endpoint_is_in_the_endpoint_directory() {
+        assert_eq!(
+            endpoint_path(Path::new("/d"), &InstanceId("7-1".into())),
+            PathBuf::from("/d/w/7-1")
+        );
+    }
+
+    /// AD-6, DESIGN.md part 1: only a directory itself, of the host's uid, with no group or other bits, is safe.
+    #[test]
+    fn only_a_private_directory_of_the_user_is_a_safe_endpoint_directory() {
+        let safe = DirFacts {
+            is_dir: true,
+            owner: 501,
+            mode: 0o40700,
+        };
+        assert!(endpoint_dir_safe(safe, 501));
+        assert!(!endpoint_dir_safe(safe, 502), "another user's");
+        assert!(
+            !endpoint_dir_safe(
+                DirFacts {
+                    is_dir: false,
+                    ..safe
+                },
+                501
+            ),
+            "a link or a file"
+        );
+        for bits in [0o040, 0o020, 0o010, 0o004, 0o002, 0o001] {
+            assert!(
+                !endpoint_dir_safe(
+                    DirFacts {
+                        mode: 0o40700 | bits,
+                        ..safe
+                    },
+                    501
+                ),
+                "{bits:o}"
+            );
+        }
+    }
+
+    /// AD-6, DESIGN.md part 1: `open` creates the endpoint directory with mode 0700 and opens an existing private one. It
+    /// refuses one that other users can reach and a link, and a failed create fails the open with its own error.
+    #[test]
+    fn the_endpoint_directory_is_created_private_and_an_unsafe_one_is_refused() {
+        use std::os::unix::fs::{symlink, PermissionsExt};
+        let mode = |path: &Path| {
+            std::fs::symlink_metadata(path)
+                .unwrap()
+                .permissions()
+                .mode()
+        };
+        let data = tempfile::tempdir().unwrap();
+        open_endpoint_dir(data.path()).unwrap();
+        assert_eq!(mode(&endpoint_dir(data.path())) & 0o777, 0o700);
+        open_endpoint_dir(data.path()).expect("an existing private directory is opened");
+
+        std::fs::set_permissions(
+            endpoint_dir(data.path()),
+            std::fs::Permissions::from_mode(0o750),
+        )
+        .unwrap();
+        assert_eq!(
+            open_endpoint_dir(data.path()).unwrap_err().kind(),
+            io::ErrorKind::PermissionDenied
+        );
+
+        let linked = tempfile::tempdir().unwrap();
+        let target = linked.path().join("target");
+        std::fs::DirBuilder::new().create(&target).unwrap();
+        std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o700)).unwrap();
+        symlink(&target, endpoint_dir(linked.path())).unwrap();
+        assert_eq!(
+            open_endpoint_dir(linked.path()).unwrap_err().kind(),
+            io::ErrorKind::PermissionDenied,
+            "a link is not the directory itself"
+        );
+
+        // The superuser creates in a read-only directory, so the create cannot fail there.
+        if !rustix::process::geteuid().is_root() {
+            let closed = tempfile::tempdir().unwrap();
+            std::fs::set_permissions(closed.path(), std::fs::Permissions::from_mode(0o500))
+                .unwrap();
+            let refused = open_endpoint_dir(closed.path()).unwrap_err().kind();
+            std::fs::set_permissions(closed.path(), std::fs::Permissions::from_mode(0o700))
+                .unwrap();
+            assert_eq!(
+                refused,
+                io::ErrorKind::PermissionDenied,
+                "the create's own error"
+            );
+        }
+    }
+
+    /// DESIGN.md part 1: a data directory whose longest worker endpoint cannot be bound is refused, as one whose control
+    /// socket cannot be bound is.
+    #[test]
+    fn a_data_directory_whose_longest_endpoint_cannot_be_bound_is_a_config_error() {
+        // The control socket fits; the longest endpoint (41 more bytes) does not.
+        let base = "/tmp/".to_string() + &"d".repeat(60);
+        assert!(
+            std::os::unix::net::SocketAddr::from_pathname(socket_path(Path::new(&base))).is_ok()
+        );
+        assert_eq!(
+            check_socket_path(Path::new(&base)).unwrap_err().code,
+            ErrorCode::InvalidConfig {
+                field: "data_dir".into()
+            }
         );
     }
 }

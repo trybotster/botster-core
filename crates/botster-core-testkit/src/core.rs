@@ -109,6 +109,12 @@ pub trait Spawner: Send {
     fn poll_exit(&mut self) -> Option<(ProcessIdentity, ExitStatus)> {
         None
     }
+    /// Connects to the endpoint of the worker of `instance` (DESIGN.md part 6): the worker takes `end`, its side of the new
+    /// link. False when no worker listens there (none was spawned, it ended, or its endpoint was removed).
+    fn connect_worker(&mut self, instance: &InstanceId, end: LinkEnd) -> bool;
+    /// Removes the endpoint of the worker of `instance` (DESIGN.md part 1, `Remove` step 4). A missing endpoint is no
+    /// failure.
+    fn remove_endpoint(&mut self, instance: &InstanceId);
 }
 
 /// The scheduler of the testkit as a `Scheduler`: every choice draws from the one seeded stream.
@@ -224,6 +230,26 @@ impl HostEdges for SimEdges {
 
     fn poll_process_exit(&mut self) -> Option<(ProcessIdentity, ExitStatus)> {
         self.spawner.as_mut().and_then(|s| s.poll_exit())
+    }
+
+    /// AD-6, DESIGN.md part 6: an in-memory connection to the worker endpoint. The link is the host's at once, as a
+    /// completed connect is.
+    fn connect_worker(&mut self, instance: &InstanceId) -> Option<LinkId> {
+        let spawner = self.spawner.as_mut()?;
+        let (host, worker) = crate::net::link_pair(self.link_capacity);
+        if !spawner.connect_worker(instance, worker) {
+            return None;
+        }
+        let link = LinkId(self.next_link);
+        self.next_link += 1;
+        self.links.insert(link, host);
+        Some(link)
+    }
+
+    fn remove_endpoint(&mut self, instance: &InstanceId) {
+        if let Some(spawner) = self.spawner.as_mut() {
+            spawner.remove_endpoint(instance);
+        }
     }
 
     fn accept_link(&mut self) -> Option<LinkId> {

@@ -174,6 +174,8 @@ impl Session {
             instance: InstanceId("1-1".into()),
             host_epoch: 1,
             token: [5; 32],
+            endpoint: root.join("e"),
+            startup_ms: WorkerLaunch::millis(CoreLimits::default().startup),
         };
         let observer_guard = crate::DRIVER_OBSERVER.map(|_| process_guard::GroupGuard::new(root));
         let mut command = if let Some(observer) = crate::DRIVER_OBSERVER {
@@ -220,7 +222,11 @@ impl Session {
         Hello {
             protocol: 1,
             instance: launch.instance.clone(),
-            proof,
+            proof: botster_core_link::proof::host_proof(
+                &launch.token,
+                &launch.instance,
+                launch.host_epoch,
+            ),
             host_epoch: 1,
         }
         .encode(&mut reply)
