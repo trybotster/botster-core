@@ -212,17 +212,44 @@ fn mouse(action: MouseAction, button: MouseButton, notches: Option<u32>) -> Inpu
     })
 }
 
-/// Core IN-5, IN-9, A2-1 (`WriteInput`): the payload bound is exact for every kind: the bytes of a byte, text or paste
-/// payload, and 64 bytes for each repeat of a key and each notch of a wheel.
+/// The worst-case size of one key sequence over every mode, from libghostty's encoders (5.1A).
+fn longest_key(payload: &InputPayload) -> u64 {
+    let InputPayload::Key(key) = payload else {
+        panic!("a key payload");
+    };
+    botster_terminal_ghostty::longest_key_sequence(key, u64::MAX).expect("a key encoder")
+}
+
+/// The worst-case size of one mouse report over every mode, from libghostty's encoders (5.1A).
+fn longest_mouse(payload: &InputPayload) -> u64 {
+    let InputPayload::Mouse(mouse) = payload else {
+        panic!("a mouse payload");
+    };
+    botster_terminal_ghostty::longest_mouse_report(mouse)
+}
+
+/// Core IN-5, IN-9, A2-1 (`WriteInput`), 5.1A: the payload bound is exact for every kind: the bytes of a byte, text or
+/// paste payload, and for a key or a wheel the worst-case encoded size over every mode, once for each repeat or notch.
 #[test]
 fn the_payload_bound_is_exact_for_every_kind() {
+    let one_key = key(None, KeyEvent::Press, false, vec![]);
+    let one_notch = mouse(MouseAction::Wheel, MouseButton::WheelUp, None);
+    let (key_bytes, notch_bytes) = (longest_key(&one_key), longest_mouse(&one_notch));
+    assert!(
+        key_bytes > 0 && notch_bytes > 0,
+        "libghostty writes both in some mode"
+    );
+    // Two repeats fit exactly; the third does not. The wheel gets as many notches as fit, then one more.
+    let limit = 2 * key_bytes;
+    let notches = u32::try_from(limit / notch_bytes).expect("a notch count");
     let mut w = World::new(limits(|l| {
-        l.max_paste_bytes = 128;
+        l.max_paste_bytes = limit;
         l.max_key_repeat = 3;
         l.input_ops_per_session = 64;
         l.input_retained_bytes = 1 << 20;
     }));
     w.running("s1");
+    let n = usize::try_from(limit).expect("a small limit");
     let paste = |n| InputPayload::Paste {
         bytes: hex(n),
         require_bracketed: false,
@@ -231,12 +258,20 @@ fn the_payload_bound_is_exact_for_every_kind() {
         text: "x".repeat(n),
     };
     for (what, payload, ok) in [
-        ("bytes 128", InputPayload::Bytes { bytes: hex(128) }, true),
-        ("bytes 129", InputPayload::Bytes { bytes: hex(129) }, false),
-        ("text 128", text(128), true),
-        ("text 129", text(129), false),
-        ("paste 128", paste(128), true),
-        ("paste 129", paste(129), false),
+        (
+            "bytes at the limit",
+            InputPayload::Bytes { bytes: hex(n) },
+            true,
+        ),
+        (
+            "bytes over it",
+            InputPayload::Bytes { bytes: hex(n + 1) },
+            false,
+        ),
+        ("text at the limit", text(n), true),
+        ("text over it", text(n + 1), false),
+        ("paste at the limit", paste(n), true),
+        ("paste over it", paste(n + 1), false),
         (
             "key repeat 2",
             key(Some(2), KeyEvent::Press, false, vec![]),
@@ -248,13 +283,13 @@ fn the_payload_bound_is_exact_for_every_kind() {
             false,
         ),
         (
-            "wheel 2",
-            mouse(MouseAction::Wheel, MouseButton::WheelUp, Some(2)),
+            "wheel that fits",
+            mouse(MouseAction::Wheel, MouseButton::WheelUp, Some(notches)),
             true,
         ),
         (
-            "wheel 3",
-            mouse(MouseAction::Wheel, MouseButton::WheelUp, Some(3)),
+            "wheel one notch over",
+            mouse(MouseAction::Wheel, MouseButton::WheelUp, Some(notches + 1)),
             false,
         ),
     ] {
@@ -269,6 +304,42 @@ fn the_payload_bound_is_exact_for_every_kind() {
             );
         }
     }
+}
+
+/// Core 5.1A, IN-9: a key's associated text counts in its bound. A key whose text alone is at the limit has a worst case
+/// over the limit, so it is refused `PayloadTooLarge` at `begin`; the same key with no text is admitted.
+#[test]
+fn a_key_with_long_text_is_refused_by_its_worst_case() {
+    let limit = 4096;
+    let with_text = |text: Option<String>| {
+        InputPayload::Key(KeyInput {
+            key: Key::Char('a'.into()),
+            shifted_key: None,
+            base_layout_key: None,
+            mods: vec![],
+            event: KeyEvent::Press,
+            text,
+            repeat: None,
+        })
+    };
+    let long = with_text(Some("a".repeat(usize::try_from(limit).expect("small"))));
+    assert!(
+        longest_key(&long) > limit,
+        "some mode writes more than the text itself"
+    );
+    let short = with_text(None);
+    assert!(longest_key(&short) <= limit);
+    let mut w = World::new(limits(|l| {
+        l.max_paste_bytes = limit;
+        l.input_ops_per_session = 64;
+        l.input_retained_bytes = 1 << 20;
+    }));
+    w.running("s1");
+    assert_eq!(
+        w.engine.begin(write(long)).unwrap_err().code,
+        ErrorCode::PayloadTooLarge
+    );
+    assert!(w.engine.begin(write(short)).is_ok());
 }
 
 /// Core IN-9, A2-1: a repeat is from 1 to `max_key_repeat` and only with a press; `shifted_key` needs shift; a wheel button
@@ -334,33 +405,6 @@ fn key_and_mouse_arguments_are_checked_one_by_one() {
     ] {
         assert!(w.engine.begin(write(payload)).is_ok(), "{what}");
     }
-}
-
-/// Core IN-5, IN-9: the bytes that a write holds against the lane: the payload bytes, and 64 for each repeat or notch or
-/// other semantic payload.
-#[test]
-fn held_bytes_counts_each_kind() {
-    let held = HostEngine::held_bytes;
-    assert_eq!(held(&InputPayload::Bytes { bytes: hex(7) }), 7);
-    assert_eq!(held(&InputPayload::Text { text: "abc".into() }), 3);
-    assert_eq!(
-        held(&InputPayload::Paste {
-            bytes: hex(5),
-            require_bracketed: true
-        }),
-        5
-    );
-    assert_eq!(held(&key(None, KeyEvent::Press, false, vec![])), 64);
-    assert_eq!(held(&key(Some(3), KeyEvent::Press, false, vec![])), 192);
-    assert_eq!(
-        held(&mouse(MouseAction::Wheel, MouseButton::WheelUp, None)),
-        64
-    );
-    assert_eq!(
-        held(&mouse(MouseAction::Wheel, MouseButton::WheelUp, Some(3))),
-        192
-    );
-    assert_eq!(held(&InputPayload::Focus { focused: true }), 64);
 }
 
 /// Core IN-5, 9.3: the lane of a session is full at `input_ops_per_session` writes or at `input_retained_bytes` bytes, and
