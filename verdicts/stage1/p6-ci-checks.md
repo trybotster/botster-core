@@ -142,3 +142,31 @@ The conditions stay:
   review of the union of `taint_job`, `COMMANDS` and `.cargo/mutants.toml`.
 
 VERDICT: CLEAN (0 open) at 7bb34d7618238f116613319f0883fae0d1fe82f7
+
+## Round 4 — CLEAN on head 24fb122f (delta from 7bb34d76; plan 23c/23d closed forms)
+
+Reviewed head: `24fb122f32cb691bf073292f12b6a61448260c55`, a fast-forward from `7bb34d76`. P6's gate log
+`gates/…-24fb122f-pool-20261009-115821-64845.log` names this head and base `7aec2bb9`, which is the current v1 tip. It is a
+full Linux pool gate: 1094 default and 248 slow tests passed; the mutants job had 644 mutants (615 caught, 0 missed, 0
+timeout, 29 unviable); exit 0. This reviewer read its header and summaries.
+
+- **The two v1 merges** (`fc54187c` of `c06f5b98`, `24fb122f` of `7aec2bb9`) each have the tree of
+  `git merge-tree --write-tree` of their parents. The head contains the v1 tip, and the gate's base is that tip. So this
+  gate meets the Merge bullet of plan 23d while v1 stays at `7aec2bb9`.
+- **The PR's own delta.** Compared with `git merge-tree --write-tree 7bb34d76 7aec2bb9` (`12437910`), the head changes the
+  five source-reading checks and their tests, `.cargo/mutants.toml` and `.config/process-check-allow.txt`. The step wiring
+  does not change. The closed-form fixes of B3/B8, B5 and B6 are inside the checks, and the package reviewer owns them.
+- **`.cargo/mutants.toml` (workspace config).** When the comments are removed, the file is the same as before, so no
+  exclusion is added, removed or changed. Only the reason comments change: the proofs move into the
+  `decision (proof, …)` form, and the other names get backticks.
+- **The new allowlist entry** (`crates/botster-core-testkit/src/worker/tests.rs`, the F63 test, `blocking-read`, owner P3).
+  It covers `go_rx.recv()` in the control thread (`worker/tests.rs:422`). That wait ends in both cases: the main thread
+  sends `go` after the end thread holds the owner, or a failed `recv_timeout` panics the main thread, and the unwind drops
+  `go_tx`. With the old lock order, the control thread blocks on the owner after `go`, not in this wait. So the reason in
+  the entry is correct.
+
+The #184 condition stays: #184 is not in v1. Whichever of #181 and #184 merges second needs this reviewer's review of the
+union of `taint_job`, `COMMANDS` and `.cargo/mutants.toml`. If v1 moves before the merge, the new v1 merge needs
+base-merge-check and a full gate on the merge commit.
+
+VERDICT: CLEAN (0 open) at 24fb122f32cb691bf073292f12b6a61448260c55
