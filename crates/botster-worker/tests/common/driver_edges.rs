@@ -1,9 +1,8 @@
 //! Direct checks of the real driver's descriptor state and byte accounting.
 #![cfg(feature = "slow")]
 
-#[path = "../../../botster-core-sys/tests/common/payload_guard.rs"]
-mod payload_guard;
-
+use super::slow_driver::payload_guard;
+use super::slow_driver::process_guard::cleanup::CLEANUP;
 use super::*;
 use botster_core_contract::prelude::{InstanceId, Size};
 use std::os::fd::AsFd;
@@ -11,11 +10,61 @@ use std::os::unix::net::{UnixListener, UnixStream as StdStream};
 use std::time::Duration;
 
 struct Harness {
-    // Field order releases independent ownership before the production reaper.
-    guard: Option<payload_guard::PayloadGuard>,
-    driver: Driver,
+    // Field order is the guard's two phases, on every exit path (panics included): the cleanup request first, then the
+    // bounded production cleanup (the driver's payload ends the group), then the guard, which reads its member's report.
+    release: Option<payload_guard::Release>,
+    driver: Bounded<Driver>,
     peer: StdStream,
+    guard: Option<payload_guard::PayloadGuard>,
     root: tempfile::TempDir,
+}
+
+/// A value whose drop is production cleanup: it runs on a helper thread within the cleanup limit, so a production drop
+/// that blocks fails the test instead of holding it. A test that runs the value elsewhere takes it out.
+struct Bounded<T: Send + 'static>(Option<T>);
+
+impl<T: Send + 'static> Bounded<T> {
+    fn take(&mut self) -> T {
+        self.0.take().expect("the value is still here")
+    }
+}
+
+impl<T: Send + 'static> std::ops::Deref for Bounded<T> {
+    type Target = T;
+    fn deref(&self) -> &T {
+        self.0.as_ref().expect("the value is still here")
+    }
+}
+
+impl<T: Send + 'static> std::ops::DerefMut for Bounded<T> {
+    fn deref_mut(&mut self) -> &mut T {
+        self.0.as_mut().expect("the value is still here")
+    }
+}
+
+impl<T: Send + 'static> Drop for Bounded<T> {
+    fn drop(&mut self) {
+        let Some(value) = self.0.take() else {
+            return;
+        };
+        let (done, finished) = mpsc::channel();
+        std::thread::spawn(move || {
+            drop(value);
+            let _ = done.send(());
+        });
+        // Production's drop can wait for the guard's member, whose cleanup takes up to CLEANUP, and then completes and
+        // reports: the outer limit allows both.
+        let limit = 2 * CLEANUP;
+        // timer: deadline — bounds production's cleanup in a test.
+        if finished.recv_timeout(limit).is_err() {
+            let report = format!("production's cleanup did not finish within {limit:?}");
+            if std::thread::panicking() {
+                eprintln!("{report}");
+            } else {
+                panic!("{report}");
+            }
+        }
+    }
 }
 
 impl Harness {
@@ -43,11 +92,18 @@ impl Harness {
         let (peer, _) = listener.accept().unwrap();
         peer.set_nonblocking(true).unwrap();
         Self {
-            driver,
+            release: None,
+            driver: Bounded(Some(driver)),
             peer,
             guard: None,
             root,
         }
+    }
+
+    /// The harness owns `guard`: its cleanup request goes out before production's cleanup, and its report is read after.
+    fn own(&mut self, guard: payload_guard::PayloadGuard) {
+        self.release = Some(guard.release_handle());
+        self.guard = Some(guard);
     }
 
     fn waiting_payload(&mut self) {
@@ -71,7 +127,7 @@ impl Harness {
             guard.prefix(),
             ready.display()
         );
-        self.guard = Some(guard);
+        self.own(guard);
         let id = self
             .driver
             .spawn(&PayloadSpec {
@@ -325,7 +381,7 @@ fn pty_events_resume_reads_after_would_block() {
         h.root.path().join("go").display(),
         h.root.path().join("done").display(),
     );
-    h.guard = Some(guard);
+    h.own(guard);
     h.driver
         .spawn(&PayloadSpec {
             argv: vec!["/bin/sh".into(), "-c".into(), script],
@@ -339,17 +395,20 @@ fn pty_events_resume_reads_after_would_block() {
         })
         .unwrap();
     let marker = |reader: &mut std::fs::File, expected: &[u8]| {
-        let mut fds = [rustix::event::PollFd::new(
-            &*reader,
-            rustix::event::PollFlags::IN,
-        )];
         // timer: deadline — bounds the program's FIFO progress marker.
         let limit = rustix::event::Timespec {
             tv_sec: 10,
             tv_nsec: 0,
         };
-        assert!(rustix::event::poll(&mut fds, Some(&limit)).unwrap() > 0);
-        drop(fds);
+        // The poll borrows the reader only within this block, so the read below can take it.
+        let ready = {
+            let mut fds = [rustix::event::PollFd::new(
+                &*reader,
+                rustix::event::PollFlags::IN,
+            )];
+            rustix::event::poll(&mut fds, Some(&limit)).unwrap()
+        };
+        assert!(ready > 0);
         let mut bytes = [0; 64];
         let count = reader.read(&mut bytes).unwrap();
         assert_eq!(&bytes[..count], expected);
@@ -375,7 +434,7 @@ fn pty_events_resume_reads_after_would_block() {
     .unwrap();
     send(botster_core_link::frame::FrameType::HELLO, &hello);
     // The program cannot fill the PTY until the real loop must rearm its cleared read flag.
-    let driver = h.driver;
+    let driver = h.driver.take();
     let (sent, received) = mpsc::channel();
     let thread = std::thread::spawn(move || {
         let _ = sent.send(driver.run());
@@ -384,14 +443,18 @@ fn pty_events_resume_reads_after_would_block() {
     marker(&mut fifos[2], b"done\n");
     let mut remove = Vec::new();
     botster_core_link::msg::HostMsg::Remove.encode(&mut remove);
+    // The guard's two phases around production's cleanup (`Remove`): the request first, the report after.
+    drop(h.release.take());
     send(botster_core_link::frame::FrameType::HOST_MSG, &remove);
-    drop(h.guard.take());
+    // Retirement includes production's cleanup, which can wait for the guard's member (up to CLEANUP) and then
+    // completes: the outer limit allows both, as in `Bounded`.
     received
         // timer: deadline — bounds retirement of the real driver loop.
-        .recv_timeout(Duration::from_secs(10))
+        .recv_timeout(2 * CLEANUP)
         .unwrap()
         .unwrap();
     thread.join().unwrap();
+    drop(h.guard.take());
 }
 
 #[test]

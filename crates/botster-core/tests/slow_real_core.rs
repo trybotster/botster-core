@@ -311,22 +311,39 @@ fn a_hello_for_an_unknown_instance_is_closed() {
     );
 }
 
-/// Plan R12, testing rule 10 (review finding F28): a test whose cleanup never runs leaves no worker. The session is started
-/// and the host is dropped with no `Stop` (LC-12: the worker survives the host); the guard in test code then kills the
-/// worker's group and reaps it.
+/// Plan R12, testing rule 10 (review finding F28, audit A10): a test whose cleanup never runs leaves no worker. The session
+/// is started and the host is dropped with no `Stop` (LC-12: dropping `Core` never ends a worker); the test's group guard
+/// then kills the worker's group.
+///
+/// The test proves the end by its own observation. The worker's script and the one child that it waits for (a `/bin/cat`
+/// blocked on a FIFO that nobody writes: no CPU, and only the group kill ends it) have a FIFO as their standard output, and
+/// the test reads it: the end of that stream means that both exited. The test never reaps and never probes the pid: the
+/// production reaper alone reaps the worker, and until it does, the dead worker is a zombie whose pid and start time can still
+/// be read. The guard's own cleanup runs on a thread, so a deadline bounds it too, and its failure fails the test with its report.
 #[test]
 fn a_worker_is_not_left_when_the_cleanup_of_a_test_fails() {
+    use std::io::{BufRead, Read};
     let tmp = tempfile::tempdir().unwrap();
-    let ready = tmp.path().join("ready");
-    common::mkfifo(&ready);
-    let worker = common::ScriptWorker::new(
-        tmp.path(),
-        &format!(
-            "/bin/echo ready > '{}'\n{}",
-            ready.display(),
-            common::WAIT_WHILE_THE_PARENT_LIVES
-        ),
+    let held = tmp.path().join("held");
+    let never = tmp.path().join("never");
+    common::mkfifo(&held);
+    common::mkfifo(&never);
+    // The reader's open waits for the worker's open of the write end. It sends the first line, then the end of the stream.
+    let (said, heard) = std::sync::mpsc::channel();
+    let fifo = held.clone();
+    std::thread::spawn(move || {
+        let mut stream = std::io::BufReader::new(std::fs::File::open(fifo).unwrap());
+        let mut line = String::new();
+        let _ = said.send(stream.read_line(&mut line).map(|_| line));
+        let mut rest = String::new();
+        let _ = said.send(stream.read_to_string(&mut rest).map(|_| rest));
+    });
+    let body = format!(
+        "{{\n/bin/echo ready\n/bin/cat '{}'\n}} > '{}'",
+        never.display(),
+        held.display()
     );
+    let worker = common::ScriptWorker::new(tmp.path(), &body);
     let mut open = config(tmp.path());
     open.worker_path = Some(worker.path.clone());
     let mut core = Core::open(open).expect("open");
@@ -338,27 +355,34 @@ fn a_worker_is_not_left_when_the_cleanup_of_a_test_fails() {
     pump(&mut core);
     core.begin(Op::Start { id: sid("s1") }).unwrap();
     pump(&mut core);
-    let (told, heard) = std::sync::mpsc::channel();
-    let fifo = ready.clone();
-    std::thread::spawn(move || {
-        let _ = told.send(std::fs::read_to_string(fifo));
-    });
-    heard
+    let first = heard
         // timer: deadline — bounds the wait for the worker's start
         .recv_timeout(Duration::from_secs(10))
         .expect("the worker runs")
         .unwrap();
-    let pid = worker.pid().expect("the worker recorded its pid");
+    assert_eq!(first.trim(), "ready");
     drop(core);
-    assert!(
-        rustix::process::test_kill_process(pid).is_ok(),
-        "the worker outlives the host (LC-12)"
-    );
-    drop(worker);
-    assert!(
-        rustix::process::test_kill_process(pid).is_err(),
-        "the guard killed and reaped the worker"
-    );
+    let (cleaned, cleanup) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| drop(worker)));
+        let _ = cleaned.send(outcome);
+    });
+    // The guard's anchor can take up to `CLEANUP` to end the group, and the guard then reports: the limit allows both.
+    let limit = 2 * common::process_guard::cleanup::CLEANUP;
+    let outcome = cleanup
+        // timer: deadline — a guard whose cleanup blocks fails the test instead of hanging it
+        .recv_timeout(limit)
+        .unwrap_or_else(|_| panic!("the guard's cleanup did not end within {limit:?}"));
+    // A cleanup that failed fails the test with the guard's own report.
+    if let Err(report) = outcome {
+        std::panic::resume_unwind(report);
+    }
+    let rest = heard
+        // timer: deadline — a group that the guard did not end fails the test instead of hanging it
+        .recv_timeout(Duration::from_secs(10))
+        .expect("the worker's script and its child ended")
+        .unwrap();
+    assert_eq!(rest, "", "the script wrote nothing after it started");
 }
 
 /// Lead ruling on audit A1, Core AD-1, AD-2, A10-2: through the real registry, a damaged row is `Lost(RegistryCorrupt)` under
