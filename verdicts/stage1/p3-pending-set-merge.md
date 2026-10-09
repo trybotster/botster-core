@@ -58,3 +58,22 @@ new head).
 
 VERDICT: NOT CLEAN at 5ee3da3ee11e3675978ea51c3c31679962a84431 (2 open: R1 LOW here; F60 HIGH, the package reviewer's
 finding, confirmed here)
+
+## Round 2 — CLEAN on head 5a0b07ac
+
+Reviewed head: `5a0b07ac0575743977c5d45ae78ae0a6a55ec101`, one commit on `5ee3da3e`. The base is still v1 `3000ae14`.
+
+- **R1 closed.** `judge_set` compares whole entries (mode and text). If the reviewed head leaves the file as `old`, the new
+  head must hold the base's entry. If the base leaves it as `old`, the new head must hold the reviewed entry. Only a
+  change on both sides goes to `set_merge`. So the two cases of round 1 (a base comment edit, as in #188, and a pull request
+  that adds an id back) pass again by the byte rule. A new head that differs from the one side that changed still fails.
+- **F60 closed.** `text_at` reads the entry's mode and type from `git ls-tree` (`100644 blob` from `<mode> <type> <id>\t<path>`),
+  and reads the text only for a blob. `judge_set` requires `100644 blob` at all four commits before any other rule. A mode
+  change, a symlink (`120000`), a submodule (`160000 commit`) or a directory (`040000 tree`) fails. The real-repo test
+  `a_real_mode_change_of_the_set_file_after_the_merge_fails` covers the false pass of round 1.
+- **Tests.** `a_one_sided_change_needs_only_the_other_sides_file`, `a_set_file_that_is_not_a_regular_file_at_any_commit_fails`,
+  and the real-repo `a_real_merge_where_only_the_base_edits_the_set_file_passes`.
+- **The gate log** (`…-p3-pending-set-merge-5a0b07ac-pool-20261009-100828-95489.log`) names the head and base `3000ae14`.
+  The default tier runs 959 tests and the slow tier 243, all pass. Mutants: 39 caught, 0 missed, 0 timeout. Exit 0.
+
+VERDICT: CLEAN (0 open) at 5a0b07ac0575743977c5d45ae78ae0a6a55ec101
