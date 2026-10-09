@@ -117,3 +117,28 @@ The attribute ban (`allow(clippy::disallowed_methods)` outside `.config/allow-at
 
 VERDICT: CLEAN (0 open) at a4b803e435553d7e8f9851991515189d62dfe67d (the carry-over to a v1 merge needs base-merge-check
 and a full gate on that merge)
+
+## Round 3 — CLEAN on head 7bb34d76 (delta from a4b803e4)
+
+Reviewed head: `7bb34d7618238f116613319f0883fae0d1fe82f7`, a fast-forward from `a4b803e4`. P6's gate log
+`gates/…-7bb34d76-pool-20261009-102251-20084.log` names this head and base v1 `67fd748a`. Results: 1047 default and 248
+slow tests passed; the mutants job had 602 mutants (576 caught, 0 missed, 0 timeout, 26 unviable); exit 0. This reviewer
+read its header and summaries.
+
+- **The three v1 merges** (`927fd2e3`, `21c32f4a`, `7bb34d76`) each have the tree of `git merge-tree --write-tree` of
+  their parents.
+- **The PR's own delta.** Compared with `git merge-tree --write-tree a4b803e4 67fd748a` (`7512033e`), the head changes
+  only `xtask/src/{gate_decisions,mutants_cited,platform_code,process_check,timers}.rs`, their tests, and
+  `.config/process-check-allow.txt`. The step wiring (`taint_job`, `COMMANDS`, `.cargo/mutants.toml`) does not change.
+  The fixes for B3, B5, B6 and B8 are inside the checks. By the lead's rule, the package reviewer owns them.
+- **Cross-package effect.** The allowlist renames the two `guard_platform.rs` entries to
+  `a_wait_for_a_pid_with_no_thread_group_task_follows_the_kernels_answer`, which is the test name at the head after
+  #186. No entry is added. The checks read the whole tree, and the gate passes on it, #190's `base_merge` code included.
+
+The conditions stay:
+- The v1 merge (v1 is now `1f157c29`; `git merge-tree --write-tree 7bb34d76 origin/v1` has no conflict) needs
+  base-merge-check and a full gate on the merge commit.
+- #184 is not in v1 (its branch is at `57380b2b`). The PR of #181 and #184 that merges second needs this reviewer's
+  review of the union of `taint_job`, `COMMANDS` and `.cargo/mutants.toml`.
+
+VERDICT: CLEAN (0 open) at 7bb34d7618238f116613319f0883fae0d1fe82f7
