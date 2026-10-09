@@ -188,8 +188,7 @@ pub struct Worker {
     stop_grace: Duration,
     /// The size of the launch, for the state that `Launched` carries.
     launch_size: Option<Size>,
-    /// The session's read-visible revision (Core ST-1): an opaque token that every output read advances. The terminal
-    /// model (M2) advances it at the same points, and on a resize and a mode, title or cwd change.
+    /// The session's read-visible revision (Core ST-1): an opaque token that each model step of the output advances.
     model_rev: ModelRev,
     /// The kill of the worker-control signal's grace (LC-5).
     grace: Option<Instant>,
@@ -215,6 +214,10 @@ pub struct Worker {
     early: Early,
     /// The admission point and the host's writes (AM-2, IN-1 to IN-10).
     input: input::InputState,
+    /// The terminal model (libghostty), from the launch.
+    model: Option<model::Model>,
+    /// Core's limits that the worker applies itself (`LaunchSpec.limits`).
+    limits: CoreLimits,
     actions: VecDeque<Action>,
 }
 
@@ -253,6 +256,8 @@ impl Worker {
             terminating: false,
             early: Early::default(),
             input: input::InputState::default(),
+            model: None,
+            limits: CoreLimits::default(),
             actions: VecDeque::new(),
         };
         let hello = Hello {
@@ -309,14 +314,19 @@ impl Worker {
         self.send_frame(FrameType::WORKER_MSG, &payload);
     }
 
-    /// A read of the payload's output: it advances the read-visible revision and reports the output to the host (Core
-    /// ST-1, 6.2). An empty read changes nothing. While the last `Output` report is not written, the read is not reported
-    /// on its own: the next report carries the latest revision (the host keeps only the latest `Activity` too).
+    /// A read of the payload's output: the model takes it in steps, each of which advances the read-visible revision, and
+    /// the output is reported to the host (Core ST-1, 6.2). A read that completes no step changes nothing yet. While the
+    /// last `Output` report is not written, the read is not reported on its own: the next report carries the latest
+    /// revision (the host keeps only the latest `Activity` too).
     fn on_output(&mut self, bytes: &[u8]) {
-        if bytes.is_empty() {
+        if bytes.is_empty() || !self.feed_model(bytes) {
             return;
         }
-        self.model_rev = ModelRev(self.model_rev.0.wrapping_add(1));
+        self.output_advanced();
+    }
+
+    /// The model took output: the latest revision is reported, now or after the waiting `Output` report is written.
+    fn output_advanced(&mut self) {
         if self.link != LinkState::Ready {
             return;
         }
@@ -448,6 +458,16 @@ impl Worker {
         if self.payload != PayloadState::None {
             return;
         }
+        // The model exists before the payload, so no byte of its output is missed (BUILD.md: libghostty is the model).
+        let Some(model) = model::Model::new(&spec.size, spec.limits.clipboard_bytes) else {
+            self.payload = PayloadState::Failed;
+            self.report(&WorkerMsg::LaunchFailed {
+                reason: StartFailReason::WorkerFailed,
+            });
+            return;
+        };
+        self.model = Some(model);
+        self.limits = spec.limits;
         self.frame_bound = spec.link_frame_bound;
         self.decoder = rebound(&self.decoder, spec.link_frame_bound);
         self.stop_grace = Duration::from_millis(spec.stop_grace_ms);
@@ -472,7 +492,7 @@ impl Worker {
                 let msg = WorkerMsg::Launched {
                     features: worker_features(),
                     terminal: self.initial_terminal(),
-                    formats: Vec::new(),
+                    formats: model::snapshot_formats(),
                     payload: id,
                 };
                 self.report(&msg);
@@ -485,6 +505,10 @@ impl Worker {
                 }
                 if early.end_payload {
                     self.on_end_payload(now);
+                }
+                // Output that came while the spawn was out reaches the model now, after `Launched`.
+                if self.feed_model(&[]) {
+                    self.output_advanced();
                 }
                 if let Some(status) = early.exit {
                     self.on_exited(status);
@@ -505,9 +529,9 @@ impl Worker {
         }
     }
 
-    /// PLACEHOLDER until the terminal model (P3 M2): the state that `terminal_state` caches at the launch. It carries the
-    /// launch size and no tracked mode, title or cwd. M2 replaces it with the state of the libghostty model (BUILD.md: the
-    /// terminal semantics are libghostty's), and no terminal-state id leaves `core-pending.txt` before that.
+    /// The state that `terminal_state` caches from the launch (ST-4): the size, the modes of the fresh model, and the
+    /// revisions. The model has read no output yet (output that comes while the spawn is out waits), so it has no title
+    /// and no cwd.
     fn initial_terminal(&self) -> TerminalState {
         TerminalState {
             size: self.launch_size.unwrap_or(Size {
@@ -515,7 +539,11 @@ impl Worker {
                 cols: 0,
                 cell_px: None,
             }),
-            modes: ModeFlags::default(),
+            modes: self
+                .model
+                .as_ref()
+                .map(model::Model::modes)
+                .unwrap_or_default(),
             title: None,
             cwd: None,
             last_output_at: None,
@@ -525,8 +553,8 @@ impl Worker {
         }
     }
 
-    /// The operations that need the worker: `Signal` (LC-6) and `WriteInput` (IN-1). The reads and the setters come with the
-    /// terminal model, and the worker answers them `Internal` until then.
+    /// The operations that need the worker: `Signal` (LC-6), `WriteInput` (IN-1), the reads of the model (ST-1 to ST-3) and
+    /// `CaptureSnapshot` (ST-6). The setters and the facts come next, and the worker answers them `Internal` until then.
     fn on_op(&mut self, _now: Instant, req: u64, op: Op) {
         let result = match op {
             Op::WriteInput { payload, guard, .. } => {
@@ -534,6 +562,10 @@ impl Worker {
                 self.on_write_input(req, payload, guard);
                 return;
             }
+            Op::ReadScreen { history, .. } => self.read_screen(history),
+            Op::ReadCursor { .. } => self.read_cursor(),
+            Op::ReadModeFlags { .. } => self.read_modes(),
+            Op::CaptureSnapshot { .. } => self.capture(req),
             Op::Signal { sig, .. } => {
                 if let (true, Some(number)) = (self.group_live(), signal_number(sig)) {
                     self.signal(number);
@@ -791,6 +823,7 @@ fn op_name(op: &Op) -> String {
 }
 
 mod input;
+mod model;
 
 #[cfg(test)]
 mod tests;

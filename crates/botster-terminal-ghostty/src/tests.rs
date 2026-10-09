@@ -997,3 +997,22 @@ fn an_invalid_byte_inside_a_reported_string_is_a_replacement_character() {
         other => panic!("{other:?}"),
     }
 }
+
+/// A13-1b, R-41: the status of a write is decided by size alone, and a location that A13-1 names no letter for is
+/// IO_ERROR. The pinned model gives only the three known locations, so the last case is reached here only.
+#[test]
+fn a_write_is_io_error_over_the_bound_or_at_an_unknown_location() {
+    use crate::events::write_result;
+    for location in [
+        ClipboardLocation::Standard,
+        ClipboardLocation::Primary,
+        ClipboardLocation::Selection,
+    ] {
+        assert_eq!(write_result(false, location), sys::CLIPBOARD_WRITE_SUCCESS);
+        assert_eq!(write_result(true, location), sys::CLIPBOARD_WRITE_IO_ERROR);
+    }
+    assert_eq!(
+        write_result(false, ClipboardLocation::Other(9)),
+        sys::CLIPBOARD_WRITE_IO_ERROR
+    );
+}
