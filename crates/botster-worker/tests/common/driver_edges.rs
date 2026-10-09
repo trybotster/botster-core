@@ -446,9 +446,11 @@ fn pty_events_resume_reads_after_would_block() {
     // The guard's two phases around production's cleanup (`Remove`): the request first, the report after.
     drop(h.release.take());
     send(botster_core_link::frame::FrameType::HOST_MSG, &remove);
+    // Retirement includes production's cleanup, which can wait for the guard's member (up to CLEANUP) and then
+    // completes: the outer limit allows both, as in `Bounded`.
     received
         // timer: deadline — bounds retirement of the real driver loop.
-        .recv_timeout(Duration::from_secs(10))
+        .recv_timeout(2 * CLEANUP)
         .unwrap()
         .unwrap();
     thread.join().unwrap();

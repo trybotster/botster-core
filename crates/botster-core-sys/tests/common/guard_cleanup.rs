@@ -273,12 +273,12 @@ fn a_member_gone_to_its_wait_but_still_listed_is_left() {
     assert!(matches!(ended, Err(Failure::Left(left)) if left == [held]));
 }
 
-/// Whether the child `pid` of this process ended within the cleanup limit, observed without reaping it (`WNOWAIT`), so a
-/// timeout leaves the child to its owner. Only an interrupted wait is repeated.
+/// Whether the child `pid` of this process ended within `limit`, observed without reaping it (`WNOWAIT`), so a timeout
+/// leaves the child to its owner. Only an interrupted wait is repeated.
 ///
 /// # Errors
 /// The observation failed: the child cannot be waited for.
-fn ended_within_cleanup(pid: rustix::process::Pid) -> std::io::Result<bool> {
+fn ended_within(pid: rustix::process::Pid, limit: std::time::Duration) -> std::io::Result<bool> {
     use rustix::process::{waitid, WaitId, WaitIdOptions};
     let (ended, end) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
@@ -297,7 +297,7 @@ fn ended_within_cleanup(pid: rustix::process::Pid) -> std::io::Result<bool> {
         let _ = ended.send(observed);
     });
     // timer: deadline — bounds the wait for a test child's end.
-    match end.recv_timeout(CLEANUP) {
+    match end.recv_timeout(limit) {
         Ok(observed) => observed.map(|()| true),
         Err(_) => Ok(false),
     }
@@ -315,7 +315,7 @@ fn ownership_failed(report: String) {
 /// A child of this test, owned on every path: `status` reaps it only after its exit was observed within the cleanup
 /// limit, and its drop ends a child that still runs (a kill of this unreaped child's own pid) and reaps it after its exit,
 /// within the same limit. Every ownership or cleanup error is reported, never taken as an end.
-struct Owned(std::process::Child);
+pub(crate) struct Owned(pub(crate) std::process::Child);
 
 impl Owned {
     fn pid(&self) -> rustix::process::Pid {
@@ -323,11 +323,16 @@ impl Owned {
     }
 
     /// The child's exit status, once its exit was observed within the cleanup limit.
-    fn status(&mut self) -> std::process::ExitStatus {
-        match ended_within_cleanup(self.pid()) {
+    pub(crate) fn status(&mut self) -> std::process::ExitStatus {
+        self.status_within(CLEANUP)
+    }
+
+    /// The child's exit status, once its exit was observed within `limit`; a child that does not end fails the test.
+    fn status_within(&mut self, limit: std::time::Duration) -> std::process::ExitStatus {
+        match ended_within(self.pid(), limit) {
             Ok(true) => self.0.wait().expect("the reap of an exited child"),
             Ok(false) => panic!(
-                "the test child {} did not end within {CLEANUP:?}",
+                "the test child {} did not end within {limit:?}",
                 self.0.id()
             ),
             Err(error) => panic!("the test child {} cannot be observed: {error}", self.0.id()),
@@ -349,7 +354,7 @@ impl Drop for Owned {
         if let Err(error) = self.0.kill() {
             return ownership_failed(format!("the test child {id} cannot be killed: {error}"));
         }
-        match ended_within_cleanup(self.pid()) {
+        match ended_within(self.pid(), CLEANUP) {
             Ok(true) => {
                 if let Err(error) = self.0.wait() {
                     ownership_failed(format!("the test child {id} cannot be reaped: {error}"));
@@ -432,4 +437,32 @@ fn a_kill_goes_out_only_while_the_reserve_holds_the_group() {
         Some(0),
         "no signal reached the member"
     );
+}
+
+/// A child that does not end fails the test with a clear message within the limit, never a hang; its owner still ends it.
+/// The stuck child blocks without CPU in the open of a FIFO that nothing writes.
+#[test]
+fn a_stuck_child_fails_its_wait_and_is_still_ended() {
+    let dir = tempfile::tempdir().unwrap();
+    let never = dir.path().join("never");
+    assert!(std::process::Command::new("/usr/bin/mkfifo")
+        .arg(&never)
+        .status()
+        .unwrap()
+        .success());
+    let mut stuck = Owned(
+        std::process::Command::new("/bin/cat")
+            .arg(&never)
+            .stdout(std::process::Stdio::null())
+            .spawn()
+            .unwrap(),
+    );
+    let failed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        stuck.status_within(std::time::Duration::ZERO)
+    }))
+    .expect_err("a stuck child fails its wait");
+    let report = failed.downcast_ref::<String>().expect("a report").clone();
+    assert!(report.contains("did not end within"), "{report}");
+    // The owner's drop kills and reaps it; a drop that could not would fail this test.
+    drop(stuck);
 }
