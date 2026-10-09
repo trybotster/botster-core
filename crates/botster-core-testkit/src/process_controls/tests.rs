@@ -4,7 +4,7 @@ use botster_core_conformance::{
 };
 use botster_core_contract::prelude::*;
 use serde_json::json;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 /// The most pumps that a test gives Core to reach an event: far above what these sessions need.
 const PUMPS: usize = 50;
@@ -112,6 +112,38 @@ fn a_broken_control_link_fails_the_next_op_and_a_stop_still_ends_the_session() {
         OpResult::Ok(OpOutput::End(_)) => {}
         other => panic!("{other:?}"),
     }
+}
+
+/// Core TM-6: the break is an edge event, so it wakes the host that owns the worker, as the end of file of a real socket
+/// does. The host is idle before it: a pump that leaves no work clears the wake.
+#[test]
+fn a_break_wakes_the_host_that_owns_the_worker() {
+    let mut harness = TestkitHarness::new(0);
+    let (mut core, at) = session(&mut harness, true);
+    let mut settled = false;
+    for _ in 0..PUMPS {
+        let report = core.pump(Now {
+            monotonic: at,
+            unix: 1_000_000,
+        });
+        core.poll_events(64);
+        if !report.more {
+            settled = true;
+            break;
+        }
+    }
+    assert!(settled, "the host has no runnable work left");
+    let wake = core.wake_handle();
+    assert_eq!(
+        wake.wait(Duration::ZERO),
+        Wake::TimedOut,
+        "the host is idle"
+    );
+    assert_eq!(
+        harness.control("a", "break_control", &json!({"session": "s1"})),
+        Ok(Value::Null)
+    );
+    assert_eq!(wake.wait(Duration::ZERO), Wake::Woken);
 }
 
 /// `break_control` refuses what it cannot do, with `Bad`: an unknown handle, an unknown session, a session with no worker
