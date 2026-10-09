@@ -212,3 +212,57 @@ The reviewer changed no product code and ran no builds, tests, mutation jobs, or
 The lead owns the merge decision.
 
 VERDICT: CLEAN
+
+## PR #188 Round 2 — v1 merge delta — 2026-10-09
+
+- Exact head: `b7980e6d27d2fb4ad25b2575cac1326cdff22014`.
+- Tree: `c13fb92ab459bbe6cb199a5d6723425c678c3cd0`.
+- First parent: the CLEAN pin head `e05d603bde49985015031f676dc64950fa2d7324`.
+- Second parent, PR base, and gate base: `8bc21dd516f20f26002f99683b63c6a11adf0d43`.
+- Risk tier checked first: HIGH, BUILD.md rule 4, as the current PR body states.
+
+### C20-F2 — LOW — CLOSED — The PR cites the exact merge-head gate
+
+The initial Proof section still called e05d603b the exact head and cited only its 941-test gate.
+The reviewer sent C20-F2 directly to P5 and copied integration.
+P5 corrected the body to cite b7980e6d and its 946-test default gate.
+The body also records the merge composition and keeps the previous gate as earlier evidence.
+The reviewer verified the correction and unchanged exact head. This closes C20-F2 within Round 2.
+The required Prior art note and C20-F1 closure remain intact.
+
+### Merge composition
+
+Both branches changed core-pending.txt, so the disjoint-path exception does not apply. This head requires a delta review.
+The reviewer read the current three-file PR diff and the imported v1 changes.
+The diff from old base a14e9dc2 to the CLEAN pin head equals the diff from new base 8bc21dd5 to this head, except index lines.
+The delta from the CLEAN pin head to this head equals the v1 delta from a14e9dc2 to 8bc21dd5 exactly.
+No extra change entered through the merge.
+
+Cargo.toml and Cargo.lock are byte-identical to the CLEAN pin head.
+The six direct pins and nine lock entries therefore retain the verified contracts-v0.1.20 tag and commit.
+The imported inbound.rs and flow_edges.rs are byte-identical to the CLEAN #187 head `2b5ba07e5bcff471370fab07e2436a103cfef91b`.
+That review's proof ruling and both finding closures remain valid; this merge adds no real-process test code.
+
+The pending-id set equals the new v1 base.
+Relative to the previous pin head, only the three #187 ids leave pending: am_3_exactly_one_completion, lc_7_remove_order_and_completion, and or_2_session_order.
+Both new contracts transcript ids remain pending. Both A15 comments retain the new tag's name.
+The Round 1 contracts, ledger, API, and status checks remain valid.
+
+### Supplied exact-head gate and scope
+
+The full Linux gate is `~/botster-sessions/shared/core-stage1/gate-logs/pin-v0.1.20-b7980e6d.log`.
+It names the exact reviewed merge head and accepted new v1 base.
+The reviewer checked PASS for all three imported conformance trials and all three #187 regression tests.
+The default tier reports 946 tests passed and 653 skipped.
+The slow tier reports 243 tests passed and 962 skipped.
+All ten listed CI stages pass. Both the job and gate exit zero.
+Mutants reports that the diff changes no Rust source and produces no outcomes.json; no new mutation campaign ran.
+The imported #187 code had five caught mutants in its reviewed exact-head gate.
+Fuzz reports no changed crate with a decoder harness and runs no harness.
+
+No package finding remains open. Integration must supply its separate CLEAN on this HIGH merge head.
+This verdict closes no additional conformance id or separate proof hold.
+The reviewer changed no product code and ran no builds, tests, mutation jobs, or gates.
+The lead owns the merge decision.
+
+VERDICT: CLEAN
