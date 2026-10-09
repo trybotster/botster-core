@@ -802,6 +802,7 @@ fn a_retry_after_a_broken_link_stop_resends_the_stop() {
         "no row records the indeterminate end"
     );
     endpoint_here(&mut w, "s", running_payload());
+    let launches_before = launches(&w);
     let stops_before = w
         .sent
         .iter()
@@ -820,11 +821,16 @@ fn a_retry_after_a_broken_link_stop_resends_the_stop() {
             .any(|(l, m)| *l == link && matches!(m, HostMsg::Stop)),
         "AD-1: the stop is sent again on the new link"
     );
-    assert_eq!(launches(&w), 0);
+    assert_eq!(
+        launches(&w),
+        launches_before,
+        "a Stopping row gets no Launch"
+    );
 }
 
-/// Core AD-1, AD-2; R-35, the retry rule (integration A1): after the stop path's `Lost(WorkerUnreachable)`, a retry that
-/// finds the payload ended is `Exited{cause: HostStop}`, and that end is written.
+/// Core AD-1, AD-2, LC-5; R-35, the retry rule (integration A1): after the stop path's `Lost(WorkerUnreachable)`, a retry
+/// that finds the payload ended is `Exited`, and that end is written. The first host's stop reached `stop_grace` and sent
+/// the kill (`EndPayload`), so the cause is `Killed`, as for a session that was never adopted (LC-5).
 #[test]
 fn a_retry_after_a_broken_link_stop_finds_the_payload_ended() {
     let mut w = stopped_with_a_broken_link();
@@ -843,7 +849,7 @@ fn a_retry_after_a_broken_link_stop_finds_the_payload_ended() {
     let exited = SessionState::Exited(Exit {
         code: None,
         signal: Some(9),
-        cause: ExitCause::HostStop,
+        cause: ExitCause::Killed,
     });
     assert_eq!(record.state, exited);
     let row = Row::decode(&sid("s"), &w.rows[&row_key("s")]).unwrap();
