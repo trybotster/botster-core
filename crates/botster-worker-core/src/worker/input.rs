@@ -10,8 +10,9 @@
 //!   write that is cancelled while a PTY write is out waits for that write's count before it completes (IN-6: "the
 //!   cancelled op's completion reports exactly what happened").
 //!
-//! This milestone writes `Bytes` and `Text`. `Paste`, `Key`, `Mouse` and `Focus` need the modes and the encoders of the
-//! terminal model (IN-8, IN-9: libghostty), which come with it.
+//! `Paste`, `Key`, `Mouse` and `Focus` are encoded by the terminal model at the start of their transaction (IN-8, IN-9:
+//! libghostty). A reply of the model (a query's shadow reply, the model's own PTY writes) is a transaction of the same
+//! admission point, in arrival order, that advances no input revision and completes no operation (EV-8).
 
 use super::{PayloadState, Worker};
 use botster_core_contract::prelude::*;
@@ -26,10 +27,19 @@ pub(super) struct HostWrite {
     guard: Option<Guard>,
 }
 
+/// What waits at the admission point, in arrival order.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum Pending {
+    Host(HostWrite),
+    /// A reply of the model to the program (EV-8 shadow reply, a model PTY write).
+    Reply(Vec<u8>),
+}
+
 /// The transaction that owns the PTY input (AM-2).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct Active {
-    req: u64,
+    /// The host's request, or none for a reply.
+    req: Option<u64>,
     /// Every byte that this transaction writes to the PTY.
     bytes: Vec<u8>,
     /// Where the caller's payload is in `bytes`: markers that the worker adds are outside it (IN-2 units).
@@ -62,7 +72,7 @@ impl Active {
 /// The input state of a session instance.
 #[derive(Debug, Default)]
 pub(super) struct InputState {
-    queue: VecDeque<HostWrite>,
+    queue: VecDeque<Pending>,
     active: Option<Active>,
     /// The PTY took no byte at the last write: the next write waits for `PtyWritable`.
     blocked: bool,
@@ -93,18 +103,29 @@ fn not_written(reason: NotWrittenReason, detail: &str) -> InputResult {
 impl Worker {
     /// IN-1: a host write joins the host's FIFO; it starts at its turn.
     pub(super) fn on_write_input(&mut self, req: u64, payload: InputPayload, guard: Option<Guard>) {
-        self.input.queue.push_back(HostWrite {
+        self.input.queue.push_back(Pending::Host(HostWrite {
             req,
             payload,
             guard,
-        });
+        }));
+        self.try_start();
+    }
+
+    /// A reply of the model joins the admission point (EV-8: it is written as one contiguous transaction, in order).
+    pub(super) fn enqueue_reply(&mut self, bytes: Vec<u8>) {
+        self.input.queue.push_back(Pending::Reply(bytes));
         self.try_start();
     }
 
     /// IN-6: a cancel of a queued write ends it with exact zero; of the active one, at its next count; of a write that already
     /// ended, nothing (the host reports `TooLate`).
     pub(super) fn on_cancel(&mut self, req: u64) {
-        if let Some(at) = self.input.queue.iter().position(|w| w.req == req) {
+        if let Some(at) = self
+            .input
+            .queue
+            .iter()
+            .position(|p| matches!(p, Pending::Host(w) if w.req == req))
+        {
             self.input.queue.remove(at);
             self.complete_write(
                 req,
@@ -117,7 +138,7 @@ impl Worker {
             );
             return;
         }
-        let Some(active) = self.input.active.as_mut().filter(|a| a.req == req) else {
+        let Some(active) = self.input.active.as_mut().filter(|a| a.req == Some(req)) else {
             return;
         };
         active.cancelled = true;
@@ -134,24 +155,66 @@ impl Worker {
             return;
         }
         while self.input.active.is_none() {
-            let Some(write) = self.input.queue.pop_front() else {
+            let Some(pending) = self.input.queue.pop_front() else {
                 return;
+            };
+            let write = match pending {
+                Pending::Reply(bytes) => {
+                    // A reply goes only to a live payload; it advances no revision and completes no operation.
+                    if matches!(self.payload, PayloadState::Live(_))
+                        && self.exit.is_none()
+                        && !bytes.is_empty()
+                    {
+                        let len = bytes.len();
+                        self.input.active = Some(Active {
+                            req: None,
+                            bytes,
+                            payload_start: 0,
+                            payload_len: len,
+                            written: 0,
+                            in_flight: false,
+                            cancelled: false,
+                        });
+                        self.write_more();
+                    }
+                    continue;
+                }
+                Pending::Host(write) => write,
             };
             if let Err(result) = self.start_checks(&write) {
                 self.complete_write(write.req, result);
                 continue;
             }
-            let bytes = match &write.payload {
-                InputPayload::Bytes { bytes } => bytes.0.clone(),
-                InputPayload::Text { text } => text.as_bytes().to_vec(),
-                _ => {
-                    // IN-8, IN-9: the modes and the encoders are the terminal model's (libghostty), which comes next.
+            let encoded = match &write.payload {
+                InputPayload::Bytes { bytes } => {
+                    let len = bytes.0.len();
+                    Ok(Some((bytes.0.clone(), 0, len)))
+                }
+                InputPayload::Text { text } => {
+                    let len = text.len();
+                    Ok(Some((text.as_bytes().to_vec(), 0, len)))
+                }
+                // IN-8, IN-9: the model encodes with its modes at this start.
+                other => match self.model.as_ref() {
+                    Some(model) => super::model::encode(model, other),
+                    None => Ok(None),
+                },
+            };
+            let (bytes, payload_start, payload_len) = match encoded {
+                Ok(Some(encoded)) => encoded,
+                Err(reason) => {
+                    self.complete_write(
+                        write.req,
+                        not_written(reason, "the event has no write with the modes at its start"),
+                    );
+                    continue;
+                }
+                Ok(None) => {
                     self.report(&WorkerMsg::Done {
                         req: write.req,
                         result: OpResult::Err(CoreError::new(
                             ErrorCode::Internal,
-                            "this worker writes only Bytes and Text until the terminal model"
-                                .to_string(),
+                            "this worker cannot write this payload kind",
                         )),
                     });
                     continue;
@@ -163,17 +226,17 @@ impl Worker {
             self.report(&WorkerMsg::Observed {
                 observation: Observation::HostInput { input_rev },
             });
-            let len = bytes.len();
+            let empty = bytes.is_empty();
             self.input.active = Some(Active {
-                req: write.req,
+                req: Some(write.req),
                 bytes,
-                payload_start: 0,
-                payload_len: len,
+                payload_start,
+                payload_len,
                 written: 0,
                 in_flight: false,
                 cancelled: false,
             });
-            if len == 0 {
+            if empty {
                 self.finish_active(WriteOutcome::Written, "");
             } else {
                 self.write_more();
@@ -303,7 +366,9 @@ impl Worker {
             other => other,
         };
         let result = active.result(outcome, detail);
-        self.complete_write(active.req, result);
+        if let Some(req) = active.req {
+            self.complete_write(req, result);
+        }
         self.try_start();
     }
 
