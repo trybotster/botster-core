@@ -52,6 +52,7 @@ The control requires no stimulus record and parses no image bytes.
 Scope: every Core clause that needs terminal semantics, checked against libghostty.
 Contract: botster-contracts tag `contracts-v0.1.1` (`366bca41da0a6de69cc1ea13b17c773cdfdb75b6`): manifest final14, Core erratum 2 ("E2") and steward ruling R-13.
 Plan pin: `stage1-plan.555bc433` (sha256 `555bc4337fe72e9fad833fe330d43e8147a39569cb14291734f34847f56596d7`), sections 0, 6.1, 6.3, 7.1, 8, 9 (Q1) and 10 (R1).
+Revision 12 of this audit. Revision 12 moves the Ghostty pin to the upstream sync of 2026-10-09, which the fork policy requires before the pin move; patch 1's query options are renumbered to 47 and 48, and no audit row changes (section "Revision 12").
 Revision 11 of this audit. Revision 11 moves the Ghostty pin to the upstream sync of 2026-10-04 and adds fork patch 14 for audit finding A6 (steward ruling R-32): an OSC 5522 write over libghostty's own transaction limit still reaches the clipboard callback (section "Revision 11").
 Revision 10 of this audit. Revision 10 moves the Ghostty pin to the upstream sync of 2026-10-02 (section "Revision 10"); it changes no audit row, because the libghostty-vt sources are byte-identical between the old and the new fork head.
 Revision 9 answers the binding review findings P24 to P34 with fork patches 9 to 13 and binding changes (section "Revision 9"); the status of each finding is in that section, and a finding is closed only when the reviewer and the required evidence say so. Core Amendment 13 (final, candidate 5: contracts `627d507`, manifest final30, `frozen/current/core-contract-v1.17-amendment-13-candidate5.md`) is the clipboard contract.
@@ -59,7 +60,8 @@ Revision 3 of this audit. Revision 2 closed findings F1 to F8. Revision 3 closes
 
 ## Method and revisions
 
-- **Ghostty pin (revision 11):** `trybotster/ghostty` branch `botster/upstream-sync-20261004` at `0bfddc16fdf1e9b71f7662fbfa8314cd497fd92a`, on upstream `ghostty-org/ghostty` `main` `5dc28bb8eebaf57a6c793a406bfea8c632d4fa94`. The patch list with commit SHAs is in section "Revision 11". The rows below were written against PIN and UP; section "Revision 11" lists what changed at this pin.
+- **Ghostty pin (revision 12):** `trybotster/ghostty` branch `botster/upstream-sync-20261009` at `39a68e822e505685d1e7fa9c6abeff21125b489c`, on upstream `ghostty-org/ghostty` `main` `9d479dcb1664e8dc3c66c7302ce596dc56b36d6d`. The patch list with commit SHAs is in section "Revision 12".
+- **Ghostty pin (revision 11, not pinned on `v1`):** `trybotster/ghostty` branch `botster/upstream-sync-20261004` at `0bfddc16fdf1e9b71f7662fbfa8314cd497fd92a`, on upstream `ghostty-org/ghostty` `main` `5dc28bb8eebaf57a6c793a406bfea8c632d4fa94`. The patch list with commit SHAs is in section "Revision 11". The rows below were written against PIN and UP; section "Revision 11" lists what changed at this pin.
 - **Ghostty pin (revision 10):** `trybotster/ghostty` branch `botster/upstream-sync-20261002` at `3f8eb6810bb673aa782b047de21783ac81fb1121`, on upstream `ghostty-org/ghostty` `main` `f523504ea5c9f41d150d1eb93cc7a748b90f9361`.
 - **Pinned fork:** `trybotster/ghostty` at `eb72ec61304ea256be1d86ed8fa961c84e43ecbd` ("PIN").
 - **Upstream main:** `ghostty-org/ghostty` at `83edd491e3024ae5e50393d62877b8897da1cccd` ("UP"), fetched 2026-10-01. The lead approved UP as the base of the new fork branch.
@@ -420,6 +422,48 @@ The commits on the branch are in this order from the base: patches 2 and 3, then
 | 14 | `0bfddc16f` | none | tests that ignored MIME types stay outside the over-limit size | NEW (R-33) |
 
 The commits on the branch are in the same order as at revision 10, with patch 14 last. Drop: none; no upstream change covers a patch.
+
+## Revision 12: upstream sync of 2026-10-09 (before the pin move)
+
+- **Sync record:** `docs/stage1/ghostty-upstream-sync-20261009.md` in this repository. The fork policy requires a sync before every pin move; the 2026-10-04 stack was not pinned yet, so it is synced again before it is.
+- **Old candidate:** branch `botster/upstream-sync-20261004` at `0bfddc16fdf1e9b71f7662fbfa8314cd497fd92a`, on upstream `5dc28bb8eebaf57a6c793a406bfea8c632d4fa94` (revision 11).
+- **New pin:** branch `botster/upstream-sync-20261009` at `39a68e822e505685d1e7fa9c6abeff21125b489c`, on upstream `main` `9d479dcb1664e8dc3c66c7302ce596dc56b36d6d`.
+- **Changes that the binding follows:**
+  - Upstream #14560 (OSC 7501, program status) took terminal option 46. Patch 1's `GHOSTTY_TERMINAL_OPT_QUERY` and `_QUERY_MAX_BYTES` are now 47 and 48; `sys.rs` follows. With the old numbers the binding would set the program status callback. Every other constant of `sys.rs` matches the new headers.
+  - `OSC 7501 ; ?` is not reported as a query. The model answers it only while a program status callback is set, and the binding sets none, so the model neither answers nor reports it. Nothing changes for EV-8.
+  - DECSTR (#14538) is now model behavior: the soft reset resets ten modes, the margins, the pen, the protection, the charsets, the saved cursor, `modify_other_keys_2` (patch 9's getter, E2-2), XTCHECKSUM and a changed palette. Core reports the model's state after it (E2-2); no clause names DECSTR.
+  - The snapshot sources and the terminfo are unchanged; `ModePacked` is unchanged (`modes.zig` gains only a getter). GHOSTSNP.md needs no change. The binding's formatter use (plain text, extras off) is outside #14588's change.
+  - The Zig package list is unchanged (an empty-cache build fetched exactly `ZIG_PACKAGES`).
+- **Patch 14 and A6** are unchanged in substance: the first commit changed only by a context line. The Revision 11 text above stays the description of G19, the binding and A14. A6: implemented; verification evidence in the sync record of 2026-10-09.
+
+| # | Commit at the new pin | Commit at the old candidate | Subject | Decision |
+|---|---|---|---|---|
+| 0 | `9ace459ce` | `cba7ba134` | own startHyperlink uri and id across capacity retries | KEEP |
+| 1 | `32a783ad9` | `13f66d661` | report every query with its exact bytes and stop after it | REWORK (options renumbered to 47 and 48) |
+| 1 | `2d78928e8` | `0be524a08` | track query request boundaries; add CSI 14;2 t and 13;2 t | KEEP |
+| 1 | `85e7d8429` | `ed563afdd` | apply R-17 to every executed C0 control; restart at a C1 CSI introducer | KEEP |
+| 1 | `9c40369f5` | `50df7c7e1` | test that a C1 byte inside a string sequence is payload | KEEP |
+| 1 | `5e4328efe` | `8cea067c1` | a C1 introducer ends an APC string in the query request tracking | KEEP |
+| 2 | `473f19472` | `09d186fd6` | report the notification source (OSC 9 or OSC 777) | KEEP |
+| 3 | `17ae694b1` | `c2dc8118c` | paste marker frame without payload rewrite | KEEP |
+| 4 | `a7f2a8910` | `cdefd75c3` | key events carry hyper, meta, shifted and base layout keys and F26 to F35 | KEEP |
+| 4 | `e045bd0de` | `2dba9306f` | legacy Shift with no text; key tests use the structured sequence encoder | KEEP |
+| 4 | `3fbf36adc` | `6d09770e4` | the legacy Alt test compares with the real base-character result | KEEP |
+| 5 | `30541bfc4` | `7e96afe46` | export the xterm-ghostty terminfo name and source | KEEP |
+| 6 | `a10ad1bf3` | `91b06a537` | mouse cells as given, and getters for the active mouse enums | KEEP (context only) |
+| 7 | `5dec71c70` | `786cd9e7b` | encode the typed replies to terminal queries | KEEP |
+| 7 | `85086ba4f` | `1148713f6` | query reply encoders check their enums, use unsigned positions and parse in tests | KEEP |
+| 8 | `64b68fe6e` | `db6c206a8` | report the OSC 52 selection and terminator on clipboard requests | KEEP |
+| 8 | `96002bd35` | `8da81d4cb` | the OSC 52 parser reads the whole selection | KEEP |
+| 9 | `014c0395c` | `fa481e17b` | terminal data getters for modifyOtherKeys state 2 and XTSHIFTESCAPE | KEEP |
+| 10 | `622e4fbf2` | `5aa1e708b` | link libc on Linux so the static archive defines no allocator symbol | KEEP |
+| 11 | `b2e4a7c44` | `c13162d1d` | the OSC 5522 write acknowledgement is written with the host's reply | KEEP |
+| 12 | `e5c8b2827` | `bed0c871a` | the keypad equals key has an application keypad sequence | KEEP (ruling P35) |
+| 13 | `2b0dd287e` | `c370ef4d9` | the snapshot decoder takes the host's Kitty image storage limit | KEEP |
+| 14 | `5cb2efb68` | `779907e0e` | an OSC 5522 write over the transaction limit reaches the callback with its size | KEEP (context only) |
+| 14 | `39a68e822` | `0bfddc16f` | tests that ignored MIME types stay outside the over-limit size | KEEP |
+
+The commits are in the same order as at revision 11. Drop: none; no upstream change covers a patch.
 
 ## Rulings used
 
