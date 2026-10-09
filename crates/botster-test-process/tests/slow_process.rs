@@ -375,9 +375,10 @@ fn an_anchor_survives_the_hangup_of_its_session_leader() {
         "the anchor survived its leader's exit"
     );
     drop(guard);
-    assert_eq!(
+    // Ended: gone, or a zombie that its new parent (init, or a subreaper) has not reaped yet.
+    assert_ne!(
         await_end(anchor, Deadline::cleanup()).unwrap(),
-        Waited::Gone,
+        Waited::Deadline,
         "the anchor ended with its group"
     );
     drop(pty);
