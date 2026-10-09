@@ -52,10 +52,10 @@ fn every_step_posts_at_most_one_event() {
     w.engine.begin(create("s1")).unwrap();
     w.feed(Input::Clock(w.unix));
     let mut counts = Vec::new();
-    while let Some(work) = w.engine.ready().into_iter().next() {
-        w.feed(Input::Run(work));
-        counts.push(w.engine.take_posted());
-    }
+    w.settle(
+        |ready| ready.first().cloned(),
+        |w| counts.push(w.engine.take_posted()),
+    );
     assert!(counts.iter().all(|c| *c <= 1), "{counts:?}");
     assert_eq!(counts.iter().sum::<u32>(), 2);
 }
@@ -757,18 +757,18 @@ fn a_lost_session_without_a_link_removes_with_an_unknown_outcome() {
     }
 }
 
-/// Core ER-0, AD-7: a registry write that fails completes with `RegistryFailed`; an uncertain one says so; the session
-/// never existed.
+/// Core ER-0, AD-7: a registry write that fails completes with `RegistryFailed`, and the session never existed.
 #[test]
 fn a_failed_create_write_is_registry_failed_and_leaves_no_session() {
     let mut w = World::default();
-    w.fail_row = Some(StorageError::Uncertain { errno: 5 });
+    w.fail_row = Some(StorageError::Failed { errno: 5 });
     let op = w.engine.begin(create("s1")).unwrap();
     match w.complete(op) {
-        OpResult::Err(e) => assert_eq!(e.code, ErrorCode::RegistryFailed { uncertain: true }),
+        OpResult::Err(e) => assert_eq!(e.code, ErrorCode::RegistryFailed { uncertain: false }),
         other => panic!("{other:?}"),
     }
     assert!(w.engine.get(&sid("s1")).is_err());
+    // A certain failure left no row: the id is free (the uncertain case: `registry::an_uncertain_create_keeps_its_id...`).
     w.ok(create("s1"));
     w.fail_row = Some(StorageError::Failed { errno: 5 });
     let op = w.engine.begin(Op::Start { id: sid("s1") }).unwrap();
@@ -982,8 +982,7 @@ fn adopt_all_keeps_created_rows_with_their_labels() {
         labels: BTreeMap::from([("k".into(), "v".into())]),
     });
     let instance = w.instance_of("s1");
-    let mut again = World::default();
-    again.rows = w.rows.clone();
+    let mut again = World::over(&w);
     assert_eq!(again.ok(Op::AdoptAll), OpOutput::Unit);
     let record = again.engine.get(&sid("s1")).unwrap();
     assert_eq!(record.state, SessionState::Created);

@@ -75,6 +75,8 @@ struct Mock {
     /// Exits that the process edge reports when the pump settles the wake: a reaper that queued an exit after the pump took
     /// the exits, and whose wake the settle consumed.
     late_exits: Vec<(ProcessIdentity, ExitStatus)>,
+    /// The processes whose exit the process edge reported.
+    ended: Vec<ProcessIdentity>,
     /// The scheduler's choices in the current pump: a pump that never ends fails the test at once (as `World::pump`).
     choices: u32,
 }
@@ -159,7 +161,21 @@ impl HostEdges for Edges {
         if mock.exits.is_empty() {
             None
         } else {
-            Some(mock.exits.remove(0))
+            let exit = mock.exits.remove(0);
+            mock.ended.push(exit.0);
+            Some(exit)
+        }
+    }
+
+    /// A worker of the mock runs until the process edge reported its exit.
+    fn identity_state(
+        &self,
+        identity: ProcessIdentity,
+    ) -> botster_core_edges::edges::IdentityState {
+        if self.0.lock().unwrap().ended.contains(&identity) {
+            botster_core_edges::edges::IdentityState::Absent
+        } else {
+            botster_core_edges::edges::IdentityState::Matches
         }
     }
 
@@ -292,12 +308,14 @@ impl Rig {
             exits: Vec::new(),
             late: Vec::new(),
             late_exits: Vec::new(),
+            ended: Vec::new(),
             choices: 0,
         }));
         #[allow(clippy::disallowed_methods)] // a test starts the injected clock at a real instant
         let now = Instant::now();
         Rig {
-            driver: HostDriver::new(cfg, Edges(Arc::clone(&mock), scheduler), now),
+            driver: HostDriver::open(cfg, Edges(Arc::clone(&mock), scheduler))
+                .expect("the registry reads"),
             mock,
             now,
             unix: 10,
@@ -347,6 +365,18 @@ impl Rig {
 
     fn drain_events(&mut self) -> Vec<Event> {
         self.driver.poll_events(256)
+    }
+
+    /// Pumps and drains until a pump leaves no more work, then drains once more. A driver that keeps reporting `more`
+    /// fails the test at the step bound, instead of hanging it.
+    fn settle(&mut self) {
+        let mut guard = 0;
+        while self.pump().more {
+            self.drain_events();
+            guard += 1;
+            assert!(guard < 200, "the driver does not settle");
+        }
+        self.drain_events();
     }
 }
 
