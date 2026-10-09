@@ -5156,3 +5156,127 @@ The reviewer changed no product code and ran no tests, builds, measurements, mut
 All earlier verdict rounds remain preserved at their named heads and scopes.
 
 VERDICT: NOT CLEAN
+
+## Round 104 — Signal scan, own-group operation, and the #171 merge
+
+Reviewed head: `f16eed6fb50da9581060c06acc6f2dded1d61ca0`, PR #177.
+Base: `fc23cd9747e64e24f99565543b45ae5f7400a71c`, v1 after #171.
+Reviewed delta: changes after `9be81027`, merge `75482fa1`, and the final thirty-one-file diff against the submitted base.
+Authority: BUILD.md, plan r22 pin `~/botster-sessions/pins/stage1-plan.71a623ef.md`, and the lead's signal and anchor rulings.
+The pin SHA256 remains `71a623ef93f487754e400dc186429216357e39fe251933675cc7f851843d519d`.
+The lead's current handoff states that #171 landed, but the HOLD on new real-process test code remains until P6 PR B lands.
+The reviewer read the full updated PR description through gh after the MCP response truncated it.
+
+### F54 — CLOSED — Raw-method allowances and disabled features no longer hide calls
+
+The new `cargo xtask signals` step scans token trees from tracked Rust files.
+It rejects all three raw Rustix signal identifiers outside `core-sys/src/signal.rs`, including imports and renamed imports.
+The scan descends into token groups, including macro groups, without applying cfg or lint attributes.
+A lexer failure is a violation. Comments and string contents do not count as raw method identifiers.
+The taint job runs this scan after its existing checks.
+Clippy also enables all features. Each of the seven Clippy configuration files bans all three raw methods.
+The default tier selects and passes the source fixtures for allowances, cfg, imports, and renamed imports.
+The step verdict has a selected test that fails when a source fixture adds one violation.
+The implementer also reports a manual safe revert of slow_real_core's old raw call, followed by a failing scan and source restoration.
+These changes close F54's original raw-method scope gaps.
+The new shell-command scan has a separate finding, F56 below.
+
+### S1 — CLOSED — Current gate cleanup calls use the guard
+
+`test_budget::kill` no longer invokes the external kill command.
+Its pure parser maps a negative identifier to a group and a positive identifier to a process.
+The dispatch calls `signal_group` or `signal_process` with KILL.
+Each wrapper performs the existing invalid-target and own-target refusal.
+The selected parser test covers process targets, group targets, and invalid text.
+Only the whole OS dispatch body receives a mutation exclusion. The parser and refusal decisions remain tested.
+The reviewer closes S1 for the current call path. The new ban's shell coverage remains subject to F56.
+
+### G1 — OPEN for proof — The own-group source correction is accepted
+
+`signal_own_group` takes no recorded target. It checks the current group, then calls `kill_current_process_group`.
+The pure own-group condition refuses 0 and 1. The recorded-target wrappers retain their own-target refusal.
+The old cleanup error path and the new test-process cleanup error path use the own-group operation.
+The new anchor's TERM operation also uses it while the anchor holds membership.
+The bounded KILL rounds use `signal_group` after the anchor leaves the group and while its reserve holds the identifier.
+The merge preserves identity verification, group verification, cleanup deadlines, and exact reserve reaping.
+The source correction restores the intended distinction between deliberate own-group cleanup and recorded-target signaling.
+
+The new SIGURG test proves delivery to the current process, subject to F55 below.
+It does not exercise the reserve-error branch that caused G1.
+The PR explicitly defers a child-in-a-new-group test and the reserve-failure proof until P6 PR B lands.
+The reviewer accepts the source correction but cannot close G1's required behavior proof at this head.
+The existing green tests do not establish that this failure path ends its members.
+The integration reviewer closes G1 with a carry to PR B in verdict `3f8a9c3aa2ec98ee48f57b8960019fda5ef6e145`.
+The package reviewer will ask the lead to resolve this proof requirement. G1 remains open here pending that ruling.
+
+### F55 — MEDIUM — OPEN — The signal-delivery test polls instead of waiting on an event
+
+`signal.rs:169` adds `a_signal_to_our_own_group_reaches_this_process`.
+It polls an AtomicBool up to 1,000,000 times and calls `thread::yield_now` between checks.
+BUILD.md testing rule 5 prohibits polling and requires waiting on the real event.
+An iteration limit does not satisfy that rule or provide a deadline for signal delivery.
+Replace the polling loop with a completion wait and an allowed marked deadline.
+The reviewer sent F55 directly to the P3 implementer.
+
+### F56 — MEDIUM — OPEN — The command scan misses renamed imports and escaped program names
+
+`signals::kill_program` matches only an identifier whose text is `Command`.
+`use std::process::Command as Proc; Proc::new("kill")` starts the banned program but fails this match.
+`signals::string_text` retains string escapes instead of decoding them.
+`Command::new("ki\x6cl")` also starts kill, but the scan compares the source spelling with the decoded program name.
+Thus both valid Rust forms produce no violation at this head.
+The Clippy method bans do not apply to external program names.
+Plan section 8 requires syntax-aware mechanical checks that handle aliases and use renames.
+The new check does not fully enforce the shell-signal pattern that it claims to ban.
+Check renamed Command imports and decoded string literals. Add safe source fixtures that execute no program.
+The reviewer sent F56 directly to the P3 implementer.
+
+### L1 — LOW — OPEN — The signal ban does not cover the allowed unsafe scope
+
+The integration reviewer reports L1 at this head. The package reviewer confirms its scope.
+The raw-call token list and Clippy entries omit `libc::kill` and `libc::killpg`.
+The new test-process anchor has an existing allowed unsafe scope in `close_inherited`.
+The unsafe-exception check verifies that scope's name and attribute; it does not ban signal calls inside its body.
+A raw libc signal call in that allowed body bypasses both checks.
+The terminal binding also has the existing whole-crate unsafe exception.
+Thus the PR's claim that workspace unsafe forbidding already blocks libc signal calls is incomplete.
+Extend the mechanical signal ban to these raw libc operations, including imports and renamed imports.
+Retain the integration identifier L1. The source currently contains no libc signal call.
+
+### Merge and mutation exclusions
+
+Merge `75482fa1` shares the mutation configuration, lock file, xtask manifest, CI module, and command table with #171.
+The final manifest retains #171's parser dependencies and adds core-sys for guarded gate cleanup.
+The final taint job retains the unsafe-exception check and adds the signal scan after it.
+The final command table retains #171's commands and adds signals.
+The mutation configuration retains #171's entries and adds only the documented signal-related changes against v1.
+The new test-process crate uses core-sys for all three former raw group signals.
+Its old platform target helper and test are removed; the shared refusal tests cover their group-1 property.
+No other platform wait, identity, or cleanup decision changes in that crate.
+The reviewer inspected this merge delta rather than applying the base-only merge exception.
+
+The new Clippy whole-body exclusion covers process launch glue only.
+The updated taint whole-body exclusion names the separately tested signal decisions.
+The whole-body kill exclusion names the selected parser and refusal tests.
+No signal-scan verdict or other pure gate decision receives a new exclusion.
+
+### Completed evidence and verdict
+
+Exact-head log: `~/botster-sessions/gates/botster-core-stage1-p3-group-signal-guard-f16eed6f-pool-20261009-040121-96622.log`.
+It names head `f16eed6f` and base `fc23cd97`.
+All ten full CI steps pass. The signal scan reads 153 Rust files; the timer check reads 137.
+The default tier passes 918 tests in 1.399 seconds. The slow tier passes 241 tests in 10.121 seconds.
+The full and separate no-termination mutation runs each report 44 tested: 41 caught, three unviable, zero missed, zero timed out.
+The separate run uses `NEXTEST_PROFILE=slow`.
+The CI summary reports 151.3 seconds. The separate mutation summary reports 102.6 seconds.
+The combined job exits 0 after 279 seconds on msa1.
+The new parser, own-group, scan, and verdict tests run in the default tier and pass.
+The intermediate gate failures have corresponding source changes; this READY cites the completed final-head gate.
+The green result does not close F55, F56, L1, or G1's deferred proof.
+
+PR #177 is NOT CLEAN at this exact head. F54 and S1 are CLOSED. F55, F56, L1, and G1's proof remain OPEN.
+PR #168 retains its separate single real-PTY HOLD. Part B retains its earlier open duties.
+The reviewer changed no product code and ran no tests, builds, measurements, mutants, or gates.
+All earlier findings, closures, and verdict rounds remain preserved at their named heads and scopes.
+
+VERDICT: NOT CLEAN
