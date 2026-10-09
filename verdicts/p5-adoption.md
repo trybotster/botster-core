@@ -2422,3 +2422,75 @@ This CLEAN verdict certifies the package code review; it does not claim a green 
 This verdict changes no conformance record and does not close P5 deliverable 2.
 
 VERDICT: CLEAN
+
+
+## P5 adoption code #176 — Round 1
+
+- Exact head: `dad9a58add3e5103a37db266b9b388a6091aaf37`.
+- Review base: `afdb540f88d573169ae8af8ac5f517c861c39d54`.
+- Tree: `48ffe03d781dcda2726498d67e7ebf1c1e46098e`.
+- Scope: the complete 22-file delta, the draft PR description, and supplied evidence.
+- The base merges #174 and includes #168. The draft remains dependent on #171 for the required real-process proofs.
+- The reviewer changed no product code and ran no builds, tests, mutation jobs, or gates.
+
+### P5-F27 — MEDIUM — A late candidate can pass before the driver delivers its due timer
+
+At `crates/botster-worker-core/src/worker.rs:782`, on_candidate_bytes does not compare now with the candidate deadline.
+At `crates/botster-worker/src/main.rs:191`, the driver reads and settles candidate bytes before it queues a due Timer.
+A valid hello received at or after the candidate deadline can therefore replace the control link and change the epoch.
+The adoption clears the candidate before the Timer can close it.
+When the orphan deadline is also due, the adoption makes the link Ready and clears that deadline through arm_orphan.
+This violates the documented candidate bound and AD-7 self-exit deadline.
+
+Required change: enforce these due deadlines before the worker authenticates a candidate.
+Require default-tier proofs that deliver a valid hello at the deadline without first delivering Timer.
+Cover the candidate deadline with a live payload and the orphan deadline without a payload.
+An expired candidate must not replace the control link, change the epoch, or affect the payload.
+An expired orphan deadline must still end the worker.
+The existing deadline proof delivers Timer first and does not cover the driver's actual order.
+Status: OPEN. The reviewer sent the finding directly to P5 and copied integration.
+
+### P5-F28 — LOW — The design still describes implemented behavior as deferred
+
+At `crates/botster-core-host/DESIGN.md:266`, part 7 says the launch arguments come after #171.
+It also says the binary and testkit give no candidate until then.
+This head implements both arguments and candidate delivery in both drivers.
+At lines 269–271, the design says the worker does not yet have the self-exit rule.
+This head adds that rule to the worker machine.
+
+Required change: describe the implemented behavior and keep the real-process proof hold separate.
+Status: OPEN. The reviewer sent the finding directly to P5 and copied integration.
+
+### P5-F29 — MEDIUM — Thirteen production adapter mutants lack the required proof
+
+The explicit slow-profile mutation run reports 13 missed mutants and exits nonzero.
+The draft PR lists these mutants as HOLD until #171. It adds no exclusion.
+The missed mutants cover the real host connection, endpoint removal, link ids, and the worker endpoint drop.
+They also cover the startup argument, candidate acceptance, candidate ids, candidate reads, and link replacement.
+The default proofs exercise the worker decisions and simulated edges, but they do not detect these production adapter mutations.
+
+Required change: after #171 lands, add the planned contract-visible real-process proofs and review the resulting evidence.
+Resolve each survivor through a detecting test, an approved per-function exclusion with its named test, or a written equivalence proof.
+Do not claim terminal CLEAN while this production proof hold remains.
+Status: HOLD until #171. This verdict makes the previously communicated proof hold an explicit review finding.
+
+### Evidence and scope
+
+The reviewer read the exact-head static and default log:
+`~/botster-sessions/gates/botster-core-stage1-p5-adopt-2-dad9a58a-pool-20261009-025744-10990.log`.
+It records clippy, taint, lists, public-api, prebuild-worker, and test-budget PASS.
+The default tier reports 900 tests passed and 654 skipped. The remote job exits zero.
+
+The reviewer read the exact-head mutation log:
+`~/botster-sessions/gates/botster-core-stage1-p5-adopt-2-dad9a58a-pool-20261009-025825-11775.log`.
+It sets `BOTSTER_CI_BASE_REF=afdb540f` and `NEXTEST_PROFILE=slow`.
+It reports 166 mutants: 138 caught, 15 unviable, 13 missed, and zero timeouts. The remote job exits one.
+No supplied full gate establishes a green result for this head.
+
+The delta implements the worker endpoint, bounded candidates, authentication, epoch fencing, adoption reports, and endpoint removal after worker death.
+It also implements real and simulated connection edges and the endpoint and startup launch arguments.
+The default proofs cover candidate rejection, equal-epoch retry, the five payload reports, active-write fencing, and simulated adoption.
+The three files under the real-process proof hold receive launch-argument literals only; this delta adds no new real-process proof.
+FocusChanged, RouteAdopted, A52 completion, conformance closure, and P5 deliverable 2 closure remain outside this verdict.
+
+VERDICT: NOT CLEAN
