@@ -32,6 +32,9 @@ use std::time::{Duration, Instant};
 /// real process). It is what an `exec` of a file that is not a program gives.
 const ENOEXEC: i32 = 8;
 
+/// `EIO`: the errno of a write to a PTY that is gone or that fails.
+const EIO: i32 = rustix::io::Errno::IO.raw_os_error();
+
 /// The most inputs that one `Sim` run handles before it reports a livelock: far above what a transcript's workers do between
 /// two host pumps.
 const SIM_STEP_LIMIT: usize = 100_000;
@@ -192,6 +195,10 @@ impl Workers {
     /// When the workers still have ready work after [`SIM_STEP_LIMIT`] inputs: a worker that makes work for itself without
     /// end is a defect, never a result.
     pub fn run(&self, now: Instant) {
+        // A pump is a step of the program edge: the input cap of `pty_chunk` is available again.
+        for program in self.programs() {
+            program.new_step();
+        }
         let mut sim = lock(&self.sim);
         sim.advance_to(now);
         if let Err(livelock) = sim.run_until_idle(SIM_STEP_LIMIT) {
@@ -199,9 +206,21 @@ impl Workers {
         }
     }
 
-    /// True when a worker has ready work at the virtual clock.
+    /// True when a worker has ready work at the virtual clock, or a PTY write waits for the next step of `pty_chunk`.
     pub fn has_ready(&self) -> bool {
         lock(&self.sim).has_ready()
+            || self
+                .programs()
+                .iter()
+                .any(ProgramControl::waits_for_next_step)
+    }
+
+    /// The program edges of every payload of the run that is not reaped.
+    fn programs(&self) -> Vec<ProgramControl> {
+        lock(&self.run_processes)
+            .values()
+            .filter_map(|(cell, _)| lock(cell).program.clone())
+            .collect()
     }
 
     /// The earliest deadline of a worker.
@@ -395,6 +414,8 @@ impl Spawner for WorkerSpawner {
             spawned: None,
             exit: None,
             drain: None,
+            pty_write: None,
+            wait_writable: false,
             ready: Vec::new(),
             read_chunk: self.workers.read_chunk,
         };
@@ -461,6 +482,10 @@ enum Ready {
     Spawned,
     /// The hold of the start ended, and the worker kept a spawn: the spawn runs now, and its answer is the input.
     HeldSpawn,
+    /// A `PtyWrite` waits to be offered to the program.
+    PtyWrite,
+    /// The program takes input again after a write that it did not take.
+    PtyWritable,
     PtyRead,
     PtyDrained,
     Exited,
@@ -469,8 +494,8 @@ enum Ready {
 /// The edges of one in-process worker: the control link, the scripted program on its PTY, and its process cell.
 ///
 /// `ready` reads no edge and writes none: it only reads flags, so the order of every effect is the scheduler's (plan 2.5
-/// rule 8). Each effect is one input: a read of the link or the PTY, a write of queued link bytes (`LinkWritten`), a spawn's
-/// answer, an exit.
+/// rule 8). Each effect is one input: a read of the link or the PTY, a write of queued link bytes (`LinkWritten`), a PTY
+/// write, a spawn's answer, an exit.
 struct WorkerEdges {
     id: ProcessIdentity,
     cell: Arc<Mutex<ProcessCell>>,
@@ -496,6 +521,10 @@ struct WorkerEdges {
     exit: Option<ExitStatus>,
     /// The drain that a `DrainPty` asked for (`Drain`); `None` when no drain is asked.
     drain: Option<Drain>,
+    /// The bytes of a `PtyWrite` that the program has not been offered yet.
+    pty_write: Option<Vec<u8>>,
+    /// The program took no byte at the last write: `PtyWritable` follows its write readiness.
+    wait_writable: bool,
     /// The inputs counted by the last `ready`.
     ready: Vec<Ready>,
     read_chunk: usize,
@@ -617,6 +646,9 @@ impl Binding<Worker> for WorkerEdges {
                 self.ready.push(Ready::Flush);
             }
         }
+        if self.pty_write.is_some() && self.spawned.is_none() {
+            self.ready.push(Ready::PtyWrite);
+        }
         if self.spawned.is_some() {
             // The payload's inputs depend on its spawn: none is offered before the spawn's answer is taken.
             self.ready.push(Ready::Spawned);
@@ -625,6 +657,14 @@ impl Binding<Worker> for WorkerEdges {
                 self.ready.push(Ready::HeldSpawn);
             }
         } else if self.payload.is_some() {
+            if self.wait_writable
+                && self
+                    .payload
+                    .as_mut()
+                    .is_some_and(ScriptedProgram::is_writable)
+            {
+                self.ready.push(Ready::PtyWritable);
+            }
             self.poll_payload_exit();
             let unread = self.payload.as_mut().map_or(0, ScriptedProgram::unread);
             // A complete drain gives `PtyDrained`, and a drain whose next read would find nothing is complete; output is read
@@ -679,6 +719,25 @@ impl Binding<Worker> for WorkerEdges {
                 let spec = self.held_spawn.take().expect("counted as ready");
                 Input::Spawned(self.spawn_payload(&spec))
             }
+            Ready::PtyWrite => {
+                let bytes = self.pty_write.take().expect("counted as ready");
+                let Some(program) = self.payload.as_mut() else {
+                    // No PTY any more (the leader was reaped): the write fails as a write to a closed PTY does.
+                    return Input::PtyWritten(Err(EIO));
+                };
+                Input::PtyWritten(match program.write(&bytes) {
+                    Ok(n) => Ok(n),
+                    Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
+                        self.wait_writable = true;
+                        Ok(0)
+                    }
+                    Err(e) => Err(e.raw_os_error().unwrap_or(EIO)),
+                })
+            }
+            Ready::PtyWritable => {
+                self.wait_writable = false;
+                Input::PtyWritable
+            }
             Ready::PtyRead => {
                 let program = self.payload.as_mut().expect("counted as ready");
                 let want = self
@@ -730,6 +789,8 @@ impl Binding<Worker> for WorkerEdges {
                     self.payload.as_mut().map_or(0, ScriptedProgram::unread),
                 ));
             }
+            // The write is its own input (`Ready::PtyWrite`), so the scheduler orders it among the other ready work.
+            Action::PtyWrite(bytes) => self.pty_write = Some(bytes),
             Action::SignalPayload(signal) => {
                 if let Some(program) = self.payload.as_mut() {
                     program.signal(signal);
