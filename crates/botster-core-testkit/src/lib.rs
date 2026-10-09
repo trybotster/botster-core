@@ -16,6 +16,8 @@ pub mod process_controls;
 pub mod process_group;
 pub mod program;
 pub mod pty_controls;
+#[cfg(feature = "slow")]
+pub mod real;
 pub mod refusal;
 pub mod resume_controls;
 pub mod scheduler;
