@@ -216,8 +216,9 @@ a delta round (the base-merge-check fails condition 2 on that path).
 ### Carry
 
 - **v1's guards in `botster-core-sys/tests/common`** (shared by the slow tests of three crates) also signal a negative
-  group id with no group-1 check. The same mutant class there could signal every process of the user. PR C migrates them to
-  this crate. Until then, a mutation run over them is not safe. P6: say in PR C that the migration removes them, or add the
+  group id with no group-1 check (`guard_cleanup.rs:43` and `:95`). The guards themselves are not mutated (`**/tests/**`
+  is excluded), but a mutant of the production code that gives them a group id of 1 would make them signal every process
+  of the user. PR C migrates them to this crate. P6: say in PR C that the migration removes them, or add the
   same refusal there.
 - PR B: the mutants profile with `--max-fail 1:immediate`. PR C: `run_to_completion`, and `Repo::git` uses it.
 
