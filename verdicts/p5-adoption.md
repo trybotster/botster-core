@@ -2198,3 +2198,37 @@ Status: OPEN at reduced LOW severity. The reviewer sent the correction directly 
 This is a design verdict only. Implementation proofs, conformance records, and P5 deliverable 2 remain open.
 
 VERDICT: NOT CLEAN
+
+
+## P5 adoption design — Round 4
+
+- Exact head: `135cce8c899b45a94a4d8c64f6e63aeb58a347fa`.
+- Previous design head: `4fec490a97f291c05622aa92be2f02c74a891c30`.
+- Tree: `85715f99adeb87434424748a83aaadc1360d3028`.
+- Review scope: `crates/botster-core-host/DESIGN.md` only, as P5 requested.
+- The reviewer changed no product code and ran no builds, tests, mutation jobs, or gates.
+
+### Design closure
+
+The reviewer read the complete design delta.
+The retry rule now distinguishes the worker's acceptance of Launch from the host's send.
+An accepted Launch yields Spawning or a later payload state, so the retry sends no new Launch.
+A frame lost before acceptance leaves NotLaunched, so the retry follows R-35(a).
+The worker accepts at most one Launch. The planned proofs require one payload spawn across either loss case.
+The resumed Stopping proof still requires no Launch.
+This closes the remaining LOW P5-F22 design-proof issue.
+P5-F20, P5-F21, and P5-F22 are CLOSED at design level. No package design finding remains.
+
+The prior R-35 ruling and its correction remain the authority for recovery and RegistryCorrupt.
+The design retains the live-state report, row intent, equal-epoch authentication, lower-epoch fence, and protocol-one exception.
+
+### Implementation scope
+
+This head also contains implementation commit `d981739523d9359e93cb0a69167b8a843238e439` and formatting commit `47eee56e89ec409524263286544df6c8750b2838`.
+P5 explicitly requested review of the design only and said the code is not READY.
+This verdict does not review or accept those code changes, their tests, or their helper changes.
+Implementation still requires its complete code review and evidence under the plan.
+This verdict changes no conformance record and does not close P5 deliverable 2.
+Integration retains its separate design verdict ownership.
+
+VERDICT: CLEAN
