@@ -5,7 +5,6 @@
 //! Clause: Core LC-1, LC-2, LC-9, LC-12, DP-8, TH-2, TM-6, AD-6.
 #![cfg(feature = "slow")]
 // The test is the host: it reads the real clock and passes the time to `pump` (Core TM-1).
-#![allow(clippy::disallowed_methods)]
 
 mod common;
 
@@ -13,7 +12,7 @@ use botster_core::prelude::*;
 use botster_core::Core;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 fn config(dir: &std::path::Path) -> OpenConfig {
     OpenConfig {
@@ -44,7 +43,7 @@ fn pump(core: &mut Core) -> Vec<Event> {
     let mut out = Vec::new();
     loop {
         let report = core.pump(Now {
-            monotonic: Instant::now(),
+            monotonic: common::real_now(),
             unix: 1_000_000,
         });
         out.extend(core.poll_events(64));
@@ -226,7 +225,7 @@ fn a_worker_that_exits_before_it_connects_ends_the_start_at_once() {
     .unwrap();
     pump(&mut core);
     let start = core.begin(Op::Start { id: sid("s1") }).unwrap();
-    let began = Instant::now();
+    let began = common::real_now();
     let mut events = pump(&mut core);
     assert_eq!(
         core.get(&sid("s1")).unwrap().state,

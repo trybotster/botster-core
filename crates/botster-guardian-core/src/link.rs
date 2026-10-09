@@ -5,7 +5,7 @@ use botster_core_link::frame::{
     encode_frame, Frame, FrameDecoder, FrameError, FrameType, DEFAULT_MAX_PAYLOAD,
 };
 use botster_core_link::hello::{Hello, HelloError};
-use botster_core_link::proof::token_proof;
+use botster_core_link::proof::{host_proof, token_proof};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum LinkState {
@@ -37,7 +37,7 @@ impl Link {
         }
     }
 
-    /// The guardian's hello for the current epoch.
+    /// The guardian's hello for the current epoch, with the proof of the service's role (`token_proof`, as a worker's).
     pub(crate) fn hello(&self, who: &GuardianConfig) -> Result<Vec<u8>, HelloError> {
         let hello = Hello {
             protocol: who.protocol,
@@ -51,7 +51,8 @@ impl Link {
     }
 
     /// A hello is valid with the guardian's protocol and instance, an epoch no lower than the last proved one, and the
-    /// token's proof for that epoch (AD-6, DP-8).
+    /// token's proof of the host's role for that epoch (AD-6, DP-8). The role is checked (`host_proof`), so the guardian's
+    /// own hello sent back is no host's hello (`botster_core_link::proof`, "Roles").
     pub(crate) fn authenticate(&mut self, who: &GuardianConfig, frame: &Frame) -> bool {
         let Some(hello) = (frame.kind == FrameType::HELLO)
             .then(|| Hello::decode(&frame.payload).ok())
@@ -62,7 +63,7 @@ impl Link {
         let valid = hello.protocol == who.protocol
             && hello.instance == who.instance
             && hello.host_epoch >= self.epoch
-            && hello.proof == token_proof(&who.token, &who.instance, hello.host_epoch);
+            && hello.proof == host_proof(&who.token, &who.instance, hello.host_epoch);
         if valid {
             self.epoch = hello.host_epoch;
             self.state = LinkState::Ready;
