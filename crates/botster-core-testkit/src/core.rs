@@ -53,17 +53,38 @@ pub struct Faults {
     pub next_spawn: Option<i32>,
 }
 
-/// The wake object of the testkit: a level flag that a waiter on any thread sees (TM-6, TH-2).
-#[derive(Debug, Default)]
+/// The wake object of the testkit: a level flag that a waiter on any thread sees (TM-6, TH-2). A wait on a clear flag can end
+/// with a spurious `Woken`: the run's scheduler decides it (A5-2 "spurious wakes"), and `no_spurious_wakes` turns it off.
+#[derive(Debug)]
 pub struct SimHostWake {
     flag: Mutex<bool>,
     changed: Condvar,
+    scheduler: SchedulerHandle,
+}
+
+impl SimHostWake {
+    /// A clear wake whose spurious wakes the run's `scheduler` draws.
+    pub fn new(scheduler: SchedulerHandle) -> SimHostWake {
+        SimHostWake {
+            flag: Mutex::new(false),
+            changed: Condvar::new(),
+            scheduler,
+        }
+    }
 }
 
 impl botster_core_contract::prelude::WakeHandle for SimHostWake {
     fn wait(&self, timeout: Duration) -> Wake {
         let flag = lock(&self.flag);
         if *flag {
+            return Wake::Woken;
+        }
+        // TH-2 allows a `Woken` with no work. The flag stays clear: no work is behind it.
+        if self
+            .scheduler
+            .with(|s| s.pick(ChoicePoint::SpuriousWake, 2))
+            == 1
+        {
             return Wake::Woken;
         }
         let (flag, _) = self
@@ -109,6 +130,12 @@ pub trait Spawner: Send {
     fn poll_exit(&mut self) -> Option<(ProcessIdentity, ExitStatus)> {
         None
     }
+    /// Connects to the endpoint of the worker of `instance` (DESIGN.md part 6): the worker takes `end`, its side of the new
+    /// link. False when no worker listens there (none was spawned, it ended, or its endpoint was removed).
+    fn connect_worker(&mut self, instance: &InstanceId, end: LinkEnd) -> bool;
+    /// Removes the endpoint of the worker of `instance` (DESIGN.md part 1, `Remove` step 4). A missing endpoint is no
+    /// failure.
+    fn remove_endpoint(&mut self, instance: &InstanceId);
 }
 
 /// The scheduler of the testkit as a `Scheduler`: every choice draws from the one seeded stream.
@@ -232,6 +259,26 @@ impl HostEdges for SimEdges {
         Some(link)
     }
 
+    /// AD-6, DESIGN.md part 6: an in-memory connection to the worker endpoint. The link is the host's at once, as a
+    /// completed connect is.
+    fn connect_worker(&mut self, instance: &InstanceId) -> Option<LinkId> {
+        let spawner = self.spawner.as_mut()?;
+        let (host, worker) = crate::net::link_pair(self.link_capacity);
+        if !spawner.connect_worker(instance, worker) {
+            return None;
+        }
+        let link = LinkId(self.next_link);
+        self.next_link += 1;
+        self.links.insert(link, host);
+        Some(link)
+    }
+
+    fn remove_endpoint(&mut self, instance: &InstanceId) {
+        if let Some(spawner) = self.spawner.as_mut() {
+            spawner.remove_endpoint(instance);
+        }
+    }
+
     fn link_recv(&mut self, link: LinkId, buf: &mut [u8]) -> io::Result<usize> {
         match self.links.get_mut(&link) {
             Some(end) => end.recv(buf),
@@ -318,6 +365,25 @@ pub struct Opened {
 }
 
 impl Directories {
+    /// The stored bytes of the row `key` in the directory `name`, as the storage edge holds them.
+    pub(crate) fn row(&self, name: &str, key: &str) -> Option<Vec<u8>> {
+        lock(self.dirs.get(name)?).rows.get(key).cloned()
+    }
+
+    /// The storage edge damages the stored row `key` of the directory `name` (`corrupt_registry_row`, Core A10-2): it keeps
+    /// the first half of the bytes that Core's encoder wrote. False when there is no such row.
+    pub(crate) fn damage_row(&self, name: &str, key: &str) -> bool {
+        let Some(registry) = self.dirs.get(name) else {
+            return false;
+        };
+        let mut registry = lock(registry);
+        let Some(bytes) = registry.rows.get_mut(key) else {
+            return false;
+        };
+        bytes.truncate(bytes.len() / 2);
+        true
+    }
+
     /// Opens a `Core` over the in-memory directory `name`, as `Core::open` opens a real one (LC-1, LC-2, 9B, DP-8).
     ///
     /// # Errors
@@ -364,8 +430,8 @@ impl Directories {
             registry,
             faults: Arc::clone(&faults),
             entropy: SeededEntropy::with_seed(seed),
+            wake: Arc::new(SimHostWake::new(scheduler.clone())),
             scheduler: HandleScheduler(scheduler),
-            wake: Arc::new(SimHostWake::default()),
             spawner,
             pending: VecDeque::new(),
             links: BTreeMap::new(),

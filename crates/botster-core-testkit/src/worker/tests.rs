@@ -3,7 +3,7 @@
 use super::*;
 use botster_core_link::proof::TOKEN_LEN;
 
-fn fixture(capacity: usize) -> (WorkerEdges, LinkEnd, Worker, Instant) {
+fn fixture(capacity: usize) -> (WorkerEdges, LinkEnd, SharedWorker, Instant) {
     let now = Instant::now();
     let scheduler = SchedulerHandle::with_seed(1);
     let (link, peer) = crate::net::link_pair(capacity);
@@ -14,11 +14,24 @@ fn fixture(capacity: usize) -> (WorkerEdges, LinkEnd, Worker, Instant) {
     let cell = Arc::new(Mutex::new(ProcessCell::default()));
     let mut processes = Processes::default();
     processes.cells.insert(id, Arc::clone(&cell));
+    processes.links.insert(id, Arc::clone(&cell));
+    let processes = Arc::new(Mutex::new(processes));
+    lock(&cell).control = Some(Arc::downgrade(&processes));
     let edges = WorkerEdges {
         id,
         cell,
-        processes: Arc::new(Mutex::new(processes)),
+        processes,
         pids: Arc::new(Mutex::new(Pids { next: 1001 })),
+        key: InstanceKey {
+            dir: "d".into(),
+            instance: InstanceId("1-1".into()),
+        },
+        held_starts: Arc::default(),
+        held_spawn: None,
+        endpoint: Endpoint::default(),
+        endpoints: Arc::default(),
+        candidates: BTreeMap::new(),
+        next_candidate: 0,
         scheduler,
         link,
         link_open: true,
@@ -28,14 +41,16 @@ fn fixture(capacity: usize) -> (WorkerEdges, LinkEnd, Worker, Instant) {
         spawned: None,
         exit: None,
         drain: None,
+        pty_write: None,
+        wait_writable: false,
         ready: Vec::new(),
         read_chunk: READ_CHUNK,
     };
-    let worker = Worker::new(WorkerConfig::new(
+    let worker = SharedWorker(Arc::new(Mutex::new(Worker::new(WorkerConfig::new(
         InstanceId("1-1".into()),
         [1; TOKEN_LEN],
         1,
-    ));
+    )))));
     (edges, peer, worker, now)
 }
 
@@ -145,6 +160,7 @@ fn worker_exit_closes_the_link_and_posts_its_exit_once() {
     );
     let mut spawner = WorkerSpawner {
         workers,
+        dir: edges.key.dir.clone(),
         processes: Arc::clone(&edges.processes),
     };
     for signal in [GroupSignal::EndPayload, GroupSignal::Term] {
@@ -176,8 +192,9 @@ fn worker_exit_closes_the_link_and_posts_its_exit_once() {
 fn worker_identities_do_not_repeat() {
     let workers = Workers::new(SchedulerHandle::with_seed(2), Instant::now());
     assert!(format!("{workers:?}").contains("Workers"));
-    let mut spawner = workers.spawner();
+    let mut spawner = workers.spawner("d");
     let spec = WorkerSpawn {
+        startup: CoreLimits::default().startup,
         program: "worker".into(),
         instance: InstanceId("1-1".into()),
         token: [1; TOKEN_LEN],
@@ -232,6 +249,7 @@ fn workers_expose_the_payload_grace_deadline() {
         size_policy: SizePolicy::Latest,
         link_frame_bound: 65536,
         stop_grace_ms: 250,
+        limits: CoreLimits::default(),
     }));
     payload.clear();
     launch.encode(&mut payload);
@@ -325,4 +343,220 @@ fn program_reads_retain_output_at_each_read_bound() {
 #[should_panic(expected = "a worker needs a positive read bound")]
 fn a_worker_refuses_zero_read_bound() {
     Workers::with_read_chunk(SchedulerHandle::with_seed(1), Instant::now(), 0);
+}
+
+/// `edges_quiet` (Core A5-2): each report that the host has not consumed keeps the edges from quiet on its own: a worker's
+/// ready work, a link report that the host has not read, and an exit that the host has not polled.
+#[test]
+fn each_unconsumed_report_alone_keeps_the_edges_from_quiet() {
+    let now = Instant::now();
+    let workers = Workers::new(SchedulerHandle::with_seed(0), now);
+    let mut spawner = workers.spawner("d");
+    let table = spawner.table();
+    assert!(workers.edges_quiet(&table), "no worker, no report");
+    let spec = WorkerSpawn {
+        startup: CoreLimits::default().startup,
+        program: "worker".into(),
+        instance: InstanceId("1-1".into()),
+        token: [1; TOKEN_LEN],
+        host_epoch: 1,
+    };
+    let mut host = None;
+    let id = spawner
+        .spawn(&spec, &mut || {
+            let (h, w) = crate::net::link_pair(1024);
+            host = Some(h);
+            w
+        })
+        .unwrap();
+    let mut host = host.expect("the spawn connected");
+
+    // The worker's hello waits in its own queue: ready work, and nothing on the link yet.
+    assert!(workers.has_ready());
+    assert!(!table.holds_reports());
+    assert!(!workers.edges_quiet(&table));
+
+    // The hello is on the link and the host has not read it.
+    workers.run(now);
+    assert!(!workers.has_ready());
+    assert!(table.holds_reports());
+    assert!(!workers.edges_quiet(&table));
+    let mut buf = [0u8; 256];
+    while matches!(host.recv(&mut buf), Ok(n) if n > 0) {}
+    assert!(workers.edges_quiet(&table));
+
+    // The host's end closes first, so the worker's end of file is no report for it; then the worker is killed, and only its
+    // exit waits for the host.
+    host.end().close();
+    workers.run(now);
+    assert!(workers.edges_quiet(&table));
+    spawner.signal_group(id, GroupSignal::Kill);
+    assert!(!workers.has_ready());
+    assert!(table.holds_reports());
+    assert!(!workers.edges_quiet(&table));
+    assert_eq!(spawner.poll_exit(), Some((id, ExitStatus::Signal(9))));
+    assert!(workers.edges_quiet(&table));
+}
+
+/// F63: a program-edge control (`pty_output`, `pty_blocked`) and the end of its process do not deadlock. `Processes::end`
+/// locks the owner, then the cell, so `program_edge` must release the cell before it locks the owner. The test fixes the
+/// order with events, not with delays:
+/// 1. The control reads the cell and stops before it locks the owner.
+/// 2. The end thread takes the owner and then ends the process, which needs the cell.
+/// 3. The control goes on and locks the owner.
+///
+/// With the cell still held at step 3, the two threads wait for each other on every schedule. The deadlines only turn that
+/// deadlock into a failure.
+#[test]
+fn a_program_edge_control_concurrent_with_the_process_end_does_not_deadlock() {
+    use std::sync::mpsc;
+    use std::thread;
+
+    let (edges, _peer, _worker, now) = fixture(8);
+    let workers = Workers::new(edges.scheduler.clone(), now);
+    lock(&workers.run_processes).insert(
+        edges.id,
+        (Arc::clone(&edges.cell), Arc::clone(&edges.processes)),
+    );
+    let program = ScriptedProgram::from_argv(&["program".into()], &edges.scheduler).unwrap();
+    lock(&edges.cell).program = Some(program.control());
+    let id = edges.id;
+
+    let (at_owner_tx, at_owner_rx) = mpsc::channel();
+    let (go_tx, go_rx) = mpsc::channel::<()>();
+    let (done_tx, done_rx) = mpsc::channel();
+    let edge_workers = workers.clone();
+    let control_done = done_tx.clone();
+    let control = thread::spawn(move || {
+        let result = edge_workers
+            .program_edge_between(id, || {
+                at_owner_tx.send(()).unwrap();
+                go_rx.recv().unwrap();
+            })
+            .map(|_| ());
+        control_done.send("control").unwrap();
+        result
+    });
+    // timer: deadline — fails the test when the control never reaches the owner step.
+    at_owner_rx.recv_timeout(Duration::from_secs(10)).unwrap();
+
+    let (owner_held_tx, owner_held_rx) = mpsc::channel();
+    let processes = Arc::clone(&edges.processes);
+    let ender = thread::spawn(move || {
+        let mut owner = lock(&processes);
+        owner_held_tx.send(()).unwrap();
+        owner.end(id, ExitStatus::Signal(9));
+        drop(owner);
+        done_tx.send("end").unwrap();
+    });
+    // timer: deadline — fails the test when the end thread never takes the owner.
+    owner_held_rx.recv_timeout(Duration::from_secs(10)).unwrap();
+    go_tx.send(()).unwrap();
+
+    let mut done = Vec::new();
+    for _ in 0..2 {
+        done.push(
+            done_rx
+                // timer: deadline — fails the test on a lock-order deadlock, so the test does not hang.
+                .recv_timeout(Duration::from_secs(10))
+                .expect("the control and the end finish: no lock-order deadlock"),
+        );
+    }
+    done.sort_unstable();
+    assert_eq!(done, ["control", "end"]);
+    ender.join().unwrap();
+    assert_eq!(
+        control.join().unwrap(),
+        Ok(()),
+        "the control read the cell before the end"
+    );
+    assert_eq!(
+        lock(&edges.processes).exits.pop_front(),
+        Some((id, ExitStatus::Signal(9)))
+    );
+    assert!(workers.program_edge(id).is_err(), "the process has ended");
+}
+
+/// A payload spawn of the default program, which holds.
+fn payload_spec() -> PayloadSpec {
+    PayloadSpec {
+        argv: vec!["program".into()],
+        env: BTreeMap::new(),
+        cwd: "/".into(),
+        size: Size {
+            rows: 24,
+            cols: 80,
+            cell_px: None,
+        },
+    }
+}
+
+/// `payload_alive`: the payload is alive from its spawn until its process ends. The end counts when the edge queues the exit
+/// for the worker, before the worker takes it and before the reap.
+#[test]
+fn the_payload_is_alive_from_its_spawn_until_its_process_ends() {
+    let (mut edges, _peer, worker, now) = fixture(1024);
+    assert!(!lock(&edges.cell).payload_alive);
+    edges.perform(now, Action::SpawnPayload(payload_spec()));
+    assert!(lock(&edges.cell).payload_alive);
+    assert_eq!(edges.ready(now, &worker), 1);
+    assert!(matches!(edges.take(now, &worker, 0), Input::Spawned(Ok(_))));
+    assert_eq!(edges.ready(now, &worker), 0, "the payload holds");
+    assert!(lock(&edges.cell).payload_alive);
+    edges.perform(now, Action::SignalPayload(9));
+    assert!(
+        !lock(&edges.cell).payload_alive,
+        "the process ended; the worker has not taken its exit"
+    );
+    assert_eq!(edges.ready(now, &worker), 1);
+    assert_eq!(
+        edges.take(now, &worker, 0),
+        Input::PayloadExited(ExitStatus::Signal(9))
+    );
+    assert!(!lock(&edges.cell).payload_alive);
+}
+
+/// `hold_start_at` (AD-7 step 4): while the start is held, the worker's spawn is kept and is not ready work. The release
+/// makes it ready, and its answer is the spawn's. The end of the worker drops a kept spawn and its own hold only: the same
+/// instance of another directory stays held.
+#[test]
+fn a_held_spawn_waits_for_the_release_and_goes_with_the_worker() {
+    let (mut edges, _peer, worker, now) = fixture(1024);
+    let key = edges.key.clone();
+    lock(&edges.held_starts).insert(key.clone());
+    edges.perform(now, Action::SpawnPayload(payload_spec()));
+    assert_eq!(
+        edges.ready(now, &worker),
+        0,
+        "a held spawn is not ready work"
+    );
+    assert!(!lock(&edges.cell).payload_alive);
+    lock(&edges.held_starts).remove(&key);
+    assert_eq!(edges.ready(now, &worker), 1);
+    assert!(matches!(edges.take(now, &worker, 0), Input::Spawned(Ok(_))));
+    assert!(lock(&edges.cell).payload_alive);
+
+    let (mut edges, _peer, worker, now) = fixture(1024);
+    let other = InstanceKey {
+        dir: "other".into(),
+        ..key.clone()
+    };
+    lock(&edges.held_starts).insert(key.clone());
+    lock(&edges.held_starts).insert(other.clone());
+    edges.perform(now, Action::SpawnPayload(payload_spec()));
+    lock(&edges.cell).ended = true;
+    assert_eq!(edges.ready(now, &worker), 0);
+    assert!(
+        edges.held_spawn.is_none(),
+        "the kept spawn went with the worker"
+    );
+    assert!(
+        !lock(&edges.held_starts).contains(&key),
+        "its hold went too"
+    );
+    assert!(
+        lock(&edges.held_starts).contains(&other),
+        "the same instance of another directory stays held"
+    );
+    assert!(!lock(&edges.cell).payload_alive);
 }

@@ -13,4 +13,10 @@ workspace = true
 botster-core-contract.workspace = true
 botster-core-edges.workspace = true
 botster-core-link.workspace = true
+# `HexBytes` of the pages and the clipboard contents.
+botster-route-codec.workspace = true
+# The terminal model (libghostty-vt), its encoders and its GHOSTSNP snapshot.
+botster-terminal-ghostty.workspace = true
 serde_json.workspace = true
+
+[dev-dependencies]
