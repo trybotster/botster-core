@@ -86,19 +86,19 @@ impl CaptureLog {
 fn replay(size: &Size, output: &[u8]) -> Result<(Terminal, usize), ControlError> {
     let mut terminal = Terminal::new(size, History::On)
         .map_err(|e| ControlError::Bad(format!("oracle_resume: no oracle terminal: {e:?}")))?;
-    let mut consumed = 0;
+    // Each step that does not end the replay consumes at least one byte, so `rest` is shorter after it.
+    let mut rest = output;
     loop {
-        let step = terminal
-            .vt_write_until_query(&output[consumed..])
-            .map_err(|e| {
-                ControlError::Bad(format!("oracle_resume: the oracle refused a step: {e:?}"))
-            })?;
+        let step = terminal.vt_write_until_query(rest).map_err(|e| {
+            ControlError::Bad(format!("oracle_resume: the oracle refused a step: {e:?}"))
+        })?;
         terminal.drain_events();
         if step.consumed == 0 && step.query.is_none() {
             break;
         }
-        consumed += step.consumed;
+        rest = rest.get(step.consumed..).unwrap_or_default();
     }
+    let consumed = output.len() - rest.len();
     Ok((terminal, consumed))
 }
 
