@@ -103,8 +103,9 @@ fn state(core: &dyn CoreApi, name: &str) -> SessionState {
 }
 
 /// Core A10-1, AD-6: an impostor answers the adoption with a wrong token, or a wrong `InstanceId`. Core's own check refuses
-/// it: the session is `Lost(WorkerGone)`, and Core sends no signal to the refused identity, also at the `Remove`. The real
-/// worker is not touched: its payload still runs.
+/// it: the session is `Lost(WorkerGone)`, and Core sends no signal to the refused identity. A later handle posts the row,
+/// and its `Remove` sends none either (review A2-F1): the upload outcome is unknown. The real worker is not touched: its
+/// payload still runs.
 #[test]
 fn an_impostor_is_refused_and_never_signalled() {
     for field in ["token", "instance"] {
@@ -117,7 +118,7 @@ fn an_impostor_is_refused_and_never_signalled() {
             ),
             Ok(Value::Null)
         );
-        let (mut b, _) = adopt_on_b(&mut harness, core, &mut at);
+        let (b, _) = adopt_on_b(&mut harness, core, &mut at);
         assert_eq!(
             state(b.as_ref(), "s1"),
             SessionState::Lost(LostReason::WorkerGone),
@@ -133,8 +134,33 @@ fn an_impostor_is_refused_and_never_signalled() {
             Ok(json!({"alive": true})),
             "the real worker runs on"
         );
-        let (removed, _) = run(b.as_mut(), &mut at, json!({"Remove": {"id": "s1"}}));
-        assert!(matches!(removed, OpResult::Ok(_)), "{removed:?}");
+        drop(b);
+        harness.drop_handle("b");
+        let mut c = harness.open(&spec("c")).expect("open c");
+        let (adopted, _) = run(c.as_mut(), &mut at, json!("AdoptAll"));
+        assert!(matches!(adopted, OpResult::Ok(_)), "{adopted:?}");
+        assert_eq!(
+            state(c.as_ref(), "s1"),
+            SessionState::Lost(LostReason::WorkerGone)
+        );
+        let (removed, _) = run(c.as_mut(), &mut at, json!({"Remove": {"id": "s1"}}));
+        assert!(
+            matches!(
+                &removed,
+                OpResult::Ok(OpOutput::RemoveReport(r))
+                    if r.uploads == UploadsOutcome::NotDeleted(NotDeleted::OutcomeUnknown)
+            ),
+            "{removed:?}"
+        );
+        assert_eq!(
+            harness.control("c", "signals_received", &json!({"session": "s1"})),
+            Ok(signals())
+        );
+        assert_eq!(
+            harness.control("c", "payload_alive", &json!({"session": "s1"})),
+            Ok(json!({"alive": true})),
+            "the real worker runs on after the Remove"
+        );
     }
 }
 
