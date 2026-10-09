@@ -315,9 +315,18 @@ const MUTANTS_OPTIONS: [&str; 7] = [
     "5",
 ];
 
-/// The nextest arguments of the mutation run: the `mutants` profile (`.config/nextest.toml`) never terminates a test, so a
-/// mutant that hangs reaches the timeout of cargo-mutants and counts as TIMEOUT, not as CAUGHT.
-const MUTANTS_TEST_ARGS: [&str; 4] = ["--", "--profile", "mutants", "--no-tests=pass"];
+/// The nextest arguments of the mutation run. The `mutants` profile (`.config/nextest.toml`) never terminates a test for
+/// its time, so a mutant that hangs and fails no test reaches the timeout of cargo-mutants and counts as TIMEOUT, not as
+/// CAUGHT. `--max-fail 1:immediate` ends the run at the first failed test, with the tests still running: a mutant that a
+/// test fails is CAUGHT even when it also hangs another test.
+const MUTANTS_TEST_ARGS: [&str; 6] = [
+    "--",
+    "--profile",
+    "mutants",
+    "--max-fail",
+    "1:immediate",
+    "--no-tests=pass",
+];
 
 fn mutants_job(root: &Path) -> Result<()> {
     require_cargo_tool(
@@ -746,9 +755,10 @@ mod slow_tests {
     use super::*;
     use botster_test_process::{Deadline, OwnedChild};
 
-    /// The fixture `xtask/fixtures/mutants-hang`: three of its eight mutants park the test thread for ever. With the step's
-    /// options and nextest arguments, cargo-mutants reports them as TIMEOUT and exits with 3, which fails the step. Under
-    /// the default profile nextest terminates them at 2 s and cargo-mutants counts all eight as caught (exit 0).
+    /// The fixture `xtask/fixtures/mutants-hang`: three of its eight mutants park a test thread for ever, and two of those
+    /// also fail another test. With the step's options and nextest arguments, those two are caught at their first failure,
+    /// and the third, which fails no test, is a TIMEOUT: cargo-mutants exits with 3, which fails the step. Under the
+    /// default profile nextest terminates the hang at 2 s and cargo-mutants counts all eight as caught (exit 0).
     #[test]
     fn a_mutant_that_hangs_fails_the_mutation_step_as_a_timeout() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -791,7 +801,7 @@ mod slow_tests {
                 outcomes.timeout,
                 outcomes.missed
             ),
-            (Some(3), 8, 3, 0),
+            (Some(3), 8, 1, 0),
             "{status}"
         );
     }
