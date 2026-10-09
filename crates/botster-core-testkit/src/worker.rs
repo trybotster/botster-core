@@ -355,12 +355,16 @@ impl Workers {
 
     /// A cleaner removes the endpoint of the worker of `key` (DESIGN.md part 1): a live worker keeps running, and a new
     /// host's connect fails. False when there is no endpoint (it was never bound, or it was removed).
+    // Only tests use it until the controls of #176a-2 (`impostor_worker`, `withhold_control_link`) do.
+    #[cfg(test)]
     pub(crate) fn unlink_endpoint(&self, key: &InstanceKey) -> bool {
         lock(&self.endpoints).remove(key).is_some()
     }
 
     /// A process of this user that is not a host connects to the endpoint of the live worker of `key` (AD-6: the endpoint
     /// is closed to other users only). The caller holds the connection's other end. `None` when no worker listens there.
+    // Only tests use it until the controls of #176a-2 (`impostor_worker`, `withhold_control_link`) do.
+    #[cfg(test)]
     pub(crate) fn connect_endpoint(&self, key: &InstanceKey) -> Option<LinkEnd> {
         let endpoint = lock(&self.endpoints).get(key).cloned().flatten()?;
         let (stranger, worker) = crate::net::link_pair(self.read_chunk);
