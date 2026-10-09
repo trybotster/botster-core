@@ -20,6 +20,18 @@ exclude_re = [
     # (an_installed_executable_is_a_new_file_with_the_new_bytes) and sha256_hex (a_file_hash_is_the_sha256_of_its_bytes).
     'xtask/src/prebuild\.rs:\d+:\d+: replace build_anchor -> Result<\(String, String\)> with Ok\(.*\)$',
     'xtask/src/prebuild\.rs:\d+:\d+: replace command -> Result<\(\)> with Ok\(\(\)\)$',
+    # xtask main.rs run -> Ok(()): the shell reads the process arguments and runs what choose decides; a test cannot run the
+    # binary's entry without a real process, and the body replaced by Ok(()) runs no command and prints nothing. Only this
+    # whole-body replacement is excluded. The decision is choose, a pure function with tests that do not read its table:
+    # each_name_runs_its_own_function_with_its_arguments, the_help_names_choose_the_help_and_others_fail_with_the_usage
+    # and the_usage_lists_every_command_and_only_those.
+    'xtask/src/main\.rs:\d+:\d+: replace run -> Result<\(\)> with Ok\(\(\)\)$',
+    # xtask base_merge.rs command -> Ok(()): the shell resolves the base of the run (fsutil::base, one value for the
+    # process) and prints the report of check; the body replaced by Ok(()) prints no report, and the PR must carry the
+    # report. Only this whole-body replacement is excluded. check runs on real repositories in its tests
+    # (a_real_base_only_merge_passes, an_unreviewed_change_fails_under_an_external_diff, a_git_failure_fails_the_check) and
+    # its decisions are judge, conflicts, overlap, first_difference, ancestry and succeeded, each with tests.
+    'xtask/src/base_merge\.rs:\d+:\d+: replace command -> Result<\(\)> with Ok\(\(\)\)$',
     # xtask mutants_job -> Ok(()): process glue. The body runs `git diff`, writes the diff file, starts `cargo mutants` and
     # prints its summary; a test cannot start a mutation run inside a mutation run, so no test can run the body. Only this
     # whole-body replacement is excluded: every other mutant of mutants_job stays tested. Its decisions are pure functions
