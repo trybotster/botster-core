@@ -256,6 +256,7 @@ fn parse_outcomes(json: &str) -> Result<MutantSummary> {
 ///   the most with that prefix off. The regression is
 ///   `the_key_bound_of_an_alt_key_with_long_text_covers_the_states_with_modes_off`. When `every_key_state`, the key
 ///   encoding or the Ghostty pin changes, a focused Mac mutation run of `every_key_state` must show both mutants caught.
+///   The proof at aeda1cac, pin 3f8eb681 (PR #167): ~/.local/state/jobq/logs/jobq-botster-core-aeda1cac-20261008222501-7480.log.
 const OFF_MACOS_EXCLUSIONS: &[&str] = &[
     r"crates/botster-terminal-ghostty/src/encode\.rs:\d+:40: replace & with [|^] in EncoderState::every_key_state$",
 ];
