@@ -1190,3 +1190,27 @@ fn the_mouse_bound_is_the_report_of_one_notch() {
     assert!(bound > 0);
     assert_eq!(longest_mouse_report(&five), bound);
 }
+
+/// 5.1A defines the kitty flags 1, 2, 4, 8 and 16: libghostty reads only those bits, so higher bits of a state's flags
+/// change no byte that it writes.
+#[test]
+fn bits_above_the_five_kitty_flags_change_no_key_bytes() {
+    let mut with_text = character('a', &[Modifier::Shift]);
+    with_text.text = Some("A".into());
+    for input in [
+        with_text,
+        named("f5", &[Modifier::Ctrl]),
+        named("kp_5", &[Modifier::NumLock]),
+    ] {
+        for modes in every_key_mode() {
+            let mut high = modes.clone();
+            high.kitty_flags |= 0b1110_0000;
+            assert_eq!(
+                encode_key_with_modes(&modes, &input).ok(),
+                encode_key_with_modes(&high, &input).ok(),
+                "{input:?} at kitty flags {}",
+                modes.kitty_flags
+            );
+        }
+    }
+}
