@@ -87,6 +87,8 @@ pub(crate) enum Wait {
     Flow,
     /// For the route to close (`Detach`).
     Route(RouteId),
+    /// `AdoptAll`: for every row that this op adopts to post its state (LC-11: the completion follows the last one).
+    Adopt,
 }
 
 #[derive(Debug)]
@@ -279,19 +281,20 @@ impl HostEngine {
                     // The frames that cause a state transition stay unread until their event fits (EV-5b).
                     | WorkerMsg::Exited { .. }
                     | WorkerMsg::Launched { .. }
-                    | WorkerMsg::LaunchFailed { .. },
+                    | WorkerMsg::LaunchFailed { .. }
+                    | WorkerMsg::Adopted { .. },
                 ..
             } => self.has_room(),
             // The events of the model belong to the running session: an observation stays unread on its link while the
-            // session's start is not through, so it follows `Running` and the completion of `Start` (OR-2, EV-5). The link
-            // keeps the worker's order (ST-4, EV-6), and its one held frame bounds what waits (plan 2.5 rule 7).
+            // session's start or adoption is not through, so it follows `Running` and the completion of `Start` (OR-2, EV-5).
+            // The link keeps the worker's order (ST-4, EV-6), and its one held frame bounds what waits (plan 2.5 rule 7).
             Input::LinkMsg {
                 link,
                 msg: WorkerMsg::Observed { .. },
             } => !self.links.get(link).is_some_and(|id| {
                 self.sessions
                     .get(id)
-                    .is_some_and(|s| matches!(s.flow, Flow::Start(_)))
+                    .is_some_and(|s| matches!(s.flow, Flow::Start(_) | Flow::Adopt(_)))
             }),
             _ => true,
         }
@@ -677,5 +680,6 @@ pub(crate) fn new_session(
         metadata_pending: false,
         payload: None,
         pending_end: None,
+        adopting: None,
     }
 }

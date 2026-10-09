@@ -106,7 +106,7 @@ impl World {
     fn host_hello(instance: InstanceId, epoch: u64, token: [u8; TOKEN_LEN]) -> Vec<u8> {
         let hello = Hello {
             protocol: WORKER_PROTOCOL,
-            proof: token_proof(&token, &instance, epoch),
+            proof: host_proof(&token, &instance, epoch),
             instance,
             host_epoch: epoch,
         };
@@ -335,6 +335,31 @@ fn a_started_payload_is_reported_launched_with_its_identity() {
     assert_eq!(*payload, PAYLOAD);
     assert_eq!(*features, BTreeSet::from([Feature::FocusReport]));
     assert_eq!(terminal.size, size());
+}
+
+/// AD-7, R-35: a worker accepts at most one `Launch` in its life, so an adoption retry that sends a `Launch` again can never
+/// spawn a second payload. A `Launch` while the first spawn is in flight (R-35 (b)), after the payload runs, after it exited,
+/// and after its spawn failed starts nothing.
+#[test]
+fn a_worker_accepts_one_launch_in_its_life() {
+    let launch = || HostMsg::Launch(Box::new(spec()));
+    let mut spawning = World::linked();
+    assert_ne!(spawning.send(&launch()), [], "the first Launch spawns");
+    assert_eq!(spawning.send(&launch()), [], "the spawn is in flight");
+    let actions = spawning.feed(Input::Spawned(Ok(PAYLOAD)));
+    assert_eq!(
+        spawning.reports(&actions).len(),
+        1,
+        "one spawn answers one Launch"
+    );
+    let mut running = World::running();
+    assert_eq!(running.send(&launch()), [], "running");
+    let (mut exited, _) = World::exited(ExitStatus::Code(0));
+    assert_eq!(exited.send(&launch()), [], "exited");
+    let mut failed = World::linked();
+    failed.send(&launch());
+    failed.feed(Input::Spawned(Err(SpawnFailure::CwdMissing)));
+    assert_eq!(failed.send(&launch()), [], "the spawn failed");
 }
 
 /// LC-4, A2-1: a payload that does not start is a typed failure.
