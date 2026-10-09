@@ -43,3 +43,25 @@ dropped handle. So the testkit accepts a step that the reference refuses. This r
 
 VERDICT: NOT CLEAN at 504540a93bebadb665562e2188ba06c3c2bb40ba (1 open: PC-F1 MEDIUM, the package reviewer's finding,
 confirmed here)
+
+## Round 2 — CLEAN on head 7a56100c
+
+Reviewed head: `7a56100cd97b0d46f501779ac134369756170be1`: `7d240117` (the PC-F1 fix) and `7a56100c`, the merge of v1
+`67fd748a` (#190, xtask only). v1 is still `67fd748a`.
+
+- **PC-F1 closed.** `drop_handle` removes the handle from `handle_dirs`, and its comment now states LC-12 (the rows and
+  the workers stay). `a_dropped_handle_is_gone_and_a_reopen_reaches_the_surviving_worker` checks `Bad` after the drop and
+  `Ok` through a reopen of the same directory under another handle.
+- **The merge.** Its tree is the tree of `git merge-tree --write-tree 7d240117 67fd748a`.
+- **The gate log** (`controls-process-7a56100c.log`) names the head and base `67fd748a`. The conformance binary reports 24
+  passed and 651 ignored. The default tier runs 966 tests and the slow tier 243, all pass. Mutants: 20 caught, 0 missed,
+  6 unviable. Exit 0.
+
+Observations (not counted), for later work on reopen and adoption (#176):
+- `refusals` is also per handle, and `drop_handle` keeps it. A reopen under the same handle name would take over refusals
+  that the dropped handle armed and did not use. This predates this PR.
+- `break_link` wakes the host that spawned the worker (its process table's wake). After a reopen, that is the dropped
+  host, not the reopened one. The reopened host does not own the worker until adoption is built, so nothing depends on it
+  now.
+
+VERDICT: CLEAN (0 open) at 7a56100cd97b0d46f501779ac134369756170be1
