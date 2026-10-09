@@ -39,3 +39,13 @@ Observations (not counted; package scope):
   `h.peer` after that, so the change does no harm here. The thread ends at end of file or with the test process.
 
 VERDICT: CLEAN (0 open) at 3c243a044e762cbdf5a93d4858ea9298b16e09be
+
+## Round 2 — CLEAN on head cdf0f4d2 (delta: one doc comment)
+
+Reviewed head: `cdf0f4d20e39069dd75747d523cdb36ca6b29c06`, one commit on `3c243a04`. It changes only the doc comment of
+`output_sent_to` (`worker.rs`, +3 -2): reads alone queue at most one `Output` report, and the bound is one plus one for each
+other report. This matches the code and closes observation (1) of round 1. No code changes. P3's gate on this head was
+running when this verdict was written. By the Merge bullet, the merge needs that gate green on this exact head over the
+current v1 tip.
+
+VERDICT: CLEAN (0 open) at cdf0f4d20e39069dd75747d523cdb36ca6b29c06
