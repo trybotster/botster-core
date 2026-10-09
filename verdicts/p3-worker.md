@@ -6176,3 +6176,96 @@ The reviewer changed no product code and ran no tests, builds, measurements, mut
 All earlier findings, closures, and verdict rounds remain preserved at their named heads and scopes.
 
 VERDICT: NOT CLEAN
+
+
+## Round 117 — Real-proof references for active real-only Core IDs
+
+Reviewed head: `d34a629d9078aadcc63012adfe2bf47222c2a921`, PR #192, branch `stage1/p3-real-proofs`.
+Base: `3000ae14bf8b05efe410c22ac66d5915cf36ff45`.
+Merge parents: `15a362ae21c9a8fde682582af95483fe426341fb` and the base above.
+The reviewer checked the tier first. HIGH is correct under BUILD.md rule 1 for the lists decision.
+Rule 3 also applies to the workspace mutation settings. HIGH requires both reviews and closure of every finding.
+Authority: BUILD.md and revision 23a's real-only exception, with the lead's requirement for named real proofs of non-pending slow:* IDs.
+The reviewer read all five changed files, their full diff, the lists command context, the named real-test source, and completed evidence.
+The reviewer also read the complete PR description and its interim-model agreement with P6.
+
+### F61 — HIGH — The resolver accepts helpers and invented test paths; OPEN
+
+Location at the reviewed head: xtask/src/real_proofs.rs:143-160, with the tier decision at 79-80.
+The resolver drops the module prefix and searches for fn <leaf>( in every tracked Rust file under the binary's crate tests/ directory.
+The resolver does not establish that the function has a test attribute or belongs to the named binary's module tree.
+It does not check cfg predicates or ignore attributes.
+The tier decision then uses the supplied binary and test strings, not a resolved test's actual identity.
+
+The existing tree provides a concrete false-pass entry:
+- id = conf::lc_2_data_dir_is_exclusive
+- binary = slow_real_core
+- test = config
+
+crates/botster-core/tests/slow_real_core.rs defines config as a plain helper without a test attribute.
+The source needle matches, the binary name satisfies the slow filter model, and the ID has slow:data-dir-lock in the replacement map.
+The entry satisfies verdict although no nextest test named config exists.
+An entry naming no_such_module::a_second_open_is_refused_until_the_first_is_dropped also passes by its leaf alone.
+A fabricated slow_ module prefix can similarly classify a default-tier leaf as slow.
+A function in an unrelated test file, a disabled test, an ignored test, or matching text in a comment can also satisfy the lookup.
+The tests currently cover a missing leaf and another crate; they do not cover these false-pass cases.
+
+Required correction: resolve an actual reachable test by its exact binary and complete nextest path.
+Establish that the test is selected and not ignored in a configuration used by the slow tier.
+The interim supported target set may stay narrow, but unsupported cases must fail rather than return a text-based pass.
+Use P6's shared resolver when available, or provide a sound interim resolver for the supported cases.
+Add regressions for a helper, wrong module, unrelated test file, disabled or ignored test, and fabricated slow_ prefix.
+The reviewer sent F61 directly to P3 and integration. This finding follows from source inspection; the reviewer ran no test or gate.
+
+### F62 — LOW — Probe evidence names the wrong head; OPEN
+
+Location: the complete PR description's Proof section and real-tree table.
+The section states that its probes ran at this head, but the unchanged row reports pending 652 and to run 19.
+The exact-head gate reports pending 648 and to run 23.
+The edited rows also retain the older counts of pending 651 and to run 20.
+These rows cannot describe the unchanged tree at the stated final head.
+
+Required correction: identify the actual probe head and explain the carry-forward scope, or supply completed probes at the final head.
+Do not label earlier output as exact-head output.
+The reviewer sent F62 directly to P3 and integration. HIGH requires this LOW finding to close before CLEAN.
+
+### Other source coverage
+
+The proof file starts empty. No active Core ID has a slow:* entry in the pinned replacement map at this head.
+The parser rejects unknown keys, wrong TOML shapes, and missing string fields.
+The verdict rejects duplicate IDs, IDs outside the Core ledger, and entries without a slow:* classification.
+An entry for a pending real-only ID is permitted so that its real test can land first.
+The running set excludes pending, deferred, and withdrawn IDs from the Core ledger.
+The lists command reads the pinned replacement map, the proof file, and tracked Rust sources before it reports problems.
+The new mutation exclusion matches only the command's whole-body Ok(()) replacement and names the tested decision functions.
+The decisions remain mutation-tested. No production process behavior or new real-process fixture is added.
+The P6 agreement plans to replace the interim resolver with mutants_cited::tests and tiers_of when PR B and this change have both landed.
+That future replacement does not close F61 at the current head.
+No other package finding remains after this source review.
+
+### Completed evidence and its limit
+
+Exact-head log: `~/botster-sessions/gates/botster-core-stage1-p3-real-proofs-d34a629d-pool-20261009-100347-51753.log`.
+The log names this head and base. The run uses msa1 with kernel 6.12.111+deb13-amd64.
+All ten CI steps pass. The default tier passes 958 tests in 2.497 seconds.
+The slow tier passes 243 tests in 10.129 seconds. All eleven new real_proofs tests run and pass.
+The lists report gives 675 ledger IDs, 648 pending, two deferred, two withdrawn, and 23 to run.
+Both mutation commands report 31 tested: 30 caught, zero missed, zero timeout, and one unviable.
+The separate command uses NEXTEST_PROFILE=slow.
+Full CI takes 148.7 seconds. Separate mutants take 109.8 seconds. The gate exits 0 after 267 seconds.
+These passing checks do not cover F61's false-positive definition lookup.
+The complete final description names the correct gate head and base. Its earlier probe claims require F62's correction.
+
+### Verdict and scope
+
+PR #192 is NOT CLEAN at `d34a629d9078aadcc63012adfe2bf47222c2a921` for the P3 package review.
+F61 and F62 are open. This is #192's first recorded NOT CLEAN round; the round-limit notice is not due.
+The integration reviewer controls its own verdict.
+Under the lead's report ruling, these normal findings go only to P3 and integration. No lead decision is needed to continue.
+#190 retains round 116 NOT CLEAN with F60 open. P3 reports a fix at 5a0b07ac with its gate running; that fix is not reviewed here.
+#189 retains round 115 CLEAN at f2f667f90614532b2ec2403dbf01e88d3193f42a and merged base 3000ae14.
+#168 retains its separate single planned real-PTY HOLD. Part B retains its earlier open duties.
+The reviewer changed no product code and ran no tests, builds, measurements, mutants, or gates.
+All earlier findings, closures, and verdict rounds remain preserved at their named heads and scopes.
+
+VERDICT: NOT CLEAN
