@@ -4,6 +4,7 @@ mod base_merge;
 mod caps;
 mod ci;
 mod fsutil;
+mod high_tier;
 mod lists;
 mod prebuild;
 mod public_api;
@@ -27,6 +28,7 @@ commands:
   taint                              banned old-world names (contracts list plus Core's additions)
   timers                             unmarked sleeps in test code; timers in machine crates
   signals                            raw signal calls and kill programs outside botster_core_sys::signal
+  high-tier                          every entry of ci/high-tier-paths.txt matches a tracked file
   lists                              check core-ledger-ids, core-pending and core-deferred
   ledger-ids [--write]               check or write conformance/core-ledger-ids.txt from the pinned ledger
   public-api [--update]              check or write the facade snapshot api/botster-core.txt
@@ -54,6 +56,7 @@ const COMMANDS: &[(&str, CommandFn, Option<&[&str]>)] = &[
     ("taint", taint::command, None),
     ("timers", timers::command, None),
     ("signals", signals::command, None),
+    ("high-tier", high_tier::command, None),
     ("lists", lists::command, None),
     ("ledger-ids", lists::ledger_ids_command, None),
     ("public-api", public_api::command, None),
@@ -122,6 +125,7 @@ mod tests {
             ("taint", taint::command, given.clone()),
             ("timers", timers::command, given.clone()),
             ("signals", signals::command, given.clone()),
+            ("high-tier", high_tier::command, given.clone()),
             ("lists", lists::command, given.clone()),
             ("ledger-ids", lists::ledger_ids_command, given.clone()),
             ("public-api", public_api::command, given.clone()),
