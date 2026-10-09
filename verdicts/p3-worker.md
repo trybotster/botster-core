@@ -1,16 +1,14 @@
 # P3 worker review
 
-Current verdict: CLEAN for PR #165; NOT CLEAN for the separate PR #163 review unit.
-PR #163 at `40b63dceb6e3f3d7be69a1488ac77eccc121a071` has F28 and F33 OPEN for completed evidence.
-PR #165 at `29b37890efeffa4410d7dfc34f5c2344bfad1ba4` has no open package finding. F45 through F48 are CLOSED.
-F39 is CLOSED within #165 and remains OPEN for #163's later merge delta.
-Round 91 records the timer-marker delta and exact-head CLEAN. All earlier findings, closures, and rounds remain preserved.
-F1 through F27 and F29 through F32 remain CLOSED at their recorded heads and scopes.
-F34 records the earlier unsafe PID signals and their source correction at `81ccd17`.
+Current verdict: NOT CLEAN for PR #167 Part A at `c95b4d7646fb5388ce6421bcc4baa708c73685e9`.
+Round 92 records F49 LOW, an inaccurate test name and comment after the split from #163.
+PR #163 Part B retains F28, F33 execution, and F39 for its later merge delta.
+PR #165 remains CLEAN at `29b37890efeffa4410d7dfc34f5c2344bfad1ba4` and landed through #162.
+F45 through F48 are CLOSED. F39 is CLOSED within #165.
+All earlier findings, closures, and verdict rounds remain preserved at their named heads and scopes.
 Each cross-package PR also requires the integration reviewer's exact-head CLEAN and the implementer's landing gate.
-Round 73's CLEAN remains preserved for M1 at `da2b0494bbda711e5a67cb180ddf05c607784635`.
+M1's round 73 CLEAN and M2a's earlier exact-head CLEAN remain preserved.
 M2a at `a7f4a386593457e3b30f03b56938092de9b060a3` has no restack verdict.
-The earlier M2a CLEAN below applies only to its named old head.
 
 VERDICT: CLEAN
 
@@ -4256,3 +4254,70 @@ The reviewer changed no product code and ran no tests, builds, measurements, mut
 All earlier findings, closures, and verdict rounds remain preserved.
 
 VERDICT: CLEAN
+
+
+## Round 92 — Audit fixes Part A after the split
+
+Reviewed head: `c95b4d7646fb5388ce6421bcc4baa708c73685e9`, PR #167, branch `stage1/p3-audit-fixes-a`.
+Base: `a22811b61cd52aa503dc57e66b47c3d3bbd4746d`.
+Prior audit head: `40b63dceb6e3f3d7be69a1488ac77eccc121a071`, PR #163.
+The lead split the audit fixes after assigning all new real-process test code to P6.
+Part A carries A3, A30, A53, and the F33 slow-tier selection.
+The reviewer checked the whole retained change and the split dependencies against BUILD.md and the lead's rulings.
+
+### Retained source and split scope
+
+The host, binding, testkit, worker-core, and xtask changes match the earlier reviewed audit source.
+The new head changes only the Drain module documentation from Part A's initial head `d823a40e`.
+Cargo.lock retains the dependencies from the merged guard change and adds the host's workspace binding dependency.
+Payload retains v1's exit watch. Its sole Part A change makes reap consume self through drop(self).
+A53's single report path remains valid: launch requires the host hello, and the first drain reports the exit once.
+The reap no-op exclusion names one function and states the concrete equivalent-body reason.
+The other changed exclusion entries remove obsolete exceptions; they add no broad exclusion.
+
+A3 uses libghostty for semantic write sizes. The host computes the size once and retains it for IN-5 and IN-7.
+The text-report states run first, with the reviewed early refusal bound and the explicit cost note.
+The associated-text bound follow-up remains separate, as the lead ruled.
+A30 gives the testkit a bounded drain and sends PtyDrained only for an asked drain.
+The shared Drain decision includes one flushing read and one count after that read.
+The real driver still has the open A31 count-only defect. The module documentation and PR description state this correctly.
+The approved split does not close A31 or prove parity with the real driver.
+No guard file or real-process fixture changes in Part A.
+F28 native mutation evidence, F33 failed-watch execution, and F39's merge duty remain in Part B.
+
+### F49 — LOW — OPEN: the test still claims parity with the real driver
+
+Evidence: `crates/botster-core-testkit/src/worker/tests.rs:77-80` at the reviewed head.
+The comment says, "The drain is the real driver's (`Drain`)".
+The test name is `the_edge_drains_as_the_real_driver_does`.
+The real driver does not use Drain at this head, and the new module documentation explicitly records that difference.
+The test proves the bounded testkit drain, including its flushing read and its later-byte bound.
+It does not prove behavior that the real driver currently has.
+Rename the test for the bounded testkit drain and correct its comment.
+Describe the testkit readiness path directly in worker.rs rather than claiming parity through its "As the real driver" comment.
+This is the remaining local form of integration D1's inaccurate parity claim.
+The reviewer sent F49 directly to the P3 implementer.
+
+### Completed evidence
+
+The reviewer read the completed focused Linux log at `d823a40ea57f5622dfcab8e6198837dca13a3557`:
+`~/botster-sessions/gates/botster-core-stage1-p3-audit-fixes-a-d823a40e-pool-20261008-211218-39117.log`.
+It names base `a22811b61cd52aa503dc57e66b47c3d3bbd4746d`.
+Formatting, clippy, taint, lists, public-api, worker prebuild, and test-budget pass.
+The default tier passes 757 tests and skips 654 tests; its wall time is 1.2 seconds.
+The slow-feature clippy command passes with -D warnings. The job exits 0 after 200 seconds on msa1.
+The reviewer also read the exact-head static log:
+`~/botster-sessions/gates/botster-core-stage1-p3-audit-fixes-a-c95b4d76-pool-20261008-211852-47753.log`.
+Formatting, taint, timers for 112 Rust files, and lists pass. The job exits 0 after nine seconds.
+The latest delta changes only a module comment, so the earlier executable evidence remains applicable to this review.
+These focused jobs are not the landing gate and do not supply Part B's required evidence.
+
+### Verdict and limits
+
+PR #167 is NOT CLEAN for F49 LOW at this exact head.
+No other package finding is open within Part A's submitted scope.
+Part B, M2a, M2b, the A32/A33 follow-up, and pending conformance IDs remain outside this verdict.
+The reviewer changed no product code and ran no tests, builds, measurements, mutants, or gates.
+All earlier findings, closures, and verdict rounds remain preserved.
+
+VERDICT: NOT CLEAN
