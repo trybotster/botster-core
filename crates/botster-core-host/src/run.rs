@@ -255,7 +255,7 @@ impl HostEngine {
                 let unix = self.unix;
                 if let Some(s) = self.sessions.get_mut(&id) {
                     s.silence.fired = true;
-                    let since = s.silence.last_output.map_or(unix, |(_, u)| u);
+                    let since = s.silence.idle_start.map_or(unix, |(_, u)| u);
                     let event = Event::Silent {
                         id: s.id.clone(),
                         instance: s.instance.clone(),

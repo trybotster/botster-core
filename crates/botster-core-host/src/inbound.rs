@@ -426,7 +426,7 @@ impl HostEngine {
                     t.last_output_at = Some(unix);
                 }
                 if let Some(now) = mono {
-                    s.silence.last_output = Some((now, unix));
+                    s.silence.idle_start = Some((now, unix));
                     s.silence.fired = false;
                 }
                 self.queue.post_keyed(Event::Activity {

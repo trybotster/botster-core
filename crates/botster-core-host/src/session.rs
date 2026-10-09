@@ -203,8 +203,9 @@ const _: () = assert!(PROOF_LEN == TOKEN_LEN);
 #[derive(Debug, Clone, Default)]
 pub struct Silence {
     pub threshold: Option<Duration>,
-    /// The monotonic time and the unix time of the last output that the host learned of.
-    pub last_output: Option<(Instant, UnixSeconds)>,
+    /// The idle start (Core A18-2): the monotonic time and the unix time of the pump in which this host observed the latest
+    /// output, or of the adoption point for an adopted session with no output under this host.
+    pub idle_start: Option<(Instant, UnixSeconds)>,
     /// `Silent` was posted for this idle period (TM-4: once per period).
     pub fired: bool,
 }
@@ -212,7 +213,7 @@ pub struct Silence {
 impl Silence {
     /// The instant at which `Silent` is due, or `None` (TM-3).
     pub fn deadline(&self) -> Option<Instant> {
-        match (self.threshold, self.last_output) {
+        match (self.threshold, self.idle_start) {
             (Some(threshold), Some((at, _))) if !self.fired => Some(at + threshold),
             _ => None,
         }
@@ -338,7 +339,7 @@ mod tests {
         assert_eq!(silence.deadline(), None);
         silence.threshold = Some(Duration::from_secs(2));
         assert_eq!(silence.deadline(), None);
-        silence.last_output = Some((now, 5));
+        silence.idle_start = Some((now, 5));
         assert_eq!(silence.deadline(), Some(now + Duration::from_secs(2)));
         silence.fired = true;
         assert_eq!(silence.deadline(), None);

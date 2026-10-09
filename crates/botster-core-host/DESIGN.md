@@ -166,6 +166,13 @@ old daemon's lesson; vault: evidence comes from protocol primitives, not default
   the worker accepts (P3's review);
 - its routes (DP-8 `RouteAdopted`): P4a; until then the worker reports none, and the route ids stay pending with that reason.
 
+The report never carries `last_output_at` (Core Amendment 18, contracts-v0.1.21). The worker has no clock to stamp it
+(TM-1), and A18-1 makes it the host's own observation: "After adoption, it is `None` until the adopting host observes
+output." The silence of an adopted session follows A18-2: its idle start is the latest output that this host observed, or,
+with none, the adoption point, which is "the `pump` in which Core posts that session's `SessionState` for its adoption".
+`post_adoption` records that pump's monotonic time and unix time as the idle start of a `Running` session with no output
+under this host. `Silent` is then due a threshold after it, with `since` that pump's unix time. E3-1 is unchanged.
+
 ### 5. AdoptAll per row (AD-1, AD-2, AD-6)
 
 Each row is decoded and checked before any connect (vault: "validate before the first change of state"). Then:
