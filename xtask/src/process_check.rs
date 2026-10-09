@@ -138,7 +138,7 @@ fn scope(file: &str) -> Scope {
 /// The `use` declarations of one scope (a file, an inline module or a block): each local name with the path that it names,
 /// and the glob prefixes. A `use` is visible in its own scope and in the scopes inside it.
 #[derive(Default, Debug)]
-struct Uses {
+pub(crate) struct Uses {
     names: BTreeMap<String, Vec<String>>,
     globs: Vec<Vec<String>>,
     /// Whether the scope is a module (a file or an inline module), which `self` and `super` name.
@@ -147,7 +147,7 @@ struct Uses {
 
 impl Uses {
     /// The `use` declarations among `items`, the direct items of one scope.
-    fn of<'a>(items: impl IntoIterator<Item = &'a syn::Item>, module: bool) -> Uses {
+    pub(crate) fn of<'a>(items: impl IntoIterator<Item = &'a syn::Item>, module: bool) -> Uses {
         let mut uses = Uses {
             module,
             ..Uses::default()
@@ -165,7 +165,7 @@ impl Uses {
 /// binding, and the result again from the scope of that binding, until no binding applies (a chain such as `use std::thread
 /// as th; use th::sleep as nap;`). A leading `self` names the nearest module, and a leading `super` the module around it. A
 /// single unknown name is tried against each visible glob prefix, and kept as it is when no target rule matches the result.
-fn resolve(scopes: &[Uses], segments: &[String]) -> Vec<String> {
+pub(crate) fn resolve(scopes: &[Uses], segments: &[String]) -> Vec<String> {
     resolve_from(scopes, segments.to_vec(), &mut BTreeSet::new())
 }
 

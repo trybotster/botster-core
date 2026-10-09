@@ -5,7 +5,7 @@ fn mutation_verdict(code: Option<i32>) -> Result<()> { if code == Some(0) { retu
 fn parse_outcomes(json: &str) -> Result<u64> { Ok(json.len() as u64) }
 fn untested_decision(code: i32) -> bool { code == 0 }
 fn mutants_job(root: &Path) -> Result<()> {
-    let listing = cargo(root).output()?;
+    let listing = std::process::Command::new("cargo").output()?;
     let status = run(root)?;
     let _ = untested_decision(1);
     println!("{}", parse_outcomes("x")?);
@@ -17,6 +17,7 @@ fn mutation_decision(listed: usize, run: impl FnOnce() -> Option<i32>) -> Result
     mutation_verdict(run())
 }
 fn forwarded(code: Option<i32>) -> Result<()> { mutation_verdict(code) }
+fn forwarded_write(write: fn() -> Option<i32>) -> Result<()> { mutation_verdict(write()) }
 #[cfg(test)]
 mod tests {
     #[test]
@@ -58,6 +59,10 @@ fn mutants() -> Vec<Mutant> {
             "replace mutation_decision -> Result<()> with Ok(())",
         ),
         mutant("forwarded", "replace forwarded -> Result<()> with Ok(())"),
+        mutant(
+            "forwarded_write",
+            "replace forwarded_write -> Result<()> with Ok(())",
+        ),
         mutant("mutants_job", "delete ! in mutants_job"),
     ]
 }
@@ -147,14 +152,14 @@ fn a_glob_or_a_reasonless_regex_that_covers_the_xtask_fails_and_the_test_globs_p
     assert!(check(&mutants(), &[], &tests, &calls()).unwrap().is_empty());
     for glob in ["xtask/**", "ci.rs", "xtask/src/*.rs", "**/ci.rs"] {
         let found = check(&mutants(), &[], &[glob.to_string()], &calls()).unwrap();
-        assert_eq!(found.len(), 7, "{glob}: {found:?}");
+        assert_eq!(found.len(), 8, "{glob}: {found:?}");
     }
     let off_macos = exclusion(r"xtask/src/ci\.rs", "");
     assert_eq!(
         check(&mutants(), &[off_macos], &[], &calls())
             .unwrap()
             .len(),
-        7
+        8
     );
 }
 
@@ -338,6 +343,11 @@ fn a_decision_that_calls_a_tested_decision_or_a_decision_mutant_of_a_shell_is_ne
             "the function does no process, file or signal I/O itself",
         ),
         (
+            r"replace forwarded_write -> Result<\(\)> with Ok\(\(\)\)$",
+            "forwarded_write",
+            "the function does no process, file or signal I/O itself",
+        ),
+        (
             r"delete ! in mutants_job$",
             "mutants_job",
             "it is a decision mutant",
@@ -365,68 +375,77 @@ fn a_decision_that_calls_a_tested_decision_or_a_decision_mutant_of_a_shell_is_ne
     }
 }
 
-/// A function does I/O itself when it starts a process, calls a file or signal function, or runs an xtask command by its
-/// module path, a call through `env::` or `fs::`, or a probe of a path; a field named `status`, a call of a closure, a
-/// call through another module and an unqualified `command` are not I/O.
+/// #181 B5 round 2: a function does I/O when a call resolves, through the `use` declarations in its scope (a block's
+/// included), to a function of `std::fs` or `std::env`, to `std::process::Command::new`, to a signal, or to
+/// `run_to_completion`. A name alone is not I/O: a parameter or a local named `write` or `read_to_string`, a method named
+/// `status`, `output`, `spawn` or `exists`, a module named `fs` of another crate, and another function of the signal
+/// module are not.
 #[test]
-fn a_function_does_io_when_it_starts_a_process_touches_a_file_or_signals() {
-    let mut text = String::from(
-        "fn by_status(c: &mut Command) { c.status(); }\n\
-         fn by_output(c: &mut Command) { c.output(); }\n\
-         fn by_spawn(c: &mut Command) { c.spawn(); }\n\
-         fn by_command(root: &Path) { taint::command(root, &[]); }\n\
-         fn local_command(root: &Path) { command(root); }\n\
-         fn by_field(o: Output) -> bool { o.status.success() }\n\
-         fn by_closure(run: impl FnOnce()) { run(); }\n\
-         fn by_env() { std::env::args(); }\n\
-         fn by_fs_module() { fs::metadata(p); }\n\
-         fn by_other_module() { json::metadata(p); }\n\
-         fn by_is_file(p: &Path) { p.is_file(); }\n\
-         fn by_is_dir(p: &Path) { p.is_dir(); }\n\
-         fn by_exists(p: &Path) { p.exists(); }\n",
-    );
-    for name in IO_CALLS {
-        text.push_str(&format!("fn by_{name}() {{ x::{name}(a); }}\n"));
-    }
-    let calls = Calls::of(&[("xtask/src/a.rs".to_string(), text)]).unwrap();
+fn a_function_does_io_when_a_call_resolves_to_an_io_function() {
+    let text = "\
+use std::process::Command;
+use std::fs;
+use botster_core_sys::signal::{signal_group, Signal};
+use other::fs as other_fs;
+fn by_command_new() { Command::new(\"git\"); }
+fn by_full_path() { std::process::Command::new(\"git\"); }
+fn by_fs_module() { fs::metadata(p); }
+fn by_env() { std::env::args(); }
+fn by_signal() { signal_group(g, Signal::KILL); }
+fn by_other_signals() { botster_core_sys::signal::signal_process(p, s); }
+fn by_own_group() { botster_core_sys::signal::signal_own_group(s); }
+fn by_block_use() { use std::fs::write as put; put(p, b); }
+fn by_run() { botster_test_process::run_to_completion(&mut c, d); }
+fn by_method(c: &mut Command, p: &Path) { c.status(); c.output(); c.spawn(); p.exists(); }
+fn by_parameter(write: fn() -> Option<i32>) { write(); }
+fn by_local() { let read_to_string = f; read_to_string(); }
+fn by_other_fs() { other_fs::write(p); }
+fn by_longer_path() { serde_json::value::to_value(x); }
+fn by_module_alone() { std::fs(); }
+fn by_signal_target() { botster_core_sys::signal::target(1, 2); }
+fn by_plain_name() { write(p); }
+fn by_new_of_another_type() { std::process::Stdio::new(); }
+fn by_longer_function() { std::process::Command::new::extra(); }
+";
+    let calls = Calls::of(&[("xtask/src/a.rs".to_string(), text.to_string())]).unwrap();
     let io: BTreeSet<&str> = calls.io.iter().map(|(_, f)| f.as_str()).collect();
-    let mut expected: BTreeSet<String> = [
-        "by_status",
-        "by_output",
-        "by_spawn",
-        "by_command",
-        "by_env",
+    let expected: BTreeSet<&str> = [
+        "by_command_new",
+        "by_full_path",
         "by_fs_module",
-        "by_is_file",
-        "by_is_dir",
-        "by_exists",
+        "by_env",
+        "by_signal",
+        "by_other_signals",
+        "by_own_group",
+        "by_block_use",
+        "by_run",
     ]
-    .map(String::from)
     .into();
-    expected.extend(IO_CALLS.map(|name| format!("by_{name}")));
-    assert_eq!(io, expected.iter().map(String::as_str).collect());
-    assert!(calls.io.iter().all(|(file, _)| file == "xtask/src/a.rs"));
+    assert_eq!(io, expected);
 }
 
-/// A function also does I/O when a path call names an xtask function that does I/O: `m::f` names the `f` of
-/// `xtask/src/m.rs` (or `m/mod.rs`), `Self::f` the `f` of its own file, and a plain `f` the `f` of its own file first, else
-/// each `f` of the xtask. A call of a parameter or another local binding names no function.
+/// A function also does I/O when a resolved path call names an xtask function that does I/O: `m::f` and `crate::m::f`
+/// name the `f` of `xtask/src/m.rs` (or `m/mod.rs`), `Self::f` the `f` of its own file, and a plain `f` (also through a
+/// `use` rename) the `f` of its own file first, else each `f` of the xtask. A call of a parameter or another local binding
+/// names no function, and a path of another crate names none.
 #[test]
 fn io_reaches_a_function_through_the_xtask_functions_it_calls() {
     let files = [
         (
             "xtask/src/tools.rs",
-            "pub fn run(mut c: Command) { c.status(); }\npub fn pure() {}\n",
+            "pub fn run(c: &str) { std::process::Command::new(c).status(); }\npub fn pure() {}\n",
         ),
         (
             "xtask/src/fsutil/mod.rs",
-            "pub fn base() { git().output(); }\n",
+            "pub fn base() { std::process::Command::new(\"git\").output(); }\n",
         ),
         (
             "xtask/src/a.rs",
-            "fn by_module() { tools::run(c); }\n\
+            "use crate::tools::run as go;\n\
+             fn by_module() { tools::run(c); }\n\
              fn by_mod_rs() { crate::fsutil::base(); }\n\
              fn by_import() { run(c); }\n\
+             fn by_rename() { go(c); }\n\
              fn by_chain() { by_import(); }\n\
              fn by_self() { Self::local_io(); }\n\
              fn local_io() { std::fs::write(p, b); }\n\
@@ -457,6 +476,7 @@ fn io_reaches_a_function_through_the_xtask_functions_it_calls() {
         ("xtask/src/a.rs", "by_module"),
         ("xtask/src/a.rs", "by_mod_rs"),
         ("xtask/src/a.rs", "by_import"),
+        ("xtask/src/a.rs", "by_rename"),
         ("xtask/src/a.rs", "by_chain"),
         ("xtask/src/a.rs", "by_crate_io"),
         ("xtask/src/a.rs", "by_super_io"),
