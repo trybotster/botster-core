@@ -1988,3 +1988,24 @@ fn a_wide_character_adds_no_text_for_its_second_cell() {
         "the model has a wide character's second cell"
     );
 }
+
+/// ST-1: `model_rev` is the revision that a read carries: unchanged by output that the model does not step, advanced by a
+/// step.
+#[test]
+fn the_model_rev_is_the_revision_that_a_read_carries() {
+    let mut w = World::running();
+    let start = w.worker.model_rev();
+    w.feed(Input::PtyOutput(b"\x1b]2;t".to_vec()));
+    let before = w.worker.model_rev();
+    assert_ne!(before, start);
+    // An ESC that may start the string's ST waits for the next byte: no step (`a_read_that_completes_no_step_waits_for_the_rest`).
+    w.feed(Input::PtyOutput(b"\x1b".to_vec()));
+    assert_eq!(w.worker.model_rev(), before, "the ESC waits");
+    w.feed(Input::PtyOutput(b"\\".to_vec()));
+    assert_ne!(w.worker.model_rev(), before);
+    let OpResult::Ok(OpOutput::Cursor(cursor)) = op(&mut w, 1, Op::ReadCursor { session: sid() })
+    else {
+        panic!("a cursor");
+    };
+    assert_eq!(cursor.model_rev, w.worker.model_rev());
+}
