@@ -40,10 +40,8 @@ pub(crate) fn end_group(
         Err(error) => {
             let report = format!("the group guard cannot reserve the group: {error}");
             let _ = writeln!(std::io::stderr(), "{report}");
-            let _ = botster_core_sys::signal::signal_group(
-                group.as_raw_nonzero().get().unsigned_abs(),
-                rustix::process::Signal::KILL,
-            );
+            // `group` is our own group: the last kill ends this process too.
+            let _ = botster_core_sys::signal::signal_own_group(rustix::process::Signal::KILL);
             return Err(report);
         }
     };
