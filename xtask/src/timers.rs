@@ -68,8 +68,11 @@ fn requires_test(meta: &syn::Meta) -> bool {
     }
 }
 
-/// The start and the end (exclusive) of each literal in `tokens`, as `(1-based line, 0-based column)`, into nested groups.
-fn literal_spans(tokens: TokenStream, spans: &mut Vec<((usize, usize), (usize, usize))>) {
+/// A position in a file: its 1-based line and 0-based column.
+type Position = (usize, usize);
+
+/// The start and the end (exclusive) of each literal in `tokens`, into nested groups.
+fn literal_spans(tokens: TokenStream, spans: &mut Vec<(Position, Position)>) {
     for token in tokens {
         match token {
             TokenTree::Group(group) => literal_spans(group.stream(), spans),
