@@ -52,3 +52,32 @@ Fix: SC-F1's (key the hold by the owning host or directory as well as the instan
 
 VERDICT: NOT CLEAN at 2745781b7c9bd74b1c6f65eb16f3e97726e39d0b (1 open: SC-F1 MEDIUM, the package reviewer's finding,
 confirmed here)
+
+## Round 2 — CLEAN on head 64a6deb5
+
+Reviewed head: `64a6deb5bec9cc52c08aae3376726003ead1920b`, two commits on `2745781b` (`59c8701b`, `64a6deb5`; 6 files, +190
+-40). The head contains v1 `1dd1657a`, and `git merge-tree --write-tree origin/v1 64a6deb5` has no conflict. P5's gate log
+`shared/core-stage1/gate-logs/controls-start-sc-f1b.log` names this head and base `1dd1657a` (default 987, slow 243,
+mutants 31: 24 caught, 0 missed, 0 timeout, 7 unviable). This reviewer read only its header. The tier stays HIGH (rule 3).
+
+- **SC-F1 closed.** A held start is `StartKey {dir, instance}` (`worker.rs`). Every use takes the key:
+  - `hold_start` and `release_start` (`Workers`), from `start_controls.rs` `start_key`, which reads the directory of the
+    handle (`TestkitHarness::directory_of`, the `dir` that `open` stored) and refuses a handle that is not open;
+  - `WorkerEdges.start`, built in `WorkerSpawner::spawn` from the spawner's `dir` and `spec.instance`;
+  - `WorkerEdges::ended` (remove) and `start_held` (contains).
+  No `BTreeSet<InstanceId>` remains.
+- **The directory string is the same on each side.** `open` passes `spec.data_dir.0` to `Workers::spawner`, to
+  `Directories::open` and to `HandleEdges.dir`. So a reopen of one directory gives the same key (one registry), and two
+  directories give two keys.
+- **Every caller of `Workers::spawner(dir)`** is the harness `open` or a testkit unit test with a fixed name. No other
+  crate calls it.
+- **Lock order.** `hold_start` builds its text before it takes `held_starts`. `held_starts` is never held while
+  `run_processes`, an owner or a cell is taken. `release_start` drops `held_starts` before `run_processes -> owner`. The
+  order run_processes -> owner -> cell does not change.
+- **The test.** `a_hold_is_scoped_to_its_data_directory` asserts that the three directories give the same instance, and
+  then that a hold, a release and a worker's end of one directory do not change another directory.
+
+The condition of round 1 stays: #195 and #196 both change testkit `controls.rs` and `worker.rs`. The PR that merges
+second needs this reviewer's review of the union and a full gate on its head.
+
+VERDICT: CLEAN (0 open) at 64a6deb5bec9cc52c08aae3376726003ead1920b
