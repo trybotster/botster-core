@@ -14,6 +14,7 @@ pub mod oracle;
 pub mod process_controls;
 pub mod process_group;
 pub mod program;
+pub mod pty_controls;
 pub mod refusal;
 pub mod scheduler;
 pub mod sim;
