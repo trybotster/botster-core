@@ -45,7 +45,7 @@ fn size_limits_are_exact() {
         } else {
             assert_eq!(
                 refused(&mut w, op),
-                ErrorCode::InvalidInput,
+                ErrorCode::InvalidInput { field: None },
                 "{rows}x{cols} {cell:?}"
             );
         }
@@ -58,7 +58,10 @@ fn size_limits_are_exact() {
         if ok {
             accepted(&mut w, create);
         } else {
-            assert_eq!(refused(&mut w, create), ErrorCode::InvalidInput);
+            assert_eq!(
+                refused(&mut w, create),
+                ErrorCode::InvalidInput { field: None }
+            );
         }
     }
 }
@@ -99,8 +102,15 @@ fn a_palette_has_exactly_256_entries() {
             accepted(&mut w, set);
             accepted(&mut w, make);
         } else {
-            assert_eq!(refused(&mut w, set), ErrorCode::InvalidInput, "{entries:?}");
-            assert_eq!(refused(&mut w, make), ErrorCode::InvalidInput);
+            assert_eq!(
+                refused(&mut w, set),
+                ErrorCode::InvalidInput { field: None },
+                "{entries:?}"
+            );
+            assert_eq!(
+                refused(&mut w, make),
+                ErrorCode::InvalidInput { field: None }
+            );
         }
     }
     // The state check comes first, and a profile of a `Created` session is stored and launched.
@@ -159,7 +169,7 @@ fn a_spawn_request_is_checked_part_by_part() {
                     request
                 }
             ),
-            ErrorCode::InvalidInput,
+            ErrorCode::InvalidInput { field: None },
             "{what}"
         );
     }
@@ -331,6 +341,8 @@ fn a_key_with_long_text_is_refused_by_its_worst_case() {
     assert!(longest_key(&short) <= limit);
     let mut w = World::new(limits(|l| {
         l.max_paste_bytes = limit;
+        // A15-1: the text bound admits the text, so the worst case decides.
+        l.max_key_text_bytes = 4096;
         l.input_ops_per_session = 64;
         l.input_retained_bytes = 1 << 20;
     }));
@@ -340,6 +352,75 @@ fn a_key_with_long_text_is_refused_by_its_worst_case() {
         ErrorCode::PayloadTooLarge
     );
     assert!(w.engine.begin(write(short)).is_ok());
+}
+
+fn key_with_text(text: &str, repeat: Option<u16>) -> InputPayload {
+    InputPayload::Key(KeyInput {
+        key: Key::Char('a'.into()),
+        shifted_key: None,
+        base_layout_key: None,
+        mods: vec![],
+        event: KeyEvent::Press,
+        text: Some(text.into()),
+        repeat,
+    })
+}
+
+/// Core A15-1, A15-2 (5.1A, 9.3), the host's proof of `conf::a15_1_host_key_text_over_the_bound_is_invalid_input_sync`:
+/// a key's `text` over `max_key_text_bytes` UTF-8 bytes is refused at `begin` with `InvalidInput{field: "text"}`. The
+/// refusal takes no `OpId` and posts no event. The bound counts bytes, not characters. The check comes before the
+/// worst-case size of IN-9, and a text at the bound is admitted.
+#[test]
+fn a_key_text_over_the_bound_is_invalid_input_at_begin() {
+    let bound = 8;
+    let mut w = World::new(limits(|l| {
+        l.max_key_text_bytes = bound;
+        // The smallest paste bound (9B: 1 KiB), so a long repeat has a worst case over it.
+        l.max_paste_bytes = 1024;
+        l.max_key_repeat = 4096;
+        l.input_ops_per_session = 64;
+        l.input_retained_bytes = 1 << 20;
+    }));
+    w.running("s1");
+    w.engine.poll_events(64);
+    let first = w
+        .engine
+        .begin(write(key_with_text("ab", None)))
+        .expect("a short text is admitted");
+    // A15-1: `InvalidInput{field: "text"}`.
+    let text_field = ErrorCode::InvalidInput {
+        field: Some("text".into()),
+    };
+    // 9 ASCII bytes; 5 two-byte characters (10 bytes, 5 characters).
+    for text in ["x".repeat(9), "é".repeat(5)] {
+        let refusal = refusal_of(&mut w, key_with_text(&text, None));
+        assert_eq!(refusal.code, text_field, "{text}");
+    }
+    // With a repeat whose worst case is over `max_paste_bytes`, the text bound still decides.
+    let repeat = 4096;
+    let worst = longest_key(&key_with_text(&"x".repeat(9), None)) * u64::from(repeat);
+    assert!(worst > w.engine.limits().max_paste_bytes);
+    assert_eq!(
+        refusal_of(&mut w, key_with_text(&"x".repeat(9), Some(repeat))).code,
+        text_field
+    );
+    assert!(
+        w.engine.poll_events(64).is_empty(),
+        "a refusal posts no event"
+    );
+    // At the bound: 8 ASCII bytes, and 4 two-byte characters. The refusals took no `OpId`.
+    let at = w
+        .engine
+        .begin(write(key_with_text(&"x".repeat(8), None)))
+        .expect("a text at the bound is admitted");
+    assert_eq!(at.0, first.0 + 1, "the refusals took no OpId");
+    accepted(&mut w, write(key_with_text(&"é".repeat(4), None)));
+}
+
+fn refusal_of(w: &mut World, payload: InputPayload) -> CoreError {
+    w.engine
+        .begin(write(payload))
+        .expect_err("the key is refused")
 }
 
 /// Core IN-9, A2-1: a repeat is from 1 to `max_key_repeat` and only with a press; `shifted_key` needs shift; a wheel button
@@ -384,7 +465,7 @@ fn key_and_mouse_arguments_are_checked_one_by_one() {
     for (what, payload) in invalid {
         assert_eq!(
             w.engine.begin(write(payload)).unwrap_err().code,
-            ErrorCode::InvalidInput,
+            ErrorCode::InvalidInput { field: None },
             "{what}"
         );
     }
@@ -751,17 +832,20 @@ fn attach_checks_each_route_limit_at_its_bound() {
     w.running("s1");
     let cap = w.engine.limits().effective_max_route_frame_bytes();
     let floor = w.engine.limits().max_snapshot_bytes + 1;
-    let invalid = ErrorCode::InvalidInput;
+    // A7-1: `InvalidInput` names the refused option in `field`.
+    let invalid = |field: &str| ErrorCode::InvalidInput {
+        field: Some(field.into()),
+    };
     // A tag and an owner of exactly the bound are valid; one byte more is not.
     assert!(attach_with(&mut w, |o| o.route_tag = Some("abcd".into())).is_ok());
     assert_eq!(
         attach_with(&mut w, |o| o.route_tag = Some("abcde".into())).unwrap_err(),
-        invalid
+        invalid("route_tag")
     );
     assert!(attach_with(&mut w, |o| o.owner = Some("abcd".into())).is_ok());
     assert_eq!(
         attach_with(&mut w, |o| o.owner = Some("abcde".into())).unwrap_err(),
-        invalid
+        invalid("owner")
     );
     // The frame cap: from 1 to the engine's cap.
     let choose = |frame: Option<u64>, screen: Option<u64>| {
@@ -778,16 +862,16 @@ fn attach_checks_each_route_limit_at_its_bound() {
     assert!(attach_with(&mut w, choose(Some(1), None)).is_ok());
     assert_eq!(
         attach_with(&mut w, choose(Some(cap + 1), None)).unwrap_err(),
-        invalid
+        invalid("route_limits.max_frame_bytes")
     );
     assert_eq!(
         attach_with(&mut w, choose(Some(0), None)).unwrap_err(),
-        invalid
+        invalid("route_limits.max_frame_bytes")
     );
     assert!(attach_with(&mut w, choose(None, Some(floor))).is_ok());
     assert_eq!(
         attach_with(&mut w, choose(None, Some(floor - 1))).unwrap_err(),
-        invalid
+        invalid("route_limits.max_screen_frame_bytes")
     );
     // The query deadline: from 1 ms to the engine's bound, and required when the route answers queries.
     for (deadline, ok) in [
@@ -798,7 +882,13 @@ fn attach_checks_each_route_limit_at_its_bound() {
         (None, false),
     ] {
         let result = attach_with(&mut w, |o| o.query_deadline = deadline);
-        assert_eq!(result.is_ok(), ok, "{deadline:?}");
+        match result {
+            Ok(_) => assert!(ok, "{deadline:?}"),
+            Err(code) => {
+                assert!(!ok, "{deadline:?}");
+                assert_eq!(code, invalid("query_deadline"), "{deadline:?}");
+            }
+        }
     }
     let result = attach_with(&mut w, |o| {
         o.answers_queries = false;

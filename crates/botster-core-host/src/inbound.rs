@@ -638,9 +638,12 @@ impl HostEngine {
                     });
                 }
             }
-            // A `Remove` needs nothing here. Its result can no longer come (no other link reaches this session), and the
-            // teardown advances only when the worker is gone or its grace ended, which both record `OutcomeUnknown` when no
-            // result came (A6-3: `flow_remove_worker_gone`, `remove_grace_expired`).
+            // A `Remove` whose worker ended already: the link's end of file is the last that can come, so a result that did
+            // not come is `OutcomeUnknown` (A6-3), and the teardown goes on.
+            Flow::Remove(_) if self.sessions[&id].worker.gone => self.flow_remove_worker_gone(&id),
+            // Any other `Remove` needs nothing here. Its result can no longer come (no other link reaches this session), and
+            // the teardown advances only when the worker is gone or its grace ended, which both record `OutcomeUnknown` when
+            // no result came (A6-3: `flow_remove_worker_gone`, `remove_grace_expired`).
             _ => {}
         }
         self.fail_inflight(&id);
@@ -658,6 +661,25 @@ impl HostEngine {
         self.sessions.get_mut(&id).expect("found above").worker.gone = true;
         let shown = self.sessions[&id].shown;
         let flow = self.sessions[&id].flow.clone();
+        // During a `Remove` the worker writes its cleanup result, closes the link and only then ends (LC-7 step 3), but the
+        // host can see the exit before it reads the link (the edges report them independently). The link stays open, so
+        // the result written before the exit is still read; the link's end of file completes the teardown
+        // (`on_link_closed`), and the remove grace still bounds it (A6-3). Only a worker that was asked for its teardown can
+        // have written a result: an exit before `SendRemove` closes the link below, and `SendRemove` then records
+        // `OutcomeUnknown` without asking a gone worker.
+        let tearing_down =
+            matches!(&flow, Flow::Remove(f) if f.phase == RemovePhase::AwaitTeardown);
+        if tearing_down && self.sessions[&id].worker.link.is_some() {
+            if let Some(s) = self.sessions.get_mut(&id) {
+                if let Flow::Remove(f) = &mut s.flow {
+                    f.worker_gone = true;
+                }
+            }
+            // A result that came before the exit lets the teardown go on now.
+            self.remove_progress(&id);
+            self.fail_inflight(&id);
+            return;
+        }
         // The worker is gone: its link is gone with it.
         if self.sessions[&id].worker.link.is_some() {
             self.close_worker_link(&id, "the worker process ended");

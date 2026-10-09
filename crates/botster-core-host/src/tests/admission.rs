@@ -100,7 +100,7 @@ fn a_malformed_create_is_invalid_input_and_creates_nothing() {
                 session: sid("s1"),
                 request
             })),
-            ErrorCode::InvalidInput
+            ErrorCode::InvalidInput { field: None }
         );
     }
     assert_eq!(
@@ -326,7 +326,10 @@ fn a_payload_over_the_paste_bound_is_payload_too_large_and_a_zero_repeat_is_inva
         }),
         guard: None,
     };
-    assert_eq!(code(w.engine.begin(key(Some(0)))), ErrorCode::InvalidInput);
+    assert_eq!(
+        code(w.engine.begin(key(Some(0)))),
+        ErrorCode::InvalidInput { field: None }
+    );
 }
 
 /// Core A2-1 (`cancel`): only a `WriteInput` can be cancelled; a completed op is `TooLate`; an op that this handle never
@@ -377,6 +380,6 @@ fn a_resize_of_a_created_session_stores_the_spawn_size() {
                 cell_px: None
             }
         })),
-        ErrorCode::InvalidInput
+        ErrorCode::InvalidInput { field: None }
     );
 }
