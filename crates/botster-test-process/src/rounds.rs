@@ -93,6 +93,12 @@ pub fn end_members<M: PartialEq + Clone>(
     }
 }
 
+/// The probe of a reservation: the reserve's wait status (an exit included) is read, never reaped, and the probe never
+/// blocks.
+const RESERVE_PROBE: rustix::process::WaitIdOptions = rustix::process::WaitIdOptions::EXITED
+    .union(rustix::process::WaitIdOptions::NOWAIT)
+    .union(rustix::process::WaitIdOptions::NOHANG);
+
 /// Kills `group`, but only while `reserve` holds it: the reserve took the group at its fork, nothing can move a zombie to
 /// another group, and while it is an unreaped child of this process (live or a zombie), the group exists and no other group
 /// has the id. (macOS refuses `getpgid` for a zombie, so the check is the wait status, not the group.) Without the
@@ -101,9 +107,8 @@ pub fn end_members<M: PartialEq + Clone>(
 /// # Errors
 /// The reservation is gone, or the kill failed (ESRCH when no member was left to signal).
 pub fn reserved_kill(group: Pid, reserve: Pid) -> std::io::Result<()> {
-    use rustix::process::{waitid, WaitId, WaitIdOptions};
-    let options = WaitIdOptions::EXITED | WaitIdOptions::NOWAIT | WaitIdOptions::NOHANG;
-    if let Err(error) = waitid(WaitId::Pid(reserve), options) {
+    use rustix::process::{waitid, WaitId};
+    if let Err(error) = waitid(WaitId::Pid(reserve), RESERVE_PROBE) {
         return Err(std::io::Error::other(format!(
             "the reserve {} of group {} is no longer an unreaped child: {error}",
             reserve.as_raw_nonzero(),

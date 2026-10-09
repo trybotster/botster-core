@@ -14,6 +14,9 @@ use std::io;
 use std::os::unix::process::CommandExt;
 use std::process::{Child, ChildStderr, ChildStdin, ChildStdout, Command, ExitStatus};
 
+/// The wait of an observed exit: it returns once the exit completes, and it never reaps.
+const OBSERVE: rustix::process::WaitIdOptions =
+    rustix::process::WaitIdOptions::EXITED.union(rustix::process::WaitIdOptions::NOWAIT);
 /// A child of the test, owned on every path. See the module documentation.
 #[derive(Debug)]
 pub struct OwnedChild {
@@ -134,11 +137,10 @@ impl OwnedChild {
 
     /// The status of the exited, unreaped leader, read without reaping it.
     fn observed_status(&self) -> ExitStatus {
-        use rustix::process::{waitid, WaitId, WaitIdOptions};
+        use rustix::process::{waitid, WaitId};
         use std::os::unix::process::ExitStatusExt;
         // The exit was observed: the wait (which never reaps) returns once the exit completes.
-        let options = WaitIdOptions::EXITED | WaitIdOptions::NOWAIT;
-        match waitid(WaitId::Pid(self.pid), options) {
+        match waitid(WaitId::Pid(self.pid), OBSERVE) {
             Ok(Some(status)) => match (status.exit_status(), status.terminating_signal()) {
                 (Some(code), _) => ExitStatus::from_raw((code & 0xff) << 8),
                 (None, Some(signal)) => ExitStatus::from_raw(signal & 0x7f),

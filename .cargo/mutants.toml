@@ -328,14 +328,10 @@ exclude_re = [
     # value that this call sets (`DEFAULT_QUERY_REQUEST_BYTES`, `CoreLimits.max_query_bytes`, tested). Skipping the call
     # changes nothing at this pin; the call keeps Core's limit when an upstream default changes.
     'crates/botster-terminal-ghostty/src/lib\.rs:\d+:\d+: replace Terminal::set_query_request_limit_default -> Result<\(\), Error> with Ok\(\(\)\)$',
-    # OwnedChild::observed_status: `EXITED | NOWAIT` joins disjoint bits (WEXITED and WNOWAIT), so `^` gives the same value.
-    'crates/botster-test-process/src/child\.rs:\d+:\d+: replace \| with \^ in OwnedChild::observed_status$',
     # Guard::accept: with the guard always true, an accept error other than WouldBlock reads as "no connection waits". Those
     # errors (EMFILE, ENFILE, ENOBUFS, ECONNABORTED) need a process-wide descriptor or memory limit, or a peer reset inside
     # the kernel's accept queue; a test cannot cause one without breaking the other tests of the process.
     'crates/botster-test-process/src/anchor\.rs:\d+:\d+: replace match guard error\.kind\(\) == io::ErrorKind::WouldBlock with true in Guard::accept$',
-    # reserved_kill: `EXITED | NOWAIT | NOHANG` joins disjoint bits (WEXITED, WNOWAIT and WNOHANG), so `^` gives the same value.
-    'crates/botster-test-process/src/rounds\.rs:\d+:\d+: replace \| with \^ in reserved_kill$',
     # platform/linux.rs await_end: with the guard always true, every pidfd_open error reads as "gone". The other errors
     # (EMFILE, ENFILE, ENOMEM, ENODEV) need a process-wide descriptor or memory limit; a test cannot cause one without
     # breaking the other tests of the process. `gone_at_open` and the ESRCH case (a_wait_for_a_pid_with_no_process_reports_it_gone)
