@@ -177,3 +177,31 @@ only. Rounds 1 to 4 together read the whole revision-22 delta `ad03636f..dbd34da
   integration CLEAN where rule 3 applies, but does not say "on the new head", so this reading does not contradict it.
 
 VERDICT: CLEAN (0 open) at dbd34da7968b29f1ade0da9f49ffa9aad28e33ca
+
+## Round 5 — NOT CLEAN on head 2b117c4c (correction after CLEAN)
+
+Reviewed head: `2b117c4c116d2379d509032150a33cdee8f513f7`. Delta `dbd34da7..2b117c4c`, one commit, `docs/stage1-plan.md`
+only. This round withdraws the round 4 CLEAN at `dbd34da7`.
+
+- **The correction is right, and my PR4 fix text was wrong.** v1 `xtask/src/ci.rs:249` says "Platform coverage
+  exceptions of the native encoder, not equivalent mutants". It gives the platform reason and names the Mac run's log.
+  Round 2's PR4 text ("the entry states the argument (why the mutant is equivalent off macOS)") misdescribed it, and round
+  4 accepted wording based on that error.
+
+### PR9 LOW — the off-macOS exception is scoped to the wrong code
+
+The bullet reads: "Code under `cfg(target_os = "macos")` needs a focused Mac mutation run ... Since #167 ..., a mutant
+**of such code** may be excluded off macOS only". "Such code" means code under `cfg(target_os = "macos")`. #167's case is
+different:
+- `EncoderState::every_key_state` is portable Rust.
+- The mutant can be shown only through a native branch that is compiled on macOS: Ghostty's legacy Alt prefix,
+  `key_encode.zig:642-650`, `builtin.os.tag == .macos`.
+- `cfg(macos)` Rust code is not compiled off macOS, so a Linux gate generates no mutants of it, and an off-macOS exclusion
+  of it would do nothing.
+
+Fix: give the two rules separately.
+- The 2026-10-04 rule covers `cfg(macos)` code.
+- The #167 rule covers a mutant of portable code that only a macOS-native branch can show. Its entry states the platform
+  reason and names the Mac run that catches it.
+
+VERDICT: NOT CLEAN (1 open: PR9 LOW)
