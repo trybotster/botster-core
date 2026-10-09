@@ -5,7 +5,7 @@
 //! is the full gate. The pending and deferred file checks (`lists`) run right after the taint check, because they are fast.
 
 use crate::tools::{cargo, cargo_nightly, ensure_nightly, require_cargo_tool, run};
-use crate::{caps, fsutil, lists, prebuild, public_api, taint, test_budget, timers};
+use crate::{caps, fsutil, lists, prebuild, public_api, signals, taint, test_budget, timers};
 use anyhow::{bail, Context, Result};
 use std::path::Path;
 use std::process::Command;
@@ -29,7 +29,7 @@ const JOBS: &[(&str, &str, JobFn)] = &[
     ),
     (
         "taint",
-        "banned old-world names; unmarked timers",
+        "banned old-world names; unmarked timers; raw signal calls",
         taint_job,
     ),
     (
@@ -85,6 +85,7 @@ fn clippy_job(root: &Path) -> Result<()> {
         "clippy",
         "--workspace",
         "--all-targets",
+        "--all-features",
         "--locked",
         "--",
         "-D",
@@ -95,7 +96,8 @@ fn clippy_job(root: &Path) -> Result<()> {
 
 fn taint_job(root: &Path) -> Result<()> {
     taint::command(root, &[])?;
-    timers::command(root, &[])
+    timers::command(root, &[])?;
+    signals::command(root, &[])
 }
 
 /// The passed count of a conformance report: the number after `passed ` in its `conformance:` line.

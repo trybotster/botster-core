@@ -57,8 +57,7 @@ mod tests {
     #[test]
     fn every_clippy_toml_of_the_repo_bans_the_raw_signal_calls() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
-        let files: Vec<String> = crate::fsutil::tracked_files(&root)
-            .unwrap()
+        let files: Vec<String> = crate::fsutil::walk_files(&root)
             .into_iter()
             .filter(|f| f == "clippy.toml" || f.ends_with("/clippy.toml"))
             .collect();
