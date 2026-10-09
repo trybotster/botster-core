@@ -7,31 +7,31 @@
 use crate::controls::{parse, session_row, ControlRegistry};
 use crate::harness::TestkitHarness;
 use botster_core_conformance::ControlError;
-use botster_core_contract::prelude::SessionId;
+use botster_core_contract::prelude::{LostReason, SessionId};
 use serde::Deserialize;
 use serde_json::Value;
 
 /// The process controls that the testkit cannot build yet, each with what it waits for.
 const UNSUPPORTED: &[(&str, &str)] = &[
-    // The adoption handshake of the in-process worker (#176). `impostor_worker`, `signals_received` and
-    // `withhold_control_link` are in `adopt_controls`.
-    (
-        "announce_protocol",
-        "the adoption endpoint of the in-process worker",
-    ),
     // Real processes: the slow tier.
     ("host_crash", "a real host process (slow tier)"),
     ("reuse_pid", "real processes and pids (slow tier)"),
     ("bystander_alive", "real processes and pids (slow tier)"),
-    // Built when an id that uses them can pass: a2_1 and ad_2 need the route data plane (P4a) and the service lanes. The
-    // start holds of AD-7 step 4 and `payload_alive` are in `start_controls`.
-    ("hold_start", "a minimum id that it can flip"),
-    ("release_start", "a minimum id that it can flip"),
-    ("lose_worker", "a minimum id that it can flip"),
+    // A hold of AD-7 step 3 (the identity write) needs a deferral in the host driver: the testkit takes the host's
+    // `SpawnWorker` and `WriteRow` actions at once. The start holds of AD-7 step 4 and `payload_alive` are in `start_controls`.
+    (
+        "hold_start",
+        "a deferral of the host's spawn in the host driver",
+    ),
+    (
+        "release_start",
+        "a deferral of the host's spawn in the host driver",
+    ),
 ];
 
 pub(crate) fn register_controls(registry: &mut ControlRegistry) {
     registry.register("break_control", break_control);
+    registry.register("lose_worker", lose_worker);
     for &(name, _waits_for) in UNSUPPORTED {
         registry.register(name, unsupported);
     }
@@ -82,6 +82,43 @@ fn break_control(
     harness
         .workers()
         .break_link(worker.identity())
+        .map_err(ControlError::Bad)?;
+    Ok(Value::Null)
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct LoseWorker {
+    session: SessionId,
+    reason: Option<LostReason>,
+}
+
+/// The worker process of the session ends from outside Core, as a kill does (Core AD-2, IN-7): its exit goes to the host that
+/// spawned it, and its link, endpoint and payload end with it. Core's own exit handling and adoption check decide the
+/// session's state. Only `worker_gone` (the default) is a loss of the process; the other reasons are not built here.
+fn lose_worker(
+    harness: &mut TestkitHarness,
+    handle: &str,
+    args: &Value,
+) -> Result<Value, ControlError> {
+    let args: LoseWorker = parse(args)?;
+    match args.reason {
+        None | Some(LostReason::WorkerGone) => {}
+        Some(LostReason::Other) => {
+            return Err(ControlError::Bad("an unknown lost reason".into()));
+        }
+        Some(_) => return Err(ControlError::Unsupported),
+    }
+    let row = session_row(harness, handle, &args.session)?;
+    let worker = row.worker.ok_or_else(|| {
+        ControlError::Bad(format!(
+            "the session {} has no worker process",
+            args.session.0
+        ))
+    })?;
+    harness
+        .workers()
+        .lose_worker(worker.identity())
         .map_err(ControlError::Bad)?;
     Ok(Value::Null)
 }
