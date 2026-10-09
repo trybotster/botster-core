@@ -185,6 +185,17 @@ second `Launch` for a launch that already happened.
 | `Running` or `Exited` | `NotLaunched` or `Spawning` | `Lost(Other)`: defensive; it cannot happen under AD-7 (those rows are written after `Launched`), and it needs no transcript. |
 
 - **Steward ruling R-35** (contracts `main` `f969f5e`; no amendment) settles this table. The code cites R-35.
+- **A retry keeps the intent** (P5-F22, round 2). An adoption that ends `Lost(WorkerUnreachable)` or
+  `Lost(WorkerVersion)` **never rewrites the row**: the row keeps the state that its last write recorded (`Starting` or
+  `Stopping`), and the session keeps that recorded state in memory. `Adopt(id)` runs the handshake again and applies the
+  two tables above with **the recorded state of the row** (the intent) and **the payload state of the new report** (the
+  facts). So:
+  - one launch: if the first attempt sent the `Launch` and lost the link, the retry's report says `Spawning`, `Running`,
+    `Exited` or `LaunchFailed`, never `NotLaunched`, and no second `Launch` is sent;
+  - a `Stopping` row never gets a `Launch`, on the first attempt or on a retry;
+  - a `Lost(WorkerGone)` or `Lost(RegistryCorrupt)` row is not adoptable (AD-2), so the retry rule does not apply to it.
+  - Test: a `Starting` row whose first attempt sent the `Launch` and then lost the link; the retry adopts with no second
+    `Launch`. A `Stopping` row whose first attempt was lost; the retry ends `Exited{cause: HostStop}` with no `Launch`.
 - P1's placeholder `Lost(Other)` for every decodable row is replaced by this per-state adoption. After it, `Lost(Other)`
   remains only in the last row above and in other paths that the contract names.
 - The worker's orphan deadline covers every crash point: the worker gets `startup` at its launch (`--startup-ms`, part 1),
