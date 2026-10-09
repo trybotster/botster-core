@@ -128,3 +128,23 @@ Reviewed head: `9343f20df613c2756c7cdf781fc3dd6bfa9bfad1`. Delta `a7c73feb..9343
 - Round 2's review of H1 stands.
 
 VERDICT: CLEAN (0 open) at 9343f20df613c2756c7cdf781fc3dd6bfa9bfad1
+
+## Round 4 — CLEAN on head 75916ff0 (base merge delta)
+
+Reviewed head: `75916ff0d914952a249802876148160ef04b2517`, the merge of v1 `59ce126885e04a3b3f22d97e89337bfdbf055949`
+(#170) into round 3's head `9343f20d`. The base-merge-check fails conditions 2 and 3, because both sides change
+`.cargo/mutants.toml`. So the lead's rule requires this delta round.
+
+- **The merge.** The tree of `75916ff0` (`eb0721c4`) equals `git merge-tree --write-tree 9343f20d 59ce1268`. No file
+  was changed by hand.
+- **The delta `9343f20d..75916ff0` is exactly #170.** It has the same six paths and the same line counts as
+  `ee7dd16c..59ce1268`. In `mutants.toml` it adds only #170's two entries at the top of `exclude_re`.
+- **The PR's own diff is unchanged.** `diff-tree -p --no-renames` of `ee7dd16c..9343f20d` and of `59ce1268..75916ff0`
+  differ only in the `mutants.toml` blob ids and in three hunk offsets (+12 lines). The content of every hunk is the
+  same.
+- **No interaction.** #170's two entries match only `xtask/src/main.rs` and `xtask/src/base_merge.rs`. #169's entries
+  match only `botster-core` paths. #169 changes no `xtask` file and not `guard_platform.rs`. Its new slow tests start no
+  process.
+- The gate on this exact head is the lead's check. P5 sends its log.
+
+VERDICT: CLEAN (0 open) at 75916ff0d914952a249802876148160ef04b2517
