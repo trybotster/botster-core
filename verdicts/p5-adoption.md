@@ -1084,3 +1084,46 @@ This focused result does not establish a full landing gate or Linux execution.
 The combined #162 head still needs its source reviews and its authorized gate.
 
 VERDICT: CLEAN
+
+
+## PR #165 — Round 3
+
+- Exact head: `7e20c5fa2cbdc7855401ad9b71c8c941e064d878`.
+- Base: `144b0234fb632bcbb5176b17c2fe55f3239405df`.
+- Scope: the delta from accepted `88faedde845c53b62690a4648045988e63d67dd3`.
+- The reviewer ran no builds, tests, mutation jobs, or gates.
+
+### C5 / P3-F47 — CLOSED — The payload failure fixture owns and bounds its child
+
+`a_payload_cleanup_that_cannot_finish_fails_through_the_guard` now wraps its fixture child in `cleanup::Owned`.
+It obtains the child's status through the existing bounded exit observation before reaping the child.
+The owner also kills and reaps the fixture child during unwinding.
+This self-test has no production reaper; the owner applies only to its test-owned child.
+Production reaper ownership remains unchanged in the real payload tests.
+
+Both failure fixtures remove the `/bin/cat` stdout redirection to `/dev/null`.
+The blocked member therefore retains the observed pipe until it ends.
+The EOF assertion now observes the blocked member's end before the test obtains its child status.
+The payload fixture retains its explicit release, expected guard failure, and failure-report assertion.
+The shared FIFO helper changes visibility only and preserves the existing fixture behavior.
+
+C3/P3-F45, C4/P3-F46, and P5-F4 retain their source fixes from Round 2.
+The delta changes no timeout value, production code, transcript, or mutation exclusion.
+No finding remains open in this dependency review scope.
+
+### Description and evidence
+
+The reviewer read the updated PR description and verified the exact submitted head.
+The description retains the combined #162 landing rule and the Prior art section.
+It describes the payload report over the guard socket and identifies older execution results by their heads.
+
+The reviewer read the raw exact-head focused Mac log:
+`~/botster-sessions/gates/botster-core-stage1-p3-guard-macos-7e20c5fa-pool-20261008-204548-78525.log`.
+Job: `jobq-botster-core-7e20c5fa-20261008204548-8f21`.
+The log reports successful Clippy and worker prebuild steps.
+It reports 168 tests passed with zero skipped, then 15 selected guard tests passed with nine skipped; exit 0.
+The changed failure fixtures pass in every binary that includes them.
+This focused result does not establish a full landing gate or Linux execution.
+The combined #162 head still needs its own delta reviews and its authorized gate.
+
+VERDICT: CLEAN
