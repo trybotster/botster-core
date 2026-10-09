@@ -57,6 +57,20 @@ exclude_re = [
     # (the_package_sources_are_the_rust_files_outside_the_fixtures). A body replaced by Ok(()) skips the
     # step without its summary line, which every gate log of the step shows ("mutants: N mutants: ...").
     'xtask/src/ci\.rs:\d+:\d+: replace mutants_job -> Result<\(\)> with Ok\(\(\)\)$',
+    # xtask gate-decisions command -> Ok(()): process glue. It runs `cargo mutants --list` on the xtask and reads the
+    # repository; a test cannot list the mutants of the real xtask inside a mutation run of it. Only this whole-body
+    # replacement is excluded; the body has no operator. Its decisions stay mutation-tested: stdout_of
+    # (a_tool_output_is_read_only_after_a_success), parse_mutants (the_mutant_list_is_read_from_the_json_of_cargo_mutants),
+    # inputs (the_inputs_are_the_reasoned_entries_the_globs_and_the_xtask_sources), check
+    # (a_shell_entry_that_names_the_tested_decision_it_calls_passes) and verdict (a_check_passes_only_with_no_violation).
+    'xtask/src/gate_decisions\.rs:\d+:\d+: replace command -> Result<\(\)> with Ok\(\(\)\)$',
+    # xtask mutants-cited command -> Ok(()): process glue. It reads the mutants file, `cargo metadata` and the git file
+    # list of the real repository, which a cargo-mutants copy does not have (no .git). Only this whole-body replacement is
+    # excluded; the body has no operator. Its decisions stay mutation-tested: check
+    # (a_cited_test_that_no_tier_runs_fails_and_the_slow_filter_runs_slow_test_modules), packages
+    # (the_packages_come_from_cargo_metadata), tracked_with_submodules (the_tracked_files_come_from_git) and verdict
+    # (a_check_passes_only_with_no_violation).
+    'xtask/src/mutants_cited\.rs:\d+:\d+: replace command -> Result<\(\)> with Ok\(\(\)\)$',
     # P7 GuardianConfig::fmt: the debug text has no contract format. An empty successful
     # debug result still omits the service token, which is the only required property.
     # only_a_valid_host_hello_authenticates checks token omission.

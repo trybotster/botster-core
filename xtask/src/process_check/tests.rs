@@ -427,3 +427,161 @@ fn the_service_answers_once_and_closes() {
         "{violations:?}"
     );
 }
+
+/// A `#[cfg(test)]` item of each kind that can hold code makes that code test code; the same item without it does not.
+#[test]
+fn each_kind_of_test_item_holds_test_code() {
+    let items = concat!(
+        "#[cfg(test)]\nconst C: () = { c.wait(); };\n",
+        "#[cfg(test)]\nenum E { A = { c.wait(); 0 } }\n",
+        "#[cfg(test)]\nm! { c.wait() }\n",
+        "#[cfg(test)]\nstatic S: () = { c.wait(); };\n",
+        "#[cfg(test)]\nstruct T([u8; { c.wait(); 1 }]);\n",
+        "#[cfg(test)]\ntrait U { fn f() { c.wait(); } }\n",
+        "#[cfg(test)]\ntype V = [u8; { c.wait(); 1 }];\n",
+        "#[cfg(test)]\nunion W { a: [u8; { c.wait(); 1 }] }\n",
+    );
+    let sites: Vec<(usize, String)> = found("crates/x/src/a.rs", items)
+        .into_iter()
+        .map(|(line, item, _)| (line, item))
+        .collect();
+    assert_eq!(
+        sites,
+        [
+            (2, "C".into()),
+            (4, "-".into()),
+            (6, "-".into()),
+            (8, "S".into()),
+            (10, "-".into()),
+            (12, "f".into()),
+            (14, "-".into()),
+            (16, "-".into()),
+        ]
+    );
+    let production = items.replace("#[cfg(test)]\n", "");
+    assert_eq!(found("crates/x/src/a.rs", &production), []);
+}
+
+/// `any()` with no member never holds, so it does not make test code.
+#[test]
+fn an_empty_any_is_not_a_test_cfg() {
+    let text = "#[cfg(any())]\nfn f() { c.wait(); }\n";
+    assert_eq!(found("crates/x/src/a.rs", text), []);
+}
+
+/// A test file's trait methods and statics are scanned, each under its own name.
+#[test]
+fn a_trait_method_and_a_static_are_scanned_with_their_names() {
+    let text = concat!(
+        "trait T { fn f() { c.wait(); } }\n",
+        "static S: &str = \"sl",
+        "eep 1\";\n"
+    );
+    assert_eq!(
+        found(TEST_FILE, text),
+        [(1, "f".into(), "child-wait"), (2, "S".into(), "shell-loop")]
+    );
+}
+
+/// The kind of a receiver is followed through parentheses and references.
+#[test]
+fn a_command_in_parentheses_or_behind_a_reference_is_followed() {
+    let text = "\
+fn t() {
+    (Command::new(\"x\")).status();
+    let c = &Command::new(\"x\");
+    c.output();
+    Command::status(&mut c);
+    d.spawn();
+}
+";
+    assert_eq!(
+        found(TEST_FILE, text),
+        [
+            (2, "t".into(), "command-wait"),
+            (4, "t".into(), "command-wait"),
+            (5, "t".into(), "command-wait"),
+            (6, "t".into(), "spawn"),
+        ]
+    );
+}
+
+/// A macro body that does not parse as expressions is read token by token: a call at the first token is a path call, and
+/// a method's arguments are counted by their commas.
+#[test]
+fn a_token_scan_counts_arguments_and_starts_at_the_first_token() {
+    let text = "\
+fn t() {
+    m! { wait(); a.wait(); b.wait(x); c.read_line(&mut s); d.read_line(a, b); e.read_line(a, b,); }
+}
+";
+    assert_eq!(
+        found(TEST_FILE, text),
+        [
+            (2, "t".into(), "child-wait"),
+            (2, "t".into(), "blocking-read")
+        ]
+    );
+}
+
+#[test]
+fn arguments_are_counted_by_their_commas() {
+    let count = |text: &str| count_args(text.parse().unwrap());
+    assert_eq!(count(""), 0);
+    assert_eq!(count("&mut s"), 1);
+    assert_eq!(count("a, b"), 2);
+    assert_eq!(count("a, b,"), 2);
+    assert_eq!(count("f(a, b), c"), 2);
+}
+
+#[test]
+fn a_path_is_the_identifiers_joined_by_double_colons_before_the_call() {
+    let tokens: Vec<TokenTree> = "x a::b::c(d)"
+        .parse::<TokenStream>()
+        .unwrap()
+        .into_iter()
+        .collect();
+    let end = tokens.iter().position(|t| t.to_string() == "c").unwrap();
+    assert_eq!(path_before(&tokens, end), ["a", "b", "c"]);
+    assert_eq!(path_before(&tokens, 0), ["x"]);
+}
+
+#[test]
+fn a_violation_names_its_site_its_rule_and_the_advice() {
+    let findings = scan(TEST_FILE, "fn t() { c.wait(); }\n").unwrap();
+    assert_eq!(
+        judge(&findings, &[]),
+        [format!(
+            "{TEST_FILE}:1: [child-wait] in `t`: a raw wait for a child: use botster_test_process::OwnedChild (status, \
+             exited_within)"
+        )]
+    );
+}
+
+/// The command reads the tracked files and the allowlist of a repository: an unallowed site fails it; files that are not
+/// checked are not scanned.
+#[test]
+fn the_check_scans_the_tracked_test_code_against_the_allowlist() {
+    let site = "fn t() { c.wait(); }\n";
+    let allow = "# The reason.\ncrates/x/tests/a.rs | t | child-wait\n";
+    let repo = crate::fsutil::test_repo(&[
+        ("crates/x/tests/a.rs", site),
+        ("crates/x/src/lib.rs", "fn f() {}\n"),
+        ("crates/botster-test-process/src/a.rs", site),
+        ("crates/x/README.md", site),
+    ]);
+    let report = check(repo.path()).unwrap();
+    assert_eq!(report.scanned, 2);
+    assert_eq!(report.allowed, 0);
+    assert_eq!(report.violations.len(), 1, "{:?}", report.violations);
+    assert_eq!(
+        command(repo.path(), &[]).unwrap_err().to_string(),
+        "1 violation(s)"
+    );
+    assert!(command(repo.path(), &["x".into()]).is_err());
+    let allowed = crate::fsutil::test_repo(&[("crates/x/tests/a.rs", site), (ALLOW_FILE, allow)]);
+    let report = check(allowed.path()).unwrap();
+    assert_eq!((report.scanned, report.allowed), (1, 1));
+    assert!(report.violations.is_empty());
+    command(allowed.path(), &[]).unwrap();
+}

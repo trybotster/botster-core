@@ -191,6 +191,51 @@ pub fn metadata(root: &Path) -> Result<Meta> {
     })
 }
 
+/// The output of `git <args>` in `root` for a test, which must succeed: git runs without the user's configuration, and
+/// within the cleanup bound.
+#[cfg(test)]
+pub(crate) fn test_git(root: &Path, args: &[&str]) -> String {
+    let output = botster_test_process::run_to_completion(
+        Command::new("git")
+            .arg("-C")
+            .arg(root)
+            .args([
+                "-c",
+                "user.name=t",
+                "-c",
+                "user.email=t@t",
+                "-c",
+                "commit.gpgsign=false",
+            ])
+            .args(args)
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .env("GIT_CONFIG_GLOBAL", "/dev/null"),
+        botster_test_process::Deadline::cleanup(),
+    )
+    .unwrap();
+    assert!(
+        output.status.success(),
+        "git {args:?}: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8(output.stdout).unwrap()
+}
+
+/// A git repository in a temporary directory for the test of a command: each `(path, text)` of `files` is written and
+/// staged, so `tracked_files` lists it.
+#[cfg(test)]
+pub(crate) fn test_repo(files: &[(&str, &str)]) -> tempfile::TempDir {
+    let dir = tempfile::tempdir().unwrap();
+    test_git(dir.path(), &["init", "-q"]);
+    for (path, text) in files {
+        let path = dir.path().join(path);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, text).unwrap();
+    }
+    test_git(dir.path(), &["add", "-A"]);
+    dir
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -203,27 +248,7 @@ mod tests {
     }
 
     fn git(root: &Path, args: &[&str]) {
-        let output = botster_test_process::run_to_completion(
-            Command::new("git")
-                .arg("-C")
-                .arg(root)
-                .args([
-                    "-c",
-                    "user.name=t",
-                    "-c",
-                    "user.email=t@t",
-                    "-c",
-                    "commit.gpgsign=false",
-                ])
-                .args(args),
-            botster_test_process::Deadline::cleanup(),
-        )
-        .unwrap();
-        assert!(
-            output.status.success(),
-            "git {args:?}: {}",
-            String::from_utf8_lossy(&output.stderr)
-        );
+        test_git(root, args);
     }
 
     /// The base is resolved once: a reference that moves later does not change the commit of the run.

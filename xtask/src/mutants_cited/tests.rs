@@ -291,3 +291,80 @@ fn only_comment_words_with_three_parts_are_cited() {
         ]
     );
 }
+
+/// A cited test target counts only its own tests: a running test of another binary does not make it run, and its own
+/// running test does.
+#[test]
+fn a_cited_test_target_counts_only_its_own_tests() {
+    let target = "#![cfg(feature = \"slow\")]\n#[test]\nfn t() {}\n";
+    let unrun = Repo::new()
+        .package("a", false, &["slow_real_core", "quick"])
+        .file("crates/a/src/lib.rs", "")
+        .file("crates/a/tests/slow_real_core.rs", target)
+        .file("crates/a/tests/quick.rs", "#[test]\nfn q() {}\n");
+    assert_eq!(unrun.check("# slow_real_core\n", OLD_FILTER).len(), 1);
+    let run = Repo::new()
+        .package("a", true, &["slow_real_core"])
+        .file("crates/a/src/lib.rs", "")
+        .file("crates/a/tests/slow_real_core.rs", target);
+    assert!(run.check("# slow_real_core\n", OLD_FILTER).is_empty());
+}
+
+/// A word that only the mutants file holds is not a word of another file.
+#[test]
+fn a_word_of_the_mutants_file_itself_does_not_count() {
+    let toml = "# see the_only_citation\n";
+    let repo = Repo::new()
+        .package("a", false, &[])
+        .file("crates/a/src/lib.rs", "")
+        .file(MUTANTS_FILE, toml);
+    assert_eq!(repo.check(toml, OLD_FILTER).len(), 1);
+}
+
+/// The `cfg` predicates of a test, on a gate system.
+#[test]
+fn cfg_predicates_hold_as_on_the_gate_system() {
+    let holds = |cfg: &str, system: &str| holds(&syn::parse_str(cfg).unwrap(), false, system);
+    for (cfg, linux, macos) in [
+        ("any(windows, unix)", true, true),
+        ("any(windows, windows)", false, false),
+        ("not(windows)", true, true),
+        ("not(unix)", false, false),
+        ("target_os = \"linux\"", true, false),
+        ("target_os = \"macos\"", false, true),
+        ("target_family = \"unix\"", true, true),
+        ("target_family = \"windows\"", false, false),
+    ] {
+        assert_eq!(holds(cfg, "linux"), Ok(linux), "{cfg}");
+        assert_eq!(holds(cfg, "macos"), Ok(macos), "{cfg}");
+    }
+    assert!(holds("not(unix, windows)", "linux").is_err());
+}
+
+/// The tracked files of a repository, from git.
+#[test]
+fn the_tracked_files_come_from_git() {
+    let repo = crate::fsutil::test_repo(&[("a/b.rs", ""), ("c.toml", "")]);
+    assert_eq!(
+        tracked_with_submodules(repo.path()).unwrap(),
+        ["a/b.rs", "c.toml"]
+    );
+    let not_a_repo = tempfile::tempdir().unwrap();
+    assert!(tracked_with_submodules(not_a_repo.path()).is_err());
+}
+
+/// The packages of this workspace, from `cargo metadata`: botster-test-process with its slow feature and its slow test
+/// target.
+#[test]
+fn the_packages_come_from_cargo_metadata() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+    let packages = packages(root).unwrap();
+    let process = packages
+        .iter()
+        .find(|p| p.name == "botster-test-process")
+        .unwrap();
+    assert!(process.slow);
+    assert!(process.targets.iter().any(|t| t.kind == "test"
+        && t.name == "slow_process"
+        && t.root == "crates/botster-test-process/tests/slow_process.rs"));
+}

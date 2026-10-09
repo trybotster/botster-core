@@ -429,14 +429,8 @@ fn mutants_job(root: &Path) -> Result<()> {
 /// # Errors
 /// The listing failed, or its output is not a JSON array.
 fn parse_listing(listing: &std::process::Output) -> Result<usize> {
-    if !listing.status.success() {
-        bail!(
-            "cargo mutants --list failed: {}",
-            String::from_utf8_lossy(&listing.stderr)
-        );
-    }
-    let v: serde_json::Value =
-        serde_json::from_slice(&listing.stdout).context("parse the mutant listing")?;
+    let json = crate::tools::stdout_of(listing, "cargo mutants --list")?;
+    let v: serde_json::Value = serde_json::from_str(&json).context("parse the mutant listing")?;
     v.as_array()
         .map(Vec::len)
         .context("the mutant listing is not an array")
@@ -672,6 +666,17 @@ mod tests {
             macos.contains(&adapter("linux")) && !macos.contains(&adapter("macos")),
             "{macos:?}"
         );
+    }
+
+    /// The package sources of a repository are its tracked Rust files outside the fixtures.
+    #[test]
+    fn the_package_sources_are_read_from_the_tracked_files() {
+        let repo = crate::fsutil::test_repo(&[
+            ("a/lib.rs", ""),
+            ("a/Cargo.toml", ""),
+            ("xtask/fixtures/x/src/lib.rs", ""),
+        ]);
+        assert_eq!(package_sources(repo.path()).unwrap(), ["a/lib.rs"]);
     }
 
     /// The fixtures are their own workspaces, so their files are not package sources; files that are not Rust are not either.
