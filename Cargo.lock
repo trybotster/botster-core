@@ -2087,9 +2087,11 @@ dependencies = [
  "botster-core-testkit",
  "botster-test-support",
  "botster-worker-core",
+ "proc-macro2",
  "regex",
  "serde_json",
  "sha2",
+ "syn 2.0.119",
  "tempfile",
  "toml",
 ]

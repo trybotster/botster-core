@@ -5,6 +5,7 @@ mod ci;
 mod fsutil;
 mod lists;
 mod prebuild;
+mod process_check;
 mod public_api;
 mod taint;
 mod test_budget;
@@ -19,6 +20,7 @@ commands:
   ci [--job <name>] [--keep-going]   every step of the merge gate, in order
   taint                              banned old-world names (contracts list plus Core's additions)
   timers                             unmarked sleeps in test code; timers in machine crates
+  process-check                      real-process test code outside botster-test-process (waits, reads, sleeps)
   lists                              check core-ledger-ids, core-pending and core-deferred
   ledger-ids [--write]               check or write conformance/core-ledger-ids.txt from the pinned ledger
   public-api [--update]              check or write the facade snapshot api/botster-core.txt
@@ -47,6 +49,7 @@ fn run() -> Result<()> {
         "ci" => ci::command(&root, &rest),
         "taint" => taint::command(&root, &rest),
         "timers" => timers::command(&root, &rest),
+        "process-check" => process_check::command(&root, &rest),
         "lists" => lists::command(&root, &rest),
         "ledger-ids" => lists::ledger_ids_command(&root, &rest),
         "public-api" => public_api::command(&root, &rest),

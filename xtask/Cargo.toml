@@ -15,9 +15,13 @@ botster-core-contract.workspace = true
 botster-core-testkit.workspace = true
 botster-test-support.workspace = true
 botster-worker-core.workspace = true
+# The syntax-aware check (process-check): a parse with line numbers. `span-locations` applies to this binary
+# only; proc-macro builds use their own proc-macro2 features (resolver 2).
+proc-macro2 = { version = "1", features = ["span-locations"] }
 regex.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
+syn = { version = "2", features = ["full", "visit"] }
 toml.workspace = true
 
 [dev-dependencies]
