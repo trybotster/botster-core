@@ -1620,3 +1620,55 @@ The open session-id ceiling question and the other package scope limits recorded
 This verdict does not certify P5 deliverable 2 or the live-worker adoption placeholder.
 
 VERDICT: CLEAN
+
+
+## PR #164 — Round 12
+
+- Exact head: `152dbb07891b362935048533f406cc3bf26f86d4`.
+- Parents: accepted audit head `e1624ca1b35d53b5ce00ee7a4092950219165348` and v1 `d1d18f4aeba717d2dec2708024c77f55e3ee35ef` (#167).
+- Common base: `0b0eecc06d0cd4c39af5e33e59c0b3f643aba6d4`.
+- Tree: `ef407932f0c63f29c9c3e84f2fa5eb037740097d`.
+- Scope: the v1 merge, both conflict resolutions, and interactions in files that both parents changed.
+- The reviewer ran no builds, tests, mutation jobs, or gates.
+
+### Merge and conflict resolutions
+
+The reviewer compared all file entries against the common base and both parents.
+Both parents changed ten files. All changes made by only one parent survive exactly.
+Nine files combine changes from both parents; the tenth, `xtask/src/test_budget.rs`, matches the audit parent exactly.
+Its only difference from v1 is `pub` on the previously accepted `SLOW_FILTER` constant.
+The filter value, selection comment, and selection test match #167.
+
+The reviewer read the mutation configuration delta against each parent and parsed all configurations.
+The merged exclusion set equals the audit set plus v1's additions, minus v1's removals from the common base.
+No expected entry is missing and no unexpected entry appears.
+The test exclusion globs and other configuration settings remain unchanged.
+The corrected storage proof and P5-F14 closure survive the merge.
+
+### Shared source interactions
+
+The reviewer read the deltas in the combined host and testkit files against both parents.
+The lock adds only the host's inherited `botster-terminal-ghostty` dependency relative to the audit parent.
+The host retains durable-id reservation, uncertain-Create reservation, row recovery, identity probes, and typed Stop registry errors.
+The imported input-bound changes use each pending write's stored `held_bytes` without changing those audit paths.
+The testkit retains the shared process table, cross-handle identity and signal behavior, and exit ownership.
+The imported bounded-drain state operates in the payload edge and retains that process ownership.
+The merged tests retain both parents' audit and write-bound assertions.
+The reviewed storage implementation, its rollback, and its slow tests remain unchanged from the accepted audit head.
+No package finding remains open within this merge scope.
+
+### Description and supplied evidence
+
+P5 updated the description during this review without a source change.
+The reviewer verified the remote head and read the corrected description.
+It names both parents and conflict resolutions, preserves earlier evidence under its original heads, and marks this head's full gate pending.
+The reviewer read the exact-head Linux log:
+`~/botster-sessions/gates/botster-core-stage1-p5-audit-contract-152dbb07-pool-20261008-224525-89541.log`.
+Job: `jobq-botster-core-152dbb07-20261008224525-19c1`.
+It records successful formatting, taint, lists, and Clippy checks, plus 336 unit tests passed with zero skipped; exit 0 after 18 seconds.
+P5 reports that the in-diff mutation run with `NEXTEST_PROFILE=slow` is still running.
+No completed mutation result or full gate result was supplied for this exact head.
+This CLEAN covers the merge source and configuration; it does not certify those pending runs.
+The prior audit closures and scope limits remain as recorded in Round 11.
+
+VERDICT: CLEAN
