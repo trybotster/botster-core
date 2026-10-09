@@ -221,16 +221,27 @@ exclude_re = [
     # `a_damaged_row_is_registry_corrupt_and_a_foreign_file_is_left_alone`.
     'crates/botster-core/src/real\.rs:\d+:\d+: (replace <impl HostEdges for RealEdges>::diagnostics( ->| with)|.* in <impl HostEdges for RealEdges>::diagnostics$)',
     # botster-core-sys process (P1): `Children` waits for, reaps and signals real children, so the proof is the slow tier,
-    # `tests/slow_process.rs`: `a_child_exit_calls_the_notifier_and_is_polled` and every test through `next_exit`
-    # (poll_exit), and `a_spawned_child_matches_its_identity_and_dies_by_the_group_kill`,
-    # `a_reused_identity_is_never_signalled` and `the_worker_control_signal_reaches_the_worker_handler` (signal_group,
-    # kill_group). Those tests never wait through the code under test, so a defect fails them within their deadlines.
+    # `tests/slow_process.rs` (slow-tier mutation run of 2026-10-04): `a_child_exit_calls_the_notifier_and_is_polled` and every
+    # test through `next_exit` (poll_exit), `wait_exit_takes_the_exit_of_its_own_child` (wait_exit), and
+    # `a_spawned_child_matches_its_identity_and_dies_by_the_group_kill` and `the_worker_control_signal_reaches_the_worker_handler`
+    # (signal_group, kill_group). Those tests never wait through the code under test, so a defect fails them within their
+    # deadlines.
     'crates/botster-core-sys/src/process\.rs:\d+:\d+: (replace Children::poll_exit( ->| with)|.* in Children::poll_exit$)',
+    'crates/botster-core-sys/src/process\.rs:\d+:\d+: (replace Children::wait_exit( ->| with)|.* in Children::wait_exit$)',
     'crates/botster-core-sys/src/process\.rs:\d+:\d+: (replace Children::signal_group( ->| with)|.* in Children::signal_group$)',
     'crates/botster-core-sys/src/process\.rs:\d+:\d+: (replace Children::kill_group( ->| with)|.* in Children::kill_group$)',
-    # process.rs `wait_unreaped`: the code `-1` is for a pid that is not a pid, and for `ECHILD`, which cannot happen while the
-    # child is in `Unreaped` (the reaper is its only waiter). No real child reaches either path, so the sign is not observable.
-    'crates/botster-core-sys/src/process\.rs:\d+:\d+: delete - in wait_unreaped$',
+    # process.rs `start_time` of macOS is `cfg(target_os = "macos")` code: the Linux gate does not compile it, so a mutant in
+    # it cannot change a test result there. Only equality has a meaning (AD-6), and the macOS slow tier runs
+    # `a_spawned_child_matches_its_identity_and_dies_by_the_group_kill`.
+    'crates/botster-core-sys/src/process\.rs:\d+:\d+: replace [*+] with [-+*/] in start_time$',
+    # process.rs `exit_status`: the code `-1` is for a reaped child with neither an exit code nor a signal, which a wait
+    # status cannot be (a process ends by `exit` or by a signal).
+    'crates/botster-core-sys/src/process\.rs:\d+:\d+: delete - in exit_status$',
+    # Children::spawn: only the production reaper calls Child::wait for the worker.
+    # The test guard waits for its separate anchor child. It never calls waitpid for the worker.
+    # Child::wait retries EINTR. The child has one reaper, and the wait options are fixed.
+    # ECHILD and EINVAL cannot occur under these ownership rules, so changing the error fallback's sign is equivalent.
+    'crates/botster-core-sys/src/process\.rs:\d+:\d+: delete - in Children::spawn$',
     # botster-core-sys storage (P1): the registry on a real disk (AD-7, LC-2, DP-8). A real fsync takes the time of the disk
     # of the host, so these tests run in the slow tier (BUILD.md testing rule 2), storage.rs `slow_tests`. Evidence: the
     # slow-tier mutation run of 2026-10-04 (P1's code), and for every line that #164 changed, the Linux slow-tier run of

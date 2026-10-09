@@ -8,12 +8,12 @@
 use botster_core_edges::edges::{
     ExitStatus, GroupSignal, IdentityState, ProcessIdentity, SpawnError, SpawnSpec,
 };
-use rustix::process::{kill_process_group, waitid, Pid, Signal, WaitId, WaitIdOptions};
-use std::collections::{BTreeMap, VecDeque};
+use rustix::process::{kill_process_group, Pid, Signal};
+use std::collections::{BTreeSet, VecDeque};
 use std::io;
-use std::os::unix::process::CommandExt;
+use std::os::unix::process::{CommandExt, ExitStatusExt};
 use std::process::{Child, Command, Stdio};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Condvar, Mutex};
 
 /// The start time of `pid` in the unit of the platform, or `None` when no such process exists. Only equality has a meaning
 /// (AD-6).
@@ -49,54 +49,37 @@ pub fn identity_state(identity: ProcessIdentity) -> IdentityState {
     }
 }
 
-/// The exits that the reaper threads reaped, in order.
-type Exits = Arc<Mutex<VecDeque<(ProcessIdentity, ExitStatus)>>>;
-
-/// The children that are not reaped yet, by pid. A child in this table cannot have its pid reused, so a signal to it under
-/// the table's lock reaches it and nothing else (AD-6). The reaper takes the child out, and reaps it, under the same lock.
-type Unreaped = Arc<Mutex<BTreeMap<u32, Child>>>;
-
-fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
-    // No panic leaves these tables half written, so a poisoned lock still holds usable state.
-    mutex.lock().unwrap_or_else(PoisonError::into_inner)
-}
-
-/// Blocks until `pid` can be reaped, and returns its status without reaping it (`WNOWAIT`).
-fn wait_unreaped(pid: u32) -> ExitStatus {
-    let Some(pid) = i32::try_from(pid).ok().and_then(Pid::from_raw) else {
-        return ExitStatus::Code(-1);
-    };
-    loop {
-        match waitid(
-            WaitId::Pid(pid),
-            WaitIdOptions::EXITED | WaitIdOptions::NOWAIT,
-        ) {
-            Ok(Some(status)) => {
-                if let Some(signal) = status.terminating_signal() {
-                    return ExitStatus::Signal(signal);
-                }
-                if let Some(code) = status.exit_status() {
-                    return ExitStatus::Code(code);
-                }
-            }
-            Err(rustix::io::Errno::INTR) | Ok(None) => {}
-            // ECHILD: the child is no longer ours to wait for. It cannot happen while it is in `Unreaped`.
-            Err(_) => return ExitStatus::Code(-1),
-        }
-    }
-}
+/// The exits that the reaper threads reaped, and a condition variable for the callers that wait for one.
+type Exits = Arc<(Mutex<VecDeque<(ProcessIdentity, ExitStatus)>>, Condvar)>;
 
 /// Called by a reaper thread after it queued an exit: the host wakes and polls (TM-6).
 pub type Notify = Arc<dyn Fn() + Send + Sync>;
 
-/// The children that the host started. A reaper thread watches each child: it waits until the child can be reaped, reaps it
-/// under the lock of `unreaped`, queues the exit and calls the notifier, so the host wakes at the moment a worker ends and
-/// never leaves a zombie.
-#[derive(Default)]
+fn exit_status(status: std::process::ExitStatus) -> ExitStatus {
+    match (status.code(), status.signal()) {
+        (Some(code), _) => ExitStatus::Code(code),
+        (None, Some(signal)) => ExitStatus::Signal(signal),
+        (None, None) => ExitStatus::Code(-1),
+    }
+}
+
+/// The children that the host started. A reaper thread owns each child: it waits for the exit, reaps it, queues the exit and
+/// calls the notifier, so the host wakes at the moment a worker ends and never leaves a zombie.
 pub struct Children {
     exits: Exits,
-    unreaped: Unreaped,
+    /// The pids that were started and whose exit was not taken yet.
+    live: BTreeSet<u32>,
     notify: Option<Notify>,
+}
+
+impl Default for Children {
+    fn default() -> Children {
+        Children {
+            exits: Arc::new((Mutex::new(VecDeque::new()), Condvar::new())),
+            live: BTreeSet::new(),
+            notify: None,
+        }
+    }
 }
 
 impl Children {
@@ -128,24 +111,22 @@ impl Children {
         }
         // The reaper thread exists before the child: a thread that cannot start leaves no child behind, and a child that
         // cannot start ends the thread (its sender is dropped). So every child that runs has a thread that reaps it.
-        let (hand_over, take) = std::sync::mpsc::sync_channel::<ProcessIdentity>(1);
+        let (hand_over, take) = std::sync::mpsc::sync_channel::<(Child, ProcessIdentity)>(1);
         let exits = Arc::clone(&self.exits);
-        let unreaped = Arc::clone(&self.unreaped);
         let notify = self.notify.clone();
         std::thread::Builder::new()
             .name("botster-reaper".into())
             .spawn(move || {
-                let Ok(identity) = take.recv() else {
+                let Ok((mut child, identity)) = take.recv() else {
                     return;
                 };
-                let status = wait_unreaped(identity.pid);
-                // The reap happens under the lock that `signal_group` holds: the pid is never freed between its check and
-                // its signal (AD-6).
-                if let Some(mut child) = lock(&unreaped).remove(&identity.pid) {
-                    // The child can be reaped now, so this wait returns at once.
-                    let _: io::Result<std::process::ExitStatus> = child.wait();
-                }
-                lock(&exits).push_back((identity, status));
+                let status = child.wait().map_or(ExitStatus::Code(-1), exit_status);
+                let (queue, ready) = &*exits;
+                queue
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .push_back((identity, status));
+                ready.notify_all();
                 if let Some(notify) = notify {
                     notify();
                 }
@@ -160,24 +141,49 @@ impl Children {
         // The child is ours and unreaped, so its pid is not reused: the start time that we read is its own.
         let start_time = start_time(pid).unwrap_or(0);
         let identity = ProcessIdentity { pid, start_time };
-        lock(&self.unreaped).insert(pid, child);
         hand_over
-            .send(identity)
+            .send((child, identity))
             .expect("the reaper thread waits for its child");
+        self.live.insert(pid);
         Ok(identity)
     }
 
     /// The next child that has ended, reaped, or `None`. It never blocks.
     pub fn poll_exit(&mut self) -> Option<(ProcessIdentity, ExitStatus)> {
-        lock(&self.exits).pop_front()
+        let exit = self
+            .exits
+            .0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .pop_front()?;
+        self.live.remove(&exit.0.pid);
+        Some(exit)
     }
 
-    /// Signals the process group of `identity`, only when the identity still matches (AD-6). The check and the signal
-    /// happen under the lock of the unreaped children, so a child of this host cannot be reaped, and its pid reused, in
-    /// between. A process that this host did not start (an adopted worker) has no such guarantee: its parent may reap it at
-    /// any time, so the check is as close to the signal as the operating system allows.
+    /// Waits for the exit of the child `pid`. It blocks until the child ends: a caller that must not block uses
+    /// [`Children::poll_exit`]. `None` when `pid` is not a live child.
+    pub fn wait_exit(&mut self, pid: u32) -> Option<(ProcessIdentity, ExitStatus)> {
+        if !self.live.contains(&pid) {
+            return None;
+        }
+        let (queue, ready) = &*self.exits;
+        let mut queue = queue
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        loop {
+            if let Some(at) = queue.iter().position(|(id, _)| id.pid == pid) {
+                let exit = queue.remove(at)?;
+                self.live.remove(&pid);
+                return Some(exit);
+            }
+            queue = ready
+                .wait(queue)
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+        }
+    }
+
+    /// Signals the process group of `identity`, only when the identity still matches (AD-6).
     pub fn signal_group(&self, identity: ProcessIdentity, signal: GroupSignal) {
-        let _unreaped = lock(&self.unreaped);
         if identity_state(identity) != IdentityState::Matches {
             return;
         }
@@ -272,6 +278,26 @@ mod tests {
                 start_time: 1,
             },
             GroupSignal::EndPayload,
+        );
+    }
+
+    /// The notifier is kept by `with_notify` and not by `new`.
+    #[test]
+    fn with_notify_keeps_its_notifier() {
+        assert!(Children::new().notify.is_none());
+        assert!(Children::with_notify(Arc::new(|| {})).notify.is_some());
+    }
+
+    /// An exit is a code or a signal.
+    #[test]
+    fn an_exit_is_a_code_or_a_signal() {
+        assert_eq!(
+            exit_status(std::process::ExitStatus::from_raw(3 << 8)),
+            ExitStatus::Code(3)
+        );
+        assert_eq!(
+            exit_status(std::process::ExitStatus::from_raw(9)),
+            ExitStatus::Signal(9)
         );
     }
 }
