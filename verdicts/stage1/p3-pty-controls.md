@@ -42,3 +42,38 @@ a control that runs at the same time as the process end).
 
 VERDICT: NOT CLEAN at 46642d85de52c98ce8fe1cfbd0bf7afa27847c4d (1 open: F63 MEDIUM, the package reviewer's finding,
 confirmed here)
+
+## Round 2 — CLEAN on head ab430951 (F63 fix and the union with #196)
+
+Reviewed head: `ab430951006a5aeee2f054b363679940356d9bbb`, four commits on `46642d85`: `497771a8` (F63), `0cf3d8d6` (timer
+markers), the merge `491966a6` of v1 `1f157c29` (#196), and `ab430951`. The head contains v1 `1f157c29`, which is the
+current v1. P3's gate log `gates/botster-core-stage1-p3-pty-controls-ab430951-pool-20261009-112122-4292.log` names this
+head and base `1f157c29`. It is a full gate: `cargo xtask ci` (993 default, 243 slow) and the mutants job (18 mutants: 13
+caught, 0 missed, 0 timeout, 5 unviable), exit 0. This reviewer read its header and summaries. This round is also the
+union review of #195 and #196 that the round 1 condition and #196's verdict ask for.
+
+- **F63 closed.** `program_edge` takes `run_processes`, clones the pair, and releases it. It then reads the cell in its own
+  scope and releases the cell before it locks the owner. So no path takes the cell and then the owner, and the order
+  run_processes -> owner -> cell holds. The new test runs `program_edge` while another thread holds the owner, then ends
+  the process. Its two waits are bounded (`recv_timeout`) and carry the timer marker.
+- **The merge.** `git merge-tree --write-tree 491966a6^1 491966a6^2` has conflicts in `controls.rs`, `worker.rs` and
+  `worker/tests.rs` only. The merge commit differs from the conflicted tree only in those three files. The resolution
+  keeps both sides:
+  - `registered_controls` registers `pty_controls` and `start_controls`;
+  - `ProcessCell` has both `payload_alive` and `program`;
+  - `Workers` has `hold_start`, `release_start`, `payload_alive` and `program_edge` (the F63 form);
+  - `WorkerEdges::ended` and `Action::ReapPayload` clear both fields under one cell guard, and `ended` still removes the
+    held start (`StartKey`) and the held spawn;
+  - `spawn_payload` sets `program` and then `payload_alive`; `poll_payload_exit` clears only `payload_alive`, so the PTY
+    stays readable until the reap;
+  - both sides' tests stay.
+- **`ab430951`.** `pty_output` refuses (`Bad`) when the session's payload has exited (`Workers::payload_alive`, which takes
+  run_processes -> cell). The text and the doc agree. `pty_blocked` keeps working until the reap, which matches the field
+  doc of `program`.
+
+Observation (not counted): `pty_output` checks `program_of` and `program_alive` in two steps, and `spawn_payload` sets
+`program` and `payload_alive` under two guards. A payload exit between the checks lets one write reach a program that
+has exited, as at round 1. A transcript sends `pty_output` after its start completes, so neither window changes a
+result.
+
+VERDICT: CLEAN (0 open) at ab430951006a5aeee2f054b363679940356d9bbb
