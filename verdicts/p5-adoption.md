@@ -1025,3 +1025,62 @@ C1 and P5-F12 are CLOSED. P5-F4 remains OPEN for the source reasons in Round 6.
 The reviewer does not accept the future merge or close the other P5 work.
 
 VERDICT: NOT CLEAN (1 open)
+
+
+## PR #165 — Round 2
+
+- Exact head: `88faedde845c53b62690a4648045988e63d67dd3`.
+- Base: `144b0234fb632bcbb5176b17c2fe55f3239405df`.
+- Scope: the delta from `71195e7209cc0cbee03bedb52eda3f2b83db2585`, plus the retained P5-F4 fix.
+- The reviewer ran no builds, tests, mutation jobs, or gates.
+
+### C3 / P3-F45 — CLOSED — The early-exit test bounds both waits
+
+`an_early_exit_keeps_the_group_owned_until_cleanup` reads readiness through `first_line`.
+The helper applies the existing `CLEANUP` deadline and reports a failed read.
+The test obtains the leader's status through `cleanup::Owned::status`.
+That owner observes exit with `waitid(WNOWAIT)` under a marked deadline before reaping the leader.
+The anchor still holds the group after the test reaps the leader.
+The test checks the anchor's group before cleanup and observes EOF afterward.
+The two other changed self-tests also use the bounded status method.
+
+### C4 / P3-F46 — CLOSED — FIFO members replace the sleep loops
+
+Both self-tests now use `/bin/cat` blocked on a FIFO with no writer.
+The members retain the observed pipe until they end.
+The early-exit fixture keeps a descendant after its shell leader exits.
+The panic fixture requires no readiness indication before cleanup starts.
+The delta adds no sleep, polling loop, timeout increase, or production test hook.
+
+### P5-F4 — CLOSED on this dependency head
+
+`parent_dies_before_fifo_reader` retains the bounded `first_line` readiness read.
+Its `cleanup::Owned` parent retains bounded exit observation and reap after the test kills the parent.
+The EOF check remains separate and bounded.
+These changes close the source waits recorded in #162 Round 6.
+The next combined #162 head must retain these changes before it can receive CLEAN.
+
+### P5-F13 — CLOSED — The PR description matches the landing order
+
+The reviewer found that the description said #165 lands before #162 and #163.
+The reviewer sent the correction directly to P3.
+P3 updated the description without changing the submitted head.
+The reviewer read the updated description and verified its unchanged head.
+It now states that #165 folds into #162 for one combined gate.
+It describes the bounded readiness and child-exit waits and the FIFO fixtures.
+It names the current focused Mac result and identifies the older result by its older head.
+The Prior art section records the selected libraries, rejected approaches, and reason for the custom cleanup rounds.
+No finding remains open within this review scope.
+
+### Evidence and scope limits
+
+The reviewer read the raw Mac log for the exact submitted head:
+`~/botster-sessions/gates/botster-core-stage1-p3-guard-macos-88faedde-pool-20261008-204257-69794.log`.
+The pool job is `jobq-botster-core-88faedde-20261008204257-5ca7`.
+The log reports successful Clippy and worker prebuild steps.
+It reports 168 tests passed with zero skipped, followed by 15 selected guard tests passed with nine skipped.
+The command exits with status 0.
+This focused result does not establish a full landing gate or Linux execution.
+The combined #162 head still needs its source reviews and its authorized gate.
+
+VERDICT: CLEAN
