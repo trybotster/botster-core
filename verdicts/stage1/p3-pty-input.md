@@ -51,3 +51,27 @@ Observation (not counted): `has_ready` can release `sim` before `programs()` run
 This is not needed for correctness now, but it keeps the `sim` guard out of later lock paths.
 
 VERDICT: CLEAN (0 open) at fc39fee6be5024df41a0cc937417401100c6303b
+
+### Correction after round 1 (same head fc39fee6) — CLEAN WITHDRAWN (the P3 package reviewer's F64, missed here)
+
+The P3 package reviewer's F64 HIGH is real, and it is in this reviewer's scope: shared real-process test code (rule 3),
+a fixture shared across packages, and a gate-decision reason in `.cargo/mutants.toml`.
+- `crates/botster-worker/tests/common/session.rs:14-18` includes `../../../botster-core-sys/tests/common/payload_guard.rs`
+  and `process_guard.rs` through `#[path]`. The new regression `in_6_real_pty_cancel_keeps_counts_and_resumes_the_next_write`
+  uses `PayloadGuard` and `OwnedWorker` from those legacy fixtures.
+- `crates/botster-worker/Cargo.toml` has no `botster-test-process` dev-dependency.
+- The new exclusion reason (`.cargo/mutants.toml`, M2a PTY write glue) says that the proof runs "under the payload guard
+  of botster-test-process". That is false at this head.
+- Plan section 6.1 (revision 22): P6 owns all real-process test code in `botster-test-process`, and no new real-process
+  test code is written until it and the xtask check land. A production change whose proof is a real-process test waits for
+  that proof. The lead's M2a ruling (2026-10-08) names this regression as the merge proof.
+
+Round 1 checked the deadlines, the FIFO forms and the ownership of the payload in the test body. It did not check which
+crate gives the guards. That miss is in this reviewer's scope.
+
+Fix: F64's. Rebuild the regression on `botster-test-process` (P6 for any missing capability), without copying guard or
+cleanup code. Correct the exclusion reason and the PR body, and give a gate on the exact new head. F65 (the strict
+`decision (proof, …)` form of the two new entries) is the round 1 condition, which the lead already ordered as a delta.
+
+VERDICT: NOT CLEAN at fc39fee6be5024df41a0cc937417401100c6303b (1 open: F64 HIGH, the package reviewer's finding,
+confirmed here)
