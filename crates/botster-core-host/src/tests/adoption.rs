@@ -997,3 +997,82 @@ fn a_start_lost_to_the_worker_version_is_written_and_may_be_retried() {
     };
     assert_eq!(record.state, SessionState::Lost(LostReason::WorkerGone));
 }
+
+/// Review P5-F26; steward ruling R-36: a stored `Lost(WorkerUnreachable)` row with no worker identity is posted as
+/// recorded, and `Adopt(id)` is admitted. No worker can be found, so the retry is `Lost(StartInterrupted)` with no probe and
+/// no connect, and the host does not stop.
+#[test]
+fn a_retry_of_a_lost_row_with_no_worker_identity_is_start_interrupted() {
+    let mut first = stopped_with_a_broken_link();
+    rewrite_row(&mut first, "s", |row| row.worker = None);
+    let mut again = World::over(&first);
+    let events = adopt_all(&mut again);
+    assert_eq!(
+        states_of(&events, "s"),
+        vec![SessionState::Lost(LostReason::WorkerUnreachable)]
+    );
+    let record = match again.ok(Op::Adopt { id: sid("s") }) {
+        OpOutput::Record(record) => record,
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(
+        record.state,
+        SessionState::Lost(LostReason::StartInterrupted)
+    );
+    assert!(again.connects.is_empty());
+    let row = Row::decode(&sid("s"), &again.rows[&row_key("s")]).unwrap();
+    assert_eq!(row.state, SessionState::Lost(LostReason::StartInterrupted));
+}
+
+/// Review P5-F26; Core AD-2, AD-6: a stored `Lost(WorkerUnreachable)` or `Lost(WorkerVersion)` row with a worker identity
+/// and an absent or invalid token cannot be authenticated. It is `Lost(RegistryCorrupt)` with no handshake, and `Adopt(id)`
+/// is refused with `WrongState`. A valid row of the same state keeps the R-36 admission.
+#[test]
+fn a_lost_row_with_no_valid_token_is_registry_corrupt() {
+    let mut first = stopped_with_a_broken_link();
+    let template = Row::decode(&sid("s"), &first.rows[&row_key("s")]).unwrap();
+    for (name, reason, token) in [
+        ("absent", LostReason::WorkerUnreachable, None),
+        (
+            "short",
+            LostReason::WorkerUnreachable,
+            Some("abc".to_string()),
+        ),
+        ("version", LostReason::WorkerVersion, None),
+    ] {
+        let mut row = template.clone();
+        row.id = sid(name);
+        row.state = SessionState::Lost(reason);
+        row.token = token;
+        first
+            .rows
+            .insert(row_key(name), serde_json::to_vec(&row).unwrap());
+    }
+    let mut again = World::over(&first);
+    let events = adopt_all(&mut again);
+    for name in ["absent", "short", "version"] {
+        assert_eq!(
+            states_of(&events, name),
+            vec![SessionState::Lost(LostReason::RegistryCorrupt)],
+            "{name}"
+        );
+        assert_eq!(
+            again
+                .engine
+                .begin(Op::Adopt { id: sid(name) })
+                .unwrap_err()
+                .code,
+            ErrorCode::WrongState,
+            "{name}"
+        );
+    }
+    assert_eq!(
+        states_of(&events, "s"),
+        vec![SessionState::Lost(LostReason::WorkerUnreachable)]
+    );
+    again.engine.begin(Op::Adopt { id: sid("s") }).unwrap();
+    assert!(
+        again.connects.is_empty(),
+        "AdoptAll connects to no Lost row"
+    );
+}
