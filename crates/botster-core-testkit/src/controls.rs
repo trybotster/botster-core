@@ -47,6 +47,7 @@ pub(crate) fn registered_controls() -> ControlRegistry {
     let mut registry = ControlRegistry::default();
     crate::refusal::register_controls(&mut registry);
     crate::process_controls::register_controls(&mut registry);
+    crate::wake_controls::register_controls(&mut registry);
     registry
 }
 

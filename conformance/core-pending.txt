@@ -364,7 +364,6 @@ conf::ev_3_clipboard_write_surfaced
 conf::ev_3_oversize_write_is_reported_not_dropped
 conf::ev_5_full_queue_defers_transition_not_output
 conf::ev_5_keyed_events_bounded_by_keys
-conf::ev_5_no_mandatory_event_lost_or_replaced
 conf::ev_5_poll_wakes_pending_work
 conf::ev_5_released_retires_keyed_droppable_and_loss_events
 conf::ev_5_repeated_attach_detach_without_polling_stays_bounded

@@ -326,3 +326,55 @@ fn program_reads_retain_output_at_each_read_bound() {
 fn a_worker_refuses_zero_read_bound() {
     Workers::with_read_chunk(SchedulerHandle::with_seed(1), Instant::now(), 0);
 }
+
+/// `edges_quiet` (Core A5-2): each report that the host has not consumed keeps the edges from quiet on its own: a worker's
+/// ready work, a link report that the host has not read, and an exit that the host has not polled.
+#[test]
+fn each_unconsumed_report_alone_keeps_the_edges_from_quiet() {
+    let now = Instant::now();
+    let workers = Workers::new(SchedulerHandle::with_seed(0), now);
+    let mut spawner = workers.spawner();
+    let table = spawner.table();
+    assert!(workers.edges_quiet(&table), "no worker, no report");
+    let spec = WorkerSpawn {
+        program: "worker".into(),
+        instance: InstanceId("1-1".into()),
+        token: [1; TOKEN_LEN],
+        host_epoch: 1,
+    };
+    let mut host = None;
+    let id = spawner
+        .spawn(&spec, &mut || {
+            let (h, w) = crate::net::link_pair(1024);
+            host = Some(h);
+            w
+        })
+        .unwrap();
+    let mut host = host.expect("the spawn connected");
+
+    // The worker's hello waits in its own queue: ready work, and nothing on the link yet.
+    assert!(workers.has_ready());
+    assert!(!table.holds_reports());
+    assert!(!workers.edges_quiet(&table));
+
+    // The hello is on the link and the host has not read it.
+    workers.run(now);
+    assert!(!workers.has_ready());
+    assert!(table.holds_reports());
+    assert!(!workers.edges_quiet(&table));
+    let mut buf = [0u8; 256];
+    while matches!(host.recv(&mut buf), Ok(n) if n > 0) {}
+    assert!(workers.edges_quiet(&table));
+
+    // The host's end closes first, so the worker's end of file is no report for it; then the worker is killed, and only its
+    // exit waits for the host.
+    host.end().close();
+    workers.run(now);
+    assert!(workers.edges_quiet(&table));
+    spawner.signal_group(id, GroupSignal::Kill);
+    assert!(!workers.has_ready());
+    assert!(table.holds_reports());
+    assert!(!workers.edges_quiet(&table));
+    assert_eq!(spawner.poll_exit(), Some((id, ExitStatus::Signal(9))));
+    assert!(workers.edges_quiet(&table));
+}
