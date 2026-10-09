@@ -136,3 +136,113 @@ The implementer acknowledged TP1 through TP5 and proposed bounded status observa
 No replacement implementation head has a package verdict yet.
 
 VERDICT: NOT CLEAN
+
+## Round 2 — PR #171
+
+Implementation head: `5d0d89c7d443146418117e5db991d3ea81b61c36`.
+Previous reviewed head: `dc7fca5a1bfa207b4a103b457c4981baaa25e975`.
+Integration merge base: `59ce126885e04a3b3f22d97e89337bfdbf055949`.
+The supplied gates use `origin/v1` at `a0f78fe4c4e4faff1fee926e072ceb5e94ba8649` as their base ref.
+The reviewer inspected all 14 files in the delta and the supplied logs.
+The reviewer ran no build, test, mutation job, or gate. The reviewer changed no product code.
+
+### Closed findings
+
+- **TP1:** `await_status` uses `waitid` with `NOWAIT | NOHANG`, a deadline check, and a real event.
+  macOS registers the SIGCHLD filter before its first status check. Linux waits on a pidfd.
+  Status observation does not reap. `reap_within` uses `try_wait` for the exact child.
+  The reserve receives KILL before its bounded reap, including after a failed cleanup round.
+  The fake event sequence proves delayed status and deadline behavior. The slow test retains the child's status for its owner's reap.
+- **TP2:** the adapters return read errors separately from a verified end.
+  The public `verdict` function refuses identity errors and membership errors other than ESRCH.
+  Its tests assert refusal and the permitted ended-leader outcome.
+- **TP3:** both helper stages first call `close_inherited`.
+  The function retains descriptors 0 through 2 and its directory descriptor. It closes the directory descriptor last.
+  The EOF test passes while the anchor remains live. The wrapper retains the real program's inherited descriptors.
+  The lead permits this one unsafe function. TP7 below concerns the new check that must enforce that permission.
+- **TP4:** `start_anchor` owns the intermediate through `OwnedChild`.
+  Timeout and error paths retain its bounded Drop cleanup. The stalled-start test asserts pipe EOF.
+  The killed-parent test starts a wrapped program without accepting or awaiting an anchor, then asserts pipe EOF after parent death.
+- **TP5:** the new test panics while the real guard is in scope.
+  It asserts production's exact-child KILL status and pipe EOF after the stack unwinds.
+  The Linux and Mac logs select and pass that test.
+- **TP6:** the anchor verifies the leader after TERM grace and checks the members that it listed before TERM.
+  A moved member causes refusal before KILL. The slow test triggers a move with TERM.
+  It asserts the refusal and the old group's leader exit code 0. The Linux and Mac logs pass that test.
+
+### TP7 — HIGH: the unsafe-code check misses valid syntax
+
+Locations: `xtask/src/unsafe_code.rs:55-95`.
+
+`other_attributes` inspects each trimmed source line separately.
+It requires that one line both start an attribute and contain `unsafe_code`.
+It therefore misses this valid attribute on a second function inside the crate:
+
+```rust
+#[allow(
+    unsafe_code
+)]
+fn another() {
+    unsafe { libc::close(3); }
+}
+```
+
+The crate now uses `deny`, so this attribute permits the second unsafe function.
+The scanner reports no problem for it. The lead's permission requires the check to enforce one function.
+The current red-on-revert tests use single-line attributes and do not cover this failure.
+
+`other_manifests` also searches raw text instead of the parsed lint table.
+An escaped quoted TOML key can define the lint without the literal text that the scanner searches:
+
+```toml
+[lints.rust]
+"unsafe_\u0063ode" = "allow"
+```
+
+Parse the attributes and the items that own them. Check nested items and `cfg_attr`.
+Parse manifest lint keys before checking other manifests.
+Add red-on-revert fixtures for multiline `allow` and `expect`, a second function, and an escaped manifest key.
+Keep the lead's one-function permission exact.
+
+### TP8 — MEDIUM: the new exclusion reason omits poll errors
+
+Location: `.cargo/mutants.toml`, the new `platform/macos.rs` `await_status` error-arm exclusion.
+
+The reason states that kqueue reports an error event only for a failed registration.
+It states that `watch` already returns that error, so no registered signal filter can reach the arm.
+The crate's `EventData::Error` also represents a later failure of the `kevent` call.
+In kqueue 1.2.1, `event.rs:127` maps a return of -1 to `Event::from_error`.
+`event.rs:225` constructs an event whose data is `EventData::Error`.
+
+Apple documents EINTR when a signal interrupts `kevent` before the timeout or an event.
+That failure can occur after successful registration.
+See [Apple's kevent manual](https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man2/kevent.2.html).
+The code handles this error correctly. The exclusion's unreachable-arm argument is incorrect.
+
+Correct the reason. Supply behavioral proof or an accurate, scoped reason for excluding this mutant.
+Do not classify later poll errors as registration errors.
+
+### Evidence and scope
+
+The full Linux gate on this head passes 873 default tests and 236 slow tests.
+It reports 153 caught mutants and 30 unviable mutants, with no misses or timeouts.
+Log: `gates/botster-core-stage1-p6-test-process-5d0d89c7-pool-20261009-013207-11707.log`.
+
+The raw slow-profile in-diff run reports 151 caught, 30 unviable, 18 off-platform misses, and two timeouts.
+Log: `gates/botster-core-stage1-p6-test-process-5d0d89c7-pool-20261009-013552-15018.log`.
+The focused run with `--max-fail 1:immediate` catches both timed-out mutants through assertion failures in 2 ms.
+Log: `gates/botster-core-stage1-p6-test-process-5d0d89c7-pool-20261009-014137-18902.log`.
+The lead's 2026-10-09 ruling permits this fail-fast policy. PR B still owns its gate integration and hang fixture.
+
+The focused Mac run selects 67 tests and passes all 67. It skips the prebuilt-anchor test, which requires xtask prebuild.
+It reports 16 caught mutants and two unviable mutants, with no misses or timeouts.
+Log: `gates/botster-core-stage1-p6-test-process-5d0d89c7-pool-20261009-014149-19171.log`.
+The Mac and Linux logs pass the new EOF, stalled-start, killed-parent, panic, and post-grace refusal tests.
+The tests assert process status, refusal, and EOF. They preserve production's exclusive reap.
+
+The Prior-art note describes the new bounded status wait and the permitted descriptor closure.
+The existing per-OS exclusions remain temporary until PR B derives them from `cfg`.
+The Linux run wrapper and migrations remain outside this verdict.
+TP7 and TP8 went directly to the implementer. No lead decision is required for this NOT CLEAN round.
+
+VERDICT: NOT CLEAN
