@@ -67,11 +67,7 @@ fn bounded(text: String, max: usize) -> (String, bool) {
     if text.len() <= max {
         return (text, false);
     }
-    let mut end = max;
-    while !text.is_char_boundary(end) {
-        end -= 1;
-    }
-    (text[..end].to_string(), true)
+    (text[..text.floor_char_boundary(max)].to_string(), true)
 }
 
 /// The `selection` of a clipboard write (A13-1): a non-empty OSC 52 selection string as the program wrote it; otherwise
