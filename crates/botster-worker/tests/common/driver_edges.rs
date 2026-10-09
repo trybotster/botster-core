@@ -433,6 +433,14 @@ fn pty_events_resume_reads_after_would_block() {
     .encode(&mut hello)
     .unwrap();
     send(botster_core_link::frame::FrameType::HELLO, &hello);
+    // The test reads the link as a host does: the worker reports the program's output (Core 6.2), and a link that nobody
+    // reads would keep the staged close of `Remove` waiting for its bytes. The thread ends at the link's end of file.
+    let mut link = h.peer.try_clone().unwrap();
+    link.set_nonblocking(false).unwrap();
+    std::thread::spawn(move || {
+        let mut buf = [0u8; 4096];
+        while matches!(link.read(&mut buf), Ok(n) if n > 0) {}
+    });
     // The program cannot fill the PTY until the real loop must rearm its cleared read flag.
     let driver = h.driver.take();
     let (sent, received) = mpsc::channel();
