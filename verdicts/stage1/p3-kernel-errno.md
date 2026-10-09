@@ -44,3 +44,13 @@ The doc of `gone_at_open` in `botster-test-process/src/platform/linux.rs:83-85` 
 (ESRCH also for a released process since the pidfs commit, and ENOENT is not a proof).
 
 VERDICT: CLEAN (0 open) at 1bfc6fd39fa077bec92b7fe021d5d7c9f6798618 (the ENOENT branch has no run; the lead decides)
+
+### Addendum (same head 1bfc6fd3): the condition is met
+
+P3 ran the renamed test on `gaming` at this head: `…-p3-kernel-errno-1bfc6fd3-pool-20261009-091500-99554.log`. The log
+names the head and base `aaac0c0d`, prints `kernel: 6.18.40.1-microsoft-standard-WSL2`, and shows
+`pidfd_tests::a_wait_for_a_pid_with_no_thread_group_task_follows_the_kernels_answer ... ok` (exit 0). The test does not
+print which branch it took. A kernel after the 2025 pidfs commit gives ENOENT, and P3 reports the ENOENT answer there. With
+the msa1 gate (kernel 6.12, EINVAL), both documented branches have run.
+
+VERDICT: CLEAN (0 open) at 1bfc6fd39fa077bec92b7fe021d5d7c9f6798618 (both kernel branches have run)
