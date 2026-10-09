@@ -748,3 +748,167 @@ The reviewer did not broaden this review to untouched code or claim a new Mac pa
 B5 remains open. Wait for the replacement READY head.
 
 VERDICT: NOT CLEAN
+
+## Round 6 — PR #181 — 2026-10-09
+
+Reviewed head: `60a80f21d9e0da84deb47f471faddd4944b00ed7`.
+Previous reviewed head: `a05ab9a380c459cd609b5fafd7f4c17e17a9e7da`.
+Merge base and full gate base: `58d6663204b50ce6c42d467e4fd6715ab46145dd`.
+
+The reviewer checked the stated tier first. HIGH remains correct under BUILD.md rules 1 and 3.
+This replacement-head review continues the lead's authorized round-five scope, including its statement-macro addition.
+The section number counts the verdicts. It does not broaden that scope.
+A gate hole still blocks #181 under the lead's scope decision.
+The reviewer inspected the four-file implementation delta, the base merge, and the supplied logs.
+The reviewer ran no gate, build, test, or mutation job and changed no product code.
+The remaining cases below are source findings. The reviewer did not execute them.
+
+### The reported block-import and statement-macro cases close
+
+The check rejects a function that starts a stored command binding and contains a `use` declaration in its body.
+The error names the form, function, file, and position.
+The fixture uses `inputs` and `check` to reject the reported pure forwarding exclusion.
+The same fixture accepts a real process start.
+
+The check now lists argument macros and opaque macros separately.
+It rejects the unlisted `rebind!` statement macro and reports its path and position.
+It reads bindings inside the reported `assert!` expressions and rejects those forwarding exclusions.
+The fixtures also cover macro imports, renamed macros, foreign globs, and the nearest explicit import.
+The `ci.rs` test only changes a qualified `anyhow!` invocation to its imported form. Its assertion remains intact.
+The previous B8 rejection and B6 citation fixes have no delta.
+
+### B5 / integration R6-2 — HIGH — A local item still changes the command type without rejection
+
+Location: `xtask/src/gate_decisions.rs:424-427`, `command_locals`, and `function` at lines 700-704.
+
+The rejection checks local `use` declarations only.
+A block-local struct or type alias can replace the imported command type without a `use` declaration.
+For example, in `xtask/src/ci.rs`:
+
+```rust
+use std::process::Command;
+pub fn builder() -> Command { Command::new("unused") }
+fn forwarded(code: Option<i32>) -> Result<()> {
+    struct Command;
+    impl Command {
+        fn new() -> Self { Self }
+        fn status(&self) {}
+    }
+    let cmd = Command::new();
+    cmd.status();
+    mutation_verdict(code)
+}
+```
+
+`cmd` is bound once. `CommandBindings.uses` remains false.
+The stored initializer resolves through the file's `std::process::Command` import.
+The check marks the local pure type's `status` call as process I/O.
+The forwarding function performs no I/O, but its whole-body exclusion passes with the usual tested `mutation_verdict (verdicts)` citation.
+The [Rust item-declaration reference](https://doc.rust-lang.org/reference/statements.html#item-declarations) specifies the block scope of local items.
+
+The integration reviewer independently found the type-alias variant: `type Command = pure::Command` before the same initializer and call.
+The alias is neither a `use` nor a pattern binding. It has the same result.
+Reject unsupported local items that change command identity and name the form and file.
+Add check-level rejection fixtures for the struct and alias forms.
+
+### Integration R6-1 — HIGH — Local macro identities are accepted as external argument macros
+
+Location: `xtask/src/gate_decisions.rs`, `Index::visit_macro`; `xtask/src/process_check.rs`, `Uses::has_foreign_glob`.
+
+The macro check expands explicit imports but does not recognize a local module that replaces an external crate name.
+This form passes the argument-macro list:
+
+```rust
+mod anyhow { pub use syn::parse_quote as bail; }
+fn forwarded(code: Option<i32>) -> Result<()> {
+    let _: syn::Expr = anyhow::bail!(std::fs::read("unused"));
+    mutation_verdict(code)
+}
+```
+
+The actual macro constructs syntax. It does not perform the quoted file read.
+The check sees no import binding for the local module name `anyhow` and accepts the path as external `anyhow::bail`.
+It records the quoted read as runtime I/O. The pure forwarding exclusion passes.
+
+The internal-glob exemption has the same result:
+
+```rust
+mod macros { pub use syn::parse_quote as println; }
+use self::macros::*;
+```
+
+A forwarding function with `let _: syn::Expr = println!(std::fs::read("unused"));` is classified as I/O.
+The check exempts the internal glob although that glob can replace the standard macro.
+The [syn macro documentation](https://docs.rs/syn/latest/syn/macro.parse_quote.html) describes conversion of tokens into syntax nodes.
+
+Reject unsupported local module identities and internal macro globs, naming the form and file, or resolve the listed forms correctly.
+Add check-level fixtures that reject both forwarding exclusions.
+The integration reviewer sent these cases to P6. The package reviewer confirmed the source traces independently.
+
+### Integration R6-3 — HIGH — The binding pass reads tokens that the expression pass treats as opaque
+
+Location: `xtask/src/gate_decisions.rs:429-433`, `CommandBindings::visit_macro`, and `Index::visit_macro`.
+
+The binding pass reads every macro body that parses as expressions.
+The expression pass skips the tokens of listed opaque macros.
+The two passes therefore disagree about bindings in quoted syntax:
+
+```rust
+use std::process::Command;
+struct Pure;
+impl Pure { fn status(&self) {} }
+static CMD: Pure = Pure;
+fn forwarded(code: Option<i32>) -> Result<()> {
+    let _: syn::Expr = syn::parse_quote!({
+        let CMD = Command::new("unused");
+    });
+    CMD.status();
+    mutation_verdict(code)
+}
+```
+
+The binding pass invents one command local named `CMD` from the quoted block.
+The expression pass skips that block but uses the invented binding for the later `CMD.status()` call.
+The actual receiver is the pure static. The check classifies its call as process I/O and accepts the forwarding exclusion.
+This case needs no shadowed macro path or glob.
+
+Apply the same opaque-macro boundary in both passes, or reject the unsupported combination and name its form and file.
+Add a check-level rejection fixture for the forwarding exclusion.
+The integration reviewer sent this case to P6. The package reviewer confirmed the source trace independently.
+
+### Base merge, process rules, and preserved assertions
+
+Merge `60a80f21d9e0da84deb47f471faddd4944b00ed7` imports v1 `58d6663204b50ce6c42d467e4fd6715ab46145dd`.
+Its sixteen base-only paths match the base parent. The overlapping paths are `.cargo/mutants.toml` and `Cargo.lock`.
+The mutation configuration retains every first-parent exclusion and adds the base's two PTY-write exclusions.
+The base's old `start_time` exclusion was already absent from the first parent. That prior removal remains.
+The lockfile matches the base except for the two previously reviewed xtask dependencies.
+
+The merge adds one process allowlist entry outside the base changes.
+It permits `GuardedSession::launch`'s nonblocking listener accept, with P6 owning its replacement by a shared bounded accept.
+The loop waits through `poll` with the remaining `Deadline::cleanup` bound. It has no sleep or unconditional busy loop.
+The worker uses `OwnedChild::spawn_group`. The guard holds worker and payload groups through their reported anchor identities.
+The test does not reap the payload that production owns.
+The imported PTY regression retains public assertions for cancellation, exact written counts, resumed input, and received bytes.
+The package reviewer inspected the allowed site and those assertions. The package reviewer did not rerun or broaden the review of #198.
+
+The shared process crate and Prior-art note have no implementation delta.
+The reviewer compared Git objects and parsed configuration values. These comparisons are not a gate run or a carried CLEAN verdict.
+
+### Supplied evidence and its limits
+
+The full Linux log is `botster-core-stage1-p6-ci-checks-60a80f21-pool-20261009-132005-3418.log` under `~/botster-sessions/gates/`.
+It names the exact reviewed head and base `58d6663204b50ce6c42d467e4fd6715ab46145dd`.
+All ten jobs pass. It passes 1139 default tests and 254 slow tests.
+It reports 672 mutants: 643 caught and 29 unviable, with no misses or timeouts.
+The reported block-use and macro fixtures pass. The real hang and tool-descendant proofs still pass.
+The focused log is `botster-core-stage1-p6-ci-checks-8b28d9a1-pool-20261009-130348-61111.log`.
+It names the pre-merge implementation head and reports 25 mutants tested and 25 caught.
+
+The supplied runs cover the recorded cases. They do not cover the three remaining gate holes.
+The reviewer did not execute a reversal or claim a new Mac pass.
+All three findings concern touched identity and macro handling. They remain in scope under the lead's gate-hole exception.
+The package and integration reviewers sent the cases directly to P6. No reviewer reported CLEAN.
+Wait for the replacement READY head.
+
+VERDICT: NOT CLEAN
