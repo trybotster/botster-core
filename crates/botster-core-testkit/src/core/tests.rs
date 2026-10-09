@@ -75,7 +75,6 @@ fn entropy_and_choices_follow_the_seeded_streams() {
 
 /// TM-6 and TH-2: the wake is a level flag with no descriptor, and an unset wake waits for its deadline.
 #[test]
-#[allow(clippy::disallowed_methods)] // The real wake timeout needs the real clock.
 fn the_wake_keeps_its_level_until_drained() {
     let wake = SimHostWake::default();
     assert_eq!(wake.fd(), -1);
@@ -264,7 +263,6 @@ fn reopen_retains_rows_and_advances_the_host_epoch() {
 
 /// Core 2 and 9B: the testkit facade forwards constants and typed failures to the host driver.
 #[test]
-#[allow(clippy::disallowed_methods)] // The test initializes the injected clock once.
 fn the_testkit_facade_forwards_configuration_and_typed_failures() {
     let start = Instant::now();
     let scheduler = SchedulerHandle::with_seed(5);
@@ -419,7 +417,6 @@ fn host_messages(log: &Arc<Mutex<ProcessLog>>) -> Vec<botster_core_link::msg::Ho
 
 /// ST-6a: the facade releases live captures by id and owner. Libghostty supplies every snapshot byte.
 #[test]
-#[allow(clippy::disallowed_methods)] // The test initializes the injected clock once.
 fn the_testkit_facade_releases_captures_by_id_and_owner() {
     use botster_core_link::frame::{encode_frame, FrameType};
     use botster_core_link::hello::Hello;
@@ -660,7 +657,6 @@ fn a_spawn_refuses_zero_queue_capacity() {
 
 /// A5-1, A5-2, LC-3, LC-6, and LC-7: the same worker completes the lifecycle at every legal buffer bound.
 #[test]
-#[allow(clippy::disallowed_methods)] // The test initializes the injected clock once.
 fn the_worker_keeps_complete_operations_at_each_buffer_bound() {
     for bound in [65_536, 1_088, 1] {
         let start = Instant::now();

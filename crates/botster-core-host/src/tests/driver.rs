@@ -342,8 +342,7 @@ impl Rig {
             choices: 0,
             endpoints: BTreeMap::new(),
         }));
-        #[allow(clippy::disallowed_methods)] // a test starts the injected clock at a real instant
-        let now = Instant::now();
+        let now = crate::tests::real_now();
         Rig {
             driver: HostDriver::open(cfg, Edges(Arc::clone(&mock), scheduler))
                 .expect("the registry reads"),

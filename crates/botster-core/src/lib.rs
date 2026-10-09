@@ -245,6 +245,14 @@ impl CoreApi for Core {
     }
 }
 
+/// The real instant that a test passes to the pump. It is the one call of the crate's unit tests that reads the real clock,
+/// so its allowance covers that one call (Core reads no clock of its own: Core TM-1).
+#[cfg(test)]
+#[allow(clippy::disallowed_methods)]
+pub(crate) fn real_now() -> std::time::Instant {
+    std::time::Instant::now()
+}
+
 #[cfg(test)]
 #[cfg(feature = "slow")]
 mod slow_tests {
@@ -266,8 +274,7 @@ mod slow_tests {
     fn pump(core: &mut Core) -> Vec<Event> {
         let mut out = Vec::new();
         loop {
-            #[allow(clippy::disallowed_methods)] // a test passes a real instant to the pump
-            let monotonic = Instant::now();
+            let monotonic = crate::real_now();
             let report = core.pump(Now {
                 monotonic,
                 unix: 1_000_000,

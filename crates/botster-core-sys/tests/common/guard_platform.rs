@@ -1,6 +1,13 @@
 //! The platform adapters of the guards' cleanup: the live members of a group and the wait for a member's end (libproc and
 //! kqueue on macOS, /proc and pidfd on Linux).
 
+/// The real clock of the guards' deadlines. These files are also compiled into botster-core's slow tests, where Core's clock
+/// ban applies (Core TM-1), so this one call carries the allowance.
+#[allow(clippy::disallowed_methods)]
+pub(crate) fn real_now() -> std::time::Instant {
+    std::time::Instant::now()
+}
+
 /// How a wait for a member's end came out.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Waited {
@@ -57,9 +64,7 @@ pub(crate) fn await_end(
         other => other?,
     }
     // timer: deadline — bounds the wait for a killed member's exit event.
-    match watcher.poll(Some(
-        deadline.saturating_duration_since(std::time::Instant::now()),
-    )) {
+    match watcher.poll(Some(deadline.saturating_duration_since(real_now()))) {
         None => Ok(Waited::Deadline),
         Some(kqueue::Event {
             data: kqueue::EventData::Error(error),
@@ -93,7 +98,7 @@ pub(crate) fn await_end(
         other => other?,
     };
     loop {
-        let left = deadline.saturating_duration_since(std::time::Instant::now());
+        let left = deadline.saturating_duration_since(real_now());
         // timer: deadline — bounds the wait for a killed member's exit event.
         let limit = rustix::event::Timespec {
             tv_sec: left.as_secs() as i64,
@@ -247,10 +252,7 @@ mod pidfd_tests {
             Some(rustix::io::Errno::INVAL),
             "a thread id has no thread-group task"
         );
-        assert!(matches!(
-            await_end(tid, std::time::Instant::now()).unwrap(),
-            Waited::Gone
-        ));
+        assert!(matches!(await_end(tid, real_now()).unwrap(), Waited::Gone));
         drop(end);
         thread.join().unwrap();
     }

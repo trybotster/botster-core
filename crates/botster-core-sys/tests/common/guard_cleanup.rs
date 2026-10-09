@@ -48,12 +48,12 @@ pub(crate) fn end_group(
     let reserve_pid = rustix::process::Pid::from_raw(reserve.id() as i32).expect("a child pid");
     let kill = || reserved_kill(group, reserve_pid);
     // timer: deadline — bounds the anchor's cleanup; a member that never ends cannot hold the anchor forever.
-    let deadline = std::time::Instant::now() + cleanup;
+    let deadline = platform::real_now() + cleanup;
     let ended = end_members(
         kill,
         || live_members(group),
         |member| await_end(member.pid, deadline),
-        || std::time::Instant::now() >= deadline,
+        || platform::real_now() >= deadline,
     );
     // The reserve has ended (by itself or by a kill); its reap gives the id back.
     let _ = reserve.wait();

@@ -810,8 +810,7 @@ mod slow_tests {
         use std::io::Read;
         use std::time::Instant;
         let pump = |core: &mut Core| {
-            #[allow(clippy::disallowed_methods)] // a test passes a real instant to the pump
-            let monotonic = Instant::now();
+            let monotonic = crate::real_now();
             core.pump(Now {
                 monotonic,
                 unix: 1_000_000,
