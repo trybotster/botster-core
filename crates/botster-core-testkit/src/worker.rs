@@ -229,6 +229,8 @@ pub(crate) enum ImpostorFrame {
 /// What `impostor_worker` sets for one session: the process that answers its endpoint at the next adoption instead of its
 /// worker. The real worker keeps running and is never connected.
 pub(crate) struct ImpostorPlan {
+    /// The session, so that `signals_received` finds the impostor after `Remove` deleted the row.
+    pub(crate) session: SessionId,
     pub(crate) field: ImpostorField,
     pub(crate) script: Vec<ImpostorFrame>,
     /// The session's recorded token, so that a wrong instance is the only fault of an `Instance` impostor.
@@ -484,10 +486,20 @@ impl Workers {
         Ok(())
     }
 
-    /// `signals_received`: the group signals that Core sent to the process that the AD-6 check refused, the impostor of
-    /// `key`, in order. `None` when no impostor was set for `key`.
-    pub(crate) fn impostor_signals(&self, key: &InstanceKey) -> Option<Vec<GroupSignal>> {
-        lock(&self.impostors).get(key).map(|i| i.signals.clone())
+    /// `signals_received`: the group signals that Core sent to the process that the AD-6 check refused, the impostor of the
+    /// session `session` of the data directory `dir`, in order. `None` when no impostor was set for that session.
+    pub(crate) fn impostor_signals(
+        &self,
+        dir: &str,
+        session: &SessionId,
+    ) -> Option<Vec<GroupSignal>> {
+        let impostors = lock(&self.impostors);
+        let mut found = impostors
+            .iter()
+            .filter(|(key, i)| key.dir == dir && i.plan.session == *session)
+            .peekable();
+        found.peek()?;
+        Some(found.flat_map(|(_, i)| i.signals.iter().copied()).collect())
     }
 
     /// The program edges of every payload of the run that is not reaped.

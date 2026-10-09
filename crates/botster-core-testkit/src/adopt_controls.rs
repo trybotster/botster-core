@@ -118,6 +118,7 @@ fn impostor_worker(
         })?;
     let key = endpoint_key(harness, handle, &row)?;
     let plan = ImpostorPlan {
+        session: session.clone(),
         field: match field {
             Field::Token => ImpostorField::Token,
             Field::Instance => ImpostorField::Instance,
@@ -148,11 +149,16 @@ fn signals_received(
     args: &Value,
 ) -> Result<Value, ControlError> {
     let OfSession { session } = parse(args)?;
-    let row = session_row(harness, handle, &session)?;
-    let key = endpoint_key(harness, handle, &row)?;
-    let signals = harness.workers().impostor_signals(&key).ok_or_else(|| {
-        ControlError::Bad(format!("no impostor answers for the session {}", session.0))
-    })?;
+    // The row may be gone (`Remove`), so the impostor is found by its directory and session.
+    let dir = harness
+        .directory_of(handle)
+        .ok_or_else(|| ControlError::Bad(format!("the handle '{handle}' is not open")))?;
+    let signals = harness
+        .workers()
+        .impostor_signals(dir, &session)
+        .ok_or_else(|| {
+            ControlError::Bad(format!("no impostor answers for the session {}", session.0))
+        })?;
     let names: Vec<&str> = signals
         .iter()
         .map(|s| match s {

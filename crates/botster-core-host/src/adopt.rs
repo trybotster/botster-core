@@ -57,6 +57,9 @@ impl HostEngine {
             s.host_ended = false;
             s.killed = false;
         }
+        // LC-9: the protocol is what this host reads in the worker's hello. Until it reads one, the session has none, also
+        // when the row recorded one (a worker whose hello was never read is never guessed).
+        s.worker_protocol = None;
         s.admit = Admit::Adopting;
         s.adopting = Some(op);
         s.flow = Flow::Adopt(AdoptFlow {
