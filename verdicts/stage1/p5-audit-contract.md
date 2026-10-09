@@ -487,3 +487,20 @@ four sites. The mechanical check is then that `git grep -n 'while rig.pump().mor
 match at all, if every site uses the helper).
 
 VERDICT: NOT CLEAN (1 open: L1)
+
+## Round 17 — CLEAN on head 44f2f7f9 (L1 fix)
+
+Reviewed head: `44f2f7f92135d42d61f575371eb836deb1e07e33`. Delta `dffa7b12..44f2f7f9`, one commit, tests of
+`botster-core-host` only. v1 is still `d1d18f4a`. This reviewer ran no build, test or gate.
+
+- **L1 CLOSED.** New `Rig::settle` (`tests/driver.rs:371`): it pumps and drains while `more`, with the existing
+  `guard < 200` bound of `run_session`, then drains once more. That is the same sequence as each replaced loop. It
+  replaces the four unbounded loops (old `deadlines.rs` 87, 133, 222, 257) and `run_session`'s own loop. No bound value
+  changed.
+- Mechanical check at this head: `git grep -n 'pump()\.more' -- crates` finds 5 loops, each with a guard
+  (`driver.rs:374` <200, `driver.rs:595` <20, `deadlines.rs:19` <200, `deadlines.rs:465` <100, `observations.rs:124`
+  <200), and 3 single `assert!`s. No loop on `more` is unbounded.
+- Round 16's review of the Silent loop, `due_deadlines` and `World::settle` stands. The landing gate on this exact head
+  (static, no-terminate mutants, ONE Linux gate) stays owed by the implementer.
+
+VERDICT: CLEAN (0 open) at 44f2f7f92135d42d61f575371eb836deb1e07e33
