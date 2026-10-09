@@ -24,15 +24,17 @@
 //!   declared to return `Command`, a parameter typed `Command` (also by reference), or a `let` bound to such a chain; a
 //!   parameter or a `let` counts only when the function binds its name once.
 //!   `Command::new` alone is a builder and starts nothing;
-//! - a macro by its resolved path: an `ARGUMENT_MACROS` macro, whose arguments the check reads as code of the caller
-//!   (their bindings and `use` declarations included), or an `OPAQUE_MACROS` macro, whose tokens it does not read.
+//! - a macro by its path, the first segment expanded one step through the `use` that binds it: an `ARGUMENT_MACROS`
+//!   macro, whose arguments the check reads as code of the caller (their bindings and `use` declarations included), or
+//!   an `OPAQUE_MACROS` macro, whose tokens it does not read.
 //!
 //! These forms are not listed, so the check fails on them and names the form and the file (#181 B5 round 5): any other
-//! macro, a one-segment macro name where a glob `use` of another crate is visible, and a function that has a command
-//! binding and a `use` declaration in its body (the check resolves a command binding through the `use` declarations
-//! around the function). A `#[path]` module in the xtask is not a listed form, so the check fails on it. Any other way of doing I/O (a start on
-//! a field, a closure that holds a command) is not recognized: a shell that does only that is no shell for the check, so
-//! its exclusion fails until the code takes a listed form or a reviewed change extends the list.
+//! macro, a macro path whose first segment no `use` binds where a glob `use` of another crate is visible, and a function
+//! that has a command binding and a `use` declaration in its body (the check resolves a command binding through the
+//! `use` declarations around the function). A `#[path]` module in the xtask is not a listed form either. Any other way
+//! of doing I/O (a start on a field, a closure that holds a command) is not recognized: a shell that does only that is
+//! no shell for the check, so its exclusion fails until the code takes a listed form or a reviewed change extends the
+//! list.
 //!
 //! The check reads the calls from the syntax of the xtask. Every other exclusion of an xtask mutant fails, a glob or an
 //! `OFF_MACOS_EXCLUSIONS` regex included (neither has a reason here).
@@ -766,11 +768,13 @@ impl<'ast> Visit<'ast> for Index<'_> {
         syn::visit::visit_expr_method_call(self, call);
     }
 
-    /// A macro is a listed form only when its resolved path is an `ARGUMENT_MACROS` macro, whose arguments the check reads
-    /// as code of the caller, or an `OPAQUE_MACROS` macro, whose tokens it does not read. Any other macro can bind a name
-    /// or import a path that the check does not see (`let cmd = Pure;`, `use pure::Command;` in its expansion), so it
-    /// fails (#181 B5 round 5). A one-segment name fails also where a `use` of another crate imports a glob, which can
-    /// hide the standard macro of that name.
+    /// A macro is a listed form only when its path is an `ARGUMENT_MACROS` macro, whose arguments the check reads as code
+    /// of the caller, or an `OPAQUE_MACROS` macro, whose tokens it does not read. Any other macro can bind a name or import
+    /// a path that the check does not see (`let cmd = Pure;`, `use pure::Command;` in its expansion), so it fails (#181 B5
+    /// round 5). The path of a macro is its first segment expanded one step through the nearest `use` that binds it
+    /// (`bail` after `use anyhow::{anyhow, bail}` is `anyhow::bail`; `use` paths begin at a crate), else the path as
+    /// written. A path whose first segment no `use` binds fails also where a glob `use` of another crate is visible,
+    /// which can hide the standard macro or the crate of that name.
     fn visit_macro(&mut self, mac: &'ast syn::Macro) {
         let segments: Vec<String> = mac
             .path
@@ -778,9 +782,17 @@ impl<'ast> Visit<'ast> for Index<'_> {
             .iter()
             .map(|s| s.ident.to_string())
             .collect();
-        let resolved = crate::process_check::resolve(&self.scopes, &segments);
+        let bound = self
+            .scopes
+            .iter()
+            .rev()
+            .find_map(|scope| scope.binding(&segments[0]));
+        let resolved: Vec<String> = match bound {
+            Some(full) => full.iter().chain(&segments[1..]).cloned().collect(),
+            None => segments.clone(),
+        };
         let listed = |list: &[&[&str]]| list.iter().any(|want| is_path(&resolved, want));
-        let hidden = resolved.len() == 1
+        let hidden = bound.is_none()
             && self
                 .scopes
                 .iter()

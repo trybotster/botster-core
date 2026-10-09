@@ -792,7 +792,7 @@ mod tests {
              before its outcomes"
         );
         assert!(decide(3, None, None).is_err(), "a signal");
-        let failed = mutation_decision(3, || Err(anyhow::anyhow!("start cargo mutants")));
+        let failed = mutation_decision(3, || Err(anyhow!("start cargo mutants")));
         assert_eq!(failed.unwrap_err().to_string(), "start cargo mutants");
         let partial = decide(3, Some(0), Some(summary(2)))
             .unwrap_err()
