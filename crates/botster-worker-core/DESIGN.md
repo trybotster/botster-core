@@ -147,8 +147,9 @@ The worker holds no transport object. The driver keeps each received descriptor 
 - States: `Open`, `Stalled`, `Closed`. One `Route` per route id holds the state, the negotiated format and features, the
   options, a bounded output queue (`route_queue_bytes`) with the written offset of its first frame, a codec `StreamReader`
   bounded by the route limits, the last progress instant, and the latest `focus` input (DP-12).
-- `Open → Stalled`: frames wait and no byte is accepted for `reader_progress_deadline`; the queued frames that are not
-  started are dropped (OU-3b), and the worker sends `RouteStalled`.
+- `Open → Stalled`: frames wait and no byte is accepted for `reader_progress_deadline`. The droppable frames that are not
+  started are dropped (OU-3b), each affected query is retired (EV-8(i), below), the kept frames stay, and the worker
+  sends `RouteStalled`.
 - `Stalled → Open`: a write is accepted again; the worker runs the resync sequence below (reason per the extract) and
   sends `RouteResumed`.
 - `→ Closed` at the first close reason of OU-2. The first reason is kept; a later reason is ignored. The worker emits
@@ -183,10 +184,25 @@ Each queued frame has a class:
 - **kept**: `input_refused`, `input_done` and `route_closed`. A stall or a resync never drops them;
 - **bounded**: `modes` and `terminal_query`, as DP-5 defines their bound.
 
+The affected query (EV-8(i)). A stall discard (OU-3b) or a resync can drop the `output` prefix that a queued
+`terminal_query` frame needs: the frame is then not started, and its prefix is gone from the route. For each such
+affected query the worker, in the same step:
+
+1. retires the unstarted `terminal_query` frame (it is not sent after the new baseline);
+2. ends the route's answer opportunity, and admits the saved shadow fallback (the parse-point answer of EV-8(d)) in the one
+   admission point;
+3. answers a later client reply for that `query_id` with `input_refused{query_expired}` until the fallback is admitted, and
+   with `input_refused{already_replied}` after it.
+
+If the admission is refused (a full lane), the query stays pending on the fallback path only and is retried when room
+frees; the client path never opens again. A query whose frame was already sent, or was started and then finished (OU-4),
+is not affected and keeps its opportunity.
+
 The resync sequence (at `Stalled → Open`, OU-9):
 
 1. The worker completes a frame that it started (OU-4). The frame boundary after it is the resync point.
-2. The worker drops the droppable frames that are not started. Kept and bounded frames stay in order.
+2. The worker drops the droppable frames that are not started, and retires each affected query as above. The kept
+   frames and the other bounded frames stay in order.
 3. At the resync point the worker writes `resync{reason}`, then a new baseline sequence from a new point `R`
    (`baseline_begin`, `screen`, `history`, `baseline_end`) and `live`, then the output after that `R` (with the `unfed`
    suffix as in "Frames" below).
