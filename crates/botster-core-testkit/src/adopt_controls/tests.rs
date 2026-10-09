@@ -312,3 +312,68 @@ fn the_adoption_controls_refuse_what_they_cannot_do() {
         json!({"session": "nope"})
     )));
 }
+
+/// Core A6-2, AD-4: a hello that proves the token and the instance but announces a protocol outside `{T, T-1}` is
+/// `Lost(WorkerVersion)`. Core sends no signal to the identity, and the real worker runs on.
+#[test]
+fn an_announced_protocol_outside_the_set_is_worker_version() {
+    let current = botster_worker_core::WORKER_PROTOCOL;
+    for protocol in [current + 1, current + 2] {
+        let (mut harness, core, mut at) = running(&["s1", "s2"]);
+        assert_eq!(
+            harness.control(
+                "a",
+                "announce_protocol",
+                &json!({"session": "s1", "protocol": protocol})
+            ),
+            Ok(Value::Null)
+        );
+        let (b, _) = adopt_on_b(&mut harness, core, &mut at);
+        assert_eq!(
+            state(b.as_ref(), "s1"),
+            SessionState::Lost(LostReason::WorkerVersion),
+            "{protocol}"
+        );
+        assert_eq!(state(b.as_ref(), "s2"), SessionState::Running);
+        assert_eq!(
+            harness.control("b", "signals_received", &json!({"session": "s1"})),
+            Ok(json!({"signals": []}))
+        );
+        assert_eq!(
+            harness.control("b", "payload_alive", &json!({"session": "s1"})),
+            Ok(json!({"alive": true}))
+        );
+    }
+}
+
+/// `announce_protocol` gives `Unsupported` for a protocol that Core adopts (`T`, and `T-1` when `T > 1`): only a real worker
+/// of that protocol can stand for it. It refuses an unknown session, a protocol that is not a `u8` and an unknown argument
+/// with `Bad`.
+#[test]
+fn announce_protocol_refuses_an_adoptable_protocol() {
+    let (mut harness, _core, _at) = running(&["s1"]);
+    let current = botster_worker_core::WORKER_PROTOCOL;
+    let mut control = |args: Value| harness.control("a", "announce_protocol", &args);
+    assert_eq!(
+        control(json!({"session": "s1", "protocol": current})),
+        Err(ControlError::Unsupported)
+    );
+    if current > 1 {
+        assert_eq!(
+            control(json!({"session": "s1", "protocol": current - 1})),
+            Err(ControlError::Unsupported)
+        );
+    }
+    let bad = |result: Result<Value, ControlError>| matches!(result, Err(ControlError::Bad(_)));
+    assert!(bad(control(
+        json!({"session": "nope", "protocol": current + 1})
+    )));
+    assert!(bad(control(json!({"session": "s1", "protocol": 256}))));
+    assert!(bad(control(
+        json!({"session": "s1", "protocol": current + 1, "extra": 1})
+    )));
+    assert_eq!(
+        control(json!({"session": "s1", "protocol": current + 1})),
+        Ok(Value::Null)
+    );
+}
