@@ -375,6 +375,7 @@ dependencies = [
  "botster-core-edges",
  "botster-core-host",
  "botster-core-link",
+ "botster-core-sys",
  "botster-probe-script",
  "botster-route-codec",
  "botster-terminal-ghostty",
@@ -458,6 +459,20 @@ dependencies = [
  "botster-core-contract",
  "botster-route-codec",
  "static_assertions",
+]
+
+[[package]]
+name = "botster-test-process"
+version = "0.1.0"
+dependencies = [
+ "botster-core-sys",
+ "kqueue",
+ "libc",
+ "libproc",
+ "pty-process",
+ "rustix",
+ "signal-hook",
+ "tempfile",
 ]
 
 [[package]]
@@ -2005,12 +2020,15 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "botster-core-contract",
+ "botster-core-sys",
  "botster-core-testkit",
  "botster-test-support",
  "botster-worker-core",
+ "proc-macro2",
  "regex",
  "serde_json",
  "sha2",
+ "syn 2.0.119",
  "tempfile",
  "toml",
 ]

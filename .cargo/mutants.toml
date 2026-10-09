@@ -11,6 +11,44 @@
 exclude_globs = ["**/tests/**", "tests/**"]
 
 exclude_re = [
+    # xtask prebuild.rs build_anchor and command (P6 PR A): the I/O shell of the prebuild-worker step runs `cargo build`
+    # and `cargo install` and installs the binaries; a default-tier test cannot run a build inside a mutation run. Only the
+    # whole-body replacements are excluded. The slow tier runs after this step and needs its output:
+    # the_prebuilt_anchor_of_guard_new_holds_the_group_of_a_wrapped_program fails without the installed anchor (P6 PR A
+    # evidence), and the real-process tests fail without the probe. The decisions stay tested: manifest_text
+    # (the_manifest_lists_binaries_sorted_with_their_hashes), install_executable
+    # (an_installed_executable_is_a_new_file_with_the_new_bytes) and sha256_hex (a_file_hash_is_the_sha256_of_its_bytes).
+    'xtask/src/prebuild\.rs:\d+:\d+: replace build_anchor -> Result<\(String, String\)> with Ok\(.*\)$',
+    'xtask/src/prebuild\.rs:\d+:\d+: replace command -> Result<\(\)> with Ok\(\(\)\)$',
+    # xtask main.rs run -> Ok(()): the shell reads the process arguments and runs what choose decides; a test cannot run the
+    # binary's entry without a real process, and the body replaced by Ok(()) runs no command and prints nothing. Only this
+    # whole-body replacement is excluded. The decision is choose, a pure function with tests that do not read its table:
+    # each_name_runs_its_own_function_with_its_arguments, the_help_names_choose_the_help_and_others_fail_with_the_usage
+    # and the_usage_lists_every_command_and_only_those.
+    'xtask/src/main\.rs:\d+:\d+: replace run -> Result<\(\)> with Ok\(\(\)\)$',
+    # xtask base_merge.rs command -> Ok(()): the shell resolves the base of the run (fsutil::base, one value for the
+    # process) and prints the report of check; the body replaced by Ok(()) prints no report, and the PR must carry the
+    # report. Only this whole-body replacement is excluded. check runs on real repositories in its tests
+    # (a_real_base_only_merge_passes, an_unreviewed_change_fails_under_an_external_diff, a_git_failure_fails_the_check) and
+    # its decisions are judge, conflicts, overlap, first_difference, ancestry and succeeded, each with tests.
+    'xtask/src/base_merge\.rs:\d+:\d+: replace command -> Result<\(\)> with Ok\(\(\)\)$',
+    # xtask unsafe_exception.rs command -> Ok(()): the shell lists the tracked files, reads them and prints the verdict; the
+    # body replaced by Ok(()) reads nothing and prints no summary. Only this whole-body replacement is excluded. The decision
+    # is verdict, with lint_drift, other_manifests and other_attributes, each tested on the real manifests, the real Cargo
+    # configuration and the real anchor source (the_crate_differs_from_the_workspace_only_by_deny,
+    # any_other_lint_difference_fails, only_the_three_lint_entries_name_unsafe_code, only_close_inherited_allows_unsafe_code,
+    # the_verdict_counts_the_files_or_reports_every_problem).
+    'xtask/src/unsafe_exception\.rs:\d+:\d+: replace command -> Result<\(\)> with Ok\(\(\)\)$',
+    # xtask ci.rs taint_job -> Ok(()): the shell runs four checks (taint, timers, unsafe_exception, signals) and only
+    # propagates their errors with `?`; the body replaced by Ok(()) runs none. Only this whole-body replacement is excluded.
+    # Each check's decisions have their own tests: taint (scan_files, hits_in_line), timers, unsafe_code (verdict,
+    # lint_drift, other_manifests, other_attributes, checked), and signals (scan, verdict, string_text: the tests of
+    # xtask/src/signals.rs, a_raw_signal_call_outside_the_guard_is_a_violation_under_any_allow_or_cfg among them).
+    'xtask/src/ci\.rs:\d+:\d+: replace taint_job -> Result<\(\)> with Ok\(\(\)\)$',
+    # xtask ci.rs clippy_job -> Ok(()): process glue. The body starts `cargo clippy` over the workspace with every feature
+    # and returns its exit; a test cannot run clippy inside the test run. Only this whole-body replacement is excluded. A
+    # body replaced by Ok(()) gives no clippy output, which every gate log of the step shows.
+    'xtask/src/ci\.rs:\d+:\d+: replace clippy_job -> Result<\(\)> with Ok\(\(\)\)$',
     # xtask mutants_job -> Ok(()): process glue. The body runs `git diff`, writes the diff file, starts `cargo mutants` and
     # prints its summary; a test cannot start a mutation run inside a mutation run, so no test can run the body. Only this
     # whole-body replacement is excluded: every other mutant of mutants_job stays tested. Its decisions are pure functions
@@ -19,6 +57,12 @@ exclude_re = [
     # and platform_exclusions (only_a_gate_off_macos_adds_the_off_macos_exclusions). A body replaced by Ok(()) skips the
     # step without its summary line, which every gate log of the step shows ("mutants: N mutants: ...").
     'xtask/src/ci\.rs:\d+:\d+: replace mutants_job -> Result<\(\)> with Ok\(\(\)\)$',
+    # xtask test_budget.rs kill -> (): process glue. The body sends SIGKILL to the leftovers of a test run; a default-tier
+    # test cannot give it a real leftover to end. Only this whole-body replacement is excluded. Its decisions are tested:
+    # target, the parse of each argument (a_cleanup_argument_names_a_process_or_a_group), and the refusal of 0, 1 and our
+    # own in botster_core_sys::signal (a_target_of_0_1_out_of_range_or_our_own_is_refused,
+    # our_own_group_and_process_are_never_signalled).
+    'xtask/src/test_budget\.rs:\d+:\d+: replace kill with \(\)$',
     # P7 GuardianConfig::fmt: the debug text has no contract format. An empty successful
     # debug result still omits the service token, which is the only required property.
     # only_a_valid_host_hello_authenticates checks token omission.
@@ -201,14 +245,20 @@ exclude_re = [
     'crates/botster-core/src/lib\.rs:\d+:\d+: (replace <impl CoreApi for Core>::adoptable_worker_protocols( ->| with)|.* in <impl CoreApi for Core>::adoptable_worker_protocols$)',
     'crates/botster-core/src/lib\.rs:\d+:\d+: (replace <impl CoreApi for Core>::shadow_answerable_kinds( ->| with)|.* in <impl CoreApi for Core>::shadow_answerable_kinds$)',
     # botster-core real edges (P1): OS wiring with no decision of its own (a descriptor, a socket, a poll, a row call). The
-    # decisions (`wake_after`, `interest_of`, `registration`, `retry_interrupted`) are pure functions tested in the default
-    # tier. Each function below is caught by the slow tier (slow-tier mutation run of 2026-10-04), in real.rs `slow_tests`:
+    # decisions (`wake_after`, `interest_of`, `registration`, `retry_interrupted`, and from audit A28 `broken_after`,
+    # `LinkIo::record`, `AcceptFailures::take`, `edge_diagnostics`) are pure functions tested in the default tier. Each function
+    # below is caught by the slow tier (slow-tier mutation run of 2026-10-04), in real.rs `slow_tests`:
     # `the_edges_keep_rows_in_the_registry` (write_row, read_rows, delete_row), `the_edges_draw_random_bytes_and_refuse_the_handoff`
     # (fill_random, handoff_route, poll_process_exit, accept_link), `a_link_reads_writes_and_closes` (accept_link, link_recv,
     # link_send, link_close, set_read_interest, set_write_interest, LinkIo::apply), `the_socket_lives_with_the_edges`
     # (socket_path, the Drop of RealEdges), `the_wake_follows_its_flag` (PollWake signal, drain, wait, fd, consume,
     # settle_wake); and tests/slow_real_core.rs `a_worker_that_exits_before_it_connects_ends_the_start_at_once` (the reaper's
     # wake through signal) and tests/slow_facade_worker.rs (signal_group: a stop over a broken link ends the worker).
+    # What audit A28 added to these functions is a call of a pure function above, plus, on Linux only (epoll refuses a change
+    # of interest for a descriptor that is not in the poll; kqueue does not), `a_link_that_the_poll_refuses_wakes_the_host_and_fails`
+    # (the wake of set_read_interest and set_write_interest when `LinkIo::apply` returns false, the refusal in link_recv and
+    # link_send, link_close) and `the_host_closes_a_link_that_the_poll_refuses_and_records_why` (the driver closes the link and
+    # records why).
     'crates/botster-core/src/real\.rs:\d+:\d+: (replace <impl HostEdges for RealEdges>::write_row( ->| with)|.* in <impl HostEdges for RealEdges>::write_row$)',
     'crates/botster-core/src/real\.rs:\d+:\d+: (replace <impl HostEdges for RealEdges>::read_rows( ->| with)|.* in <impl HostEdges for RealEdges>::read_rows$)',
     'crates/botster-core/src/real\.rs:\d+:\d+: (replace <impl HostEdges for RealEdges>::delete_row( ->| with)|.* in <impl HostEdges for RealEdges>::delete_row$)',
@@ -231,8 +281,9 @@ exclude_re = [
     'crates/botster-core/src/real\.rs:\d+:\d+: (replace PollWake::consume( ->| with)|.* in PollWake::consume$)',
     'crates/botster-core/src/real\.rs:\d+:\d+: (replace LinkIo::apply( ->| with)|.* in LinkIo::apply$)',
     'crates/botster-core/src/real\.rs:\d+:\d+: (replace socket_path( ->| with)|.* in socket_path$)',
-    # RealEdges::diagnostics (#164, audit A1): it reports the foreign registry files of the real storage; the slow tier
-    # catches it (slow-tier mutation run of 2026-10-08 on Linux), in tests/slow_real_core.rs
+    # RealEdges::diagnostics (#164, audit A1, A28): it passes the failed accepts and the foreign registry files of the real
+    # storage to `edge_diagnostics`, whose keys the default tier tests (`a_failed_accept_is_counted_and_reported`); the slow
+    # tier catches it (slow-tier mutation run of 2026-10-08 on Linux), in tests/slow_real_core.rs
     # `a_damaged_row_is_registry_corrupt_and_a_foreign_file_is_left_alone`.
     'crates/botster-core/src/real\.rs:\d+:\d+: (replace <impl HostEdges for RealEdges>::diagnostics( ->| with)|.* in <impl HostEdges for RealEdges>::diagnostics$)',
     # botster-core-sys process (P1): `Children` waits for, reaps and signals real children, so the proof is the slow tier,
@@ -310,35 +361,22 @@ exclude_re = [
     'crates/botster-core-sys/src/storage\.rs:\d+:\d+: (replace walk( ->| with)|.* in walk$)',
     'crates/botster-core-sys/src/storage\.rs:\d+:\d+: (replace create_data_dir( ->| with)|.* in create_data_dir$)',
     'crates/botster-core-sys/src/storage\.rs:\d+:\d+: (replace sync_dir( ->| with)|.* in sync_dir$)',
-    # Equivalent mutants of `botster-core-host`: a change that no behavior can show.
-    # - `commit`: `Stop` of a session that is `Starting` while its flow is idle, and `Flow::Create | Flow::Start` are the only
-    #   flows that a `Starting` session has, so the guard `s.admit == Admit::Starting` of the last arms is never the deciding
-    #   one: a `Starting` session always has a start or a create flow.
-    'crates/botster-core-host/src/admit\.rs:\d+:\d+: replace match guard s\.admit == Admit::Starting with false in HostEngine::commit$',
-    # More equivalent mutants of `botster-core-host`; each is a change that no behavior can show, for the reason given.
+    # Equivalent mutants of `botster-core-host`; each is a change that no behavior can show, for the reason given.
     # - `class_of`: the arm of the mandatory kinds. A kind without an arm is mandatory (`_ => Class::Mandatory`).
     # - `key_of`: the arm `ActivitySource::Output`. A source without an arm is keyed with the output (`_ => Output`).
     # - `EventQueue::remove`: the arm of a mandatory event. `remove` is called for K, D and L events only (`retire_*`).
-    # - `link_frame_bound`: `u32::MAX / 2` is the bound and the fallback of `try_from`, which cannot fail after `min`.
     # - `no_worker` returns `WorkerHandle::default()`, the value of `Default::default()`.
     # - `flow_row`: a row result is routed to a session flow only from the phase that wrote the row (`RowWrite`, `DeleteRow`);
     #   the guard of the phase cannot be false when the result arrives.
     # - `on_process_exited`: the `Create` arm. A session in `Create` has no shown state, so the `_` arm does nothing too.
-    # - `forward`: `flow_busy` is `Flow::Start(_) || admit == Starting`, and a request with no link, no failure and no start
-    #   cannot exist: a worker that ends fails its link first (`link_failed`).
-    # - `stop_all_start`: the guard `s.queue.iter().any(Start)` cannot be true for a session that is `Running` or `Starting`
-    #   with a flow other than `Create`, `Start` and `Stop`.
     # - `HostEdges::diagnostics` (the trait's default body): it returns `serde_json::Value::Null`, which is
     #   `serde_json::Value::default()`, so the mutant is the same function.
     'crates/botster-core-host/src/queue\.rs:\d+:\d+: delete match arm Event::SessionState\{\.\.\} .* in class_of$',
     'crates/botster-core-host/src/queue\.rs:\d+:\d+: delete match arm ActivitySource::Output in key_of$',
     'crates/botster-core-host/src/queue\.rs:\d+:\d+: replace -= with (\+|/)= in EventQueue::remove$',
-    'crates/botster-core-host/src/engine\.rs:\d+:\d+: replace / with [*%] in HostEngine::link_frame_bound$',
     'crates/botster-core-host/src/engine\.rs:\d+:\d+: replace no_worker -> WorkerHandle with Default::default\(\)$',
     'crates/botster-core-host/src/flows\.rs:\d+:\d+: replace match guard f\.phase == (StopPhase::RowWrite|RemovePhase::DeleteRow) with true in HostEngine::flow_row$',
     'crates/botster-core-host/src/inbound\.rs:\d+:\d+: delete match arm Flow::Create\(_\) in HostEngine::on_process_exited$',
-    'crates/botster-core-host/src/run\.rs:\d+:\d+: replace (== with != |&& with \|\| )in HostEngine::forward$',
-    'crates/botster-core-host/src/run\.rs:\d+:\d+: replace match guard s\.queue\.iter\(\)\.any\(\|f\| matches!\(f, Flow::Start\(_\)\)\) with false in HostEngine::stop_all_start$',
     'crates/botster-core-host/src/driver\.rs:\d+:\d+: replace HostEdges::diagnostics -> serde_json::Value with Default::default\(\)$',
     # payload_size (A3): `limit / times` is only where the key search may stop. With any stop limit at or over it, a key
     # within the limit gets the same size (its search never stops early), and a key over the limit stays over it, so it is
@@ -382,4 +420,128 @@ exclude_re = [
     # value that this call sets (`DEFAULT_QUERY_REQUEST_BYTES`, `CoreLimits.max_query_bytes`, tested). Skipping the call
     # changes nothing at this pin; the call keeps Core's limit when an upstream default changes.
     'crates/botster-terminal-ghostty/src/lib\.rs:\d+:\d+: replace Terminal::set_query_request_limit_default -> Result<\(\), Error> with Ok\(\(\)\)$',
+    # Guard::accept: with the guard always true, an accept error other than WouldBlock reads as "no connection waits". Those
+    # errors (EMFILE, ENFILE, ENOBUFS, ECONNABORTED) need a process-wide descriptor or memory limit, or a peer reset inside
+    # the kernel's accept queue; a test cannot cause one without breaking the other tests of the process.
+    'crates/botster-test-process/src/anchor\.rs:\d+:\d+: replace match guard error\.kind\(\) == io::ErrorKind::WouldBlock with true in Guard::accept$',
+    # platform/linux.rs await_end: with the guard always true, every pidfd_open error reads as "gone". The other errors
+    # (EMFILE, ENFILE, ENOMEM, ENODEV) need a process-wide descriptor or memory limit; a test cannot cause one without
+    # breaking the other tests of the process. `gone_at_open` and the ESRCH case (a_wait_for_a_pid_with_no_process_reports_it_gone)
+    # stay tested.
+    'crates/botster-test-process/src/platform/linux\.rs:\d+:\d+: replace match guard gone_at_open\(error\) with true in await_end$',
+    # platform/linux.rs live_members: the guard of the read of /proc/<pid>/stat. Always true: every error reads as "ended";
+    # the file is readable by every user, so the other errors (EIO, ENOMEM) need a failing kernel. Always false: a process
+    # that ends between the listing of /proc and the read fails the listing; only that race reaches the arm, and no test can
+    # cause it on demand. `ended_since_listing` stays tested (only_a_missing_stat_or_esrch_proves_an_end_since_the_listing).
+    'crates/botster-test-process/src/platform/linux\.rs:\d+:\d+: replace match guard ended_since_listing\(&error\) with (true|false) in live_members$',
+    # platform/linux.rs start_time: the same guard, always true: every read error of /proc/<pid>/stat reads as "gone". The
+    # file is readable by every user, so the other errors need a failing kernel. Always false is killed by
+    # processes_that_started_at_different_times_have_different_start_times (no process has the largest pid: None).
+    'crates/botster-test-process/src/platform/linux\.rs:\d+:\d+: replace match guard ended_since_listing\(&error\) with true in start_time$',
+    # anchor.rs Connection::read -> Ok(()) and read.rs Bounded::fill -> Ok(true): a read that reports progress without
+    # reading. Every loop around them ends at its deadline (no_wait_for_anchors_starts_after_its_deadline,
+    # a_silent_writer_fails_the_read_at_the_deadline_with_what_was_read), so each guard or read test fails at its cleanup
+    # bound and the drop of its guard at the guard's bound: later than the default tier's mutation timeout, which counts
+    # it as TIMEOUT. The slow mutation run of the crate (timeout 120 s, P6 PR A evidence at d2338cb6) catches both.
+    'crates/botster-test-process/src/anchor\.rs:\d+:\d+: replace Connection::read -> Result<\(\), String> with Ok\(\(\)\)$',
+    'crates/botster-test-process/src/read\.rs:\d+:\d+: replace Bounded<R>::fill -> Result<bool, ReadError> with Ok\(true\)$',
+    # platform/macos.rs (the focused Mac mutation run of P6 PR A at 06b13590 missed these; a gate off macOS also excludes
+    # them, by OFF_MACOS_EXCLUSIONS). start_time `+` with `-`: equivalent. Callers compare start times only for equality,
+    # and the microseconds field is below 1_000_000, so the mapping stays one-to-one. The two `*` mutants are killed by
+    # a_start_time_on_macos_is_in_microseconds_since_the_epoch.
+    'crates/botster-test-process/src/platform/macos\.rs:\d+:\d+: replace \+ with - in start_time$',
+    # platform/macos.rs await_end and exiting_or_gone: with the guard always true, every kqueue error at the registration
+    # reads as "gone". The other errors (ENOMEM, EMFILE for the queue) need a process-wide memory or descriptor limit; a test
+    # cannot cause one without breaking the other tests of the process. `gone` stays tested (only_esrch_proves_a_process_gone).
+    'crates/botster-test-process/src/platform/macos\.rs:\d+:\d+: replace match guard gone\(&error\) with true in await_end$',
+    'crates/botster-test-process/src/platform/macos\.rs:\d+:\d+: replace match guard gone\(&error\) with true in exiting_or_gone$',
+    # platform/macos.rs live_members `&&` with `||`: macOS refuses the information of a zombie, so a listed process with
+    # information is never SZOMB, and the mutant differs only for a process that the group listing returned and that moved to
+    # another group before the read. Only that race reaches the difference; no test can cause it on demand.
+    'crates/botster-test-process/src/platform/macos\.rs:\d+:\d+: replace && with \|\| in live_members$',
+    # platform/macos.rs exiting_or_gone -> Ok(true): live_members calls it only for a process whose information macOS
+    # refused. A test process can cause that refusal only with a zombie, for which the answer is true. A live process of the
+    # group whose information is refused needs another user's process in the test's group.
+    'crates/botster-test-process/src/platform/macos\.rs:\d+:\d+: replace exiting_or_gone -> std::io::Result<bool> with Ok\(true\)$',
+    # platform/macos.rs start_time, the guard of a refused read, always true: a live process whose information macOS refuses
+    # reads as "ended". A test process can cause that refusal only for a process that has ended; a live one needs another
+    # user's process. Always false is killed by processes_that_started_at_different_times_have_different_start_times.
+    'crates/botster-test-process/src/platform/macos\.rs:\d+:\d+: replace match guard exiting_or_gone\(pid\)\? with true in start_time$',
+    # botster-test-process (P6): the default tier starts no real process (BUILD.md testing rules 1 and 2), so the code that
+    # starts, waits for, signals or reads a real process is proved by the crate's slow tier, tests/slow_process.rs (slow-tier
+    # mutation run of the crate, P6 PR A evidence). Each entry names one function and the slow tests that exercise it. The
+    # decisions stay in the default tier: end_members (rounds), Line and the guard's outcome (anchor), Bounded (read).
+    # child.rs OwnedChild::id: a_child_that_does_not_end_fails_its_status_and_its_drop_still_ends_it names the pid in its panic.
+    'crates/botster-test-process/src/child\.rs:\d+:\d+: (replace OwnedChild::id( ->| with)|.* in OwnedChild::id$)',
+    # OwnedChild::take_stdin: a_child_reads_what_the_test_writes_to_its_stdin.
+    'crates/botster-test-process/src/child\.rs:\d+:\d+: (replace OwnedChild::take_stdin( ->| with)|.* in OwnedChild::take_stdin$)',
+    # OwnedChild::take_stdout: a_released_blocker_ends_its_child_with_code_0_and_its_shell_words_name_the_fifo, a_group_owner_ends_a_member_that_outlives_the_leader.
+    'crates/botster-test-process/src/child\.rs:\d+:\d+: (replace OwnedChild::take_stdout( ->| with)|.* in OwnedChild::take_stdout$)',
+    # OwnedChild::take_stderr: a_blocked_child_ends_when_the_test_that_holds_its_fifo_is_gone, the_anchor_ends_the_group_when_the_test_dies.
+    'crates/botster-test-process/src/child\.rs:\d+:\d+: (replace OwnedChild::take_stderr( ->| with)|.* in OwnedChild::take_stderr$)',
+    # OwnedChild::kill: a_blocked_child_ends_when_the_test_that_holds_its_fifo_is_gone, the_anchor_ends_the_group_when_the_test_dies.
+    'crates/botster-test-process/src/child\.rs:\d+:\d+: (replace OwnedChild::kill( ->| with)|.* in OwnedChild::kill$)',
+    # OwnedChild::exited_within: a_group_owner_ends_a_member_that_outlives_the_leader, a_leader_that_moved_to_another_group_is_refused_and_not_signalled.
+    'crates/botster-test-process/src/child\.rs:\d+:\d+: (replace OwnedChild::exited_within( ->| with)|.* in OwnedChild::exited_within$)',
+    # OwnedChild::status: a_released_blocker_ends_its_child_with_code_0_and_its_shell_words_name_the_fifo, a_child_reads_what_the_test_writes_to_its_stdin.
+    'crates/botster-test-process/src/child\.rs:\d+:\d+: (replace OwnedChild::status( ->| with)|.* in OwnedChild::status$)',
+    # OwnedChild::status_by: a_child_that_does_not_end_fails_its_status_and_its_drop_still_ends_it.
+    'crates/botster-test-process/src/child\.rs:\d+:\d+: (replace OwnedChild::status_by( ->| with)|.* in OwnedChild::status_by$)',
+    # OwnedChild::exit_by: a_released_blocker_ends_its_child_with_code_0_and_its_shell_words_name_the_fifo (code 0, kept), the leader's code 3 of a_group_owner_ends_a_member_that_outlives_the_leader, and a_stalled_intermediate_fails_the_start_and_leaves_no_orphan.
+    'crates/botster-test-process/src/child\.rs:\d+:\d+: (replace OwnedChild::exit_by( ->| with)|.* in OwnedChild::exit_by$)',
+    # child.rs reap_within: a_child_that_does_not_end_fails_its_status_and_its_drop_still_ends_it, a_stalled_intermediate_fails_the_start_and_leaves_no_orphan, and every guard test through end_group.
+    'crates/botster-test-process/src/child\.rs:\d+:\d+: (replace reap_within( ->| with)|.* in reap_within$)',
+    # OwnedChild::end: a_child_that_does_not_end_fails_its_status_and_its_drop_still_ends_it, a_group_owner_ends_a_member_that_outlives_the_leader.
+    'crates/botster-test-process/src/child\.rs:\d+:\d+: (replace OwnedChild::end( ->| with)|.* in OwnedChild::end$)',
+    # Drop for OwnedChild: a_group_owner_ends_a_member_that_outlives_the_leader.
+    'crates/botster-test-process/src/child\.rs:\d+:\d+: (replace <impl Drop for OwnedChild>::drop( ->| with)|.* in <impl Drop for OwnedChild>::drop$)',
+    # fixture.rs Blocker::shell, Blocker::send, Blocker::release: a_released_blocker_ends_its_child_with_code_0_and_its_shell_words_name_the_fifo.
+    'crates/botster-test-process/src/fixture\.rs:\d+:\d+: (replace Blocker::shell( ->| with)|.* in Blocker::shell$)',
+    # Blocker::send: also the_guard_ends_the_group_and_production_still_reaps_its_own_child.
+    'crates/botster-test-process/src/fixture\.rs:\d+:\d+: (replace Blocker::send( ->| with)|.* in Blocker::send$)',
+    # Blocker::release: also a_blocked_child_ends_when_the_test_that_holds_its_fifo_is_gone (the release by the end of the test).
+    'crates/botster-test-process/src/fixture\.rs:\d+:\d+: (replace Blocker::release( ->| with)|.* in Blocker::release$)',
+    # rounds.rs reserved_kill and end_group: the_guard_ends_the_group_and_production_still_reaps_its_own_child, a_group_owner_ends_a_member_that_outlives_the_leader.
+    'crates/botster-test-process/src/rounds\.rs:\d+:\d+: (replace reserved_kill( ->| with)|.* in reserved_kill$)',
+    # end_group: see reserved_kill.
+    'crates/botster-test-process/src/rounds\.rs:\d+:\d+: (replace end_group( ->| with)|.* in end_group$)',
+    # end_group_reserved and reserve (the body of end_group since #177): see reserved_kill, and for the path where no reserve
+    # can be made, an_unreserved_cleanup_ends_every_member_by_its_last_kill.
+    'crates/botster-test-process/src/rounds\.rs:\d+:\d+: (replace end_group_reserved( ->| with)|.* in end_group_reserved$)',
+    'crates/botster-test-process/src/rounds\.rs:\d+:\d+: (replace reserve( ->| with)|.* in reserve$)',
+    # platform.rs peek (a real child's status, no reap): the_status_of_an_exited_child_is_awaited_without_a_reap, and every
+    # production_reap of the guard tests. Its loop, status_after_events, stays in the default tier with fakes. Two mutants
+    # survive the slow tier (Linux --no-config run, #171 round 2 E1), both equivalent: `|` with `^` in the waitid options
+    # (EXITED, NOWAIT, NOHANG are distinct bits, so `^` gives the same value as `|`).
+    'crates/botster-test-process/src/platform\.rs:\d+:\d+: (replace peek( ->| with)|.* in peek$)',
+    # platform/linux.rs await_status: the_status_of_an_exited_child_is_awaited_without_a_reap, and every production_reap.
+    'crates/botster-test-process/src/platform/linux\.rs:\d+:\d+: (replace await_status( ->| with)|.* in await_status$)',
+    # anchor.rs start_anchor (the wrapper's start of the anchor, #171 TP4):
+    # the_start_needs_an_intermediate_that_ends_with_code_0_and_an_acknowledgement,
+    # a_stalled_intermediate_fails_the_start_and_leaves_no_orphan, and every guard test.
+    'crates/botster-test-process/src/anchor\.rs:\d+:\d+: (replace start_anchor( ->| with)|.* in start_anchor$)',
+    # bin/botster-test-anchor.rs: the anchor binary. Its stages (wrap, intermediate, anchor), main, and the helpers group_now
+    # and number run in every guard test: the_guard_ends_the_group_and_production_still_reaps_its_own_child,
+    # the_anchor_ends_the_group_when_the_test_dies, an_anchor_survives_the_hangup_of_its_session_leader. verify:
+    # a_leader_that_moved_to_another_group_is_refused_and_not_signalled. terminate: a_grace_ends_the_members_by_term.
+    # close_inherited (#171 TP3): a_writer_that_production_hands_the_program_reaches_no_helper_stage kills its whole-body
+    # replacement and its descriptor filter. Six mutants survive the slow tier (Linux --no-config run, #171 round 2 E1), each
+    # equivalent or unreachable. The open flags (`|` with `&` or `^`, both operators): `RDONLY` is 0 and the flags share no
+    # bit, so `^` is `|`; `&` drops `DIRECTORY` and `CLOEXEC`, but the listing is a directory and is closed by its drop before
+    # the stage forks or execs. `== -1` with `== 1` (delete `-`): `close` returns 0 or -1, so the mutant ignores every
+    # failed close, and `!= EBADF` with `==`: EBADF fails the stage and other errors are ignored. Both differ only for a
+    # failed close: EBADF needs a listed descriptor closed before its `close`, which the one-thread stage never does, and
+    # EINTR or EIO need a signal handler or a device error that no test can give the stage. group_of (#171 TP6):
+    # a_member_that_moves_after_term_is_refused_and_no_kill_is_sent. The decisions verdict and stayed stay in the default
+    # tier (anchor.rs).
+    'crates/botster-test-process/src/bin/botster-test-anchor\.rs:\d+:\d+: (replace close_inherited( ->| with)|.* in close_inherited$)',
+    'crates/botster-test-process/src/bin/botster-test-anchor\.rs:\d+:\d+: (replace group_of( ->| with)|.* in group_of$)',
+    'crates/botster-test-process/src/bin/botster-test-anchor\.rs:\d+:\d+: (replace wrap( ->| with)|.* in wrap$)',
+    'crates/botster-test-process/src/bin/botster-test-anchor\.rs:\d+:\d+: (replace intermediate( ->| with)|.* in intermediate$)',
+    'crates/botster-test-process/src/bin/botster-test-anchor\.rs:\d+:\d+: (replace anchor( ->| with)|.* in anchor$)',
+    'crates/botster-test-process/src/bin/botster-test-anchor\.rs:\d+:\d+: (replace main( ->| with)|.* in main$)',
+    'crates/botster-test-process/src/bin/botster-test-anchor\.rs:\d+:\d+: (replace group_now( ->| with)|.* in group_now$)',
+    'crates/botster-test-process/src/bin/botster-test-anchor\.rs:\d+:\d+: (replace number( ->| with)|.* in number$)',
+    'crates/botster-test-process/src/bin/botster-test-anchor\.rs:\d+:\d+: (replace verify( ->| with)|.* in verify$)',
+    'crates/botster-test-process/src/bin/botster-test-anchor\.rs:\d+:\d+: (replace terminate( ->| with)|.* in terminate$)',
 ]

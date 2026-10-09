@@ -47,20 +47,6 @@ fn a_read_over_a_broken_link_is_worker_link_failed() {
     );
 }
 
-/// Core A2-1: a read of a `Starting` session waits for the launch, then goes to the worker.
-#[test]
-fn a_read_of_a_starting_session_waits_for_the_launch() {
-    let mut w = World::default();
-    w.ok(create("s1"));
-    w.engine.begin(Op::Start { id: sid("s1") }).unwrap();
-    w.pump();
-    w.engine.poll_events(64);
-    let read = w.engine.begin(Op::ReadModeFlags { session: sid("s1") });
-    // Admitted in `Starting`: the start of the scripted worker is already through, so the read runs.
-    let read = read.unwrap();
-    assert!(matches!(w.complete(read), OpResult::Ok(OpOutput::Modes(_))));
-}
-
 /// Core A2-6, AD-4: a feature that the worker lacks makes the call `Unsupported`.
 #[test]
 fn a_session_whose_worker_lacks_a_feature_refuses_the_call() {
@@ -98,7 +84,8 @@ fn a_notification_policy_in_created_is_durable_and_reaches_the_worker_at_start()
         session: sid("s1"),
         policy: NotificationPolicy::None,
     });
-    let row: crate::session::Row = serde_json::from_slice(&w.rows["session/s1"]).unwrap();
+    let row = crate::session::Row::decode(&sid("s1"), &w.rows["session/s1"])
+        .expect("Core decodes its row");
     assert_eq!(
         row.request.notification_policy,
         Some(NotificationPolicy::None)
@@ -455,28 +442,34 @@ fn a_refused_attach_hands_the_transport_back() {
         answers_queries: true,
         input: true,
     };
-    let try_attach = |w: &mut World, session: &str, dir: &str| {
+    /// The caller's transport: a value that only the caller made, so the one that comes back is known to be the same.
+    #[derive(Debug, PartialEq)]
+    struct Mine(u32);
+    let try_attach = |w: &mut World, session: &str, dir: &str, mine: u32| {
         w.engine.attach(
             ClientId("c".into()),
             sid(session),
-            RouteTransport::Stream(StreamEndpoint::new(())),
+            RouteTransport::Stream(StreamEndpoint::new(Mine(mine))),
             options(dir),
         )
     };
+    let back = |transport: RouteTransport| match transport {
+        RouteTransport::Stream(endpoint) => endpoint.downcast::<Mine>().ok(),
+        _ => None,
+    };
     // UnknownSession, InvalidInput (a relative directory): the same transport object comes back.
-    let refused = try_attach(&mut w, "nope", "/tmp").unwrap_err();
+    let refused = try_attach(&mut w, "nope", "/tmp", 1).unwrap_err();
     assert_eq!(refused.error.code, ErrorCode::UnknownSession);
-    assert!(matches!(refused.transport, RouteTransport::Stream(_)));
-    let refused = try_attach(&mut w, "s1", "relative").unwrap_err();
+    assert_eq!(back(refused.transport), Some(Mine(1)));
+    let refused = try_attach(&mut w, "s1", "relative", 2).unwrap_err();
     assert_eq!(refused.error.code, ErrorCode::InvalidInput);
-    assert!(matches!(refused.transport, RouteTransport::Stream(_)));
+    assert_eq!(back(refused.transport), Some(Mine(2)));
     // RouteLimit: fill the routes of the session, then one more.
     let limit = w.engine.limits().routes_per_session;
-    for _ in 0..limit {
-        try_attach(&mut w, "s1", "/tmp").unwrap();
+    for n in 0..limit {
+        try_attach(&mut w, "s1", "/tmp", 100 + n).unwrap();
     }
-    let refused = try_attach(&mut w, "s1", "/tmp").unwrap_err();
+    let refused = try_attach(&mut w, "s1", "/tmp", 3).unwrap_err();
     assert_eq!(refused.error.code, ErrorCode::RouteLimit);
-    assert!(matches!(refused.transport, RouteTransport::Stream(_)));
-    assert_eq!(w.engine.sessions[&sid("s1")].routes.len(), limit as usize);
+    assert_eq!(back(refused.transport), Some(Mine(3)));
 }

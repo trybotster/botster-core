@@ -75,7 +75,6 @@ fn entropy_and_choices_follow_the_seeded_streams() {
 
 /// TM-6 and TH-2: the wake is a level flag with no descriptor, and an unset wake waits for its deadline.
 #[test]
-#[allow(clippy::disallowed_methods)] // The real wake timeout needs the real clock.
 fn the_wake_keeps_its_level_until_drained() {
     let wake = SimHostWake::default();
     assert_eq!(wake.fd(), -1);
@@ -264,7 +263,6 @@ fn reopen_retains_rows_and_advances_the_host_epoch() {
 
 /// Core 2 and 9B: the testkit facade forwards constants and typed failures to the host driver.
 #[test]
-#[allow(clippy::disallowed_methods)] // The test initializes the injected clock once.
 fn the_testkit_facade_forwards_configuration_and_typed_failures() {
     let start = Instant::now();
     let scheduler = SchedulerHandle::with_seed(5);
@@ -419,7 +417,6 @@ fn host_messages(log: &Arc<Mutex<ProcessLog>>) -> Vec<botster_core_link::msg::Ho
 
 /// ST-6a: the facade releases live captures by id and owner. Libghostty supplies every snapshot byte.
 #[test]
-#[allow(clippy::disallowed_methods)] // The test initializes the injected clock once.
 fn the_testkit_facade_releases_captures_by_id_and_owner() {
     use botster_core_link::frame::{encode_frame, FrameType};
     use botster_core_link::hello::Hello;
@@ -661,7 +658,6 @@ fn a_spawn_refuses_zero_queue_capacity() {
 
 /// A5-1, A5-2, LC-3, LC-6, and LC-7: the same worker completes the lifecycle at every legal buffer bound.
 #[test]
-#[allow(clippy::disallowed_methods)] // The test initializes the injected clock once.
 fn the_worker_keeps_complete_operations_at_each_buffer_bound() {
     for bound in [65_536, 1_088, 1] {
         let start = Instant::now();
@@ -871,4 +867,186 @@ fn a_reopened_handle_sees_and_ends_the_worker_of_the_earlier_handle() {
         "the remove ended the earlier worker"
     );
     assert!(second.list().is_empty());
+}
+
+/// The process edge of the real Core at its last step, with the worst corrupt row: the identity probe says that the corrupt
+/// identity still matches (its pid and start time name a live process). Every signal passes the refusal of
+/// `botster_core_sys::signal` first; an allowed one reaches the in-process worker that the row named before the corruption.
+struct GuardedSpawner {
+    inner: crate::worker::WorkerSpawner,
+    corrupt: ProcessIdentity,
+    real: ProcessIdentity,
+    asked: Arc<Mutex<Vec<(u32, GroupSignal, bool)>>>,
+}
+
+impl Spawner for GuardedSpawner {
+    fn spawn(
+        &mut self,
+        spec: &WorkerSpawn,
+        connect: &mut dyn FnMut() -> LinkEnd,
+    ) -> Result<ProcessIdentity, SpawnError> {
+        self.inner.spawn(spec, connect)
+    }
+
+    fn signal_group(&mut self, identity: ProcessIdentity, signal: GroupSignal) {
+        let own = rustix::process::getpgrp()
+            .as_raw_nonzero()
+            .get()
+            .unsigned_abs();
+        let refused = botster_core_sys::signal::target(identity.pid, own).is_err();
+        lock(&self.asked).push((identity.pid, signal, refused));
+        if !refused {
+            let to = if identity == self.corrupt {
+                self.real
+            } else {
+                identity
+            };
+            self.inner.signal_group(to, signal);
+        }
+    }
+
+    fn identity_state(&self, identity: ProcessIdentity) -> IdentityState {
+        if identity == self.corrupt {
+            self.inner.identity_state(self.real)
+        } else {
+            self.inner.identity_state(identity)
+        }
+    }
+
+    fn poll_exit(&mut self) -> Option<(ProcessIdentity, ExitStatus)> {
+        self.inner.poll_exit()
+    }
+}
+
+/// A10-2, AD-6, the pattern rule: a row whose worker and payload pids were corrupted to 1 never signals anything. After the
+/// reopen, `AdoptAll`, `Stop` and `Remove` of that session, every group signal that the host asks for names pid 1, and the
+/// refusal stops each one: the worker that the row named before the corruption still runs. (The worker does not complete
+/// the adoption, so the session is `Lost(WorkerUnreachable)` and its `Stop` ends at once; its `Remove` asks for the kills.)
+#[test]
+fn a_corrupt_row_with_pid_1_never_signals_anything() {
+    let start = Instant::now();
+    let scheduler = SchedulerHandle::with_seed(17);
+    scheduler.with(|s| {
+        s.overrides_mut().no_spurious_wakes = true;
+    });
+    let workers = crate::worker::Workers::new(scheduler.clone(), start);
+    let mut dirs = Directories::default();
+    let config = OpenConfig {
+        data_dir: "corrupt".into(),
+        worker_path: Some("worker".into()),
+        limits: CoreLimits::default(),
+    };
+    let open = |dirs: &mut Directories, spawner: Box<dyn Spawner>| {
+        let opened = dirs
+            .open(
+                "corrupt",
+                &config,
+                RunInputs {
+                    seed: 17,
+                    scheduler: scheduler.clone(),
+                },
+                core_features(),
+                Some(spawner),
+            )
+            .unwrap();
+        crate::worker::TestkitCore::new(opened.driver, opened.wake, workers.clone(), "h", "corrupt")
+    };
+    let session = SessionId("s".into());
+    let mut first = open(&mut dirs, Box::new(workers.spawner("corrupt")));
+    first
+        .begin(Op::Create {
+            session: session.clone(),
+            request: SpawnRequest {
+                argv: vec!["program".into()],
+                env: BTreeMap::new(),
+                cwd: "/".into(),
+                size: Size {
+                    rows: 24,
+                    cols: 80,
+                    cell_px: None,
+                },
+                labels: BTreeMap::new(),
+                color_profile: None,
+                notification_policy: None,
+                size_policy: None,
+            },
+        })
+        .unwrap();
+    settle_partial(&mut first, start);
+    first
+        .begin(Op::Start {
+            id: session.clone(),
+        })
+        .unwrap();
+    settle_partial(&mut first, start);
+    assert_eq!(first.get(&session).unwrap().state, SessionState::Running);
+    drop(first);
+    // A10-2 at the storage edge: the row still decodes, and its worker and payload pids are 1.
+    let registry = Arc::clone(&dirs.dirs["corrupt"]);
+    let bytes = lock(&registry).rows["session/s"].clone();
+    let real = botster_core_host::session::Row::decode(&session, &bytes)
+        .and_then(|row| row.worker)
+        .expect("the row names its worker")
+        .identity();
+    let mut row: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    for field in ["worker", "payload"] {
+        if let Some(pid) = row
+            .get_mut(field)
+            .and_then(|identity| identity.get_mut("pid"))
+        {
+            *pid = serde_json::json!(1);
+        }
+    }
+    lock(&registry)
+        .rows
+        .insert("session/s".into(), serde_json::to_vec(&row).unwrap());
+    let corrupt = ProcessIdentity { pid: 1, ..real };
+    let asked = Arc::new(Mutex::new(Vec::new()));
+    let mut second = open(
+        &mut dirs,
+        Box::new(GuardedSpawner {
+            inner: workers.spawner("corrupt"),
+            corrupt,
+            real,
+            asked: Arc::clone(&asked),
+        }),
+    );
+    second.begin(Op::AdoptAll).unwrap();
+    let mut events = settle_partial(&mut second, start);
+    for op in [
+        Op::Stop {
+            id: session.clone(),
+        },
+        Op::Remove {
+            id: session.clone(),
+        },
+    ] {
+        second.begin(op).unwrap();
+        events.extend(settle_partial(&mut second, start));
+    }
+    for later in [
+        CoreLimits::default().stop_grace,
+        2 * CoreLimits::default().stop_grace,
+    ] {
+        for _ in 0..64 {
+            let report = second.pump(Now {
+                monotonic: start + later,
+                unix: 1_000_000,
+            });
+            events.extend(second.poll_events(64));
+            if !report.more {
+                break;
+            }
+        }
+    }
+    let asked = lock(&asked).clone();
+    assert!(!asked.is_empty(), "the host asked for a signal: {events:?}");
+    for (pid, signal, refused) in &asked {
+        assert!(*pid == 1 && *refused, "{pid} {signal:?}");
+    }
+    assert_eq!(
+        workers.spawner("corrupt").identity_state(real),
+        IdentityState::Matches,
+        "no signal reached the worker"
+    );
 }

@@ -40,19 +40,20 @@ pub(crate) fn end_group(
         Err(error) => {
             let report = format!("the group guard cannot reserve the group: {error}");
             let _ = writeln!(std::io::stderr(), "{report}");
-            let _ = rustix::process::kill_process_group(group, rustix::process::Signal::KILL);
+            // `group` is our own group: the last kill ends this process too.
+            let _ = botster_core_sys::signal::signal_own_group(rustix::process::Signal::KILL);
             return Err(report);
         }
     };
     let reserve_pid = rustix::process::Pid::from_raw(reserve.id() as i32).expect("a child pid");
     let kill = || reserved_kill(group, reserve_pid);
     // timer: deadline — bounds the anchor's cleanup; a member that never ends cannot hold the anchor forever.
-    let deadline = std::time::Instant::now() + cleanup;
+    let deadline = platform::real_now() + cleanup;
     let ended = end_members(
         kill,
         || live_members(group),
         |member| await_end(member.pid, deadline),
-        || std::time::Instant::now() >= deadline,
+        || platform::real_now() >= deadline,
     );
     // The reserve has ended (by itself or by a kill); its reap gives the id back.
     let _ = reserve.wait();
@@ -92,7 +93,11 @@ pub(crate) fn reserved_kill(
             group.as_raw_nonzero()
         )));
     }
-    rustix::process::kill_process_group(group, rustix::process::Signal::KILL).map_err(Into::into)
+    botster_core_sys::signal::signal_group(
+        group.as_raw_nonzero().get().unsigned_abs(),
+        rustix::process::Signal::KILL,
+    )
+    .map_err(Into::into)
 }
 
 /// Why `end_members` stopped before the group was empty.

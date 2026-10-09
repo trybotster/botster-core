@@ -426,7 +426,7 @@ fn pty_events_resume_reads_after_would_block() {
     let mut hello = Vec::new();
     botster_core_link::hello::Hello {
         protocol: 1,
-        proof: botster_core_link::proof::token_proof(&[5; 32], &instance, 1),
+        proof: botster_core_link::proof::host_proof(&[5; 32], &instance, 1),
         instance,
         host_epoch: 1,
     }

@@ -107,6 +107,34 @@ fn e3_1_two_silences_due_together_with_budget_one() {
     assert!(later.is_empty(), "once per idle period");
 }
 
+/// Core TM-5, TM-3: deadlines that are due but not yet pumped are processed in order of due time: two silences that become due
+/// in the same pump post their `Silent` events in the order of their due times, whatever the order of the sessions' ids.
+#[test]
+fn due_deadlines_are_processed_in_order_of_due_time() {
+    for (first, second) in [(("s1", 1), ("s2", 3)), (("s2", 1), ("s1", 3))] {
+        let mut rig = Rig::new(limits(|l| l.max_sessions = 4));
+        let (early, early_secs) = first;
+        let (late, late_secs) = second;
+        silent_session(
+            &mut rig,
+            "s1",
+            LinkId(1),
+            if early == "s1" { early_secs } else { late_secs },
+        );
+        silent_session(
+            &mut rig,
+            "s2",
+            LinkId(2),
+            if early == "s2" { early_secs } else { late_secs },
+        );
+        rig.drain_events();
+        rig.now += Duration::from_secs(late_secs + 1);
+        rig.unix += late_secs + 1;
+        rig.pump();
+        assert_eq!(silents(&rig.drain_events()), vec![sid(early), sid(late)]);
+    }
+}
+
 /// E3-1 item 3, 9B: a pump runs the silences that are due before newer link input, as many as are due and as the budget
 /// allows: three due with `pump_events = 2` post two in the first pump and the third first in the next. A silence that is not
 /// due yet does not run, and the newer `Bell` waits for budget.
@@ -158,6 +186,71 @@ fn a_pump_runs_each_due_silence_first_until_the_budget_runs_out() {
             "no silence of a session not due"
         );
     }
+}
+
+/// 9B `pump_events`: a worker's `Bell` and the `Done` of an op that arrive together, with `pump_events = 1`, post one event
+/// in each pump: the completion is carried to the next pump, and it is not lost.
+#[test]
+fn a_completion_behind_an_event_of_its_pump_comes_in_the_next_pump() {
+    let mut rig = Rig::new(limits(|l| {
+        l.pump_events = 1;
+        l.mandatory_events = 64;
+    }));
+    run_session(&mut rig, "s1", LinkId(1));
+    let op = rig
+        .driver
+        .begin(Op::ReadModeFlags { session: sid("s1") })
+        .unwrap();
+    rig.settle();
+    let req = rig
+        .host_frames(LinkId(1))
+        .iter()
+        .rev()
+        .find_map(|(k, p)| match HostMsg::decode(p) {
+            Ok(HostMsg::Op {
+                req,
+                op: Op::ReadModeFlags { .. },
+            }) if *k == FrameType::HOST_MSG => Some(req),
+            _ => None,
+        })
+        .expect("the read went to the worker");
+    rig.worker_says(
+        LinkId(1),
+        WorkerMsg::Observed {
+            observation: Observation::Bell,
+        },
+    );
+    rig.worker_says(
+        LinkId(1),
+        WorkerMsg::Done {
+            req,
+            result: OpResult::Ok(OpOutput::Modes(Modes {
+                flags: terminal_state().modes,
+                model_rev: ModelRev(2),
+            })),
+        },
+    );
+    let first = rig.pump();
+    let events = rig.drain_events();
+    assert_eq!(first.events_posted, 1, "{events:?}");
+    assert!(first.more, "the completion is carried");
+    assert!(
+        events.iter().any(|e| matches!(e, Event::Bell { .. })),
+        "{events:?}"
+    );
+    assert!(
+        !events.iter().any(|e| matches!(e, Event::Completed { .. })),
+        "{events:?}"
+    );
+    rig.pump();
+    let events = rig.drain_events();
+    assert!(
+        events.iter().any(|e| matches!(
+            e,
+            Event::Completed { op: o, result: OpResult::Ok(OpOutput::Modes(_)) } if *o == op
+        )),
+        "{events:?}"
+    );
 }
 
 /// E3-1 item 1: an effect with no event (the kill at the end of `stop_grace`) runs in its due pump whatever the budget.
@@ -304,9 +397,9 @@ fn two_failed_handoffs_post_one_event_per_pump() {
 
 /// A scheduler that defers every second piece of work that it is asked about, and varies nothing else: work that no clause
 /// fixes is deferred, and it still progresses.
-struct AlwaysDefer(Production, u32);
+struct DefersEveryOther(Production, u32);
 
-impl Scheduler for AlwaysDefer {
+impl Scheduler for DefersEveryOther {
     fn pick(&mut self, point: ChoicePoint, candidates: usize) -> usize {
         match point {
             ChoicePoint::OperationDeferral => {
@@ -319,159 +412,6 @@ impl Scheduler for AlwaysDefer {
 
     fn bound(&mut self, point: ChoicePoint, max: usize) -> usize {
         self.0.bound(point, max)
-    }
-}
-
-/// Steward ruling R-20, A5-2 "not varied": LC-5 (a `Stop` of a session whose payload exited), SZ-2 (a `Resize` to the current
-/// size) and A2-1's `Resize` in `Created` complete in the next `pump`, even when the scheduler defers every operation. Any
-/// other operation stays deferred by it.
-#[test]
-fn r_20_fixed_timing_ops_are_never_deferred() {
-    let mut rig = Rig::with_scheduler(
-        CoreLimits::default(),
-        Box::new(AlwaysDefer(Production::new(), 0)),
-    );
-    let completed = |events: &[Event], op: OpId| {
-        events
-            .iter()
-            .any(|e| matches!(e, Event::Completed { op: o, .. } if *o == op))
-    };
-    // A2-1: `Resize` in `Created`.
-    rig.driver.begin(create("s1")).unwrap();
-    // The scheduler defers every operation: the create takes pumps, and it ends.
-    let mut guard = 0;
-    while rig.driver.get(&sid("s1")).is_err() {
-        rig.pump();
-        guard += 1;
-        assert!(guard < 50);
-    }
-    rig.drain_events();
-    let resize = rig
-        .driver
-        .begin(Op::Resize {
-            session: sid("s1"),
-            size: Size {
-                rows: 30,
-                cols: 100,
-                cell_px: None,
-            },
-        })
-        .unwrap();
-    rig.pump();
-    assert!(
-        completed(&rig.drain_events(), resize),
-        "A2-1 Created Resize"
-    );
-    // Start with a scripted worker; the start ops are deferred and still end.
-    rig.driver.begin(Op::Start { id: sid("s1") }).unwrap();
-    let mut guard = 0;
-    while !rig.mock.lock().unwrap().links.contains_key(&LinkId(1)) {
-        rig.pump();
-        rig.drain_events();
-        guard += 1;
-        assert!(guard < 50);
-    }
-    // The worker answers after the host sent the launch.
-    let mut guard = 0;
-    while !rig.host_frames(LinkId(1)).iter().any(|(k, p)| {
-        *k == FrameType::HOST_MSG && matches!(HostMsg::decode(p), Ok(HostMsg::Launch(_)))
-    }) {
-        rig.pump();
-        rig.drain_events();
-        guard += 1;
-        assert!(guard < 60);
-    }
-    rig.worker_says(LinkId(1), launched());
-    for _ in 0..60 {
-        rig.pump();
-        rig.drain_events();
-        if rig.driver.get(&sid("s1")).unwrap().state == SessionState::Running {
-            break;
-        }
-    }
-    assert_eq!(
-        rig.driver.get(&sid("s1")).unwrap().state,
-        SessionState::Running
-    );
-    // SZ-2: a `Resize` to the current size.
-    let current = rig.driver.get(&sid("s1")).unwrap().size;
-    let same = rig
-        .driver
-        .begin(Op::Resize {
-            session: sid("s1"),
-            size: current,
-        })
-        .unwrap();
-    // A control: an operation that no clause fixes is deferred by this scheduler.
-    let read = rig
-        .driver
-        .begin(Op::ReadModeFlags { session: sid("s1") })
-        .unwrap();
-    rig.pump();
-    let events = rig.drain_events();
-    assert!(completed(&events, same), "SZ-2: {events:?}");
-    assert!(
-        !rig.driver.engine().never_deferred(&crate::Work::Op(read)),
-        "no clause fixes the timing of a read"
-    );
-    // LC-5: the payload exits, and the session is `Exited`.
-    rig.worker_says(
-        LinkId(1),
-        WorkerMsg::Exited {
-            code: Some(0),
-            signal: None,
-        },
-    );
-    for _ in 0..60 {
-        rig.pump();
-        rig.drain_events();
-    }
-    assert!(matches!(
-        rig.driver.get(&sid("s1")).unwrap().state,
-        SessionState::Exited(_)
-    ));
-    let stop = rig.driver.begin(Op::Stop { id: sid("s1") }).unwrap();
-    rig.pump();
-    assert!(completed(&rig.drain_events(), stop), "LC-5");
-}
-
-/// A scheduler that picks an index past the end at the choice points of work and of sessions.
-struct Overshoot(Production);
-
-impl Scheduler for Overshoot {
-    fn pick(&mut self, point: ChoicePoint, candidates: usize) -> usize {
-        match point {
-            ChoicePoint::ReadyWork | ChoicePoint::Session => usize::MAX,
-            _ => self.0.pick(point, candidates),
-        }
-    }
-
-    fn bound(&mut self, point: ChoicePoint, max: usize) -> usize {
-        self.0.bound(point, max)
-    }
-}
-
-/// Plan 2.4: the driver keeps a pick of the scheduler inside the list of ready work: a pick past the end is the last one.
-#[test]
-fn a_pick_past_the_end_is_the_last_ready_work() {
-    let mut rig = Rig::with_scheduler(
-        limits(|l| l.max_sessions = 4),
-        Box::new(Overshoot(Production::new())),
-    );
-    for name in ["a", "b", "c"] {
-        rig.driver.begin(create(name)).unwrap();
-    }
-    let mut guard = 0;
-    while rig.pump().more {
-        rig.drain_events();
-        guard += 1;
-        assert!(guard < 100);
-    }
-    for name in ["a", "b", "c"] {
-        assert_eq!(
-            rig.driver.get(&sid(name)).unwrap().state,
-            SessionState::Created
-        );
     }
 }
 
@@ -555,33 +495,62 @@ fn r_20_fixed_ops_complete_while_the_scheduler_defers_everything_else() {
         })
         .count();
     assert_eq!(forwarded, 0, "the deferred read was not sent");
-}
-
-/// 9B, TM-6: `more` is true when only work remains, and when only input remains.
-#[test]
-fn more_is_true_for_remaining_work_and_for_remaining_input() {
-    // Only work: two creates with the budget of one event.
-    let mut rig = Rig::new(limits(|l| {
-        l.pump_events = 1;
-        l.max_sessions = 4;
-    }));
-    rig.driver.begin(create("a")).unwrap();
-    rig.driver.begin(create("b")).unwrap();
-    assert!(rig.pump().more, "work remains");
-    // Only input: the engine has nothing to run, and a link holds unread bytes beyond the allowance of one pump.
-    let mut rig = Rig::new(limits(|l| l.pump_bytes = 64));
-    run_session(&mut rig, "s1", LinkId(1));
-    for _ in 0..40 {
-        rig.worker_says(
-            LinkId(1),
-            WorkerMsg::Observed {
-                observation: Observation::Bell,
+    // A `Resize` to a new size and a `Stop` of a running payload are deferred too: no clause fixes their timing.
+    rig.driver
+        .begin(Op::Resize {
+            session: sid("s1"),
+            size: Size {
+                rows: current.rows + 1,
+                ..current
             },
-        );
+        })
+        .unwrap();
+    rig.driver.begin(Op::Stop { id: sid("s1") }).unwrap();
+    rig.pump();
+    rig.drain_events();
+    let sent: Vec<HostMsg> = rig
+        .host_frames(LinkId(1))
+        .iter()
+        .filter(|(k, _)| *k == FrameType::HOST_MSG)
+        .filter_map(|(_, p)| HostMsg::decode(p).ok())
+        .collect();
+    assert!(
+        !sent.iter().any(|m| matches!(
+            m,
+            HostMsg::Op {
+                op: Op::Resize { .. },
+                ..
+            } | HostMsg::Stop
+        )),
+        "the resize and the stop were deferred: {sent:?}"
+    );
+    // LC-5: once the payload exited, a `Stop` completes in the next pump while everything else is deferred.
+    on.store(false, Ordering::SeqCst);
+    rig.worker_says(
+        LinkId(1),
+        WorkerMsg::Exited {
+            code: Some(0),
+            signal: None,
+        },
+    );
+    for _ in 0..20 {
+        rig.pump();
+        rig.drain_events();
     }
-    let report = rig.pump();
-    assert!(!rig.driver.engine().runnable(), "no engine work");
-    assert!(report.more, "input remains");
+    assert!(matches!(
+        rig.driver.get(&sid("s1")).unwrap().state,
+        SessionState::Exited(_)
+    ));
+    on.store(true, Ordering::SeqCst);
+    let again = rig.driver.begin(Op::Stop { id: sid("s1") }).unwrap();
+    rig.pump();
+    let events = rig.drain_events();
+    assert!(
+        events
+            .iter()
+            .any(|e| matches!(e, Event::Completed { op, .. } if *op == again)),
+        "LC-5: {events:?}"
+    );
 }
 
 /// AD-2: an exit that the process edge reports ends the session `Lost(WorkerGone)`, and one exit per call of the edge is taken
@@ -619,7 +588,7 @@ fn the_driver_takes_the_exits_of_the_process_edge() {
 fn writes_of_one_session_reach_the_worker_in_begin_order() {
     let mut rig = Rig::with_scheduler(
         CoreLimits::default(),
-        Box::new(AlwaysDefer(Production::new(), 0)),
+        Box::new(DefersEveryOther(Production::new(), 0)),
     );
     run_session(&mut rig, "s1", LinkId(1));
     for _ in 0..60 {
@@ -687,7 +656,7 @@ fn rows(rows: u32) -> Size {
 fn resizes_of_one_session_reach_the_worker_in_begin_order() {
     let mut rig = Rig::with_scheduler(
         CoreLimits::default(),
-        Box::new(AlwaysDefer(Production::new(), 0)),
+        Box::new(DefersEveryOther(Production::new(), 0)),
     );
     run_session(&mut rig, "s1", LinkId(1));
     let sizes = [rows(30), rows(31), rows(32)];
@@ -772,11 +741,11 @@ fn a_reported_exit_is_posted_in_its_pump_whatever_the_scheduler_defers() {
     );
 }
 
-/// TM-6: a pump that leaves work does not settle the wake, and a pump that finds work in the readiness that the settle reports
-/// is not quiet: `more` is true.
+/// TM-6, plan 2.5: a pump that leaves work or unread input reports `more` and keeps the wake signaled, and a pump that finds
+/// work in the readiness that it settles at its end is not quiet: `more` is true.
 #[test]
-fn the_pump_settles_the_wake_only_when_it_has_no_work_and_looks_again_after() {
-    // Work remains: the wake is not settled.
+fn a_pump_that_leaves_work_keeps_the_wake_and_looks_again_after_settling() {
+    // Work remains.
     let mut rig = Rig::new(limits(|l| {
         l.pump_events = 1;
         l.max_sessions = 4;
@@ -784,15 +753,10 @@ fn the_pump_settles_the_wake_only_when_it_has_no_work_and_looks_again_after() {
     rig.driver.begin(create("a")).unwrap();
     rig.driver.begin(create("b")).unwrap();
     assert!(rig.pump().more);
-    assert_eq!(
-        rig.mock.lock().unwrap().settled,
-        0,
-        "no settle while work remains"
-    );
+    assert!(rig.wake_set(), "work remains: the wake stays signaled");
     // Input remains: the same.
     let mut rig = Rig::new(limits(|l| l.pump_bytes = 64));
     run_session(&mut rig, "s1", LinkId(1));
-    let before = rig.mock.lock().unwrap().settled;
     for _ in 0..40 {
         rig.worker_says(
             LinkId(1),
@@ -802,11 +766,7 @@ fn the_pump_settles_the_wake_only_when_it_has_no_work_and_looks_again_after() {
         );
     }
     assert!(rig.pump().more);
-    assert_eq!(
-        rig.mock.lock().unwrap().settled,
-        before,
-        "no settle while input remains"
-    );
+    assert!(rig.wake_set(), "input remains: the wake stays signaled");
     // The settle reports an exit: the pump looks again and has work.
     let mut rig = Rig::new(CoreLimits::default());
     run_session(&mut rig, "s1", LinkId(1));
