@@ -18,6 +18,7 @@ botster-core-contract.workspace = true
 botster-core-conformance.workspace = true
 botster-core-edges.workspace = true
 botster-core-host.workspace = true
+botster-core-sys.workspace = true
 botster-core-link.workspace = true
 botster-worker-core.workspace = true
 botster-terminal-ghostty.workspace = true
