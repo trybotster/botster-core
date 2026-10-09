@@ -156,13 +156,14 @@ fn a_cleanup_that_cannot_finish_fails_through_the_guard() {
     let dir = tempfile::tempdir().unwrap();
     let never = never_fifo(dir.path());
     let guard = GroupGuard::with_cleanup(dir.path(), std::time::Duration::ZERO);
-    // The member blocks without CPU on a FIFO that nothing opens for writing, and holds the pipe until it ends.
+    // The member blocks without CPU on a FIFO that nothing opens for writing. Its stdout stays the pipe and it writes
+    // nothing, so it holds the pipe until it ends.
     let mut child = cleanup::Owned(
         Command::new("/bin/sh")
             .args([
                 "-c",
                 &format!(
-                    "{}/bin/echo up; exec /bin/cat {} >/dev/null",
+                    "{}/bin/echo up; exec /bin/cat {}",
                     guard.prefix(),
                     quoted(&never)
                 ),
@@ -313,7 +314,7 @@ fn blocked_parent() {
 }
 
 /// A FIFO in `dir` that nothing opens for writing: a `/bin/cat` of it blocks without CPU in the open until a signal ends it.
-fn never_fifo(dir: &Path) -> PathBuf {
+pub(crate) fn never_fifo(dir: &Path) -> PathBuf {
     let never = dir.join("never");
     assert!(Command::new("/usr/bin/mkfifo")
         .arg(&never)
