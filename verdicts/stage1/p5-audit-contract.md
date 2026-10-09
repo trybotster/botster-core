@@ -431,3 +431,23 @@ This reviewer ran no build, test or gate.
 - P5 package CLEAN at this head: `6f9ccf4`. The merge rules of rounds 11-13 stand for the v1 merge after #167.
 
 VERDICT: CLEAN (0 open) at e1624ca1b35d53b5ce00ee7a4092950219165348
+
+## Round 15 — CLEAN on merge head 152dbb07 (v1 d1d18f4a merged, after #167)
+
+Reviewed head: `152dbb07891b362935048533f406cc3bf26f86d4`. Parents: `e1624ca1` (round 14 CLEAN) and v1
+`d1d18f4aeba717d2dec2708024c77f55e3ee35ef` (current `origin/v1` at review time). This reviewer ran no build, test or gate.
+
+- A trial merge (`git merge-tree --write-tree e1624ca1 d1d18f4a`, tree `610160f8`) conflicts only in
+  `.cargo/mutants.toml` and `xtask/src/test_budget.rs`. The head tree differs from the trial tree only by the 6 conflict
+  marker lines and v1's second `const SLOW_FILTER` line. So every auto-merged file is the trial result.
+- `xtask/src/test_budget.rs`: one `SLOW_FILTER`, with #167's value `binary(/^slow/) | test(/(^|::)slow_/)`, kept `pub`.
+  The diff against v1 is only that `pub`. The one use (`selection`) and the selection test string are v1's.
+- `.cargo/mutants.toml`: the diff against v1 is exactly #164's reviewed changes (RealEdges::diagnostics, the storage
+  comment and the descriptor-walk entries, the `driver.rs` HostEdges::diagnostics entry and its argument, the removed
+  `FileStorage::path` and `read_file` entries). The diff against `e1624ca1` is exactly v1's changes (#167's
+  `mutants_job` entry, the Payload::reap and report_exit edits, the removed `check_payload` Focus entry and comment, the
+  payload_size block, the `every_key_state` entries). No entry of either side is lost or duplicated.
+- The merge rules of rounds 11-14 are met. The landing gate (ONE Linux gate, mutants with `NEXTEST_PROFILE=slow` per the
+  lead's ruling) stays owed by the implementer on this exact head.
+
+VERDICT: CLEAN (0 open) at 152dbb07891b362935048533f406cc3bf26f86d4
