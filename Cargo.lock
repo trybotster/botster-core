@@ -370,6 +370,7 @@ name = "botster-core-testkit"
 version = "0.1.0"
 dependencies = [
  "botster-conformance",
+ "botster-core",
  "botster-core-conformance",
  "botster-core-contract",
  "botster-core-edges",
@@ -379,6 +380,7 @@ dependencies = [
  "botster-probe-script",
  "botster-route-codec",
  "botster-terminal-ghostty",
+ "botster-test-process",
  "botster-worker-core",
  "rand_chacha",
  "rand_core",
