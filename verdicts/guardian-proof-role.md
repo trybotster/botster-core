@@ -52,3 +52,25 @@ A body-only correction needs no new head or gate.
 This verdict covers the guardian proof-role delta only. It closes no conformance id or separate P5 adoption proof hold.
 
 VERDICT: NOT CLEAN
+
+
+## PR #180 Round 2 — 2026-10-09
+
+- Exact head: `1fe19991c61c3665f4695ca0c63cbbca09b1f6c6`.
+- Branch: `stage1/p5-guardian-proof-role`.
+- Base: `1832866c0f7787a442dc29745aca27c41162bc2e` on v1.
+- Tree: `63e8d5a0b5d5a1fb419d316cbf721222d5f06cbb`.
+
+### GPR-F1 — CLOSED — The PR body has the required Prior art note
+
+The reviewer read the corrected PR body and verified the unchanged exact head and base.
+The note names the existing host_proof and token_proof functions from botster-core-link.
+The note explains that the existing two roles cover the guardian, so P5 rejected no alternative.
+The note states that the delta adds no hand-rolled piece and preserves the fixed proof rule.
+
+Round 1's source review and exact-head Linux evidence remain valid.
+No review finding remains open in the guardian proof-role delta.
+The reviewer changed no product code and ran no builds, tests, mutation jobs, or gates.
+This verdict closes no conformance id or separate P5 adoption proof hold.
+
+VERDICT: CLEAN
