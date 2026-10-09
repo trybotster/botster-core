@@ -1298,3 +1298,49 @@ B10 closes. One LOW finding remains at this head: B11.
 Wait for READY on the documentation correction.
 
 VERDICT: NOT CLEAN
+
+
+## Round 10 — mutation evidence wording
+
+Implementation head: `2063eace36e48e81e333a333ccf24931564a4f9d`.
+Previous reviewed head: `2383e18636d15970d43892597cffd0bf9612d24a`.
+Integration and full gate base: `cd97009e93c2641843c05bd46793265b3580b2a9`.
+Plan: revisions 23g and 23i, section 8.
+
+The reviewer checked the stated tier first. HIGH remains correct under BUILD.md rules 1 and 3.
+The review covers the B11 correction and the exact-head evidence.
+The reviewer read Git objects and the PR text.
+The reviewer changed no product code and ran no gate, build, test, mutation job, or reversal.
+
+B11 closes. The module documentation, comment in `check`, and PR part 5 now state the actual guarantee.
+Every mutant of the cited decision stays eligible.
+Only mutants recorded as executed in an `--in-diff` run supply mutation evidence.
+The text assigns proof-body assertions and forwarding review to the reviewers.
+It makes no claim that non-exclusion proves execution or test quality.
+The source change consists only of comments in `xtask/src/gate_decisions.rs`.
+Its non-comment lines match the previous reviewed head exactly.
+There is no new merge or other changed path in this delta.
+
+B10 remains closed by the reviewed call-inference removal under 23i.
+Round 7 B5 and integration R7-1 remain closed by the I/O-classification removal under 23g.
+The strict citations, running-proof check, and rejection across same-named excluded functions remain as reviewed.
+The remaining source checks have no delta.
+The mutation configuration, process allowlist, shared process crate, and Prior-art note have no delta.
+No real-process test migration enters this round.
+The group ownership, bounded waits, production reap separation, and contract assertions remain as reviewed.
+No package finding remains in the authorized review scope.
+
+Full Linux log: `~/botster-sessions/gates/botster-core-stage1-p6-ci-checks-2063eace-pool-20261009-161806-17545.log`.
+It names the exact implementation head and base listed above.
+All ten jobs pass. It reports 104 passing conformance tests, 1242 default tests, and 254 slow tests.
+It reports 547 mutants: 518 caught and 29 unviable, with no misses or timeouts.
+The evidence concerns executed diff mutants. It does not imply mutation execution for every listed decision.
+The reviewer claims no new Mac pass and ran no reversal.
+
+This verdict applies to the exact head above.
+At review time, `origin/v1` has moved to `77c4b472626e35052cc6298bb521f1f1e4868c1e`.
+The verdict does not approve a future merge tree or claim a gate over that newer base.
+The lead must apply the base-merge and exact-head gate rules before merge.
+The #184 union and HIGH-path enforcement remain integration work for the next merge.
+
+VERDICT: CLEAN
