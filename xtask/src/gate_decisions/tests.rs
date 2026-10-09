@@ -771,4 +771,10 @@ fn a_macro_is_read_only_when_its_path_is_listed() {
         io("fn qualified() { anyhow::ensure!(true, \"{:?}\", std::fs::read(p)); }\n"),
         BTreeSet::from(["qualified".to_string()])
     );
+    // A bound name is not hidden by a glob, and the nearest `use` binds it (a block's before the file's).
+    assert_eq!(
+        io("use evil::*;\nuse anyhow::bail;\nfn bound() { bail!(\"{:?}\", std::fs::read(p)); }\n\
+            use evil::ensure;\nfn nearest() { use anyhow::ensure; ensure!(true, \"{:?}\", std::fs::read(p)); }\n"),
+        BTreeSet::from(["bound".to_string(), "nearest".to_string()])
+    );
 }
