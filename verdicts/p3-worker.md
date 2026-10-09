@@ -5410,3 +5410,87 @@ The reviewer changed no product code and ran no tests, builds, measurements, mut
 All earlier findings, closures, and verdict rounds remain preserved at their named heads and scopes.
 
 VERDICT: NOT CLEAN
+
+## Round 107 — Final signal guard review under the lead's enforcement ruling
+
+Reviewed head: `0e0becfbe04a4236206fa56402b38d343c062581`, PR #177, branch `stage1/p3-group-signal-guard`.
+Base: `fc23cd9747e64e24f99565543b45ae5f7400a71c`.
+Reviewed delta: the two-file change after `05c70358`, with the whole guard review and #171 merge review from rounds 102–106.
+Authority: BUILD.md, plan r22 pin `~/botster-sessions/pins/stage1-plan.71a623ef.md`, and the lead's signal, G1, and enforcement rulings.
+The pin SHA256 remains `71a623ef93f487754e400dc186429216357e39fe251933675cc7f851843d519d`.
+
+### Enforcement ruling and finding closures
+
+The lead's ruling of 2026-10-09 makes Clippy disallowed-methods the name-resolving authority for signal and clock bans.
+P6 owns the syntax-aware ban on allowance attributes outside specified sites, including expect and blanket allowances.
+P3 owns the follow-up that moves the seventeen clock allowances to one helper per crate, with integration review.
+Each permitted allowance must apply only to its intended operation.
+The follow-up proof must reject a raw signal call inside an otherwise permitted clock-helper scope.
+The lead assigns these changes to follow-up work and forbids further alias, glob, or re-export findings against this token scan.
+This explicit ruling governs this package verdict. The follow-ups remain required work for their owners.
+
+All seven Clippy configuration files ban the three raw Rustix signal methods and both raw libc signal methods.
+The Clippy gate compiles all targets and all features with warnings denied.
+The default configuration test checks all five ban entries in every configuration file.
+The current token scan also recognizes the composed aliases and renamed libc module from round 106.
+It accumulates names until no new alias remains. Each iteration adds only names found in the finite source token tree.
+Its selected safe fixtures cover the prior F56 and L1 examples, import chains, type-alias chains, and libc globs.
+The fixtures execute no signal or external program.
+F56 and integration L1 are CLOSED in this package review at the exact head, under the lead's ruling.
+No further naming finding is raised against the token scan.
+F54 and S1 remain CLOSED.
+
+### Guard, own-group operation, and completed behavior proof
+
+The recorded-target wrappers retain the refusal of 0, 1, values above the pid range, and the caller's own group or process.
+They retain OS errors and preserve errno in conversion to io::Error.
+Production callers retain their identity and live-child conditions before signaling.
+The separate own-group operation takes no recorded target and refuses current group 0 or 1.
+Intentional anchor TERM and reserve-error KILL use it. Reserved cleanup rounds signal from outside the group.
+The changes preserve start-time checks, group checks, the reserve, bounded cleanup, and exact reserve reaping.
+No change transfers production reaping to the anchor.
+
+G1 remains CLOSED. The final slow gate selects and passes the required reserve-failure proof.
+The test waits for EOF before outer cleanup and requires the helper's KILL exit signal.
+The final delta adds an assertion that the helper's group equals its own process identifier before the deliberate group kill.
+This assertion strengthens the already reviewed group isolation and adds no new process fixture or timed loop.
+P6 directly confirmed its owner check of the proof and helper at `05c70358` under the lead's own-crate exception.
+The final delta preserves that proof and changes only the group assertion within its helper.
+The reported red-on-revert result remains recorded in round 106.
+
+F55 remains CLOSED. The SIGURG test waits for the handler's byte on an anonymous socket pair with a marked deadline.
+The final default gate selects and passes it. No polling or sleep returns in this delta.
+The corrupted-row Core test and the pure target, own-group, and error tests retain their reviewed behavior.
+No new package logic finding exists in the final delta or the whole guard change.
+
+### Description and exact-head evidence
+
+The reviewer read the complete final PR description.
+It now states seven configuration files, five banned methods, three guarded calls, and the actual unsafe exception.
+It marks the old G1 proof deferral as superseded and names the lead's enforcement follow-ups and their owners.
+Its gate section names the submitted exact head and completed log.
+The description matches the final source, evidence, scope, and lead rulings.
+
+Exact-head log: `~/botster-sessions/gates/botster-core-stage1-p3-group-signal-guard-0e0becfb-pool-20261009-044148-62086.log`.
+It names this head and base `fc23cd97`.
+All ten full CI steps pass. Signals scan 153 Rust files; timers scan 137.
+The default tier passes 919 tests in 1.602 seconds. The slow tier passes 243 tests in 10.130 seconds.
+Both mutation runs report 76 tested: 73 caught, three unviable, zero missed, and zero timed out.
+The separate mutation run uses `NEXTEST_PROFILE=slow` and has no nextest termination.
+Full CI reports 198.1 seconds. The separate mutation step reports 176.3 seconds.
+The combined job exits 0 after 381 seconds on msa1.
+The final gate selects the G1 proof, signal event test, alias-chain fixture, and existing guard and configuration tests.
+The reviewer read this evidence and ran no gate.
+
+### Verdict and scope
+
+PR #177 is CLEAN at `0e0becfbe04a4236206fa56402b38d343c062581` for the P3 package review.
+F54, F55, F56, G1, S1, and L1 are CLOSED at the named scope and authority.
+The lead's enforcement follow-ups remain assigned work. They do not block #177 under its explicit ruling.
+This verdict covers this exact source head and its completed gate, not a later source or base merge.
+The integration reviewer controls its own verdict.
+PR #168 retains its separate single real-PTY HOLD. Part B retains its earlier open duties.
+The reviewer changed no product code and ran no tests, builds, measurements, mutants, or gates.
+All earlier findings, closures, and verdict rounds remain preserved at their named heads and scopes.
+
+VERDICT: CLEAN
