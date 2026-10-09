@@ -79,3 +79,41 @@ accepted. Round 1 checked only the reasons, not the gate-decisions rule that acc
 
 VERDICT: NOT CLEAN at f5652517262ee7ce6d64b1787d2b02fc28df72ae (1 open here: B7 HIGH, the package reviewer's finding,
 confirmed here; B1 to B6, B8 and B9 are theirs)
+
+## Round 2 — CLEAN on head a4b803e4 (a v1 merge and a full gate are required before merge)
+
+Reviewed head: `a4b803e435553d7e8f9851991515189d62dfe67d`. Delta from round 1 (`f5652517`): two v1 merges (`4f26bc9b` with
+v1 `c869dbea`, `d9dff45c` with v1 `13d7db09`) and the fixes of the P6 package reviewer's B1 to B9.
+
+- **The merges.** Each tree is the tree of `git merge-tree --write-tree` of its parents (`34e8a463` and `2aff1d08`). So the
+  crate changes outside the PR's own files (core-host, core-link, testkit, the Ghostty binding and the contracts pin) are
+  v1's.
+- **B7 closed** (`ac048e17`, `botster-test-process`, this reviewer's scope). `run_to_completion` starts the tool with
+  `OwnedChild::spawn_group`. In group mode, `exit_by` does not reap the leader and does not set `status`, so the drop's
+  `end()` runs `end_members` over the whole group on every path, also after a successful exit. The real test
+  `a_child_that_the_tool_leaves_is_ended_when_the_run_returns` has a FIFO-blocked `cat` that holds a watched pipe. In the
+  "done" case the run succeeds, and in the "late" case it fails `TimedOut`. Both then see the pipe's end of file, so the
+  `cat` is gone. With `OwnedChild::spawn`, that end of file never comes. `read.rs` only removes `buffered()` (its last user
+  was the old error text), and its test now reads the second reader's bytes back.
+- **B1 to B6, B8, B9** are in the xtask checks and are the package reviewer's. `.cargo/mutants.toml` and the `.config` files
+  do not change after round 1, so the stricter gate-decisions rule (B5) accepts the exclusions that round 1 read.
+- **The gate log** (`…-a4b803e4-pool-20261009-084712-58261.log`) names the head. Its base line says `aaac0c0d`, but the
+  head's tree contains v1 only to `13d7db09`. The default tier runs 1006 tests and the slow tier 248, all pass. The mutants
+  step reports 549 caught, 0 missed, 0 timeout and 25 unviable. Exit 0.
+
+Observation (not counted): the new test clears close-on-exec on the pipe writer. Under nextest (one test per process) no
+other spawn inherits it. Under `cargo test` (threads in one process), a concurrent spawn in the same binary could inherit
+the writer and delay the end of file until its deadline.
+
+**Condition** (unchanged from round 1, and more needed now): v1 is `a14e9dc2`, which adds #182, #183, #185 and #186 after
+this head's base. #186 changes `crates/botster-core-sys/tests/common/guard_platform.rs`, which is real-process test code
+that the new process-check and timers read. So the v1 merge needs base-merge-check AND a full gate on the merge commit.
+If #184 merges first, the union resolution of `taint_job`, `COMMANDS` and `.cargo/mutants.toml` also needs this reviewer.
+
+### Carry (not counted)
+
+The attribute ban (`allow(clippy::disallowed_methods)` outside `.config/allow-attributes.txt`) stays with P6's next PR
+(the lead's #177 decision).
+
+VERDICT: CLEAN (0 open) at a4b803e435553d7e8f9851991515189d62dfe67d (the carry-over to a v1 merge needs base-merge-check
+and a full gate on that merge)
