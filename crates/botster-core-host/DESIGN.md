@@ -182,7 +182,7 @@ second `Launch` for a launch that already happened.
 | `Starting` | `LaunchFailed` | The ordinary failed-launch outcome, as above. |
 | `Stopping` | `NotLaunched` or `LaunchFailed` | `Exited{cause: HostStop}`, with no code and no signal: nothing runs, and the stop needs nothing. No `Launch` is sent. |
 | `Stopping` | `Spawning` | The stop is sent; the worker applies it to the spawn's result (it does this today for an early stop). |
-| `Running` or `Exited` | `NotLaunched` or `Spawning` | `Lost(Other)`: defensive; it cannot happen under AD-7 (those rows are written after `Launched`), and it needs no transcript. |
+| `Running` or `Exited` | `NotLaunched` or `Spawning` | `Lost(RegistryCorrupt)`: the worker is authenticated (AD-6), so the durable row is the wrong record, which is a corrupt registry record although its bytes decode (R-35 correction, contracts `main` `c3ed727`). Defensive: it cannot happen under AD-7 (those rows are written after `Launched`), and it needs no transcript. |
 
 - **Steward ruling R-35** (contracts `main` `f969f5e`; no amendment) settles this table. The code cites R-35.
 - **A retry keeps the intent** (P5-F22, round 2). An adoption that ends `Lost(WorkerUnreachable)` or
@@ -196,8 +196,10 @@ second `Launch` for a launch that already happened.
   - a `Lost(WorkerGone)` or `Lost(RegistryCorrupt)` row is not adoptable (AD-2), so the retry rule does not apply to it.
   - Test: a `Starting` row whose first attempt sent the `Launch` and then lost the link; the retry adopts with no second
     `Launch`. A `Stopping` row whose first attempt was lost; the retry ends `Exited{cause: HostStop}` with no `Launch`.
-- P1's placeholder `Lost(Other)` for every decodable row is replaced by this per-state adoption. After it, `Lost(Other)`
-  remains only in the last row above and in other paths that the contract names.
+- **Core never posts `Lost(Other)`** (R-35 correction: AD-2 names `Other` only as the value a host maps an unknown reason
+  to). Every `Lost` that Core posts carries a listed AD-2 reason. P1's placeholder `Lost(Other)` for every decodable row
+  violates AD-1, and this per-state adoption replaces it. The PR lists every Core-side construction of `Lost(Other)` in the
+  workspace, with its fix (the pattern rule).
 - The worker's orphan deadline covers every crash point: the worker gets `startup` at its launch (`--startup-ms`, part 1),
   before any `Launch`.
 - Tests (R-35), through the process edge's script point between AD-7 steps 3 and 4, as proofs of
