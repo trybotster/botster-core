@@ -280,7 +280,9 @@ exclude_re = [
     'crates/botster-core-host/src/run\.rs:\d+:\d+: replace match guard s\.queue\.iter\(\)\.any\(\|f\| matches!\(f, Flow::Start\(_\)\)\) with false in HostEngine::stop_all_start$',
     # payload_size (A3): `limit / times` is only where the key search may stop. With any stop limit at or over it, a key
     # within the limit gets the same size (its search never stops early), and a key over the limit stays over it, so it is
-    # `PayloadTooLarge` either way. Only the cost of the search and the size quoted in the error's detail differ.
+    # `PayloadTooLarge` either way. Only the cost of the search and the size quoted in the error's detail differ, and the
+    # detail is not behavior: Core 9.3, "The code is the contract; the detail is for humans" (core-contract-v1.17.md:318).
+    # `limit / times` is defined: the argument check refuses a repeat of 0 before the size is computed (admit.rs:326).
     'crates/botster-core-host/src/admit\.rs:\d+:\d+: replace / with \* in HostEngine::payload_size$',
     # botster-terminal-ghostty (review finding P39). Each entry names one function and the mutation that cannot change
     # behavior, with the argument; every other mutant of the crate is caught by a test.
@@ -304,7 +306,9 @@ exclude_re = [
     # every_key_state (A3): `!= 0` to `== 0` inverts every key-mode bit, which maps the 64 key-mode combinations onto
     # themselves: the same states in another order. The kitty part is unchanged, so every state still appears once and the
     # text states still come first in each run of 32 (the_key_states_are_every_combination_once_with_the_text_states_first).
-    # The order changes only which length over the limit the search stops at, never whether a key is over it.
+    # The order changes only which length over the limit the search stops at, never whether a key is over it: the code
+    # stays `PayloadTooLarge`, and only the size in its detail can differ (Core 9.3, "The code is the contract; the detail
+    # is for humans", core-contract-v1.17.md:318).
     'crates/botster-terminal-ghostty/src/encode\.rs:\d+:\d+: replace != with == in EncoderState::every_key_state$',
     # set_query_request_limit_default: the library's own default (terminal.zig `default_query_max_bytes`) is 4096, the
     # value that this call sets (`DEFAULT_QUERY_REQUEST_BYTES`, `CoreLimits.max_query_bytes`, tested). Skipping the call
