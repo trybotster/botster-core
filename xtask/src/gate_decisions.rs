@@ -8,8 +8,11 @@
 //!
 //! An exclusion that covers a mutant of xtask function F passes only when all of these hold (#181 B5):
 //! - the mutant replaces the whole body of F (genre `FnValue`): an operator or a match-arm mutant is a decision mutant;
-//! - F does process, file or signal I/O itself (it starts a process, reads or writes a file, sends a signal, or runs an
-//!   xtask command), so F is an I/O shell: a function without I/O is a decision, also when it only forwards to another;
+//! - F does I/O, so F is an I/O shell: a call of F resolves, through the `use` declarations in its scope, to a function
+//!   of `std::fs` or `std::env`, to `std::process::Command::new`, to a signal of `botster_core_sys::signal`, to
+//!   `botster_test_process::run_to_completion`, or to an xtask function that does I/O. A name alone is not I/O: a
+//!   parameter named `write` and a method named `status` are not. A function without I/O is a decision, also when it
+//!   only forwards to another;
 //! - its reason names a function D of the xtask that F calls, that a test calls, and that no exclusion covers.
 //!
 //! The check reads the calls from the syntax of the xtask. Every other exclusion of an xtask mutant fails, a glob or an
@@ -48,30 +51,31 @@ pub struct Exclusion {
     pub reason: String,
 }
 
-/// The path calls that do process, file or signal I/O (`std::fs::write(..)`, `signal_group(..)`), by their last segment.
-const IO_CALLS: [&str; 11] = [
-    "read_to_string",
-    "write",
-    "create_dir_all",
-    "remove_file",
-    "remove_dir_all",
-    "read_dir",
-    "copy",
-    "rename",
-    "signal_group",
-    "signal_process",
-    "run_to_completion",
+/// The modules whose every function does I/O: the file system and the environment of the process. A call does I/O by
+/// the full path that it resolves to through the `use` declarations in its scope; a name alone (a parameter `write`, a
+/// method `status`) does not (#181 B5 round 2).
+const IO_MODULES: [&[&str]; 2] = [&["std", "fs"], &["std", "env"]];
+
+/// The functions that do I/O, by their full path: the start of a process command, a signal, and the bounded run of a tool.
+const IO_FUNCTIONS: [&[&str]; 5] = [
+    &["std", "process", "Command", "new"],
+    &["botster_core_sys", "signal", "signal_group"],
+    &["botster_core_sys", "signal", "signal_process"],
+    &["botster_core_sys", "signal", "signal_own_group"],
+    &["botster_test_process", "run_to_completion"],
 ];
 
-/// The method calls that start a process (`Command::status`, `output`, `spawn`) or probe the file system
-/// (`Path::is_file`, `is_dir`, `exists`).
-const IO_METHODS: [&str; 6] = ["status", "output", "spawn", "is_file", "is_dir", "exists"];
-
-/// The modules whose every path call is I/O: the environment of the process (`std::env::args`) and the file system.
-const IO_MODULES: [&str; 2] = ["env", "fs"];
-
-/// A path call: the module segment before the name, if any, and the name.
-type PathCall = (Option<String>, String);
+/// Whether a call of the resolved path `path` does I/O: a function of an `IO_MODULES` module, or an `IO_FUNCTIONS` function.
+fn io_path(path: &[String]) -> bool {
+    // The callers compare the lengths first, so `zip` reads every segment of `want`.
+    let starts = |want: &[&str]| path.iter().zip(want).all(|(segment, want)| segment == want);
+    IO_FUNCTIONS
+        .iter()
+        .any(|function| path.len() == function.len() && starts(function))
+        || IO_MODULES
+            .iter()
+            .any(|module| path.len() > module.len() && starts(module))
+}
 
 /// The calls of the xtask, from its syntax: what each function calls, by file and name, what the tests call, and which
 /// functions do I/O themselves.
@@ -79,11 +83,11 @@ type PathCall = (Option<String>, String);
 pub struct Calls {
     by_function: BTreeMap<(String, String), BTreeSet<String>>,
     tested: BTreeSet<String>,
-    /// The path calls of each function, by file and name, as (the module segment before the name, if any; the name). A
+    /// The path calls of each function, by file and name, each resolved through the `use` declarations in its scope. A
     /// call of a local binding (a parameter, a closure) is not among them.
-    paths: BTreeMap<(String, String), BTreeSet<PathCall>>,
-    /// The functions, by file and name, that do I/O: an I/O call (`IO_CALLS`, `IO_METHODS`), an xtask command run by its
-    /// module path (`taint::command(..)`), or a path call of an xtask function that does I/O (`tools::run(..)`).
+    paths: BTreeMap<(String, String), BTreeSet<Vec<String>>>,
+    /// The functions, by file and name, that do I/O: a call that resolves to an I/O path (`io_path`), or to an xtask
+    /// function that does I/O (`callees`).
     io: BTreeSet<(String, String)>,
 }
 
@@ -102,6 +106,7 @@ impl Calls {
                 calls: &mut calls,
                 function: Vec::new(),
                 locals: Vec::new(),
+                scopes: vec![crate::process_check::Uses::of(&parsed.items, true)],
                 test: false,
             };
             index.visit_file(&parsed);
@@ -114,9 +119,9 @@ impl Calls {
                 .iter()
                 .filter(|(function, paths)| {
                     !calls.io.contains(*function)
-                        && paths.iter().any(|(module, name)| {
+                        && paths.iter().any(|path| {
                             calls
-                                .callees(&function.0, module.as_deref(), name)
+                                .callees(&function.0, path)
                                 .iter()
                                 .any(|callee| calls.io.contains(callee))
                         })
@@ -131,24 +136,23 @@ impl Calls {
         Ok(calls)
     }
 
-    /// The xtask functions that a path call in `file` names: with a module segment `m`, the function of `xtask/src/m.rs`
-    /// or `xtask/src/m/mod.rs` (`self`, `Self`: of `file`); without one (or with `crate` or `super`), the function of
-    /// `file` with that name, else each function of the xtask with that name.
-    fn callees(&self, file: &str, module: Option<&str>, name: &str) -> Vec<(String, String)> {
+    /// The xtask functions that a resolved path call in `file` names. `crate::m::f` and `m::f` name the `f` of
+    /// `xtask/src/m.rs` or `xtask/src/m/mod.rs` (`crate::a::b::f`: of `a/b.rs`), `Self::f` the `f` of `file`, and a plain
+    /// `f` (also `crate::f`) the `f` of `file`, else each `f` of the xtask. A path of another crate names none.
+    fn callees(&self, file: &str, path: &[String]) -> Vec<(String, String)> {
+        let path = match path.split_first() {
+            Some((first, rest)) if first == "crate" => rest,
+            _ => path,
+        };
+        let Some((name, modules)) = path.split_last() else {
+            return Vec::new();
+        };
         let known = |file: &str| {
-            let key = (file.to_string(), name.to_string());
+            let key = (file.to_string(), name.clone());
             self.by_function.contains_key(&key).then_some(key)
         };
-        match module {
-            Some("self" | "Self") => known(file).into_iter().collect(),
-            Some(module) if module != "crate" && module != "super" => [
-                format!("xtask/src/{module}.rs"),
-                format!("xtask/src/{module}/mod.rs"),
-            ]
-            .iter()
-            .filter_map(|file| known(file))
-            .collect(),
-            _ => known(file).map_or_else(
+        match modules {
+            [] => known(file).map_or_else(
                 || {
                     self.by_function
                         .keys()
@@ -158,6 +162,17 @@ impl Calls {
                 },
                 |key| vec![key],
             ),
+            [only] if only == "Self" => known(file).into_iter().collect(),
+            _ => {
+                let dir = modules.join("/");
+                [
+                    format!("xtask/src/{dir}.rs"),
+                    format!("xtask/src/{dir}/mod.rs"),
+                ]
+                .iter()
+                .filter_map(|file| known(file))
+                .collect()
+            }
         }
     }
 
@@ -174,6 +189,8 @@ struct Index<'a> {
     function: Vec<String>,
     /// The names that the function being read binds (parameters, `let`, patterns, closure parameters), innermost last.
     locals: Vec<BTreeSet<String>>,
+    /// The `use` scopes around the current code, the file's own first.
+    scopes: Vec<crate::process_check::Uses>,
     test: bool,
 }
 
@@ -225,20 +242,40 @@ impl Index<'_> {
         }
     }
 
-    /// Records a path call of the current function, unless it calls a local binding.
+    /// Records a path call of the current function, resolved through the `use` scopes: an I/O call marks the function,
+    /// another call is kept for `callees`. A call of a local binding (a parameter `write`, a closure) is neither.
     fn path_call(&mut self, path: &syn::Path) {
         let segments: Vec<String> = path.segments.iter().map(|s| s.ident.to_string()).collect();
-        let Some((name, before)) = segments.split_last() else {
-            return;
+        let local = match &segments[..] {
+            [name] => self.locals.last().is_some_and(|l| l.contains(name)),
+            _ => false,
         };
-        let local = before.is_empty() && self.locals.last().is_some_and(|l| l.contains(name));
-        if let (Some(function), false) = (self.function.last(), local) {
+        if local {
+            return;
+        }
+        let resolved = crate::process_check::resolve(&self.scopes, &segments);
+        if io_path(&resolved) {
+            self.io();
+        } else if let Some(function) = self.function.last() {
             self.calls
                 .paths
                 .entry((self.file.to_string(), function.clone()))
                 .or_default()
-                .insert((before.last().cloned(), name.clone()));
+                .insert(resolved);
         }
+    }
+
+    /// Visits code inside the `use` scope of `items`.
+    fn with_uses<'a>(
+        &mut self,
+        items: impl IntoIterator<Item = &'a syn::Item>,
+        module: bool,
+        visit: impl FnOnce(&mut Self),
+    ) {
+        self.scopes
+            .push(crate::process_check::Uses::of(items, module));
+        visit(self);
+        self.scopes.pop();
     }
 
     fn function(
@@ -267,8 +304,21 @@ impl<'ast> Visit<'ast> for Index<'_> {
     fn visit_item_mod(&mut self, item: &'ast syn::ItemMod) {
         let was = self.test;
         self.test |= is_test(&item.attrs);
-        syn::visit::visit_item_mod(self, item);
+        match &item.content {
+            Some((_, items)) => self.with_uses(items, true, |index| {
+                syn::visit::visit_item_mod(index, item);
+            }),
+            None => syn::visit::visit_item_mod(self, item),
+        }
         self.test = was;
+    }
+
+    fn visit_block(&mut self, block: &'ast syn::Block) {
+        let items = block.stmts.iter().filter_map(|stmt| match stmt {
+            syn::Stmt::Item(item) => Some(item),
+            _ => None,
+        });
+        self.with_uses(items, false, |index| syn::visit::visit_block(index, block));
     }
 
     fn visit_item_fn(&mut self, item: &'ast syn::ItemFn) {
@@ -290,18 +340,7 @@ impl<'ast> Visit<'ast> for Index<'_> {
     fn visit_expr_call(&mut self, call: &'ast syn::ExprCall) {
         if let syn::Expr::Path(path) = &*call.func {
             if let Some(last) = path.path.segments.last() {
-                let name = last.ident.to_string();
-                let segments = &path.path.segments;
-                let module = segments
-                    .len()
-                    .checked_sub(2)
-                    .map(|at| segments[at].ident.to_string());
-                let command = name == "command" && segments.len() == 2;
-                let io_module = module.is_some_and(|m| IO_MODULES.contains(&m.as_str()));
-                if command || io_module || IO_CALLS.contains(&name.as_str()) {
-                    self.io();
-                }
-                self.called(name);
+                self.called(last.ident.to_string());
                 self.path_call(&path.path);
             }
         }
@@ -309,9 +348,6 @@ impl<'ast> Visit<'ast> for Index<'_> {
     }
 
     fn visit_expr_method_call(&mut self, call: &'ast syn::ExprMethodCall) {
-        if IO_METHODS.contains(&call.method.to_string().as_str()) {
-            self.io();
-        }
         self.called(call.method.to_string());
         syn::visit::visit_expr_method_call(self, call);
     }
