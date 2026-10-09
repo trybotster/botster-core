@@ -22,7 +22,9 @@ use botster_core_edges::{Link, Machine, Program};
 use botster_core_host::driver::{HostDriver, HostWake, WorkerSpawn};
 use botster_core_link::msg::PayloadId;
 use botster_route_codec::prelude::QueryKind;
-use botster_worker_core::{Action, Drain, Input, PayloadSpec, SpawnFailure, Worker, WorkerConfig};
+use botster_worker_core::{
+    Action, CandidateId, Drain, Input, PayloadSpec, SpawnFailure, Worker, WorkerConfig,
+};
 use std::collections::{BTreeMap, VecDeque};
 use std::io;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
@@ -110,6 +112,9 @@ impl Pids {
 /// directory only (each directory mints its own), so the directory is part of the name.
 type WorkerKey = (String, InstanceId);
 
+/// The connections that wait on one worker endpoint, oldest first (DESIGN.md part 6).
+type Endpoint = Arc<Mutex<VecDeque<LinkEnd>>>;
+
 /// The `Sim` of one harness: every in-process worker of every handle (plan 4.1: "a `Sim` owns ... every `Worker`").
 #[derive(Clone)]
 pub struct Workers {
@@ -124,6 +129,9 @@ pub struct Workers {
     sessions: Arc<Mutex<BTreeMap<String, BTreeMap<SessionId, WorkerKey>>>>,
     /// The worker process of each session instance, for the process controls.
     worker_processes: Arc<Mutex<BTreeMap<WorkerKey, WorkerProcess>>>,
+    /// The endpoint of each live worker of the run (DESIGN.md parts 1, 6): bound at the spawn, before the first hello, and
+    /// gone when the worker ends. Every handle of the run reaches it, as a path in one file system.
+    endpoints: Arc<Mutex<BTreeMap<WorkerKey, Endpoint>>>,
 }
 
 impl std::fmt::Debug for Workers {
@@ -159,6 +167,7 @@ impl Workers {
             programs: Arc::default(),
             sessions: Arc::default(),
             worker_processes: Arc::default(),
+            endpoints: Arc::default(),
         }
     }
 
@@ -276,6 +285,8 @@ impl Spawner for WorkerSpawner {
         );
         lock(&self.workers.run_processes)
             .insert(id, (Arc::clone(&cell), Arc::clone(&self.processes)));
+        let endpoint = Endpoint::default();
+        lock(&self.workers.endpoints).insert(key.clone(), Arc::clone(&endpoint));
         let link = connect();
         let worker = Worker::new(WorkerConfig::new(
             spec.instance.clone(),
@@ -303,6 +314,10 @@ impl Spawner for WorkerSpawner {
             drain: None,
             ready: Vec::new(),
             read_chunk: self.workers.read_chunk,
+            endpoint,
+            endpoints: Arc::clone(&self.workers.endpoints),
+            candidates: BTreeMap::new(),
+            next_candidate: 0,
         };
         let mut worker = worker;
         let mut sim = lock(&self.workers.sim);
@@ -351,6 +366,16 @@ impl Spawner for WorkerSpawner {
     fn poll_exit(&mut self) -> Option<(ProcessIdentity, ExitStatus)> {
         lock(&self.processes).exits.pop_front()
     }
+
+    /// A worker of this data directory that lives listens on its endpoint.
+    fn connect_worker(&mut self, instance: &InstanceId, end: LinkEnd) -> bool {
+        let key: WorkerKey = (self.data_dir.clone(), instance.clone());
+        let Some(endpoint) = lock(&self.workers.endpoints).get(&key).cloned() else {
+            return false;
+        };
+        lock(&endpoint).push_back(end);
+        true
+    }
 }
 
 /// One ready input of a worker, in the order of plan 2.4: control first, then the payload.
@@ -362,6 +387,10 @@ enum Ready {
     Terminate,
     /// The link has bytes, or its peer closed it.
     Link,
+    /// A connection waits on the endpoint.
+    Accept,
+    /// A candidate has bytes, or its peer closed it.
+    Candidate(CandidateId),
     /// The link takes bytes and some of `outbound` waits for it.
     Flush,
     Spawned,
@@ -410,10 +439,17 @@ struct WorkerEdges {
     /// The inputs counted by the last `ready`.
     ready: Vec<Ready>,
     read_chunk: usize,
+    /// This worker's endpoint, and the run's table of endpoints (the worker's end removes its own).
+    endpoint: Endpoint,
+    endpoints: Arc<Mutex<BTreeMap<WorkerKey, Endpoint>>>,
+    /// The accepted connections whose hello has not passed.
+    candidates: BTreeMap<CandidateId, LinkEnd>,
+    next_candidate: u64,
 }
 
 impl WorkerEdges {
-    /// The end of the worker process: the OS closes its descriptors, so its link closes, and its payload's PTY is gone.
+    /// The end of the worker process: the OS closes its descriptors, so its link, its endpoint and every connection on it
+    /// close, and its payload's PTY is gone.
     fn ended(&mut self) {
         if self.link_open {
             self.link_open = false;
@@ -421,6 +457,13 @@ impl WorkerEdges {
         }
         self.outbound.clear();
         self.payload = None;
+        lock(&self.endpoints).remove(&self.key);
+        for mut end in std::mem::take(&mut *lock(&self.endpoint)) {
+            end.close();
+        }
+        for (_, mut end) in std::mem::take(&mut self.candidates) {
+            end.close();
+        }
     }
 
     fn spawn_payload(&mut self, spec: &PayloadSpec) -> Result<PayloadId, SpawnFailure> {
@@ -510,6 +553,18 @@ impl Binding<Worker> for WorkerEdges {
                 self.ready.push(Ready::Flush);
             }
         }
+        if !lock(&self.endpoint).is_empty() {
+            self.ready.push(Ready::Accept);
+        }
+        for (id, end) in &mut self.candidates {
+            end.end().set_interest(Interest {
+                read: true,
+                write: false,
+            });
+            if end.end().readiness().readable {
+                self.ready.push(Ready::Candidate(*id));
+            }
+        }
         if self.pty_write.is_some() && self.spawned.is_none() {
             self.ready.push(Ready::PtyWrite);
         }
@@ -566,6 +621,29 @@ impl Binding<Worker> for WorkerEdges {
                 }
             }
             Ready::Flush => self.flush(),
+            Ready::Accept => {
+                let end = lock(&self.endpoint).pop_front().expect("counted as ready");
+                self.next_candidate += 1;
+                let id = CandidateId(self.next_candidate);
+                self.candidates.insert(id, end);
+                Input::Candidate(id)
+            }
+            Ready::Candidate(id) => {
+                let end = self.candidates.get_mut(&id).expect("counted as ready");
+                let mut buf = vec![0u8; self.read_chunk];
+                match end.recv(&mut buf) {
+                    Ok(n) if n > 0 => {
+                        buf.truncate(n);
+                        Input::CandidateBytes(id, buf)
+                    }
+                    _ => {
+                        if let Some(mut end) = self.candidates.remove(&id) {
+                            end.close();
+                        }
+                        Input::CandidateClosed(id)
+                    }
+                }
+            }
             Ready::Spawned => Input::Spawned(self.spawned.take().expect("counted as ready")),
             Ready::PtyWrite => {
                 let bytes = self.pty_write.take().expect("counted as ready");
@@ -648,9 +726,26 @@ impl Binding<Worker> for WorkerEdges {
                 lock(&self.processes).end(self.id, ExitStatus::Code(0));
                 self.ended();
             }
-            // The `Sim`'s worker endpoints come after `botster-test-process` (#171; DESIGN.md part 6). Until then this
-            // driver gives no `Input::Candidate`, so the machine names no candidate.
-            Action::CandidateClose(_) | Action::AdoptLink(_) => {}
+            Action::CandidateClose(id) => {
+                if let Some(mut end) = self.candidates.remove(&id) {
+                    end.close();
+                }
+            }
+            // The fence (DP-8): the old link closes with its unwritten bytes, and the candidate is the link from now on.
+            Action::AdoptLink(id) => {
+                if self.link_open {
+                    self.link.close();
+                }
+                self.outbound.clear();
+                self.written = 0;
+                self.link_broken = false;
+                // The machine adopts a candidate in the input that gave its hello, so the candidate is still here.
+                self.link = self
+                    .candidates
+                    .remove(&id)
+                    .expect("the machine adopts only a candidate that it holds");
+                self.link_open = true;
+            }
         }
     }
 }
