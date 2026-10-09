@@ -413,3 +413,27 @@ The complete delta changes no product code, gate command, or acceptance requirem
 `git diff --check` passes. No execution gate applies to this documentation-only delta.
 
 VERDICT: NOT CLEAN (2 open) at 83b2afcc1cc7a785e1459eb65a5820f9e1f1d169
+
+## Round 12 — revision 23j correction — CLEAN
+
+Reviewed head: `96c5537660230687c645198894b574caa186622b`.
+Previous reviewed head: `83b2afcc1cc7a785e1459eb65a5820f9e1f1d169`.
+The reviewer read the complete one-file correction and the cited ruling sources.
+The reviewer changed no product code and ran no builds, tests, mutation jobs, or gates.
+
+R11-1 is closed. The Joint manifest row now pins final36 at `01814c0e1e34ef4336bb62a2d8e9862dcd740cd8`.
+The row retains final35 as history.
+R-41 has a fixed source at `c2a04f8`; R-42 has a fixed source at `c2df50c`.
+Both sources contain the named ruling. The latter also contains the corrected impostor_worker control description.
+The fixed sources resolve the input ambiguity without another crate pin change.
+
+R11-2 is closed. Section 6.1 now lists P5 with 59 IDs and the active total as 677.
+The total's arithmetic includes the four A18 IDs.
+Section 1 also states 677 active IDs out of 679, after two withdrawals. Risk R4 uses 677.
+The clause lists, owner rules, and minimum list remain unchanged from Round 11's verified data.
+
+The correction changes no acceptance requirement or gate command.
+The fetched plan ref names the reviewed head. `git diff --check` passes.
+No execution gate applies to this documentation-only correction.
+
+VERDICT: CLEAN (0 open) at 96c5537660230687c645198894b574caa186622b
