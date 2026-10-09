@@ -406,6 +406,7 @@ fn a_program_edge_control_concurrent_with_the_process_end_does_not_deadlock() {
         let mut owner = lock(&processes);
         held_tx.send(()).unwrap();
         // The control thread reaches the cell and then waits for the owner while this thread holds it.
+        // timer: deadline — bounds how long the owner is held before the end, so the control reaches the cell first.
         thread::sleep(Duration::from_millis(50));
         owner.end(id, ExitStatus::Signal(9));
         drop(owner);
@@ -422,6 +423,7 @@ fn a_program_edge_control_concurrent_with_the_process_end_does_not_deadlock() {
     for _ in 0..2 {
         done.push(
             done_rx
+                // timer: deadline — bounds the wait, so a lock-order deadlock fails the test and does not hang it.
                 .recv_timeout(Duration::from_secs(10))
                 .expect("the control and the end finish: no lock-order deadlock"),
         );
