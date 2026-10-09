@@ -331,13 +331,14 @@ mod mac;
 #[path = \"mac/inner.rs\"]
 mod also;
 ";
+    // The files of the leaves come first: the rescue of `leaf.rs` takes a second round.
     let files = [
+        ("src/mac/inner/leaf.rs", "fn e() -> u8 { 5 }\n"),
+        ("src/mac/inner.rs", "mod leaf;\nfn d() -> u8 { 4 }\n"),
         ("src/lib.rs", lib),
         ("src/shared.rs", "mod nested;\nfn a() -> u8 { 1 }\n"),
         ("src/shared/nested.rs", "fn b() -> u8 { 2 }\n"),
         ("src/mac.rs", "mod inner;\nmod only;\nfn c() -> u8 { 3 }\n"),
-        ("src/mac/inner.rs", "mod leaf;\nfn d() -> u8 { 4 }\n"),
-        ("src/mac/inner/leaf.rs", "fn e() -> u8 { 5 }\n"),
         ("src/mac/only.rs", "fn f() -> u8 { 6 }\n"),
     ];
     assert_eq!(

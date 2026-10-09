@@ -606,6 +606,10 @@ fn a_use_chain_resolves_within_its_scopes() {
             vec![(4, "t".into(), "sleep")],
         ),
         (
+            "use std::thread as th;\nmod m {\n    use super::th as t2;\n    fn t() { t2::sleep(d); }\n}\n",
+            vec![(4, "t".into(), "sleep")],
+        ),
+        (
             "use std::thread as th;\nuse th::*;\nfn t() { sleep(d); }\n",
             vec![(3, "t".into(), "sleep")],
         ),

@@ -305,7 +305,8 @@ pub fn exclusions(files: &[(String, String)], os: &str) -> Result<Vec<String>, V
             .any(|m| path == m || (m.ends_with('/') && path.starts_with(m.as_str())))
     };
     let mut compiled: BTreeSet<&str> = BTreeSet::new();
-    loop {
+    // Each round adds a file or ends the search, so there are at most as many rounds as declarations.
+    for _ in 0..=active.len() {
         let before = compiled.len();
         for (from, to) in &active {
             if !reached(from) || compiled.contains(from) {

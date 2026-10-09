@@ -106,7 +106,8 @@ impl Calls {
             };
             index.visit_file(&parsed);
         }
-        loop {
+        // Each round adds a function or ends the search, so there are at most as many rounds as functions.
+        for _ in 0..=calls.paths.len() {
             let before = calls.io.len();
             let found: Vec<(String, String)> = calls
                 .paths
@@ -124,9 +125,10 @@ impl Calls {
                 .collect();
             calls.io.extend(found);
             if calls.io.len() == before {
-                return Ok(calls);
+                break;
             }
         }
+        Ok(calls)
     }
 
     /// The xtask functions that a path call in `file` names: with a module segment `m`, the function of `xtask/src/m.rs`

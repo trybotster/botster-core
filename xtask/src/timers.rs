@@ -118,7 +118,8 @@ fn timer_aliases(parsed: &syn::File) -> BTreeSet<String> {
     let mut renames = Renames(Vec::new());
     renames.visit_file(parsed);
     let mut aliases = BTreeSet::new();
-    loop {
+    // Each round adds a name or ends the search, so there are at most as many rounds as renames.
+    for _ in 0..=renames.0.len() {
         let before = aliases.len();
         for (name, target) in &renames.0 {
             if TIMERS.contains(&target.as_str()) || aliases.contains(target) {
@@ -126,9 +127,10 @@ fn timer_aliases(parsed: &syn::File) -> BTreeSet<String> {
             }
         }
         if aliases.len() == before {
-            return aliases;
+            break;
         }
     }
+    aliases
 }
 
 /// Whether the timer on line `call` (1-based), in the statement that starts on line `start`, is marked: on a line from
@@ -564,6 +566,10 @@ mod tests {
         let after_string =
             "fn f() {\n    sleep(d); let s = \"a\"; // timer: deadline \u{2014} reason\n}\n";
         assert!(violations(TEST, after_string).is_empty());
+        // A comment that starts where a literal ends is outside it.
+        let at_end =
+            "fn f() {\n    sleep(d); g(\"a\"// timer: deadline \u{2014} reason\n    );\n}\n";
+        assert!(violations(TEST, at_end).is_empty());
     }
 
     /// #181 B4: a reference to a timer is a timer, and so is a `use` rename of one, through a chain of renames.
@@ -575,6 +581,10 @@ mod tests {
         assert!(violations(TEST, marked).is_empty());
         let renamed = "use std::thread::sleep as nap;\nuse nap as rest;\nuse other::f as g;\nfn f() {\n    nap(d);\n    rest(d);\n    m! { a; rest(d); }\n    g(d);\n}\n";
         assert_eq!(violations(TEST, renamed), [5, 6, 7]);
+        // The rename of a rename comes first: the search takes a second round to find it.
+        let reversed =
+            "use nap as rest;\nuse std::thread::sleep as nap;\nfn f() {\n    rest(d);\n}\n";
+        assert_eq!(violations(TEST, reversed), [4]);
     }
 
     /// A `#[cfg(test)]` item of each kind that can hold code makes its timers test timers, which need a marker; the same items

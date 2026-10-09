@@ -406,6 +406,7 @@ fn the_defined_names_are_the_identifiers_of_the_code_and_the_vendored_words() {
              impl S { fn f_method() {} }\ntrait T_trait { fn f_trait_fn(); }\nconst C_CONST: u8 = 0;\n\
              static S_STATIC: u8 = 0;\nstruct S_struct { f_field: u8 }\nenum E_enum { V_variant }\n\
              type T_type = u8;\nmod m_mod {}\nmacro_rules! m_macro { () => {} }\n\
+             #[inline]\nfn f_inline() {}\n\
              fn uses(l: dep_crate::Limits) -> u8 { l.dep_field + l.dep_method() }\n\
              // c_comment\nconst Q: &str = \"s_string\";\n"
                 .to_string(),
@@ -436,6 +437,10 @@ fn the_defined_names_are_the_identifiers_of_the_code_and_the_vendored_words() {
         "v_vendored",
         "not",
         "rust",
+        "dep_crate",
+        "dep_field",
+        "dep_method",
+        "f_inline",
     ] {
         assert!(names.contains(name), "{name}");
     }
