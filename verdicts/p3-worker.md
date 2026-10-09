@@ -5494,3 +5494,85 @@ The reviewer changed no product code and ran no tests, builds, measurements, mut
 All earlier findings, closures, and verdict rounds remain preserved at their named heads and scopes.
 
 VERDICT: CLEAN
+
+## Round 108 — Narrow clock and build allowances
+
+Reviewed head: `770cc9f786222c1dd2a13f6b456e7c9f1fbfea25`, PR #178, branch `stage1/p3-clock-helpers`.
+Base: `da43a1b1f85fd0b62da2e69767fc6ea0ba8cd594`, v1 after #177.
+The reviewer inspected the full fourteen-file diff at `25e1dbe3` and the final W1 correction at this replacement head.
+Authority: BUILD.md, plan r22 pin `~/botster-sessions/pins/stage1-plan.71a623ef.md`, and the lead's #177 enforcement ruling.
+The pin SHA256 remains `71a623ef93f487754e400dc186429216357e39fe251933675cc7f851843d519d`.
+The lead assigned this clock-helper follow-up to P3 and requested this package review.
+
+### Source and allowance scope
+
+The changed test clock sites call helpers that contain only `std::time::Instant::now`.
+Each call still reads the real clock at its original position and passes that value to the same injected clock or pump.
+The helpers introduce no cached time, shared state, lock, extra timer, or loop.
+The host and worker helpers remain in test-only modules.
+The Core unit-test helper requires both test and slow, matching its two slow-test callers.
+The integration-test helper and shared guard helper serve their separately compiled test targets.
+The guardian's existing one-call helper already has the required shape and is unchanged.
+Guard deadlines and platform wait arguments retain the same time calculations and marked deadlines.
+
+Both Core slow-test files lose their file-wide disallowed_methods allowances.
+The testkit loses seven unnecessary allowances. Its own Clippy configuration permits real clocks and bans raw signal methods.
+Removing these allowances restores the signal ban across those test bodies without changing their clock calls.
+The Ghostty build script loses its file-wide allowance.
+Its five wrappers each contain only the intended environment or filesystem call.
+They preserve the original arguments, return values, fallback behavior, and error handling at every call site.
+No build option, output path, package check, or network condition changes.
+
+The reviewer inspected all remaining allowance sites at this exact head.
+They are six clock helpers, five build wrappers, and the three unchanged guarded signal expressions from #177.
+Each current allowance covers only its intended operation.
+The PR's source table matches this inventory.
+No broad file allowance, whole-test allowance, or unnecessary testkit allowance remains in this set.
+No new real-process fixture, raw wait, sleep, polling loop, machine clock read, or gate decision is added.
+The reviewer has no package behavior or allowance-scope finding.
+
+### Integration W1 and assigned enforcement follow-up
+
+The replacement delta adds the slow feature condition to Core's unit-test helper and documents its slow-only use.
+This resolves integration W1: the prior default test build compiled an unused helper and emitted a dead_code warning.
+The final helper's conditions match both lib.rs and real.rs callers.
+The final default build no longer emits that warning.
+The integration reviewer reports CLEAN at this head in verdict `99dca333211faa163d3c7491c388dfbc413fea7a`.
+The package reviewer accepts this correction and keeps the integration identifier.
+
+P6's attribute ban and its red-on-revert fixture remain assigned follow-up work under the lead's ruling.
+They must reject a raw signal call inside an otherwise permitted clock-helper scope.
+This PR supplies the narrow source sites that the check will pin to their intended method.
+The token scan remains in place. Its planned reduction correctly waits for that attribute ban.
+This package verdict does not claim that the pending check has landed.
+
+### Completed evidence
+
+The reviewer read the complete final PR description, including its corrected head, log, and W1 history.
+Exact-head log: `~/botster-sessions/gates/botster-core-stage1-p3-clock-helpers-770cc9f7-pool-20261009-050449-83939.log`.
+It names this head and base `da43a1b1`.
+All ten full CI steps pass, including Clippy with all features, prebuild, and both test tiers.
+Signals scan 153 Rust files. Timers scan 137.
+The default tier passes 919 tests in 1.560 seconds. The slow tier passes 243 tests in 10.119 seconds.
+Both mutation commands explicitly report `INFO No mutants to filter` before the older ambiguous no-outcomes message.
+Every changed logic line belongs to test-only code, an integration test file, or build.rs.
+The reviewer checked cargo-mutants 27.1.0's primary source: it skips cfg(test) nodes and does not discover build-script targets.
+Thus the no-mutant result is consistent with the diff and the actual tool output.
+The reviewer does not infer success from the no-outcomes message alone.
+The separate mutation command uses `NEXTEST_PROFILE=slow`.
+Fuzz reports no changed crate with a decoder harness.
+Full CI reports 25.0 seconds. The separate mutation step reports 0.3 seconds.
+The combined job exits 0 after 31 seconds on msa1.
+
+### Verdict and scope
+
+PR #178 is CLEAN at `770cc9f786222c1dd2a13f6b456e7c9f1fbfea25` for the P3 package review.
+No package finding remains open for this change. Integration W1 is corrected at this head.
+The required P6 attribute check remains outside this PR under the lead's explicit assignment.
+This verdict covers this exact head and completed gate, not a later source or base merge.
+PR #177 remains CLEAN at its named scope and is merged in v1 as the submitted base.
+PR #168 retains its separate single real-PTY HOLD. Part B retains its earlier open duties.
+The reviewer changed no product code and ran no tests, builds, measurements, mutants, or gates.
+All earlier findings, closures, and verdict rounds remain preserved at their named heads and scopes.
+
+VERDICT: CLEAN
