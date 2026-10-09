@@ -5816,3 +5816,78 @@ The reviewer changed no product code and ran no tests, builds, measurements, mut
 All earlier findings, closures, and verdict rounds remain preserved at their named heads and scopes.
 
 VERDICT: NOT CLEAN
+
+## Round 112 — Kernel test documentation and final base merge
+
+Reviewed head: `1a07efc3c54bca0e8e89db1fab21eb746fc0eca7`, PR #186, branch `stage1/p3-kernel-errno`.
+Base: `465978d67ff620cedc21d50a20fc193fb8397e9a`.
+Merge parents: `0f559acd2f0ae714774a4bd0fa42e8043b4f137a` and the base above.
+The reviewer inspected the complete F58 correction, the two-file base change, the final PR diff, and completed evidence.
+Authority: BUILD.md at contracts main 56bd0a5347a537d25bbee65a67854e0e317a9b9a and the lead's process-control-test ruling.
+The reviewer checked the tier first. HIGH remains correct under that ruling.
+HIGH requires package and integration reviews, and every finding must close.
+
+### F58 is CLOSED
+
+The corrected gone_at_open comment explains that /proc lists thread-group IDs but the guard retains only numeric PIDs.
+It states that a parent can reap a listed member and a non-leader thread can reuse its PID before pidfd_open.
+It keeps ENOENT as an error instead of treating it as proof that the member is gone.
+The complete PR description gives the same explanation and removes the claim that ENOENT cannot reach the guard.
+The predicate and executable guard code remain unchanged.
+The documentation correction at 0f559acd changes only the comment after the previously reviewed code head 1bfc6fd3.
+No package finding remains on the test or documentation.
+Round 111's accepted test logic, errno audit, and kernel-source review remain in force.
+
+### Base merge and gate rulings
+
+The gate at 0f559acd failed only at lists because its pending file restored 19 IDs removed from the newer v1 base.
+It stopped after that step and did not count as a full gate.
+P3 then merged v1 465978d6. The base change affects two paths outside this PR's guard-platform path.
+conformance/core-pending.txt removes 19 IDs. worker_transcripts.rs removes three duplicate runs and updates its explanation.
+The conformance harness now covers those three removed runs under the lead's revision 23a rule.
+The reviewer read merged #185's full description and its passing TestkitHarness proof for the 19 removed IDs.
+The reviewed base change introduces no guard or pidfd interaction.
+
+The final description includes the full base-merge-check report.
+It proves forward ancestry, no merge conflict, disjoint base paths, and an identical PR diff.
+The reviewer independently compared the two PR diffs as read-only git output.
+The canonical diff is byte-identical: 4550 bytes, SHA256 `46fe8b56194a9dd543de8fe98cf1007cc79a473141d22e9295c623cd36dabf61`.
+The reviewer inspected the base change because the preceding head had no CLEAN verdict.
+This review does not rely on the after-CLEAN exception to omit a needed delta review.
+
+The lead ruled that comment-only heads have no gate exception. The final head has its own completed full gate.
+The lead also ruled that the kernel proofs at 1bfc6fd3 carry forward because the executable code is unchanged.
+The lead corrected its record: round 111 remains NOT CLEAN, and only its accepted logic and proofs carry forward.
+This round provides the package CLEAN for the final head.
+
+### Completed evidence
+
+Final log: `~/botster-sessions/gates/botster-core-stage1-p3-kernel-errno-1a07efc3-pool-20261009-092248-21180.log`.
+It names this exact head and base. The Linux run uses msa1 with kernel 6.12.111+deb13-amd64.
+All ten CI steps pass. The default tier passes 941 tests in 2.146 seconds.
+The slow tier passes 243 tests in 10.115 seconds, including the renamed pidfd test in all seven binaries.
+Signals scan 153 Rust files. Timers scan 137 Rust files.
+Both mutation commands explicitly report INFO No mutants to filter.
+The PR changes only test code and comments, which supports that result.
+The separate command uses NEXTEST_PROFILE=slow. Fuzz reports no changed crate with a decoder harness.
+Full CI takes 26.4 seconds. Separate mutants take 0.3 seconds. The gate exits 0 after 33 seconds on msa1.
+
+The EINVAL proof at 1bfc6fd3 used the full gate on kernel 6.12.111+deb13-amd64.
+The ENOENT proof at 1bfc6fd3 used the focused slow_process test on gaming, kernel 6.18.40.1-microsoft-standard-WSL2.
+Both completed logs and their scopes remain recorded in round 111 and the final PR description.
+The new final gate also selects and passes the EINVAL test. The earlier ENOENT proof carries forward under the lead's ruling.
+The reviewer read the complete corrected final description, including the head, base, gate, merge-check output, and proof history.
+
+### Verdict and scope
+
+PR #186 is CLEAN at `1a07efc3c54bca0e8e89db1fab21eb746fc0eca7` for the P3 package review.
+F58 is closed. No package finding remains open for this change.
+The integration reviewer controls its own verdict and must cover this final head.
+This package CLEAN covers only this exact head, base, and completed evidence. It covers no later source or base merge.
+#186 had one NOT CLEAN round before this CLEAN. The round-limit notice is not due.
+#184 retains round 110 CLEAN at its exact head and scope.
+#168 retains its separate single planned real-PTY HOLD. Part B retains its earlier open duties.
+The reviewer changed no product code and ran no tests, builds, measurements, mutants, or gates.
+All earlier findings, closures, and verdict rounds remain preserved at their named heads and scopes.
+
+VERDICT: CLEAN
