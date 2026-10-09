@@ -154,28 +154,25 @@ fn anchor_process() {
 fn a_cleanup_that_cannot_finish_fails_through_the_guard() {
     use std::os::unix::process::CommandExt;
     let dir = tempfile::tempdir().unwrap();
-    let never = dir.path().join("never");
-    assert!(Command::new("/usr/bin/mkfifo")
-        .arg(&never)
-        .status()
-        .unwrap()
-        .success());
+    let never = never_fifo(dir.path());
     let guard = GroupGuard::with_cleanup(dir.path(), std::time::Duration::ZERO);
     // The member blocks without CPU on a FIFO that nothing opens for writing, and holds the pipe until it ends.
-    let mut child = Command::new("/bin/sh")
-        .args([
-            "-c",
-            &format!(
-                "{}/bin/echo up; exec /bin/cat {} >/dev/null",
-                guard.prefix(),
-                quoted(&never)
-            ),
-        ])
-        .stdout(Stdio::piped())
-        .process_group(0)
-        .spawn()
-        .unwrap();
-    let pipe = child.stdout.take().unwrap();
+    let mut child = cleanup::Owned(
+        Command::new("/bin/sh")
+            .args([
+                "-c",
+                &format!(
+                    "{}/bin/echo up; exec /bin/cat {} >/dev/null",
+                    guard.prefix(),
+                    quoted(&never)
+                ),
+            ])
+            .stdout(Stdio::piped())
+            .process_group(0)
+            .spawn()
+            .unwrap(),
+    );
+    let pipe = child.0.stdout.take().unwrap();
     let (pipe, line) = first_line(pipe);
     assert_eq!(line, "up\n");
     let failed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || drop(guard)))
@@ -183,7 +180,7 @@ fn a_cleanup_that_cannot_finish_fails_through_the_guard() {
     let report = failed.downcast_ref::<String>().expect("a report").clone();
     assert!(report.contains("members left"), "{report}");
     eof(pipe);
-    child.wait().unwrap();
+    child.status();
 }
 
 /// The first line of `reader`, read with the cleanup deadline.
@@ -315,29 +312,44 @@ fn blocked_parent() {
     worker.wait().unwrap();
 }
 
+/// A FIFO in `dir` that nothing opens for writing: a `/bin/cat` of it blocks without CPU in the open until a signal ends it.
+fn never_fifo(dir: &Path) -> PathBuf {
+    let never = dir.join("never");
+    assert!(Command::new("/usr/bin/mkfifo")
+        .arg(&never)
+        .status()
+        .unwrap()
+        .success());
+    never
+}
+
 /// Panic cleanup starts before any readiness indication exists.
 #[test]
 fn a_panic_before_ready_ends_the_child() {
     use std::os::unix::process::CommandExt;
     let dir = tempfile::tempdir().unwrap();
+    let never = never_fifo(dir.path());
     let guard = GroupGuard::new(dir.path());
-    let mut child = Command::new("/bin/sh")
-        .args([
-            "-c",
-            &format!("{}while :; do /bin/sleep 1; done", guard.prefix()),
-        ])
-        .stdout(Stdio::piped())
-        .process_group(0)
-        .spawn()
-        .unwrap();
-    let pipe = child.stdout.take().unwrap();
+    // The shell and its blocked member both hold the pipe, so EOF proves that every one of them ended.
+    let mut child = cleanup::Owned(
+        Command::new("/bin/sh")
+            .args([
+                "-c",
+                &format!("{}/bin/cat {}", guard.prefix(), quoted(&never)),
+            ])
+            .stdout(Stdio::piped())
+            .process_group(0)
+            .spawn()
+            .unwrap(),
+    );
+    let pipe = child.0.stdout.take().unwrap();
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
         let _guard = guard;
         panic!("the test failed before ready");
     }));
     assert!(result.is_err());
     eof(pipe);
-    assert!(!child.wait().unwrap().success());
+    assert!(!child.status().success());
 }
 
 /// An anchor keeps the group after another owner reaps the leader.
@@ -345,25 +357,28 @@ fn a_panic_before_ready_ends_the_child() {
 fn an_early_exit_keeps_the_group_owned_until_cleanup() {
     use std::os::unix::process::CommandExt;
     let dir = tempfile::tempdir().unwrap();
+    let never = never_fifo(dir.path());
     let guard = GroupGuard::new(dir.path());
-    let mut child = Command::new("/bin/sh")
-        .args([
-            "-c",
-            &format!(
-                "{}(while :; do /bin/sleep 1; done) & echo $!; exit",
-                guard.prefix()
-            ),
-        ])
-        .stdout(Stdio::piped())
-        .process_group(0)
-        .spawn()
-        .unwrap();
-    let group = rustix::process::Pid::from_raw(child.id() as i32).unwrap();
-    let mut pipe = BufReader::new(child.stdout.take().unwrap());
-    let mut descendant = String::new();
-    pipe.read_line(&mut descendant).unwrap();
+    // The leader exits at once; its blocked descendant holds the pipe and the group until the guard ends it.
+    let mut child = cleanup::Owned(
+        Command::new("/bin/sh")
+            .args([
+                "-c",
+                &format!(
+                    "{}/bin/cat {} & echo $!; exit",
+                    guard.prefix(),
+                    quoted(&never)
+                ),
+            ])
+            .stdout(Stdio::piped())
+            .process_group(0)
+            .spawn()
+            .unwrap(),
+    );
+    let group = rustix::process::Pid::from_raw(child.0.id() as i32).unwrap();
+    let (pipe, descendant) = first_line(child.0.stdout.take().unwrap());
     assert!(descendant.trim().parse::<u32>().is_ok());
-    assert!(child.wait().unwrap().success());
+    assert!(child.status().success());
     let anchor = rustix::process::Pid::from_raw(guard.anchor.id() as i32).unwrap();
     assert_eq!(rustix::process::getpgid(Some(anchor)).unwrap(), group);
     drop(guard);
@@ -375,12 +390,7 @@ fn an_early_exit_keeps_the_group_owned_until_cleanup() {
 #[test]
 fn a_stuck_reader_fails_with_a_clear_message() {
     let dir = tempfile::tempdir().unwrap();
-    let never = dir.path().join("never");
-    assert!(Command::new("/usr/bin/mkfifo")
-        .arg(&never)
-        .status()
-        .unwrap()
-        .success());
+    let never = never_fifo(dir.path());
     let mut silent = cleanup::Owned(
         Command::new("/bin/cat")
             .arg(&never)
