@@ -68,16 +68,15 @@ impl<R: Read + AsFd> Bounded<R> {
             &self.reader,
             rustix::event::PollFlags::IN,
         )];
-        match crate::deadline::retry_interrupted(
-            // timer: deadline — bounds the wait for the writer.
-            || rustix::event::poll(&mut fds, Some(&deadline.timespec())),
-            || deadline.expired(),
-        ) {
-            Ok(None | Some(0)) => return Err(self.passed(deadline)),
-            Ok(Some(_)) => {}
-            Err(error) => return Err(ReadError::Io(error.into())),
+        if poll_by(&mut fds, deadline)? == 0 {
+            return Err(self.passed(deadline));
         }
-        // `poll` reported the descriptor readable, so the read does not block, and a signal cannot interrupt it (EINTR).
+        self.read_once()
+    }
+
+    /// One read, after `poll` reported the descriptor readable: it does not block, and a signal cannot interrupt it (EINTR).
+    /// Returns false at the end of file.
+    fn read_once(&mut self) -> Result<bool, ReadError> {
         let mut chunk = [0; 4096];
         match self.reader.read(&mut chunk) {
             Ok(0) => {
@@ -90,6 +89,11 @@ impl<R: Read + AsFd> Bounded<R> {
             }
             Err(error) => Err(ReadError::Io(error)),
         }
+    }
+
+    /// The bytes read and not yet returned.
+    pub(crate) fn buffered(&self) -> &[u8] {
+        &self.buffer
     }
 
     /// The next line, with its newline, read by `deadline`. `None` at the end of file with nothing left; a last line with no
@@ -138,6 +142,68 @@ impl<R: Read + AsFd> Bounded<R> {
     /// The reader, with any buffered bytes dropped.
     pub fn into_inner(self) -> R {
         self.reader
+    }
+}
+
+/// Waits in `poll` until a descriptor of `fds` is ready, at most until `deadline`: the number of ready descriptors, 0 when
+/// the deadline came first.
+fn poll_by(fds: &mut [rustix::event::PollFd<'_>], deadline: Deadline) -> Result<usize, ReadError> {
+    match crate::deadline::retry_interrupted(
+        // timer: deadline — bounds the wait for the writer.
+        || rustix::event::poll(fds, Some(&deadline.timespec())),
+        || deadline.expired(),
+    ) {
+        Ok(ready) => Ok(ready.unwrap_or(0)),
+        Err(error) => Err(ReadError::Io(error.into())),
+    }
+}
+
+/// Both readers to their end of file by `deadline`, read together: one `poll` waits on each reader that has not ended, so a
+/// writer that fills one pipe while the test waits on the other does not block. No read starts after the deadline.
+///
+/// # Errors
+/// The deadline passed first (the error keeps what `first` read; `second` keeps its own bytes), or a read failed.
+pub(crate) fn both_to_eof<A: Read + AsFd, B: Read + AsFd>(
+    first: &mut Bounded<A>,
+    second: &mut Bounded<B>,
+    deadline: Deadline,
+) -> Result<(Vec<u8>, Vec<u8>), ReadError> {
+    loop {
+        if first.eof && second.eof {
+            return Ok((
+                std::mem::take(&mut first.buffer),
+                std::mem::take(&mut second.buffer),
+            ));
+        }
+        if deadline.expired() {
+            return Err(first.passed(deadline));
+        }
+        let ready = {
+            let mut fds: Vec<_> = [
+                (first.eof, first.reader.as_fd()),
+                (second.eof, second.reader.as_fd()),
+            ]
+            .into_iter()
+            .filter(|(ended, _)| !ended)
+            .map(|(_, fd)| {
+                rustix::event::PollFd::from_borrowed_fd(fd, rustix::event::PollFlags::IN)
+            })
+            .collect();
+            if poll_by(&mut fds, deadline)? == 0 {
+                return Err(first.passed(deadline));
+            }
+            fds.iter()
+                .map(|fd| !fd.revents().is_empty())
+                .collect::<Vec<_>>()
+        };
+        // `ready` lists the readers that had not ended, in order.
+        let mut ready = ready.into_iter();
+        if !first.eof && ready.next() == Some(true) {
+            first.read_once()?;
+        }
+        if !second.eof && ready.next() == Some(true) {
+            second.read_once()?;
+        }
     }
 }
 
@@ -244,6 +310,63 @@ mod tests {
         eof(&mut reader);
         let mut rest = [0; 16];
         assert_eq!(reader.read(&mut rest).unwrap(), 0, "eof left bytes unread");
+    }
+
+    /// The writer fills the second pipe beyond its capacity before it writes the first: a reader that waited on the first
+    /// pipe alone would wait until the deadline.
+    #[test]
+    fn both_pipes_are_read_together_to_their_ends() {
+        let (first, mut first_writer) = std::io::pipe().unwrap();
+        let (second, mut second_writer) = std::io::pipe().unwrap();
+        let writer = std::thread::spawn(move || {
+            second_writer.write_all(&[7; 1 << 20]).unwrap();
+            drop(second_writer);
+            first_writer.write_all(b"done").unwrap();
+        });
+        let (mut first, mut second) = (Bounded::new(first), Bounded::new(second));
+        let (one, two) = both_to_eof(&mut first, &mut second, Deadline::cleanup()).unwrap();
+        writer.join().unwrap();
+        assert_eq!(one, b"done");
+        assert_eq!(two.len(), 1 << 20);
+        assert!(two.iter().all(|&b| b == 7));
+        let (one, two) = both_to_eof(&mut first, &mut second, Deadline::cleanup()).unwrap();
+        assert!(one.is_empty() && two.is_empty(), "both ended");
+    }
+
+    /// The first pipe ends while the second still has a writer: the ended pipe leaves the `poll`, and the read of the other
+    /// goes on to its end.
+    #[test]
+    fn a_pipe_that_ended_first_does_not_stop_the_read_of_the_other() {
+        let (first, mut first_writer) = std::io::pipe().unwrap();
+        let (second, mut second_writer) = std::io::pipe().unwrap();
+        first_writer.write_all(b"early").unwrap();
+        drop(first_writer);
+        let writer = std::thread::spawn(move || second_writer.write_all(&[7; 1 << 20]).unwrap());
+        let (mut first, mut second) = (Bounded::new(first), Bounded::new(second));
+        let (one, two) = both_to_eof(&mut first, &mut second, Deadline::cleanup()).unwrap();
+        writer.join().unwrap();
+        assert_eq!(one, b"early");
+        assert_eq!(two.len(), 1 << 20);
+    }
+
+    /// A silent writer fails the read at the deadline, with what the first reader read; the second keeps its own bytes.
+    #[test]
+    fn a_silent_writer_fails_both_reads_at_the_deadline() {
+        let (first, mut first_writer) = std::io::pipe().unwrap();
+        let (second, mut second_writer) = std::io::pipe().unwrap();
+        first_writer.write_all(b"out").unwrap();
+        second_writer.write_all(b"err").unwrap();
+        let (mut first, mut second) = (Bounded::new(first), Bounded::new(second));
+        assert!(first.fill(Deadline::cleanup()).unwrap());
+        assert!(second.fill(Deadline::cleanup()).unwrap());
+        let error =
+            both_to_eof(&mut first, &mut second, Deadline::after(Duration::ZERO)).unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "nothing ended the read within 0ns (read so far: \"out\")"
+        );
+        assert_eq!(second.buffered(), b"err");
+        drop((first_writer, second_writer));
     }
 
     #[test]
