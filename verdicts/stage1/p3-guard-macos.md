@@ -516,3 +516,34 @@ Head: `7e20c5fa2cbdc7855401ad9b71c8c941e064d878` (unchanged). Source: the P3 pac
 - G2/F39 for #163's merge delta stays separate.
 
 VERDICT: NOT CLEAN (1 open: C6)
+
+## Round 14 — Head 9eaea51c (C6 fix)
+
+Reviewed head: `9eaea51ccb47230f4ee19e14056c17dfb607a826`. Delta `7e20c5fa..9eaea51c`, one commit, `driver_edges.rs` only.
+Trial merges: with v1 `9ea0c9c` clean (tree `198ee75`); with #162 `59cda32` clean (tree `4e6d8dd`). Focused Mac pool run
+at this head (`…p3-guard-macos-9eaea51c-pool-20261008-204745-82739.log`): header head `9eaea51c`; 168 run, 168 passed
+(`slow_edges::pty_events_resume_reads_after_would_block` included); then 15 passed; exit 0. This reviewer ran no build,
+test or gate.
+
+- **C6 CLOSED.** `pty_events_resume_reads_after_would_block` waits `recv_timeout(2 * CLEANUP)`, from the one constant, with
+  the `Bounded` reason. The `timer: deadline` marker stays directly above the call. The inner limit and the order (release
+  before `Remove`, report after) are unchanged. The other literal 10 s waits in `driver_edges.rs` (line about 298: bytes
+  through a socket; about 492: the exit watch after `signal_group(9)`) do not include a guard cleanup.
+- **A check of every literal deadline in the guard's consumer tests** (`git grep 'from_secs\|from_millis'` in
+  `botster-core-sys/tests` and `botster-worker/tests` at this head). `slow_process.rs` waits for exits and a trap, with no
+  guard cleanup inside. `session.rs` `end_child_worker` sends `SIGKILL` when its 10 s ends; it does not fail the test. One
+  wait does include the guard's cleanup:
+
+#### C7 [LOW] OPEN — `a_panic_ends_the_payload_while_it_waits_for_input` waits CLEANUP for the guard's cleanup plus the reap
+
+- Location: `crates/botster-core-sys/tests/slow_payload.rs`, about lines 312-334 at this head:
+  `result.recv_timeout(Duration::from_secs(10))`, with the marker "the independent guard and production reaper must
+  finish".
+- Evidence: the panic drops `GuardedPayload`. Its drop (rewritten by this PR, lines about 50-59) releases the guard, then
+  drops the payload (production's reaper, which can wait until the guard's member ends the group, up to `CLEANUP`), then
+  drops the guard (it reads the report). All of that is inside the outer wait. The outer wait is a literal 10 s, equal to
+  `CLEANUP`, with no allowance for the reap and the report. This is the G2/C6 composition on a third path.
+- Required: derive this outer wait from `CLEANUP` with the same rule (`2 * CLEANUP`), from the one constant, with the same
+  reason. Keep the inner limit and the drop order unchanged.
+
+VERDICT: NOT CLEAN (1 open: C7)
