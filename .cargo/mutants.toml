@@ -486,7 +486,9 @@ exclude_re = [
     # end_group: see reserved_kill.
     'crates/botster-test-process/src/rounds\.rs:\d+:\d+: (replace end_group( ->| with)|.* in end_group$)',
     # platform.rs peek (a real child's status, no reap): the_status_of_an_exited_child_is_awaited_without_a_reap, and every
-    # production_reap of the guard tests. Its loop, status_after_events, stays in the default tier with fakes.
+    # production_reap of the guard tests. Its loop, status_after_events, stays in the default tier with fakes. Two mutants
+    # survive the slow tier (Linux --no-config run, #171 round 2 E1), both equivalent: `|` with `^` in the waitid options
+    # (EXITED, NOWAIT, NOHANG are distinct bits, so `^` gives the same value as `|`).
     'crates/botster-test-process/src/platform\.rs:\d+:\d+: (replace peek( ->| with)|.* in peek$)',
     # platform/linux.rs await_status: the_status_of_an_exited_child_is_awaited_without_a_reap, and every production_reap.
     'crates/botster-test-process/src/platform/linux\.rs:\d+:\d+: (replace await_status( ->| with)|.* in await_status$)',
