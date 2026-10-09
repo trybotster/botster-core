@@ -2311,3 +2311,65 @@ The worker endpoint, real and simulated connection edges, launch arguments, Focu
 This verdict changes no conformance record and does not close P5 deliverable 2.
 
 VERDICT: NOT CLEAN
+
+
+## P5 adoption code #174 — Round 2
+
+- Exact head: `36688882d42e24130f4419689f8415d48a7f7bb4`.
+- Previous reviewed head: `6a09f29b6873084c77c4c2a2462485c894608bfc`.
+- Tree: `6673f676bd061223daecf68d2653e1a30652b9ce`.
+- Scope: the complete 13-file correction, the current PR description, and supplied evidence.
+- The reviewer changed no product code and ran no builds, tests, mutation jobs, or gates.
+
+### Closed findings and R-36
+
+P5-F23 is CLOSED. Only a Lost adoption outcome closes the link.
+The Exited-row and Starting-row proofs now forward a model read after adoption and receive Modes.
+These proofs detect the previous missing-link failure.
+
+P5-F25 is CLOSED. Flow::Adopt retains an exit in pending_end while Running waits to post.
+After Running, Core applies that exit through the ordinary end flow.
+Two driver proofs deliver the hello, Running adoption report, and exit frames in one buffer.
+They require Running followed by Exited for both AdoptAll and Adopt(id).
+
+P5-F24's durable-intent proposal remains WITHDRAWN.
+The reviewer read R-36 at contracts main `c62085f` and its follow-up `d18b6de`.
+The correction removes Session.row_state and admits retry for both indeterminate Lost states without kept intent.
+Core writes the Lost state with the worker identity. The worker's report decides the retry result.
+NotLaunched gives StartInterrupted; Spawning waits; LaunchFailed follows the ordinary failed start.
+The retry sends no Launch or Stop and has no Stopping outcome.
+The proofs cover retry after a broken-link Stop in the same handle and after recovery in a new handle.
+The correction also clears previous stop and kill flags before it derives a retry's exit cause.
+These changes satisfy the cited R-36 behavior for valid rows.
+Integration retains ownership of A1 and W1 closure. The changed one-Launch proof now covers Spawning.
+
+### P5-F26 — MEDIUM — Retry can panic on a decoded Lost row with missing identity or token
+
+At `crates/botster-core-host/src/run.rs:765`, session_of_row posts every recorded Lost reason before it checks names_worker.
+Row::decode checks JSON, row version, and id. It does not require a worker identity or a valid token for an indeterminate Lost row.
+A damaged but decodable Lost(WorkerUnreachable) or Lost(WorkerVersion) row can therefore become an adoptable session without those fields.
+The new unconditional retry admission then reaches `adopt.rs:81`, where the missing identity causes an expect panic.
+If an identity exists but the token is absent or invalid, a successful connect reaches the expect panic at `adopt.rs:149`.
+Core can terminate instead of reporting a typed registry recovery result.
+
+Required change: classify inconsistent indeterminate Lost rows as RegistryCorrupt before any probe or connect.
+Alternatively, handle the missing fields with a typed recovery result that cannot panic.
+Preserve R-36 admission for valid indeterminate Lost rows.
+Require proofs that start from Core-encoded Lost rows and remove the identity or remove or damage the token.
+The existing tokenless-row proof uses Starting and does not cover this newly admitted Lost path.
+Status: OPEN. The reviewer sent the finding directly to P5 and copied integration.
+
+### Evidence and scope
+
+The reviewer read the exact-head log:
+`~/botster-sessions/gates/botster-core-stage1-p5-adopt-1-36688882-pool-20261009-020637-57135.log`.
+It records fmt, clippy with warnings denied, 487 passing host/worker-core/testkit tests, and taint PASS.
+The explicit slow-profile mutation run reports 157 mutants: 139 caught, 18 unviable, zero missed, and zero timeouts.
+The remote job exits zero at the exact head. This passing evidence does not resolve F26.
+The PR description names this head and explains R-36 and the corrected findings.
+The earlier full gate remains evidence for the unchanged scope, including the two worker test helpers.
+
+The worker endpoint, real and simulated connection edges, launch arguments, FocusChanged, RouteAdopted, and A52 remain outside this PR.
+This verdict changes no conformance record and does not close P5 deliverable 2.
+
+VERDICT: NOT CLEAN
