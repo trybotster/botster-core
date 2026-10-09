@@ -35,6 +35,18 @@ retries = 0
 [profile.ci.junit]
 path = "junit.xml"
 
+# Mutation runs (the mutants step of `cargo xtask ci`): the default profile, but nextest never terminates a test. A mutant
+# that hangs must reach the timeout of cargo-mutants and count as TIMEOUT, which fails the step; a test that nextest
+# terminated would count as CAUGHT. The slow profile has no terminate-after either, so the slow mutation runs
+# (`-- --profile slow`) classify a hang the same way.
+[profile.mutants]
+inherits = "default"
+slow-timeout = { period = "2s" }
+
+[[profile.mutants.scripts]]
+filter = "all()"
+run-wrapper = "record-pid"
+
 # The slow tier: real-process tests. No 2 s limit; the xtask enforces the whole-tier deadline.
 [profile.slow]
 slow-timeout = { period = "60s" }

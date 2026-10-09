@@ -303,6 +303,21 @@ fn mutation_verdict(code: Option<i32>) -> Result<()> {
 
 /// Mutation tests of the code that the diff changes (plan section 8, step 8). A missed mutant or a timeout is a review
 /// finding, so it fails the step.
+/// The options of the mutation run, after the mutant selection.
+const MUTANTS_OPTIONS: [&str; 7] = [
+    "--jobs",
+    "1",
+    "--no-shuffle",
+    "--test-tool",
+    "nextest",
+    "--timeout-multiplier",
+    "5",
+];
+
+/// The nextest arguments of the mutation run: the `mutants` profile (`.config/nextest.toml`) never terminates a test, so a
+/// mutant that hangs reaches the timeout of cargo-mutants and counts as TIMEOUT, not as CAUGHT.
+const MUTANTS_TEST_ARGS: [&str; 4] = ["--", "--profile", "mutants", "--no-tests=pass"];
+
 fn mutants_job(root: &Path) -> Result<()> {
     require_cargo_tool(
         root,
@@ -332,21 +347,13 @@ fn mutants_job(root: &Path) -> Result<()> {
     let mut cmd = cargo(root);
     cmd.args(["mutants", "--in-diff"])
         .arg(&diff_path)
-        .args([
-            "--jobs",
-            "1",
-            "--no-shuffle",
-            "--test-tool",
-            "nextest",
-            "--timeout-multiplier",
-            "5",
-        ])
+        .args(MUTANTS_OPTIONS)
         .arg("--output")
         .arg(&target);
     for re in platform_exclusions(std::env::consts::OS) {
         cmd.arg("--exclude-re").arg(re);
     }
-    cmd.args(["--", "--no-tests=pass"])
+    cmd.args(MUTANTS_TEST_ARGS)
         .envs(test_budget::tier_env(false));
     let status = cmd.status().context("start cargo mutants")?;
     let outcomes = target.join("mutants.out/outcomes.json");
@@ -694,5 +701,97 @@ mod tests {
         assert!(failed.contains("FAIL") && failed.contains("boom") && !failed.contains("second"));
         assert!(summary_line("fmt", &Status::NotRun, took).contains("NOT RUN"));
         assert!(summary_line("fmt", &Status::Pass, took).contains("1.5 s"));
+    }
+
+    /// The profile that the mutation step names, and the slow profile of the slow mutation runs, never terminate a test:
+    /// no `slow-timeout` with a `terminate-after` applies to them, through `inherits`. The default profile terminates a test
+    /// (2 s), which would count a mutant that hangs as CAUGHT.
+    #[test]
+    fn the_mutation_runs_use_profiles_that_never_terminate_a_test() {
+        let config: toml::Table = include_str!("../../.config/nextest.toml").parse().unwrap();
+        let profile = MUTANTS_TEST_ARGS
+            .windows(2)
+            .find(|pair| pair[0] == "--profile")
+            .map(|pair| pair[1])
+            .expect("the mutation step names a profile");
+        for name in [profile, "slow"] {
+            assert_eq!(terminate_after(&config, name), None, "profile {name}");
+        }
+        assert_eq!(terminate_after(&config, "default"), Some(1));
+    }
+
+    /// The `terminate-after` of `profile`'s `slow-timeout`, through `inherits` (a profile with none inherits `default`).
+    fn terminate_after(config: &toml::Table, profile: &str) -> Option<i64> {
+        let mut name = profile;
+        loop {
+            let table = config["profile"][name].as_table().expect("a profile");
+            if let Some(timeout) = table.get("slow-timeout") {
+                return timeout
+                    .get("terminate-after")
+                    .and_then(toml::Value::as_integer);
+            }
+            name = match table.get("inherits").and_then(toml::Value::as_str) {
+                Some(parent) => parent,
+                None if name != "default" => "default",
+                None => return None,
+            };
+        }
+    }
+}
+
+/// The red-on-revert proof of the mutants profile, on a real cargo-mutants run (slow tier: it starts cargo).
+#[cfg(all(test, feature = "slow"))]
+mod slow_tests {
+    use super::*;
+    use botster_test_process::{Deadline, OwnedChild};
+
+    /// The fixture `xtask/fixtures/mutants-hang`: three of its eight mutants park the test thread for ever. With the step's
+    /// options and nextest arguments, cargo-mutants reports them as TIMEOUT and exits with 3, which fails the step. Under
+    /// the default profile nextest terminates them at 2 s and cargo-mutants counts all eight as caught (exit 0).
+    #[test]
+    fn a_mutant_that_hangs_fails_the_mutation_step_as_a_timeout() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("the repository");
+        let fixture = root.join("xtask/fixtures/mutants-hang");
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("src")).unwrap();
+        std::fs::create_dir_all(dir.path().join(".config")).unwrap();
+        std::fs::copy(fixture.join("Cargo.toml.in"), dir.path().join("Cargo.toml")).unwrap();
+        std::fs::copy(fixture.join("src/lib.rs"), dir.path().join("src/lib.rs")).unwrap();
+        for file in ["nextest.toml", "test-wrapper.sh"] {
+            std::fs::copy(
+                root.join(".config").join(file),
+                dir.path().join(".config").join(file),
+            )
+            .unwrap();
+        }
+        let out = dir.path().join("out");
+        let mut command = Command::new("cargo");
+        command
+            .current_dir(dir.path())
+            .arg("mutants")
+            .args(MUTANTS_OPTIONS)
+            .arg("--output")
+            .arg(&out)
+            .args(MUTANTS_TEST_ARGS)
+            .envs(test_budget::tier_env(false))
+            .stdout(std::process::Stdio::null());
+        let mut run = OwnedChild::spawn_group(&mut command).unwrap();
+        let status = run.status_by(Deadline::after(test_budget::SLOW_DEADLINE));
+        let outcomes = parse_outcomes(
+            &std::fs::read_to_string(out.join("mutants.out/outcomes.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            (
+                status.code(),
+                outcomes.total,
+                outcomes.timeout,
+                outcomes.missed
+            ),
+            (Some(3), 8, 3, 0),
+            "{status}"
+        );
     }
 }

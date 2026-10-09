@@ -2018,6 +2018,7 @@ dependencies = [
  "anyhow",
  "botster-core-contract",
  "botster-core-testkit",
+ "botster-test-process",
  "botster-test-support",
  "botster-worker-core",
  "proc-macro2",
