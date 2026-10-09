@@ -1,6 +1,13 @@
 //! The platform adapters of the guards' cleanup: the live members of a group and the wait for a member's end (libproc and
 //! kqueue on macOS, /proc and pidfd on Linux).
 
+/// The real clock of the guards' deadlines. These files are also compiled into botster-core's slow tests, where Core's clock
+/// ban applies (Core TM-1), so this one call carries the allowance.
+#[allow(clippy::disallowed_methods)]
+pub(crate) fn real_now() -> std::time::Instant {
+    std::time::Instant::now()
+}
+
 /// How a wait for a member's end came out.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Waited {
@@ -57,9 +64,7 @@ pub(crate) fn await_end(
         other => other?,
     }
     // timer: deadline — bounds the wait for a killed member's exit event.
-    match watcher.poll(Some(
-        deadline.saturating_duration_since(std::time::Instant::now()),
-    )) {
+    match watcher.poll(Some(deadline.saturating_duration_since(real_now()))) {
         None => Ok(Waited::Deadline),
         Some(kqueue::Event {
             data: kqueue::EventData::Error(error),
@@ -67,6 +72,15 @@ pub(crate) fn await_end(
         }) => Err(error),
         Some(_) => Ok(Waited::Exited),
     }
+}
+
+/// Whether a `pidfd_open` error proves the process gone. ESRCH: no process has the pid. EINVAL: the pid is still allocated,
+/// but its process was released (kernel/pid.c refuses a pid with no thread-group task), which a member that its parent reaps
+/// during the wait can be. The flags are empty and the pid is positive, so EINVAL has no other cause. The same rule is
+/// `gone_at_open` in botster-test-process, which replaces this copy (P6 PR C).
+#[cfg(target_os = "linux")]
+fn gone_at_open(error: rustix::io::Errno) -> bool {
+    matches!(error, rustix::io::Errno::SRCH | rustix::io::Errno::INVAL)
 }
 
 /// Waits for the exit event of `pid` (it may stay a zombie), at most until `deadline`. It only observes: a pid that was
@@ -80,11 +94,11 @@ pub(crate) fn await_end(
     deadline: std::time::Instant,
 ) -> std::io::Result<Waited> {
     let pidfd = match rustix::process::pidfd_open(pid, rustix::process::PidfdFlags::empty()) {
-        Err(rustix::io::Errno::SRCH) => return Ok(Waited::Gone),
+        Err(error) if gone_at_open(error) => return Ok(Waited::Gone),
         other => other?,
     };
     loop {
-        let left = deadline.saturating_duration_since(std::time::Instant::now());
+        let left = deadline.saturating_duration_since(real_now());
         // timer: deadline — bounds the wait for a killed member's exit event.
         let limit = rustix::event::Timespec {
             tv_sec: left.as_secs() as i64,
@@ -212,4 +226,34 @@ pub(crate) fn live_members(group: rustix::process::Pid) -> std::io::Result<Vec<M
         }
     }
     Ok(members)
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod pidfd_tests {
+    use super::*;
+
+    /// A wait for a pid with no thread-group task reports it gone. The id of a thread that is not its group's leader is such
+    /// a pid: `pidfd_open` refuses it with EINVAL by the same kernel check (kernel/pid.c `pid_has_task`) that refuses a
+    /// released process, so the test forces EINVAL without a race.
+    #[test]
+    fn a_wait_for_a_pid_with_no_thread_group_task_reports_it_gone() {
+        let (id_sender, id) = std::sync::mpsc::channel();
+        let (end, ended) = std::sync::mpsc::channel::<()>();
+        let thread = std::thread::spawn(move || {
+            let link = std::fs::read_link("/proc/thread-self").unwrap();
+            let tid: i32 = link.file_name().unwrap().to_str().unwrap().parse().unwrap();
+            id_sender.send(tid).unwrap();
+            // Holds the thread, and so its id, until the test ends it.
+            let _ = ended.recv();
+        });
+        let tid = rustix::process::Pid::from_raw(id.recv().unwrap()).unwrap();
+        assert_eq!(
+            rustix::process::pidfd_open(tid, rustix::process::PidfdFlags::empty()).err(),
+            Some(rustix::io::Errno::INVAL),
+            "a thread id has no thread-group task"
+        );
+        assert!(matches!(await_end(tid, real_now()).unwrap(), Waited::Gone));
+        drop(end);
+        thread.join().unwrap();
+    }
 }

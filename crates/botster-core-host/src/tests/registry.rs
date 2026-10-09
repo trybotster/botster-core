@@ -1,8 +1,8 @@
 //! The registry across handles: what a new handle does with the rows that an earlier host left (Core AD-1, AD-2, ID-1,
 //! LC-3, LC-7, LC-11, A10-2). The rows are bytes that Core's own encoder wrote; a damaged row starts from them (A10-2).
 //!
-//! A row that names a worker is recovered by the adoption handshake (AD-6), which is not built yet: these tests assert
-//! nothing about the state of such a row beyond the one `SessionState` that every row posts (LC-11).
+//! A row that names a worker is recovered by the adoption handshake (AD-6): `tests::adoption` proves it. These tests
+//! assert nothing about the state of such a row beyond the one `SessionState` that every row posts (LC-11).
 
 use super::*;
 use crate::io::Work;
@@ -118,7 +118,8 @@ fn a_corrupt_row_is_removed_with_an_unknown_outcome_and_frees_its_id() {
 }
 
 /// Core ID-1, LC-3, AD-2: a new handle refuses `Create` of an id that a durable row holds, before `AdoptAll` and after it,
-/// and writes no row: the earlier row, with its worker's identity and token (AD-6), stays as it was.
+/// and writes no row: the earlier row, with its worker's identity and token (AD-6), stays as it was. The adoption of `ran`
+/// finds no worker at the endpoint, and its row records only that end (steward ruling R-36).
 #[test]
 fn create_refuses_an_id_that_a_durable_row_holds() {
     let mut first = World::default();
@@ -140,7 +141,15 @@ fn create_refuses_an_id_that_a_durable_row_holds() {
             "after AdoptAll: {name}"
         );
     }
-    assert_eq!(again.rows, first.rows, "no row was written");
+    assert_eq!(again.rows[&row_key("kept")], first.rows[&row_key("kept")]);
+    let mut ran = crate::session::Row::decode(&sid("ran"), &again.rows[&row_key("ran")]).unwrap();
+    assert_eq!(ran.state, SessionState::Lost(LostReason::WorkerUnreachable));
+    ran.state = SessionState::Starting;
+    assert_eq!(
+        serde_json::to_vec(&ran).unwrap(),
+        first.rows[&row_key("ran")],
+        "only the state changed"
+    );
 }
 
 /// Core LC-7, AD-2, AD-6, A6-3 (audit A9): `Remove` of an adopted session whose worker this handle did not spawn, and whose
@@ -350,16 +359,13 @@ fn adopt_all_posts_the_state_of_a_row_whose_create_is_still_running() {
     assert!(w.engine.ready().contains(&Work::Session(sid("own"))));
     w.feed(Input::Run(Work::Session(sid("own"))));
     assert!(w.rows.contains_key(&row_key("own")), "the row is written");
-    w.settle(
-        |ready| {
-            ready
-                .iter()
-                .find(|x| **x == Work::Op(adopt))
-                .or(ready.first())
-                .cloned()
-        },
-        |_| {},
-    );
+    w.settle(|ready| {
+        ready
+            .iter()
+            .find(|x| **x == Work::Op(adopt))
+            .or(ready.first())
+            .cloned()
+    });
     let events = w.engine.poll_events(64);
     let done = events
         .iter()

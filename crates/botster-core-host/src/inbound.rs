@@ -1,6 +1,6 @@
 //! The inputs of the engine: edge results, worker links and processes (plan 2.1).
 
-use crate::engine::{CaptureEntry, HostEngine, Next, Owner, Step};
+use crate::engine::{CaptureEntry, HostEngine, Next, Owner, ParkedRoute, Step};
 use crate::flow::*;
 use crate::io::{Action, Input, LinkId, Ticket};
 use crate::run::registry_failed;
@@ -8,7 +8,7 @@ use botster_core_contract::prelude::*;
 use botster_core_edges::edges::{ExitStatus, GroupSignal, ProcessIdentity};
 use botster_core_link::hello::Hello;
 use botster_core_link::msg::{Observation, WorkerMsg};
-use botster_core_link::proof::token_proof;
+use botster_core_link::proof::{host_proof, token_proof};
 use std::collections::BTreeSet;
 
 impl HostEngine {
@@ -26,7 +26,8 @@ impl HostEngine {
                 match self.take_ticket(ticket) {
                     Some(Owner::Session(id)) => self.flow_row(&id, result),
                     Some(Owner::Op(op)) => self.op_row(op, result),
-                    Some(Owner::Ignored) | None => {}
+                    Some(Owner::FinalRow) if result.is_err() => self.final_row_failures += 1,
+                    Some(Owner::FinalRow) | None => {}
                 }
             }
             Input::Spawned { ticket, result } => {
@@ -47,16 +48,23 @@ impl HostEngine {
             }
             Input::LinkClosed { link } => self.on_link_closed(link),
             Input::HandoffFailed { route } => {
-                if self.routes.contains_key(&route)
-                    && !self.close_route(route, RouteCloseReason::HandoffFailed)
-                {
-                    self.parked_closes
-                        .push_back((route, RouteCloseReason::HandoffFailed));
-                }
+                self.route_close(route, RouteCloseReason::HandoffFailed);
             }
             Input::ProcessExited { identity, status } => self.on_process_exited(identity, status),
-            Input::IdentityState { identity, state } => self.flow_remove_probed(identity, state),
-            Input::Features(features) => self.features = features,
+            Input::WorkerConnected { ticket, link } => match self.take_ticket(ticket) {
+                Some(Owner::Session(id)) => self.adopt_connected(&id, link),
+                // No adoption waits for this link: it is closed, and nothing is read from it.
+                _ => {
+                    if let Some(link) = link {
+                        self.close_link(link, "no adoption waits for the link (AD-6)");
+                    }
+                }
+            },
+            Input::IdentityState { identity, state } => {
+                if !self.adopt_probed(identity, state) {
+                    self.flow_remove_probed(identity, state);
+                }
+            }
         }
     }
 
@@ -135,13 +143,18 @@ impl HostEngine {
     // ---- the hello (AD-6, AD-4, A6-2) ----
 
     fn on_hello(&mut self, link: LinkId, hello: Hello) {
+        // A link that the host made for an adoption: this hello is the worker's answer (DESIGN.md 3.5).
+        if let Some(id) = self.links.get(&link).cloned() {
+            self.adopt_hello(link, &id, hello);
+            return;
+        }
         let found = self
             .sessions
             .iter()
             .find(|(_, s)| s.instance == hello.instance)
             .map(|(id, _)| id.clone());
         let Some(id) = found else {
-            self.act(Action::CloseLink { link });
+            self.close_link(link, "the hello names an instance of no session (AD-6)");
             return;
         };
         let session = &self.sessions[&id];
@@ -153,18 +166,28 @@ impl HostEngine {
             .token
             .filter(|_| accepting && session.worker.link.is_none())
         else {
-            self.act(Action::CloseLink { link });
+            self.close_link(
+                link,
+                "the hello comes for a session that waits for none (AD-6)",
+            );
             return;
         };
         let proof = token_proof(&token, &hello.instance, self.cfg.host_epoch);
         if hello.proof != proof || hello.host_epoch != self.cfg.host_epoch {
             // AD-6: a link that does not prove the token and the epoch is closed, and the start keeps waiting.
-            self.act(Action::CloseLink { link });
+            self.close_link(
+                link,
+                "the hello does not prove the token or the host epoch (AD-6)",
+            );
             return;
         }
         if !self.adoptable_worker_protocols().contains(&hello.protocol) {
             // AD-4, A6-2: a worker outside {T, T - 1} is `Lost(WorkerVersion)`, and Core never misbehaves.
-            self.act(Action::CloseLink { link });
+            let why = format!(
+                "the worker protocol {} is not adoptable (AD-4)",
+                hello.protocol
+            );
+            self.close_link(link, &why);
             if let Some(identity) = self.identity_of(&id) {
                 self.act(Action::SignalGroup {
                     identity,
@@ -174,7 +197,7 @@ impl HostEngine {
             self.fail_start(
                 &id,
                 StartFailReason::WorkerFailed,
-                SessionState::Lost(LostReason::WorkerVersion),
+                End::Lost(LostReason::WorkerVersion),
             );
             return;
         }
@@ -183,7 +206,8 @@ impl HostEngine {
             hello: Hello {
                 protocol: self.cfg.worker_protocol,
                 instance: hello.instance.clone(),
-                proof,
+                // AD-6: the host answers with its own role, so a worker never receives its own proof back.
+                proof: host_proof(&token, &hello.instance, self.cfg.host_epoch),
                 host_epoch: self.cfg.host_epoch,
             },
         });
@@ -241,7 +265,7 @@ impl HostEngine {
                     self.fail_start(
                         id,
                         reason,
-                        SessionState::Exited(Exit {
+                        End::Exited(Exit {
                             code: None,
                             signal: None,
                             cause: ExitCause::Other,
@@ -251,7 +275,7 @@ impl HostEngine {
             }
             WorkerMsg::Exited { code, signal } => {
                 let exit = self.exit_of(id, code, signal);
-                self.begin_end_flow(id, SessionEnd::Exited(exit));
+                self.begin_end_flow(id, End::Exited(exit));
             }
             WorkerMsg::Done { req, result } => self.on_done(id, req, result),
             WorkerMsg::Pages { req, pages } => {
@@ -269,30 +293,45 @@ impl HostEngine {
                 reason,
                 route_tag: _,
             } => {
-                if self.routes.contains_key(&route) && !self.close_route(route, reason) {
-                    self.parked_closes.push_back((route, reason));
-                }
+                self.route_close(route, reason);
             }
             WorkerMsg::RouteStalled { route } => self.route_event(route, true),
             WorkerMsg::RouteResumed { route } => self.route_event(route, false),
             WorkerMsg::RemoveResult { uploads } => self.flow_remove_result(id, uploads),
+            WorkerMsg::Adopted { report } => self.adopt_report(id, *report),
             // The enum is non-exhaustive: a report that a later worker adds is ignored by this host.
             _ => {}
         }
     }
 
-    fn route_event(&mut self, route: RouteId, stalled: bool) {
+    /// Closes a route now, or after the route events that wait ahead of it (EV-5b, EV-6).
+    fn route_close(&mut self, route: RouteId, reason: RouteCloseReason) {
         if !self.routes.contains_key(&route) {
             return;
+        }
+        if !self.parked.is_empty() || !self.close_route(route, reason) {
+            self.parked.push_back(ParkedRoute::Close(route, reason));
+        }
+    }
+
+    fn route_event(&mut self, route: RouteId, stalled: bool) {
+        // An event waits behind the ones parked before it, so the worker's order holds (EV-6).
+        if !self.parked.is_empty() || !self.post_route_progress(route, stalled) {
+            self.parked.push_back(ParkedRoute::Progress(route, stalled));
+        }
+    }
+
+    /// Posts `RouteStalled` or `RouteResumed` of a route that still exists. False when the queue has no room.
+    fn post_route_progress(&mut self, route: RouteId, stalled: bool) -> bool {
+        if !self.routes.contains_key(&route) {
+            return true;
         }
         let event = if stalled {
             Event::RouteStalled { route }
         } else {
             Event::RouteResumed { route }
         };
-        if let Err(event) = self.queue.post_mandatory(event) {
-            self.parked_events.push_back(*event);
-        }
+        self.queue.post_mandatory(event).is_ok()
     }
 
     fn on_done(&mut self, id: &SessionId, req: u64, result: OpResult) {
@@ -559,6 +598,18 @@ impl HostEngine {
         s.worker.link = None;
         s.worker.link_failed = true;
         match s.flow.clone() {
+            // The start of an adoption: the worker may have accepted the `Launch` before the link ended, so the session is
+            // indeterminate, and `Adopt(id)` may retry it (AD-2; steward ruling R-36).
+            Flow::Start(f)
+                if f.adopted
+                    && matches!(f.phase, StartPhase::SendLaunch | StartPhase::AwaitLaunched) =>
+            {
+                self.fail_start(
+                    &id,
+                    StartFailReason::WorkerFailed,
+                    End::Lost(LostReason::WorkerUnreachable),
+                );
+            }
             Flow::Start(f)
                 if matches!(
                     f.phase,
@@ -568,13 +619,15 @@ impl HostEngine {
                 self.fail_start(
                     &id,
                     StartFailReason::WorkerFailed,
-                    SessionState::Exited(Exit {
+                    End::Exited(Exit {
                         code: None,
                         signal: None,
                         cause: ExitCause::Other,
                     }),
                 );
             }
+            // The link of an adoption ended before the row's state was posted: the worker may live (AD-2).
+            Flow::Adopt(_) => self.adopt_link_closed(&id),
             Flow::Stop(f) if f.end.is_none() && f.phase != StopPhase::RowWrite => {
                 // LC-5: a session whose control link is broken still ends: the host signals the verified worker (pid and
                 // start time, AD-6), which ends its payload group. The host never signals a bare payload group.
@@ -606,13 +659,8 @@ impl HostEngine {
         let shown = self.sessions[&id].shown;
         let flow = self.sessions[&id].flow.clone();
         // The worker is gone: its link is gone with it.
-        if let Some(link) = self
-            .sessions
-            .get_mut(&id)
-            .and_then(|s| s.worker.link.take())
-        {
-            self.links.remove(&link);
-            self.act(Action::CloseLink { link });
+        if self.sessions[&id].worker.link.is_some() {
+            self.close_worker_link(&id, "the worker process ended");
             self.sessions
                 .get_mut(&id)
                 .expect("found above")
@@ -626,11 +674,13 @@ impl HostEngine {
                 self.fail_start(
                     &id,
                     StartFailReason::WorkerFailed,
-                    SessionState::Lost(LostReason::WorkerGone),
+                    End::Lost(LostReason::WorkerGone),
                 );
             }
             Flow::Remove(_) => self.flow_remove_worker_gone(&id),
             Flow::Create(_) => {}
+            // The worker ended before the row's state was posted (AD-2).
+            Flow::Adopt(_) => self.adopt_end(&id, End::Lost(LostReason::WorkerGone), ""),
             _ => {
                 if matches!(
                     shown,
@@ -638,7 +688,7 @@ impl HostEngine {
                 ) && self.sessions[&id].pending_end.is_none()
                     && !matches!(&flow, Flow::Stop(f) if f.phase == StopPhase::PostEnd || f.phase == StopPhase::Finish)
                 {
-                    self.begin_end_flow(&id, SessionEnd::Lost(LostReason::WorkerGone));
+                    self.begin_end_flow(&id, End::Lost(LostReason::WorkerGone));
                 }
             }
         }
@@ -647,20 +697,21 @@ impl HostEngine {
 
     /// The wake of a parked route event: it posts when the queue has room again (EV-5d).
     pub(crate) fn run_parked(&mut self) {
-        if let Some((route, reason)) = self.parked_closes.pop_front() {
-            if self.routes.contains_key(&route) && !self.close_route(route, reason) {
-                self.parked_closes.push_front((route, reason));
-            }
+        let Some(next) = self.parked.pop_front() else {
             return;
-        }
-        if let Some(event) = self.parked_events.pop_front() {
-            if let Err(event) = self.queue.post_mandatory(event) {
-                self.parked_events.push_front(*event);
+        };
+        let posted = match next {
+            ParkedRoute::Close(route, reason) => {
+                !self.routes.contains_key(&route) || self.close_route(route, reason)
             }
+            ParkedRoute::Progress(route, stalled) => self.post_route_progress(route, stalled),
+        };
+        if !posted {
+            self.parked.push_front(next);
         }
     }
 
     pub(crate) fn parked_work(&self) -> bool {
-        !self.parked_closes.is_empty() || !self.parked_events.is_empty()
+        !self.parked.is_empty()
     }
 }
