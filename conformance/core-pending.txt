@@ -49,16 +49,12 @@ conf::a2_1_adopt_completes_ok_with_the_state_it_reached
 conf::a2_1_adoptall_twice_is_wrong_state
 conf::a2_1_attach_state_rules
 conf::a2_1_cancel_non_input_is_not_cancellable
-conf::a2_1_empty_argv_is_invalid_input
 conf::a2_1_env_is_exact
 conf::a2_1_every_begin_operation_has_a_row_and_the_documented_ok_value
-conf::a2_1_exit_cause_values
-conf::a2_1_missing_cwd_is_start_failed_cwd_missing
 conf::a2_1_no_deadline_code_exists
 conf::a2_1_not_admitted_state_is_wrong_state_sync_for_every_row
 conf::a2_1_read_of_created_or_lost_is_wrong_state
 conf::a2_1_read_screen_history_flag_and_text
-conf::a2_1_size_range_zero_is_invalid_input
 conf::a2_1_state_change_in_flight_is_wrong_state_async
 conf::a2_1_sync_errors_allocate_no_op_for_every_row
 conf::a2_2_cancel_is_ok_cancelled_never_err
@@ -95,7 +91,6 @@ conf::a2_5_startup_runs_to_epoch_one_commit
 conf::a2_6_features_lists_every_documented_name
 conf::a2_6_missing_optional_feature_is_unsupported
 conf::a2_6_per_worker_features_in_worker_features
-conf::a2_7_pump_report_fields
 conf::a2_7_set_silence_threshold_errors
 # TI-1: waits for spawn_record (M2a).
 conf::a2_8_core_sets_no_term_in_the_session_env
@@ -205,7 +200,6 @@ conf::a9_1_frame_cap_equal_to_the_attached_frame_attaches
 conf::a9_2_every_attached_route_can_carry_the_minimum_output_dropped_frame
 conf::a9_3_ineligible_payload_is_never_compressed
 conf::a9_3_scripted_compression_choice_is_the_workers_only_decision
-conf::ad_1_created_rows_kept
 conf::ad_1_exited_final_model_worker_adopts_as_exited
 conf::ad_1_running_adopts_running
 conf::ad_1_starting_with_identity_adopts
@@ -226,8 +220,6 @@ conf::ad_6_token_and_instance_checked
 conf::ad_7_crash_between_steps_leaves_no_unregistered_payload
 conf::ad_7_payload_launches_after_durable_identity
 conf::ad_7_uncertain_registry_write_is_reported
-conf::am_1_create_then_start_same_turn
-conf::am_1_double_start_refused
 conf::am_1_start_then_remove_refused
 conf::am_2_fairness_bound_across_routes
 conf::am_2_next_write_waits_for_completion_or_partial_end
@@ -351,8 +343,6 @@ conf::e3_1_two_silences_due_together_with_budget_one
 conf::e4_1_client_reply_reserves_its_frame_size
 conf::e4_1_fallback_reserves_its_reply_length
 conf::e4_1_reply_one_byte_over_the_free_bound_is_parked
-conf::er_0_async_errors_arrive_as_completions
-conf::er_0_sync_errors_allocate_no_op
 conf::er_capture_bad_handle
 conf::er_capture_limit
 conf::er_deadline_expired
@@ -502,26 +492,16 @@ conf::lc_12_drop_leaves_workers_running
 conf::lc_12_stop_all_keeps_final_model_workers_until_remove
 conf::lc_12_stop_all_leaves_created_exited_lost
 conf::lc_12_stop_all_target_set
-conf::lc_1_open_needs_worker_path
-conf::lc_2_data_dir_is_exclusive
-conf::lc_3_create_then_start
-conf::lc_3_duplicate_id
 conf::lc_3_remove_created
-conf::lc_4_start_failure_is_typed
-conf::lc_5_stop_ends_payload
 conf::lc_5_stop_with_broken_control
 conf::lc_5_worker_survives_stop
 conf::lc_6_signal_reaches_group
 conf::lc_7_id_free_after_completion
 conf::lc_7_remove_created
 conf::lc_7_remove_order_and_completion
-conf::lc_7_remove_running_is_wrong_state
-conf::lc_9_get_list
 conf::lc_9_record_exposes_the_worker_protocol
 conf::lc_9_update_metadata_is_durable
 conf::lc_9_worker_protocol_absent_for_an_unreachable_worker_whose_hello_was_never_read
-conf::lm_1_zero_limit_is_invalid_config
-conf::or_1_begin_does_not_complete
 conf::or_1_no_progress_outside_pump
 conf::or_2_session_order
 conf::or_3_unspecified_orders_are_randomized
