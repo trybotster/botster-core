@@ -177,21 +177,22 @@ second `Launch` for a launch that already happened.
 
 | Row | Report | Result |
 |---|---|---|
-| `Starting` | `NotLaunched` | The adopting host does AD-7 step 4: the identity is durable, so it sends the `Launch` built from the row. Then, as a start: `Launched` gives `Running`; `LaunchFailed` gives `Exited{cause: Other}` (the start-failure rule above). The row's one `SessionState` is posted at that answer. |
-| `Starting` | `Spawning` | No new `Launch`. The host waits for the worker's `Launched` or `LaunchFailed`, with the same result. |
-| `Starting` | `LaunchFailed` | `Exited{cause: Other}`. |
-| `Stopping` | `NotLaunched` or `LaunchFailed` | `Exited{cause: HostStop}`: nothing runs, and the stop needs nothing. No `Launch` is sent. |
+| `Starting` | `NotLaunched` | The adopting host does AD-7 step 4: the identity is durable, so it sends the `Launch` built from the row. `Launched` gives `Running`, and the row's one `SessionState` is posted then. `LaunchFailed` gives **the same outcome as a failed launch of an ordinary `Start`** (LC-4, the same path and cause; no special case). `AdoptAll` completes after this answer (LC-11), bounded by the worker's `startup`. |
+| `Starting` | `Spawning` | No second `Launch`. The host waits for the worker's `Launched` or `LaunchFailed`, then applies the row above. |
+| `Starting` | `LaunchFailed` | The ordinary failed-launch outcome, as above. |
+| `Stopping` | `NotLaunched` or `LaunchFailed` | `Exited{cause: HostStop}`, with no code and no signal: nothing runs, and the stop needs nothing. No `Launch` is sent. |
 | `Stopping` | `Spawning` | The stop is sent; the worker applies it to the spawn's result (it does this today for an early stop). |
-| `Running` or `Exited` | `NotLaunched` or `Spawning` | Cannot happen with an honest worker (those rows are written after `Launched`). `Lost(Other)`: Core cannot tell (AD-2). |
+| `Running` or `Exited` | `NotLaunched` or `Spawning` | `Lost(Other)`: defensive; it cannot happen under AD-7 (those rows are written after `Launched`), and it needs no transcript. |
 
-- This reads AD-1 ("`Starting` rows whose worker identity is recorded and authenticates are adopted as `Running`") together
-  with AD-7 (a crash leaves "at most a worker with no payload, which exits by itself when no host attaches within
-  `startup`"). The contract does not name the no-payload report, so this reading goes to the lead as a QUESTION before it
-  is coded.
+- **Steward ruling R-35** (contracts `main` `f969f5e`; no amendment) settles this table. The code cites R-35.
+- P1's placeholder `Lost(Other)` for every decodable row is replaced by this per-state adoption. After it, `Lost(Other)`
+  remains only in the last row above and in other paths that the contract names.
 - The worker's orphan deadline covers every crash point: the worker gets `startup` at its launch (`--startup-ms`, part 1),
   before any `Launch`.
-- Test: a crash between AD-7 steps 3 and 4, then `AdoptAll` adopts `Running` with exactly one `Launch`; a crash with the
-  spawn in flight adopts with no second `Launch`.
+- Tests (R-35), through the process edge's script point between AD-7 steps 3 and 4, as proofs of
+  `conf::ad_1_starting_with_identity_adopts` and `conf::ad_7_crash_between_steps_leaves_no_unregistered_payload` (no new
+  id): a `Starting` row with `NotLaunched` adopts `Running` with exactly one `Launch`; a `Stopping` row with no payload is
+  `Exited{cause: HostStop}` with no `Launch`; a spawn in flight adopts with no second `Launch`.
 
 - Each row posts one `SessionState` (LC-11, EV-5); `Completed{AdoptAll}` follows the last one. Rows whose handshakes are
   in flight do not block each other; a row posts when its handshake ends.
