@@ -54,6 +54,126 @@ Package P1 (session registry and lifecycle) of Stage 1. Plan pin `555bc433`, con
 | A write to a worker link uses `write(2)`, which raises `SIGPIPE` when the worker is gone. Core sets neither `SO_NOSIGPIPE` nor `MSG_NOSIGNAL` yet. | The Rust runtime sets `SIGPIPE` to ignored when a Rust program starts, so in that state the write returns `EPIPE` and the link closes. A host that restores the default disposition (a Rust host can do so, and a C embedder through the C ABI of section 13 can start with it) is killed by `SIGPIPE` when it writes to a gone worker. The fix (`SO_NOSIGPIPE` on macOS, `MSG_NOSIGNAL` on Linux) and its real-process proof are audit A49, which waits in the follow-up PR for the `botster-test-process` crate (plan r22). |
 | `diagnostics()` keeps the reasons of the last 16 link closes, the count of failed final-row writes, and the edges' accept failures. | LC-10 allows one opaque value; a failure that a completion cannot carry is visible there (audit A28, A48). |
 
+## Adoption (P5): design for review (2026-10-09)
+
+Draft. No code yet. The ids are the 55 of `docs/stage1-clauses/p5-adoption.txt` (branch `stage1/plan`), at
+`contracts-v0.1.13`. An id leaves `conformance/core-pending.txt` only when it passes on both harnesses (plan 5), so the
+ids stay pending until the real harness of P6 (`botster-test-process`, #171) can run them.
+
+### Shape: the worker is the server, the new host is the client
+
+- Each worker outlives its host (LC-12) and owns one session. During its whole life it listens on its own **worker
+  endpoint**. A new host that adopts the session connects to that endpoint.
+- The direction follows from the epoch rule. The hello proof binds the host epoch (DP-8). A worker cannot prove itself to
+  a host whose epoch it has never seen, so the host must speak first. The contract names the endpoint: "worker or guardian
+  endpoints are readable and connectable only by the host's uid" (AD-6).
+- The old daemon used the same direction (`adopt_reserved_inner` at `72b2e33`: the host connects to a reconnectable control
+  socket that the worker listens on). See the Prior art note below.
+
+### 1. The worker endpoint (filesystem; P5, with the worker driver of P3)
+
+- **Path:** `<data_dir>/w/<InstanceId>`. `open` creates `w` with mode `0700` (like the registry directory) and refuses it
+  when it is not a directory that the host's uid owns with no group or other bits (AD-6 "`open` refuses an unsafe
+  directory"; tmux's `make_label` check, with `lstat`).
+- **Length:** a Unix socket path holds about 104 bytes. `open` already refuses a `data_dir` whose control socket cannot be
+  bound (A47). It also refuses a `data_dir` whose longest endpoint cannot be bound. The longest `InstanceId` is
+  `"<u64>-<u64>"`, 41 bytes.
+- **Launch:** the host passes the path to the worker with a new launch argument, `--endpoint`. The worker binds it before
+  its first hello, so a host can adopt it from the moment its row records its identity (AD-7 step 3).
+- **A missing endpoint** (removed by a cleaner while the worker lives): the connect fails, and the row is
+  `Lost(WorkerUnreachable)`. Core never binds or spawns in its place (AD-2: "a `Lost` session is never restarted in place").
+  `Adopt(id)` may be retried.
+
+### 2. The proof gets a direction (AD-6; changes the start handshake too)
+
+- Today one function gives both proofs: the worker's hello carries `token_proof(token, instance, epoch)`, and the host
+  answers with the same value. In an adoption the host speaks first. An impostor at the worker endpoint could then send
+  the host's own proof back, and the host would accept it.
+- **Change:** the proof hashes a role byte after the domain: `host` or `worker`. Each side checks the role of the other.
+  Neither side can then replay what it received. The start handshake uses the same two roles, so there is one rule for
+  both handshakes.
+- No released worker exists (protocol 1 is not released), so the change breaks no adoptable worker (AD-4).
+- Owner: `botster-core-link` (the proof) and both machines. Cross-package: the integration reviewer reviews it.
+
+### 3. The adopt handshake (AD-6, DP-8, AD-4, A10, A11)
+
+1. The host connects to the endpoint (a new host edge, `connect_worker`; see 6).
+2. The host sends `Hello{protocol: T, instance, proof: host(token, instance, E), host_epoch: E}`, where E is the new
+   host's epoch.
+3. The worker checks the instance, the host proof, and that E is **above every epoch it has seen**. On a failure it closes
+   **this connection only**: its current link, its payload and its highest epoch do not change (A11).
+4. On success the worker records E, closes its old link (the fence: DP-8 "adoption fences the previous host"), and answers
+   `Hello{protocol: P, instance, proof: worker(token, instance, E), host_epoch: E}`, then its adoption report (4).
+5. The host checks the instance and the worker proof. A failure: Core never signals that process and decodes no later
+   frame of the link (A10-1, A11-1; tmux's `PEER_BAD`). The row is `Lost(WorkerUnreachable)`, because a live worker may
+   still be at the identity (AD-2: indeterminate; `Adopt(id)` may be retried).
+6. The host checks P: P = T or P = T - 1 adopts; any other P is `Lost(WorkerVersion)` (AD-4, A6-2). P is recorded on the
+   session (LC-9), also on `Lost(WorkerVersion)`.
+7. **Deadline:** if the connect, the hello or the report does not complete within `CoreLimits.startup`, the row is
+   `Lost(WorkerUnreachable)`, and the worker protocol stays absent when no hello was read (LC-9;
+   `conf::a6_1_withheld_control_link_gives_worker_unreachable_not_worker_gone`). This is the startup deadline of the start,
+   reused: one reachability deadline. (Proposed; recorded here for review.)
+
+### 4. The adoption report (AD-1, AD-3, ST-5, DP-12)
+
+After its hello the worker sends one `Adopted` message with its live state, never values remembered from the spawn (the
+old daemon's lesson; vault: evidence comes from protocol primitives, not defaults):
+- the payload: running, or exited with its code and signal; its identity (A52 below);
+- the terminal state that the host serves (size, modes, title, cwd, the reads of ST-5) and the current focus (DP-12: one
+  `FocusChanged` at adoption, with the current value);
+- its features (AD-4: `worker_features` of an N - 1 worker);
+- its routes (DP-8 `RouteAdopted`): P4a; until then the worker reports none, and the route ids stay pending with that reason.
+
+### 5. AdoptAll per row (AD-1, AD-2, AD-6)
+
+Each row is decoded and checked before any connect (vault: "validate before the first change of state"). Then:
+
+| Row | Result |
+|---|---|
+| does not decode (A10-2) | `Lost(RegistryCorrupt)` (done) |
+| `Created` | `Created` (done) |
+| `Starting` with no worker identity | `Lost(StartInterrupted)` |
+| any other, identity `Absent` or `Reused` (A9 `ProbeIdentity`) | `Lost(WorkerGone)`. Core never signals it (AD-6 "reused pid is never killed"). |
+| any other, identity `Matches` | the handshake of 3, then by the report: `Running`, or `Exited` when the payload ended; a `Stopping` row is adopted `Stopping`, the stop is sent again, and `stop_grace` counts from the adoption |
+
+- Each row posts one `SessionState` (LC-11, EV-5); `Completed{AdoptAll}` follows the last one. Rows whose handshakes are
+  in flight do not block each other; a row posts when its handshake ends.
+- `Adopt(id)`: the same row path for one `Lost(WorkerUnreachable | WorkerVersion)` session (AD-2 retry).
+- AD-5 is LC-2: a live host holds the data-dir lock, so a second host cannot open.
+- ID-2: the session keeps its `InstanceId` from the row; operations of the old host do not survive (ID-2).
+
+### 6. Edges and the testkit (cross-package: P6)
+
+- Host edge `connect_worker(endpoint) -> Option<LinkId>`: real, a non-blocking `mio` connect, registered like an accepted
+  link; testkit, an in-memory endpoint of the `Sim`.
+- The `Sim` needs: worker endpoints by path, kept across a host drop (the workers stay already, plan 4.1); `connect_worker`;
+  and one process table for all hosts of a harness, so that an identity probe of the new host sees the old host's workers.
+
+### 7. The worker side (cross-package: P3's machine and binary)
+
+- The worker machine gets candidate links: a connection on the endpoint is a candidate until its hello passes 3.3. Only a
+  passed candidate replaces the current link. Inputs and actions grow by a link id.
+- The worker binary binds and polls the endpoint (`mio`), and passes accepted connections to the machine.
+- A worker that has no payload and no host for `startup` exits by itself (AD-7,
+  `conf::ad_7_crash_between_steps_leaves_no_unregistered_payload`). The worker does not have this rule yet (no `startup`
+  deadline in `botster-worker-core` at `a0f78fe4`). It is P5's id, so P5 adds it to the worker, with P3's agreement.
+
+### 8. Decisions recorded here
+
+- **A52, `PayloadId.start_time`:** `Option<u64>`, `None` when the start time is unknown, and an unknown start time never
+  matches an identity. A sentinel 0 is a value that looks valid (lead asked P5 to decide this).
+- **The reachability deadline** is `startup` (3.7).
+- **A missing endpoint is never repaired by Core** (1). Whether the worker binds its endpoint again when the path disappears
+  is a worker choice for P3; the contract does not ask for it.
+
+### Prior art
+
+See the adoption Prior art note in `handoffs/p5-adoption.md` (moved here with the first P5 code PR): tmux, shpool, zellij,
+abduco and the old daemon. In short: REUSE tmux's directory check and its "a failed check ends the peer" rule (A11);
+REUSE the old daemon's lesson that the adoption state is the live state; REJECT exact-version adoption (AD-4) and zellij's
+resurrection (Core never starts a replacement); the handshake and the endpoint are hand-rolled over `std`/`mio` sockets and
+`botster-core-link`, because tmux, shpool and zellij are programs, not libraries.
+
 ## Prior art (BUILD.md rule 0)
 
 - **Reused:** nothing from the old code was copied (no `Stolen-From` commit). The old exit watch (`process_exit.rs`) uses
