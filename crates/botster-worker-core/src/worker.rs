@@ -620,6 +620,19 @@ impl Worker {
         }
     }
 
+    /// The terminal state of the `Adopted` report (AD-3: the adopting host reads what the earlier host read): the model's
+    /// size, modes and revisions, and the last title and cwd that the output set. `last_output_at` and `focused` are the
+    /// host's own facts (TM-1: the worker reads no unix clock); the adopting host starts them again (Core Amendment 18,
+    /// candidate 1).
+    fn adopted_terminal(&self) -> TerminalState {
+        let model = self.model.as_ref();
+        TerminalState {
+            title: model.and_then(|m| m.title.clone()),
+            cwd: model.and_then(|m| m.cwd.clone()),
+            ..self.initial_terminal()
+        }
+    }
+
     /// The operations that need the worker: `Signal` (LC-6), `WriteInput` (IN-1), the reads of the model (ST-1 to ST-3) and
     /// `CaptureSnapshot` (ST-6). The setters and the facts come next, and the worker answers them `Internal` until then.
     fn on_op(&mut self, _now: Instant, req: u64, op: Op) {
@@ -934,7 +947,7 @@ impl Worker {
             report: Box::new(AdoptReport {
                 payload,
                 features: worker_features(),
-                terminal: ran.then(|| self.initial_terminal()),
+                terminal: ran.then(|| self.adopted_terminal()),
                 formats: Vec::new(),
             }),
         }

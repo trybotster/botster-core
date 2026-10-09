@@ -2051,6 +2051,34 @@ fn a_candidate_that_proves_the_host_role_replaces_the_link() {
     assert_eq!(signals(&stop), [SIGTERM]);
 }
 
+/// AD-3: the adopting host reads the title and the cwd that the earlier host read, the last of each that the output set.
+/// `last_output_at` is the host's own fact (TM-1; Core Amendment 18, candidate 1): the report does not carry it.
+#[test]
+fn the_adopted_report_carries_the_last_title_and_cwd() {
+    let mut w = World::running();
+    let actions = w.feed(Input::PtyOutput(
+        b"\x1b]2;first\x07\x1b]7;file://host/tmp/dir\x07\x1b]2;shell\x07".to_vec(),
+    ));
+    let obs = observations(&mut w, &actions);
+    let title = obs.iter().rev().find_map(|o| match o {
+        Observation::Title { title, .. } => Some(title.clone()),
+        _ => None,
+    });
+    let cwd = obs.iter().rev().find_map(|o| match o {
+        Observation::Cwd { cwd, .. } => Some(cwd.clone()),
+        _ => None,
+    });
+    assert!(title.is_some() && cwd.is_some(), "{obs:?}");
+    // Output with no title and no cwd keeps both.
+    w.feed(Input::PtyOutput(b"text".to_vec()));
+    let actions = adopt(&mut w, EPOCH + 1);
+    let (_, report) = adopted(&mut w, &actions);
+    let terminal = report.terminal.expect("a running payload has a model");
+    assert_eq!(terminal.title, title);
+    assert_eq!(terminal.cwd, cwd);
+    assert_eq!(terminal.last_output_at, None);
+}
+
 /// DESIGN.md 3.3 (integration D1, P5-F20): an equal epoch adopts again; a lower one is refused, and the refusal closes only
 /// the candidate.
 #[test]
