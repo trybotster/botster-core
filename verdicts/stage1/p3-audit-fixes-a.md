@@ -98,3 +98,40 @@ and `0b0eecc0` (= `origin/v1`, #142 merged). Tree `ba1aa02ad88aaecd248f50acfb80e
   fmt, taint, lists PASS, exit 0. The ONE landing gate on this exact head is owed.
 
 VERDICT: CLEAN (0 open) at b70855356aa243996edabf8bfb3c9f6d2c2f5db6
+
+## Round 5 — Head 7be3184c (mutants fixes after the red gate at b7085535)
+
+Reviewed head: `7be3184c09dc4c77e46414cddcd15428ccd3aa6d`. Delta `b7085535..7be3184c`, three commits, five files. The ONE
+Linux gate at `b7085535` (`…p3-audit-fixes-a-b7085535-pool-20261008-213644-81473.log`) was red at mutants only (17 missed,
+all in part A code); the implementer did not re-gate it. This reviewer ran no build, test or gate.
+
+- **New tests (default tier, no real process):**
+  - `drain.rs` `a_read_moves_the_drain_by_the_bytes_it_found`: every `after_read` step of the public `Drain`.
+  - `encode.rs` `the_key_states_are_every_combination_once_with_the_text_states_first`: 2,048 distinct key states, only the
+    five kitty bits, and the text states first in each run of 32.
+  - `tests_encode.rs`: the key search under every limit below the worst case, and the mouse bound of one notch.
+  - Host `a_write_in_flight_when_the_link_fails_is_unknown`: a `Focus` write in flight is `Unknown` with the longest focus
+    report as its bound (IN-7). This crosses host and binding through the public `longest_focus_report`.
+  - No production code changes in the delta.
+- **Evidence:** focused Linux pool run at this head (`…p3-audit-fixes-a-7be3184c-pool-20261008-214331-91507.log`, base
+  `0b0eecc0`): fmt, clippy, taint, lists, test-budget PASS; mutants 110: 97 caught, 0 missed, 0 timeout, 13 unviable; exit
+  0. This is not the landing gate (no slow tier).
+- **The two equivalence entries.** Both arguments are correct, but each rests on a fact that the entry does not cite:
+  - `payload_size` `/` to `*`: `repeat` is refused at 0 earlier (`admit.rs:326`), so `limit / times` is defined. A key with
+    `longest > limit / times` has `times * longest > limit`, so the stop point decides only which length over the limit is
+    found. The code (`PayloadTooLarge`) is the same; only the number in the detail and the search cost change.
+  - `every_key_state` `!= 0` to `== 0`: a bijection of the 64 key-mode combinations; the kitty part and the text-first order
+    are unchanged (the new test still passes under the mutant). Again only which over-limit length is found changes, and
+    so only the detail.
+
+#### E1 [LOW] OPEN — The two equivalence entries do not cite why a different error detail is not behavior
+
+- Location: `.cargo/mutants.toml`, the new `payload_size` entry and the new `every_key_state` entry.
+- Evidence: both entries say that the mutant changes the size found (and so the number in `PayloadTooLarge`'s detail
+  string, `admit.rs:394-397`). A detail is observable by a caller. The mutation policy accepts an equivalence "argued in
+  writing"; the argument is complete only with the contract fact that makes the detail not behavior: Core 9.3
+  (`core-contract-v1.17.md:318`): "The code is the contract; the detail is for humans."
+- Required: cite Core 9.3 in both entries (the code is the same, `PayloadTooLarge`; the detail is not contract). Optionally
+  name the earlier `repeat` refusal in the `payload_size` entry, which makes `limit / times` defined.
+
+VERDICT: NOT CLEAN (1 open: E1)
