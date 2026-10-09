@@ -165,22 +165,24 @@ struct Repo(tempfile::TempDir);
 impl Repo {
     /// The output of `git <args>` in the repository, which must succeed.
     fn git(&self, args: &[&str]) -> String {
-        let output = Command::new("git")
-            .arg("-C")
-            .arg(self.0.path())
-            .args([
-                "-c",
-                "user.name=t",
-                "-c",
-                "user.email=t@t",
-                "-c",
-                "commit.gpgsign=false",
-            ])
-            .args(args)
-            .env("GIT_CONFIG_NOSYSTEM", "1")
-            .env("GIT_CONFIG_GLOBAL", "/dev/null")
-            .output()
-            .unwrap();
+        let output = botster_test_process::run_to_completion(
+            Command::new("git")
+                .arg("-C")
+                .arg(self.0.path())
+                .args([
+                    "-c",
+                    "user.name=t",
+                    "-c",
+                    "user.email=t@t",
+                    "-c",
+                    "commit.gpgsign=false",
+                ])
+                .args(args)
+                .env("GIT_CONFIG_NOSYSTEM", "1")
+                .env("GIT_CONFIG_GLOBAL", "/dev/null"),
+            botster_test_process::Deadline::cleanup(),
+        )
+        .unwrap();
         assert!(
             output.status.success(),
             "git {args:?}: {}",

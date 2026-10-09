@@ -10,7 +10,8 @@ use botster_test_process::anchor::start_anchor;
 use botster_test_process::anchor::Report;
 use botster_test_process::platform::{await_end, await_status, peek, pid, start_time, Waited};
 use botster_test_process::{
-    eof, first_line, quoted, Blocker, Bounded, Deadline, Guard, OwnedChild, CLEANUP,
+    eof, first_line, quoted, run_to_completion, Blocker, Bounded, Deadline, Guard, OwnedChild,
+    CLEANUP,
 };
 use std::os::unix::process::{CommandExt, ExitStatusExt};
 use std::path::{Path, PathBuf};
@@ -81,6 +82,77 @@ fn a_child_that_does_not_end_fails_its_status_and_its_drop_still_ends_it() {
     );
     // The drop kills and reaps it; a drop that could not would fail this test.
     drop(child);
+}
+
+/// A short-lived tool runs to its exit: its status, its stdout and its stderr come back. Its stdin is null (`cat` reads the end
+/// of file at once), and a stderr larger than a pipe's capacity, written before the stdout, does not block the run.
+#[test]
+fn a_tool_runs_to_its_exit_with_its_output_and_a_null_stdin() {
+    let output = run_to_completion(
+        Command::new("/bin/sh").args([
+            "-c",
+            "/bin/cat; printf err >&2; /usr/bin/head -c 1048576 /dev/zero >&2; printf out; exit 3",
+        ]),
+        Deadline::cleanup(),
+    )
+    .unwrap();
+    assert_eq!(output.status.code(), Some(3));
+    assert_eq!(output.stdout, b"out");
+    assert_eq!(output.stderr.len(), 3 + (1 << 20));
+    assert!(output.stderr.starts_with(b"err"));
+}
+
+/// A tool that does not end by the deadline fails the run with `TimedOut`; the run kills and reaps it (a drop that could
+/// not would fail this test).
+#[test]
+fn a_tool_that_does_not_end_by_the_deadline_fails_the_run() {
+    let dir = tempfile::tempdir().unwrap();
+    let blocker = Blocker::new(dir.path(), "block").unwrap();
+    let error = run_to_completion(&mut blocker.command(), Deadline::after(Duration::ZERO))
+        .expect_err("a blocked tool does not end");
+    assert_eq!(error.kind(), std::io::ErrorKind::TimedOut);
+    assert!(
+        error
+            .to_string()
+            .contains(" did not end within 0ns: nothing ended the read within 0ns"),
+        "{error}"
+    );
+}
+
+/// B7 (#181): a background child that the tool leaves behind is ended before the run returns, on the success path and at
+/// the deadline. The child is a `cat` of a blocked FIFO whose stdout is the writer of a pipe that the test watches: the
+/// tool inherits that writer (its close-on-exec flag is cleared), and the test drops its own copy, so the end of file of
+/// the pipe proves that the `cat` is gone. With the tool's leader owned alone (`OwnedChild::spawn`), the `cat` stays, and
+/// the end of file never comes.
+#[test]
+fn a_child_that_the_tool_leaves_is_ended_when_the_run_returns() {
+    use std::os::fd::AsRawFd;
+    let dir = tempfile::tempdir().unwrap();
+    let blocker = Blocker::new(dir.path(), "block").unwrap();
+    // "done": the tool exits at once. "late": the tool's leader blocks on the FIFO too, past its deadline.
+    for (name, rest, deadline) in [
+        ("done", String::new(), Deadline::cleanup()),
+        (
+            "late",
+            format!("exec {}", blocker.shell()),
+            Deadline::after(Duration::ZERO),
+        ),
+    ] {
+        let (watched, writer) = std::io::pipe().unwrap();
+        rustix::io::fcntl_setfd(&writer, rustix::io::FdFlags::empty()).unwrap();
+        let script = format!(
+            "{} >&{} 2>/dev/null & {rest}",
+            blocker.shell(),
+            writer.as_raw_fd()
+        );
+        let run = run_to_completion(Command::new("/bin/sh").args(["-c", &script]), deadline);
+        drop(writer);
+        match name {
+            "done" => assert_eq!(run.unwrap().status.code(), Some(0)),
+            _ => assert_eq!(run.unwrap_err().kind(), std::io::ErrorKind::TimedOut),
+        }
+        eof(watched);
+    }
 }
 
 #[test]
