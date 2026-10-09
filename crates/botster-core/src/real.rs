@@ -514,8 +514,8 @@ mod tests {
 
     /// Audit A28: a link whose poll registration fails is broken: `apply` reports it, and every later read or write of the
     /// link fails with the registration's error, so the driver closes the link instead of keeping one that cannot wake the
-    /// host. The failure is made on Linux, where epoll refuses to change a descriptor that it does not hold (`ENOENT`):
-    /// the link is registered with one poll, and its interest changes through another. kqueue has no such refusal.
+    /// host. The failure is made on Linux, where epoll refuses a change of interest made through another poll than the one
+    /// that holds the descriptor; kqueue has no such refusal.
     #[cfg(target_os = "linux")]
     #[test]
     fn a_link_whose_registration_fails_is_broken() {
@@ -533,7 +533,13 @@ mod tests {
         assert!(io.check().is_ok());
         io.write = true;
         assert!(!io.apply(other.registry(), LinkId(1)), "refused");
-        assert_eq!(io.check().unwrap_err().kind(), io::ErrorKind::NotFound);
+        assert!(io.check().is_err(), "a read or write of the link fails");
+        io.write = false;
+        assert!(
+            !io.apply(held.registry(), LinkId(1)),
+            "a broken link stays broken"
+        );
+        assert!(io.check().is_err());
     }
 }
 

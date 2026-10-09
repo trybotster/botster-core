@@ -199,10 +199,7 @@ fn a_completion_behind_an_event_of_its_pump_comes_in_the_next_pump() {
     run_session(&mut rig, "s1", LinkId(1));
     let op = rig
         .driver
-        .begin(Op::UpdateMetadata {
-            id: sid("s1"),
-            labels: Default::default(),
-        })
+        .begin(Op::ReadModeFlags { session: sid("s1") })
         .unwrap();
     rig.settle();
     let req = rig
@@ -212,11 +209,11 @@ fn a_completion_behind_an_event_of_its_pump_comes_in_the_next_pump() {
         .find_map(|(k, p)| match HostMsg::decode(p) {
             Ok(HostMsg::Op {
                 req,
-                op: Op::UpdateMetadata { .. },
+                op: Op::ReadModeFlags { .. },
             }) if *k == FrameType::HOST_MSG => Some(req),
             _ => None,
         })
-        .expect("the setter went to the worker");
+        .expect("the read went to the worker");
     rig.worker_says(
         LinkId(1),
         WorkerMsg::Observed {
@@ -227,7 +224,10 @@ fn a_completion_behind_an_event_of_its_pump_comes_in_the_next_pump() {
         LinkId(1),
         WorkerMsg::Done {
             req,
-            result: OpResult::Ok(OpOutput::Unit),
+            result: OpResult::Ok(OpOutput::Modes(Modes {
+                flags: terminal_state().modes,
+                model_rev: ModelRev(2),
+            })),
         },
     );
     let first = rig.pump();
@@ -247,7 +247,7 @@ fn a_completion_behind_an_event_of_its_pump_comes_in_the_next_pump() {
     assert!(
         events.iter().any(|e| matches!(
             e,
-            Event::Completed { op: o, result: OpResult::Ok(OpOutput::Unit) } if *o == op
+            Event::Completed { op: o, result: OpResult::Ok(OpOutput::Modes(_)) } if *o == op
         )),
         "{events:?}"
     );
