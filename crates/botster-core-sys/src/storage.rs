@@ -811,7 +811,8 @@ mod slow_tests {
 
     /// AD-6 (the directory is the host's alone), lead ruling on A1: no operation follows a link in a row's path. With a link
     /// where a kind directory goes, pointing at another kind's directory, a read, a write and a delete through it fail with
-    /// `Failed`, and the rows behind the link are as they were. A scan counts the link as foreign.
+    /// `Failed`, and the rows behind the link are as they were. A read of a row file that is a link fails too. A scan
+    /// counts each link as foreign.
     #[test]
     fn a_link_in_a_row_path_is_never_followed() {
         let tmp = dir();
@@ -837,12 +838,19 @@ mod slow_tests {
             Some(b"a row".to_vec())
         );
         assert_eq!(storage.read_row("session/b").unwrap(), None);
+        // A link where a row file goes, pointing at another row's file: the read fails, and does not read through it.
+        std::os::unix::fs::symlink(file_of(&rows, "session/a"), file_of(&rows, "session/c"))
+            .unwrap();
+        match storage.read_row("session/c") {
+            Err(StorageError::Failed { .. }) => {}
+            other => panic!("read of a linked row file: {other:?}"),
+        }
         let scan = storage.scan().unwrap();
         assert_eq!(
             scan.keys,
             vec![EPOCH_KEY.to_string(), "session/a".to_string()]
         );
-        assert_eq!(scan.foreign, 1);
+        assert_eq!(scan.foreign, 2, "the linked kind and the linked row file");
     }
 
     /// AD-7: a write never opens a temporary file that it did not create. Names that the temporary files of this process
