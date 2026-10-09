@@ -190,12 +190,17 @@ second `Launch` for a launch that already happened.
   `Stopping`), and the session keeps that recorded state in memory. `Adopt(id)` runs the handshake again and applies the
   two tables above with **the recorded state of the row** (the intent) and **the payload state of the new report** (the
   facts). So:
-  - one launch: if the first attempt sent the `Launch` and lost the link, the retry's report says `Spawning`, `Running`,
-    `Exited` or `LaunchFailed`, never `NotLaunched`, and no second `Launch` is sent;
+  - **exactly one payload spawn.** The condition is the worker's **acceptance** of a `Launch`, not the host's send: a sent
+    frame can be lost, partial, or not decoded before the fence closes the connection. A worker that accepted a `Launch`
+    reports `Spawning`, `Running`, `Exited` or `LaunchFailed`, and the retry sends no `Launch`. A worker that did not accept
+    it reports `NotLaunched`, and the retry performs R-35 (a): it sends the one `Launch`. The worker accepts at most one
+    `Launch` in its life, so a second one can never spawn a second payload;
   - a `Stopping` row never gets a `Launch`, on the first attempt or on a retry;
   - a `Lost(WorkerGone)` or `Lost(RegistryCorrupt)` row is not adoptable (AD-2), so the retry rule does not apply to it.
-  - Test: a `Starting` row whose first attempt sent the `Launch` and then lost the link; the retry adopts with no second
-    `Launch`. A `Stopping` row whose first attempt was lost; the retry ends `Exited{cause: HostStop}` with no `Launch`.
+  - Tests: (1) a `Starting` row whose first attempt's `Launch` the worker accepted, then the link was lost; the retry
+    adopts with no second `Launch` and one spawn. (2) A `Starting` row whose first attempt's `Launch` was lost before the
+    worker accepted it; the retry's report is `NotLaunched`, the retry sends the `Launch`, and there is one spawn. (3) A
+    `Stopping` row whose first attempt was lost; the retry ends `Exited{cause: HostStop}` with no `Launch`.
 - **Core never posts `Lost(Other)`** (R-35 correction: AD-2 names `Other` only as the value a host maps an unknown reason
   to). Every `Lost` that Core posts carries a listed AD-2 reason. P1's placeholder `Lost(Other)` for every decodable row
   violates AD-1, and this per-state adoption replaces it. The PR lists every Core-side construction of `Lost(Other)` in the
