@@ -62,3 +62,23 @@ Reviewed head: `dd6562490d6b14255f6312d9b6c8e2d68caf5058`, one commit on `1cdb24
 - Revision row 23 records the round. No other text changed.
 
 VERDICT: CLEAN (0 open) at dd6562490d6b14255f6312d9b6c8e2d68caf5058
+
+## Round 3 — CLEAN on head 48c14ab8 (revision 23a)
+
+Reviewed head: `48c14ab8dd40341295b004b1dfc679eb27207a52`, one commit on `dd656249` (the lead's ruling of 2026-10-09, raised
+on #185).
+
+- **Section 1** now has two counts: testkit-passing (out of `core-pending.txt`, the `TestkitHarness` trial passes) and
+  real-passing (the `RealCoreHarness` trial or a named real-process test passes).
+- **Section 5** lets an id leave the pending list when it passes on the `TestkitHarness`. A real-only id (4.2b: A5-3, or
+  a replacement-map `slow` row) leaves only with its passing real proof. When the `RealCoreHarness` lands, it runs every
+  non-pending id, and a failure is a finding. This agrees with 4.2b, which is unchanged: at acceptance, every id passes on
+  both harnesses, and the real-only ids pass on the real harness or as a named real-process test.
+- **Revision row 23a** records the ruling and the tier text.
+
+Observation (not counted): row 23a makes a removal-only pending change STANDARD. The real-only exception is then checked by
+the package review alone. The replacement map (`conformance/replacement-map.json`, `proof` = `slow:*`) makes the check
+mechanical: `cargo xtask lists` could refuse a non-pending `slow:*` id unless it names its real test. This is the plan's own
+rule "a rule that a gate can check is checked by the gate". It is the lead's call.
+
+VERDICT: CLEAN (0 open) at 48c14ab8dd40341295b004b1dfc679eb27207a52
