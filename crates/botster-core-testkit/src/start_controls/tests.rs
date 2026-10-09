@@ -268,3 +268,101 @@ fn the_start_controls_refuse_what_they_cannot_do() {
         json!({"session": "s1", "before": "payload"})
     )));
 }
+
+/// A Core on `handle`, over the new data directory `<handle>-dir`, with the session `s1` created; its program holds.
+fn open_created(harness: &mut TestkitHarness, handle: &str, at: &mut Instant) -> Box<dyn CoreApi> {
+    let mut core = harness
+        .open(&OpenSpec {
+            handle: handle.into(),
+            data_dir: DataDirRef(format!("{handle}-dir")),
+            ..spec()
+        })
+        .expect("open");
+    let mut create = json!({"Create": {"session": "s1", "request": {"program": [{"hold": {}}]}}});
+    normalize_op(&mut create, &harness.probe_binary());
+    let create = core.begin(serde_json::from_value(create).unwrap()).unwrap();
+    assert!(matches!(
+        complete(core.as_mut(), at, create),
+        OpResult::Ok(_)
+    ));
+    core
+}
+
+/// SC-F1: a hold names its data directory as well as its instance. Every new directory starts its host epoch at 1, so the
+/// first session of each has the same instance (Core ID-1 scopes it to its registry). A hold of one directory refuses no
+/// hold of another, parks no spawn of another, and neither the release nor the worker's end of another directory changes it.
+#[test]
+fn a_hold_is_scoped_to_its_data_directory() {
+    let bad = |result: Result<Value, ControlError>| matches!(result, Err(ControlError::Bad(_)));
+    let held = json!({"session": "s1", "before": "payload"});
+    let s1 = json!({"session": "s1"});
+    let mut harness = TestkitHarness::new(0);
+    let mut at = Instant::now();
+    let mut a = open_created(&mut harness, "a", &mut at);
+    let mut b = open_created(&mut harness, "b", &mut at);
+    let mut c = open_created(&mut harness, "c", &mut at);
+    let instance = |harness: &TestkitHarness, handle: &str| {
+        session_row(harness, handle, &sid("s1")).unwrap().instance
+    };
+    assert_eq!(instance(&harness, "a"), instance(&harness, "b"));
+    assert_eq!(instance(&harness, "a"), instance(&harness, "c"));
+    assert_eq!(
+        harness.control("a", "hold_start_at", &held),
+        Ok(Value::Null)
+    );
+    assert_eq!(
+        harness.control("b", "hold_start_at", &held),
+        Ok(Value::Null),
+        "the hold of another directory refuses no hold"
+    );
+    let start = c.begin(Op::Start { id: sid("s1") }).unwrap();
+    assert!(
+        matches!(complete(c.as_mut(), &mut at, start), OpResult::Ok(_)),
+        "the hold of another directory parks no spawn"
+    );
+    assert_eq!(
+        harness.control("c", "payload_alive", &s1).unwrap()["alive"],
+        json!(true)
+    );
+    assert_eq!(
+        harness.control("b", "release_start_at", &s1),
+        Ok(Value::Null)
+    );
+    assert!(
+        bad(harness.control("a", "hold_start_at", &held)),
+        "the release of another directory leaves the hold"
+    );
+    assert_eq!(
+        harness.control("b", "hold_start_at", &held),
+        Ok(Value::Null)
+    );
+    let _start = b.begin(Op::Start { id: sid("s1") }).unwrap();
+    for _ in 0..PUMPS {
+        if !b.pump(now(at)).more {
+            break;
+        }
+    }
+    let stop = b.begin(Op::Stop { id: sid("s1") }).unwrap();
+    complete(b.as_mut(), &mut at, stop);
+    assert!(
+        bad(harness.control("b", "release_start_at", &s1)),
+        "the end of its worker took the hold"
+    );
+    assert!(
+        bad(harness.control("a", "hold_start_at", &held)),
+        "the end of a worker of another directory leaves the hold"
+    );
+    assert_eq!(
+        harness.control("a", "release_start_at", &s1),
+        Ok(Value::Null)
+    );
+    let start = a.begin(Op::Start { id: sid("s1") }).unwrap();
+    assert!(matches!(
+        complete(a.as_mut(), &mut at, start),
+        OpResult::Ok(_)
+    ));
+    assert_eq!(
+        harness.control("a", "payload_alive", &s1).unwrap()["alive"],
+        json!(true)
+    );
+}

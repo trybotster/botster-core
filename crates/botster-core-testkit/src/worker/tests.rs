@@ -19,7 +19,10 @@ fn fixture(capacity: usize) -> (WorkerEdges, LinkEnd, Worker, Instant) {
         cell,
         processes: Arc::new(Mutex::new(processes)),
         pids: Arc::new(Mutex::new(Pids { next: 1001 })),
-        instance: InstanceId("1-1".into()),
+        start: StartKey {
+            dir: "d".into(),
+            instance: InstanceId("1-1".into()),
+        },
         held_starts: Arc::default(),
         held_spawn: None,
         scheduler,
@@ -179,7 +182,7 @@ fn worker_exit_closes_the_link_and_posts_its_exit_once() {
 fn worker_identities_do_not_repeat() {
     let workers = Workers::new(SchedulerHandle::with_seed(2), Instant::now());
     assert!(format!("{workers:?}").contains("Workers"));
-    let mut spawner = workers.spawner();
+    let mut spawner = workers.spawner("d");
     let spec = WorkerSpawn {
         program: "worker".into(),
         instance: InstanceId("1-1".into()),
@@ -336,7 +339,7 @@ fn a_worker_refuses_zero_read_bound() {
 fn each_unconsumed_report_alone_keeps_the_edges_from_quiet() {
     let now = Instant::now();
     let workers = Workers::new(SchedulerHandle::with_seed(0), now);
-    let mut spawner = workers.spawner();
+    let mut spawner = workers.spawner("d");
     let table = spawner.table();
     assert!(workers.edges_quiet(&table), "no worker, no report");
     let spec = WorkerSpawn {
@@ -422,12 +425,13 @@ fn the_payload_is_alive_from_its_spawn_until_its_process_ends() {
 }
 
 /// `hold_start_at` (AD-7 step 4): while the start is held, the worker's spawn is kept and is not ready work. The release
-/// makes it ready, and its answer is the spawn's. The end of the worker drops a kept spawn and its hold.
+/// makes it ready, and its answer is the spawn's. The end of the worker drops a kept spawn and its own hold only: the same
+/// instance of another directory stays held.
 #[test]
 fn a_held_spawn_waits_for_the_release_and_goes_with_the_worker() {
     let (mut edges, _peer, worker, now) = fixture(1024);
-    let instance = edges.instance.clone();
-    lock(&edges.held_starts).insert(instance.clone());
+    let key = edges.start.clone();
+    lock(&edges.held_starts).insert(key.clone());
     edges.perform(now, Action::SpawnPayload(payload_spec()));
     assert_eq!(
         edges.ready(now, &worker),
@@ -435,13 +439,18 @@ fn a_held_spawn_waits_for_the_release_and_goes_with_the_worker() {
         "a held spawn is not ready work"
     );
     assert!(!lock(&edges.cell).payload_alive);
-    lock(&edges.held_starts).remove(&instance);
+    lock(&edges.held_starts).remove(&key);
     assert_eq!(edges.ready(now, &worker), 1);
     assert!(matches!(edges.take(now, &worker, 0), Input::Spawned(Ok(_))));
     assert!(lock(&edges.cell).payload_alive);
 
     let (mut edges, _peer, worker, now) = fixture(1024);
-    lock(&edges.held_starts).insert(instance.clone());
+    let other = StartKey {
+        dir: "other".into(),
+        ..key.clone()
+    };
+    lock(&edges.held_starts).insert(key.clone());
+    lock(&edges.held_starts).insert(other.clone());
     edges.perform(now, Action::SpawnPayload(payload_spec()));
     lock(&edges.cell).ended = true;
     assert_eq!(edges.ready(now, &worker), 0);
@@ -450,8 +459,12 @@ fn a_held_spawn_waits_for_the_release_and_goes_with_the_worker() {
         "the kept spawn went with the worker"
     );
     assert!(
-        !lock(&edges.held_starts).contains(&instance),
-        "no hold remains"
+        !lock(&edges.held_starts).contains(&key),
+        "its hold went too"
+    );
+    assert!(
+        lock(&edges.held_starts).contains(&other),
+        "the same instance of another directory stays held"
     );
     assert!(!lock(&edges.cell).payload_alive);
 }
