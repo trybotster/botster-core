@@ -36,8 +36,10 @@ pub enum Rule {
     CommandWait,
     /// A raw spawn: the child has no owner that ends it on every path.
     Spawn,
-    /// `read_line`: an unbounded read.
-    ReadLine,
+    /// A blocking read with no deadline on a pipe, a socket or a channel: `read_line`, `read_to_end`, `read_to_string`,
+    /// `read_exact`, `lines()` of a `BufReader`, `accept`, `incoming`, a channel's `recv()`, a socket's `recv(buf)` (lead ruling 2026-10-08, after #169 F19). A
+    /// file is not a pipe: a read of a `File` is allowed.
+    BlockingRead,
     /// `std::thread::sleep`.
     Sleep,
     /// A shell `sleep` or `while :`/`while true` loop in a string.
@@ -50,7 +52,7 @@ impl Rule {
             Rule::ChildWait => "child-wait",
             Rule::CommandWait => "command-wait",
             Rule::Spawn => "spawn",
-            Rule::ReadLine => "read-line",
+            Rule::BlockingRead => "blocking-read",
             Rule::Sleep => "sleep",
             Rule::ShellLoop => "shell-loop",
         }
@@ -61,7 +63,7 @@ impl Rule {
             Rule::ChildWait,
             Rule::CommandWait,
             Rule::Spawn,
-            Rule::ReadLine,
+            Rule::BlockingRead,
             Rule::Sleep,
             Rule::ShellLoop,
         ]
@@ -74,7 +76,10 @@ impl Rule {
             Rule::ChildWait => "a raw wait for a child: use botster_test_process::OwnedChild (status, exited_within)",
             Rule::CommandWait => "Command::status/output waits without a bound: use OwnedChild::spawn(..).status()",
             Rule::Spawn => "a raw spawn: start the child with OwnedChild::spawn or spawn_group, or through a Guard wrapper",
-            Rule::ReadLine => "an unbounded read_line: use botster_test_process::first_line or Bounded::line",
+            Rule::BlockingRead => {
+                "a blocking read with no deadline: use botster_test_process::Bounded (line, to_eof) or first_line, or \
+                 recv_timeout with a Deadline"
+            }
             Rule::Sleep => "a sleep in test code: wait on the real event with a Deadline",
             Rule::ShellLoop => "a shell sleep or busy loop: use botster_test_process::Blocker (a FIFO-blocked /bin/cat)",
         }
@@ -213,18 +218,30 @@ fn path_rule(path: &[String]) -> Option<Rule> {
     match (name(2), name(1)?) {
         (Some("thread"), "sleep") => Some(Rule::Sleep),
         (Some("Child"), "wait" | "try_wait" | "wait_with_output") => Some(Rule::ChildWait),
-        (Some(_), "read_line") => Some(Rule::ReadLine),
+        (Some(_), "read_line") => Some(Rule::BlockingRead),
+        (Some("Read" | "BufRead"), "read_to_end" | "read_to_string" | "read_exact" | "lines") => {
+            Some(Rule::BlockingRead)
+        }
+        (Some("io"), "read_to_string") => Some(Rule::BlockingRead),
         (Some("Command"), "spawn") => Some(Rule::Spawn),
         (Some("Command"), "status" | "output") => Some(Rule::CommandWait),
         _ => None,
     }
 }
 
-/// The rule that a method call breaks, if any; `command` says whether its receiver is a `Command`.
-fn method_rule(method: &str, args: usize, command: bool) -> Option<Rule> {
+/// The rule that a method call breaks, if any; `receiver` is what the scan knows of its receiver.
+fn method_rule(method: &str, args: usize, receiver: Option<Kind>) -> Option<Rule> {
+    let command = receiver == Some(Kind::Command);
     match (method, args) {
         ("wait" | "try_wait" | "wait_with_output", 0) => Some(Rule::ChildWait),
-        ("read_line", 1) => Some(Rule::ReadLine),
+        ("read_line" | "read_to_end" | "read_to_string" | "read_exact", 1)
+            if receiver != Some(Kind::File) =>
+        {
+            Some(Rule::BlockingRead)
+        }
+        ("lines", 0) if receiver == Some(Kind::Reader) => Some(Rule::BlockingRead),
+        ("accept" | "incoming" | "recv", 0) => Some(Rule::BlockingRead),
+        ("recv" | "recv_from", 1) if receiver == Some(Kind::Socket) => Some(Rule::BlockingRead),
         ("spawn", 0) => Some(Rule::Spawn),
         ("spawn", _) if command => Some(Rule::Spawn),
         ("status" | "output", 0) if command => Some(Rule::CommandWait),
@@ -326,13 +343,41 @@ fn expr_path_segments(expr: &syn::ExprPath) -> Vec<String> {
     segments
 }
 
+/// What the scan knows of a receiver: what built it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Kind {
+    /// `Command::new(..)`.
+    Command,
+    /// `File::open(..)`, `File::create(..)` or `OpenOptions::new()`: a file, whose reads do not block.
+    File,
+    /// `BufReader::new(..)`: a reader whose `lines()` blocks.
+    Reader,
+    /// A socket of the standard library (`UnixStream::connect`, `UnixDatagram::bind`, `UdpSocket::bind`, ...): its
+    /// `recv(buf)` blocks. Another type's `recv(buf)`, such as the testkit's in-memory link, does not.
+    Socket,
+}
+
+/// The kind of value that the constructor path `full` (after the `use` names) builds.
+fn constructor_kind(full: &[String]) -> Option<Kind> {
+    let name = |i: usize| full.len().checked_sub(i).map(|at| full[at].as_str());
+    match (name(2)?, name(1)?) {
+        ("Command", "new") => Some(Kind::Command),
+        ("File", "open" | "create") | ("OpenOptions", "new") => Some(Kind::File),
+        ("BufReader", "new") => Some(Kind::Reader),
+        ("UnixStream" | "TcpStream", "connect")
+        | ("UnixDatagram", "bind" | "unbound")
+        | ("UdpSocket", "bind") => Some(Kind::Socket),
+        _ => None,
+    }
+}
+
 struct Scan<'a> {
     file: &'a str,
     uses: &'a Uses,
     in_test: bool,
     items: Vec<String>,
-    /// Per function: the local names bound to a `Command`.
-    commands: Vec<Vec<String>>,
+    /// Per function: the local names bound to a value of a known kind.
+    locals: Vec<Vec<(String, Kind)>>,
     findings: Vec<Finding>,
 }
 
@@ -353,35 +398,37 @@ impl Scan<'_> {
         let was = self.in_test;
         self.in_test |= test;
         self.items.push(name);
-        self.commands.push(Vec::new());
+        self.locals.push(Vec::new());
         visit(self);
-        self.commands.pop();
+        self.locals.pop();
         self.items.pop();
         self.in_test = was;
     }
 
-    /// Whether `expr` is a `Command`: a chain of method calls on `Command::new(..)` (any `Command`, after the `use`
-    /// names), or a local name bound to one.
-    fn is_command(&self, expr: &syn::Expr) -> bool {
+    /// What built `expr`: a chain of method calls (`?` and `&` included) on a known constructor (after the `use` names), or a
+    /// local name bound to one.
+    fn kind(&self, expr: &syn::Expr) -> Option<Kind> {
         match expr {
-            syn::Expr::MethodCall(call) => self.is_command(&call.receiver),
-            syn::Expr::Paren(paren) => self.is_command(&paren.expr),
-            syn::Expr::Reference(reference) => self.is_command(&reference.expr),
+            syn::Expr::MethodCall(call) => self.kind(&call.receiver),
+            syn::Expr::Paren(paren) => self.kind(&paren.expr),
+            syn::Expr::Reference(reference) => self.kind(&reference.expr),
+            syn::Expr::Try(attempt) => self.kind(&attempt.expr),
             syn::Expr::Call(call) => match &*call.func {
                 syn::Expr::Path(path) => {
-                    let full = self.uses.resolve(&expr_path_segments(path));
-                    full.len() >= 2
-                        && full[full.len() - 2] == "Command"
-                        && full[full.len() - 1] == "new"
+                    constructor_kind(&self.uses.resolve(&expr_path_segments(path)))
                 }
-                _ => false,
+                _ => None,
             },
-            syn::Expr::Path(path) => path.path.get_ident().is_some_and(|ident| {
-                self.commands
-                    .last()
-                    .is_some_and(|names| names.contains(&ident.to_string()))
-            }),
-            _ => false,
+            syn::Expr::Path(path) => {
+                let ident = path.path.get_ident()?.to_string();
+                self.locals
+                    .last()?
+                    .iter()
+                    .rev()
+                    .find(|(name, _)| *name == ident)
+                    .map(|(_, kind)| *kind)
+            }
+            _ => None,
         }
     }
 
@@ -429,7 +476,7 @@ impl Scan<'_> {
                     let after_dot = i > 0
                         && matches!(&tokens[i - 1], TokenTree::Punct(p) if p.as_char() == '.');
                     if after_dot {
-                        if let Some(rule) = method_rule(&ident.to_string(), arg_count, false) {
+                        if let Some(rule) = method_rule(&ident.to_string(), arg_count, None) {
                             self.report(line, rule);
                         }
                         continue;
@@ -523,9 +570,9 @@ impl<'ast> Visit<'ast> for Scan<'_> {
 
     fn visit_local(&mut self, local: &'ast syn::Local) {
         if let (syn::Pat::Ident(pat), Some(init)) = (&local.pat, &local.init) {
-            if self.is_command(&init.expr) {
-                if let Some(names) = self.commands.last_mut() {
-                    names.push(pat.ident.to_string());
+            if let Some(kind) = self.kind(&init.expr) {
+                if let Some(names) = self.locals.last_mut() {
+                    names.push((pat.ident.to_string(), kind));
                 }
             }
         }
@@ -533,8 +580,8 @@ impl<'ast> Visit<'ast> for Scan<'_> {
     }
 
     fn visit_expr_method_call(&mut self, call: &'ast syn::ExprMethodCall) {
-        let command = self.is_command(&call.receiver);
-        if let Some(rule) = method_rule(&call.method.to_string(), call.args.len(), command) {
+        let receiver = self.kind(&call.receiver);
+        if let Some(rule) = method_rule(&call.method.to_string(), call.args.len(), receiver) {
             self.report(call.method.span().start().line, rule);
         }
         syn::visit::visit_expr_method_call(self, call);
@@ -582,7 +629,7 @@ pub fn scan(file: &str, text: &str) -> Result<Vec<Finding>, String> {
         uses: &uses,
         in_test: scope == Scope::All,
         items: Vec::new(),
-        commands: vec![Vec::new()],
+        locals: vec![Vec::new()],
         findings: Vec::new(),
     };
     scan.visit_file(&parsed);
