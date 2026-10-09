@@ -7,7 +7,7 @@
 use crate::engine::{HostEngine, Next, Owner, Step, Wait};
 use crate::flow::*;
 use crate::io::{Action, Work};
-use crate::session::{Admit, Row};
+use crate::session::{unknown_request, Admit, Row, ROW_PREFIX};
 use botster_core_contract::prelude::*;
 use botster_core_edges::edges::{GroupSignal, StorageError};
 use botster_core_link::msg::{HostMsg, LaunchSpec};
@@ -15,12 +15,22 @@ use std::collections::BTreeSet;
 use std::mem::{discriminant, Discriminant};
 use std::time::Instant;
 
+/// How a decoded row is recovered (AD-1).
+enum Recovery {
+    /// The row's state is known now.
+    Post(SessionState),
+    /// The row names a worker: its adoption, with the row's recorded state.
+    Adopt(SessionState),
+}
+
 /// A deadline that the engine owns (TM-3).
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) enum DeadlineKind {
     Startup(SessionId),
     StopGrace(SessionId),
     RemoveGrace(SessionId),
+    /// The reachability deadline of an adoption (DESIGN.md "Adoption (P5)" 3.7).
+    Adopt(SessionId),
     Silence(SessionId),
     Capture(CaptureId),
 }
@@ -48,6 +58,11 @@ impl HostEngine {
                 Flow::Stop(f) => {
                     if let Some(at) = f.deadline {
                         out.push((at, DeadlineKind::StopGrace(id.clone())));
+                    }
+                }
+                Flow::Adopt(f) => {
+                    if let Some(at) = f.deadline {
+                        out.push((at, DeadlineKind::Adopt(id.clone())));
                     }
                 }
                 Flow::Remove(f) => {
@@ -81,6 +96,7 @@ impl HostEngine {
                 StartPhase::PostStarting | StartPhase::PostRunning | StartPhase::PostFailed
             ),
             Flow::Stop(f) => matches!(f.phase, StopPhase::PostStopping | StopPhase::PostEnd),
+            Flow::Adopt(f) => f.phase == AdoptPhase::Post,
             Flow::Remove(f) => match f.phase {
                 RemovePhase::CloseRoutes => !session.routes.is_empty(),
                 RemovePhase::PostReleased => true,
@@ -96,6 +112,13 @@ impl HostEngine {
             Flow::Start(f) => matches!(f.phase, StartPhase::AwaitHello | StartPhase::AwaitLaunched),
             Flow::Stop(f) => f.phase == StopPhase::AwaitExit,
             Flow::Remove(f) => f.phase == RemovePhase::AwaitTeardown,
+            Flow::Adopt(f) => matches!(
+                f.phase,
+                AdoptPhase::AwaitProbe
+                    | AdoptPhase::AwaitConnect
+                    | AdoptPhase::AwaitHello
+                    | AdoptPhase::AwaitReport
+            ),
         }
     }
 
@@ -124,12 +147,28 @@ impl HostEngine {
                         out.push(Work::Op(*id));
                     }
                 }
+                (Step::Ready(Next::MetaWrite | Next::PolicyWrite), Some(session))
+                    if self
+                        .sessions
+                        .get(session)
+                        .is_some_and(|s| matches!(s.flow, Flow::Create(_))) =>
+                {
+                    // A row write of an op admitted after `Create` waits for the create's own row (AM-1): if that write
+                    // fails, the session never existed, and no row of it may stay.
+                }
+                (Step::Ready(Next::AdoptRow), _) if self.row_waits_for_its_session(p) => {
+                    // The row's session is being created by this handle: its state is posted when its `Created` is
+                    // (LC-11: AdoptAll's state of every row comes before its completion).
+                }
                 (Step::Ready(next), _) => {
                     if !self.step_needs_room(next) || room {
                         out.push(Work::Op(*id));
                     }
                 }
                 (Step::Await(Wait::StopAll(targets)), _) if self.stop_all_done(targets) => {
+                    out.push(Work::Op(*id));
+                }
+                (Step::Await(Wait::Adopt), _) if !self.adopting_rows(*id) => {
                     out.push(Work::Op(*id));
                 }
                 _ => {}
@@ -172,11 +211,25 @@ impl HostEngine {
 
     /// The earliest due deadline: a `Silent` when `silent`, and any other kind otherwise (E3-1).
     fn due_deadline(&self, silent: bool) -> Option<DeadlineKind> {
-        let now = self.now?;
+        self.due_deadlines(silent).next()
+    }
+
+    /// The deadlines that are due now: the silences, or every other kind.
+    fn due_deadlines(&self, silent: bool) -> impl Iterator<Item = DeadlineKind> {
+        let now = self.now;
         self.deadlines()
             .into_iter()
-            .find(|(at, kind)| *at <= now && matches!(kind, DeadlineKind::Silence(_)) == silent)
+            .filter(move |(at, kind)| {
+                now.is_some_and(|now| *at <= now)
+                    && matches!(kind, DeadlineKind::Silence(_)) == silent
+            })
             .map(|(_, kind)| kind)
+    }
+
+    /// How many silences are due now. Each `Work::Silent` step fires one, so this is the most `Silent` steps that a pump
+    /// runs before other work (E3-1 item 3).
+    pub(crate) fn due_silences(&self) -> usize {
+        self.due_deadlines(true).count()
     }
 
     /// Runs one piece of ready work (plan 2.4).
@@ -214,6 +267,7 @@ impl HostEngine {
             DeadlineKind::StopGrace(id) => self.kill_payload(&id),
             DeadlineKind::RemoveGrace(id) => self.remove_grace_expired(&id),
             DeadlineKind::Startup(id) => self.startup_expired(&id),
+            DeadlineKind::Adopt(id) => self.adopt_expired(&id),
         }
     }
 
@@ -241,7 +295,7 @@ impl HostEngine {
         if broken {
             // The worker cannot answer: the payload was killed and Core cannot learn the exit. The session ends
             // `Lost(WorkerUnreachable)` (AD-2: the worker is alive, and no connection is made).
-            self.begin_end_flow(id, SessionEnd::Lost(LostReason::WorkerUnreachable));
+            self.begin_end_flow(id, End::Lost(LostReason::WorkerUnreachable));
         }
     }
 
@@ -251,28 +305,24 @@ impl HostEngine {
         row
     }
 
-    fn write_row(&mut self, owner: Owner, row: &Row) {
+    /// One durable write of `row` for `owner`; the answer carries the returned ticket (AD-7).
+    pub(crate) fn write_row(&mut self, owner: Owner, row: &Row) -> crate::io::Ticket {
         let ticket = self.ticket(owner);
         self.act(Action::WriteRow {
             ticket,
             key: crate::session::row_key(&row.id),
             bytes: serde_json::to_vec(row).expect("a row is JSON"),
         });
+        ticket
     }
 
-    /// A best-effort row write whose result nobody needs (the final state of a session).
-    pub(crate) fn write_row_ignored(&mut self, id: &SessionId, state: SessionState) {
-        let Some(s) = self.sessions.get(id) else {
-            return;
-        };
-        let mut row = s.to_row();
-        row.state = state;
-        let ticket = self.ticket(Owner::Ignored);
-        self.act(Action::WriteRow {
-            ticket,
-            key: crate::session::row_key(id),
-            bytes: serde_json::to_vec(&row).expect("a row is JSON"),
-        });
+    /// The row of the state that a session ended in, or that an adoption posted. No operation waits for it; a failure is
+    /// counted (`FinalRow`).
+    pub(crate) fn write_final_row(&mut self, id: &SessionId, state: SessionState) {
+        if self.sessions.contains_key(id) {
+            let row = self.row_of(id, state);
+            self.write_row(Owner::FinalRow, &row);
+        }
     }
 
     // ---- the steps of the operations ----
@@ -283,6 +333,13 @@ impl HostEngine {
         };
         if let Step::Await(Wait::StopAll(targets)) = &pending.step {
             if self.stop_all_done(targets) {
+                self.complete(op_id, OpResult::Ok(OpOutput::Unit));
+            }
+            return;
+        }
+        if matches!(pending.step, Step::Await(Wait::Adopt)) {
+            // LC-11: `Completed{AdoptAll}` follows the last row's state.
+            if !self.adopting_rows(op_id) {
                 self.complete(op_id, OpResult::Ok(OpOutput::Unit));
             }
             return;
@@ -314,9 +371,7 @@ impl HostEngine {
                 let Op::UpdateMetadata { labels, .. } = self.ops[&op_id].op.clone() else {
                     return;
                 };
-                let state = self.sessions[&session]
-                    .shown
-                    .unwrap_or(SessionState::Created);
+                let state = self.sessions[&session].recorded_state();
                 let mut row = self.row_of(&session, state);
                 row.labels = labels;
                 self.write_row(Owner::Op(op_id), &row);
@@ -327,9 +382,7 @@ impl HostEngine {
                 let Op::SetNotificationPolicy { policy, .. } = self.ops[&op_id].op.clone() else {
                     return;
                 };
-                let state = self.sessions[&session]
-                    .shown
-                    .unwrap_or(SessionState::Created);
+                let state = self.sessions[&session].recorded_state();
                 let mut row = self.row_of(&session, state);
                 row.request.notification_policy = Some(policy);
                 self.write_row(Owner::Op(op_id), &row);
@@ -485,31 +538,12 @@ impl HostEngine {
     fn stop_all_start(&mut self, op_id: OpId, targets: BTreeSet<SessionId>) {
         let mut waiting = BTreeSet::new();
         for id in targets {
-            let Some(s) = self.sessions.get_mut(&id) else {
-                continue;
-            };
-            match s.admit {
-                Admit::Running | Admit::Starting => {
-                    s.admit = Admit::Stopping;
-                    match s.flow {
-                        // An exit is being posted, or the start has not ended: the stop follows (LC-12).
-                        Flow::Stop(_) => {}
-                        Flow::Start(_) | Flow::Create(_) => s.stop_after_start = true,
-                        _ if s.queue.iter().any(|f| matches!(f, Flow::Start(_))) => {
-                            s.stop_after_start = true;
-                        }
-                        _ => {
-                            s.host_ended = true;
-                            s.flow = Flow::Stop(StopFlow {
-                                phase: StopPhase::RowWrite,
-                                deadline: None,
-                                end: None,
-                            });
-                        }
-                    }
+            match self.sessions.get(&id).map(|s| s.admit) {
+                Some(Admit::Running | Admit::Starting) => {
+                    self.request_stop(&id);
                     waiting.insert(id);
                 }
-                Admit::Stopping => {
+                Some(Admit::Stopping) => {
                     waiting.insert(id);
                 }
                 // `Created`, `Exited` and `Lost` targets are left as they are (LC-12).
@@ -554,10 +588,10 @@ impl HostEngine {
         };
         match &pending.op {
             // A write that was sent and not acknowledged is `Unknown`; one that was never sent is a certain zero (IN-7).
-            Op::WriteInput { payload, .. } => OpResult::Ok(OpOutput::Input(InputResult {
+            Op::WriteInput { .. } => OpResult::Ok(OpOutput::Input(InputResult {
                 outcome: if pending.req.is_some() {
                     WriteOutcome::Unknown {
-                        max_payload_bytes: Self::held_bytes(payload),
+                        max_payload_bytes: pending.held_bytes,
                     }
                 } else {
                     WriteOutcome::NotWritten(NotWrittenReason::SessionEnded)
@@ -617,55 +651,142 @@ impl HostEngine {
         true
     }
 
-    // ---- AdoptAll (AD-1, LC-11): the shell; the recovery of live workers is the adoption package's (P5) ----
+    // ---- AdoptAll (AD-1, LC-11) ----
 
+    /// Whether the next row of an `AdoptAll` names a session of this handle whose `Created` is not shown yet.
+    fn row_waits_for_its_session(&self, pending: &crate::engine::PendingOp) -> bool {
+        pending
+            .rows
+            .front()
+            .and_then(|(key, _)| key.strip_prefix(ROW_PREFIX))
+            .and_then(|id| self.sessions.get(&SessionId(id.into())))
+            .is_some_and(|s| s.shown.is_none())
+    }
+
+    /// Recovers the next row, in a step of its own, so that each row posts at most one event (EV-5b, 9B).
     fn adopt_next_row(&mut self, op_id: OpId) {
-        let Some((_key, bytes)) = self.ops.get_mut(&op_id).and_then(|p| p.rows.pop_front()) else {
+        let Some((key, bytes)) = self.ops.get_mut(&op_id).and_then(|p| p.rows.pop_front()) else {
             self.complete(op_id, OpResult::Ok(OpOutput::Unit));
             return;
         };
-        if let Ok(row) = serde_json::from_slice::<Row>(&bytes) {
-            if row.version == crate::session::ROW_VERSION && !self.sessions.contains_key(&row.id) {
-                let state = match row.state {
-                    SessionState::Created => SessionState::Created,
-                    // A row that names a worker needs the adoption handshake (AD-6), which P5 builds. Until then Core
-                    // cannot say what happened to the payload.
-                    _ => SessionState::Lost(LostReason::Other),
-                };
-                let id = row.id.clone();
-                let instance = row.instance.clone();
-                let mut session = crate::engine::new_session(
-                    id.clone(),
-                    instance.clone(),
-                    row.request.clone(),
-                    Flow::Idle,
-                );
-                session.labels = row.labels.clone();
-                session.token = row
-                    .token
-                    .as_deref()
-                    .and_then(crate::session::token_from_hex);
-                session.worker_protocol = row.worker_protocol;
-                session.worker_features = row.worker_features.clone();
-                session.worker.identity = row.worker.map(|w| w.identity());
-                session.admit = match state {
-                    SessionState::Created => Admit::Created,
-                    _ => Admit::Lost,
-                };
-                self.sessions.insert(id.clone(), session);
-                let _ = self.post_state(&id, state);
-                if let Some(s) = self.sessions.get_mut(&id) {
-                    s.shown = Some(state);
-                }
-            }
+        if let Some(id) = key.strip_prefix(ROW_PREFIX) {
+            self.adopt_row(op_id, SessionId(id.into()), &bytes);
         }
-        // The next row is a step of its own, so that each row posts at most one event (EV-5b).
         let more = self.ops.get(&op_id).is_some_and(|p| !p.rows.is_empty());
         if more {
             self.set_step(op_id, Step::Ready(Next::AdoptRow));
+        } else if self.adopting_rows(op_id) {
+            // LC-11: the rows whose adoption runs post their states first. They do not block each other.
+            self.set_step(op_id, Step::Await(Wait::Adopt));
         } else {
             self.complete(op_id, OpResult::Ok(OpOutput::Unit));
         }
+    }
+
+    /// AD-1: recovers the row of `id` as a session of this handle (DESIGN.md "Adoption (P5)" 5). A row that Core's decoder
+    /// rejects is `Lost(RegistryCorrupt)` (AD-2, A10-2): it keeps its id in use until `Remove` (AD-2). A row that names a
+    /// live worker begins its adoption, which posts the row's state when it ends; every other row posts its state now. Each
+    /// row posts one `SessionState` (LC-11).
+    ///
+    /// A session that this handle holds already made the row itself: it keeps its instance and its state, and the row posts
+    /// that state (LC-11: one `SessionState` for every row). A row whose session is still being created waits until the
+    /// session's `Created` is shown (`row_waits_for_its_session`).
+    fn adopt_row(&mut self, op: OpId, id: SessionId, bytes: &[u8]) {
+        if let Some(session) = self.sessions.get(&id) {
+            // `row_waits_for_its_session` holds this step until the session's state is shown.
+            if let Some(state) = session.shown {
+                self.post_state(&id, state);
+            }
+            return;
+        }
+        self.unadopted.remove(&id);
+        let (session, recovery) = match Row::decode(&id, bytes) {
+            Some(row) => self.session_of_row(row),
+            None => {
+                let instance = self.mint_instance();
+                let session =
+                    crate::engine::new_session(id.clone(), instance, unknown_request(), Flow::Idle);
+                (
+                    session,
+                    Recovery::Post(SessionState::Lost(LostReason::RegistryCorrupt)),
+                )
+            }
+        };
+        self.sessions.insert(id.clone(), session);
+        let state = match recovery {
+            Recovery::Adopt(recorded) => {
+                self.begin_adoption(op, &id, Some(recorded));
+                return;
+            }
+            Recovery::Post(state) => state,
+        };
+        if let Some(s) = self.sessions.get_mut(&id) {
+            s.admit = match state {
+                SessionState::Created => Admit::Created,
+                _ => Admit::Lost,
+            };
+        }
+        // `AdoptRow` runs only with mandatory room (`step_needs_room`), so the state is posted.
+        if self.post_state(&id, state) {
+            if let Some(s) = self.sessions.get_mut(&id) {
+                s.shown = Some(state);
+            }
+        }
+    }
+
+    /// The session of a row that decodes, and how it is recovered (AD-1; DESIGN.md "Adoption (P5)" 5). The checks of the
+    /// row come before any probe or connect.
+    fn session_of_row(&mut self, row: Row) -> (crate::session::Session, Recovery) {
+        let mut session = crate::engine::new_session(
+            row.id.clone(),
+            row.instance.clone(),
+            row.request.clone(),
+            Flow::Idle,
+        );
+        session.labels = row.labels.clone();
+        session.token = row
+            .token
+            .as_deref()
+            .and_then(botster_core_link::proof::token_from_hex);
+        session.worker_protocol = row.worker_protocol;
+        session.worker_features = row.worker_features.clone();
+        session.worker.identity = row.worker.map(|w| w.identity());
+        session.payload = row.payload.map(|p| p.identity());
+        let names_worker = session.worker.identity.is_some() && session.token.is_some();
+        let recovery = match row.state {
+            // AD-1: no process exists.
+            SessionState::Created => Recovery::Post(SessionState::Created),
+            // Core never writes `Lost(Other)` (R-35 correction `c3ed727`), so such a row is a corrupt record.
+            SessionState::Lost(LostReason::Other) => {
+                Recovery::Post(SessionState::Lost(LostReason::RegistryCorrupt))
+            }
+            // A worker identity with no valid token cannot be authenticated (AD-6): a corrupt record, as for the other
+            // states below (review P5-F26).
+            SessionState::Lost(LostReason::WorkerUnreachable | LostReason::WorkerVersion)
+                if session.worker.identity.is_some() && session.token.is_none() =>
+            {
+                Recovery::Post(SessionState::Lost(LostReason::RegistryCorrupt))
+            }
+            // The row recorded the end. `Adopt(id)` may retry a `Lost(WorkerUnreachable)` or `Lost(WorkerVersion)` row
+            // with the worker's identity that it keeps (steward ruling R-36, contracts `main` `c62085f`).
+            SessionState::Lost(reason) => Recovery::Post(SessionState::Lost(reason)),
+            // AD-1: a start that never recorded its worker.
+            SessionState::Starting if session.worker.identity.is_none() => {
+                Recovery::Post(SessionState::Lost(LostReason::StartInterrupted))
+            }
+            state @ (SessionState::Starting
+            | SessionState::Running
+            | SessionState::Stopping
+            | SessionState::Exited(_))
+                if names_worker =>
+            {
+                Recovery::Adopt(state)
+            }
+            // A row that Core's encoder writes never has these contents (AD-7): the bytes decode, and the record is corrupt
+            // (AD-2; R-35 correction `c3ed727`). Core never posts `Lost(Other)`.
+            _ => Recovery::Post(SessionState::Lost(LostReason::RegistryCorrupt)),
+        };
+        (session, recovery)
     }
 
     /// The launch request that a worker gets (A3-1, DP-6: the policies come from the row).

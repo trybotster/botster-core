@@ -121,12 +121,24 @@ mod tests {
         }
     }
 
-    /// Every spawn of cargo goes through `apply`.
+    /// Every spawn of cargo goes through `apply`, in every source file of the xtask, the files of its modules' own
+    /// directories included.
     #[test]
     fn every_cargo_spawn_is_capped() {
-        let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
-        for entry in std::fs::read_dir(src).unwrap() {
-            let path = entry.unwrap().path();
+        let mut dirs = vec![std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src")];
+        let mut files = Vec::new();
+        while let Some(dir) = dirs.pop() {
+            for entry in std::fs::read_dir(dir).unwrap() {
+                let path = entry.unwrap().path();
+                if path.is_dir() {
+                    dirs.push(path);
+                } else {
+                    files.push(path);
+                }
+            }
+        }
+        assert!(files.iter().any(|f| f.ends_with("base_merge/tests.rs")));
+        for path in files {
             let text = std::fs::read_to_string(&path).unwrap();
             let production = text.split("#[cfg(test)]").next().unwrap();
             let spawns = production.matches("Command::new(\"cargo\")").count();

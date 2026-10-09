@@ -14,7 +14,7 @@
 //! Clause: Core LC-4, Core LC-5, Core LC-6, Core EV-4, Core A2-1.
 
 use botster_core_edges::edges::ExitStatus;
-use rustix::process::{kill_process_group, waitid, Pid, Signal, WaitId, WaitIdOptions};
+use rustix::process::{waitid, Pid, Signal, WaitId, WaitIdOptions};
 use std::collections::BTreeMap;
 use std::io;
 use std::os::fd::{AsFd, BorrowedFd};
@@ -185,23 +185,18 @@ impl Payload {
         if self.child.is_none() {
             return;
         }
-        let (Some(pid), Some(signal)) = (
-            Pid::from_raw(i32::try_from(self.pid).unwrap_or(i32::MAX)),
-            Signal::from_named_raw(signal),
-        ) else {
+        let Some(signal) = Signal::from_named_raw(signal) else {
             return;
         };
-        // ESRCH: no process of the group is left; nothing remains to signal.
-        let _ = kill_process_group(pid, signal);
+        // ESRCH: no process of the group is left; nothing remains to signal. A refused group is never signalled.
+        let _ = crate::signal::signal_group(self.pid, signal);
     }
 
-    /// Reaps the leader, after its group kill. It consumes the payload: no signal can follow.
-    pub fn reap(mut self) {
-        drop(self.pty.take());
-        if let Some(mut child) = self.child.take() {
-            // The leader has exited (the watch reported it), so this returns at once.
-            let _ = child.wait();
-        }
+    /// Reaps the leader, after its group kill. It consumes the payload: no signal can follow. It is the drop: the group
+    /// kill of the drop finds no process left, and the leader has exited (the watch reported it), so the wait returns at
+    /// once.
+    pub fn reap(self) {
+        drop(self);
     }
 }
 

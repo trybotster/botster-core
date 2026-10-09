@@ -1,0 +1,70 @@
+head c370ef4d9910f9c8944c23207bdc3b425dbdaab2
+tracked changes: 0
+zig /Users/jasonconigliari/.local/share/mise/installs/zig/0.16.0/bin/zig 0.16.0
+|     +- WriteFile props.zig (+2 more reused dependencies)
+|     +- run exe uucode_generate (tables.zig) (+1 more reused dependencies)
+|     +- translate-c wuffs_c.h success 1s
+|        +- compile exe translate-c Debug native success 7s MaxRSS:826M
+|        |  +- options success
+|        |  +- options success
+|        |  +- options success
+|        |  +- run exe generate-def (aarch64.zig) success 82ms
+|        |  |  +- compile exe generate-def Debug native success 1s MaxRSS:266M
+|        |  +- run exe generate-def (amdgcn.zig) success 217ms
+|        |  |  +- compile exe generate-def Debug native (reused)
+|        |  +- run exe generate-def (arm.zig) success 28ms
+|        |  |  +- compile exe generate-def Debug native (reused)
+|        |  +- run exe generate-def (bpf.zig) success 170ms
+|        |  |  +- compile exe generate-def Debug native (reused)
+|        |  +- run exe generate-def (common.zig) success 200ms
+|        |  |  +- compile exe generate-def Debug native (reused)
+|        |  +- run exe generate-def (hexagon.zig) success 133ms
+|        |  |  +- compile exe generate-def Debug native (reused)
+|        |  +- run exe generate-def (loongarch.zig) success 88ms
+|        |  |  +- compile exe generate-def Debug native (reused)
+|        |  +- run exe generate-def (mips.zig) success 148ms
+|        |  |  +- compile exe generate-def Debug native (reused)
+|        |  +- run exe generate-def (neon.zig) success 172ms
+|        |  |  +- compile exe generate-def Debug native (reused)
+|        |  +- run exe generate-def (nvptx.zig) success 96ms
+|        |  |  +- compile exe generate-def Debug native (reused)
+|        |  +- run exe generate-def (powerpc.zig) success 52ms
+|        |  |  +- compile exe generate-def Debug native (reused)
+|        |  +- run exe generate-def (riscv.zig) success 154ms
+|        |  |  +- compile exe generate-def Debug native (reused)
+|        |  +- run exe generate-def (s390x.zig) success 15ms
+|        |  |  +- compile exe generate-def Debug native (reused)
+|        |  +- run exe generate-def (ve.zig) success 184ms
+|        |  |  +- compile exe generate-def Debug native (reused)
+|        |  +- run exe generate-def (wasm.zig) success 26ms
+|        |  |  +- compile exe generate-def Debug native (reused)
+|        |  +- run exe generate-def (x86_64.zig) success 167ms
+|        |  |  +- compile exe generate-def Debug native (reused)
+|        |  +- run exe generate-def (x86.zig) success 129ms
+|        |  |  +- compile exe generate-def Debug native (reused)
+|        |  +- run exe generate-def (xcore.zig) success 116ms
+|        |     +- compile exe generate-def Debug native (reused)
+|        +- WriteFile libc.txt (reused)
+|        +- WriteFile wuffs_c.h success
++- run test 3589 pass, 27 skip (3616 total) 10m MaxRSS:113M
+   +- compile test Debug aarch64-macos.13.0 success 1m MaxRSS:3G
+      +- WriteFile  (reused)
+      +- compile lib simdutf Debug aarch64-macos.13.0 (+1 more reused dependencies)
+      +- WriteFile hwy (reused)
+      +- compile lib highway Debug aarch64-macos.13.0 (+1 more reused dependencies)
+      +- compile lib simdutf Debug aarch64-macos.13.0 (+1 more reused dependencies)
+      +- compile lib highway Debug aarch64-macos.13.0 (+1 more reused dependencies)
+      +- options cached
+      +- options success
+      +- WriteFile props.zig (+2 more reused dependencies)
+      +- WriteFile props.zig (+2 more reused dependencies)
+      +- run exe uucode_generate (tables.zig) (+1 more reused dependencies)
+      +- translate-c wuffs_c.h (+3 more reused dependencies)
+
+test-lib-vt exit 0
+lib build exit 0
+total 23544
+-rwxr-xr-x@ 1 jasonconigliari  staff   1863120 Oct  4 20:51 libghostty-vt.0.1.0.dylib
+lrwxr-xr-x@ 1 jasonconigliari  staff        25 Oct  4 20:51 libghostty-vt.0.dylib -> libghostty-vt.0.1.0.dylib
+-rw-r--r--@ 1 jasonconigliari  staff  10189944 Oct  4 20:51 libghostty-vt.a
+lrwxr-xr-x@ 1 jasonconigliari  staff        21 Oct  4 20:51 libghostty-vt.dylib -> libghostty-vt.0.dylib

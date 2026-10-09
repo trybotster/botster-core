@@ -3,7 +3,6 @@
 use super::*;
 use botster_core_link::proof::TOKEN_LEN;
 
-#[allow(clippy::disallowed_methods)] // The test initializes the injected clock once.
 fn fixture(capacity: usize) -> (WorkerEdges, LinkEnd, Worker, Instant) {
     let now = Instant::now();
     let scheduler = SchedulerHandle::with_seed(1);
@@ -28,8 +27,7 @@ fn fixture(capacity: usize) -> (WorkerEdges, LinkEnd, Worker, Instant) {
         payload: None,
         spawned: None,
         exit: None,
-        output_ended: false,
-        drain: false,
+        drain: None,
         ready: Vec::new(),
         read_chunk: READ_CHUNK,
     };
@@ -75,16 +73,20 @@ fn a_control_link_eof_closes_the_link() {
     assert_eq!(edges.ready(now, &worker), 0);
 }
 
-/// EV-4: output precedes its drain; the edge offers no output before the spawn answer.
+/// EV-4, `Action::DrainPty`: the edge offers no output before the spawn answer, and output precedes its drain. The edge's
+/// drain is bounded (`Drain`): the count that the program held when it was asked, then one flushing read, then at most
+/// the count measured once after that read. A writer that keeps writing cannot extend it, and `PtyDrained` answers
+/// only an asked drain.
 #[test]
-fn program_output_waits_for_spawn_and_ends_with_one_drain() {
+fn the_edge_drain_is_bounded_by_the_asked_count() {
     let (mut edges, _peer, worker, now) = fixture(8);
     let script = serde_json::from_value(serde_json::json!({"program": [
-        {"print": {"bytes_hex": "616263"}}, {"exit": {"code": 7}}
+        {"print": {"bytes_hex": "616263"}}, {"hold": {}}
     ]}))
     .unwrap();
     let program = ScriptedProgram::new(&script, true, &edges.scheduler).unwrap();
-    program.control().write_size(Some(3));
+    let control = program.control();
+    control.write_size(Some(1));
     edges.payload = Some(program);
     let id = PayloadId {
         pid: 1002,
@@ -93,21 +95,41 @@ fn program_output_waits_for_spawn_and_ends_with_one_drain() {
     edges.spawned = Some(Ok(id));
     assert_eq!(edges.ready(now, &worker), 1);
     assert_eq!(edges.take(now, &worker, 0), Input::Spawned(Ok(id)));
-    assert_eq!(edges.ready(now, &worker), 2);
-    assert_eq!(
-        edges.take(now, &worker, 0),
-        Input::PtyOutput(b"abc".to_vec())
-    );
-    assert_eq!(
-        edges.take(now, &worker, 1),
-        Input::PayloadExited(ExitStatus::Code(7))
-    );
+    // No drain is asked: the edge reads output while it waits.
     assert_eq!(edges.ready(now, &worker), 1);
-    assert_eq!(edges.take(now, &worker, 0), Input::PtyDrained);
-    assert_eq!(edges.ready(now, &worker), 0);
+    assert!(matches!(edges.take(now, &worker, 0), Input::PtyOutput(_)));
+    // The drain is asked while output waits. Output that comes before the flushing read is found by it; output that comes
+    // after the count measured once after that read waits.
+    let held = control.output_unread();
     edges.perform(now, Action::DrainPty);
-    assert_eq!(edges.ready(now, &worker), 1);
-    assert_eq!(edges.take(now, &worker, 0), Input::PtyDrained);
+    control.write_once(b"later");
+    let mut drained = Vec::new();
+    let mut after_flush = false;
+    loop {
+        assert_eq!(edges.ready(now, &worker), 1);
+        match edges.take(now, &worker, 0) {
+            Input::PtyOutput(bytes) => {
+                drained.extend(bytes);
+                if drained.len() > held && !after_flush {
+                    after_flush = true;
+                    control.write_once(b"more");
+                }
+            }
+            Input::PtyDrained => break,
+            other => panic!("{other:?}"),
+        }
+    }
+    assert_eq!(drained.len(), held + b"later".len());
+    assert_eq!(
+        control.output_unread(),
+        b"more".len(),
+        "a writer cannot extend the drain"
+    );
+    // The rest is read with no drain, and no `PtyDrained` follows it.
+    while control.output_unread() > 0 {
+        assert_eq!(edges.ready(now, &worker), 1);
+        assert!(matches!(edges.take(now, &worker, 0), Input::PtyOutput(_)));
+    }
     assert_eq!(edges.ready(now, &worker), 0);
 }
 
@@ -115,8 +137,14 @@ fn program_output_waits_for_spawn_and_ends_with_one_drain() {
 #[test]
 fn worker_exit_closes_the_link_and_posts_its_exit_once() {
     let (mut edges, mut peer, worker, now) = fixture(8);
+    let workers = Workers::new(edges.scheduler.clone(), now);
+    // The run's process table knows the worker of this fixture, as a spawn would have recorded it.
+    lock(&workers.run_processes).insert(
+        edges.id,
+        (Arc::clone(&edges.cell), Arc::clone(&edges.processes)),
+    );
     let mut spawner = WorkerSpawner {
-        workers: Workers::new(edges.scheduler.clone(), now),
+        workers,
         processes: Arc::clone(&edges.processes),
     };
     for signal in [GroupSignal::EndPayload, GroupSignal::Term] {
@@ -145,7 +173,6 @@ fn worker_exit_closes_the_link_and_posts_its_exit_once() {
 
 /// A5-1: worker identities remain unique across repeated spawns in the shared process table.
 #[test]
-#[allow(clippy::disallowed_methods)] // The test initializes the injected clock once.
 fn worker_identities_do_not_repeat() {
     let workers = Workers::new(SchedulerHandle::with_seed(2), Instant::now());
     assert!(format!("{workers:?}").contains("Workers"));
@@ -176,7 +203,7 @@ fn workers_expose_the_payload_grace_deadline() {
     use botster_core_link::frame::{encode_frame, FrameType};
     use botster_core_link::hello::Hello;
     use botster_core_link::msg::{HostMsg, LaunchSpec};
-    use botster_core_link::proof::token_proof;
+    use botster_core_link::proof::host_proof;
 
     let (edges, _peer, mut worker, now) = fixture(1024);
     while worker.poll_action().is_some() {}
@@ -184,7 +211,7 @@ fn workers_expose_the_payload_grace_deadline() {
         protocol: 1,
         instance: InstanceId("1-1".into()),
         host_epoch: 1,
-        proof: token_proof(&[1; TOKEN_LEN], &InstanceId("1-1".into()), 1),
+        proof: host_proof(&[1; TOKEN_LEN], &InstanceId("1-1".into()), 1),
     };
     let mut payload = Vec::new();
     hello.encode(&mut payload).unwrap();
@@ -296,7 +323,6 @@ fn program_reads_retain_output_at_each_read_bound() {
 /// A zero read bound cannot make progress and is outside the internal parameter's range.
 #[test]
 #[should_panic(expected = "a worker needs a positive read bound")]
-#[allow(clippy::disallowed_methods)] // The test initializes the injected clock once.
 fn a_worker_refuses_zero_read_bound() {
     Workers::with_read_chunk(SchedulerHandle::with_seed(1), Instant::now(), 0);
 }

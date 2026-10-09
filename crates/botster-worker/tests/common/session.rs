@@ -12,10 +12,10 @@
 #![cfg(feature = "slow")]
 
 #[path = "../../../botster-core-sys/tests/common/payload_guard.rs"]
-mod payload_guard;
+pub(crate) mod payload_guard;
 
 #[path = "../../../botster-core-sys/tests/common/process_guard.rs"]
-mod process_guard;
+pub(crate) mod process_guard;
 
 use botster_core_contract::prelude::*;
 use botster_core_link::frame::{encode_frame, FrameDecoder, FrameType};
@@ -62,7 +62,11 @@ impl Drop for OwnedWorker {
     /// Through the worker, never a payload id (lead ruling on P1 F7): while the worker is our unreaped child, `SIGTERM`
     /// makes it end the payload group that it still holds, then itself.
     fn drop(&mut self) {
-        drop(self.payload_guard.take());
+        // The payload guard's member starts ending the payload group; its report is read once the worker, which holds the
+        // PTY master, has ended (see `PayloadGuard::release`).
+        if let Some(guard) = self.payload_guard.as_mut() {
+            guard.release();
+        }
         drop(self.observer_guard.take());
         if let Ok(None) = self.worker.try_wait() {
             if let Some(pid) =
@@ -71,6 +75,7 @@ impl Drop for OwnedWorker {
                 end_child_worker(pid);
             }
         }
+        drop(self.payload_guard.take());
     }
 }
 
@@ -78,10 +83,10 @@ impl Drop for OwnedWorker {
 /// the deadline. The observer only observes the exit (`waitid` with `WNOWAIT`), and nothing else reaps the child, so the
 /// pid stays the worker's through the last signal; the reap comes last.
 fn end_child_worker(pid: rustix::process::Pid) {
-    use rustix::process::{
-        kill_process, waitid, waitpid, Signal, WaitId, WaitIdOptions, WaitOptions,
-    };
-    let _ = kill_process(pid, Signal::TERM);
+    use botster_core_sys::signal::signal_process;
+    use rustix::process::{waitid, waitpid, Signal, WaitId, WaitIdOptions, WaitOptions};
+    let raw = pid.as_raw_nonzero().get().unsigned_abs();
+    let _ = signal_process(raw, Signal::TERM);
     let (tx, rx) = std::sync::mpsc::channel();
     let observer = std::thread::spawn(move || loop {
         match waitid(
@@ -97,7 +102,7 @@ fn end_child_worker(pid: rustix::process::Pid) {
     });
     // timer: deadline — the limit of a worker's own cleanup after SIGTERM; not a contract value.
     if rx.recv_timeout(Duration::from_secs(10)).is_err() {
-        let _ = kill_process(pid, Signal::KILL);
+        let _ = signal_process(raw, Signal::KILL);
     }
     let _ = observer.join();
     let _ = waitpid(Some(pid), WaitOptions::empty());
@@ -215,14 +220,18 @@ impl Session {
         Hello {
             protocol: 1,
             instance: launch.instance.clone(),
-            proof,
+            proof: botster_core_link::proof::host_proof(
+                &launch.token,
+                &launch.instance,
+                launch.host_epoch,
+            ),
             host_epoch: 1,
         }
         .encode(&mut reply)
         .unwrap();
         link.send(FrameType::HELLO, &reply);
         link.msg(&HostMsg::Launch(Box::new(LaunchSpec {
-            argv: vec!["/bin/sh".into(), "-c".into(), script.into()],
+            argv: vec!["/bin/sh".into(), "-c".into(), script],
             env: BTreeMap::from([("PATH".to_string(), "/usr/bin:/bin".to_string())]),
             cwd: "/".into(),
             size: Size {
@@ -244,12 +253,7 @@ impl Session {
     }
 
     fn signal_worker(&self, signal: rustix::process::Signal) {
-        rustix::process::kill_process(
-            rustix::process::Pid::from_raw(i32::try_from(self.worker.worker.id()).unwrap())
-                .unwrap(),
-            signal,
-        )
-        .unwrap();
+        botster_core_sys::signal::signal_process(self.worker.worker.id(), signal).unwrap();
     }
 
     /// LC-7: `Remove` gives the complete result, and then the worker ends with code 0.

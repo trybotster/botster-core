@@ -1,0 +1,20 @@
+[package]
+name = "botster-guardian-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+botster-core-contract.workspace = true
+botster-core-edges.workspace = true
+botster-core-link.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+bolero.workspace = true

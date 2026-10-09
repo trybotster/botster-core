@@ -20,7 +20,7 @@ use botster_core_edges::Machine;
 use botster_core_link::frame::{encode_frame, FrameDecoder, FrameType, DEFAULT_MAX_PAYLOAD};
 use botster_core_link::hello::Hello;
 use botster_core_link::msg::{HostMsg, LaunchSpec, PayloadId, WorkerMsg};
-use botster_core_link::proof::{token_proof, TOKEN_LEN};
+use botster_core_link::proof::{host_proof, token_proof, TOKEN_LEN};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::time::{Duration, Instant};
 
@@ -99,7 +99,8 @@ pub enum Input {
     Spawned(Result<PayloadId, SpawnFailure>),
     /// Bytes that the payload wrote on the PTY.
     PtyOutput(Vec<u8>),
-    /// A read of the PTY found no byte (it would block) or found the end of the output.
+    /// The answer to [`Action::DrainPty`]: the drain read what the PTY held when it was asked, or a read found no byte
+    /// (it would block) or the end of the output first.
     PtyDrained,
     /// The payload's leader ended. It is not reaped: the driver reaps it only on [`Action::ReapPayload`].
     PayloadExited(ExitStatus),
@@ -173,7 +174,6 @@ pub struct Worker {
     exit: Option<ExitStatus>,
     /// The exit waits for a drain of the PTY before it is reported.
     exit_drained: bool,
-    exit_reported: bool,
     /// A `SIGTERM` went to the group.
     termed: bool,
     /// A `SIGKILL` went to the group: once the leader has ended, its group kill is complete.
@@ -218,7 +218,6 @@ impl Worker {
             payload: PayloadState::None,
             exit: None,
             exit_drained: false,
-            exit_reported: false,
             termed: false,
             killed: false,
             stop_grace: CoreLimits::default().stop_grace,
@@ -268,15 +267,15 @@ impl Worker {
         }
     }
 
-    /// Sends a report when the link is ready. Returns false when it is not, so the caller keeps what must be reported later.
-    fn report(&mut self, msg: &WorkerMsg) -> bool {
+    /// Sends a report when the link is ready. Every report follows the hello, so a report while the link is not ready
+    /// comes after the link closed; with no host to read it, it is not sent (a reconnect path is P5's).
+    fn report(&mut self, msg: &WorkerMsg) {
         if self.link != LinkState::Ready {
-            return false;
+            return;
         }
         let mut payload = Vec::new();
         msg.encode(&mut payload);
         self.send_frame(FrameType::WORKER_MSG, &payload);
-        true
     }
 
     /// Closes the link after the bytes already sent are written (LC-7: the result reaches the host first).
@@ -355,15 +354,14 @@ impl Worker {
             && Hello::decode(payload).is_ok_and(|hello| {
                 hello.instance == self.cfg.instance
                     && hello.host_epoch == self.cfg.host_epoch
-                    && hello.proof == self.proof()
+                    && hello.proof
+                        == host_proof(&self.cfg.token, &self.cfg.instance, self.cfg.host_epoch)
             });
         if !proven {
             self.close_link();
             return;
         }
         self.link = LinkState::Ready;
-        // An exit that happened while no host was linked is reported now (LC-5: "report the payload exit as for any exit").
-        self.report_exit();
     }
 
     fn on_host_msg(&mut self, now: Instant, msg: HostMsg) {
@@ -546,27 +544,22 @@ impl Worker {
         self.actions.push_back(Action::DrainPty);
     }
 
+    /// The first drain after the exit reports the exit, once, after the output written before it was read.
     fn on_drained(&mut self) {
-        if self.exit.is_some() && !self.exit_drained {
+        if let (Some(status), false) = (self.exit, self.exit_drained) {
             self.exit_drained = true;
-            self.report_exit();
+            self.report_exit(status);
             self.reap_when_complete();
         }
     }
 
-    /// EV-4: the exit carries the code or the signal. It is reported once, after the output written before it was read.
-    fn report_exit(&mut self) {
-        let Some(status) = self.exit else {
-            return;
-        };
-        if self.exit_reported || !self.exit_drained {
-            return;
-        }
+    /// EV-4: the exit carries the code or the signal.
+    fn report_exit(&mut self, status: ExitStatus) {
         let (code, signal) = match status {
             ExitStatus::Code(code) => (Some(code), None),
             ExitStatus::Signal(signal) => (None, Some(signal)),
         };
-        self.exit_reported = self.report(&WorkerMsg::Exited { code, signal });
+        self.report(&WorkerMsg::Exited { code, signal });
     }
 
     /// The leader is reaped only when its group kill is complete: a `SIGKILL` went to the group and the leader has ended

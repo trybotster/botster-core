@@ -15,12 +15,14 @@ use crate::program::ScriptedProgram;
 use crate::scheduler::SchedulerHandle;
 use crate::sim::{Binding, MachineNode, Sim};
 use botster_core_contract::prelude::*;
-use botster_core_edges::edges::{ExitStatus, GroupSignal, ProcessIdentity, SpawnError, WindowSize};
+use botster_core_edges::edges::{
+    ExitStatus, GroupSignal, IdentityState, ProcessIdentity, SpawnError, WindowSize,
+};
 use botster_core_edges::{Link, Machine, Program};
 use botster_core_host::driver::{HostDriver, HostWake, WorkerSpawn};
 use botster_core_link::msg::PayloadId;
 use botster_route_codec::prelude::QueryKind;
-use botster_worker_core::{Action, Input, PayloadSpec, SpawnFailure, Worker, WorkerConfig};
+use botster_worker_core::{Action, Drain, Input, PayloadSpec, SpawnFailure, Worker, WorkerConfig};
 use std::collections::{BTreeMap, VecDeque};
 use std::io;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
@@ -73,6 +75,11 @@ impl Processes {
     }
 }
 
+/// Every worker process of a run, by identity, with the table of the handle that spawned it: one operating system for every
+/// handle of the run. A handle's identity probe and signals reach a worker of an earlier handle, as the real ones do (AD-6,
+/// LC-12), and the exit of a worker goes to the handle that spawned it only, as a real reaper's does.
+type RunProcesses = BTreeMap<ProcessIdentity, (Arc<Mutex<ProcessCell>>, Arc<Mutex<Processes>>)>;
+
 /// The numbers of the in-process processes: workers and payloads share one counter, so every identity is distinct.
 #[derive(Debug)]
 struct Pids {
@@ -91,6 +98,7 @@ impl Pids {
 pub struct Workers {
     sim: Arc<Mutex<Sim>>,
     pids: Arc<Mutex<Pids>>,
+    run_processes: Arc<Mutex<RunProcesses>>,
     scheduler: SchedulerHandle,
     read_chunk: usize,
 }
@@ -122,6 +130,7 @@ impl Workers {
         Workers {
             sim: Arc::new(Mutex::new(Sim::with_scheduler(scheduler.clone(), start))),
             pids: Arc::new(Mutex::new(Pids { next: 1000 })),
+            run_processes: Arc::default(),
             scheduler,
             read_chunk,
         }
@@ -178,6 +187,8 @@ impl Spawner for WorkerSpawner {
         };
         let cell = Arc::new(Mutex::new(ProcessCell::default()));
         lock(&self.processes).cells.insert(id, Arc::clone(&cell));
+        lock(&self.workers.run_processes)
+            .insert(id, (Arc::clone(&cell), Arc::clone(&self.processes)));
         let link = connect();
         let worker = Worker::new(WorkerConfig::new(
             spec.instance.clone(),
@@ -197,8 +208,7 @@ impl Spawner for WorkerSpawner {
             payload: None,
             spawned: None,
             exit: None,
-            output_ended: false,
-            drain: false,
+            drain: None,
             ready: Vec::new(),
             read_chunk: self.workers.read_chunk,
         };
@@ -215,27 +225,34 @@ impl Spawner for WorkerSpawner {
     }
 
     /// `EndPayload` and `Term` reach the worker's handlers: the worker takes them as inputs. A `Kill` ends the worker
-    /// process, and its exit is reported to the host.
+    /// process, and its exit is reported to the handle that spawned it. A worker of an earlier handle of the run is reached
+    /// too: the signal goes to a process, not to a handle.
     fn signal_group(&mut self, identity: ProcessIdentity, signal: GroupSignal) {
-        let mut processes = lock(&self.processes);
+        let Some((cell, owner)) = lock(&self.workers.run_processes).get(&identity).cloned() else {
+            return;
+        };
         match signal {
             GroupSignal::EndPayload => {
-                if let Some(cell) = processes.cells.get(&identity) {
-                    let mut cell = lock(cell);
-                    if !cell.ended {
-                        cell.end_payload = true;
-                    }
+                let mut cell = lock(&cell);
+                if !cell.ended {
+                    cell.end_payload = true;
                 }
             }
             GroupSignal::Term => {
-                if let Some(cell) = processes.cells.get(&identity) {
-                    let mut cell = lock(cell);
-                    if !cell.ended {
-                        cell.terminate = true;
-                    }
+                let mut cell = lock(&cell);
+                if !cell.ended {
+                    cell.terminate = true;
                 }
             }
-            GroupSignal::Kill => processes.end(identity, ExitStatus::Signal(9)),
+            GroupSignal::Kill => lock(&owner).end(identity, ExitStatus::Signal(9)),
+        }
+    }
+
+    /// A worker of any handle of the run matches until it ended.
+    fn identity_state(&self, identity: ProcessIdentity) -> IdentityState {
+        match lock(&self.workers.run_processes).get(&identity) {
+            Some((cell, _)) if !lock(cell).ended => IdentityState::Matches,
+            _ => IdentityState::Absent,
         }
     }
 
@@ -281,10 +298,8 @@ struct WorkerEdges {
     spawned: Option<Result<PayloadId, SpawnFailure>>,
     /// The exit of the payload that the program edge reported and the worker has not taken yet.
     exit: Option<ExitStatus>,
-    /// A read of the program found the end of its output.
-    output_ended: bool,
-    /// `DrainPty` asked for one `PtyDrained` once the program has no byte to read.
-    drain: bool,
+    /// The drain that a `DrainPty` asked for (`Drain`); `None` when no drain is asked.
+    drain: Option<Drain>,
     /// The inputs counted by the last `ready`.
     ready: Vec<Ready>,
     read_chunk: usize,
@@ -318,7 +333,6 @@ impl WorkerEdges {
             .resize(window)
             .map_err(|_| SpawnFailure::Exec { errno: ENOEXEC })?;
         self.payload = Some(program);
-        self.output_ended = false;
         Ok(PayloadId {
             pid: lock(&self.pids).next(),
             start_time: 1,
@@ -385,10 +399,12 @@ impl Binding<Worker> for WorkerEdges {
             if self.exit.is_none() {
                 self.exit = program.poll_exit();
             }
-            if !self.output_ended && program.is_readable() {
-                self.ready.push(Ready::PtyRead);
-            } else if self.drain {
-                self.ready.push(Ready::PtyDrained);
+            // A complete drain gives `PtyDrained`, and a drain whose next read would find nothing is complete; output is read
+            // while it waits.
+            match (self.drain, program.unread()) {
+                (Some(Drain::Done), _) | (Some(_), 0) => self.ready.push(Ready::PtyDrained),
+                (None, 0) => {}
+                _ => self.ready.push(Ready::PtyRead),
             }
             if self.exit.is_some() {
                 self.ready.push(Ready::Exited);
@@ -425,24 +441,23 @@ impl Binding<Worker> for WorkerEdges {
             Ready::Spawned => Input::Spawned(self.spawned.take().expect("counted as ready")),
             Ready::PtyRead => {
                 let program = self.payload.as_mut().expect("counted as ready");
-                let mut buf = vec![0u8; self.read_chunk];
-                match program.read(&mut buf) {
-                    Ok(n) if n > 0 => {
-                        buf.truncate(n);
-                        Input::PtyOutput(buf)
-                    }
-                    other => {
-                        // The end of the output, or no byte now: the program has nothing more to read.
-                        if matches!(other, Ok(0)) {
-                            self.output_ended = true;
-                        }
-                        self.drain = false;
-                        Input::PtyDrained
-                    }
+                let want = self
+                    .drain
+                    .map_or(self.read_chunk, |drain| drain.want(self.read_chunk));
+                let mut buf = vec![0u8; want];
+                let n = program
+                    .read(&mut buf)
+                    .expect("a program with unread output reads some");
+                buf.truncate(n);
+                if let Some(drain) = self.drain {
+                    let Ok(next) =
+                        drain.after_read(n, || Ok::<_, std::convert::Infallible>(program.unread()));
+                    self.drain = Some(next);
                 }
+                Input::PtyOutput(buf)
             }
             Ready::PtyDrained => {
-                self.drain = false;
+                self.drain = None;
                 Input::PtyDrained
             }
             Ready::Exited => Input::PayloadExited(self.exit.take().expect("counted as ready")),
@@ -469,7 +484,11 @@ impl Binding<Worker> for WorkerEdges {
                 }
             }
             Action::SpawnPayload(spec) => self.spawned = Some(self.spawn_payload(&spec)),
-            Action::DrainPty => self.drain = true,
+            Action::DrainPty => {
+                self.drain = Some(Drain::asked(
+                    self.payload.as_mut().map_or(0, ScriptedProgram::unread),
+                ));
+            }
             Action::SignalPayload(signal) => {
                 if let Some(program) = self.payload.as_mut() {
                     program.signal(signal);
