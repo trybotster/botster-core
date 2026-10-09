@@ -24,7 +24,7 @@ pub struct PayloadGuard {
 struct Outcome {
     /// The payload's group, as the member registered it; `None` when no member registered.
     group: Option<rustix::process::Pid>,
-    /// The member's report line; `None` when its stream ended without one.
+    /// The member's report line; `None` when its stream ended (an end of file or a reset) without one.
     report: std::io::Result<Option<String>>,
 }
 
@@ -159,6 +159,12 @@ fn serve(listener: UnixListener, mut receiver: UnixStream) -> Outcome {
     let report = match member.reader.read_line(&mut line) {
         Ok(0) => Ok(None),
         Ok(_) => Ok(Some(line.trim_end().to_string())),
+        // A member that ended with the readiness byte unread (production's group kill came first) resets the connection:
+        // Linux then reports ECONNRESET in place of the end of file, after any data that the member sent. So a reset is an
+        // end of file.
+        Err(error) if error.kind() == std::io::ErrorKind::ConnectionReset => {
+            Ok((!line.is_empty()).then(|| line.trim_end().to_string()))
+        }
         Err(error) => Err(error),
     };
     Outcome {
