@@ -132,10 +132,11 @@ pub enum Observation {
         body: String,
         truncated: bool,
     },
+    /// `contents` is the event's own field (Core A13-1): `None` is `TooLarge`; an empty list clears the destination.
     ClipboardWrite {
         selection: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        bytes: Option<Vec<u8>>,
+        contents: Option<Vec<ClipboardContent>>,
         total_bytes: u64,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         reason: Option<ClipboardReason>,
