@@ -5107,3 +5107,52 @@ The reviewer changed no product code and ran no tests, builds, measurements, mut
 All earlier findings, closures, and verdict rounds remain preserved at their named heads and scopes.
 
 VERDICT: NOT CLEAN
+
+## Round 103 — Integration findings on the guarded signal change
+
+Reviewed head: `9be8102708a33c1a4c79693e09797ab6942c7c3c`, PR #177.
+Base: `0b684a19470c5b647e64653fd285d4cd43544278`.
+Authority and completed gate evidence remain those of round 102. No new head or gate exists in this round.
+The integration reviewer sent G1 and S1 after round 102.
+Its verdict commit is `a567bb2b31d731b0829519152813215942177ff2`.
+Its note accepts F54 at `69b7a74a75357e4b3a442dccf73ef4a13fe31486`.
+The package reviewer inspected both source paths and confirms the findings below.
+The integration identifiers remain in use. No duplicate package identifiers are assigned.
+
+### G1 — MEDIUM — OPEN — The guard refuses the anchor's final cleanup signal
+
+`guard_cleanup::end_group` starts in the group that it must end.
+It tries to spawn a reserve child, then move the anchor to another group.
+If either operation fails, its error branch reports the failure and sends a final KILL to the original group.
+When that branch runs, the anchor still belongs to the original group.
+The migrated `signal_group` call refuses this target as `Own` and sends no signal.
+The branch ignores the refusal and returns its report. The anchor exits, but other members can remain alive.
+The normal path still moves the anchor before bounded cleanup rounds.
+Thus round 102's statement that this change preserves cleanup behavior was incorrect for the reserve-error path.
+
+The correction must retain the own-target refusal for identifiers from records.
+It must also preserve the intentional final signal to the anchor's own group.
+The integration reviewer proposes a separate operation that takes no recorded target and signals the current group.
+The correction must have behavior evidence for the failure path and retain the anchor's reaping and cleanup rules.
+The package reviewer sent its confirmation directly to the P3 implementer.
+
+### S1 — LOW — OPEN — The gate's shell signal calls bypass the guard
+
+`xtask/src/test_budget.rs:140` invokes the external `kill` command.
+The timeout path passes the negative identifier of the group that the xtask created.
+The cleanup path passes process identifiers from the process list, then that negative group identifier.
+These calls do not use the new target refusal.
+The Rustix method bans do not check an external command.
+This is an existing call path within the signal pattern that the lead requires the change to address.
+The package reviewer sent this confirmation directly to the P3 implementer.
+
+### Verdict
+
+F54 remains OPEN. G1 and S1 remain OPEN under their integration identifiers.
+The completed green gate from round 102 does not exercise the reserve-error path or enforce the missing signal checks.
+PR #177 is NOT CLEAN at this exact head.
+PR #168 retains its single planned real-PTY HOLD. Part B retains its earlier open duties.
+The reviewer changed no product code and ran no tests, builds, measurements, mutants, or gates.
+All earlier verdict rounds remain preserved at their named heads and scopes.
+
+VERDICT: NOT CLEAN
