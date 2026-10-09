@@ -304,3 +304,30 @@ before the guard PR lands can fail on the shared guard test `parent_dies_before_
 The lead orders the merges.
 
 VERDICT: CLEAN (0 open)
+
+## Round 10 — CLEAN on head e3c1fabf (merge of v1 a22811b)
+
+Reviewed head: `e3c1fabf754ddce9439d653783b083969f2057be`, parents `b8b37a6d` (round 9 CLEAN, `9edbc27`) and `a22811b6`
+(= `origin/v1` at review time: #166 docs and #162 with the #165 guard). Tree `f21b1eb633239189de381a570390c2d084ecdbaa`,
+equal to this reviewer's `git merge-tree --write-tree origin/v1 b8b37a6d`. No edit in the merge. This reviewer ran no
+build, test or gate.
+
+- **The PR's change is the reviewed change.** `git diff origin/v1 e3c1fabf` and `git diff 144b023 b8b37a6d` touch the same
+  files. Every blob is identical to `b8b37a6d` except the three files that both sides changed. In each of those, the
+  added and removed lines of the two diffs are identical:
+  - `Cargo.lock`;
+  - `crates/botster-core-sys/Cargo.toml`: #164 swaps `atomic-write-file` and `sha2` for `data-encoding` in
+    `[dependencies]`; v1's macOS `libc` dev-dependency of the guard stays;
+  - `crates/botster-core/tests/slow_real_core.rs`: #164's A7 and A1 tests sit beside #162's A10 test, with no line of
+    either changed.
+- **Cross-package effects of v1 on #164:** v1 since `144b023` changes no `src/` file. #164 adds no `GroupGuard` user, so the
+  #165 guard change does not reach it. The HOLD on new real-process test code (lead, 2026-10-08) post-dates this PR's
+  CLEAN content; the merge adds none.
+- **Evidence:** the static Linux run at this head
+  (`…p5-audit-contract-e3c1fabf-pool-20261008-211127-38031.log`): taint PASS, lists PASS, exit 0 (fmt ran first in the
+  `&&` chain). This is not the landing gate.
+- **Merge order note:** #142 (`112c0310`) is also built on v1 `a22811b`. A trial merge of the two heads is clean (tree
+  `3eb84d6`). Whichever of the two lands second must merge the new v1 first, so that the lead's tree check holds, and gets
+  a docs-free merge-only delta check.
+
+VERDICT: CLEAN (0 open) at e3c1fabf754ddce9439d653783b083969f2057be
