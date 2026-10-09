@@ -123,3 +123,45 @@ No other package finding arose. Integration owns its separate findings and revie
 The reviewer changed no product code and ran no builds, tests, mutation jobs, or gates.
 
 VERDICT: NOT CLEAN
+
+## PR #185 Round 3 — 2026-10-09
+
+- Exact head: `dd3e8a2907a1ff0d03e832298f7b31c1cd94ca39`.
+- Tree: `fa6b1c96fc621f84ec5ca9f3b827521a355b8ba6`.
+- Accepted v1 base: `aaac0c0d1f44172ca5d5dd5dd6986c9787be4aa6`.
+- Risk tier checked first: HIGH, BUILD.md rule 3, as the current PR body states.
+
+### M20-F2 — LOW — CLOSED — The documentation matches plan 23a and the exact-head proof
+
+The reviewer read the complete delta from the Round 2 head and the current PR body.
+The only new file change is the worker_transcripts.rs header.
+It cites plan section 5, revision 23a, and states the real-only exception.
+The PR's Why paragraph now cites the recorded plan rule and its exception.
+The Proof section cites the supplied exact-head gate and 19 new conformance trials.
+These changes close every part of M20-F2. No package finding remains open.
+
+### Retained scope and supplied proof
+
+The pending list is byte-identical to the Round 2 head.
+Relative to the accepted v1 base, exactly 19 ids leave pending and no id enters pending.
+LC-2 remains pending. The Round 2 replacement-map checks remain valid.
+All executable code and transcript lists are unchanged from Round 2.
+The three worker IDS deletions retain coverage through the conformance harness, as checked in Round 1.
+The reviewer checked one distinct PASS conformance trial for each of the 19 removed ids in the current gate.
+
+The full Linux gate is `~/botster-sessions/shared/core-stage1/gate-logs/flip20-dd3e8a29.log`.
+It names the exact reviewed head and accepted v1 base.
+The default tier reports 941 tests passed and 656 skipped.
+The slow tier reports 243 tests passed and 962 skipped.
+All ten listed CI stages pass. The job and gate exit zero.
+Mutants reports No mutants to filter and no outcomes.json; no mutation campaign ran.
+Fuzz reports no changed crate with a decoder harness; no fuzz harness ran.
+
+This verdict establishes TestkitHarness evidence for the 19 removed ids.
+It does not establish real-process conformance, a process-death proof for LC-2, or completion of the 70-id minimum.
+It does not close the separate #176 proof hold or any failed probe id.
+Integration owns its separate findings and must supply CLEAN before this HIGH PR merges.
+The reviewer changed no product code and ran no builds, tests, mutation jobs, or gates.
+The lead owns the merge decision.
+
+VERDICT: CLEAN
