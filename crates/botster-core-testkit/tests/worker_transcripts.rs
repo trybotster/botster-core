@@ -6,18 +6,17 @@
 //! them, and this test is their testkit proof until their owners take them out of the pending list. When an id leaves the
 //! pending list, the conformance harness covers it and it is deleted from this list.
 //!
-//! Clause: Core TI-1, Core EV-4, Core LC-3, Core LC-7 (with Core A5-1: the real worker machine in-process).
+//! Clause: Core TI-1, Core LC-3, Core LC-7 (with Core A5-1: the real worker machine in-process).
 
 use botster_conformance::report::describe;
 use botster_conformance::{load_dir, run_transcript, Limits, SeedSet, Selection};
 use botster_core_conformance::{driver_for, CoreSchemas, CORE_TRANSCRIPTS};
 use botster_core_testkit::TestkitHarness;
 
-/// TI-1 reads the pinned binding identity. The lifecycle ids need a real worker: a removal that ends the worker (LC-3,
-/// LC-7) and an exit with its code or signal (EV-4).
+/// TI-1 reads the pinned binding identity. The lifecycle id needs a real worker: a removal that ends the worker (LC-3,
+/// LC-7).
 const IDS: &[&str] = &[
     "conf::a2_8_terminal_identity_names_the_entry",
-    "conf::ev_4_exit_has_signal",
     "conf::lc_3_remove_created",
 ];
 
