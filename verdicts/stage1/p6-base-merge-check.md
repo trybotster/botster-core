@@ -59,3 +59,19 @@ a failed check. Its mutant fails safe here (every call then fails). Still, name 
 `ancestry` already is). Mechanical check, in the PR body: list every branch inside `command` and its test or reason.
 
 VERDICT: NOT CLEAN (1 open: G1 MEDIUM)
+
+### Correction after round 1 (same head df04024b)
+
+Round 1 said that condition 3 covers "modes and gitlinks". That is false under user git config. The P6 package reviewer
+proved a false PASS: with `diff.ignoreSubmodules=all`, a merge carries an unreviewed gitlink change (for example
+`vendor/ghostty`), but the porcelain `git diff` hides it from both diffs and from `--name-only`. Every condition then
+passes. That finding is the P6 package reviewer's. This reviewer agrees, and the root is the same as G1's class: the
+shell trusts output that the user's config can change.
+
+What the fix must cover (the whole class, not only submodules): the shell must not read porcelain diff config that can
+hide or rewrite content. That config includes `diff.ignoreSubmodules`, `diff.external`/`GIT_EXTERNAL_DIFF`, textconv
+drivers, and `diff.relative`. Use plumbing (`git diff-tree -r --binary --full-index --no-renames`) with explicit
+`--ignore-submodules=none --no-textconv --no-ext-diff`, or pin the config with `git -c`. A test with a hostile config
+must show a FAIL.
+
+VERDICT (unchanged): NOT CLEAN (G1 open; the gitlink false acceptance is the P6 package reviewer's finding)
