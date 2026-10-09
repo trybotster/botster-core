@@ -134,7 +134,7 @@ The "other" row: the v1 ledger has 675 ids. Two of them, `conf::a3_1_route_too_s
 | `conf::lc_7_remove_order_and_completion` | LC-7 | Clean end: "`Stop` does not end the worker" (LC-5); only `Remove` ends it and deletes the row. Without `Remove`, every session leaks a worker. |
 | `conf::lc_7_remove_running_is_wrong_state` | LC-7 | Registry safety: `Remove` "on a `Starting`/`Running`/`Stopping` session it is `WrongState`." A live payload never loses its row. |
 
-### Step 6. The host restarts and re-adopts (14)
+### Step 6. The host restarts and re-adopts (13; 14 before revision 23k)
 
 | Id | Clause | Why it is IN |
 |---|---|---|
@@ -296,7 +296,7 @@ WebRTC ids (all DEFERRED):
   2. B2: will the Hub attach with `answers_queries: false`? If not, the EV-8 client-answer path is IN.
   3. B3/B4: is "the session keeps its spawn size" and "a client re-attaches by baseline after a host restart" acceptable for the first session? If not, resize (SZ, DP-6) and DP-8 move IN.
 - **WebRTC.** The minimum session runs over a Stream route under the current text, but A2-6 makes `route_transport:webrtc` mandatory for 0.1. Deferring it is a staging order. The placement question is with the steward.
-- **Progress measure.** From now on, Core reports "minimum-Core ids passing / 70" in its milestones.
+- **Progress measure.** Core reports two counts, "testkit-passing / 69" and "real-passing / 69" (plan revisions 23a and 23k; this was "/ 70" before 23k).
 
 ## 8. Answers (orchestrator, 2026-10-09)
 
