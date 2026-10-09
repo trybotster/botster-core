@@ -1127,3 +1127,67 @@ This focused result does not establish a full landing gate or Linux execution.
 The combined #162 head still needs its own delta reviews and its authorized gate.
 
 VERDICT: CLEAN
+
+
+## PR #165 — Round 4 — Correction of Round 3
+
+- Exact head: `7e20c5fa2cbdc7855401ad9b71c8c941e064d878` (unchanged).
+- Base: `144b0234fb632bcbb5176b17c2fe55f3239405df`.
+- Scope: the separate real-loop path identified by P3's reviewer as F39.
+- The reviewer ran no builds, tests, mutation jobs, or gates.
+
+### P3-F39 — LOW — The real-loop wait omits cleanup completion time
+
+The reviewer read P3 verdict commit `2013055b16be3ddcaf385efc187f00161d95a64a`.
+The reviewer then independently checked `crates/botster-worker/tests/common/driver_edges.rs:437-455` at this head.
+`pty_events_resume_reads_after_would_block` takes `Driver` out of `Bounded` and runs it on another thread.
+The test releases the payload guard before sending Remove.
+Its outer retirement wait remains ten seconds, equal to the member's `CLEANUP` limit.
+It therefore omits the completion and result-delivery allowance supplied by `Bounded::drop` through `2 * CLEANUP`.
+This wait can expire before the cleanup result arrives.
+
+**Required change:** Apply the accepted outer-wait composition rule to this separate real-loop wait.
+Preserve the inner cleanup limit and the release-before-production, report-after-production order.
+
+Status: OPEN at this head. The reviewer sent the finding directly to P3.
+C5/P3-F47 and the description correction remain closed.
+Round 3's dependency CLEAN is superseded by this correction.
+The passing focused result does not close this source finding.
+The separate F39/G2 merge duty in #163 remains outside this correction.
+
+VERDICT: NOT CLEAN (1 open)
+
+## PR #165 — Round 5
+
+- Exact head: `9eaea51ccb47230f4ee19e14056c17dfb607a826`.
+- Base: `144b0234fb632bcbb5176b17c2fe55f3239405df`.
+- Scope: the delta from `7e20c5fa2cbdc7855401ad9b71c8c941e064d878` and closure of its real-loop F39 finding.
+- The reviewer ran no builds, tests, mutation jobs, or gates.
+
+### P3-F39 — CLOSED in #165 — The outer wait includes cleanup completion
+
+The one-file delta changes the real-loop retirement wait to `recv_timeout(2 * CLEANUP)`.
+It applies the same accepted composition rule as `Bounded::drop`.
+The inner `CLEANUP` limit remains unchanged.
+The test still releases the payload guard before Remove, receives the driver result, joins the thread, and reads the guard report.
+The delta changes no production code or transcript.
+C3/P3-F45, C4/P3-F46, C5/P3-F47, and P5-F4 retain their source fixes.
+No finding remains open within this #165 review scope.
+This closure does not close F39/G2 in #163's separate merge delta.
+
+### Description and evidence
+
+The reviewer read the updated PR description and verified the exact submitted head.
+It describes the outer-wait composition and limits its bounded-observation claim to the named fixture observations.
+It retains the combined #162 landing rule and the Prior art section.
+
+The reviewer read the raw exact-head focused Mac log:
+`~/botster-sessions/gates/botster-core-stage1-p3-guard-macos-9eaea51c-pool-20261008-204745-82739.log`.
+Job: `jobq-botster-core-9eaea51c-20261008204745-11ae`.
+The log reports successful Clippy and worker prebuild steps.
+It reports 168 tests passed with zero skipped, then 15 selected guard tests passed with nine skipped; exit 0.
+The changed real-loop test passes.
+This focused result does not establish a full landing gate or Linux execution.
+The combined #162 head still needs its own delta reviews and authorized gate.
+
+VERDICT: CLEAN
