@@ -21,7 +21,7 @@ use botster_core_contract::prelude::*;
 use botster_core_link::frame::{encode_frame, FrameDecoder, FrameType};
 use botster_core_link::hello::Hello;
 use botster_core_link::launch::WorkerLaunch;
-use botster_core_link::msg::{HostMsg, LaunchSpec, WorkerMsg};
+use botster_core_link::msg::{HostMsg, LaunchSpec, Observation, WorkerMsg};
 use botster_core_link::proof::token_proof;
 use payload_guard::PayloadGuard;
 use std::collections::BTreeMap;
@@ -149,10 +149,19 @@ impl Link {
         }
     }
 
+    /// The next report that is not an `Output` observation: these checks are about the lifecycle, and the payload's output
+    /// (Core 6.2, `Activity`) comes in reads whose count the kernel chooses.
     fn report(&mut self) -> WorkerMsg {
-        let (kind, payload) = self.frame();
-        assert_eq!(kind, FrameType::WORKER_MSG);
-        WorkerMsg::decode(&payload).unwrap()
+        loop {
+            let (kind, payload) = self.frame();
+            assert_eq!(kind, FrameType::WORKER_MSG);
+            match WorkerMsg::decode(&payload).unwrap() {
+                WorkerMsg::Observed {
+                    observation: Observation::Output { .. },
+                } => {}
+                msg => return msg,
+            }
+        }
     }
 }
 
