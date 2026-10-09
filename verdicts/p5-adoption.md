@@ -2494,3 +2494,67 @@ The three files under the real-process proof hold receive launch-argument litera
 FocusChanged, RouteAdopted, A52 completion, conformance closure, and P5 deliverable 2 closure remain outside this verdict.
 
 VERDICT: NOT CLEAN
+
+
+## P5 adoption code #176 — Round 2
+
+- Exact head: `9f0389912b588c9a9a4b0c9d58f3be333127b3b7`.
+- Previous reviewed head: `dad9a58add3e5103a37db266b9b388a6091aaf37`.
+- Review base remains `afdb540f88d573169ae8af8ac5f517c861c39d54`.
+- Tree: `0dde623495e6e704112aa8eef951efeed1f0c103`.
+- Scope: the complete five-file correction, the current draft PR description, and supplied evidence.
+- The reviewer changed no product code and ran no builds, tests, mutation jobs, or gates.
+
+### P5-F27 closure
+
+Worker::handle now calls expire_adoption before it processes each input.
+That function closes a due candidate and ends a worker whose orphan deadline is due.
+The driver can no longer make a late hello pass by delivering candidate bytes before Timer.
+The stop grace remains a Timer deadline.
+
+The live-payload proof delivers a valid hello at the candidate deadline without an earlier Timer.
+It requires CandidateClose as the only action and no remaining deadline. A later candidate still adopts the running worker.
+The orphan proof gives the candidate a later deadline than the orphan deadline.
+At the orphan deadline, it requires Exit and CandidateClose, with no AdoptLink.
+These proofs cover both reported failures. P5-F27 is CLOSED.
+
+### P5-F28 closure
+
+The revised design describes the implemented launch arguments, worker endpoint, and candidate delivery in both drivers.
+It describes the implemented self-exit deadline and separates the required real-process proofs under HOLD until #171.
+The current PR description identifies this correction and the exact head.
+P5-F28 is CLOSED.
+
+### Other changes in the correction
+
+The binary now drops the old control link before it checks whether it still holds the adopted candidate.
+When the candidate is absent, fence queues LinkClosed for the new link.
+The machine's following sends cannot reach the old host because link_open is false.
+The pure fence proof covers an absent candidate with queued inputs and with no queued inputs.
+This addresses P3's L1; P3 owns its separate review closure.
+
+The new silent-host proof reports the worker's own hello as LinkWritten.
+That input arms the self-exit deadline without a host response.
+At the deadline, the proof requires LinkClose followed by Exit.
+This addresses P3's L2 at the machine boundary. The real-process self-exit proof remains on HOLD.
+
+### Evidence and remaining hold
+
+The reviewer read the exact-head static and default log:
+`~/botster-sessions/gates/botster-core-stage1-p5-adopt-2-9f038991-pool-20261009-030947-20396.log`.
+It records clippy, taint, lists, public-api, prebuild-worker, and test-budget PASS.
+The default tier reports 903 tests passed and 654 skipped. The remote job exits zero.
+
+The reviewer read the exact-head mutation log:
+`~/botster-sessions/gates/botster-core-stage1-p5-adopt-2-9f038991-pool-20261009-031021-21071.log`.
+It sets `BOTSTER_CI_BASE_REF=afdb540f` and `NEXTEST_PROFILE=slow`.
+It reports 169 mutants: 141 caught, 15 unviable, 13 missed, and zero timeouts. The remote job exits one.
+The 13 missed mutants are the same production adapter set from Round 1.
+The current draft PR body names P5-F29 and retains the planned proof for each survivor. It adds no exclusion.
+
+P5-F29 remains MEDIUM, HOLD until #171. It prevents terminal CLEAN for this draft.
+The reviewer found no new defect in this correction.
+No supplied full gate establishes a green result for this head.
+This verdict changes no conformance record and does not close P5 deliverable 2.
+
+VERDICT: NOT CLEAN
