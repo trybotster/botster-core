@@ -2486,3 +2486,46 @@ fn a_new_hosts_cancel_never_stops_the_retired_write() {
     let actions = w.feed(Input::PtyWritten(Ok(1)));
     assert_eq!(pty_writes(&actions), [b"bc".to_vec()]);
 }
+
+/// ST-1: `model_rev` is the revision that a read carries: unchanged by output that the model does not step, advanced by a
+/// step.
+#[test]
+fn the_model_rev_is_the_revision_that_a_read_carries() {
+    let mut w = World::running();
+    let start = w.worker.model_rev();
+    w.feed(Input::PtyOutput(b"\x1b]2;t".to_vec()));
+    let before = w.worker.model_rev();
+    assert_ne!(before, start);
+    // An ESC that may start the string's ST waits for the next byte: no step (`a_read_that_completes_no_step_waits_for_the_rest`).
+    w.feed(Input::PtyOutput(b"\x1b".to_vec()));
+    assert_eq!(w.worker.model_rev(), before, "the ESC waits");
+    w.feed(Input::PtyOutput(b"\\".to_vec()));
+    assert_ne!(w.worker.model_rev(), before);
+    let OpResult::Ok(OpOutput::Cursor(cursor)) = op(&mut w, 1, Op::ReadCursor { session: sid() })
+    else {
+        panic!("a cursor");
+    };
+    assert_eq!(cursor.model_rev, w.worker.model_rev());
+}
+
+/// ST-6: the live model's snapshot is what a capture at that point sends: an independent terminal's snapshot of the same
+/// output, and the capture's page. Before the launch there is no model.
+#[test]
+fn the_model_snapshot_is_what_a_capture_sends_now() {
+    assert!(World::linked().worker.model_snapshot().is_none());
+    let mut w = World::running();
+    w.feed(Input::PtyOutput(b"ab\x1b[1;3".to_vec()));
+    let mut expected = oracle();
+    expected.vt_write(b"ab\x1b[1;3");
+    let live = w
+        .worker
+        .model_snapshot()
+        .expect("a model")
+        .expect("a snapshot");
+    assert_eq!(live, expected.snapshot().unwrap());
+    let reports = capture(&mut w, 1);
+    let Some(WorkerMsg::Pages { pages, .. }) = reports.first() else {
+        panic!("{reports:?}");
+    };
+    assert_eq!(pages[0].bytes.0, live);
+}

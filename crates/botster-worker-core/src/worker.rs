@@ -340,6 +340,11 @@ impl Worker {
         encoded
     }
 
+    /// The session's `model_rev` now (Core ST-1): the revision that a read or a capture of the model at this point carries.
+    pub fn model_rev(&self) -> ModelRev {
+        self.model_rev
+    }
+
     fn proof(&self) -> botster_core_link::hello::TokenProof {
         token_proof(&self.cfg.token, &self.cfg.instance, self.epoch)
     }

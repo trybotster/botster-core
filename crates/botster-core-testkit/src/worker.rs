@@ -12,6 +12,7 @@
 use crate::core::{SimEdges, Spawner};
 use crate::net::{EndControl, Interest, LinkEnd};
 use crate::program::{ProgramControl, ScriptedProgram};
+use crate::resume_controls::{CaptureLog, CaptureRecord, ModelLog};
 use crate::scheduler::SchedulerHandle;
 use crate::sim::{Binding, MachineNode, Sim};
 use botster_core_contract::prelude::*;
@@ -80,6 +81,31 @@ struct ProcessCell {
     /// The table of the host that holds the worker's control link now: the spawning host, then each host that adopts the
     /// worker (the fence, `Action::AdoptLink`). A control's wake goes to that host. Weak: a dropped host's table ends.
     control: Option<Weak<Mutex<Processes>>>,
+    /// What reached the worker's terminal model since the payload's spawn (`oracle_resume`). It outlives the end.
+    model_log: ModelLog,
+    /// The worker machine itself, for reading its live model between pumps (`oracle_resume`).
+    worker: Option<SharedWorker>,
+}
+
+/// The worker machine, shared with its process cell. The sim is its only writer; a control reads it between pumps.
+#[derive(Clone, Debug)]
+struct SharedWorker(Arc<Mutex<Worker>>);
+
+impl Machine for SharedWorker {
+    type Input = Input;
+    type Action = Action;
+
+    fn handle(&mut self, now: Instant, input: Input) {
+        lock(&self.0).handle(now, input);
+    }
+
+    fn poll_action(&mut self) -> Option<Action> {
+        lock(&self.0).poll_action()
+    }
+
+    fn next_deadline(&self) -> Option<Instant> {
+        lock(&self.0).next_deadline()
+    }
 }
 
 /// The process table of the workers that one host spawned: identities and the exits that the host has not polled.
@@ -324,6 +350,61 @@ impl Workers {
         Ok(())
     }
 
+    /// What reached the terminal model of the worker process `identity` (`oracle_resume`).
+    ///
+    /// # Errors
+    /// The process is not a worker of this run.
+    pub(crate) fn model_log(&self, identity: ProcessIdentity) -> Result<ModelLog, String> {
+        lock(&self.run_processes)
+            .get(&identity)
+            .map(|(cell, _)| lock(cell).model_log.clone())
+            .ok_or_else(|| format!("no worker process {identity:?} in this run"))
+    }
+
+    /// A snapshot of the live model of the worker process `identity` (`Worker::model_snapshot`, `oracle_resume`): `None`
+    /// before its launch made the model.
+    ///
+    /// # Errors
+    /// The process is not a worker of this run, it has ended, or its model could not make the snapshot.
+    pub(crate) fn model_snapshot(
+        &self,
+        identity: ProcessIdentity,
+    ) -> Result<Option<Vec<u8>>, String> {
+        let worker = lock(&self.run_processes)
+            .get(&identity)
+            .and_then(|(cell, _)| lock(cell).worker.clone())
+            .ok_or_else(|| format!("no worker machine of the process {identity:?} in this run"))?;
+        let snapshot = lock(&worker.0).model_snapshot();
+        snapshot
+            .transpose()
+            .map_err(|e| format!("the model of {identity:?} made no snapshot: {e:?}"))
+    }
+
+    /// The output of the worker process `identity` reaches its log but not its model: a worker that stopped stepping
+    /// (the negative proof of `oracle_resume`).
+    #[cfg(test)]
+    pub(crate) fn log_unapplied_output(&self, identity: ProcessIdentity, bytes: &[u8]) {
+        if let Some((cell, _)) = lock(&self.run_processes).get(&identity) {
+            lock(cell).model_log.read(bytes);
+        }
+    }
+
+    /// The worker machine of `identity` steps output that its log never got: its live model diverges from the capture and
+    /// the suffix (the negative proof of `oracle_resume`).
+    #[cfg(test)]
+    pub(crate) fn apply_unlogged_output(
+        &self,
+        identity: ProcessIdentity,
+        bytes: &[u8],
+        now: Instant,
+    ) {
+        let worker = lock(&self.run_processes)
+            .get(&identity)
+            .and_then(|(cell, _)| lock(cell).worker.clone())
+            .expect("a worker machine");
+        lock(&worker.0).handle(now, Input::PtyOutput(bytes.to_vec()));
+    }
+
     /// True while the payload of the worker process `identity` runs (`payload_alive`). The payload is in the worker's process
     /// group, so it ends with the worker; a process that is not a worker of this run has no payload.
     pub(crate) fn payload_alive(&self, identity: ProcessIdentity) -> bool {
@@ -489,7 +570,8 @@ impl Spawner for WorkerSpawner {
             ready: Vec::new(),
             read_chunk: self.workers.read_chunk,
         };
-        let mut worker = worker;
+        let mut worker = SharedWorker(Arc::new(Mutex::new(worker)));
+        lock(&edges.cell).worker = Some(worker.clone());
         let mut sim = lock(&self.workers.sim);
         // The worker's first actions (its hello) come from its construction, before any input: they are performed here, as
         // the real driver performs them before its first poll.
@@ -693,7 +775,10 @@ impl WorkerEdges {
         program
             .resize(window)
             .map_err(|_| SpawnFailure::Exec { errno: ENOEXEC })?;
-        lock(&self.cell).program = Some(program.control());
+        let mut cell = lock(&self.cell);
+        cell.program = Some(program.control());
+        cell.model_log = ModelLog::new(spec.size);
+        drop(cell);
         self.payload = Some(program);
         lock(&self.cell).payload_alive = true;
         Ok(PayloadId {
@@ -728,13 +813,16 @@ impl WorkerEdges {
     }
 }
 
-impl Binding<Worker> for WorkerEdges {
-    fn ready(&mut self, _now: Instant, _machine: &Worker) -> usize {
+impl Binding<SharedWorker> for WorkerEdges {
+    fn ready(&mut self, _now: Instant, machine: &SharedWorker) -> usize {
         self.ready.clear();
         if lock(&self.cell).ended {
             self.ended(false);
             return 0;
         }
+        // The revision after the last input, at the output read so far (`oracle_resume`).
+        let rev = lock(&machine.0).model_rev();
+        lock(&self.cell).model_log.rev(rev);
         if lock(&self.cell).end_payload {
             self.ready.push(Ready::EndPayload);
         }
@@ -805,7 +893,7 @@ impl Binding<Worker> for WorkerEdges {
         self.ready.len()
     }
 
-    fn take(&mut self, _now: Instant, _machine: &Worker, index: usize) -> Input {
+    fn take(&mut self, _now: Instant, _machine: &SharedWorker, index: usize) -> Input {
         match self.ready[index] {
             Ready::EndPayload => {
                 lock(&self.cell).end_payload = false;
@@ -895,6 +983,7 @@ impl Binding<Worker> for WorkerEdges {
                     .read(&mut buf)
                     .expect("a program with unread output reads some");
                 buf.truncate(n);
+                lock(&self.cell).model_log.read(&buf);
                 if let Some(drain) = self.drain {
                     let Ok(next) =
                         drain.after_read(n, || Ok::<_, std::convert::Infallible>(program.unread()));
@@ -1001,6 +1090,7 @@ pub struct TestkitCore {
     driver: HostDriver<SimEdges>,
     workers: Workers,
     wake: Arc<dyn HostWake>,
+    captures: CaptureLog,
 }
 
 impl TestkitCore {
@@ -1014,7 +1104,13 @@ impl TestkitCore {
             driver,
             workers,
             wake,
+            captures: CaptureLog::default(),
         }
+    }
+
+    /// The captures that the host completed, with their pages (`oracle_resume`).
+    pub(crate) fn captures(&self) -> CaptureLog {
+        self.captures.clone()
     }
 
     /// The host driver, for the controls that act on the host's edges.
@@ -1040,8 +1136,31 @@ impl CoreApi for TestkitCore {
         report
     }
 
+    /// A completed capture is recorded with every page that `read_page` gives, before the caller can release it.
     fn poll_events(&mut self, max: usize) -> Vec<Event> {
-        self.driver.poll_events(max)
+        let events = self.driver.poll_events(max);
+        for event in &events {
+            if let Event::Completed {
+                result: OpResult::Ok(OpOutput::Capture(capture)),
+                ..
+            } = event
+            {
+                let mut bytes = Vec::new();
+                for page in 0..capture.page_count {
+                    if let Ok(page) = self.driver.read_page(capture.capture, page) {
+                        bytes.extend_from_slice(&page.bytes.0);
+                    }
+                }
+                self.captures.insert(
+                    capture.capture,
+                    CaptureRecord {
+                        model_rev: capture.model_rev,
+                        bytes,
+                    },
+                );
+            }
+        }
+        events
     }
 
     fn wake_handle(&self) -> Arc<dyn WakeHandle> {
