@@ -68,6 +68,13 @@ pub trait HostEdges: Send {
 
     /// The control links (`Link`). A worker connects to the host; `accept_link` returns the next new link, or `None`.
     fn accept_link(&mut self) -> Option<LinkId>;
+    /// Connects to the endpoint of the worker of `instance` for an adoption (DESIGN.md "Adoption (P5)" 3.1, 6), and returns
+    /// the new link, or `None` when no worker answers there. The edge owns the endpoint's path. The default has no worker
+    /// endpoint: until an edge binds one, every adoption of a live worker ends `Lost(WorkerUnreachable)` (AD-2), which
+    /// `Adopt(id)` may retry.
+    fn connect_worker(&mut self, _instance: &InstanceId) -> Option<LinkId> {
+        None
+    }
     /// `Ok(0)` means that the peer closed the link.
     fn link_recv(&mut self, link: LinkId, buf: &mut [u8]) -> io::Result<usize>;
     fn link_send(&mut self, link: LinkId, bytes: &[u8]) -> io::Result<usize>;
@@ -291,6 +298,13 @@ impl<E: HostEdges> HostDriver<E> {
                 self.send_frame(link, FrameType::HOST_MSG, &payload);
             }
             Action::CloseLink { link } => self.close_link(link),
+            Action::ConnectWorker { ticket, instance } => {
+                let link = self.edges.connect_worker(&instance);
+                if let Some(link) = link {
+                    self.add_link(link);
+                }
+                self.feed(Input::WorkerConnected { ticket, link });
+            }
             Action::ProbeIdentity { identity } => {
                 let state = self.edges.identity_state(identity);
                 self.feed(Input::IdentityState { identity, state });
@@ -364,21 +378,26 @@ impl<E: HostEdges> HostDriver<E> {
         }
     }
 
+    /// A new link, accepted or made: its first frame in is a hello (AD-6).
+    fn add_link(&mut self, link: LinkId) {
+        self.links.insert(
+            link,
+            LinkState {
+                decoder: FrameDecoder::new(self.frame_bound),
+                out: Vec::new(),
+                hello_seen: false,
+                pending: Vec::new(),
+                held: None,
+            },
+        );
+    }
+
     /// Reads every link that has input, and gives the engine what it decoded (plan 2.5). Control comes before data: this runs
     /// before the work of a `pump`. A link is read only as far as the engine can take what it decoded and as far as the
     /// budget of the pump allows: the rest stays unread (kernel buffer, or the one frame in `held`).
     fn service_links(&mut self, budget: &mut Budget) {
         while let Some(link) = self.edges.accept_link() {
-            self.links.insert(
-                link,
-                LinkState {
-                    decoder: FrameDecoder::new(self.frame_bound),
-                    out: Vec::new(),
-                    hello_seen: false,
-                    pending: Vec::new(),
-                    held: None,
-                },
-            );
+            self.add_link(link);
         }
         let ids: Vec<LinkId> = self.links.keys().copied().collect();
         for link in ids {
