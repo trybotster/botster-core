@@ -371,7 +371,14 @@ impl<E: HostEdges> HostDriver<E> {
             return;
         };
         let at = state.out.len();
-        if encode_frame(FrameType::HOST_MSG, &payload, self.frame_bound, &mut state.out).is_err() {
+        if encode_frame(
+            FrameType::HOST_MSG,
+            &payload,
+            self.frame_bound,
+            &mut state.out,
+        )
+        .is_err()
+        {
             state.out.truncate(at);
             self.failed_handoffs.push_back(route);
             return;

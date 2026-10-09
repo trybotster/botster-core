@@ -246,7 +246,6 @@ conf::dp_3_output_deflate_only_when_negotiated
 conf::dp_3_output_deflate_over_the_frame_bound_is_invalid_input
 conf::dp_3_route_codec_matches_client_appendix_a4_a5
 conf::dp_3_route_limits_reject_a_screen_cap_below_snapshot_plus_one
-conf::dp_3_screen_is_one_frame_within_max_screen_frame_bytes
 conf::dp_3_unknown_type_closes_route
 conf::dp_4_worker_encodes_route_frames_with_write_time_modes
 conf::dp_5_abort_before_commit_writes_nothing_and_sends_no_frame
@@ -475,7 +474,6 @@ conf::ou_7_stalled_route_does_not_hold_exit
 conf::ou_8_route_output_frame_kinds
 conf::ou_9_adopted_session_attaches_by_baseline
 conf::ou_9_attach_is_sync_baseline_in_pump
-conf::ou_9_baseline_then_live_no_gap
 conf::ou_9_oversize_snapshot_closes_route_typed
 conf::ou_9_resync_completes_a_partial_frame
 conf::ou_9_resync_drops_unstarted_frames

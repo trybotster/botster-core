@@ -115,13 +115,6 @@ impl TestkitHarness {
     pub(crate) fn workers(&self) -> &Workers {
         &self.workers
     }
-
-    fn no_route(what: &str) -> CoreError {
-        CoreError::new(
-            ErrorCode::Unsupported { what: None },
-            format!("unsupported_control: {what} needs the route data plane (P4a)"),
-        )
-    }
 }
 
 impl CoreHarness for TestkitHarness {
@@ -240,15 +233,30 @@ impl CoreHarness for TestkitHarness {
         botster_probe_script::PROBE_BINARY.to_string()
     }
 
+    /// A connected in-memory stream: one end goes to `Core::attach`, which hands it to the worker (DP-2); the other end is
+    /// the client's.
     fn attach_stream(
         &mut self,
         _handle: &str,
-        _core: &mut dyn CoreApi,
-        _client: ClientId,
-        _session: &SessionId,
-        _options: AttachOptions,
+        core: &mut dyn CoreApi,
+        client: ClientId,
+        session: &SessionId,
+        options: AttachOptions,
     ) -> Result<(AttachResult, Box<dyn RouteClient>), CoreError> {
-        Err(TestkitHarness::no_route("attach_stream"))
+        let (worker_end, client_end) = crate::net::stream_pair(
+            &self.workers.scheduler(),
+            crate::route_client::ROUTE_STREAM_BYTES,
+        );
+        let result = core
+            .attach(
+                client,
+                session.clone(),
+                RouteTransport::Stream(StreamEndpoint::new(worker_end)),
+                options,
+            )
+            .map_err(|refused| refused.error)?;
+        let route = crate::route_client::TestkitRoute::new(client_end, self.workers.clone());
+        Ok((result, Box::new(route)))
     }
 }
 

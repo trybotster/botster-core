@@ -294,7 +294,12 @@ impl HostEdges for Edges {
                 l.descriptors.push((at, endpoint));
                 Ok(n)
             }
-            Err(e) if matches!(e.kind(), io::ErrorKind::WouldBlock | io::ErrorKind::Interrupted) => {
+            Err(e)
+                if matches!(
+                    e.kind(),
+                    io::ErrorKind::WouldBlock | io::ErrorKind::Interrupted
+                ) =>
+            {
                 Err((endpoint, DescriptorSendError::Blocked))
             }
             Err(_) => Err((endpoint, DescriptorSendError::Failed)),

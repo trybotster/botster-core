@@ -601,28 +601,50 @@ mod tests {
     fn a_descriptor_arrives_with_its_byte_and_never_before_earlier_bytes() {
         let (mut a, mut b) = link_pair(8);
         a.send(b"ab").unwrap();
-        assert_eq!(a.send_with_descriptor(b"cd", Descriptor::new(1u8)).unwrap(), 2);
+        assert_eq!(
+            a.send_with_descriptor(b"cd", Descriptor::new(1u8)).unwrap(),
+            2
+        );
         a.send(b"e").unwrap();
-        assert!(b.recv_descriptor().is_none(), "two earlier bytes are unread");
+        assert!(
+            b.recv_descriptor().is_none(),
+            "two earlier bytes are unread"
+        );
         let mut buf = [0u8; 8];
-        assert_eq!(b.recv(&mut buf).unwrap(), 2, "the read stops before the descriptor's byte");
+        assert_eq!(
+            b.recv(&mut buf).unwrap(),
+            2,
+            "the read stops before the descriptor's byte"
+        );
         assert_eq!(&buf[..2], b"ab");
         assert_eq!(
             b.recv(&mut buf).unwrap_err().kind(),
             io::ErrorKind::WouldBlock,
             "no byte after the descriptor is read before it"
         );
-        assert!(b.end().readiness().readable, "the descriptor is readable work");
+        assert!(
+            b.end().readiness().readable,
+            "the descriptor is readable work"
+        );
         assert_eq!(b.recv_descriptor().unwrap().downcast::<u8>().unwrap(), 1);
         assert_eq!(drain(&mut b), b"cde");
 
         let (mut a, _b) = link_pair(1);
         a.send(b"x").unwrap();
-        let (back, error) = a.send_with_descriptor(b"y", Descriptor::new(2u8)).unwrap_err();
+        let (back, error) = a
+            .send_with_descriptor(b"y", Descriptor::new(2u8))
+            .unwrap_err();
         assert_eq!(error.kind(), io::ErrorKind::WouldBlock);
-        assert_eq!(back.downcast::<u8>().unwrap(), 2, "a blocked send gives the descriptor back");
         assert_eq!(
-            a.send_with_descriptor(b"", Descriptor::new(3u8)).unwrap_err().1.kind(),
+            back.downcast::<u8>().unwrap(),
+            2,
+            "a blocked send gives the descriptor back"
+        );
+        assert_eq!(
+            a.send_with_descriptor(b"", Descriptor::new(3u8))
+                .unwrap_err()
+                .1
+                .kind(),
             io::ErrorKind::InvalidInput,
             "a descriptor needs a byte to ride with"
         );

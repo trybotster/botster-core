@@ -86,8 +86,8 @@ and `options`. P4a changes this as follows.
 **Sender (host).** The descriptor travels with the first byte of its `AttachRoute` frame, in the link's ordered outbound
 path (the `SCM_RIGHTS` model):
 
-1. On `HandoffRoute`, the driver encodes `HostMsg::AttachRoute{route, options}` into the link's outbound buffer like any
-   frame. It records a mark: the offset of the frame's first byte, the route, and the endpoint. The mark owns the endpoint.
+1. On `HandoffRoute`, the driver encodes `HostMsg::AttachRoute{route, options, limits}` into the link's outbound buffer
+   like any frame. It records a mark: the offset of the frame's first byte, the route, and the endpoint. The mark owns the endpoint.
 2. The writer sends bytes up to the mark with `link_send`. A partly written earlier frame is therefore always complete
    first.
 3. At the mark, the writer calls a new edge (it replaces `handoff_route`):
@@ -101,10 +101,17 @@ path (the `SCM_RIGHTS` model):
      readiness of the link;
    - `Err((endpoint, Failed))`: any other error, nothing taken. The driver closes the endpoint and drops the frame (it
      was not started, so the framing stays intact).
-4. `Ok` feeds `Input::HandoffSent{route}` to the engine. `Failed` feeds the route to `failed_handoffs` (`HandoffFailed`,
-   as today). `Blocked` feeds nothing.
+4. `Failed` feeds the route to `failed_handoffs` (`HandoffFailed`, as today). `Ok` and `Blocked` feed nothing in PR1.
+   `Input::HandoffSent{route}` comes in PR3, with the consumer that needs it.
 5. The marks are link-scoped. When the link closes, each mark is dropped, its endpoint is closed, and its route is a failed
    handoff, unless the session's loss closed the route first (the first reason wins, OU-2).
+
+**The limits (correction in PR1).** `HostMsg::AttachRoute` carries `limits: AppliedRouteLimits`. The host computes
+the limits once in `attach` (OU-1), returns them in `AttachResult`, and sends the same values in the frame. The worker
+announces them in `attached` and enforces them as given; it computes no limit of its own. The first version of this
+design said "no link message change". That was wrong: the worker cannot know the host's applied defaults and choices
+(for example a `max_frame_bytes` choice) from `options` alone. A test proves that the worker announces and enforces
+exactly the limits that the host sent.
 
 **Receiver (worker).** A binding delivers each descriptor before the link bytes that it rides with:
 
@@ -294,10 +301,12 @@ Rejected:
 - A host-terminated relay: it puts the host on the data path (DP-1, DP-11).
 - WebRTC: withdrawn by A17.
 - A descriptor id in `AttachRoute`: an id alone fixes neither the order nor the cleanup. The ordered outbound path above
-  fixes both with no link message change.
+  fixes both with no new descriptor field.
 
 ### Changes outside worker-core (each is HIGH)
 
-- `botster-core-host`: the outbound marks, `link_send_descriptor` in place of `handoff_route`, and `Input::HandoffSent`.
+- `botster-core-host`: the outbound marks and `link_send_descriptor` in place of `handoff_route` (PR1), and
+  `Input::HandoffSent` (PR3).
 - `botster-core-testkit`: `send_with_descriptor`, the tagged `recv`, the worker binding, and the PTY read budget.
-- No link message change: `HostMsg::AttachRoute{route, options}` exists.
+- `botster-core-link`: `HostMsg::AttachRoute` gets `limits: AppliedRouteLimits` (PR1, the correction above), and
+  `route::terminal_format`, which names a snapshot format on the wire as `{name lowercase}/{version}+raw`.

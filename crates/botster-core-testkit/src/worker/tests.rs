@@ -45,6 +45,10 @@ fn fixture(capacity: usize) -> (WorkerEdges, LinkEnd, SharedWorker, Instant) {
         wait_writable: false,
         ready: Vec::new(),
         read_chunk: READ_CHUNK,
+        descriptors: BTreeMap::new(),
+        next_descriptor: 0,
+        routes: BTreeMap::new(),
+        pty_budget: None,
     };
     let worker = SharedWorker(Arc::new(Mutex::new(Worker::new(WorkerConfig::new(
         InstanceId("1-1".into()),
@@ -559,4 +563,191 @@ fn a_held_spawn_waits_for_the_release_and_goes_with_the_worker() {
         "the same instance of another directory stays held"
     );
     assert!(!lock(&edges.cell).payload_alive);
+}
+
+/// A route stream end in a descriptor, as the host's edge hands it over (DP-2).
+fn route_descriptor(
+    scheduler: &SchedulerHandle,
+) -> (crate::net::Descriptor, crate::net::StreamEnd) {
+    let (worker_end, client_end) = crate::net::stream_pair(scheduler, 4);
+    let endpoint = StreamEndpoint::new(worker_end);
+    (crate::net::Descriptor::new(endpoint), client_end)
+}
+
+/// DP-2: the edge gives the machine a descriptor before the bytes that it rides with, and `BindRoute` makes its stream the
+/// route's transport.
+#[test]
+fn a_descriptor_comes_before_the_bytes_that_it_rides_with() {
+    let (mut edges, mut peer, worker, now) = fixture(16);
+    peer.send(b"ab").unwrap();
+    let (descriptor, mut client) = route_descriptor(&edges.scheduler);
+    assert_eq!(peer.send_with_descriptor(b"cd", descriptor).unwrap(), 2);
+    assert_eq!(edges.ready(now, &worker), 1);
+    assert_eq!(
+        edges.take(now, &worker, 0),
+        Input::LinkBytes(b"ab".to_vec())
+    );
+    assert_eq!(edges.ready(now, &worker), 1);
+    let Input::Descriptor(id) = edges.take(now, &worker, 0) else {
+        panic!("the descriptor comes before its bytes")
+    };
+    assert_eq!(edges.ready(now, &worker), 1);
+    assert_eq!(
+        edges.take(now, &worker, 0),
+        Input::LinkBytes(b"cd".to_vec())
+    );
+    edges.perform(
+        now,
+        Action::BindRoute {
+            descriptor: id,
+            route: RouteId(3),
+        },
+    );
+    edges.perform(
+        now,
+        Action::RouteWrite {
+            route: RouteId(3),
+            bytes: b"xy".to_vec(),
+        },
+    );
+    assert_eq!(edges.ready(now, &worker), 1);
+    assert_eq!(
+        edges.take(now, &worker, 0),
+        Input::RouteWritten {
+            route: RouteId(3),
+            result: Ok(2)
+        }
+    );
+    let mut buf = [0u8; 4];
+    let n = botster_core_edges::RouteTransport::read(&mut client, &mut buf).unwrap();
+    assert_eq!(&buf[..n], &b"xy"[..n]);
+    // A descriptor that no route took is closed: its client sees the end.
+    let (descriptor, mut orphan) = route_descriptor(&edges.scheduler);
+    peer.send_with_descriptor(b"e", descriptor).unwrap();
+    edges.ready(now, &worker);
+    let Input::Descriptor(id) = edges.take(now, &worker, 0) else {
+        panic!("a descriptor")
+    };
+    edges.perform(now, Action::CloseDescriptor(id));
+    assert_eq!(
+        botster_core_edges::RouteTransport::read(&mut orphan, &mut buf).unwrap(),
+        0
+    );
+}
+
+/// OU-3a: the edge writes a route's bytes only when its stream takes bytes. A full or gated stream holds the write, and the
+/// write goes when the client reads. `RouteClose` closes the stream.
+#[test]
+fn a_full_route_stream_holds_the_write_until_the_client_reads() {
+    let (mut edges, mut peer, worker, now) = fixture(16);
+    let (descriptor, mut client) = route_descriptor(&edges.scheduler);
+    peer.send_with_descriptor(b"f", descriptor).unwrap();
+    edges.ready(now, &worker);
+    let Input::Descriptor(id) = edges.take(now, &worker, 0) else {
+        panic!("a descriptor")
+    };
+    edges.ready(now, &worker);
+    edges.take(now, &worker, 0);
+    edges.perform(
+        now,
+        Action::BindRoute {
+            descriptor: id,
+            route: RouteId(1),
+        },
+    );
+    edges.perform(
+        now,
+        Action::RouteWrite {
+            route: RouteId(1),
+            bytes: b"1234".to_vec(),
+        },
+    );
+    edges.ready(now, &worker);
+    assert_eq!(
+        edges.take(now, &worker, 0),
+        Input::RouteWritten {
+            route: RouteId(1),
+            result: Ok(4)
+        }
+    );
+    edges.perform(
+        now,
+        Action::RouteWrite {
+            route: RouteId(1),
+            bytes: b"5".to_vec(),
+        },
+    );
+    assert_eq!(edges.ready(now, &worker), 0, "a full queue holds the write");
+    let control = edges
+        .routes
+        .get_mut(&RouteId(1))
+        .unwrap()
+        .end
+        .end()
+        .control();
+    control.gate(true);
+    let mut buf = [0u8; 4];
+    let mut got = Vec::new();
+    let n = botster_core_edges::RouteTransport::read(&mut client, &mut buf).unwrap();
+    assert!(n > 0, "the client reads");
+    got.extend_from_slice(&buf[..n]);
+    assert_eq!(
+        edges.ready(now, &worker),
+        0,
+        "a gated stream holds the write"
+    );
+    control.gate(false);
+    assert_eq!(edges.ready(now, &worker), 1);
+    assert_eq!(
+        edges.take(now, &worker, 0),
+        Input::RouteWritten {
+            route: RouteId(1),
+            result: Ok(1)
+        }
+    );
+    edges.perform(now, Action::RouteClose { route: RouteId(1) });
+    loop {
+        let n = botster_core_edges::RouteTransport::read(&mut client, &mut buf).unwrap();
+        if n == 0 {
+            break;
+        }
+        got.extend_from_slice(&buf[..n]);
+    }
+    assert_eq!(got, b"12345", "every byte once, in order, then the end");
+}
+
+/// OU-3d: the edge reads at most the PTY budget in all, a budget of zero stops every read, and `None` lifts the limit.
+#[test]
+fn the_pty_read_budget_bounds_the_reads() {
+    let (mut edges, _peer, worker, now) = fixture(8);
+    let script = serde_json::from_value(serde_json::json!({"program": [
+        {"print": {"bytes_hex": "6162636465666768"}}, {"hold": {}}
+    ]}))
+    .unwrap();
+    let program = ScriptedProgram::new(&script, true, &edges.scheduler).unwrap();
+    edges.payload = Some(program);
+    let id = PayloadId {
+        pid: 1003,
+        start_time: 1,
+    };
+    edges.spawned = Some(Ok(id));
+    edges.ready(now, &worker);
+    edges.take(now, &worker, 0);
+    edges.perform(now, Action::PtyReadBudget(Some(3)));
+    let mut read = Vec::new();
+    while edges.ready(now, &worker) == 1 {
+        let Input::PtyOutput(bytes) = edges.take(now, &worker, 0) else {
+            panic!("a read")
+        };
+        read.extend(bytes);
+    }
+    assert_eq!(read, b"abc", "three bytes in all, then none");
+    edges.perform(now, Action::PtyReadBudget(None));
+    while edges.ready(now, &worker) == 1 {
+        let Input::PtyOutput(bytes) = edges.take(now, &worker, 0) else {
+            panic!("a read")
+        };
+        read.extend(bytes);
+    }
+    assert_eq!(read, b"abcdefgh");
 }

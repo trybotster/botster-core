@@ -10,7 +10,7 @@
 //! scripted program, deliver signals and report exits (plan 2.1: a difference between the two runs is a bug in an edge).
 
 use crate::core::{SimEdges, Spawner};
-use crate::net::{EndControl, Interest, LinkEnd};
+use crate::net::{EndControl, Interest, LinkEnd, StreamEnd};
 use crate::program::{ProgramControl, ScriptedProgram};
 use crate::resume_controls::{CaptureLog, CaptureRecord, ModelLog};
 use crate::scheduler::SchedulerHandle;
@@ -19,12 +19,13 @@ use botster_core_contract::prelude::*;
 use botster_core_edges::edges::{
     ExitStatus, GroupSignal, IdentityState, ProcessIdentity, SpawnError, WindowSize,
 };
-use botster_core_edges::{Link, Machine, Program};
+use botster_core_edges::{Link, Machine, Program, RouteTransport as _};
 use botster_core_host::driver::{HostDriver, HostWake, WorkerSpawn};
 use botster_core_link::msg::PayloadId;
 use botster_route_codec::prelude::QueryKind;
 use botster_worker_core::{
-    Action, CandidateId, Drain, Input, PayloadSpec, SpawnFailure, Worker, WorkerConfig,
+    Action, CandidateId, DescriptorId, Drain, Input, PayloadSpec, SpawnFailure, Worker,
+    WorkerConfig,
 };
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::io;
@@ -264,6 +265,14 @@ impl Workers {
         let mut sim = lock(&self.sim);
         sim.advance_to(now);
         if let Err(livelock) = sim.run_until_idle(SIM_STEP_LIMIT) {
+            panic!("the in-process workers did not settle: {livelock:?}");
+        }
+    }
+
+    /// Runs the workers' ready work at the virtual clock, with no step of the program edge and no host pump: the route data
+    /// plane is the worker's, so a route progresses with no pump (Core TH-3, OU-9).
+    pub fn run_ready(&self) {
+        if let Err(livelock) = lock(&self.sim).run_until_idle(SIM_STEP_LIMIT) {
             panic!("the in-process workers did not settle: {livelock:?}");
         }
     }
@@ -569,6 +578,10 @@ impl Spawner for WorkerSpawner {
             wait_writable: false,
             ready: Vec::new(),
             read_chunk: self.workers.read_chunk,
+            descriptors: BTreeMap::new(),
+            next_descriptor: 0,
+            routes: BTreeMap::new(),
+            pty_budget: None,
         };
         let mut worker = SharedWorker(Arc::new(Mutex::new(worker)));
         lock(&edges.cell).worker = Some(worker.clone());
@@ -663,6 +676,18 @@ enum Ready {
     PtyRead,
     PtyDrained,
     Exited,
+    /// A `RouteWrite` waits, and the route's stream would take bytes now.
+    RouteWrite(RouteId),
+    /// The route's stream takes bytes again after a write that it did not take.
+    RouteWritable(RouteId),
+}
+
+/// The worker's end of a route's stream (DP-2), and its one outstanding write.
+#[derive(Debug)]
+struct RouteEdge {
+    end: StreamEnd,
+    write: Option<Vec<u8>>,
+    wait_writable: bool,
 }
 
 /// The edges of one in-process worker: the control link, the scripted program on its PTY, and its process cell.
@@ -708,6 +733,13 @@ struct WorkerEdges {
     /// The inputs counted by the last `ready`.
     ready: Vec<Ready>,
     read_chunk: usize,
+    /// The route streams that the link delivered and no `AttachRoute` bound yet, by the id the machine has.
+    descriptors: BTreeMap<DescriptorId, StreamEnd>,
+    next_descriptor: u64,
+    /// The bound route streams.
+    routes: BTreeMap<RouteId, RouteEdge>,
+    /// The PTY bytes that the worker may still read (`PtyReadBudget`, OU-3d); `None`: no limit.
+    pty_budget: Option<usize>,
 }
 
 impl WorkerEdges {
@@ -731,6 +763,13 @@ impl WorkerEdges {
         }
         for (_, (mut end, _)) in std::mem::take(&mut self.candidates) {
             end.close();
+        }
+        // The process's route streams close with it.
+        for (_, mut end) in std::mem::take(&mut self.descriptors) {
+            end.close();
+        }
+        for (_, mut route) in std::mem::take(&mut self.routes) {
+            route.end.close();
         }
         self.outbound.clear();
         self.payload = None;
@@ -884,10 +923,25 @@ impl Binding<SharedWorker> for WorkerEdges {
             match (self.drain, unread) {
                 (Some(Drain::Done), _) | (Some(_), 0) => self.ready.push(Ready::PtyDrained),
                 (None, 0) => {}
+                // OU-3d, OU-7: a budget of zero stops every read, a drain's too, until the routes take bytes.
+                _ if self.pty_budget == Some(0) => {}
                 _ => self.ready.push(Ready::PtyRead),
             }
             if self.exit.is_some() {
                 self.ready.push(Ready::Exited);
+            }
+        }
+        for (id, route) in &mut self.routes {
+            route.end.end().set_interest(Interest {
+                read: false,
+                write: route.write.is_some() || route.wait_writable,
+            });
+            if route.end.end().readiness().writable {
+                if route.write.is_some() {
+                    self.ready.push(Ready::RouteWrite(*id));
+                } else if route.wait_writable {
+                    self.ready.push(Ready::RouteWritable(*id));
+                }
             }
         }
         self.ready.len()
@@ -904,6 +958,21 @@ impl Binding<SharedWorker> for WorkerEdges {
                 Input::Terminate
             }
             Ready::Link => {
+                // A descriptor rides on its byte, so it comes before the bytes of its frame (DP-2, `SCM_RIGHTS`).
+                if let Some(descriptor) = self.link.recv_descriptor() {
+                    let end = descriptor
+                        .downcast::<StreamEndpoint>()
+                        .and_then(|endpoint| {
+                            endpoint
+                                .downcast::<StreamEnd>()
+                                .map_err(crate::net::Descriptor::new)
+                        })
+                        .expect("the host hands over a testkit stream end");
+                    self.next_descriptor += 1;
+                    let id = DescriptorId(self.next_descriptor);
+                    self.descriptors.insert(id, end);
+                    return Input::Descriptor(id);
+                }
                 let mut buf = vec![0u8; self.read_chunk];
                 match self.link.recv(&mut buf) {
                     Ok(n) if n > 0 => {
@@ -975,14 +1044,18 @@ impl Binding<SharedWorker> for WorkerEdges {
             }
             Ready::PtyRead => {
                 let program = self.payload.as_mut().expect("counted as ready");
-                let want = self
-                    .drain
-                    .map_or(self.read_chunk, |drain| drain.want(self.read_chunk));
+                let chunk = self
+                    .pty_budget
+                    .map_or(self.read_chunk, |budget| budget.min(self.read_chunk));
+                let want = self.drain.map_or(chunk, |drain| drain.want(chunk));
                 let mut buf = vec![0u8; want];
                 let n = program
                     .read(&mut buf)
                     .expect("a program with unread output reads some");
                 buf.truncate(n);
+                if let Some(budget) = self.pty_budget.as_mut() {
+                    *budget -= n;
+                }
                 lock(&self.cell).model_log.read(&buf);
                 if let Some(drain) = self.drain {
                     let Ok(next) =
@@ -996,6 +1069,26 @@ impl Binding<SharedWorker> for WorkerEdges {
                 Input::PtyDrained
             }
             Ready::Exited => Input::PayloadExited(self.exit.take().expect("counted as ready")),
+            Ready::RouteWrite(id) => {
+                let route = self.routes.get_mut(&id).expect("counted as ready");
+                let bytes = route.write.take().expect("counted as ready");
+                let result = match route.end.write(&bytes) {
+                    Ok(n) => Ok(n),
+                    Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
+                        route.wait_writable = true;
+                        Ok(0)
+                    }
+                    Err(e) => Err(e.raw_os_error().unwrap_or(EIO)),
+                };
+                Input::RouteWritten { route: id, result }
+            }
+            Ready::RouteWritable(id) => {
+                self.routes
+                    .get_mut(&id)
+                    .expect("counted as ready")
+                    .wait_writable = false;
+                Input::RouteWritable { route: id }
+            }
         }
     }
 
@@ -1048,6 +1141,37 @@ impl Binding<SharedWorker> for WorkerEdges {
                     end.close();
                 }
             }
+            Action::BindRoute { descriptor, route } => {
+                let end = self
+                    .descriptors
+                    .remove(&descriptor)
+                    .expect("the machine binds a descriptor that the link delivered");
+                self.routes.insert(
+                    route,
+                    RouteEdge {
+                        end,
+                        write: None,
+                        wait_writable: false,
+                    },
+                );
+            }
+            Action::CloseDescriptor(id) => {
+                if let Some(mut end) = self.descriptors.remove(&id) {
+                    end.close();
+                }
+            }
+            // The write is its own input (`Ready::RouteWrite`), as the real driver writes when the socket takes bytes.
+            Action::RouteWrite { route, bytes } => {
+                if let Some(edge) = self.routes.get_mut(&route) {
+                    edge.write = Some(bytes);
+                }
+            }
+            Action::RouteClose { route } => {
+                if let Some(mut edge) = self.routes.remove(&route) {
+                    edge.end.close();
+                }
+            }
+            Action::PtyReadBudget(budget) => self.pty_budget = budget,
             // The fence (DP-8): the old link closes with its unwritten bytes, and the candidate is the link from now on. A
             // break of the old link (`break_control`) ends with it.
             Action::AdoptLink(id) => {

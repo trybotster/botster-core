@@ -60,6 +60,11 @@ impl Model {
     pub(super) fn modes(&self) -> ModeFlags {
         self.term.modes()
     }
+
+    /// The output that the model holds and has not applied: it is after the model's consumed cut (OU-9).
+    pub(super) fn unfed(&self) -> &[u8] {
+        &self.unfed
+    }
 }
 
 /// The snapshot formats of the model (ST-6, `Launched.formats`): the binding's GHOSTSNP format.
