@@ -55,6 +55,7 @@ impl HostEngine {
                 }
             }
             Input::ProcessExited { identity, status } => self.on_process_exited(identity, status),
+            Input::IdentityState { identity, state } => self.flow_remove_probed(identity, state),
             Input::Features(features) => self.features = features,
         }
     }
@@ -115,6 +116,13 @@ impl HostEngine {
     ) {
         match result {
             Ok(rows) => {
+                // The registry is authoritative (AD-7): an id that no row holds is free, and every row is recovered.
+                let held: std::collections::BTreeSet<SessionId> = rows
+                    .iter()
+                    .filter_map(|(key, _)| key.strip_prefix(crate::session::ROW_PREFIX))
+                    .map(|id| SessionId(id.into()))
+                    .collect();
+                self.unadopted.retain(|id| held.contains(id));
                 if let Some(p) = self.ops.get_mut(&op) {
                     p.rows = rows.into();
                 }

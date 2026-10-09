@@ -90,6 +90,36 @@ impl From<ProcessIdentity> for RowWorker {
 
 pub const ROW_VERSION: u32 = 1;
 
+impl Row {
+    /// The row of `id` that `bytes` hold, or `None` when Core's decoder rejects them: bytes that are not a row, a row of
+    /// another version, or a row of another id (A10-2, AD-2 `RegistryCorrupt`).
+    pub fn decode(id: &SessionId, bytes: &[u8]) -> Option<Row> {
+        serde_json::from_slice::<Row>(bytes)
+            .ok()
+            .filter(|row| row.version == ROW_VERSION && &row.id == id)
+    }
+}
+
+/// The request of a session whose row is corrupt: Core cannot read what was asked. Its size of 0 rows by 0 columns is
+/// outside every valid size (A2-1), so a reader of the record cannot take it for a real one, and no worker ever gets it: a
+/// `Lost` session is never started (AD-2).
+pub fn unknown_request() -> SpawnRequest {
+    SpawnRequest {
+        argv: Vec::new(),
+        env: BTreeMap::new(),
+        cwd: String::new(),
+        size: Size {
+            rows: 0,
+            cols: 0,
+            cell_px: None,
+        },
+        labels: BTreeMap::new(),
+        color_profile: None,
+        notification_policy: None,
+        size_policy: None,
+    }
+}
+
 /// A set of `OpId`s as disjoint ranges. `cancel` needs exact identity for the whole life of the handle (ID-1, IN-6), and ranges
 /// keep that exact set small.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]

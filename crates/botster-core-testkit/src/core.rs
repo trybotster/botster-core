@@ -13,7 +13,7 @@ use crate::net::LinkEnd;
 use crate::scheduler::SchedulerHandle;
 use botster_core_contract::prelude::*;
 use botster_core_edges::edges::{
-    ExitStatus, GroupSignal, ProcessIdentity, SpawnError, StorageError,
+    ExitStatus, GroupSignal, IdentityState, ProcessIdentity, SpawnError, StorageError,
 };
 use botster_core_edges::scheduler::ChoicePoint;
 use botster_core_edges::{Entropy, Link, Scheduler, Wake as WakeEdge};
@@ -24,7 +24,7 @@ use botster_core_host::{EngineConfig, LinkId};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::io;
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 /// `ENOEXEC`: the errno of a program that cannot be run. It is what an `exec` of a file that is not a program gives.
 const ENOEXEC: i32 = 8;
@@ -104,6 +104,8 @@ pub trait Spawner: Send {
         connect: &mut dyn FnMut() -> LinkEnd,
     ) -> Result<ProcessIdentity, SpawnError>;
     fn signal_group(&mut self, _identity: ProcessIdentity, _signal: GroupSignal) {}
+    /// What `identity` matches now (AD-6).
+    fn identity_state(&self, identity: ProcessIdentity) -> IdentityState;
     fn poll_exit(&mut self) -> Option<(ProcessIdentity, ExitStatus)> {
         None
     }
@@ -214,6 +216,12 @@ impl HostEdges for SimEdges {
         }
     }
 
+    fn identity_state(&self, identity: ProcessIdentity) -> IdentityState {
+        self.spawner
+            .as_ref()
+            .map_or(IdentityState::Absent, |s| s.identity_state(identity))
+    }
+
     fn poll_process_exit(&mut self) -> Option<(ProcessIdentity, ExitStatus)> {
         self.spawner.as_mut().and_then(|s| s.poll_exit())
     }
@@ -299,8 +307,6 @@ pub struct RunInputs {
     pub seed: u64,
     /// The run's one seeded stream, shared with the in-process workers (A5-2).
     pub scheduler: SchedulerHandle,
-    /// The start of the injected clock.
-    pub start: Instant,
 }
 
 /// A `Core` that `Directories::open` built: the host driver, its fault switches, and the wake object of its edges.
@@ -324,11 +330,7 @@ impl Directories {
         features: Features,
         spawner: Option<Box<dyn Spawner>>,
     ) -> Result<Opened, CoreError> {
-        let RunInputs {
-            seed,
-            scheduler,
-            start,
-        } = run;
+        let RunInputs { seed, scheduler } = run;
         let worker_path = check_open(config)?;
         let registry = Arc::clone(self.dirs.entry(name.to_string()).or_default());
         {
@@ -385,7 +387,7 @@ impl Directories {
         };
         let wake = edges.wake();
         Ok(Opened {
-            driver: HostDriver::new(cfg, edges, start),
+            driver: HostDriver::open(cfg, edges)?,
             faults,
             wake,
         })
