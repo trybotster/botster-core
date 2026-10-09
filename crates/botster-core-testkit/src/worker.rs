@@ -11,7 +11,7 @@
 
 use crate::core::{SimEdges, Spawner};
 use crate::net::{EndControl, Interest, LinkEnd};
-use crate::program::ScriptedProgram;
+use crate::program::{ProgramControl, ScriptedProgram};
 use crate::scheduler::SchedulerHandle;
 use crate::sim::{Binding, MachineNode, Sim};
 use botster_core_contract::prelude::*;
@@ -23,7 +23,7 @@ use botster_core_host::driver::{HostDriver, HostWake, WorkerSpawn};
 use botster_core_link::msg::PayloadId;
 use botster_route_codec::prelude::QueryKind;
 use botster_worker_core::{Action, Drain, Input, PayloadSpec, SpawnFailure, Worker, WorkerConfig};
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::io;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
@@ -58,6 +58,12 @@ struct ProcessCell {
     break_link: bool,
     /// The worker's end of its control link, for reading what it holds for the host (`edges_quiet`). It outlives the end.
     link: Option<EndControl>,
+    /// The worker's payload runs: true from its spawn until its sim process ends (its exit is queued for the worker), its
+    /// reap, or the end of the worker (`payload_alive`).
+    payload_alive: bool,
+    /// The controls of the payload's program edge, from the spawn until the reap or the end of the worker (`pty_output`,
+    /// `pty_blocked`): the PTY stays readable after the payload's exit until the worker reaps it.
+    program: Option<ProgramControl>,
 }
 
 /// The process table of the workers that one host spawned: identities and the exits that the host has not polled.
@@ -125,12 +131,23 @@ impl Pids {
     }
 }
 
+/// A held start (`hold_start_at`): the data directory of the host and the session's instance. An `InstanceId` names one
+/// incarnation in its registry (Core ID-1), and each new directory starts its host epoch at 1 (DP-8), so two directories of
+/// one run can have the same instance: the directory is part of the key.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) struct StartKey {
+    pub(crate) dir: String,
+    pub(crate) instance: InstanceId,
+}
+
 /// The `Sim` of one harness: every in-process worker of every handle (plan 4.1: "a `Sim` owns ... every `Worker`").
 #[derive(Clone)]
 pub struct Workers {
     sim: Arc<Mutex<Sim>>,
     pids: Arc<Mutex<Pids>>,
     run_processes: Arc<Mutex<RunProcesses>>,
+    /// The starts that are held before the payload's launch (`hold_start_at`, AD-7 step 4).
+    held_starts: Arc<Mutex<BTreeSet<StartKey>>>,
     scheduler: SchedulerHandle,
     read_chunk: usize,
 }
@@ -163,6 +180,7 @@ impl Workers {
             sim: Arc::new(Mutex::new(Sim::with_scheduler(scheduler.clone(), start))),
             pids: Arc::new(Mutex::new(Pids { next: 1000 })),
             run_processes: Arc::default(),
+            held_starts: Arc::default(),
             scheduler,
             read_chunk,
         }
@@ -214,6 +232,95 @@ impl Workers {
         Ok(())
     }
 
+    /// Holds the start `key` before the payload's launch (`hold_start_at`, AD-7 step 4): its worker takes the host's
+    /// `Launch`, and no payload is spawned until [`Workers::release_start`].
+    ///
+    /// # Errors
+    /// The start of `key` is already held.
+    pub(crate) fn hold_start(&self, key: StartKey) -> Result<(), String> {
+        let text = format!("{} in {}", key.instance.0, key.dir);
+        if lock(&self.held_starts).insert(key) {
+            Ok(())
+        } else {
+            Err(format!("the start of {text} is already held"))
+        }
+    }
+
+    /// Ends the hold of [`Workers::hold_start`]. A worker that kept a spawn, the process `worker`, spawns its payload at its
+    /// next turn, and the host that owns it is woken.
+    ///
+    /// # Errors
+    /// No hold of `key` remains: none was set, it was released, or its worker ended.
+    pub(crate) fn release_start(
+        &self,
+        key: &StartKey,
+        worker: Option<ProcessIdentity>,
+    ) -> Result<(), String> {
+        if !lock(&self.held_starts).remove(key) {
+            return Err(format!(
+                "no hold of the start of {} in {}",
+                key.instance.0, key.dir
+            ));
+        }
+        let owner = worker.and_then(|id| lock(&self.run_processes).get(&id).cloned());
+        if let Some((_, owner)) = owner {
+            if let Some(wake) = &lock(&owner).wake {
+                wake.signal();
+            }
+        }
+        Ok(())
+    }
+
+    /// True while the payload of the worker process `identity` runs (`payload_alive`). The payload is in the worker's process
+    /// group, so it ends with the worker; a process that is not a worker of this run has no payload.
+    pub(crate) fn payload_alive(&self, identity: ProcessIdentity) -> bool {
+        lock(&self.run_processes)
+            .get(&identity)
+            .is_some_and(|(cell, _)| {
+                let cell = lock(cell);
+                cell.payload_alive && !cell.ended
+            })
+    }
+
+    /// The program edge of the payload of the worker process `identity` (`pty_output`, `pty_blocked`), and the wake of the
+    /// host that owns the process. A control that makes the edge ready signals that wake, as the real edge event wakes a
+    /// real host (TM-6).
+    ///
+    /// # Errors
+    /// The process is not a worker of this run, it has ended, or it has no payload.
+    pub(crate) fn program_edge(
+        &self,
+        identity: ProcessIdentity,
+    ) -> Result<(ProgramControl, Option<Arc<dyn HostWake>>), String> {
+        self.program_edge_between(identity, || {})
+    }
+
+    /// [`Workers::program_edge`]: `between` runs after the cell is read and before the owner is locked, so a test can put
+    /// the end of the process exactly there (F63).
+    fn program_edge_between(
+        &self,
+        identity: ProcessIdentity,
+        between: impl FnOnce(),
+    ) -> Result<(ProgramControl, Option<Arc<dyn HostWake>>), String> {
+        let (cell, owner) = lock(&self.run_processes)
+            .get(&identity)
+            .cloned()
+            .ok_or_else(|| format!("no worker process {identity:?} in this run"))?;
+        // The cell guard ends before the owner is locked: `Processes::end` locks the owner, then the cell.
+        let program = {
+            let cell = lock(&cell);
+            if cell.ended {
+                return Err(format!("the worker process {identity:?} has ended"));
+            }
+            cell.program
+                .clone()
+                .ok_or_else(|| format!("the worker process {identity:?} has no payload"))?
+        };
+        between();
+        let wake = lock(&owner).wake.clone();
+        Ok((program, wake))
+    }
+
     /// True when no edge toward the host of `table` holds a report that it has not consumed: no worker has ready work (input
     /// to read, bytes to write, a payload's output or exit, a signal), and the host's process table holds no exit and no
     /// unread link report (`edges_quiet`). The fence of `await_quiet` (Core A5-2).
@@ -221,10 +328,11 @@ impl Workers {
         !self.has_ready() && !table.holds_reports()
     }
 
-    /// The `Process` edge of one host for its workers.
-    pub fn spawner(&self) -> WorkerSpawner {
+    /// The `Process` edge of the host of the data directory `dir` for its workers.
+    pub fn spawner(&self, dir: &str) -> WorkerSpawner {
         WorkerSpawner {
             workers: self.clone(),
+            dir: dir.to_string(),
             processes: Arc::default(),
         }
     }
@@ -233,6 +341,8 @@ impl Workers {
 /// The `Process` edge of the testkit's `Core` for workers (P1's [`Spawner`]).
 pub struct WorkerSpawner {
     workers: Workers,
+    /// The data directory of the host: with an instance, it names a start (`StartKey`).
+    dir: String,
     processes: Arc<Mutex<Processes>>,
 }
 
@@ -270,6 +380,12 @@ impl Spawner for WorkerSpawner {
             cell,
             processes: Arc::clone(&self.processes),
             pids: Arc::clone(&self.workers.pids),
+            start: StartKey {
+                dir: self.dir.clone(),
+                instance: spec.instance.clone(),
+            },
+            held_starts: Arc::clone(&self.workers.held_starts),
+            held_spawn: None,
             scheduler: self.workers.scheduler.clone(),
             link,
             link_open: true,
@@ -343,6 +459,8 @@ enum Ready {
     /// The link takes bytes and some of `outbound` waits for it.
     Flush,
     Spawned,
+    /// The hold of the start ended, and the worker kept a spawn: the spawn runs now, and its answer is the input.
+    HeldSpawn,
     PtyRead,
     PtyDrained,
     Exited,
@@ -358,6 +476,12 @@ struct WorkerEdges {
     cell: Arc<Mutex<ProcessCell>>,
     processes: Arc<Mutex<Processes>>,
     pids: Arc<Mutex<Pids>>,
+    /// The start of the session that the worker serves.
+    start: StartKey,
+    /// The run's held starts (`hold_start_at`).
+    held_starts: Arc<Mutex<BTreeSet<StartKey>>>,
+    /// The payload spawn that the worker asked for while its start was held (AD-7 step 4).
+    held_spawn: Option<PayloadSpec>,
     scheduler: SchedulerHandle,
     link: LinkEnd,
     link_open: bool,
@@ -378,7 +502,8 @@ struct WorkerEdges {
 }
 
 impl WorkerEdges {
-    /// The end of the worker process: the OS closes its descriptors, so its link closes, and its payload's PTY is gone.
+    /// The end of the worker process: the OS closes its descriptors, so its link closes, and its payload's PTY is gone. A
+    /// spawn that a hold kept is dropped with its hold: no payload runs for the session later.
     fn ended(&mut self) {
         if self.link_open {
             self.link_open = false;
@@ -386,6 +511,29 @@ impl WorkerEdges {
         }
         self.outbound.clear();
         self.payload = None;
+        let mut cell = lock(&self.cell);
+        cell.payload_alive = false;
+        cell.program = None;
+        drop(cell);
+        self.held_spawn = None;
+        lock(&self.held_starts).remove(&self.start);
+    }
+
+    fn start_held(&self) -> bool {
+        lock(&self.held_starts).contains(&self.start)
+    }
+
+    /// Queues the payload's exit for the worker once its process ended. From then on, the payload is not alive.
+    fn poll_payload_exit(&mut self) {
+        let Some(program) = self.payload.as_mut() else {
+            return;
+        };
+        if self.exit.is_none() {
+            self.exit = program.poll_exit();
+            if self.exit.is_some() {
+                lock(&self.cell).payload_alive = false;
+            }
+        }
     }
 
     fn spawn_payload(&mut self, spec: &PayloadSpec) -> Result<PayloadId, SpawnFailure> {
@@ -404,7 +552,9 @@ impl WorkerEdges {
         program
             .resize(window)
             .map_err(|_| SpawnFailure::Exec { errno: ENOEXEC })?;
+        lock(&self.cell).program = Some(program.control());
         self.payload = Some(program);
+        lock(&self.cell).payload_alive = true;
         Ok(PayloadId {
             pid: lock(&self.pids).next(),
             start_time: 1,
@@ -470,13 +620,16 @@ impl Binding<Worker> for WorkerEdges {
         if self.spawned.is_some() {
             // The payload's inputs depend on its spawn: none is offered before the spawn's answer is taken.
             self.ready.push(Ready::Spawned);
-        } else if let Some(program) = self.payload.as_mut() {
-            if self.exit.is_none() {
-                self.exit = program.poll_exit();
+        } else if self.held_spawn.is_some() {
+            if !self.start_held() {
+                self.ready.push(Ready::HeldSpawn);
             }
+        } else if self.payload.is_some() {
+            self.poll_payload_exit();
+            let unread = self.payload.as_mut().map_or(0, ScriptedProgram::unread);
             // A complete drain gives `PtyDrained`, and a drain whose next read would find nothing is complete; output is read
             // while it waits.
-            match (self.drain, program.unread()) {
+            match (self.drain, unread) {
                 (Some(Drain::Done), _) | (Some(_), 0) => self.ready.push(Ready::PtyDrained),
                 (None, 0) => {}
                 _ => self.ready.push(Ready::PtyRead),
@@ -522,6 +675,10 @@ impl Binding<Worker> for WorkerEdges {
             }
             Ready::Flush => self.flush(),
             Ready::Spawned => Input::Spawned(self.spawned.take().expect("counted as ready")),
+            Ready::HeldSpawn => {
+                let spec = self.held_spawn.take().expect("counted as ready");
+                Input::Spawned(self.spawn_payload(&spec))
+            }
             Ready::PtyRead => {
                 let program = self.payload.as_mut().expect("counted as ready");
                 let want = self
@@ -566,6 +723,7 @@ impl Binding<Worker> for WorkerEdges {
                     self.link.close();
                 }
             }
+            Action::SpawnPayload(spec) if self.start_held() => self.held_spawn = Some(spec),
             Action::SpawnPayload(spec) => self.spawned = Some(self.spawn_payload(&spec)),
             Action::DrainPty => {
                 self.drain = Some(Drain::asked(
@@ -576,8 +734,14 @@ impl Binding<Worker> for WorkerEdges {
                 if let Some(program) = self.payload.as_mut() {
                     program.signal(signal);
                 }
+                self.poll_payload_exit();
             }
-            Action::ReapPayload => self.payload = None,
+            Action::ReapPayload => {
+                self.payload = None;
+                let mut cell = lock(&self.cell);
+                cell.payload_alive = false;
+                cell.program = None;
+            }
             Action::Exit => {
                 lock(&self.processes).end(self.id, ExitStatus::Code(0));
                 self.ended();

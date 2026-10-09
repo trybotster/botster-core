@@ -127,7 +127,7 @@ impl CoreHarness for TestkitHarness {
             }),
             limits,
         };
-        let spawner = self.workers.spawner();
+        let spawner = self.workers.spawner(&spec.data_dir.0);
         let table = spawner.table();
         let opened = self.directories.open(
             &spec.data_dir.0,
