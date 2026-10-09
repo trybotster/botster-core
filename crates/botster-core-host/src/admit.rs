@@ -173,7 +173,8 @@ impl HostEngine {
                         ),
                     ));
                 }
-                if self.sessions.contains_key(session) {
+                // ID-1: an id is unique among registry rows, so a durable row that `AdoptAll` has not recovered holds it too.
+                if self.sessions.contains_key(session) || self.unadopted.contains(session) {
                     return Err(err(
                         ErrorCode::IdInUse,
                         format!("the id {} is in use", session.0),

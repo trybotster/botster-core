@@ -15,11 +15,10 @@ slow = []
 
 [dependencies]
 botster-core-edges.workspace = true
-atomic-write-file.workspace = true
+data-encoding.workspace = true
 getrandom.workspace = true
 pty-process.workspace = true
 rustix.workspace = true
-sha2.workspace = true
 
 [dev-dependencies]
 signal-hook.workspace = true

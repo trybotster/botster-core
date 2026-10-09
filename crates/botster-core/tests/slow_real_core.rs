@@ -4,6 +4,8 @@
 //!
 //! Clause: Core LC-1, LC-2, LC-9, LC-12, DP-8, TH-2, TM-6, AD-6.
 #![cfg(feature = "slow")]
+// The test is the host: it reads the real clock and passes the time to `pump` (Core TM-1).
+#![allow(clippy::disallowed_methods)]
 
 mod common;
 
@@ -286,26 +288,27 @@ fn a_hello_for_an_unknown_instance_is_closed() {
     hello.encode(&mut payload).unwrap();
     let mut frame = Vec::new();
     encode_frame(FrameType::HELLO, &payload, 1 << 20, &mut frame).unwrap();
+    // The whole hello is in the socket before the host looks: one wake and one pump read it and close the link.
     client.write_all(&frame).unwrap();
-    client
-        .set_read_timeout(Some(Duration::from_millis(200)))
+    let (said, heard) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let mut rest = Vec::new();
+        let _ = said.send(client.read_to_end(&mut rest).map(|_| rest));
+    });
+    let woke = wake
+        // timer: deadline — a host that is never woken fails the test instead of hanging it
+        .wait(Duration::from_secs(8));
+    assert_eq!(woke, Wake::Woken, "TM-6: the connection wakes the host");
+    pump(&mut core);
+    let sent = heard
+        // timer: deadline — a link that the host does not close fails the test instead of hanging it
+        .recv_timeout(Duration::from_secs(8))
+        .expect("the host closed the link")
         .unwrap();
-    let began = Instant::now();
-    let mut buf = [0u8; 16];
-    loop {
-        pump(&mut core);
-        match client.read(&mut buf) {
-            Ok(0) => break,
-            Ok(_) => panic!("the host sent bytes to an unknown worker"),
-            Err(_) => {}
-        }
-        // timer: deadline — a failing run must not hang
-        assert!(
-            began.elapsed() < Duration::from_secs(8),
-            "the link was not closed"
-        );
-        let _ = wake.wait(Duration::from_millis(50));
-    }
+    assert!(
+        sent.is_empty(),
+        "the host sent bytes to an unknown worker: {sent:?}"
+    );
 }
 
 /// Plan R12, testing rule 10 (review finding F28, audit A10): a test whose cleanup never runs leaves no worker. The session
@@ -380,4 +383,79 @@ fn a_worker_is_not_left_when_the_cleanup_of_a_test_fails() {
         .expect("the worker's script and its child ended")
         .unwrap();
     assert_eq!(rest, "", "the script wrote nothing after it started");
+}
+
+/// Lead ruling on audit A1, Core AD-1, AD-2, A10-2: through the real registry, a damaged row is `Lost(RegistryCorrupt)` under
+/// the id that its path names, and keeps that id in use; a file that Core did not write is counted, left untouched, and does
+/// not block `AdoptAll`.
+#[test]
+fn a_damaged_row_is_registry_corrupt_and_a_foreign_file_is_left_alone() {
+    let tmp = tempfile::tempdir().unwrap();
+    let mut core = Core::open(config(tmp.path())).expect("open");
+    let registry = tmp.path().join("d").join("rows");
+    let before = files_below(&registry);
+    core.begin(Op::Create {
+        session: sid("s1"),
+        request: request(),
+    })
+    .unwrap();
+    pump(&mut core);
+    drop(core);
+    // The row of s1 is the file that its create added, wherever the storage keeps it.
+    let added: Vec<PathBuf> = files_below(&registry)
+        .into_iter()
+        .filter(|f| !before.contains(f))
+        .collect();
+    assert_eq!(added.len(), 1, "one create, one row file: {added:?}");
+    // Every byte of the file is damaged, so no layout keeps any part of the row readable.
+    let damaged: Vec<u8> = std::fs::read(&added[0])
+        .unwrap()
+        .iter()
+        .map(|b| !b)
+        .collect();
+    std::fs::write(&added[0], damaged).unwrap();
+    let foreign = tmp.path().join("d").join("rows").join("notes.txt");
+    std::fs::write(&foreign, b"someone else's").unwrap();
+    let mut again = Core::open(config(tmp.path())).expect("reopen");
+    let adopt = again.begin(Op::AdoptAll).unwrap();
+    let events = pump(&mut again);
+    assert!(
+        events
+            .iter()
+            .any(|e| matches!(e, Event::Completed { op, result: OpResult::Ok(_) } if *op == adopt)),
+        "{events:?}"
+    );
+    assert!(
+        events.iter().any(|e| matches!(
+            e,
+            Event::SessionState { id, state: SessionState::Lost(LostReason::RegistryCorrupt), .. } if *id == sid("s1")
+        )),
+        "{events:?}"
+    );
+    assert_eq!(
+        again
+            .begin(Op::Create {
+                session: sid("s1"),
+                request: request(),
+            })
+            .unwrap_err()
+            .code,
+        ErrorCode::IdInUse
+    );
+    assert_eq!(again.diagnostics()["edges"]["foreign_registry_files"], 1);
+    assert_eq!(std::fs::read(&foreign).unwrap(), b"someone else's");
+}
+
+/// Every file below `dir`, at any depth.
+fn files_below(dir: &std::path::Path) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    for entry in std::fs::read_dir(dir).unwrap() {
+        let path = entry.unwrap().path();
+        if path.is_dir() {
+            out.extend(files_below(&path));
+        } else {
+            out.push(path);
+        }
+    }
+    out
 }

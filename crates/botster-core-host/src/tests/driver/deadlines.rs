@@ -9,13 +9,7 @@ use std::sync::Arc;
 fn run_session(rig: &mut Rig, name: &str, link: LinkId) {
     to_launch(rig, name, link);
     rig.worker_says(link, launched());
-    let mut guard = 0;
-    while rig.pump().more {
-        rig.drain_events();
-        guard += 1;
-        assert!(guard < 200);
-    }
-    rig.drain_events();
+    rig.settle();
 }
 
 /// A session whose worker got the launch request and has not answered yet. Returns the `Start` op.
@@ -84,10 +78,7 @@ fn e3_1_two_silences_due_together_with_budget_one() {
     }));
     silent_session(&mut rig, "s1", LinkId(1), 3);
     silent_session(&mut rig, "s2", LinkId(2), 3);
-    while rig.pump().more {
-        rig.drain_events();
-    }
-    rig.drain_events();
+    rig.settle();
     rig.now += Duration::from_secs(3);
     rig.unix += 3;
     let first = rig.pump();
@@ -114,6 +105,59 @@ fn e3_1_two_silences_due_together_with_budget_one() {
         later.extend(silents(&rig.drain_events()));
     }
     assert!(later.is_empty(), "once per idle period");
+}
+
+/// E3-1 item 3, 9B: a pump runs the silences that are due before newer link input, as many as are due and as the budget
+/// allows: three due with `pump_events = 2` post two in the first pump and the third first in the next. A silence that is not
+/// due yet does not run, and the newer `Bell` waits for budget.
+#[test]
+fn a_pump_runs_each_due_silence_first_until_the_budget_runs_out() {
+    let mut rig = Rig::new(limits(|l| {
+        l.pump_events = 2;
+        l.max_sessions = 4;
+        l.mandatory_events = 64;
+    }));
+    silent_session(&mut rig, "s1", LinkId(1), 3);
+    silent_session(&mut rig, "s2", LinkId(2), 3);
+    silent_session(&mut rig, "s3", LinkId(3), 3);
+    silent_session(&mut rig, "later", LinkId(4), 30);
+    rig.settle();
+    rig.now += Duration::from_secs(3);
+    rig.unix += 3;
+    rig.worker_says(
+        LinkId(4),
+        WorkerMsg::Observed {
+            observation: Observation::Bell,
+        },
+    );
+    let first = rig.pump();
+    let events = rig.drain_events();
+    assert_eq!(first.events_posted, 2, "{events:?}");
+    assert!(first.more, "a silence and the Bell are carried");
+    let mut ran = silents(&events);
+    assert_eq!(
+        ran.len(),
+        2,
+        "the budget runs two due silences, before the Bell: {events:?}"
+    );
+    rig.pump();
+    let events = rig.drain_events();
+    let next = silents(&events);
+    assert_eq!(next.len(), 1, "the third due silence: {events:?}");
+    ran.extend(next);
+    ran.sort();
+    assert_eq!(
+        ran,
+        [sid("s1"), sid("s2"), sid("s3")],
+        "each due silence once"
+    );
+    for _ in 0..4 {
+        rig.pump();
+        assert!(
+            silents(&rig.drain_events()).is_empty(),
+            "no silence of a session not due"
+        );
+    }
 }
 
 /// E3-1 item 1: an effect with no event (the kill at the end of `stop_grace`) runs in its due pump whatever the budget.
@@ -163,10 +207,7 @@ fn a_step_posts_one_event_for_metadata() {
         l.mandatory_events = 64;
     }));
     run_session(&mut rig, "s1", LinkId(1));
-    while rig.pump().more {
-        rig.drain_events();
-    }
-    rig.drain_events();
+    rig.settle();
     rig.driver
         .begin(Op::UpdateMetadata {
             id: sid("s1"),
@@ -198,10 +239,7 @@ fn e3_1_a_carried_silent_runs_before_newer_link_input() {
         l.mandatory_events = 64;
     }));
     silent_session(&mut rig, "s1", LinkId(1), 3);
-    while rig.pump().more {
-        rig.drain_events();
-    }
-    rig.drain_events();
+    rig.settle();
     rig.now += Duration::from_secs(3);
     rig.unix += 3;
     rig.worker_says(
