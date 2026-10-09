@@ -32,7 +32,7 @@ fn the_edges_are_quiet_only_when_core_has_consumed_every_report() {
     let mut harness = TestkitHarness::new(0);
     let mut core = harness.open(&spec()).expect("open");
     assert!(
-        format!("{harness:?}").contains("quiet-dir"),
+        format!("{harness:?}").contains(r#"HandleEdges { dir: "quiet-dir""#),
         "the harness shows the handle's directory"
     );
     assert!(quiet(&mut harness), "no worker, no report");
