@@ -1,7 +1,7 @@
 # P3 worker review
 
-Current verdict: NOT CLEAN for PR #167 Part A at `3d5237b2b1650424f6f23a27c841407014a165aa`.
-Round 97 accepts the F51 regression and Mac catches. F51 remains OPEN because its exclusion applies on every platform.
+Current verdict: NOT CLEAN for PR #167 Part A at `9ddbdf897e33aa4fa2c742c20670588bfdabddad`.
+Round 98 closes F51. F52 MEDIUM remains OPEN for the excluded mutation-result decision.
 F50 and F49 remain CLOSED.
 PR #163 Part B retains F28, F33 execution, and F39 for its later merge delta.
 PR #165 remains CLEAN at `29b37890efeffa4410d7dfc34f5c2344bfad1ba4` and landed through #162.
@@ -4655,6 +4655,94 @@ It still claims a Linux-only configuration scope that the code does not enforce.
 
 PR #167 Part A is NOT CLEAN for the remaining F51 MEDIUM requirements at this exact head.
 F50 and F49 remain CLOSED. No other package finding is open within Part A's submitted scope.
+A31 remains open in the real driver after Part A.
+Part B retains F28 native evidence, F33 failed-watch execution, and F39's later merge duty.
+M2a, M2b, the A32/A33 follow-up, and pending conformance IDs remain outside this verdict.
+The reviewer changed no product code and ran no tests, builds, measurements, mutants, or gates.
+All earlier findings, closures, and verdict rounds remain preserved at their named heads and scopes.
+
+VERDICT: NOT CLEAN
+
+
+## Round 98 — F51 platform scope and the mutation-result exclusion
+
+Reviewed head: `9ddbdf897e33aa4fa2c742c20670588bfdabddad`, PR #167, branch `stage1/p3-audit-fixes-a`.
+Base: `0b0eecc06d0cd4c39af5e33e59c0b3f643aba6d4`.
+Reviewed delta: `3d5237b2..9ddbdf89`, three commits, three files.
+The reviewer checked the changes against the previous Part A review, BUILD.md, and the lead's anchor rulings.
+The reviewed guard remains the version that landed through #162. This delta changes no process fixture.
+
+### F51 — CLOSED — The platform condition preserves the Mac proof
+
+The global configuration no longer excludes the column-40 mode-bit mutations.
+`platform_exclusions(std::env::consts::OS)` returns no additional exclusion on macOS.
+On other platforms, it returns the exact-function column-40 pattern.
+`mutants_job` adds that pattern before the `--` separator, as a cargo-mutants option.
+The named default test proves that Mac selection adds none and Linux selection adds the recorded exception.
+The pure selection function remains mutation-tested.
+The configured Mac run at `aeda1caca46b6fdd5215ea977615dbf53dd5718f` catches both column-40 mutations.
+The final head changes only the comment that names this proof. The binding and regression test are identical.
+
+After the implementer's question, the reviewer accepted a native platform coverage exception with this named Mac proof.
+The reviewer withdraws round 97's universal Linux equivalence-proof requirement.
+This exception records the native Mac branch, rather than a universal equivalence claim.
+The comment requires a new focused Mac proof when the enumeration, key encoding, or Ghostty pin changes.
+The native long-text regression from round 97 remains valid behavior coverage.
+F51 is CLOSED at this exact head. F49 and F50 remain CLOSED.
+
+### Expanded search — Compile-time bound accepted
+
+`KEY_STATES` computes the same 64 mode combinations times 32 kitty-flag combinations.
+The all-build constant assertion requires exactly 2048 states.
+The iterator uses this constant without changing the admitted states or their order.
+Arithmetic mutations that expand the search fail constant evaluation instead of reaching the test timeout.
+The current diagnostic removes the nextest termination deadline and reports no mutant timeout.
+This change resolves the expanded-search diagnostic from round 97.
+
+### F52 — MEDIUM — The new exclusion hides the mutation-result decision
+
+The new `.cargo/mutants.toml` entry excludes all mutations in `xtask::mutants_job`.
+Its concrete process-glue reason applies to starting git and cargo-mutants, writing the diff, and printing the summary.
+The function also decides whether a failed mutation command rejects the CI step at `xtask/src/ci.rs:336-337`.
+That decision is not in either cited pure function, `parse_outcomes` or `platform_exclusions`.
+The cited tests do not prove that missed mutants, timeouts, or baseline failures reject the step.
+A `mutants_job -> Ok(())` mutation skips the required mutation step and returns success.
+Running the successful unmutated step cannot prove rejection of a failed step.
+The claim that its decisions are pure functions with unit tests is inaccurate at this head.
+
+Keep the exact-function exception for process glue.
+Move the mutation-result decision to an in-process function, or use an existing tested status function.
+Use that function from `mutants_job`.
+Default tests must prove that a successful result passes and failed results reject the step.
+Keep this decision mutation-tested. Update the exception comment and PR description.
+This requires no process fixture or nested mutation run.
+Authority: BUILD.md's required mutation step and the existing xtask policy that excludes process glue alone.
+The reviewer sent F52 directly to the implementer and integration reviewer.
+
+### Completed evidence
+
+The configured Mac proof log is:
+`~/.local/state/jobq/logs/jobq-botster-core-aeda1cac-20261008222501-7480.log`.
+It names exact head `aeda1caca46b6fdd5215ea977615dbf53dd5718f` and base `0b0eecc06d0cd4c39af5e33e59c0b3f643aba6d4`.
+Its command selects `every_key_state` with the real configuration, without `--no-config`.
+The log reports 14 tested: 12 caught, two unviable, zero missed or timed out.
+Both column-40 mutants are caught. The job exits 0 after 87 seconds.
+The final head changes only its proof comment, so this native proof applies to the current binding and test.
+
+The exact-head Linux diagnostic log is:
+`~/botster-sessions/gates/botster-core-stage1-p3-audit-fixes-a-9ddbdf89-pool-20261008-222643-62154.log`.
+It names the current head and base. Formatting, taint, timers for 120 Rust files, lists, and clippy pass.
+The mutation command uses `NEXTEST_PROFILE=slow`, which removes nextest's per-test termination deadline for this diagnostic.
+It reports 111 tested: 95 caught, 16 unviable, zero missed or timed out.
+The mutation step passes in 148.5 seconds. The job exits 0 after 158 seconds.
+The PR description records the platform exception, Mac proof, compile-time bound, and current diagnostic evidence.
+It also records the new process-glue exception, whose decision coverage F52 challenges.
+These focused jobs do not replace the required landing gate after both exact-head reviews are CLEAN.
+
+### Verdict and limits
+
+PR #167 Part A is NOT CLEAN for F52 MEDIUM at this exact head.
+F51, F50, and F49 are CLOSED. No other package finding is open within Part A's submitted scope.
 A31 remains open in the real driver after Part A.
 Part B retains F28 native evidence, F33 failed-watch execution, and F39's later merge duty.
 M2a, M2b, the A32/A33 follow-up, and pending conformance IDs remain outside this verdict.
