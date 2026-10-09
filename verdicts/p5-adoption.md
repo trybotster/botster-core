@@ -1860,3 +1860,68 @@ The failure is the bounded event wait's assertion, not a nextest termination.
 The diagnostic pipelines return zero independently of the test failures; the reviewer used their explicit test summaries as evidence.
 
 VERDICT: NOT CLEAN
+
+
+## PR #169 — Round 2
+
+- Exact head: `a7c73febcfeafca0f462ea14d5121a516d5a1a10`.
+- Previous reviewed head: `b9903f948579fd3958a24a6caf69db3c474a9447`.
+- Base: `ee7dd16c73a6991b6ef9b3a85d84fd93e57a3230`.
+- Tree: `54986e09b4b59d6259efc33c56da7ae43e0680fd`.
+- Plan: revision 22, pin `71a623ef93f487754e400dc186429216357e39fe251933675cc7f851843d519d`.
+- The reviewer read the complete five-file delta, surrounding source, current PR description, and supplied evidence.
+- The reviewer changed no product code and ran no builds, tests, mutation jobs, or gates.
+
+### Closed package findings
+
+P5-F16 is CLOSED. The SIGPIPE note states Rust's default and the risk when a host restores the default disposition.
+The note assigns A49 to the held follow-up that waits for botster-test-process.
+
+P5-F17 is CLOSED. The new Linux tests use real HostEdges I/O and a Core pump.
+They observe healthy registration without a wake, refused registration with a wake, failed reads and writes, closure, and diagnostics.
+The pure registration and accept decisions have default-tier tests on every OS.
+The new tests start no child. The separate bounded-read defect appears below.
+
+P5-F18 is CLOSED. Both full-queue tests retain the first poll separately and assert that it has no waiting route close.
+The detach test also asserts that the first poll has no detach completion.
+Later polls contain each required event once, with the close before the detach completion.
+
+### Integration H1 evidence
+
+The PR now maps every new A28 decision inside an excluded function to a pure decision or a slow behavior proof.
+The pure functions remain mutation-tested. The named default and slow tests exist and the supplied gate selects them.
+The reviewer read the complete hand-applied mutation log at this head.
+Its baseline passes all 14 selected tests.
+Seven changes fail the named behavior tests: both wake inversions, both omitted I/O checks, both apply return replacements, and omitted diagnostics.
+The first-registration `broken: None` change passes. The PR lists it with a resource-failure reason and does not claim equivalence.
+The diagnostic pipeline returns zero independently of test failure; the reviewer used each explicit test summary as evidence.
+This supplies the missing H1 evidence. Integration owns its terminal H1 decision.
+
+### P5-F19 — MEDIUM — The new close proof can wait forever
+
+At `crates/botster-core/src/real.rs:794`, `a_link_that_the_poll_refuses_wakes_the_host_and_fails` calls `client.read_to_end` without a deadline.
+The `connect` helper returns a blocking UnixStream and sets no read timeout.
+If `link_close` retains the stream, RealEdges still owns the peer when the assertion starts.
+No host bytes or EOF reach the client, so the read waits forever instead of reporting a failed close proof.
+The adjacent new Core test already sets a marked read deadline before its EOF assertion.
+
+Required change: bound this read with the existing test deadline and a timer marker.
+Preserve the ConnectionReset assertion. Do not add a new timeout value.
+Status: OPEN. The reviewer sent this finding directly to P5 and copied integration.
+
+### Supplied evidence and scope
+
+The reviewer checked the exact head and base in both later-READY logs.
+Static and test log: `~/botster-sessions/gates/botster-core-stage1-p5-audit-host-fixes-a7c73feb-pool-20261009-000414-62482.log`.
+Fmt, clippy, taint, lists, public-api, prebuild-worker, test-budget, and slow report PASS.
+The default tier passes 793 tests; the slow tier passes 208 tests; the command exits zero.
+Mutation log: `...a7c73feb-pool-20261009-000030-36633.log`.
+Its command uses `NEXTEST_PROFILE=slow`; 141 mutants yield 122 caught, 19 unviable, zero missed, and zero timeouts; exit zero.
+Hand-applied A28 log: `...a7c73feb-pool-20261008-235953-34550.log`.
+These results satisfy later-READY evidence, but do not close P5-F19.
+The full b9903f94 gate cannot serve as the merge gate for a changed head.
+The exact post-CLEAN head still requires its full gate under section 8.
+
+The prior held audit scope and P5 deliverable 2 limits remain unchanged.
+
+VERDICT: NOT CLEAN
