@@ -149,10 +149,23 @@ fn remove_waits_for_the_worker_to_end() {
     // A signal is not an observed exit: the id stays taken until the exit is seen (A6-3).
     w.pump();
     assert!(w.engine.poll_events(64).is_empty(), "Remove still waits");
+    let unlink = format!("unlink {}", w.instance_of("s1").0);
+    assert!(
+        !w.trace.contains(&unlink),
+        "the endpoint stays while the worker may live"
+    );
     w.exited("s1");
     assert!(
         matches!(w.complete(remove), OpResult::Ok(OpOutput::RemoveReport(r)) if r.uploads == UploadsOutcome::Deleted)
     );
+    // DESIGN.md "Adoption (P5)" part 1, SV-9: after the worker's end is verified, the host removes its endpoint, then the
+    // row (LC-7 step 4).
+    let at = w
+        .trace
+        .iter()
+        .position(|e| *e == unlink)
+        .expect("the endpoint is removed");
+    assert_eq!(w.trace[at + 1], "delete session/s1");
 }
 
 /// Core LC-7, A6-3: a session whose worker cannot be asked has its worker ended, and the outcome is unknown.

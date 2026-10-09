@@ -171,6 +171,7 @@ impl HostEngine {
                     instance: s.instance.clone(),
                     token: s.token.expect("the token was drawn"),
                     host_epoch: self.cfg.host_epoch,
+                    startup: self.cfg.limits.startup,
                 });
                 self.await_ticket(id, ticket);
             }
@@ -570,6 +571,8 @@ impl HostEngine {
                 }
             }
             RemovePhase::DeleteRow => {
+                let instance = self.sessions[id].instance.clone();
+                self.act(Action::RemoveEndpoint { instance });
                 let ticket = self.ticket(Owner::Session(id.clone()));
                 self.act(Action::DeleteRow {
                     ticket,
