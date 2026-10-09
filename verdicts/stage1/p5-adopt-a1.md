@@ -220,3 +220,73 @@ Its file is `verdicts/p5-adoption-a1.md`. It records the same four closures and 
 The reviewer sent the remaining finding to P5 and the package reviewer.
 
 VERDICT: NOT CLEAN (1 open) at 74b1e2116d19ec96e511ad3042cde8a04f35c195
+
+## Round 3 — 2026-10-09
+
+- Head: `2e3414446503c0c2c14a9d2fc691028523464030`.
+- Base: `3fa51cd2d148315883002af96495b3096242ba42` (`v1`, including #200).
+- Scope: correction `660d6e8a`, the merge with the new base, all conflict resolutions, affected callers, and supplied evidence.
+- Risk remains HIGH under rule 3.
+- The reviewer changed no product code and ran no builds, tests, mutation jobs, or gates.
+
+### A1-F2 — CLOSED
+
+`WorkerSpawner::connect_worker` now records an `EndControl` in `Processes.connections` before it queues the candidate.
+`ProcessTable::holds_reports` checks those connections independently of the active control link.
+Refusal therefore leaves an observable EOF for the connecting host, even when adoption never succeeds.
+A later adoption does not erase observation of an earlier connection.
+`EndControl::holds_for_peer` stops reporting work once the host closes its end.
+The host driver closes that end through `SimEdges::link_close` when it consumes the link failure.
+
+The regression `a_refused_candidates_end_of_file_keeps_the_connecting_host_busy` first occupies the candidate place with a stranger.
+It then connects another host edge and runs the worker without pumping that host.
+The test requires `edges_quiet` to remain false while EOF waits.
+It reads EOF, closes the host end, and requires quiet afterward.
+The exact-head gate has a PASS record for this test.
+
+The new connection observer does not change control-wake ownership or process-exit ownership.
+The wake target still changes only in successful `AdoptLink`.
+The spawning host still owns the worker's exit.
+The existing successful-adoption and repeated-adoption ownership test remains selected and passes.
+R1-1, R1-2, R1-3, and A1-F1 retain their round 2 closures.
+
+### Merge with #200
+
+This merge had conflicts, so the reviewer checked its resolutions instead of applying the base-only exemption.
+The remerge diff shows three conflict paths.
+`ProcessCell` retains adoption's `control` and #200's `model_log` and shared worker.
+The worker retains both `send_hello` and `model_rev` with their separate method boundaries.
+The worker tests retain both the adoption tests and the model-observation tests.
+
+The merged `SharedWorker` still releases its machine lock before edge actions and process-cell access.
+The binding retains adoption's `ended(false)` behavior and #200's revision logging.
+The merge preserves capture logging and live-model observation from the reviewed #200 change.
+Both negative live-model tests pass in the merged gate.
+The review found no lost behavior or new integration finding in this merge.
+
+### Accounting and evidence
+
+The PR still removes exactly 12 pending ids and adds none.
+Their round 1 replacement-map assessment remains applicable, and all 12 have PASS records in the new gate.
+The approved 70-id list gives 31 passing minimum ids at the base and 34 at this head.
+The three new minimum ids remain `ad_1_running_adopts_running`, `ad_5_no_double_adoption`, and `lc_11_adoptall_posts_a_state_for_every_row`.
+The additional base pass comes from #200. No real-harness gain is claimed.
+The `ad_3` id remains pending. Real-driver adoption remains separate work in #176.
+
+The fetched branch and updated PR description name this exact head. The head contains the stated base.
+`git diff --check` reports no error.
+The correction and merge introduce no new dependency, contract pin, mutation exclusion, or real-process fixture.
+
+Full gate:
+`~/botster-sessions/gates/botster-core-stage1-p5-adopt-a1-2e341444-pool-20261009-153141-83310.log`.
+It names this exact head and base. It ran on Linux node `msa1`, allocation `f29b7704`.
+All ten checks passed. The default tier passed 1151 tests. The slow tier passed 249 tests.
+Conformance reports 103 passed and zero failed.
+The mutation run reports 116 mutants: 101 caught, 15 unviable, zero missed, and zero timeouts.
+The gate exited zero after 268 seconds.
+
+The reviewer read package round 3 at `9f845d2ad4ae897c57d30e2e1994b18e11673452`, file `verdicts/p5-adoption-a1.md`.
+That verdict is CLEAN on this exact head and independently closes A1-F2.
+No integration or package finding remains within the authorized #176a-1 split.
+
+VERDICT: CLEAN (0 open) at 2e3414446503c0c2c14a9d2fc691028523464030
