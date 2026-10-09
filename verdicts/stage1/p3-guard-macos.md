@@ -426,3 +426,41 @@ tests passing and exits 0.
 - Required: replace both loops with that blocked `/bin/cat` member.
 
 VERDICT: NOT CLEAN (2 open: C3, C4; package verdict pending)
+
+## Round 12 — Head 88faedde (C3 and C4 fix)
+
+Reviewed head: `88faedde845c53b62690a4648045988e63d67dd3`. Delta `71195e72..88faedde`, one commit, test code only
+(`guard_cleanup.rs`: `Owned::status` is `pub(crate)`; `process_guard.rs`). The base is still `144b023`. Current v1 is
+`9ea0c9c` (docs only since `144b023`). Trial merges: with v1 `9ea0c9c` clean (tree `afd148d`); with #162 `59cda32` clean
+(tree `c26f524`). This reviewer ran no build, test or gate. The implementer's focused Mac run at this head
+(`…p3-guard-macos-88faedde-pool-20261008-204257-69794.log`) is reported as exit 0, 168 and 15 tests passing. The Linux
+branches (`/proc`, pidfd) are still uncompiled at this head; the combined Linux gate of #162 must cover them.
+
+- **C3 CLOSED.** `an_early_exit_keeps_the_group_owned_until_cleanup` reads the descendant pid through `first_line`
+  (`CLEANUP`), and holds the shell as `cleanup::Owned`. `status()` observes the leader's end with `CLEANUP` before it reaps
+  it. The anchor `getpgid` check follows the reap, as before. The background `/bin/cat` keeps the pipe, so `eof(pipe)` after
+  `drop(guard)` proves that the descendant ended. On a panic, `Owned` drops before the guard and kills only its own
+  unreaped pid.
+- **C4 CLOSED.** Both `while :; do /bin/sleep 1; done` loops are gone. `a_panic_before_ready_ends_the_child` and
+  `an_early_exit…` use `/bin/cat` of `never_fifo` (a FIFO that nothing opens for writing). Neither redirects stdout, so the
+  member keeps the pipe and `eof` proves its end. `git grep sleep` in `tests/common/` at this head finds no sleep.
+- **Also checked:** `a_panic_before_ready…` and `a_cleanup_that_cannot_finish…` now reap through `Owned::status`. The
+  three remaining FIFO-setup copies use `never_fifo`.
+
+#### C5 [MEDIUM] OPEN — `a_payload_cleanup_that_cannot_finish_fails_through_the_guard` waits on its payload with no deadline
+
+- Location: `payload_guard.rs`, about lines 369-389 at this head: `exec /bin/cat <never> >/dev/null`, then
+  `eof(pipe)`, then `payload.wait().unwrap()`.
+- Evidence: `exec … >/dev/null` replaces fd 1 with `/dev/null` when the shell becomes `cat`. No other copy of the pipe's
+  write end exists (the prefix sends its helper's output to `/dev/null` too). The pipe therefore closes at the exec, not at
+  the member's end. `eof(pipe)` proves only the exec. `payload.wait()` is then a raw wait on the test thread. It ends only
+  because the guard's last kill reaches the member. If that kill regresses (the defect this test exists to catch), the test
+  hangs until the job deadline instead of failing. This is the class of P5-F4 and C3. The comment "holds the pipe until it
+  ends" is false for this test, and for the same fixture in `process_guard.rs` `a_cleanup_that_cannot_finish…` (line about
+  157). That second test is now bounded by `Owned::status`, so only its comment is wrong.
+- Round 11 said that every remaining raw wait was bounded. That check trusted this comment and missed this wait.
+- Required: hold the payload as `cleanup::Owned` and end with `status()`; and make the two comments true. Either drop
+  `>/dev/null` (the member writes nothing, and then `eof` proves its end), or correct the comments to say that `status()`,
+  not EOF, proves the end.
+
+VERDICT: NOT CLEAN (1 open: C5)
