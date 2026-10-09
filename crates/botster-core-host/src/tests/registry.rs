@@ -74,6 +74,8 @@ fn adopt_all_posts_one_state_for_every_row_and_a_rejected_row_is_registry_corrup
     assert_eq!(ids, row_ids(&first.rows), "LC-11: one SessionState per row");
     let state_of = |name: &str| posted.iter().find(|(id, _)| id == name).map(|(_, s)| *s);
     assert_eq!(state_of("kept"), Some(SessionState::Created));
+    // AD-1: the adopted `Created` session is one that has not started yet, so `Start` is admitted and starts it.
+    again.ok(Op::Start { id: sid("kept") });
     for name in ["cut", "later", "moved"] {
         assert_eq!(
             state_of(name),
@@ -199,6 +201,54 @@ fn remove_of_an_adopted_session_whose_worker_is_gone_signals_nothing() {
             again.signals
         );
         again.ok(create("s1"));
+    }
+}
+
+/// Core AD-6, AD-2, LC-7 (audit A9): each identity answer settles the session whose worker was checked. Two adopted sessions
+/// are removed together: the worker of `a` still runs and is killed, so `a` waits for its grace; the worker of `b` is gone,
+/// so `b` completes at once and nothing signals it.
+#[test]
+fn each_identity_answer_settles_the_session_whose_worker_was_checked() {
+    let mut first = World::default();
+    first.running("a");
+    first.running("b");
+    let a = first.identity_of("a");
+    let b = first.identity_of("b");
+    first.alive.remove(&b);
+    let mut again = World::over(&first);
+    adopt_all(&mut again);
+    let remove_a = again.engine.begin(Op::Remove { id: sid("a") }).unwrap();
+    let remove_b = again.engine.begin(Op::Remove { id: sid("b") }).unwrap();
+    let events = again.until(|e| matches!(e, Event::Completed { op, .. } if *op == remove_b));
+    match events.last() {
+        Some(Event::Completed {
+            result: OpResult::Ok(OpOutput::RemoveReport(report)),
+            ..
+        }) => assert_eq!(
+            report.uploads,
+            UploadsOutcome::NotDeleted(NotDeleted::OutcomeUnknown)
+        ),
+        other => panic!("{other:?}"),
+    }
+    assert!(
+        !events
+            .iter()
+            .any(|e| matches!(e, Event::Completed { op, .. } if *op == remove_a)),
+        "a waits for its grace: {events:?}"
+    );
+    assert_eq!(
+        again.signals,
+        vec![(a, GroupSignal::Kill)],
+        "b is never signalled"
+    );
+    let grace = again.engine.limits().stop_grace;
+    again.advance(grace);
+    match again.complete(remove_a) {
+        OpResult::Ok(OpOutput::RemoveReport(report)) => assert_eq!(
+            report.uploads,
+            UploadsOutcome::NotDeleted(NotDeleted::OutcomeUnknown)
+        ),
+        other => panic!("{other:?}"),
     }
 }
 

@@ -281,6 +281,8 @@ exclude_re = [
     #   cannot exist: a worker that ends fails its link first (`link_failed`).
     # - `stop_all_start`: the guard `s.queue.iter().any(Start)` cannot be true for a session that is `Running` or `Starting`
     #   with a flow other than `Create`, `Start` and `Stop`.
+    # - `HostEdges::diagnostics` (the trait's default body): it returns `serde_json::Value::Null`, which is
+    #   `serde_json::Value::default()`, so the mutant is the same function.
     'crates/botster-core-host/src/queue\.rs:\d+:\d+: delete match arm Event::SessionState\{\.\.\} .* in class_of$',
     'crates/botster-core-host/src/queue\.rs:\d+:\d+: delete match arm ActivitySource::Output in key_of$',
     'crates/botster-core-host/src/queue\.rs:\d+:\d+: replace -= with (\+|/)= in EventQueue::remove$',
@@ -290,6 +292,7 @@ exclude_re = [
     'crates/botster-core-host/src/inbound\.rs:\d+:\d+: delete match arm Flow::Create\(_\) in HostEngine::on_process_exited$',
     'crates/botster-core-host/src/run\.rs:\d+:\d+: replace (== with != |&& with \|\| )in HostEngine::forward$',
     'crates/botster-core-host/src/run\.rs:\d+:\d+: replace match guard s\.queue\.iter\(\)\.any\(\|f\| matches!\(f, Flow::Start\(_\)\)\) with false in HostEngine::stop_all_start$',
+    'crates/botster-core-host/src/driver\.rs:\d+:\d+: replace HostEdges::diagnostics -> serde_json::Value with Default::default\(\)$',
     # botster-terminal-ghostty (review finding P39). Each entry names one function and the mutation that cannot change
     # behavior, with the argument; every other mutant of the crate is caught by a test.
     # Drop bodies that only free a native handle: leak only, not observable through the API. Each body is one call of the
