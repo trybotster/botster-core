@@ -226,7 +226,6 @@ conf::am_2_next_write_waits_for_completion_or_partial_end
 conf::am_2_no_interleave_across_paste_markers
 conf::am_2_one_admission_point_orders_all_sources
 conf::am_2_transaction_is_contiguous_across_short_writes
-conf::am_3_exactly_one_completion
 conf::am_4_capacity_returns_on_poll
 conf::am_4_refusal_is_stateless
 conf::dp_10_t1_keystroke_to_pty_latency_budget
@@ -498,12 +497,10 @@ conf::lc_5_worker_survives_stop
 conf::lc_6_signal_reaches_group
 conf::lc_7_id_free_after_completion
 conf::lc_7_remove_created
-conf::lc_7_remove_order_and_completion
 conf::lc_9_record_exposes_the_worker_protocol
 conf::lc_9_update_metadata_is_durable
 conf::lc_9_worker_protocol_absent_for_an_unreachable_worker_whose_hello_was_never_read
 conf::or_1_no_progress_outside_pump
-conf::or_2_session_order
 conf::or_3_unspecified_orders_are_randomized
 conf::ou_10_no_authorization_in_core
 conf::ou_11_transport_ownership_is_defined
