@@ -76,9 +76,15 @@ impl HostEngine {
     pub(crate) fn run_adopt(&mut self, id: &SessionId, f: AdoptFlow) {
         match f.phase {
             AdoptPhase::Probe => {
+                let Some(identity) = self.identity_of(id) else {
+                    // `Adopt(id)` of a `Lost` session whose start never recorded its worker (a hello may end the start
+                    // before the spawn answers): no worker can be found, so nothing is probed or connected (AD-1, AD-2;
+                    // steward ruling R-36, follow-up `d18b6de`; review P5-F26).
+                    self.adopt_end(id, End::Lost(LostReason::StartInterrupted), "");
+                    return;
+                };
                 // One reachability deadline, `startup`, from the start of the adoption (DESIGN.md 3.7).
                 let deadline = self.mono().map(|now| now + self.cfg.limits.startup);
-                let identity = self.identity_of(id).expect("a probed row names its worker");
                 if let Some(f) = self.adopt_flow(id) {
                     f.deadline = deadline;
                     f.phase = AdoptPhase::AwaitProbe;

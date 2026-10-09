@@ -760,6 +760,13 @@ impl HostEngine {
             SessionState::Lost(LostReason::Other) => {
                 Recovery::Post(SessionState::Lost(LostReason::RegistryCorrupt))
             }
+            // A worker identity with no valid token cannot be authenticated (AD-6): a corrupt record, as for the other
+            // states below (review P5-F26).
+            SessionState::Lost(LostReason::WorkerUnreachable | LostReason::WorkerVersion)
+                if session.worker.identity.is_some() && session.token.is_none() =>
+            {
+                Recovery::Post(SessionState::Lost(LostReason::RegistryCorrupt))
+            }
             // The row recorded the end. `Adopt(id)` may retry a `Lost(WorkerUnreachable)` or `Lost(WorkerVersion)` row
             // with the worker's identity that it keeps (steward ruling R-36, contracts `main` `c62085f`).
             SessionState::Lost(reason) => Recovery::Post(SessionState::Lost(reason)),

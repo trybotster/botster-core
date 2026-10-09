@@ -201,12 +201,15 @@ second `Launch` for a launch that already happened.
     | `Spawning` | the host waits for the spawn's answer with no `Launch`, bounded by `startup` (TM-3), as R-35 (b); then `Running` or the row below |
     | `LaunchFailed` | the outcome of a failed ordinary start (LC-4) |
 
-    A probe, connect, hello or deadline failure is `Lost` with the reason that applies now (AD-2).
+    A probe, connect, hello or deadline failure is `Lost` with the reason that applies now (AD-2). A session with no
+    recorded worker identity (a hello can end a start before the spawn answers) is `Lost(StartInterrupted)`, with no probe
+    and no connect (AD-1; review P5-F26).
   - There is no `Stopping` outcome. A host that still wants the payload ended calls `Stop` after the adoption.
   - **Exactly one payload spawn:** the first adoption of a `Starting` row sends at most one `Launch` (R-35 (a)), and a
     retry sends none. The worker also accepts at most one `Launch` in its life.
   - A row that records `Lost(WorkerUnreachable)` or `Lost(WorkerVersion)` is posted as recorded by `AdoptAll`, with no
-    handshake; `Adopt(id)` may retry it.
+    handshake; `Adopt(id)` may retry it. Such a row with a worker identity and no valid token cannot be authenticated
+    (AD-6), so it is `Lost(RegistryCorrupt)`, as a row of another state (review P5-F26).
   - Tests: an adoption that loses its link after the `Launch`, then a retry with each report (`Running` with no second
     `Launch`; `NotLaunched` gives `Lost(StartInterrupted)`; `Spawning` waits; `LaunchFailed`); a stop that meets a broken
     link, then a retry with `Running`, `Exited` and `NotLaunched`, on the same handle and on a new one.
