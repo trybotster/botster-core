@@ -226,7 +226,8 @@ pub struct WorkerHandle {
     pub link: Option<LinkId>,
     /// The link existed and ended: ops on it fail with `WorkerLinkFailed` (A2-1).
     pub link_failed: bool,
-    /// The worker process ended (the exit watch reported it).
+    /// The worker process ended (the exit watch reported it), or the AD-6 check refused the process at its endpoint (AD-2
+    /// `WorkerGone`). The host never signals a gone worker.
     pub gone: bool,
 }
 
