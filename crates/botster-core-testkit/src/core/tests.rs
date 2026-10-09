@@ -683,7 +683,7 @@ fn the_worker_keeps_complete_operations_at_each_buffer_bound() {
                     scheduler,
                 },
                 core_features(),
-                Some(Box::new(workers.spawner())),
+                Some(Box::new(workers.spawner("buffers"))),
             )
             .unwrap();
         opened.driver.edges().link_capacity = bound;
@@ -787,7 +787,7 @@ fn a_reopened_handle_sees_and_ends_the_worker_of_the_earlier_handle() {
                     scheduler: scheduler.clone(),
                 },
                 core_features(),
-                Some(Box::new(workers.spawner())),
+                Some(Box::new(workers.spawner("reopen"))),
             )
             .unwrap();
         crate::worker::TestkitCore::new(opened.driver, opened.wake, workers.clone())
@@ -828,7 +828,7 @@ fn a_reopened_handle_sees_and_ends_the_worker_of_the_earlier_handle() {
         .and_then(|row| row.worker)
         .expect("the row names its worker")
         .identity();
-    let probe = workers.spawner();
+    let probe = workers.spawner("reopen");
     assert_eq!(
         probe.identity_state(identity),
         IdentityState::Matches,
@@ -954,7 +954,7 @@ fn a_corrupt_row_with_pid_1_never_signals_anything() {
         crate::worker::TestkitCore::new(opened.driver, opened.wake, workers.clone())
     };
     let session = SessionId("s".into());
-    let mut first = open(&mut dirs, Box::new(workers.spawner()));
+    let mut first = open(&mut dirs, Box::new(workers.spawner("corrupt")));
     first
         .begin(Op::Create {
             session: session.clone(),
@@ -1007,7 +1007,7 @@ fn a_corrupt_row_with_pid_1_never_signals_anything() {
     let mut second = open(
         &mut dirs,
         Box::new(GuardedSpawner {
-            inner: workers.spawner(),
+            inner: workers.spawner("corrupt"),
             corrupt,
             real,
             asked: Arc::clone(&asked),
@@ -1047,7 +1047,7 @@ fn a_corrupt_row_with_pid_1_never_signals_anything() {
         assert!(*pid == 1 && *refused, "{pid} {signal:?}");
     }
     assert_eq!(
-        workers.spawner().identity_state(real),
+        workers.spawner("corrupt").identity_state(real),
         IdentityState::Matches,
         "no signal reached the worker"
     );
