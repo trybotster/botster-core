@@ -373,7 +373,6 @@ conf::ev_2_one_marker_per_session
 conf::ev_2_retired_instance_never_creates_a_loss_marker
 conf::ev_3_clipboard_write_surfaced
 conf::ev_3_oversize_write_is_reported_not_dropped
-conf::ev_4_exit_has_signal
 conf::ev_5_full_queue_defers_transition_not_output
 conf::ev_5_keyed_events_bounded_by_keys
 conf::ev_5_no_mandatory_event_lost_or_replaced
