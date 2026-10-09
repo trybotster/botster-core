@@ -86,3 +86,26 @@ BUILD.md Testing rule 5 forbids it. With the old lock order, a schedule where th
 `has ended` and passes. So the test can miss the bug. The package reviewer's F63 proof finding is correct. The source fix
 (`program_edge`) stays correct, and no cross-package effect changes. By the lead's rule, this CLEAN is not withdrawn, and
 the next head gets a delta check of the new test only.
+
+## Round 3 — CLEAN on head b42f47a6 (delta: the F63 regression proof)
+
+Reviewed head: `b42f47a64326d391aace2d1bca92a06ca0515853`, one commit on `ab430951` (2 files, +50 -27). The base stays v1
+`1f157c29`, which is the current v1. P3's gate log `gates/botster-core-stage1-p3-pty-controls-b42f47a6-pool-20261009-112955-39079.log`
+names this head and base. Results: 993 default and 243 slow tests passed; the mutants job had 20 mutants (13 caught, 0
+missed, 0 timeout, 7 unviable); exit 0. This reviewer read its header and summaries.
+
+- **The seam.** `program_edge` calls the private `program_edge_between(identity, || {})`. The hook runs after the cell
+  scope ends and before `lock(&owner)`. Production behavior does not change, and the lock order stays run_processes ->
+  owner -> cell.
+- **The test orders the threads with events.** The test has no `sleep`. The steps are:
+  1. the control stops in the hook;
+  2. the end thread takes the owner and signals that it holds it;
+  3. the control continues.
+  With the fix, `Processes::end` gets the free cell, ends the process and releases the owner, and the control then
+  locks the owner and answers `Ok`. With the old order (the cell held through the owner lock), the control holds the cell
+  and waits for the owner, and the end thread holds the owner and waits for the cell. Both threads then wait on every
+  schedule, so the test does not depend on how fast the OS runs a thread. Each `recv_timeout` only turns a missing step
+  into a failure, and each carries the timer marker. The answer must be `Ok`, so the after-end schedule of round 2 is
+  gone.
+
+VERDICT: CLEAN (0 open) at b42f47a64326d391aace2d1bca92a06ca0515853
