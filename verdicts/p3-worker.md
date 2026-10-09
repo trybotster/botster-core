@@ -7005,3 +7005,130 @@ The reviewer changed no product code and ran no tests, builds, measurements, mut
 All earlier findings and verdict rounds remain preserved at their named heads and scopes.
 
 VERDICT: CLEAN
+
+
+## Round 126 — PR #199 terminal model and CaptureSnapshot — 2026-10-09
+
+Reviewed head: `f50bf6beb486007c16e49ca13a3c5d39058da15c`.
+Base: `58d6663204b50ce6c42d467e4fd6715ab46145dd`, v1 after #198.
+Parent: `bcfb4afc80eeaa0ef3ea369a91dea6279948533f`.
+The tier is correctly HIGH under BUILD.md rule 3 for the shared crates and rule 5 for the worker paths.
+Authority: BUILD.md, plan 23b-23e, Core ST/IN/EV clauses, Amendment 13 candidate 5, and the pinned libghostty binding.
+The reviewer read all twelve changed files, the full description, relevant binding and host paths, transcript expectations, map rows, and completed evidence.
+The model port was also compared with bef6177d. No tests, builds, gates, measurements, or mutants ran in this review.
+
+### F67 — MEDIUM — Cursor reads insert spaces for wide-character continuation cells; OPEN
+
+At crates/botster-worker-core/src/worker/model.rs:258-267, read_cursor maps every empty cell string to a space.
+The binding's row_cells does not use an empty string for an ordinary empty cell.
+reads::cell_text returns a space for a cell without text. It returns an empty string for SPACER_TAIL or SPACER_HEAD.
+The binding's row_cells documentation and wide-character test confirm this distinction.
+For program output a日b, the binding returns the cells a, 日, an empty continuation string, and b.
+The worker adds a space for that continuation string in both row_text and text_before_cursor.
+The worker thus changes libghostty's text instead of applying only ST-3's trailing-space rule.
+The current worker read test uses ASCII and does not cover this case.
+
+Required correction: preserve the binding's empty continuation text when assembling both cursor fields.
+Keep the cursor coordinates as terminal-cell coordinates. Apply only ST-3's trailing U+0020 trim to row_text.
+Add a wide-character worker proof that derives both expected fields from an independent libghostty terminal's row_cells.
+Do not hand-write the expected terminal text. The reviewer sent this finding directly to P3 and integration.
+Integration confirms the source trace and records it as R1-2, credited to the package reviewer.
+
+### F68 — HIGH — Model event drain discards OSC 5522 acknowledgements; OPEN
+
+This is integration R1-1, independently confirmed by the package reviewer.
+At model.rs:141-219, after_step drains the model's events and queues only drained.pty_writes.
+The binding stores each OSC 5522 acknowledgement in Drained::clipboard_acks, separate from pty_writes.
+The binding's drain takes those entries and resets ack_bytes. The worker never consumes clipboard_acks.
+Thus this head can surface ClipboardWrite while discarding the acknowledgement that the program must receive.
+Amendment A13-1b assigns that acknowledgement to the worker through the one admission point.
+Each entry must be one contiguous transaction, in the order of the writes it answers.
+The acknowledgement must survive input pressure and event loss. It advances no input revision and completes no host operation.
+The description cites Amendment 13 but contains no explicit lead exclusion of this duty.
+The existing query-shadow reply proof does not cover the separate acknowledgement field.
+
+Required correction: admit each clipboard acknowledgement through the existing reply path as its own transaction.
+Preserve order and exact bytes. Do not merge all acknowledgements into one transaction or send them outside admission.
+Add an independent libghostty oracle proof and an input-pressure proof for acknowledgement delivery and contiguity.
+The proof must also check that the acknowledgement advances no input revision and completes no host operation.
+The reviewer sent F68 directly to P3 and integration. No lead decision is needed to continue the correction.
+
+### Whole-change source coverage
+
+LaunchSpec carries CoreLimits with a serde default. The host copies its configured limits into each launch.
+The host test checks the exact configured limits and stop grace. The link test checks round-trip and absent-field defaults.
+The worker constructs the libghostty model before starting the payload and applies the clipboard limit.
+A model construction failure reports LaunchFailed with WorkerFailed.
+The model retains output while Spawning and feeds it after Launched, preserving the report order.
+Launched carries the fresh modes and the binding's GHOSTSNP format. No output has set title or cwd at that point.
+The worker advances its existing model_rev for each completed model step and retains #197's Output coalescing.
+An incomplete string terminator waits for more bytes instead of advancing a step with zero consumption.
+The model drains events after each step and compares final mode flags with the last posted flags.
+Title, cwd, bell, prompt marks, notification truncation, clipboard contents, and lost-kind reports use the binding's events.
+Notification truncation now uses floor_char_boundary; the earlier mutation timeout loop is absent.
+Unknown clipboard locations produce a loss report rather than an invented location letter; the body asks the lead about that case.
+The acknowledgement handling remains F68.
+
+ReadScreen and ReadModeFlags use the model and carry the worker's model_rev.
+ReadCursor uses the binding's cursor and row cells, subject to F67.
+CaptureSnapshot obtains the model's GHOSTSNP bytes at this serialized operation point.
+It sends one owned page, index 0 and last true, before Done with page_count, total_bytes, and model_rev.
+ST-6 specifies no page size. The unchanged host mints CaptureId and owns pages, limits, release, and expiry.
+The worker refuses a snapshot over max_snapshot_bytes with SnapshotTooLarge and sends no page.
+The tests cover the exact bound, the over-bound case, the page bytes against an independent oracle, and report order.
+
+The admission queue now holds host writes and model replies in arrival order.
+Replies use no request ID, complete no host operation, and advance no host or client input revision.
+The host's guards still run once at transaction start. The model encodes Paste, Key, Mouse, and Focus at that start.
+Paste counts include markers only in PTY bytes. A required absent paste mode gives the certain zero result.
+Key repeat encodes one event and repeats its bytes within one transaction. Existing host validation supplies repeat and payload bounds.
+The tests compare key, mouse, paste markers, and query-shadow bytes with an independent terminal.
+The reply path drops replies after payload exit. One active transaction still owns the PTY across short writes.
+Route offers, pending-query duties, resize, cross-instance tokens, ReadFacts, setters, and oracle_resume remain later scope.
+No new testkit control or process fixture is introduced. The real session helper changes only its LaunchSpec literal.
+
+### Pending removals and completed evidence
+
+The diff removes exactly 42 IDs and adds none to core-pending.txt.
+At the pinned contracts commit 0389165, all 42 map to core-testkit, core-testkit+edge, or core-testkit+perturb.
+None is real-only or names a slow proof. All 42 have exact-head gate PASS records.
+The two minimum removals are or_1_no_progress_outside_pump and tm_3_next_deadline_is_host_armed.
+The 70-ID minimum list gives testkit 28/70 at the base and 30/70 at this head. Real remains 0/70.
+The transcript paths use the real Worker with existing pty_output/pty_input controls, model events, reads, captures, and semantic input.
+The cross-owner AM-4 removal follows the lead's ruling recorded in the description; it already passes at the base.
+The baseline evidence reports 47 passed and 41 failed. Its 41 failing IDs are exactly the other 41 removals.
+The all-pending probe reports 132 passed and 482 failed; every baseline failure above is among its passes.
+The exact-head gate runs the selected 88 active IDs and reports 88 passed, zero failed.
+The probe's other pending failures are not part of the selected merge gate or these removals.
+
+Evidence directory: `~/botster-sessions/shared/core-stage1/evidence/p3-pr-b/`.
+Log: `~/botster-sessions/gates/botster-core-stage1-p3-capture-snapshot-f50bf6be-pool-20261009-135627-42103.log`.
+The log names this exact head and base. It runs on msa1, kernel 6.12.111+deb13-amd64.
+All ten CI steps pass. The default tier passes 1100 tests in 5.506 seconds.
+The slow tier passes 249 tests in 10.117 seconds.
+The existing parent-death proof passes in both binaries, as does the real-PTY cancellation proof.
+Signals scan 163 Rust files. Timers scan 147 Rust files.
+The ledger has 675 IDs: 583 pending, two deferred, two withdrawn, and 88 active.
+The conformance report retains 526 pending and 57 without transcripts.
+Both mutation runs test 66 mutants: 58 caught, eight unviable, zero missed, and zero timeouts.
+The separate run uses NEXTEST_PROFILE=slow and records a 20-second mutation timeout.
+The changed link decoder makes fuzz applicable; the completed fuzz step passes.
+Full CI takes 253.0 seconds; separate mutants take 76.9 seconds. The gate exits 0 after 337 seconds.
+Passing evidence does not close F67 or F68.
+
+### Verdict and retained scope
+
+PR #199 is NOT CLEAN at `f50bf6beb486007c16e49ca13a3c5d39058da15c` for the P3 package review.
+F67 MEDIUM and F68 HIGH are OPEN. This is #199's first recorded NOT CLEAN round; no round-limit notice is due.
+Integration records the same two findings in verdict commit `99760ea72eab3584df6ff30e1d404bd2014fa180`.
+Normal findings go to P3 and integration. They are not BLOCKED reports to the lead.
+
+F39 remains OPEN for #163's actual guard merge change and its registration and anchor-owner wait bounds.
+#199's terminal-model PR B is a different scope from that earlier guard/reaping Part B.
+This PR changes no guard wait, registration wait, or anchor ownership. It neither closes F39 nor adds a new F39 defect.
+#198 retains round 125 CLEAN and is merged at 58d66632. F64, F65, and F66 remain closed at their named scopes.
+#192 retains round 117 NOT CLEAN with F61/F62 open. Other retained #163 duties remain open.
+The reviewer changed no product code and ran no tests, builds, measurements, mutants, or gates.
+All earlier findings and verdict rounds remain preserved at their exact heads and scopes.
+
+VERDICT: NOT CLEAN
