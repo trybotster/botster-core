@@ -74,10 +74,13 @@ pub(crate) fn await_end(
     }
 }
 
-/// Whether a `pidfd_open` error proves the process gone. ESRCH: no process has the pid. EINVAL: the pid is still allocated,
-/// but its process was released (kernel/pid.c refuses a pid with no thread-group task), which a member that its parent reaps
-/// during the wait can be. The flags are empty and the pid is positive, so EINVAL has no other cause. The same rule is
-/// `gone_at_open` in botster-test-process, which replaces this copy (P6 PR C).
+/// Whether a `pidfd_open` error proves the process gone. ESRCH: no process has the pid, or (since the kernel commit "pidfs:
+/// ensure consistent ENOENT/ESRCH reporting", 2025) the pid is still allocated but its process was released. EINVAL: before
+/// that commit, a released process (kernel/pid.c refuses a pid with no thread-group task), which a member that its parent
+/// reaps during the wait can be. The flags are empty and the pid is positive, so EINVAL has no other cause. ENOENT, which that
+/// commit gives for a thread that is not its group's leader, is not a proof: a listed member is never such a thread, because
+/// `/proc` lists only thread-group ids (fs/proc/base.c `proc_pid_readdir` walks `next_tgid`). The same rule is `gone_at_open`
+/// in botster-test-process, which replaces this copy (P6 PR C).
 #[cfg(target_os = "linux")]
 fn gone_at_open(error: rustix::io::Errno) -> bool {
     matches!(error, rustix::io::Errno::SRCH | rustix::io::Errno::INVAL)
@@ -232,11 +235,14 @@ pub(crate) fn live_members(group: rustix::process::Pid) -> std::io::Result<Vec<M
 mod pidfd_tests {
     use super::*;
 
-    /// A wait for a pid with no thread-group task reports it gone. The id of a thread that is not its group's leader is such
-    /// a pid: `pidfd_open` refuses it with EINVAL by the same kernel check (kernel/pid.c `pid_has_task`) that refuses a
-    /// released process, so the test forces EINVAL without a race.
+    /// The id of a thread that is not its group's leader has no thread-group task, so it forces the kernel's refusal without
+    /// a race. The kernel has two documented answers, and the wait must follow `gone_at_open` for each:
+    /// - before "pidfs: ensure consistent ENOENT/ESRCH reporting" (2025): EINVAL, by the same check (kernel/pid.c
+    ///   `pid_has_task`) that refuses a released process, so the wait reports it gone;
+    /// - since that commit: ENOENT, which only a non-leader thread gets (a released process gets ESRCH), so the wait fails
+    ///   with that error and never reports a thread gone.
     #[test]
-    fn a_wait_for_a_pid_with_no_thread_group_task_reports_it_gone() {
+    fn a_wait_for_a_pid_with_no_thread_group_task_follows_the_kernels_answer() {
         let (id_sender, id) = std::sync::mpsc::channel();
         let (end, ended) = std::sync::mpsc::channel::<()>();
         let thread = std::thread::spawn(move || {
@@ -247,12 +253,18 @@ mod pidfd_tests {
             let _ = ended.recv();
         });
         let tid = rustix::process::Pid::from_raw(id.recv().unwrap()).unwrap();
-        assert_eq!(
-            rustix::process::pidfd_open(tid, rustix::process::PidfdFlags::empty()).err(),
-            Some(rustix::io::Errno::INVAL),
-            "a thread id has no thread-group task"
-        );
-        assert!(matches!(await_end(tid, real_now()).unwrap(), Waited::Gone));
+        let refused = rustix::process::pidfd_open(tid, rustix::process::PidfdFlags::empty()).err();
+        let waited = await_end(tid, real_now());
+        match refused {
+            Some(rustix::io::Errno::INVAL) => {
+                assert!(matches!(waited.unwrap(), Waited::Gone));
+            }
+            Some(rustix::io::Errno::NOENT) => assert_eq!(
+                waited.unwrap_err().raw_os_error(),
+                Some(rustix::io::Errno::NOENT.raw_os_error())
+            ),
+            other => panic!("pidfd_open of a thread id gave {other:?}, not a documented answer"),
+        }
         drop(end);
         thread.join().unwrap();
     }
