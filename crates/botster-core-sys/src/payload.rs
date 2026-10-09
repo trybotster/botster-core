@@ -195,13 +195,11 @@ impl Payload {
         let _ = kill_process_group(pid, signal);
     }
 
-    /// Reaps the leader, after its group kill. It consumes the payload: no signal can follow.
-    pub fn reap(mut self) {
-        drop(self.pty.take());
-        if let Some(mut child) = self.child.take() {
-            // The leader has exited (the watch reported it), so this returns at once.
-            let _ = child.wait();
-        }
+    /// Reaps the leader, after its group kill. It consumes the payload: no signal can follow. It is the drop: the group
+    /// kill of the drop finds no process left, and the leader has exited (the watch reported it), so the wait returns at
+    /// once.
+    pub fn reap(self) {
+        drop(self);
     }
 }
 
