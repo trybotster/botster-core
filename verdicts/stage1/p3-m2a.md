@@ -77,3 +77,39 @@ VERDICT: NOT CLEAN (2 open: N1 MEDIUM, N2 LOW; v1 merge needed)
 - Lead clarification: CLEAN means merge-ready. After the logic findings close, M2a stays NOT CLEAN with one HOLD: the
   real-PTY cancel regression, rebuilt on botster-test-process, must pass the gate. This reviewer gives no
   development-only CLEAN on #168.
+
+## Round 2 — NOT CLEAN on head 7550018f (logic findings closed; merge HOLD)
+
+Reviewed head: `7550018fff91ed948dbdfb7eea14caec48b27d6c`. Commits since round 1: merge `33a2bc87` (parents `1c3154cf`,
+v1 `ee7dd16c73a6991b6ef9b3a85d84fd93e57a3230`, which is still `origin/v1`), then fix `7550018f`. I diffed the head
+against a trial merge of `1c3154cf` and `ee7dd16c` (tree `ff9bd56f`). The difference is exactly the three conflict
+resolutions plus the N1, N2 and F53 fixes. This reviewer ran no build, test or gate.
+
+- **v1 merge.**
+  - `testkit/src/worker.rs`: the spawn inserts into v1's `run_processes` and into M2a's `worker_processes`, the latter
+    with the F9 key.
+  - `worker/tests.rs`: the test uses v1's `workers` with `data_dir: "d"`.
+  - `core/tests.rs`: v1's `HostDriver::open` with M2a's five-argument `TestkitCore::new`. In the reopen test, the spawner
+    and the Core both use the data directory `"reopen"`.
+- **N1 CLOSED.**
+  - The writable decision is `io_decisions::pty_writable`, a pure function with a four-case test.
+  - `Driver::perform`'s `Action::PtyWrite` arm has no delete-arm mutant, because cargo-mutants deletes a match arm only
+    when the match has a wildcard arm, and this match has none.
+  - The `Driver::run` and `Driver::perform` entries now state what M2a added and name the parked regression for the write
+    half, under the DO NOT MERGE rule.
+  - In `set_pty_write_interest`, the `|` of READABLE and WRITABLE joins disjoint flags, so `^` gives the same value. The
+    `&` mutant is the regression's to catch.
+- **N2 CLOSED.** `botster-route-codec` is under `[dev-dependencies]`.
+- **F53 (P3 package reviewer) fixed.** A spent `pty_accept` no longer sets `step_refused`. A new test covers the case
+  where both limits are spent together.
+- **Observation (history only; the tree that lands is correct).** Merge `33a2bc87` did not keep git's clean result for
+  `.cargo/mutants.toml`, which did not conflict. It dropped #164's entries (`RealEdges::diagnostics`, the descriptor walk,
+  `HostEdges::diagnostics`) and restored the removed `FileStorage::path` and `read_file` entries. `7550018f` restores v1's
+  content, but its message does not say so. The head's `mutants.toml` equals v1's plus M2a's entries only. P3: say this in
+  the PR body, so that nobody bisects to `33a2bc87` and trusts its mutation config.
+- **HOLD (lead ruling, 2026-10-08).** CLEAN means merge-ready. M2a merges only after the real-PTY cancel regression
+  (`in_6_real_pty_cancel_keeps_counts_and_resumes_the_next_write`) is rebuilt on botster-test-process and passes the gate.
+  The `write_pty_once`, `set_pty_write_interest`, `Driver::run` (write half) and `Driver::perform` exclusions cite it as
+  their proof.
+
+VERDICT: NOT CLEAN (0 logic findings open; HOLD: the rebuilt real-PTY regression must pass the gate)
