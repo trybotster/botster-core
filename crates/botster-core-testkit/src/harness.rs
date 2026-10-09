@@ -33,6 +33,8 @@ pub struct TestkitHarness {
     refusals: BTreeMap<String, RefusalHandle>,
     /// The data directory and the process table of each handle that `open` built, for the controls.
     handles: BTreeMap<String, HandleEdges>,
+    /// Core TH-1 for the facade's `Core` type, as the runner checked it at compile time (`with_core_type`).
+    core_send_not_sync: Option<bool>,
 }
 
 /// What the controls reach of one handle: its data directory and the process table of its host.
@@ -61,7 +63,15 @@ impl TestkitHarness {
             workers: Workers::new(SchedulerHandle::with_seed(seed), start),
             refusals: BTreeMap::new(),
             handles: BTreeMap::new(),
+            core_send_not_sync: None,
         }
+    }
+
+    /// Core TH-1: the runner names the facade's `Core` type, which this crate does not see. It checks the type at compile
+    /// time and passes the answer here; `type_check: send_not_sync` reads it.
+    pub fn with_core_type(mut self, send_not_sync: bool) -> TestkitHarness {
+        self.core_send_not_sync = Some(send_not_sync);
+        self
     }
 
     /// The seed of this run. `with_seed` of every `Sim` that `open` builds takes it (Core A5-2).
@@ -204,9 +214,9 @@ impl CoreHarness for TestkitHarness {
         self.controls.contains(op)
     }
 
-    /// Core TH-1 has no concrete Core type to ask yet.
+    /// Core TH-1: the runner's compile-time answer for the facade's `Core` (`with_core_type`); `None` without one.
     fn core_is_send_not_sync(&self) -> Option<bool> {
-        None
+        self.core_send_not_sync
     }
 
     fn control(&mut self, handle: &str, op: &str, args: &Value) -> Result<Value, ControlError> {
@@ -322,6 +332,14 @@ mod tests {
             Err(ControlError::Unsupported)
         );
         assert_eq!(harness.core_is_send_not_sync(), None);
+        for answer in [true, false] {
+            assert_eq!(
+                TestkitHarness::new(2)
+                    .with_core_type(answer)
+                    .core_is_send_not_sync(),
+                Some(answer)
+            );
+        }
         assert!(!harness.is_fake());
         assert!(harness.injects_clock());
         assert_eq!(harness.seed(), 2);
