@@ -326,6 +326,19 @@ impl HostEngine {
     fn check_payload(&self, payload: &InputPayload) -> Result<(), CoreError> {
         match payload {
             InputPayload::Key(key) => {
+                // A15-1: the first check of a key, so the worst-case search of IN-9 (`payload_size`) runs on a bounded text.
+                let bound = self.cfg.limits.max_key_text_bytes;
+                if let Some(text) = &key.text {
+                    if text.len() as u64 > u64::from(bound) {
+                        return Err(invalid_field(
+                            "text",
+                            format!(
+                                "text is {} bytes, over max_key_text_bytes {bound}",
+                                text.len()
+                            ),
+                        ));
+                    }
+                }
                 if key.shifted_key.is_some()
                     && !key
                         .mods

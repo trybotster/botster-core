@@ -462,6 +462,31 @@ fn check_open_refuses_a_bad_config_and_a_missing_worker_path() {
     );
 }
 
+/// Core A15-1, A15-2 (9B), the host's proof of `conf::a15_1_key_text_bound_out_of_range_is_invalid_config`: `open` refuses
+/// a `max_key_text_bytes` outside 1 to 4,096 with `InvalidConfig` that names the field, and takes both ends of the range.
+#[test]
+fn open_refuses_a_key_text_bound_out_of_its_range() {
+    let open = |bound| {
+        crate::driver::check_open(&OpenConfig {
+            data_dir: "/d".into(),
+            worker_path: Some("/w".into()),
+            limits: limits(|l| l.max_key_text_bytes = bound),
+        })
+    };
+    for bound in [0, 4097] {
+        assert_eq!(
+            open(bound).unwrap_err().code,
+            ErrorCode::InvalidConfig {
+                field: "max_key_text_bytes".into()
+            },
+            "{bound}"
+        );
+    }
+    for bound in [1, 4096] {
+        assert!(open(bound).is_ok(), "{bound}");
+    }
+}
+
 /// Plan 2.1: the driver runs a start through real frames: the hello, the launch, the report, and `Running`.
 #[test]
 fn a_start_runs_through_the_frames_of_the_link() {
