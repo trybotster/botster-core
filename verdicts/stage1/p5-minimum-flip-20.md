@@ -95,3 +95,18 @@ to `3f9ca34e` and 19 trials).
 
 VERDICT: NOT CLEAN at 3f9ca34e9e1639216a1b8933476cf127b907bd75 (1 open: M20-F2 LOW, the package reviewer's finding,
 confirmed here)
+
+## Round 3 — CLEAN on head dd3e8a29
+
+Reviewed head: `dd3e8a2907a1ff0d03e832298f7b31c1cd94ca39`, one commit on `3f9ca34e` (doc only,
+`worker_transcripts.rs` +3 -2), base v1 `aaac0c0d` (the current v1).
+
+- **M20-F2 closed.** The header cites plan section 5 (revision 23a) and its exception: a real-only id leaves the pending
+  list only with its passing real-process proof. The header defines "real-only" by the map's `slow` class only. 4.2b also
+  names A5-3's real OS conditions, but those are `slow` rows in the map too. So the shorter text is accurate.
+- **The PR body** credits plan 23a (`48c14ab8`) and cites the exact-head gate with 19 trials.
+- **The gate log** (`flip20-dd3e8a29.log`) names the head and base `aaac0c0d`. The conformance binary reports 19 passed and
+  656 ignored. The default tier runs 941 tests and the slow tier 243, and all of them pass. The pending list is unchanged
+  since round 2 (19 removals against v1, and `lc_2` stays).
+
+VERDICT: CLEAN (0 open) at dd3e8a2907a1ff0d03e832298f7b31c1cd94ca39
