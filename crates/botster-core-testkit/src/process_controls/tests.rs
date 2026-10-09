@@ -27,19 +27,25 @@ fn op(harness: &TestkitHarness, mut op: Value) -> Op {
     serde_json::from_value(op).expect("an op")
 }
 
-/// Pumps at one clock reading until `op` completes, and returns its result.
-fn complete(core: &mut dyn CoreApi, at: Instant, op: OpId) -> OpResult {
+/// Pumps until `op` completes, and returns its result. The test is the host (TM-1, TM-3): when a pump leaves no runnable
+/// work and no event, it moves its clock to the deadline that Core armed, as the conformance driver's injected clock does.
+fn complete(core: &mut dyn CoreApi, at: &mut Instant, op: OpId) -> OpResult {
     for _ in 0..PUMPS {
-        core.pump(Now {
-            monotonic: at,
+        let report = core.pump(Now {
+            monotonic: *at,
             unix: 1_000_000,
         });
-        for event in core.poll_events(64) {
+        let events = core.poll_events(64);
+        let idle = !report.more && events.is_empty();
+        for event in events {
             if let Event::Completed { op: o, result } = event {
                 if o == op {
                     return result;
                 }
             }
+        }
+        if let Some(due) = core.next_deadline().filter(|due| idle && *due > *at) {
+            *at = due;
         }
     }
     panic!("the op {op:?} did not complete");
@@ -48,19 +54,22 @@ fn complete(core: &mut dyn CoreApi, at: Instant, op: OpId) -> OpResult {
 /// A Core on handle `a` with the session `s1` created; `start` also starts it.
 fn session(harness: &mut TestkitHarness, start: bool) -> (Box<dyn CoreApi>, Instant) {
     let mut core = harness.open(&spec("a")).expect("open");
-    let at = Instant::now();
+    let mut at = Instant::now();
     let create = op(
         harness,
         json!({"Create": {"session": "s1", "request": {"program": [{"hold": {}}]}}}),
     );
     let create = core.begin(create).unwrap();
     assert!(matches!(
-        complete(core.as_mut(), at, create),
+        complete(core.as_mut(), &mut at, create),
         OpResult::Ok(_)
     ));
     if start {
         let id = core.begin(Op::Start { id: sid("s1") }).unwrap();
-        assert!(matches!(complete(core.as_mut(), at, id), OpResult::Ok(_)));
+        assert!(matches!(
+            complete(core.as_mut(), &mut at, id),
+            OpResult::Ok(_)
+        ));
     }
     (core, at)
 }
@@ -69,7 +78,7 @@ fn sid(name: &str) -> SessionId {
     SessionId(name.into())
 }
 
-fn read_screen(core: &mut dyn CoreApi, at: Instant) -> OpResult {
+fn read_screen(core: &mut dyn CoreApi, at: &mut Instant) -> OpResult {
     let read = core
         .begin(Op::ReadScreen {
             session: sid("s1"),
@@ -84,7 +93,7 @@ fn read_screen(core: &mut dyn CoreApi, at: Instant) -> OpResult {
 #[test]
 fn a_broken_control_link_fails_the_next_op_and_a_stop_still_ends_the_session() {
     let mut harness = TestkitHarness::new(0);
-    let (mut core, at) = session(&mut harness, true);
+    let (mut core, mut at) = session(&mut harness, true);
     assert_eq!(
         harness.control(
             "a",
@@ -93,12 +102,12 @@ fn a_broken_control_link_fails_the_next_op_and_a_stop_still_ends_the_session() {
         ),
         Ok(Value::Null)
     );
-    match read_screen(core.as_mut(), at) {
+    match read_screen(core.as_mut(), &mut at) {
         OpResult::Err(e) => assert_eq!(e.code, ErrorCode::WorkerLinkFailed),
         other => panic!("{other:?}"),
     }
     let stop = core.begin(Op::Stop { id: sid("s1") }).unwrap();
-    match complete(core.as_mut(), at, stop) {
+    match complete(core.as_mut(), &mut at, stop) {
         // The stop completes with the session's end (LC-5): `Exited` or `Lost`, as the transcript allows.
         OpResult::Ok(OpOutput::End(_)) => {}
         other => panic!("{other:?}"),
