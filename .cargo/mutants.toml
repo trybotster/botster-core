@@ -124,15 +124,17 @@ exclude_re = [
     'crates/botster-worker/src/main\.rs:\d+:\d+: (replace Driver::link_lost( ->| with)|.* in Driver::link_lost$)',
     # Driver::drop_link: link_loss_clears_queued_bytes_and_close_is_idempotent checks socket shutdown and queued-byte retirement.
     'crates/botster-worker/src/main\.rs:\d+:\d+: (replace Driver::drop_link( ->| with)|.* in Driver::drop_link$)',
-    # M2a PTY write glue: each function makes one OS call (a PTY write, a poll reregister). The decisions are
-    # io_decisions::pty_write and io_decisions::pty_write_interest, tested in the default tier.
-    # The proof of the glue is the real-PTY regression in_6_real_pty_cancel_keeps_counts_and_resumes_the_next_write (slow
-    # tier, under the payload guard of botster-test-process). Lead ruling, 2026-10-08: it passes in the gate before the M2a
-    # PTY write path merges.
-    # Driver::write_pty_once: one PTY write of the pending PtyWrite per turn.
+    # M2a PTY write glue: each function makes one OS call (a PTY write, a poll reregister), and its decision is a tested
+    # function of io_decisions (default tier). The real-PTY regression of the glue runs in the slow tier, under the payload
+    # guard of botster-test-process. Lead ruling, 2026-10-08: it passes in the gate before the M2a PTY write path merges.
+    # Driver::write_pty_once: one PTY write of the pending PtyWrite per turn. Its decision:
+    # io_decisions::pty_write (a_pty_write_reports_its_result_and_waits_only_when_no_byte_was_taken,
+    # in_6_real_pty_cancel_keeps_counts_and_resumes_the_next_write).
     'crates/botster-worker/src/main\.rs:\d+:\d+: (replace Driver::write_pty_once( ->| with)|.* in Driver::write_pty_once$)',
-    # Driver::set_pty_write_interest: the poll reregister of the PTY's write interest. Its `|` of READABLE and WRITABLE joins
-    # disjoint flags, so `^` is the same value; `&` leaves no interest, which the regression catches.
+    # Driver::set_pty_write_interest: the poll reregister of the PTY's write interest. Its decision:
+    # io_decisions::pty_write_interest (write_interest_changes_the_poll_only_for_a_registered_pty_and_a_new_value,
+    # in_6_real_pty_cancel_keeps_counts_and_resumes_the_next_write). Its `|` of READABLE and WRITABLE joins disjoint flags,
+    # so `^` is the same value; `&` leaves no interest, which the regression catches.
     'crates/botster-worker/src/main\.rs:\d+:\d+: (replace Driver::set_pty_write_interest( ->| with)|.* in Driver::set_pty_write_interest$)',
     # P3 Payload glue owns real native descriptors and unreaped processes; the default tier has neither.
     # Each entry names one function. Pure errno/launch-error classification and wait_unreaped_with remain mutation-tested.
