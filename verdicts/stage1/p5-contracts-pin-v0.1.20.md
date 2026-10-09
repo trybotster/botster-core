@@ -25,3 +25,18 @@ HIGH by rule 4 (a pin move), which is correct.
   `lists` passes; exit 0.
 
 VERDICT: CLEAN (0 open) at e05d603bde49985015031f676dc64950fa2d7324
+
+## Round 2 — CLEAN on head b7980e6d (delta: the merge of v1 8bc21dd5)
+
+Reviewed head: `b7980e6d27d2fb4ad25b2575cac1326cdff22014`, the merge of v1 `8bc21dd5` (#187) into `e05d603b`. v1 is still
+`8bc21dd5`. Base-merge-check cannot carry the CLEAN, because `core-pending.txt` changed on both sides (#187's three flips
+and this PR's two A15 comment lines). So this round reads the delta.
+
+- The merge's tree is the tree of `git merge-tree --write-tree e05d603b 8bc21dd5` (`c13fb92a`): no conflict, and no
+  change by hand.
+- `git diff a14e9dc2 e05d603b` and `git diff 8bc21dd5 b7980e6d` are the same apart from the `index` lines. So the PR's own
+  change is the same on the new base.
+- The gate log (`pin-v0.1.20-b7980e6d.log`) names the head and base `8bc21dd5`. All ten steps pass. The default tier runs
+  946 tests and the slow tier 243. The run is short (36 s) because the build cache was warm: every step ran.
+
+VERDICT: CLEAN (0 open) at b7980e6d27d2fb4ad25b2575cac1326cdff22014
