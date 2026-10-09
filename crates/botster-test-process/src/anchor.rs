@@ -670,4 +670,24 @@ mod tests {
         );
         assert_eq!(candidate(Path::new("/deps/x")), None);
     }
+
+    /// The prebuild may or may not have run: either way, the binary is the candidate of this test binary, or its absence
+    /// fails with the command that builds it.
+    #[test]
+    fn the_binary_is_the_candidate_or_its_absence_names_the_prebuild() {
+        let expected = candidate(&std::env::current_exe().unwrap()).unwrap();
+        match std::panic::catch_unwind(binary) {
+            Ok(path) => assert_eq!(path, expected),
+            Err(panic) => {
+                let message = panic.downcast_ref::<String>().cloned().unwrap_or_default();
+                assert_eq!(
+                    message,
+                    format!(
+                        "{} is missing: run `cargo xtask prebuild-worker` first",
+                        expected.display()
+                    )
+                );
+            }
+        }
+    }
 }

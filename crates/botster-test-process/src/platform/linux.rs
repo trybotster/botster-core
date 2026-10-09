@@ -22,7 +22,7 @@ pub fn start_time(pid: Pid) -> Option<u64> {
 /// The wait could not be set up, or it failed.
 pub fn await_end(pid: Pid, deadline: Deadline) -> std::io::Result<Waited> {
     let pidfd = match rustix::process::pidfd_open(pid, rustix::process::PidfdFlags::empty()) {
-        Err(rustix::io::Errno::SRCH) => return Ok(Waited::Gone),
+        Err(error) if gone_at_open(error) => return Ok(Waited::Gone),
         other => other?,
     };
     loop {
@@ -38,6 +38,19 @@ pub fn await_end(pid: Pid, deadline: Deadline) -> std::io::Result<Waited> {
             Err(error) => return Err(error.into()),
         }
     }
+}
+
+/// Whether an error of the read of `/proc/<pid>/stat` proves that the process ended since the listing: its directory is gone
+/// (ENOENT), or the process is (ESRCH).
+fn ended_since_listing(error: &std::io::Error) -> bool {
+    error.kind() == std::io::ErrorKind::NotFound || gone(error)
+}
+
+/// Whether a `pidfd_open` error proves the process gone. ESRCH: no process has the pid. EINVAL: the pid is still allocated,
+/// but its process was released (kernel/pid.c refuses a pid with no thread-group task), which a member that its parent reaps
+/// during the wait can be. The flags are empty and the pid is positive, so EINVAL has no other cause.
+fn gone_at_open(error: rustix::io::Errno) -> bool {
+    matches!(error, rustix::io::Errno::SRCH | rustix::io::Errno::INVAL)
 }
 
 /// The live members of `group`, with their states. A zombie is not live: it cannot fork, and its parent reaps it. A process
@@ -57,8 +70,7 @@ pub fn live_members(group: Pid) -> std::io::Result<Vec<Member>> {
         };
         let stat = match std::fs::read_to_string(format!("/proc/{pid}/stat")) {
             Ok(stat) => stat,
-            // The process ended since the listing: its directory is gone.
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound || gone(&error) => continue,
+            Err(error) if ended_since_listing(&error) => continue,
             Err(error) => return Err(error),
         };
         let Some((state, pgrp)) = state_and_group(&stat) else {
@@ -76,4 +88,25 @@ pub fn live_members(group: Pid) -> std::io::Result<Vec<Member>> {
         }
     }
     Ok(members)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_esrch_and_einval_at_open_prove_a_process_gone() {
+        assert!(gone_at_open(rustix::io::Errno::SRCH));
+        assert!(gone_at_open(rustix::io::Errno::INVAL));
+        assert!(!gone_at_open(rustix::io::Errno::PERM));
+        assert!(!gone_at_open(rustix::io::Errno::MFILE));
+    }
+
+    #[test]
+    fn only_a_missing_stat_or_esrch_proves_an_end_since_the_listing() {
+        let os = |errno: rustix::io::Errno| std::io::Error::from_raw_os_error(errno.raw_os_error());
+        assert!(ended_since_listing(&os(rustix::io::Errno::NOENT)));
+        assert!(ended_since_listing(&os(rustix::io::Errno::SRCH)));
+        assert!(!ended_since_listing(&os(rustix::io::Errno::ACCESS)));
+    }
 }
