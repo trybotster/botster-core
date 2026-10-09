@@ -78,9 +78,10 @@ pub(crate) fn await_end(
 /// ensure consistent ENOENT/ESRCH reporting", 2025) the pid is still allocated but its process was released. EINVAL: before
 /// that commit, a released process (kernel/pid.c refuses a pid with no thread-group task), which a member that its parent
 /// reaps during the wait can be. The flags are empty and the pid is positive, so EINVAL has no other cause. ENOENT, which that
-/// commit gives for a thread that is not its group's leader, is not a proof: a listed member is never such a thread, because
-/// `/proc` lists only thread-group ids (fs/proc/base.c `proc_pid_readdir` walks `next_tgid`). The same rule is `gone_at_open`
-/// in botster-test-process, which replaces this copy (P6 PR C).
+/// commit gives for a thread that is not its group's leader, is not a proof that the member is gone, so it stays an error.
+/// `/proc` lists only thread-group ids (fs/proc/base.c `proc_pid_readdir` walks `next_tgid`), but the guard keeps only the
+/// numeric pid: after the listing, a parent can reap the member and a non-leader thread can reuse its pid before
+/// `pidfd_open`. The same rule is `gone_at_open` in botster-test-process, which replaces this copy (P6 PR C).
 #[cfg(target_os = "linux")]
 fn gone_at_open(error: rustix::io::Errno) -> bool {
     matches!(error, rustix::io::Errno::SRCH | rustix::io::Errno::INVAL)
