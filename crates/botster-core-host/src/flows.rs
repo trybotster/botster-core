@@ -200,6 +200,7 @@ impl HostEngine {
                     if f.adopted {
                         // An adoption writes the state that it posts: a retried row records `Lost` until now (R-36).
                         self.write_final_row(id, SessionState::Running);
+                        self.mark_adoption_point(id, SessionState::Running);
                     }
                     self.set_start_phase(id, StartPhase::Finish);
                 }
@@ -209,6 +210,9 @@ impl HostEngine {
                 // A retried adoption that ends in the state that the session shows posts no second event for it.
                 let shown = self.sessions[id].shown == Some(failure.state.state());
                 if shown || self.post_state(id, failure.state.state()) {
+                    if f.adopted && !shown {
+                        self.mark_adoption_point(id, failure.state.state());
+                    }
                     let s = self.sessions.get_mut(id).expect("a flow has a session");
                     s.shown = Some(failure.state.state());
                     match failure.state {
@@ -352,6 +356,7 @@ impl HostEngine {
                     if self.sessions[id].admit == Admit::Adopting {
                         // An adopted `Stopping` row: this is its one state (AD-1, LC-11).
                         self.sessions.get_mut(id).expect("kept").admit = Admit::Stopping;
+                        self.mark_adoption_point(id, SessionState::Stopping);
                         self.adoption_posted(id);
                     }
                     if let Some(f) = self.stop_flow(id) {
