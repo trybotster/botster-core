@@ -7533,3 +7533,102 @@ The reviewer changed no product code and ran no tests, builds, gates, measuremen
 All earlier findings and exact-head verdicts remain preserved.
 
 VERDICT: CLEAN
+
+
+## Round 132 — PR #203 P4a stream-route design — 2026-10-09
+
+Reviewed head: `96fa437426b05c2743f0bb2c30731e30d0323f55`.
+Base: `cc2e86ee356c7adcfc9ab95dd50494ae98429a45`.
+Parents: `fc1d85d40d1b437d0ea5a22ec2620bd63cf44112` and the base.
+The head contains the current v1 base. Its one-file design delta is unchanged by the base merge.
+Tier: STANDARD under BUILD.md's documentation example. The PR changes no code, pin, configuration, or production behavior.
+The reviewer asked P3 to add that tier and rule to the description, which currently omits them.
+Authority: BUILD.md, accepted plan 23h, pinned contracts v0.1.20 at 03891658, and the lead's stream-only A17 direction.
+The reviewer read the full description and 80-line design addition, host handoff and writer paths, link framing/messages,
+testkit descriptor queues, worker model suffix handling, codec frames, and OU-2b/3/4/7/9 and DP-2/3 clauses.
+Integration independently reported the capacity, splitting, failed-close, descriptor-order, and consumed-cut concerns.
+No integration verdict is required by STANDARD. Integration supplies independent design feedback at the lead's request.
+
+### F71 — MEDIUM — Bounded output lacks source backpressure and frame splitting; OPEN
+
+DESIGN.md:100-129 proposes a bounded queue but gives no PTY capacity/read gate.
+OU-3d requires source backpressure while a progressing reader is behind. OU-7 requires a lossless PTY tail for those readers.
+A full queue cannot preserve output merely by declaring that queue bounded.
+Line 124 also makes each PtyOutput one output frame per route. A read can exceed that route's max_frame_bytes minus the type byte.
+Required: define bounded splitting without changing bytes or order. Define the PTY read/capacity gate and retained-input bound.
+Preserve progress for other routes, release source backpressure for stalled routes, and keep the exit-tail queue fence.
+
+### F72 — MEDIUM — Every close waits for writes, including failed routes; OPEN
+
+DESIGN.md:104 and 114-115 requires completing a partial frame and route_closed before closing every transport.
+A failed transport cannot complete those writes. An expired stall must not wait indefinitely for them.
+OU-2b permits failed routes to lack route_closed and requires the corresponding host failure report.
+The proposed RouteClosedByPeer also combines read EOF and every I/O error without a distinct write-failure result.
+Required: define healthy close/drain and immediate failed close/report paths. Preserve the first reason and one close/report.
+Keep transport_lost and write_failed distinct. Keep OU-4's frame boundary for writes that can complete.
+
+### F73 — MEDIUM — Descriptor pairing lacks an enforced input and write order; OPEN
+
+DESIGN.md:85-92 concludes that sending a descriptor first makes it present when AttachRoute is decoded.
+The testkit stores descriptors and link bytes in separate queues. The simulation can choose ready inputs in different orders.
+Queue insertion order alone does not guarantee Descriptor reaches the machine before the corresponding LinkBytes.
+The real proposal also puts ancillary bytes before AttachRoute without defining how they share the existing outbound writer.
+An independent byte send can cross an earlier partial control frame. The existing link decoder accepts only framed bytes.
+Required: define descriptor-before-matching-message delivery at the driver boundary and one ordered outbound mechanism.
+Define handoff-success feedback to the host engine and cleanup for failed, closed, or replaced links.
+FIFO pairing is acceptable with these invariants. A descriptor ID is not required solely to solve this order problem.
+Keep AttachRoute in the host's normal output order. The edge must not independently encode and send that host message.
+The real transfer still requires its named real-process proof before production handoff code can merge.
+
+### F74 — MEDIUM — The baseline cut loses pre-bind bytes retained outside the native model; OPEN
+
+DESIGN.md:119-125 takes the baseline at model point R and forwards only later PtyOutput reads.
+The existing worker can retain an unfed ESC outside the native model after a PtyOutput read completes no step.
+The snapshot does not contain that byte. A later read can complete the sequence.
+Forwarding only that later read omits the ESC on the client and violates OU-9's no-gap rule.
+Required: define R as the consumed model cut and include its retained suffix exactly once in route output after the baseline.
+Preserve byte order and no duplication across multiple reads, query stops, and captures inside partial sequences.
+
+### F75 — MEDIUM — Baseline refusal checks only the screen frame bound; OPEN
+
+DESIGN.md:122-123 closes SnapshotTooLarge only for a screen above max_screen_frame_bytes.
+OU-9 separately forbids any offered native snapshot above max_snapshot_bytes, with no partial baseline.
+A permitted max_screen_frame_bytes can exceed max_snapshot_bytes plus one. Its frame bound therefore cannot replace the native snapshot bound.
+Required: define both bounds, with the type byte included only in the frame bound.
+Complete snapshot fit checks before emitting a partial baseline. Preserve history page bounds and the bounded baseline queue.
+
+### F76 — MEDIUM — The P4a feature lacks its required prior-art note; OPEN
+
+The existing prior-art section covers P3 M1. The new P4a section contains no P4a prior-art note.
+BUILD.md requires the feature note or PR body to name existing work, reused work, and rejected mechanisms with reasons.
+P3's separate inventory identifies the existing codec/edges and the old daemon route code, but neither description incorporates that evidence.
+Required: add a P4a prior-art note. Name the reused codec and edge tools and the rejected old route mechanisms and reasons.
+Record the reason for any new hand-written infrastructure. This does not authorize copying old mechanisms or tests.
+
+### F77 — MEDIUM — The resync sequence and discard classes are undefined; OPEN
+
+DESIGN.md:111-113 describes resync as a queued item with baseline content.
+The pinned codec's Resync holds a reason. OU-9 requires resync{reason}, a fresh baseline sequence, and then live.
+Required: define that sequence at the next frame boundary after completing any started frame.
+Discard only the permitted unstarted output and baseline frames. Retain input_refused, input_done, and route_closed.
+Preserve the bounded modes and terminal_query rules. A stalled route's recovery must not break framing or lose mandatory results.
+
+### Evidence, questions, and verdict
+
+The reviewer sent F71-F77 directly to P3 and integration at this exact head.
+The answer to question 1 is conditional FIFO pairing with F73's explicit invariants; no new wire ID is inherently necessary.
+The answer to question 2 is host-engine success feedback followed by the normal ordered AttachRoute path.
+The doc changes no product code and removes no pending ID. Minimum counts remain testkit 35/70 and real 0/70.
+P3 first reported only a local fmt check under the lead's original no-gate instruction.
+P3 then reported the lead's correction: a full gate is required for this documentation PR and is running at 96fa4374.
+No completed gate evidence is available for this head at this round. The deterministic design findings already prevent CLEAN.
+
+PR #203 is NOT CLEAN at `96fa437426b05c2743f0bb2c30731e30d0323f55` for the package review assigned to the P3/P4a reviewer.
+F71-F77 MEDIUM are OPEN. This is #203's first recorded NOT CLEAN round. No round-limit notice is due.
+These corrections remain in the implementer/reviewer loop. They are not a BLOCKED report to the lead.
+#202 retains round 131 CLEAN and its merge at cc2e86ee. #200 retains round 130 CLEAN and F70 CLOSED.
+P3's non-minimum queue stays parked under accepted 23h. Earlier F39, F61/F62, and scoped carry items remain preserved.
+The reviewer changed no product code and ran no tests, builds, gates, measurements, or mutants.
+All earlier exact-head verdicts remain preserved.
+
+VERDICT: NOT CLEAN
