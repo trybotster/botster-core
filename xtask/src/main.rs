@@ -4,8 +4,12 @@ mod base_merge;
 mod caps;
 mod ci;
 mod fsutil;
+mod gate_decisions;
 mod lists;
+mod mutants_cited;
+mod platform_code;
 mod prebuild;
+mod process_check;
 mod public_api;
 #[cfg(test)]
 mod signal_bans;
@@ -26,6 +30,9 @@ commands:
   base-merge-check <reviewed> <new>  a base-only merge after CLEAN: no conflict, no shared path, the same own diff
   taint                              banned old-world names (contracts list plus Core's additions)
   timers                             unmarked sleeps in test code; timers in machine crates
+  process-check                      real-process test code outside botster-test-process (waits, reads, sleeps)
+  gate-decisions                     an xtask exclusion covers only a whole body and cites its tested decision function
+  mutants-cited                      every name that a .cargo/mutants.toml reason cites is real; each cited test runs in a tier
   signals                            raw signal calls and kill programs outside botster_core_sys::signal
   lists                              check core-ledger-ids, core-pending and core-deferred
   ledger-ids [--write]               check or write conformance/core-ledger-ids.txt from the pinned ledger
@@ -53,6 +60,9 @@ const COMMANDS: &[(&str, CommandFn, Option<&[&str]>)] = &[
     ("base-merge-check", base_merge::command, None),
     ("taint", taint::command, None),
     ("timers", timers::command, None),
+    ("process-check", process_check::command, None),
+    ("gate-decisions", gate_decisions::command, None),
+    ("mutants-cited", mutants_cited::command, None),
     ("signals", signals::command, None),
     ("lists", lists::command, None),
     ("ledger-ids", lists::ledger_ids_command, None),
@@ -121,6 +131,9 @@ mod tests {
             ("base-merge-check", base_merge::command, given.clone()),
             ("taint", taint::command, given.clone()),
             ("timers", timers::command, given.clone()),
+            ("process-check", process_check::command, given.clone()),
+            ("gate-decisions", gate_decisions::command, given.clone()),
+            ("mutants-cited", mutants_cited::command, given.clone()),
             ("signals", signals::command, given.clone()),
             ("lists", lists::command, given.clone()),
             ("ledger-ids", lists::ledger_ids_command, given.clone()),
