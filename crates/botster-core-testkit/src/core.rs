@@ -110,13 +110,11 @@ pub trait Spawner: Send {
         None
     }
     /// Connects to the endpoint of the worker of `instance` (DESIGN.md part 6): the worker takes `end`, its side of the new
-    /// link. False when no worker listens there (none was spawned, or it ended).
-    fn connect_worker(&mut self, _instance: &InstanceId, _end: LinkEnd) -> bool {
-        false
-    }
+    /// link. False when no worker listens there (none was spawned, it ended, or its endpoint was removed).
+    fn connect_worker(&mut self, instance: &InstanceId, end: LinkEnd) -> bool;
     /// Removes the endpoint of the worker of `instance` (DESIGN.md part 1, `Remove` step 4). A missing endpoint is no
     /// failure.
-    fn remove_endpoint(&mut self, _instance: &InstanceId) {}
+    fn remove_endpoint(&mut self, instance: &InstanceId);
 }
 
 /// The scheduler of the testkit as a `Scheduler`: every choice draws from the one seeded stream.

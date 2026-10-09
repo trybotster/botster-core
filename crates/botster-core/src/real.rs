@@ -768,6 +768,59 @@ mod tests {
         }
     }
 
+    /// AD-6, DESIGN.md part 1: `open` creates the endpoint directory with mode 0700 and opens an existing private one. It
+    /// refuses one that other users can reach and a link, and a failed create fails the open with its own error.
+    #[test]
+    fn the_endpoint_directory_is_created_private_and_an_unsafe_one_is_refused() {
+        use std::os::unix::fs::{symlink, PermissionsExt};
+        let mode = |path: &Path| {
+            std::fs::symlink_metadata(path)
+                .unwrap()
+                .permissions()
+                .mode()
+        };
+        let data = tempfile::tempdir().unwrap();
+        open_endpoint_dir(data.path()).unwrap();
+        assert_eq!(mode(&endpoint_dir(data.path())) & 0o777, 0o700);
+        open_endpoint_dir(data.path()).expect("an existing private directory is opened");
+
+        std::fs::set_permissions(
+            endpoint_dir(data.path()),
+            std::fs::Permissions::from_mode(0o750),
+        )
+        .unwrap();
+        assert_eq!(
+            open_endpoint_dir(data.path()).unwrap_err().kind(),
+            io::ErrorKind::PermissionDenied
+        );
+
+        let linked = tempfile::tempdir().unwrap();
+        let target = linked.path().join("target");
+        std::fs::DirBuilder::new().create(&target).unwrap();
+        std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o700)).unwrap();
+        symlink(&target, endpoint_dir(linked.path())).unwrap();
+        assert_eq!(
+            open_endpoint_dir(linked.path()).unwrap_err().kind(),
+            io::ErrorKind::PermissionDenied,
+            "a link is not the directory itself"
+        );
+
+        // The superuser creates in a read-only directory, so the create cannot fail there.
+        if !rustix::process::geteuid().is_root() {
+            let closed = tempfile::tempdir().unwrap();
+            std::fs::set_permissions(closed.path(), std::fs::Permissions::from_mode(0o500))
+                .unwrap();
+            let refused = open_endpoint_dir(closed.path()).unwrap_err().kind();
+            std::fs::set_permissions(closed.path(), std::fs::Permissions::from_mode(0o700))
+                .unwrap();
+            assert_eq!(
+                refused,
+                io::ErrorKind::PermissionDenied,
+                "the create's own error"
+            );
+        }
+    }
+
     /// DESIGN.md part 1: a data directory whose longest worker endpoint cannot be bound is refused, as one whose control
     /// socket cannot be bound is.
     #[test]
