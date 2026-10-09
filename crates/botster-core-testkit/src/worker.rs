@@ -59,24 +59,13 @@ struct ProcessCell {
 }
 
 /// The process table of the workers that one host spawned: identities and the exits that the host has not polled.
-#[derive(Debug, Default)]
+#[derive(Default)]
 struct Processes {
     cells: BTreeMap<ProcessIdentity, Arc<Mutex<ProcessCell>>>,
     exits: VecDeque<(ProcessIdentity, ExitStatus)>,
-    wake: HostWakeSlot,
-}
-
-/// The wake object of the host that owns a process table. An edge event that a control causes between two pumps wakes that
-/// host, as the real event wakes a real host (TM-6).
-#[derive(Default)]
-struct HostWakeSlot(Option<Arc<dyn HostWake>>);
-
-impl std::fmt::Debug for HostWakeSlot {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_tuple("HostWakeSlot")
-            .field(&self.0.is_some())
-            .finish()
-    }
+    /// The wake object of the host that owns the table. An edge event that a control causes between two pumps wakes that
+    /// host, as the real event wakes a real host (TM-6).
+    wake: Option<Arc<dyn HostWake>>,
 }
 
 /// The process table of one host, kept by the harness once the spawner belongs to the host's edges.
@@ -85,7 +74,7 @@ pub(crate) struct ProcessTable(Arc<Mutex<Processes>>);
 impl ProcessTable {
     /// The wake object of the host that owns the table.
     pub(crate) fn set_wake(&self, wake: Arc<dyn HostWake>) {
-        lock(&self.0).wake = HostWakeSlot(Some(wake));
+        lock(&self.0).wake = Some(wake);
     }
 }
 
@@ -203,7 +192,7 @@ impl Workers {
             }
             cell.break_link = true;
         }
-        if let Some(wake) = &lock(&owner).wake.0 {
+        if let Some(wake) = &lock(&owner).wake {
             wake.signal();
         }
         Ok(())
