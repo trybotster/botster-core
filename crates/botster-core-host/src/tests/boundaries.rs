@@ -45,7 +45,7 @@ fn size_limits_are_exact() {
         } else {
             assert_eq!(
                 refused(&mut w, op),
-                ErrorCode::InvalidInput,
+                ErrorCode::InvalidInput { field: None },
                 "{rows}x{cols} {cell:?}"
             );
         }
@@ -58,7 +58,10 @@ fn size_limits_are_exact() {
         if ok {
             accepted(&mut w, create);
         } else {
-            assert_eq!(refused(&mut w, create), ErrorCode::InvalidInput);
+            assert_eq!(
+                refused(&mut w, create),
+                ErrorCode::InvalidInput { field: None }
+            );
         }
     }
 }
@@ -99,8 +102,15 @@ fn a_palette_has_exactly_256_entries() {
             accepted(&mut w, set);
             accepted(&mut w, make);
         } else {
-            assert_eq!(refused(&mut w, set), ErrorCode::InvalidInput, "{entries:?}");
-            assert_eq!(refused(&mut w, make), ErrorCode::InvalidInput);
+            assert_eq!(
+                refused(&mut w, set),
+                ErrorCode::InvalidInput { field: None },
+                "{entries:?}"
+            );
+            assert_eq!(
+                refused(&mut w, make),
+                ErrorCode::InvalidInput { field: None }
+            );
         }
     }
     // The state check comes first, and a profile of a `Created` session is stored and launched.
@@ -159,7 +169,7 @@ fn a_spawn_request_is_checked_part_by_part() {
                     request
                 }
             ),
-            ErrorCode::InvalidInput,
+            ErrorCode::InvalidInput { field: None },
             "{what}"
         );
     }
@@ -384,7 +394,7 @@ fn key_and_mouse_arguments_are_checked_one_by_one() {
     for (what, payload) in invalid {
         assert_eq!(
             w.engine.begin(write(payload)).unwrap_err().code,
-            ErrorCode::InvalidInput,
+            ErrorCode::InvalidInput { field: None },
             "{what}"
         );
     }
@@ -751,17 +761,20 @@ fn attach_checks_each_route_limit_at_its_bound() {
     w.running("s1");
     let cap = w.engine.limits().effective_max_route_frame_bytes();
     let floor = w.engine.limits().max_snapshot_bytes + 1;
-    let invalid = ErrorCode::InvalidInput;
+    // A7-1: `InvalidInput` names the refused option in `field`.
+    let invalid = |field: &str| ErrorCode::InvalidInput {
+        field: Some(field.into()),
+    };
     // A tag and an owner of exactly the bound are valid; one byte more is not.
     assert!(attach_with(&mut w, |o| o.route_tag = Some("abcd".into())).is_ok());
     assert_eq!(
         attach_with(&mut w, |o| o.route_tag = Some("abcde".into())).unwrap_err(),
-        invalid
+        invalid("route_tag")
     );
     assert!(attach_with(&mut w, |o| o.owner = Some("abcd".into())).is_ok());
     assert_eq!(
         attach_with(&mut w, |o| o.owner = Some("abcde".into())).unwrap_err(),
-        invalid
+        invalid("owner")
     );
     // The frame cap: from 1 to the engine's cap.
     let choose = |frame: Option<u64>, screen: Option<u64>| {
@@ -778,16 +791,16 @@ fn attach_checks_each_route_limit_at_its_bound() {
     assert!(attach_with(&mut w, choose(Some(1), None)).is_ok());
     assert_eq!(
         attach_with(&mut w, choose(Some(cap + 1), None)).unwrap_err(),
-        invalid
+        invalid("route_limits.max_frame_bytes")
     );
     assert_eq!(
         attach_with(&mut w, choose(Some(0), None)).unwrap_err(),
-        invalid
+        invalid("route_limits.max_frame_bytes")
     );
     assert!(attach_with(&mut w, choose(None, Some(floor))).is_ok());
     assert_eq!(
         attach_with(&mut w, choose(None, Some(floor - 1))).unwrap_err(),
-        invalid
+        invalid("route_limits.max_screen_frame_bytes")
     );
     // The query deadline: from 1 ms to the engine's bound, and required when the route answers queries.
     for (deadline, ok) in [
@@ -798,7 +811,13 @@ fn attach_checks_each_route_limit_at_its_bound() {
         (None, false),
     ] {
         let result = attach_with(&mut w, |o| o.query_deadline = deadline);
-        assert_eq!(result.is_ok(), ok, "{deadline:?}");
+        match result {
+            Ok(_) => assert!(ok, "{deadline:?}"),
+            Err(code) => {
+                assert!(!ok, "{deadline:?}");
+                assert_eq!(code, invalid("query_deadline"), "{deadline:?}");
+            }
+        }
     }
     let result = attach_with(&mut w, |o| {
         o.answers_queries = false;
