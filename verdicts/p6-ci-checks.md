@@ -1050,3 +1050,160 @@ B5 and integration R7-1 remain open under plan 23f's ordinary-drift frame.
 Both findings went directly to P6. Wait for the replacement READY head.
 
 VERDICT: NOT CLEAN
+
+
+## Round 8 — plan 23g removal and remaining decision checks
+
+Implementation head: `a94e02d6c2727a4dfa74052fa676ab94d490c375`.
+Previous reviewed head: `7826ba0adab5962089a7e3279f78cd5f4a8425c9`.
+Integration base: `cc2e86ee356c7adcfc9ab95dd50494ae98429a45`.
+Full gate head: `cb50b8cebb0cbf1c9f58f0451e2ee61bacf05973`.
+Full gate base: `fe0e6d6d5f9df40838df957b7d8f5d0564712a6a`.
+Plan: revision 23g, `stage1/plan` `6dece66f00144bd36e627dac739699c4579e0dd0`, section 8.
+
+The reviewer checked the PR tier first. HIGH remains correct under BUILD.md rules 1 and 3.
+The reviewer read the exact Git objects and the supplied evidence.
+The reviewer changed no product code and ran no gate, build, test, mutation job, or reversal.
+The lead authorized the removal review and remaining gate holes under plan 23f.
+This section continues that scope. It does not reopen the removed I/O classification.
+
+### Closed by removal
+
+Round 7 B5 and integration R7-1 close.
+The check removes the I/O operation lists, command bindings, path resolution, I/O propagation, and closure boundary.
+It removes the I/O condition from exclusion acceptance.
+The old local-reader and unpolled-future cases can no longer supply false I/O evidence.
+Their classification tests are removed with the classifier.
+The changed forwarding fixture now asserts that a strict citation permits a whole-body exclusion.
+Review must determine whether the excluded function is an I/O shell.
+
+The check retains strict `decision (proof, ...)` citations.
+It rejects decision mutants, self citations, untested decisions, excluded decisions, globs, and reasonless platform regexes.
+`mutants_cited` retains the check that each cited proof exists and runs in a gate tier.
+The macro index uses one ARGUMENT_MACROS list and one argument parser.
+It reads no tokens of other macros.
+It retains rejection of declarations of reserved macro names and adds `macro_rules!` declarations.
+The reserved-name fixtures still assert errors from `inputs`.
+
+### B10 HIGH — a call or indexed function with the same name supplies false decision evidence
+
+Plan 23g removes automatic I/O classification. It retains the requirement that the shell calls its cited decision.
+The remaining index does not preserve function identity.
+It records a path call's last segment and a method call's method name.
+`check` accepts the citation when that name appears in the shell's calls and in any test's calls.
+The check also requires some xtask function with that name.
+An unrelated function or method can satisfy these conditions.
+
+First case, in `xtask/src/ci.rs`:
+
+```rust
+fn decide(code: i32) -> bool { code == 0 }
+
+struct Runner;
+impl Runner {
+    fn decide(&self) -> bool { true }
+}
+
+fn shell(runner: &Runner) -> bool {
+    println!("run");
+    runner.decide()
+}
+
+#[test]
+fn verdicts() {
+    assert!(decide(0));
+    assert!(!decide(1));
+}
+```
+
+A whole-body exclusion of `shell` with reason `process glue; decide (verdicts)` passes.
+The shell calls `Runner::decide`. The proof tests the free function `decide`.
+A normal refactor from the free function to the method can leave the old reason unchanged.
+The fixture declares no reserved name.
+The implementer disclosed this permissive method rule. The reviewer rejects it under the retained call requirement.
+
+Second case, also in one file:
+
+```rust
+fn decide(code: i32) -> bool { code == 0 }
+fn shell() { println!("run"); }
+
+struct Runner;
+impl Runner {
+    fn shell(&self) { let _ = decide(0); }
+}
+
+#[test]
+fn verdicts() {
+    assert!(decide(0));
+    assert!(!decide(1));
+}
+```
+
+Exclude only the free function's whole-body mutant, with reason `process glue; decide (verdicts)`.
+The free function calls no decision.
+The index merges the free function and the method under the same `(file, "shell")` key.
+`Mutant::short` selects that shared entry, so the free function borrows the method's call of `decide`.
+The check accepts the exclusion. A normal method addition can produce this case without a reserved declaration.
+
+Source at the reviewed head: `gate_decisions.rs:198-227` merges calls by file and short function name.
+Lines 308-319 record only the last call name. Lines 472-484 accept that name as decision evidence.
+
+Retain distinct supported identities, or reject ambiguous forms with the form and file.
+A compiler replacement is not required. Rejecting duplicate indexed names can close the second case.
+Add check-level rejection fixtures for both cases. Preserve acceptance of the supported real shell form.
+The reviewer sent both cases directly to P6 and to Astra.
+
+### Base merges and preserved contracts
+
+The implementation's own delta changes only `gate_decisions.rs`, its tests, and one help line in `main.rs`.
+Merge `580ec541` imports base `3fa51cd2d148315883002af96495b3096242ba42`; eleven changed paths match that base.
+Merge `cb50b8ce` imports base `fe0e6d6d5f9df40838df957b7d8f5d0564712a6a`; eighteen changed paths match that base.
+Merge `a94e02d6` imports base `cc2e86ee356c7adcfc9ab95dd50494ae98429a45`; three changed paths match that base.
+No merge changes `xtask`, `.cargo`, `.config`, or `ci`.
+The reviewer verified these comparisons through Git objects.
+
+`process_check`, `platform_code`, `mutants_cited`, and `timers` are byte-identical to round 7.
+The mutation configuration and process allowlist are also byte-identical.
+The shared process crate and Prior-art note have no delta.
+No process-guard migration enters this round.
+The group ownership, bounded waits, and production reap separation remain as reviewed.
+The imported product changes match their base parents; this round does not broaden to their separate PRs.
+
+The required `ci/high-tier-paths.txt` is absent at this head.
+The implementer records its addition, including `.cargo/mutants.toml`, as P3's #184 work.
+This remains an integration dependency of plan 23g, not completed enforcement at this head.
+The reviewer does not claim that dependency has landed.
+
+### Supplied evidence and its limits
+
+The full Linux log is `botster-core-stage1-p6-ci-checks-cb50b8ce-pool-20261009-154002-12553.log` under `~/botster-sessions/gates/`.
+It names the full gate head and base listed above.
+All ten jobs pass. It reports 103 passing conformance tests, 1247 default tests, and 254 slow tests.
+It reports 619 mutants: 583 caught and 36 unviable, with no misses or timeouts.
+The changed forwarding and reserved-name fixtures pass.
+The supplied run does not cover B10.
+
+The supplied base-merge log is `botster-core-stage1-p6-ci-checks-a94e02d6-pool-20261009-155519-52621.log`.
+It reports PASS for ancestry, a conflict-free merge tree, disjoint base paths, and an identical own diff.
+It reports 346842 bytes and SHA-256 `700584eb5afe229815418f41ec2550f11fb41986f43e618586111ff05683d133`.
+The pending-list file matches the new base.
+This is base-merge evidence, not a full gate on `a94e02d6`.
+The implementer states that a full gate must run on the final merge head.
+The reviewer claims neither a carried CLEAN verdict nor a new Mac pass.
+
+### Lead follow-up before publication
+
+The implementer confirmed both B10 cases.
+The lead accepted the findings and issued plan revision 23i at `stage1/plan` `5e0a7500`.
+The reviewer read its section 8 amendment.
+Under 23i, the gate infers no relation between functions.
+Review checks that the shell forwards to the cited decision.
+The gate checks the citation form, the existence of an xtask function with D's name, and the running proofs.
+No exclusion may cover any xtask function with D's name.
+The lead authorizes B10 closure by removal in the next implementation head.
+This reviewed head still contains the call inference. No replacement implementation has been reviewed.
+
+One HIGH finding remains at this head: B10. Wait for the replacement READY head under 23i.
+
+VERDICT: NOT CLEAN
