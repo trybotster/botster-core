@@ -1,8 +1,8 @@
 # P3 worker review
 
-Current verdict: CLEAN for PR #167 Part A at `41e997446090afb7ac45ae9823734dfeea7eb40b`.
-Round 99 closes F52. F51, F50, and F49 remain CLOSED.
-No package finding remains open within Part A.
+Current verdict: NOT CLEAN for PR #168 M2a at `1c3154cfe695282d2c8acab4d45d5bc3b769ffed`.
+Round 100 completes the logic review. F53 LOW and the required real-PTY proof HOLD remain open.
+PR #167 Part A remains CLEAN at `41e997446090afb7ac45ae9823734dfeea7eb40b`. F49 through F52 are CLOSED.
 PR #163 Part B retains F28, F33 execution, and F39 for its later merge delta.
 PR #165 remains CLEAN at `29b37890efeffa4410d7dfc34f5c2344bfad1ba4` and landed through #162.
 F45 through F48 are CLOSED. F39 is CLOSED within #165.
@@ -4809,3 +4809,129 @@ The reviewer changed no product code and ran no tests, builds, measurements, mut
 All earlier findings, closures, and verdict rounds remain preserved at their named heads and scopes.
 
 VERDICT: CLEAN
+
+
+## Round 100 — M2a restack, input admission, and required real-PTY proof
+
+Reviewed head: `1c3154cfe695282d2c8acab4d45d5bc3b769ffed`, PR #168, branch `stage1/p3-m2a-v1`.
+Reviewed base: `d1d18f4aeba717d2dec2708024c77f55e3ee35ef`, v1 after #167.
+The submitted range has eleven commits and changes eighteen files.
+The reviewer checked the full M2a change, its restack, and the completed gate evidence.
+Authority: BUILD.md, the pinned Stage 1 plan and contract, and the lead's M2a ruling of 2026-10-08.
+The PR is a draft. Its current GitHub base has advanced to `ee7dd16c73a6991b6ef9b3a85d84fd93e57a3230`.
+This verdict covers only the named submitted head. A later v1 merge requires a delta review.
+
+### Logic review — Complete
+
+The worker retains one active host transaction and a FIFO for queued host writes.
+It checks both guards when the transaction starts, before advancing the host input revision.
+It retains transaction ownership across short writes and waits for the in-flight count before honoring a cancel.
+It reports exact counts for completion, cancellation, failure, and the payload's end.
+Queued cancels complete with zero counts. Later transactions start after the active transaction ends.
+The current input module matches round 11's reviewed module except the detail-only refusal table removal described below.
+The new tests cover the kill refusal, client revision guard, and writable input while a write is in flight.
+The terminal model and route input remain later milestones, as the M2a scope declares.
+
+The real driver retains a pending `PtyWrite` across turns.
+The loop processes control work before one PTY write attempt.
+An interrupted attempt retains the bytes for the next turn. A blocked attempt waits for write readiness.
+`io_decisions::pty_write` determines retry, blocked, and error results in the default tier.
+`io_decisions::pty_write_interest` determines whether poll registration must change.
+The driver uses these same decisions for the real OS operations.
+This preserves F10's turn bound and permits control, signal, exit, and timer progress between fragments.
+The two new per-function OS glue exclusions name their required real-PTY proof.
+The reviewer accepts their classification. Their required proof remains the HOLD below.
+
+The testkit uses the same Worker machine with the scripted program edge.
+Its `PtyWrite` and `PtyWritable` inputs participate in the seeded schedule.
+Its program and process controls use the handle's data directory and instance, preserving F9's namespace correction.
+The control registry receives the worker module's registrations through the established module interface.
+The restack retains v1's `Drain` in the testkit and `unread` in the program edge.
+The real driver retains v1's count-only drain under the approved A31 split.
+No new process fixture appears in this branch.
+The transcript proof list keeps its IDs pending until the required real harness proof exists.
+
+### Two removals — Accepted within the submitted scope
+
+The M2b payload refusal still returns `Internal`.
+Its new human-readable detail omits the table of payload names.
+Core 9.3 makes the code contractual and the detail human-readable, so this removal changes no required result.
+M2b must still implement the declared semantic payload kinds through libghostty.
+
+The testkit link's removed `WouldBlock` arm covered descriptor-only readiness.
+`End::readiness` treats a queued descriptor as readable, but a byte read of an empty open queue returns `WouldBlock`.
+Ordinary M2a byte readiness comes from queued bytes, reset, or peer closure; those paths retain their existing results.
+The old arm did not consume the descriptor, so it did not implement descriptor handoff.
+The PR records this as the existing P4a edge gap. M2a adds no descriptor path or route proof.
+The reviewer accepts removal of this incomplete path within M2a's stated scope.
+This acceptance does not close P4a's descriptor handoff duty.
+
+### F53 — LOW — Spent chunk and accept limits request an idle pump
+
+Evidence: `crates/botster-core-testkit/src/program.rs:466-469` and `src/worker.rs:216-220,680-685`.
+`ScriptedProgram::write` sets `step_refused` when the chunk cap is spent, even when the accept limit is also spent.
+Example: set `pty_chunk` to 2, set `pty_accept` to 2, and begin a write of `abc`.
+The first attempt takes `ab`. The retry finds both limits at zero and returns `WouldBlock`.
+It sets `step_refused` to true. `Workers::has_ready` then requests another pump and signals the wake.
+The next step restores the chunk cap but leaves `accept == Some(0)`, so the write cannot resume.
+The requested pump has no write progress to perform.
+This repeats F11's extra idle pump pattern.
+The new test covers a blocked write with a spent chunk and an accept refusal without a chunk.
+It does not cover both limits spent together.
+
+Request a next step only when that step can remove the refusal that prevents write progress.
+Cover the combined chunk and accept limits with behavior or readiness assertions.
+Retain readiness for a positive spent chunk when no other condition prevents progress.
+Authority: TM-6, plan 2.5's readiness rule, and F11's preserved closure requirement.
+The reviewer sent F53 directly to the implementer and integration reviewer.
+This correction needs no real-process test.
+
+### HOLD — Required real-PTY regression
+
+The lead confirmed that CLEAN means merge-ready. A development-only CLEAN is not permitted.
+The exact required HOLD is:
+"the real-PTY regression in_6_real_pty_cancel_keeps_counts_and_resumes_the_next_write, rebuilt on botster-test-process, must pass the gate".
+This is the lead's ruling of 2026-10-08, confirmed directly during this round.
+The existing patch is parked outside this branch. The completed slow tier does not contain that regression.
+The gate therefore does not prove the new real PTY write path's cancellation, counts, and resumption.
+The reviewer will review the rebuilt test delta and its completed evidence before CLEAN.
+P6 owns the new real-process test code and its mechanical check.
+The logic review is complete. F53 and this HOLD are the only open M2a items in this verdict.
+
+### Completed evidence and prior art
+
+The exact-head full Linux gate log is:
+`~/botster-sessions/gates/botster-core-stage1-p3-m2a-v1-1c3154cf-pool-20261008-230738-28177.log`.
+It names this head and reviewed base `d1d18f4a`.
+Formatting, clippy, taint, timers for 122 Rust files, lists, public API, and worker prebuild pass.
+The default tier passes 820 tests. The slow tier passes 197 tests.
+Mutation results: 151 tested, 131 caught, 20 unviable, zero missed or timed out.
+The fuzz step passes because the diff changes no crate with a decoder harness.
+The full gate exits 0 after 292 seconds. Its summary reports 286.1 seconds of CI steps.
+
+The separate no-termination diagnostic log is:
+`~/botster-sessions/gates/botster-core-stage1-p3-m2a-v1-1923f9d9-pool-20261008-230219-19641.log`.
+It records tracked changes as probe commit `70fb7e878518afb6c06f067e8e63ca8c9e748e3d`.
+The reviewer verified that this probe and the submitted head have identical tree `0cd8ac7762932a40d10244b9ee0d34dd027ecf47`.
+The diagnostic uses `NEXTEST_PROFILE=slow` and reports the same 151 results, with zero missed or timed out.
+It exits 0 after 299 seconds. It is diagnostic evidence, not a merge gate.
+The evidence does not close F53 or the missing real-PTY proof.
+
+The reviewer read the full PR description and its prior-art record.
+It records tmux, zellij, wezterm, shpool, abduco, dtach, and the old Core mechanism.
+It rejects their input mechanisms for the stated topology, count, scheduling, and libghostty requirements.
+It records no reused code and explains why the contract-specific admission decision is implemented here.
+The new dependency is the existing workspace route codec, which supplies `HexBytes`.
+The PR names the required real-PTY test and explicitly forbids merge before its rebuilt proof passes.
+
+### Verdict and limits
+
+PR #168 M2a is NOT CLEAN at this exact head for F53 LOW and the required real-PTY proof HOLD.
+The logic review is complete. No other M2a logic finding remains open.
+PR #167 Part A's round 99 CLEAN remains preserved at its exact head.
+Part B retains its previous findings and A31 scope. This verdict does not clear those duties.
+M2b, P4a, the A32/A33 follow-up, and pending conformance IDs remain outside this verdict.
+The reviewer changed no product code and ran no tests, builds, measurements, mutants, or gates.
+All earlier findings, closures, and verdict rounds remain preserved at their named heads and scopes.
+
+VERDICT: NOT CLEAN
