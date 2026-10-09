@@ -90,10 +90,12 @@ fn request_valid(request: &SpawnRequest) -> Result<(), CoreError> {
 
 impl HostEngine {
     fn session_admit(&self, id: &SessionId) -> Result<Admit, CoreError> {
-        self.sessions
-            .get(id)
-            .map(|s| s.admit)
-            .ok_or_else(|| unknown_session(id))
+        match self.sessions.get(id) {
+            // A row whose adoption has not posted its state is no session of this handle yet (AD-1, LC-11).
+            Some(s) if s.admit == Admit::Adopting && s.shown.is_none() => Err(unknown_session(id)),
+            Some(s) => Ok(s.admit),
+            None => Err(unknown_session(id)),
+        }
     }
 
     /// `UnknownSession`, then `WrongState` unless the admission state is one of `allowed` (A2-1, "Admitted in").
@@ -108,7 +110,7 @@ impl HostEngine {
 
     /// The feature check of a row that needs an optional feature (A2-6, AD-4).
     fn require_feature(&self, session: &SessionId, feature: Feature) -> Result<(), CoreError> {
-        let offered = self.features.names.contains(&feature);
+        let offered = self.cfg.features.names.contains(&feature);
         let worker_lacks = self
             .sessions
             .get(session)
@@ -270,20 +272,20 @@ impl HostEngine {
                 }
             }
             Op::Adopt { id } => {
-                self.session_admit(id)?;
-                let adoptable = matches!(
-                    self.sessions.get(id).and_then(|s| s.shown),
-                    Some(SessionState::Lost(
-                        LostReason::WorkerUnreachable | LostReason::WorkerVersion
-                    ))
-                );
+                let admit = self.session_admit(id)?;
+                // A2-1: always admitted for `Lost(WorkerUnreachable)` and `Lost(WorkerVersion)`, whatever path ended the
+                // session; `WrongState` is only for another state (steward ruling R-36, contracts `main` `c62085f`).
+                let adoptable = admit == Lost
+                    && matches!(
+                        self.sessions.get(id).and_then(|s| s.shown),
+                        Some(SessionState::Lost(
+                            LostReason::WorkerUnreachable | LostReason::WorkerVersion
+                        ))
+                    );
                 if !adoptable {
-                    return Err(wrong_state("Adopt", id, self.session_admit(id)?));
+                    return Err(wrong_state("Adopt", id, admit));
                 }
-                Err(err(
-                    ErrorCode::Unsupported { what: None },
-                    "adopting a live worker is built by the adoption package (P5)",
-                ))
+                Ok(())
             }
             Op::SpawnService { .. } | Op::EndEpoch { .. } => Err(err(
                 ErrorCode::Unsupported { what: None },
@@ -544,6 +546,7 @@ impl HostEngine {
                         deadline: None,
                         error: None,
                         hello_seen: false,
+                        adopted: false,
                     }),
                 );
                 self.ops.insert(
@@ -557,33 +560,15 @@ impl HostEngine {
                 let step = match admit {
                     Admit::Exited | Admit::Lost => {
                         let end = self.session_end(&session);
-                        Step::Ready(Next::Complete(OpResult::Ok(OpOutput::End(end))))
+                        Step::Ready(Next::Complete(OpResult::Ok(OpOutput::End(end.public()))))
                     }
                     Admit::Running | Admit::Starting => {
-                        let s = self.sessions.get_mut(&session).expect("checked");
-                        s.waiters.push(id);
-                        match s.flow {
-                            // An exit is being posted: the stop joins it.
-                            Flow::Stop(_) => {}
-                            // The start is still finishing (or has not begun): the stop begins when it ends (LC-12).
-                            Flow::Start(_) | Flow::Create(_) => {
-                                s.admit = Admit::Stopping;
-                                s.stop_after_start = true;
-                            }
-                            _ if s.admit == Admit::Starting => {
-                                s.admit = Admit::Stopping;
-                                s.stop_after_start = true;
-                            }
-                            _ => {
-                                s.admit = Admit::Stopping;
-                                s.host_ended = true;
-                                s.flow = Flow::Stop(StopFlow {
-                                    phase: StopPhase::RowWrite,
-                                    deadline: None,
-                                    end: None,
-                                });
-                            }
-                        }
+                        self.sessions
+                            .get_mut(&session)
+                            .expect("checked")
+                            .waiters
+                            .push(id);
+                        self.request_stop(&session);
                         Step::Await(Wait::Flow)
                     }
                     _ => {
@@ -632,7 +617,7 @@ impl HostEngine {
                 let targets: BTreeSet<SessionId> = self
                     .sessions
                     .values()
-                    .filter(|s| s.admit != Admit::Removing)
+                    .filter(|s| !matches!(s.admit, Admit::Removing | Admit::Adopting))
                     .map(|s| s.id.clone())
                     .collect();
                 self.ops.insert(
@@ -752,6 +737,15 @@ impl HostEngine {
                     Self::pending(op, None, None, Step::Ready(Next::AdoptRead)),
                 );
             }
+            Op::Adopt { id: session } => {
+                let instance = instance_of(self, &session);
+                // R-36: no intent; the worker's report alone decides the result.
+                self.begin_adoption(id, &session, None);
+                self.ops.insert(
+                    id,
+                    Self::pending(op, Some(session), instance, Step::Await(Wait::Flow)),
+                );
+            }
             Op::ReadScreen { session, .. }
             | Op::ReadCursor { session }
             | Op::ReadModeFlags { session }
@@ -791,12 +785,15 @@ impl HostEngine {
     }
 
     /// How a session that has ended ended (A2-1: `SessionEnd`).
-    pub(crate) fn session_end(&self, session: &SessionId) -> SessionEnd {
-        match self.sessions.get(session).and_then(|s| s.shown) {
-            Some(SessionState::Lost(reason)) => SessionEnd::Lost(reason),
-            Some(SessionState::Exited(exit)) => SessionEnd::Exited(exit),
-            _ => SessionEnd::Lost(LostReason::Other),
-        }
+    ///
+    /// A session reaches `Exited` or `Lost` in the same step that shows that state, so an ended session always shows its
+    /// end.
+    pub(crate) fn session_end(&self, session: &SessionId) -> End {
+        self.sessions
+            .get(session)
+            .and_then(|s| s.shown)
+            .and_then(End::of)
+            .expect("an ended session shows its end")
     }
 
     /// `cancel` (IN-6, A2-1): only a `WriteInput` can be cancelled.
@@ -829,12 +826,9 @@ impl HostEngine {
         self.ops.get_mut(&op).expect("read above").cancelled = true;
         match (sent, session, req) {
             (true, Some(session), Some(req)) => {
-                if self.send_msg(&session, botster_core_link::msg::HostMsg::Cancel { req }) {
-                    CancelResult::Admitted
-                } else {
-                    // The link is gone: the op completes through the link failure (IN-7).
-                    CancelResult::Admitted
-                }
+                // Without a link the op completes through the link failure (IN-7); the cancel is admitted either way.
+                self.send_msg(&session, botster_core_link::msg::HostMsg::Cancel { req });
+                CancelResult::Admitted
             }
             _ => {
                 // Not sent yet: nothing reached the PTY, so the cancel is exact (IN-6).

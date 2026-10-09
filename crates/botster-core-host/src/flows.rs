@@ -61,6 +61,7 @@ impl HostEngine {
             Flow::Start(f) => self.run_start(id, f),
             Flow::Stop(f) => self.run_stop(id, f),
             Flow::Remove(f) => self.run_remove(id, f),
+            Flow::Adopt(f) => self.run_adopt(id, f),
         }
     }
 
@@ -73,12 +74,7 @@ impl HostEngine {
 
     fn write_session_row(&mut self, id: &SessionId, state: SessionState) {
         let row = self.row_of(id, state);
-        let ticket = self.ticket(Owner::Session(id.clone()));
-        self.act(Action::WriteRow {
-            ticket,
-            key: crate::session::row_key(id),
-            bytes: serde_json::to_vec(&row).expect("a row is JSON"),
-        });
+        let ticket = self.write_row(Owner::Session(id.clone()), &row);
         self.await_ticket(id, ticket);
     }
 
@@ -114,12 +110,7 @@ impl HostEngine {
     }
 
     /// Ends the start with `reason`, in the state `state` (LC-4: `Exited` or `Lost`, never `Starting`).
-    pub(crate) fn fail_start(
-        &mut self,
-        id: &SessionId,
-        reason: StartFailReason,
-        state: SessionState,
-    ) {
+    pub(crate) fn fail_start(&mut self, id: &SessionId, reason: StartFailReason, state: End) {
         if let Some(f) = self.start_flow(id) {
             f.failure = Some(StartFailure { reason, state });
             f.deadline = None;
@@ -135,20 +126,19 @@ impl HostEngine {
                 signal: GroupSignal::Kill,
             });
         }
-        self.close_worker_link(id);
+        self.close_worker_link(id, "the start passed its startup deadline (LC-4)");
         self.fail_start(
             id,
             StartFailReason::StartupTimeout,
-            SessionState::Exited(failed_start_exit()),
+            End::Exited(failed_start_exit()),
         );
     }
 
-    pub(crate) fn close_worker_link(&mut self, id: &SessionId) {
-        if let Some(s) = self.sessions.get_mut(id) {
-            if let Some(link) = s.worker.link.take() {
-                self.links.remove(&link);
-                self.act(Action::CloseLink { link });
-            }
+    /// Closes the link of the session's worker, if it has one, and records why.
+    pub(crate) fn close_worker_link(&mut self, id: &SessionId, why: &str) {
+        if let Some(link) = self.sessions.get_mut(id).and_then(|s| s.worker.link.take()) {
+            self.links.remove(&link);
+            self.close_link(link, why);
         }
     }
 
@@ -193,7 +183,7 @@ impl HostEngine {
                     self.fail_start(
                         id,
                         StartFailReason::WorkerFailed,
-                        SessionState::Exited(failed_start_exit()),
+                        End::Exited(failed_start_exit()),
                     );
                 }
             }
@@ -206,22 +196,28 @@ impl HostEngine {
                     } else {
                         Admit::Running
                     };
+                    if f.adopted {
+                        // An adoption writes the state that it posts: a retried row records `Lost` until now (R-36).
+                        self.write_final_row(id, SessionState::Running);
+                    }
                     self.set_start_phase(id, StartPhase::Finish);
                 }
             }
             StartPhase::PostFailed => {
                 let failure = f.failure.expect("a failed start has its failure");
-                if self.post_state(id, failure.state) {
+                // A retried adoption that ends in the state that the session shows posts no second event for it.
+                let shown = self.sessions[id].shown == Some(failure.state.state());
+                if shown || self.post_state(id, failure.state.state()) {
                     let s = self.sessions.get_mut(id).expect("a flow has a session");
-                    s.shown = Some(failure.state);
+                    s.shown = Some(failure.state.state());
                     match failure.state {
-                        SessionState::Exited(exit) => {
+                        End::Exited(exit) => {
                             s.exit = Some(exit);
                             s.admit = Admit::Exited;
                         }
-                        _ => s.admit = Admit::Lost,
+                        End::Lost(_) => s.admit = Admit::Lost,
                     }
-                    self.write_row_ignored(id, failure.state);
+                    self.write_final_row(id, failure.state.state());
                     self.set_start_phase(id, StartPhase::Finish);
                 }
             }
@@ -252,20 +248,25 @@ impl HostEngine {
                 s.pending_end.take(),
             )
         };
-        self.complete(f.op, result);
+        if f.adopted {
+            // The start of an adoption posted the row's one state; the adopting op counts it (R-35 (a), LC-11).
+            self.adoption_posted(id);
+        } else {
+            self.complete(f.op, result);
+        }
         if running {
             if let Some(end) = pending_end {
                 // The payload ended while the start was finishing: the exit is applied now, after `Running` (OR-2).
                 self.begin_end_flow(id, end);
             } else if stop_after {
-                self.start_stop_flow(id);
+                self.request_stop(id);
             }
         } else {
             // The start failed: a `Stop` that waited ends with the state that the failure reached.
             let end = self.session_end(id);
             let waiters = std::mem::take(&mut self.sessions.get_mut(id).expect("kept").waiters);
             for op in waiters {
-                self.complete_later(op, OpResult::Ok(OpOutput::End(end)));
+                self.complete_later(op, OpResult::Ok(OpOutput::End(end.public())));
             }
         }
         self.wake_launch_waiters(id);
@@ -273,20 +274,28 @@ impl HostEngine {
 
     // ---- stop (LC-5) ----
 
-    /// Begins the stop of a `Running` session. The waiters (`Stop` ops) are already in the list.
-    fn start_stop_flow(&mut self, id: &SessionId) {
-        let s = self.sessions.get_mut(id).expect("a flow has a session");
+    /// The one entry of a stop (LC-5, LC-12), for `Stop`, `StopAll` and a stop that waited for its start. The session is
+    /// `Stopping` from here (AM-1). A stop joins an end that is being posted; it waits for a start or a create that is still
+    /// running (`stop_after_start`); otherwise it begins now. The waiters (`Stop` ops) are the caller's.
+    pub(crate) fn request_stop(&mut self, id: &SessionId) {
+        let s = self.sessions.get_mut(id).expect("a stop has a session");
         s.admit = Admit::Stopping;
-        s.host_ended = true;
-        s.flow = Flow::Stop(StopFlow {
-            phase: StopPhase::RowWrite,
-            deadline: None,
-            end: None,
-        });
+        match s.flow {
+            Flow::Stop(_) => {}
+            Flow::Start(_) | Flow::Create(_) => s.stop_after_start = true,
+            _ => {
+                s.host_ended = true;
+                s.flow = Flow::Stop(StopFlow {
+                    phase: StopPhase::RowWrite,
+                    deadline: None,
+                    end: None,
+                });
+            }
+        }
     }
 
     /// The payload ended, or the worker was lost: the session reaches `end` (EV-4, AD-2).
-    pub(crate) fn begin_end_flow(&mut self, id: &SessionId, end: SessionEnd) {
+    pub(crate) fn begin_end_flow(&mut self, id: &SessionId, end: End) {
         let Some(s) = self.sessions.get_mut(id) else {
             return;
         };
@@ -299,7 +308,8 @@ impl HostEngine {
                     f.phase = StopPhase::PostEnd;
                 }
             }
-            Flow::Start(_) => s.pending_end = Some(end),
+            // The adoption posts the row's state first; the end follows it (OR-2; review P5-F25).
+            Flow::Start(_) | Flow::Adopt(_) => s.pending_end = Some(end),
             Flow::Idle => {
                 s.flow = Flow::Stop(StopFlow {
                     phase: StopPhase::PostEnd,
@@ -338,6 +348,11 @@ impl HostEngine {
                         .get_mut(id)
                         .expect("a flow has a session")
                         .shown = Some(SessionState::Stopping);
+                    if self.sessions[id].admit == Admit::Adopting {
+                        // An adopted `Stopping` row: this is its one state (AD-1, LC-11).
+                        self.sessions.get_mut(id).expect("kept").admit = Admit::Stopping;
+                        self.adoption_posted(id);
+                    }
                     if let Some(f) = self.stop_flow(id) {
                         f.phase = if f.end.is_some() {
                             StopPhase::PostEnd
@@ -349,22 +364,18 @@ impl HostEngine {
             }
             StopPhase::PostEnd => {
                 let end = f.end.expect("PostEnd has its end");
-                let state = match end {
-                    SessionEnd::Exited(exit) => SessionState::Exited(exit),
-                    SessionEnd::Lost(reason) => SessionState::Lost(reason),
-                    _ => SessionState::Lost(LostReason::Other),
-                };
+                let state = end.state();
                 if self.post_state(id, state) {
                     let s = self.sessions.get_mut(id).expect("a flow has a session");
                     s.shown = Some(state);
                     match end {
-                        SessionEnd::Exited(exit) => {
+                        End::Exited(exit) => {
                             s.exit = Some(exit);
                             s.admit = Admit::Exited;
                         }
-                        _ => s.admit = Admit::Lost,
+                        End::Lost(_) => s.admit = Admit::Lost,
                     }
-                    self.write_row_ignored(id, state);
+                    self.write_final_row(id, state);
                     if let Some(f) = self.stop_flow(id) {
                         f.phase = StopPhase::Finish;
                     }
@@ -380,7 +391,7 @@ impl HostEngine {
                     .waiters;
                 let next = (!waiters.is_empty()).then(|| waiters.remove(0));
                 match next {
-                    Some(op) => self.complete(op, OpResult::Ok(OpOutput::End(end))),
+                    Some(op) => self.complete(op, OpResult::Ok(OpOutput::End(end.public()))),
                     None => {
                         self.flow_done(id);
                         self.fail_inflight(id);
@@ -647,11 +658,8 @@ impl HostEngine {
         self.queue
             .post_mandatory(event)
             .expect("the room was checked above");
-        let mut session = self.sessions.remove(id).expect("a flow has a session");
-        if let Some(link) = session.worker.link.take() {
-            self.links.remove(&link);
-            self.act(Action::CloseLink { link });
-        }
+        self.close_worker_link(id, "the session was removed (LC-7)");
+        let session = self.sessions.remove(id).expect("a flow has a session");
         self.retired_ops.extend(&session.ops);
         let uploads = f
             .uploads
@@ -738,14 +746,14 @@ impl HostEngine {
                             signal: GroupSignal::Kill,
                         });
                     }
-                    self.close_worker_link(id);
+                    self.close_worker_link(id, "the worker's identity row was not written (AD-7)");
                     if let Some(flow) = self.start_flow(id) {
                         flow.error = Some(registry_failed(e));
                     }
                     self.fail_start(
                         id,
                         StartFailReason::WorkerFailed,
-                        SessionState::Lost(LostReason::StartInterrupted),
+                        End::Lost(LostReason::StartInterrupted),
                     );
                 }
                 _ => {}
@@ -780,7 +788,7 @@ impl HostEngine {
                 }
                 if by_stop_all {
                     // The `StopAll` still stops the target, without waiting for the row (R-16).
-                    self.start_stop_flow(id);
+                    self.request_stop(id);
                     if let Some(flow) = self.stop_flow(id) {
                         flow.phase = StopPhase::SendStop;
                     }
@@ -823,7 +831,7 @@ impl HostEngine {
             Err(e) => self.fail_start(
                 id,
                 StartFailReason::ExecFailed { errno: e.errno },
-                SessionState::Exited(failed_start_exit()),
+                End::Exited(failed_start_exit()),
             ),
         }
     }

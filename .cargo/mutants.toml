@@ -11,6 +11,18 @@
 exclude_globs = ["**/tests/**", "tests/**"]
 
 exclude_re = [
+    # xtask main.rs run -> Ok(()): the shell reads the process arguments and runs what choose decides; a test cannot run the
+    # binary's entry without a real process, and the body replaced by Ok(()) runs no command and prints nothing. Only this
+    # whole-body replacement is excluded. The decision is choose, a pure function with tests that do not read its table:
+    # each_name_runs_its_own_function_with_its_arguments, the_help_names_choose_the_help_and_others_fail_with_the_usage
+    # and the_usage_lists_every_command_and_only_those.
+    'xtask/src/main\.rs:\d+:\d+: replace run -> Result<\(\)> with Ok\(\(\)\)$',
+    # xtask base_merge.rs command -> Ok(()): the shell resolves the base of the run (fsutil::base, one value for the
+    # process) and prints the report of check; the body replaced by Ok(()) prints no report, and the PR must carry the
+    # report. Only this whole-body replacement is excluded. check runs on real repositories in its tests
+    # (a_real_base_only_merge_passes, an_unreviewed_change_fails_under_an_external_diff, a_git_failure_fails_the_check) and
+    # its decisions are judge, conflicts, overlap, first_difference, ancestry and succeeded, each with tests.
+    'xtask/src/base_merge\.rs:\d+:\d+: replace command -> Result<\(\)> with Ok\(\(\)\)$',
     # xtask mutants_job -> Ok(()): process glue. The body runs `git diff`, writes the diff file, starts `cargo mutants` and
     # prints its summary; a test cannot start a mutation run inside a mutation run, so no test can run the body. Only this
     # whole-body replacement is excluded: every other mutant of mutants_job stays tested. Its decisions are pure functions
@@ -201,14 +213,20 @@ exclude_re = [
     'crates/botster-core/src/lib\.rs:\d+:\d+: (replace <impl CoreApi for Core>::adoptable_worker_protocols( ->| with)|.* in <impl CoreApi for Core>::adoptable_worker_protocols$)',
     'crates/botster-core/src/lib\.rs:\d+:\d+: (replace <impl CoreApi for Core>::shadow_answerable_kinds( ->| with)|.* in <impl CoreApi for Core>::shadow_answerable_kinds$)',
     # botster-core real edges (P1): OS wiring with no decision of its own (a descriptor, a socket, a poll, a row call). The
-    # decisions (`wake_after`, `interest_of`, `registration`, `retry_interrupted`) are pure functions tested in the default
-    # tier. Each function below is caught by the slow tier (slow-tier mutation run of 2026-10-04), in real.rs `slow_tests`:
+    # decisions (`wake_after`, `interest_of`, `registration`, `retry_interrupted`, and from audit A28 `broken_after`,
+    # `LinkIo::record`, `AcceptFailures::take`, `edge_diagnostics`) are pure functions tested in the default tier. Each function
+    # below is caught by the slow tier (slow-tier mutation run of 2026-10-04), in real.rs `slow_tests`:
     # `the_edges_keep_rows_in_the_registry` (write_row, read_rows, delete_row), `the_edges_draw_random_bytes_and_refuse_the_handoff`
     # (fill_random, handoff_route, poll_process_exit, accept_link), `a_link_reads_writes_and_closes` (accept_link, link_recv,
     # link_send, link_close, set_read_interest, set_write_interest, LinkIo::apply), `the_socket_lives_with_the_edges`
     # (socket_path, the Drop of RealEdges), `the_wake_follows_its_flag` (PollWake signal, drain, wait, fd, consume,
     # settle_wake); and tests/slow_real_core.rs `a_worker_that_exits_before_it_connects_ends_the_start_at_once` (the reaper's
     # wake through signal) and tests/slow_facade_worker.rs (signal_group: a stop over a broken link ends the worker).
+    # What audit A28 added to these functions is a call of a pure function above, plus, on Linux only (epoll refuses a change
+    # of interest for a descriptor that is not in the poll; kqueue does not), `a_link_that_the_poll_refuses_wakes_the_host_and_fails`
+    # (the wake of set_read_interest and set_write_interest when `LinkIo::apply` returns false, the refusal in link_recv and
+    # link_send, link_close) and `the_host_closes_a_link_that_the_poll_refuses_and_records_why` (the driver closes the link and
+    # records why).
     'crates/botster-core/src/real\.rs:\d+:\d+: (replace <impl HostEdges for RealEdges>::write_row( ->| with)|.* in <impl HostEdges for RealEdges>::write_row$)',
     'crates/botster-core/src/real\.rs:\d+:\d+: (replace <impl HostEdges for RealEdges>::read_rows( ->| with)|.* in <impl HostEdges for RealEdges>::read_rows$)',
     'crates/botster-core/src/real\.rs:\d+:\d+: (replace <impl HostEdges for RealEdges>::delete_row( ->| with)|.* in <impl HostEdges for RealEdges>::delete_row$)',
@@ -231,8 +249,9 @@ exclude_re = [
     'crates/botster-core/src/real\.rs:\d+:\d+: (replace PollWake::consume( ->| with)|.* in PollWake::consume$)',
     'crates/botster-core/src/real\.rs:\d+:\d+: (replace LinkIo::apply( ->| with)|.* in LinkIo::apply$)',
     'crates/botster-core/src/real\.rs:\d+:\d+: (replace socket_path( ->| with)|.* in socket_path$)',
-    # RealEdges::diagnostics (#164, audit A1): it reports the foreign registry files of the real storage; the slow tier
-    # catches it (slow-tier mutation run of 2026-10-08 on Linux), in tests/slow_real_core.rs
+    # RealEdges::diagnostics (#164, audit A1, A28): it passes the failed accepts and the foreign registry files of the real
+    # storage to `edge_diagnostics`, whose keys the default tier tests (`a_failed_accept_is_counted_and_reported`); the slow
+    # tier catches it (slow-tier mutation run of 2026-10-08 on Linux), in tests/slow_real_core.rs
     # `a_damaged_row_is_registry_corrupt_and_a_foreign_file_is_left_alone`.
     'crates/botster-core/src/real\.rs:\d+:\d+: (replace <impl HostEdges for RealEdges>::diagnostics( ->| with)|.* in <impl HostEdges for RealEdges>::diagnostics$)',
     # botster-core-sys process (P1): `Children` waits for, reaps and signals real children, so the proof is the slow tier,
@@ -310,35 +329,22 @@ exclude_re = [
     'crates/botster-core-sys/src/storage\.rs:\d+:\d+: (replace walk( ->| with)|.* in walk$)',
     'crates/botster-core-sys/src/storage\.rs:\d+:\d+: (replace create_data_dir( ->| with)|.* in create_data_dir$)',
     'crates/botster-core-sys/src/storage\.rs:\d+:\d+: (replace sync_dir( ->| with)|.* in sync_dir$)',
-    # Equivalent mutants of `botster-core-host`: a change that no behavior can show.
-    # - `commit`: `Stop` of a session that is `Starting` while its flow is idle, and `Flow::Create | Flow::Start` are the only
-    #   flows that a `Starting` session has, so the guard `s.admit == Admit::Starting` of the last arms is never the deciding
-    #   one: a `Starting` session always has a start or a create flow.
-    'crates/botster-core-host/src/admit\.rs:\d+:\d+: replace match guard s\.admit == Admit::Starting with false in HostEngine::commit$',
-    # More equivalent mutants of `botster-core-host`; each is a change that no behavior can show, for the reason given.
+    # Equivalent mutants of `botster-core-host`; each is a change that no behavior can show, for the reason given.
     # - `class_of`: the arm of the mandatory kinds. A kind without an arm is mandatory (`_ => Class::Mandatory`).
     # - `key_of`: the arm `ActivitySource::Output`. A source without an arm is keyed with the output (`_ => Output`).
     # - `EventQueue::remove`: the arm of a mandatory event. `remove` is called for K, D and L events only (`retire_*`).
-    # - `link_frame_bound`: `u32::MAX / 2` is the bound and the fallback of `try_from`, which cannot fail after `min`.
     # - `no_worker` returns `WorkerHandle::default()`, the value of `Default::default()`.
     # - `flow_row`: a row result is routed to a session flow only from the phase that wrote the row (`RowWrite`, `DeleteRow`);
     #   the guard of the phase cannot be false when the result arrives.
     # - `on_process_exited`: the `Create` arm. A session in `Create` has no shown state, so the `_` arm does nothing too.
-    # - `forward`: `flow_busy` is `Flow::Start(_) || admit == Starting`, and a request with no link, no failure and no start
-    #   cannot exist: a worker that ends fails its link first (`link_failed`).
-    # - `stop_all_start`: the guard `s.queue.iter().any(Start)` cannot be true for a session that is `Running` or `Starting`
-    #   with a flow other than `Create`, `Start` and `Stop`.
     # - `HostEdges::diagnostics` (the trait's default body): it returns `serde_json::Value::Null`, which is
     #   `serde_json::Value::default()`, so the mutant is the same function.
     'crates/botster-core-host/src/queue\.rs:\d+:\d+: delete match arm Event::SessionState\{\.\.\} .* in class_of$',
     'crates/botster-core-host/src/queue\.rs:\d+:\d+: delete match arm ActivitySource::Output in key_of$',
     'crates/botster-core-host/src/queue\.rs:\d+:\d+: replace -= with (\+|/)= in EventQueue::remove$',
-    'crates/botster-core-host/src/engine\.rs:\d+:\d+: replace / with [*%] in HostEngine::link_frame_bound$',
     'crates/botster-core-host/src/engine\.rs:\d+:\d+: replace no_worker -> WorkerHandle with Default::default\(\)$',
     'crates/botster-core-host/src/flows\.rs:\d+:\d+: replace match guard f\.phase == (StopPhase::RowWrite|RemovePhase::DeleteRow) with true in HostEngine::flow_row$',
     'crates/botster-core-host/src/inbound\.rs:\d+:\d+: delete match arm Flow::Create\(_\) in HostEngine::on_process_exited$',
-    'crates/botster-core-host/src/run\.rs:\d+:\d+: replace (== with != |&& with \|\| )in HostEngine::forward$',
-    'crates/botster-core-host/src/run\.rs:\d+:\d+: replace match guard s\.queue\.iter\(\)\.any\(\|f\| matches!\(f, Flow::Start\(_\)\)\) with false in HostEngine::stop_all_start$',
     'crates/botster-core-host/src/driver\.rs:\d+:\d+: replace HostEdges::diagnostics -> serde_json::Value with Default::default\(\)$',
     # payload_size (A3): `limit / times` is only where the key search may stop. With any stop limit at or over it, a key
     # within the limit gets the same size (its search never stops early), and a key over the limit stays over it, so it is
