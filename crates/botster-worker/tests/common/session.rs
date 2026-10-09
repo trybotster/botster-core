@@ -628,23 +628,35 @@ impl GuardedSession {
             OwnedChild::spawn(&mut command)
         }
         .unwrap();
-        // botster-test-process has no bounded accept (asked of P6): the accept waits for the worker's connection by a deadline
-        // first, so it does not block.
-        let mut ready = [rustix::event::PollFd::new(
-            &listener,
-            rustix::event::PollFlags::IN,
-        )];
-        // timer: deadline — bounds the wait for the worker's connection.
-        let polled = rustix::event::poll(
-            &mut ready,
-            Some(&rustix::event::Timespec::try_from(Deadline::cleanup().remaining()).unwrap()),
-        );
-        assert_eq!(
-            polled,
-            Ok(1),
-            "the worker connects within the cleanup bound"
-        );
-        let (stream, _) = listener.accept().unwrap();
+        // botster-test-process has no bounded accept yet (P6 adds `botster_test_process::accept` in its next crate PR, which
+        // replaces this loop). The listener is non-blocking, so the accept never blocks; a poll by the deadline waits for the
+        // connection, and an accept that finds none (`WouldBlock`, a peer that reset first) polls again.
+        listener.set_nonblocking(true).unwrap();
+        let deadline = Deadline::cleanup();
+        let stream = loop {
+            match listener.accept() {
+                Ok((stream, _)) => break stream,
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {}
+                Err(error) => panic!("the worker's connection cannot be accepted: {error}"),
+            }
+            assert!(
+                !deadline.expired(),
+                "the worker connects within {:?}",
+                deadline.limit()
+            );
+            let mut ready = [rustix::event::PollFd::new(
+                &listener,
+                rustix::event::PollFlags::IN,
+            )];
+            let left = rustix::event::Timespec::try_from(deadline.remaining()).unwrap();
+            // timer: deadline — bounds the wait for the worker's connection.
+            match rustix::event::poll(&mut ready, Some(&left)) {
+                Ok(_) | Err(rustix::io::Errno::INTR) => {}
+                Err(error) => panic!("the listener cannot be polled: {error}"),
+            }
+        };
+        // macOS: an accepted socket inherits the listener's non-blocking mode. The link reads block, with a read timeout.
+        stream.set_nonblocking(false).unwrap();
         let (link, payload) = hello_and_launch(
             stream,
             &launch,
