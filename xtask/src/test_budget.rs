@@ -137,11 +137,29 @@ fn read_pids(pidfile: &Path) -> Vec<u32> {
         .collect()
 }
 
+/// A cleanup target: `-N` is the process group N, and `N` is the process N.
+#[derive(Debug, PartialEq, Eq)]
+enum Target {
+    Process(u32),
+    Group(u32),
+}
+
+fn target(arg: &str) -> Option<Target> {
+    match arg.strip_prefix('-') {
+        Some(group) => group.parse().ok().map(Target::Group),
+        None => arg.parse().ok().map(Target::Process),
+    }
+}
+
+/// Kills every target through `botster_core_sys::signal`, which refuses 0, 1 and our own group or pid (the pattern rule).
 fn kill(args: &[String]) {
-    let _ = Command::new("kill")
-        .args(["-s", "KILL", "--"])
-        .args(args)
-        .status();
+    use botster_core_sys::signal::{signal_group, signal_process, Signal};
+    for target in args.iter().filter_map(|arg| target(arg)) {
+        let _ = match target {
+            Target::Group(group) => signal_group(group, Signal::KILL),
+            Target::Process(pid) => signal_process(pid, Signal::KILL),
+        };
+    }
 }
 
 /// The CI seed set of the conformance runner, and the one seed of the real-process tier (plan 4.2c: a real implementation
@@ -535,6 +553,16 @@ mod tests {
 
     fn map(rows: &[(&str, f64)]) -> BTreeMap<String, f64> {
         rows.iter().map(|(k, v)| (k.to_string(), *v)).collect()
+    }
+
+    /// A leftover pid is a process and `-N` is a group; any other text is no target.
+    #[test]
+    fn a_cleanup_argument_names_a_process_or_a_group() {
+        assert_eq!(target("42"), Some(Target::Process(42)));
+        assert_eq!(target("-42"), Some(Target::Group(42)));
+        for arg in ["", "-", "x", "-x", "--42", "4 2"] {
+            assert_eq!(target(arg), None, "{arg}");
+        }
     }
 
     #[test]

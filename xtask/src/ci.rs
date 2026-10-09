@@ -7,7 +7,7 @@
 use crate::tools::{cargo, cargo_nightly, ensure_nightly, require_cargo_tool, run};
 use crate::{
     caps, fsutil, gate_decisions, lists, mutants_cited, platform_code, prebuild, process_check,
-    public_api, taint, test_budget, timers, unsafe_exception,
+    public_api, signals, taint, test_budget, timers, unsafe_exception,
 };
 use anyhow::{anyhow, bail, Context, Result};
 use std::path::Path;
@@ -32,7 +32,7 @@ const JOBS: &[(&str, &str, JobFn)] = &[
     ),
     (
         "taint",
-        "banned old-world names; unmarked timers; the one unsafe_code exception; real-process test code outside its owner; cited mutants tests; no excluded gate decision; platform-only code",
+        "banned old-world names; unmarked timers; the one unsafe_code exception; raw signal calls; real-process test code outside its owner; cited mutants tests; no excluded gate decision; platform-only code",
         taint_job,
     ),
     (
@@ -88,6 +88,7 @@ fn clippy_job(root: &Path) -> Result<()> {
         "clippy",
         "--workspace",
         "--all-targets",
+        "--all-features",
         "--locked",
         "--",
         "-D",
@@ -100,6 +101,7 @@ fn taint_job(root: &Path) -> Result<()> {
     taint::command(root, &[])?;
     timers::command(root, &[])?;
     unsafe_exception::command(root, &[])?;
+    signals::command(root, &[])?;
     process_check::command(root, &[])?;
     mutants_cited::command(root, &[])?;
     gate_decisions::command(root, &[])?;

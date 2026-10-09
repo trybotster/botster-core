@@ -11,6 +11,9 @@ mod platform_code;
 mod prebuild;
 mod process_check;
 mod public_api;
+#[cfg(test)]
+mod signal_bans;
+mod signals;
 mod taint;
 mod test_budget;
 mod timers;
@@ -30,6 +33,7 @@ commands:
   process-check                      real-process test code outside botster-test-process (waits, reads, sleeps)
   gate-decisions                     an xtask exclusion covers only an I/O shell and names its tested decision function
   mutants-cited                      every name that a .cargo/mutants.toml reason cites is real; each cited test runs in a tier
+  signals                            raw signal calls and kill programs outside botster_core_sys::signal
   lists                              check core-ledger-ids, core-pending and core-deferred
   ledger-ids [--write]               check or write conformance/core-ledger-ids.txt from the pinned ledger
   public-api [--update]              check or write the facade snapshot api/botster-core.txt
@@ -59,6 +63,7 @@ const COMMANDS: &[(&str, CommandFn, Option<&[&str]>)] = &[
     ("process-check", process_check::command, None),
     ("gate-decisions", gate_decisions::command, None),
     ("mutants-cited", mutants_cited::command, None),
+    ("signals", signals::command, None),
     ("lists", lists::command, None),
     ("ledger-ids", lists::ledger_ids_command, None),
     ("public-api", public_api::command, None),
@@ -129,6 +134,7 @@ mod tests {
             ("process-check", process_check::command, given.clone()),
             ("gate-decisions", gate_decisions::command, given.clone()),
             ("mutants-cited", mutants_cited::command, given.clone()),
+            ("signals", signals::command, given.clone()),
             ("lists", lists::command, given.clone()),
             ("ledger-ids", lists::ledger_ids_command, given.clone()),
             ("public-api", public_api::command, given.clone()),
