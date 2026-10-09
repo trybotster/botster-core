@@ -78,3 +78,70 @@ The reviewer changed no product code and ran no builds, tests, mutation jobs, or
 No NOT CLEAN report went to the lead. Await P5's next READY for another exact-head review.
 
 VERDICT: NOT CLEAN
+
+## PR #201 — Round 2 — 2026-10-09
+
+Exact head: `74b1e2116d19ec96e511ad3042cde8a04f35c195`.
+Exact tree: `ac15298c04a8d789a623aff20085f9c76f120885`.
+PR and gate base: `a6555ebaf221042ca7b777ca2f2425e4a63dd960`.
+Parent: `d96c9128a9c0f8bafd07f6faf44ba8600e0d6273`.
+
+The reviewer checked the risk tier first. HIGH rule 3 remains correct.
+The PR retains Prior art and maps each finding to its fix and proof.
+The reviewer read the complete five-file delta. The authorized split and the Round 1 scope limits remain unchanged.
+
+### Findings closed in this source delta
+
+- **A1-F1 CLOSED:** ProcessCell.control identifies the current control host through a Weak reference.
+  Spawn sets it. Successful adoption transfers it. Rejected candidates do not transfer it.
+  break_link, program_edge, and release_start use control_wake. The cell lock ends before a host table lock starts.
+  The new behavior test proves PTY work wakes B after adoption and a later link break wakes C rather than B.
+  The spawning host retains its process-exit ownership.
+- **Integration R1-1 CLOSED in package review:** the fence resets output_sent_to and output_unsent.
+  The new test sends 64 old-link output reports and proves later output emits a report on the shorter new link.
+- **Integration R1-2 CLOSED in package review:** a payload that ran carries model::snapshot_formats() in Adopted.
+  Running and exited adoption tests assert the supported format.
+- **Integration R1-3 CLOSED in package review:** Remove and Terminate close the waiting candidate.
+  The new removal test delivers its hello before and after the queued RemoveResult.
+  Neither hello adopts. Writing the result produces LinkClose and Exit on the original link.
+  A separate test proves Terminate closes the waiting candidate.
+
+Integration owns its independent closure decisions for R1-1, R1-2, and R1-3.
+
+### A1-F2 — MEDIUM — OPEN — Quiet ignores EOF from a rejected adoption connection
+
+The accepted-link case is fixed. Processes.links now observes adopted worker reports.
+The rejected-link case still loses a host report.
+WorkerSpawner::connect_worker queues the connection without recording its link in Processes.links.
+Only WorkerEdges::AdoptLink adds a link to that map.
+
+The failure sequence is:
+
+1. A stranger occupies the worker's candidate place.
+2. B connects to that worker for adoption.
+3. Run the workers without pumping B.
+4. The worker rejects B's candidate and closes its end.
+5. All worker work settles. B's link still holds unread EOF.
+6. B's Processes.links is empty, so edges_quiet(B) returns true before B consumes EOF.
+
+Track host link reports from connection creation through closure and consumption.
+Keep that observation separate from the current control wake target and the child-process exit owner.
+A rejected candidate must keep the control wake target unchanged. Its EOF still belongs to B.
+Prove this EOF alone prevents quiet until B consumes it.
+The current new test pumps B through the refusal before checking ownership. It does not test the unread EOF.
+The reviewer sent this remaining finding directly to P5 and copied integration.
+
+### Supplied evidence
+
+Gate: `~/botster-sessions/gates/botster-core-stage1-p5-adopt-a1-74b1e211-pool-20261009-151953-30712.log`.
+The log names the exact head and base above. All four new tests have PASS lines.
+Results: 1138 default passed / 575 skipped; 249 slow passed / 1008 skipped.
+Mutants: 115 tested, 100 caught, 0 missed, 0 timeout, 15 unviable.
+All ten stages report PASS. Fuzz reports PASS in 0.0 seconds. Job and gate exit zero.
+The pending list equals Round 1. All 12 removed IDs and all 33 active minimum IDs have PASS lines.
+Minimum count remains 30 -> 33 / 70. No pin, dependency, transcript, or existing timeout value changes.
+
+One package finding remains open. The reviewer changed no product code and ran no tests or gates.
+No NOT CLEAN report went to the lead. Await replacement READY.
+
+VERDICT: NOT CLEAN
