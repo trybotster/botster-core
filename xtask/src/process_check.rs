@@ -169,21 +169,6 @@ impl Uses {
     pub(crate) fn bindings(&self) -> impl Iterator<Item = (&String, &Vec<String>)> {
         self.names.iter()
     }
-
-    /// The path that a `use` of this scope binds to `name`, if any.
-    pub(crate) fn binding(&self, name: &str) -> Option<&[String]> {
-        self.names.get(name).map(Vec::as_slice)
-    }
-
-    /// Whether the scope imports a glob of another crate (not `crate::`, `self::` or `super::`).
-    pub(crate) fn has_foreign_glob(&self) -> bool {
-        self.globs.iter().any(|glob| {
-            !matches!(
-                glob.first().map(String::as_str),
-                Some("crate" | "self" | "super")
-            )
-        })
-    }
 }
 
 /// The full path of `segments`, seen from the innermost of `scopes`: the first segment is expanded through its nearest

@@ -110,18 +110,15 @@ fn marker_lines(text: &str, parsed: &syn::File) -> BTreeSet<usize> {
     lines
 }
 
-/// The `use` renames of a file, each as the new name and the renamed one.
-struct Renames(Vec<(String, String)>);
-
-impl<'ast> Visit<'ast> for Renames {
-    fn visit_use_rename(&mut self, rename: &'ast syn::UseRename) {
-        self.0
-            .push((rename.rename.to_string(), rename.ident.to_string()));
-    }
-}
-
 /// The names that a `use` rename gives to a timer (`use std::thread::sleep as nap;`), through chains of renames.
 fn timer_aliases(parsed: &syn::File) -> BTreeSet<String> {
+    struct Renames(Vec<(String, String)>);
+    impl<'ast> Visit<'ast> for Renames {
+        fn visit_use_rename(&mut self, rename: &'ast syn::UseRename) {
+            self.0
+                .push((rename.rename.to_string(), rename.ident.to_string()));
+        }
+    }
     let mut renames = Renames(Vec::new());
     renames.visit_file(parsed);
     let mut aliases = BTreeSet::new();
