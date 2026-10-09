@@ -283,19 +283,15 @@ impl Worker {
             Ok(0) => return,
             Ok(n) => n,
         };
-        let mut left = n;
-        while left > 0 {
-            let Some(front) = route.queue.front() else {
-                break;
-            };
-            let take = left.min(front.len() - route.written);
-            route.written += take;
-            route.queued -= take;
-            left -= take;
-            if route.written == front.len() {
-                route.queue.pop_front();
-                route.written = 0;
-            }
+        // A write is the rest of the front frame (`pump_route`), and the driver reports at most the bytes of the write.
+        let Some(front) = route.queue.front() else {
+            return;
+        };
+        route.written += n;
+        route.queued -= n;
+        if route.written == front.len() {
+            route.queue.pop_front();
+            route.written = 0;
         }
         if route.queue.is_empty() {
             if let Some(reason) = route.closing {

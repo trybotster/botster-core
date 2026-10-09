@@ -751,3 +751,139 @@ fn the_pty_read_budget_bounds_the_reads() {
     }
     assert_eq!(read, b"abcdefgh");
 }
+
+/// Delivers a route stream on the link and binds it to `route`; returns the client's end.
+fn bind_route(
+    edges: &mut WorkerEdges,
+    peer: &mut LinkEnd,
+    worker: &SharedWorker,
+    now: Instant,
+    route: RouteId,
+) -> crate::net::StreamEnd {
+    let (descriptor, client) = route_descriptor(&edges.scheduler);
+    peer.send_with_descriptor(b"f", descriptor).unwrap();
+    edges.ready(now, worker);
+    let Input::Descriptor(id) = edges.take(now, worker, 0) else {
+        panic!("a descriptor")
+    };
+    edges.ready(now, worker);
+    edges.take(now, worker, 0);
+    edges.perform(
+        now,
+        Action::BindRoute {
+            descriptor: id,
+            route,
+        },
+    );
+    client
+}
+
+/// DP-2: each received descriptor has its own id, so two streams that arrive before any bind stay apart.
+#[test]
+fn each_descriptor_gets_its_own_id() {
+    let (mut edges, mut peer, worker, now) = fixture(16);
+    let (first, mut one) = route_descriptor(&edges.scheduler);
+    let (second, mut two) = route_descriptor(&edges.scheduler);
+    peer.send_with_descriptor(b"a", first).unwrap();
+    peer.send_with_descriptor(b"b", second).unwrap();
+    let mut ids = Vec::new();
+    while edges.ready(now, &worker) == 1 {
+        if let Input::Descriptor(id) = edges.take(now, &worker, 0) {
+            ids.push(id);
+        }
+    }
+    assert_eq!(ids.len(), 2);
+    assert_ne!(ids[0], ids[1]);
+    for (id, route, bytes) in [(ids[0], RouteId(1), b"1"), (ids[1], RouteId(2), b"2")] {
+        edges.perform(
+            now,
+            Action::BindRoute {
+                descriptor: id,
+                route,
+            },
+        );
+        edges.perform(
+            now,
+            Action::RouteWrite {
+                route,
+                bytes: bytes.to_vec(),
+            },
+        );
+        edges.ready(now, &worker);
+        edges.take(now, &worker, 0);
+    }
+    let mut buf = [0u8; 4];
+    let n = botster_core_edges::RouteTransport::read(&mut one, &mut buf).unwrap();
+    assert_eq!(&buf[..n], b"1");
+    let n = botster_core_edges::RouteTransport::read(&mut two, &mut buf).unwrap();
+    assert_eq!(&buf[..n], b"2");
+}
+
+/// OU-3a: a stream that stops taking bytes between `ready` and the write answers `Ok(0)`, and `RouteWritable` follows when
+/// it takes bytes again. The edge asks for write readiness while a write or a wait for writable is pending, and not after.
+#[test]
+fn a_write_that_the_stream_refuses_is_ok_zero_then_writable() {
+    let (mut edges, mut peer, worker, now) = fixture(16);
+    let _client = bind_route(&mut edges, &mut peer, &worker, now, RouteId(1));
+    let interest = |edges: &mut WorkerEdges| {
+        edges
+            .routes
+            .get_mut(&RouteId(1))
+            .unwrap()
+            .end
+            .end()
+            .interest()
+            .write
+    };
+    edges.perform(
+        now,
+        Action::RouteWrite {
+            route: RouteId(1),
+            bytes: b"ab".to_vec(),
+        },
+    );
+    assert_eq!(edges.ready(now, &worker), 1);
+    assert!(interest(&mut edges), "a write waits");
+    let control = edges
+        .routes
+        .get_mut(&RouteId(1))
+        .unwrap()
+        .end
+        .end()
+        .control();
+    control.gate(true);
+    assert_eq!(
+        edges.take(now, &worker, 0),
+        Input::RouteWritten {
+            route: RouteId(1),
+            result: Ok(0)
+        }
+    );
+    assert_eq!(edges.ready(now, &worker), 0, "a gated stream");
+    assert!(interest(&mut edges), "the edge waits for writable");
+    control.gate(false);
+    assert_eq!(edges.ready(now, &worker), 1);
+    assert_eq!(
+        edges.take(now, &worker, 0),
+        Input::RouteWritable { route: RouteId(1) }
+    );
+    assert_eq!(edges.ready(now, &worker), 0);
+    assert!(!interest(&mut edges), "nothing waits");
+    // Any other write error is the driver's terminal error, not a wait (OU-2b).
+    control.fail_next_write(io::ErrorKind::BrokenPipe);
+    edges.perform(
+        now,
+        Action::RouteWrite {
+            route: RouteId(1),
+            bytes: b"c".to_vec(),
+        },
+    );
+    assert_eq!(edges.ready(now, &worker), 1);
+    assert!(matches!(
+        edges.take(now, &worker, 0),
+        Input::RouteWritten {
+            route: RouteId(1),
+            result: Err(_)
+        }
+    ));
+}

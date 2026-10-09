@@ -451,3 +451,99 @@ fn a_link_end_closes_the_unbound_descriptors() {
         ]
     );
 }
+
+/// The size of the native snapshot that a route of `w` gets now.
+fn snapshot_len(w: &World) -> u64 {
+    w.worker
+        .model
+        .as_ref()
+        .unwrap()
+        .term
+        .snapshot()
+        .unwrap()
+        .len() as u64
+}
+
+fn refused(client: &Client) -> bool {
+    matches!(
+        client.frames.as_slice(),
+        [ToClient::RouteClosed(RouteClosedFrame {
+            reason: CloseReason::AttachFailed {
+                reason: AttachFailedReason::SnapshotTooLarge
+            },
+            ..
+        })]
+    )
+}
+
+/// OU-9, F75: each snapshot limit is inclusive. A snapshot of exactly `max_snapshot_bytes` is offered, and a screen frame
+/// (the snapshot and its type byte) of exactly `max_screen_frame_bytes` is offered; one byte less refuses.
+#[test]
+fn the_snapshot_limits_take_a_snapshot_at_the_exact_bound() {
+    let size = snapshot_len(&World::running());
+    for (native, screen, refuse) in [
+        (size, size + 1, false),
+        (size - 1, size + 1, true),
+        (size, size, true),
+    ] {
+        let mut w = with_limits(|l| l.max_snapshot_bytes = native);
+        assert_eq!(snapshot_len(&w), size, "the same screen");
+        w.feed(Input::Descriptor(DescriptorId(1)));
+        let mut route = limits();
+        route.max_screen_frame_bytes = screen;
+        let actions = attach(&mut w, RouteId(1), options(), route);
+        let mut client = Client::default();
+        client.take_all(&mut w, RouteId(1), actions);
+        assert_eq!(
+            refused(&client),
+            refuse,
+            "native {native}, screen {screen}, snapshot {size}"
+        );
+    }
+}
+
+/// OU-3a, OU-3d: a frame written in parts frees the queue by the bytes that each part took. When the last frame is taken, the
+/// budget is again the budget of an empty queue.
+#[test]
+fn a_frame_written_in_parts_frees_exactly_its_bytes() {
+    fn write(actions: &[Action]) -> Vec<u8> {
+        match actions
+            .iter()
+            .find(|a| matches!(a, Action::RouteWrite { .. }))
+        {
+            Some(Action::RouteWrite { bytes, .. }) => bytes.clone(),
+            _ => panic!("a write: {actions:?}"),
+        }
+    }
+    let (mut w, _client, all) = attached(limits());
+    let empty = budgets(&all).last().copied().flatten().expect("a limit");
+    // Two frames: each is the length, the type byte and eight bytes. `one` is the budget while one frame waits.
+    let fed = w.feed(Input::PtyOutput(b"01234567".to_vec()));
+    let first = write(&fed);
+    assert_eq!(first.len(), 13);
+    let one = budgets(&fed).last().copied().flatten().expect("a limit");
+    w.feed(Input::PtyOutput(b"89abcdef".to_vec()));
+    let part = w.feed(Input::RouteWritten {
+        route: RouteId(1),
+        result: Ok(3),
+    });
+    assert_eq!(write(&part), first[3..].to_vec(), "the rest of the frame");
+    let partial = budgets(&part).last().copied().flatten().expect("a limit");
+    assert!(partial < empty, "{partial} < {empty}");
+    let second = w.feed(Input::RouteWritten {
+        route: RouteId(1),
+        result: Ok(10),
+    });
+    let next = write(&second);
+    assert_eq!(next.len(), 13, "the second frame");
+    assert_eq!(
+        budgets(&second).last(),
+        Some(&Some(one)),
+        "one frame waits again"
+    );
+    let done = w.feed(Input::RouteWritten {
+        route: RouteId(1),
+        result: Ok(13),
+    });
+    assert_eq!(budgets(&done).last(), Some(&Some(empty)));
+}

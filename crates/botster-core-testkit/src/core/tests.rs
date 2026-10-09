@@ -143,6 +143,19 @@ fn links_forward_bytes_descriptors_interests_and_close() {
         0,
         "the endpoint comes back"
     );
+    // A full link takes no byte: the send is `Blocked` and the endpoint comes back for a later try.
+    assert_eq!(edges.link_send(link, &[0; 32]).unwrap(), 32);
+    let (back, why) = edges
+        .link_send_descriptor(link, b"f", StreamEndpoint::new(5u64))
+        .unwrap_err();
+    assert_eq!(why, DescriptorSendError::Blocked, "a full link");
+    assert_eq!(back.downcast::<u64>().unwrap(), 5);
+    assert_eq!(
+        peer.recv(&mut bytes).unwrap(),
+        32,
+        "the filler, and no descriptor"
+    );
+    assert!(peer.recv_descriptor().is_none());
     edges.link_close(link);
     assert_eq!(peer.recv(&mut bytes).unwrap(), 0);
     assert_eq!(
