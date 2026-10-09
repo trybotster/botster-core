@@ -9,7 +9,7 @@ use crate::controls::ControlRegistry;
 use crate::core::{core_features, Directories, RunInputs};
 use crate::refusal::{RefusalHandle, RefusalLayer};
 use crate::scheduler::SchedulerHandle;
-use crate::worker::{TestkitCore, Workers};
+use crate::worker::{ProcessTable, TestkitCore, Workers};
 use botster_core_conformance::{
     ControlError, CoreHarness, DataDirRef, OpenSpec, RouteClient, WorkerBuild, WorkerRef,
 };
@@ -30,8 +30,22 @@ pub struct TestkitHarness {
     /// The scripted synchronous refusals of each handle (plan 4.2a). The harness arms them; the layer in front of the handle's
     /// Core consumes them.
     refusals: BTreeMap<String, RefusalHandle>,
-    /// The data directory of each handle that `open` built, for the controls that read a session's row.
-    handle_dirs: BTreeMap<String, String>,
+    /// The data directory and the process table of each handle that `open` built, for the controls.
+    handles: BTreeMap<String, HandleEdges>,
+}
+
+/// What the controls reach of one handle: its data directory and the process table of its host.
+struct HandleEdges {
+    dir: String,
+    processes: ProcessTable,
+}
+
+impl std::fmt::Debug for HandleEdges {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("HandleEdges")
+            .field("dir", &self.dir)
+            .finish_non_exhaustive()
+    }
 }
 
 impl TestkitHarness {
@@ -43,7 +57,7 @@ impl TestkitHarness {
             directories: Directories::default(),
             workers: Workers::new(SchedulerHandle::with_seed(seed), start),
             refusals: BTreeMap::new(),
-            handle_dirs: BTreeMap::new(),
+            handles: BTreeMap::new(),
         }
     }
 
@@ -66,7 +80,12 @@ impl TestkitHarness {
 
     /// The data directory of `handle`, once `open` built it.
     pub(crate) fn directory_of(&self, handle: &str) -> Option<&str> {
-        self.handle_dirs.get(handle).map(String::as_str)
+        self.handles.get(handle).map(|h| h.dir.as_str())
+    }
+
+    /// The process table of the host of `handle`, once `open` built it.
+    pub(crate) fn processes_of(&self, handle: &str) -> Option<&ProcessTable> {
+        self.handles.get(handle).map(|h| &h.processes)
     }
 
     /// The data directories of the run.
@@ -121,8 +140,13 @@ impl CoreHarness for TestkitHarness {
             Some(Box::new(spawner)),
         )?;
         table.set_wake(Arc::clone(&opened.wake));
-        self.handle_dirs
-            .insert(spec.handle.clone(), spec.data_dir.0.clone());
+        self.handles.insert(
+            spec.handle.clone(),
+            HandleEdges {
+                dir: spec.data_dir.0.clone(),
+                processes: table,
+            },
+        );
         let core = Box::new(TestkitCore::new(
             opened.driver,
             opened.wake,
