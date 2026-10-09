@@ -170,3 +170,35 @@ union of `taint_job`, `COMMANDS` and `.cargo/mutants.toml`. If v1 moves before t
 base-merge-check and a full gate on the merge commit.
 
 VERDICT: CLEAN (0 open) at 24fb122f32cb691bf073292f12b6a61448260c55
+
+## Round 5 — CLEAN on head a05ab9a3 (delta: the three round-4 fixes only, by the lead's ruling)
+
+Reviewed head: `a05ab9a380c459cd609b5fafd7f4c17e17a9e7da`, one commit on `24fb122f` (4 files: `gate_decisions.rs`,
+`platform_code.rs` and their tests). v1 is still `7aec2bb9`, and the head contains it. P6's gate log
+`gates/botster-core-stage1-p6-ci-checks-a05ab9a3-pool-20261009-122351-51352.log` names this head and base `7aec2bb9`.
+Results: 1095 default and 248 slow tests passed; the mutants job had 652 mutants (623 caught, 0 missed, 0 timeout, 29
+unviable); exit 0. This reviewer read its header and summaries.
+
+This reviewer checked each fix for a gate hole. A gate hole here is a form that makes the check accept a decision as an
+I/O shell, or skip a rejection.
+- **I/O lists.** `io_path` accepts only listed names: 19 free functions of `std::fs` and 13 of `std::env`, plus
+  `IO_FUNCTIONS`. Each listed name does file system or environment I/O. `split_paths` and `join_paths` are not listed.
+  An I/O call that the lists miss makes the check refuse an exclusion, which is the strict direction.
+- **Command bindings.** A typed `Command` parameter or a started `let` counts only when the function binds its name once
+  (`visit_pat_ident`, every pattern and closure parameter). A rebound name is not a command, so a start on it is not I/O,
+  which is again the strict direction.
+- **`#[path]` on an inline module.** `UnlistedForms` visits every module of the file, under any `cfg`. Each rejection
+  is an error, and the file adds no exclusion lines. So the rejection no longer depends on the OS of the gate.
+
+Observation for P6's next PR (the lists PR; not counted, by the lead's ruling): `CommandBindings` does not see bindings
+inside an unexpanded macro (for example, a statement macro that writes `let cmd = Pure;`). A name bound once outside the
+macro and once inside it is counted once. Under plan 23c, a macro in a function body could be an unlisted form that fails
+closed.
+
+The conditions stay:
+- #184 is not in v1. Whichever of #181 and #184 merges second needs this reviewer's review of the union of `taint_job`,
+  `COMMANDS` and `.cargo/mutants.toml`.
+- #198 also changes `.cargo/mutants.toml`. Whichever of #181 and #198 merges second needs the union review and a full gate.
+- If v1 moves before the merge, the new v1 merge needs base-merge-check and a full gate on the merge commit.
+
+VERDICT: CLEAN (0 open) at a05ab9a380c459cd609b5fafd7f4c17e17a9e7da
