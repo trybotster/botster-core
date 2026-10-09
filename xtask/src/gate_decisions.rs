@@ -4,10 +4,16 @@
 //!
 //! The check lists the mutants of the xtask as cargo-mutants generates them (`cargo mutants --list --json --no-config`,
 //! which builds nothing) and applies every exclusion to them: each `exclude_re` entry of `.cargo/mutants.toml` with the
-//! comment above it as its reason, each regex of `ci::OFF_MACOS_EXCLUSIONS`, and each `exclude_globs` entry. An exclusion
-//! that covers a mutant of xtask function F passes only when its reason names a function D of the xtask that F calls, that
-//! a test calls, and that no exclusion covers; the check reads the calls from the syntax of the xtask. Every other
-//! exclusion of an xtask mutant fails, a glob or an `OFF_MACOS_EXCLUSIONS` regex included (neither has a reason here).
+//! comment above it as its reason, each regex of `ci::OFF_MACOS_EXCLUSIONS`, and each `exclude_globs` entry.
+//!
+//! An exclusion that covers a mutant of xtask function F passes only when all of these hold (#181 B5):
+//! - the mutant replaces the whole body of F (genre `FnValue`): an operator or a match-arm mutant is a decision mutant;
+//! - F does process, file or signal I/O itself (it starts a process, reads or writes a file, sends a signal, or runs an
+//!   xtask command), so F is an I/O shell: a function without I/O is a decision, also when it only forwards to another;
+//! - its reason names a function D of the xtask that F calls, that a test calls, and that no exclusion covers.
+//!
+//! The check reads the calls from the syntax of the xtask. Every other exclusion of an xtask mutant fails, a glob or an
+//! `OFF_MACOS_EXCLUSIONS` regex included (neither has a reason here).
 
 use crate::mutants_cited::MUTANTS_FILE;
 use crate::tools::{cargo, require_cargo_tool};
@@ -24,6 +30,8 @@ pub struct Mutant {
     /// The function as cargo-mutants names it (`f`, `Type::f`, `<impl Trait for Type>::f`); empty outside a function.
     pub function: String,
     pub name: String,
+    /// Whether the mutant replaces the whole body of its function (genre `FnValue`).
+    pub whole_body: bool,
 }
 
 impl Mutant {
@@ -40,11 +48,33 @@ pub struct Exclusion {
     pub reason: String,
 }
 
-/// The calls of the xtask, from its syntax: what each function calls, by file and name, and what the tests call.
+/// The path calls that do process, file or signal I/O (`std::fs::write(..)`, `signal_group(..)`), by their last segment.
+const IO_CALLS: [&str; 11] = [
+    "read_to_string",
+    "write",
+    "create_dir_all",
+    "remove_file",
+    "remove_dir_all",
+    "read_dir",
+    "copy",
+    "rename",
+    "signal_group",
+    "signal_process",
+    "run_to_completion",
+];
+
+/// The method calls that start a process (`Command::status`, `output`, `spawn`).
+const IO_METHODS: [&str; 3] = ["status", "output", "spawn"];
+
+/// The calls of the xtask, from its syntax: what each function calls, by file and name, what the tests call, and which
+/// functions do I/O themselves.
 #[derive(Default, Debug)]
 pub struct Calls {
     by_function: BTreeMap<(String, String), BTreeSet<String>>,
     tested: BTreeSet<String>,
+    /// The functions, by file and name, that make an I/O call (`IO_CALLS`, `IO_METHODS`) or run an xtask command by its
+    /// module path (`taint::command(..)`).
+    io: BTreeSet<(String, String)>,
 }
 
 impl Calls {
@@ -110,6 +140,15 @@ impl Index<'_> {
         }
     }
 
+    /// Records that the current function does I/O.
+    fn io(&mut self) {
+        if let Some(function) = self.function.last() {
+            self.calls
+                .io
+                .insert((self.file.to_string(), function.clone()));
+        }
+    }
+
     fn function(&mut self, name: String, attrs: &[syn::Attribute], visit: impl FnOnce(&mut Self)) {
         let was = self.test;
         self.test |= is_test(attrs);
@@ -147,13 +186,21 @@ impl<'ast> Visit<'ast> for Index<'_> {
     fn visit_expr_call(&mut self, call: &'ast syn::ExprCall) {
         if let syn::Expr::Path(path) = &*call.func {
             if let Some(last) = path.path.segments.last() {
-                self.called(last.ident.to_string());
+                let name = last.ident.to_string();
+                let command = name == "command" && path.path.segments.len() == 2;
+                if command || IO_CALLS.contains(&name.as_str()) {
+                    self.io();
+                }
+                self.called(name);
             }
         }
         syn::visit::visit_expr_call(self, call);
     }
 
     fn visit_expr_method_call(&mut self, call: &'ast syn::ExprMethodCall) {
+        if IO_METHODS.contains(&call.method.to_string().as_str()) {
+            self.io();
+        }
         self.called(call.method.to_string());
         syn::visit::visit_expr_method_call(self, call);
     }
@@ -192,6 +239,7 @@ pub fn parse_mutants(json: &str) -> Result<Vec<Mutant>> {
                 .unwrap_or_default()
                 .to_string(),
             name: text(&item["name"], "name")?,
+            whole_body: text(&item["genre"], "genre")? == "FnValue",
         });
     }
     Ok(mutants)
@@ -262,9 +310,9 @@ fn glob_regex(glob: &str) -> Regex {
 /// Whether an exclusion covers a mutant.
 type Covers = Box<dyn Fn(&Mutant) -> bool>;
 
-/// The violations: each exclusion that covers a mutant of an xtask function without naming, in its reason, a tested
-/// decision function that the covered function calls and that no exclusion covers. One violation per exclusion and
-/// function.
+/// The violations: each exclusion that covers a decision mutant, a mutant of a function that does no I/O itself, or a
+/// mutant of a function whose reason names no tested decision function that the function calls and that no exclusion
+/// covers. One violation per exclusion, function and kind of mutant (whole body or not).
 ///
 /// # Errors
 /// An exclusion is not a valid regex.
@@ -308,11 +356,13 @@ pub fn check(
                     exclusion.pattern.clone(),
                     mutant.file.clone(),
                     mutant.function.clone(),
+                    mutant.whole_body,
                 ))
             {
                 continue;
             }
             let short = mutant.short();
+            let io = calls.io.contains(&(mutant.file.clone(), short.to_string()));
             let callees = calls.calls(&mutant.file, short);
             let named = word
                 .find_iter(&exclusion.reason)
@@ -324,16 +374,26 @@ pub fn check(
                         && !covered.contains(d)
                         && calls.by_function.keys().any(|(_, f)| f == d)
                 });
-            if !named {
-                violations.push(format!(
-                    "`{}` excludes {} in {} (`{}`): an exclusion covers only an I/O shell, and its reason names the tested \
-                     decision function that the shell calls",
-                    exclusion.pattern,
-                    if mutant.function.is_empty() { "code outside a function" } else { &mutant.function },
-                    mutant.file,
-                    mutant.name
-                ));
-            }
+            let problem = if !mutant.whole_body {
+                "it is a decision mutant: an exclusion covers only the whole-body replacement of an I/O shell"
+            } else if !io {
+                "the function does no process, file or signal I/O itself, so it is a decision, which is never excluded"
+            } else if !named {
+                "its reason names no tested decision function that the shell calls and that no exclusion covers"
+            } else {
+                continue;
+            };
+            violations.push(format!(
+                "`{}` excludes {} in {} (`{}`): {problem}",
+                exclusion.pattern,
+                if mutant.function.is_empty() {
+                    "code outside a function"
+                } else {
+                    &mutant.function
+                },
+                mutant.file,
+                mutant.name
+            ));
         }
     }
     Ok(violations)

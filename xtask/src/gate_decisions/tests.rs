@@ -5,12 +5,18 @@ fn mutation_verdict(code: Option<i32>) -> Result<()> { if code == Some(0) { retu
 fn parse_outcomes(json: &str) -> Result<u64> { Ok(json.len() as u64) }
 fn untested_decision(code: i32) -> bool { code == 0 }
 fn mutants_job(root: &Path) -> Result<()> {
+    let listing = cargo(root).output()?;
     let status = run(root)?;
     let _ = untested_decision(1);
     println!("{}", parse_outcomes("x")?);
     mutation_verdict(status.code())
 }
 fn printer() { println!("{}", other()); }
+fn mutation_decision(listed: usize, run: impl FnOnce() -> Option<i32>) -> Result<()> {
+    if listed == 0 { return Ok(()); }
+    mutation_verdict(run())
+}
+fn forwarded(code: Option<i32>) -> Result<()> { mutation_verdict(code) }
 #[cfg(test)]
 mod tests {
     #[test]
@@ -24,11 +30,14 @@ fn calls() -> Calls {
     Calls::of(&[("xtask/src/ci.rs".to_string(), CI.to_string())]).unwrap()
 }
 
+/// A mutant of `function` in the CI fixture; a name that starts with `replace <function> ` replaces the whole body.
 fn mutant(function: &str, name: &str) -> Mutant {
+    let short = function.rsplit("::").next().unwrap();
     Mutant {
         file: "xtask/src/ci.rs".into(),
         function: function.into(),
         name: format!("xtask/src/ci.rs:10:5: {name}"),
+        whole_body: name.starts_with(&format!("replace {short} ")),
     }
 }
 
@@ -44,6 +53,12 @@ fn mutants() -> Vec<Mutant> {
         ),
         mutant("mutation_verdict", "replace == with != in mutation_verdict"),
         mutant("printer", "replace printer with ()"),
+        mutant(
+            "mutation_decision",
+            "replace mutation_decision -> Result<()> with Ok(())",
+        ),
+        mutant("forwarded", "replace forwarded -> Result<()> with Ok(())"),
+        mutant("mutants_job", "delete ! in mutants_job"),
     ]
 }
 
@@ -132,14 +147,14 @@ fn a_glob_or_a_reasonless_regex_that_covers_the_xtask_fails_and_the_test_globs_p
     assert!(check(&mutants(), &[], &tests, &calls()).unwrap().is_empty());
     for glob in ["xtask/**", "ci.rs", "xtask/src/*.rs", "**/ci.rs"] {
         let found = check(&mutants(), &[], &[glob.to_string()], &calls()).unwrap();
-        assert_eq!(found.len(), 3, "{glob}: {found:?}");
+        assert_eq!(found.len(), 7, "{glob}: {found:?}");
     }
     let off_macos = exclusion(r"xtask/src/ci\.rs", "");
     assert_eq!(
         check(&mutants(), &[off_macos], &[], &calls())
             .unwrap()
             .len(),
-        3
+        7
     );
 }
 
@@ -187,25 +202,28 @@ fn the_calls_come_from_the_syntax_with_the_calls_of_tests() {
 #[test]
 fn the_mutant_list_is_read_from_the_json_of_cargo_mutants() {
     let json = r#"[{"file":"xtask/src/main.rs","function":{"function_name":"main","return_type":""},
-        "name":"xtask/src/main.rs:37:5: replace main with ()","package":"xtask"},
-        {"file":"xtask/src/a.rs","name":"xtask/src/a.rs:1:1: replace * with + "}]"#;
+        "name":"xtask/src/main.rs:37:5: replace main with ()","package":"xtask","genre":"FnValue"},
+        {"file":"xtask/src/a.rs","name":"xtask/src/a.rs:1:1: replace * with + ","genre":"BinaryOperator"}]"#;
     assert_eq!(
         parse_mutants(json).unwrap(),
         [
             Mutant {
                 file: "xtask/src/main.rs".into(),
                 function: "main".into(),
-                name: "xtask/src/main.rs:37:5: replace main with ()".into()
+                name: "xtask/src/main.rs:37:5: replace main with ()".into(),
+                whole_body: true,
             },
             Mutant {
                 file: "xtask/src/a.rs".into(),
                 function: String::new(),
-                name: "xtask/src/a.rs:1:1: replace * with + ".into()
+                name: "xtask/src/a.rs:1:1: replace * with + ".into(),
+                whole_body: false,
             },
         ]
     );
     assert!(parse_mutants("{}").is_err());
     assert!(parse_mutants(r#"[{"file":"a"}]"#).is_err());
+    assert!(parse_mutants(r#"[{"file":"a","name":"b"}]"#).is_err());
     assert_eq!(mutant("x", "y").short(), "x");
     assert_eq!(
         mutant("<impl Visit<'ast> for Scan<'_>>::visit_item", "y").short(),
@@ -214,7 +232,7 @@ fn the_mutant_list_is_read_from_the_json_of_cargo_mutants() {
 }
 
 const INDEX: &str = r#"
-fn shell() { decide(); lib_call(); }
+fn shell() { decide(); lib_call(); std::fs::write(p, b); }
 fn decide() {}
 impl S { fn method() { from_impl(); } }
 #[test]
@@ -255,6 +273,7 @@ fn a_named_decision_must_be_a_function_of_the_xtask() {
         file: "xtask/src/a.rs".into(),
         function: "shell".into(),
         name: "xtask/src/a.rs:2:1: replace shell with ()".into(),
+        whole_body: true,
     };
     let entry = |reason: &str| exclusion(r"replace shell with \(\)$", reason);
     let named = |reason| {
@@ -300,4 +319,74 @@ fn the_inputs_are_the_reasoned_entries_the_globs_and_the_xtask_sources() {
         .unwrap()
         .contains("b"));
     assert!(inputs.calls.calls("crates/c/src/lib.rs", "c").is_none());
+}
+
+/// #181 B5: a gate decision is never excluded, whatever its reason names: the whole body of `mutation_decision` (a decision
+/// that calls the tested decision `mutation_verdict`), of a decision that only forwards to another, and a decision mutant
+/// inside an I/O shell.
+#[test]
+fn a_decision_that_calls_a_tested_decision_or_a_decision_mutant_of_a_shell_is_never_excluded() {
+    let cases = [
+        (
+            r"replace mutation_decision -> Result<\(\)> with Ok\(\(\)\)$",
+            "mutation_decision",
+            "the function does no process, file or signal I/O itself",
+        ),
+        (
+            r"replace forwarded -> Result<\(\)> with Ok\(\(\)\)$",
+            "forwarded",
+            "the function does no process, file or signal I/O itself",
+        ),
+        (
+            r"delete ! in mutants_job$",
+            "mutants_job",
+            "it is a decision mutant",
+        ),
+    ];
+    for (pattern, function, problem) in cases {
+        let found = check(
+            &mutants(),
+            &[exclusion(
+                pattern,
+                "glue; mutation_verdict decides, see verdicts",
+            )],
+            &[],
+            &calls(),
+        )
+        .unwrap();
+        assert_eq!(found.len(), 1, "{pattern}: {found:?}");
+        assert!(
+            found[0].starts_with(&format!(
+                "`{pattern}` excludes {function} in xtask/src/ci.rs"
+            )),
+            "{found:?}"
+        );
+        assert!(found[0].contains(problem), "{found:?}");
+    }
+}
+
+/// A function does I/O itself when it starts a process, calls a file or signal function, or runs an xtask command by its
+/// module path; a field named `status`, a call of a closure, and an unqualified `command` are not I/O.
+#[test]
+fn a_function_does_io_when_it_starts_a_process_touches_a_file_or_signals() {
+    let mut text = String::from(
+        "fn by_status(c: &mut Command) { c.status(); }\n\
+         fn by_output(c: &mut Command) { c.output(); }\n\
+         fn by_spawn(c: &mut Command) { c.spawn(); }\n\
+         fn by_command(root: &Path) { taint::command(root, &[]); }\n\
+         fn local_command(root: &Path) { command(root); }\n\
+         fn by_field(o: Output) -> bool { o.status.success() }\n\
+         fn by_closure(run: impl FnOnce()) { run(); }\n",
+    );
+    for name in IO_CALLS {
+        text.push_str(&format!("fn by_{name}() {{ x::{name}(a); }}\n"));
+    }
+    let calls = Calls::of(&[("xtask/src/a.rs".to_string(), text)]).unwrap();
+    let io: BTreeSet<&str> = calls.io.iter().map(|(_, f)| f.as_str()).collect();
+    let mut expected: BTreeSet<String> = ["by_status", "by_output", "by_spawn", "by_command"]
+        .map(String::from)
+        .into();
+    expected.extend(IO_CALLS.map(|name| format!("by_{name}")));
+    assert_eq!(io, expected.iter().map(String::as_str).collect());
+    assert!(calls.io.iter().all(|(file, _)| file == "xtask/src/a.rs"));
 }
