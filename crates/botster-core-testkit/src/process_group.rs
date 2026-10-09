@@ -8,7 +8,7 @@
 //! the pipes of the child, never the child, so nothing outside it can reap the leader early. Cleanup retires the id: a second
 //! cleanup, or the drop after a cleanup, signals nothing.
 
-use rustix::process::{kill_process_group, waitid, Pid, Signal, WaitId, WaitIdOptions};
+use rustix::process::{waitid, Pid, Signal, WaitId, WaitIdOptions};
 use std::io;
 use std::os::unix::process::CommandExt;
 use std::process::{Child, ChildStderr, ChildStdin, ChildStdout, Command};
@@ -91,7 +91,10 @@ impl OwnedGroup {
         };
         // The leader is unreaped here, so the group id is still ours. ESRCH would mean that the group is already empty: nothing
         // is left to kill, and that is the goal.
-        let _ = kill_process_group(group, Signal::KILL);
+        let _ = botster_core_sys::signal::signal_group(
+            group.as_raw_nonzero().get().unsigned_abs(),
+            Signal::KILL,
+        );
         let _ = self.child.wait();
     }
 }

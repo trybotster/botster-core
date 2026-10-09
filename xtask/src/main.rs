@@ -7,6 +7,8 @@ mod fsutil;
 mod lists;
 mod prebuild;
 mod public_api;
+#[cfg(test)]
+mod signal_bans;
 mod taint;
 mod test_budget;
 mod timers;

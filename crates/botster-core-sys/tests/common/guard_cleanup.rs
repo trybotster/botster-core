@@ -40,7 +40,10 @@ pub(crate) fn end_group(
         Err(error) => {
             let report = format!("the group guard cannot reserve the group: {error}");
             let _ = writeln!(std::io::stderr(), "{report}");
-            let _ = rustix::process::kill_process_group(group, rustix::process::Signal::KILL);
+            let _ = botster_core_sys::signal::signal_group(
+                group.as_raw_nonzero().get().unsigned_abs(),
+                rustix::process::Signal::KILL,
+            );
             return Err(report);
         }
     };
@@ -92,7 +95,11 @@ pub(crate) fn reserved_kill(
             group.as_raw_nonzero()
         )));
     }
-    rustix::process::kill_process_group(group, rustix::process::Signal::KILL).map_err(Into::into)
+    botster_core_sys::signal::signal_group(
+        group.as_raw_nonzero().get().unsigned_abs(),
+        rustix::process::Signal::KILL,
+    )
+    .map_err(Into::into)
 }
 
 /// Why `end_members` stopped before the group was empty.
