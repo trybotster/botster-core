@@ -417,6 +417,15 @@ fn pty_events_resume_reads_after_would_block() {
     h.driver.read_pty_chunk();
     assert!(!h.driver.pty_readable);
     assert!(h.driver.inputs.is_empty());
+    // The test reads the link as a host does: the worker reports the program's output (Core 6.2), and a link that nobody
+    // reads would keep the staged close of `Remove` waiting for its bytes. The thread ends at the link's end of file. The
+    // clone comes before `send`, which borrows the link.
+    let mut link = h.peer.try_clone().unwrap();
+    link.set_nonblocking(false).unwrap();
+    std::thread::spawn(move || {
+        let mut buf = [0u8; 4096];
+        while matches!(link.read(&mut buf), Ok(n) if n > 0) {}
+    });
     let mut send = |kind, payload: &[u8]| {
         let mut wire = Vec::new();
         botster_core_link::frame::encode_frame(kind, payload, u32::MAX, &mut wire).unwrap();
@@ -433,14 +442,6 @@ fn pty_events_resume_reads_after_would_block() {
     .encode(&mut hello)
     .unwrap();
     send(botster_core_link::frame::FrameType::HELLO, &hello);
-    // The test reads the link as a host does: the worker reports the program's output (Core 6.2), and a link that nobody
-    // reads would keep the staged close of `Remove` waiting for its bytes. The thread ends at the link's end of file.
-    let mut link = h.peer.try_clone().unwrap();
-    link.set_nonblocking(false).unwrap();
-    std::thread::spawn(move || {
-        let mut buf = [0u8; 4096];
-        while matches!(link.read(&mut buf), Ok(n) if n > 0) {}
-    });
     // The program cannot fill the PTY until the real loop must rearm its cleared read flag.
     let driver = h.driver.take();
     let (sent, received) = mpsc::channel();
