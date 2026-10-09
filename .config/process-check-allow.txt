@@ -132,3 +132,7 @@ xtask/src/process_check/tests.rs | shell_sleeps_and_loops_that_never_end_by_them
 xtask/src/process_check/tests.rs | shell_sleeps_and_loops_that_never_end_by_themselves_are_found | shell-loop
 xtask/src/process_check/tests.rs | shell_sleeps_and_loops_that_never_end_by_themselves_are_found | shell-loop
 xtask/src/process_check/tests.rs | shell_sleeps_and_loops_that_never_end_by_themselves_are_found | shell-loop
+
+# The signal guard's own-group test (#177): its socket read is bounded by set_read_timeout, which the check cannot see.
+# PR C moves it to botster_test_process::Bounded (owner P3, core-sys signal).
+crates/botster-core-sys/src/signal.rs | a_signal_to_our_own_group_reaches_this_process | blocking-read
