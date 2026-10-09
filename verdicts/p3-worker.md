@@ -2,9 +2,9 @@
 
 Current verdict: CLEAN for PR #165; NOT CLEAN for the separate PR #163 review unit.
 PR #163 at `40b63dceb6e3f3d7be69a1488ac77eccc121a071` has F28 and F33 OPEN for completed evidence.
-PR #165 at `9eaea51ccb47230f4ee19e14056c17dfb607a826` has no open package finding. F45 through F48 are CLOSED.
+PR #165 at `47ae53a79b95e5499b8548c456a2fbaceacba992` has no open package finding. F45 through F48 are CLOSED.
 F39 is CLOSED within #165 and remains OPEN for #163's later merge delta.
-Round 89 records the correction delta and exact-head CLEAN. All earlier findings, closures, and rounds remain preserved.
+Round 90 records the C7 correction delta and exact-head CLEAN. All earlier findings, closures, and rounds remain preserved.
 F1 through F27 and F29 through F32 remain CLOSED at their recorded heads and scopes.
 F34 records the earlier unsafe PID signals and their source correction at `81ccd17`.
 Each cross-package PR also requires the integration reviewer's exact-head CLEAN and the implementer's landing gate.
@@ -4176,6 +4176,52 @@ F39's separate later #163 merge duty remains OPEN.
 PR #163 also retains F28 native mutation evidence and F33 required landing execution.
 This CLEAN does not clear #163, M2a, M2b, the A32/A33 follow-up, or pending conformance IDs.
 The P5 and integration reviews remain separate required reviews.
+The reviewer changed no product code and ran no tests, builds, measurements, mutants, or gates.
+All earlier findings, closures, and verdict rounds remain preserved.
+
+VERDICT: CLEAN
+
+
+## Round 90 — C7 cleanup allowance delta
+
+Reviewed head: `47ae53a79b95e5499b8548c456a2fbaceacba992`, PR #165, branch `stage1/p3-guard-macos`.
+Base: `144b0234fb632bcbb5176b17c2fe55f3239405df`.
+Reviewed delta: `9eaea51c..47ae53a7`, one commit, one file, four changed lines.
+The lead explicitly requested this delta review after round 89's exact-head CLEAN.
+The integration reviewer identifies C7 LOW as another F39 composition path.
+
+### F39 — LOW — C7 path CLOSED at 47ae53a7
+
+The panic-cleanup test in slow_payload.rs waits for GuardedPayload's complete destructor and the panic outcome.
+Its destructor releases the independent guard, runs production cleanup, and then reads the guard report.
+The earlier outer wait used ten seconds, equal to the guard's inner CLEANUP interval.
+The correction now derives that outer allowance as 2 * process_guard::cleanup::CLEANUP.
+The marked deadline and comment state that composition explicitly.
+The inner limit, cleanup order, panic assertion, error report, and final thread join remain unchanged.
+This closes C7 within the package's F39 scope.
+F39 remains OPEN only for #163's separate later merge delta.
+
+### Completed evidence and description
+
+The reviewer checked the completed exact-head focused Mac log:
+`~/botster-sessions/gates/botster-core-stage1-p3-guard-macos-47ae53a7-pool-20261008-204957-86837.log`.
+It names this exact head and base `9ea0c9c22d0d0595a166becbba7f9e8872247c22`.
+Slow clippy with -D warnings and worker prebuild pass.
+The first nextest command passes 168 tests with zero skips in 1.314 seconds.
+The corrected panic-cleanup test passes in 0.035 seconds.
+The core guard selection passes 15 tests and skips nine other tests in 0.099 seconds.
+The job exits 0 after ten seconds on Mac.
+The description names all three derived outer allowances and this exact-head log.
+It preserves the corrected report exception, scoped wait claims, and Prior art note.
+The integration reviewer reports CLEAN at this head in verdict commit `2b7420f683d80b20ce7d9c5190acfd7799f01252`.
+The combined #162 Linux landing gate remains required.
+
+### Verdict and scope
+
+PR #165 has no open package finding, including LOW, at this exact head.
+Round 89's source closures and scope limits remain valid after this delta.
+PR #163 separately retains F28, F33, and its later F39 merge duty.
+This CLEAN does not clear #163, M2a, M2b, the A32/A33 follow-up, or pending conformance IDs.
 The reviewer changed no product code and ran no tests, builds, measurements, mutants, or gates.
 All earlier findings, closures, and verdict rounds remain preserved.
 
