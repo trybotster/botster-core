@@ -156,6 +156,10 @@ Each row is decoded and checked before any connect (vault: "validate before the 
   link; testkit, an in-memory endpoint of the `Sim`.
 - The `Sim` needs: worker endpoints by path, kept across a host drop (the workers stay already, plan 4.1); `connect_worker`;
   and one process table for all hosts of a harness, so that an identity probe of the new host sees the old host's workers.
+  The table is in memory only; real processes stay under `botster-test-process` (P6's request).
+- `connect_worker` is a method of `HostEdges` (the driver's edge trait), not of the harness trait: the testkit implements
+  it on its edges, and `RealEdges` implements it in `botster-core`. `RealCoreHarness` needs no change for it (agreed with
+  P6, who owns the Sim changes' review but not their code).
 
 ### 7. The worker side (cross-package: P3's machine and binary)
 
