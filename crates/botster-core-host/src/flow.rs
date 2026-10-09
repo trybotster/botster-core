@@ -6,6 +6,7 @@
 //! are one atomic step" (EV-5b) and `pump_events` is a bound that a step cannot overshoot (9B).
 
 use botster_core_contract::prelude::*;
+pub use crate::session::End;
 use std::time::Instant;
 
 /// What the session is working on. At most one flow runs at a time: the admission table (AM-1) allows no other.
@@ -37,7 +38,7 @@ pub enum CreatePhase {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct StartFailure {
     pub reason: StartFailReason,
-    pub state: SessionState,
+    pub state: End,
 }
 
 /// `begin(Start)`: AD-7 in order. The row is written, the worker is spawned, its identity is written, and only then does the
@@ -98,7 +99,7 @@ pub struct StopFlow {
     pub phase: StopPhase,
     pub deadline: Option<Instant>,
     /// How the session ended, once it did.
-    pub end: Option<SessionEnd>,
+    pub end: Option<End>,
 }
 
 /// `begin(Remove)`: LC-7 in order.
