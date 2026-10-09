@@ -8,7 +8,8 @@
 //!
 //! It also requires that the new head descends from the reviewed head, and that the new merge base descends from the
 //! reviewed one (`v1` only moves forward). The base is `BOTSTER_CI_BASE_REF`, else `origin/v1`. The report goes in the pull
-//! request. The decisions are pure functions over the outputs of git, with tests; `command` only runs git and prints.
+//! request. The decisions are pure functions over the outputs of git, with tests; `check` runs git with a configuration
+//! that cannot filter a diff, and its tests run it on real repositories with hostile settings.
 
 use crate::fsutil;
 use anyhow::{bail, Context, Result};
@@ -19,7 +20,7 @@ use std::process::Command;
 
 const USAGE: &str = "usage: cargo xtask base-merge-check <reviewed-head> <new-head>";
 
-/// What git says about the two heads, gathered by `command`.
+/// What git says about the two heads, gathered by `check`.
 pub struct Facts {
     pub reviewed: String,
     pub new: String,
@@ -92,11 +93,11 @@ fn sha256(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
 }
 
-/// The report for the pull request, and whether every condition holds.
+/// The verdict: the report for the pull request when every condition holds.
 ///
 /// # Errors
-/// git merge-tree failed.
-pub fn judge(facts: &Facts) -> Result<(String, bool), String> {
+/// A condition fails (the error is the whole report, so the step fails and still shows it), or git merge-tree failed.
+pub fn judge(facts: &Facts) -> Result<String, String> {
     let mut report = format!(
         "base-merge-check: reviewed head {} (merge base {}), new head {} (merge base {}), base {}\n",
         facts.reviewed, facts.reviewed_base, facts.new, facts.new_base, facts.base
@@ -152,12 +153,28 @@ pub fn judge(facts: &Facts) -> Result<(String, bool), String> {
             ),
         },
     );
-    report.push_str(if pass {
-        "result: PASS (no reviewer delta round is needed; the gate still runs on the new head)\n"
+    if pass {
+        report.push_str("result: PASS (no reviewer delta round is needed; the gate still runs on the new head)\n");
+        Ok(report)
     } else {
-        "result: FAIL (the merge needs delta rounds from both reviewers)\n"
-    });
-    Ok((report, pass))
+        report.push_str("result: FAIL (the merge needs delta rounds from both reviewers)");
+        Err(report)
+    }
+}
+
+/// Whether a git command that must succeed did: only exit code 0.
+///
+/// # Errors
+/// Another exit code, or a signal; the error names the command.
+pub fn succeeded(args: &[&str], code: Option<i32>) -> Result<(), String> {
+    if code == Some(0) {
+        Ok(())
+    } else {
+        Err(format!(
+            "git {} failed (exit code {code:?})",
+            args.join(" ")
+        ))
+    }
 }
 
 /// `: a, b` for a non-empty list.
@@ -183,17 +200,35 @@ pub fn ancestry(code: Option<i32>) -> Result<bool, String> {
     }
 }
 
-/// The I/O shell: it runs git, and the pure functions above decide.
-pub fn command(root: &Path, args: &[String]) -> Result<()> {
-    let [reviewed, new] = args else {
-        bail!("{USAGE}");
-    };
+/// The options of every diff: plumbing `diff-tree` output that no configuration can filter. Without them, a repository or
+/// user setting hides a change and the check passes falsely: `diff.external` or `GIT_EXTERNAL_DIFF` replace the patch,
+/// a `textconv` driver rewrites the content, `diff.ignoreSubmodules` drops a gitlink change, `diff.relative` drops the
+/// paths outside a directory (#170 review, HIGH).
+const CANONICAL: [&str; 6] = [
+    "-r",
+    "--no-renames",
+    "--no-ext-diff",
+    "--no-textconv",
+    "--ignore-submodules=none",
+    "--no-relative",
+];
+
+/// The facts and the verdict of the check of `new` against `reviewed`, with `base` as the base. git runs without the user's
+/// and the system's configuration, and without the environment that changes a diff; the diffs use [`CANONICAL`].
+///
+/// # Errors
+/// git failed, or a condition fails (the error is the report).
+pub fn check(root: &Path, reviewed: &str, new: &str, base: &str) -> Result<String> {
     // The exit code and output of `git -C root <args>`.
     let git = |args: &[&str]| -> Result<(Option<i32>, Vec<u8>)> {
         let output = Command::new("git")
             .arg("-C")
             .arg(root)
             .args(args)
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env_remove("GIT_EXTERNAL_DIFF")
+            .env_remove("GIT_DIFF_OPTS")
             .output()
             .with_context(|| format!("run git {}", args.join(" ")))?;
         Ok((output.status.code(), output.stdout))
@@ -201,9 +236,7 @@ pub fn command(root: &Path, args: &[String]) -> Result<()> {
     // The output of a git command that must succeed.
     let ok = |args: &[&str]| -> Result<Vec<u8>> {
         let (code, out) = git(args)?;
-        if code != Some(0) {
-            bail!("git {} failed (exit code {code:?})", args.join(" "));
-        }
+        succeeded(args, code).map_err(anyhow::Error::msg)?;
         Ok(out)
     };
     let line =
@@ -212,9 +245,17 @@ pub fn command(root: &Path, args: &[String]) -> Result<()> {
         ancestry(git(&["merge-base", "--is-ancestor", ancestor, commit])?.0)
             .map_err(anyhow::Error::msg)
     };
-    let reviewed = line(&["rev-parse", "--verify", &format!("{reviewed}^{{commit}}")])?;
-    let new = line(&["rev-parse", "--verify", &format!("{new}^{{commit}}")])?;
-    let base = fsutil::base(root)?;
+    // The diff of `from` to `to`: the paths only, or the whole binary patch with full blob ids.
+    let diff = |from: &str, to: &str, names: bool| -> Result<Vec<u8>> {
+        let form: &[&str] = if names {
+            &["--name-only"]
+        } else {
+            &["-p", "--binary", "--full-index"]
+        };
+        ok(&[&["diff-tree"][..], &CANONICAL, form, &[from, to]].concat())
+    };
+    let commit = |name: &str| line(&["rev-parse", "--verify", &format!("{name}^{{commit}}")]);
+    let (reviewed, new, base) = (commit(reviewed)?, commit(new)?, commit(base)?);
     let reviewed_base = line(&["merge-base", &reviewed, &base])?;
     let new_base = line(&["merge-base", &new, &base])?;
     let (code, out) = git(&[
@@ -225,29 +266,29 @@ pub fn command(root: &Path, args: &[String]) -> Result<()> {
         &reviewed,
         &new_base,
     ])?;
-    let names = ["diff", "--name-only", "--no-renames"];
-    let bytes = ["diff", "--binary", "--full-index", "--no-renames"];
     let facts = Facts {
         new_descends: is_ancestor(&reviewed, &new)?,
         base_moved_forward: is_ancestor(&reviewed_base, &new_base)?,
         merge_tree: (code, String::from_utf8(out)?),
-        base_paths: String::from_utf8(ok(&[&names[..], &[&reviewed_base, &new_base]].concat())?)?,
-        reviewed_paths: String::from_utf8(ok(
-            &[&names[..], &[&reviewed_base, &reviewed]].concat()
-        )?)?,
-        reviewed_diff: ok(&[&bytes[..], &[&reviewed_base, &reviewed]].concat())?,
-        new_diff: ok(&[&bytes[..], &[&new_base, &new]].concat())?,
+        base_paths: String::from_utf8(diff(&reviewed_base, &new_base, true)?)?,
+        reviewed_paths: String::from_utf8(diff(&reviewed_base, &reviewed, true)?)?,
+        reviewed_diff: diff(&reviewed_base, &reviewed, false)?,
+        new_diff: diff(&new_base, &new, false)?,
         reviewed,
         new,
         base,
         reviewed_base,
         new_base,
     };
-    let (report, pass) = judge(&facts).map_err(anyhow::Error::msg)?;
-    print!("{report}");
-    if !pass {
-        bail!("base-merge-check failed");
-    }
+    judge(&facts).map_err(anyhow::Error::msg)
+}
+
+/// The command: it resolves the base of the run and prints the report of [`check`].
+pub fn command(root: &Path, args: &[String]) -> Result<()> {
+    let [reviewed, new] = args else {
+        bail!("{USAGE}");
+    };
+    print!("{}", check(root, reviewed, new, &fsutil::base(root)?)?);
     Ok(())
 }
 
