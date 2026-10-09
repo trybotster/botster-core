@@ -22,6 +22,41 @@ pub fn row_key(id: &SessionId) -> String {
 /// The prefix of every session row key.
 pub const ROW_PREFIX: &str = "session/";
 
+/// How a session ended: one of the two ends that Core reaches. A type of this crate, so that every match on it is total and
+/// no fallback is needed: Core never posts `Lost(Other)` (AD-2; steward ruling R-35, correction `c3ed727`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum End {
+    Exited(Exit),
+    Lost(LostReason),
+}
+
+impl End {
+    /// The state that this end shows.
+    pub fn state(self) -> SessionState {
+        match self {
+            End::Exited(exit) => SessionState::Exited(exit),
+            End::Lost(reason) => SessionState::Lost(reason),
+        }
+    }
+
+    /// The end as an operation result gives it (A2-1).
+    pub fn public(self) -> SessionEnd {
+        match self {
+            End::Exited(exit) => SessionEnd::Exited(exit),
+            End::Lost(reason) => SessionEnd::Lost(reason),
+        }
+    }
+
+    /// The end that a shown state names, or `None` for a state that is not an end.
+    pub fn of(state: SessionState) -> Option<End> {
+        match state {
+            SessionState::Exited(exit) => Some(End::Exited(exit)),
+            SessionState::Lost(reason) => Some(End::Lost(reason)),
+            _ => None,
+        }
+    }
+}
+
 /// The state of a session as the admission table sees it (AM-1).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Admit {
@@ -33,6 +68,8 @@ pub enum Admit {
     Lost,
     /// `Remove` was admitted. The id is still in use until step 5 of LC-7.
     Removing,
+    /// An adoption runs (AD-1, AD-2 retry). Until it posts the row's state, no operation is admitted on the session.
+    Adopting,
 }
 
 /// The durable row of a session: one JSON object per row, version 1.
@@ -242,7 +279,9 @@ pub struct Session {
     /// `MetadataChanged` is due: it follows the completion of an `UpdateMetadata` in a step of its own (LC-9).
     pub metadata_pending: bool,
     /// How the payload ended while a start flow was still running: applied when the flow ends.
-    pub pending_end: Option<SessionEnd>,
+    pub pending_end: Option<End>,
+    /// The `AdoptAll` or `Adopt` op that waits for this session's state (LC-11).
+    pub adopting: Option<OpId>,
 }
 
 impl Session {
@@ -260,12 +299,18 @@ impl Session {
         })
     }
 
+    /// The state that a row write of this session records: the shown state. A `Lost` row keeps the worker's identity, not
+    /// an earlier state (steward ruling R-36, contracts `main` `c62085f`).
+    pub fn recorded_state(&self) -> SessionState {
+        self.shown.unwrap_or(SessionState::Created)
+    }
+
     pub fn to_row(&self) -> Row {
         Row {
             version: ROW_VERSION,
             id: self.id.clone(),
             instance: self.instance.clone(),
-            state: self.shown.unwrap_or(SessionState::Created),
+            state: self.recorded_state(),
             request: self.request.clone(),
             labels: self.labels.clone(),
             token: self.token.as_ref().map(token_hex),
