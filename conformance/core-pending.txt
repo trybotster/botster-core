@@ -562,7 +562,6 @@ conf::sz_1_resize_without_route
 conf::sz_2_same_size_is_noop
 conf::sz_3_coalesced_resize_is_superseded
 conf::sz_3_every_resize_completes
-conf::th_1_core_is_send_not_sync
 conf::th_2_wake_handle_cross_thread
 conf::th_3_no_route_io_in_the_host
 conf::tm_1_clocks_are_injected
