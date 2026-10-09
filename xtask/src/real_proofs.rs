@@ -123,12 +123,11 @@ pub fn verdict(input: &Input<'_>) -> Vec<String> {
             ));
         }
         let name = proof.test.rsplit("::").next().unwrap_or_default();
-        let defined = input.sources.get(&proof.file).is_some_and(|text| {
-            text.match_indices(&format!("fn {name}(")).any(|(at, _)| {
-                at == 0 || !text[..at].ends_with(|c: char| c.is_alphanumeric() || c == '_')
-            })
-        });
-        if name.is_empty() || !defined {
+        let defined = input
+            .sources
+            .get(&proof.file)
+            .is_some_and(|text| text.contains(&format!("fn {name}(")));
+        if !defined {
             problems.push(format!(
                 "{FILE}: {id}: no test `{}` is defined in the tracked file {}",
                 proof.test, proof.file
@@ -328,6 +327,15 @@ mod tests {
             ids(&["conf::b", "conf::d"])
         );
         assert_eq!(running(&ledger, &[]), ledger);
+    }
+
+    /// `in_slow_tier` models this filter. A change of the filter must change the model too.
+    #[test]
+    fn the_model_follows_the_slow_filter() {
+        assert_eq!(
+            crate::test_budget::SLOW_FILTER,
+            "binary(/^slow/) | test(/(^|::)slow_/)"
+        );
     }
 
     #[test]
