@@ -75,3 +75,66 @@ cleanup code. Correct the exclusion reason and the PR body, and give a gate on t
 
 VERDICT: NOT CLEAN at fc39fee6be5024df41a0cc937417401100c6303b (1 open: F64 HIGH, the package reviewer's finding,
 confirmed here)
+
+## Round 2 — NOT CLEAN on head 8a762ac0
+
+Reviewer: integration reviewer (Astra), `sess-1791575341-0172-bec01ec06119f11c948f14371195fa92`.
+
+Reviewed head: `8a762ac00a354b032432a5a26963d93c91e0284c`.
+The handoff permits a delta review from `fc39fee6be5024df41a0cc937417401100c6303b`.
+The complete delta changes five files: the mutation reasons, workspace dependency, lockfile, worker dev-dependency, and session fixture.
+The stated HIGH tier is correct under rules 3 and 5.
+
+### Evidence and closures
+
+- The full Linux pool log names the exact head and base `7aec2bb917f48994d1705301d2383873a219c031`.
+  The fetched `origin/v1` equals that base, and `git merge-base --is-ancestor` confirms ancestry.
+  Log: `~/botster-sessions/gates/botster-core-stage1-p3-pty-input-8a762ac0-pool-20261009-125251-39706.log`.
+- All ten CI steps pass. The default tier passes 1040 tests; the slow tier passes 245 tests.
+  The named real-PTY proof passes in `slow_session` and `bin/botster-worker slow_driver` (lines 2452 and 2480).
+  Both mutation runs report 108 caught, 0 missed, 0 timeout, and 10 unviable.
+  The second run uses `NEXTEST_PROFILE=slow`. The gate exits 0.
+- F65 closes. Each new exclusion uses `decision (proof, ...)` and names its pure decision test and real-PTY proof.
+  The log selects both pure tests in the default tier and both instances of the real proof in the slow tier.
+- F64's dependency and legacy-guard defects are corrected. This regression now uses `GuardedSession`, `Guard`, `OwnedChild`, `Blocker`, and `Bounded`.
+  The worker depends on `botster-test-process` only for tests. The legacy helpers remain for the unchanged tests.
+  The PR description and exclusion reasons now describe the actual fixture.
+  The replacement fixture has the separate cleanup defect R2-1 below.
+- The shared hello/launch extraction preserves the wire exchange and read timeout.
+  The new marker reads and child status waits use shared deadlines. The accept loop uses a nonblocking listener and a deadline.
+  The successful fixture construction orders cleanup as payload release, worker cleanup, then guard outcome.
+- The previous source review carries for unchanged product code, testkit lock order, and the thirteen pending removals.
+  The reviewer read the package verdict at the preceding head (`6eaf15d971a37c3b2a867c30d891699ac4eac65b`, round 123).
+  The fetched package verdict did not yet contain a round for this replacement head.
+
+### R2-1 HIGH — the new observer/worker has no cleanup when its test parent dies
+
+`crates/botster-worker/tests/common/session.rs:618-628` starts the observer directly with `OwnedChild::spawn_group`.
+The other branch starts the worker directly with `OwnedChild::spawn`.
+`OwnedChild` cleans up in `Drop`; neither spawn path installs an anchor or another parent-death mechanism.
+The fixture's only `Guard` wraps the payload (`:603-608`), whose group does not contain its worker parent.
+
+If the test process is killed after launch, its destructors do not run.
+The payload anchor receives EOF and ends the payload group. It does not end the observer/worker.
+The observer/worker receives control-link EOF, but `Worker::handle(Input::LinkClosed)` deliberately preserves the worker for DP-8
+(`crates/botster-worker-core/src/worker.rs:714-720`). Payload exit also does not request worker exit.
+Thus the fixture can leave its observer/worker alive after its test parent dies.
+
+The existing `parent_death_ends_the_driver_observer` test does not cover this path.
+Its `observer_parent` helper still calls legacy `Session::launch` (`session.rs:583`), which installs the legacy observer group guard.
+The reported panic check exercises `Drop`, so it cannot prove cleanup after test-process death.
+
+Required correction: give both new spawn paths parent-death ownership through `botster-test-process`.
+Keep production's DP-8 behavior unchanged. Add a bounded proof that ends the fixture parent after startup and observes the observer/worker end.
+Use the shared crate for guard and cleanup capabilities; do not copy the legacy guard.
+
+This is a shared process-ownership finding in the reviewed delta. The reviewer sent it directly to P3 and the P3 reviewer.
+The reviewer ran no test, build, or gate.
+
+### Union condition retained
+
+The second of #181 and #198 to merge still needs an integration review of the union and a full gate on that head.
+P3 reports that the interim accept needs a `process-check` allow entry until P6 supplies the shared accept helper.
+That entry and its scope must be checked in the union; this review does not approve an absent entry.
+
+VERDICT: NOT CLEAN (1 open: R2-1 HIGH) at 8a762ac00a354b032432a5a26963d93c91e0284c
