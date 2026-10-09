@@ -60,6 +60,10 @@ fn failed_control_connection_returns_driver_failure() {
         instance: InstanceId("1-1".into()),
         host_epoch: 7,
         token: [5; 32],
+        endpoint: root.path().join("e"),
+        startup_ms: WorkerLaunch::millis(
+            botster_core_contract::prelude::CoreLimits::default().startup,
+        ),
     };
     let output = output(Some(&launch));
     assert_eq!(output.status.code(), Some(1));
