@@ -366,7 +366,8 @@ fn a_decision_that_calls_a_tested_decision_or_a_decision_mutant_of_a_shell_is_ne
 }
 
 /// A function does I/O itself when it starts a process, calls a file or signal function, or runs an xtask command by its
-/// module path; a field named `status`, a call of a closure, and an unqualified `command` are not I/O.
+/// module path, a call through `env::` or `fs::`, or a probe of a path; a field named `status`, a call of a closure, a
+/// call through another module and an unqualified `command` are not I/O.
 #[test]
 fn a_function_does_io_when_it_starts_a_process_touches_a_file_or_signals() {
     let mut text = String::from(
@@ -376,16 +377,32 @@ fn a_function_does_io_when_it_starts_a_process_touches_a_file_or_signals() {
          fn by_command(root: &Path) { taint::command(root, &[]); }\n\
          fn local_command(root: &Path) { command(root); }\n\
          fn by_field(o: Output) -> bool { o.status.success() }\n\
-         fn by_closure(run: impl FnOnce()) { run(); }\n",
+         fn by_closure(run: impl FnOnce()) { run(); }\n\
+         fn by_env() { std::env::args(); }\n\
+         fn by_fs_module() { fs::metadata(p); }\n\
+         fn by_other_module() { json::metadata(p); }\n\
+         fn by_is_file(p: &Path) { p.is_file(); }\n\
+         fn by_is_dir(p: &Path) { p.is_dir(); }\n\
+         fn by_exists(p: &Path) { p.exists(); }\n",
     );
     for name in IO_CALLS {
         text.push_str(&format!("fn by_{name}() {{ x::{name}(a); }}\n"));
     }
     let calls = Calls::of(&[("xtask/src/a.rs".to_string(), text)]).unwrap();
     let io: BTreeSet<&str> = calls.io.iter().map(|(_, f)| f.as_str()).collect();
-    let mut expected: BTreeSet<String> = ["by_status", "by_output", "by_spawn", "by_command"]
-        .map(String::from)
-        .into();
+    let mut expected: BTreeSet<String> = [
+        "by_status",
+        "by_output",
+        "by_spawn",
+        "by_command",
+        "by_env",
+        "by_fs_module",
+        "by_is_file",
+        "by_is_dir",
+        "by_exists",
+    ]
+    .map(String::from)
+    .into();
     expected.extend(IO_CALLS.map(|name| format!("by_{name}")));
     assert_eq!(io, expected.iter().map(String::as_str).collect());
     assert!(calls.io.iter().all(|(file, _)| file == "xtask/src/a.rs"));
