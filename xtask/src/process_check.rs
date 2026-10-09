@@ -14,9 +14,9 @@
 
 use crate::fsutil::tracked_files;
 use anyhow::{bail, Result};
-use proc_macro2::{Delimiter, TokenStream, TokenTree};
+use proc_macro2::{Delimiter, Span, TokenStream, TokenTree};
 use regex::Regex;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use syn::punctuated::Punctuated;
 use syn::visit::Visit;
@@ -87,12 +87,13 @@ impl Rule {
     }
 }
 
-/// One banned site: the file, its 1-based line, the innermost enclosing item (a function, a constant or a static; `-`
-/// outside any), and the rule.
+/// One banned site: the file, its 1-based line and column (two calls on one line are two sites), the innermost enclosing
+/// item (a function, a constant or a static; `-` outside any), and the rule.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Finding {
     pub file: String,
     pub line: usize,
+    pub column: usize,
     pub item: String,
     pub rule: Rule,
 }
@@ -134,48 +135,95 @@ fn scope(file: &str) -> Scope {
     }
 }
 
-/// The `use` declarations of a file: each local name with the full path that it names, and the glob prefixes.
+/// The `use` declarations of one scope (a file, an inline module or a block): each local name with the path that it names,
+/// and the glob prefixes. A `use` is visible in its own scope and in the scopes inside it.
 #[derive(Default, Debug)]
 struct Uses {
     names: BTreeMap<String, Vec<String>>,
     globs: Vec<Vec<String>>,
+    /// Whether the scope is a module (a file or an inline module), which `self` and `super` name.
+    module: bool,
 }
 
 impl Uses {
-    fn collect(file: &syn::File) -> Uses {
-        struct Collector(Uses);
-        impl<'ast> Visit<'ast> for Collector {
-            fn visit_item_use(&mut self, item: &'ast syn::ItemUse) {
-                add_use_tree(&mut self.0, &mut Vec::new(), &item.tree);
+    /// The `use` declarations among `items`, the direct items of one scope.
+    fn of<'a>(items: impl IntoIterator<Item = &'a syn::Item>, module: bool) -> Uses {
+        let mut uses = Uses {
+            module,
+            ..Uses::default()
+        };
+        for item in items {
+            if let syn::Item::Use(declaration) = item {
+                add_use_tree(&mut uses, &mut Vec::new(), &declaration.tree);
             }
         }
-        let mut collector = Collector(Uses::default());
-        collector.visit_file(file);
-        collector.0
+        uses
     }
+}
 
-    /// The full path of `segments`: the first segment expanded through the `use` names. A single unknown name is tried
-    /// against each glob prefix, and kept as it is when no target rule matches the result.
-    fn resolve(&self, segments: &[String]) -> Vec<String> {
-        let Some((first, rest)) = segments.split_first() else {
-            return Vec::new();
+/// The full path of `segments`, seen from the innermost of `scopes`: the first segment is expanded through its nearest
+/// binding, and the result again from the scope of that binding, until no binding applies (a chain such as `use std::thread
+/// as th; use th::sleep as nap;`). A leading `self` names the nearest module, and a leading `super` the module around it. A
+/// single unknown name is tried against each visible glob prefix, and kept as it is when no target rule matches the result.
+fn resolve(scopes: &[Uses], segments: &[String]) -> Vec<String> {
+    resolve_from(scopes, segments.to_vec(), &mut BTreeSet::new())
+}
+
+/// `resolve` within `scopes`; `seen` holds each binding already expanded (its scope and name), so a cycle ends.
+fn resolve_from(
+    mut scopes: &[Uses],
+    mut path: Vec<String>,
+    seen: &mut BTreeSet<(usize, String)>,
+) -> Vec<String> {
+    let module = |scopes: &[Uses]| scopes.iter().rposition(|scope| scope.module);
+    loop {
+        let Some(first) = path.first().cloned() else {
+            return path;
         };
-        if let Some(full) = self.names.get(first) {
-            let mut path = full.clone();
-            path.extend_from_slice(rest);
+        let visible = match first.as_str() {
+            "self" => module(scopes).map(|at| at + 1),
+            "super" => module(scopes)
+                .and_then(|at| module(&scopes[..at]))
+                .map(|at| at + 1),
+            _ => None,
+        };
+        if let Some(visible) = visible {
+            scopes = &scopes[..visible];
+            path.remove(0);
+            continue;
+        }
+        let binding = scopes
+            .iter()
+            .enumerate()
+            .rev()
+            .find_map(|(at, scope)| scope.names.get(&first).map(|full| (at, full)));
+        let Some((at, full)) = binding else {
+            break;
+        };
+        if !seen.insert((at, first)) {
             return path;
         }
-        if rest.is_empty() {
-            for glob in &self.globs {
-                let mut path = glob.clone();
-                path.push(first.clone());
-                if path_rule(&path).is_some() {
-                    return path;
+        let mut expanded = full.clone();
+        expanded.extend_from_slice(&path[1..]);
+        path = expanded;
+        scopes = &scopes[..=at];
+    }
+    if let [name] = &path[..] {
+        for (at, scope) in scopes.iter().enumerate().rev() {
+            for (index, glob) in scope.globs.iter().enumerate() {
+                if !seen.insert((at, format!("*{index}"))) {
+                    continue;
+                }
+                let mut candidate = glob.clone();
+                candidate.push(name.clone());
+                let candidate = resolve_from(&scopes[..=at], candidate, seen);
+                if path_rule(&candidate).is_some() {
+                    return candidate;
                 }
             }
         }
-        segments.to_vec()
     }
+    path
 }
 
 fn add_use_tree(uses: &mut Uses, prefix: &mut Vec<String>, tree: &syn::UseTree) {
@@ -367,7 +415,8 @@ fn constructor_kind(full: &[String]) -> Option<Kind> {
 
 struct Scan<'a> {
     file: &'a str,
-    uses: &'a Uses,
+    /// The `use` scopes around the current code, the file's own first.
+    scopes: Vec<Uses>,
     in_test: bool,
     items: Vec<String>,
     /// Per function: the local names bound to a value of a known kind.
@@ -376,16 +425,30 @@ struct Scan<'a> {
 }
 
 impl Scan<'_> {
-    fn report(&mut self, line: usize, rule: Rule) {
+    fn report(&mut self, at: Span, rule: Rule) {
         if !self.in_test {
             return;
         }
+        let start = at.start();
         self.findings.push(Finding {
             file: self.file.to_string(),
-            line,
+            line: start.line,
+            column: start.column + 1,
             item: self.items.last().cloned().unwrap_or_else(|| "-".into()),
             rule,
         });
+    }
+
+    /// Visits code inside the `use` scope of `items`.
+    fn with_uses<'a>(
+        &mut self,
+        items: impl IntoIterator<Item = &'a syn::Item>,
+        module: bool,
+        visit: impl FnOnce(&mut Self),
+    ) {
+        self.scopes.push(Uses::of(items, module));
+        visit(self);
+        self.scopes.pop();
     }
 
     fn with_item(&mut self, name: String, test: bool, visit: impl FnOnce(&mut Self)) {
@@ -409,7 +472,7 @@ impl Scan<'_> {
             syn::Expr::Try(attempt) => self.kind(&attempt.expr),
             syn::Expr::Call(call) => match &*call.func {
                 syn::Expr::Path(path) => {
-                    constructor_kind(&self.uses.resolve(&expr_path_segments(path)))
+                    constructor_kind(&resolve(&self.scopes, &expr_path_segments(path)))
                 }
                 _ => None,
             },
@@ -454,7 +517,7 @@ impl Scan<'_> {
                         syn::parse2::<syn::LitStr>(TokenTree::Literal(literal.clone()).into())
                     {
                         if shell_loop(&text.value()) {
-                            self.report(literal.span().start().line, Rule::ShellLoop);
+                            self.report(literal.span(), Rule::ShellLoop);
                         }
                     }
                 }
@@ -465,19 +528,18 @@ impl Scan<'_> {
                     if args.delimiter() != Delimiter::Parenthesis {
                         continue;
                     }
-                    let line = ident.span().start().line;
                     let arg_count = count_args(args.stream());
                     let after_dot = i > 0
                         && matches!(&tokens[i - 1], TokenTree::Punct(p) if p.as_char() == '.');
                     if after_dot {
                         if let Some(rule) = method_rule(&ident.to_string(), arg_count, None) {
-                            self.report(line, rule);
+                            self.report(ident.span(), rule);
                         }
                         continue;
                     }
                     let segments = path_before(&tokens, i);
-                    if let Some(rule) = path_rule(&self.uses.resolve(&segments)) {
-                        self.report(line, rule);
+                    if let Some(rule) = path_rule(&resolve(&self.scopes, &segments)) {
+                        self.report(ident.span(), rule);
                     }
                 }
                 TokenTree::Punct(_) => {}
@@ -576,26 +638,39 @@ impl<'ast> Visit<'ast> for Scan<'_> {
     fn visit_expr_method_call(&mut self, call: &'ast syn::ExprMethodCall) {
         let receiver = self.kind(&call.receiver);
         if let Some(rule) = method_rule(&call.method.to_string(), call.args.len(), receiver) {
-            self.report(call.method.span().start().line, rule);
+            self.report(call.method.span(), rule);
         }
         syn::visit::visit_expr_method_call(self, call);
     }
 
     fn visit_expr_path(&mut self, path: &'ast syn::ExprPath) {
-        if let Some(rule) = path_rule(&self.uses.resolve(&expr_path_segments(path))) {
-            let line = path
-                .path
-                .segments
-                .last()
-                .map_or(0, |last| last.ident.span().start().line);
-            self.report(line, rule);
+        let rule = path_rule(&resolve(&self.scopes, &expr_path_segments(path)));
+        if let (Some(rule), Some(last)) = (rule, path.path.segments.last()) {
+            self.report(last.ident.span(), rule);
         }
         syn::visit::visit_expr_path(self, path);
     }
 
+    fn visit_item_mod(&mut self, module: &'ast syn::ItemMod) {
+        match &module.content {
+            Some((_, items)) => self.with_uses(items, true, |scan| {
+                syn::visit::visit_item_mod(scan, module);
+            }),
+            None => syn::visit::visit_item_mod(self, module),
+        }
+    }
+
+    fn visit_block(&mut self, block: &'ast syn::Block) {
+        let items = block.stmts.iter().filter_map(|stmt| match stmt {
+            syn::Stmt::Item(item) => Some(item),
+            _ => None,
+        });
+        self.with_uses(items, false, |scan| syn::visit::visit_block(scan, block));
+    }
+
     fn visit_lit_str(&mut self, lit: &'ast syn::LitStr) {
         if shell_loop(&lit.value()) {
-            self.report(lit.span().start().line, Rule::ShellLoop);
+            self.report(lit.span(), Rule::ShellLoop);
         }
     }
 
@@ -604,7 +679,8 @@ impl<'ast> Visit<'ast> for Scan<'_> {
     }
 }
 
-/// The findings of one file, or why it could not be parsed (a file that does not parse cannot be proved clean).
+/// The findings of one file, or why it could not be parsed (a file that does not parse cannot be proved clean). Only the
+/// file's own path and attributes tell its test code: `scan_files` adds the test modules that other files declare.
 ///
 /// # Errors
 /// The file does not parse.
@@ -613,23 +689,152 @@ pub fn scan(file: &str, text: &str) -> Result<Vec<Finding>, String> {
     if scope == Scope::Skip {
         return Ok(Vec::new());
     }
-    let parsed = syn::parse_file(text).map_err(|e| {
+    Ok(scan_parsed(file, &parse(file, text)?, scope == Scope::All))
+}
+
+fn parse(file: &str, text: &str) -> Result<syn::File, String> {
+    syn::parse_file(text).map_err(|e| {
         let at = e.span().start();
         format!("{file}:{}:{}: does not parse: {e}", at.line, at.column + 1)
-    })?;
-    let uses = Uses::collect(&parsed);
+    })
+}
+
+/// The findings of a parsed file; with `whole`, all of it is test code.
+fn scan_parsed(file: &str, parsed: &syn::File, whole: bool) -> Vec<Finding> {
     let mut scan = Scan {
         file,
-        uses: &uses,
-        in_test: scope == Scope::All,
+        scopes: vec![Uses::of(&parsed.items, true)],
+        in_test: whole,
         items: Vec::new(),
         locals: vec![Vec::new()],
         findings: Vec::new(),
     };
-    scan.visit_file(&parsed);
+    scan.visit_file(parsed);
     let mut findings = scan.findings;
     findings.sort();
-    findings.dedup();
+    findings
+}
+
+/// A module that a file declares without a body (`mod name;`).
+struct Declared {
+    name: String,
+    line: usize,
+    /// Whether the declaration is test code: a test attribute on it or on an inline module around it.
+    test: bool,
+    /// The file of the module, when it is among the files of the run.
+    file: Option<String>,
+}
+
+/// The modules that `items` declare without a body, recursively through inline modules. `dir` holds the files of the
+/// modules of `items`; `test` tells whether `items` are test code. A `#[path]` is relative to the directory of `file`.
+/// Without `#[path]`, the file is `<dir><name>.rs` or `<dir><name>/mod.rs`, and then, for a crate root such as
+/// `tests/a.rs`, the same beside `file`.
+fn declared_modules(
+    file: &str,
+    items: &[syn::Item],
+    dir: &str,
+    test: bool,
+    files: &BTreeSet<&str>,
+    declared: &mut Vec<Declared>,
+) {
+    use crate::platform_code::{parent_dir, path_attr};
+    for item in items {
+        let syn::Item::Mod(module) = item else {
+            continue;
+        };
+        let name = module.ident.to_string();
+        let test = test || is_test_item(&module.attrs);
+        if let Some((_, inner)) = &module.content {
+            declared_modules(file, inner, &format!("{dir}{name}/"), test, files, declared);
+            continue;
+        }
+        let beside = parent_dir(file);
+        let candidates = match path_attr(&module.attrs) {
+            Some(path) => vec![normalize(&format!("{beside}{path}"))],
+            None => vec![
+                format!("{dir}{name}.rs"),
+                format!("{dir}{name}/mod.rs"),
+                format!("{beside}{name}.rs"),
+                format!("{beside}{name}/mod.rs"),
+            ],
+        };
+        declared.push(Declared {
+            file: candidates.into_iter().find(|c| files.contains(c.as_str())),
+            line: module.ident.span().start().line,
+            name,
+            test,
+        });
+    }
+}
+
+/// `path` without its `.` segments, and with each `..` segment taken out together with the segment before it.
+fn normalize(path: &str) -> String {
+    let mut segments: Vec<&str> = Vec::new();
+    for segment in path.split('/') {
+        match segment {
+            "." => {}
+            ".." if segments.last().is_some_and(|last| *last != "..") => {
+                segments.pop();
+            }
+            _ => segments.push(segment),
+        }
+    }
+    segments.join("/")
+}
+
+/// The findings of `sources` (each file of the run with its text). A module file is test code as a whole when a test
+/// declaration (`#[cfg(test)] mod helpers;`, `#[path]` included) or a file that is test code as a whole declares it, to a
+/// fixed point through the module tree.
+///
+/// # Errors
+/// A file does not parse, or the file of a module that is test code is not among `sources`.
+pub fn scan_files(sources: &BTreeMap<String, String>) -> Result<Vec<Finding>, String> {
+    let files: BTreeSet<&str> = sources.keys().map(String::as_str).collect();
+    let mut parsed = BTreeMap::new();
+    for (file, text) in sources {
+        if scope(file) == Scope::Skip {
+            continue;
+        }
+        let tree = parse(file, text)?;
+        let mut declared = Vec::new();
+        let dir = crate::platform_code::module_dir(file);
+        declared_modules(file, &tree.items, &dir, false, &files, &mut declared);
+        parsed.insert(file.as_str(), (tree, declared));
+    }
+    let mut whole: BTreeSet<&str> = parsed
+        .keys()
+        .copied()
+        .filter(|file| scope(file) == Scope::All)
+        .collect();
+    loop {
+        let mut added = Vec::new();
+        for (file, (_, declared)) in &parsed {
+            let all = whole.contains(file);
+            for module in declared.iter().filter(|module| all || module.test) {
+                match &module.file {
+                    Some(child) if parsed.contains_key(child.as_str()) => {
+                        added.push(child.as_str());
+                    }
+                    Some(_) => {}
+                    None => {
+                        return Err(format!(
+                            "{file}:{}: the file of the test module `{}` is not found",
+                            module.line, module.name
+                        ))
+                    }
+                }
+            }
+        }
+        let before = whole.len();
+        whole.extend(added);
+        if whole.len() == before {
+            break;
+        }
+    }
+    let mut findings = Vec::new();
+    for (file, (tree, _)) in &parsed {
+        findings.extend(scan_parsed(file, tree, whole.contains(file)));
+    }
     Ok(findings)
 }
 
@@ -703,9 +908,10 @@ pub fn judge(findings: &[Finding], allowed: &[Allowed]) -> Vec<String> {
         .iter()
         .map(|finding| {
             format!(
-                "{}:{}: [{}] in `{}`: {}",
+                "{}:{}:{}: [{}] in `{}`: {}",
                 finding.file,
                 finding.line,
+                finding.column,
                 finding.rule.name(),
                 finding.item,
                 finding.rule.advice()
@@ -743,20 +949,18 @@ pub struct Report {
 pub fn check(root: &Path) -> Result<Report> {
     let allow_text = std::fs::read_to_string(root.join(ALLOW_FILE)).unwrap_or_default();
     let allowed = parse_allowlist(&allow_text).map_err(anyhow::Error::msg)?;
-    let mut findings = Vec::new();
-    let mut scanned = 0;
+    let mut sources = BTreeMap::new();
     for file in tracked_files(root)? {
         if scope(&file) == Scope::Skip {
             continue;
         }
-        let Ok(text) = std::fs::read_to_string(root.join(&file)) else {
-            continue;
-        };
-        scanned += 1;
-        findings.extend(scan(&file, &text).map_err(anyhow::Error::msg)?);
+        if let Ok(text) = std::fs::read_to_string(root.join(&file)) {
+            sources.insert(file, text);
+        }
     }
+    let findings = scan_files(&sources).map_err(anyhow::Error::msg)?;
     Ok(Report {
-        scanned,
+        scanned: sources.len(),
         allowed: allowed.len(),
         violations: judge(&findings, &allowed),
     })
