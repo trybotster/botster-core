@@ -350,16 +350,13 @@ fn adopt_all_posts_the_state_of_a_row_whose_create_is_still_running() {
     assert!(w.engine.ready().contains(&Work::Session(sid("own"))));
     w.feed(Input::Run(Work::Session(sid("own"))));
     assert!(w.rows.contains_key(&row_key("own")), "the row is written");
-    w.settle(
-        |ready| {
-            ready
-                .iter()
-                .find(|x| **x == Work::Op(adopt))
-                .or(ready.first())
-                .cloned()
-        },
-        |_| {},
-    );
+    w.settle(|ready| {
+        ready
+            .iter()
+            .find(|x| **x == Work::Op(adopt))
+            .or(ready.first())
+            .cloned()
+    });
     let events = w.engine.poll_events(64);
     let done = events
         .iter()

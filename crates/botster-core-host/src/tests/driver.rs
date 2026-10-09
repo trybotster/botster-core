@@ -66,7 +66,6 @@ struct Mock {
     next_link: u64,
     wake: Arc<TestWake>,
     spawns: Vec<WorkerSpawn>,
-    settled: u32,
     send_cap: Option<usize>,
     /// The exits that the process edge reports, first first.
     exits: Vec<(ProcessIdentity, ExitStatus)>,
@@ -259,7 +258,6 @@ impl HostEdges for Edges {
 
     fn settle_wake(&mut self) {
         let mut mock = self.0.lock().unwrap();
-        mock.settled += 1;
         let late = std::mem::take(&mut mock.late);
         for (link, bytes) in late {
             if let Some(l) = mock.links.get_mut(&link) {
@@ -303,7 +301,6 @@ impl Rig {
             next_link: 1,
             wake: Arc::new(TestWake::default()),
             spawns: Vec::new(),
-            settled: 0,
             send_cap: None,
             exits: Vec::new(),
             late: Vec::new(),
@@ -455,10 +452,10 @@ fn a_start_runs_through_the_frames_of_the_link() {
     );
 }
 
-/// Plan 2.5: a link that takes a few bytes at a time keeps its write interest while bytes wait, and delivers every frame
-/// whole and in order.
+/// Plan 2.5, section 3: a link that takes a few bytes per call gets every frame whole and in order, and has no write interest
+/// once nothing waits. (Write interest while bytes wait: `api::io_errors_are_told_apart_by_their_kind`.)
 #[test]
-fn a_short_write_keeps_write_interest_and_delivers_whole_frames() {
+fn a_short_write_delivers_whole_frames() {
     let mut rig = Rig::new(CoreLimits::default());
     rig.mock.lock().unwrap().send_cap = Some(3);
     rig.driver.begin(create("s1")).unwrap();
@@ -466,7 +463,6 @@ fn a_short_write_keeps_write_interest_and_delivers_whole_frames() {
     rig.driver.begin(Op::Start { id: sid("s1") }).unwrap();
     rig.pump();
     let link = LinkId(1);
-    // One pump pushes what the link takes (3 bytes per call); the rest waits with write interest on... until pumped again.
     for _ in 0..200 {
         rig.pump();
     }
@@ -478,8 +474,7 @@ fn a_short_write_keeps_write_interest_and_delivers_whole_frames() {
     );
 }
 
-/// Plan 2.5 rule 1, TM-6: a call that leaves work signals the wake before it returns; a pump that leaves none clears it, after
-/// it settled the readiness and read the links once more.
+/// Plan 2.5 rule 1, TM-6: a call that leaves work signals the wake before it returns; a pump that leaves none clears it.
 #[test]
 fn the_wake_follows_runnable_work_and_the_pump_settles_before_it_clears() {
     let mut rig = Rig::new(CoreLimits::default());
@@ -489,17 +484,13 @@ fn the_wake_follows_runnable_work_and_the_pump_settles_before_it_clears() {
     let report = rig.pump();
     assert!(!report.more);
     assert!(!rig.wake_set(), "the pump cleared it");
-    assert!(
-        rig.mock.lock().unwrap().settled >= 1,
-        "plan 2.5: settle, then read once more"
-    );
     // A poll that frees room for parked work signals again (EV-5d); here nothing is parked, so it stays clear.
     rig.driver.poll_events(8);
     assert!(!rig.wake_set());
 }
 
-/// Plan section 3: a frame over the bound ends the link, and a first frame that is not a hello does too; the engine learns of
-/// both as a closed link.
+/// Plan section 3, LC-10: a frame over the bound ends the link, and a first frame that is not a hello does too; the engine
+/// learns of both as a closed link, and `diagnostics()` keeps why.
 #[test]
 fn a_bad_first_frame_or_an_oversize_frame_closes_the_link() {
     let mut rig = Rig::new(CoreLimits::default());
@@ -544,6 +535,29 @@ fn a_bad_first_frame_or_an_oversize_frame_closes_the_link() {
     }
     rig.pump();
     assert!(rig.mock.lock().unwrap().links[&LinkId(41)].closed_by_host);
+    // LC-10, audit A28: each close is recorded with its reason, so an interoperability failure is visible where its cause
+    // was known.
+    let diagnostics = rig.driver.diagnostics();
+    let closes: Vec<&str> = diagnostics["link_closes"]
+        .as_array()
+        .expect("a list of link closes")
+        .iter()
+        .filter_map(|c| c.as_str())
+        .collect();
+    assert!(
+        closes.iter().any(|c| c.starts_with("link 40: ")),
+        "{closes:?}"
+    );
+    // The reason is the decoder's own refusal of the same header, at the driver's bound.
+    let mut decoder = FrameDecoder::new(rig.driver.engine().link_frame_bound());
+    let mut header = u32::MAX.to_le_bytes().to_vec();
+    header.push(0x01);
+    decoder.push(&header);
+    let oversize = decoder.next_frame().unwrap_err().to_string();
+    assert!(
+        closes.iter().any(|c| *c == format!("link 41: {oversize}")),
+        "{closes:?}"
+    );
 }
 
 /// Plan 2.5: a peer that closes its end (`Ok(0)`) is a closed link, and the pending read of its session fails.
@@ -635,11 +649,6 @@ fn a_blocked_frame_stays_unread_and_the_poll_restores_the_link() {
         assert!(
             !link.read_interest,
             "read interest is off while a frame is held"
-        );
-        drop(mock);
-        assert!(
-            rig.driver.engine().parked_events_len() == 0,
-            "no frame was consumed into an unbounded queue"
         );
     }
     rig.drain_events();

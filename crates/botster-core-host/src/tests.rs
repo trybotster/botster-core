@@ -75,6 +75,9 @@ pub(crate) fn limits(change: impl FnOnce(&mut CoreLimits)) -> CoreLimits {
     limits
 }
 
+/// The worker protocol number in the hello of the scripted worker.
+pub(crate) const HELLO_PROTOCOL: u8 = 1;
+
 /// What a scripted worker does when the engine speaks to it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Autopilot {
@@ -116,13 +119,25 @@ impl World {
         World::open(config(limits), BTreeMap::new(), BTreeSet::new(), 100)
     }
 
+    /// A handle whose platform offers `feature` too (A2-6).
+    pub fn offering(feature: Feature) -> World {
+        let mut cfg = config(CoreLimits::default());
+        cfg.features.names.insert(feature);
+        World::configured(cfg)
+    }
+
+    /// A handle opened with `cfg`: the features, limits and lists that `open` gives the engine (A2-6, 9B, EV-8).
+    pub fn configured(cfg: EngineConfig) -> World {
+        World::open(cfg, BTreeMap::new(), BTreeSet::new(), 100)
+    }
+
     /// A new handle over the registry and the processes of `earlier` (a host that was dropped, LC-12). The handle reads the
     /// ids of the rows when it opens (ID-1), as `HostDriver::open` does. Its host epoch is above `earlier`'s (DP-8: every
     /// open raises it), and its spawns take pids after `earlier`'s, as the operating system gives no live process's pid to a
     /// new one.
     pub fn over(earlier: &World) -> World {
-        let mut cfg = config(earlier.engine.cfg.limits.clone());
-        cfg.host_epoch = earlier.engine.cfg.host_epoch + 1;
+        let mut cfg = earlier.engine.cfg.clone();
+        cfg.host_epoch += 1;
         World::open(
             cfg,
             earlier.rows.clone(),
@@ -284,7 +299,7 @@ impl World {
                 if self.autopilot == Autopilot::Full {
                     self.inject.push(self.hello_input(
                         &instance,
-                        1,
+                        HELLO_PROTOCOL,
                         token,
                         self.engine.cfg.host_epoch,
                         link,
@@ -399,41 +414,33 @@ impl World {
         }
     }
 
-    /// Runs the first ready work, and tells whether there was any.
-    pub fn step(&mut self) -> bool {
-        match self.engine.ready().into_iter().next() {
-            Some(work) => {
-                self.feed(Input::Run(work));
-                true
-            }
-            None => false,
-        }
-    }
-
-    /// Runs the ready work that `choose` picks, one step at a time, until it picks none; `after` sees the World after each
-    /// step. An engine whose steps make no progress fails the test at the step bound, instead of hanging it.
-    pub fn settle(
-        &mut self,
-        mut choose: impl FnMut(&[Work]) -> Option<Work>,
-        mut after: impl FnMut(&mut Self),
-    ) {
+    /// Runs the ready work that `choose` picks, one step at a time, until it picks none. An engine whose steps make no
+    /// progress fails the test at the step bound, instead of hanging it.
+    pub fn settle(&mut self, mut choose: impl FnMut(&[Work]) -> Option<Work>) {
         let mut guard = 0;
         while let Some(work) = choose(&self.engine.ready()) {
             self.feed(Input::Run(work));
-            after(self);
             guard += 1;
             assert!(guard < 10_000, "the engine does not settle");
         }
     }
 
-    /// One `pump` of a driver with the production policy: the clock, then ready work until none is left.
+    /// One `pump` with no budget and no deferral: the clock, then the first ready work until none is left. Budgets, deferral and
+    /// the order of a seeded scheduler are the driver's, and the driver's own tests prove them (`tests::driver`).
     pub fn pump(&mut self) -> PumpReport {
         self.feed(Input::Clock(self.unix));
-        self.settle(|ready| ready.first().cloned(), |_| {});
+        self.settle(|ready| ready.first().cloned());
         PumpReport {
             more: self.engine.runnable(),
             events_posted: self.engine.take_posted(),
         }
+    }
+
+    /// One `pump` whose scheduler always picks the last ready work: an order that the contract leaves open (OR-3, A5-2), so
+    /// an order that a clause fixes must hold under it too.
+    pub fn pump_last_first(&mut self) {
+        self.feed(Input::Clock(self.unix));
+        self.settle(|ready| ready.last().cloned());
     }
 
     /// Pumps and polls until `event` shows up, and returns the events up to it.
@@ -450,6 +457,25 @@ impl World {
             }
         }
         panic!("the event never came: {seen:?}");
+    }
+
+    /// Pumps and polls until every op of `ops` completed, and returns their results.
+    pub fn complete_all(&mut self, ops: &[OpId]) -> BTreeMap<OpId, OpResult> {
+        let mut results = BTreeMap::new();
+        for _ in 0..50 {
+            self.pump();
+            for event in self.engine.poll_events(64) {
+                if let Event::Completed { op, result } = event {
+                    if ops.contains(&op) {
+                        results.insert(op, result);
+                    }
+                }
+            }
+            if results.len() == ops.len() {
+                return results;
+            }
+        }
+        panic!("not every op completed: {results:?} of {ops:?}");
     }
 
     pub fn complete(&mut self, op: OpId) -> OpResult {
@@ -511,6 +537,19 @@ impl World {
             .worker
             .link
             .expect("the session has a link")
+    }
+
+    /// The request number of the last op that the host sent to the worker of `session`, as the worker read it.
+    pub fn last_request(&self, session: &str) -> u64 {
+        let link = self.link_of(session);
+        self.sent
+            .iter()
+            .rev()
+            .find_map(|(l, m)| match m {
+                HostMsg::Op { req, .. } if *l == link => Some(*req),
+                _ => None,
+            })
+            .expect("an op was sent to the worker")
     }
 
     pub fn identity_of(&self, session: &str) -> ProcessIdentity {
@@ -585,10 +624,6 @@ pub(crate) fn observation(msg: Observation) -> WorkerMsg {
     WorkerMsg::Observed { observation: msg }
 }
 
-pub(crate) fn run_work(world: &mut World, work: Work) {
-    world.feed(Input::Run(work));
-}
-
 mod admission;
 mod boundaries;
 mod driver;
@@ -598,5 +633,5 @@ mod losses;
 mod queue_pressure;
 mod ready;
 mod registry;
-mod review;
+mod remove;
 mod worker_link;
