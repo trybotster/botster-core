@@ -406,10 +406,10 @@ fn an_id_line_is_conf_and_a_lowercase_name() {
 fn the_line_of_a_set_file_names_its_outcome() {
     let texts = |old: Option<&str>, new: Option<&str>| SetTexts {
         path: PENDING.into(),
-        old: old.map(String::from),
-        reviewed: old.map(String::from),
-        base: old.map(String::from),
-        new: new.map(String::from),
+        old: old.map(blob),
+        reviewed: old.map(blob),
+        base: old.map(blob),
+        new: new.map(blob),
     };
     assert_eq!(
         set_line(&texts(None, None)),
@@ -428,18 +428,76 @@ fn the_line_of_a_set_file_names_its_outcome() {
     assert!(!set_line(&texts(None, Some(OLD))).0);
     let (ok, text) = set_line(&texts(Some(OLD), Some(OLD)));
     assert!(ok, "{text}");
-    assert!(
-        text.contains("the pull request removes 0 id lines and the base removes 0 others"),
-        "{text}"
-    );
     let mut f = passing();
     f.set_texts = vec![texts(Some(OLD), Some("conf::x\n"))];
     let report = judge(&f).unwrap_err();
     assert!(
         report.contains(&format!(
-            "FAIL (4) the line-set file {PENDING}: the new head's file"
+            "FAIL (4) the line-set file {PENDING}: the pull request leaves it alone, but the new head does not hold the base's file"
         )),
         "{report}"
+    );
+}
+
+fn blob(text: &str) -> Blob {
+    Blob {
+        mode: REGULAR.into(),
+        text: text.into(),
+    }
+}
+
+/// #190 review F60: an entry that is not a regular `100644` file fails at any of the four commits, also when its text
+/// passes.
+#[test]
+fn a_set_file_that_is_not_a_regular_file_at_any_commit_fails() {
+    let without_b = "# comment\nconf::a\nconf::c\nconf::d\n";
+    let without_d = "# comment\nconf::a\nconf::b\nconf::c\n";
+    let merged = "# comment\nconf::a\nconf::c\n";
+    let good = [blob(OLD), blob(without_b), blob(without_d), blob(merged)];
+    assert!(judge_set(&good[0], &good[1], &good[2], &good[3]).is_ok());
+    let names = [
+        "the reviewed merge base",
+        "the reviewed head",
+        "the new merge base",
+        "the new head",
+    ];
+    for mode in ["100755 blob", "120000 blob", "160000 commit", "040000 tree"] {
+        for at in 0..4 {
+            let mut entries = good.clone();
+            entries[at].mode = mode.into();
+            assert_eq!(
+                judge_set(&entries[0], &entries[1], &entries[2], &entries[3]),
+                Err(format!(
+                    "at {} it is `{mode}`, not a regular file `100644 blob`",
+                    names[at]
+                )),
+                "{mode} at {at}"
+            );
+        }
+    }
+}
+
+/// #190 review R1: a side that leaves the file alone keeps the byte rule, so the other side may make any change, and only
+/// a change on both sides needs the set rule.
+#[test]
+fn a_one_sided_change_needs_only_the_other_sides_file() {
+    let comment = "# a new comment\nconf::a\nconf::b\nconf::c\nconf::d\n";
+    let readded = "# comment\nconf::a\nconf::b\nconf::c\nconf::d\nconf::e\n";
+    let (old, edited, added) = (blob(OLD), blob(comment), blob(readded));
+    assert_eq!(
+        judge_set(&old, &old, &edited, &edited),
+        Ok("the pull request leaves it alone; the new head holds the base's file".into())
+    );
+    assert_eq!(
+        judge_set(&old, &added, &old, &added),
+        Ok("the base leaves it alone; the new head holds the reviewed file".into())
+    );
+    assert!(judge_set(&old, &old, &edited, &old).is_err());
+    assert!(judge_set(&old, &added, &old, &old).is_err());
+    assert_eq!(
+        judge_set(&old, &added, &edited, &added),
+        Err("the pull request is not a pure removal of id lines: it adds or edits the line \"conf::e\"".into()),
+        "a change on both sides needs the set rule"
     );
 }
 
@@ -510,6 +568,50 @@ fn a_real_merge_of_two_flips_of_one_id_fails() {
     assert!(
         report.contains(&format!(
             "FAIL (4) the line-set file {PENDING}: both sides remove conf::b"
+        )),
+        "{report}"
+    );
+}
+
+/// #190 review F60: an unreviewed mode change of the pending file after a passing merge fails condition 4.
+#[test]
+fn a_real_mode_change_of_the_set_file_after_the_merge_fails() {
+    let (repo, reviewed, _) = two_flips("conf::b", "conf::d");
+    repo.git(&["update-index", "--chmod=+x", PENDING]);
+    let new = repo.commit("an unreviewed mode change");
+    let report = check(repo.0.path(), &reviewed, &new, "v1")
+        .unwrap_err()
+        .to_string();
+    assert!(
+        report.contains(&format!(
+            "FAIL (4) the line-set file {PENDING}: at the new head it is `100755 blob`"
+        )),
+        "{report}"
+    );
+}
+
+/// #190 review R1: a pull request that leaves the pending file alone passes when v1 edits a comment in it (as #188 did).
+#[test]
+fn a_real_merge_where_only_the_base_edits_the_set_file_passes() {
+    let repo = Repo(tempfile::tempdir().unwrap());
+    repo.git(&["init", "-q", "-b", "v1"]);
+    std::fs::create_dir(repo.0.path().join("conformance")).unwrap();
+    repo.stage(PENDING, OLD);
+    repo.stage("a.txt", "a\n");
+    repo.commit("base");
+    repo.git(&["checkout", "-q", "-b", "pr"]);
+    repo.stage("a.txt", "a2\n");
+    let reviewed = repo.commit("the reviewed change");
+    repo.git(&["checkout", "-q", "v1"]);
+    repo.stage(PENDING, &OLD.replace("# comment", "# another comment"));
+    repo.commit("v1 edits a comment");
+    repo.git(&["checkout", "-q", "pr"]);
+    repo.git(&["merge", "-q", "--no-edit", "v1"]);
+    let new = repo.git(&["rev-parse", "HEAD"]);
+    let report = check(repo.0.path(), &reviewed, &new, "v1").unwrap();
+    assert!(
+        report.contains(&format!(
+            "PASS (4) the line-set file {PENDING}: the pull request leaves it alone"
         )),
         "{report}"
     );
