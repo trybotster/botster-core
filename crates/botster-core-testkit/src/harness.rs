@@ -186,7 +186,7 @@ impl CoreHarness for TestkitHarness {
     /// The runner dropped the handle's Core (LC-12: its workers and its rows stay). The handle is gone, so a control that
     /// names it is `Bad`; a later `open` of the same directory, under any handle, reaches the rows and the workers again.
     fn drop_handle(&mut self, handle: &str) {
-        self.handle_dirs.remove(handle);
+        self.handles.remove(handle);
     }
 
     /// The controls that the testkit builds (design 6.3, `docs/core-testkit-controls.md`). The others come with the machines
