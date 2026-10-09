@@ -226,14 +226,16 @@ fn attach_refuses_what_it_can_refuse_at_registration() {
             .unwrap_err()
             .error
             .code,
-        ErrorCode::InvalidInput
+        ErrorCode::InvalidInput { field: None }
     );
     assert_eq!(
         attach(&mut w, options("/tmp", None))
             .unwrap_err()
             .error
             .code,
-        ErrorCode::InvalidInput
+        ErrorCode::InvalidInput {
+            field: Some("query_deadline".into())
+        }
     );
     assert!(attach(&mut w, options("/tmp", Some(Duration::from_secs(1)))).is_ok());
     assert_eq!(
@@ -462,7 +464,7 @@ fn a_refused_attach_hands_the_transport_back() {
     assert_eq!(refused.error.code, ErrorCode::UnknownSession);
     assert_eq!(back(refused.transport), Some(Mine(1)));
     let refused = try_attach(&mut w, "s1", "relative", 2).unwrap_err();
-    assert_eq!(refused.error.code, ErrorCode::InvalidInput);
+    assert_eq!(refused.error.code, ErrorCode::InvalidInput { field: None });
     assert_eq!(back(refused.transport), Some(Mine(2)));
     // RouteLimit: fill the routes of the session, then one more.
     let limit = w.engine.limits().routes_per_session;
