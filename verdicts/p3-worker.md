@@ -7213,3 +7213,65 @@ The reviewer changed no product code and ran no tests, builds, measurements, mut
 All earlier findings and verdict rounds remain preserved at their exact heads and scopes.
 
 VERDICT: NOT CLEAN
+
+
+## Round 128 — PR #199 unknown-location correction — 2026-10-09
+
+Reviewed head: `086bd814b72f8bc3730bbb9ed6c5bdd5aaf395a3`.
+Base: `58d6663204b50ce6c42d467e4fd6715ab46145dd`.
+Parent and previous reviewed head: `f2a8237c249ac6f9aa1169dda4db19b7c75bc5c6`, round 127.
+The head contains the current v1 base. The tier remains HIGH under BUILD.md rules 3 and 5.
+Authority: BUILD.md, plan 23b-23e, and R-41 at contracts main c2a04f8.
+The reviewer read the complete one-file correction, full description, exact refs, and completed gate.
+Rounds 126-127 cover the whole change, the cursor correction, and acknowledgement delivery.
+This correction changes only clipboard_selection and its existing pure proof.
+
+### F69 — LOW — Unknown-location selection bypass; CLOSED
+
+clipboard_selection now checks the location first. Other returns None before the function examines any selection string.
+The three known locations retain their defined letters and the precedence of a nonempty program selection.
+The proof checks each known location with absent, empty, and nonempty selection strings.
+It also checks Other with those three forms. The nonempty-string bypass is absent.
+The default gate selects and passes the extended proof at this exact head.
+The unchanged after_step loss branch then sends Observation::Lost for an unknown location.
+The unchanged host post_lost turns that observation into EventsLost with ClipboardWrite in its kinds.
+The binding still answers Other with IO_ERROR. Each acknowledgement still enters its own reply transaction.
+This satisfies R-41 without a new event, variant, conformance ID, or process fixture.
+The description now states that the location is checked before selection handling.
+P3 reports a red check against the previous function. The reviewer did not run that check.
+
+### Retained whole-change coverage and completed evidence
+
+F67 and F68 remain CLOSED. The wide-character cursor proof and ordered acknowledgement proof remain selected and pass.
+The binding's unknown-location and size decision proof also passes.
+No new package finding is recorded. The earlier launch, model, read, capture, admission, and host coverage remains applicable.
+The unchanged 42 removals retain their source, transcript, replacement-map, and baseline evidence from round 126.
+The selected gate again reports 88 active IDs passed, zero failed.
+The minimum counts remain testkit 30/70 at this head and real 0/70. The base has testkit 28/70.
+Later route, resize, cross-instance token, facts, setter, and oracle_resume duties remain outside this PR's scope.
+
+Log: `~/botster-sessions/gates/botster-core-stage1-p3-capture-snapshot-086bd814-pool-20261009-141545-4327.log`.
+The log names this exact head and base. It runs on msa1, kernel 6.12.111+deb13-amd64.
+All ten CI steps pass. The default tier passes 1103 tests in 5.409 seconds.
+The slow tier passes 249 tests in 10.129 seconds. Existing real-PTY and test-parent-death proofs remain selected.
+Signals scan 163 Rust files. Timers scan 147 Rust files.
+The ledger retains 675 IDs: 583 pending, two deferred, two withdrawn, and 88 active.
+The report retains 526 pending and 57 without transcripts.
+Both mutation runs test 70 mutants: 62 caught, eight unviable, zero missed, and zero timeouts.
+The separate command uses NEXTEST_PROFILE=slow and records a 20-second mutation timeout.
+The fuzz step passes. Full CI takes 261.0 seconds; separate mutants take 81.4 seconds.
+The gate exits 0 after 349 seconds. The reviewer read completed evidence and ran no gate.
+
+### Verdict and retained scope
+
+PR #199 is CLEAN at `086bd814b72f8bc3730bbb9ed6c5bdd5aaf395a3` for the P3 package review.
+F67, F68, and F69 are CLOSED. No package finding remains on this PR.
+Integration still requires its own exact-head verdict. No third NOT CLEAN round or round-limit notice is needed.
+F39 remains OPEN for #163's guard merge change and its registration and anchor-owner wait bounds.
+This PR changes no guard wait or registration wait. Its terminal-model PR B does not close that earlier guard/reaping Part B duty.
+#198 retains round 125 CLEAN and its merge at 58d66632. #192 retains F61/F62 and its last exact-head verdict.
+The accepted bounded-accept carry remains with #181, which lands second after #198.
+The reviewer changed no product code and ran no tests, builds, measurements, mutants, or gates.
+All earlier findings and verdict rounds remain preserved at their exact heads and scopes.
+
+VERDICT: CLEAN
