@@ -113,23 +113,29 @@ pub(crate) struct World {
 
 impl World {
     pub fn new(limits: CoreLimits) -> World {
-        World::open(limits, BTreeMap::new(), BTreeSet::new())
+        World::open(config(limits), BTreeMap::new(), BTreeSet::new(), 100)
     }
 
     /// A new handle over the registry and the processes of `earlier` (a host that was dropped, LC-12). The handle reads the
-    /// ids of the rows when it opens (ID-1), as `HostDriver::open` does.
+    /// ids of the rows when it opens (ID-1), as `HostDriver::open` does. Its host epoch is above `earlier`'s (DP-8: every
+    /// open raises it), and its spawns take pids after `earlier`'s, as the operating system gives no live process's pid to a
+    /// new one.
     pub fn over(earlier: &World) -> World {
+        let mut cfg = config(earlier.engine.cfg.limits.clone());
+        cfg.host_epoch = earlier.engine.cfg.host_epoch + 1;
         World::open(
-            earlier.engine.cfg.limits.clone(),
+            cfg,
             earlier.rows.clone(),
             earlier.alive.clone(),
+            earlier.next_pid,
         )
     }
 
     fn open(
-        limits: CoreLimits,
+        cfg: EngineConfig,
         rows: BTreeMap<String, Vec<u8>>,
         alive: BTreeSet<ProcessIdentity>,
+        next_pid: u32,
     ) -> World {
         #[allow(clippy::disallowed_methods)] // a test starts the injected clock at a real instant
         let start = Instant::now();
@@ -139,7 +145,7 @@ impl World {
             .map(sid)
             .collect();
         World {
-            engine: HostEngine::new(config(limits), registry_ids),
+            engine: HostEngine::new(cfg, registry_ids),
             now: start,
             unix: 1_000_000,
             rows,
@@ -156,7 +162,7 @@ impl World {
             spawned: BTreeMap::new(),
             alive,
             identities: BTreeMap::new(),
-            next_pid: 100,
+            next_pid,
             next_link: 1,
             random: 1,
             inject: Vec::new(),
@@ -276,8 +282,13 @@ impl World {
                     result: Ok(identity),
                 });
                 if self.autopilot == Autopilot::Full {
-                    self.inject
-                        .push(self.hello_input(&instance, 1, token, 7, link));
+                    self.inject.push(self.hello_input(
+                        &instance,
+                        1,
+                        token,
+                        self.engine.cfg.host_epoch,
+                        link,
+                    ));
                 }
             }
             Action::SendHello { link, hello } => self.hellos.push((link, hello)),
