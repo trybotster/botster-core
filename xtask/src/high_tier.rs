@@ -178,9 +178,13 @@ mod tests {
     fn the_repository_list_has_no_problem() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
         let text = std::fs::read_to_string(root.join(LIST)).unwrap();
-        assert_eq!(
-            verdict(&text, &crate::fsutil::walk_files(root)),
-            Vec::<String>::new()
+        // The walk skips dot directories, and `.cargo` holds a listed file (`.cargo/mutants.toml`).
+        let mut files = crate::fsutil::walk_files(root);
+        files.extend(
+            crate::fsutil::walk_files(&root.join(".cargo"))
+                .into_iter()
+                .map(|file| format!(".cargo/{file}")),
         );
+        assert_eq!(verdict(&text, &files), Vec::<String>::new());
     }
 }
