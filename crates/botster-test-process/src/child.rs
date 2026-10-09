@@ -188,8 +188,9 @@ impl OwnedChild {
 
 /// Runs `command`, a short-lived tool, to its exit by `deadline`, as `Command::output` does but bounded: stdin is null, and
 /// stdout and stderr are read together until both end. The caller derives `deadline` from an existing bound (for example
-/// `Deadline::cleanup()`). If the output or the exit does not come by the deadline, the child is killed and reaped (the drop
-/// of its `OwnedChild`), and the run fails.
+/// `Deadline::cleanup()`). The tool leads a new process group, and every process of that group ends before the run returns,
+/// on every path (the drop of its group-mode `OwnedChild`): a background child that the tool left is ended too. If the
+/// output or the exit does not come by the deadline, the run fails.
 ///
 /// # Errors
 /// The spawn or a read failed, or the deadline came first (`ErrorKind::TimedOut`, with the output read so far).
@@ -198,7 +199,8 @@ pub fn run_to_completion(command: &mut Command, deadline: Deadline) -> io::Resul
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    let mut child = OwnedChild::spawn(command)?;
+    // The tool leads its own group: the drop ends every process that it started, on every path (BUILD.md testing rule 10).
+    let mut child = OwnedChild::spawn_group(command)?;
     let mut stdout = Bounded::new(child.take_stdout().expect("stdout is piped"));
     let mut stderr = Bounded::new(child.take_stderr().expect("stderr is piped"));
     let late = |what: &str, stderr: &[u8]| {
