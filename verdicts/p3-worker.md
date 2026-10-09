@@ -1,10 +1,10 @@
 # P3 worker review
 
-Current verdict: NOT CLEAN for PR #165 and the separate PR #163 review unit.
+Current verdict: CLEAN for PR #165; NOT CLEAN for the separate PR #163 review unit.
 PR #163 at `40b63dceb6e3f3d7be69a1488ac77eccc121a071` has F28 and F33 OPEN for completed evidence.
-PR #165 at `88faedde845c53b62690a4648045988e63d67dd3` has F39, F47, and F48 OPEN. F45 and F46 are CLOSED.
-F39 is OPEN for #165's real-loop retirement wait and #163's later merge delta.
-Round 88 records the correction delta and the whole guard review. All earlier findings, closures, and rounds remain preserved.
+PR #165 at `9eaea51ccb47230f4ee19e14056c17dfb607a826` has no open package finding. F45 through F48 are CLOSED.
+F39 is CLOSED within #165 and remains OPEN for #163's later merge delta.
+Round 89 records the correction delta and exact-head CLEAN. All earlier findings, closures, and rounds remain preserved.
 F1 through F27 and F29 through F32 remain CLOSED at their recorded heads and scopes.
 F34 records the earlier unsafe PID signals and their source correction at `81ccd17`.
 Each cross-package PR also requires the integration reviewer's exact-head CLEAN and the implementer's landing gate.
@@ -4110,3 +4110,73 @@ The reviewer changed no product code and ran no tests, builds, measurements, mut
 All earlier findings and verdict rounds remain preserved.
 
 VERDICT: NOT CLEAN
+
+
+## Round 89 — Shared guard CLEAN after the whole guard corrections
+
+Reviewed head: `9eaea51ccb47230f4ee19e14056c17dfb607a826`, PR #165, branch `stage1/p3-guard-macos`.
+Base: `144b0234fb632bcbb5176b17c2fe55f3239405df`.
+Reviewed delta: `88faedde..9eaea51c`, two commits, three files.
+The implementer submitted this head in place of the intermediate 7e20c5fa READY.
+The reviewer read both complete commit deltas, the completed exact-head Mac log, and the corrected PR description.
+Round 88's whole guard review supplies the unchanged source review.
+
+### F47 — MEDIUM — CLOSED at 7e20c5fa, retained at 9eaea51c
+
+The PayloadGuard failure fixture now wraps its shell in the existing cleanup::Owned owner.
+Its final status call requires an observed exit within CLEANUP before reaping that fixture child.
+Owned retains cleanup and reaping on assertion failure and panic.
+The independent payload member still owns group cleanup; this change reaps no production-owned payload.
+Both cleanup-failure fixtures remove cat's stdout redirection to /dev/null.
+The blocked member now retains the pipe until its end, so the bounded EOF observation proves the intended process effect.
+The shared FIFO helper remains event-driven and introduces no sleep or polling.
+The completed focused logs at both correction heads show the actual failure proofs passing.
+
+### F39 — LOW — CLOSED within #165 at 9eaea51c
+
+The real-loop retirement wait now derives its outer allowance as 2 * CLEANUP.
+The reason matches Bounded<Driver>: the allowance includes independent cleanup, production completion, and result delivery.
+The inner CLEANUP limit is unchanged.
+The test retains cleanup release before Remove and guard report observation after the driver result.
+The other waits in this file observe writes or exit after a group signal; they do not include the guard's cleanup interval.
+This closes the additional real-loop path from round 88.
+F39 remains OPEN for #163's later merge delta and its bounded guard owner waits.
+
+### F48 — LOW — CLOSED for the corrected PR description at 9eaea51c
+
+The description now explains the payload member's socket report and the two-phase cleanup order.
+It states the no-report exception accurately: a registered group must be proved empty within the cleanup limit.
+It identifies first_line, eof, and Owned as the named bounded fixture observations.
+It separately identifies GroupGuard's direct registration join and anchor wait as the #163 follow-up scope.
+The reviewer checked that #163's current source supplies those bounded wrappers; their merge allowance remains F39's duty.
+The description names the current exact-head focused Mac proof and labels earlier evidence as history.
+It also records the combined #162 landing gate and preserves the Prior art note.
+No source commit followed the description correction.
+
+### Completed evidence
+
+Exact-head log:
+`~/botster-sessions/gates/botster-core-stage1-p3-guard-macos-9eaea51c-pool-20261008-204745-82739.log`.
+The log names head `9eaea51ccb47230f4ee19e14056c17dfb607a826` and base `9ea0c9c22d0d0595a166becbba7f9e8872247c22`.
+Slow clippy with -D warnings and worker prebuild pass.
+The first nextest command passes 168 tests with zero skips in 1.475 seconds.
+The core guard selection passes 15 tests and skips nine other tests in 0.155 seconds.
+The corrected PayloadGuard failure proof passes in all three selected binaries that contain it.
+The real-loop retirement proof passes in 0.157 seconds.
+The parent-death, early-leader, panic, registration, reservation, and report-failure proofs retain passing results.
+The job exits 0 after 11 seconds on Mac.
+The reviewer also read the completed intermediate 7e20c5fa evidence: 168 + 15 pass, exit 0 after 16 seconds.
+These are focused Mac proofs. The combined #162 landing gate still owes Linux compilation and execution.
+
+### Verdict and scope
+
+PR #165 has no open package finding, including LOW, at this exact head.
+F34 through F48 retain their closures within #165 at their recorded correction heads and scopes.
+F39's separate later #163 merge duty remains OPEN.
+PR #163 also retains F28 native mutation evidence and F33 required landing execution.
+This CLEAN does not clear #163, M2a, M2b, the A32/A33 follow-up, or pending conformance IDs.
+The P5 and integration reviews remain separate required reviews.
+The reviewer changed no product code and ran no tests, builds, measurements, mutants, or gates.
+All earlier findings, closures, and verdict rounds remain preserved.
+
+VERDICT: CLEAN
