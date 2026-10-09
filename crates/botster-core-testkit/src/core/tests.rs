@@ -764,7 +764,8 @@ fn settle_partial(core: &mut crate::worker::TestkitCore, start: Instant) -> Vec<
 
 /// LC-12, AD-6, LC-7 (integration finding K1): the handles of one run share one process table. After a drop and a reopen
 /// the earlier handle's worker still runs in the `Sim`; the new handle's identity probe sees it (`Matches`, not a false
-/// `Absent`), its `Remove` of the adopted session kills it, and the remove completes.
+/// `Absent`). A cleaner removed its endpoint, so the adoption is `Lost(WorkerUnreachable)` (DESIGN.md part 1, AD-2), and the
+/// new handle's `Remove` of that session kills the worker, and the remove completes.
 #[test]
 fn a_reopened_handle_sees_and_ends_the_worker_of_the_earlier_handle() {
     let start = Instant::now();
@@ -836,9 +837,15 @@ fn a_reopened_handle_sees_and_ends_the_worker_of_the_earlier_handle() {
         IdentityState::Matches,
         "LC-12: the worker outlives its handle"
     );
+    assert!(workers.unlink_endpoint("h", &session));
     let mut second = open(&mut dirs);
     let adopt = second.begin(Op::AdoptAll).unwrap();
     let mut events = settle_partial(&mut second, start);
+    assert_eq!(
+        second.get(&session).unwrap().state,
+        SessionState::Lost(LostReason::WorkerUnreachable),
+        "a missing endpoint is never repaired (DESIGN.md part 1)"
+    );
     let remove = second
         .begin(Op::Remove {
             id: session.clone(),
