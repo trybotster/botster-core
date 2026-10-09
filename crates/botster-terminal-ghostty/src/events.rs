@@ -97,9 +97,13 @@ pub struct ClipboardWrite {
     /// Every representation, in the model's order. `Some(vec![])` clears the destination, which is not the same as one
     /// entry with empty bytes. `None` when `too_large`: the bytes are not kept.
     pub contents: Option<Vec<ClipboardEntry>>,
-    /// The sum of the byte lengths of all representations.
+    /// The sum of the byte lengths of all representations. For a write that the model did not keep, the decoded size of
+    /// the whole transaction, as the model counted it (R-32): every decoded byte, including a representation that a later
+    /// chunk of the same MIME type replaced.
     pub total_bytes: u64,
-    /// `total_bytes` was over the limit, and the model got IO_ERROR.
+    /// The write is over the limit (Core A14-2): the model did not keep it, because its decoded size is over the
+    /// model's limit, which is the same limit (step 1, R-32), or its contents size is over the limit (step 2). The model
+    /// got IO_ERROR. `total_bytes` is the size of the step that decided.
     pub too_large: bool,
 }
 
@@ -322,13 +326,22 @@ pub(crate) unsafe extern "C" fn on_clipboard_write(
             // SAFETY: `contents` points at `contents_len` entries.
             unsafe { std::slice::from_raw_parts(request.contents, request.contents_len) }
         };
-    // SAFETY: each entry's strings are valid for the callback.
-    let total_bytes: u64 = entries
-        .iter()
-        .map(|e| unsafe { e.data.bytes() }.len() as u64)
-        .sum();
+    // A write over the model's own transaction limit (R-32) carries no contents, only its length. The fields follow
+    // `terminator`, so they are read only when `size` covers them.
+    let model_too_large = request.size
+        >= std::mem::offset_of!(sys::ClipboardWrite, total_len) + std::mem::size_of::<u64>()
+        && request.too_large;
+    let total_bytes: u64 = if model_too_large {
+        request.total_len
+    } else {
+        // SAFETY: each entry's strings are valid for the callback.
+        entries
+            .iter()
+            .map(|e| unsafe { e.data.bytes() }.len() as u64)
+            .sum()
+    };
     let limit = shared(userdata).clipboard_limit;
-    let too_large = total_bytes > limit as u64;
+    let too_large = model_too_large || total_bytes > limit as u64;
     let contents = (!too_large).then(|| {
         entries
             .iter()
@@ -352,8 +365,8 @@ pub(crate) unsafe extern "C" fn on_clipboard_write(
     };
 
     // The reply must come before the callback returns, and a return without one denies the write. The binding decides
-    // here, by size alone (A13-1b): SUCCESS within the limit, IO_ERROR over it. It never answers DENIED, UNSUPPORTED or
-    // BUSY. The model writes the OSC 5522 acknowledgement while it handles the reply; it is captured, not written.
+    // here, by size alone (A13-1b): SUCCESS within the limit, IO_ERROR over it or over the model's own limit. It never
+    // answers DENIED, UNSUPPORTED or BUSY. The model writes the OSC 5522 acknowledgement while it handles the reply; it is captured, not written.
     let reply = sys::ClipboardWriteReply {
         size: std::mem::size_of::<sys::ClipboardWriteReply>(),
         result: if too_large {
