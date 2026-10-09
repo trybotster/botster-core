@@ -85,31 +85,6 @@ fn settle(core: &mut dyn CoreApi, at: Instant) {
     panic!("the host did not settle");
 }
 
-/// Pumps until the host has no runnable work, and returns the sessions of the `Output` activity events on the way.
-fn output_activity(core: &mut dyn CoreApi, at: Instant) -> Vec<SessionId> {
-    let mut seen = Vec::new();
-    for _ in 0..PUMPS {
-        let report = core.pump(Now {
-            monotonic: at,
-            unix: 1_000_000,
-        });
-        for event in core.poll_events(64) {
-            if let Event::Activity {
-                id,
-                source: ActivitySource::Output,
-                ..
-            } = event
-            {
-                seen.push(id);
-            }
-        }
-        if !report.more {
-            return seen;
-        }
-    }
-    panic!("the host did not settle");
-}
-
 /// The output bytes of the payload of `s1` on `a` that the worker has not read.
 fn unread(harness: &TestkitHarness) -> usize {
     let row = session_row(harness, "a", &sid("s1")).unwrap();
@@ -124,19 +99,19 @@ fn bad(result: Result<Value, ControlError>) -> bool {
     matches!(result, Err(ControlError::Bad(_)))
 }
 
-/// Core ST-1, OU-7, 6.2: the bytes of `pty_output` are the payload's output. The worker reads all of them, in reads that
-/// the seed sizes, and the host reports the session's `Output` activity. Without the control, a `hold` program writes
-/// nothing, and no activity comes. (The in-process worker serves no terminal read before M2, so the testkit cannot read
-/// the bytes back from the terminal yet.)
+/// Core ST-1, OU-7: the bytes of `pty_output` are the payload's output, and the worker reads all of them, in reads that
+/// the seed sizes. Without the control, a `hold` program writes nothing. (The M1 worker reports no output to the host and
+/// serves no terminal read, so the testkit cannot see the bytes past the worker's read yet.)
 #[test]
-fn pty_output_is_read_by_the_worker_and_reported_as_output_activity() {
+fn pty_output_bytes_are_read_by_the_worker() {
     for seed in 0..8 {
         let mut harness = TestkitHarness::new(seed);
         let (mut core, at) = session(&mut harness, true);
+        settle(core.as_mut(), at);
         assert_eq!(
-            output_activity(core.as_mut(), at),
-            Vec::<SessionId>::new(),
-            "seed {seed}"
+            unread(&harness),
+            0,
+            "seed {seed}: the program printed nothing"
         );
         for part in ["68656c", "6c6f"] {
             assert_eq!(
@@ -153,11 +128,7 @@ fn pty_output_is_read_by_the_worker_and_reported_as_output_activity() {
             5,
             "seed {seed}: the five bytes wait for the worker"
         );
-        let seen = output_activity(core.as_mut(), at);
-        assert!(
-            !seen.is_empty() && seen.iter().all(|id| *id == sid("s1")),
-            "seed {seed}: {seen:?}"
-        );
+        settle(core.as_mut(), at);
         assert_eq!(
             unread(&harness),
             0,
@@ -171,6 +142,11 @@ fn pty_output_is_read_by_the_worker_and_reported_as_output_activity() {
 fn pty_output_wakes_the_idle_host() {
     let mut harness = TestkitHarness::new(0);
     let (mut core, at) = session(&mut harness, true);
+    // #194: a wait on an idle host may give a seeded spurious `Woken` unless the test arms `no_spurious_wakes`.
+    assert_eq!(
+        harness.control("a", "no_spurious_wakes", &json!({})),
+        Ok(Value::Null)
+    );
     settle(core.as_mut(), at);
     let wake = core.wake_handle();
     assert_eq!(
@@ -196,6 +172,11 @@ fn pty_output_wakes_the_idle_host() {
 fn only_a_release_of_pty_blocked_wakes_the_idle_host() {
     let mut harness = TestkitHarness::new(0);
     let (mut core, at) = session(&mut harness, true);
+    // #194: a wait on an idle host may give a seeded spurious `Woken` unless the test arms `no_spurious_wakes`.
+    assert_eq!(
+        harness.control("a", "no_spurious_wakes", &json!({})),
+        Ok(Value::Null)
+    );
     settle(core.as_mut(), at);
     let wake = core.wake_handle();
     assert_eq!(
