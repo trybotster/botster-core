@@ -532,6 +532,8 @@ fn arguments_are_counted_by_their_commas() {
     assert_eq!(count("a, b"), 2);
     assert_eq!(count("a, b,"), 2);
     assert_eq!(count("f(a, b), c"), 2);
+    // Only a comma separates: another punctuation mark is part of its argument.
+    assert_eq!(count("a.len() + 1"), 1);
 }
 
 #[test]
