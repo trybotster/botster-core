@@ -32,6 +32,11 @@ reserve is unreaped, the group exists and its id cannot be reused (POSIX, "Proce
 its reserve, by that exact pid. Production keeps every reaping of its own children (ruling item 11):
 `the_guard_ends_the_group_and_production_still_reaps_its_own_child` proves it.
 
+No group signal goes to group 1: a signal to the group of pid 1 is `kill(-1, ...)`, which reaches every process that the
+caller may signal. Every group signal takes its target from `platform::signal_target`, which refuses 1. In the #171 round 2
+mutation run, the mutant `OwnedChild::id -> 1` put a test's production process into group 1, and the cleanup then ended
+every process of the gate's container (exit 137).
+
 ### Every wait after an exit is bounded (#171 TP1)
 
 An exit event does not prove that the status is available: XNU's `proc_exit` posts `NOTE_EXIT`, then makes the child a
