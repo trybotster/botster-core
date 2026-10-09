@@ -7,8 +7,10 @@
 
 use botster_core_contract::prelude::Feature;
 
+pub mod drain;
 pub mod worker;
 
+pub use drain::Drain;
 pub use worker::{Action, Input, PayloadSpec, SpawnFailure, Worker, WorkerConfig};
 
 /// The worker protocol number `T` of this Core. The first v1 worker protocol number is 1.
