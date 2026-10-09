@@ -541,14 +541,14 @@ impl HostEngine {
             }),
             Observation::ClipboardWrite {
                 selection,
-                bytes,
+                contents,
                 total_bytes,
                 reason,
             } => self.queue.post_droppable(Event::ClipboardWrite {
                 id: sid,
                 instance,
                 selection,
-                bytes: bytes.map(botster_route_codec::prelude::HexBytes),
+                contents,
                 total_bytes,
                 reason,
             }),

@@ -1,6 +1,12 @@
 # conf::a2_8_*: Core and TestkitCore use the pinned libghostty identity; real-harness proof remains pending.
 # conf::st_6b_*: oracle helpers exist; real Core dispatch and capture paging await P3.
 # conf::st_6b_resume_invariant_holds_at_every_byte_offset_of_a_corpus_with_partial_escape_sequences: fit evidence awaits P3 M2b worker paging (R-30).
+# conf::a14_*: A14: P3 worker (M2b) + fork binding (option 39).
+# conf::a16_1_*: A16: P7 services.
+# conf::a15_1_host_key_text_over_the_bound_is_invalid_input_sync: A15: P1 lifecycle (host check; owners.py), worked by P5.
+# conf::a15_1_key_text_at_the_bound_is_admitted: A15: P3 (worker).
+# conf::a15_1_key_text_bound_out_of_range_is_invalid_config: A15: P1 lifecycle (limits; owners.py), worked by P5.
+# conf::a15_1_route_key_text_over_the_bound_is_too_large: A15: P4a (route).
 conf::a10_1_wrong_instance_is_never_signalled
 conf::a10_1_wrong_token_is_never_signalled
 conf::a10_2_corrupted_row_is_lost_registry_corrupt
@@ -18,6 +24,27 @@ conf::a13_1b_one_acknowledgement_with_an_answering_client
 conf::a13_1b_one_acknowledgement_with_no_client
 conf::a13_1b_over_bound_is_io_error
 conf::a13_1b_success_with_no_host_and_a_full_event_queue
+conf::a14_1_alias_counts_in_the_contents_size_only
+conf::a14_1_replaced_region_counts_in_the_decoded_size
+conf::a14_2_alias_over_the_bound_is_too_large_with_the_contents_size
+conf::a14_2_over_decoded_limit_with_an_alias_reports_the_decoded_size
+conf::a14_2_replacement_over_the_bound_is_too_large_with_the_decoded_size
+conf::a14_2_too_large_total_bytes_is_over_the_bound
+conf::a14_2_within_bound_posts_contents_and_success
+conf::a14_3_configured_bound_decides_not_the_model_default
+conf::a14_3_over_bound_write_reaches_the_worker_with_its_decoded_size
+conf::a14_3_write_at_exactly_the_bound_is_carried
+conf::a15_1_host_key_text_over_the_bound_is_invalid_input_sync
+conf::a15_1_key_text_at_the_bound_is_admitted
+conf::a15_1_key_text_bound_out_of_range_is_invalid_config
+conf::a15_1_route_key_text_over_the_bound_is_too_large
+conf::a16_1_epoch_exhausted_stop_posts_exited
+conf::a16_1_guardian_lost_after_a_recorded_exit_keeps_the_exit
+conf::a16_1_guardian_lost_during_stop_completes_lost
+conf::a16_1_guardian_lost_stop_posts_completed_but_no_service_state
+conf::a16_1_lost_result_carries_payload_may_remain
+conf::a16_1_stop_epoch_exhausted_service_runs_sv_9_and_completes_exited
+conf::a16_1_stop_guardian_lost_service_completes_lost_and_sends_no_signal
 conf::a2_1_adopt_completes_ok_with_the_state_it_reached
 conf::a2_1_adoptall_twice_is_wrong_state
 conf::a2_1_attach_state_rules

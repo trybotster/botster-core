@@ -1000,15 +1000,18 @@ fn each_observation_becomes_its_event_and_updates_the_cache() {
         &mut w,
         Observation::ClipboardWrite {
             selection: "c".into(),
-            bytes: Some(vec![1, 2]),
+            contents: Some(vec![ClipboardContent {
+                mime: "text/plain".into(),
+                bytes: botster_route_codec::prelude::HexBytes(vec![1, 2]),
+            }]),
             total_bytes: 9,
             reason: Some(ClipboardReason::TooLarge),
         },
     );
     assert!(matches!(
         &events[..],
-        [Event::ClipboardWrite { selection, bytes: Some(b), total_bytes: 9, reason: Some(ClipboardReason::TooLarge), .. }]
-            if selection == "c" && b.0 == vec![1, 2]
+        [Event::ClipboardWrite { selection, contents: Some(c), total_bytes: 9, reason: Some(ClipboardReason::TooLarge), .. }]
+            if selection == "c" && c.len() == 1 && c[0].mime == "text/plain" && c[0].bytes.0 == vec![1, 2]
     ));
     let events = say(&mut w, Observation::Writable);
     assert!(matches!(&events[..], [Event::SessionWritable { .. }]));
