@@ -761,9 +761,13 @@ mod slow_tests {
         let (mut edges, tmp) = edges();
         let mut client = connect(&tmp);
         let link = accept(&mut edges);
-        client.write_all(b"abc").unwrap();
         edges.settle_wake();
         assert_eq!(edges.wake.wait(Duration::ZERO), Wake::TimedOut);
+        // A change that the poll takes does not wake the host (the link has nothing to read yet).
+        edges.set_read_interest(link, true);
+        assert_eq!(edges.wake.wait(Duration::ZERO), Wake::TimedOut);
+        client.write_all(b"abc").unwrap();
+        edges.settle_wake();
         let io = edges.streams.get_mut(&link).expect("accepted");
         edges.wake.registry.deregister(&mut io.stream).unwrap();
         edges.set_write_interest(link, true);
@@ -772,6 +776,12 @@ mod slow_tests {
             Wake::Woken,
             "the host pumps and finds the link broken"
         );
+        // A broken link wakes the host again at the next change of its read interest.
+        edges.wake.drain();
+        edges.settle_wake();
+        assert_eq!(edges.wake.wait(Duration::ZERO), Wake::TimedOut);
+        edges.set_read_interest(link, false);
+        assert_eq!(edges.wake.wait(Duration::ZERO), Wake::Woken);
         let mut buf = [0u8; 8];
         let read = edges.link_recv(link, &mut buf).unwrap_err();
         let write = edges.link_send(link, b"x").unwrap_err();
