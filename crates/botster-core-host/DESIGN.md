@@ -159,7 +159,7 @@ Each row is decoded and checked before any connect (vault: "validate before the 
   The table is in memory only; real processes stay under `botster-test-process` (P6's request).
 - `connect_worker` is a method of `HostEdges` (the driver's edge trait), not of the harness trait: the testkit implements
   it on its edges, and `RealEdges` implements it in `botster-core`. `RealCoreHarness` needs no change for it (agreed with
-  P6, who owns the Sim changes' review but not their code).
+  P6: P5 codes the Sim changes).
 
 ### 7. The worker side (cross-package: P3's machine and binary)
 
