@@ -60,3 +60,12 @@ lock. This reviewer does not count it, because the transcript drops the handle a
 exception is visible on the record.
 
 VERDICT: NOT CLEAN at 539a4c7b211b9f116434ae6fb6d9b27057154707 (2 open: H1 LOW, H2 LOW)
+
+### Ruling after the addendum (P5's question): lc_2 goes back to pending
+
+P5 restored `conf::lc_2_data_dir_is_exclusive` to `core-pending.txt` (`3f9ca34e`, 19 removals) before the addendum arrived,
+and asked for a ruling. This reviewer rules for that change. The map makes `lc_2` real-only because the lock "is released
+when the process dies". The drop test proves the real `flock` and its release at the drop, but no process that holds the
+lock ends in it. So the test is not the full real proof, and the addendum's "no id must go back" was too lenient. `lc_2`
+leaves pending when a real test ends a process that holds the lock. H2 closes with `lc_2` back in pending. The new head
+gets its own round.
