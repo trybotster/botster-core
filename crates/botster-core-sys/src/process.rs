@@ -15,8 +15,8 @@ use std::os::unix::process::{CommandExt, ExitStatusExt};
 use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Condvar, Mutex};
 
-/// The start time of `pid` in the unit of the platform, or `None` when no such process exists. Only equality has a meaning
-/// (AD-6).
+/// The start time of `pid` in the unit of the platform (microseconds since the Unix epoch on macOS, clock ticks since boot
+/// on Linux), or `None` when no such process exists. Only equality has a meaning (AD-6).
 pub fn start_time(pid: u32) -> Option<u64> {
     #[cfg(target_os = "macos")]
     {
@@ -230,6 +230,21 @@ mod tests {
                 assert_ne!(other, first, "another process has another start time");
             }
         }
+    }
+
+    /// On macOS a start time is in microseconds since the Unix epoch: this process started in the last day, by the clock.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_start_time_on_macos_is_in_microseconds_since_the_epoch() {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        let started = start_time(std::process::id()).unwrap() / 1_000_000;
+        assert!(
+            (now - 86_400..=now).contains(&started),
+            "started {started}, now {now}"
+        );
     }
 
     /// AD-6: an identity matches while the pid and the start time agree, and is `Reused` when the start time differs and

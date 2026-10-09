@@ -421,6 +421,10 @@ exclude_re = [
     # and the microseconds field is below 1_000_000, so the mapping stays one-to-one. The two `*` mutants are killed by
     # a_start_time_on_macos_is_in_microseconds_since_the_epoch.
     'crates/botster-test-process/src/platform/macos\.rs:\d+:\d+: replace \+ with - in start_time$',
+    # core-sys process.rs start_time on macOS, `+` with `-`: equivalent. Only equality has a meaning (AD-6), and the
+    # microseconds field is below 1_000_000, so the mapping stays one-to-one. The two `*` mutants are killed by
+    # a_start_time_on_macos_is_in_microseconds_since_the_epoch (focused Mac run of P6 PR B at d1738933).
+    'crates/botster-core-sys/src/process\.rs:\d+:\d+: replace \+ with - in start_time$',
     # platform/macos.rs await_end and exiting_or_gone: with the guard always true, every kqueue error at the registration
     # reads as "gone". The other errors (ENOMEM, EMFILE for the queue) need a process-wide memory or descriptor limit; a test
     # cannot cause one without breaking the other tests of the process. `gone` stays tested (only_esrch_proves_a_process_gone).
