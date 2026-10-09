@@ -223,3 +223,34 @@ a delta round (the base-merge-check fails condition 2 on that path).
 - PR B: the mutants profile with `--max-fail 1:immediate`. PR C: `run_to_completion`, and `Repo::git` uses it.
 
 VERDICT: CLEAN (0 open) at 414b0ab1e6e3d3ad55da56c87fe2f12f4fe18b32
+
+## Round 4 — NOT CLEAN on head f04c240d
+
+Reviewed head: `f04c240dd96da4fd8e16d46e72197ba09cb5373a`. Delta from round 3's `414b0ab1`: the merge `0842b77e` of v1
+`0f789572` (#175), and `f04c240d` for the P6 package reviewer's TP9. v1 is now `0b684a19` (#174 merged), so another v1
+merge comes before the merge to v1.
+
+- **The merge `0842b77e`.** Its tree (`5bb86b7c`) equals `git merge-tree --write-tree 414b0ab1 0f789572`. No file was
+  changed by hand. The full gate at the merge is green (`…032236-44133.log`).
+- **TP9 (theirs).** `exit_after_polls` ends the macOS `await_end` at the deadline when the polls keep returning EINTR. The
+  decision is pure, with a default-tier test of repeated interruptions, and an `OFF_MACOS_EXCLUSIONS` entry (macOS-only
+  code). The full gate (`…032745-50628.log`) and the Mac run (`…033146-55205.log`, 70 of 70, the macOS mutants 0 missed)
+  are green.
+- **The anchor's report wait** (`anchor.rs:331`, `Err(INTR) => continue`) is bounded: the outer loop checks
+  `deadline.expired()` before each wait (`anchor.rs:304`).
+
+### R2 LOW — two more interrupted-poll loops have no expiry exit (TP9's class)
+
+TP9's fix covers only the macOS `await_end`. Two other loops retry an interrupted poll with no deadline check:
+- `platform/linux.rs:57`, `await_end`: `loop { poll(pidfd, deadline.timespec()) … Err(INTR) => continue }`.
+- `read.rs:76`, `Bounded::fill`: the inner poll loop, `Err(INTR) => continue`. The callers (`line`, `to_eof`) check the
+  deadline only before they call `fill`, not inside its loop.
+
+On Linux, `poll` returns EINTR when a signal is pending and no descriptor is ready, even with a zero timeout (the
+`signal_pending` check in `do_poll` comes before the `timed_out` exit). So a steady stream of signals (for example
+`SIGCHLD` from many children) keeps either loop going after its deadline. The risk is low, but it is the same defect as
+TP9, and BUILD rule 5 asks for a bound on every wait. Fix: the same pattern as `exit_after_polls`: after an EINTR, end at
+the deadline (`Waited::Deadline` and `ReadError` for the deadline). Add a test with repeated interruptions, or route both
+loops through one pure function.
+
+VERDICT: NOT CLEAN (1 open: R2 LOW)
