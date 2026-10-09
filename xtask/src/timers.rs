@@ -318,6 +318,7 @@ pub fn scan_files(files: &[(String, String)]) -> (usize, Vec<String>) {
                 error.span().start().line
             )
         })
+        .chain(tree.rejected.iter().cloned())
         .collect();
     let tests = tree
         .parsed
@@ -550,6 +551,19 @@ mod tests {
                     .to_string(),
                 format!("crates/x/tests/a.rs:2: {UNMARKED}"),
             ]
+        );
+    }
+
+    /// #181 B3 round 3, plan section 8: a `#[path]` on an inline module is a violation that names the form and the file.
+    #[test]
+    fn a_path_on_an_inline_module_is_a_violation() {
+        let files = [
+            file("crates/x/src/lib.rs", "#[cfg(test)]\n#[path = \"alt\"]\nmod checks {\n    #[path = \"support.rs\"]\n    mod helper;\n}\n"),
+            file("crates/x/src/alt/support.rs", "fn f() {}\n"),
+        ];
+        assert_eq!(
+            scan_files(&files).1,
+            ["crates/x/src/lib.rs:2:1: `#[path]` on the inline module `checks` is not a form that the check resolves (plan section 8): give the module its own file, or remove the attribute".to_string()]
         );
     }
 

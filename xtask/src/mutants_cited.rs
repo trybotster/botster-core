@@ -328,6 +328,11 @@ impl Walk<'_> {
                     let mut inner = module.to_vec();
                     inner.push(name.clone());
                     let child_dir = format!("{dir}/{name}");
+                    if let Some(rejection) =
+                        crate::process_check::unlisted_module_form(file, declared)
+                    {
+                        bail!("{rejection}");
+                    }
                     if let Some((_, items)) = &declared.content {
                         self.items(items, file, (&child_dir, true), &inner, &own)?;
                         continue;
@@ -558,6 +563,9 @@ fn defined_names(
             "{path}:{}: does not parse: {error}",
             error.span().start().line
         );
+    }
+    if let Some(rejection) = tree.rejected.first() {
+        bail!("{rejection}");
     }
     let tests = tree
         .parsed

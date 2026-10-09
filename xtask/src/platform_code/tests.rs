@@ -375,3 +375,33 @@ mod linux {
     }
     assert_eq!(derive(&files, "linux").unwrap(), Vec::<String>::new());
 }
+
+/// #181 B8 round 3, plan section 8: a `#[path]` on an inline module is not a listed form, so the derivation fails on every
+/// system (also where a gate hides the module) and names the form and the file. It never derives `alt/shared.rs` as
+/// macOS-only through the Mac declaration while Linux compiles it.
+#[test]
+fn a_path_on_an_inline_module_fails_the_derivation_on_every_system() {
+    let lib = "\
+#[cfg(target_os = \"macos\")]
+#[path = \"alt/shared.rs\"]
+mod mac;
+#[cfg(target_os = \"linux\")]
+#[path = \"alt\"]
+mod linux {
+    #[path = \"shared.rs\"]
+    mod live;
+}
+";
+    let files = [
+        ("src/lib.rs", lib),
+        ("src/alt/shared.rs", "fn a() -> u8 { 1 }\n"),
+        ("src/linux/shared.rs", "fn b() -> u8 { 2 }\n"),
+    ];
+    for os in ["linux", "macos"] {
+        assert_eq!(
+            derive(&files, os).unwrap_err(),
+            ["src/lib.rs:5:1: `#[path]` on the inline module `linux` is not a form that the check resolves (plan section 8): give the module its own file, or remove the attribute"],
+            "{os}"
+        );
+    }
+}

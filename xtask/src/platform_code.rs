@@ -199,6 +199,13 @@ impl Scan<'_> {
 
 impl<'ast> Visit<'ast> for Scan<'_> {
     fn visit_item(&mut self, item: &'ast syn::Item) {
+        // On every system, before a gate can hide the module (plan section 8).
+        if let syn::Item::Mod(module) = item {
+            if let Some(rejection) = crate::process_check::unlisted_module_form(self.file, module) {
+                self.errors.push(rejection);
+                return;
+            }
+        }
         match item {
             syn::Item::Mod(module) if module.content.is_none() => {
                 if gated(module, self.os) {
