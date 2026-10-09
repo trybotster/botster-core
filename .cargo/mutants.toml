@@ -125,8 +125,9 @@ exclude_re = [
     # Driver::drop_link: link_loss_clears_queued_bytes_and_close_is_idempotent checks socket shutdown and queued-byte retirement.
     'crates/botster-worker/src/main\.rs:\d+:\d+: (replace Driver::drop_link( ->| with)|.* in Driver::drop_link$)',
     # M2a PTY write glue: each function makes one OS call (a PTY write, a poll reregister), and its decision is a tested
-    # function of io_decisions (default tier). The real-PTY regression of the glue runs in the slow tier, under the payload
-    # guard of botster-test-process. Lead ruling, 2026-10-08: it passes in the gate before the M2a PTY write path merges.
+    # function of io_decisions (default tier). The real-PTY regression of the glue runs in the slow tier, in both worker
+    # binaries. Its payload starts through the group guard (the anchor) of botster-test-process, and the test owns the worker
+    # as that crate's OwnedChild. Lead ruling, 2026-10-08: it passes in the gate before the M2a PTY write path merges.
     # Driver::write_pty_once: one PTY write of the pending PtyWrite per turn. Its decision:
     # io_decisions::pty_write (a_pty_write_reports_its_result_and_waits_only_when_no_byte_was_taken,
     # in_6_real_pty_cancel_keeps_counts_and_resumes_the_next_write).
