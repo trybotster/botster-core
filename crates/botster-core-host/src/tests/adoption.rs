@@ -265,6 +265,11 @@ fn an_exited_row_with_a_live_worker_adopts_exited_with_its_exit() {
     );
     let events = adopt_all(&mut again);
     assert_eq!(states_of(&events, "s"), vec![recorded]);
+    assert_eq!(
+        again.rows[&row_key("s")],
+        first.rows[&row_key("s")],
+        "the row records this end already"
+    );
 }
 
 /// Steward ruling R-35 (c): a `Stopping` row with no payload ends `Exited{cause: HostStop}` with no code and no signal, and
@@ -564,4 +569,168 @@ fn adopt_is_admitted_only_for_an_indeterminate_lost_session() {
         ErrorCode::WrongState,
         "a retry runs already"
     );
+}
+
+/// Steward ruling R-35 (a), LC-4: a `Starting` row whose worker reports a failed spawn ends as an ordinary failed start, with
+/// no `Launch`, and the end is written.
+#[test]
+fn a_starting_row_with_a_failed_spawn_ends_as_a_failed_start() {
+    let first = crashed_before_launch("s");
+    let mut again = adopting(
+        &first,
+        "s",
+        AdoptedPayload::LaunchFailed {
+            reason: StartFailReason::CwdMissing,
+        },
+    );
+    let events = adopt_all(&mut again);
+    assert_eq!(states_of(&events, "s"), vec![never_ran(ExitCause::Other)]);
+    assert_eq!(launches(&again), 0);
+    let row = Row::decode(&sid("s"), &again.rows[&row_key("s")]).unwrap();
+    assert_eq!(row.state, never_ran(ExitCause::Other));
+}
+
+/// Core AD-1: a `Starting` row whose payload ended meanwhile is adopted `Exited` with the reported code, and the end is
+/// written.
+#[test]
+fn a_starting_row_whose_payload_ended_adopts_exited_and_writes_it() {
+    let first = crashed_before_launch("s");
+    let mut again = adopting(
+        &first,
+        "s",
+        AdoptedPayload::Exited {
+            code: Some(0),
+            signal: None,
+        },
+    );
+    let events = adopt_all(&mut again);
+    let exited = SessionState::Exited(Exit {
+        code: Some(0),
+        signal: None,
+        cause: ExitCause::Normal,
+    });
+    assert_eq!(states_of(&events, "s"), vec![exited]);
+    let row = Row::decode(&sid("s"), &again.rows[&row_key("s")]).unwrap();
+    assert_eq!(row.state, exited);
+}
+
+/// Core AD-1, LC-5: a `Stopping` row whose payload ended is `Exited{cause: HostStop}` with the reported signal.
+#[test]
+fn a_stopping_row_whose_payload_ended_exits_host_stop_with_its_signal() {
+    let mut first = crashed_before_launch("s");
+    rewrite_row(&mut first, "s", |row| row.state = SessionState::Stopping);
+    let mut again = adopting(
+        &first,
+        "s",
+        AdoptedPayload::Exited {
+            code: None,
+            signal: Some(15),
+        },
+    );
+    let events = adopt_all(&mut again);
+    assert_eq!(
+        states_of(&events, "s"),
+        vec![SessionState::Exited(Exit {
+            code: None,
+            signal: Some(15),
+            cause: ExitCause::HostStop,
+        })]
+    );
+}
+
+/// Core AD-2: a link of an adoption that ends before the report leaves the worker indeterminate: `Lost(WorkerUnreachable)`
+/// at once, before the `startup` deadline.
+#[test]
+fn a_link_that_ends_before_the_report_is_unreachable() {
+    let first = crashed_before_launch("s");
+    let mut again = with_endpoint(&first, "s", None);
+    let adopt = again.engine.begin(Op::AdoptAll).unwrap();
+    again.pump();
+    let link = again.link_of("s");
+    again.feed(Input::LinkClosed { link });
+    let events = again.until(|e| matches!(e, Event::Completed { op, .. } if *op == adopt));
+    assert_eq!(
+        states_of(&events, "s"),
+        vec![SessionState::Lost(LostReason::WorkerUnreachable)]
+    );
+}
+
+/// Core AD-2: a worker that ends during its adoption is `Lost(WorkerGone)`.
+#[test]
+fn a_worker_that_ends_during_its_adoption_is_worker_gone() {
+    let first = crashed_before_launch("s");
+    let mut again = with_endpoint(&first, "s", None);
+    let adopt = again.engine.begin(Op::AdoptAll).unwrap();
+    again.pump();
+    let identity = again.identity_of("s");
+    again.feed(Input::ProcessExited {
+        identity,
+        status: ExitStatus::Code(0),
+    });
+    let events = again.until(|e| matches!(e, Event::Completed { op, .. } if *op == adopt));
+    assert_eq!(
+        states_of(&events, "s"),
+        vec![SessionState::Lost(LostReason::WorkerGone)]
+    );
+}
+
+/// Core EV-5b, EV-5d, LC-11: the state of an adopted row waits for queue room; meanwhile the row is no session and
+/// `AdoptAll` does not complete. A poll that frees room lets it post.
+#[test]
+fn an_adopted_state_waits_for_queue_room() {
+    let mut first = crashed_before_launch("a");
+    first.ok(create("b"));
+    first.engine.cfg.limits.mandatory_events = 1;
+    let mut again = adopting(&first, "a", running_payload());
+    let adopt = again.engine.begin(Op::AdoptAll).unwrap();
+    let report = again.pump();
+    assert!(!report.more, "the parked step is not runnable work (TM-6)");
+    assert_eq!(
+        again.engine.get(&sid("a")).unwrap_err().code,
+        ErrorCode::UnknownSession
+    );
+    let first_events = again.engine.poll_events(64);
+    assert_eq!(
+        states(&first_events),
+        vec![("b".to_string(), SessionState::Created)]
+    );
+    let events = again.until(|e| matches!(e, Event::Completed { op, .. } if *op == adopt));
+    assert_eq!(states_of(&events, "a"), vec![SessionState::Running]);
+}
+
+/// Core AD-1, AD-2: a row that recorded its end posts it; a recorded `Lost(Other)`, which Core never writes, and a row with a
+/// worker identity but no token are corrupt records (R-35 correction `c3ed727`). None of them is probed or connected.
+#[test]
+fn recorded_ends_and_inconsistent_rows_post_without_a_handshake() {
+    let mut first = crashed_before_launch("gone");
+    for name in ["other", "tokenless"] {
+        first.ok(create(name));
+        let template = first.rows[&row_key("gone")].clone();
+        let mut row = Row::decode(&sid("gone"), &template).unwrap();
+        row.id = sid(name);
+        first
+            .rows
+            .insert(row_key(name), serde_json::to_vec(&row).unwrap());
+    }
+    rewrite_row(&mut first, "gone", |row| {
+        row.state = SessionState::Lost(LostReason::WorkerGone)
+    });
+    rewrite_row(&mut first, "other", |row| {
+        row.state = SessionState::Lost(LostReason::Other)
+    });
+    rewrite_row(&mut first, "tokenless", |row| row.token = None);
+    let mut again = World::over(&first);
+    let events = adopt_all(&mut again);
+    assert_eq!(
+        states_of(&events, "gone"),
+        vec![SessionState::Lost(LostReason::WorkerGone)]
+    );
+    for name in ["other", "tokenless"] {
+        assert_eq!(
+            states_of(&events, name),
+            vec![SessionState::Lost(LostReason::RegistryCorrupt)],
+            "{name}"
+        );
+    }
+    assert!(again.connects.is_empty());
 }
