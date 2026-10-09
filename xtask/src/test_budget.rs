@@ -166,6 +166,9 @@ pub fn tier_env(slow: bool) -> Vec<(&'static str, &'static str)> {
     }
 }
 
+/// The nextest filter of the slow tier.
+const SLOW_FILTER: &str = "binary(/^slow/) | test(/(^|::)slow_/)";
+
 /// The packages and filter that a tier runs.
 fn selection(options: &Options, meta: &Meta) -> Vec<String> {
     if !options.slow {
@@ -183,9 +186,11 @@ fn selection(options: &Options, meta: &Meta) -> Vec<String> {
         .collect();
     args.push("--features".into());
     args.push(features.join(","));
-    // A slow test is an integration-test target named `slow` or `slow_*`.
+    // A slow test is an integration-test target named `slow` or `slow_*`, or a unit test of any target in a module named
+    // `slow_*` at any depth (nextest matches the whole module path): the real-disk storage of a library, or the real
+    // driver of a binary, which only its own unit tests reach.
     args.push("-E".into());
-    args.push("binary(/^slow/)".into());
+    args.push(SLOW_FILTER.into());
     args
 }
 
@@ -629,7 +634,7 @@ mod tests {
                 "--features",
                 "a/slow,b/slow",
                 "-E",
-                "binary(/^slow/)"
+                "binary(/^slow/) | test(/(^|::)slow_/)"
             ]
         );
     }

@@ -1042,32 +1042,62 @@ fn a_lost_worker_completes_the_pending_op_once() {
         .all(|e| !matches!(e, Event::Completed { op, .. } if *op == read)));
 }
 
-/// Core IN-7, A2-2: a write that was sent and not acknowledged when the link fails is `Unknown`, never a certain zero.
+/// Core IN-7, A2-2, 5.1A: a write that was sent and not acknowledged when the link fails is `Unknown`, never a certain
+/// zero. Its bound is the payload's bytes, or for a key the worst-case sequence over every mode times its repeats, or for
+/// focus the longest focus report.
 #[test]
 fn a_write_in_flight_when_the_link_fails_is_unknown() {
+    let key = KeyInput {
+        key: botster_route_codec::prelude::Key::Char('a'.into()),
+        shifted_key: None,
+        base_layout_key: None,
+        mods: vec![],
+        event: botster_route_codec::prelude::KeyEvent::Press,
+        text: None,
+        repeat: Some(3),
+    };
+    let key_bound =
+        3 * botster_terminal_ghostty::longest_key_sequence(&key, u64::MAX).expect("a key encoder");
     let mut w = World::default();
     w.autopilot = Autopilot::Silent;
     w.running("s1");
-    let write = w
-        .engine
-        .begin(Op::WriteInput {
-            session: sid("s1"),
-            payload: InputPayload::Bytes {
-                bytes: botster_route_codec::prelude::HexBytes(vec![1, 2, 3]),
-            },
-            guard: None,
-        })
-        .unwrap();
+    let mut begin = |payload| {
+        w.engine
+            .begin(Op::WriteInput {
+                session: sid("s1"),
+                payload,
+                guard: None,
+            })
+            .unwrap()
+    };
+    let bytes = begin(InputPayload::Bytes {
+        bytes: botster_route_codec::prelude::HexBytes(vec![1, 2, 3]),
+    });
+    let keys = begin(InputPayload::Key(key));
+    let focus = begin(InputPayload::Focus { focused: true });
     w.pump();
     let link = w.link_of("s1");
     w.feed(Input::LinkClosed { link });
-    match w.complete(write) {
-        OpResult::Ok(OpOutput::Input(r)) => assert_eq!(
-            r.outcome,
-            WriteOutcome::Unknown {
-                max_payload_bytes: 3
+    // Every write completes; one poll can hold several completions, so they are collected together.
+    let mut left = 3;
+    let events = w.until(|e| {
+        if matches!(e, Event::Completed { op, .. } if *op == bytes || *op == keys || *op == focus) {
+            left -= 1;
+        }
+        left == 0
+    });
+    let focus_bound = botster_terminal_ghostty::longest_focus_report(true);
+    assert!(focus_bound > 0);
+    for (write, max_payload_bytes) in [(bytes, 3), (keys, key_bound), (focus, focus_bound)] {
+        let result = events.iter().find_map(|e| match e {
+            Event::Completed { op, result } if *op == write => Some(result),
+            _ => None,
+        });
+        match result {
+            Some(OpResult::Ok(OpOutput::Input(r))) => {
+                assert_eq!(r.outcome, WriteOutcome::Unknown { max_payload_bytes })
             }
-        ),
-        other => panic!("{other:?}"),
+            other => panic!("{other:?}"),
+        }
     }
 }

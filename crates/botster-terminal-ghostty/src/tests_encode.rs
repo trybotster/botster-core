@@ -1043,3 +1043,191 @@ fn a_constructor_result_is_a_handle_only_with_success_and_a_handle() {
     assert!(!encode::created(sys::SUCCESS, std::ptr::null_mut()));
     assert!(!encode::created(sys::OUT_OF_MEMORY, handle));
 }
+
+// ---- the worst case over every mode (5.1A) ----
+
+/// Every key mode that `ModeFlags` can carry, each on and off, with each of the 32 kitty flag combinations.
+fn every_key_mode() -> Vec<ModeFlags> {
+    let others = [
+        "dec_1035",
+        "dec_1036",
+        "dec_67",
+        crate::modes::MODIFY_OTHER_KEYS_2,
+    ];
+    (0u32..1 << 11)
+        .map(|bits| {
+            let on = |bit: u32| bits & (1 << bit) != 0;
+            let mut modes = ModeFlags {
+                application_cursor_keys: on(0),
+                application_keypad: on(1),
+                kitty_flags: (bits >> 6) as u8,
+                ..ModeFlags::default()
+            };
+            for (i, name) in others.iter().enumerate() {
+                modes
+                    .other_modes
+                    .insert((*name).to_owned(), on(2 + i as u32));
+            }
+            modes
+        })
+        .collect()
+}
+
+fn written(result: Result<Vec<u8>, EncodeError>) -> u64 {
+    result.map_or(0, |bytes| bytes.len() as u64)
+}
+
+/// 5.1A: the key bound is the longest sequence that any mode writes, associated text and modifier parameters included.
+/// The explicit-modes path, which gives the terminal's bytes (above), never writes more, and some mode writes exactly
+/// that much.
+#[test]
+fn the_key_bound_is_the_longest_sequence_of_any_mode() {
+    let mut with_text = character('a', &[Modifier::Shift, Modifier::Alt]);
+    with_text.text = Some("Ä€😀".into());
+    with_text.shifted_key = Some(Key::Char("A".into()));
+    with_text.base_layout_key = Some(Key::Char("q".into()));
+    let mut release = named("left_shift", &[Modifier::Shift]);
+    release.event = KeyEvent::Release;
+    let modes = every_key_mode();
+    for input in [
+        with_text,
+        release,
+        named("f35", &[Modifier::Ctrl, Modifier::Meta, Modifier::Hyper]),
+        named("kp_equal", &[Modifier::NumLock, Modifier::CapsLock]),
+        character('[', &[Modifier::Ctrl, Modifier::Super]),
+    ] {
+        let bound = longest_key_sequence(&input, u64::MAX).unwrap();
+        let longest = modes
+            .iter()
+            .map(|m| written(encode_key_with_modes(m, &input)))
+            .max()
+            .unwrap();
+        assert_eq!(bound, longest, "{input:?}");
+    }
+}
+
+/// 5.1A: an Alt key with long text can write the most bytes with some key modes off. On macOS, with every mode on,
+/// the legacy Alt prefix writes ESC and the unshifted key, and the kitty states report no text for Alt; with the Alt
+/// prefix off, the legacy encoding writes all the text. So the bound must cover the states with key modes off.
+#[test]
+fn the_key_bound_of_an_alt_key_with_long_text_covers_the_states_with_modes_off() {
+    let mut input = character('a', &[Modifier::Alt]);
+    input.text = Some("a".repeat(64));
+    let bound = longest_key_sequence(&input, u64::MAX).unwrap();
+    let longest = every_key_mode()
+        .iter()
+        .map(|m| written(encode_key_with_modes(m, &input)))
+        .max()
+        .unwrap();
+    assert!(bound >= 64, "{bound}");
+    assert_eq!(bound, longest);
+}
+
+/// 5.1A: the mouse bound is the longest report of any mouse encoding, on any screen.
+#[test]
+fn the_mouse_bound_is_the_longest_report_of_any_encoding() {
+    let trackings = [
+        MouseTracking::X10,
+        MouseTracking::Normal,
+        MouseTracking::ButtonEvent,
+        MouseTracking::AnyEvent,
+    ];
+    let encodings = [
+        MouseEncoding::X10,
+        MouseEncoding::Utf8,
+        MouseEncoding::Sgr,
+        MouseEncoding::Urxvt,
+        MouseEncoding::SgrPixels,
+    ];
+    let mut pixels = mouse(MouseAction::Press, MouseButton::Right, 2000, 3000);
+    pixels.x = Some(65_535);
+    pixels.y = Some(4_000_000);
+    pixels.mods = vec![Modifier::Shift, Modifier::Alt, Modifier::Ctrl];
+    for input in [
+        pixels,
+        mouse(MouseAction::Wheel, MouseButton::WheelLeft, 100, 200),
+        mouse(MouseAction::Move, MouseButton::None, 5, 5),
+    ] {
+        let mut longest = 0;
+        for tracking in trackings {
+            for encoding in encodings {
+                let modes = mouse_modes(tracking, encoding);
+                for screen in [size(80, 24), size(u32::MAX, u32::MAX)] {
+                    longest =
+                        longest.max(written(encode_mouse_with_modes(&modes, &screen, &input)));
+                }
+            }
+        }
+        assert_eq!(longest_mouse_report(&input), longest, "{input:?}");
+    }
+}
+
+/// 5.1A, IN-9: the focus bound is the report that focus reporting writes.
+#[test]
+fn the_focus_bound_is_the_report_of_focus_reporting() {
+    let reporting = ModeFlags {
+        focus_reporting: true,
+        ..ModeFlags::default()
+    };
+    for focused in [true, false] {
+        let report = encode_focus_with_modes(&reporting, focused).unwrap();
+        assert_eq!(longest_focus_report(focused), report.len() as u64);
+    }
+}
+
+/// 5.1A worst-case bound: under any stop limit below the worst case, the search returns a length over that limit, so a
+/// key over the limit is never admitted with a smaller size; with the worst case as the limit it returns the worst case.
+#[test]
+fn the_key_search_returns_a_length_over_any_limit_below_the_worst_case() {
+    let mut with_text = character('a', &[]);
+    with_text.text = Some("a".into());
+    for input in [
+        named("f5", &[Modifier::Ctrl, Modifier::Shift]),
+        named("arrow_up", &[]),
+        character('a', &[]),
+        with_text,
+    ] {
+        let worst = longest_key_sequence(&input, u64::MAX).unwrap();
+        assert!(worst > 0, "{input:?}");
+        assert_eq!(longest_key_sequence(&input, worst).unwrap(), worst);
+        for limit in 0..worst {
+            let found = longest_key_sequence(&input, limit).unwrap();
+            assert!(found > limit, "{input:?}: {found} at limit {limit}");
+        }
+    }
+}
+
+/// 5.1A: the mouse bound is the report of one notch; the caller multiplies it by the notches.
+#[test]
+fn the_mouse_bound_is_the_report_of_one_notch() {
+    let one = mouse(MouseAction::Wheel, MouseButton::WheelUp, 2, 2);
+    let mut five = one.clone();
+    five.notches = Some(5);
+    let bound = longest_mouse_report(&one);
+    assert!(bound > 0);
+    assert_eq!(longest_mouse_report(&five), bound);
+}
+
+/// 5.1A defines the kitty flags 1, 2, 4, 8 and 16: libghostty reads only those bits, so higher bits of a state's flags
+/// change no byte that it writes.
+#[test]
+fn bits_above_the_five_kitty_flags_change_no_key_bytes() {
+    let mut with_text = character('a', &[Modifier::Shift]);
+    with_text.text = Some("A".into());
+    for input in [
+        with_text,
+        named("f5", &[Modifier::Ctrl]),
+        named("kp_5", &[Modifier::NumLock]),
+    ] {
+        for modes in every_key_mode() {
+            let mut high = modes.clone();
+            high.kitty_flags |= 0b1110_0000;
+            assert_eq!(
+                encode_key_with_modes(&modes, &input).ok(),
+                encode_key_with_modes(&high, &input).ok(),
+                "{input:?} at kitty flags {}",
+                modes.kitty_flags
+            );
+        }
+    }
+}

@@ -23,7 +23,7 @@ use std::ptr::NonNull;
 
 pub use botster_core_contract::prelude::{KeyInput, MouseInput, Size};
 pub use botster_route_codec::prelude::ModeFlags;
-pub use encode::EncodeError;
+pub use encode::{longest_focus_report, longest_key_sequence, longest_mouse_report, EncodeError};
 pub use events::{
     ClipboardEntry, ClipboardLocation, ClipboardWrite, Drained, TerminalEvent, MAX_BUFFERED_BYTES,
     MAX_BUFFERED_EVENTS,
