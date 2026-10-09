@@ -5,6 +5,8 @@
 //! - `botster-worker`: built from this workspace once a package of that name has a binary (P3). Until then nothing is built.
 //! - `botster-conformance-probe`: the program of the real-process tier, built from the pinned botster-contracts tag with
 //!   `cargo install --git`.
+//! - `botster-test-anchor`: the anchor of the group guard (`botster-test-process`), which every real-process test of the slow
+//!   tier finds here.
 
 use crate::fsutil::{metadata, Meta};
 use crate::tools::{cargo, run};
@@ -14,6 +16,8 @@ use std::path::{Path, PathBuf};
 
 const PROBE: &str = "botster-conformance-probe";
 const WORKER: &str = "botster-worker";
+const ANCHOR_PACKAGE: &str = "botster-test-process";
+const ANCHOR: &str = "botster-test-anchor";
 
 /// The git url and the tag of the contracts dependency in the root `Cargo.toml`.
 fn contracts_source(cargo_toml: &str) -> Result<(String, String)> {
@@ -83,6 +87,16 @@ fn build_worker(root: &Path, meta: &Meta, candidate: &Path) -> Result<Option<(St
     Ok(Some((WORKER.to_string(), sha256_hex(&target)?)))
 }
 
+fn build_anchor(root: &Path, meta: &Meta, candidate: &Path) -> Result<(String, String)> {
+    let mut build = cargo(root);
+    build.args(["build", "-p", ANCHOR_PACKAGE, "--bin", ANCHOR, "--locked"]);
+    run(build)?;
+    let built = meta.target_dir.join("debug").join(ANCHOR);
+    let target = candidate.join(ANCHOR);
+    install_executable(&built, &target)?;
+    Ok((ANCHOR.to_string(), sha256_hex(&target)?))
+}
+
 fn build_probe(root: &Path, meta: &Meta, candidate: &Path) -> Result<(String, String)> {
     let (git, tag) = contracts_source(&std::fs::read_to_string(root.join("Cargo.toml"))?)?;
     let install_root: PathBuf = meta.target_dir.join("probe-install");
@@ -116,6 +130,7 @@ pub fn command(root: &Path, args: &[String]) -> Result<()> {
     let _ = std::fs::remove_file(&manifest);
     let mut entries = Vec::new();
     entries.extend(build_worker(root, &meta, &candidate)?);
+    entries.push(build_anchor(root, &meta, &candidate)?);
     entries.push(build_probe(root, &meta, &candidate)?);
     std::fs::write(&manifest, manifest_text(&entries))?;
     println!(
