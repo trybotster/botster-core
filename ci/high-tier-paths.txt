@@ -3,8 +3,9 @@
 # A PR that changes a path below is HIGH. One path or glob per line, then `#` and the rule-5 area with the code that puts it
 # here. A change to this file is gate-decision code (rule 1), so it is HIGH too.
 #
-# Only rule 5 is listed. Rules 1 to 4 (gate code, unsafe/FFI/C ABI, cross-package and shared crates, pins) are decided by
-# the PR itself and need no entry. An entry names the file that holds the risky code, not its whole crate. A file that
+# Only rule 5 is listed, with one exception below. Rules 1 to 4 (gate code, unsafe/FFI/C ABI, cross-package and shared
+# crates, pins) are decided by the PR itself and need no entry. The exception is `.cargo/mutants.toml` (plan revision 23g):
+# no check classifies an I/O shell from source, so each exclusion rests on its reason and on review. An entry names the file that holds the risky code, not its whole crate. A file that
 # decides when or whom to spawn, signal, adopt or reap is listed, not only the file that makes the OS call: the OS wrappers
 # cannot prevent a wrong timing, a missing cleanup or an early reap. The rule-5 area comes before the sans-IO example.
 # `cargo xtask high-tier` (in the taint step) fails on an entry that matches no tracked file or gives no reason.
@@ -43,3 +44,6 @@ crates/botster-core-link/src/launch.rs  # token: how the worker gets its token a
 crates/botster-core-host/src/inbound.rs  # proof check: the host checks the worker's hello proof and answers with its own
 crates/botster-worker-core/src/worker.rs  # proof check: the worker checks the host's proof before it serves the link
 crates/botster-guardian-core/src/link.rs  # proof check: the guardian's hello and its check of the host's proof
+
+# Gate exclusions (plan revision 23g; an exception to "only rule 5").
+.cargo/mutants.toml  # gate exclusions: each whole-body I/O-shell exclusion rests on its reason, its proof citation and review
