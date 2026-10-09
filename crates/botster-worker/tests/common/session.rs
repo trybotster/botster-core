@@ -4,15 +4,18 @@
 //! The integration fixture uses the prebuilt binary. The unit fixture starts a test observer that runs the same Driver.
 //! Mutation tests therefore exercise the changed Driver, not an unchanged candidate binary. Tests never build a worker.
 //! Each test starts its worker itself and speaks the control link with the link's own codec, checking only what the worker
-//! sends. Each worker is an unreaped child of the test. A separate guard ends the payload group on Drop and panic.
-//! The guard keeps a member in the payload session. That member kills its current group on socket EOF.
-//! Production alone reaps the payload. [`OwnedWorker`] ends and reaps the worker. (Real Core with real workers is the real-process harness's suite, plan 4.2.)
+//! sends. Each worker is an unreaped child of the test, in a process group that a test guard owns: the guard's anchor
+//! kills the group when the test ends, even when the test runner is killed and no Drop runs (BUILD.md testing rule 10).
+//! A separate guard ends the payload group on Drop and panic. The guard keeps a member in the payload session. That member
+//! kills its current group on socket EOF. Production alone reaps the payload. [`OwnedWorker`] ends and reaps the worker.
+//! Every wait on a real process has a marked deadline, so a stuck process fails its test (BUILD.md testing rule 5).
+//! (Real Core with real workers is the real-process harness's suite, plan 4.2.)
 //!
 //! Clause: Core EV-4, Core LC-5, Core LC-6, Core LC-7, Core AD-6, Core AD-7.
 #![cfg(feature = "slow")]
 
 #[path = "../../../botster-core-sys/tests/common/payload_guard.rs"]
-mod payload_guard;
+pub(crate) mod payload_guard;
 
 #[path = "../../../botster-core-sys/tests/common/process_guard.rs"]
 mod process_guard;
@@ -29,7 +32,7 @@ use std::io::{BufRead, BufReader, Read, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 #[path = "candidate.rs"]
 mod candidate;
@@ -43,8 +46,51 @@ fn temp_root() -> tempfile::TempDir {
         .expect("a temporary root")
 }
 
+/// The limit of a wait for a real worker or its payload: a connection, a frame, a marker line. Not a contract value.
+pub(crate) const WORKER_WAIT: Duration = Duration::from_secs(20);
+
+/// The limit of a worker's own cleanup: its end after `Remove` or a signal. Not a contract value.
+pub(crate) const WORKER_CLEANUP: Duration = Duration::from_secs(10);
+
+/// Runs a blocking wait on a helper thread. `None` when it has not finished within `limit`; the thread then stays blocked
+/// until the test process ends.
+fn wait_for<T: Send + 'static>(
+    limit: Duration,
+    wait: impl FnOnce() -> T + Send + 'static,
+) -> Option<T> {
+    let (sent, received) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = sent.send(wait());
+    });
+    // timer: deadline — bounds a blocking wait on a real process; the caller names the limit.
+    received.recv_timeout(limit).ok()
+}
+
+/// Runs a blocking wait, and fails the test when it has not finished within `limit`.
+pub(crate) fn within<T: Send + 'static>(
+    limit: Duration,
+    what: &str,
+    wait: impl FnOnce() -> T + Send + 'static,
+) -> T {
+    wait_for(limit, wait).unwrap_or_else(|| panic!("{what} within {limit:?}"))
+}
+
+/// Waits until the child `pid` has ended, without reaping it (`WNOWAIT`): the reap stays with its owner.
+fn observe_exit(pid: rustix::process::Pid) {
+    use rustix::process::{waitid, WaitId, WaitIdOptions};
+    loop {
+        match waitid(
+            WaitId::Pid(pid),
+            WaitIdOptions::EXITED | WaitIdOptions::NOWAIT,
+        ) {
+            Err(rustix::io::Errno::INTR) | Ok(None) => continue,
+            _ => return,
+        }
+    }
+}
+
 /// A FIFO in `root` (external `mkfifo`; the vault's FIFO rule: external commands, never shell builtins, at a FIFO).
-fn fifo(root: &Path, name: &str) -> PathBuf {
+pub(crate) fn fifo(root: &Path, name: &str) -> PathBuf {
     let path = root.join(name);
     let made = Command::new("/usr/bin/mkfifo").arg(&path).status().unwrap();
     assert!(made.success());
@@ -55,51 +101,53 @@ fn fifo(root: &Path, name: &str) -> PathBuf {
 struct OwnedWorker {
     worker: Child,
     payload_guard: Option<PayloadGuard>,
-    observer_guard: Option<process_guard::GroupGuard>,
+    group_guard: Option<process_guard::GroupGuard>,
+}
+
+impl OwnedWorker {
+    fn pid(&self) -> rustix::process::Pid {
+        rustix::process::Pid::from_raw(i32::try_from(self.worker.id()).unwrap()).unwrap()
+    }
+
+    /// The worker's exit status, once it has ended by itself within the cleanup limit.
+    fn wait(&mut self, what: &str) -> std::process::ExitStatus {
+        let pid = self.pid();
+        within(WORKER_CLEANUP, what, move || observe_exit(pid));
+        self.worker.wait().unwrap()
+    }
 }
 
 impl Drop for OwnedWorker {
-    /// Through the worker, never a payload id (lead ruling on P1 F7): while the worker is our unreaped child, `SIGTERM`
-    /// makes it end the payload group that it still holds, then itself.
+    /// The guards end the payload group and the worker's group first, so no cleanup waits on a process that production
+    /// failed to end. The worker is then our unreaped child: a worker that still runs is ended through its own signals,
+    /// never through a payload id (lead ruling on P1 F7), and the reap comes last.
     fn drop(&mut self) {
         drop(self.payload_guard.take());
-        drop(self.observer_guard.take());
+        drop(self.group_guard.take());
         if let Ok(None) = self.worker.try_wait() {
-            if let Some(pid) =
-                rustix::process::Pid::from_raw(i32::try_from(self.worker.id()).unwrap_or(0))
-            {
-                end_child_worker(pid);
-            }
+            end_child_worker(self.pid());
         }
     }
 }
 
 /// Ends a worker that is an unreaped child of this process and of nothing else: `SIGTERM`; `SIGKILL` if it has not ended by
 /// the deadline. The observer only observes the exit (`waitid` with `WNOWAIT`), and nothing else reaps the child, so the
-/// pid stays the worker's through the last signal; the reap comes last.
+/// pid stays the worker's through the last signal; the reap comes last, once the exit is seen. A worker that does not end
+/// even after `SIGKILL` fails the test, or is reported when the test already panics.
 fn end_child_worker(pid: rustix::process::Pid) {
-    use rustix::process::{
-        kill_process, waitid, waitpid, Signal, WaitId, WaitIdOptions, WaitOptions,
-    };
+    use rustix::process::{kill_process, waitpid, Signal, WaitOptions};
     let _ = kill_process(pid, Signal::TERM);
-    let (tx, rx) = std::sync::mpsc::channel();
-    let observer = std::thread::spawn(move || loop {
-        match waitid(
-            WaitId::Pid(pid),
-            WaitIdOptions::EXITED | WaitIdOptions::NOWAIT,
-        ) {
-            Err(rustix::io::Errno::INTR) | Ok(None) => continue,
-            _ => {
-                let _ = tx.send(());
+    if wait_for(WORKER_CLEANUP, move || observe_exit(pid)).is_none() {
+        let _ = kill_process(pid, Signal::KILL);
+        if wait_for(WORKER_CLEANUP, move || observe_exit(pid)).is_none() {
+            let report = format!("the worker {pid:?} did not end after SIGKILL");
+            if std::thread::panicking() {
+                eprintln!("{report}");
                 return;
             }
+            panic!("{report}");
         }
-    });
-    // timer: deadline — the limit of a worker's own cleanup after SIGTERM; not a contract value.
-    if rx.recv_timeout(Duration::from_secs(10)).is_err() {
-        let _ = kill_process(pid, Signal::KILL);
     }
-    let _ = observer.join();
     let _ = waitpid(Some(pid), WaitOptions::empty());
 }
 
@@ -170,37 +218,37 @@ impl Session {
             host_epoch: 1,
             token: [5; 32],
         };
-        let observer_guard = crate::DRIVER_OBSERVER.map(|_| process_guard::GroupGuard::new(root));
-        let mut command = if let Some(observer) = crate::DRIVER_OBSERVER {
-            use std::os::unix::process::CommandExt;
-            let mut command = Command::new("/bin/sh");
-            command.args([
-                "-c",
-                &format!("{}exec \"$@\"", observer_guard.as_ref().unwrap().prefix()),
-                "observer",
-            ]);
+        // The worker runs in its own group, which the guard owns before the worker body starts.
+        let group_guard = process_guard::GroupGuard::new(root);
+        let mut command = Command::new("/bin/sh");
+        command.args([
+            "-c",
+            &format!("{}exec \"$@\"", group_guard.prefix()),
+            "worker",
+        ]);
+        if let Some(observer) = crate::DRIVER_OBSERVER {
             command.arg(std::env::current_exe().unwrap());
             command.args(["--exact", observer, "--nocapture"]);
             command
                 .env_clear()
-                .env("BOTSTER_DRIVER_CONTROL", &launch.control)
-                .process_group(0);
-            command
+                .env("BOTSTER_DRIVER_CONTROL", &launch.control);
         } else {
-            let mut command = Command::new(worker_binary());
+            command.arg(worker_binary());
             command.args(launch.args()).env_clear().envs(launch.env());
-            command
-        };
+        }
+        std::os::unix::process::CommandExt::process_group(&mut command, 0);
         let worker = OwnedWorker {
             worker: command.spawn().unwrap(),
             payload_guard: Some(payload_guard),
-            observer_guard,
+            group_guard: Some(group_guard),
         };
-        let (stream, _) = listener.accept().unwrap();
-        // timer: deadline — the limit of a wait for a real worker's frame; not a contract value.
-        stream
-            .set_read_timeout(Some(Duration::from_secs(20)))
-            .unwrap();
+        let (stream, _) = within(WORKER_WAIT, "the worker connects", move || {
+            listener.accept().unwrap()
+        });
+        // timer: deadline — the limit of a wait for a real worker's frame.
+        stream.set_read_timeout(Some(WORKER_WAIT)).unwrap();
+        // timer: deadline — the limit of a write that a real worker must take.
+        stream.set_write_timeout(Some(WORKER_WAIT)).unwrap();
         let mut link = Link {
             stream,
             decoder: FrameDecoder::new(1 << 20),
@@ -222,7 +270,7 @@ impl Session {
         .unwrap();
         link.send(FrameType::HELLO, &reply);
         link.msg(&HostMsg::Launch(Box::new(LaunchSpec {
-            argv: vec!["/bin/sh".into(), "-c".into(), script.into()],
+            argv: vec!["/bin/sh".into(), "-c".into(), script],
             env: BTreeMap::from([("PATH".to_string(), "/usr/bin:/bin".to_string())]),
             cwd: "/".into(),
             size: Size {
@@ -244,19 +292,14 @@ impl Session {
     }
 
     fn signal_worker(&self, signal: rustix::process::Signal) {
-        rustix::process::kill_process(
-            rustix::process::Pid::from_raw(i32::try_from(self.worker.worker.id()).unwrap())
-                .unwrap(),
-            signal,
-        )
-        .unwrap();
+        rustix::process::kill_process(self.worker.pid(), signal).unwrap();
     }
 
     /// LC-7: `Remove` gives the complete result, and then the worker ends with code 0.
     fn remove(mut self) {
         self.link.msg(&HostMsg::Remove);
         assert!(matches!(self.link.report(), WorkerMsg::RemoveResult { .. }));
-        let status = self.worker.worker.wait().unwrap();
+        let status = self.worker.wait("the worker ends after Remove");
         assert_eq!(
             status.code(),
             Some(0),
@@ -266,11 +309,18 @@ impl Session {
 }
 
 /// Reads the first line that the payload writes to `fifo` (the open blocks until the payload opens it for writing).
-fn first_line(fifo: &Path) -> (BufReader<std::fs::File>, String) {
-    let mut reader = BufReader::new(std::fs::File::open(fifo).unwrap());
-    let mut line = String::new();
-    reader.read_line(&mut line).unwrap();
-    (reader, line)
+pub(crate) fn first_line(fifo: &Path) -> (BufReader<std::fs::File>, String) {
+    let fifo = fifo.to_path_buf();
+    within(
+        WORKER_WAIT,
+        "the payload writes its first line",
+        move || {
+            let mut reader = BufReader::new(std::fs::File::open(fifo).unwrap());
+            let mut line = String::new();
+            reader.read_line(&mut line).unwrap();
+            (reader, line)
+        },
+    )
 }
 
 fn exited(code: Option<i32>, signal: Option<i32>) -> WorkerMsg {
@@ -352,13 +402,12 @@ fn lc_6_signal_reaches_the_whole_group() {
             exited(None, Some(15)),
         ]
     );
-    let started = Instant::now();
-    let mut rest = Vec::new();
-    reader.read_to_end(&mut rest).unwrap();
-    assert!(
-        started.elapsed() < Duration::from_secs(10),
-        "the background child held the FIFO: it outlived the group signal"
-    );
+    within(
+        WORKER_CLEANUP,
+        "the background child releases the FIFO: it must not outlive the group signal",
+        move || reader.read_to_end(&mut Vec::new()),
+    )
+    .unwrap();
     s.remove();
 }
 
@@ -397,7 +446,7 @@ fn sigterm_on_the_worker_ends_its_payload_group_then_the_worker() {
     assert_eq!(first_line(&ready).1, "up\n");
     s.signal_worker(rustix::process::Signal::TERM);
     assert_eq!(s.link.report(), exited(None, Some(9)));
-    let status = s.worker.worker.wait().unwrap();
+    let status = s.worker.wait("the worker ends after its payload");
     assert_eq!(status.code(), Some(0));
 }
 
@@ -456,7 +505,7 @@ fn a_panic_after_worker_sigkill_ends_the_payload_group() {
     );
     // SIGKILL prevents every production cleanup action in the worker.
     session.signal_worker(rustix::process::Signal::KILL);
-    session.worker.worker.wait().unwrap();
+    session.worker.wait("SIGKILL ends the worker");
     let mut fds = [rustix::event::PollFd::new(
         reader.get_ref(),
         rustix::event::PollFlags::IN,
@@ -478,16 +527,12 @@ fn a_panic_after_worker_sigkill_ends_the_payload_group() {
         panic!("the test failed after the worker died");
     }));
     assert!(result.is_err());
-    let (sent, received) = std::sync::mpsc::channel();
-    std::thread::spawn(move || {
-        let mut rest = Vec::new();
-        let _ = sent.send(reader.read_to_end(&mut rest));
-    });
-    received
-        // timer: deadline — the payload must release the FIFO after test cleanup.
-        .recv_timeout(Duration::from_secs(10))
-        .expect("the payload group ended")
-        .unwrap();
+    within(
+        WORKER_CLEANUP,
+        "the payload group ends after test cleanup",
+        move || reader.read_to_end(&mut Vec::new()),
+    )
+    .unwrap();
 }
 
 /// The driver observer ends when its test parent dies without running Drop.
@@ -512,25 +557,25 @@ fn parent_death_ends_the_driver_observer() {
             .unwrap(),
     ));
     let child = parent.0.as_mut().unwrap();
-    let mut reader = BufReader::new(child.stderr.take().unwrap());
-    let mut ready = String::new();
-    reader.read_line(&mut ready).unwrap();
+    let stderr = child.stderr.take().unwrap();
+    let (mut reader, ready) = within(WORKER_WAIT, "the observer parent is ready", move || {
+        let mut reader = BufReader::new(stderr);
+        let mut ready = String::new();
+        reader.read_line(&mut ready).unwrap();
+        (reader, ready)
+    });
     assert!(
         ready.trim().parse::<u32>().is_ok(),
         "observer ready: {ready}"
     );
     child.kill().unwrap();
     drop(parent);
-    let (done, result) = std::sync::mpsc::channel();
-    std::thread::spawn(move || {
-        let mut rest = Vec::new();
-        let _ = done.send(reader.read_to_end(&mut rest));
-    });
-    result
-        // timer: deadline — the observer must close the inherited pipe after parent death.
-        .recv_timeout(Duration::from_secs(10))
-        .expect("the observer ended after its test parent died")
-        .unwrap();
+    within(
+        WORKER_CLEANUP,
+        "the observer ends after its test parent died",
+        move || reader.read_to_end(&mut Vec::new()),
+    )
+    .unwrap();
 }
 
 struct ObserverParent(Option<Child>);

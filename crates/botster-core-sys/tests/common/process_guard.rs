@@ -11,7 +11,7 @@ use std::process::{Child, Command, Stdio};
 /// Closing the control stream makes the anchor kill its group, including itself.
 pub struct GroupGuard {
     control: UnixStream,
-    anchor: Child,
+    anchor: Option<Child>,
     registration: Option<std::thread::JoinHandle<()>>,
     socket: PathBuf,
 }
@@ -60,7 +60,7 @@ impl GroupGuard {
         });
         Self {
             control,
-            anchor,
+            anchor: Some(anchor),
             registration: Some(registration),
             socket,
         }
@@ -86,9 +86,33 @@ impl Drop for GroupGuard {
             let _ = stream.shutdown(std::net::Shutdown::Both);
         }
         if let Some(thread) = self.registration.take() {
-            let _ = thread.join();
+            bounded("the group guard's registration", move || {
+                let _ = thread.join();
+            });
         }
-        let _ = self.anchor.wait();
+        if let Some(mut anchor) = self.anchor.take() {
+            bounded("the group guard's anchor", move || {
+                let _ = anchor.wait();
+            });
+        }
+    }
+}
+
+/// Runs one wait of a test's cleanup with the cleanup deadline, and returns its result. A wait that does not finish fails
+/// the test, or is reported (`None`) when the test already panics (a second panic would abort before the report).
+fn bounded<T: Send + 'static>(what: &str, wait: impl FnOnce() -> T + Send + 'static) -> Option<T> {
+    let (done, finished) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = done.send(wait());
+    });
+    // timer: deadline — bounds a guard's cleanup, so a stuck process fails the test instead of the job.
+    match finished.recv_timeout(std::time::Duration::from_secs(10)) {
+        Ok(result) => Some(result),
+        Err(_) if std::thread::panicking() => {
+            eprintln!("{what} did not finish");
+            None
+        }
+        Err(_) => panic!("{what} did not finish"),
     }
 }
 
@@ -143,7 +167,9 @@ impl Drop for Parent {
     fn drop(&mut self) {
         if let Some(mut child) = self.0.take() {
             let _ = child.kill();
-            let _ = child.wait();
+            bounded("the killed parent's end", move || {
+                let _ = child.wait();
+            });
         }
     }
 }
@@ -225,7 +251,7 @@ fn blocked_parent() {
     let mut input = String::new();
     std::io::stdin().read_line(&mut input).unwrap();
     drop(guard);
-    worker.wait().unwrap();
+    bounded("the worker's end", move || worker.wait().unwrap());
 }
 
 /// Panic cleanup starts before any readiness indication exists.
@@ -250,7 +276,8 @@ fn a_panic_before_ready_ends_the_child() {
     }));
     assert!(result.is_err());
     eof(pipe);
-    assert!(!child.wait().unwrap().success());
+    let status = bounded("the child's end", move || child.wait().unwrap()).unwrap();
+    assert!(!status.success());
 }
 
 /// An anchor keeps the group after another owner reaps the leader.
@@ -276,8 +303,10 @@ fn an_early_exit_keeps_the_group_owned_until_cleanup() {
     let mut descendant = String::new();
     pipe.read_line(&mut descendant).unwrap();
     assert!(descendant.trim().parse::<u32>().is_ok());
-    assert!(child.wait().unwrap().success());
-    let anchor = rustix::process::Pid::from_raw(guard.anchor.id() as i32).unwrap();
+    let status = bounded("the shell's end", move || child.wait().unwrap()).unwrap();
+    assert!(status.success());
+    let anchor =
+        rustix::process::Pid::from_raw(guard.anchor.as_ref().unwrap().id() as i32).unwrap();
     assert_eq!(rustix::process::getpgid(Some(anchor)).unwrap(), group);
     drop(guard);
     eof(pipe);

@@ -1,9 +1,7 @@
 //! Direct checks of the real driver's descriptor state and byte accounting.
 #![cfg(feature = "slow")]
 
-#[path = "../../../botster-core-sys/tests/common/payload_guard.rs"]
-mod payload_guard;
-
+use super::slow_driver::payload_guard;
 use super::*;
 use botster_core_contract::prelude::{InstanceId, Size};
 use std::os::fd::AsFd;
@@ -145,7 +143,7 @@ fn control_and_pty_reads_retain_bytes_at_each_positive_bound() {
         h.waiting_payload();
         let mut output = Vec::new();
         while output.len() < b"ready".len() {
-            h.driver.read_pty_chunk();
+            h.driver.read_pty_chunk().unwrap();
             let Some(Input::PtyOutput(bytes)) = h.driver.inputs.pop_front() else {
                 panic!("queued program bytes must remain readable at bound {bound}");
             };
@@ -154,7 +152,7 @@ fn control_and_pty_reads_retain_bytes_at_each_positive_bound() {
             assert!(h.driver.inputs.is_empty());
         }
         assert_eq!(output, b"ready");
-        h.driver.read_pty_chunk();
+        h.driver.read_pty_chunk().unwrap();
         assert!(!h.driver.pty_readable);
         assert!(h.driver.inputs.is_empty());
     }
@@ -339,23 +337,26 @@ fn pty_events_resume_reads_after_would_block() {
         })
         .unwrap();
     let marker = |reader: &mut std::fs::File, expected: &[u8]| {
-        let mut fds = [rustix::event::PollFd::new(
-            &*reader,
-            rustix::event::PollFlags::IN,
-        )];
         // timer: deadline — bounds the program's FIFO progress marker.
         let limit = rustix::event::Timespec {
             tv_sec: 10,
             tv_nsec: 0,
         };
-        assert!(rustix::event::poll(&mut fds, Some(&limit)).unwrap() > 0);
-        drop(fds);
+        // The poll borrows the reader only within this block, so the read below can take it.
+        let ready = {
+            let mut fds = [rustix::event::PollFd::new(
+                &*reader,
+                rustix::event::PollFlags::IN,
+            )];
+            rustix::event::poll(&mut fds, Some(&limit)).unwrap()
+        };
+        assert!(ready > 0);
         let mut bytes = [0; 64];
         let count = reader.read(&mut bytes).unwrap();
         assert_eq!(&bytes[..count], expected);
     };
     marker(&mut fifos[0], b"ready\n");
-    h.driver.read_pty_chunk();
+    h.driver.read_pty_chunk().unwrap();
     assert!(!h.driver.pty_readable);
     assert!(h.driver.inputs.is_empty());
     let mut send = |kind, payload: &[u8]| {
@@ -397,41 +398,120 @@ fn pty_events_resume_reads_after_would_block() {
 #[test]
 fn pty_reads_clear_readiness_and_finish_a_bounded_drain() {
     let mut h = Harness::new();
-    h.driver.drain_left = Some(4);
-    h.driver.read_pty_chunk();
+    h.driver.drain = Some(Drain::Counted(4));
+    h.driver.read_pty_chunk().unwrap();
     assert_eq!(h.driver.inputs.pop_front(), Some(Input::PtyDrained));
-    h.driver.read_pty_chunk();
+    h.driver.read_pty_chunk().unwrap();
     assert!(h.driver.inputs.is_empty());
     h.waiting_payload();
     h.driver.pty_readable = false;
-    h.driver.read_pty_chunk();
+    h.driver.read_pty_chunk().unwrap();
     assert!(h.driver.inputs.is_empty());
     h.driver.pty_readable = true;
-    h.driver.read_pty_chunk();
+    h.driver.read_pty_chunk().unwrap();
     assert_eq!(
         h.driver.inputs.pop_front(),
         Some(Input::PtyOutput(b"ready".to_vec()))
     );
-    h.driver.read_pty_chunk();
+    h.driver.read_pty_chunk().unwrap();
     assert!(!h.driver.pty_readable);
     assert!(h.driver.inputs.is_empty());
-    h.driver.drain_left = Some(4);
-    h.driver.read_pty_chunk();
-    assert_eq!(h.driver.drain_left, Some(0));
-    h.driver.read_pty_chunk();
+    // A drain whose read finds nothing is complete; `PtyDrained` follows in the next read step.
+    h.driver.drain = Some(Drain::Counted(4));
+    h.driver.read_pty_chunk().unwrap();
+    assert_eq!(h.driver.drain, Some(Drain::Done));
+    h.driver.read_pty_chunk().unwrap();
     assert_eq!(h.driver.inputs.pop_front(), Some(Input::PtyDrained));
-    assert!(h.driver.drain_left.is_none());
+    assert!(h.driver.drain.is_none());
     h.driver.payload.as_ref().unwrap().signal_group(9);
     h.driver
         .exits
         .1
         // timer: deadline — the production exit watch must observe the group kill.
         .recv_timeout(Duration::from_secs(10))
+        .unwrap()
         .unwrap();
     h.driver.pty_readable = true;
     h.driver.perform(Action::ReapPayload).unwrap();
     assert!(!h.driver.pty_registered);
     assert!(!h.driver.pty_readable);
     assert!(h.driver.payload.is_none());
-    assert!(h.driver.drain_left.is_none());
+    assert!(h.driver.drain.is_none());
+}
+
+/// Lead ruling on audit finding A52 (Core EV-4, AD-2): a failed exit watch is never an exit. Through the real driver and
+/// `main`'s `execute`, the failure ends `Driver::run` with its errno and the invariant, the worker's status is a failure,
+/// the payload's whole group ends, and the host's link closes, so the host sees a lost worker.
+#[test]
+fn a_failed_exit_watch_ends_the_worker_with_a_failure() {
+    use super::slow_driver::{fifo, first_line, within, WORKER_CLEANUP};
+    use botster_core_sys::payload::ExitWatchFailed;
+    let mut h = Harness::new();
+    // A background member of the payload's group holds the FIFO, so its end of file shows that the whole group ended. It
+    // waits without CPU on a FIFO that nothing ever opens for writing, until the group is killed.
+    let held = fifo(h.root.path(), "held");
+    let never = fifo(h.root.path(), "never");
+    let guard = payload_guard::PayloadGuard::new(h.root.path());
+    let script = format!(
+        "{}exec 3> '{}'; /bin/cat '{}' > /dev/null & /bin/echo up >&3; wait",
+        guard.prefix(),
+        held.display(),
+        never.display()
+    );
+    h.guard = Some(guard);
+    h.driver
+        .spawn(&PayloadSpec {
+            argv: vec!["/bin/sh".into(), "-c".into(), script],
+            env: std::collections::BTreeMap::from([("PATH".into(), "/usr/bin:/bin".into())]),
+            cwd: "/".into(),
+            size: Size {
+                rows: 24,
+                cols: 80,
+                cell_px: None,
+            },
+        })
+        .unwrap();
+    let (reader, line) = first_line(&held);
+    assert_eq!(line, "up\n");
+    let failure = ExitWatchFailed {
+        errno: rustix::io::Errno::CHILD,
+    };
+    h.driver.exits.0.send(Err(failure.into())).unwrap();
+    h.driver.waker.wake().unwrap();
+    let launch = WorkerLaunch {
+        control: h.root.path().join("c"),
+        instance: InstanceId("1-1".into()),
+        host_epoch: 1,
+        token: [5; 32],
+    };
+    let args: Vec<std::ffi::OsString> = launch.args();
+    let token = launch.env()[0].1.clone().into_string().unwrap();
+    let driver = h.driver;
+    let (code, message) = within(
+        WORKER_CLEANUP,
+        "the worker ends on the failed watch",
+        move || command_line::execute(&args, Some(&token), move |_| driver.run()),
+    );
+    assert_eq!(code, std::process::ExitCode::FAILURE);
+    let message = message.expect("the failure is reported");
+    assert!(message.contains(&failure.errno.to_string()), "{message}");
+    assert!(
+        message.contains("the Payload holds the unreaped leader"),
+        "{message}"
+    );
+    within(WORKER_CLEANUP, "the payload's group ends", move || {
+        let mut reader = reader;
+        reader.read_to_end(&mut Vec::new())
+    })
+    .unwrap();
+    // The host's end reads what the worker sent, then the end of the link.
+    let mut peer = h.peer;
+    let mut buf = [0u8; 4096];
+    loop {
+        match peer.read(&mut buf) {
+            Ok(0) => break,
+            Ok(_) => {}
+            Err(error) => panic!("the link must be closed: {error}"),
+        }
+    }
 }

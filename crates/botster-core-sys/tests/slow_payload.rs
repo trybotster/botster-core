@@ -22,9 +22,16 @@ fn env() -> BTreeMap<String, String> {
     BTreeMap::from([("PATH".to_string(), "/usr/bin:/bin".to_string())])
 }
 
+/// The limit of a test's cleanup: the guard's own cleanup and the production drop or reap. Not a contract value.
+const CLEANUP: Duration = Duration::from_secs(10);
+
 struct GuardedPayload {
     payload: Option<Payload>,
     guard: Option<PayloadGuard>,
+    /// The leader's pid, for the process table of a cleanup that does not finish.
+    pid: u32,
+    /// Where the drop reports whether its cleanup finished, for a test that drops the payload while it panics.
+    cleaned: Option<mpsc::Sender<bool>>,
     _root: tempfile::TempDir,
 }
 
@@ -43,15 +50,52 @@ impl std::ops::Deref for GuardedPayload {
 
 impl GuardedPayload {
     fn reap(mut self) {
-        self.payload.take().unwrap().reap();
+        let payload = self.payload.take().unwrap();
+        finish_within(self.pid, CLEANUP, move || payload.reap());
+    }
+
+    /// The report of this payload's cleanup: `true` when the guard and the production drop finished within the limit.
+    fn cleanup_report(&mut self) -> mpsc::Receiver<bool> {
+        let (report, reported) = mpsc::channel();
+        self.cleaned = Some(report);
+        reported
     }
 }
 
 impl Drop for GuardedPayload {
     fn drop(&mut self) {
-        // The test ends the group before production can block in its reaper.
-        drop(self.guard.take());
+        // The test ends the group before production can block in its reaper; both steps run within the limit.
+        let guard = self.guard.take();
+        let payload = self.payload.take();
+        let finished = finish_within(self.pid, CLEANUP, move || {
+            drop(guard);
+            drop(payload);
+        });
+        if let Some(report) = self.cleaned.take() {
+            let _ = report.send(finished);
+        }
     }
+}
+
+/// Runs the end of a payload (the guard's cleanup, then its production drop or reap) with the cleanup limit, so a leader
+/// that never becomes waitable fails the test with the process table instead of holding the job until its deadline
+/// (BUILD.md testing rule 5). Returns whether it finished. A failure panics, except while the test already panics (a second
+/// panic would abort before the report); such a test reads the result through `cleanup_report`.
+fn finish_within(payload_pid: u32, limit: Duration, end: impl FnOnce() + Send + 'static) -> bool {
+    let (done, finished) = mpsc::channel();
+    std::thread::spawn(move || {
+        end();
+        let _ = done.send(());
+    });
+    // timer: deadline — the independent guard and production reaper must finish.
+    if finished.recv_timeout(limit).is_ok() {
+        return true;
+    }
+    cleanup_state(payload_pid);
+    if !std::thread::panicking() {
+        panic!("the payload's cleanup did not finish");
+    }
+    false
 }
 
 fn spawn(argv: &[&str], cwd: &str) -> Result<GuardedPayload, SpawnFailure> {
@@ -74,8 +118,10 @@ fn spawn(argv: &[&str], cwd: &str) -> Result<GuardedPayload, SpawnFailure> {
         cols: 80,
     })?;
     Ok(GuardedPayload {
+        pid: payload.pid(),
         payload: Some(payload),
         guard: Some(guard),
+        cleaned: None,
         _root: root,
     })
 }
@@ -119,7 +165,9 @@ fn exit_of(p: &Payload) -> ExitStatus {
     p.watch_exit(move |status| tx.send(status).unwrap())
         .unwrap();
     // timer: deadline — the limit of a wait for a real process's exit; not a contract value.
-    rx.recv_timeout(Duration::from_secs(10)).expect("an exit")
+    rx.recv_timeout(Duration::from_secs(10))
+        .expect("an exit")
+        .expect("the watch waited for the leader")
 }
 
 /// LC-4: a missing directory and a missing program are typed failures.
@@ -284,50 +332,84 @@ fn cleanup_state(payload_pid: u32) {
     }
 }
 
-/// A2-1 and plan 2.3: the PTY counts queued program output and takes program input.
+/// A2-1 and plan 2.3: the PTY counts queued program output and takes program input. The count is taken once the master
+/// is readable: on Linux, output that the terminal has not moved to its read buffer yet is not counted (A31), and the
+/// master is readable only after the move.
 #[test]
 fn the_pty_counts_output_and_delivers_input_to_the_program() {
     let (p, _root) = payload_waiting_for_input();
+    let mut fds = [rustix::event::PollFd::from_borrowed_fd(
+        p.master(),
+        rustix::event::PollFlags::IN,
+    )];
+    // timer: deadline — the program wrote its output before its marker; bounds the wait for the PTY to show it.
+    let limit = rustix::event::Timespec {
+        tv_sec: 10,
+        tv_nsec: 0,
+    };
+    assert_eq!(rustix::event::poll(&mut fds, Some(&limit)).unwrap(), 1);
     let pending = p.pending_output().unwrap();
-    if pending <= 1 {
-        eprintln!("queued-output marker arrived; pending_output={pending}");
-    }
-    assert!(pending > 1);
     assert_eq!(
         p.pending_output().unwrap(),
         pending,
-        "the query retains queued bytes"
+        "the query consumes nothing"
+    );
+    // The count is what reads take now: read until no byte is left.
+    let mut consumed = Vec::new();
+    let mut buf = [0u8; 64];
+    loop {
+        match p.read(&mut buf) {
+            Ok(0) => break,
+            Ok(n) => consumed.extend_from_slice(&buf[..n]),
+            Err(error) if error.kind() == io::ErrorKind::WouldBlock => break,
+            Err(error) => panic!("{error}"),
+        }
+    }
+    assert_eq!(consumed, b"ready", "the program's output before its marker");
+    assert_eq!(pending, consumed.len(), "the count is what the reads took");
+    assert_eq!(
+        p.pending_output().unwrap(),
+        0,
+        "a consumed queue counts nothing"
     );
     assert_eq!(p.write(b"input\n").unwrap(), 6);
-    assert_eq!(read_all(&p), b"readyinput");
+    assert_eq!(read_all(&p), b"input");
     assert_eq!(exit_of(&p), ExitStatus::Code(0));
     p.signal_group(9);
     p.reap();
 }
 
+/// BUILD.md testing rule 5 (audit finding A11): a cleanup that does not finish within its limit fails the test, with the
+/// process table, instead of holding the job until its deadline.
+#[test]
+fn a_cleanup_that_does_not_finish_fails_the_test() {
+    let (release, released) = mpsc::channel::<()>();
+    let stuck = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        finish_within(std::process::id(), Duration::ZERO, move || {
+            let _ = released.recv();
+        })
+    }));
+    assert!(stuck.is_err(), "the stuck cleanup failed the test");
+    release.send(()).unwrap();
+}
+
 /// The independent guard ends a payload that waits for input when the test panics.
 #[test]
 fn a_panic_ends_the_payload_while_it_waits_for_input() {
-    let (p, root) = payload_waiting_for_input();
-    let payload_pid = p.pid();
-    let (done, result) = mpsc::channel();
-    let thread = std::thread::spawn(move || {
-        let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
-            let _payload = p;
-            let _root = root;
-            panic!("test cleanup while the payload waits for input");
-        }));
-        done.send(outcome.is_err()).unwrap();
-    });
-    // timer: deadline — the independent guard and production reaper must finish.
-    match result.recv_timeout(Duration::from_secs(10)) {
-        Ok(panicked) => assert!(panicked),
-        Err(error) => {
-            cleanup_state(payload_pid);
-            panic!("payload cleanup did not finish: {error}");
-        }
-    }
-    thread.join().unwrap();
+    let (mut p, root) = payload_waiting_for_input();
+    let cleaned = p.cleanup_report();
+    // Every wait of the cleanup is bounded, so the unwind itself ends; its result is reported separately.
+    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
+        let _payload = p;
+        let _root = root;
+        panic!("test cleanup while the payload waits for input");
+    }));
+    assert!(outcome.is_err());
+    assert_eq!(
+        cleaned.try_recv(),
+        Ok(true),
+        "the guard and the production drop finished during the unwind"
+    );
 }
 
 /// LC-5 and the payload ownership rule: dropping an unreaped payload retires its leader.
@@ -378,9 +460,35 @@ fn payload_reap_observer() {
 /// The test owns its observer independently of every mutated payload function.
 struct Observer(Option<std::process::Child>);
 
+/// The limit of the observer's run: its own bounded waits, one exit and one cleanup, each within `CLEANUP`.
+const OBSERVER_RUN: Duration = Duration::from_secs(2 * CLEANUP.as_secs());
+
+/// Whether the child `pid` ended within `limit`, observed without reaping it (`WNOWAIT`): the reap stays with its owner.
+fn ended_within(pid: u32, limit: Duration) -> bool {
+    use rustix::process::{waitid, Pid, WaitId, WaitIdOptions};
+    let pid = Pid::from_raw(pid as i32).unwrap();
+    let (done, ended) = mpsc::channel();
+    std::thread::spawn(move || {
+        loop {
+            match waitid(
+                WaitId::Pid(pid),
+                WaitIdOptions::EXITED | WaitIdOptions::NOWAIT,
+            ) {
+                Err(rustix::io::Errno::INTR) | Ok(None) => continue,
+                _ => break,
+            }
+        }
+        let _ = done.send(());
+    });
+    // timer: deadline — bounds a wait on a test's own child; the caller names the limit.
+    ended.recv_timeout(limit).is_ok()
+}
+
 impl Observer {
     fn wait(mut self) -> io::Result<std::process::ExitStatus> {
-        let result = self.0.as_mut().unwrap().wait()?;
+        let child = self.0.as_mut().unwrap();
+        assert!(ended_within(child.id(), OBSERVER_RUN), "the observer ended");
+        let result = child.wait()?;
         // The observer was reaped. Retire its handle before Drop can signal it.
         self.0 = None;
         Ok(result)
@@ -391,7 +499,13 @@ impl Drop for Observer {
     fn drop(&mut self) {
         if let Some(mut child) = self.0.take() {
             let _ = child.kill();
-            let _ = child.wait();
+            if ended_within(child.id(), CLEANUP) {
+                let _ = child.wait();
+            } else if std::thread::panicking() {
+                eprintln!("the observer did not end after SIGKILL");
+            } else {
+                panic!("the observer did not end after SIGKILL");
+            }
         }
     }
 }

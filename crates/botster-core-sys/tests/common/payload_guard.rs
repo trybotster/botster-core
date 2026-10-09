@@ -83,8 +83,28 @@ impl Drop for PayloadGuard {
             }
         }
         if let Some(thread) = self.thread.take() {
-            let _ = thread.join();
+            bounded("the payload guard's cleanup", move || {
+                let _ = thread.join();
+            });
         }
+    }
+}
+
+/// Runs one wait of a test's cleanup with the cleanup deadline, and returns its result. A wait that does not finish fails
+/// the test, or is reported (`None`) when the test already panics (a second panic would abort before the report).
+fn bounded<T: Send + 'static>(what: &str, wait: impl FnOnce() -> T + Send + 'static) -> Option<T> {
+    let (done, finished) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = done.send(wait());
+    });
+    // timer: deadline — bounds a guard's cleanup, so a stuck process fails the test instead of the job.
+    match finished.recv_timeout(std::time::Duration::from_secs(10)) {
+        Ok(result) => Some(result),
+        Err(_) if std::thread::panicking() => {
+            eprintln!("{what} did not finish");
+            None
+        }
+        Err(_) => panic!("{what} did not finish"),
     }
 }
 

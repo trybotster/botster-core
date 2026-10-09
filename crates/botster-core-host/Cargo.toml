@@ -14,5 +14,6 @@ botster-core-contract.workspace = true
 botster-core-edges.workspace = true
 botster-core-link.workspace = true
 botster-route-codec.workspace = true
+botster-terminal-ghostty.workspace = true
 serde.workspace = true
 serde_json.workspace = true
