@@ -138,8 +138,9 @@ impl Calls {
 
     /// The xtask functions that a resolved path call in `file` names. A module path names the file of the module:
     /// `[]` is `xtask/src/main.rs` (the crate root), `[a, b]` is `xtask/src/a/b.rs` or `xtask/src/a/b/mod.rs`.
-    /// `crate::m::f` names the `f` of the module `m`, each leading `super` the parent of the module of `file`, `self` the
-    /// module of `file`, and `m::f` the `f` of the child `m` of the module of `file`, else of the module `m`. `Self::f`
+    /// `crate::m::f` names the `f` of the module `m`, each leading `super` the parent of the module of `file`, and `m::f`
+    /// the `f` of the child `m` of the module of `file`, else of the module `m`. A leading `self` (and a `super` inside an
+    /// inline module) never comes here: `process_check::resolve` removes it. `Self::f`
     /// names the `f` of `file`, and a plain `f` the `f` of `file`, else each `f` of the xtask (a glob import). A path of
     /// another crate, or a `super` above the crate root, names none.
     fn callees(&self, file: &str, path: &[String]) -> Vec<(String, String)> {
@@ -176,10 +177,6 @@ impl Calls {
             ),
             [only] if only == "Self" => known(file).into_iter().collect(),
             [first, rest @ ..] if first == "crate" => in_module(rest),
-            [first, rest @ ..] if first == "self" => {
-                here.extend_from_slice(rest);
-                in_module(&here)
-            }
             [first, ..] if first == "super" => {
                 let supers = modules.iter().take_while(|m| *m == "super").count();
                 if supers > here.len() {
