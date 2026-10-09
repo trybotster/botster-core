@@ -6,7 +6,8 @@
 
 use crate::tools::{cargo, cargo_nightly, ensure_nightly, require_cargo_tool, run};
 use crate::{
-    caps, fsutil, lists, prebuild, public_api, signals, taint, test_budget, timers, unsafe_exception,
+    caps, fsutil, lists, prebuild, public_api, signals, taint, test_budget, timers,
+    unsafe_exception,
 };
 use anyhow::{bail, Context, Result};
 use std::path::Path;
