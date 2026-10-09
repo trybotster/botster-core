@@ -19,6 +19,9 @@ fn fixture(capacity: usize) -> (WorkerEdges, LinkEnd, Worker, Instant) {
         cell,
         processes: Arc::new(Mutex::new(processes)),
         pids: Arc::new(Mutex::new(Pids { next: 1001 })),
+        instance: InstanceId("1-1".into()),
+        held_starts: Arc::default(),
+        held_spawn: None,
         scheduler,
         link,
         link_open: true,
@@ -377,4 +380,78 @@ fn each_unconsumed_report_alone_keeps_the_edges_from_quiet() {
     assert!(!workers.edges_quiet(&table));
     assert_eq!(spawner.poll_exit(), Some((id, ExitStatus::Signal(9))));
     assert!(workers.edges_quiet(&table));
+}
+
+/// A payload spawn of the default program, which holds.
+fn payload_spec() -> PayloadSpec {
+    PayloadSpec {
+        argv: vec!["program".into()],
+        env: BTreeMap::new(),
+        cwd: "/".into(),
+        size: Size {
+            rows: 24,
+            cols: 80,
+            cell_px: None,
+        },
+    }
+}
+
+/// `payload_alive`: the payload is alive from its spawn until its process ends. The end counts when the edge queues the exit
+/// for the worker, before the worker takes it and before the reap.
+#[test]
+fn the_payload_is_alive_from_its_spawn_until_its_process_ends() {
+    let (mut edges, _peer, worker, now) = fixture(1024);
+    assert!(!lock(&edges.cell).payload_alive);
+    edges.perform(now, Action::SpawnPayload(payload_spec()));
+    assert!(lock(&edges.cell).payload_alive);
+    assert_eq!(edges.ready(now, &worker), 1);
+    assert!(matches!(edges.take(now, &worker, 0), Input::Spawned(Ok(_))));
+    assert_eq!(edges.ready(now, &worker), 0, "the payload holds");
+    assert!(lock(&edges.cell).payload_alive);
+    edges.perform(now, Action::SignalPayload(9));
+    assert!(
+        !lock(&edges.cell).payload_alive,
+        "the process ended; the worker has not taken its exit"
+    );
+    assert_eq!(edges.ready(now, &worker), 1);
+    assert_eq!(
+        edges.take(now, &worker, 0),
+        Input::PayloadExited(ExitStatus::Signal(9))
+    );
+    assert!(!lock(&edges.cell).payload_alive);
+}
+
+/// `hold_start_at` (AD-7 step 4): while the start is held, the worker's spawn is kept and is not ready work. The release
+/// makes it ready, and its answer is the spawn's. The end of the worker drops a kept spawn and its hold.
+#[test]
+fn a_held_spawn_waits_for_the_release_and_goes_with_the_worker() {
+    let (mut edges, _peer, worker, now) = fixture(1024);
+    let instance = edges.instance.clone();
+    lock(&edges.held_starts).insert(instance.clone());
+    edges.perform(now, Action::SpawnPayload(payload_spec()));
+    assert_eq!(
+        edges.ready(now, &worker),
+        0,
+        "a held spawn is not ready work"
+    );
+    assert!(!lock(&edges.cell).payload_alive);
+    lock(&edges.held_starts).remove(&instance);
+    assert_eq!(edges.ready(now, &worker), 1);
+    assert!(matches!(edges.take(now, &worker, 0), Input::Spawned(Ok(_))));
+    assert!(lock(&edges.cell).payload_alive);
+
+    let (mut edges, _peer, worker, now) = fixture(1024);
+    lock(&edges.held_starts).insert(instance.clone());
+    edges.perform(now, Action::SpawnPayload(payload_spec()));
+    lock(&edges.cell).ended = true;
+    assert_eq!(edges.ready(now, &worker), 0);
+    assert!(
+        edges.held_spawn.is_none(),
+        "the kept spawn went with the worker"
+    );
+    assert!(
+        !lock(&edges.held_starts).contains(&instance),
+        "no hold remains"
+    );
+    assert!(!lock(&edges.cell).payload_alive);
 }
