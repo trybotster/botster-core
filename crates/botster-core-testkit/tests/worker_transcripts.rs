@@ -1,7 +1,8 @@
 //! The transcripts that the in-process `Worker` (P3 M1) makes pass on the testkit, under the CI seed set.
 //!
-//! The lead's ruling of 2026-10-09: an id whose transcript passes on `TestkitHarness` leaves `conformance/core-pending.txt`,
-//! and `RealCoreHarness` (plan 4.2b) runs it later. The ids below are still pending, so the conformance harness does not run
+//! Plan section 5 (revision 23a): an id whose transcript passes on `TestkitHarness` leaves `conformance/core-pending.txt`,
+//! and `RealCoreHarness` (plan 4.2b) runs it later; a real-only id (one that the replacement map classifies `slow`) leaves
+//! it only with its passing real-process proof. The ids below are still pending, so the conformance harness does not run
 //! them, and this test is their testkit proof until their owners take them out of the pending list. When an id leaves the
 //! pending list, the conformance harness covers it and it is deleted from this list.
 //!
