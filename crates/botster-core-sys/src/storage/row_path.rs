@@ -156,4 +156,26 @@ mod tests {
         assert!(is_dir_component(&full));
         assert!(!is_dir_component("abc"));
     }
+
+    /// The cut is part of the name: a code that decodes is still not a row when it is cut in another place than
+    /// [`row_path`] cuts it. A short directory component is refused even when the joined code names a key, and so is a last
+    /// component above [`COMPONENT_CHARS`] even when there is no directory.
+    #[test]
+    fn a_code_cut_in_another_place_is_not_a_row() {
+        let short = BASE32.encode(b"ab");
+        let (dir, last) = short.split_at(2);
+        assert_eq!(
+            key_of("session", &[], &format!("{short}{ROW_SUFFIX}")).as_deref(),
+            Some("session/ab"),
+            "the same code, cut as row_path cuts it"
+        );
+        assert_eq!(
+            key_of("session", &[dir], &format!("{last}{ROW_SUFFIX}")),
+            None
+        );
+
+        let long = BASE32.encode(&[b'a'; 130]);
+        assert!(long.len() > COMPONENT_CHARS);
+        assert_eq!(key_of("session", &[], &format!("{long}{ROW_SUFFIX}")), None);
+    }
 }
