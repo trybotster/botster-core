@@ -337,10 +337,18 @@ exclude_re = [
     # breaking the other tests of the process. `gone_at_open` and the ESRCH case (a_wait_for_a_pid_with_no_process_reports_it_gone)
     # stay tested.
     'crates/botster-test-process/src/platform/linux\.rs:\d+:\d+: replace match guard gone_at_open\(error\) with true in await_end$',
-    # platform/linux.rs live_members: with the guard always true, every error of the read of /proc/<pid>/stat reads as "ended".
-    # The file is readable by every user, so the other errors (EIO, ENOMEM) need a failing kernel; `ended_since_listing` stays
-    # tested.
-    'crates/botster-test-process/src/platform/linux\.rs:\d+:\d+: replace match guard ended_since_listing\(&error\) with true in live_members$',
+    # platform/linux.rs live_members: the guard of the read of /proc/<pid>/stat. Always true: every error reads as "ended";
+    # the file is readable by every user, so the other errors (EIO, ENOMEM) need a failing kernel. Always false: a process
+    # that ends between the listing of /proc and the read fails the listing; only that race reaches the arm, and no test can
+    # cause it on demand. `ended_since_listing` stays tested (only_a_missing_stat_or_esrch_proves_an_end_since_the_listing).
+    'crates/botster-test-process/src/platform/linux\.rs:\d+:\d+: replace match guard ended_since_listing\(&error\) with (true|false) in live_members$',
+    # anchor.rs Connection::read -> Ok(()) and read.rs Bounded::fill -> Ok(true): a read that reports progress without
+    # reading. Every loop around them ends at its deadline (no_wait_for_anchors_starts_after_its_deadline,
+    # a_silent_writer_fails_the_read_at_the_deadline_with_what_was_read), so each guard or read test fails at its cleanup
+    # bound and the drop of its guard at the guard's bound: later than the default tier's mutation timeout, which counts
+    # it as TIMEOUT. The slow mutation run of the crate (timeout 120 s, P6 PR A evidence at d2338cb6) catches both.
+    'crates/botster-test-process/src/anchor\.rs:\d+:\d+: replace Connection::read -> Result<\(\), String> with Ok\(\(\)\)$',
+    'crates/botster-test-process/src/read\.rs:\d+:\d+: replace Bounded<R>::fill -> Result<bool, ReadError> with Ok\(true\)$',
     # botster-test-process (P6): the default tier starts no real process (BUILD.md testing rules 1 and 2), so the code that
     # starts, waits for, signals or reads a real process is proved by the crate's slow tier, tests/slow_process.rs (slow-tier
     # mutation run of the crate, P6 PR A evidence). Each entry names one function and the slow tests that exercise it. The
