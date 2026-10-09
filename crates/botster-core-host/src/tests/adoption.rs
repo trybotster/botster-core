@@ -468,7 +468,8 @@ fn an_unanswered_adoption_is_unreachable_at_the_startup_deadline() {
 }
 
 /// Core LC-9, AD-2: the row of a running session records its worker's protocol. A new host that never reads the worker's
-/// hello does not show that protocol: the session is `Lost(WorkerUnreachable)` with no protocol.
+/// hello does not show that protocol: the session is `Lost(WorkerUnreachable)` with no protocol. The `Lost` row keeps the
+/// protocol that it recorded (R-36: it records only its end).
 #[test]
 fn an_unanswered_adoption_drops_the_protocol_that_the_row_recorded() {
     let mut first = World::default();
@@ -487,6 +488,12 @@ fn an_unanswered_adoption_drops_the_protocol_that_the_row_recorded() {
         vec![SessionState::Lost(LostReason::WorkerUnreachable)]
     );
     assert_eq!(again.engine.get(&sid("s")).unwrap().worker_protocol, None);
+    let lost = Row::decode(&sid("s"), &again.rows[&row_key("s")]).expect("the row decodes");
+    assert_eq!(
+        lost.state,
+        SessionState::Lost(LostReason::WorkerUnreachable)
+    );
+    assert_eq!(lost.worker_protocol, Some(HELLO_PROTOCOL));
 }
 
 /// Core AD-2; steward ruling R-36 (contracts `main` `c62085f`): an adoption whose link is lost after the `Launch` is
