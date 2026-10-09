@@ -10,7 +10,7 @@ use botster_core_link::frame::{
 };
 use botster_core_link::hello::{Hello, HelloError, MAX_INSTANCE_ID_LEN};
 use botster_core_link::msg::PayloadId;
-use botster_core_link::proof::token_proof;
+use botster_core_link::proof::{host_proof, token_proof};
 use botster_guardian_core::guardian::SpawnResult;
 use botster_guardian_core::wire::{Command, LogChunk, Report, ServiceSpec, Status, LOG_FRAME};
 use botster_guardian_core::{Action, Guardian, GuardianConfig, Input};
@@ -64,8 +64,16 @@ fn spec() -> ServiceSpec {
     }
 }
 
-/// The valid hello of a host at `epoch`.
+/// The valid hello of a host at `epoch`: the proof of the host's role.
 fn host_hello(cfg: &GuardianConfig, epoch: u64) -> Hello {
+    Hello {
+        proof: host_proof(&cfg.token, &cfg.instance, epoch),
+        ..guardian_hello(cfg, epoch)
+    }
+}
+
+/// The guardian's own hello at `epoch`: the proof of the service's role.
+fn guardian_hello(cfg: &GuardianConfig, epoch: u64) -> Hello {
     Hello {
         protocol: cfg.protocol,
         instance: cfg.instance.clone(),
@@ -315,7 +323,8 @@ impl Rig {
     }
 }
 
-/// Core AD-6, DP-8: the guardian proves the token, and only a host's valid hello at no lower epoch authenticates.
+/// Core AD-6, DP-8: the guardian proves the token in the service's role, and only a host's valid hello (the host's role) at no
+/// lower epoch authenticates; the guardian's own hello sent back does not.
 #[test]
 fn only_a_valid_host_hello_authenticates() {
     let cfg = config();
@@ -326,11 +335,11 @@ fn only_a_valid_host_hello_authenticates() {
     let hello = std::iter::from_fn(|| own.poll_action()).collect::<Vec<_>>();
     assert_eq!(
         sent(&hello),
-        vec![Sent::Hello(host_hello(&cfg, cfg.host_epoch))]
+        vec![Sent::Hello(guardian_hello(&cfg, cfg.host_epoch))]
     );
     assert!(!format!("{cfg:?}").contains(&format!("{:?}", cfg.token)));
 
-    let wrong: [(&str, Vec<u8>); 5] = [
+    let wrong: [(&str, Vec<u8>); 6] = [
         (
             "instance",
             hello_frame(&Hello {
@@ -341,10 +350,12 @@ fn only_a_valid_host_hello_authenticates() {
         (
             "token",
             hello_frame(&Hello {
-                proof: token_proof(&[8; 32], &cfg.instance, 1),
+                proof: host_proof(&[8; 32], &cfg.instance, 1),
                 ..host_hello(&cfg, 1)
             }),
         ),
+        // The guardian's own hello sent back: the token and epoch are right, the role is not.
+        ("reflected", hello_frame(&guardian_hello(&cfg, 1))),
         (
             "lower epoch",
             hello_frame(&host_hello(&cfg, cfg.host_epoch - 1)),
@@ -478,7 +489,7 @@ fn the_service_launches_once_and_its_report_is_retained() {
     assert_eq!(
         greeting,
         vec![
-            Sent::Hello(host_hello(&rig.cfg, rig.cfg.host_epoch)),
+            Sent::Hello(guardian_hello(&rig.cfg, rig.cfg.host_epoch)),
             Sent::Report(Report::Status(Status {
                 service: rig.cfg.service,
                 payload: Some(LEADER),
@@ -981,7 +992,7 @@ fn the_log_streams_to_the_host_and_a_new_host_gets_the_bounded_tail() {
     assert_eq!(
         sent(&rig.reconnect(rig.cfg.host_epoch)),
         vec![
-            Sent::Hello(host_hello(&rig.cfg, rig.cfg.host_epoch)),
+            Sent::Hello(guardian_hello(&rig.cfg, rig.cfg.host_epoch)),
             Sent::Log(LogChunk {
                 offset,
                 bytes: tail
@@ -1028,7 +1039,7 @@ fn a_large_tail_streams_and_replays_before_the_status() {
     };
     assert_eq!(
         hello,
-        &Sent::Hello(host_hello(&rig.cfg, rig.cfg.host_epoch))
+        &Sent::Hello(guardian_hello(&rig.cfg, rig.cfg.host_epoch))
     );
     assert!(logs.len() > 1);
     assert_eq!(joined(logs, 0), bytes);
