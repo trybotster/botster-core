@@ -4,7 +4,11 @@
 # It prints the heads, the Zig version, then for each step its exit status:
 #   1. the lib-vt build with the binding's GHOSTTY_BUILD_ARGS and an EMPTY Zig global cache, and the packages that the
 #      build fetched, compared with build_data.rs ZIG_PACKAGES (needs network; it says so when it has none);
-#   2. zig build test-lib-vt --summary all (its Build Summary line);
+#   2a. zig build test-lib-vt --summary all in upstream's default configuration (SIMD, the app packages); it needs
+#       network to fetch the test packages, and without network it says so and does not run;
+#   2b. zig build test-lib-vt --summary all with the shipped options: GHOSTTY_BUILD_ARGS without "build" and without
+#       -Doptimize, so the tests run in Debug with the safety checks; its global cache is seeded only from the gate's
+#       package store, so the step also shows that the store is sufficient;
 #   3. the binding tests, cargo nextest run -p botster-terminal-ghostty.
 set -u
 g=crates/botster-terminal-ghostty
@@ -28,11 +32,9 @@ echo "fetched packages ($(echo "$fetched" | grep -c .)):"; echo "$fetched"
 if [ "$fetched" = "$packages" ]; then echo "package list: SAME as build_data.rs ZIG_PACKAGES"; else
   echo "package list: DIFFERENT from build_data.rs ZIG_PACKAGES:"; diff <(echo "$packages") <(echo "$fetched"); fi
 
-echo "== 2. zig build test-lib-vt --summary all"
+echo "== 2a. zig build test-lib-vt --summary all, upstream default configuration"
 if [ -z "$fetched" ]; then
-  # No network: the tests use the gate's package store (layout p/<hash>.tar.gz, as a Zig global cache).
-  store=${BOTSTER_ZIG_PACKAGES:-$HOME/.cache/botster/zig-packages}
-  mkdir -p "$scratch/global/p" && cp "$store"/p/*.tar.gz "$scratch/global/p/" && echo "global cache seeded from $store"
+  echo "test-lib-vt default: NOT RUN, no network (the test packages are not in the package store)"
 else
   # The tests need more packages than the library. The Mac Zig fetch can fail with TlsInitializationFailed; it is tried
   # up to three times, as the earlier record's mac-zig.sh did.
@@ -40,10 +42,21 @@ else
     (cd "$f" && "$zig" build --fetch=all --cache-dir "$scratch/local" --global-cache-dir "$scratch/global") > "$scratch/fetch.txt" 2>&1 && break
     echo "fetch attempt $i failed: $(grep -m1 -o 'error: .*' "$scratch/fetch.txt")"
   done
+  (cd "$f" && "$zig" build test-lib-vt --summary all --cache-dir "$scratch/local" --global-cache-dir "$scratch/global") > "$scratch/test.txt" 2>&1
+  echo "test-lib-vt default exit $?"
+  grep -E "^Build Summary" "$scratch/test.txt" || tail -40 "$scratch/test.txt"
 fi
-(cd "$f" && "$zig" build test-lib-vt --summary all --cache-dir "$scratch/local" --global-cache-dir "$scratch/global") > "$scratch/test.txt" 2>&1
-echo "test-lib-vt exit $?"
-grep -E "^Build Summary" "$scratch/test.txt" || tail -40 "$scratch/test.txt"
+
+options=$(echo "$args" | grep -v -e '^build$' -e '^-Doptimize=')
+store=${BOTSTER_ZIG_PACKAGES:-$HOME/.cache/botster/zig-packages}
+echo "== 2b. zig build test-lib-vt --summary all $(echo $options), Debug, global cache seeded from $store"
+mkdir -p "$scratch/shipped/p" && cp "$store"/p/*.tar.gz "$scratch/shipped/p/" && echo "seeded $(ls "$scratch/shipped/p" | wc -l | tr -d ' ') packages"
+(cd "$f" && "$zig" build test-lib-vt --summary all $options --cache-dir "$scratch/local-shipped" --global-cache-dir "$scratch/shipped") > "$scratch/test-shipped.txt" 2>&1
+echo "test-lib-vt shipped exit $?"
+grep -E "^Build Summary" "$scratch/test-shipped.txt" || tail -40 "$scratch/test-shipped.txt"
+extra=$(ls "$scratch/shipped/p" | sed -n 's/\.tar\.gz$//p' | sort | comm -13 <(ls "$store/p" | sed -n 's/\.tar\.gz$//p' | sort) -)
+if [ -z "$extra" ]; then echo "shipped test packages: none fetched, the store is sufficient"; else
+  echo "shipped test packages: FETCHED outside the store:"; echo "$extra"; fi
 
 echo "== 3. cargo nextest run -p botster-terminal-ghostty"
 env -u RUSTUP_TOOLCHAIN CARGO_BUILD_JOBS=4 NEXTEST_TEST_THREADS=4 cargo nextest run -p botster-terminal-ghostty > "$scratch/binding.txt" 2>&1

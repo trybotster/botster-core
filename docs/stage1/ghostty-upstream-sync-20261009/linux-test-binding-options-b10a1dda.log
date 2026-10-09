@@ -1,0 +1,64 @@
+botster-gate: botster-core stage1/p2-fork-a6 b10a1ddab08e764f0b42c3d4ea1fa2842093d27a
+botster-gate: base origin/v1 = fc23cd9747e64e24f99565543b45ae5f7400a71c (BOTSTER_CI_BASE_REF)
+botster-gate: pool, --on linux (needs linux,docker,botster)
+botster-gate: command bash -c set -u; s=$(mktemp -d); mkdir -p $s/p; cp ${BOTSTER_ZIG_PACKAGES:-/zig/packages}/p/*.tar.gz $s/p/; cd crates/botster-terminal-ghostty/vendor/ghostty && echo "fork head $(git rev-parse HEAD)" && zig build test-lib-vt -Demit-lib-vt -Dsimd=false -Dcpu=baseline -Demit-xcframework=false --summary all --global-cache-dir $s --cache-dir $s/local > $s/t.txt 2>&1; echo "test-lib-vt (binding options, Debug) exit $?"; grep -E "^Build Summary|error:" $s/t.txt | head -20
+botster-gate: log /Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-p2-fork-a6-b10a1dda-pool-20261009-035206-1394.log
+botster-gate: note: macOS-only code is not compiled on a Linux node; the Mac slow tier covers it:
+  crates/botster-core-sys/Cargo.toml
+  crates/botster-core-sys/src/payload.rs
+  crates/botster-core-sys/src/process.rs
+  crates/botster-core-sys/tests/common/guard_platform.rs
+  crates/botster-core/Cargo.toml
+  crates/botster-terminal-ghostty/build.rs
+  crates/botster-worker/Cargo.toml
+jobq: jobq-botster-core-b10a1dda-20261009035206-fc59
+jobq: botster-core b10a1ddab08e764f0b42c3d4ea1fa2842093d27a, lane ci (priority 40: tier 3 of 3, project cap 3), needs linux,docker,botster, 4 CPUs, medium (16384 MB, 8192 MB disk)
+jobq: command bash -c project=$1 cpus=$2 volume_branch=$3 base_sha=$4; shift 4
+if [ "$(uname -s)" = Darwin ]; then
+  # Public sources, as on Linux: the repo's ci/remote/fetch-public.sh (botster-core: the libghostty submodule and its
+  # Zig packages); else the submodules at the pinned commits. Every submodule is then cleaned.
+  if [ -f ci/remote/fetch-public.sh ]; then
+    bash ci/remote/fetch-public.sh || exit 3
+  elif [ -f .gitmodules ]; then
+    git submodule update -q --init --force || exit 3
+  fi
+  [ -f .gitmodules ] && { git submodule foreach -q --recursive git clean -q -ffdx || exit 3; }
+  exec "$@"
+fi
+# Linux: one gate of a branch at a time on this host (they share its target volume); the same lock files as testq gates.
+locks=$HOME/testq/projects/botster-locks
+lock=$locks/branch-$(printf %s "$project:$volume_branch" | sha1sum | cut -c1-16).lock
+{ mkdir -p "$locks" && exec 6>"$lock"; } || { echo "botster-gate: cannot open the branch lock $lock"; exit 3; }
+if ! flock -n 6; then
+  echo "botster-gate: waiting: another gate of $project $volume_branch runs on this host"
+  flock 6 || { echo "botster-gate: cannot take the branch lock $lock"; exit 3; }
+fi
+# job.sh keeps its shared state (image and volume locks, target stamps, artifacts) relative to its checkout, in testq's
+# layout <projects>/<project>/jobs/<snapshot>, and removes the snapshot when it ends. So the gate runs, as under testq,
+# in a snapshot under ~/testq/projects: a repository fetched from the warm pool slot (another filesystem), checked out at
+# the exact commit, base ref included.
+snap=$HOME/testq/projects/$project/jobs/$POOL_JOB
+mkdir -p "${snap%/*}" || exit 3
+# Until job.sh owns the snapshot (it removes it when it ends), a stop or a failure removes it here.
+trap 'rm -rf -- "$snap"; exit 143' TERM INT HUP
+if ! { git init -q "$snap" && git -C "$snap" fetch -q --no-tags "$PWD" "+refs/pool/head:refs/pool/head" \
+    "+refs/remotes/*:refs/remotes/*" && git -C "$snap" checkout -q --detach "$POOL_SHA"; }; then
+  echo "botster-gate: could not make the snapshot $snap"
+  rm -rf -- "$snap"
+  exit 3
+fi
+trap - TERM INT HUP
+exec "$snap/ci/remote/job.sh" "$snap" "$cpus" --run="$POOL_JOB" --branch="$volume_branch" --base="$base_sha" -- "$@" botster-gate botster-core 4 stage1/p2-fork-a6 fc23cd9747e64e24f99565543b45ae5f7400a71c bash -c set -u; s=$(mktemp -d); mkdir -p $s/p; cp ${BOTSTER_ZIG_PACKAGES:-/zig/packages}/p/*.tar.gz $s/p/; cd crates/botster-terminal-ghostty/vendor/ghostty && echo "fork head $(git rev-parse HEAD)" && zig build test-lib-vt -Demit-lib-vt -Dsimd=false -Dcpu=baseline -Demit-xcframework=false --summary all --global-cache-dir $s --cache-dir $s/local > $s/t.txt 2>&1; echo "test-lib-vt (binding options, Debug) exit $?"; grep -E "^Build Summary|error:" $s/t.txt | head -20
+jobq: log /Users/jasonconigliari/.local/state/jobq/logs/jobq-botster-core-b10a1dda-20261009035206-fc59.log
+jobq: running on msa1 (allocation bee5299a)
+pool-run: botster-core b10a1ddab08e on MS-A1 in botster-core/slot-0 (job jobq-botster-core-b10a1dda-20261009035206-fc59), 620826 MB free in the pool
+gate job: botster-core b10a1ddab08e764f0b42c3d4ea1fa2842093d27a on MS-A1, 4 CPUs, image botster-core-gate:bbc12a44852f, target botster-core-target-stage1-p2-fork-a6-a209cc7e
+gate job: 728 GiB free on the host
+fetch: dependencies of the workspace and of botster-contracts a8db5c9a are in the cargo volume
+fetch: submodules at the pinned commits, clean
+fetch: every Zig package of build_data.rs is in /zig/packages
+fork head 39a68e822e505685d1e7fa9c6abeff21125b489c
+test-lib-vt (binding options, Debug) exit 0
+Build Summary: 41/41 steps succeeded; 6733/6805 tests passed (72 skipped)
+jobq: exit 0 after 472 s on msa1 (botster-core b10a1dda) (queued 1 s, ran 471 s)
+botster-gate: exit 0 after 472 s on msa1 (botster-core b10a1dda)
