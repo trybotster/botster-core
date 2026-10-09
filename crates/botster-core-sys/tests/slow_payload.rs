@@ -324,8 +324,10 @@ fn a_panic_ends_the_payload_while_it_waits_for_input() {
         }));
         done.send(outcome.is_err()).unwrap();
     });
+    // The payload's drop releases the guard, then production's reaper can wait for the guard's member (up to CLEANUP),
+    // then the guard reports: the outer limit allows both, as in `Bounded`.
     // timer: deadline — the independent guard and production reaper must finish.
-    match result.recv_timeout(Duration::from_secs(10)) {
+    match result.recv_timeout(2 * process_guard::cleanup::CLEANUP) {
         Ok(panicked) => assert!(panicked),
         Err(error) => {
             cleanup_state(payload_pid);
