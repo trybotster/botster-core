@@ -105,8 +105,10 @@ pub fn candidate_of(token: usize) -> Option<CandidateId> {
 
 /// The fence of `Action::AdoptLink(adopted)` on the inputs that the driver queued and the machine did not handle yet. An
 /// input of the old link is dropped: the machine hears nothing of the old link after the action. An input of the adopted
-/// candidate becomes the same input of the control link.
-pub fn fence(inputs: &mut VecDeque<Input>, adopted: CandidateId) {
+/// candidate becomes the same input of the control link. When the driver no longer holds the candidate (`held` is false:
+/// its connection ended), the fence fails closed: the machine hears that its new link ended (`LinkClosed`), and nothing
+/// that it sends can reach the old host.
+pub fn fence(inputs: &mut VecDeque<Input>, adopted: CandidateId, held: bool) {
     let queued = std::mem::take(inputs);
     inputs.extend(queued.into_iter().filter_map(|input| match input {
         Input::LinkBytes(_) | Input::LinkClosed | Input::LinkWritten { .. } => None,
@@ -114,6 +116,9 @@ pub fn fence(inputs: &mut VecDeque<Input>, adopted: CandidateId) {
         Input::CandidateClosed(id) if id == adopted => Some(Input::LinkClosed),
         other => Some(other),
     }));
+    if !held && !inputs.contains(&Input::LinkClosed) {
+        inputs.push_back(Input::LinkClosed);
+    }
 }
 
 /// The result of the removal of the worker endpoint at the worker's end. An endpoint that is not there is no failure: the
@@ -370,7 +375,8 @@ mod tests {
             Input::CandidateClosed(adopted),
             Input::Candidate(CandidateId(4)),
         ]);
-        fence(&mut inputs, adopted);
+        let mut gone = inputs.clone();
+        fence(&mut inputs, adopted, true);
         assert_eq!(
             inputs,
             VecDeque::from([
@@ -382,6 +388,19 @@ mod tests {
                 Input::Candidate(CandidateId(4)),
             ])
         );
+
+        // P3 review of #176 (L1): a candidate that the driver no longer holds gives one `LinkClosed` of the new link.
+        fence(&mut gone, adopted, false);
+        assert_eq!(
+            gone.iter().filter(|i| **i == Input::LinkClosed).count(),
+            1,
+            "{gone:?}"
+        );
+        let mut empty = VecDeque::new();
+        fence(&mut empty, adopted, true);
+        assert!(empty.is_empty(), "a held candidate adds no input");
+        fence(&mut empty, adopted, false);
+        assert_eq!(empty, VecDeque::from([Input::LinkClosed]));
     }
 
     /// DESIGN.md part 1: the worker removes its endpoint at its end; an endpoint that the host removed first is no failure.
