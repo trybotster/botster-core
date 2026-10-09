@@ -337,6 +337,21 @@ fn a_started_payload_is_reported_launched_with_its_identity() {
     assert_eq!(terminal.size, size());
 }
 
+/// AD-7, R-35: a worker accepts at most one `Launch` in its life, so an adoption retry that sends a `Launch` again can never
+/// spawn a second payload. A `Launch` after the payload runs, after it exited, and after its spawn failed starts nothing.
+#[test]
+fn a_worker_accepts_one_launch_in_its_life() {
+    let launch = || HostMsg::Launch(Box::new(spec()));
+    let mut running = World::running();
+    assert_eq!(running.send(&launch()), [], "running");
+    let (mut exited, _) = World::exited(ExitStatus::Code(0));
+    assert_eq!(exited.send(&launch()), [], "exited");
+    let mut failed = World::linked();
+    failed.send(&launch());
+    failed.feed(Input::Spawned(Err(SpawnFailure::CwdMissing)));
+    assert_eq!(failed.send(&launch()), [], "the spawn failed");
+}
+
 /// LC-4, A2-1: a payload that does not start is a typed failure.
 #[test]
 fn a_payload_that_does_not_start_is_reported_with_its_reason() {
