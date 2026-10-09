@@ -5,6 +5,7 @@
 #   1. the lib-vt build with the binding's GHOSTTY_BUILD_ARGS and an EMPTY Zig global cache, and the packages that the
 #      build fetched, compared with build_data.rs ZIG_PACKAGES (needs network; it says so when it has none; the gate's
 #      binding build of step 3 covers the build from the package store);
+#   (2a and 2b print the whole --summary all step tree.)
 #   2a. zig build test-lib-vt --summary all in upstream's default configuration (SIMD, the app packages); it needs
 #       network to fetch the test packages, and without network it says so and does not run;
 #   2b. zig build test-lib-vt --summary all with the shipped options: GHOSTTY_BUILD_ARGS without "build" and without
@@ -58,7 +59,8 @@ else
   done
   (cd "$f" && "$zig" build test-lib-vt --summary all --cache-dir "$scratch/local" --global-cache-dir "$scratch/global") > "$scratch/test.txt" 2>&1
   echo "test-lib-vt default exit $?"
-  grep -E "^Build Summary" "$scratch/test.txt" || tail -40 "$scratch/test.txt"
+  # The whole step tree of --summary all: every step, and the passed and skipped count of each test run.
+  sed -n '/^Build Summary/,$p' "$scratch/test.txt" | grep . || tail -40 "$scratch/test.txt"
 fi
 
 options=$(echo "$args" | grep -v -e '^build$' -e '^-Doptimize=')
@@ -69,7 +71,7 @@ for hash in $packages; do cp "$store/p/$hash.tar.gz" "$scratch/shipped/p/" || ec
 echo "seeded $(ls "$scratch/shipped/p" | wc -l | tr -d ' ') packages"
 (cd "$f" && "$zig" build test-lib-vt --summary all $options --cache-dir "$scratch/local-shipped" --global-cache-dir "$scratch/shipped") > "$scratch/test-shipped.txt" 2>&1
 echo "test-lib-vt shipped exit $?"
-grep -E "^Build Summary" "$scratch/test-shipped.txt" || tail -40 "$scratch/test-shipped.txt"
+sed -n '/^Build Summary/,$p' "$scratch/test-shipped.txt" | grep . || tail -40 "$scratch/test-shipped.txt"
 extra=$(ls "$scratch/shipped/p" | sed -n 's/\.tar\.gz$//p' | sort | comm -13 <(echo "$packages") -)
 if [ -z "$extra" ]; then echo "shipped test packages: none fetched, ZIG_PACKAGES is sufficient"; else
   echo "shipped test packages: FETCHED outside ZIG_PACKAGES:"; echo "$extra"; fi
