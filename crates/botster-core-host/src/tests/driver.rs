@@ -366,6 +366,18 @@ impl Rig {
     fn drain_events(&mut self) -> Vec<Event> {
         self.driver.poll_events(256)
     }
+
+    /// Pumps and drains until a pump leaves no more work, then drains once more. A driver that keeps reporting `more`
+    /// fails the test at the step bound, instead of hanging it.
+    fn settle(&mut self) {
+        let mut guard = 0;
+        while self.pump().more {
+            self.drain_events();
+            guard += 1;
+            assert!(guard < 200, "the driver does not settle");
+        }
+        self.drain_events();
+    }
 }
 
 fn launched() -> WorkerMsg {

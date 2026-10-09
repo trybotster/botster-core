@@ -9,13 +9,7 @@ use std::sync::Arc;
 fn run_session(rig: &mut Rig, name: &str, link: LinkId) {
     to_launch(rig, name, link);
     rig.worker_says(link, launched());
-    let mut guard = 0;
-    while rig.pump().more {
-        rig.drain_events();
-        guard += 1;
-        assert!(guard < 200);
-    }
-    rig.drain_events();
+    rig.settle();
 }
 
 /// A session whose worker got the launch request and has not answered yet. Returns the `Start` op.
@@ -84,10 +78,7 @@ fn e3_1_two_silences_due_together_with_budget_one() {
     }));
     silent_session(&mut rig, "s1", LinkId(1), 3);
     silent_session(&mut rig, "s2", LinkId(2), 3);
-    while rig.pump().more {
-        rig.drain_events();
-    }
-    rig.drain_events();
+    rig.settle();
     rig.now += Duration::from_secs(3);
     rig.unix += 3;
     let first = rig.pump();
@@ -130,10 +121,7 @@ fn a_pump_runs_each_due_silence_first_until_the_budget_runs_out() {
     silent_session(&mut rig, "s2", LinkId(2), 3);
     silent_session(&mut rig, "s3", LinkId(3), 3);
     silent_session(&mut rig, "later", LinkId(4), 30);
-    while rig.pump().more {
-        rig.drain_events();
-    }
-    rig.drain_events();
+    rig.settle();
     rig.now += Duration::from_secs(3);
     rig.unix += 3;
     rig.worker_says(
@@ -219,10 +207,7 @@ fn a_step_posts_one_event_for_metadata() {
         l.mandatory_events = 64;
     }));
     run_session(&mut rig, "s1", LinkId(1));
-    while rig.pump().more {
-        rig.drain_events();
-    }
-    rig.drain_events();
+    rig.settle();
     rig.driver
         .begin(Op::UpdateMetadata {
             id: sid("s1"),
@@ -254,10 +239,7 @@ fn e3_1_a_carried_silent_runs_before_newer_link_input() {
         l.mandatory_events = 64;
     }));
     silent_session(&mut rig, "s1", LinkId(1), 3);
-    while rig.pump().more {
-        rig.drain_events();
-    }
-    rig.drain_events();
+    rig.settle();
     rig.now += Duration::from_secs(3);
     rig.unix += 3;
     rig.worker_says(
