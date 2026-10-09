@@ -211,6 +211,12 @@ fn helper_unreserved_cleanup() {
     let _member = OwnedChild::spawn(Command::new("/bin/cat").stdout(stderr())).unwrap();
     writeln!(std::io::stderr(), "member started").unwrap();
     let group = rustix::process::getpgrp();
+    // The kill below ends this process's group: it must be the helper's own, never the test runner's.
+    assert_eq!(
+        group,
+        rustix::process::getpid(),
+        "the helper leads its own group"
+    );
     let ended =
         botster_test_process::rounds::end_group_reserved(group, Deadline::cleanup(), || {
             Err(std::io::Error::other("no reserve"))
