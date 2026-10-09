@@ -41,6 +41,8 @@ pub(super) struct Active {
     in_flight: bool,
     /// A cancel came; the transaction ends at the next count.
     cancelled: bool,
+    /// An adoption fenced its host: the transaction runs to its end (AM-2: contiguous) and reports nothing.
+    retired: bool,
 }
 
 impl Active {
@@ -120,7 +122,12 @@ impl Worker {
             );
             return;
         }
-        let Some(active) = self.input.active.as_mut().filter(|a| a.req == req) else {
+        let Some(active) = self
+            .input
+            .active
+            .as_mut()
+            .filter(|a| a.req == req && !a.retired)
+        else {
             return;
         };
         active.cancelled = true;
@@ -175,6 +182,7 @@ impl Worker {
                 written: 0,
                 in_flight: false,
                 cancelled: false,
+                retired: false,
             });
             if len == 0 {
                 self.finish_active(WriteOutcome::Written, "");
@@ -305,9 +313,21 @@ impl Worker {
             }
             other => other,
         };
-        let result = active.result(outcome, detail);
-        self.complete_write(active.req, result);
+        if !active.retired {
+            let result = active.result(outcome, detail);
+            self.complete_write(active.req, result);
+        }
         self.try_start();
+    }
+
+    /// The fence of an adoption (DESIGN.md 3.4): request numbers are per link, so no request of the old host may complete
+    /// on the new link. Its queued writes are dropped with no report, and the write in progress runs to its end and
+    /// reports nothing.
+    pub(super) fn input_fence(&mut self) {
+        self.input.queue.clear();
+        if let Some(active) = self.input.active.as_mut() {
+            active.retired = true;
+        }
     }
 
     fn complete_write(&mut self, req: u64, result: InputResult) {

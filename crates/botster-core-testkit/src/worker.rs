@@ -648,6 +648,9 @@ impl Binding<Worker> for WorkerEdges {
                 lock(&self.processes).end(self.id, ExitStatus::Code(0));
                 self.ended();
             }
+            // The `Sim`'s worker endpoints come after `botster-test-process` (#171; DESIGN.md part 6). Until then this
+            // driver gives no `Input::Candidate`, so the machine names no candidate.
+            Action::CandidateClose(_) | Action::AdoptLink(_) => {}
         }
     }
 }
