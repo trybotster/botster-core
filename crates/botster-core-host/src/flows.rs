@@ -109,12 +109,7 @@ impl HostEngine {
     }
 
     /// Ends the start with `reason`, in the state `state` (LC-4: `Exited` or `Lost`, never `Starting`).
-    pub(crate) fn fail_start(
-        &mut self,
-        id: &SessionId,
-        reason: StartFailReason,
-        state: End,
-    ) {
+    pub(crate) fn fail_start(&mut self, id: &SessionId, reason: StartFailReason, state: End) {
         if let Some(f) = self.start_flow(id) {
             f.failure = Some(StartFailure { reason, state });
             f.deadline = None;
