@@ -101,3 +101,34 @@ reviewer (Sol)". The new bullet says that Opus implementers, Sol high-effort rev
 "in force". Mark the older bullets as superseded, so the plan states one rule.
 
 VERDICT: NOT CLEAN (6 open: PR1, PR2 MEDIUM; PR3 to PR6 LOW)
+
+## Round 2 — NOT CLEAN on head ada086b8
+
+Reviewed head: `ada086b8cdce96ffa205934a6a83b1da23a23612`. Delta `b3d142d4..ada086b8`, one commit, `docs/stage1-plan.md`
+only.
+
+- **PR1 CLOSED.** The #167 rule is stated: the decision is a pure function with red-input tests, and an exclusion may cover
+  only the I/O shell, whose entry names that function. v1's `mutants_job` entry names `mutation_verdict`,
+  `parse_outcomes` and `platform_exclusions`, so P6's check has a defined result for it.
+- **PR2 CLOSED.** The pool gate cites the orchestrator's RESUME of 2026-10-08. The orchestrator state log (line 630,
+  20:38, "RESUME (user)") gives "gates via botster-gate on Nomad pool tier 3 cap 3+1", and `brief-resume-20261008.md`
+  "What changed" item 1 gives the same rule. (The plan says "item 4"; neither source numbers it 4. Give the source's own
+  number, or no number.) The full gate before READY is withdrawn and became Q8.
+- **PR3 CLOSED.** The owner (P6, PR B), the red-on-revert proof, "no grandfathering" and the 2 s default budget are stated.
+- **PR6 CLOSED.** The old staffing bullets are marked superseded.
+- **PR4 still open (LOW, wording).** "with a unit test of the off-macOS argument" is not what #167 has. The entry states
+  the argument (why the mutant is equivalent off macOS). The unit test
+  `only_a_gate_off_macos_adds_the_off_macos_exclusions` proves only the per-OS scope. Fix: "with the off-macOS
+  equivalence argument in the entry and a unit test of the per-OS scope".
+- **PR5 still open (LOW).** Item 12's precondition is stated without its other branch: if production code relies on
+  reparenting to pid 1, that is a QUESTION to the lead, and production code is not changed to suit the wrapper. Add it.
+  The P6 brief sha256 `30b8f604…f144` matches the file.
+- **PR7 LOW (new): Q7 and Q8 are answered.** The orchestrator state log, line 660 (2026-10-08 23:20): "r22 Q7 ... YES w/
+  conditions; Q8 (one full pool gate before first READY; counts as merge gate if head unchanged) YES. BUILD.md 629c177."
+  botster-contracts `629c177a6fdea316b44689171c691a8e30240b79` (23:20:32, 32 s after this head) adds both rules to
+  BUILD.md, with Q7's three script conditions, and it also records the pool gate (2026-10-05). That commit is after
+  `contracts-v0.1.17`. The plan must record: Q7 and Q8 ANSWERED with the exact conditions; the BUILD.md commit that
+  holds them (it is not in the pinned tag); and the section 8 READY rule as BUILD.md now allows it (one optional full gate
+  before the first READY, which counts as the merge gate when the CLEAN head is the same head).
+
+VERDICT: NOT CLEAN (3 open: PR4, PR5, PR7, all LOW)
