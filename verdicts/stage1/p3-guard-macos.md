@@ -492,3 +492,27 @@ clean (tree `604e327`). This reviewer ran no build, test or gate.
 All integration findings on #165 (G1 to G6, C3, C4, C5, and P5-F4 as C2) are closed.
 
 VERDICT: CLEAN (0 open) at 7e20c5fa2cbdc7855401ad9b71c8c941e064d878
+
+## Correction after round 13 — G2 shape on the real-loop path (CLEAN at 7e20c5fa WITHDRAWN)
+
+Head: `7e20c5fa2cbdc7855401ad9b71c8c941e064d878` (unchanged). Source: the P3 package reviewer's round 88 F39
+(`stage1/review-p3` `2013055b`), checked by this reviewer against the exact tree.
+
+#### C6 [LOW] OPEN — The real-loop retirement wait equals CLEANUP (G2 on a second path)
+
+- Location: `crates/botster-worker/tests/common/driver_edges.rs` `pty_events_resume_reads_after_would_block`, about
+  lines 437-455 at this head.
+- Evidence: the test takes the driver out of `Bounded<Driver>` (`h.driver.take()`) and runs `driver.run()` on a thread. It
+  drops `h.release` (the guard's cleanup request) and then sends `Remove`. Production's cleanup can then wait for the
+  guard's member for up to `CLEANUP` (`guard_cleanup.rs:12`, 10 s). The outer wait is a literal
+  `recv_timeout(Duration::from_secs(10))`, equal to `CLEANUP`, with no allowance for the cleanup's completion and the
+  result's delivery. `Bounded<Drop>` (line 57) uses `2 * CLEANUP` for the same composition; this path does not.
+- Round 13 said that G2 was closed. G2 was closed only for `Bounded<Driver>` (round 7); this reviewer did not check the
+  second owner path. The CLEAN at `7e20c5fa` (`9207331`) is withdrawn.
+- Required (= P3 F39 for #165): derive this outer wait from `CLEANUP` with the `Bounded` rule (`2 * CLEANUP`, or a
+  shared helper), from the one constant. Keep the inner `CLEANUP` unchanged, and keep the order: release before `Remove`,
+  report after. The literal 10 s at line about 490 (the exit watch after `signal_group(9)`) is not behind a guard cleanup
+  and is out of this finding.
+- G2/F39 for #163's merge delta stays separate.
+
+VERDICT: NOT CLEAN (1 open: C6)
