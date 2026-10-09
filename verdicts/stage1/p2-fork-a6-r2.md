@@ -39,3 +39,23 @@ Observation (not counted): the sync record gives the Linux shipped-options run a
 run as 42/42 with 56 skipped. The record does not say why the counts differ. The fork reviewer may want that line.
 
 VERDICT: CLEAN (0 open) at 338f3ecb20bde1c47db4aa374b7fe987894dbee2
+
+## Round 2 — CLEAN on head c085c1b9
+
+Reviewed head: `c085c1b99cb306cbd89b6331ecee28f554494694`. Delta on `338f3ecb`: the merge `475bee89` of v1 `d15579da`, then
+`14e65b7c`, `6e4a55aa` and `c085c1b9`, which change docs and evidence only. The PR's gate log:
+`shared/core-stage1/gate-logs/fork-a6-c085c1b9.log` (full Linux gate, exit 0). This reviewer did not read it.
+
+- **The merge.** `git merge-tree --write-tree 338f3ecb d15579da` gives tree `6deee707`, which is the tree of `475bee89`. P5's
+  `base-merge-check` passed (the PR's own diff is byte-identical).
+- **No code changes after the merge.** `475bee89..c085c1b9` changes only `docs/stage1/ghostty-upstream-sync-20261009*` and
+  `docs/stage1/libghostty-audit.md`.
+- **This reviewer's observation is answered.** The record's section "Why the step and skip counts differ" uses the
+  `--summary all` step trees: two test modules (`vt`, `vt_c`), the Mac-only skip of the SIMD decode test, the 8
+  macOS-only input tests, and the Mac-only `WriteFile libc.txt` step.
+- **F-A6-04 (the fork reviewer's).** `evidence.sh` moves the fork tree's `zig-pkg` out before step 2b. On Mac it was
+  present (39 entries) and is moved out, and step 2b passes with 7 seeded packages and nothing fetched. The record states
+  that `mac-run4`'s step 1 did not finish (a codeberg fetch failed) and cites `mac-run3` for the empty-cache proof. F-A6-04
+  is the fork reviewer's to close.
+
+VERDICT: CLEAN (0 open) at c085c1b99cb306cbd89b6331ecee28f554494694
