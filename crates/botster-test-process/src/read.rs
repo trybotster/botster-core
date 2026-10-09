@@ -33,6 +33,10 @@ impl std::fmt::Display for ReadError {
 
 impl std::error::Error for ReadError {}
 
+/// The error of a read loop whose pass added no byte and ended no reader after a reported read or a ready `poll`: the
+/// loop fails at once instead of spinning to its deadline.
+const NO_PROGRESS: &str = "a read reported progress and added no byte";
+
 /// A reader whose reads are bounded by deadlines. It buffers what it read past a line's end for the next line.
 #[derive(Debug)]
 pub struct Bounded<R> {
@@ -111,12 +115,17 @@ impl<R: Read + AsFd> Bounded<R> {
             if deadline.expired() {
                 return Err(self.passed(deadline));
             }
+            let before = self.buffer.len();
             if !self.fill(deadline)? {
                 if self.buffer.is_empty() {
                     return Ok(None);
                 }
                 let line = std::mem::take(&mut self.buffer);
                 return Ok(Some(String::from_utf8_lossy(&line).into_owned()));
+            }
+            // A read that reports bytes must add them: otherwise the loop would read again at once (a spin).
+            if self.buffer.len() == before {
+                return Err(ReadError::Io(io::Error::other(NO_PROGRESS)));
             }
         }
     }
@@ -133,8 +142,13 @@ impl<R: Read + AsFd> Bounded<R> {
             if deadline.expired() {
                 return Err(self.passed(deadline));
             }
+            let before = self.buffer.len();
             if !self.fill(deadline)? {
                 return Ok(std::mem::take(&mut self.buffer));
+            }
+            // A read that reports bytes must add them: otherwise the loop would read again at once (a spin).
+            if self.buffer.len() == before {
+                return Err(ReadError::Io(io::Error::other(NO_PROGRESS)));
             }
         }
     }
@@ -204,20 +218,28 @@ pub(crate) fn both_to_eof<A: Read + AsFd, B: Read + AsFd>(
         };
         // `ready` lists the readers that had not ended, in order.
         let mut ready = ready.into_iter();
-        let mut reads = 0;
+        let before = (
+            first.buffer.len(),
+            first.eof,
+            second.buffer.len(),
+            second.eof,
+        );
         if !first.eof && ready.next() == Some(true) {
             first.read_once()?;
-            reads += 1;
         }
         if !second.eof && ready.next() == Some(true) {
             second.read_once()?;
-            reads += 1;
         }
-        // `poll` reported a ready descriptor, so a pass with no read would only poll again at once: a spin.
-        if reads == 0 {
-            return Err(ReadError::Io(io::Error::other(
-                "poll reported a ready descriptor, and no reader read it",
-            )));
+        // `poll` reported a ready descriptor, so a pass that adds no byte and ends no reader would only poll again at
+        // once: a spin.
+        if (
+            first.buffer.len(),
+            first.eof,
+            second.buffer.len(),
+            second.eof,
+        ) == before
+        {
+            return Err(ReadError::Io(io::Error::other(NO_PROGRESS)));
         }
     }
 }
