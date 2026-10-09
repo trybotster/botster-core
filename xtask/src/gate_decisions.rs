@@ -1,28 +1,173 @@
-//! `cargo xtask gate-decisions`: no mutation exclusion covers a gate decision (lead, 2026-10-08). The gate is the xtask, so
-//! every function of the xtask decides a step's pass or fail, except the reviewed glue in `GATE_GLUE` that only starts a
-//! process, reads a file or prints (the rule of `.cargo/mutants.toml`: "Every decision of xtask is mutation-tested").
+//! `cargo xtask gate-decisions`: no mutation exclusion covers a gate decision (lead, 2026-10-08; plan r22 review PR1). A
+//! decision is a tested pure function; an exclusion may cover only the I/O shell that calls it, and the entry names that
+//! decision function (the `mutants_job` entry of #167 is the model).
 //!
 //! The check lists the mutants of the xtask as cargo-mutants generates them (`cargo mutants --list --json --no-config`,
-//! which builds nothing) and applies every exclusion to them: each `exclude_re` entry and each `exclude_globs` entry of
-//! `.cargo/mutants.toml`, and each regex of `ci::OFF_MACOS_EXCLUSIONS`. An exclusion that matches a mutant of a function
-//! outside `GATE_GLUE` fails the check, and so does a `GATE_GLUE` entry with no mutant (a renamed or deleted function).
+//! which builds nothing) and applies every exclusion to them: each `exclude_re` entry of `.cargo/mutants.toml` with the
+//! comment above it as its reason, each regex of `ci::OFF_MACOS_EXCLUSIONS`, and each `exclude_globs` entry. An exclusion
+//! that covers a mutant of xtask function F passes only when its reason names a function D of the xtask that F calls, that
+//! a test calls, and that no exclusion covers; the check reads the calls from the syntax of the xtask. Every other
+//! exclusion of an xtask mutant fails, a glob or an `OFF_MACOS_EXCLUSIONS` regex included (neither has a reason here).
 
 use crate::mutants_cited::MUTANTS_FILE;
 use crate::tools::{cargo, require_cargo_tool};
 use anyhow::{bail, Context, Result};
 use regex::Regex;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
-
-/// The xtask functions that only start a process, read a file or print, by file and function name. Each has a reviewed
-/// exclusion with its argument in `.cargo/mutants.toml`; its decisions are pure functions that stay mutation-tested.
-const GATE_GLUE: [(&str, &str); 1] = [("xtask/src/ci.rs", "mutants_job")];
+use syn::visit::Visit;
 
 /// A mutant as `cargo mutants --list --json` gives it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Mutant {
     pub file: String,
+    /// The function as cargo-mutants names it (`f`, `Type::f`, `<impl Trait for Type>::f`); empty outside a function.
     pub function: String,
     pub name: String,
+}
+
+impl Mutant {
+    /// The function's own name, the last segment.
+    fn short(&self) -> &str {
+        self.function.rsplit("::").next().unwrap_or_default()
+    }
+}
+
+/// An exclusion and its reason (empty when it has none).
+#[derive(Clone, Debug)]
+pub struct Exclusion {
+    pub pattern: String,
+    pub reason: String,
+}
+
+/// The calls of the xtask, from its syntax: what each function calls, by file and name, and what the tests call.
+#[derive(Default, Debug)]
+pub struct Calls {
+    by_function: BTreeMap<(String, String), BTreeSet<String>>,
+    tested: BTreeSet<String>,
+}
+
+impl Calls {
+    /// The calls of the Rust files `(path, text)`.
+    ///
+    /// # Errors
+    /// A file does not parse.
+    pub fn of(files: &[(String, String)]) -> Result<Calls> {
+        let mut calls = Calls::default();
+        for (file, text) in files {
+            let parsed = syn::parse_file(text)
+                .map_err(|error| anyhow::anyhow!("{file}: does not parse: {error}"))?;
+            let mut index = Index {
+                file,
+                calls: &mut calls,
+                function: Vec::new(),
+                test: false,
+            };
+            index.visit_file(&parsed);
+        }
+        Ok(calls)
+    }
+
+    fn calls(&self, file: &str, function: &str) -> Option<&BTreeSet<String>> {
+        self.by_function
+            .get(&(file.to_string(), function.to_string()))
+    }
+}
+
+struct Index<'a> {
+    file: &'a str,
+    calls: &'a mut Calls,
+    /// The function being read, innermost last.
+    function: Vec<String>,
+    test: bool,
+}
+
+fn is_test(attrs: &[syn::Attribute]) -> bool {
+    attrs.iter().any(|attr| {
+        let path = attr.path();
+        (path.is_ident("cfg")
+            && attr
+                .parse_args::<syn::Ident>()
+                .is_ok_and(|ident| ident == "test"))
+            || path
+                .segments
+                .last()
+                .is_some_and(|last| last.ident == "test")
+    })
+}
+
+impl Index<'_> {
+    fn called(&mut self, name: String) {
+        if self.test {
+            self.calls.tested.insert(name.clone());
+        }
+        if let Some(function) = self.function.last() {
+            self.calls
+                .by_function
+                .entry((self.file.to_string(), function.clone()))
+                .or_default()
+                .insert(name);
+        }
+    }
+
+    fn function(&mut self, name: String, attrs: &[syn::Attribute], visit: impl FnOnce(&mut Self)) {
+        let was = self.test;
+        self.test |= is_test(attrs);
+        self.calls
+            .by_function
+            .entry((self.file.to_string(), name.clone()))
+            .or_default();
+        self.function.push(name);
+        visit(self);
+        self.function.pop();
+        self.test = was;
+    }
+}
+
+impl<'ast> Visit<'ast> for Index<'_> {
+    fn visit_item_mod(&mut self, item: &'ast syn::ItemMod) {
+        let was = self.test;
+        self.test |= is_test(&item.attrs);
+        syn::visit::visit_item_mod(self, item);
+        self.test = was;
+    }
+
+    fn visit_item_fn(&mut self, item: &'ast syn::ItemFn) {
+        self.function(item.sig.ident.to_string(), &item.attrs, |index| {
+            syn::visit::visit_item_fn(index, item)
+        });
+    }
+
+    fn visit_impl_item_fn(&mut self, item: &'ast syn::ImplItemFn) {
+        self.function(item.sig.ident.to_string(), &item.attrs, |index| {
+            syn::visit::visit_impl_item_fn(index, item)
+        });
+    }
+
+    fn visit_expr_call(&mut self, call: &'ast syn::ExprCall) {
+        if let syn::Expr::Path(path) = &*call.func {
+            if let Some(last) = path.path.segments.last() {
+                self.called(last.ident.to_string());
+            }
+        }
+        syn::visit::visit_expr_call(self, call);
+    }
+
+    fn visit_expr_method_call(&mut self, call: &'ast syn::ExprMethodCall) {
+        self.called(call.method.to_string());
+        syn::visit::visit_expr_method_call(self, call);
+    }
+
+    fn visit_macro(&mut self, mac: &'ast syn::Macro) {
+        // A call inside `assert!`, `format!` and the like: the macro's arguments, when they are expressions.
+        if let Ok(exprs) = mac.parse_body_with(
+            syn::punctuated::Punctuated::<syn::Expr, syn::Token![,]>::parse_terminated,
+        ) {
+            for expr in &exprs {
+                self.visit_expr(expr);
+            }
+        }
+    }
 }
 
 /// The mutants of a `cargo mutants --list --json` document. A mutant outside a function (a constant) has no function.
@@ -52,6 +197,44 @@ pub fn parse_mutants(json: &str) -> Result<Vec<Mutant>> {
     Ok(mutants)
 }
 
+/// The `exclude_re` entries of the mutants file, each with the comment block above it (or above its group of entries).
+///
+/// # Errors
+/// An entry line is not a single-quoted string.
+pub fn exclusions_of(toml: &str) -> Result<Vec<Exclusion>> {
+    let mut entries = Vec::new();
+    let mut inside = false;
+    let mut reason: Vec<&str> = Vec::new();
+    let mut last_was_comment = false;
+    for line in toml.lines() {
+        let line = line.trim();
+        if !inside {
+            inside = line.starts_with("exclude_re");
+            continue;
+        }
+        if line == "]" {
+            break;
+        }
+        if let Some(comment) = line.strip_prefix('#') {
+            if !last_was_comment {
+                reason.clear();
+            }
+            reason.push(comment.trim());
+            last_was_comment = true;
+        } else if !line.is_empty() {
+            let Some(pattern) = line.strip_prefix('\'').and_then(|l| l.strip_suffix("',")) else {
+                bail!("{MUTANTS_FILE}: an exclude_re entry that is not a single-quoted string: {line}");
+            };
+            entries.push(Exclusion {
+                pattern: pattern.to_string(),
+                reason: reason.join(" "),
+            });
+            last_was_comment = false;
+        }
+    }
+    Ok(entries)
+}
+
 /// A glob of `exclude_globs` as a regex over a path: `**/` is any directories, `**` and `*` any text (`*` within one
 /// component), `?` one character. A glob with no `/` matches the file name in any directory.
 fn glob_regex(glob: &str) -> Regex {
@@ -76,63 +259,81 @@ fn glob_regex(glob: &str) -> Regex {
     Regex::new(&pattern).expect("an escaped glob")
 }
 
-/// The violations: each exclusion that covers a mutant of a gate decision, once per function, and each `GATE_GLUE` entry
-/// that names no function of `mutants`.
+/// Whether an exclusion covers a mutant.
+type Covers = Box<dyn Fn(&Mutant) -> bool>;
+
+/// The violations: each exclusion that covers a mutant of an xtask function without naming, in its reason, a tested
+/// decision function that the covered function calls and that no exclusion covers. One violation per exclusion and
+/// function.
 ///
 /// # Errors
 /// An exclusion is not a valid regex.
 pub fn check(
     mutants: &[Mutant],
-    exclude_re: &[String],
-    exclude_globs: &[String],
-    glue: &[(&str, &str)],
+    exclusions: &[Exclusion],
+    globs: &[String],
+    calls: &Calls,
 ) -> Result<Vec<String>> {
-    let mut violations = Vec::new();
-    let mut regexes = Vec::new();
-    for entry in exclude_re {
-        regexes.push((
-            entry.clone(),
-            Regex::new(entry).with_context(|| format!("the exclusion `{entry}`"))?,
+    let mut all: Vec<(Exclusion, Covers)> = Vec::new();
+    for exclusion in exclusions {
+        let regex = Regex::new(&exclusion.pattern)
+            .with_context(|| format!("the exclusion `{}`", exclusion.pattern))?;
+        all.push((
+            exclusion.clone(),
+            Box::new(move |m: &Mutant| regex.is_match(&m.name)),
         ));
     }
-    let globs: Vec<(String, Regex)> = exclude_globs
+    for glob in globs {
+        let regex = glob_regex(glob);
+        all.push((
+            Exclusion {
+                pattern: glob.clone(),
+                reason: String::new(),
+            },
+            Box::new(move |m: &Mutant| regex.is_match(&m.file)),
+        ));
+    }
+    let covered: BTreeSet<&str> = mutants
         .iter()
-        .map(|g| (g.clone(), glob_regex(g)))
+        .filter(|m| all.iter().any(|(_, covers)| covers(m)))
+        .map(Mutant::short)
         .collect();
-    let mut reported = std::collections::BTreeSet::new();
+    let word = Regex::new(r"[A-Za-z_][A-Za-z0-9_]*").expect("regex");
+    let mut seen = BTreeSet::new();
+    let mut violations = Vec::new();
     for mutant in mutants {
-        if glue.contains(&(mutant.file.as_str(), mutant.function.as_str())) {
-            continue;
-        }
-        let by_re = regexes
-            .iter()
-            .filter(|(_, re)| re.is_match(&mutant.name))
-            .map(|(entry, _)| entry);
-        let by_glob = globs
-            .iter()
-            .filter(|(_, re)| re.is_match(&mutant.file))
-            .map(|(glob, _)| glob);
-        for exclusion in by_re.chain(by_glob) {
-            if reported.insert((
-                exclusion.clone(),
-                mutant.file.clone(),
-                mutant.function.clone(),
-            )) {
+        for (exclusion, covers) in &all {
+            if !covers(mutant)
+                || !seen.insert((
+                    exclusion.pattern.clone(),
+                    mutant.file.clone(),
+                    mutant.function.clone(),
+                ))
+            {
+                continue;
+            }
+            let short = mutant.short();
+            let callees = calls.calls(&mutant.file, short);
+            let named = word
+                .find_iter(&exclusion.reason)
+                .map(|w| w.as_str())
+                .any(|d| {
+                    d != short
+                        && callees.is_some_and(|c| c.contains(d))
+                        && calls.tested.contains(d)
+                        && !covered.contains(d)
+                        && calls.by_function.keys().any(|(_, f)| f == d)
+                });
+            if !named {
                 violations.push(format!(
-                    "`{exclusion}` excludes the gate decision {} in {} (`{}`): a gate decision is never excluded",
-                    if mutant.function.is_empty() { "outside a function" } else { &mutant.function },
+                    "`{}` excludes {} in {} (`{}`): an exclusion covers only an I/O shell, and its reason names the tested \
+                     decision function that the shell calls",
+                    exclusion.pattern,
+                    if mutant.function.is_empty() { "code outside a function" } else { &mutant.function },
                     mutant.file,
                     mutant.name
                 ));
             }
-        }
-    }
-    for (file, function) in glue {
-        if !mutants
-            .iter()
-            .any(|m| m.file == *file && m.function == *function)
-        {
-            violations.push(format!("GATE_GLUE names {function} in {file}, which has no mutant: remove or rename the entry"));
         }
     }
     Ok(violations)
@@ -158,33 +359,45 @@ pub fn command(root: &Path, args: &[String]) -> Result<()> {
         );
     }
     let mutants = parse_mutants(&String::from_utf8(output.stdout)?)?;
-    let config: toml::Table = std::fs::read_to_string(root.join(MUTANTS_FILE))
-        .with_context(|| format!("read {MUTANTS_FILE}"))?
+    let text = std::fs::read_to_string(root.join(MUTANTS_FILE))
+        .with_context(|| format!("read {MUTANTS_FILE}"))?;
+    let config: toml::Table = text
         .parse()
         .with_context(|| format!("parse {MUTANTS_FILE}"))?;
-    let strings = |key: &str| -> Vec<String> {
-        config
-            .get(key)
-            .and_then(toml::Value::as_array)
-            .into_iter()
-            .flatten()
-            .filter_map(|v| v.as_str().map(str::to_string))
-            .collect()
-    };
-    let mut exclude_re = strings("exclude_re");
-    exclude_re.extend(
-        crate::ci::OFF_MACOS_EXCLUSIONS
-            .iter()
-            .map(|re| (*re).to_string()),
-    );
-    let violations = check(&mutants, &exclude_re, &strings("exclude_globs"), &GATE_GLUE)?;
+    let globs: Vec<String> = config
+        .get("exclude_globs")
+        .and_then(toml::Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|v| v.as_str().map(str::to_string))
+        .collect();
+    let mut exclusions = exclusions_of(&text)?;
+    let configured = config
+        .get("exclude_re")
+        .and_then(toml::Value::as_array)
+        .map_or(0, Vec::len);
+    if exclusions.len() != configured {
+        bail!("{MUTANTS_FILE}: {} exclude_re entries read with their reasons, {configured} configured", exclusions.len());
+    }
+    exclusions.extend(crate::ci::OFF_MACOS_EXCLUSIONS.iter().map(|re| Exclusion {
+        pattern: (*re).to_string(),
+        reason: String::new(),
+    }));
+    let mut files = Vec::new();
+    for file in crate::fsutil::tracked_files(root)? {
+        if file.starts_with("xtask/src/") && file.ends_with(".rs") {
+            files.push((file.clone(), std::fs::read_to_string(root.join(&file))?));
+        }
+    }
+    let calls = Calls::of(&files)?;
+    let violations = check(&mutants, &exclusions, &globs, &calls)?;
     for violation in &violations {
         eprintln!("{violation}");
     }
     println!(
         "gate-decisions: {} mutants of the xtask, {} exclusions",
         mutants.len(),
-        exclude_re.len()
+        exclusions.len() + globs.len()
     );
     if !violations.is_empty() {
         bail!("{} violation(s)", violations.len());
@@ -193,106 +406,4 @@ pub fn command(root: &Path, args: &[String]) -> Result<()> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn mutant(function: &str, name: &str) -> Mutant {
-        Mutant {
-            file: "xtask/src/ci.rs".into(),
-            function: function.into(),
-            name: format!("xtask/src/ci.rs:10:5: {name}"),
-        }
-    }
-
-    fn fixture() -> Vec<Mutant> {
-        vec![
-            mutant(
-                "mutants_job",
-                "replace mutants_job -> Result<()> with Ok(())",
-            ),
-            mutant(
-                "mutation_verdict",
-                "replace mutation_verdict -> Result<()> with Ok(())",
-            ),
-            mutant("mutation_verdict", "replace == with != in mutation_verdict"),
-        ]
-    }
-
-    const GLUE: [(&str, &str); 1] = [("xtask/src/ci.rs", "mutants_job")];
-
-    /// The red-on-revert proof: an exclusion of the step's verdict fails the check; the reviewed glue entry passes.
-    #[test]
-    fn an_exclusion_of_a_gate_decision_fails_and_one_of_glue_passes() {
-        let glue_entry =
-            r"xtask/src/ci\.rs:\d+:\d+: replace mutants_job -> Result<\(\)> with Ok\(\(\)\)$"
-                .to_string();
-        assert!(check(&fixture(), &[glue_entry.clone()], &[], &GLUE)
-            .unwrap()
-            .is_empty());
-        let verdict =
-            r"xtask/src/ci\.rs:\d+:\d+: replace == with != in mutation_verdict$".to_string();
-        assert_eq!(
-            check(&fixture(), &[glue_entry, verdict.clone()], &[], &GLUE).unwrap(),
-            [format!(
-                "`{verdict}` excludes the gate decision mutation_verdict in xtask/src/ci.rs \
-                 (`xtask/src/ci.rs:10:5: replace == with != in mutation_verdict`): a gate decision is never excluded"
-            )]
-        );
-    }
-
-    #[test]
-    fn a_broad_exclusion_is_reported_once_per_decision() {
-        let broad = vec![r"xtask/src/ci\.rs".to_string()];
-        let found = check(&fixture(), &broad, &[], &GLUE).unwrap();
-        assert_eq!(found.len(), 1, "{found:?}");
-        assert!(found[0].contains("mutation_verdict"));
-    }
-
-    #[test]
-    fn a_glob_that_covers_a_decision_fails_and_the_test_globs_pass() {
-        let tests = vec!["**/tests/**".to_string(), "tests/**".to_string()];
-        assert!(check(&fixture(), &[], &tests, &GLUE).unwrap().is_empty());
-        for glob in ["xtask/**", "ci.rs", "xtask/src/*.rs", "**/ci.rs"] {
-            let found = check(&fixture(), &[], &[glob.to_string()], &GLUE).unwrap();
-            assert_eq!(found.len(), 1, "{glob}: {found:?}");
-        }
-    }
-
-    #[test]
-    fn a_glue_entry_with_no_function_fails() {
-        let found = check(&fixture()[1..], &[], &[], &GLUE).unwrap();
-        assert_eq!(
-            found,
-            ["GATE_GLUE names mutants_job in xtask/src/ci.rs, which has no mutant: remove or rename the entry"]
-        );
-    }
-
-    #[test]
-    fn an_exclusion_that_is_not_a_regex_fails() {
-        assert!(check(&fixture(), &["(".to_string()], &[], &GLUE).is_err());
-    }
-
-    #[test]
-    fn the_mutant_list_is_read_from_the_json_of_cargo_mutants() {
-        let json = r#"[{"file":"xtask/src/main.rs","function":{"function_name":"main","return_type":""},
-            "name":"xtask/src/main.rs:37:5: replace main with ()","package":"xtask"},
-            {"file":"xtask/src/a.rs","name":"xtask/src/a.rs:1:1: replace * with + "}]"#;
-        assert_eq!(
-            parse_mutants(json).unwrap(),
-            [
-                Mutant {
-                    file: "xtask/src/main.rs".into(),
-                    function: "main".into(),
-                    name: "xtask/src/main.rs:37:5: replace main with ()".into()
-                },
-                Mutant {
-                    file: "xtask/src/a.rs".into(),
-                    function: String::new(),
-                    name: "xtask/src/a.rs:1:1: replace * with + ".into()
-                },
-            ]
-        );
-        assert!(parse_mutants("{}").is_err());
-        assert!(parse_mutants(r#"[{"file":"a"}]"#).is_err());
-    }
-}
+mod tests;
