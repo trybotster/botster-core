@@ -14,13 +14,14 @@ unsafe_code = "forbid"
 
 [workspace.dependencies]
 base64 = { version = "0.22", default-features = false, features = ["alloc"] }
-# botster-contracts, by tag (plan section 0; contracts-v0.1.20 = 0389165, Core Amendments 13 to 16 in the crates, InvalidInput{field}; rulings R-30 to R-37).
-botster-core-contract = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.20" }
-botster-conformance = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.20" }
-botster-core-conformance = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.20" }
-botster-route-codec = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.20" }
-botster-probe-script = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.20" }
-botster-test-support = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.20" }
+# botster-contracts, by tag (plan section 0; contracts-v0.1.21 = 60a4169, manifest-final36: Core Amendment 18 candidate 2, HC Amendment 7 candidate 2,
+# UI erratum 2; earlier: Core Amendments 13 to 16 in the crates, InvalidInput{field}; rulings R-30 to R-37).
+botster-core-contract = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.21" }
+botster-conformance = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.21" }
+botster-core-conformance = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.21" }
+botster-route-codec = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.21" }
+botster-probe-script = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.21" }
+botster-test-support = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.21" }
 
 anyhow = "1"
 data-encoding = "2"
