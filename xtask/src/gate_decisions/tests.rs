@@ -651,6 +651,7 @@ fn a_binding_or_a_use_that_the_check_does_not_resolve_rejects_the_exclusion() {
     let toml = "exclude_re = [\n    # glue; mutation_verdict (verdicts)\n    'replace forwarded -> Result<\\(\\)> with Ok\\(\\(\\)\\)$',\n]\n";
     let no_io = "the function does no process, file or signal I/O itself";
     // What the check gives: accepted, one finding, or an error that holds each of these texts.
+    #[derive(Clone, Copy)]
     enum Want {
         Accepted,
         Finding(&'static str),
