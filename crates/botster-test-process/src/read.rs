@@ -74,20 +74,18 @@ impl<R: Read + AsFd> Bounded<R> {
                 Err(error) => return Err(ReadError::Io(error.into())),
             }
         }
+        // `poll` reported the descriptor readable, so the read does not block, and a signal cannot interrupt it (EINTR).
         let mut chunk = [0; 4096];
-        loop {
-            match self.reader.read(&mut chunk) {
-                Ok(0) => {
-                    self.eof = true;
-                    return Ok(false);
-                }
-                Ok(n) => {
-                    self.buffer.extend_from_slice(&chunk[..n]);
-                    return Ok(true);
-                }
-                Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
-                Err(error) => return Err(ReadError::Io(error)),
+        match self.reader.read(&mut chunk) {
+            Ok(0) => {
+                self.eof = true;
+                Ok(false)
             }
+            Ok(n) => {
+                self.buffer.extend_from_slice(&chunk[..n]);
+                Ok(true)
+            }
+            Err(error) => Err(ReadError::Io(error)),
         }
     }
 
@@ -214,6 +212,16 @@ mod tests {
         let (reader, writer) = std::io::pipe().unwrap();
         drop(writer);
         eof(reader);
+    }
+
+    #[test]
+    fn eof_reads_everything_the_writer_wrote() {
+        let (mut reader, mut writer) = std::io::pipe().unwrap();
+        writer.write_all(b"left\nover").unwrap();
+        drop(writer);
+        eof(&mut reader);
+        let mut rest = [0; 16];
+        assert_eq!(reader.read(&mut rest).unwrap(), 0, "eof left bytes unread");
     }
 
     #[test]
