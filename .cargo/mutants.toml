@@ -11,6 +11,14 @@
 exclude_globs = ["**/tests/**", "tests/**"]
 
 exclude_re = [
+    # xtask mutants_job -> Ok(()): process glue. The body runs `git diff`, writes the diff file, starts `cargo mutants` and
+    # prints its summary; a test cannot start a mutation run inside a mutation run, so no test can run the body. Only this
+    # whole-body replacement is excluded: every other mutant of mutants_job stays tested. Its decisions are pure functions
+    # with unit tests, which stay mutation-tested: mutation_verdict, the pass or fail of the step from the exit code
+    # (only_a_mutation_run_with_every_mutant_caught_passes), parse_outcomes (the_mutation_summary_is_read_from_outcomes_json)
+    # and platform_exclusions (only_a_gate_off_macos_adds_the_off_macos_exclusions). A body replaced by Ok(()) skips the
+    # step without its summary line, which every gate log of the step shows ("mutants: N mutants: ...").
+    'xtask/src/ci\.rs:\d+:\d+: replace mutants_job -> Result<\(\)> with Ok\(\(\)\)$',
     # P7 GuardianConfig::fmt: the debug text has no contract format. An empty successful
     # debug result still omits the service token, which is the only required property.
     # only_a_valid_host_hello_authenticates checks token omission.
@@ -102,12 +110,8 @@ exclude_re = [
     # set_nonblocking: the_payload_runs_on_the_pty_with_the_exact_environment checks the native NONBLOCK descriptor flag.
     'crates/botster-core-sys/src/payload\.rs:\d+:\d+: (replace set_nonblocking( ->| with)|.* in set_nonblocking$)',
     # Recheck each glue entry when its body or callers change. New pure decisions require default-tier tests.
-    # P3 Payload::reap no-op: every current caller observes the leader's exit and sends group SIGKILL before reap.
-    # Production emits ReapPayload only after killed && exit_drained. Explicit slow-test callers follow that order too.
-    # A no-op still consumes self and runs Payload::drop with the child present. Drop sends an additional SIGKILL and waits.
-    # The unreaped leader reserves the group id through that signal. The extra signal cannot change its reported exit.
-    # The first SIGKILL can still be pending; this argument does not require every group member to have exited.
-    # Recheck this entry when any reap caller or Payload::drop changes.
+    # P3 Payload::reap no-op: reap is `drop(self)`. A `()` body consumes `self` too, and drops it at its end, so both bodies
+    # run Payload::drop at the same point: the mutant is the same code. Recheck this entry when reap gains any other step.
     'crates/botster-core-sys/src/payload\.rs:\d+:\d+: replace Payload::reap with \(\)$',
     # wait_unreaped: EXITED and NOWAIT are disjoint option bits, so OR and XOR give the same wait options.
     # wait_unreaped: the_payload_runs_on_the_pty_with_the_exact_environment and a_group_signal_ends_the_leader_and_its_group check its waitid edge.
@@ -133,12 +137,6 @@ exclude_re = [
     # An all-build assertion rejects zero; `a_worker_refuses_zero_read_bound` proves it. A minimum whole-frame read is not required.
     # A seed reproduces the same build; changed read chunking can change a schedule without changing the contract results.
     'crates/botster-core-testkit/src/worker\.rs:38:30: replace \* with \+$',
-    # P3 M1, Worker::report_exit: replacing `exit_reported || !exit_drained` with `&&` is equivalent at this milestone.
-    # Only on_host_hello and on_drained call this function. The first hello precedes Launch, so no exit exists there.
-    # on_drained calls it only for the first drain after an exit: exit_drained is true and exit_reported is false.
-    # Both guards are false for that call. Later drains do not call report_exit. The worker cannot reconnect at M1.
-    # Recheck this entry when M2 adds callers or a reconnect path.
-    'crates/botster-worker-core/src/worker\.rs:\d+:\d+: replace \|\| with && in Worker::report_exit$',
     # botster-core-testkit process_group (P6): process glue of a real process group (BUILD.md testing rule 10), one entry per
     # function. They start or signal real processes, which the default tier never does; the proof is the slow tier,
     # `tests/slow_process_group.rs`: `dropping_the_guard_ends_the_whole_group` (spawn, pid, take_stdout, drop),
@@ -298,11 +296,9 @@ exclude_re = [
     'crates/botster-core-sys/src/storage\.rs:\d+:\d+: (replace create_data_dir( ->| with)|.* in create_data_dir$)',
     'crates/botster-core-sys/src/storage\.rs:\d+:\d+: (replace sync_dir( ->| with)|.* in sync_dir$)',
     # Equivalent mutants of `botster-core-host`: a change that no behavior can show.
-    # - `check_payload`: the `Focus` arm is `{}`, the same as the arm for every other kind (`_ => {}`).
     # - `commit`: `Stop` of a session that is `Starting` while its flow is idle, and `Flow::Create | Flow::Start` are the only
     #   flows that a `Starting` session has, so the guard `s.admit == Admit::Starting` of the last arms is never the deciding
     #   one: a `Starting` session always has a start or a create flow.
-    'crates/botster-core-host/src/admit\.rs:\d+:\d+: delete match arm InputPayload::Focus\{\.\.\} in HostEngine::check_payload$',
     'crates/botster-core-host/src/admit\.rs:\d+:\d+: replace match guard s\.admit == Admit::Starting with false in HostEngine::commit$',
     # More equivalent mutants of `botster-core-host`; each is a change that no behavior can show, for the reason given.
     # - `class_of`: the arm of the mandatory kinds. A kind without an arm is mandatory (`_ => Class::Mandatory`).
@@ -329,6 +325,12 @@ exclude_re = [
     'crates/botster-core-host/src/run\.rs:\d+:\d+: replace (== with != |&& with \|\| )in HostEngine::forward$',
     'crates/botster-core-host/src/run\.rs:\d+:\d+: replace match guard s\.queue\.iter\(\)\.any\(\|f\| matches!\(f, Flow::Start\(_\)\)\) with false in HostEngine::stop_all_start$',
     'crates/botster-core-host/src/driver\.rs:\d+:\d+: replace HostEdges::diagnostics -> serde_json::Value with Default::default\(\)$',
+    # payload_size (A3): `limit / times` is only where the key search may stop. With any stop limit at or over it, a key
+    # within the limit gets the same size (its search never stops early), and a key over the limit stays over it, so it is
+    # `PayloadTooLarge` either way. Only the cost of the search and the size quoted in the error's detail differ, and the
+    # detail is not behavior: Core 9.3, "The code is the contract; the detail is for humans" (core-contract-v1.17.md:318).
+    # `limit / times` is defined: the argument check refuses a repeat of 0 before the size is computed (admit.rs:326).
+    'crates/botster-core-host/src/admit\.rs:\d+:\d+: replace / with \* in HostEngine::payload_size$',
     # botster-terminal-ghostty (review finding P39). Each entry names one function and the mutation that cannot change
     # behavior, with the argument; every other mutant of the crate is caught by a test.
     # Drop bodies that only free a native handle: leak only, not observable through the API. Each body is one call of the
@@ -348,6 +350,19 @@ exclude_re = [
     'crates/botster-terminal-ghostty/src/encode\.rs:\d+:\d+: replace \| with \^ in encode_mouse$',
     # sys::mode_new: `(value & 0x7FFF) | (ansi << 15)` joins disjoint bits (bits 0 to 14, and bit 15), so `^` is equal.
     'crates/botster-terminal-ghostty/src/sys\.rs:\d+:\d+: replace \| with \^ in mode_new$',
+    # every_key_state (A3) enumerates the states of the key search. These two mutants cannot change a bound:
+    # - `!= 0` to `== 0` inverts every key-mode bit, which maps the 64 key-mode combinations onto themselves: the same states
+    #   in another order. The order changes only which length over the limit the search stops at, never whether a key is
+    #   over it: the code stays `PayloadTooLarge`, and only the size in its detail can differ (Core 9.3, "The code is the
+    #   contract; the detail is for humans", core-contract-v1.17.md:318).
+    # - `&` to `^` in the kitty flags inverts the five flag bits, which maps the 32 combinations onto themselves, and sets
+    #   bits above them, which libghostty does not read: the C API truncates the flags to five bits
+    #   (bits_above_the_five_kitty_flags_change_no_key_bytes).
+    # The column names the operator: 36 is the `&` of the kitty flags (whose `|` is caught). The `&` of the mode bits
+    # (column 40) is not equivalent on macOS (review finding F51): a gate off macOS excludes it, with the argument, in
+    # xtask/src/ci.rs `OFF_MACOS_EXCLUSIONS`; a Mac gate tests it.
+    'crates/botster-terminal-ghostty/src/encode\.rs:\d+:\d+: replace != with == in EncoderState::every_key_state$',
+    'crates/botster-terminal-ghostty/src/encode\.rs:\d+:36: replace & with \^ in EncoderState::every_key_state$',
     # set_query_request_limit_default: the library's own default (terminal.zig `default_query_max_bytes`) is 4096, the
     # value that this call sets (`DEFAULT_QUERY_REQUEST_BYTES`, `CoreLimits.max_query_bytes`, tested). Skipping the call
     # changes nothing at this pin; the call keeps Core's limit when an upstream default changes.
