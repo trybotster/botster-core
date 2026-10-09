@@ -494,6 +494,49 @@ fn an_unanswered_adoption_drops_the_protocol_that_the_row_recorded() {
         SessionState::Lost(LostReason::WorkerUnreachable)
     );
     assert_eq!(lost.worker_protocol, Some(HELLO_PROTOCOL));
+    // Review A2-F2: a later host posts the `Lost` row and reads no hello either. `get` and `list` show no protocol, and
+    // the row keeps it.
+    let mut third = World::over(&again);
+    adopt_all(&mut third);
+    assert_eq!(third.engine.get(&sid("s")).unwrap().worker_protocol, None);
+    assert!(third
+        .engine
+        .list()
+        .iter()
+        .all(|r| r.worker_protocol.is_none()));
+    let kept = Row::decode(&sid("s"), &third.rows[&row_key("s")]).expect("the row decodes");
+    assert_eq!(kept.worker_protocol, Some(HELLO_PROTOCOL));
+}
+
+/// Core A10-1, AD-6 (review A2-F1): the refusal outlives its host. A later host posts the `Lost(WorkerGone)` row, and its
+/// `Remove` never probes or signals the recorded identity: the outcome is `NotDeleted(OutcomeUnknown)`, and the process at
+/// the identity lives on.
+#[test]
+fn a_refused_worker_stays_unsignalled_after_a_restart() {
+    let first = crashed_before_launch("s");
+    let worker = first.identity_of("s");
+    let mut again = adopting(&first, "s", AdoptedPayload::NotLaunched);
+    again
+        .endpoints
+        .get_mut(&first.instance_of("s"))
+        .unwrap()
+        .token = [0xEE; TOKEN_LEN];
+    adopt_all(&mut again);
+    let mut third = World::over(&again);
+    assert!(third.alive.contains(&worker));
+    let events = adopt_all(&mut third);
+    assert_eq!(
+        states_of(&events, "s"),
+        vec![SessionState::Lost(LostReason::WorkerGone)]
+    );
+    let remove = third.engine.begin(Op::Remove { id: sid("s") }).unwrap();
+    assert!(matches!(
+        third.complete(remove),
+        OpResult::Ok(OpOutput::RemoveReport(r))
+            if r.uploads == UploadsOutcome::NotDeleted(NotDeleted::OutcomeUnknown)
+    ));
+    assert!(third.signals.is_empty(), "{:?}", third.signals);
+    assert!(third.alive.contains(&worker), "the process lives on");
 }
 
 /// Core AD-2; steward ruling R-36 (contracts `main` `c62085f`): an adoption whose link is lost after the `Launch` is
