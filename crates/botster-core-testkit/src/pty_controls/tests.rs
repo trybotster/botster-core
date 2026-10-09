@@ -292,3 +292,64 @@ fn pty_output_refuses_a_payload_that_has_exited() {
         );
     }
 }
+
+/// The input controls refuse what they cannot do, with `Bad`: an unknown handle or session, a session with no worker yet,
+/// an argument that they do not take, a missing `bytes`, and (`pty_chunk`) a cap of zero, which would let no input through.
+#[test]
+fn the_input_controls_refuse_what_they_cannot_do() {
+    let mut harness = TestkitHarness::new(0);
+    let (_core, _at) = session(&mut harness, false);
+    for op in ["pty_input", "pty_chunk", "pty_accept", "pty_fail_after"] {
+        let args = if op == "pty_input" {
+            json!({"session": "s1"})
+        } else {
+            json!({"session": "s1", "bytes": 1})
+        };
+        assert!(bad(harness.control("a", op, &args)), "{op}: no worker yet");
+    }
+    let mut harness = TestkitHarness::new(0);
+    let (_core, _at) = session(&mut harness, true);
+    for op in ["pty_chunk", "pty_accept", "pty_fail_after"] {
+        for args in [
+            json!({"session": "s9", "bytes": 1}),
+            json!({"session": "s1"}),
+            json!({"session": "s1", "bytes": 1, "on": true}),
+            json!({"session": "s1", "bytes": -1}),
+        ] {
+            assert!(bad(harness.control("a", op, &args)), "{op} {args}");
+        }
+        assert!(bad(harness.control(
+            "b",
+            op,
+            &json!({"session": "s1", "bytes": 1})
+        )));
+        assert_eq!(
+            harness.control("a", op, &json!({"session": "s1", "bytes": 1})),
+            Ok(Value::Null),
+            "{op}"
+        );
+    }
+    assert!(bad(harness.control(
+        "a",
+        "pty_chunk",
+        &json!({"session": "s1", "bytes": 0})
+    )));
+    for args in [
+        json!({"session": "s9"}),
+        json!({"session": "s1", "bytes": 1}),
+    ] {
+        assert!(bad(harness.control("a", "pty_input", &args)), "{args}");
+    }
+}
+
+/// `pty_input` is the observer of the input controls: the bytes that the program edge took, in order, as hex. A `hold`
+/// program that took no input gives an empty log.
+#[test]
+fn pty_input_reports_the_input_that_the_program_took() {
+    let mut harness = TestkitHarness::new(0);
+    let (_core, _at) = session(&mut harness, true);
+    assert_eq!(
+        harness.control("a", "pty_input", &json!({"session": "s1"})),
+        Ok(json!({"bytes": {"$bytes_hex": ""}}))
+    );
+}
