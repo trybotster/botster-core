@@ -78,6 +78,8 @@ struct Mock {
     ended: Vec<ProcessIdentity>,
     /// The scheduler's choices in the current pump: a pump that never ends fails the test at once (as `World::pump`).
     choices: u32,
+    /// The bytes that the worker of an instance sends when the host connects to its endpoint (adoption).
+    endpoints: BTreeMap<InstanceId, Vec<u8>>,
 }
 
 type Shared = Arc<Mutex<Mock>>;
@@ -176,6 +178,21 @@ impl HostEdges for Edges {
         } else {
             botster_core_edges::edges::IdentityState::Matches
         }
+    }
+
+    fn connect_worker(&mut self, instance: &InstanceId) -> Option<LinkId> {
+        let mut mock = self.0.lock().unwrap();
+        let to_host = mock.endpoints.remove(instance)?;
+        let link = LinkId(mock.next_link);
+        mock.next_link += 1;
+        mock.links.insert(
+            link,
+            MockLink {
+                to_host,
+                ..MockLink::default()
+            },
+        );
+        Some(link)
     }
 
     fn accept_link(&mut self) -> Option<LinkId> {
@@ -294,8 +311,24 @@ impl Rig {
     }
 
     fn with_config(cfg: crate::EngineConfig, scheduler: Box<dyn Scheduler + Send>) -> Rig {
+        Rig::open(cfg, scheduler, BTreeMap::new())
+    }
+
+    /// A new handle over the rows of this one (LC-12), with a higher host epoch (DP-8).
+    fn reopen(&self) -> Rig {
+        let mut cfg = config(CoreLimits::default());
+        cfg.host_epoch = 8;
+        let rows = self.mock.lock().unwrap().rows.clone();
+        Rig::open(cfg, Box::new(Production::new()), rows)
+    }
+
+    fn open(
+        cfg: crate::EngineConfig,
+        scheduler: Box<dyn Scheduler + Send>,
+        rows: BTreeMap<String, Vec<u8>>,
+    ) -> Rig {
         let mock = Arc::new(Mutex::new(Mock {
-            rows: BTreeMap::new(),
+            rows,
             links: BTreeMap::new(),
             accept: Vec::new(),
             next_link: 1,
@@ -307,6 +340,7 @@ impl Rig {
             late_exits: Vec::new(),
             ended: Vec::new(),
             choices: 0,
+            endpoints: BTreeMap::new(),
         }));
         #[allow(clippy::disallowed_methods)] // a test starts the injected clock at a real instant
         let now = Instant::now();
@@ -362,6 +396,20 @@ impl Rig {
 
     fn drain_events(&mut self) -> Vec<Event> {
         self.driver.poll_events(256)
+    }
+
+    /// Pumps and drains until a pump leaves no more work and no event, and returns the events.
+    fn run_out(&mut self) -> Vec<Event> {
+        let mut all = Vec::new();
+        for _ in 0..200 {
+            let more = self.pump().more;
+            let events = self.drain_events();
+            if !more && events.is_empty() {
+                return all;
+            }
+            all.extend(events);
+        }
+        panic!("the driver does not settle");
     }
 
     /// Pumps and drains until a pump leaves no more work, then drains once more. A driver that keeps reporting `more`
@@ -803,4 +851,119 @@ fn an_exited_frame_behind_a_full_queue_is_held_then_delivered() {
         rig.driver.get(&sid("s1")).unwrap().state,
         SessionState::Exited(_)
     ));
+}
+
+/// The bytes of a worker of `instance` at its endpoint, in one buffer: its hello to a host of epoch 8, its report of a
+/// running payload, and the end of that payload.
+fn adopted_then_exited(instance: &InstanceId) -> Vec<u8> {
+    let hello = Hello {
+        protocol: 1,
+        instance: instance.clone(),
+        proof: token_proof(&[9u8; TOKEN_LEN], instance, 8),
+        host_epoch: 8,
+    };
+    let mut payload = Vec::new();
+    hello.encode(&mut payload).unwrap();
+    let mut out = frame(FrameType::HELLO, &payload);
+    let report = WorkerMsg::Adopted {
+        report: Box::new(AdoptReport {
+            payload: AdoptedPayload::Running {
+                payload: botster_core_link::msg::PayloadId {
+                    pid: 900,
+                    start_time: 3,
+                },
+            },
+            features: BTreeSet::new(),
+            terminal: Some(terminal_state()),
+            formats: vec![],
+        }),
+    };
+    let exited = WorkerMsg::Exited {
+        code: Some(0),
+        signal: None,
+    };
+    for msg in [report, exited] {
+        let mut payload = Vec::new();
+        msg.encode(&mut payload);
+        out.extend(frame(FrameType::WORKER_MSG, &payload));
+    }
+    out
+}
+
+fn exited_normally() -> SessionState {
+    SessionState::Exited(Exit {
+        code: Some(0),
+        signal: None,
+        cause: ExitCause::Normal,
+    })
+}
+
+/// A first handle with the running session `s1`, and the instance of its worker.
+fn first_handle() -> (Rig, InstanceId) {
+    let mut rig = Rig::new(CoreLimits::default());
+    start_session(&mut rig, "s1", LinkId(1));
+    let instance = rig.mock.lock().unwrap().spawns[0].instance.clone();
+    (rig, instance)
+}
+
+/// Review P5-F25, OR-2, AD-1: the worker's report and the payload's end arrive in one read, before the adoption posts
+/// `Running`. The driver posts `Running`, then the end; the end is not lost.
+#[test]
+fn an_end_read_with_the_adoption_report_follows_running() {
+    let (first, instance) = first_handle();
+    let mut again = first.reopen();
+    again
+        .mock
+        .lock()
+        .unwrap()
+        .endpoints
+        .insert(instance.clone(), adopted_then_exited(&instance));
+    let adopt = again.driver.begin(Op::AdoptAll).unwrap();
+    let events = again.run_out();
+    assert_eq!(
+        states(&events),
+        vec![
+            ("s1".to_string(), SessionState::Running),
+            ("s1".to_string(), exited_normally())
+        ]
+    );
+    assert!(events.iter().any(|e| matches!(
+        e,
+        Event::Completed { op, result: OpResult::Ok(OpOutput::Unit) } if *op == adopt
+    )));
+}
+
+/// Review P5-F25, OR-2; steward ruling R-36: the same order for `Adopt(id)` of a `Lost(WorkerUnreachable)` session.
+#[test]
+fn an_end_read_with_the_retry_report_follows_running() {
+    let (first, instance) = first_handle();
+    let mut again = first.reopen();
+    again.driver.begin(Op::AdoptAll).unwrap();
+    assert_eq!(
+        states(&again.run_out()),
+        vec![(
+            "s1".to_string(),
+            SessionState::Lost(LostReason::WorkerUnreachable)
+        )],
+        "no worker answers at the endpoint"
+    );
+    again
+        .mock
+        .lock()
+        .unwrap()
+        .endpoints
+        .insert(instance.clone(), adopted_then_exited(&instance));
+    let retry = again.driver.begin(Op::Adopt { id: sid("s1") }).unwrap();
+    let events = again.run_out();
+    assert_eq!(
+        states(&events),
+        vec![
+            ("s1".to_string(), SessionState::Running),
+            ("s1".to_string(), exited_normally())
+        ]
+    );
+    assert!(events.iter().any(|e| matches!(
+        e,
+        Event::Completed { op, result: OpResult::Ok(OpOutput::Record(_)) } if *op == retry
+    )));
 }

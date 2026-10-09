@@ -8,7 +8,7 @@ use botster_core_contract::prelude::*;
 use botster_core_edges::edges::{ExitStatus, GroupSignal, ProcessIdentity};
 use botster_core_link::hello::Hello;
 use botster_core_link::msg::{Observation, WorkerMsg};
-use botster_core_link::proof::token_proof;
+use botster_core_link::proof::{host_proof, token_proof};
 use std::collections::BTreeSet;
 
 impl HostEngine {
@@ -51,7 +51,20 @@ impl HostEngine {
                 self.route_close(route, RouteCloseReason::HandoffFailed);
             }
             Input::ProcessExited { identity, status } => self.on_process_exited(identity, status),
-            Input::IdentityState { identity, state } => self.flow_remove_probed(identity, state),
+            Input::WorkerConnected { ticket, link } => match self.take_ticket(ticket) {
+                Some(Owner::Session(id)) => self.adopt_connected(&id, link),
+                // No adoption waits for this link: it is closed, and nothing is read from it.
+                _ => {
+                    if let Some(link) = link {
+                        self.close_link(link, "no adoption waits for the link (AD-6)");
+                    }
+                }
+            },
+            Input::IdentityState { identity, state } => {
+                if !self.adopt_probed(identity, state) {
+                    self.flow_remove_probed(identity, state);
+                }
+            }
         }
     }
 
@@ -130,6 +143,11 @@ impl HostEngine {
     // ---- the hello (AD-6, AD-4, A6-2) ----
 
     fn on_hello(&mut self, link: LinkId, hello: Hello) {
+        // A link that the host made for an adoption: this hello is the worker's answer (DESIGN.md 3.5).
+        if let Some(id) = self.links.get(&link).cloned() {
+            self.adopt_hello(link, &id, hello);
+            return;
+        }
         let found = self
             .sessions
             .iter()
@@ -179,7 +197,7 @@ impl HostEngine {
             self.fail_start(
                 &id,
                 StartFailReason::WorkerFailed,
-                SessionState::Lost(LostReason::WorkerVersion),
+                End::Lost(LostReason::WorkerVersion),
             );
             return;
         }
@@ -188,7 +206,8 @@ impl HostEngine {
             hello: Hello {
                 protocol: self.cfg.worker_protocol,
                 instance: hello.instance.clone(),
-                proof,
+                // AD-6: the host answers with its own role, so a worker never receives its own proof back.
+                proof: host_proof(&token, &hello.instance, self.cfg.host_epoch),
                 host_epoch: self.cfg.host_epoch,
             },
         });
@@ -246,7 +265,7 @@ impl HostEngine {
                     self.fail_start(
                         id,
                         reason,
-                        SessionState::Exited(Exit {
+                        End::Exited(Exit {
                             code: None,
                             signal: None,
                             cause: ExitCause::Other,
@@ -256,7 +275,7 @@ impl HostEngine {
             }
             WorkerMsg::Exited { code, signal } => {
                 let exit = self.exit_of(id, code, signal);
-                self.begin_end_flow(id, SessionEnd::Exited(exit));
+                self.begin_end_flow(id, End::Exited(exit));
             }
             WorkerMsg::Done { req, result } => self.on_done(id, req, result),
             WorkerMsg::Pages { req, pages } => {
@@ -279,6 +298,7 @@ impl HostEngine {
             WorkerMsg::RouteStalled { route } => self.route_event(route, true),
             WorkerMsg::RouteResumed { route } => self.route_event(route, false),
             WorkerMsg::RemoveResult { uploads } => self.flow_remove_result(id, uploads),
+            WorkerMsg::Adopted { report } => self.adopt_report(id, *report),
             // The enum is non-exhaustive: a report that a later worker adds is ignored by this host.
             _ => {}
         }
@@ -578,6 +598,18 @@ impl HostEngine {
         s.worker.link = None;
         s.worker.link_failed = true;
         match s.flow.clone() {
+            // The start of an adoption: the worker may have accepted the `Launch` before the link ended, so the session is
+            // indeterminate, and `Adopt(id)` may retry it (AD-2; steward ruling R-36).
+            Flow::Start(f)
+                if f.adopted
+                    && matches!(f.phase, StartPhase::SendLaunch | StartPhase::AwaitLaunched) =>
+            {
+                self.fail_start(
+                    &id,
+                    StartFailReason::WorkerFailed,
+                    End::Lost(LostReason::WorkerUnreachable),
+                );
+            }
             Flow::Start(f)
                 if matches!(
                     f.phase,
@@ -587,13 +619,15 @@ impl HostEngine {
                 self.fail_start(
                     &id,
                     StartFailReason::WorkerFailed,
-                    SessionState::Exited(Exit {
+                    End::Exited(Exit {
                         code: None,
                         signal: None,
                         cause: ExitCause::Other,
                     }),
                 );
             }
+            // The link of an adoption ended before the row's state was posted: the worker may live (AD-2).
+            Flow::Adopt(_) => self.adopt_link_closed(&id),
             Flow::Stop(f) if f.end.is_none() && f.phase != StopPhase::RowWrite => {
                 // LC-5: a session whose control link is broken still ends: the host signals the verified worker (pid and
                 // start time, AD-6), which ends its payload group. The host never signals a bare payload group.
@@ -640,11 +674,13 @@ impl HostEngine {
                 self.fail_start(
                     &id,
                     StartFailReason::WorkerFailed,
-                    SessionState::Lost(LostReason::WorkerGone),
+                    End::Lost(LostReason::WorkerGone),
                 );
             }
             Flow::Remove(_) => self.flow_remove_worker_gone(&id),
             Flow::Create(_) => {}
+            // The worker ended before the row's state was posted (AD-2).
+            Flow::Adopt(_) => self.adopt_end(&id, End::Lost(LostReason::WorkerGone), ""),
             _ => {
                 if matches!(
                     shown,
@@ -652,7 +688,7 @@ impl HostEngine {
                 ) && self.sessions[&id].pending_end.is_none()
                     && !matches!(&flow, Flow::Stop(f) if f.phase == StopPhase::PostEnd || f.phase == StopPhase::Finish)
                 {
-                    self.begin_end_flow(&id, SessionEnd::Lost(LostReason::WorkerGone));
+                    self.begin_end_flow(&id, End::Lost(LostReason::WorkerGone));
                 }
             }
         }
