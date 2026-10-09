@@ -75,3 +75,30 @@ no action and starts no second spawn.
   later PRs. This reviewer checks there the design's D1 (an equal epoch), D2, D3 and the bounded candidates.
 
 VERDICT: NOT CLEAN (2 open: A1 MEDIUM, W1 LOW)
+
+### Correction after round 1 (same head 6a09f29b) — A1's proposed fix is withdrawn (steward ruling R-36)
+
+Steward ruling R-36 (contracts `main` `c62085f`, read here) supersedes A1's proposed fix. A1's finding stays: `Adopt(id)`
+must not be refused with `Unsupported`. R-36 Q3: "an `Adopt(id)` of a `Lost(WorkerUnreachable)` or `Lost(WorkerVersion)`
+row is always admitted ... `WrongState` is only for a row in another state".
+
+This reviewer withdraws the fix "keep the `Stopping` intent in `row_state` on the stop path". R-36 Q2: "A `Lost` row keeps
+the worker's identity (AD-2, AD-6), not the earlier state", and keeping a `Stopping` intent durably "would change LC-5's
+outcome for that path ... it would be an amendment". The P5 package reviewer withdrew the same proposal in F24.
+
+A1's fix, per R-36:
+1. `Adopt(id)` is admitted for every `Lost(WorkerUnreachable)` and `Lost(WorkerVersion)` session, with no condition on a
+   kept intent.
+2. The result follows the worker's report (R-36 Q1): the payload runs → `Running`; the payload ended → `Exited`;
+   otherwise → `Lost(reason)` again, with the reason that applies now. Nothing is launched (AD-2: "never restarted in
+   place").
+3. The kept-intent retry rule of this PR (`row_state`, and the retry that sends a `Launch` or resumes a `Stopping`) does not
+   match R-36. `a_retry_after_a_lost_launch_sends_the_launch` and `a_retry_of_a_stopping_row_exits_host_stop_with_no_launch`
+   test that rule. Reconcile them with R-36 and with the P5 package reviewer.
+4. Tests: a broken-link `Stop`, then `Adopt(id)` with the report `Running` (→ `Running`), `Exited` (→ `Exited`), and
+   `NotLaunched` (→ `Lost` again, with no `Launch`). Also the same after a new handle recovers the row.
+
+Design rounds 3 and 4 (`verdicts/stage1/p5-adoption-design.md`) approved the kept-intent retry under R-35. R-36 now
+supersedes that part of the design. The design text must follow R-36 in the same PR.
+
+VERDICT (unchanged): NOT CLEAN (2 open: A1 MEDIUM with the R-36 fix, W1 LOW)
