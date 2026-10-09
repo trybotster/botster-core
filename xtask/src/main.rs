@@ -39,64 +39,90 @@ fn main() {
     }
 }
 
-/// A command: it runs with the repository root and the arguments after its name.
+/// A command: it runs with the repository root and its arguments.
 type CommandFn = fn(&Path, &[String]) -> Result<()>;
 
-/// Every command, by name. `USAGE` lists the same names (the_usage_lists_every_command_and_only_those).
-const COMMANDS: &[(&str, CommandFn)] = &[
-    ("ci", ci::command),
-    ("base-merge-check", base_merge::command),
-    ("taint", taint::command),
-    ("timers", timers::command),
-    ("lists", lists::command),
-    ("ledger-ids", lists::ledger_ids_command),
-    ("public-api", public_api::command),
-    ("prebuild-worker", prebuild::command),
-    ("test-budget", test_budget::command),
-    ("slow", |root, _| {
-        test_budget::command(root, &["--slow".to_string()])
-    }),
+/// Every command, by name, with its fixed arguments (`None`: the arguments after its name). `USAGE` lists the same names.
+const COMMANDS: &[(&str, CommandFn, Option<&[&str]>)] = &[
+    ("ci", ci::command, None),
+    ("base-merge-check", base_merge::command, None),
+    ("taint", taint::command, None),
+    ("timers", timers::command, None),
+    ("lists", lists::command, None),
+    ("ledger-ids", lists::ledger_ids_command, None),
+    ("public-api", public_api::command, None),
+    ("prebuild-worker", prebuild::command, None),
+    ("test-budget", test_budget::command, None),
+    ("slow", test_budget::command, Some(&["--slow"])),
 ];
 
-/// What the first argument asks for.
+/// What the arguments ask for.
+#[derive(Debug)]
 enum Chosen {
-    Run(CommandFn),
+    /// A command, with the arguments that it runs with.
+    Run(CommandFn, Vec<String>),
     Help,
 }
 
-/// The command or the help that the first argument names.
+/// The command (and its arguments) or the help that the arguments of the process (without the program) name.
 ///
 /// # Errors
 /// No argument (the usage), or an unknown name.
-fn choose(name: Option<&str>) -> Result<Chosen, String> {
-    match name {
-        None => Err(USAGE.to_string()),
-        Some("-h" | "--help" | "help") => Ok(Chosen::Help),
-        Some(name) => COMMANDS
-            .iter()
-            .find(|(known, _)| *known == name)
-            .map(|(_, command)| Chosen::Run(*command))
-            .ok_or_else(|| format!("unknown command '{name}'\n{USAGE}")),
+fn choose(args: &[String]) -> Result<Chosen, String> {
+    let Some((name, rest)) = args.split_first() else {
+        return Err(USAGE.to_string());
+    };
+    if matches!(name.as_str(), "-h" | "--help" | "help") {
+        return Ok(Chosen::Help);
     }
+    let (_, command, fixed) = COMMANDS
+        .iter()
+        .find(|(known, _, _)| known == name)
+        .ok_or_else(|| format!("unknown command '{name}'\n{USAGE}"))?;
+    let args = fixed.map_or_else(
+        || rest.to_vec(),
+        |f| f.iter().map(|a| a.to_string()).collect(),
+    );
+    Ok(Chosen::Run(*command, args))
 }
 
-/// The I/O shell: it reads the arguments, and `choose` decides.
+/// The I/O shell: it reads the arguments and runs what `choose` decides.
 fn run() -> Result<()> {
-    let mut args = std::env::args().skip(1);
-    let chosen = choose(args.next().as_deref()).map_err(anyhow::Error::msg)?;
-    let rest: Vec<String> = args.collect();
-    match chosen {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    match choose(&args).map_err(anyhow::Error::msg)? {
         Chosen::Help => {
             println!("{USAGE}");
             Ok(())
         }
-        Chosen::Run(command) => command(&fsutil::repo_root()?, &rest),
+        Chosen::Run(command, args) => command(&fsutil::repo_root()?, &args),
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn strings(args: &[&str]) -> Vec<String> {
+        args.iter().map(|a| a.to_string()).collect()
+    }
+
+    /// Each command name, the function that it runs and the arguments it gets for `<name> x`: written here, not read from
+    /// `COMMANDS`, so a wrong entry there fails.
+    fn expected() -> Vec<(&'static str, CommandFn, Vec<String>)> {
+        let given = strings(&["x"]);
+        vec![
+            ("ci", ci::command, given.clone()),
+            ("base-merge-check", base_merge::command, given.clone()),
+            ("taint", taint::command, given.clone()),
+            ("timers", timers::command, given.clone()),
+            ("lists", lists::command, given.clone()),
+            ("ledger-ids", lists::ledger_ids_command, given.clone()),
+            ("public-api", public_api::command, given.clone()),
+            ("prebuild-worker", prebuild::command, given.clone()),
+            ("test-budget", test_budget::command, given),
+            ("slow", test_budget::command, strings(&["--slow"])),
+        ]
+    }
 
     /// The command names of `USAGE`: the first word of each line of its command list.
     fn listed() -> Vec<&'static str> {
@@ -112,18 +138,19 @@ mod tests {
 
     #[test]
     fn the_usage_lists_every_command_and_only_those() {
-        let names: Vec<&str> = COMMANDS.iter().map(|(name, _)| *name).collect();
+        let names: Vec<&str> = expected().iter().map(|(name, _, _)| *name).collect();
         assert_eq!(listed(), names);
     }
 
     #[test]
-    fn each_name_chooses_its_own_command() {
-        for (name, command) in COMMANDS {
-            match choose(Some(name)) {
-                Ok(Chosen::Run(chosen)) => {
-                    assert!(std::ptr::fn_addr_eq(chosen, *command), "{name}")
+    fn each_name_runs_its_own_function_with_its_arguments() {
+        for (name, function, args) in expected() {
+            match choose(&strings(&[name, "x"])) {
+                Ok(Chosen::Run(chosen, given)) => {
+                    assert!(std::ptr::fn_addr_eq(chosen, function), "{name}");
+                    assert_eq!(given, args, "{name}");
                 }
-                _ => panic!("{name} chooses no command"),
+                other => panic!("{name}: {other:?}"),
             }
         }
     }
@@ -131,11 +158,14 @@ mod tests {
     #[test]
     fn the_help_names_choose_the_help_and_others_fail_with_the_usage() {
         for name in ["-h", "--help", "help"] {
-            assert!(matches!(choose(Some(name)), Ok(Chosen::Help)), "{name}");
+            assert!(
+                matches!(choose(&strings(&[name])), Ok(Chosen::Help)),
+                "{name}"
+            );
         }
-        assert!(matches!(choose(None), Err(text) if text == USAGE));
+        assert!(matches!(choose(&[]), Err(text) if text == USAGE));
         assert!(
-            matches!(choose(Some("tain")), Err(text) if text.starts_with("unknown command 'tain'\nusage:"))
+            matches!(choose(&strings(&["tain"])), Err(text) if text.starts_with("unknown command 'tain'\nusage:"))
         );
     }
 }

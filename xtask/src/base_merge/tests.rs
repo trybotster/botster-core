@@ -1,4 +1,5 @@
 use super::*;
+use std::process::Command;
 
 /// A fact set that passes every condition: the reviewed diff is unchanged, and the base changed another path.
 fn passing() -> Facts {
@@ -58,8 +59,7 @@ fn the_first_difference_of_two_diffs_names_its_line() {
 
 #[test]
 fn a_base_only_merge_that_keeps_the_diff_passes_with_its_report() {
-    let (report, pass) = judge(&passing()).unwrap();
-    assert!(pass, "{report}");
+    let report = judge(&passing()).unwrap();
     assert!(!report.contains("FAIL"), "{report}");
     assert!(
         report.contains("byte-identical: 34 bytes, sha256 "),
@@ -96,8 +96,8 @@ fn each_failed_condition_fails_the_check_and_names_its_cause() {
         "FAIL (3) the pull request's own diff differs at line 2:\n  reviewed: +x\n  new:      +y",
     ));
     for (facts, cause) in cases {
-        let (report, pass) = judge(&facts).unwrap();
-        assert!(!pass, "{report}");
+        // The failure is the error, so the command exits non-zero, and the error carries the whole report.
+        let report = judge(&facts).unwrap_err();
         assert!(report.contains(cause), "{report}");
         assert_eq!(
             report.lines().filter(|l| l.starts_with("FAIL ")).count(),
@@ -105,8 +105,10 @@ fn each_failed_condition_fails_the_check_and_names_its_cause() {
             "{report}"
         );
         assert!(
-            report.ends_with("result: FAIL (the merge needs delta rounds from both reviewers)\n")
+            report.starts_with("base-merge-check: reviewed head r"),
+            "{report}"
         );
+        assert!(report.ends_with("result: FAIL (the merge needs delta rounds from both reviewers)"));
     }
 }
 
@@ -117,8 +119,7 @@ fn the_report_names_the_size_and_the_sha256_of_the_diff() {
     let mut f = passing();
     f.reviewed_diff = Vec::new();
     f.new_diff = Vec::new();
-    let (report, pass) = judge(&f).unwrap();
-    assert!(pass);
+    let report = judge(&f).unwrap();
     assert!(
         report.contains(
             "byte-identical: 0 bytes, sha256 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\n"
@@ -131,7 +132,22 @@ fn the_report_names_the_size_and_the_sha256_of_the_diff() {
 fn a_failed_merge_tree_fails_the_judgement() {
     let mut f = passing();
     f.merge_tree = (Some(128), "fatal: bad object".into());
-    assert!(judge(&f).is_err());
+    let error = judge(&f).unwrap_err();
+    assert!(
+        error.starts_with("git merge-tree failed (exit code Some(128))"),
+        "{error}"
+    );
+}
+
+#[test]
+fn only_exit_code_0_is_a_git_success() {
+    assert_eq!(succeeded(&["diff", "a", "b"], Some(0)), Ok(()));
+    assert_eq!(
+        succeeded(&["diff", "a", "b"], Some(128)),
+        Err("git diff a b failed (exit code Some(128))".to_string())
+    );
+    assert!(succeeded(&["diff"], Some(1)).is_err());
+    assert!(succeeded(&["diff"], None).is_err());
 }
 
 #[test]
@@ -140,4 +156,146 @@ fn only_exit_code_0_proves_an_ancestor_and_1_disproves_it() {
     assert_eq!(ancestry(Some(1)), Ok(false));
     assert!(ancestry(Some(128)).is_err());
     assert!(ancestry(None).is_err());
+}
+
+/// A real repository for `check`: git runs without the user's configuration.
+struct Repo(tempfile::TempDir);
+
+impl Repo {
+    /// The output of `git <args>` in the repository, which must succeed.
+    fn git(&self, args: &[&str]) -> String {
+        let output = Command::new("git")
+            .arg("-C")
+            .arg(self.0.path())
+            .args([
+                "-c",
+                "user.name=t",
+                "-c",
+                "user.email=t@t",
+                "-c",
+                "commit.gpgsign=false",
+            ])
+            .args(args)
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "git {args:?}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        String::from_utf8(output.stdout).unwrap().trim().to_string()
+    }
+
+    fn write(&self, path: &str, text: &str) {
+        std::fs::write(self.0.path().join(path), text).unwrap();
+    }
+
+    /// Commits the staged changes; returns the commit.
+    fn commit(&self, message: &str) -> String {
+        self.git(&["commit", "-q", "-m", message]);
+        self.git(&["rev-parse", "HEAD"])
+    }
+
+    /// Writes and stages `path`.
+    fn stage(&self, path: &str, text: &str) {
+        self.write(path, text);
+        self.git(&["add", path]);
+    }
+
+    /// Points the gitlink `sub` at `commit`.
+    fn gitlink(&self, commit: &str) {
+        self.git(&[
+            "update-index",
+            "--add",
+            "--cacheinfo",
+            &format!("160000,{commit},sub"),
+        ]);
+    }
+}
+
+/// A base `v1`; a pull request `pr` that changes `a.txt` (the reviewed head); `v1` then changes `v.txt`; the new head merges
+/// `v1` into `pr`. The base also holds a gitlink `sub` and a textconv attribute for `f.txt`.
+fn base_only_merge() -> (Repo, String, String) {
+    let repo = Repo(tempfile::tempdir().unwrap());
+    repo.git(&["init", "-q", "-b", "v1"]);
+    repo.stage("a.txt", "a\n");
+    repo.stage("v.txt", "v\n");
+    repo.stage("f.txt", "f\n");
+    repo.stage(".gitattributes", "f.txt diff=hide\n");
+    repo.gitlink(&"1".repeat(40));
+    repo.commit("base");
+    repo.git(&["checkout", "-q", "-b", "pr"]);
+    repo.stage("a.txt", "a2\n");
+    let reviewed = repo.commit("the reviewed change");
+    repo.git(&["checkout", "-q", "v1"]);
+    repo.stage("v.txt", "v2\n");
+    repo.commit("v1 moves");
+    repo.git(&["checkout", "-q", "pr"]);
+    repo.git(&["merge", "-q", "--no-edit", "v1"]);
+    let new = repo.git(&["rev-parse", "HEAD"]);
+    (repo, reviewed, new)
+}
+
+#[test]
+fn a_real_base_only_merge_passes() {
+    let (repo, reviewed, new) = base_only_merge();
+    let report = check(repo.0.path(), &reviewed, &new, "v1").unwrap();
+    assert!(report.ends_with("result: PASS (no reviewer delta round is needed; the gate still runs on the new head)\n"), "{report}");
+    assert!(report.contains("(2) none of the 1 paths that changed on the base is in the pull request's own diff (1 paths)"), "{report}");
+}
+
+/// #170 review (HIGH): a repository setting that filters `git diff` must not hide an unreviewed change after the merge.
+/// The case first shows that its setting hides the change from a plain `git diff`; `check` must still fail on condition 3.
+fn a_change_hidden_by(key: &str, value: &str, change: fn(&Repo)) {
+    let (repo, reviewed, merged) = base_only_merge();
+    change(&repo);
+    let new = repo.commit("an unreviewed change");
+    repo.git(&["config", key, value]);
+    let shown = repo.git(&["diff", &merged, &new]);
+    assert!(
+        !shown.contains("+f2") && !shown.contains("2222"),
+        "{key} hides nothing: {shown}"
+    );
+    let report = check(repo.0.path(), &reviewed, &new, "v1")
+        .unwrap_err()
+        .to_string();
+    assert!(
+        report.contains("FAIL (3) the pull request's own diff differs"),
+        "{key}: {report}"
+    );
+}
+
+#[test]
+fn an_unreviewed_change_fails_under_an_external_diff() {
+    a_change_hidden_by("diff.external", "/usr/bin/true", |repo| {
+        repo.stage("f.txt", "f2\n")
+    });
+}
+
+#[test]
+fn an_unreviewed_change_fails_under_a_textconv_driver() {
+    a_change_hidden_by("diff.hide.textconv", "/usr/bin/true", |repo| {
+        repo.stage("f.txt", "f2\n")
+    });
+}
+
+#[test]
+fn an_unreviewed_gitlink_change_fails_when_submodules_are_ignored() {
+    a_change_hidden_by("diff.ignoreSubmodules", "all", |repo| {
+        repo.gitlink(&"2".repeat(40))
+    });
+}
+
+#[test]
+fn a_git_failure_fails_the_check() {
+    let (repo, reviewed, _) = base_only_merge();
+    let error = check(repo.0.path(), &reviewed, "no-such-commit", "v1")
+        .unwrap_err()
+        .to_string();
+    assert!(
+        error.starts_with("git rev-parse --verify no-such-commit^{commit} failed"),
+        "{error}"
+    );
 }
