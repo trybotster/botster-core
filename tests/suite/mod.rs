@@ -43,6 +43,8 @@ const DEFERRED: &str = include_str!("../../conformance/core-deferred.toml");
 /// The contracts' status files at the pinned tag (`cargo xtask lists` checks that they are the pinned files).
 const CONTRACTS_DEFERRED: &str = include_str!("../../conformance/contracts-deferred.txt");
 const CONTRACTS_WITHDRAWN: &str = include_str!("../../conformance/contracts-withdrawn.txt");
+/// The minimum Core (plan section 1, revision 23q): the canonical list; its first column is the id.
+const MINIMUM: &str = include_str!("../../conformance/minimum-core.txt");
 
 // Core TH-1, checked when this suite compiles: the facade's handle is `Send` and not `Sync` (no nightly feature).
 static_assertions::assert_impl_all!(botster_core::Core: Send);
@@ -60,6 +62,41 @@ fn id_list(text: &str) -> BTreeSet<String> {
         .filter(|line| !line.is_empty() && !line.starts_with('#'))
         .map(str::to_string)
         .collect()
+}
+
+/// The ids of `minimum-core.txt`: the first tab-separated field of each line that is not empty or a comment.
+fn minimum_ids(text: &str) -> BTreeSet<String> {
+    text.lines()
+        .filter(|line| !line.trim().is_empty() && !line.starts_with('#'))
+        .filter_map(|line| line.split('\t').next())
+        .map(|id| id.trim().to_string())
+        .collect()
+}
+
+/// The progress counts of the minimum Core (plan section 1, revision 23q). `passed` holds the ids whose trial ran and passed
+/// on this tier. On the testkit tier: "testkit-passing / N". On the real tier: "real-passing / N - P", where P is the
+/// number of A20-1 testkit-proven minimum ids, which the real tier never runs, and "real-accepted / N" = real-passing plus
+/// the A20-1 minimum ids that are not in `core-pending.txt` (the testkit tier of the same gate proves that they pass).
+fn minimum_report(
+    minimum: &BTreeSet<String>,
+    passed: &BTreeSet<String>,
+    pending: &BTreeSet<String>,
+    real: bool,
+) -> String {
+    let total = minimum.len();
+    let passing = minimum.intersection(passed).count();
+    if !real {
+        return format!("minimum: testkit-passing {passing} / {total}");
+    }
+    let proven: Vec<&String> = minimum
+        .iter()
+        .filter(|id| TESTKIT_PROVEN.contains(&id.as_str()))
+        .collect();
+    let accepted = passing + proven.iter().filter(|id| !pending.contains(**id)).count();
+    format!(
+        "minimum: real-passing {passing} / {}, real-accepted {accepted} / {total}",
+        total - proven.len()
+    )
 }
 
 /// The deferred entries: `(id, authority, start_condition)`.
@@ -169,6 +206,8 @@ pub fn run(name: &str, make: Factory, plain: Option<Factory>, limits: Limits) {
     let real_passed = Arc::new(Mutex::new(Vec::new()));
     let mut real_pending_count = 0usize;
     let mut testkit_proven = Vec::new();
+    // The ids whose trial ran and passed (on the real tier: on the wrapped composition and the plain one).
+    let ran_passed = Arc::new(Mutex::new(BTreeSet::new()));
     let deferred = deferred_entries(DEFERRED);
     let withdrawn = parse_withdrawn(CONTRACTS_WITHDRAWN).expect("withdrawn.txt parses");
     let (_, cases) = parse_status_deferred(CONTRACTS_DEFERRED).expect("deferred.txt parses");
@@ -222,13 +261,19 @@ pub fn run(name: &str, make: Factory, plain: Option<Factory>, limits: Limits) {
                 ));
             } else if selection.selects(transcript) {
                 let transcript = transcript.clone();
+                let ran_passed = Arc::clone(&ran_passed);
                 trials.push(Trial::test(id.clone(), move || {
                     run_id(make, limits, &transcript)?;
                     match plain {
                         Some(plain) => pass_through(plain, limits, &transcript),
                         None => Ok(()),
                     }
-                    .map_err(Failed::from)
+                    .map_err(Failed::from)?;
+                    ran_passed
+                        .lock()
+                        .unwrap_or_else(PoisonError::into_inner)
+                        .insert(transcript.id.clone());
+                    Ok(())
                 }));
             } else {
                 trials.push(never_passes(
@@ -252,6 +297,11 @@ pub fn run(name: &str, make: Factory, plain: Option<Factory>, limits: Limits) {
             no_transcript_count,
             deferred.len(),
             withdrawn_count
+        );
+        let passed = ran_passed.lock().unwrap_or_else(PoisonError::into_inner);
+        println!(
+            "{name}: {}",
+            minimum_report(&minimum_ids(MINIMUM), &passed, &pending, plain.is_some())
         );
         if plain.is_some() {
             let passed = real_passed.lock().unwrap_or_else(PoisonError::into_inner);
