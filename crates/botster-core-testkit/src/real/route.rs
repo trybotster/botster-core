@@ -162,13 +162,12 @@ impl RouteClient for RealRoute {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use botster_test_process::{Bounded, Deadline as TestDeadline};
     use std::time::Instant;
 
-    /// A route over one end of a pair, and the other end as the worker holds it. A read of the worker's end that finds
-    /// nothing fails at `LONG`, so a write that never came fails the test and never hangs it.
+    /// A route over one end of a pair, and the other end as the worker holds it.
     fn pair() -> (RealRoute, UnixStream) {
         let (client, worker) = UnixStream::pair().unwrap();
-        worker.set_read_timeout(Some(LONG)).unwrap();
         (RealRoute::new(client).unwrap(), worker)
     }
 
@@ -256,24 +255,28 @@ mod tests {
         );
     }
 
-    /// The client's writes reach the worker in order.
+    /// The client's writes reach the worker in order, before the client's close ends the stream.
     #[test]
     fn the_clients_writes_reach_the_worker() {
-        let (mut route, mut worker) = pair();
+        let (mut route, worker) = pair();
         route.write(b"ab");
         route.write(b"c");
-        let mut got = [0u8; 3];
-        worker.read_exact(&mut got).unwrap();
-        assert_eq!(&got, b"abc");
+        assert_eq!(route.control("client_close", &json!({})), Ok(json!({})));
+        let got = Bounded::new(worker)
+            .to_eof(TestDeadline::cleanup())
+            .unwrap();
+        assert_eq!(got, b"abc");
     }
 
     /// `client_close`: the worker reads the end of the stream, a later write goes nowhere and a later read is the end.
     #[test]
     fn a_client_close_ends_the_stream_for_both_ends() {
-        let (mut route, mut worker) = pair();
+        let (mut route, worker) = pair();
         assert_eq!(route.control("client_close", &json!({})), Ok(json!({})));
-        let mut got = Vec::new();
-        assert_eq!(worker.read_to_end(&mut got).unwrap(), 0);
+        let got = Bounded::new(worker)
+            .to_eof(TestDeadline::cleanup())
+            .unwrap();
+        assert!(got.is_empty(), "{got:?}");
         route.write(b"late");
         assert!(route.unsent.is_empty());
         assert_eq!(
