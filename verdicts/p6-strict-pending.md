@@ -210,3 +210,57 @@ No ordinary NOT CLEAN report went to the lead.
 Wait for replacement READY at an exact head.
 
 VERDICT: NOT CLEAN
+
+
+## Round 3
+
+Implementation head: `5d06d47521d9f82de9e6bc9ef63971858cce9409`.
+Integration and full gate base: `159cc4003c8910ba6ef28402c360ba4d2dd820a4`.
+Previous reviewed head and sole parent: `92d6fc3fd662630b437fb7dd8e7c2dca070dcd1d`.
+
+The reviewer checked HIGH first. Rules 1, 3, and 5 remain applicable.
+The exact replacement changes only `xtask/src/ci.rs` and the existing mutation reason in `.cargo/mutants.toml`.
+The reviewer read the complete delta, caller, test, updated PR description, and supplied exact-head gate.
+The reviewer changed no product code and ran no gate, build, test, mutation job, or reversal.
+
+### R2-1 closed — the test observes command environment behavior
+
+`conformance_command` now returns the command used by `conformance_report`.
+It applies the existing Cargo arguments, tier environment, caller environment, and selection-variable removals.
+`conformance_report` executes that returned command and forwards its result to the tested `run_report` decision.
+This extraction preserves the run's behavior.
+
+The old private-constant assertion is removed.
+`a_lists_run_removes_the_runners_selection_variables` passes all three selection variables and strict mode to the command helper.
+It reads the returned command through the public `Command::get_envs` interface.
+It requires explicit removal of `BOTSTER_ONLY`, `BOTSTER_CLAUSE`, and `BOTSTER_SEED`.
+It also requires `BOTSTER_PENDING_STRICT=1` to remain set.
+These assertions check the helper's output. Removing the removal loop changes that output and fails the test.
+P3 reports checking that failure by hand. The reviewer did not perform the reversal.
+
+The existing exclusion reason now names `conformance_command` and its new proof.
+The reviewer confirms that `conformance_report` uses this helper.
+The helper has no exclusion. The four whole-body exclusion regexes are unchanged.
+R1-1, R1-2, and R1-3 remain closed.
+
+### Scope and evidence
+
+The Prior art note remains complete.
+The generated real-only file, held membership, transcript validation, and parser validation are unchanged from round 2.
+The count decisions and process-status decision remain tested pure functions.
+The gate-image wrapper and its recorded evidence are unchanged from round 2.
+No process test is added or migrated. No group owner, wait, sleep, cleanup, production reaper, or contract assertion changes.
+The existing red-on-revert logs remain the trial-behavior evidence read in round 2.
+
+Full Linux log: `~/botster-sessions/gates/botster-core-stage1-p3-strict-pending-5d06d475-pool-20261009-233001-81988.log`.
+It names the exact head and base above. All ten jobs pass, and the gate exits 0.
+Both conformance runs report 193 passed, zero failed, and 497 ignored.
+The strict report covers 407 pending transcripts: 386 run and 21 real-only not run, with two held entries.
+The default tier reports 1446 passed. The slow tier reports 259 passed.
+The new command-environment proof passes in the default tier.
+Both mutation commands report 51 mutants: 45 caught, zero missed, zero timeout, and six unviable.
+The repeated command does not add slow-feature mutation coverage.
+
+All package findings close. No new source finding remains at this exact head.
+
+VERDICT: CLEAN
