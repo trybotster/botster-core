@@ -346,9 +346,9 @@ exclude_re = [
     # only_a_private_directory_of_the_user_is_a_safe_endpoint_directory,
     # the_endpoint_directory_is_created_private_and_an_unsafe_one_is_refused). The slow tier catches both shells
     # (a_new_host_adopts_a_live_worker_at_its_endpoint_and_remove_deletes_an_endpoint: without the connect the adoption is
-    # `Lost(WorkerUnreachable)`, without the unlink the endpoint stays). Slow-tier mutation evidence (`--no-config --features
-    # slow`, `--in-diff` of v1 9b255cff, these functions): 10 mutants, 8 caught, 2 unviable, at dd9cdb11, log
-    # gates/botster-core-stage1-p5-adopt-real-dd9cdb11-pool-20261009-175623-40899.log.
+    # `Lost(WorkerUnreachable)`, without the unlink the endpoint stays). Slow-tier mutation evidence (`--no-config --in-place
+    # --features slow`, `--in-diff` of v1 1627732f, these functions, `-- --profile slow --max-fail 1:immediate`): 10 mutants,
+    # 8 caught, 2 unviable, at 39468476, log gates/botster-core-stage1-p5-adopt-real-39468476-pool-20261009-182231-58443.log.
     'crates/botster-core/src/real\.rs:\d+:\d+: replace <impl HostEdges for RealEdges>::connect_worker -> Option<LinkId> with None$',
     'crates/botster-core/src/real\.rs:\d+:\d+: replace <impl HostEdges for RealEdges>::remove_endpoint with \(\)$',
     # botster-core-sys process (P1): `Children` waits for, reaps and signals real children, so the proof is the slow tier,
