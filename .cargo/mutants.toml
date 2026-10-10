@@ -73,7 +73,9 @@ exclude_re = [
     # whole-body replacement is excluded. A body replaced by Ok(()) prints no "lists: ok" line, which every gate log of the
     # step shows. Its decisions are tested: check, check_real
     # (a_real_pending_id_is_a_ledger_id_that_is_not_pending_deferred_withdrawn_real_only_or_testkit_proven) and
-    # check_minimum (a_minimum_id_is_listed_once_and_is_an_active_core_ledger_id).
+    # check_minimum (a_minimum_id_is_listed_once_and_is_an_active_core_ledger_id), report
+    # (a_report_of_no_problem_passes_and_any_problem_fails); the held-file rules are
+    # botster_core_testkit::pending::held_problems, a testkit function with its own tests.
     'xtask/src/lists\.rs:\d+:\d+: replace command -> Result<\(\)> with Ok\(\(\)\)$',
     # xtask lists.rs ledger_ids_command -> Ok(()): process glue. The body reads the pinned ledger, status files and
     # replacement map, then writes the four files or reads the checked-in copies; a test cannot run it on the pinned
@@ -106,6 +108,18 @@ exclude_re = [
     # step without its summary line, which every gate log of the step shows ("mutants: N mutants: ..." or "mutants: 0
     # mutants: the diff changes no Rust source ...").
     'xtask/src/ci\.rs:\d+:\d+: replace mutants_job -> Result<\(\)> with Ok\(\(\)\)$',
+    # xtask ci.rs lists_job -> Ok(()) and conformance_report -> Ok(..): process glue. lists_job runs the lists commands and
+    # the conformance binary twice and forwards both reports to lists_verdict; conformance_report runs the command of
+    # conformance_command (`cargo test` on the conformance binary) and forwards its exit and output to run_report. A test
+    # cannot start the conformance build inside a mutation run. Only these whole-body replacements are excluded. The
+    # decisions are pure functions with unit tests: lists_verdict (the_lists_verdict_needs_the_strict_line_and_equal_pass_counts),
+    # the step's pass or fail on the two reports; strict_ran (the_strict_run_needs_its_report_line), the strict run checked
+    # every pending id; passed_count (the_passed_count_is_read_from_the_report_line); conformance_command
+    # (a_lists_run_removes_the_runners_selection_variables), no selection variable narrows a run; and run_report
+    # (a_failed_conformance_run_fails_the_step), a failed process fails the step. A body replaced by Ok gives no
+    # `conformance strict:` line and no `conformance: passed` line, which every gate log of the step shows.
+    'xtask/src/ci\.rs:\d+:\d+: replace lists_job -> Result<\(\)> with Ok\(\(\)\)$',
+    'xtask/src/ci\.rs:\d+:\d+: replace conformance_report -> Result<String> with Ok\(.*\)$',
     # xtask gate-decisions command -> Ok(()): process glue. It runs `cargo mutants --list` on the xtask and reads the
     # repository; a test cannot list the mutants of the real xtask inside a mutation run of it. Only this whole-body
     # replacement is excluded; the body has no operator. Its decisions stay mutation-tested: stdout_of

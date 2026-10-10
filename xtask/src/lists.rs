@@ -17,7 +17,7 @@
 use crate::fsutil::{base, git_show};
 use anyhow::{bail, Context, Result};
 use botster_core_contract::prelude::Feature;
-use botster_core_testkit::status;
+use botster_core_testkit::{pending, status};
 use botster_worker_core::{WORKER_FEATURES_BY_PROTOCOL, WORKER_PROTOCOL};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
@@ -34,6 +34,8 @@ pub const CONTRACTS_WITHDRAWN_COPY: &str = "conformance/contracts-withdrawn.txt"
 /// The real-only Core ids with their named real-process proofs (`id<TAB>proof`), derived from the pinned replacement map
 /// (`slow:*` proofs). The suite reads it to count a minimum id that left core-pending.txt by its named proof (plan 23s).
 pub const REAL_ONLY_FILE: &str = "conformance/core-real-only.txt";
+/// The held ids of the strict pending run (`botster_core_testkit::pending`).
+pub const HELD_FILE: &str = "conformance/core-held.txt";
 
 /// The deferred set that Core A6-2 enumerates, with the start condition of each id. A later accepted text replaces this data
 /// in the commit that moves the contracts pin (plan section 5, rule 3). Source: A6-2 of
@@ -523,6 +525,15 @@ pub fn command(root: &Path, args: &[String]) -> Result<()> {
     let ledger_file = parse_ids(&read(LEDGER_FILE)?).map_err(anyhow::Error::msg)?;
     let pending = parse_ids(&read(PENDING_FILE)?).map_err(anyhow::Error::msg)?;
     let deferred = parse_deferred(&read(DEFERRED_FILE)?)?;
+    let real_only = pending::parse_real_only(&read(REAL_ONLY_FILE)?).map_err(anyhow::Error::msg)?;
+    let held = pending::parse_held(&read(HELD_FILE)?).map_err(anyhow::Error::msg)?;
+    let transcripts = pending::transcript_ids().map_err(anyhow::Error::msg)?;
+    problems.extend(pending::held_problems(
+        &held,
+        &pending,
+        &real_only,
+        &transcripts,
+    ));
     let manifest = std::fs::read_to_string(meta.contracts_root.join("frozen/current/MANIFEST.md"))
         .unwrap_or_default();
 
@@ -731,7 +742,7 @@ pub fn ledger_ids_command(root: &Path, args: &[String]) -> Result<()> {
     );
     anyhow::ensure!(problems.is_empty(), "{}", problems.join("\n"));
     println!(
-        "ledger-ids: {} ids and the status files match the pin",
+        "ledger-ids: {} ids, the status files and the real-only ids match the pin",
         ledger.len()
     );
     Ok(())

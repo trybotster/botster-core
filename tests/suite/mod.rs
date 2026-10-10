@@ -22,6 +22,12 @@
 //!
 //! A pending or deferred id is never counted as passed. `cargo xtask ci` validates the three files. The seed set and the
 //! selection come from the runner's environment variables (`BOTSTER_SEEDS`, `BOTSTER_ONLY`, `BOTSTER_CLAUSE`, `BOTSTER_SEED`).
+//!
+//! On the testkit tier, with `BOTSTER_PENDING_STRICT=1` (set by the `lists` step of `cargo xtask ci`;
+//! `botster_core_testkit::pending`), a selected pending id with a transcript runs: it must fail, a held id (`core-held.txt`)
+//! must pass, and a real-only id (`core-real-only.txt`) does not run. The expected result reports itself ignored, so a
+//! pending id is still never a pass. The nextest tiers do not set the variable: there a pending trial stays ignored and does
+//! not run.
 
 use botster_conformance::report::describe;
 pub use botster_conformance::Limits;
@@ -29,6 +35,7 @@ use botster_conformance::{load_dir, run_transcript, Outcome, SeedSet, Selection,
 use botster_core_conformance::{
     driver_for, CoreHarness, CoreSchemas, CORE_TRANSCRIPTS, TESTKIT_PROVEN,
 };
+use botster_core_testkit::pending::{self, Class};
 use botster_core_testkit::status::{parse_deferred as parse_status_deferred, parse_withdrawn};
 use libtest_mimic::{Arguments, Completion, Failed, Trial};
 use std::collections::BTreeSet;
@@ -47,6 +54,8 @@ const CONTRACTS_WITHDRAWN: &str = include_str!("../../conformance/contracts-with
 const MINIMUM: &str = include_str!("../../conformance/minimum-core.txt");
 /// The real-only Core ids with their named real-process proofs (`id<TAB>proof`; `cargo xtask ledger-ids` checks it).
 const REAL_ONLY: &str = include_str!("../../conformance/core-real-only.txt");
+/// The held ids of the strict pending run (`cargo xtask lists` checks it).
+const HELD: &str = include_str!("../../conformance/core-held.txt");
 
 // Core TH-1, checked when this suite compiles: the facade's handle is `Send` and not `Sync` (no nightly feature).
 static_assertions::assert_impl_all!(botster_core::Core: Send);
@@ -151,7 +160,17 @@ fn never_passes(id: &str, kind: &str, reason: String) -> Trial {
 }
 
 fn outcome_of(make: Factory, limits: Limits, transcript: &Transcript) -> Outcome {
-    let seeds = Selection::from_env().seeds(&SeedSet::from_env());
+    outcome_at(make, limits, transcript, |seeds| seeds)
+}
+
+/// Runs one transcript over the seeds that `narrow` keeps of the seed set.
+fn outcome_at(
+    make: Factory,
+    limits: Limits,
+    transcript: &Transcript,
+    narrow: impl FnOnce(SeedSet) -> SeedSet,
+) -> Outcome {
+    let seeds = narrow(Selection::from_env().seeds(&SeedSet::from_env()));
     run_transcript(
         transcript,
         &|seed| driver_for(make(seed)),
@@ -168,6 +187,28 @@ fn run_id(make: Factory, limits: Limits, transcript: &Transcript) -> Result<(), 
     } else {
         Err(describe(&transcript.id, &outcome))
     }
+}
+
+/// The trial of a pending id in the strict run. A real-only id does not run. Another one runs, and `pending::verdict`
+/// decides: a pending id that passes fails its trial, and so does a held id that fails. A `budget` held id runs at the
+/// first seed only (`pending::seeds_of`). An expected result reports itself ignored, so that the strict run counts no pass.
+fn strict_trial(make: Factory, limits: Limits, transcript: &Transcript, class: Class) -> Trial {
+    let id = transcript.id.clone();
+    if let Class::RealOnly(_) = class {
+        let note = pending::verdict(&id, &class, false).unwrap_or_default();
+        return never_passes(&id, "pending: real-only", note);
+    }
+    let transcript = transcript.clone();
+    Trial::ignorable_test(id.clone(), move || {
+        let passed = outcome_at(make, limits, &transcript, |set| SeedSet {
+            seeds: pending::seeds_of(&class, &set.seeds),
+        })
+        .is_pass();
+        pending::verdict(&id, &class, passed)
+            .map(Completion::ignored_with)
+            .map_err(Failed::from)
+    })
+    .with_kind("pending: strict")
 }
 
 /// The pass-through test (plan 23l): an id that passed on the wrapped composition passes on a plain `Core::open` too, unless
@@ -233,6 +274,12 @@ pub fn run(name: &str, make: Factory, plain: Option<Factory>, limits: Limits) {
     let (_, cases) = parse_status_deferred(CONTRACTS_DEFERRED).expect("deferred.txt parses");
     let transcripts = load_dir(&CORE_TRANSCRIPTS).expect("the Core transcripts load");
     let selection = Selection::from_env();
+    // The strict pending run is a run of the testkit tier only.
+    let strict = plain.is_none() && std::env::var(pending::STRICT_ENV).is_ok_and(|v| v == "1");
+    let real_only = pending::parse_real_only(REAL_ONLY).expect("core-real-only.txt parses");
+    let held = pending::parse_held(HELD).expect("core-held.txt parses");
+    // The strict run's own count: the pending ids that ran, and the real-only ones that it does not run.
+    let (mut strict_ran, mut strict_real_only) = (0usize, 0usize);
 
     let mut trials = Vec::new();
     let (mut pending_count, mut no_transcript_count, mut withdrawn_count) =
@@ -249,6 +296,16 @@ pub fn run(name: &str, make: Factory, plain: Option<Factory>, limits: Limits) {
             trials.push(never_passes(id, "deferred", reason));
         } else if pending.contains(id) || transcript.is_none() {
             let (kind, reason) = match transcript {
+                Some(transcript) if strict && selection.selects(transcript) => {
+                    pending_count += 1;
+                    let class = pending::class_of(id, &real_only, &held);
+                    match class {
+                        Class::RealOnly(_) => strict_real_only += 1,
+                        _ => strict_ran += 1,
+                    }
+                    trials.push(strict_trial(make, limits, transcript, class));
+                    continue;
+                }
                 Some(_) => {
                     pending_count += 1;
                     ("pending", "pending: no passing proof yet")
@@ -319,6 +376,14 @@ pub fn run(name: &str, make: Factory, plain: Option<Factory>, limits: Limits) {
             deferred.len(),
             withdrawn_count
         );
+        if strict {
+            // `cargo xtask ci` reads this line: without it, the harness ignored the variable; with fewer ids run than are
+            // pending, a selection narrowed the run.
+            println!(
+                "{name} strict: ran {strict_ran} of {pending_count} pending ids, {strict_real_only} real-only not run, {} held",
+                held.len()
+            );
+        }
         // Under `--ignored` (the real tier's report run in `cargo xtask ci --job slow`) the trials that must pass do not run
         // here: they ran under nextest first, and the job reaches this run only when every one passed. Then those ids
         // count; otherwise the ids whose trial passed in this run count.
