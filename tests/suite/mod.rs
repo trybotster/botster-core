@@ -13,14 +13,16 @@
 //! - a ledger id without a transcript that is not deferred is an ignored trial of kind `pending: no transcript`;
 //! - on the real tier only, an id in `conformance/core-real-pending.txt` (plan 23l) runs as a trial of kind `pending-real`:
 //!   it reports itself ignored with its outcome, never as passed and never as failed. A pass names the id for removal;
-//! - every other id runs `run_transcript` over the seed set and passes only on `Outcome::Passed`.
+//! - every other id runs `run_transcript` over the seed set and passes only on `Outcome::Passed`. On the real tier it then
+//!   runs again on a plain `Core::open` (the pass-through test of plan 23l): it must pass there too, unless it needs a
+//!   control, which only the wrapped composition serves (`unsupported_control` on the plain harness).
 //!
 //! A pending or deferred id is never counted as passed. `cargo xtask ci` validates the three files. The seed set and the
 //! selection come from the runner's environment variables (`BOTSTER_SEEDS`, `BOTSTER_ONLY`, `BOTSTER_CLAUSE`, `BOTSTER_SEED`).
 
 use botster_conformance::report::describe;
 pub use botster_conformance::Limits;
-use botster_conformance::{load_dir, run_transcript, SeedSet, Selection, Transcript};
+use botster_conformance::{load_dir, run_transcript, Outcome, SeedSet, Selection, Transcript};
 use botster_core_conformance::{driver_for, CoreHarness, CoreSchemas, CORE_TRANSCRIPTS};
 use botster_core_testkit::status::{parse_deferred as parse_status_deferred, parse_withdrawn};
 use libtest_mimic::{Arguments, Completion, Failed, Trial};
@@ -46,13 +48,6 @@ pub const CORE_IS_SEND_NOT_SYNC: bool = true;
 
 /// Builds the harness of one seed.
 pub type Factory = fn(u64) -> Box<dyn CoreHarness>;
-
-/// The tier of a run (plan section 5): the `TestkitHarness`, or the real tier, which also reads `core-real-pending.txt`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Tier {
-    Testkit,
-    Real,
-}
 
 fn id_list(text: &str) -> BTreeSet<String> {
     text.lines()
@@ -95,20 +90,55 @@ fn never_passes(id: &str, kind: &str, reason: String) -> Trial {
         .with_ignored_flag(true)
 }
 
-fn run_id(make: Factory, limits: Limits, transcript: &Transcript) -> Result<(), String> {
+fn outcome_of(make: Factory, limits: Limits, transcript: &Transcript) -> Outcome {
     let seeds = Selection::from_env().seeds(&SeedSet::from_env());
-    let outcome = run_transcript(
+    run_transcript(
         transcript,
         &|seed| driver_for(make(seed)),
         &seeds,
         &CoreSchemas,
         &limits,
-    );
+    )
+}
+
+fn run_id(make: Factory, limits: Limits, transcript: &Transcript) -> Result<(), String> {
+    let outcome = outcome_of(make, limits, transcript);
     if outcome.is_pass() {
         Ok(())
     } else {
         Err(describe(&transcript.id, &outcome))
     }
+}
+
+/// How many real-tier ids passed on the plain `Core::open`, and how many need a control that only the wrapped composition
+/// serves.
+#[derive(Default)]
+struct PassThrough {
+    plain_passed: usize,
+    needs_control: usize,
+}
+
+/// The pass-through test (plan 23l): an id that passed on the wrapped composition passes on a plain `Core::open` too, unless
+/// it needs a control.
+fn pass_through(
+    plain: Factory,
+    limits: Limits,
+    transcript: &Transcript,
+    count: &Mutex<PassThrough>,
+) -> Result<(), String> {
+    let outcome = outcome_of(plain, limits, transcript);
+    let mut count = count.lock().unwrap_or_else(PoisonError::into_inner);
+    match outcome {
+        Outcome::Passed => count.plain_passed += 1,
+        Outcome::UnsupportedControl { .. } => count.needs_control += 1,
+        other => {
+            return Err(format!(
+                "pass-through: passes on the wrapped composition and not on a plain Core::open: {}",
+                describe(&transcript.id, &other)
+            ))
+        }
+    }
+    Ok(())
 }
 
 /// A trial of an id of `core-real-pending.txt`: it runs, and reports itself ignored with its outcome. It is never counted as
@@ -138,16 +168,18 @@ fn pending_real(
 }
 
 /// Runs every Core id of the ledger on the harnesses that `make` builds, under the runner's execution `limits` (design 6.1),
-/// and prints the report under `name`.
-pub fn run(name: &str, tier: Tier, make: Factory, limits: Limits) {
+/// and prints the report under `name`. `plain` is the real tier's factory of plain `Core::open` harnesses (plan 23l): with
+/// it, the run also reads `core-real-pending.txt` and runs the pass-through test; without it, it is the testkit tier.
+pub fn run(name: &str, make: Factory, plain: Option<Factory>, limits: Limits) {
     let args = Arguments::from_args();
     let ledger = id_list(LEDGER_IDS);
     let pending = id_list(PENDING_IDS);
-    let real_pending = match tier {
-        Tier::Testkit => BTreeSet::new(),
-        Tier::Real => id_list(REAL_PENDING_IDS),
+    let real_pending = match plain {
+        None => BTreeSet::new(),
+        Some(_) => id_list(REAL_PENDING_IDS),
     };
     let real_passed = Arc::new(Mutex::new(Vec::new()));
+    let pass_count = Arc::new(Mutex::new(PassThrough::default()));
     let mut real_pending_count = 0usize;
     let deferred = deferred_entries(DEFERRED);
     let withdrawn = parse_withdrawn(CONTRACTS_WITHDRAWN).expect("withdrawn.txt parses");
@@ -194,8 +226,14 @@ pub fn run(name: &str, tier: Tier, make: Factory, limits: Limits) {
                 ));
             } else if selection.selects(transcript) {
                 let transcript = transcript.clone();
+                let count = Arc::clone(&pass_count);
                 trials.push(Trial::test(id.clone(), move || {
-                    run_id(make, limits, &transcript).map_err(Failed::from)
+                    run_id(make, limits, &transcript)?;
+                    match plain {
+                        Some(plain) => pass_through(plain, limits, &transcript, &count),
+                        None => Ok(()),
+                    }
+                    .map_err(Failed::from)
                 }));
             } else {
                 trials.push(never_passes(
@@ -220,7 +258,12 @@ pub fn run(name: &str, tier: Tier, make: Factory, limits: Limits) {
             deferred.len(),
             withdrawn_count
         );
-        if tier == Tier::Real {
+        if plain.is_some() {
+            let count = pass_count.lock().unwrap_or_else(PoisonError::into_inner);
+            println!(
+                "{name}: pass-through: {} ids passed on a plain Core::open too; {} need a control of the wrapped composition",
+                count.plain_passed, count.needs_control
+            );
             let passed = real_passed.lock().unwrap_or_else(PoisonError::into_inner);
             println!(
                 "{name}: pending-real {real_pending_count} (ran, never counted as passed), of which passed {}",

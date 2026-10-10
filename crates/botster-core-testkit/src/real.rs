@@ -86,6 +86,8 @@ pub struct RealCoreHarness {
     probe: PathBuf,
     /// Core TH-1 for the facade's `Core` type, as the runner checked it at compile time (`with_core_type`).
     core_send_not_sync: Option<bool>,
+    /// False for the plain harness of the pass-through test: `open` is `Core::open`, with no tap and no control.
+    tapped: bool,
     /// The tap of each handle that `open` opened, until `drop_handle`.
     handles: BTreeMap<String, Handle>,
     /// The registry rows of each data directory, across every handle that opened it.
@@ -115,12 +117,26 @@ impl RealCoreHarness {
     /// # Errors
     /// The root directory, the parent of the data directories, a guard's socket or the probe's wrapper could not be made.
     pub fn new(candidate: Candidate) -> io::Result<RealCoreHarness> {
+        RealCoreHarness::make(candidate, true)
+    }
+
+    /// The plain harness of the pass-through test (plan 23l): `open` is the production `Core::open`, with no tap, so it
+    /// serves no control. A transcript with no control passes on it exactly when it passes on [`RealCoreHarness::new`].
+    ///
+    /// # Errors
+    /// As [`RealCoreHarness::new`].
+    pub fn plain(candidate: Candidate) -> io::Result<RealCoreHarness> {
+        RealCoreHarness::make(candidate, false)
+    }
+
+    fn make(candidate: Candidate, tapped: bool) -> io::Result<RealCoreHarness> {
         let mut harness = RealCoreHarness {
             guards: BTreeMap::new(),
             candidate,
             workers: BTreeMap::new(),
             probe: PathBuf::new(),
             core_send_not_sync: None,
+            tapped,
             handles: BTreeMap::new(),
             rows: BTreeMap::new(),
             root: tempfile::tempdir()?,
@@ -271,20 +287,26 @@ impl CoreHarness for RealCoreHarness {
             None => None,
         };
         let data_dir = PathBuf::from(&spec.data_dir.0);
-        let (cfg, edges) = botster_core::open_parts(OpenConfig {
+        let config = OpenConfig {
             data_dir: data_dir.clone(),
             worker_path,
             limits,
-        })?;
-        let rows = Arc::clone(self.rows.entry(data_dir.clone()).or_default());
-        let (edges, tap) = EdgeTap::new(edges, rows);
-        let driver = HostDriver::open(cfg, edges)?;
-        self.handles
-            .insert(spec.handle.clone(), Handle { data_dir, tap });
+        };
+        let core: Box<dyn CoreApi> = if self.tapped {
+            let (cfg, edges) = botster_core::open_parts(config)?;
+            let rows = Arc::clone(self.rows.entry(data_dir.clone()).or_default());
+            let (edges, tap) = EdgeTap::new(edges, rows);
+            let driver = HostDriver::open(cfg, edges)?;
+            self.handles
+                .insert(spec.handle.clone(), Handle { data_dir, tap });
+            Box::new(driver)
+        } else {
+            Box::new(botster_core::Core::open(config)?)
+        };
         self.probe = self
             .wrapper(PROBE, grace)
             .map_err(RealCoreHarness::harness_failed)?;
-        Ok(Box::new(driver))
+        Ok(core)
     }
 
     /// Core reads no clock: `pump` takes `now` from the host (Core TM-1), so the runner's clock is the one Core sees
@@ -322,7 +344,7 @@ impl CoreHarness for RealCoreHarness {
     }
 
     fn has_control(&self, op: &str) -> bool {
-        matches!(op, "edges_quiet" | "break_control")
+        self.tapped && matches!(op, "edges_quiet" | "break_control")
     }
 
     /// Core TH-1: the runner's compile-time answer for the facade's `Core` (`with_core_type`); `None` without one.
@@ -332,8 +354,8 @@ impl CoreHarness for RealCoreHarness {
 
     fn control(&mut self, handle: &str, op: &str, args: &Value) -> Result<Value, ControlError> {
         match op {
-            "edges_quiet" => self.edges_quiet(handle, args),
-            "break_control" => self.break_control(handle, args),
+            "edges_quiet" if self.tapped => self.edges_quiet(handle, args),
+            "break_control" if self.tapped => self.break_control(handle, args),
             _ => Err(ControlError::Unsupported),
         }
     }

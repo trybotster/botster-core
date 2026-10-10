@@ -9,8 +9,8 @@ fn main() {
     // A fake: no step timeout (design 6.1).
     suite::run(
         "conformance",
-        suite::Tier::Testkit,
         |seed| Box::new(TestkitHarness::new(seed).with_core_type(suite::CORE_IS_SEND_NOT_SYNC)),
+        None,
         suite::Limits::default(),
     );
 }
