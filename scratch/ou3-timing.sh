@@ -23,8 +23,8 @@ ou3() { # $1 label, $2 target dir: three nextest runs of ou_3 over seeds 0-31
   done
 }
 
-T1=/tmp/p3-ou3-ab
-T2=/tmp/p3-ou3-a
+T1=$PWD/.p3-ou3-ab   # on the job volume: /tmp is too small for a clean workspace build (ld SIGBUS)
+T2=$PWD/.p3-ou3-a
 build "A+B" "$T1"
 ou3 "A+B" "$T1"
 
@@ -39,6 +39,6 @@ git checkout HEAD -- Cargo.toml
 ou3 "B only (A off)" "$T1"
 
 git checkout HEAD -- .
-git status --short
+git status --short -- . ":!.p3-ou3-ab" ":!.p3-ou3-a"
 rm -rf "$T1" "$T2"
 echo done
