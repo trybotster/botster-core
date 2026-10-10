@@ -369,3 +369,49 @@ The repeated command still adds no slow-feature mutation coverage; PR #225 owns 
 The reviewer changed no product code and ran no gate, build, test, mutation job, merge check, or reversal.
 
 VERDICT: CLEAN
+
+
+## Round 6 — delta review, 2026-10-10
+
+Exact head: `d55641cbcaf5d0b8c05b43b54587540832a941e5`.
+Review and full gate base: `fc1e8160abfd8248b155383ef1d766c6377f8a11`.
+Previous CLEAN head: `b40badeb59024274ddf361d20ffeddadde6aab99`.
+Risk tier remains HIGH under rules 1, 3, and 5.
+
+No package finding remains. All prior findings remain closed.
+The head merges the base containing #225 into the previous CLEAN head.
+The supplied merge check passes ancestry and conditions (1) and (4), but fails conditions (2) and (3).
+The base changes `.cargo/mutants.toml` and `xtask/src/ci.rs`, which are also in #218's diff.
+The reviewer read the failure report, shared-path diff, normalized diff comparison, and updated PR merge section.
+Evidence directory: `~/botster-sessions/shared/core-stage1/evidence/p3-218-merge/`.
+
+The reviewer independently compared each head's PR diff through read-only Git objects.
+All added and removed lines, with their paths, remain identical across the merge.
+The comparison omits index lines, hunk headers, and context; it does not omit changed source lines.
+The only difference in the supplied context comparison is #225's updated mutation-report comment.
+The imported base tree matches the reviewed #225 head `3890e23093b77c3620237e7c9349c9ca0bf2c1a1` exactly.
+Its package CLEAN verdict is `a685c84e5af3f7d7a1a4440018b6bdbdd79303d7`.
+
+The shared-path diff preserves #218's conformance command, strict coverage decision, report verdict, and public command-environment proof.
+Its two whole-body I/O exclusions retain their tested decision reasons beside #225's updated mutation exclusion.
+The shared runner, pending parser, held file, pending id file, and ledger command remain byte-identical to round 5.
+The merge preserves the strict public outcome assertions, ignored counts, seed rules, and real-tier boundary.
+The existing Prior art decisions and retained red-on-revert evidence remain applicable.
+The merge adds no process ownership, wait, cleanup, reaper, or contract assertion change beyond the reviewed #225 tree.
+
+The reviewer read the exact-head Linux gate:
+`~/botster-sessions/gates/botster-core-stage1-p3-strict-pending-d55641cb-pool-20261010-135459-54574.log`.
+The log names the exact head and base above. It uses `env CARGO_BUILD_JOBS=4 NEXTEST_TEST_THREADS=4 cargo xtask ci`.
+All ten jobs pass, exit 0. Default: 1495 passing tests. Slow: 384 passing tests.
+Both conformance reports show 193 passed and zero failed.
+The strict report covers 407 pending transcripts: 386 run, 21 real-only not run, and two held.
+The ledger and derived real-only file match the contracts pin.
+Minimum counts remain testkit 50/69, real 29/68, and real-accepted 29/69.
+The real report names 87 pending-real ids, with zero newly passing.
+The mutation verdict reports 46 mutants: 42 caught, zero missed, zero timeout, and four unviable.
+Stage 1 takes 217.2 seconds. It misses no mutant, so stage 2 does not run.
+The obsolete second mutation command is absent, as required after #225.
+
+The reviewer changed no product code and ran no gate, build, test, mutation job, merge check, or reversal.
+
+VERDICT: CLEAN
