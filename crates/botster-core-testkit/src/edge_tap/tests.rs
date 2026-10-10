@@ -176,16 +176,14 @@ impl HostEdges for Fake {
         self.calls.push(format!("read {} {on}", link.0));
     }
 
-    fn handoff_route(
+    fn link_send_descriptor(
         &mut self,
-        _link: LinkId,
-        route: RouteId,
-        _transport: StreamEndpoint,
-        options: &AttachOptions,
-    ) -> Result<(), HandoffError> {
-        self.calls
-            .push(format!("handoff {} {}", route.0, options.file_directory));
-        Err(HandoffError)
+        link: LinkId,
+        bytes: &[u8],
+        endpoint: StreamEndpoint,
+    ) -> Result<usize, (StreamEndpoint, DescriptorSendError)> {
+        self.calls.push(format!("descriptor {} {bytes:?}", link.0));
+        Err((endpoint, DescriptorSendError::Failed))
     }
 
     fn wake(&self) -> Arc<dyn HostWake> {
@@ -326,15 +324,13 @@ fn every_call_passes_to_the_inner_edges_unchanged() {
     rig.edges.set_write_interest(A, true);
     rig.edges.set_read_interest(A, false);
     assert_eq!(rig.edges.diagnostics(), serde_json::json!({"fake": true}));
-    assert!(rig
+    // The inner edge's answer comes back unchanged, with the endpoint it gave back.
+    let (endpoint, why) = rig
         .edges
-        .handoff_route(
-            A,
-            RouteId(1),
-            StreamEndpoint::new(5u8),
-            &serde_json::from_value(serde_json::json!({"file_directory": "/tmp"})).unwrap()
-        )
-        .is_err());
+        .link_send_descriptor(A, b"rt", StreamEndpoint::new(5u8))
+        .unwrap_err();
+    assert_eq!(why, DescriptorSendError::Failed);
+    assert_eq!(endpoint.downcast::<u8>().ok(), Some(5));
     rig.edges.wake().signal();
     assert_eq!(rig.edges.scheduler().pick(ChoicePoint::ReadyWork, 3), 2);
     assert_eq!(rig.edges.scheduler().bound(ChoicePoint::ReadyWork, 8), 4);
@@ -350,7 +346,7 @@ fn every_call_passes_to_the_inner_edges_unchanged() {
                 "remove 1-1",
                 "write 1 true",
                 "read 1 false",
-                "handoff 1 /tmp"
+                "descriptor 1 [114, 116]"
             ]
         );
         assert_eq!(

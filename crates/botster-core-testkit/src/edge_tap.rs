@@ -22,7 +22,7 @@ use botster_core_edges::edges::{
     ExitStatus, GroupSignal, IdentityState, ProcessIdentity, SpawnError, StorageError,
 };
 use botster_core_edges::scheduler::{ChoicePoint, Scheduler};
-use botster_core_host::driver::{HandoffError, HostEdges, HostWake, WorkerSpawn};
+use botster_core_host::driver::{DescriptorSendError, HostEdges, HostWake, WorkerSpawn};
 use botster_core_host::session::{Row, ROW_PREFIX};
 use botster_core_host::LinkId;
 use botster_core_link::frame::{FrameDecoder, FrameType, DEFAULT_MAX_PAYLOAD};
@@ -344,16 +344,13 @@ impl<E: HostEdges> HostEdges for EdgeTap<E> {
         self.tap().inner.set_read_interest(link, on);
     }
 
-    fn handoff_route(
+    fn link_send_descriptor(
         &mut self,
         link: LinkId,
-        route: RouteId,
-        transport: StreamEndpoint,
-        options: &AttachOptions,
-    ) -> Result<(), HandoffError> {
-        self.tap()
-            .inner
-            .handoff_route(link, route, transport, options)
+        bytes: &[u8],
+        endpoint: StreamEndpoint,
+    ) -> Result<usize, (StreamEndpoint, DescriptorSendError)> {
+        self.tap().inner.link_send_descriptor(link, bytes, endpoint)
     }
 
     fn wake(&self) -> Arc<dyn HostWake> {
