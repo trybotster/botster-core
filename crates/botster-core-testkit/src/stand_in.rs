@@ -97,20 +97,15 @@ impl StandIn {
     /// # Panics
     /// When the link does not take the whole answer: R-42 makes a short or failed write a setup failure, never a pass.
     pub fn step(&mut self) -> bool {
-        loop {
-            match self.listener.accept() {
-                Ok((stream, _)) => {
-                    // A stream that cannot be made non-blocking is never read, so a step never waits on it.
-                    let stream = stream.set_nonblocking(true).ok().map(|()| stream);
-                    self.links.push(PeerLink {
-                        stream,
-                        decoder: FrameDecoder::new(DEFAULT_MAX_PAYLOAD),
-                        answered: false,
-                    });
-                }
-                Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
-                Err(_) => break,
-            }
+        // A non-blocking call never sleeps, so no signal interrupts it: every error, `WouldBlock` first, ends the loop.
+        while let Ok((stream, _)) = self.listener.accept() {
+            // A stream that cannot be made non-blocking is never read, so a step never waits on it.
+            let stream = stream.set_nonblocking(true).ok().map(|()| stream);
+            self.links.push(PeerLink {
+                stream,
+                decoder: FrameDecoder::new(DEFAULT_MAX_PAYLOAD),
+                answered: false,
+            });
         }
         if let Role::Answer(plan) = &self.role {
             for link in &mut self.links {
@@ -122,23 +117,18 @@ impl StandIn {
 }
 
 impl PeerLink {
-    /// Reads what the host sent, and answers its first hello. At the end of the stream, the host has closed the link, and
-    /// the stand-in closes its end.
+    /// Reads what the host sent, and answers its first hello. At the end of the stream or a reset, the host has closed the
+    /// link, and the stand-in closes its end. The stream is non-blocking, so no signal interrupts a read.
     fn read_and_answer(&mut self, plan: &ImpostorPlan) {
         let mut buf = [0u8; 4096];
         while let Some(stream) = self.stream.as_mut() {
             let n = match stream.read(&mut buf) {
-                Ok(0) => {
+                Err(e) if e.kind() == io::ErrorKind::WouldBlock => return,
+                Ok(0) | Err(_) => {
                     self.stream = None;
                     return;
                 }
                 Ok(n) => n,
-                Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
-                Err(e) if e.kind() == io::ErrorKind::WouldBlock => return,
-                Err(_) => {
-                    self.stream = None;
-                    return;
-                }
             };
             let mut rest = &buf[..n];
             while !rest.is_empty() {
