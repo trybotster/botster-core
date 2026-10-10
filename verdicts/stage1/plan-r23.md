@@ -668,3 +668,41 @@ The separate code pin PR still requires its own review and execution evidence.
 The reviewer ran no builds, tests, or gates. No finding remains open.
 
 VERDICT: CLEAN at e3d737395242bc7da8fe528da3c16f38a022d9a8
+
+## Round 20 — Revision 23n mutation stages
+
+Reviewed head: `3453f5a6c6397abf4464c259dc675472025c7d54`.
+Scope: the complete one-commit delta from `e3d737395242bc7da8fe528da3c16f38a022d9a8`.
+
+The reviewer applied the orchestrate-delivery premise and evidence checks.
+The new rule correctly distinguishes the default mutation run from tests compiled with the slow feature.
+Current xtask source explicitly selects the mutants profile and passes no slow feature.
+The #211 log confirms that the extra environment-only invocation repeats the default mutation result.
+The plan requires a slow-only catch proof, a both-stages miss proof, and failure on a timeout in either stage.
+The existing rule requires profiles without terminate-after. The two-stage design does not contradict that invariant.
+P6 owns the HIGH gate PR after the RealCoreHarness PR. Exclusions remain until individual gate proofs replace them.
+
+### R20-1 — MEDIUM — State the current manual evidence command explicitly
+
+The old timeout bullet still describes the pre-#181 instruction, conditioned on a profile that has already landed.
+The new final sentence calls its NEXTEST_PROFILE=slow READY run the manual features run.
+The preceding diagnosis correctly explains why that environment-only xtask command does not select slow mutation tests.
+The instructions therefore leave two different commands under the same name.
+
+Mark the old interim instruction as historical and state the current manual evidence requirements explicitly.
+The run must enable the slow feature, bypass the exclusions under review, and select the slow nextest profile explicitly.
+Preserve the no-terminate-after rule and the existing first-failure behavior.
+An environment-only xtask invocation must not qualify as this manual evidence.
+
+### R20-2 — LOW — Limit the worker gap to the prebuilt execution path
+
+The statement that a real-process test does not see a worker mutant is too broad.
+The #210 slow_driver fixture executes the changed Driver in its test binary, in a real child process.
+Its supplied slow mutation run catches worker mutants through that path.
+The gap applies to tests that execute the unchanged target/candidate worker.
+State that scope explicitly. Keep the requirement to document or close that gap in the gate PR.
+
+Both findings were sent to the lead. They require plan text corrections, not a larger implementation scope.
+The reviewer ran no builds, tests, or gates.
+
+VERDICT: NOT CLEAN (R20-1 MEDIUM, R20-2 LOW) at 3453f5a6c6397abf4464c259dc675472025c7d54
