@@ -306,6 +306,20 @@ impl HostEngine {
         } else {
             self.complete(f.op, result);
         }
+        // The routes whose held stream closed with the link while the start ran (`on_handoff_lost`). A failed start, or an
+        // end that follows `Running`, closes them with the end's reason; a start that runs on closes them `HandoffFailed`.
+        let lost = std::mem::take(
+            &mut self
+                .sessions
+                .get_mut(id)
+                .expect("a flow has a session")
+                .lost_handoffs,
+        );
+        if running && pending_end.is_none() {
+            for route in lost {
+                self.route_close(route, RouteCloseReason::HandoffFailed);
+            }
+        }
         if running {
             if let Some(end) = pending_end {
                 // The payload ended while the start was finishing: the exit is applied now, after `Running` (OR-2).

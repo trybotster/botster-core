@@ -644,6 +644,7 @@ impl HostEngine {
         if let Some(s) = self.sessions.get_mut(&entry.session) {
             s.routes.remove(&route);
             s.delivered.remove(&route);
+            s.lost_handoffs.remove(&route);
         }
         // A closed route is never handed to a worker. Core still holds the stream of a hand-over that waits, so Core owes
         // the client what the worker would write: the route's `route_closed`, when its reason has one, then one close of
