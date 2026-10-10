@@ -1114,6 +1114,72 @@ fn an_unapplied_input_kind_is_refused_unsupported_and_the_route_stays_open() {
     assert!(!all.contains(&Action::RouteClose { route: RouteId(1) }));
 }
 
+/// IN-4, DP-5 (PR3 F87, integration R1-4): a complete input frame that is refused is still client input. Invalid UTF-8
+/// text, an unknown enum value and an invalid field are each refused with their op, advance `input_rev{client}` once on
+/// receipt, carry their route and reach no PTY. The route stays open, and a valid frame after them is applied.
+#[test]
+fn a_refused_complete_input_frame_advances_the_client_revision_once() {
+    use botster_route_codec::prelude::{stream_wrap, TYPE_INPUT, TYPE_TEXT};
+    let (mut w, mut client, _) = attached(limits());
+    let mut text = vec![TYPE_TEXT];
+    text.extend(7u64.to_be_bytes());
+    text.push(0xff);
+    let json = |body: &str| [&[TYPE_INPUT][..], body.as_bytes()].concat();
+    let mut all = Vec::new();
+    for raw in [
+        text,
+        json(r#"{"kind":"key","key":{"char":"a"},"event":"wiggle"}"#),
+        json(r#"{"kind":"key","key":{"char":"ab"},"event":"press"}"#),
+    ] {
+        let actions = w.feed(Input::RouteRead {
+            route: RouteId(1),
+            bytes: stream_wrap(&raw),
+        });
+        all.extend(client.take_all(&mut w, RouteId(1), actions));
+    }
+    assert_eq!(
+        refusals(&client),
+        vec![
+            (
+                Some(Op(7)),
+                RefusalReason::Unsupported {
+                    what: "utf8".into()
+                }
+            ),
+            (
+                None,
+                RefusalReason::Unsupported {
+                    what: "event".into()
+                }
+            ),
+            (None, RefusalReason::InvalidInput),
+        ]
+    );
+    assert!(pty_writes(&all).is_empty(), "a refused frame reaches no PTY");
+    assert!(!all.contains(&Action::RouteClose { route: RouteId(1) }));
+    all.extend(w.feed(Input::RouteRead {
+        route: RouteId(1),
+        bytes: client_frame(&bytes_frame(0, b"ok")),
+    }));
+    assert_eq!(pty_writes(&all), b"ok");
+    let tags: Vec<WorkerMsg> = w
+        .reports(&all)
+        .into_iter()
+        .filter(|m| matches!(m, WorkerMsg::Observed { .. }))
+        .collect();
+    assert_eq!(
+        tags,
+        [1, 2, 3, 4]
+            .map(|rev| WorkerMsg::Observed {
+                observation: Observation::ClientInput {
+                    route: RouteId(1),
+                    input_rev: InputRev(rev),
+                },
+            })
+            .to_vec()
+    );
+}
+
 /// OU-5: a frame that cannot be decoded closes only that route, `BadFrame` with its code: `route_closed{protocol_error}`
 /// is the last frame, and the host is told once.
 #[test]
@@ -1143,6 +1209,40 @@ fn a_bad_client_frame_closes_the_route_bad_frame_with_its_code() {
             reason: RouteCloseReason::BadFrame {
                 code: ProtocolErrorCode::FrameTooLarge
             },
+            route_tag: None
+        }]
+    );
+}
+
+/// OU-2 (PR3 F86, integration R1-1): the client's end closes while a healthy close waits to write its `route_closed`. The
+/// transport closes at once, once, and the host is told the first reason once, not `PeerClosed`.
+#[test]
+fn the_clients_close_during_a_healthy_close_keeps_the_first_reason() {
+    let (mut w, _, _) = attached(limits());
+    let mut all = w.send(&HostMsg::Detach {
+        route: RouteId(1),
+        reason: DetachReason::Replaced,
+    });
+    assert!(
+        !all.iter().any(|a| matches!(a, Action::RouteClose { .. })),
+        "the close waits for its frame: {all:?}"
+    );
+    all.extend(w.feed(Input::RouteEnded { route: RouteId(1) }));
+    all.extend(w.feed(Input::RouteWritten {
+        route: RouteId(1),
+        result: Ok(1),
+    }));
+    all.extend(w.feed(Input::RouteEnded { route: RouteId(1) }));
+    let transport_closes = all
+        .iter()
+        .filter(|a| matches!(a, Action::RouteClose { .. }))
+        .count();
+    assert_eq!(transport_closes, 1, "{all:?}");
+    assert_eq!(
+        closes(&mut w, &all),
+        vec![WorkerMsg::RouteClosed {
+            route: RouteId(1),
+            reason: RouteCloseReason::Replaced,
             route_tag: None
         }]
     );
