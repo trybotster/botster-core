@@ -347,8 +347,8 @@ fn an_announced_protocol_outside_the_set_is_worker_version() {
 }
 
 /// `announce_protocol` gives `Unsupported` for a protocol that Core adopts (`T`, and `T-1` when `T > 1`): only a real worker
-/// of that protocol can stand for it. It refuses an unknown session, a protocol that is not a `u8` and an unknown argument
-/// with `Bad`.
+/// of that protocol can stand for it. Protocol 0 is never adoptable, so the control takes it. It refuses an unknown session,
+/// a protocol that is not a `u8` and an unknown argument with `Bad`.
 #[test]
 fn announce_protocol_refuses_an_adoptable_protocol() {
     let (mut harness, _core, _at) = running(&["s1"]);
@@ -373,7 +373,7 @@ fn announce_protocol_refuses_an_adoptable_protocol() {
         json!({"session": "s1", "protocol": current + 1, "extra": 1})
     )));
     assert_eq!(
-        control(json!({"session": "s1", "protocol": current + 1})),
+        control(json!({"session": "s1", "protocol": 0})),
         Ok(Value::Null)
     );
 }
