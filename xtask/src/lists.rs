@@ -382,7 +382,13 @@ pub fn command(root: &Path, args: &[String]) -> Result<()> {
     let deferred = parse_deferred(&read(DEFERRED_FILE)?)?;
     let real_only = pending::parse_real_only(&read(REAL_ONLY_FILE)?).map_err(anyhow::Error::msg)?;
     let held = pending::parse_held(&read(HELD_FILE)?).map_err(anyhow::Error::msg)?;
-    problems.extend(pending::held_problems(&held, &pending, &real_only));
+    let transcripts = pending::transcript_ids().map_err(anyhow::Error::msg)?;
+    problems.extend(pending::held_problems(
+        &held,
+        &pending,
+        &real_only,
+        &transcripts,
+    ));
     let manifest = std::fs::read_to_string(meta.contracts_root.join("frozen/current/MANIFEST.md"))
         .unwrap_or_default();
 

@@ -167,6 +167,8 @@ fn main() {
     let mut trials = Vec::new();
     let (mut pending_count, mut no_transcript_count, mut withdrawn_count) =
         (0usize, 0usize, 0usize);
+    // The strict run's own count: the pending ids that ran, and the real-only ones that it does not run.
+    let (mut strict_ran, mut strict_real_only) = (0usize, 0usize);
     for id in &ledger {
         let transcript = transcripts.iter().find(|t| &t.id == id);
         if let Some(w) = withdrawn.iter().find(|w| &w.id == id) {
@@ -182,6 +184,10 @@ fn main() {
                 Some(transcript) if strict && selection.selects(transcript) => {
                     pending_count += 1;
                     let class = pending::class_of(id, &real_only, &held);
+                    match class {
+                        Class::RealOnly(_) => strict_real_only += 1,
+                        _ => strict_ran += 1,
+                    }
                     trials.push(strict_trial(transcript, class));
                     continue;
                 }
@@ -236,10 +242,10 @@ fn main() {
             println!("conformance: deferred {id} ({authority}; starts when {start})");
         }
         if strict {
-            // `cargo xtask ci` needs this line: without it, the harness ignored the variable.
+            // `cargo xtask ci` reads this line: without it, the harness ignored the variable; with fewer ids run than are
+            // pending, a selection narrowed the run.
             println!(
-                "conformance strict: every pending id ran, except {} real-only; {} held",
-                real_only.iter().filter(|r| pending.contains(&r.id)).count(),
+                "conformance strict: ran {strict_ran} of {pending_count} pending ids, {strict_real_only} real-only not run, {} held",
                 held.len()
             );
         }
