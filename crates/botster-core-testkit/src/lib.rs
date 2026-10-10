@@ -7,6 +7,7 @@ pub mod adopt_controls;
 pub mod candidate;
 pub mod controls;
 pub mod core;
+pub mod edge_tap;
 pub mod entropy;
 pub mod every_cut;
 pub mod harness;
@@ -16,6 +17,8 @@ pub mod process_controls;
 pub mod process_group;
 pub mod program;
 pub mod pty_controls;
+#[cfg(feature = "slow")]
+pub mod real;
 pub mod refusal;
 pub mod resume_controls;
 pub mod route_client;
