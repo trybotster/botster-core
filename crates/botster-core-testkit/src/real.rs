@@ -1204,19 +1204,24 @@ mod slow_tests {
     #[test]
     fn only_the_tapped_harness_has_controls_and_only_its_own() {
         let tapped = RealCoreHarness::new(nonexistent()).unwrap();
-        assert!(tapped.has_control("edges_quiet"));
-        assert!(tapped.has_control("break_control"));
-        assert!(tapped.has_control("corrupt_registry_row"));
-        assert!(tapped.has_control("payload_alive"));
-        assert!(tapped.has_control("lose_worker"));
+        let plain = RealCoreHarness::plain(nonexistent()).unwrap();
+        for op in [
+            "edges_quiet",
+            "break_control",
+            "corrupt_registry_row",
+            "payload_alive",
+            "lose_worker",
+            "worker_alive",
+            "impostor_worker",
+            "announce_protocol",
+            "withhold_control_link",
+            "signals_received",
+        ] {
+            assert!(tapped.has_control(op), "{op}");
+            assert!(!plain.has_control(op), "{op}");
+        }
         assert!(!tapped.has_control("pty_output"));
         assert!(!tapped.has_control("fail_next"));
-        let plain = RealCoreHarness::plain(nonexistent()).unwrap();
-        assert!(!plain.has_control("edges_quiet"));
-        assert!(!plain.has_control("break_control"));
-        assert!(!plain.has_control("corrupt_registry_row"));
-        assert!(!plain.has_control("payload_alive"));
-        assert!(!plain.has_control("lose_worker"));
     }
 
     /// A control that a harness does not serve is `unsupported_control`, never a pass and never a bad argument: on the
