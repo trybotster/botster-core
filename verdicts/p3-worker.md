@@ -8430,3 +8430,106 @@ P3's non-minimum queue stays parked. The reviewer changes no product code and ru
 All earlier exact-head verdicts remain preserved.
 
 VERDICT: NOT CLEAN
+
+
+## Round 140 — PR #217 replacement route lifecycle — 2026-10-09
+
+Reviewed head: `987c6b040f3085407fec2be6f79869c203c94b9a`.
+PR base: `dc7fb11d915b76d45fdae84b1edaa208a7f895eb`.
+Correction parent: `9038fb7048d55c05f1197bc772483b6cdc8479e5`.
+Prior reviewed head: `557c414f3383dc357186972380291737a959f401`, round 139.
+Tier: HIGH under BUILD rule 3 because the PR changes the shared testkit and its controls.
+The reviewer reads the six-file correction, its proofs, the base merge, and the complete PR description.
+The full source review from rounds 138 and 139 remains part of this exact-head verdict.
+
+### F91 — HIGH — CLOSED: every applicable link-loss path releases ended routes
+
+finish_close derives the close from the session when StopPhase::Finish runs.
+For Exited, a route in delivered closes SessionEnded with the host's exit cause.
+An undelivered bound route waits while the worker link exists. It closes SessionLost once the link is absent.
+The implementation removes RouteEnd and the loss-marking block that depended on the current flow phase.
+ProcessExited removes the worker link through close_worker_link, so Finish can now select that undelivered route.
+LinkClosed before finish_start also leaves the link absent, so the later Finish can select the route.
+The delivered set retains earlier delivery evidence across later link loss. close_route removes the completed route from that set.
+
+The ProcessExited-first proof checks one SessionLost close and an ended flow with no ready work.
+The existing LinkClosed-first proof checks the other order.
+The pending_end proof sends Exited during Start/PostRunning, then LinkClosed before the end flow begins.
+It checks one SessionLost close after the session state and no ready work after the flow ends.
+All three relevant proof paths agree with the source. The completed exact-head gate includes their PASS results.
+The ProcessExited proof does not queue Remove directly. Its flow completion assertion and flow_done path establish that the prior blocking flow ends.
+No loss report now depends on a later LinkClosed input whose link mapping was already removed.
+
+### F92 — MEDIUM — CLOSED: Finish waits for capacity before a route close
+
+flow_needs_room now requires mandatory event capacity when finish_close selects a route close.
+flow_waiting uses finish_waits, which waits only while bound routes remain and none can close.
+Both decisions use the same finish_close result. ready cannot offer a blocked route-close step with a full queue.
+After the routes close, Finish remains runnable for work that needs no mandatory event capacity.
+
+The new proof fills the mandatory queue with the Exited state and records a delivered route.
+It checks no ready work, then loses the link and checks no ready work again.
+After polling frees capacity, it checks exactly one SessionEnded close with the host's exit.
+This also proves that later link loss does not replace an earlier delivery result.
+The completed exact-head gate includes this proof's PASS result.
+
+### F93 — LOW — CLOSED: the description matches the final scope
+
+The title now names route lifecycle, handoff controls, and 11 flips. It no longer claims route input.
+The body and finish_close comment state that flush_handoffs queues HandoffRoute actions.
+They state that the driver can hold the descriptor until release or link loss.
+This distinguishes a queued action from completed descriptor delivery and preserves the accepted held-handoff behavior.
+
+### Retained behavior and scope
+
+F89's corrected completion boundary remains intact. The worker reports each SessionEnded route after its own delivery.
+The host projects its exit cause, and a pending Detach keeps its earlier reason until the worker reports that close.
+The waiting Finish has no ready work. SessionLost remains separate from normal delivery.
+
+F86/F87/F88/F90 remain closed only within PR2's reduced scope. The body carries all four into PR3.
+PR3 must implement the complete input unit: receipt, route/op identity, every refusal, the adoption fence, both allowances, and read pause/resume.
+worker/input.rs equals the current PR base. This head restores no route input or read binding.
+The body retains the separate failed-start route problem for the lead's assigned follow-up PR.
+The reviewer does not treat that unchanged base behavior as a new correction in this PR.
+
+The base merge has parents 9038fb70 and dc7fb11d. It changes no host, testkit, or worker-core file from the correction parent.
+The 14 paths changed by v1 since e9901293 are disjoint from this PR's 23 paths.
+#210's real worker endpoint remains inherited base work. The real route handoff still returns typed DescriptorSendError::Failed.
+The worker binary still gives no route Descriptor input and does not execute route transport actions.
+This PR therefore adds no successful real route handoff, production test hook, or process-control behavior.
+BUILD rule 5 and the named real-process proof requirement remain in force for the later real transport change.
+The prior guard, anchor, wait, deadline, cleanup, R-44, and R-45 rulings remain unchanged.
+
+### Completed exact-head evidence
+
+Gate: ~/botster-sessions/gates/botster-core-stage1-p4a-route-lifecycle-987c6b04-pool-20261009-220228-39870.log.
+The header names head 987c6b04 and base dc7fb11d. All ten full CI steps PASS.
+Default: 1435 tests pass in 13.028 seconds. Slow: 259 pass in 22.452 seconds.
+Both facade reports show 193 passed, zero failed, and 497 ignored.
+Both mutation reports show 112 tested: 97 caught, 15 unviable, zero missed, and zero timeouts.
+Full CI takes 326.3 seconds. The repeated mutation job takes 239.5 seconds.
+Job and wrapper exit zero after 577 seconds on msa1. Queue time is one second; run time is 576 seconds.
+The env-only second mutation job remains repeated default coverage. This PR adds no slow-based mutation exclusion.
+
+The pending list removes 11 IDs and adds none against the current base. All 11 have PASS lines in this completed gate.
+Their replacement-map proof classes remain permitted. None is a slow-based or real-only removal.
+The reviewer independently counts minimum 46/69 at base and 50/69 at head against plan 23q's pinned list.
+The 12 input-dependent IDs remain pending for PR3.
+R-47 route_fill and portable fail_writes remain named real-tier work when the real harness lands.
+The PR that lands second adapts. Those gaps do not exempt the real acceptance requirement.
+
+### Verdict and preserved findings
+
+PR #217 is CLEAN at `987c6b040f3085407fec2be6f79869c203c94b9a`.
+F91/F92/F93 are CLOSED. No finding remains open within this PR's approved scope.
+This is the third package review of #217 after two NOT CLEAN rounds. The third review is CLEAN, so no round-limit notice is due.
+The lead receives CLEAN with this exact head and the pushed verdict commit.
+
+Round 137 CLEAN for #206 and its F78-F82/F84/F85 closures remain preserved. #206 is merged at 6cc7a722.
+#215 is merged at 9103dca1. #216 is merged at e9901293. #210 is merged at dc7fb11d.
+Contracts v0.1.24 remains d79aed5. Accepted plan 23q remains bae71c81.
+F39 for #163 and F61/F62 for #192 retain their prior scopes. P3's non-minimum queue stays parked.
+The reviewer changes no product code and runs no tests, builds, gates, measurements, or mutants.
+All earlier exact-head verdicts remain preserved.
+
+VERDICT: CLEAN
