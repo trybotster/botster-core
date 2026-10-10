@@ -507,6 +507,10 @@ fn a_held_handoff_whose_link_alone_closes_before_running_closes_handoff_failed_w
         rig.driver.get(&sid("s1")).unwrap().state,
         SessionState::Running
     );
+    assert!(
+        !rig.driver.engine().routes.contains_key(&result.route),
+        "no route is retained"
+    );
 }
 
 /// #219 integration R2-1, package F96: `Running` is posted, the start's completion waits for the next pump (`pump_events:
@@ -546,5 +550,9 @@ fn a_held_handoff_whose_link_alone_closes_after_running_closes_handoff_failed_on
             .iter()
             .any(|e| matches!(e, Event::Completed { op: OpId(2), .. })),
         "the start completes: {events:?}"
+    );
+    assert!(
+        !rig.driver.engine().routes.contains_key(&result.route),
+        "no route is retained"
     );
 }
