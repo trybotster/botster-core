@@ -10,13 +10,21 @@
 //!
 //! **Backpressure (OU-3d).** Each route has a queue bounded by `route_queue_bytes`. The worker gives the driver a PTY read
 //! budget: the smallest free payload space of the routes, so that no read can overflow a queue and no byte is dropped.
+//! The baseline goes whole into the route's empty queue at the bind (OU-9: a snapshot within `max_snapshot_bytes` fits
+//! `route_queue_bytes`), so the queue holds at most `route_queue_bytes` plus the other frames of the baseline, their stream
+//! prefixes and the held suffix. While it is over `route_queue_bytes`, the budget is 0 and no PTY byte is read.
+//!
+//! **Frame bounds (DP-3).** Every frame is checked against its codec bound (`bound_of`) before it is queued, and the
+//! snapshot's size is checked before it is allocated. A route whose limits cannot carry the attach frames is closed
+//! `BadPeer` (the host's A9-1 floor keeps this from happening).
 
 use super::{model, Action, Worker};
 use botster_core_contract::prelude::*;
 use botster_core_link::msg::WorkerMsg;
 use botster_route_codec::prelude::{
-    stream_wrap, AttachFailedReason, Attached, BaselineBegin, BaselineEnd, CloseReason,
-    HistoryState, HistoryUnavailable, RouteClosed as RouteClosedFrame, RouteLimits, ToClient,
+    bound_of, stream_wrap, AttachFailedReason, Attached, BaselineBegin, BaselineEnd, CloseReason,
+    FrameBounds, HistoryState, HistoryUnavailable, RouteClosed as RouteClosedFrame, RouteLimits,
+    ToClient,
 };
 use std::collections::{BTreeMap, VecDeque};
 
@@ -59,9 +67,28 @@ struct Route {
 
 impl Route {
     fn push(&mut self, frame: &ToClient) {
-        let bytes = stream_wrap(&frame.encode());
+        self.push_encoded(&frame.encode());
+    }
+
+    fn push_encoded(&mut self, frame: &[u8]) {
+        let bytes = stream_wrap(frame);
         self.queued += bytes.len();
         self.queue.push_back(bytes);
+    }
+
+    fn bounds(&self) -> FrameBounds {
+        FrameBounds {
+            max_frame: self.limits.max_frame_bytes,
+            max_screen: self.limits.max_screen_frame_bytes,
+            max_history: self.limits.max_history_page_bytes,
+        }
+    }
+
+    /// True when the encoded frame is within its bound on this route (DP-3, `bound_of`).
+    fn fits(&self, frame: &[u8]) -> bool {
+        frame
+            .first()
+            .is_some_and(|&kind| frame.len() as u64 <= bound_of(kind, &self.bounds()))
     }
 
     /// The PTY bytes that the queue can still take as `output` frames: `free` bytes of queue hold `n` payload bytes in
@@ -74,12 +101,12 @@ impl Route {
         free.saturating_sub(frames * OUTPUT_OVERHEAD)
     }
 
-    /// The payload of one `output` frame: the frame bound less the type byte (TS-3).
+    /// The payload of one `output` frame: the frame bound less the type byte (TS-3). A route that takes output carried its
+    /// attach frames, so its bound holds the type byte and at least one byte.
     fn output_payload(&self) -> usize {
         usize::try_from(self.limits.max_frame_bytes)
             .unwrap_or(usize::MAX)
             .saturating_sub(1)
-            .max(1)
     }
 }
 
@@ -150,20 +177,28 @@ impl Worker {
         match self.baseline(&entry, &options) {
             Ok(frames) => {
                 for frame in &frames {
-                    entry.push(frame);
+                    entry.push_encoded(frame);
                 }
             }
             Err(reason) => {
-                // No partial baseline (OU-9): `route_closed` is the only frame.
+                // No partial baseline (OU-9): `route_closed` is the only frame, when the route's bound carries it.
                 let failed = match reason {
                     RouteCloseReason::BadPeer => AttachFailedReason::BadPeer,
                     _ => AttachFailedReason::SnapshotTooLarge,
                 };
-                entry.push(&ToClient::RouteClosed(RouteClosedFrame {
+                let closed = ToClient::RouteClosed(RouteClosedFrame {
                     reason: CloseReason::AttachFailed { reason: failed },
                     exit: None,
-                }));
+                })
+                .encode();
                 entry.closing = Some(reason);
+                if !entry.fits(&closed) {
+                    // Not even `route_closed` fits: the transport closes with no frame.
+                    self.routes.routes.insert(route, entry);
+                    self.end_route(route, reason);
+                    return;
+                }
+                entry.push_encoded(&closed);
             }
         }
         self.routes.routes.insert(route, entry);
@@ -171,12 +206,13 @@ impl Worker {
         self.send_budget();
     }
 
-    /// The baseline frames at the consumed cut `R`, then the output after `R` that the model holds (OU-9).
+    /// The encoded baseline frames at the consumed cut `R`, then the output after `R` that the model holds (OU-9). Each
+    /// frame is within its bound on the route (DP-3).
     fn baseline(
         &self,
         route: &Route,
         options: &AttachOptions,
-    ) -> Result<Vec<ToClient>, RouteCloseReason> {
+    ) -> Result<Vec<Vec<u8>>, RouteCloseReason> {
         // The host refuses an attach with no common format (OU-1); a worker that gets one cannot serve it.
         let Some(terminal_format) = negotiate(&options.terminal_formats) else {
             return Err(RouteCloseReason::BadPeer);
@@ -186,15 +222,18 @@ impl Worker {
             .model
             .as_ref()
             .ok_or(RouteCloseReason::SnapshotTooLarge)?;
+        // Two limits (DESIGN.md "Frames"): the native snapshot, and the route's screen frame (the snapshot and the type byte).
+        // Both are checked on the library's size, before the snapshot is allocated (DP-3).
+        let limit = self
+            .limits
+            .max_snapshot_bytes
+            .min(route.limits.max_screen_frame_bytes.saturating_sub(1));
         let snapshot = model
             .term
-            .snapshot()
-            .map_err(|_| RouteCloseReason::SnapshotTooLarge)?;
-        let size = snapshot.len() as u64;
-        // Two limits (DESIGN.md "Frames"): the native snapshot, and the route's screen frame (the snapshot and the type byte).
-        if size > self.limits.max_snapshot_bytes || size + 1 > route.limits.max_screen_frame_bytes {
-            return Err(RouteCloseReason::SnapshotTooLarge);
-        }
+            .snapshot_at_most(usize::try_from(limit).unwrap_or(usize::MAX))
+            .ok()
+            .flatten()
+            .ok_or(RouteCloseReason::SnapshotTooLarge)?;
         let features = options
             .route_features
             .iter()
@@ -206,7 +245,7 @@ impl Worker {
             // History pages are a later P4a PR; until then a route that asks for them is told that they are unavailable.
             Some(_) => HistoryState::Unavailable(HistoryUnavailable::Other),
         };
-        let mut frames = vec![
+        let frames = [
             ToClient::Attached(Attached {
                 features,
                 terminal_format,
@@ -223,11 +262,19 @@ impl Worker {
             ToClient::BaselineEnd(BaselineEnd { history }),
             ToClient::Live,
         ];
+        let mut encoded: Vec<Vec<u8>> = frames.iter().map(ToClient::encode).collect();
+        // A host keeps `max_frame_bytes` at least the attach frames (A9-1); a route below it cannot be served.
+        if !encoded.iter().all(|frame| route.fits(frame)) {
+            return Err(RouteCloseReason::BadPeer);
+        }
         let per = route.output_payload();
-        frames.extend(model.unfed().chunks(per).map(|chunk| ToClient::Output {
-            payload: chunk.into(),
+        encoded.extend(model.unfed().chunks(per).map(|chunk| {
+            ToClient::Output {
+                payload: chunk.into(),
+            }
+            .encode()
         }));
-        Ok(frames)
+        Ok(encoded)
     }
 
     /// PTY output goes to every route that is not closing, unchanged and in order, in `output` frames within the route's
@@ -274,9 +321,11 @@ impl Worker {
         };
         route.writing = false;
         let n = match result {
-            // A terminal write error (the driver reports `WouldBlock` as `Ok(0)`): a failed close (OU-2b `write_failed`).
+            // A terminal write error (the driver reports `WouldBlock` as `Ok(0)`): a failed close (OU-2b `write_failed`). A
+            // healthy close that was delivering keeps its first reason (OU-2).
             Err(_) => {
-                self.end_route(id, RouteCloseReason::WriteFailed);
+                let reason = route.closing.unwrap_or(RouteCloseReason::WriteFailed);
+                self.end_route(id, reason);
                 return;
             }
             // Nothing taken: the next `RouteWritable` retries.
@@ -417,11 +466,7 @@ mod tests {
     #[test]
     fn an_output_frame_carries_the_frame_bound_less_the_type_byte() {
         assert_eq!(route(1024, 0).output_payload(), 1023);
-        assert_eq!(
-            route(1, 0).output_payload(),
-            1,
-            "a frame always carries a byte"
-        );
+        assert_eq!(route(2, 0).output_payload(), 1);
     }
 
     /// OU-1: the client's first format that the worker emits; with no list, the worker's own first.

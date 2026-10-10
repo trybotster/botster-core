@@ -239,6 +239,19 @@ The resync sequence (at `Stalled → Open`, OU-9):
     exactly `max_snapshot_bytes + 1` (`dp_3_screen_is_one_frame_within_max_screen_frame_bytes`: 65537 for 65536). The
     check is `snapshot_payload + 1 <= applied max_screen_frame_bytes`, computed before the frame is built
     (`dp_3_frame_limit_checked_before_allocation`).
+- Every frame is checked against its codec bound (`bound_of`: `max_screen_frame_bytes` for `screen`,
+  `max_history_page_bytes` for `history`, `max_frame_bytes` for every other frame) before it is queued. The snapshot is
+  checked on the library's size query, before its buffer is reserved (`snapshot_at_most`). A route whose `max_frame_bytes`
+  cannot carry an attach frame is closed `BadPeer`: `route_closed{attach_failed{bad_peer}}` is the only frame when it fits,
+  else the transport closes with no frame (the lead's ruling on #206). The host's sync A9-1 refusal comes in the A9-1 PR.
+  A9-1's floor is the `attached` frame, but `baseline_begin` and `modes` are larger (747 bytes each against 344 for
+  `attached`, at default limits), so the steward drafts Core Amendment 19; until then `conf::a9_1_frame_cap_equal_to_the_attached_frame_attaches`
+  stays pending.
+- The queue bound (9B, OU-9, OU-3d). Each queued frame is charged its stream-delimited size. The baseline goes whole into
+  the route's empty queue at the bind: OU-9 relies on `route_queue_bytes >= max_snapshot_bytes`, so a snapshot within the
+  limit is offered even when the other baseline frames and the held suffix take the queue over `route_queue_bytes`. The
+  queue then holds at most `route_queue_bytes` plus those frames, their prefixes and the held suffix. While the queue is
+  over `route_queue_bytes`, the PTY read budget is 0, so no output is added until it drains.
 - PTY output goes to each `Open` route unchanged and in order (OU-12). The worker splits it into `output` frames whose size
   is within the route's `max_frame_bytes`, as the codec measures a frame (`bound_of`).
 - Client frames (`ToWorker`) go to the one admission point that host input already uses (AM-2, DP-4, DP-9). Input is

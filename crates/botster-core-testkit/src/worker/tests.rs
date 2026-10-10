@@ -872,6 +872,23 @@ fn a_write_that_the_stream_refuses_is_ok_zero_then_writable() {
     );
     assert_eq!(edges.ready(now, &worker), 0);
     assert!(!interest(&mut edges), "nothing waits");
+    // `Interrupted` writes the same bytes again: the write completes, and the route stays open.
+    control.fail_next_write(io::ErrorKind::Interrupted);
+    edges.perform(
+        now,
+        Action::RouteWrite {
+            route: RouteId(1),
+            bytes: b"i".to_vec(),
+        },
+    );
+    assert_eq!(edges.ready(now, &worker), 1);
+    assert_eq!(
+        edges.take(now, &worker, 0),
+        Input::RouteWritten {
+            route: RouteId(1),
+            result: Ok(1)
+        }
+    );
     // Any other write error is the driver's terminal error, not a wait (OU-2b).
     control.fail_next_write(io::ErrorKind::BrokenPipe);
     edges.perform(
