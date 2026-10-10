@@ -200,19 +200,6 @@ pub const ROWS: &[Row] = &[
         source: "Core A2-1 row Detach",
     },
     Row {
-        call: "AttachWebRtc",
-        shape: Shape::Core,
-        codes: &[
-            "UnknownSession",
-            "RouteLimit",
-            "InvalidInput",
-            "Unsupported",
-            "WrongState",
-            "PendingLimit",
-        ],
-        source: "Core A2-1 row AttachWebRtc (as attach, plus InvalidInput)",
-    },
-    Row {
         call: "AdoptAll",
         shape: Shape::Core,
         codes: &["WrongState", "PendingLimit"],
@@ -851,7 +838,6 @@ mod tests {
         row_resize: "Resize", true;
         row_write_input: "WriteInput", true;
         row_detach: "Detach", true;
-        row_attach_web_rtc: "AttachWebRtc", true;
         row_adopt_all: "AdoptAll", true;
         row_adopt: "Adopt", true;
         row_spawn_service: "SpawnService", true;
@@ -1400,21 +1386,6 @@ mod tests {
         assert_eq!(third.error.detail, "behind");
         assert_eq!(*reached.lock().unwrap(), ["attach", "attach"]);
         assert!(handle.is_empty());
-        // The transport that is not a stream comes back too.
-        handle
-            .arm("attach", 1, &json!({"InvalidInput": {}}))
-            .unwrap();
-        let web = RouteTransport::WebRtc {
-            offer: "o".into(),
-            expected_fingerprint: "f".into(),
-        };
-        match attach(&mut layer, web).transport {
-            RouteTransport::WebRtc {
-                offer,
-                expected_fingerprint,
-            } => assert_eq!((offer.as_str(), expected_fingerprint.as_str()), ("o", "f")),
-            other => panic!("{other:?}"),
-        }
     }
 
     /// Entries that name the same call conflict, armed together or at different times. No entry moves to another call.

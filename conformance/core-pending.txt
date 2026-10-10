@@ -3,10 +3,11 @@
 # conf::st_6b_resume_invariant_holds_at_every_byte_offset_of_a_corpus_with_partial_escape_sequences: fit evidence awaits P3 M2b worker paging (R-30).
 # conf::a14_*: A14: P3 worker (M2b) + fork binding (option 39).
 # conf::a16_1_*: A16: P7 services.
-# conf::a18_*: A18 (contracts-v0.1.21): P5 adoption (last_output_at None until output; TM-4 idle period from the adoption); waits for a contracts transcript (pending in contracts-v0.1.21).
-# conf::a15_1_host_key_text_over_the_bound_is_invalid_input_sync: A15: P1 lifecycle (host check; owners.py), worked by P5; engine proof a_key_text_over_the_bound_is_invalid_input_at_begin; waits for a contracts transcript (pending in contracts-v0.1.21).
+# conf::a17_*: A17 (contracts-v0.1.22): Core has one route transport, `Stream`; waits for a contracts transcript (pending in contracts-v0.1.22).
+# conf::a18_*: A18 (contracts-v0.1.21): P5 adoption (last_output_at None until output; TM-4 idle period from the adoption); waits for a contracts transcript (pending in contracts-v0.1.22).
+# conf::a15_1_host_key_text_over_the_bound_is_invalid_input_sync: A15: P1 lifecycle (host check; owners.py), worked by P5; engine proof a_key_text_over_the_bound_is_invalid_input_at_begin; waits for a contracts transcript (pending in contracts-v0.1.22).
 # conf::a15_1_key_text_at_the_bound_is_admitted: A15: P3 (worker).
-# conf::a15_1_key_text_bound_out_of_range_is_invalid_config: A15: P1 lifecycle (limits; owners.py), worked by P5; host proof open_refuses_a_key_text_bound_out_of_its_range; waits for a contracts transcript (pending in contracts-v0.1.21).
+# conf::a15_1_key_text_bound_out_of_range_is_invalid_config: A15: P1 lifecycle (limits; owners.py), worked by P5; host proof open_refuses_a_key_text_bound_out_of_its_range; waits for a contracts transcript (pending in contracts-v0.1.22).
 # conf::a15_1_route_key_text_over_the_bound_is_too_large: A15: P4a (route).
 conf::a11_1_frames_after_a_failed_handshake_change_nothing
 conf::a12_1_held_report_released_proceeds_normally
@@ -43,6 +44,9 @@ conf::a16_1_guardian_lost_stop_posts_completed_but_no_service_state
 conf::a16_1_lost_result_carries_payload_may_remain
 conf::a16_1_stop_epoch_exhausted_service_runs_sv_9_and_completes_exited
 conf::a16_1_stop_guardian_lost_service_completes_lost_and_sends_no_signal
+conf::a17_1_attach_webrtc_is_not_an_operation
+conf::a17_1_features_list_only_the_stream_transport
+conf::a17_2_host_socketpair_route_is_an_ordinary_stream_route
 conf::a18_1_adopted_last_output_at_is_none_until_output
 conf::a18_1_adopted_last_output_at_is_set_by_the_first_output
 conf::a18_2_adopted_idle_session_is_silent_a_threshold_after_adoption
@@ -161,8 +165,6 @@ conf::a6_3_unauthenticated_result_is_not_trusted
 conf::a6_3_unreachable_worker_reports_outcome_unknown
 conf::a6_3_uploads_deleted_at_remove_report_deleted
 conf::a6_3_worker_lost_during_cleanup_reports_outcome_unknown
-conf::a7_1_chunk_cap_above_sctp_max_is_not_refused_and_chunks_stay_within_it
-conf::a7_1_connect_deadline_out_of_range_is_invalid_input
 conf::a7_1_frame_cap_above_route_frame_max_is_invalid_input
 conf::a7_1_overlong_route_tag_or_owner_is_invalid_input
 conf::a7_1_query_deadline_above_max_is_invalid_input
@@ -204,7 +206,6 @@ conf::am_4_refusal_is_stateless
 conf::dp_10_t1_keystroke_to_pty_latency_budget
 conf::dp_10_t1_pty_to_client_latency_budget
 conf::dp_10_t1_throughput_and_byte_identity
-conf::dp_10_t2_latency_and_throughput_budgets
 conf::dp_11_hop_counts_match_the_stated_topologies
 conf::dp_12_a_route_whose_latest_focus_is_false_causes_nothing
 conf::dp_12_focus_changed_is_reported_once_at_adoption_with_the_current_value
@@ -219,18 +220,11 @@ conf::dp_12_terminal_state_focused_matches_the_event
 conf::dp_12_unreachable_or_n_minus_1_worker_leaves_focused_unknown
 conf::dp_1_host_process_never_sees_route_bytes
 conf::dp_2_failed_handoff_closes_route_handoff_failed
-conf::dp_2_host_never_reads_the_datachannel
-conf::dp_2_offer_must_carry_all_candidates
 conf::dp_2_stream_handoff_transfers_ownership_and_closes_host_copy
-conf::dp_2_webrtc_answer_has_all_candidates
-conf::dp_2_webrtc_fingerprint_mismatch_closes_bad_peer
-conf::dp_2_webrtc_only_the_terminal_channel_is_accepted
 conf::dp_3_data_frames_are_raw
-conf::dp_3_datachannel_chunking_matches_tr3
 conf::dp_3_exactly_maximal_snapshot_fits_with_the_type_byte
 conf::dp_3_frame_limit_checked_before_allocation
 conf::dp_3_history_is_paged_within_max_history_page_bytes
-conf::dp_3_incomplete_datachannel_frame_is_discarded
 conf::dp_3_output_deflate_frames_share_no_state
 conf::dp_3_output_deflate_inflated_payload_is_at_most_the_frame_bound_minus_the_type_byte
 conf::dp_3_output_deflate_inflates_to_the_exact_pty_bytes_in_order
@@ -434,13 +428,11 @@ conf::ou_1_attach_options_carry_no_paste_policy
 conf::ou_1_attached_features_are_the_intersection
 conf::ou_1_no_common_terminal_format_is_unsupported_before_reservation
 conf::ou_1_terminal_format_is_negotiated_against_the_target_worker
-conf::ou_1_unavailable_binding_auth_is_unsupported_and_never_attached_unauthenticated
 conf::ou_1_view_only_route_ignores_input
 conf::ou_2_close_once_first_reason_wins
 conf::ou_2_route_state_machine
 conf::ou_2_stall_and_close_are_reported_to_the_host
 conf::ou_2_stall_close_after
-conf::ou_2b_connect_deadline_closes_not_connected
 conf::ou_2b_every_core_close_reason_maps_to_one_wire_reason
 conf::ou_2b_failed_reasons_are_reported_to_the_host_and_route_ended
 conf::ou_2b_handoff_failure_is_reported_as_handoff_failed
@@ -449,9 +441,6 @@ conf::ou_3_other_readers_continue
 conf::ou_3_progress_is_bytes_accepted_by_the_kernel
 conf::ou_3_progressing_reader_lossless
 conf::ou_3_stalled_reader_resyncs
-conf::ou_3_webrtc_progress_is_acknowledged_payload_not_retransmission
-conf::ou_3_webrtc_send_queue_is_bounded_and_backpressures
-conf::ou_3_webrtc_stuck_peer_with_retransmissions_is_a_stall
 conf::ou_4_partial_frame_is_completed_before_resync_or_close
 conf::ou_5_peer_fault_closes_only_that_route
 conf::ou_6_slow_route_does_not_delay_others
