@@ -1,8 +1,0 @@
-{
-  "id": "conf::er_deadline_expired",
-  "contract": "core",
-  "clause": "ER-0",
-  "subject": "core",
-  "steps": [],
-  "kind": "withdrawn"
-}
