@@ -1854,7 +1854,7 @@ mod tests {
             missed: names(&[f, g]),
             tested: names(&[f, field, g, h]),
         };
-        let selection = stage2_selection(&first()).unwrap();
+        let selection = stage2_selection(&first(), &[]).unwrap();
         assert_eq!(
             selection,
             Stage2Selection {
@@ -1970,7 +1970,7 @@ mod tests {
             missed: vec![x.clone()],
             tested: vec![x.clone(), x.clone()],
         };
-        let error = stage2_selection(&shared).unwrap_err().to_string();
+        let error = stage2_selection(&shared, &[]).unwrap_err().to_string();
         assert_eq!(
             error,
             format!(
@@ -1998,7 +1998,7 @@ mod tests {
             tested: vec![x.clone(), x.clone()],
         };
         assert_eq!(
-            stage2_selection(&both).unwrap(),
+            stage2_selection(&both, &[]).unwrap(),
             Stage2Selection {
                 missed: vec![x.clone(), x],
                 skip: vec![],
@@ -2334,7 +2334,7 @@ mod tests {
                 })
             })
             .unwrap(),
-            Some(0),
+            Some(vec![]),
             "a Rust diff runs the listing"
         );
         assert!(landing_diff(root, "no-such-commit").is_err());
