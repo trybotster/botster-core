@@ -148,14 +148,6 @@ pub(crate) fn limits_of(spec: &OpenSpec) -> Result<CoreLimits, CoreError> {
     })
 }
 
-/// The refusal of `attach_stream` while a harness has no route data plane (P4a). The real tier gives it until its route form exists.
-pub(crate) fn no_route(what: &str) -> CoreError {
-    CoreError::new(
-        ErrorCode::Unsupported { what: None },
-        format!("unsupported_control: {what} needs the route data plane (P4a)"),
-    )
-}
-
 impl CoreHarness for TestkitHarness {
     /// Builds the real `Core` over an in-memory data directory (LC-1, LC-2, 9B).
     fn open(&mut self, spec: &OpenSpec) -> Result<Box<dyn CoreApi>, CoreError> {
