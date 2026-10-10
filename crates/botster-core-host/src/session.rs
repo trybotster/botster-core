@@ -279,6 +279,10 @@ pub struct Session {
     /// The routes that were bound when the session ended. Only these close in `StopPhase::Finish`; a route that attaches
     /// after the exit stays bound until `Remove` closes it `SessionRemoved` (LC-7 step 1, A2-3).
     pub bound_at_end: BTreeSet<RouteId>,
+    /// The routes whose held stream closed with the worker's link while the start ran and had not failed (`HandoffLost`).
+    /// Each must close: a start that fails closes it with its end; a start that runs closes it `HandoffFailed` when it
+    /// finishes (`finish_start`).
+    pub lost_handoffs: BTreeSet<RouteId>,
     pub flow: crate::flow::Flow,
     /// Flows that were admitted while another one runs: `Start` or `Remove` after a `Create` that a `pump` has not finished
     /// (AM-1). The next one begins when the running one ends.

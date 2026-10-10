@@ -120,6 +120,8 @@ pub(crate) struct World {
     pub signals: Vec<(ProcessIdentity, botster_core_edges::edges::GroupSignal)>,
     pub closed: Vec<LinkId>,
     pub trace: Vec<String>,
+    /// The routes whose stream Core closed itself (`Action::CloseRoute`), with the bytes written to the stream first.
+    pub route_streams_closed: Vec<(RouteId, Option<Vec<u8>>)>,
     spawned: BTreeMap<InstanceId, (ProcessIdentity, [u8; TOKEN_LEN], LinkId)>,
     /// The processes that the operating system runs: a worker is in it from its spawn until it ends. It outlives a host
     /// (LC-12), so a handle opened `over` another one sees its workers.
@@ -201,6 +203,7 @@ impl World {
             signals: Vec::new(),
             closed: Vec::new(),
             trace: Vec::new(),
+            route_streams_closed: Vec::new(),
             spawned: BTreeMap::new(),
             alive,
             identities: BTreeMap::new(),
@@ -404,6 +407,9 @@ impl World {
                 self.signals.push((identity, signal));
             }
             Action::HandoffRoute { .. } => self.trace.push("handoff".into()),
+            Action::CloseRoute { route, frame, .. } => {
+                self.route_streams_closed.push((route, frame))
+            }
         }
     }
 

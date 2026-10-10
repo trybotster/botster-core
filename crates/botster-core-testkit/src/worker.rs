@@ -1517,6 +1517,7 @@ pub struct TestkitCore {
     wake: Arc<dyn HostWake>,
     captures: CaptureLog,
     route_ends: crate::route_client::RouteEnds,
+    route_instances: crate::route_client::RouteInstances,
 }
 
 impl TestkitCore {
@@ -1532,7 +1533,13 @@ impl TestkitCore {
             wake,
             captures: CaptureLog::default(),
             route_ends: Default::default(),
+            route_instances: Default::default(),
         }
+    }
+
+    /// The session instance of each route that this Core attached (`route_fill`).
+    pub(crate) fn route_instances(&self) -> crate::route_client::RouteInstances {
+        self.route_instances.clone()
     }
 
     /// The route-ended causes of the routes that Core closed (A2-3), for the client ends of this handle's routes.
@@ -1662,7 +1669,12 @@ impl CoreApi for TestkitCore {
         transport: RouteTransport,
         options: AttachOptions,
     ) -> Result<AttachResult, AttachRefused> {
-        self.driver.attach(client, session, transport, options)
+        let instance = self.driver.engine().instance(&session);
+        let result = self.driver.attach(client, session, transport, options)?;
+        if let Some(instance) = instance {
+            self.route_instances.attached(result.route, instance);
+        }
+        Ok(result)
     }
 
     fn tap_read(&mut self, session: &SessionId, max: usize) -> Result<TapChunk, CoreError> {
