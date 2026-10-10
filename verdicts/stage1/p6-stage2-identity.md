@@ -96,3 +96,54 @@ Its Round 1 is NOT CLEAN on this exact head. Both reviewers agree on the two MED
 I changed no product code and ran no build, test, gate, mutation job, merge-check job, or reversal job.
 
 VERDICT: NOT CLEAN (2 open: R1-1 MEDIUM and R1-2 MEDIUM).
+
+## Round 2 — 2026-10-10
+
+Reviewed head: `893899110d37c56d77f0520cde80317e990a1ffc`.
+Prior reviewed head: `9d1afc359b87c7bd17494554116b5aa20244c03a`.
+PR and full gate base: `3677b37e502497d5e63a91dfad92e5671bd19196`.
+Scope: the complete replacement delta, one file, `xtask/src/ci.rs`, and supplied exact-head evidence.
+Tier remains HIGH. Plan 23ab changes no mutation requirement for this PR.
+
+R1-1 is CLOSED.
+The decision counts each full name in both lists with a `BTreeMap`.
+It reports excess and absent occurrences, including duplicates.
+The full decision proof supplies `[A, A, B]` as misses and `[A, B, B]` as tested names.
+It supplies equal totals, three caught outcomes, and exit zero. The decision still returns a selection error.
+The input/output proof accepts reordered equal counts, `[A, A, B]` and `[B, A, A]`.
+The pure decision remains subject to mutation testing.
+
+R1-2 is CLOSED.
+The selection-error path reports the completed stage 2 tested count and elapsed time before returning the error.
+It returns before any mutant verdict or combined result.
+The P5-case proof requires all three report lines, including the known 2.5-second stage 2 duration.
+The full duplicate-count proof also requires that timed line.
+I found no additional source defect in this delta.
+
+The fixture, parser, skip file, command arguments, exclusion reason, and process ownership equal the prior reviewed head.
+The exact-head gate is:
+`~/botster-sessions/gates/botster-core-stage1-p6-stage2-identity-89389911-pool-20261010-144307-19526.log`.
+Its header names the full head and base. All ten jobs pass under plain `cargo xtask ci`.
+Default: 1498 passing tests. Slow: 384 passing tests.
+Both conformance reports show 193 passed and zero failed.
+Strict coverage remains 386/407, with 21 real-only transcripts and two held transcripts.
+Minimum counts remain testkit 50/69, real 29/68, and real-accepted 29/69.
+Pending-real remains 87, with zero newly passing ids.
+Stage 1 has 21 mutants: 19 caught, two unviable, zero missed, and zero timeout, in 92.9 seconds.
+The main mutation job does not run stage 2.
+The real fixture proof runs its three branches and passes in 11.270 seconds.
+It retains the required caught field deletion, slow-only catch, and miss in both stages.
+The gate exits zero after 524 seconds.
+
+I read package verdict `3f53e6065b3e6ddc9bdd7193f7bd9e9b8876bdf9`, `verdicts/p6-stage2-identity.md`, Round 2.
+It is CLEAN at this exact head. Both reviewers close the same two findings.
+The current PR head and base match the reviewed head and gate base. The Git merge base is that base.
+`git diff --check` passes.
+
+This head closes #225 R2-1 through the previously reviewed selection mechanism and these completed corrections.
+The historical #225 CLEAN withdrawal remains recorded.
+The separate stage 1 field-exclusion limit remains outside this PR and has its own stated follow-up scope.
+A future base merge requires its source comparison and exact-head gate before acceptance.
+I changed no product code and ran no build, test, gate, mutation job, merge-check job, or reversal job.
+
+VERDICT: CLEAN (0 open) at 893899110d37c56d77f0520cde80317e990a1ffc

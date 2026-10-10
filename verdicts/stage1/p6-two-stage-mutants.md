@@ -308,3 +308,10 @@ The package reviewer also withdraws its CLEAN at `3890e230` for MS-R3-1 MEDIUM.
 Both reviews agree on the field-selection defect, the retained evidence, and closure of the original three findings.
 The evidence shows an incorrect selection and a correctly failing total check, not a false passing gate.
 PR #229 retains the replacement review and its two open findings.
+
+### Replacement acceptance — 2026-10-10
+
+R2-1 is CLOSED by the reviewed #229 head `893899110d37c56d77f0520cde80317e990a1ffc`.
+Its complete review and evidence are in `verdicts/stage1/p6-stage2-identity.md`, Round 2.
+The historical CLEAN withdrawal at `3890e230` remains in force for that old head.
+This closure accepts the replacement correction. It does not restore the old verdict or claim that the correction has merged.
