@@ -422,6 +422,28 @@ mod slow_tests {
         assert!(!plain.has_control("break_control"));
     }
 
+    /// A control that a harness does not serve is `unsupported_control`, never a pass and never a bad argument: on the
+    /// plain harness every control, on the tapped harness every control that it does not build.
+    #[test]
+    fn a_control_that_the_harness_does_not_serve_is_unsupported() {
+        let mut plain = RealCoreHarness::plain(nonexistent()).unwrap();
+        for op in ["edges_quiet", "break_control"] {
+            let result = plain.control("h", op, &json!({}));
+            assert!(
+                matches!(result, Err(ControlError::Unsupported)),
+                "{op}: {result:?}"
+            );
+        }
+        let mut tapped = RealCoreHarness::new(nonexistent()).unwrap();
+        let result = tapped.control("h", "pty_output", &json!({}));
+        assert!(
+            matches!(result, Err(ControlError::Unsupported)),
+            "{result:?}"
+        );
+        let result = tapped.control("h", "edges_quiet", &json!({}));
+        assert!(matches!(result, Err(ControlError::Bad(_))), "{result:?}");
+    }
+
     /// Core TH-1: the harness answers for the facade's `Core` only what the runner told it at compile time.
     #[test]
     fn the_core_type_answer_is_the_runners_and_none_without_one() {
