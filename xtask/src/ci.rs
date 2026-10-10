@@ -134,6 +134,10 @@ fn passed_count(report: &str) -> Option<u64> {
         .ok()
 }
 
+/// The selection variables of the conformance runner (`botster_conformance::Selection::from_env`). The lists step checks
+/// every id, so its runs clear them; `lists_verdict` also fails a strict run that a selection narrowed.
+const SELECTION_VARS: [&str; 3] = ["BOTSTER_ONLY", "BOTSTER_CLAUSE", "BOTSTER_SEED"];
+
 /// Runs the conformance binary and returns its report text.
 fn conformance_report(root: &Path, extra: &[&str], env: &[(&str, &str)]) -> Result<String> {
     let mut cmd = cargo(root);
@@ -151,16 +155,24 @@ fn conformance_report(root: &Path, extra: &[&str], env: &[(&str, &str)]) -> Resu
     .args(extra)
     .envs(test_budget::tier_env(false))
     .envs(env.iter().copied());
+    for var in SELECTION_VARS {
+        cmd.env_remove(var);
+    }
     let out = cmd.output().context("run the conformance binary")?;
-    let text = String::from_utf8_lossy(&out.stdout).into_owned();
-    print!("{text}");
-    if !out.status.success() {
+    print!("{}", String::from_utf8_lossy(&out.stdout));
+    run_report(out.status.success(), &out.stdout, &out.stderr)
+}
+
+/// The report of one conformance run: its output when the process succeeded. A failed run (a trial failed, or the build
+/// did) fails the step.
+fn run_report(success: bool, stdout: &[u8], stderr: &[u8]) -> Result<String> {
+    if !success {
         bail!(
             "the conformance binary failed: {}",
-            String::from_utf8_lossy(&out.stderr)
+            String::from_utf8_lossy(stderr)
         );
     }
-    Ok(text)
+    Ok(String::from_utf8_lossy(stdout).into_owned())
 }
 
 /// The lists check, then the report of the conformance harness (its four counts). A run that asks for the ignored trials too
@@ -169,26 +181,41 @@ fn conformance_report(root: &Path, extra: &[&str], env: &[(&str, &str)]) -> Resu
 fn lists_job(root: &Path) -> Result<()> {
     lists::command(root, &[])?;
     lists::ledger_ids_command(root, &[])?;
-    let normal = conformance_report(root, &[], &[(pending::STRICT_ENV, "1")])?;
-    strict_ran(&normal)?;
+    let strict = conformance_report(root, &[], &[(pending::STRICT_ENV, "1")])?;
     let with_ignored = conformance_report(root, &["--include-ignored"], &[])?;
-    let (a, b) = (passed_count(&normal), passed_count(&with_ignored));
+    lists_verdict(&strict, &with_ignored)
+}
+
+/// The verdict of the lists step on its two conformance runs: the strict run checked every pending id (`strict_ran`), and
+/// the run with the ignored trials passes exactly as many ids (plan section 5: a pending or deferred id is never a pass).
+fn lists_verdict(strict: &str, with_ignored: &str) -> Result<()> {
+    strict_ran(strict)?;
+    let (a, b) = (passed_count(strict), passed_count(with_ignored));
     if a.is_none() || a != b {
         bail!("the conformance report counts {a:?} passed, and {b:?} passed when ignored trials are included");
     }
     Ok(())
 }
 
-/// The strict run reported itself. A harness that ignores the variable gives no strict line, and fails here.
+/// The strict run reported itself, and it checked every pending id: the ids that ran and the real-only ones that it does not
+/// run make all of them. A harness that ignores the variable gives no strict line; a selection gives fewer ids.
 fn strict_ran(report: &str) -> Result<()> {
-    if report
+    let line = report
         .lines()
-        .any(|l| l.starts_with("conformance strict: "))
-    {
-        Ok(())
-    } else {
-        bail!("the strict pending run gave no `conformance strict:` report")
+        .find_map(|l| l.strip_prefix("conformance strict: ran "))
+        .context("the strict pending run gave no `conformance strict:` report")?;
+    let numbers: Vec<u64> = line
+        .split(|c: char| !c.is_ascii_digit())
+        .filter(|w| !w.is_empty())
+        .map(|w| w.parse().expect("digits"))
+        .collect();
+    let [ran, pending, real_only, _held] = numbers[..] else {
+        bail!("the strict report line is not `ran R of P pending ids, Q real-only not run, H held`: {line}");
+    };
+    if ran + real_only != pending {
+        bail!("the strict pending run checked {ran} and skipped {real_only} real-only of {pending} pending ids: a selection narrowed it");
     }
+    Ok(())
 }
 
 fn public_api_job(root: &Path) -> Result<()> {
@@ -789,13 +816,66 @@ mod tests {
         assert_eq!(passed_count("no report"), None);
     }
 
-    /// The strict pending run must report itself: the normal report alone means the harness ignored the variable.
+    /// The strict pending run must report itself, and it must have checked every pending id: the normal report alone means
+    /// the harness ignored the variable, and fewer ids mean that a selection narrowed the run.
     #[test]
     fn the_strict_run_needs_its_report_line() {
-        let strict = "conformance: passed 12, failed 0, pending 3\nconformance strict: every pending id ran, except 1 real-only; 1 held\n";
-        assert!(strict_ran(strict).is_ok());
+        let line = |ran, pending, real| {
+            format!("conformance: passed 12, failed 0\nconformance strict: ran {ran} of {pending} pending ids, {real} real-only not run, 1 held\n")
+        };
+        assert!(strict_ran(&line(3, 4, 1)).is_ok());
+        assert!(strict_ran(&line(0, 0, 0)).is_ok());
+        let narrowed = strict_ran(&line(1, 4, 1)).unwrap_err().to_string();
+        assert!(narrowed.contains("a selection narrowed it"), "{narrowed}");
+        assert!(strict_ran(&line(4, 4, 1)).is_err(), "more than pending");
         assert!(strict_ran("conformance: passed 12, failed 0, pending 3\n").is_err());
-        assert!(strict_ran(" conformance strict: every pending id ran\n").is_err());
+        assert!(strict_ran(
+            " conformance strict: ran 3 of 4 pending ids, 1 real-only not run, 1 held\n"
+        )
+        .is_err());
+        assert!(strict_ran("conformance strict: ran 3 of 4 pending ids\n").is_err());
+    }
+
+    /// The lists step passes only when the strict run checked every pending id and the run with the ignored trials passes
+    /// exactly as many ids.
+    #[test]
+    fn the_lists_verdict_needs_the_strict_line_and_equal_pass_counts() {
+        let strict = "conformance: passed 12, failed 0\nconformance strict: ran 3 of 4 pending ids, 1 real-only not run, 1 held\n";
+        let ignored = |n| format!("conformance: passed {n}, failed 0\n");
+        assert!(lists_verdict(strict, &ignored(12)).is_ok());
+        assert!(
+            lists_verdict(strict, &ignored(13)).is_err(),
+            "an ignored trial passed"
+        );
+        assert!(lists_verdict(strict, "no report\n").is_err());
+        assert!(
+            lists_verdict("conformance: passed 12, failed 0\n", &ignored(12)).is_err(),
+            "not strict"
+        );
+        let no_count = "conformance strict: ran 3 of 4 pending ids, 1 real-only not run, 1 held\n";
+        assert!(
+            lists_verdict(no_count, &ignored(12)).is_err(),
+            "no passed count"
+        );
+    }
+
+    /// A failed conformance process fails the step with its error output; a successful one gives its report.
+    #[test]
+    fn a_failed_conformance_run_fails_the_step() {
+        assert_eq!(run_report(true, b"report", b"").unwrap(), "report");
+        let error = run_report(false, b"report", b"trial failed")
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("trial failed"), "{error}");
+    }
+
+    /// The lists step clears exactly the runner's selection variables.
+    #[test]
+    fn the_lists_runs_clear_the_runners_selection_variables() {
+        assert_eq!(
+            SELECTION_VARS,
+            ["BOTSTER_ONLY", "BOTSTER_CLAUSE", "BOTSTER_SEED"]
+        );
     }
 
     #[test]

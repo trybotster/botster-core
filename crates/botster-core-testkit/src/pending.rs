@@ -121,30 +121,40 @@ pub fn parse_held(text: &str) -> Result<Vec<Held>, String> {
                     ))
                 }
             };
-            let owner = owner
-                .strip_prefix("owner: ")
-                .ok_or_else(|| format!("line {line}: `owner: <package>` is missing"))?;
-            let authority = clause(authority)
-                .ok_or_else(|| format!("line {line}: the authority in parentheses is missing"))?;
-            let because = because
-                .strip_prefix("because: ")
-                .ok_or_else(|| format!("line {line}: `because:` is missing"))?;
+            let nonempty = |text: Option<&'_ str>, what: &str| -> Result<String, String> {
+                match text.map(str::trim) {
+                    Some(text) if !text.is_empty() => Ok(text.to_string()),
+                    _ => Err(format!("line {line}: {what} is missing or empty")),
+                }
+            };
+            let owner = nonempty(owner.strip_prefix("owner: "), "`owner: <package>`")?;
+            let authority = nonempty(clause(authority), "the authority in parentheses")?;
+            let because = nonempty(because.strip_prefix("because: "), "`because:`")?;
             Ok(Held {
                 id: id.to_string(),
                 reason,
-                owner: owner.trim().to_string(),
-                authority: authority.to_string(),
-                because: because.trim().to_string(),
+                owner,
+                authority,
+                because,
             })
         })
         .collect()
 }
 
-/// The problems of the held file against the pending file and the real-only ids. Empty means the file is valid.
+/// The ids of the Core transcripts at the pinned tag.
+pub fn transcript_ids() -> Result<BTreeSet<String>, String> {
+    botster_conformance::load_dir(&botster_core_conformance::CORE_TRANSCRIPTS)
+        .map(|transcripts| transcripts.into_iter().map(|t| t.id).collect())
+        .map_err(|e| format!("the Core transcripts: {e:?}"))
+}
+
+/// The problems of the held file against the pending file, the real-only ids and the transcript ids. Empty means the file
+/// is valid. A held id must pass, so it needs a transcript.
 pub fn held_problems(
     held: &[Held],
     pending: &BTreeSet<String>,
     real_only: &[RealOnly],
+    transcripts: &BTreeSet<String>,
 ) -> Vec<String> {
     let mut problems = Vec::new();
     let mut seen = BTreeSet::new();
@@ -155,6 +165,12 @@ pub fn held_problems(
         if !pending.contains(&entry.id) {
             problems.push(format!(
                 "core-held.txt: {} is not pending; a held id is a pending id",
+                entry.id
+            ));
+        }
+        if !transcripts.contains(&entry.id) {
+            problems.push(format!(
+                "core-held.txt: {} has no transcript; a held id must pass, so it needs one",
                 entry.id
             ));
         }
@@ -285,25 +301,29 @@ mod tests {
         assert!(bad("conf::a  budget  owner: p  (x)  y\n").contains("because"));
         assert!(bad("a  budget  owner: p  (x)  because: y\n").contains("not an id"));
         assert!(bad("conf::a  budget  owner: p  (x)\n").contains("five fields"));
+        assert!(bad("conf::a  budget  owner: p  ()  because: y\n").contains("authority"));
+        assert!(bad("conf::a  budget  owner: p  ( )  because: y\n").contains("authority"));
+        assert!(bad("conf::a  budget  owner:   (x)  because: y\n").contains("owner"));
+        assert!(bad("conf::a  budget  owner: p  (x)  because: \n").contains("because"));
     }
 
-    /// A held id is pending, once, and not real-only.
+    /// A held id is pending, once, has a transcript, and is not real-only.
     #[test]
-    fn a_held_id_is_a_pending_id_once_and_not_real_only() {
+    fn a_held_id_is_a_pending_id_once_with_a_transcript_and_not_real_only() {
         let held = parse_held(HELD).unwrap();
-        assert!(held_problems(&held, &ids(&["conf::slow_query"]), &[]).is_empty());
-        let problems = held_problems(&held, &ids(&[]), &[]);
+        let has = ids(&["conf::slow_query"]);
+        assert!(held_problems(&held, &has, &[], &has).is_empty());
+        let problems = held_problems(&held, &ids(&[]), &[], &has);
         assert_eq!(problems.len(), 1);
         assert!(problems[0].contains("not pending"), "{problems:?}");
-        let problems = held_problems(
-            &held,
-            &ids(&["conf::slow_query"]),
-            &[real("conf::slow_query")],
-        );
+        let problems = held_problems(&held, &has, &[], &ids(&[]));
+        assert_eq!(problems.len(), 1);
+        assert!(problems[0].contains("no transcript"), "{problems:?}");
+        let problems = held_problems(&held, &has, &[real("conf::slow_query")], &has);
         assert_eq!(problems.len(), 1);
         assert!(problems[0].contains("real-only"), "{problems:?}");
         let twice = [held.clone(), held].concat();
-        let problems = held_problems(&twice, &ids(&["conf::slow_query"]), &[]);
+        let problems = held_problems(&twice, &has, &[], &has);
         assert_eq!(problems.len(), 1);
         assert!(problems[0].contains("twice"), "{problems:?}");
     }
@@ -373,6 +393,6 @@ mod tests {
         assert!(real_only
             .iter()
             .any(|r| r.id == "conf::lc_2_data_dir_is_exclusive"));
-        assert!(held_problems(&held, &pending, &real_only).is_empty());
+        assert!(held_problems(&held, &pending, &real_only, &transcript_ids().unwrap()).is_empty());
     }
 }
