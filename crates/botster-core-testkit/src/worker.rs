@@ -1442,10 +1442,11 @@ impl Binding<SharedWorker> for WorkerEdges {
                 }
             }
             Action::BindRoute { descriptor, route } => {
-                let end = self
+                let mut end = self
                     .descriptors
                     .remove(&descriptor)
                     .expect("the machine binds a descriptor that the link delivered");
+                end.end().control().owned();
                 self.routes.insert(
                     route,
                     RouteEdge {
@@ -1515,6 +1516,7 @@ pub struct TestkitCore {
     workers: Workers,
     wake: Arc<dyn HostWake>,
     captures: CaptureLog,
+    route_ends: crate::route_client::RouteEnds,
 }
 
 impl TestkitCore {
@@ -1529,7 +1531,13 @@ impl TestkitCore {
             workers,
             wake,
             captures: CaptureLog::default(),
+            route_ends: Default::default(),
         }
+    }
+
+    /// The route-ended causes of the routes that Core closed (A2-3), for the client ends of this handle's routes.
+    pub(crate) fn route_ends(&self) -> crate::route_client::RouteEnds {
+        self.route_ends.clone()
     }
 
     /// The captures that the host completed, with their pages (`oracle_resume`).
@@ -1564,6 +1572,9 @@ impl CoreApi for TestkitCore {
     fn poll_events(&mut self, max: usize) -> Vec<Event> {
         let events = self.driver.poll_events(max);
         for event in &events {
+            if let Event::RouteClosed { route, reason, .. } = event {
+                self.route_ends.closed(*route, *reason);
+            }
             if let Event::Completed {
                 result: OpResult::Ok(OpOutput::Capture(capture)),
                 ..

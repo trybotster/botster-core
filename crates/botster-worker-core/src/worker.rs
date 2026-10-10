@@ -555,7 +555,8 @@ impl Worker {
                 options,
                 limits,
             } => self.on_attach_route(route, options, limits),
-            // `Detach` belongs to a later P4a PR; a later variant of the enum is a later host's.
+            HostMsg::Detach { route, reason } => self.on_detach(route, reason),
+            // A later variant of the enum is a later host's.
             _ => {}
         }
     }
@@ -776,12 +777,14 @@ impl Worker {
     }
 
     /// EV-4: the exit carries the code or the signal.
+    /// OU-7: then every route closes `session_ended`, after its output tail.
     fn report_exit(&mut self, status: ExitStatus) {
         let (code, signal) = match status {
             ExitStatus::Code(code) => (Some(code), None),
             ExitStatus::Signal(signal) => (None, Some(signal)),
         };
         self.report(&WorkerMsg::Exited { code, signal });
+        self.routes_session_ended(code, signal);
     }
 
     /// The leader is reaped only when its group kill is complete: a `SIGKILL` went to the group and the leader has ended

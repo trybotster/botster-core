@@ -40,6 +40,10 @@ mod tests {
             instance: InstanceId("1-1".into()),
             host_epoch: 7,
             token: [5; 32],
+            endpoint: "/tmp/e".into(),
+            startup_ms: WorkerLaunch::millis(
+                botster_core_contract::prelude::CoreLimits::default().startup,
+            ),
         };
         let env = expected.env();
         let token = env

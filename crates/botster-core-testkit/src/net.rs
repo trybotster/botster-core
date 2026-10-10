@@ -86,6 +86,13 @@ struct Shared {
     taken: [u64; 2],
     capacity: usize,
     closed: [bool; 2],
+    /// `live[s]`: the handle of side `s` exists (it is dropped at most once; an end is not cloned).
+    live: [bool; 2],
+    /// `owned[s]`: the owner of side `s` holds it (`EndControl::owned`, the worker's bind of a route stream). Until then a
+    /// byte through it moves through a handle that is not the owner's.
+    owned: [bool; 2],
+    /// `foreign[s]`: the bytes read from or written to side `s` before its owner held it (`route_stream_holders`).
+    foreign: [u64; 2],
 }
 
 /// One end of a duplex.
@@ -119,6 +126,9 @@ impl End {
             taken: [0, 0],
             capacity,
             closed: [false, false],
+            live: [true, true],
+            owned: [false, false],
+            foreign: [0, 0],
         }));
         let end = |side| End {
             shared: Arc::clone(&shared),
@@ -196,6 +206,9 @@ impl End {
             *slot = queue.pop_front().unwrap_or_default();
         }
         shared.taken[peer] += n as u64;
+        if !shared.owned[me] {
+            shared.foreign[me] += n as u64;
+        }
         Ok(n)
     }
 
@@ -225,6 +238,9 @@ impl End {
         let n = room.min(bytes.len());
         shared.queues[me].extend(&bytes[..n]);
         shared.sent[me] += n as u64;
+        if !shared.owned[me] {
+            shared.foreign[me] += n as u64;
+        }
         if let Some(accept) = &mut shared.control[me].accept {
             *accept -= n;
         }
@@ -317,6 +333,34 @@ impl EndControl {
         self.with(|c| c.fail_descriptor = true);
     }
 
+    /// The controls of the other end of the duplex: a client's control of the worker's end of its route stream.
+    pub fn peer(&self) -> EndControl {
+        EndControl {
+            shared: Arc::clone(&self.shared),
+            side: 1 - self.side,
+        }
+    }
+
+    /// The bytes that this end's owner has written so far, which the stream took (`route_stream_written`, R-14.3).
+    pub fn written(&self) -> u64 {
+        lock(&self.shared).sent[self.side]
+    }
+
+    /// The owner of this side holds it from now on (the worker's bind of a route stream, DP-2): the bytes through it are the
+    /// owner's, and `peer_holders` does not count them.
+    pub fn owned(&self) {
+        lock(&self.shared).owned[self.side] = true;
+    }
+
+    /// The peer side's holders, as `route_stream_holders` reads them from the client's end (Core DP-2, OU-1): the number of
+    /// live handles of the peer's end (0 or 1: an end is not cloned), and the bytes read from or written to it before its
+    /// owner held it.
+    pub fn peer_holders(&self) -> (usize, u64) {
+        let shared = lock(&self.shared);
+        let peer = 1 - self.side;
+        (usize::from(shared.live[peer]), shared.foreign[peer])
+    }
+
     /// The stream is reset with no close handshake: every later read and write of both ends fails with `ConnectionReset`
     /// (`drop_transport`, Core OU-5).
     pub fn reset(&self) {
@@ -340,6 +384,7 @@ impl Drop for End {
     /// A dropped end is a closed end (the connection boundary of a real stream: the peer sees the close).
     fn drop(&mut self) {
         self.close();
+        lock(&self.shared).live[self.side] = false;
     }
 }
 
@@ -814,6 +859,49 @@ mod tests {
 
     fn pair_of_streams() -> (StreamEnd, StreamEnd) {
         stream_pair(&SchedulerHandle::with_seed(0), 8)
+    }
+
+    /// `route_stream_holders`: the client's end reads the worker end's live handles and the bytes that moved through it before
+    /// its owner held it; `route_stream_written`: the bytes that the worker end wrote. `peer` reaches the worker end's
+    /// controls from the client's end.
+    #[test]
+    fn the_client_end_reads_the_worker_ends_holders_and_written_bytes() {
+        let (mut worker, mut client) = pair_of_streams();
+        let peer = client.end().control().peer();
+        assert_eq!(client.end().control().peer_holders(), (1, 0));
+        assert_eq!(worker.write(b"ab").unwrap(), 2);
+        assert_eq!(client.write(b"c").unwrap(), 1);
+        let mut buf = [0u8; 8];
+        assert_eq!(worker.read(&mut buf).unwrap(), 1);
+        assert_eq!(
+            client.end().control().peer_holders(),
+            (1, 3),
+            "bytes before the owner holds the end are not the owner's"
+        );
+        worker.end().control().owned();
+        assert_eq!(worker.write(b"de").unwrap(), 2);
+        assert_eq!(client.write(b"f").unwrap(), 1);
+        assert_eq!(worker.read(&mut buf).unwrap(), 1);
+        assert_eq!(
+            client.end().control().peer_holders(),
+            (1, 3),
+            "the owner's bytes"
+        );
+        assert_eq!(peer.written(), 4);
+        assert_eq!(
+            client.end().control().written(),
+            2,
+            "the client's own writes"
+        );
+        peer.gate(true);
+        assert!(matches!(worker.write(b"g"), Err(e) if e.kind() == io::ErrorKind::WouldBlock));
+        drop(worker);
+        assert_eq!(
+            client.end().control().peer_holders(),
+            (0, 3),
+            "the dropped end has no holder"
+        );
+        assert_eq!(peer.written(), 4);
     }
 
     /// `route_gate`: the stream takes no byte from the worker while on, reports itself not writable, and takes bytes again when

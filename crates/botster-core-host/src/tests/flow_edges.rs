@@ -454,7 +454,7 @@ fn ops_that_never_ran_before_the_remove_retired_them_keep_their_own_results() {
     let mut w = World::default();
     w.autopilot = Autopilot::Silent;
     w.running("s1");
-    let route = super::losses::attach(&mut w);
+    // The exit closes the routes that are bound then (A2-3), so the route that the remove closes attaches after it.
     w.worker_says(
         "s1",
         WorkerMsg::Exited {
@@ -462,6 +462,9 @@ fn ops_that_never_ran_before_the_remove_retired_them_keep_their_own_results() {
             signal: None,
         },
     );
+    w.pump();
+    w.engine.poll_events(64);
+    let route = super::losses::attach(&mut w);
     w.pump();
     w.engine.poll_events(64);
     let write = w
