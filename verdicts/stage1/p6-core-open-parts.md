@@ -36,3 +36,34 @@ No pending ID changes, mutation exclusions, or test changes occur in this delta.
 No integration finding remains open. The separate package review remains required for merge.
 
 VERDICT: CLEAN at 79107e9acbf175baccc4f782fded2c435aefb680
+
+## Round 2 — Documentation clarification and base refresh
+
+Reviewed head: `b89c850e1f174193a39322aafb07784b2f3b8852`.
+Current base: `5348befac55b1b9a5d7d21f14ae77f6b123515c3`.
+Scope: the complete delta from round 1 head `79107e9acbf175baccc4f782fded2c435aefb680`.
+
+The documentation head `329720e14dcb53779ecf6218c8f8b4e18f0c08fe` changes only two documentation passages.
+The RealEdges export states that TH-1's Send, not Sync property belongs to Core, not to the edges.
+The open_parts documentation requires callers to pass the returned EngineConfig to HostDriver::open unchanged.
+Both statements clarify the approved composition. They change no code or API signature.
+The documentation delta has no finding.
+
+The final head merges current v1 onto that documentation head.
+All three PR files remain byte-identical to the documentation head.
+The five imported files equal current v1 byte for byte and contain the already reviewed #184 union.
+The base-merge check reports every check PASS and exit zero.
+It confirms no conflict, no shared changed path, an identical 9251-byte PR diff, and an unchanged pending list.
+The diff hash is `b54a99160d0e427a68613eb26d7531a6a8008b6bd1f2d130fe2ee7213a715c60`.
+
+Gate: `/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-p6-core-open-parts-b89c850e-pool-20261009-174454-92278.log`.
+The log names the reviewed head and current base. It ran on msa1, allocation 138933a1, and exited zero after 143 seconds.
+All ten full gate stages pass. Default: 1285 passed. Slow: 254 passed. Conformance: 121 passed, zero failed.
+Two mutants are unviable; zero are caught, missed, or timed out. The unmutated baseline passes.
+This result makes no caught-mutant claim for the extraction.
+`git diff --check` passes. The reviewer ran no builds, tests, or gates.
+
+Round 1's wrapper and closed-LinkId proof obligations remain assigned to the RealCoreHarness PR.
+No integration finding remains open. The separate package verdict remains required for merge.
+
+VERDICT: CLEAN at b89c850e1f174193a39322aafb07784b2f3b8852
