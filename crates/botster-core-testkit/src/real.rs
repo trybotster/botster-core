@@ -98,6 +98,9 @@ struct BreakControl {
     on: bool,
 }
 
+/// The tap of an open handle, shared with its driver.
+type SharedTap = Arc<Mutex<Tap<RealEdges>>>;
+
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct OfSession {
@@ -309,7 +312,7 @@ impl RealCoreHarness {
         &self,
         handle: &str,
         session: &SessionId,
-    ) -> Result<(Arc<Mutex<Tap<RealEdges>>>, SessionProcesses), ControlError> {
+    ) -> Result<(SharedTap, SessionProcesses), ControlError> {
         let tap = self.tap(handle)?;
         let dir = self
             .data_dir_of(handle)
