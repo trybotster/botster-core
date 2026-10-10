@@ -7,7 +7,7 @@
 use crate::controls::{parse, session_row, ControlRegistry};
 use crate::harness::TestkitHarness;
 use botster_core_conformance::ControlError;
-use botster_core_contract::prelude::{LostReason, SessionId};
+use botster_core_contract::prelude::SessionId;
 use serde::Deserialize;
 use serde_json::Value;
 
@@ -86,28 +86,33 @@ fn break_control(
     Ok(Value::Null)
 }
 
+/// The `reason` of `lose_worker`, in the control vocabulary (`fake-core` `control.rs`).
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum LoseReason {
+    WorkerGone,
+    WorkerUnreachable,
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct LoseWorker {
     session: SessionId,
-    reason: Option<LostReason>,
+    reason: Option<LoseReason>,
 }
 
 /// The worker process of the session ends from outside Core, as a kill does (Core AD-2, IN-7): its exit goes to the host that
 /// spawned it, and its link, endpoint and payload end with it. Core's own exit handling and adoption check decide the
-/// session's state. Only `worker_gone` (the default) is a loss of the process; the other reasons are not built here.
+/// session's state. Only `worker_gone` (the default) is a loss of the process; `worker_unreachable` (a live worker that no
+/// host reaches) is not built here.
 fn lose_worker(
     harness: &mut TestkitHarness,
     handle: &str,
     args: &Value,
 ) -> Result<Value, ControlError> {
     let args: LoseWorker = parse(args)?;
-    match args.reason {
-        None | Some(LostReason::WorkerGone) => {}
-        Some(LostReason::Other) => {
-            return Err(ControlError::Bad("an unknown lost reason".into()));
-        }
-        Some(_) => return Err(ControlError::Unsupported),
+    if let Some(LoseReason::WorkerUnreachable) = args.reason {
+        return Err(ControlError::Unsupported);
     }
     let row = session_row(harness, handle, &args.session)?;
     let worker = row.worker.ok_or_else(|| {
