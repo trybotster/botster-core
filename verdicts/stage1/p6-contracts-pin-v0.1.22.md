@@ -66,7 +66,7 @@ The reviewer read package verdict `795d1376448666f5bf25c59c9cf844296bc3847c`, wh
 The final remote check confirms that the head and v1 base remain unchanged.
 `git diff --check` passes. The reviewer ran no builds, tests, or gates.
 
-The later merge with #206 must remove any uses of the five fields that A17 deletes.
+The later merge with #206 must remove its five lines that use fields deleted by A17.
 A merge that changes the reviewed diff requires a delta review and a gate on the resulting head.
 The separate #210 findings remain open. This verdict closes no pending proof obligation.
 No finding remains open for #211.
