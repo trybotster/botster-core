@@ -1021,3 +1021,38 @@ No execution gate applies to this documentation-only revision.
 I ran no builds, tests, or gates.
 
 VERDICT: CLEAN (0 open) at 596082d435ba30bfb0b6521e4566b2af6d97cbf1
+
+## Round 30 — revision 23w — 2026-10-10
+
+Reviewed head: `c0860d7e7e8e4dd269c69b979d72aecfcc18a724`.
+Prior accepted head: `596082d435ba30bfb0b6521e4566b2af6d97cbf1`.
+Scope: the complete delta in `docs/stage1-plan.md`: the contracts input, manifest description, and revision-history row.
+
+The annotated tag `contracts-v0.1.26` resolves to `0ac061d225724f6f7fc7b2368f637ba2c9a6c2b6`.
+Contracts PR #29 merged at that commit. The prior tag resolves to `ff3405992fd3a76f324d3b683b1f1631c034f43c`.
+Only five checker source and test files differ between those tags.
+The frozen files, schemas, transcripts, manifest, ledger, withdrawn lists, and pending lists do not change.
+The previously verified 690 Core ledger ids and 18 withdrawn Core ids therefore still give 672 active Core ids.
+
+The input description matches the hex lookup changes and the typed route output check.
+The route driver still validates non-payload fields and compares the complete output bytes.
+The schema proof pins the payload-only assumption used by its shorter validation representation.
+This plan review does not replace the contracts code review or the separate HIGH Core pin review.
+
+I read the saved timing script and `p3-contracts-c/c-measure-ab.log`.
+The Mac runs use seeds 0–31 and report 0.75, 0.75, and 0.76 seconds with A+B+C.
+Those measurements use contracts head `891188d4`, before the final equivalent-code cleanup in `0ac061d2`.
+I inspected that cleanup. The measurements are supporting evidence, not an exact-tag Core gate.
+The earlier pool measurements of 12.93–12.98 seconds and A+B at 2.10–2.11 seconds remain as recorded in the #223 review.
+The plan's 87% profile figure is the lead's reported attribution; I did not independently run a profiler.
+The Mac and pool figures do not establish a controlled cross-host speed ratio.
+
+The plan directs P6 to move from v0.1.24 straight to v0.1.26 in a separate HIGH PR.
+It does not change the two-second budget, use the held budget class, or waive the pin PR's gate.
+The implementation review must verify the final combined head and its execution results.
+
+The remote plan head matches the reviewed revision. `git diff --check` passes.
+No execution gate applies to this documentation-only revision.
+I ran no builds, tests, gates, timing jobs, or profiling jobs.
+
+VERDICT: CLEAN (0 open) at c0860d7e7e8e4dd269c69b979d72aecfcc18a724
