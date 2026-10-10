@@ -32,6 +32,7 @@ use botster_core_host::session::{Row, ROW_PREFIX};
 use botster_core_host::LinkId;
 use botster_core_link::frame::{FrameDecoder, FrameType, DEFAULT_MAX_PAYLOAD};
 use botster_core_link::hello::Hello;
+use botster_core_link::msg::WorkerMsg;
 use std::collections::{BTreeMap, VecDeque};
 use std::io;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
@@ -60,10 +61,14 @@ struct LinkTap {
     held: VecDeque<u8>,
     /// The end that a take-ahead met after `held`, not yet handed to the driver.
     end: Option<End>,
-    /// The decoder of the link's first frame, until the hello is read or the first frame is not one.
-    first: Option<FrameDecoder>,
+    /// The decoder of the link's inbound frames: from the first frame until the worker's `Launched` report is read, or until
+    /// a frame is not one that the tap reads.
+    frames: Option<FrameDecoder>,
     /// The instance that the link's hello names, or that `connect_worker` asked for.
     instance: Option<InstanceId>,
+    /// The payload that the worker's `Launched` report names (Core LC-5). The host keeps it in memory and writes it to the
+    /// session's row only at a later row write, so while a started session runs, only its link names the payload.
+    payload: Option<ProcessIdentity>,
 }
 
 impl LinkTap {
@@ -71,36 +76,66 @@ impl LinkTap {
         LinkTap {
             held: VecDeque::new(),
             end: None,
-            first: Some(FrameDecoder::new(DEFAULT_MAX_PAYLOAD)),
+            frames: Some(FrameDecoder::new(DEFAULT_MAX_PAYLOAD)),
             instance: None,
+            payload: None,
         }
     }
 
     fn connected(instance: &InstanceId) -> LinkTap {
         LinkTap {
-            first: None,
+            frames: None,
             instance: Some(instance.clone()),
             ..LinkTap::accepted()
         }
     }
 
-    /// Reads the link's first frame from bytes that passed through, without changing them: a hello names the instance.
-    /// The decoder takes bytes up to the end of the first frame, so when it has no complete frame it took every byte; bytes
-    /// after the first frame are not read.
+    /// Reads the link's frames from bytes that passed through, without changing them: the first frame, a hello, names the
+    /// instance, and the worker's `Launched` report names the payload. The tap reads no frame after the report, after a
+    /// first frame that is not a hello, or after bytes that are not a frame.
     fn observe(&mut self, bytes: &[u8]) {
-        let Some(decoder) = self.first.as_mut() else {
+        let Some(decoder) = self.frames.as_mut() else {
             return;
         };
         decoder.push(bytes);
-        match decoder.next_frame() {
-            Ok(None) => {}
-            Ok(Some(frame)) => {
-                if frame.kind == FrameType::HELLO {
-                    self.instance = Hello::decode(&frame.payload).ok().map(|h| h.instance);
+        loop {
+            let Some(decoder) = self.frames.as_mut() else {
+                return;
+            };
+            match decoder.next_frame() {
+                Ok(None) => return,
+                Ok(Some(frame)) => {
+                    if !self.read(frame.kind, &frame.payload) {
+                        self.frames = None;
+                    }
                 }
-                self.first = None;
+                Err(_) => self.frames = None,
             }
-            Err(_) => self.first = None,
+        }
+    }
+
+    /// Reads one inbound frame. False when the tap reads no later frame of the link.
+    fn read(&mut self, kind: FrameType, payload: &[u8]) -> bool {
+        if self.instance.is_none() {
+            if kind != FrameType::HELLO {
+                return false;
+            }
+            self.instance = Hello::decode(payload).ok().map(|h| h.instance);
+            return self.instance.is_some();
+        }
+        if kind != FrameType::WORKER_MSG {
+            return false;
+        }
+        match WorkerMsg::decode(payload) {
+            Ok(WorkerMsg::Launched { payload, .. }) => {
+                self.payload = Some(ProcessIdentity {
+                    pid: payload.pid,
+                    start_time: payload.start_time,
+                });
+                false
+            }
+            Ok(_) => true,
+            Err(_) => false,
         }
     }
 
@@ -184,6 +219,14 @@ impl<E: HostEdges> Tap<E> {
             .iter()
             .find(|(_, tap)| tap.instance.as_ref() == Some(instance))
             .map(|(link, _)| *link)
+    }
+
+    /// The payload that the `Launched` report on the link of `instance` named, while the driver has not closed that link.
+    pub fn payload_of(&self, instance: &InstanceId) -> Option<ProcessIdentity> {
+        self.links
+            .values()
+            .find(|tap| tap.instance.as_ref() == Some(instance))
+            .and_then(|tap| tap.payload)
     }
 
     /// Breaks `link` at the edge (Core LC-5, A2-1): the inner edge closes it, and what the tap held for it is dropped, so

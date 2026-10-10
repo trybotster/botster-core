@@ -665,3 +665,120 @@ fn only_a_matching_identity_is_killed_and_the_host_is_woken() {
     rig.with(|t| assert_eq!(t.inner.calls, ["signal 41 Kill"]));
     assert_eq!(rig.signals(), 1);
 }
+
+fn worker_frame(msg: &WorkerMsg) -> Vec<u8> {
+    let mut payload = Vec::new();
+    msg.encode(&mut payload);
+    let mut frame = Vec::new();
+    encode_frame(
+        FrameType::WORKER_MSG,
+        &payload,
+        DEFAULT_MAX_PAYLOAD,
+        &mut frame,
+    )
+    .unwrap();
+    frame
+}
+
+fn launched(payload: ProcessIdentity) -> WorkerMsg {
+    WorkerMsg::Launched {
+        features: BTreeSet::new(),
+        terminal: TerminalState {
+            size: Size {
+                rows: 24,
+                cols: 80,
+                cell_px: None,
+            },
+            modes: ModeFlags::default(),
+            title: None,
+            cwd: None,
+            last_output_at: None,
+            focused: Some(false),
+            model_rev: ModelRev(1),
+            input_rev: InputRevs {
+                client: InputRev(0),
+                host: InputRev(0),
+            },
+        },
+        formats: Vec::new(),
+        payload: botster_core_link::msg::PayloadId {
+            pid: payload.pid,
+            start_time: payload.start_time,
+        },
+    }
+}
+
+/// `payload_alive` (Core LC-5, EV-5(c)): the host keeps a started payload in memory, and the worker's `Launched` report on
+/// the link names it. The tap reads the report across reads and after other reports, without changing a byte; the link's
+/// close ends what it names.
+#[test]
+fn a_launched_report_names_the_payload_of_the_link() {
+    let exited = worker_frame(&WorkerMsg::Exited {
+        code: Some(0),
+        signal: None,
+    });
+    let mut report = worker_frame(&launched(identity(77)));
+    let rest = report.split_off(5);
+    let later = worker_frame(&launched(identity(78)));
+    let reads = vec![
+        Read::Data([hello_frame("1-7"), exited.clone()].concat()),
+        Read::Data(report.clone()),
+        Read::Data([rest.clone(), later.clone()].concat()),
+    ];
+    let mut rig = rig(fake_with_link(reads));
+    let instance = InstanceId("1-7".into());
+    assert_eq!(rig.edges.accept_link(), Some(A));
+    let first = rig.recv(A, 4096).unwrap();
+    let second = rig.recv(A, 4096).unwrap();
+    assert_eq!(rig.with(|t| t.payload_of(&instance)), None);
+    let third = rig.recv(A, 4096).unwrap();
+    assert_eq!(
+        [first, second, third].concat(),
+        [hello_frame("1-7"), exited, report, rest, later].concat()
+    );
+    assert_eq!(rig.with(|t| t.payload_of(&instance)), Some(identity(77)));
+    assert_eq!(rig.with(|t| t.payload_of(&InstanceId("1-8".into()))), None);
+    rig.edges.link_close(A);
+    assert_eq!(rig.with(|t| t.payload_of(&instance)), None);
+}
+
+/// The tap reads only the frames of a worker after its hello: after a frame of another kind, a later `Launched` report
+/// names nothing.
+#[test]
+fn a_report_after_a_frame_of_another_kind_names_nothing() {
+    let mut other = Vec::new();
+    encode_frame(FrameType::HOST_MSG, b"{}", DEFAULT_MAX_PAYLOAD, &mut other).unwrap();
+    let reads = vec![Read::Data(
+        [
+            hello_frame("1-7"),
+            other,
+            worker_frame(&launched(identity(77))),
+        ]
+        .concat(),
+    )];
+    let mut rig = rig(fake_with_link(reads));
+    assert_eq!(rig.edges.accept_link(), Some(A));
+    rig.recv(A, 4096).unwrap();
+    let instance = InstanceId("1-7".into());
+    assert_eq!(rig.with(|t| t.link_of(&instance)), Some(A));
+    assert_eq!(rig.with(|t| t.payload_of(&instance)), None);
+}
+
+/// A first frame that is a hello by kind but not by its bytes names nothing, and the tap reads no later frame: a valid
+/// hello after it names no instance.
+#[test]
+fn a_hello_that_does_not_decode_ends_the_reading_of_the_link() {
+    let mut bad = Vec::new();
+    encode_frame(
+        FrameType::HELLO,
+        b"not a hello",
+        DEFAULT_MAX_PAYLOAD,
+        &mut bad,
+    )
+    .unwrap();
+    let reads = vec![Read::Data([bad, hello_frame("1-7")].concat())];
+    let mut rig = rig(fake_with_link(reads));
+    assert_eq!(rig.edges.accept_link(), Some(A));
+    rig.recv(A, 4096).unwrap();
+    assert_eq!(rig.with(|t| t.link_of(&InstanceId("1-7".into()))), None);
+}
