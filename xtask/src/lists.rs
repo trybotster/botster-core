@@ -19,7 +19,7 @@ use anyhow::{bail, Context, Result};
 use botster_core_contract::prelude::Feature;
 use botster_core_testkit::status;
 use botster_worker_core::{WORKER_FEATURES_BY_PROTOCOL, WORKER_PROTOCOL};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 const LEDGER_FILE: &str = "conformance/core-ledger-ids.txt";
@@ -31,6 +31,9 @@ const DEFERRED_FILE: &str = "conformance/core-deferred.toml";
 /// The harness reads the copies; `check` fails when a copy differs from the pinned source.
 pub const CONTRACTS_DEFERRED_COPY: &str = "conformance/contracts-deferred.txt";
 pub const CONTRACTS_WITHDRAWN_COPY: &str = "conformance/contracts-withdrawn.txt";
+/// The real-only Core ids with their named real-process proofs (`id<TAB>proof`), derived from the pinned replacement map
+/// (`slow:*` proofs). The suite reads it to count a minimum id that left core-pending.txt by its named proof (plan 23s).
+pub const REAL_ONLY_FILE: &str = "conformance/core-real-only.txt";
 
 /// The deferred set that Core A6-2 enumerates, with the start condition of each id. A later accepted text replaces this data
 /// in the commit that moves the contracts pin (plan section 5, rule 3). Source: A6-2 of
@@ -439,6 +442,26 @@ pub fn real_only_ids(map_json: &str) -> Result<BTreeSet<String>> {
         .collect())
 }
 
+/// The text of `core-real-only.txt`: one `id<TAB>proof` line for each Core ledger id whose proof in the replacement map is
+/// real-only (`slow:*`), in id order.
+///
+/// # Errors
+/// The map is not JSON, or has no `ids` array.
+pub fn real_only_text(map_json: &str, ledger: &BTreeSet<String>) -> Result<String> {
+    let json: serde_json::Value = serde_json::from_str(map_json)?;
+    let rows: BTreeMap<&str, &str> = json["ids"]
+        .as_array()
+        .context("the replacement map has no `ids`")?
+        .iter()
+        .filter_map(|row| Some((row["id"].as_str()?, row["proof"].as_str()?)))
+        .filter(|(id, proof)| proof.starts_with("slow:") && ledger.contains(*id))
+        .collect();
+    Ok(rows
+        .iter()
+        .map(|(id, proof)| format!("{id}\t{proof}\n"))
+        .collect())
+}
+
 /// `Some(reason)` when the start condition holds now (so the id is no longer deferred), `None` when it is still false.
 /// An unknown condition holds, so that it fails the gate.
 fn condition_holds(condition: &str, t: u8, features: &[(u8, &[Feature])]) -> Option<String> {
@@ -577,6 +600,11 @@ pub fn command(root: &Path, args: &[String]) -> Result<()> {
             ledger_file: &base_ledger,
         }),
     }));
+    problems.extend(copy_problems(&[(
+        REAL_ONLY_FILE,
+        &read(REAL_ONLY_FILE)?,
+        &real_only_text(&map, &ledger)?,
+    )]));
     let minimum = parse_minimum(&read(MINIMUM_FILE)?).map_err(anyhow::Error::msg)?;
     problems.extend(check_minimum(&minimum, &ledger, &withdrawn));
     report(&problems)?;
@@ -668,17 +696,20 @@ pub fn ledger_ids_command(root: &Path, args: &[String]) -> Result<()> {
     let meta = crate::fsutil::metadata(root)?;
     let ledger = ledger_of(&meta.contracts_root)?;
     let source = status_sources(&meta.contracts_root)?;
+    let map = std::fs::read_to_string(meta.contracts_root.join("conformance/replacement-map.json"))
+        .context("read the pinned replacement map")?;
     let files = [
         (LEDGER_FILE, ledger_text(&ledger)),
         (CONTRACTS_DEFERRED_COPY, source.deferred),
         (CONTRACTS_WITHDRAWN_COPY, source.withdrawn),
+        (REAL_ONLY_FILE, real_only_text(&map, &ledger)?),
     ];
     if write {
         for (path, text) in &files {
             std::fs::write(root.join(path), text)?;
         }
         println!(
-            "ledger-ids: wrote {} ids and the two status files",
+            "ledger-ids: wrote {} ids, the two status files and the real-only ids",
             ledger.len()
         );
         return Ok(());
