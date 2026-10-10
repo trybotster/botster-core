@@ -1,5 +1,52 @@
 # botster-core-testkit: M0b design note
 
+## RealCoreHarness over Core's own composition (plan 23l)
+
+Scope: lead rulings of 2026-10-09 (plan 23l, R-43). `RealCoreHarness::open` calls `botster_core::open_parts` and then
+`HostDriver::open(cfg, EdgeTap::new(edges, rows))`. `Core::open` is `HostDriver::open` over the same parts, and `Core`
+only delegates to its driver, so every id runs on Core's own code. Core has no test branch and no feature flag.
+
+The boundary is `HostEdges` (`src/edge_tap.rs`). `EdgeTap` passes every call to the inner `RealEdges` unchanged:
+
+- Inbound edges are "take the next item" calls (`link_recv`, `accept_link`, `poll_process_exit`). The tap can take
+  ahead, hold the items, and hand them out in order. The driver's read of a link can stop before `WouldBlock`: at its
+  read budget, or at input that it must hold (plan 23l). So an item can wait more than one pump. While the tap holds
+  an item, the edges are not quiet; while the driver's own read stopped early, it reports more work (`report.more`).
+  The runner pumps until both are clear. The tap signals the wake edge.
+- `edges_quiet` (`{quiet}`) is a take-ahead that finds nothing new and holds nothing. Bytes that are still inside a
+  worker process are not visible here. So quiet means "nothing arrived and nothing is unread", never "the worker
+  finished". A transcript that needs "the worker finished" must wait for an event of that.
+- `break_control` (`{session}`) calls the inner `link_close` on the session's link. `RealEdges` drops its end of the
+  stream (it does not call `shutdown`). The worker reads EOF, and every later call of the driver on that `LinkId` gets
+  the closed-link state: `Ok(0)` on `link_recv`, `BrokenPipe` on `link_send`. `RealEdges` never reuses a `LinkId` and
+  keeps no raw descriptor number, so a call never reaches a descriptor that the OS gave out again
+  (`tests/slow_edge_tap.rs`).
+- The process record: every registry row that passes through `write_row` or `read_rows` is decoded with Core's own
+  `Row::decode`. The rows of a data directory are kept across handles and outlive `Remove`.
+  `RealCoreHarness::session_processes(dir, session)` gives the instance, the worker identity and the payload identity.
+  The hello of each link (or the `connect_worker` call) names the link's instance.
+- The harness keeps only a `Weak` to each tap. The data directory's lock (LC-2) ends with the driver.
+- `injects_clock` is true (R-43 A): Core reads no clock, and `pump` takes `now` from the runner. Workers and payloads
+  follow real time, so `progress_is_injected` is false (steward ruling R-46): the driver never jumps the clock to Core's
+  next deadline, and the clock moves only by a transcript's `advance_clock`.
+
+The real tier's trials (`tests/suite/mod.rs`, plan 23l and 23q):
+
+- It runs every id that is not pending, deferred or withdrawn, except the Core A20-1 testkit-proven ids
+  (`botster_core_conformance::TESTKIT_PROVEN`, derived from the contract): each is listed as `testkit-proven`, not run
+  and not a failure. `cargo xtask lists` refuses such an id in `core-real-pending.txt`.
+- An id of `conformance/core-real-pending.txt` runs only under `--ignored` and is reported as pending-real. The file was
+  initialized once from the gate's real run and only shrinks.
+- The report gives the minimum counts of `conformance/minimum-core.txt`, the canonical minimum list: "testkit-passing /
+  69" on the testkit tier, and "real-passing / 68, real-accepted / 69" on the real tier. The denominators are derived:
+  68 leaves out the A20-1 members of the list, and real-accepted adds back each A20-1 member that is not in
+  `core-pending.txt`. The real tier's report run is `--ignored`, after the nextest run of the same job passed every
+  trial that must pass, so it counts those trials. On both tiers, a real-only minimum id (`conformance/core-real-only.txt`,
+  the `slow:*` proofs of the pinned replacement map) that is not in `core-pending.txt` counts by its named real-process
+  proof, and the report names the proof (plan 23s).
+
+Prior art: none copied. The scripted inner edges of `edge_tap/tests.rs` are new.
+
 ## P6 oracle controls: current phase
 
 Scope: `brief-p6-oracle.md`, plan pin `bdda2359`, contracts `contracts-v0.1.13`.
