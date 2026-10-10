@@ -430,11 +430,8 @@ fn lc_5_the_worker_control_signal_ends_the_payload_and_the_worker_stays() {
 #[test]
 fn a_new_host_adopts_the_real_worker_at_its_endpoint() {
     let root = temp_root();
-    let ready = fifo(root.path(), "f");
     // The payload waits on its PTY's input without a timer; the stop below ends it.
-    let script = format!("/bin/echo up > {}; exec /bin/cat", ready.display());
-    let mut s = Session::launch(root.path(), &script, 200);
-    assert_eq!(first_line(&ready).1, "up\n");
+    let mut s = GuardedSession::launch(root.path(), "exec /bin/cat", 200);
     let endpoint = root.path().join("e");
     let (instance, token, epoch) = (InstanceId("1-1".into()), [5; 32], 2);
     let stream = UnixStream::connect(&endpoint).expect("the worker listens at its endpoint");
