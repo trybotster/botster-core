@@ -48,6 +48,8 @@ fn record(size: usize) {
 }
 
 // SAFETY: every call forwards to `System` with the same arguments; `record` only reads and writes plain values.
+// The one `unsafe_code` exception of this crate (xtask unsafe_exception, lead ruling 2026-10-10).
+#[allow(unsafe_code)]
 unsafe impl GlobalAlloc for PeakAllocator {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
         record(layout.size());

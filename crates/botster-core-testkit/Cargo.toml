@@ -6,8 +6,10 @@ rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
 
-[lints]
-workspace = true
+# The workspace's lint table with only unsafe_code = "deny": one item may allow it, `impl GlobalAlloc for PeakAllocator`
+# (src/alloc_controls.rs; lead ruling 2026-10-10, xtask unsafe_exception).
+[lints.rust]
+unsafe_code = "deny"
 
 [features]
 # The real-process tests of this crate (BUILD.md testing rule 2): `cargo xtask slow` runs them.
