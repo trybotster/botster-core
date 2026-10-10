@@ -84,3 +84,68 @@ R1-1 remains open for this HIGH PR. No ordinary NOT CLEAN report went to the lea
 Wait for replacement READY at an exact head.
 
 VERDICT: NOT CLEAN
+
+
+## Round 2
+
+Implementation head: `9f33b53eebc0a530a18ad363d626bc656cf61b9f`.
+Integration and full gate base: `f6128fd6dd96a27f82520c82b9553d038dfa9dba`.
+BUILD.md rules: botster-contracts `fe3eb952d6f61b89cf7bcbe8c54ab079987ec002`.
+
+The reviewer checked HIGH first. Rule 1 still applies to this gate decision.
+The reviewer read the exact fix delta, callers, test helpers, updated PR description, and supplied exact-head log.
+The reviewer changed no product code and ran no gate, build, test, mutation job, or reversal.
+
+### R1-1 closed — the landing diff disables color and external diff tools
+
+`landing_diff` now runs `git diff --no-color --no-ext-diff <base>...HEAD`.
+It rejects a failed Git status before returning any bytes.
+`mutants_job` writes those bytes to the file for cargo-mutants.
+It passes the same bytes to `changes_rust_source` through `diff_mutants`.
+The predicate therefore sees the uncolored headers from the command that generated its input.
+A configured external diff tool cannot replace those headers.
+The original failed-Git behavior remains.
+
+The new test creates a temporary repository with both a text file and a Rust file.
+It sets `color.diff=always`, `color.ui=always`, and `diff.external=/bin/false` in that repository.
+After the text change, it asserts that the diff has no ANSI escape and contains no new Rust path.
+After the Rust change, it asserts an uncolored `+++ b/x/src/lib.rs` header.
+It also requires `diff_mutants` to return `Some(0)` from the supplied `[]` listing.
+That result requires the listing closure to run; a skip would return `None`.
+An invalid base must fail.
+These assertions prove the command's public output and listing behavior, not private state.
+The existing Git setup helper uses a group owner and the existing cleanup deadline.
+The test changes only its temporary repository configuration and introduces no global test lock or sleep.
+
+P3 reports a local red run after removing `--no-color`, followed by restoration.
+The reported failure is the explicit `no color` assertion.
+The reviewer read that report and did not perform the reversal.
+The supplied exact-head gate passes the new proof.
+
+The original tests still prove genuine empty/non-Rust skips and failed-listing propagation.
+A Rust diff still rejects empty output without the NoMutants message.
+The PR description and source comment now name the color gap and the plain-diff precondition.
+The inaccurate claim from round 1 is corrected for the generated input.
+
+### Prior art, scope, and evidence
+
+R1-2 remains closed.
+The updated note keeps its per-item reuse and rejection reasons and records the explicit diff format.
+The final diff changes only ci.rs and the existing mutation reason in mutants.toml.
+No exclusion regex, process-group cleanup, production reaper, or existing contract assertion changes.
+No lifecycle test is migrated.
+The new decisions remain covered by their named tests.
+The existing mutation verdict and outcomes checks remain unchanged.
+
+Full Linux log: `~/botster-sessions/gates/botster-core-stage1-p3-mutants-no-rust-diff-9f33b53e-pool-20261009-195517-18221.log`.
+It names the exact head and base above and exits 0.
+All ten gate jobs pass.
+It reports 124 passing conformance tests, 1332 passing default tests, and 256 passing slow tests.
+All three new proof tests pass, including the configured-repository test.
+Both mutation commands report 13 caught mutants, zero misses, zero timeouts, and zero unviable mutants.
+The repeated command does not add `--features slow`; these changed decisions have default-tier proofs.
+The future fixed flip gate remains evidence for the flip PR, not a claimed run in this review.
+
+All round 1 findings close. No new package finding remains at this exact head.
+
+VERDICT: CLEAN
