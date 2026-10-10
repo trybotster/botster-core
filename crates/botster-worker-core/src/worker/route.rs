@@ -516,6 +516,8 @@ impl Worker {
             return;
         }
         route.closing = Some(reason);
+        // A closing route applies no more input: the frames that wait are discarded (plan 23ad).
+        route.received.clear();
         let frame = ToClient::RouteClosed(
             route_closed_frame(reason).expect("a healthy reason has its frame"),
         )
