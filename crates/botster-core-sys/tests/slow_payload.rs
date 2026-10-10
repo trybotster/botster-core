@@ -209,7 +209,10 @@ fn a_group_signal_ends_the_leader_and_its_group() {
     p.reap();
 }
 
-/// The program writes its marker only after its PTY output is queued.
+/// A program that printed `ready` on its PTY and waits for input. It writes its FIFO marker after its `printf`, but the
+/// marker and the PTY output travel on two channels: on Linux the slave's bytes reach the master through the asynchronous
+/// flip-buffer push, so the marker can arrive first (P5's gate on #222 at `7c93a2e7`). So the helper also waits for the
+/// PTY bytes themselves, on the master's readiness, under the same limit.
 fn payload_waiting_for_input() -> (GuardedPayload, tempfile::TempDir) {
     use std::io::Read;
     use std::os::fd::AsFd;
@@ -241,7 +244,7 @@ fn payload_waiting_for_input() -> (GuardedPayload, tempfile::TempDir) {
         reader.as_fd(),
         rustix::event::PollFlags::IN,
     )];
-    // timer: deadline — bounds the wait for the program's FIFO marker.
+    // timer: deadline — bounds the wait for the program's FIFO marker, and then for its PTY output.
     let limit = rustix::event::Timespec {
         tv_sec: 10,
         tv_nsec: 0,
@@ -251,6 +254,16 @@ fn payload_waiting_for_input() -> (GuardedPayload, tempfile::TempDir) {
     let mut marker = [0; 64];
     let count = reader.read(&mut marker).unwrap();
     assert_eq!(&marker[..count], b"queued\n");
+    // The PTY write of `printf` is one push of all its bytes, so a readable master holds the whole `ready`.
+    let mut pty = [rustix::event::PollFd::from_borrowed_fd(
+        p.master(),
+        rustix::event::PollFlags::IN,
+    )];
+    assert!(
+        rustix::event::poll(&mut pty, Some(&limit)).unwrap() > 0,
+        "the program's PTY output did not arrive"
+    );
+    assert!(pty[0].revents().contains(rustix::event::PollFlags::IN));
     (p, root)
 }
 
