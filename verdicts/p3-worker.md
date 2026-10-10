@@ -7858,3 +7858,76 @@ The reviewer changed no product code and ran no tests, builds, gates, measuremen
 All earlier exact-head verdicts remain preserved.
 
 VERDICT: NOT CLEAN
+
+
+## Round 135 — PR #184 HIGH-path list union with #181 — 2026-10-09
+
+Reviewed head: `03df8a1f31ab079adb18d4f51999b8421911baa1`.
+Base: `b453b449a959f7e10b94733b4425b4903d6a4890`.
+Parents: `655f17546d823d7432ce4f3ea239884438c58f78` and the base.
+Tier: HIGH under BUILD.md rules 1 and 3: the HIGH-path list, gate code, and workspace mutation configuration.
+The full corrected PR body states HIGH and requires package and integration reviews.
+Authority: BUILD.md, accepted plan 23k, the plan 23g mutation-review rule, and the lead's #181 union order.
+The reviewer read round 110, the complete final five-file change, the #181 union resolution, body, and exact-head gate.
+The reviewer inspected high_tier, its tests, command registration, taint_job wiring, list coverage, and exclusion citations.
+The final delta changes five files with 261 insertions and eight deletions.
+The head contains the current base. None of #184's five files changes between 655f1754 and this head.
+The reviewer compared the two complete own diffs against their respective bases: they are byte-identical.
+This is an explicit package delta review, not a claim that the old CLEAN alone covers the base merge.
+
+### F57 remains CLOSED; source union is accepted
+
+The 25 rule-5 entries preserve round 110's accepted source coverage, including its six process/adoption additions.
+The list now adds .cargo/mutants.toml as the plan 23g exception. The header states that exception explicitly.
+All 26 entries match paths in this exact head. Reasons preserve the rule-5 priority over generic sans-IO examples.
+The list does not infer an I/O classification or weaken the independent rules 1 through 4.
+Future rule-5 code must extend the list when it adds a new file. The existing whole-file entries retain their accepted scope.
+
+The command still reads the list and git's tracked paths, then propagates the tested verdict/outcome result.
+Validation still rejects stale paths, missing reasons, invalid glob forms, and directory-prefix siblings.
+The union registers high_tier alongside #181's checks and runs it after gate_decisions in taint_job.
+The module/import/command lists preserve both branches. No existing check is removed.
+The repository-list proof additionally walks .cargo because the general tree walk skips hidden directories.
+This makes its test input include the new listed mutation file even in a mutation copy without git metadata.
+
+The taint_job exclusion reason now names high_tier and its tested decisions.
+The new command exclusion covers only the whole-body replacement with Ok(()).
+Its reason cites verdict with its seven named proofs and outcome with its step-result proof.
+The strict decision/proof form meets #181's citation rule. No verdict, matches, or outcome decision is excluded.
+The reviewer retains round 110's accepted I/O-shell scope. The union changes no runtime product behavior or real-process fixture.
+
+### F83 — LOW — CLOSED in this round
+
+The initial 655f1754 body still named 25 entries, excluded .cargo from the list, and presented b9c3ea2a's gate as current.
+The reviewer sent that body finding to P3 and integration before a verdict commit.
+The final body states 26 entries, the plan 23g exception, the #181 union, strict citations, and the .cargo test walk.
+It names the reviewed 03df8a1f head, current base, and completed gate.
+It keeps b9c3ea2a and b40e9bc3 as historical evidence. That correction changes no source or gate input.
+F83 is CLOSED. No package finding remains at this head.
+
+### Completed evidence and verdict
+
+Gate: ~/botster-sessions/gates/botster-core-stage1-p3-high-tier-paths-03df8a1f-pool-20261009-172559-13907.log.
+The log names the exact reviewed head and base. It ran on Gaming, slot 0, kernel 6.18.40.1-microsoft-standard-WSL2.
+All ten full CI steps PASS. Default: 1285 tests in 10.668 s. Slow: 254 tests in 22.928 s.
+Active conformance: 121 passed, zero failed. Ledger: 679 IDs, 554 pending, two deferred, two withdrawn.
+Signals scan: 178 Rust files. Timers scan: 176 Rust files.
+The log reports 166 checked citation names and 1104 gate mutants against 189 regex exclusions and two glob exclusions.
+The high-tier step prints its pass result. All eight high_tier tests are selected and PASS.
+Both mutation runs test and catch all 13 mutants, with zero missed, timeouts, or unviable.
+The separate run uses the slow profile and a 20 s mutation timeout.
+Full CI: 339.7 s. Separate mutants: 98.3 s. Gate exit zero after 707 s, including 192 s queue time and 515 s run time.
+This PR changes no pending ID and produces no testkit or real minimum gain.
+
+PR #184 is CLEAN at `03df8a1f31ab079adb18d4f51999b8421911baa1` for the assigned package union review.
+F57 remains CLOSED. F83 is CLOSED. No package finding remains.
+Integration must publish its own same-head union verdict under HIGH.
+#184 has one earlier recorded package NOT CLEAN round. No package round-limit notice is due.
+The intermediate 655f1754 review has no separate committed package verdict.
+Round 110 CLEAN at b9c3ea2a remains preserved at its historical head and scope.
+#206 retains round 134 NOT CLEAN at 1484a9ea, verdict ba5c9ebc. F78-F82 remain OPEN.
+P3's non-minimum queue stays parked. Earlier F39, F61/F62, and scoped carry items remain preserved.
+The reviewer changed no product code and ran no tests, builds, gates, measurements, or mutants.
+All earlier exact-head verdicts remain preserved.
+
+VERDICT: CLEAN
