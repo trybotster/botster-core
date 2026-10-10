@@ -704,7 +704,7 @@ mod slow_controls {
         harness.drop_handle("a");
 
         let b = spec("b", &harness);
-        let mut core = harness.open(&b).expect("open b");
+        let core = harness.open(&b).expect("open b");
         let tap = harness.tap("b").unwrap();
         let stored = lock(&tap).stored_row(&row_key(&sid("s1"))).unwrap();
         let row = Row::decode(&sid("s1"), &stored).unwrap();
