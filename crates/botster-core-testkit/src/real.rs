@@ -576,7 +576,7 @@ mod slow_controls {
         hold.release();
     }
 
-    /// The real tier serves the three controls only on a tapped harness.
+    /// The real tier serves the three controls only on a tapped harness: a plain harness answers `unsupported_control`.
     #[test]
     fn the_tapped_harness_serves_the_process_and_storage_controls() {
         let candidate = || Candidate {
@@ -586,9 +586,15 @@ mod slow_controls {
         };
         let tapped = RealCoreHarness::new(candidate()).unwrap();
         let plain = RealCoreHarness::plain(candidate()).unwrap();
+        let mut plain = plain;
         for op in ["corrupt_registry_row", "payload_alive", "lose_worker"] {
             assert!(tapped.has_control(op), "{op}");
             assert!(!plain.has_control(op), "{op}");
+            assert_eq!(
+                plain.control("h", op, &json!({ "session": "s1" })),
+                Err(ControlError::Unsupported),
+                "{op}"
+            );
         }
         assert!(!tapped.has_control("withhold_control_link"));
     }
