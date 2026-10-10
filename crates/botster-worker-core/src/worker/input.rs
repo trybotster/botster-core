@@ -427,7 +427,7 @@ impl Worker {
                     self.finish_active(WriteOutcome::Partial, "the payload ended during the write");
                 } else {
                     // A route's held input is the unwritten rest of its write: its read allowance grows (DP-5).
-                    self.read_allowances();
+                    self.settle_routes();
                     self.write_more();
                 }
             }
@@ -489,9 +489,8 @@ impl Worker {
                 if let Some(reason) = refusal {
                     self.refuse(route, op, reason, (written > 0).then_some(written));
                 }
-                // The route holds one input less: its reserved refusal room is free, so the PTY budget and its read
-                // allowance grow (DP-5).
-                self.send_budget();
+                // The route holds one input less: its reserved refusal room is free (DP-5).
+                self.settle_routes();
             }
         }
         self.try_start();

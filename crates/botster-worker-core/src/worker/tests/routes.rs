@@ -4,7 +4,7 @@
 use super::*;
 use botster_core_link::msg::Observation;
 use botster_route_codec::prelude::{
-    stream_wrap, AttachFailedReason, CloseReason, Exit as WireExit, FrameBounds, HistoryState, Op,
+    AttachFailedReason, CloseReason, Exit as WireExit, FrameBounds, HistoryState, Op,
     ProtocolErrorCode, RefusalReason, RouteClosed as RouteClosedFrame, StreamReader, ToClient,
     ToWorker,
 };
@@ -1377,9 +1377,10 @@ fn route_input_is_held_within_its_allowance_while_the_pty_is_blocked() {
     assert_eq!(writes, expected, "every frame, in order");
 }
 
-/// DP-5 (PR3 F88): a client floods refused input and does not read. The refusals wait in the route's queue under
-/// `route_queue_bytes`; when one more cannot fit, the worker decodes no more frames and the read allowance is 0. When the
-/// client reads, the frames that waited are refused in order, and none is lost.
+/// DP-5 (PR3 F88, F106): a client floods refused input and does not read. Every complete frame of the read is received on
+/// the read (IN-4). The refusals wait in the route's queue under `route_queue_bytes`; when one more cannot fit, the worker
+/// applies no more frames and the read allowance is 0. When the client reads, the frames that waited are refused in order,
+/// and none is lost.
 #[test]
 fn refused_input_against_a_client_that_does_not_read_is_held_at_the_queue_bound() {
     let queue = 1000;
@@ -1397,25 +1398,16 @@ fn refused_input_against_a_client_that_does_not_read_is_held_at_the_queue_bound(
         route: RouteId(1),
         bytes: flood,
     });
-    // Before the client reads: the frames that the worker took are refused within the queue, and the others wait.
-    let decoded = received(&mut w, &actions);
-    assert!(decoded < 200, "the frames that wait are not decoded");
+    // Before the client reads: every frame is received, the refusals that the worker queued fit the queue, and the other
+    // frames wait.
+    assert_eq!(received(&mut w, &actions), 200, "each frame on its read");
+    let (queued, waiting) = w.worker.route_pressure(RouteId(1));
+    assert!(queued <= queue as usize, "{queued} bytes of refusals");
+    assert!(waiting > 0, "the frames past the queue wait");
     assert_eq!(allowance(&actions, RouteId(1)), Some(0), "the reads stop");
     let all = client.take_all(&mut w, RouteId(1), actions);
     let ops: Vec<Option<Op>> = refusals(&client).into_iter().map(|(op, _)| op).collect();
     assert_eq!(ops, (1..=200).map(|k| Some(Op(k))).collect::<Vec<_>>());
-    // Each frame that the worker took before the client read is one refusal: those refusals fit the queue.
-    let early: usize = client
-        .frames
-        .iter()
-        .filter(|f| matches!(f, ToClient::InputRefused(_)))
-        .take(decoded)
-        .map(|f| stream_wrap(&f.encode()).len())
-        .sum();
-    assert!(
-        early <= queue as usize,
-        "{decoded} refusals of {early} bytes"
-    );
     assert_eq!(
         allowance(&all, RouteId(1)),
         Some(limits().route_input_queue_bytes as usize),
@@ -1615,8 +1607,9 @@ fn a_refusal_needs_room_only_behind_an_unread_baseline() {
 
 /// DP-5 (PR3 F100): each input of a route at the admission point keeps the room of one refusal. A host write blocks the PTY,
 /// and a client that does not read sends one-byte inputs; when the payload ends, every queued input is refused at once.
-/// The worker took only the inputs whose refusals fit `route_queue_bytes`, so those refusals fit it; the other frames wait
-/// in the stream, and every input is refused in order when the client reads.
+/// Every frame is received on its read (IN-4, F106). The worker applied only the inputs whose refusals fit
+/// `route_queue_bytes`, so those refusals fit it; the other frames wait, and every input is refused in order when the
+/// client reads.
 #[test]
 fn deferred_refusals_of_queued_route_input_stay_within_the_route_queue() {
     let queue = 1000;
@@ -1633,27 +1626,19 @@ fn deferred_refusals_of_queued_route_input_stay_within_the_route_queue() {
         route: RouteId(1),
         bytes: flood,
     }));
-    let decoded = received(&mut w, &actions);
+    assert_eq!(received(&mut w, &actions), 50, "each frame on its read");
     assert!(
-        decoded < 50,
-        "{decoded}: the frames past the reserved room wait"
+        w.worker.route_pressure(RouteId(1)).1 > 0,
+        "the frames past the reserved room wait"
     );
     assert_eq!(allowance(&actions, RouteId(1)), Some(0), "the reads stop");
     actions.extend(w.feed(Input::PayloadExited(ExitStatus::Code(0))));
     actions.extend(w.feed(Input::PtyWritten(Ok(3))));
     assert_eq!(pty_writes(&actions), b"abc", "only the host's write");
+    // The payload ended: every input that the worker applied is refused at once, and those refusals fit the queue.
+    let (queued, _) = w.worker.route_pressure(RouteId(1));
+    assert!(queued <= queue as usize, "{queued} bytes of refusals");
     let all = client.take_all(&mut w, RouteId(1), actions);
-    let early: usize = client
-        .frames
-        .iter()
-        .filter(|f| matches!(f, ToClient::InputRefused(_)))
-        .take(decoded)
-        .map(|f| stream_wrap(&f.encode()).len())
-        .sum();
-    assert!(
-        early <= queue as usize,
-        "{decoded} refusals of {early} bytes"
-    );
     assert_eq!(
         refusals_written(&client),
         (1..=50)
@@ -1833,4 +1818,115 @@ fn a_route_input_queue_below_one_frame_still_completes_a_frame_and_holds_no_more
         Some(bound),
         "the write is done"
     );
+}
+
+/// DP-5 (PR3 F105): a finite batch of input, all in one read within the allowance, on a route with a small queue. The
+/// reserved refusal room lets the worker apply only part of it at once. Each PTY write succeeds, the payload is quiet,
+/// and the client sends nothing more and reads nothing: the end of each input frees its room, and the frames that wait
+/// are applied then. The whole batch reaches the PTY, in order, with no client read and no outgoing frame.
+#[test]
+fn a_quiet_batch_that_waits_for_reserved_room_reaches_the_pty_as_the_writes_end() {
+    let mut w = with_limits(|l| l.route_queue_bytes = 1000);
+    w.feed(Input::Descriptor(DescriptorId(1)));
+    let mut client = Client::default();
+    let bind = attach(&mut w, RouteId(1), options(), limits());
+    let first = allowance(&bind, RouteId(1)).expect("an allowance");
+    client.take_all(&mut w, RouteId(1), bind);
+    let batch: Vec<u8> = (0..50u8).map(|k| b'A' + k).collect();
+    let read: Vec<u8> = batch
+        .iter()
+        .enumerate()
+        .flat_map(|(k, &b)| client_frame(&bytes_frame(k as u64 + 1, &[b])))
+        .collect();
+    assert!(read.len() <= first, "{} of {first}: one read", read.len());
+    let mut actions = w.feed(Input::RouteRead {
+        route: RouteId(1),
+        bytes: read,
+    });
+    assert!(
+        w.worker.route_pressure(RouteId(1)).1 > 0,
+        "part of the batch waits for room"
+    );
+    let mut writes = Vec::new();
+    loop {
+        assert!(
+            !actions
+                .iter()
+                .any(|a| matches!(a, Action::RouteWrite { .. })),
+            "no outgoing frame"
+        );
+        let started = pty_writes(&actions);
+        if started.is_empty() {
+            break;
+        }
+        let n = started.len();
+        writes.extend(started);
+        actions = w.feed(Input::PtyWritten(Ok(n)));
+    }
+    assert_eq!(writes, batch, "the whole batch, in order");
+    assert_eq!(w.worker.route_pressure(RouteId(1)), (0, 0));
+}
+
+/// IN-4, IN-10 (PR3 F106): a view-only route whose client floods input and reads nothing. Each complete frame of the read
+/// is received on the read, whatever room the refusals have: the last client revision that the worker reports counts
+/// them all. A host write guarded by an earlier reported revision is `Stale` with exact zero; a host write guarded by the
+/// last one starts, and no later report counts a frame of that read.
+#[test]
+fn a_guard_at_the_reported_client_revision_counts_every_frame_of_the_read() {
+    let queue = 1000;
+    let mut w = with_limits(|l| l.route_queue_bytes = queue);
+    w.feed(Input::Descriptor(DescriptorId(1)));
+    let mut opts = options();
+    opts.input = false;
+    let mut client = Client::default();
+    let bind = attach(&mut w, RouteId(1), opts, limits());
+    let first = allowance(&bind, RouteId(1)).expect("an allowance");
+    client.take_all(&mut w, RouteId(1), bind);
+    let flood: Vec<u8> = (1..=50)
+        .flat_map(|k| client_frame(&bytes_frame(k, b"x")))
+        .collect();
+    assert!(flood.len() <= first, "{} of {first}: one read", flood.len());
+    let read = w.feed(Input::RouteRead {
+        route: RouteId(1),
+        bytes: flood,
+    });
+    assert!(
+        w.worker.route_pressure(RouteId(1)).1 > 0,
+        "refusals wait for room"
+    );
+    let revs: Vec<InputRev> = w
+        .reports(&read)
+        .into_iter()
+        .filter_map(|m| match m {
+            WorkerMsg::Observed {
+                observation: Observation::ClientInput { input_rev, .. },
+            } => Some(input_rev),
+            _ => None,
+        })
+        .collect();
+    let (&last, &partial) = (&revs[revs.len() - 1], &revs[revs.len() - 2]);
+    assert_eq!(last, InputRev(50), "each frame of the read");
+    let guard = |rev| Guard {
+        input: Some(InputGuard {
+            source_class: SourceClass::Client,
+            rev,
+        }),
+        model_rev: None,
+    };
+    let stale = w.send(&write(1, b"zzz", Some(guard(partial))));
+    assert!(
+        pty_writes(&stale).is_empty(),
+        "a partial revision writes nothing"
+    );
+    let result = input_result(&mut w, &stale, 1).expect("done");
+    assert_eq!(
+        outcome(&result),
+        (WriteOutcome::NotWritten(NotWrittenReason::Stale), 0, 0)
+    );
+    let actions = w.send(&write(2, b"abc", Some(guard(last))));
+    assert_eq!(pty_writes(&actions), b"abc", "the guard passes");
+    let later = client.take_all(&mut w, RouteId(1), [read, stale, actions].concat());
+    // The actions hold the read's 50 reports, and no later report: no frame was left to count.
+    assert_eq!(received(&mut w, &later), 50, "only the read's reports");
+    assert_eq!(refusals(&client).len(), 50, "every frame is refused");
 }

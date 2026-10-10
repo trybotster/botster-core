@@ -19,13 +19,16 @@
 //!
 //! **Input backpressure (DP-5).** The driver reads a route's client bytes only within the route's read allowance
 //! ([`Action::RouteReadAllowance`]). The allowance is the input bound less the bytes that the route holds: the client bytes
-//! that are not decoded yet, and the route's input that waits at the admission point or is being written. The input bound is
+//! that do not make a whole frame yet, the complete frames that wait to be applied, and the route's input that waits at the
+//! admission point or is being written. The input bound is
 //! `route_input_queue_bytes`, and at least one whole frame of the route with its stream prefix (steward ruling R-53: DP-3
 //! admits a frame of `max_frame_bytes`, so the reader must be able to read one). The driver spends an allowance read by
 //! read, so the worker's copy of it is lowered by each read, and a new allowance goes out whenever the driver's rest differs
 //! from the value now. The allowance is 0 while the route's outgoing queue cannot hold one more `input_refused` frame behind
-//! the baseline sequence (`route_queue_bytes`), and the worker then decodes no more frames: a client that floods refused
-//! input and does not read is held at `route_queue_bytes`. Each input of the route at the admission point can still be
+//! the baseline sequence (`route_queue_bytes`), and the worker then applies no more frames: a client that floods refused
+//! input and does not read is held at `route_queue_bytes`. Each complete frame is still received on its read (IN-4): it
+//! advances `input_rev{client}` then, and waits to be applied (PR3 F106). The frames that wait are applied when the room
+//! comes back: a write of the route's queue, or the end of one of its inputs (PR3 F105). Each input of the route at the admission point can still be
 //! refused (a failed write, the payload's end), so the room of one refusal is kept for each of them, in that check and in the
 //! PTY read budget. A closing route discards the client bytes that it reads: no frame of it is applied, and no frame goes
 //! after its `route_closed` (OU-2b).
@@ -66,6 +69,10 @@ pub(super) struct Routes {
     routes: BTreeMap<RouteId, Route>,
     /// The last budget that the driver got was a limit: when the last route ends, the limit is lifted once.
     limited: bool,
+    /// `settle_routes` runs: a call from inside it (a refusal that an applied frame queues) only asks for one more pass.
+    settling: bool,
+    /// A change came during a pass of `settle_routes`: it makes one more pass.
+    unsettled: bool,
 }
 
 #[derive(Debug)]
@@ -87,10 +94,27 @@ struct Route {
     closing: Option<RouteCloseReason>,
     /// The client's bytes that do not make a whole frame yet (TS-3).
     reader: StreamReader,
+    /// The complete frames that the route received and has not applied yet, in receive order: each was counted as received
+    /// (IN-4) when its read came, and each waits for the room of its refusal (DP-5).
+    /// Each frame has its size in the stream (with its prefix).
+    received: VecDeque<(usize, Received)>,
+    /// The sum of the sizes in `received`: they count against the input bound.
+    received_bytes: usize,
     /// `options.input`: false makes the route view-only (OU-1).
     input: bool,
     /// The last read allowance that the driver got (`Action::RouteReadAllowance`); none yet at the bind.
     allowance: Option<usize>,
+}
+
+/// A complete client frame that the route received (IN-4), as it is applied (DP-5).
+#[derive(Debug)]
+enum Received {
+    /// Client input to apply.
+    Frame(ToWorker),
+    /// Client input that is refused with this op and reason.
+    Refused(Option<Op>, RefusalReason),
+    /// A frame that cannot be decoded: the route closes with this reason (OU-5), after the frames before it.
+    Bad(RouteCloseReason),
 }
 
 impl Route {
@@ -227,6 +251,8 @@ impl Worker {
             writing: false,
             closing: None,
             reader: StreamReader::default(),
+            received: VecDeque::new(),
+            received_bytes: 0,
             input: options.input,
             allowance: None,
         };
@@ -273,7 +299,7 @@ impl Worker {
             self.end_with_session(route, code, signal);
         }
         self.pump_route(route);
-        self.send_budget();
+        self.settle_routes();
     }
 
     /// The encoded baseline frames at the consumed cut `R`, then the output after `R` that the model holds (OU-9), and the
@@ -367,7 +393,7 @@ impl Worker {
             }
             self.pump_route(id);
         }
-        self.send_budget();
+        self.settle_routes();
     }
 
     /// Starts the next write of a route, when none is out.
@@ -423,10 +449,9 @@ impl Worker {
                 return;
             }
         }
-        // The written bytes may make room for a refusal: the frames that wait for it are decoded now (DP-5).
-        self.decode_route(id);
+        // The written bytes may make room for a refusal (DP-5).
         self.pump_route(id);
-        self.send_budget();
+        self.settle_routes();
     }
 
     pub(super) fn on_route_writable(&mut self, id: RouteId) {
@@ -446,7 +471,7 @@ impl Worker {
             reason,
             route_tag: route.route_tag,
         });
-        self.send_budget();
+        self.settle_routes();
     }
 
     /// A healthy close (OU-2b): `route_closed` goes after every frame that is queued, and the transport closes when it is
@@ -470,7 +495,7 @@ impl Worker {
         }
         route.push_encoded(&frame);
         self.pump_route(id);
-        self.send_budget();
+        self.settle_routes();
     }
 
     /// `Detach` (DP-7, OU-2b): the route closes with its reason, after the frames that are queued. A route that this worker
@@ -528,15 +553,56 @@ impl Worker {
         // A closing route applies no more input: its bytes are discarded, so they are not held (DP-5, OU-2b).
         if route.closing.is_none() {
             route.reader.push(bytes);
-            self.decode_route(id);
+            self.receive_route(id);
         }
         // The decoded input may reserve the room of its refusal: the PTY budget and the allowances follow.
-        self.send_budget();
+        self.settle_routes();
     }
 
-    /// Decodes the route's complete frames in order, while the route is open and one more refusal fits (DP-5). The bytes of
-    /// a frame that is not decoded stay in the reader, and decoding goes on when the queue has room again.
-    fn decode_route(&mut self, id: RouteId) {
+    /// Receives every complete frame of the route's reader, in order (TS-3): each input frame, applied or refused, advances
+    /// `input_rev{client}` now, on receipt, whatever room the route has (IN-4, IN-10). The frames wait in `received` for
+    /// `apply_route`. A frame that cannot be decoded ends the receipt: nothing after it is a frame.
+    fn receive_route(&mut self, id: RouteId) {
+        loop {
+            let Some(route) = self.routes.routes.get_mut(&id) else {
+                return;
+            };
+            if matches!(route.received.back(), Some((_, Received::Bad(_)))) {
+                return;
+            }
+            let bounds = frame_bounds(&route.limits);
+            let (decoded, size) = match route.reader.next_frame(&bounds) {
+                Ok(None) => return,
+                Ok(Some(frame)) => (
+                    ToWorker::decode(&frame, &bounds),
+                    frame.len() + STREAM_PREFIX,
+                ),
+                Err(error) => (Err(error), 0),
+            };
+            let received = match decoded {
+                Ok(Decoded::Frame(frame)) => Received::Frame(frame),
+                Ok(Decoded::Ignored { .. }) => continue,
+                // A complete input frame that cannot be applied is still client input: it is received, then refused (IN-4).
+                Ok(Decoded::Unsupported { op, what }) => {
+                    Received::Refused(op, RefusalReason::Unsupported { what })
+                }
+                Ok(Decoded::Invalid { op, .. }) => {
+                    Received::Refused(op, RefusalReason::InvalidInput)
+                }
+                Err(error) => Received::Bad(RouteCloseReason::BadFrame { code: error.code }),
+            };
+            route.received_bytes += size;
+            let input = !matches!(received, Received::Bad(_));
+            route.received.push_back((size, received));
+            if input {
+                self.client_received(id);
+            }
+        }
+    }
+
+    /// Applies the route's received frames in order, while the route is open and one more refusal fits (DP-5). A frame that
+    /// is not applied stays in `received`; `settle_routes` applies it when the route has room again.
+    fn apply_route(&mut self, id: RouteId) {
         let queue_bytes = usize::try_from(self.limits.route_queue_bytes).unwrap_or(usize::MAX);
         loop {
             let reserved = self.reserved(id);
@@ -546,27 +612,15 @@ impl Worker {
             if route.closing.is_some() || !route.refusal_room(queue_bytes, reserved) {
                 return;
             }
-            let bounds = frame_bounds(&route.limits);
-            let decoded = match route.reader.next_frame(&bounds) {
-                Ok(None) => return,
-                Ok(Some(frame)) => ToWorker::decode(&frame, &bounds),
-                Err(error) => Err(error),
+            let Some((size, received)) = route.received.pop_front() else {
+                return;
             };
-            match decoded {
-                Ok(Decoded::Frame(frame)) => self.on_client_frame(id, frame),
-                Ok(Decoded::Ignored { .. }) => {}
-                // A complete input frame that cannot be applied is still client input: it is received, then refused (IN-4).
-                Ok(Decoded::Unsupported { op, what }) => {
-                    self.client_received(id);
-                    self.refuse(id, op, RefusalReason::Unsupported { what }, None)
-                }
-                Ok(Decoded::Invalid { op, .. }) => {
-                    self.client_received(id);
-                    self.refuse(id, op, RefusalReason::InvalidInput, None)
-                }
-                Err(error) => {
-                    let code = error.code;
-                    self.close_healthy(id, RouteCloseReason::BadFrame { code });
+            route.received_bytes -= size;
+            match received {
+                Received::Frame(frame) => self.on_client_frame(id, frame),
+                Received::Refused(op, reason) => self.refuse(id, op, reason, None),
+                Received::Bad(reason) => {
+                    self.close_healthy(id, reason);
                     return;
                 }
             }
@@ -589,7 +643,7 @@ impl Worker {
             } else {
                 route
                     .input_bound()
-                    .saturating_sub(held.saturating_add(route.reader.pending()))
+                    .saturating_sub(held + route.received_bytes + route.reader.pending())
             };
             if route.allowance != Some(allowance) {
                 route.allowance = Some(allowance);
@@ -623,9 +677,8 @@ impl Worker {
         });
     }
 
-    /// One complete client input frame (IN-4, DP-5).
+    /// One complete client input frame, received (IN-4) and now applied (DP-5).
     fn on_client_frame(&mut self, id: RouteId, frame: ToWorker) {
-        self.client_received(id);
         let (op, bytes) = match frame {
             ToWorker::Bytes { op, bytes } => (op, bytes.0.to_vec()),
             ToWorker::Text { op, text } => (op, text.into_bytes()),
@@ -692,12 +745,36 @@ impl Worker {
         debug_assert!(stream_wrap(&frame.encode()).len() <= refusal_bound());
         route.push(&frame);
         self.pump_route(id);
+        self.settle_routes();
+    }
+
+    /// The one place where the routes' waiting work is re-evaluated (DP-5, PR3 F105). Each event that changes what a route
+    /// holds or the room of its queue calls it: a read, a write of the queue, a queued frame, the end or the progress of a
+    /// route's input, a bind and a close. It applies the frames that wait for room on every route, then sends the PTY read
+    /// budget and the read allowances. A call from inside a pass (an applied frame queues a refusal) makes one more pass.
+    pub(super) fn settle_routes(&mut self) {
+        if self.routes.settling {
+            self.routes.unsettled = true;
+            return;
+        }
+        self.routes.settling = true;
+        loop {
+            self.routes.unsettled = false;
+            let ids: Vec<RouteId> = self.routes.routes.keys().copied().collect();
+            for id in ids {
+                self.apply_route(id);
+            }
+            if !self.routes.unsettled {
+                break;
+            }
+        }
+        self.routes.settling = false;
         self.send_budget();
     }
 
     /// The PTY read budget (OU-3d): the smallest free payload space of the routes that are not closing. With no such route
     /// the limit is lifted, once.
-    pub(super) fn send_budget(&mut self) {
+    fn send_budget(&mut self) {
         let queue_bytes = usize::try_from(self.limits.route_queue_bytes).unwrap_or(usize::MAX);
         let budget = self
             .routes
@@ -724,6 +801,14 @@ impl Worker {
     /// the admission point (DP-5).
     fn reserved(&self, id: RouteId) -> usize {
         self.input.route_inputs(id) * refusal_bound()
+    }
+
+    /// The queued bytes of a route that count against `route_queue_bytes` (behind the baseline sequence, R-45), and the
+    /// complete frames that it received and has not applied yet.
+    #[cfg(test)]
+    pub(super) fn route_pressure(&self, id: RouteId) -> (usize, usize) {
+        let route = &self.routes.routes[&id];
+        (route.queued - route.baseline, route.received.len())
     }
 
     /// The unbound descriptors of a link that ended or was replaced are closed (DP-8).
@@ -759,6 +844,8 @@ mod tests {
             queued,
             baseline: 0,
             reader: StreamReader::default(),
+            received: VecDeque::new(),
+            received_bytes: 0,
             input: true,
             writing: false,
             closing: None,
