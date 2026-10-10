@@ -613,40 +613,43 @@ fn the_start_needs_an_intermediate_that_ends_with_code_0_and_an_acknowledgement(
 /// Production can end the wrap stage before it reads the anchor's acknowledgement (Core `lc_5_stop_ends_payload`: a Stop
 /// right after the Start). The acknowledgement then has no reader. The anchor still holds the group until its guard
 /// connection ends, and then ends the group. Here the anchor stage runs in the leader's group with the reader of its
-/// acknowledgement already closed; its stdin and stderr stand for the guard connection.
+/// acknowledgement already closed; its stdin and stderr stand for the guard connection. The test owns both processes on
+/// every path, independently of the anchor under test: the leader as a group owner, whose drop ends the group (the anchor
+/// is a member), and the anchor as an owned child.
 #[test]
 fn an_anchor_whose_acknowledgement_has_no_reader_still_holds_and_ends_the_group() {
     let dir = tempfile::tempdir().unwrap();
     let blocker = Blocker::new(dir.path(), "block").unwrap();
-    let mut production = Command::new("/bin/cat")
-        .arg(blocker.path())
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .process_group(0)
-        .spawn()
-        .unwrap();
+    let mut production = OwnedChild::spawn_group(
+        Command::new("/bin/cat")
+            .arg(blocker.path())
+            .stdin(Stdio::null())
+            .stdout(Stdio::null()),
+    )
+    .unwrap();
     let leader = production.id();
     let leader_start = start_time(pid(leader).unwrap()).unwrap().unwrap();
     let (connection_end, connection) = std::io::pipe().unwrap();
     let (lines, lines_writer) = std::io::pipe().unwrap();
     let (acknowledgement_reader, acknowledgement) = std::io::pipe().unwrap();
     drop(acknowledgement_reader);
-    let mut anchor = Command::new(ANCHOR)
-        // The leader's pid and start time, the group, a grace of 0 and the cleanup bound.
-        .args([
-            "anchor".to_string(),
-            leader.to_string(),
-            leader_start.to_string(),
-            leader.to_string(),
-            "0".to_string(),
-            CLEANUP.as_nanos().to_string(),
-        ])
-        .stdin(connection_end)
-        .stdout(acknowledgement)
-        .stderr(lines_writer)
-        .process_group(i32::try_from(leader).unwrap())
-        .spawn()
-        .unwrap();
+    let mut anchor = OwnedChild::spawn(
+        Command::new(ANCHOR)
+            // The leader's pid and start time, the group, a grace of 0 and the cleanup bound.
+            .args([
+                "anchor".to_string(),
+                leader.to_string(),
+                leader_start.to_string(),
+                leader.to_string(),
+                "0".to_string(),
+                CLEANUP.as_nanos().to_string(),
+            ])
+            .stdin(connection_end)
+            .stdout(acknowledgement)
+            .stderr(lines_writer)
+            .process_group(i32::try_from(leader).unwrap()),
+    )
+    .unwrap();
     let (mut rest, line) = first_line(lines);
     match Line::decode(&line) {
         Some(Line::Anchor(report)) => assert_eq!(report.leader.pid, leader),
@@ -658,8 +661,9 @@ fn an_anchor_whose_acknowledgement_has_no_reader_still_holds_and_ends_the_group(
         rest.line(Deadline::cleanup()).unwrap().as_deref(),
         Some("ok\n")
     );
-    assert_eq!(production_reap(&mut production).signal(), Some(KILL));
-    assert_eq!(production_reap(&mut anchor).code(), Some(0));
+    // The anchor's KILL ended the leader, and its owner reaps it.
+    assert_eq!(production.status().signal(), Some(KILL));
+    assert_eq!(anchor.status().code(), Some(0));
 }
 
 /// #171 TP4: when the test dies before any anchor registered with its guard, no process of the wrapped program is left: the
