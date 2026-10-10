@@ -410,4 +410,22 @@ mod slow_tests {
         assert!(harness.injects_clock());
         assert!(!harness.progress_is_injected());
     }
+
+    /// A failed trial prints the harness, so its debug form names the binaries under test and the root directory.
+    #[test]
+    fn the_debug_form_names_the_candidate_and_the_root() {
+        let harness = RealCoreHarness::new(Candidate {
+            worker: PathBuf::from("/nonexistent/worker"),
+            probe: PathBuf::from("/nonexistent/probe"),
+            anchor: PathBuf::from("/nonexistent/anchor"),
+        })
+        .unwrap();
+        let debug = format!("{harness:?}");
+        assert!(debug.starts_with("RealCoreHarness {"), "{debug}");
+        assert!(debug.contains("/nonexistent/worker"), "{debug}");
+        assert!(
+            debug.contains(&format!("{:?}", harness.root.path())),
+            "{debug}"
+        );
+    }
 }
