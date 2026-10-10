@@ -702,7 +702,7 @@ fn stage2_selection(first: &Outcomes) -> Result<Stage2Selection> {
     let shared = first
         .missed
         .iter()
-        .find(|name| count(&first.tested, *name) > count(&first.missed, *name));
+        .find(|name| count(&first.tested, name) > count(&first.missed, name));
     if let Some(name) = shared {
         bail!(
             "mutants: stage 2 (slow): selection error: two mutants share the name `{name}`, and stage 1 missed only one \
