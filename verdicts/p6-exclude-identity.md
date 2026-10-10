@@ -73,3 +73,50 @@ These passing results do not close EX-R1-1.
 The reviewer changed no product code and ran no gate, build, test, mutation job, merge check, or reversal.
 
 VERDICT: NOT CLEAN
+
+## Round 2 — 2026-10-10
+
+PR: https://github.com/trybotster/botster-core/pull/236.
+Exact head: `4de5a07ea79e76378f1baf174d0f74a3f989266f`.
+Review and full gate base: `78b011d1a8a23229b87f81b0553ab052818b2200`.
+Risk tier remains HIGH.
+
+**EX-R1-1 — CLOSED.**
+The fixture listing now calls `botster_test_process::run_to_completion` with `Deadline::after(test_budget::SLOW_DEADLINE)`.
+The complete replacement delta changes only this listing call and its explanatory comment.
+The reviewer read the shared runner and child ownership source at this head.
+The runner owns a new process group before it reads output.
+It reads stdout and stderr together and then waits for exit under the same deadline.
+Its group owner ends the group on success and failure paths before it reaps its own leader.
+It reaps no production-owned process.
+
+The source adds no timeout value, sleep, busy loop, or new process component.
+The fixture's command arguments, listing parser, exclusions, and assertions remain unchanged.
+The exclusion file and fixture files equal Round 1.
+The reviewer found no new defect in this correction.
+The current PR body records the finding and correction.
+The remote head and Git merge base match the reviewed head and gate base.
+
+The reviewer read the exact-head Linux gate:
+`~/botster-sessions/gates/botster-core-stage1-p6-exclude-identity-4de5a07e-pool-20261010-162732-9689.log`.
+Its header names the full head and base. All ten jobs pass. The wrapper exits 0 after 519 seconds.
+The job records 150 seconds queued and 369 seconds running.
+Default: 1501 passing tests. Slow: 384 passing tests.
+The new exclusion, configuration, listing, and existing #229 identity proofs pass.
+The real fixture proof passes in 19.073 seconds.
+It retains the successful exclusion skip, failed removal of the skip, and failed miss in both stages.
+The shared runner's output, deadline failure, and child-cleanup proofs pass.
+The reviewer read those proofs. They assert returned status and output, timeout errors, and pipe closure after child cleanup.
+
+Stage 1 reports 29 mutants: 27 caught, zero missed, zero timeout, and two unviable, in 127.7 seconds.
+Stage 2 does not run in the main mutation job.
+Both conformance reports show 193 passed and zero failed.
+Strict coverage remains 386/407, with 21 real-only transcripts and two held transcripts.
+Minimum counts remain testkit 50/69, real 29/68, and real-accepted 29/69.
+Pending-real remains 87, with zero newly passing ids.
+
+The Round 1 review of the full selection change and Prior art note remains applicable.
+This correction closes its only package finding.
+The reviewer changed no product code and ran no gate, build, test, mutation job, merge check, or reversal.
+
+VERDICT: CLEAN
