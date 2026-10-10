@@ -11,11 +11,13 @@
 //!    the wrapper.
 //! 2. **intermediate** starts the anchor and exits at once, so the anchor is no child of the real program (the double fork).
 //! 3. **anchor** holds the inherited group (and session) and the guard connection. It reports its identity and the leader's,
-//!    then blocks until the connection ends: the guard's release or drop, or the death of the test. Then it verifies the
-//!    leader's identity and group, refusing to signal a group that the leader left (ruling item 13) or whose identity or
-//!    group it cannot read; sends `TERM` to the group and waits the configured grace for its members to end; verifies again,
-//!    and refuses when a member that `TERM` reached moved to another group; and ends the group in the rounds of `rounds.rs`,
-//!    holding it with a reserve (see there why). It reaps only the reserve. It reports `ok` or the failure on the connection.
+//!    then acknowledges to wrap. An acknowledgement with no reader (production ended wrap before its exec) is not an error:
+//!    the anchor still holds the group. Then it blocks until the connection ends: the guard's release or drop, or the death
+//!    of the test. Then it verifies the leader's identity and group, refusing to signal a group that the leader left (ruling
+//!    item 13) or whose identity or group it cannot read; sends `TERM` to the group and waits the configured grace for its
+//!    members to end; verifies again, and refuses when a member that `TERM` reached moved to another group; and ends the
+//!    group in the rounds of `rounds.rs`, holding it with a reserve (see there why). It reaps only the reserve. It reports
+//!    `ok` or the failure on the connection.
 //!
 //! The intermediate and the anchor first close every inherited descriptor above 2, so that no production pipe stays open in
 //! them (`close_inherited` in the binary).
