@@ -34,8 +34,9 @@ pub struct NodeId(pub usize);
 pub trait Node: Send {
     /// How many inputs are ready at `now`: an edge endpoint whose flag matches its interest, and a due deadline.
     fn ready(&mut self, now: Instant) -> usize;
-    /// Hands the `index`-th ready input (of `ready(now)`) to the machine and routes its actions.
-    fn run(&mut self, now: Instant, index: usize) -> Handled;
+    /// Hands the `index`-th ready input (of `ready(now)`) to the machine and routes its actions. With `trace`, it returns
+    /// them as text; without it, it formats nothing.
+    fn run(&mut self, now: Instant, index: usize, trace: bool) -> Option<Handled>;
     fn next_deadline(&self) -> Option<Instant>;
 }
 
@@ -86,23 +87,24 @@ where
         self.edge_inputs + usize::from(self.deadline_due(now))
     }
 
-    fn run(&mut self, now: Instant, index: usize) -> Handled {
+    fn run(&mut self, now: Instant, index: usize, trace: bool) -> Option<Handled> {
         let input = if index < self.edge_inputs {
             self.binding.take(now, &self.machine, index)
         } else {
             self.binding.timer(now)
         };
-        let text = format!("{input:?}");
+        // The text of an input or an action holds its bytes, so it is made only for a trace: a run that moves a large
+        // output would otherwise format every byte of it.
+        let text = trace.then(|| format!("{input:?}"));
         self.machine.handle(now, input);
         let mut actions = Vec::new();
         while let Some(action) = self.machine.poll_action() {
-            actions.push(format!("{action:?}"));
+            if trace {
+                actions.push(format!("{action:?}"));
+            }
             self.binding.perform(now, action);
         }
-        Handled {
-            input: text,
-            actions,
-        }
+        text.map(|input| Handled { input, actions })
     }
 
     fn next_deadline(&self) -> Option<Instant> {
@@ -121,7 +123,8 @@ pub struct Sim {
     now: Instant,
     scheduler: SchedulerHandle,
     nodes: Vec<Box<dyn Node>>,
-    trace: Vec<TraceEntry>,
+    /// The handled inputs, when the `Sim` records them (`traced`).
+    trace: Option<Vec<TraceEntry>>,
 }
 
 impl Sim {
@@ -136,7 +139,7 @@ impl Sim {
             now: start,
             scheduler,
             nodes: Vec::new(),
-            trace: Vec::new(),
+            trace: None,
         }
     }
 
@@ -171,6 +174,13 @@ impl Sim {
         self.nodes.iter().filter_map(|n| n.next_deadline()).min()
     }
 
+    /// The `Sim`, recording from now each handled input with its actions, as text ([`Sim::trace`]). A `Sim` records nothing
+    /// by default: the text holds every byte that an input or an action carries.
+    pub fn traced(mut self) -> Sim {
+        self.trace.get_or_insert_with(Vec::new);
+        self
+    }
+
     /// Chooses one ready input (A5-2, OR-3), hands it to its machine and routes its actions. Returns false when no input is ready.
     pub fn step(&mut self) -> bool {
         let counts: Vec<usize> = self.nodes.iter_mut().map(|n| n.ready(self.now)).collect();
@@ -182,11 +192,13 @@ impl Sim {
         let mut chosen = self.scheduler.with(|s| s.ready_work(total));
         for (node, count) in counts.iter().enumerate() {
             if chosen < *count {
-                let handled = self.nodes[node].run(self.now, chosen);
-                self.trace.push(TraceEntry {
-                    node: NodeId(node),
-                    handled,
-                });
+                let handled = self.nodes[node].run(self.now, chosen, self.trace.is_some());
+                if let (Some(trace), Some(handled)) = (self.trace.as_mut(), handled) {
+                    trace.push(TraceEntry {
+                        node: NodeId(node),
+                        handled,
+                    });
+                }
                 return true;
             }
             chosen -= count;
@@ -215,9 +227,9 @@ impl Sim {
         }
     }
 
-    /// The handled inputs, in order, with their actions.
+    /// The handled inputs, in order, with their actions, since `traced`; none for a `Sim` that does not record.
     pub fn trace(&self) -> &[TraceEntry] {
-        &self.trace
+        self.trace.as_deref().unwrap_or_default()
     }
 }
 
@@ -292,7 +304,7 @@ mod tests {
 
     /// Three counters, each with its own link and queued bytes.
     fn world(seed: u64, limit: u32) -> (Sim, Log, Vec<LinkEnd>) {
-        let mut sim = Sim::with_seed(seed, Instant::now());
+        let mut sim = Sim::with_seed(seed, Instant::now()).traced();
         let log: Log = Arc::default();
         let mut feeders = Vec::new();
         for id in 0..3 {
@@ -435,6 +447,78 @@ mod tests {
         assert!(!sim.step(), "handled once");
         assert_eq!(*done.lock().unwrap(), ["timer"]);
         assert_eq!(sim.next_deadline(), None);
+    }
+
+    /// An input or an action whose text counts how often it is made.
+    struct Loud(Arc<std::sync::atomic::AtomicUsize>);
+
+    impl Debug for Loud {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            f.write_str("loud")
+        }
+    }
+
+    /// A machine that answers each input with one action.
+    struct Echo(VecDeque<Loud>);
+
+    impl Machine for Echo {
+        type Input = Loud;
+        type Action = Loud;
+        fn handle(&mut self, _now: Instant, input: Loud) {
+            self.0.push_back(input);
+        }
+        fn poll_action(&mut self) -> Option<Loud> {
+            self.0.pop_front()
+        }
+        fn next_deadline(&self) -> Option<Instant> {
+            None
+        }
+    }
+
+    /// Three ready inputs, then none.
+    struct ThreeInputs(usize, Arc<std::sync::atomic::AtomicUsize>);
+
+    impl Binding<Echo> for ThreeInputs {
+        fn ready(&mut self, _: Instant, _: &Echo) -> usize {
+            usize::from(self.0 < 3)
+        }
+        fn take(&mut self, _: Instant, _: &Echo, _: usize) -> Loud {
+            self.0 += 1;
+            Loud(Arc::clone(&self.1))
+        }
+        fn timer(&mut self, _: Instant) -> Loud {
+            unreachable!("no deadline")
+        }
+        fn perform(&mut self, _: Instant, _: Loud) {}
+    }
+
+    fn echo_run(sim: Sim) -> (Sim, usize) {
+        let texts = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let mut sim = sim;
+        sim.add(Box::new(MachineNode::new(
+            Echo(VecDeque::new()),
+            ThreeInputs(0, Arc::clone(&texts)),
+        )));
+        assert_eq!(sim.run_until_idle(10), Ok(3));
+        let made = texts.load(std::sync::atomic::Ordering::SeqCst);
+        (sim, made)
+    }
+
+    /// A `Sim` makes no text of an input or an action unless it is `traced`: the text holds every byte that they carry, and a
+    /// run can move a large output (`route_fill`). A traced `Sim` records each input with its action.
+    #[test]
+    fn only_a_traced_sim_formats_its_inputs_and_actions() {
+        let (sim, made) = echo_run(Sim::with_seed(0, Instant::now()));
+        assert_eq!(made, 0, "no text is made");
+        assert!(sim.trace().is_empty());
+        let (sim, made) = echo_run(Sim::with_seed(0, Instant::now()).traced());
+        assert_eq!(made, 6, "an input and an action for each of the three");
+        let handled: Vec<&Handled> = sim.trace().iter().map(|t| &t.handled).collect();
+        assert_eq!(handled.len(), 3);
+        assert!(handled
+            .iter()
+            .all(|h| h.input == "loud" && h.actions == ["loud"]));
     }
 
     /// Work still ready after `limit` handled inputs is reported as a livelock with its limit.
