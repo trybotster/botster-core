@@ -428,12 +428,19 @@ fn mutants_job(root: &Path) -> Result<()> {
     Ok(())
 }
 
-/// The number of mutants that `cargo mutants --list --json` lists (a JSON array, one object per mutant).
+/// What cargo-mutants 27.1.0 logs, with no output, when the filters (`--in-diff`, `exclude_re`) leave no mutant.
+const NO_MUTANT_LOG: &str = "No mutants to filter";
+
+/// The number of mutants that `cargo mutants --list --json` lists (a JSON array, one object per mutant). When the filters
+/// leave no mutant, cargo-mutants prints nothing and logs `NO_MUTANT_LOG`: that is 0.
 ///
 /// # Errors
 /// The listing failed, or its output is not a JSON array.
 fn parse_listing(listing: &std::process::Output) -> Result<usize> {
     let json = crate::tools::stdout_of(listing, "cargo mutants --list")?;
+    if json.trim().is_empty() && String::from_utf8_lossy(&listing.stderr).contains(NO_MUTANT_LOG) {
+        return Ok(0);
+    }
     let v: serde_json::Value = serde_json::from_str(&json).context("parse the mutant listing")?;
     v.as_array()
         .map(Vec::len)
@@ -828,6 +835,18 @@ mod tests {
         );
         assert!(parse_listing(&listing(0, "{}")).is_err());
         assert!(parse_listing(&listing(0, "not json")).is_err());
+        // An empty output is 0 only with cargo-mutants' log of an empty filter result.
+        assert!(parse_listing(&listing(0, "")).is_err());
+        let filtered_out = std::process::Output {
+            stderr: b" INFO No mutants to filter\n".to_vec(),
+            ..listing(0, "")
+        };
+        assert_eq!(parse_listing(&filtered_out).unwrap(), 0);
+        let not_empty = std::process::Output {
+            stderr: filtered_out.stderr.clone(),
+            ..listing(0, "not json")
+        };
+        assert!(parse_listing(&not_empty).is_err());
         assert_eq!(
             parse_listing(&listing(1, "[]")).unwrap_err().to_string(),
             "cargo mutants --list failed: no manifest"
