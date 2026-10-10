@@ -241,6 +241,7 @@ fn run_nextest(
         .args(args)
         .env("BOTSTER_TEST_PIDFILE", pidfile)
         .envs(tier_env(slow));
+    caps::apply(&mut command);
     run_bounded(
         command,
         deadline,
@@ -267,7 +268,7 @@ fn run_bounded(
     if capture.is_some() {
         command.stdout(Stdio::piped());
     }
-    let mut child = caps::apply(&mut command).spawn().context(start)?;
+    let mut child = command.spawn().context(start)?;
     let group = child.id();
     if let (Some(lines), Some(stdout)) = (capture, child.stdout.take()) {
         // The reader ends with the pipe; nothing waits for it.
@@ -370,6 +371,7 @@ pub fn pending_real(root: &Path, deadline: Duration) -> Result<(bool, String)> {
             "4",
         ])
         .envs(tier_env(true));
+    caps::apply(&mut command);
     bounded_report(
         command,
         deadline,
