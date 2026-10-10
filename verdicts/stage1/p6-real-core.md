@@ -155,3 +155,86 @@ The implementer will provide evidence on the corrected head, including the nine 
 The replacement evidence must show the intended unmutated tests and each claimed behavioral catch.
 No reviewer execution occurred.
 The four source findings remain OPEN, and the manual mutation evidence remains incomplete.
+
+## Round 2 — 2026-10-10
+
+Reviewed head: `9317693d8b1250a31a6a14e7c1125f18f3f7d0a5`.
+PR and gate base: `d174ef48a218b74beb4bac9ec555c6c39d2650a4`.
+Tier: HIGH. I reviewed the complete replacement diff, its merge, and the supplied evidence.
+
+### R2-1 — HIGH — A new mutation exclusion leaves the file comparison decision unproved
+
+The new whole-body exclusion for `ledger_ids_command` cites `ledger_text` and `real_only_text` as its tested decisions.
+Those helpers produce expected text. They do not decide whether a missing or different checked-in file must fail the gate.
+That comparison remains inside the excluded function at `xtask/src/lists.rs:718`.
+Its condition compares `read_to_string(...).ok().as_deref()` with `Some(text.as_str())` and decides whether to return an error.
+The cited tests do not exercise this decision.
+Thus the new exclusion does not meet the gate's requirement for tested decisions outside an excluded I/O shell.
+
+Reuse the tested copy comparison, or extract and test this comparison decision.
+Cite the actual decision and its proof in the exclusion comment.
+The proof must cover matching, different, and missing copies.
+
+The P6 reviewer reported this as RH-R2-1. I independently checked the exclusion, function, and cited tests.
+Status: OPEN.
+
+### Prior findings closed
+
+- R1-1: `pending_real` uses the shared bounded execution path with the established slow deadline.
+  The path owns a process group and tracks processes. `bounded_report` cleans up before reading the captured report.
+  It rejects leftover processes, deadline expiry, and output that remains open past the deadline.
+  The supplied gate passes the status, deadline, and leftover-process proofs.
+- R1-2: the socket proof uses nonblocking reads and verifies which descriptor closes.
+  It retains socket pairs until a new socket reuses that descriptor number, then checks stale-link reads and writes.
+- R1-3: the documentation now describes bounded reads and retained input that can require later pumps.
+- P5 RH-F1: an explicit role selects the binary. Separate role directories prevent worker and probe wrapper collisions.
+  The focused proof checks both paths and the binary selected by each wrapper.
+
+The plan 23s count gap also closes.
+I independently derived all 26 real-only rows from the pinned contracts replacement map and Core ledger. The bytes match.
+The runner counts eligible minimum ids by their named proof on both tiers and prints each proof source.
+All four current real-only minimum ids remain pending, so this path adds no current pass.
+The minimum file is byte-identical to Round 1. The pending and real-pending id sets are unchanged.
+
+### Manual mutation evidence verified
+
+Log:
+`/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-p6-real-core-3ee0f118-pool-20261010-040958-20767.log`.
+
+The job explicitly runs the intended unmutated selection first: both packages, both slow features, the slow profile, and immediate fail-fast.
+All 175 selected tests pass.
+The cargo-mutants baseline selects only seventeen testkit tests; the explicit baseline resolves that selection difference.
+I parsed all eighteen mutant outcomes and read each retained failure section.
+All sixteen catches build successfully and return test exit 100 with a named failure.
+The two unviable mutants return compilation exit 101 because `DataDirRef` and `WorkerRef` lack `Default` implementations.
+There are no missed mutants or timeouts. The job exits zero after 7,018 seconds.
+The nine earlier survivors and changed wrapper functions are covered by this focused run.
+The recovered 23 catches and 21 compilation failures from Round 1 remain valid evidence.
+`real.rs` is byte-identical across the final merge.
+The manual mutation evidence concern is CLOSED.
+
+### Gate and merge checks
+
+Log:
+`/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-p6-real-core-9317693d-pool-20261010-083223-20264.log`.
+
+The header names the reviewed head and base. All ten steps pass in 453.4 seconds.
+Default tests: 1,464 passed. Slow tests: 377 passed.
+The conformance reports retain 193 testkit passes, 106 real passes, and 87 pending-real ids with zero passes.
+Minimum counts remain testkit 50/69, real-passing 29/68, and real-accepted 29/69.
+Both mutation steps report 125 mutants: 95 caught, 30 unviable, zero missed, and zero timeouts.
+The second mutation step still selects only the slow profile; it does not enable the slow feature.
+The repeated mutation step takes 281.9 seconds. The pool job exits zero after 747 seconds on msa1.
+
+The base is an ancestor of the head. `git diff --check` passes.
+After removal of index and hunk metadata, the complete pre-merge and post-merge PR diffs are identical.
+The combined merge diff is empty.
+The remote base remains `d174ef48`; the PR branch has advanced to `8e73278755d66ab02b09141ad57c4bd0f41272b7`.
+This verdict applies only to the reviewed head. The newer head awaits replacement READY and evidence.
+
+I read P5's exact-head package verdict at `c363d284414ae3e550b2eb646235f320f767502d:verdicts/p6-real-core.md`.
+P5 reports CLEAN. That verdict does not identify R2-1; I sent the confirmed finding to P5.
+P6 reports the same open finding and is preparing its verdict artifact.
+I changed no product code and ran no builds, tests, gates, or mutation tests.
+
+VERDICT: NOT CLEAN (1 HIGH open).
