@@ -7,8 +7,8 @@
 //!   P0 has no passing proof, so every ledger id is in one of the two files.
 //! - After that the pending file only shrinks. A moved contracts pin may add the ids that the new ledger adds.
 //! - The deferred file follows the four rules of plan section 5.
-//! - `core-real-pending.txt` (plan 23l): its ids are Core ledger ids that are not pending, deferred, withdrawn or real-only
-//!   (a `slow:*` proof in the contracts' replacement map). The harness PR initializes it (the base has no such file); after
+//! - `core-real-pending.txt` (plan 23l): its ids are Core ledger ids that are not pending, deferred, withdrawn, real-only
+//!   (a `slow:*` proof in the contracts' replacement map) or testkit-proven (Core A20-1, `TESTKIT_PROVEN`). The harness PR initializes it (the base has no such file); after
 //!   that an id enters only in the pull request that removes it from `core-pending.txt`, or as a new ledger id.
 
 use crate::fsutil::{base, git_show};
@@ -329,6 +329,8 @@ pub struct RealInput<'a> {
     pub withdrawn: &'a BTreeSet<String>,
     /// The ids whose proof is real-only: a `slow:*` proof in the contracts' replacement map.
     pub real_only: &'a BTreeSet<String>,
+    /// The ids that Core A20-1 proves on the testkit only (`TESTKIT_PROVEN`): the real tier lists them and never runs them.
+    pub testkit_proven: &'a BTreeSet<String>,
     pub real_pending: &'a BTreeSet<String>,
     /// The base ref's files. `None`: the base has no `core-real-pending.txt` (initialization).
     pub base: Option<RealBase<'a>>,
@@ -355,6 +357,8 @@ pub fn check_real(input: &RealInput<'_>) -> Vec<String> {
             "is withdrawn"
         } else if input.real_only.contains(id) {
             "is real-only (a slow:* proof); it passes by its named real-process proof, never from this file"
+        } else if input.testkit_proven.contains(id) {
+            "is testkit-proven (Core A20-1); the real tier lists it from TESTKIT_PROVEN and never runs it"
         } else {
             continue;
         };
@@ -518,6 +522,10 @@ pub fn command(root: &Path, args: &[String]) -> Result<()> {
         deferred: &deferred_ids,
         withdrawn: &withdrawn,
         real_only: &real_only_ids(&map)?,
+        testkit_proven: &botster_core_conformance::TESTKIT_PROVEN
+            .iter()
+            .map(|id| id.to_string())
+            .collect(),
         real_pending: &real_pending,
         base: base_real_pending.as_ref().map(|real_pending| RealBase {
             real_pending,
@@ -1086,22 +1094,25 @@ mod tests {
         assert!(bad[0].starts_with("y is not the pinned file"));
     }
 
-    /// Ledger `a b c d s x`: `a` pending, `d` deferred, `x` withdrawn, `s` real-only; `b` and `c` pass on the testkit.
+    /// Ledger `a b c d s t x`: `a` pending, `d` deferred, `x` withdrawn, `s` real-only, `t` testkit-proven; `b` and `c` pass
+    /// on the testkit.
     struct RealWorld {
         ledger: BTreeSet<String>,
         pending: BTreeSet<String>,
         deferred: BTreeSet<String>,
         withdrawn: BTreeSet<String>,
         real_only: BTreeSet<String>,
+        testkit_proven: BTreeSet<String>,
     }
 
     fn real_world() -> RealWorld {
         RealWorld {
-            ledger: set(&["a", "b", "c", "d", "s", "x"]),
+            ledger: set(&["a", "b", "c", "d", "s", "t", "x"]),
             pending: set(&["a"]),
             deferred: set(&["d"]),
             withdrawn: set(&["x"]),
             real_only: set(&["s"]),
+            testkit_proven: set(&["t"]),
         }
     }
 
@@ -1118,6 +1129,7 @@ mod tests {
             deferred: &w.deferred,
             withdrawn: &w.withdrawn,
             real_only: &w.real_only,
+            testkit_proven: &w.testkit_proven,
             real_pending: &real_pending,
             base: base_sets.as_ref().map(|(r, p, l)| RealBase {
                 real_pending: r,
@@ -1135,7 +1147,8 @@ mod tests {
     }
 
     #[test]
-    fn a_real_pending_id_is_a_ledger_id_that_is_not_pending_deferred_withdrawn_or_real_only() {
+    fn a_real_pending_id_is_a_ledger_id_that_is_not_pending_deferred_withdrawn_real_only_or_testkit_proven(
+    ) {
         let w = real_world();
         for (id, why) in [
             ("z", "is not a Core id of the ledger"),
@@ -1143,6 +1156,7 @@ mod tests {
             ("d", "is deferred"),
             ("x", "is withdrawn"),
             ("s", "is real-only"),
+            ("t", "is testkit-proven (Core A20-1)"),
         ] {
             let problems = real_check(&w, &["b", id], None);
             assert_eq!(problems.len(), 1, "{id}: {problems:?}");
@@ -1153,7 +1167,7 @@ mod tests {
     #[test]
     fn after_initialization_an_id_enters_only_from_core_pending_or_the_new_ledger() {
         let w = real_world();
-        let ledger: &[&str] = &["a", "b", "c", "d", "s", "x"];
+        let ledger: &[&str] = &["a", "b", "c", "d", "s", "t", "x"];
         // It may shrink.
         assert!(real_check(&w, &["b"], Some((&["b", "c"], &["a"], ledger))).is_empty());
         // `c` passed on the testkit already: it may not enter.
@@ -1163,7 +1177,7 @@ mod tests {
         // `c` leaves core-pending.txt in this pull request: it may enter.
         assert!(real_check(&w, &["b", "c"], Some((&["b"], &["a", "c"], ledger))).is_empty());
         // `c` is new in the ledger (a pin move): it may enter.
-        let old_ledger: &[&str] = &["a", "b", "d", "s", "x"];
+        let old_ledger: &[&str] = &["a", "b", "d", "s", "t", "x"];
         assert!(real_check(&w, &["b", "c"], Some((&["b"], &["a"], old_ledger))).is_empty());
     }
 
