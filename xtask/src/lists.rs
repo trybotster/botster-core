@@ -714,11 +714,22 @@ pub fn ledger_ids_command(root: &Path, args: &[String]) -> Result<()> {
         );
         return Ok(());
     }
-    for (path, text) in &files {
-        if std::fs::read_to_string(root.join(path)).ok().as_deref() != Some(text.as_str()) {
-            bail!("{path} is not the pinned file; run `cargo xtask ledger-ids --write`");
-        }
-    }
+    // A missing copy is an error of the read; the comparison is the tested decision `copy_problems`.
+    let copies = files
+        .iter()
+        .map(|(path, _)| {
+            std::fs::read_to_string(root.join(path))
+                .with_context(|| format!("read {path}; run `cargo xtask ledger-ids --write`"))
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let problems = copy_problems(
+        &files
+            .iter()
+            .zip(&copies)
+            .map(|((path, text), copy)| (*path, copy.as_str(), text.as_str()))
+            .collect::<Vec<_>>(),
+    );
+    anyhow::ensure!(problems.is_empty(), "{}", problems.join("\n"));
     println!(
         "ledger-ids: {} ids and the status files match the pin",
         ledger.len()
