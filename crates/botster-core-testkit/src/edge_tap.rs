@@ -471,6 +471,10 @@ impl<E: HostEdges> HostEdges for EdgeTap<E> {
         self.tap().inner.link_send_descriptor(link, bytes, endpoint)
     }
 
+    fn close_route_stream(&mut self, endpoint: StreamEndpoint, bytes: &[u8]) {
+        self.tap().inner.close_route_stream(endpoint, bytes);
+    }
+
     fn wake(&self) -> Arc<dyn HostWake> {
         self.tap().inner.wake()
     }

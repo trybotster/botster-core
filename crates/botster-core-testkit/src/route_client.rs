@@ -28,13 +28,8 @@ pub struct RouteEnds(Arc<Mutex<BTreeMap<RouteId, RouteEndReason>>>);
 impl RouteEnds {
     /// Records a close. A healthy reason has its `route_closed` frame and no route-ended cause.
     pub fn closed(&self, route: RouteId, reason: RouteCloseReason) {
-        let ended = match reason {
-            RouteCloseReason::HandoffFailed => RouteEndReason::HandoffFailed,
-            RouteCloseReason::WriteFailed => RouteEndReason::WriteFailed,
-            RouteCloseReason::StallTimeout => RouteEndReason::Stalled,
-            RouteCloseReason::SessionLost => RouteEndReason::SessionLost,
-            RouteCloseReason::PeerClosed => RouteEndReason::TransportLost,
-            _ => return,
+        let Some(ended) = botster_core_link::route::route_ended_cause(reason) else {
+            return;
         };
         self.0.lock().expect("not poisoned").insert(route, ended);
     }

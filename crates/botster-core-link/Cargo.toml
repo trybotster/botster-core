@@ -11,6 +11,7 @@ workspace = true
 
 [dependencies]
 botster-core-contract.workspace = true
+botster-route-codec.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true

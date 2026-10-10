@@ -16,7 +16,7 @@ use botster_core_edges::edges::{
     ExitStatus, GroupSignal, IdentityState, ProcessIdentity, SpawnError, StorageError,
 };
 use botster_core_edges::scheduler::ChoicePoint;
-use botster_core_edges::{Entropy, Link, Scheduler, Wake as WakeEdge};
+use botster_core_edges::{Entropy, Link, RouteTransport, Scheduler, Wake as WakeEdge};
 use botster_core_host::driver::{
     check_open, DescriptorSendError, HostDriver, HostEdges, HostWake, WorkerSpawn,
 };
@@ -375,6 +375,17 @@ impl HostEdges for SimEdges {
                 };
                 (endpoint, why)
             })
+    }
+
+    fn close_route_stream(&mut self, endpoint: StreamEndpoint, bytes: &[u8]) {
+        // A route stream of the testkit is the worker end of a duplex. One write, as a non-blocking `write(2)` takes what
+        // fits; its result does not matter: the stream closes either way (R-50). Another object (a unit test's) is dropped.
+        if let Ok(mut stream) = endpoint.downcast::<crate::net::StreamEnd>() {
+            if !bytes.is_empty() {
+                let _ = RouteTransport::write(&mut stream, bytes);
+            }
+            RouteTransport::close(&mut stream);
+        }
     }
 
     fn wake(&self) -> Arc<dyn HostWake> {

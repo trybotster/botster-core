@@ -97,7 +97,7 @@ impl HostEngine {
             ),
             Flow::Stop(f) => {
                 matches!(f.phase, StopPhase::PostStopping | StopPhase::PostEnd)
-                    || crate::flows::finish_close(session).is_some()
+                    || crate::flows::finish_close(session, &self.pending_handoffs).is_some()
             }
             Flow::Adopt(f) => f.phase == AdoptPhase::Post,
             Flow::Remove(f) => match f.phase {
@@ -113,7 +113,10 @@ impl HostEngine {
             Flow::Idle => true,
             Flow::Create(_) => false,
             Flow::Start(f) => matches!(f.phase, StartPhase::AwaitHello | StartPhase::AwaitLaunched),
-            Flow::Stop(f) => f.phase == StopPhase::AwaitExit || crate::flows::finish_waits(session),
+            Flow::Stop(f) => {
+                f.phase == StopPhase::AwaitExit
+                    || crate::flows::finish_waits(session, &self.pending_handoffs)
+            }
             Flow::Remove(f) => f.phase == RemovePhase::AwaitTeardown,
             Flow::Adopt(f) => matches!(
                 f.phase,
@@ -641,6 +644,18 @@ impl HostEngine {
         if let Some(s) = self.sessions.get_mut(&entry.session) {
             s.routes.remove(&route);
             s.delivered.remove(&route);
+            s.lost_handoffs.remove(&route);
+        }
+        // A closed route is never handed to a worker. Core still holds the stream of a hand-over that waits, so Core owes
+        // the client what the worker would write: the route's `route_closed`, when its reason has one, then one close of
+        // the stream (OU-2, steward ruling R-50).
+        if let Some(i) = self.pending_handoffs.iter().position(|(r, ..)| *r == route) {
+            let (_, transport, _, limits) = self.pending_handoffs.remove(i);
+            self.act(Action::CloseRoute {
+                route,
+                transport,
+                frame: botster_core_link::route::route_closed_bytes(reason, &limits),
+            });
         }
         self.queue.retire_route(route);
         let waiting: Vec<OpId> = self
