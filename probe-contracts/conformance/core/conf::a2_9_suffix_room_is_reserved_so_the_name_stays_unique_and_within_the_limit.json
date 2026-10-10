@@ -1,0 +1,379 @@
+{
+  "id": "conf::a2_9_suffix_room_is_reserved_so_the_name_stays_unique_and_within_the_limit",
+  "contract": "core",
+  "clause": "A2-9",
+  "subject": "core",
+  "requires": {
+    "controls": [
+      "edges_quiet",
+      "fs_directory",
+      "fs_list",
+      "pty_input",
+      "pty_output"
+    ]
+  },
+  "fake": "structural",
+  "ruling": "R-12",
+  "steps": [
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s1",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$c_s1",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s1",
+                  "state": "Created"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core LC-3"
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "s1"
+          }
+        }
+      },
+      "bind": "$s_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$s_s1",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s1",
+                  "state": "Running"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core A2-1"
+    },
+    {
+      "control": {
+        "op": "fs_directory"
+      },
+      "bind_fields": {
+        "path": "$dir",
+        "name_max": "$name_max"
+      }
+    },
+    {
+      "attach_route": {
+        "route": "r1",
+        "session": "s1",
+        "client": "c1",
+        "options": {
+          "history": "none",
+          "file_directory": "$dir"
+        }
+      },
+      "because": "Core OU-1"
+    },
+    {
+      "expect": {
+        "frame": "attached",
+        "terminal_format": {
+          "$type": "string"
+        }
+      },
+      "because": "Core OU-9",
+      "on": "r1"
+    },
+    {
+      "expect": {
+        "frame": "baseline_begin",
+        "rows": {
+          "$type": "integer"
+        },
+        "cols": {
+          "$type": "integer"
+        },
+        "modes": {
+          "$type": "object"
+        }
+      },
+      "because": "Core OU-9",
+      "on": "r1"
+    },
+    {
+      "expect": {
+        "frame": "screen",
+        "payload": {
+          "$any": true
+        }
+      },
+      "because": "Core OU-9",
+      "on": "r1"
+    },
+    {
+      "expect_eventually": {
+        "frame": "baseline_end",
+        "history": "not_requested"
+      },
+      "because": "Core OU-9",
+      "ignore": [
+        {
+          "frame": "history",
+          "payload": {
+            "$any": true
+          }
+        }
+      ],
+      "on": "r1"
+    },
+    {
+      "expect": {
+        "frame": "live"
+      },
+      "because": "Core OU-9",
+      "on": "r1"
+    },
+    {
+      "let": {
+        "$stem_n": {
+          "add": [
+            "$name_max",
+            50
+          ]
+        }
+      }
+    },
+    {
+      "let": {
+        "$stem": {
+          "repeat": [
+            "a",
+            "$stem_n"
+          ]
+        }
+      }
+    },
+    {
+      "let": {
+        "$nm": {
+          "concat": [
+            "$stem",
+            ".png"
+          ]
+        }
+      }
+    },
+    {
+      "route_send": {
+        "frame": "input",
+        "kind": "file_begin",
+        "op": "1",
+        "name": "$nm"
+      }
+    },
+    {
+      "route_send": {
+        "frame": "file_chunk",
+        "op": "1",
+        "bytes": {
+          "$bytes_hex": "61"
+        }
+      }
+    },
+    {
+      "route_send": {
+        "frame": "input",
+        "kind": "file_commit",
+        "op": "1"
+      }
+    },
+    {
+      "expect_eventually": {
+        "frame": "input_done",
+        "op": "1",
+        "written_bytes": "$wb1",
+        "path": "$p1"
+      },
+      "because": [
+        "Core A2-9",
+        "Core DP-5b"
+      ],
+      "ignore": [
+        {
+          "frame": "modes"
+        },
+        {
+          "frame": "output"
+        },
+        {
+          "frame": "output_deflate"
+        }
+      ],
+      "on": "r1"
+    },
+    {
+      "route_send": {
+        "frame": "input",
+        "kind": "file_begin",
+        "op": "2",
+        "name": "$nm"
+      }
+    },
+    {
+      "route_send": {
+        "frame": "file_chunk",
+        "op": "2",
+        "bytes": {
+          "$bytes_hex": "62"
+        }
+      }
+    },
+    {
+      "route_send": {
+        "frame": "input",
+        "kind": "file_commit",
+        "op": "2"
+      }
+    },
+    {
+      "expect_eventually": {
+        "frame": "input_done",
+        "op": "2",
+        "written_bytes": "$wb2",
+        "path": "$p2"
+      },
+      "because": [
+        "Core A2-9",
+        "Core DP-5b"
+      ],
+      "ignore": [
+        {
+          "frame": "modes"
+        },
+        {
+          "frame": "output"
+        },
+        {
+          "frame": "output_deflate"
+        }
+      ],
+      "on": "r1"
+    },
+    {
+      "route_send": {
+        "frame": "input",
+        "kind": "file_begin",
+        "op": "3",
+        "name": "$nm"
+      }
+    },
+    {
+      "route_send": {
+        "frame": "file_chunk",
+        "op": "3",
+        "bytes": {
+          "$bytes_hex": "63"
+        }
+      }
+    },
+    {
+      "route_send": {
+        "frame": "input",
+        "kind": "file_commit",
+        "op": "3"
+      }
+    },
+    {
+      "expect_eventually": {
+        "frame": "input_done",
+        "op": "3",
+        "written_bytes": "$wb3",
+        "path": "$p3"
+      },
+      "because": [
+        "Core A2-9",
+        "Core DP-5b"
+      ],
+      "ignore": [
+        {
+          "frame": "modes"
+        },
+        {
+          "frame": "output"
+        },
+        {
+          "frame": "output_deflate"
+        }
+      ],
+      "on": "r1"
+    },
+    {
+      "control": {
+        "op": "fs_list",
+        "path": "$dir"
+      },
+      "expect": {
+        "count": 3,
+        "distinct_names": 3
+      },
+      "because": [
+        "Core A2-9"
+      ]
+    },
+    {
+      "let": {
+        "$over": {
+          "add": [
+            "$name_max",
+            1
+          ]
+        }
+      }
+    },
+    {
+      "control": {
+        "op": "fs_list",
+        "path": "$dir"
+      },
+      "bind_fields": {
+        "max_name_bytes": "$maxn"
+      }
+    },
+    {
+      "check": {
+        "lt": [
+          "$maxn",
+          "$over"
+        ]
+      },
+      "because": [
+        "Core A2-9"
+      ]
+    }
+  ]
+}

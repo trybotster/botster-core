@@ -1,0 +1,208 @@
+{
+  "id": "conf::st_6_pages_owned_last_flag_and_range",
+  "contract": "core",
+  "clause": "ST-6",
+  "subject": "core",
+  "requires": {
+    "controls": [
+      "edges_quiet",
+      "pty_output"
+    ]
+  },
+  "fake": "structural",
+  "ruling": "R-12",
+  "steps": [
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s1",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$c_s1",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s1",
+                  "state": "Created"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core LC-3"
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "s1"
+          }
+        }
+      },
+      "bind": "$s_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$s_s1",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s1",
+                  "state": "Running"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core A2-1"
+    },
+    {
+      "drain": {}
+    },
+    {
+      "advance_clock": {
+        "unix": 5000
+      }
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s1",
+        "bytes_hex": "41"
+      }
+    },
+    {
+      "await_quiet": {}
+    },
+    {
+      "begin": {
+        "op": {
+          "CaptureSnapshot": {
+            "session": "s1",
+            "owner": "c1"
+          }
+        }
+      },
+      "bind": "$k_cap"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$k_cap",
+            "result": {
+              "ok": {
+                "capture": {
+                  "capture": "$cap",
+                  "page_count": "$pc"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core ST-6"
+    },
+    {
+      "let": {
+        "$lastp": {
+          "sub": [
+            "$pc",
+            1
+          ]
+        },
+        "$one": {
+          "eq": [
+            "$pc",
+            1
+          ]
+        }
+      }
+    },
+    {
+      "call": {
+        "method": "read_page",
+        "args": {
+          "capture": "$cap",
+          "page": 0
+        }
+      },
+      "because": [
+        "Core ST-6"
+      ],
+      "expect": {
+        "index": 0,
+        "last": "$one"
+      },
+      "bind_fields": {
+        "bytes": "$a"
+      }
+    },
+    {
+      "call": {
+        "method": "read_page",
+        "args": {
+          "capture": "$cap",
+          "page": "$lastp"
+        }
+      },
+      "because": [
+        "Core ST-6"
+      ],
+      "expect": {
+        "index": "$lastp",
+        "last": true
+      }
+    },
+    {
+      "call": {
+        "method": "read_page",
+        "args": {
+          "capture": "$cap",
+          "page": "$pc"
+        }
+      },
+      "because": [
+        "Core ST-6",
+        "Core ER-0"
+      ],
+      "expect_error": {
+        "code": "PageOutOfRange"
+      }
+    },
+    {
+      "call": {
+        "method": "read_page",
+        "args": {
+          "capture": "$cap",
+          "page": 0
+        }
+      },
+      "because": [
+        "Core ST-6"
+      ],
+      "expect": {
+        "bytes": "$a"
+      }
+    }
+  ]
+}

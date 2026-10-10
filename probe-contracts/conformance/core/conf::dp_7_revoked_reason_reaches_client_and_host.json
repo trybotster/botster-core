@@ -1,0 +1,192 @@
+{
+  "id": "conf::dp_7_revoked_reason_reaches_client_and_host",
+  "contract": "core",
+  "clause": "DP-7",
+  "subject": "core",
+  "requires": {
+    "controls": []
+  },
+  "steps": [
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s1",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ],
+              "fake": {
+                "writes": {
+                  "key": "6b",
+                  "paste": "70"
+                },
+                "admission": {
+                  "key": 12,
+                  "mouse": 12,
+                  "focus": 3,
+                  "paste": 64
+                }
+              }
+            }
+          }
+        }
+      },
+      "bind": "$c_s1"
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "s1"
+          }
+        }
+      },
+      "bind": "$s_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$s_s1",
+            "result": {}
+          }
+        }
+      },
+      "because": "Core LC-3"
+    },
+    {
+      "attach_route": {
+        "route": "r1",
+        "session": "s1",
+        "client": "c1"
+      },
+      "because": "Core OU-1"
+    },
+    {
+      "expect": {
+        "frame": "attached",
+        "terminal_format": {
+          "$type": "string"
+        }
+      },
+      "on": "r1",
+      "because": "Core OU-9"
+    },
+    {
+      "expect": {
+        "frame": "baseline_begin",
+        "rows": {
+          "$type": "integer"
+        },
+        "cols": {
+          "$type": "integer"
+        },
+        "modes": {
+          "$type": "object"
+        }
+      },
+      "on": "r1",
+      "because": "Core OU-9"
+    },
+    {
+      "expect": {
+        "frame": "screen",
+        "payload": {
+          "$any": true
+        }
+      },
+      "on": "r1",
+      "because": "Core OU-9"
+    },
+    {
+      "expect_eventually": {
+        "frame": "baseline_end",
+        "history": "not_requested"
+      },
+      "ignore": [
+        {
+          "frame": "history",
+          "payload": {
+            "$any": true
+          }
+        }
+      ],
+      "on": "r1",
+      "because": "Core OU-9"
+    },
+    {
+      "expect": {
+        "frame": "live"
+      },
+      "on": "r1",
+      "because": "Core OU-9"
+    },
+    {
+      "begin": {
+        "op": {
+          "Detach": {
+            "route": "$r1",
+            "reason": "Revoked"
+          }
+        }
+      },
+      "bind": "$d"
+    },
+    {
+      "pump_collect": {
+        "events": [
+          {
+            "RouteClosed": {
+              "route": "$r1",
+              "reason": "Revoked"
+            }
+          },
+          {
+            "Completed": {
+              "op": "$d",
+              "result": {
+                "ok": "unit"
+              }
+            }
+          }
+        ]
+      },
+      "because": [
+        "Core DP-7",
+        "Core A2-3"
+      ]
+    },
+    {
+      "expect_eventually": {
+        "frame": "route_closed",
+        "reason": "revoked"
+      },
+      "ignore": [
+        {
+          "frame": "modes"
+        },
+        {
+          "frame": "output"
+        },
+        {
+          "frame": "output_deflate"
+        }
+      ],
+      "on": "r1",
+      "because": [
+        "Core DP-7",
+        "Core OU-2b"
+      ]
+    },
+    {
+      "expect_closed": null,
+      "on": "r1",
+      "because": [
+        "Core DP-7"
+      ]
+    }
+  ]
+}

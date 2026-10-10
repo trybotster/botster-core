@@ -1,0 +1,137 @@
+{
+  "id": "conf::in_9_shifted_key_without_shift_is_invalid_input",
+  "contract": "core",
+  "clause": "IN-9",
+  "subject": "core",
+  "steps": [
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s1",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ],
+              "fake": {
+                "writes": {
+                  "key": "61",
+                  "mouse": "4d",
+                  "focus_in": "49",
+                  "focus_out": "4f",
+                  "paste": "1b5b3230307e68656c6c6f1b5b3230317e"
+                },
+                "admission": {
+                  "key": 12,
+                  "mouse": 12,
+                  "focus": 3,
+                  "paste": 64
+                }
+              }
+            }
+          }
+        }
+      },
+      "bind": "$c_s1"
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "s1"
+          }
+        }
+      },
+      "bind": "$s_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$s_s1",
+            "result": {}
+          }
+        }
+      },
+      "because": "Core LC-3"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "key": {
+                "key": {
+                  "char": "a"
+                },
+                "mods": [],
+                "event": "press",
+                "text": "a",
+                "shifted_key": {
+                  "char": "A"
+                }
+              }
+            }
+          }
+        }
+      },
+      "bind": "$x",
+      "expect_error": {
+        "code": {
+          "InvalidInput": {}
+        }
+      },
+      "because": [
+        "Core 5.1A",
+        "Core ER-0"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "key": {
+                "key": {
+                  "char": "a"
+                },
+                "mods": [
+                  "shift"
+                ],
+                "event": "press",
+                "text": "a",
+                "shifted_key": {
+                  "char": "A"
+                }
+              }
+            }
+          }
+        }
+      },
+      "bind": "$ok"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$ok",
+            "result": {
+              "ok": {
+                "input": {
+                  "outcome": {
+                    "$any": true
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core IN-9"
+    }
+  ]
+}

@@ -1,0 +1,346 @@
+{
+  "id": "conf::a2_2_refused_is_a_sequencing_error_route_input_only",
+  "contract": "core",
+  "clause": "A2-2",
+  "subject": "core",
+  "requires": {
+    "controls": [
+      "pty_input"
+    ]
+  },
+  "fake": "structural",
+  "ruling": "R-12",
+  "steps": [
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s1",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$c_s1",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s1",
+                  "state": "Created"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core LC-3"
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "s1"
+          }
+        }
+      },
+      "bind": "$s_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$s_s1",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s1",
+                  "state": "Running"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core A2-1"
+    },
+    {
+      "attach_route": {
+        "route": "r1",
+        "session": "s1",
+        "client": "c1"
+      },
+      "because": "Core OU-1"
+    },
+    {
+      "expect": {
+        "frame": "attached",
+        "terminal_format": {
+          "$type": "string"
+        }
+      },
+      "on": "r1",
+      "because": "Core OU-9"
+    },
+    {
+      "expect": {
+        "frame": "baseline_begin",
+        "rows": {
+          "$type": "integer"
+        },
+        "cols": {
+          "$type": "integer"
+        },
+        "modes": {
+          "$type": "object"
+        }
+      },
+      "on": "r1",
+      "because": "Core OU-9"
+    },
+    {
+      "expect": {
+        "frame": "screen",
+        "payload": {
+          "$any": true
+        }
+      },
+      "on": "r1",
+      "because": "Core OU-9"
+    },
+    {
+      "expect_eventually": {
+        "frame": "baseline_end",
+        "history": "not_requested"
+      },
+      "ignore": [
+        {
+          "frame": "history",
+          "payload": {
+            "$any": true
+          }
+        }
+      ],
+      "on": "r1",
+      "because": "Core OU-9"
+    },
+    {
+      "expect": {
+        "frame": "live"
+      },
+      "on": "r1",
+      "because": "Core OU-9"
+    },
+    {
+      "route_send": {
+        "frame": "paste_chunk",
+        "op": "1",
+        "bytes": {
+          "$bytes_hex": "78"
+        }
+      },
+      "route": "r1"
+    },
+    {
+      "expect_eventually": {
+        "frame": "input_refused",
+        "reason": "refused",
+        "op": "1"
+      },
+      "ignore": [
+        {
+          "frame": "modes"
+        },
+        {
+          "frame": "output"
+        },
+        {
+          "frame": "output_deflate"
+        }
+      ],
+      "on": "r1",
+      "because": [
+        "Core A2-2",
+        "Codec TS-5d"
+      ]
+    },
+    {
+      "route_send": {
+        "frame": "input",
+        "kind": "paste_commit",
+        "op": "2"
+      },
+      "route": "r1"
+    },
+    {
+      "expect_eventually": {
+        "frame": "input_refused",
+        "reason": "refused",
+        "op": "2"
+      },
+      "ignore": [
+        {
+          "frame": "modes"
+        },
+        {
+          "frame": "output"
+        },
+        {
+          "frame": "output_deflate"
+        }
+      ],
+      "on": "r1",
+      "because": [
+        "Core A2-2",
+        "Codec TS-5d"
+      ]
+    },
+    {
+      "route_send": {
+        "frame": "input",
+        "kind": "paste_abort",
+        "op": "3"
+      },
+      "route": "r1"
+    },
+    {
+      "expect_eventually": {
+        "frame": "input_refused",
+        "reason": "refused",
+        "op": "3"
+      },
+      "ignore": [
+        {
+          "frame": "modes"
+        },
+        {
+          "frame": "output"
+        },
+        {
+          "frame": "output_deflate"
+        }
+      ],
+      "on": "r1",
+      "because": [
+        "Core A2-2",
+        "Codec TS-5d"
+      ]
+    },
+    {
+      "route_send": {
+        "frame": "input",
+        "kind": "paste_begin",
+        "op": "4"
+      },
+      "route": "r1"
+    },
+    {
+      "route_send": {
+        "frame": "input",
+        "kind": "paste_begin",
+        "op": "5"
+      },
+      "route": "r1"
+    },
+    {
+      "expect_eventually": {
+        "frame": "input_refused",
+        "reason": "refused",
+        "op": "5"
+      },
+      "ignore": [
+        {
+          "frame": "modes"
+        },
+        {
+          "frame": "output"
+        },
+        {
+          "frame": "output_deflate"
+        }
+      ],
+      "on": "r1",
+      "because": [
+        "Core A2-2",
+        "Core DP-5b"
+      ]
+    },
+    {
+      "route_send": {
+        "frame": "input",
+        "kind": "paste_abort",
+        "op": "4"
+      },
+      "route": "r1"
+    },
+    {
+      "route_send": {
+        "frame": "bytes",
+        "op": "6",
+        "bytes": {
+          "$bytes_hex": "61"
+        }
+      },
+      "route": "r1"
+    },
+    {
+      "route_expect_pty": [
+        {
+          "hex": "61"
+        }
+      ],
+      "because": [
+        "Core A2-2",
+        "Codec TS-5d"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "paste": {
+                "bytes": {
+                  "$bytes_hex": "62"
+                },
+                "require_bracketed": false
+              }
+            }
+          }
+        }
+      },
+      "bind": "$hw"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$hw",
+            "result": {
+              "ok": {
+                "input": {
+                  "outcome": "Written"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core A2-2",
+        "Core IN-8"
+      ]
+    }
+  ]
+}

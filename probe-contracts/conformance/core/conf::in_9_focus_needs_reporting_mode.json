@@ -1,0 +1,173 @@
+{
+  "id": "conf::in_9_focus_needs_reporting_mode",
+  "contract": "core",
+  "clause": "IN-9",
+  "subject": "core",
+  "requires": {
+    "controls": [
+      "pty_output"
+    ]
+  },
+  "steps": [
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s1",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ],
+              "fake": {
+                "writes": {
+                  "key": "61",
+                  "mouse": "4d",
+                  "focus_in": "49",
+                  "focus_out": "4f",
+                  "paste": "1b5b3230307e68656c6c6f1b5b3230317e"
+                },
+                "admission": {
+                  "key": 12,
+                  "mouse": 12,
+                  "focus": 3,
+                  "paste": 64
+                }
+              }
+            }
+          }
+        }
+      },
+      "bind": "$c_s1"
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "s1"
+          }
+        }
+      },
+      "bind": "$s_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$s_s1",
+            "result": {}
+          }
+        }
+      },
+      "because": "Core LC-3"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "focus": {
+                "focused": true
+              }
+            }
+          }
+        }
+      },
+      "bind": "$a"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$a",
+            "result": {
+              "ok": {
+                "input": {
+                  "outcome": {
+                    "NotWritten": "NotReported"
+                  },
+                  "payload_bytes_written": 0,
+                  "pty_bytes_written": 0
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core 5.1A",
+        "Core IN-2"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s1",
+        "bytes_hex": "1b5b3f3130303468",
+        "scripted": {
+          "modes": {
+            "focus_reporting": true
+          }
+        }
+      }
+    },
+    {
+      "pump_until": {
+        "event": {
+          "ModesChanged": {
+            "id": "s1",
+            "flags": {
+              "focus_reporting": true
+            }
+          }
+        }
+      },
+      "because": "Core EV-7"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "focus": {
+                "focused": true
+              }
+            }
+          }
+        }
+      },
+      "bind": "$b"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$b",
+            "result": {
+              "ok": {
+                "input": {
+                  "outcome": "Written",
+                  "payload_bytes_written": "$p",
+                  "pty_bytes_written": "$q"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core 5.1A"
+    },
+    {
+      "check": {
+        "lt": [
+          0,
+          "$q"
+        ]
+      },
+      "because": "Core 5.1A"
+    }
+  ]
+}

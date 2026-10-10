@@ -1,0 +1,311 @@
+{
+  "id": "conf::a3_1_output_dropped_waits_in_the_route_queue_under_route_queue_bytes",
+  "contract": "core",
+  "clause": "A3-1",
+  "subject": "core",
+  "requires": {
+    "features": [
+      "output_dropped"
+    ],
+    "controls": [
+      "edges_quiet",
+      "pty_output",
+      "queue_overflow",
+      "route_gate"
+    ]
+  },
+  "setup": {
+    "limits": {
+      "reader_progress_deadline": 1000,
+      "stall_close_after": 5000
+    }
+  },
+  "steps": [
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s1",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$c_s1",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s1",
+                  "state": "Created"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core LC-3"
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "s1"
+          }
+        }
+      },
+      "bind": "$s_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$s_s1",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s1",
+                  "state": "Running"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core A2-1"
+    },
+    {
+      "attach_route": {
+        "route": "r1",
+        "session": "s1",
+        "client": "c1",
+        "options": {
+          "history": "none",
+          "route_features": [
+            "output_dropped"
+          ]
+        }
+      },
+      "because": "Core OU-1"
+    },
+    {
+      "expect": {
+        "frame": "attached",
+        "terminal_format": {
+          "$type": "string"
+        },
+        "features": [
+          "output_dropped"
+        ]
+      },
+      "on": "r1",
+      "because": [
+        "Core OU-1",
+        "Codec TS-1"
+      ]
+    },
+    {
+      "expect": {
+        "frame": "baseline_begin",
+        "rows": {
+          "$type": "integer"
+        },
+        "cols": {
+          "$type": "integer"
+        },
+        "modes": {
+          "$type": "object"
+        }
+      },
+      "on": "r1",
+      "because": [
+        "Core OU-9",
+        "Codec TS-4"
+      ]
+    },
+    {
+      "expect": {
+        "frame": "screen",
+        "payload": {
+          "$any": true
+        }
+      },
+      "on": "r1",
+      "because": [
+        "Core OU-9",
+        "Codec TS-4"
+      ]
+    },
+    {
+      "expect_eventually": {
+        "frame": "baseline_end",
+        "history": "not_requested"
+      },
+      "ignore": [
+        {
+          "frame": "history",
+          "payload": {
+            "$any": true
+          }
+        }
+      ],
+      "on": "r1",
+      "because": [
+        "Core OU-9",
+        "Codec TS-4"
+      ]
+    },
+    {
+      "expect": {
+        "frame": "live"
+      },
+      "on": "r1",
+      "because": [
+        "Core OU-9",
+        "Codec TS-4"
+      ]
+    },
+    {
+      "control": {
+        "op": "route_gate",
+        "on": true
+      },
+      "route": "r1"
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s1",
+        "bytes_hex": "07"
+      }
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Bell": {
+            "id": "s1"
+          }
+        }
+      },
+      "because": "Core A2-4"
+    },
+    {
+      "await_quiet": {}
+    },
+    {
+      "control": {
+        "op": "queue_overflow"
+      },
+      "route": "r1"
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s1",
+        "bytes_hex": "1b5d393b6c6174657207"
+      }
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Notification": {
+            "id": "s1",
+            "source": "Osc9",
+            "body": "later"
+          }
+        }
+      },
+      "because": "Core A2-4"
+    },
+    {
+      "await_quiet": {}
+    },
+    {
+      "control": {
+        "op": "queue_overflow"
+      },
+      "route": "r1"
+    },
+    {
+      "await_quiet": {}
+    },
+    {
+      "advance_clock": {
+        "ms": 1000
+      }
+    },
+    {
+      "pump_until": {
+        "event": {
+          "RouteStalled": {
+            "route": "$r1"
+          }
+        }
+      },
+      "because": [
+        "Core OU-2",
+        "Core A3-1"
+      ]
+    },
+    {
+      "control": {
+        "op": "route_gate",
+        "on": false
+      },
+      "route": "r1"
+    },
+    {
+      "expect_eventually": {
+        "frame": "output_dropped",
+        "notifications": 1,
+        "last": {
+          "source": "bell"
+        }
+      },
+      "ignore": [
+        {
+          "frame": {
+            "$any": true
+          }
+        }
+      ],
+      "on": "r1",
+      "because": [
+        "Core A3-1"
+      ]
+    },
+    {
+      "expect_eventually": {
+        "frame": "output_dropped",
+        "notifications": 1,
+        "last": {
+          "source": "osc9",
+          "body": "later"
+        }
+      },
+      "ignore": [
+        {
+          "frame": {
+            "$any": true
+          }
+        }
+      ],
+      "on": "r1",
+      "because": [
+        "Core A3-1"
+      ]
+    }
+  ],
+  "fake": "structural",
+  "ruling": "R-12"
+}

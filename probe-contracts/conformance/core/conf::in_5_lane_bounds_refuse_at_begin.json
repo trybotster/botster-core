@@ -1,0 +1,391 @@
+{
+  "id": "conf::in_5_lane_bounds_refuse_at_begin",
+  "contract": "core",
+  "clause": "IN-5",
+  "subject": "core",
+  "requires": {
+    "controls": [
+      "pty_input"
+    ]
+  },
+  "setup": {
+    "limits": {
+      "input_ops_per_session": 2,
+      "input_retained_bytes": 4
+    }
+  },
+  "steps": [
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s1",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c_s1"
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "s1"
+          }
+        }
+      },
+      "bind": "$s_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$s_s1",
+            "result": {}
+          }
+        }
+      },
+      "because": "Core LC-3"
+    },
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s2",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c_s2"
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "s2"
+          }
+        }
+      },
+      "bind": "$s_s2"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$s_s2",
+            "result": {}
+          }
+        }
+      },
+      "because": "Core LC-3"
+    },
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s3",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c_s3"
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "s3"
+          }
+        }
+      },
+      "bind": "$s_s3"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$s_s3",
+            "result": {}
+          }
+        }
+      },
+      "because": "Core LC-3"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "bytes": {
+                "bytes": {
+                  "$bytes_hex": "6161"
+                }
+              }
+            }
+          }
+        }
+      },
+      "bind": "$a1"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "bytes": {
+                "bytes": {
+                  "$bytes_hex": "6262"
+                }
+              }
+            }
+          }
+        }
+      },
+      "bind": "$a2"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "bytes": {
+                "bytes": {
+                  "$bytes_hex": "63"
+                }
+              }
+            }
+          }
+        }
+      },
+      "bind": "$a3",
+      "expect_error": {
+        "code": "LaneFull"
+      },
+      "because": [
+        "Core IN-5",
+        "Core ER-0"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s2",
+            "payload": {
+              "bytes": {
+                "bytes": {
+                  "$bytes_hex": "616161"
+                }
+              }
+            }
+          }
+        }
+      },
+      "bind": "$b1"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s2",
+            "payload": {
+              "bytes": {
+                "bytes": {
+                  "$bytes_hex": "6262"
+                }
+              }
+            }
+          }
+        }
+      },
+      "bind": "$b2",
+      "expect_error": {
+        "code": "LaneFull"
+      },
+      "because": [
+        "Core IN-5",
+        "Core ER-0"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s3",
+            "payload": {
+              "bytes": {
+                "bytes": {
+                  "$bytes_hex": "61"
+                }
+              }
+            }
+          }
+        }
+      },
+      "bind": "$c1"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s3",
+            "payload": {
+              "bytes": {
+                "bytes": {
+                  "$bytes_hex": "62"
+                }
+              }
+            }
+          }
+        }
+      },
+      "bind": "$c2"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s3",
+            "payload": {
+              "bytes": {
+                "bytes": {
+                  "$bytes_hex": "63"
+                }
+              }
+            }
+          }
+        }
+      },
+      "bind": "$c3",
+      "expect_error": {
+        "code": "LaneFull"
+      },
+      "because": [
+        "Core IN-5",
+        "Core ER-0"
+      ]
+    },
+    {
+      "pump_collect": {
+        "events": [
+          {
+            "Completed": {
+              "op": "$a1",
+              "result": {
+                "ok": {
+                  "input": {
+                    "outcome": {
+                      "$any": true
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "Completed": {
+              "op": "$a2",
+              "result": {
+                "ok": {
+                  "input": {
+                    "outcome": {
+                      "$any": true
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "Completed": {
+              "op": "$b1",
+              "result": {
+                "ok": {
+                  "input": {
+                    "outcome": {
+                      "$any": true
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "Completed": {
+              "op": "$c1",
+              "result": {
+                "ok": {
+                  "input": {
+                    "outcome": {
+                      "$any": true
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "Completed": {
+              "op": "$c2",
+              "result": {
+                "ok": {
+                  "input": {
+                    "outcome": {
+                      "$any": true
+                    }
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "because": "Core IN-5"
+    },
+    {
+      "control": {
+        "op": "pty_input",
+        "session": "s1"
+      },
+      "expect": {
+        "bytes": {
+          "$bytes_hex": "61616262"
+        }
+      },
+      "because": "Core IN-5"
+    },
+    {
+      "control": {
+        "op": "pty_input",
+        "session": "s2"
+      },
+      "expect": {
+        "bytes": {
+          "$bytes_hex": "616161"
+        }
+      },
+      "because": "Core IN-5"
+    }
+  ]
+}

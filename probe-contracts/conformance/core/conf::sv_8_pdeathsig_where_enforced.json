@@ -1,0 +1,143 @@
+{
+  "id": "conf::sv_8_pdeathsig_where_enforced",
+  "contract": "core",
+  "clause": "SV-8",
+  "subject": "core",
+  "requires": {
+    "features": [
+      "payload_dies_with_guardian"
+    ],
+    "controls": [
+      "service_connect",
+      "service_guardian_lost",
+      "service_payload_alive"
+    ]
+  },
+  "steps": [
+    {
+      "begin": {
+        "op": {
+          "SpawnService": {
+            "service_id": "1111111111111111111111111111111111111111111111111111111111111111",
+            "limits": {
+              "lanes": [
+                {
+                  "max_frame_bytes": 1024,
+                  "outbound_queue_bytes": 4096,
+                  "inbound_queue_bytes": 4096
+                },
+                {
+                  "max_frame_bytes": 1024,
+                  "outbound_queue_bytes": 4096,
+                  "inbound_queue_bytes": 4096
+                }
+              ],
+              "rlimits": {},
+              "startup": 10000,
+              "stop_grace": 5000,
+              "orphan_grace": 5000
+            }
+          }
+        }
+      },
+      "bind": "$o1"
+    },
+    {
+      "pump_collect": {
+        "events": [
+          {
+            "Completed": {
+              "op": "$o1",
+              "result": {
+                "ok": {
+                  "spawn": {
+                    "applied": {
+                      "$type": "array"
+                    },
+                    "unsupported": {
+                      "$type": "array"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "ServiceState": {
+              "id": "1111111111111111111111111111111111111111111111111111111111111111",
+              "state": "Started"
+            }
+          }
+        ]
+      },
+      "because": [
+        "Core SV-1",
+        "Core SV-5",
+        "Core A2-1"
+      ]
+    },
+    {
+      "control": {
+        "op": "service_connect",
+        "service": "1111111111111111111111111111111111111111111111111111111111111111",
+        "epoch": 1
+      }
+    },
+    {
+      "pump_collect": {
+        "events": [
+          {
+            "LaneConnected": {
+              "id": "1111111111111111111111111111111111111111111111111111111111111111",
+              "lane": 0,
+              "epoch": 1
+            }
+          },
+          {
+            "LaneConnected": {
+              "id": "1111111111111111111111111111111111111111111111111111111111111111",
+              "lane": 1,
+              "epoch": 1
+            }
+          },
+          {
+            "ServiceState": {
+              "id": "1111111111111111111111111111111111111111111111111111111111111111",
+              "state": {
+                "Reconnected": {
+                  "epoch": 1
+                }
+              }
+            }
+          }
+        ]
+      },
+      "because": [
+        "Core SV-6",
+        "Core SV-5"
+      ]
+    },
+    {
+      "control": {
+        "op": "service_guardian_lost",
+        "service": "1111111111111111111111111111111111111111111111111111111111111111"
+      }
+    },
+    {
+      "await_control": {
+        "control": {
+          "op": "service_payload_alive",
+          "service": "1111111111111111111111111111111111111111111111111111111111111111"
+        },
+        "expect": {
+          "alive": false
+        }
+      },
+      "because": [
+        "Core SV-8"
+      ]
+    }
+  ],
+  "fake": "structural",
+  "ruling": "R-12"
+}

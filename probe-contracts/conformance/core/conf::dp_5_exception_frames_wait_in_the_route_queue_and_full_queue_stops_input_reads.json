@@ -1,0 +1,252 @@
+{
+  "id": "conf::dp_5_exception_frames_wait_in_the_route_queue_and_full_queue_stops_input_reads",
+  "contract": "core",
+  "clause": "DP-5",
+  "subject": "core",
+  "requires": {
+    "controls": [
+      "input_blocked",
+      "route_gate",
+      "pty_input",
+      "edges_quiet"
+    ]
+  },
+  "setup": {
+    "limits": {
+      "max_snapshot_bytes": 65536,
+      "route_queue_bytes": 65536
+    }
+  },
+  "steps": [
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s1",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ],
+              "fake": {
+                "writes": {
+                  "key": "6b",
+                  "paste": "70"
+                },
+                "admission": {
+                  "key": 12,
+                  "mouse": 12,
+                  "focus": 3,
+                  "paste": 64
+                }
+              }
+            }
+          }
+        }
+      },
+      "bind": "$c_s1"
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "s1"
+          }
+        }
+      },
+      "bind": "$s_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$s_s1",
+            "result": {}
+          }
+        }
+      },
+      "because": "Core LC-3"
+    },
+    {
+      "attach_route": {
+        "route": "r1",
+        "session": "s1",
+        "client": "c1"
+      },
+      "because": "Core OU-1"
+    },
+    {
+      "expect": {
+        "frame": "attached",
+        "terminal_format": {
+          "$type": "string"
+        }
+      },
+      "on": "r1",
+      "because": "Core OU-9"
+    },
+    {
+      "expect": {
+        "frame": "baseline_begin",
+        "rows": {
+          "$type": "integer"
+        },
+        "cols": {
+          "$type": "integer"
+        },
+        "modes": {
+          "$type": "object"
+        }
+      },
+      "on": "r1",
+      "because": "Core OU-9"
+    },
+    {
+      "expect": {
+        "frame": "screen",
+        "payload": {
+          "$any": true
+        }
+      },
+      "on": "r1",
+      "because": "Core OU-9"
+    },
+    {
+      "expect_eventually": {
+        "frame": "baseline_end",
+        "history": "not_requested"
+      },
+      "ignore": [
+        {
+          "frame": "history",
+          "payload": {
+            "$any": true
+          }
+        }
+      ],
+      "on": "r1",
+      "because": "Core OU-9"
+    },
+    {
+      "expect": {
+        "frame": "live"
+      },
+      "on": "r1",
+      "because": "Core OU-9"
+    },
+    {
+      "control": {
+        "op": "route_gate",
+        "on": true
+      },
+      "route": "r1"
+    },
+    {
+      "route_flood": {
+        "route": "r1",
+        "max": 100000
+      },
+      "bind": "$n"
+    },
+    {
+      "control": {
+        "op": "input_blocked"
+      },
+      "route": "r1",
+      "expect": {
+        "blocked": true
+      },
+      "because": [
+        "Core DP-5"
+      ]
+    },
+    {
+      "control": {
+        "op": "route_gate",
+        "on": false
+      },
+      "route": "r1"
+    },
+    {
+      "route_expect_refusals": {
+        "route": "r1",
+        "count": "$n",
+        "reason": {
+          "unsupported": {
+            "what": "utf8"
+          }
+        }
+      },
+      "because": [
+        "Core DP-5",
+        "Codec TS-5b"
+      ]
+    },
+    {
+      "await_quiet": {}
+    },
+    {
+      "control": {
+        "op": "input_blocked"
+      },
+      "route": "r1",
+      "expect": {
+        "blocked": false
+      },
+      "because": [
+        "Core DP-5"
+      ]
+    },
+    {
+      "let": {
+        "$n1": {
+          "add": [
+            "$n",
+            1
+          ]
+        }
+      }
+    },
+    {
+      "let": {
+        "$os": {
+          "str": [
+            "$n1",
+            0
+          ]
+        }
+      }
+    },
+    {
+      "route_send": {
+        "frame": "bytes",
+        "op": "$os",
+        "bytes": {
+          "$bytes_hex": "78"
+        }
+      }
+    },
+    {
+      "await_pty": {
+        "session": "s1",
+        "min_bytes": 1
+      }
+    },
+    {
+      "await_quiet": {}
+    },
+    {
+      "route_expect_pty": [
+        {
+          "hex": "78"
+        }
+      ],
+      "because": [
+        "Core DP-5"
+      ]
+    }
+  ],
+  "fake": "structural",
+  "ruling": "R-12"
+}

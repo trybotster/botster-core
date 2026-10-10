@@ -1,0 +1,214 @@
+{
+  "id": "conf::a8_1_capture_reserves_max_snapshot_bytes_at_begin",
+  "contract": "core",
+  "clause": "A8-1",
+  "subject": "core",
+  "requires": {
+    "controls": [
+      "hold_snapshot",
+      "release_snapshot"
+    ]
+  },
+  "setup": {
+    "limits": {
+      "max_snapshot_bytes": 1048576,
+      "snapshot_retained_bytes": 1048576,
+      "open_captures_per_client": 8
+    }
+  },
+  "fake": "structural",
+  "ruling": "R-12",
+  "steps": [
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s1",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$c_s1",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s1",
+                  "state": "Created"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core LC-3"
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "s1"
+          }
+        }
+      },
+      "bind": "$s_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$s_s1",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s1",
+                  "state": "Running"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core A2-1"
+    },
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s2",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c_s2"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$c_s2",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s2",
+                  "state": "Created"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core LC-3"
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "s2"
+          }
+        }
+      },
+      "bind": "$s_s2"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$s_s2",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s2",
+                  "state": "Running"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core A2-1"
+    },
+    {
+      "control": {
+        "op": "hold_snapshot",
+        "session": "s1"
+      }
+    },
+    {
+      "begin": {
+        "op": {
+          "CaptureSnapshot": {
+            "session": "s1",
+            "owner": "c1"
+          }
+        }
+      },
+      "bind": "$k1"
+    },
+    {
+      "pump_idle": {}
+    },
+    {
+      "begin": {
+        "op": {
+          "CaptureSnapshot": {
+            "session": "s2",
+            "owner": "c2"
+          }
+        }
+      },
+      "bind": "$k2",
+      "expect_error": {
+        "code": "CaptureLimit"
+      },
+      "because": [
+        "Core A8-1",
+        "Core 9B",
+        "Core ER-0"
+      ]
+    },
+    {
+      "control": {
+        "op": "release_snapshot",
+        "session": "s1"
+      }
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$k1",
+            "result": {
+              "ok": {
+                "capture": {
+                  "capture": "$cap1"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core A8-1",
+        "Core 9B"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,336 @@
+{
+  "id": "conf::a6_3_unreachable_worker_reports_outcome_unknown",
+  "contract": "core",
+  "clause": "A6-3",
+  "subject": "core",
+  "requires": {
+    "controls": [
+      "edges_quiet",
+      "fs_directory",
+      "fs_list",
+      "pty_input",
+      "pty_output",
+      "withhold_control_link"
+    ]
+  },
+  "fake": "structural",
+  "ruling": "R-12",
+  "steps": [
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s1",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$c_s1",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s1",
+                  "state": "Created"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core LC-3"
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "s1"
+          }
+        }
+      },
+      "bind": "$s_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$s_s1",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s1",
+                  "state": "Running"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core A2-1"
+    },
+    {
+      "control": {
+        "op": "fs_directory"
+      },
+      "bind_fields": {
+        "path": "$dir",
+        "name_max": "$name_max"
+      }
+    },
+    {
+      "attach_route": {
+        "route": "r1",
+        "session": "s1",
+        "client": "c1",
+        "options": {
+          "history": "none",
+          "file_directory": "$dir"
+        }
+      },
+      "because": "Core OU-1"
+    },
+    {
+      "expect": {
+        "frame": "attached",
+        "terminal_format": {
+          "$type": "string"
+        }
+      },
+      "because": "Core OU-9",
+      "on": "r1"
+    },
+    {
+      "expect": {
+        "frame": "baseline_begin",
+        "rows": {
+          "$type": "integer"
+        },
+        "cols": {
+          "$type": "integer"
+        },
+        "modes": {
+          "$type": "object"
+        }
+      },
+      "because": "Core OU-9",
+      "on": "r1"
+    },
+    {
+      "expect": {
+        "frame": "screen",
+        "payload": {
+          "$any": true
+        }
+      },
+      "because": "Core OU-9",
+      "on": "r1"
+    },
+    {
+      "expect_eventually": {
+        "frame": "baseline_end",
+        "history": "not_requested"
+      },
+      "because": "Core OU-9",
+      "ignore": [
+        {
+          "frame": "history",
+          "payload": {
+            "$any": true
+          }
+        }
+      ],
+      "on": "r1"
+    },
+    {
+      "expect": {
+        "frame": "live"
+      },
+      "because": "Core OU-9",
+      "on": "r1"
+    },
+    {
+      "route_send": {
+        "frame": "input",
+        "kind": "file_begin",
+        "op": "1",
+        "name": "a.txt"
+      }
+    },
+    {
+      "route_send": {
+        "frame": "file_chunk",
+        "op": "1",
+        "bytes": {
+          "$bytes_hex": "6161"
+        }
+      }
+    },
+    {
+      "route_send": {
+        "frame": "input",
+        "kind": "file_commit",
+        "op": "1"
+      }
+    },
+    {
+      "expect_eventually": {
+        "frame": "input_done",
+        "op": "1",
+        "written_bytes": "$wb1",
+        "path": "$p1"
+      },
+      "because": [
+        "Core A6-3",
+        "Core LC-7",
+        "Core DP-5b"
+      ],
+      "ignore": [
+        {
+          "frame": "modes"
+        },
+        {
+          "frame": "output"
+        },
+        {
+          "frame": "output_deflate"
+        }
+      ],
+      "on": "r1"
+    },
+    {
+      "control": {
+        "op": "withhold_control_link",
+        "session": "s1"
+      }
+    },
+    {
+      "drop": {
+        "handle": "h"
+      }
+    },
+    {
+      "open": {
+        "as": "h2"
+      }
+    },
+    {
+      "begin": {
+        "op": "AdoptAll",
+        "handle": "h2"
+      },
+      "bind": "$aa"
+    },
+    {
+      "advance_clock": {
+        "ms": 60000
+      }
+    },
+    {
+      "pump_until": {
+        "event": {
+          "SessionState": {
+            "id": "s1",
+            "state": {
+              "Lost": "WorkerUnreachable"
+            }
+          }
+        },
+        "handle": "h2"
+      },
+      "because": [
+        "Core AD-2",
+        "Core A6-1"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "Remove": {
+            "id": "s1"
+          }
+        },
+        "handle": "h2"
+      },
+      "bind": "$rm"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$rm",
+            "result": {
+              "ok": {
+                "remove_report": {
+                  "uploads": {
+                    "not_deleted": {
+                      "reason": "outcome_unknown",
+                      "paths": {
+                        "$absent": true
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "handle": "h2"
+      },
+      "because": [
+        "Core A6-3",
+        "Core LC-7"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s1",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        },
+        "handle": "h2"
+      },
+      "bind": "$again"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$again",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s1",
+                  "state": "Created"
+                }
+              }
+            }
+          }
+        },
+        "handle": "h2"
+      },
+      "because": [
+        "Core A6-3",
+        "Core LC-7"
+      ]
+    }
+  ]
+}
