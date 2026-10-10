@@ -558,3 +558,65 @@ The reviewer changed no product code and ran no builds, tests, mutation jobs, or
 Await replacement-head READY and evidence. No NOT CLEAN report goes to the lead.
 
 VERDICT: NOT CLEAN
+
+## PR #216 — Round 2 — contracts-v0.1.24
+
+Reviewed head: `d18b41726b4fffb1e2043d5220b32a34444cd27b`.
+Tree: `8f872087f24cb917b2d57ab55f087372e7678427`.
+Parent: `5b150cf4c5d704673ce6c6284723384c48ae5987`.
+PR and gate base: `9103dca15664496630c4397ea3a60721427b38da`.
+
+HIGH rule 4 remains correct. The reviewer read the complete two-line delta and full corrected body.
+Round 1's pin, dependency, ledger, status, probe, and transcript checks remain applicable.
+The complete Core pin delta still has five files. No runtime code, timeout, transcript, or mutation exclusion changes.
+
+### C24-F1 — HIGH — CLOSED
+
+The new A20 ID enters `core-pending.txt`.
+Its reason names both missing Core proofs: the real-tier runner's `TESTKIT_PROVEN` reporting and the class member's testkit pass.
+P6 owns the A20 check. P4a owns the allocator proof.
+The body records the original reported pass and explains why it was insufficient.
+The gate validates this new ledger ID's pending entry under the pin-move rule.
+No existing pending ID returns. The class member stays pending.
+The active set is exactly equal to v1 at 182 IDs. Every active ID has a PASS line.
+All 46 active minimum IDs have PASS lines. Minimum testkit progress stays 46 / 69.
+The future real-tier runner and allocator proof remain required. This verdict does not approve their unwritten implementation.
+
+### Integration R2-1 — LOW — CLOSED within Round 2
+
+Astra found that the evidence section incorrectly said every probe log contained 121 testkit passes.
+P6 corrected only the body. The reviewer verified the full corrected body at the unchanged head.
+The baseline `cde60ed1` ran only the real tier. The later `99f643b7` and `a46b7958` logs ran both tiers.
+The reviewer read all three raw logs and compared all 121 per-ID outcomes.
+The real pass counts are 54, 58, and 67. The latter two logs each report 121 testkit passes.
+The three outcome sets contain the same IDs. No PASS becomes another outcome in either comparison.
+Four IDs gain a real pass after the transcript changes. Nine more gain a real pass after the probe change.
+These are reference probe results on separate heads. They do not certify a Core real-tier milestone at the reviewed head.
+
+Reference evidence paths:
+
+- `~/botster-sessions/gates/botster-core-stage1-p6-real-core-r46probe-cde60ed1-pool-20261009-194110-48535.log`.
+- `~/botster-sessions/gates/botster-core-stage1-p6-real-core-r46probe-99f643b7-pool-20261009-195613-20654.log`.
+- `~/botster-sessions/gates/botster-core-stage1-p6-real-core-r46probe-a46b7958-pool-20261009-200839-70465.log`.
+- Each corresponding `botster-core-stage1-p6-real-core-r46probe-<head>-outcomes.txt` file in the same directory.
+
+### Exact-head gate and scope
+
+Log: `~/botster-sessions/gates/botster-core-stage1-p6-pin-v0.1.24-d18b4172-pool-20261009-203757-85930.log`.
+The head contains the exact stated base. All ten CI stages report PASS. The job and gate exit zero on msa1.
+
+- Default: 1390 passed, 508 skipped.
+- Slow: 256 passed, 1298 skipped.
+- Conformance: 182 passed, zero failed, 418 pending with transcripts, 70 pending without transcripts, two deferred, 18 withdrawn.
+- Both mutation steps: cargo-mutants lists no mutant, so no mutation run starts.
+- Fuzz: no changed crate with a decoder harness.
+
+The authoritative status copies and 690-ID ledger still match the tag. The pending count is now 488.
+No finding remains open, including LOW findings.
+Astra must publish a separate exact-head integration CLEAN for this HIGH PR.
+The approved plan is 23q at `bae71c81e0d9f1bd6fc291910f496be495414076`.
+Pin: `~/botster-sessions/pins/stage1-plan.bae71c81.md`.
+Verified SHA256: `bc60e9705fc06938e947fdfc9e163da25d4786d148d93c615f92a2a923625ad9`.
+The reviewer changed no product code and ran no builds, tests, mutation jobs, or gates.
+
+VERDICT: CLEAN
