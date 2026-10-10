@@ -399,12 +399,16 @@ fn a_held_handoff_of_a_failed_start_closes_session_lost_after_lost() {
     }
 }
 
-/// A started session `s1` whose route's descriptor send is held `Blocked` after `Launched`, with the scheduler deferring
-/// the start's progress: the driver's mark keeps the stream (token count 2). The events so far are returned; each pump's
-/// events are drained, so a small `pump_events` does not stall the start.
+/// A route held in the driver's marks: its stream's token, and its attach.
+type Held = (Arc<u32>, AttachResult);
+
+/// A started session `s1` with `routes` routes whose descriptor sends are held `Blocked` after `Launched`, with the
+/// scheduler deferring the start's progress: the driver's marks keep the streams (each token count 2). The events so far
+/// are returned; each pump's events are drained, so a small `pump_events` does not stall the start.
 fn held_at_launch(
     limits: CoreLimits,
-) -> (Rig, Arc<AtomicBool>, Arc<u32>, AttachResult, Vec<Event>) {
+    routes: u32,
+) -> (Rig, Arc<AtomicBool>, Vec<Held>, Vec<Event>) {
     let defer = Arc::new(AtomicBool::new(false));
     let mut rig = Rig::with_scheduler(
         limits,
@@ -424,19 +428,36 @@ fn held_at_launch(
         rig.pump();
         events.extend(rig.drain_events());
     }
-    let token = Arc::new(9);
-    let result = attach(&mut rig, Arc::clone(&token));
+    let held: Vec<Held> = (0..routes)
+        .map(|n| {
+            let token = Arc::new(20 + n);
+            let result = attach(&mut rig, Arc::clone(&token));
+            (token, result)
+        })
+        .collect();
     with_link(&rig, |l| l.send_budget = Some(0));
     defer.store(true, Ordering::SeqCst);
     rig.worker_says(LinkId(1), launched());
     rig.pump();
     events.extend(rig.drain_events());
-    assert_eq!(
-        Arc::strong_count(&token),
-        2,
-        "the driver's mark holds the stream"
+    for (token, _) in &held {
+        assert_eq!(
+            Arc::strong_count(token),
+            2,
+            "the driver's mark holds the stream"
+        );
+    }
+    (rig, defer, held, events)
+}
+
+/// One pump that posts at most `pump_events: 1` event (9B), and its events.
+fn pump_one_event(rig: &mut Rig, events: &mut Vec<Event>) {
+    let report = rig.pump();
+    assert!(
+        report.events_posted <= 1,
+        "a pump over its budget: {report:?}"
     );
-    (rig, defer, token, result, events)
+    events.extend(rig.drain_events());
 }
 
 /// The route's closes in `events`, with their positions, and the position of `Running`.
@@ -466,25 +487,56 @@ fn closes_after_running(
     (running, closes)
 }
 
-/// #219 integration R2-1, package F96: only the worker's link closes while the start waits to post `Running` (the
+/// The closes of `held`'s routes in `events`: one `HandoffFailed` each, all after `Running` and the start's completion,
+/// each stream closed once, and no route retained.
+fn assert_lost_handoffs_closed(rig: &Rig, held: &[Held], events: &[Event]) {
+    let completed = events
+        .iter()
+        .position(|e| matches!(e, Event::Completed { op: OpId(2), .. }))
+        .unwrap_or_else(|| panic!("the start completes: {events:?}"));
+    for (token, result) in held {
+        let (running, closes) = closes_after_running(events, result.route);
+        assert!(
+            running.is_some_and(|r| r < completed),
+            "Running, then the completion: {events:?}"
+        );
+        assert_eq!(closes.len(), 1, "one close of each route: {events:?}");
+        assert_eq!(closes[0].1, RouteCloseReason::HandoffFailed);
+        assert!(
+            closes[0].0 > completed,
+            "the close follows the completion: {events:?}"
+        );
+        assert_eq!(Arc::strong_count(token), 1, "the stream closed once");
+        assert!(
+            !rig.driver.engine().routes.contains_key(&result.route),
+            "no route is retained"
+        );
+    }
+    assert_eq!(
+        rig.driver.get(&sid("s1")).unwrap().state,
+        SessionState::Running
+    );
+}
+
+/// #219 integration R2-1, package F96, F97: only the worker's link closes while the start waits to post `Running` (the
 /// scheduler defers it), and the worker lives. The link alone does not end the start: it posts `Running` and completes.
-/// The held stream closed with the link, so the route closes once, `HandoffFailed`, when the start finishes.
+/// The held stream closed with the link, so the route closes once, `HandoffFailed`, after the completion. Every pump posts
+/// at most its budget of one event.
 #[test]
 fn a_held_handoff_whose_link_alone_closes_before_running_closes_handoff_failed_when_the_start_runs()
 {
-    let (mut rig, defer, token, result, _) = held_at_launch(CoreLimits::default());
+    let (mut rig, defer, held, _) = held_at_launch(limits(|l| l.pump_events = 1), 1);
     with_link(&rig, |l| l.peer_closed = true);
     let mut events = Vec::new();
     for _ in 0..3 {
-        rig.pump();
-        events.extend(rig.drain_events());
+        pump_one_event(&mut rig, &mut events);
     }
     assert_eq!(
-        Arc::strong_count(&token),
+        Arc::strong_count(&held[0].0),
         1,
         "the stream closed with the link"
     );
-    let (running, closes) = closes_after_running(&events, result.route);
+    let (running, closes) = closes_after_running(&events, held[0].1.route);
     assert_eq!(
         (running, closes),
         (None, vec![]),
@@ -492,35 +544,20 @@ fn a_held_handoff_whose_link_alone_closes_before_running_closes_handoff_failed_w
     );
     defer.store(false, Ordering::SeqCst);
     for _ in 0..8 {
-        rig.pump();
-        events.extend(rig.drain_events());
+        pump_one_event(&mut rig, &mut events);
     }
-    let (running, closes) = closes_after_running(&events, result.route);
-    let running = running.unwrap_or_else(|| panic!("the start runs: {events:?}"));
-    assert_eq!(closes.len(), 1, "one close: {events:?}");
-    assert_eq!(closes[0].1, RouteCloseReason::HandoffFailed);
-    assert!(
-        closes[0].0 > running,
-        "the close follows Running: {events:?}"
-    );
-    assert_eq!(
-        rig.driver.get(&sid("s1")).unwrap().state,
-        SessionState::Running
-    );
-    assert!(
-        !rig.driver.engine().routes.contains_key(&result.route),
-        "no route is retained"
-    );
+    assert_lost_handoffs_closed(&rig, &held, &events);
 }
 
-/// #219 integration R2-1, package F96: `Running` is posted, the start's completion waits for the next pump (`pump_events:
-/// 1`), and only the link closes then. The route closes once, `HandoffFailed`, after `Running`.
+/// #219 integration R2-1, package F96, F97: `Running` is posted, the start's completion waits for the next pump
+/// (`pump_events: 1`), and only the link closes then. The route closes once, `HandoffFailed`, after the completion, and every
+/// pump posts at most one event.
 #[test]
 fn a_held_handoff_whose_link_alone_closes_after_running_closes_handoff_failed_once() {
-    let (mut rig, defer, token, result, _) = held_at_launch(limits(|l| l.pump_events = 1));
+    let (mut rig, defer, held, _) = held_at_launch(limits(|l| l.pump_events = 1), 1);
     defer.store(false, Ordering::SeqCst);
-    rig.pump();
-    let mut events = rig.drain_events();
+    let mut events = Vec::new();
+    pump_one_event(&mut rig, &mut events);
     assert!(
         matches!(
             events.as_slice(),
@@ -533,28 +570,61 @@ fn a_held_handoff_whose_link_alone_closes_after_running_closes_handoff_failed_on
     );
     with_link(&rig, |l| l.peer_closed = true);
     for _ in 0..8 {
-        rig.pump();
-        events.extend(rig.drain_events());
+        pump_one_event(&mut rig, &mut events);
     }
-    assert_eq!(
-        Arc::strong_count(&token),
-        1,
-        "the stream closed with the link"
+    assert_lost_handoffs_closed(&rig, &held, &events);
+}
+
+/// #219 package F97, integration: three routes are held in the driver's marks when only the link closes, after `Running`.
+/// Each closes once, `HandoffFailed`, after the start's completion, one event per pump: the closes are budgeted steps.
+#[test]
+fn several_held_handoffs_whose_link_alone_closes_close_one_event_per_pump() {
+    let (mut rig, defer, held, _) = held_at_launch(limits(|l| l.pump_events = 1), 3);
+    defer.store(false, Ordering::SeqCst);
+    let mut events = Vec::new();
+    pump_one_event(&mut rig, &mut events);
+    with_link(&rig, |l| l.peer_closed = true);
+    for _ in 0..12 {
+        pump_one_event(&mut rig, &mut events);
+    }
+    assert_lost_handoffs_closed(&rig, &held, &events);
+}
+
+/// #219 package F97, integration: the closes of held routes wait while the queue has no mandatory room, and every route
+/// still closes once, `HandoffFailed`, after a poll frees room (EV-5b, EV-5d). No pump posts more than one event.
+#[test]
+fn several_held_handoffs_whose_link_alone_closes_wait_for_room_and_all_close() {
+    let (mut rig, defer, held, _) = held_at_launch(
+        limits(|l| {
+            l.pump_events = 1;
+            l.mandatory_events = 2;
+        }),
+        3,
     );
-    let (running, closes) = closes_after_running(&events, result.route);
-    assert_eq!(running, Some(0));
-    assert_eq!(closes.len(), 1, "one close: {events:?}");
-    assert_eq!(closes[0].1, RouteCloseReason::HandoffFailed);
-    assert!(
-        events
-            .iter()
-            .any(|e| matches!(e, Event::Completed { op: OpId(2), .. })),
-        "the start completes: {events:?}"
-    );
-    assert!(
-        !rig.driver.engine().routes.contains_key(&result.route),
-        "no route is retained"
-    );
+    defer.store(false, Ordering::SeqCst);
+    let pump_unpolled = |rig: &mut Rig| {
+        let report = rig.pump();
+        assert!(
+            report.events_posted <= 1,
+            "a pump over its budget: {report:?}"
+        );
+    };
+    pump_unpolled(&mut rig);
+    with_link(&rig, |l| l.peer_closed = true);
+    for _ in 0..8 {
+        pump_unpolled(&mut rig);
+    }
+    // `Running` and one close fill the two mandatory slots; `Completed` needs none. The other two closes wait.
+    let retained = held
+        .iter()
+        .filter(|(_, r)| rig.driver.engine().routes.contains_key(&r.route))
+        .count();
+    assert_eq!(retained, 2, "two closes wait for room");
+    let mut events = rig.drain_events();
+    for _ in 0..8 {
+        pump_one_event(&mut rig, &mut events);
+    }
+    assert_lost_handoffs_closed(&rig, &held, &events);
 }
 
 /// #219 (gate mutant at 31072282): a running session's route is held `Blocked` in the driver's mark, and a `Stop` runs.
