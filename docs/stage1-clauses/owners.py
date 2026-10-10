@@ -33,6 +33,8 @@ def owner(x):
         if "at_the_bound_is_admitted" in i:
             return "p3-worker"
         return "p1-lifecycle"
+    if c.startswith("A20-"):
+        return "p6-testkit"
     if c.startswith("A19-2"):
         return "p4b-queries-files"
     if c.startswith("A19-"):
