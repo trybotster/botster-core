@@ -12,6 +12,8 @@ workspace = true
 [dependencies]
 anyhow.workspace = true
 botster-core-contract.workspace = true
+# TESTKIT_PROVEN (Core A20-1): `lists` refuses those ids in core-real-pending.txt.
+botster-core-conformance.workspace = true
 botster-core-sys.workspace = true
 botster-core-testkit.workspace = true
 botster-test-support.workspace = true
