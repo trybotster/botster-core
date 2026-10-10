@@ -78,3 +78,52 @@ I sent R1-1 to the implementer and package reviewer. The package artifact is pen
 I changed no product code and ran no builds, tests, gates, or timing jobs.
 
 VERDICT: NOT CLEAN (1 LOW open).
+
+## Round 2 — 2026-10-10
+
+Reviewed head: `190c12a36d7ee0acf96a44f4554a93ffd7ee7e16`.
+PR and gate base: `150a2069428173c97892160b73e94993233f413a`.
+Prior reviewed head: `a9d99fee96e3e36a721ece59be84ed432548cc19`.
+Tier: HIGH. The complete round 1 source review remains part of this verdict.
+
+### R1-1 — LOW — CLOSED
+
+The Cargo.toml comment and PR body now describe the production use of the optimized packages.
+Both name botster-route-codec and serde_json as production dependencies of Core crates.
+Both describe regex-automata's build-script use through bindgen and libproc.
+I confirmed that dependency chain in Cargo.lock and the macOS libproc dependency of botster-core-sys.
+Both identify botster-hub-conformance as a testkit and xtask dependency.
+
+The same four overrides retain opt-level 2.
+Each now explicitly sets debug-assertions=true and overflow-checks=true, preserving the existing dev-profile settings.
+No Core workspace crate has an override. These changes satisfy the lead's authorized scope.
+
+### Source and evidence
+
+The four changed testkit files are byte-identical to the round 1 head.
+The replacement changes only the Cargo.toml comment and explicit check settings within this PR's own changes.
+The new base adds #224's shared payload guard fix, which I separately reviewed as CLEAN.
+The merge has no combined diff. The base is an ancestor, and `git diff --check` passes.
+The remote implementation head and base match the reviewed commits.
+
+Gate: `botster-core-stage1-testkit-fill-cost-190c12a3-pool-20261010-102544-51971.log`.
+The header names the reviewed head and base. All ten stages pass in 372.0 seconds.
+Default tests: 1,481 passed. Slow tests: 381 passed.
+The wrapped-copy and trace-formatting proofs have PASS lines.
+Conformance remains 193 testkit passes, 407 pending trials, 70 entries without transcripts, two deferred trials, and 18 withdrawn trials.
+Minimum counts remain testkit 50/69, real-passing 29/68, and real-accepted 29/69.
+The report retains 87 pending-real ids with zero passes.
+Both mutation stages report 21 mutants: 17 caught, four unviable, zero missed, and zero timeouts.
+The second stage takes 119.8 seconds. Its environment setting does not enable the slow feature.
+The job and wrapper exit zero after 503 seconds on gaming, with zero queue time.
+
+The round 1 timing evidence retains its scope and limitations.
+A+B alone still measures 2.10–2.11 seconds on gaming at v0.1.25.
+That evidence does not establish compliance with the two-second limit or approve the future v0.1.26 pin.
+The separate contracts C change and the final Core pin gate remain necessary for that conclusion.
+
+The package verdict is CLEAN at `1c09a150e3fb992bfcde328a34ac6c0867cf8fe1`, in `verdicts/p3-worker.md`, round 149.
+I read that verdict and confirmed its agreement with the source and supplied evidence.
+No integration finding remains. I changed no product code and ran no builds, tests, gates, or measurements.
+
+VERDICT: CLEAN
