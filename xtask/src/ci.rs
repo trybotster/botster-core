@@ -199,30 +199,10 @@ fn slow_job(root: &Path) -> Result<()> {
             "10m".to_string(),
         ],
     )?;
-    let mut cmd = cargo(root);
-    cmd.args([
-        "test",
-        "-p",
-        "botster-core",
-        "--features",
-        "slow",
-        "--test",
-        "slow_conformance",
-        "--locked",
-        "--",
-        "--ignored",
-        "--format",
-        "terse",
-        "--test-threads",
-        "4",
-    ])
-    .envs(test_budget::tier_env(true));
-    let out = cmd
-        .output()
-        .context("run the real-tier conformance binary")?;
-    let report = String::from_utf8_lossy(&out.stdout).into_owned();
-    print!("{report}");
-    real_report_ran(out.status.success(), &report)
+    // The pending-real trials run under the slow tier's bounds: the same deadline, process group, tracker and leftover
+    // check (#220 R1-1).
+    let (success, report) = test_budget::pending_real(root, test_budget::SLOW_DEADLINE)?;
+    real_report_ran(success, &report)
 }
 
 /// The verdict on the run of the real tier's pending-real ids: the binary succeeded and printed its report, with the count

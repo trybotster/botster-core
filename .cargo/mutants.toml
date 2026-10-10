@@ -62,7 +62,8 @@ exclude_re = [
     # succeeded (only_a_successful_run_passes), the verdict on the exit.
     'xtask/src/ci\.rs:\d+:\d+: replace clippy_job -> Result<\(\)> with Ok\(\(\)\)$',
     # xtask ci.rs slow_job -> Ok(()): process glue. The body runs the slow tier under nextest (test_budget::command), then
-    # the real-tier conformance binary under `--ignored` (the ids of core-real-pending.txt, plan 23l), and prints its report;
+    # the real-tier conformance binary under `--ignored` with the slow tier's bounds (test_budget::pending_real; the ids of
+    # core-real-pending.txt, plan 23l), and prints its report;
     # a test cannot run the slow tier inside the test run. Only this whole-body replacement is excluded. A body replaced by
     # Ok(()) prints no slow summary and no "real conformance: pending-real" line, which every gate log of the step shows. Its
     # decision is the tested real_report_ran (the_pending_real_run_passes_only_with_a_success_and_its_report).
@@ -118,6 +119,16 @@ exclude_re = [
     # own in botster_core_sys::signal (a_target_of_0_1_out_of_range_or_our_own_is_refused,
     # our_own_group_and_process_are_never_signalled).
     'xtask/src/test_budget\.rs:\d+:\d+: replace kill with \(\)$',
+    # xtask test_budget.rs run_nextest, run_bounded, bounded_report and pending_real, every mutant (#220 R1-1): they start a
+    # real process group, track it, kill it at the deadline and capture its output, so only real-process tests reach them,
+    # and those are slow tests (BUILD.md testing rule 2): a_bounded_run_returns_its_status_and_what_it_printed,
+    # a_run_past_its_deadline_is_killed_and_fails, a_process_left_behind_fails_the_run_and_is_killed, and every gate's slow
+    # step. Interim until the plan 23n two-stage verdict, like real.rs above; removed by that PR. Until then the proof is a
+    # focused manual slow mutation run of these functions (its own pool job; the log is in the RealCoreHarness PR body).
+    'xtask/src/test_budget\.rs:\d+:\d+: (replace run_nextest( ->| with)|.* in run_nextest$)',
+    'xtask/src/test_budget\.rs:\d+:\d+: (replace run_bounded( ->| with)|.* in run_bounded$)',
+    'xtask/src/test_budget\.rs:\d+:\d+: (replace bounded_report( ->| with)|.* in bounded_report$)',
+    'xtask/src/test_budget\.rs:\d+:\d+: (replace pending_real( ->| with)|.* in pending_real$)',
     # P7 GuardianConfig::fmt: the debug text has no contract format. An empty successful
     # debug result still omits the service token, which is the only required property.
     # only_a_valid_host_hello_authenticates checks token omission.
