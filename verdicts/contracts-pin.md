@@ -317,3 +317,93 @@ This verdict approves only the pin move. It closes no pending ID or separate rea
 The reviewer changed no product code and ran no builds, tests, mutation jobs, or gates.
 
 VERDICT: CLEAN
+
+## PR #211 Round 1 — contracts-v0.1.22 — 2026-10-09
+
+- Exact head: `19e918071660a12a5a087960a45d9530d1a0ab7b`.
+- Tree: `8428647f63e5da8028f4109788f59939b690195b`.
+- Parent: `a831316e6c41683cce4e00fef268e1c2d80fc356`.
+- PR and gate base: `4b227d46ef5453ab8a3f7daaa4dc33562b4be83b`.
+- Risk: HIGH, BUILD.md rule 4. The reviewer checked this tier first.
+
+The lead assigned this pin review to P5 as the P1 package owner.
+The reviewer read the complete eighteen-file Core delta, relevant contracts crate delta, A17 candidate 2, and final37 manifest record.
+The PR cites earlier pin-count updates as prior art and lists each required A17 removal.
+The approved A17 amendment moves WebRTC to the Hub and leaves Core with the Stream transport.
+The lead's stated scope permits removals required by that amendment and the two tests of pinned counts.
+
+### Pin and source checks
+
+All six direct contracts dependencies use `contracts-v0.1.22`.
+The tag resolves to `af5771cf962eb26b7074d486dafbb3360ff50d01`.
+All nine contracts lock sources name that tag and commit.
+Cargo.lock retains 222 packages. Only those nine source fields change; versions, checksums, and dependencies stay unchanged.
+The pin comment identifies the correct commit and manifest-final37.
+
+The contract crate removes WebRTC operations, values, errors, features, transport fields, and limits as A17 specifies.
+Its prelude removes `Answer` and `OfferRefusal` and adds no names.
+The codec removes the route's `max_chunk_bytes` field. Core and worker source have no remaining use of that field.
+The tagged conformance driver adds attach-option substitution and removes WebRTC handling.
+The tagged runner adds `Limits::real`; this PR does not activate a real harness or alter a Core timeout value.
+
+Core removes the `AttachWebRtc` admission arm and `AppliedRouteLimits.max_chunk_bytes` construction.
+The transport check stays because `RouteTransport` remains non-exhaustive.
+Its error detail now names the connected Stream rule.
+Tests remove only obsolete WebRTC cases and deleted option or limit fields.
+The refusal table removes the deleted operation and retains the remaining rows.
+The two pinned-count tests now require at least 25 operations, 26 withdrawn IDs, and seven withdrawals without replacements.
+Those counts match the tag. No parser change, new lifecycle behavior, or new process proof enters this PR.
+The stream comment and design row remove the obsolete WebRTC scope.
+
+### Ledger and transcript checks
+
+The checked Core ledger exactly matches all 682 Core entries in the tagged ledger.
+The copied withdrawn and unchanged deferred files match the tag byte for byte.
+The withdrawn file adds 23 IDs across contracts, including 15 Core IDs under A17.
+All 15 Core IDs were pending and leave pending. None was a passing or minimum ID.
+The three new A17 ledger IDs enter pending. The tag lists them as pending and provides no transcript for them.
+No existing pending ID returns. The remaining active conformance ID set is unchanged.
+
+The tag modifies 21 Core transcripts and deletes the 15 withdrawn Core transcripts.
+The reviewer read the four changed transcripts that already pass on v1.
+The Stop-race correction waits for output after the scripted `ignore_sigterm` step.
+The zero-limit transcript removes only the three deleted limits.
+All four changed active transcripts have PASS lines at the reviewed head.
+Core edits no transcript in this worktree.
+
+All 69 minimum IDs remain in scope. All 41 active minimum IDs have PASS evidence.
+Testkit progress remains 41 / 69. This pin review makes no real-harness progress claim.
+The lead owns the plan pin and clause-list update after landing.
+
+### C22-F1 — LOW — CLOSED within Round 1
+
+The PR body initially said that 19 Core transcripts changed.
+The tag delta has 21 modified transcripts and 15 deleted transcripts; the body already listed all 21 modified transcripts.
+The reviewer sent this finding directly to P6 and copied Astra.
+P6 corrected 19 to 21 without changing the head.
+The reviewer read the complete corrected GitHub body and verified the unchanged exact head.
+Astra independently confirms the count and body closure.
+No package finding remains open, including LOW findings.
+
+### Supplied gate and scope
+
+Log: `~/botster-sessions/gates/botster-core-stage1-p6-pin-v0.1.22-19e91807-pool-20261009-181249-20493.log`.
+The log names the exact reviewed head and current v1 base. The head contains that base.
+All ten CI stages report PASS. The job and gate exit with zero.
+
+- Default: 1284 passed, 561 skipped.
+- Slow: 254 passed, 1275 skipped.
+- Conformance: 121 passed, zero failed, 478 pending with transcripts, 64 pending without transcripts, two deferred, 17 withdrawn.
+- Both mutation steps: six tested, four caught, two unviable, zero missed, zero timeout.
+- Fuzz: no changed crate with a decoder harness.
+
+The extra outer `NEXTEST_PROFILE=slow` command does not enable slow-feature tests.
+The #181 launcher explicitly selects the `mutants` profile, which has no terminate-after.
+No mutation exclusion changes occur in this PR.
+
+Integration must publish its separate exact-head CLEAN artifact for this HIGH pin move.
+The later #206 merge must remove any uses of fields that A17 deletes.
+This verdict closes no pending ID and no separate #210 finding or real-adoption proof duty.
+The reviewer changed no product code and ran no builds, tests, mutation jobs, or gates.
+
+VERDICT: CLEAN
