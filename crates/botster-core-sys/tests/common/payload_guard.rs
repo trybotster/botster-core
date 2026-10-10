@@ -89,7 +89,9 @@ fn failed(error: std::io::Error) -> Outcome {
 ///
 /// A connection that ends before its tag is the release of a waiting accept (the request came before registration);
 /// it ends the registration. Every other failure is kept: an accept or read error, an unknown tag, or a group that is not
-/// a valid id (no readiness is sent then). A ready helper with no member is an error: the payload ran without its owner.
+/// a valid id (no readiness is sent then). A ready helper with no member registered no payload: the guard sends readiness
+/// only when both are registered, so the ready helper exits 1 and the payload's shell exits before its command. A group
+/// signal that comes before the member's registration (a stop at once after the start) ends the member that way.
 /// A member with no ready helper (the payload ended before it) gets the cleanup request at once and reports as usual.
 fn serve(listener: UnixListener, mut receiver: UnixStream) -> Outcome {
     let mut member: Option<Member> = None;
@@ -139,13 +141,9 @@ fn serve(listener: UnixListener, mut receiver: UnixStream) -> Outcome {
             }
         }
     }
+    // With no member, no readiness is sent: the ready helper reads the end of its stream and the payload never starts.
     let Some(mut member) = member else {
-        return match ready {
-            None => Outcome::unregistered(),
-            Some(_) => failed(std::io::Error::other(
-                "the payload became ready without its member",
-            )),
-        };
+        return Outcome::unregistered();
     };
     if let Some(mut ready) = ready {
         let _ = member.stream.write_all(&[1]);
@@ -394,13 +392,10 @@ fn a_payload_cleanup_that_cannot_finish_fails_through_the_guard() {
 }
 
 /// A registration that cannot be trusted fails the guard, and the registrant is never told that the payload is ready: a
-/// member that registers an invalid group, and a ready helper with no member.
+/// member that registers an invalid group.
 #[test]
 fn a_registration_that_cannot_be_trusted_fails_the_guard() {
-    for (frames, expected) in [
-        (&b"\x01not-a-pid\n"[..], "invalid group"),
-        (&b"\x02"[..], "ready without its member"),
-    ] {
+    for (frames, expected) in [(&b"\x01not-a-pid\n"[..], "invalid group")] {
         let dir = tempfile::tempdir().unwrap();
         let mut guard = PayloadGuard::new(dir.path());
         let mut registrant = UnixStream::connect(&guard.socket).unwrap();
@@ -456,4 +451,25 @@ fn a_member_that_ends_with_the_readiness_unread_ended_without_a_report() {
     drop(member);
     guard.release();
     drop(guard);
+}
+
+/// A ready helper whose member never registered, as when production's group signal ends the member before its
+/// registration, is no payload: the guard never tells it that the payload is ready, and its drop passes.
+#[test]
+fn a_ready_helper_without_its_member_is_never_ready_and_owns_nothing() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut guard = PayloadGuard::new(dir.path());
+    let mut ready = UnixStream::connect(&guard.socket).unwrap();
+    // timer: deadline — bounds the read of the readiness (set while the stream is open; macOS refuses it once the peer
+    // has closed).
+    ready.set_read_timeout(Some(CLEANUP)).unwrap();
+    ready.write_all(&[2]).unwrap();
+    guard.release();
+    drop(guard);
+    let mut readiness = [0];
+    assert_eq!(
+        ready.read(&mut readiness).unwrap(),
+        0,
+        "no readiness was sent"
+    );
 }
