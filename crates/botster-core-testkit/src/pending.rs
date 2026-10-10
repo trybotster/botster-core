@@ -58,14 +58,19 @@ pub fn parse_real_only(text: &str) -> Result<Vec<RealOnly>, String> {
         .filter(|(_, line)| !line.trim().is_empty() && !line.starts_with('#'))
         .map(|(i, line)| match line.split_once('\t') {
             Some((id, proof))
-                if id.starts_with("conf::") && proof.starts_with("slow:") && !proof.contains('\t') =>
+                if id.starts_with("conf::")
+                    && proof.starts_with("slow:")
+                    && !proof.contains('\t') =>
             {
                 Ok(RealOnly {
                     id: id.to_string(),
                     proof: proof.to_string(),
                 })
             }
-            _ => Err(format!("line {}: expected `conf::<id><TAB>slow:<what>`", i + 1)),
+            _ => Err(format!(
+                "line {}: expected `conf::<id><TAB>slow:<what>`",
+                i + 1
+            )),
         })
         .collect()
 }
