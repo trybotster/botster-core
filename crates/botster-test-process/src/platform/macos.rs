@@ -193,7 +193,12 @@ fn live_of(
                 return Err(std::io::Error::other(format!("process {raw}: {refused}")));
             }
         };
-        if keep(&info) && info.pbi_status != libc::SZOMB {
+        // A zombie is not live. macOS (checked on Darwin 27) refuses the information of a zombie (ESRCH), so a
+        // zombie takes the refusal path above; this check is for a kernel that answers for one.
+        if info.pbi_status == libc::SZOMB {
+            continue;
+        }
+        if keep(&info) {
             members.push(Member {
                 pid: process,
                 state: format!("status {}", info.pbi_status),
