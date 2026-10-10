@@ -45,6 +45,7 @@ impl !core::panic::unwind_safe::UnwindSafe for botster_core::Core
 pub struct botster_core::RealEdges
 impl botster_core_host::driver::HostEdges for botster_core::RealEdges
 pub fn botster_core::RealEdges::accept_link(&mut self) -> core::option::Option<botster_core_host::io::LinkId>
+pub fn botster_core::RealEdges::close_route_stream(&mut self, botster_core_contract::route::StreamEndpoint, &[u8])
 pub fn botster_core::RealEdges::connect_worker(&mut self, &botster_core_contract::ids::InstanceId) -> core::option::Option<botster_core_host::io::LinkId>
 pub fn botster_core::RealEdges::delete_row(&mut self, &str) -> core::result::Result<(), botster_core_edges::edges::StorageError>
 pub fn botster_core::RealEdges::diagnostics(&self) -> serde_json::value::Value
