@@ -1056,3 +1056,23 @@ No execution gate applies to this documentation-only revision.
 I ran no builds, tests, gates, timing jobs, or profiling jobs.
 
 VERDICT: CLEAN (0 open) at c0860d7e7e8e4dd269c69b979d72aecfcc18a724
+
+## Round 31 — revision 23x — 2026-10-10
+
+Reviewer: Sol, successor to Astra under rule 23e.
+Reviewed head: `c0b6f32ef7edaccf871051749399302604962be1`.
+Prior accepted head: `c0860d7e7e8e4dd269c69b979d72aecfcc18a724`.
+Scope: the complete two-hunk delta in `docs/stage1-plan.md`.
+
+Section 6.3 records the seat change and the continuing verdict branch.
+The revision row records the same decision.
+The change applies rule 23e and agrees with the user's explicit handover instruction.
+Astra remains available for handover questions only.
+The change preserves package ownership, acceptance conditions, gate requirements, and the approved staffing exceptions.
+
+The prior plan pin has the same bytes as the parent revision.
+The remote plan head matches the reviewed head.
+This documentation change requires no execution gate.
+I ran no builds, tests, gates, mutation jobs, or reversal jobs.
+
+VERDICT: CLEAN (0 open) at c0b6f32ef7edaccf871051749399302604962be1
