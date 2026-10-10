@@ -973,3 +973,28 @@ No execution gate applies to this documentation-only revision.
 I ran no builds, tests, or gates.
 
 VERDICT: CLEAN (0 open) at 23c132e06cbf32c8a5d9498da3c1c0db18ded5a9
+
+## Round 28 — revision 23u — 2026-10-10
+
+Reviewed head: `558a6c8dcb07a5c77ee6713b26bbec9cf20e9ffc`.
+Prior accepted head: `23c132e06cbf32c8a5d9498da3c1c0db18ded5a9`.
+Scope: the complete delta in `docs/stage1-plan.md`: the section 5 exception and revision-history row.
+
+The exception requires all three conditions: the same commit changes the contracts pin, the id's transcript changes between the tags, and the new transcript fails.
+It applies to `core-pending.txt` and, for a real-tier failure, `core-real-pending.txt`.
+The plan requires a tested `lists` decision and a regression proof that fails when the fix is reverted.
+The PR body must identify each added id, its transcript change, and the PR that will remove the id.
+An added minimum id reduces the progress count, and the PR body must report that reduction.
+The pin move remains HIGH. This exception does not change the acceptance requirement for empty pending lists.
+
+I compared the named transcript between contracts commits `d79aed5e84d4a8bc9b76f6163ca6bc4a9d89b951` and `ff3405992fd3a76f324d3b683b1f1631c034f43c`.
+The new transcript adds a failed-start case with an attached route and checks one `SessionLost` close plus the endpoint reason.
+That change matches the stated R-50 premise and the #219 work under review.
+This plan review does not establish a new runtime result or approve a specific pending-list addition.
+The implementation review must verify every eligibility condition and its evidence at the pin-moving commit.
+
+The remote plan head matches the reviewed revision. `git diff --check` passes.
+No execution gate applies to this documentation-only revision.
+I ran no builds, tests, or gates.
+
+VERDICT: CLEAN (0 open) at 558a6c8dcb07a5c77ee6713b26bbec9cf20e9ffc
