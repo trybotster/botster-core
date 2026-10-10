@@ -159,3 +159,35 @@ The reviewer changed no product code and ran no gate, build, test, mutation job,
 No ordinary NOT CLEAN report went to the lead.
 
 VERDICT: NOT CLEAN
+
+## Round 3 — 2026-10-10
+
+PR: https://github.com/trybotster/botster-core/pull/220.
+Exact head: `8e73278755d66ab02b09141ad57c4bd0f41272b7`.
+Base: `d174ef48a218b74beb4bac9ec555c6c39d2650a4`.
+
+RH-R2-1 closes. The only changes from round 2 are the ledger command and its exclusion reason.
+`ledger_ids_command` reads each copy and passes the copy, source, and path to `copy_problems`.
+A missing copy fails the read with context. A mismatched copy produces the tested comparison failure.
+The existing proof checks both matching copies and a named mismatch.
+The exclusion reason cites that decision and proof. No exclusion covers `copy_problems`.
+The PR body records this final fix at the reviewed head.
+
+All round-1 findings and the mutation evidence concern remain closed.
+The other source files and retained manual evidence are unchanged from round 2.
+The interim slow-module exclusion still follows the lead's plan 23n rule.
+This CLEAN verdict does not replace the later required two-stage mutation gate.
+
+The reviewer read the exact-head gate log:
+`~/botster-sessions/gates/botster-core-stage1-p6-real-core-8e732787-pool-20261010-084907-54482.log`.
+All ten jobs pass, exit 0. Default: 1464 passing tests. Slow: 377 passing tests. Conformance: 193 passing.
+The ledger command reports that its copies match the pin.
+Minimum counts remain testkit 50/69, real 29/68, real-accepted 29/69.
+The 87 pending-real trials report zero newly passing ids.
+Both mutation commands report 125 mutants: 95 caught, zero missed, zero timeout, and 30 unviable.
+The repeated mutation command does not add slow-feature coverage.
+
+All package findings close at this exact head.
+The reviewer changed no product code and ran no gate, build, test, mutation job, or reversal.
+
+VERDICT: CLEAN
