@@ -15,7 +15,8 @@
 # The real controls corrupt_registry_row, payload_alive and lose_worker (P5, real-controls PR A) made 6 ids of the adoption group
 # pass; with them, a2_3_lost_session_closes_routes_session_lost stops at attach_stream and ev_5_full_queue_defers_transition_not_output
 # at pty_output, so they are listed in those groups. The stand-in controls impostor_worker, announce_protocol,
-# withhold_control_link and signals_received (P5, real-controls PR B) made 5 more pass.
+# withhold_control_link and signals_received (P5, real-controls PR B) made 5 more pass, and 5 more with the
+# await_quiet fences of contracts PR #27 (contracts-v0.1.26, v1 c19ad938).
 
 # the route data plane on the real tier: RealCoreHarness attach_stream (R-47 (A) route forms, real client end), P6 (22).
 conf::a2_3_lost_session_closes_routes_session_lost
@@ -81,14 +82,6 @@ conf::tm_5_deadlines_in_order
 conf::a5_3_only_sync_column_codes_scripted
 conf::a5_3_sync_refusal_has_no_op_event_slot_or_state
 conf::ad_7_payload_launches_after_durable_identity
-
-# R-46 transcript fix pending (adoption deadline set after advance_clock): contracts PR #27 (in contracts-v0.1.25) puts an
-# await_quiet between the begin and the advance; the ids pass on the real tier with it, P5 after the v0.1.25 pin move (5).
-conf::a2_1_adopt_completes_ok_with_the_state_it_reached
-conf::a6_1_withheld_control_link_gives_worker_unreachable_not_worker_gone
-conf::ad_4_absent_worker_protocol_is_unknown_never_compatible
-conf::ad_4_compatibility_is_not_a_guarantee_of_adoption_auth_and_reachability_can_still_fail
-conf::lc_9_worker_protocol_absent_for_an_unreachable_worker_whose_hello_was_never_read
 
 # needs wait_worker_exit for a non-spawned worker (R-46 follow-up 5651aec): its Remove of a stray worker learns of the end only
 # at the stop_grace re-check, P5 (1).
