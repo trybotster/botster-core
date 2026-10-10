@@ -143,7 +143,12 @@ fn serve(listener: UnixListener, mut receiver: UnixStream) -> Outcome {
     }
     // With no member, no readiness is sent: the ready helper reads the end of its stream and the payload never starts.
     let Some(mut member) = member else {
-        return Outcome::unregistered();
+        return match ready {
+            None => Outcome::unregistered(),
+            Some(_) => failed(std::io::Error::other(
+                "the payload became ready without its member",
+            )),
+        };
     };
     if let Some(mut ready) = ready {
         let _ = member.stream.write_all(&[1]);
