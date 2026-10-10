@@ -25,7 +25,7 @@
 use crate::candidate::{Candidate, PROBE, WORKER};
 use crate::controls::parse;
 use crate::edge_tap::{EdgeTap, Rows, Tap};
-use crate::harness::{limits_of, no_route};
+use crate::harness::limits_of;
 use botster_core::RealEdges;
 use botster_core_conformance::{
     ControlError, CoreHarness, DataDirRef, OpenSpec, RouteClient, WorkerBuild, WorkerRef,
@@ -38,9 +38,12 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
 use std::io;
+use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
 use std::time::Duration;
+
+mod route;
 
 /// The binary that a wrapper execs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -391,15 +394,34 @@ impl CoreHarness for RealCoreHarness {
         self.probe.display().to_string()
     }
 
+    /// A route over a Unix stream pair (R-47 A): Core receives one end as the route's transport and hands it to the
+    /// worker; the client keeps the other ([`route::RealRoute`]). The harness keeps no copy of the worker's end. Both
+    /// harnesses serve it: the route is the client's, not the tap's.
     fn attach_stream(
         &mut self,
         _handle: &str,
-        _core: &mut dyn CoreApi,
-        _client: ClientId,
-        _session: &SessionId,
-        _options: AttachOptions,
+        core: &mut dyn CoreApi,
+        client: ClientId,
+        session: &SessionId,
+        options: AttachOptions,
     ) -> Result<(AttachResult, Box<dyn RouteClient>), CoreError> {
-        Err(no_route("attach_stream"))
+        let stream_failed = |error: io::Error| {
+            CoreError::new(
+                ErrorCode::Internal,
+                format!("the real harness could not make the route's stream: {error}"),
+            )
+        };
+        let (worker_end, client_end) = UnixStream::pair().map_err(stream_failed)?;
+        let route = route::RealRoute::new(client_end).map_err(stream_failed)?;
+        let result = core
+            .attach(
+                client,
+                session.clone(),
+                RouteTransport::Stream(StreamEndpoint::new(worker_end)),
+                options,
+            )
+            .map_err(|refused| refused.error)?;
+        Ok((result, Box::new(route)))
     }
 }
 

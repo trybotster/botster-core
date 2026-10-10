@@ -71,7 +71,7 @@ pub(crate) const ROUTE_CONTROLS: &[&str] = &[
 ];
 
 /// The optional bool `key` of a control's arguments; absent is true (`route_gate`, `fail_writes`).
-fn flag(args: &Value, key: &str) -> Result<bool, String> {
+pub(crate) fn flag(args: &Value, key: &str) -> Result<bool, String> {
     match args.get(key) {
         None => Ok(true),
         Some(Value::Bool(on)) => Ok(*on),
