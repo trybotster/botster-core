@@ -380,6 +380,26 @@ pub fn pending_real(root: &Path, deadline: Duration) -> Result<(bool, String)> {
     )
 }
 
+/// Runs `command` under the slow tier's bounds, as [`pending_real`] does: its own process group, `deadline`, the process
+/// tracker (with the tests' pid file `pidfile`, which it empties first) and the leftover check. Its stdout is printed as it
+/// comes. Returns whether it succeeded. The stage-2 baseline of the mutation step runs this way (#225 MS-R1-1).
+///
+/// # Errors
+/// The run could not start, passed its deadline, or left processes behind.
+pub fn bounded_success(
+    mut command: Command,
+    deadline: Duration,
+    pidfile: &Path,
+    start: &'static str,
+) -> Result<bool> {
+    let _ = std::fs::remove_file(pidfile);
+    if let Some(dir) = pidfile.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    command.env("BOTSTER_TEST_PIDFILE", pidfile);
+    bounded_report(command, deadline, pidfile, start).map(|(success, _)| success)
+}
+
 /// Runs `command` with [`run_bounded`], capturing its stdout, and judges it with [`run_failures`]. The I/O shell of that
 /// decision: returns whether the run succeeded and what it printed.
 fn bounded_report(
@@ -939,6 +959,41 @@ mod slow_tests {
         assert_eq!(text, "real conformance: passed 1\nsecond\n");
         let (success, _) = bounded_report(sh("exit 3"), SLOW_DEADLINE, &pids, "start sh").unwrap();
         assert!(!success);
+    }
+
+    /// The bounded form of the stage-2 baseline (#225 MS-R1-1): whether the run succeeded; a run past its deadline and a
+    /// process left behind fail, as in `bounded_report`. The pid file is made in a directory that does not exist yet.
+    #[test]
+    fn a_bounded_success_is_the_runs_success_and_a_hung_run_or_a_leftover_fails() {
+        let dir = tempfile::tempdir().unwrap();
+        let pids = dir.path().join("new").join("pids");
+        let sh = |script: &str| {
+            let mut command = Command::new("/bin/sh");
+            command.args(["-c", script]);
+            command
+        };
+        assert!(bounded_success(sh("true"), SLOW_DEADLINE, &pids, "start sh").unwrap());
+        assert!(!bounded_success(sh("exit 3"), SLOW_DEADLINE, &pids, "start sh").unwrap());
+        let blocker = botster_test_process::Blocker::new(dir.path(), "block").unwrap();
+        let hung = bounded_success(
+            sh(&format!("exec {}", blocker.shell())),
+            Duration::ZERO,
+            &pids,
+            "start sh",
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(hung.contains("deadline"), "{hung}");
+        let left_blocker = botster_test_process::Blocker::new(dir.path(), "left").unwrap();
+        let left = bounded_success(
+            sh(&format!("{} & true", left_blocker.shell())),
+            SLOW_DEADLINE,
+            &pids,
+            "start sh",
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(left.contains("processes left behind"), "{left}");
     }
 
     /// A run that does not end by its deadline is killed with its group, and fails. A zero deadline has passed at the
