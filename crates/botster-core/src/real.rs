@@ -664,7 +664,6 @@ mod slow_tests {
             file_permissions: None,
             route_features: vec![],
             terminal_formats: vec![],
-            connect_deadline: None,
             owner: None,
             query_deadline: None,
             route_tag: None,

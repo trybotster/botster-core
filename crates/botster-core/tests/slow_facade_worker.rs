@@ -258,7 +258,6 @@ fn the_facade_reaches_a_host_with_a_worker_on_a_real_link() {
                 file_permissions: None,
                 route_features: vec![],
                 terminal_formats: vec![],
-                connect_deadline: None,
                 owner: None,
                 query_deadline: Some(Duration::from_secs(1)),
                 route_tag: None,
