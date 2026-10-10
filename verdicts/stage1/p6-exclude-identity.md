@@ -135,3 +135,45 @@ The remote PR head and base match. The merge base remains 78b011d1. git diff --c
 I read the updated PR body. It records the finding, correction, and exact-head gate.
 The package verdict for this head remains pending. This inspection completes no round and grants no CLEAN verdict.
 I ran no execution job.
+
+## Round 2 — 2026-10-10
+
+Reviewed head: `4de5a07ea79e76378f1baf174d0f74a3f989266f`.
+PR and full gate base: `78b011d1a8a23229b87f81b0553ab052818b2200`.
+Tier remains HIGH. Scope: the complete correction from 8b63a17c, shared runner ownership, updated PR body, and exact-head evidence.
+The full Round 1 selection review remains applicable. The correction changes only the new fixture listing and its comment.
+
+R1-1 / EX-R1-1 HIGH is CLOSED.
+The fixture calls botster_test_process::run_to_completion with Deadline::after(test_budget::SLOW_DEADLINE).
+The runner owns a new process group before reading either pipe.
+It reads stdout and stderr together and then waits for exit under the same deadline.
+Its group owner ends the group on success, failure, and panic paths and reaps its own child.
+It reaps no production-owned child.
+The source adds no timeout value, sleep, busy loop, or process component.
+The command arguments, listing parser, exclusion match, and fixture assertions remain unchanged.
+The mutation configuration and fixture files remain unchanged from Round 1.
+I found no new defect in the correction.
+
+I read the shared runner's existing proofs and their passing rows in the exact-head gate.
+They check returned status and both output streams, deadline errors, and pipe closure after background-child cleanup.
+These proofs cover the reused runner. The real mutation fixture retains the exclusion skip and failed removal of that skip.
+
+Log: `~/botster-sessions/gates/botster-core-stage1-p6-exclude-identity-4de5a07e-pool-20261010-162732-9689.log`.
+Its header names the exact head and base. All ten jobs pass.
+Default: 1501 passing tests, 13.155 seconds. Slow: 384 passing tests, 130.131 seconds.
+The real fixture passes in 19.073 seconds. The new exclusion and retained #229 identity proofs pass.
+The main mutation job has 29 mutants: 27 caught, zero missed, zero timeout, and two unviable, in 127.7 seconds.
+Its skip list is empty for this diff. It starts no stage 2.
+Both conformance reports show 193 passed and zero failed.
+Strict coverage remains 386/407, with 21 real-only transcripts and two held transcripts.
+Minimum counts remain testkit 50/69, real 29/68, and real-accepted 29/69.
+Real-pending remains 87, with zero newly passing IDs.
+The job and wrapper exit zero after 519 seconds, including 150 seconds queued and 369 seconds running.
+The remote PR head, base, and Git merge base match. git diff --check passes.
+The PR body records the finding, correction, and final gate.
+
+I read package CLEAN at `aeedd2784bdc182785dc3720727ca785821490bf`, `verdicts/p6-exclude-identity.md`, Round 2.
+The package verdict covers this exact head and base. Both reviews close the same finding and report zero open findings.
+I changed no product code and ran no build, test, gate, mutation job, merge-check job, or reversal job.
+
+VERDICT: CLEAN (0 open).
