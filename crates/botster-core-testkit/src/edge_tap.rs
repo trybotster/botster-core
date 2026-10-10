@@ -4,8 +4,10 @@
 //!
 //! The boundary is `HostEdges` itself (lead ruling, plan 23l). Every inbound edge is a "take the next item" call
 //! (`link_recv`, `accept_link`, `poll_process_exit`), so the tap can take ahead, hold what it took, and hand it out unchanged
-//! and in order. The driver reads every link on every pump until `WouldBlock`, and drains new links and exits on every
-//! pump, so what the tap holds reaches the engine at the next pump; the tap signals the wake edge so that a pump comes.
+//! and in order. The driver's read of a link can stop before `WouldBlock`: at its read budget, or at input that it must
+//! hold (plan 23l). So an item can wait more than one pump. While the tap holds an item, the edges are not quiet
+//! ([`Tap::quiet`]); while the driver's own read stopped early, it reports more work (`report.more`). The runner pumps
+//! until both are clear. The tap signals the wake edge so that a pump comes.
 //!
 //! - `edges_quiet` ([`Tap::quiet`]): the tap holds nothing that it has not handed out, and a bounded zero-wait take finds
 //!   nothing new on any edge. Bytes still inside a worker process are invisible here: quiet means "nothing arrived and nothing is

@@ -9,8 +9,10 @@ only delegates to its driver, so every id runs on Core's own code. Core has no t
 The boundary is `HostEdges` (`src/edge_tap.rs`). `EdgeTap` passes every call to the inner `RealEdges` unchanged:
 
 - Inbound edges are "take the next item" calls (`link_recv`, `accept_link`, `poll_process_exit`). The tap can take
-  ahead, hold the items, and hand them out in order. The driver reads every link until `WouldBlock` and drains new
-  links and exits on every pump, so a held item reaches the engine at the next pump. The tap signals the wake edge.
+  ahead, hold the items, and hand them out in order. The driver's read of a link can stop before `WouldBlock`: at its
+  read budget, or at input that it must hold (plan 23l). So an item can wait more than one pump. While the tap holds
+  an item, the edges are not quiet; while the driver's own read stopped early, it reports more work (`report.more`).
+  The runner pumps until both are clear. The tap signals the wake edge.
 - `edges_quiet` (`{quiet}`) is a take-ahead that finds nothing new and holds nothing. Bytes that are still inside a
   worker process are not visible here. So quiet means "nothing arrived and nothing is unread", never "the worker
   finished". A transcript that needs "the worker finished" must wait for an event of that.
