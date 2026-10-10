@@ -10,6 +10,8 @@
 # Initialization (plan 23l, revision 23q): the real run of the gate on b01225dd (contracts-v0.1.24, v1 e9901293), 182 active ids,
 # 99 passed and 83 failed. Every failing id is listed here, with its cause and owner. The merge of v1 159cc400 (#217) made 11 more ids
 # active; each fails on the real tier (the gate on 97a8015a) and is listed here with its cause and owner (lead, 2026-10-09).
+# The merge of v1 dc7fb11d (#210, the real worker endpoint) made the 7 ids of the real-tier adoption group pass (the gate on
+# dfdcd05f), so they are not listed.
 
 # the route data plane on the real tier: RealCoreHarness attach_stream (R-47 (A) route forms, real client end), P6 (21).
 conf::a2_4_other_osc_forms_stay_in_output
@@ -113,12 +115,3 @@ conf::tm_6_poll_room_unparks_and_wakes
 conf::st_6b_cut_inside_an_sgr_sequence_applies_the_suffix_not_prints_it
 conf::st_6b_model_after_baseline_plus_output_equals_the_sessions_model
 conf::st_6b_saved_cursor_tab_stops_margins_rendition_and_charsets_survive_a_cut
-
-# adoption on the real tier: the step waits to the step limit (INCONCLUSIVE) or lc_11 gets Lost WorkerUnreachable; a finding for P5 (adoption), with P6 for the harness (7).
-conf::a2_1_adoptall_twice_is_wrong_state
-conf::ad_1_exited_final_model_worker_adopts_as_exited
-conf::ad_1_stopping_resumes_stop
-conf::ad_5_no_double_adoption
-conf::ad_6_exited_worker_adopts_as_exited
-conf::lc_11_adoptall_posts_a_state_for_every_row
-conf::st_5_exited_session_readable_after_adoption
