@@ -15,11 +15,11 @@ use botster_core::Core;
 use botster_core_link::frame::{encode_frame, FrameDecoder, FrameType};
 use botster_core_link::hello::Hello;
 use botster_core_link::launch::WorkerLaunch;
-use botster_core_link::msg::{HostMsg, PayloadId, WorkerMsg};
+use botster_core_link::msg::{AdoptReport, AdoptedPayload, HostMsg, PayloadId, WorkerMsg};
 use botster_core_link::proof::token_proof;
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::{Read, Write};
-use std::os::unix::net::UnixStream;
+use std::os::unix::net::{UnixListener, UnixStream};
 use std::time::Duration;
 
 fn sid(name: &str) -> SessionId {
@@ -310,4 +310,188 @@ fn the_facade_reaches_a_host_with_a_worker_on_a_real_link() {
         SessionState::Lost(LostReason::WorkerGone),
         "{events:?}"
     );
+}
+
+/// Reads one frame of `stream`.
+fn read_frame(stream: &mut UnixStream) -> botster_core_link::frame::Frame {
+    let mut decoder = FrameDecoder::new(1 << 22);
+    let mut buf = [0u8; 4096];
+    loop {
+        let n = stream.read(&mut buf).unwrap();
+        assert!(n > 0, "the host closed the link before a frame");
+        let mut rest = &buf[..n];
+        // `push` takes no byte past a complete frame, so the frame is taken before the rest is pushed.
+        loop {
+            let took = decoder.push(rest);
+            rest = &rest[took..];
+            if let Ok(Some(frame)) = decoder.next_frame() {
+                return frame;
+            }
+            if rest.is_empty() {
+                break;
+            }
+        }
+    }
+}
+
+/// The worker side of an adoption at the worker endpoint (DESIGN.md "Adoption (P5)" part 3): the new host connects and
+/// sends its hello first; the worker proves its token for that host's epoch (AD-6) and reports a running payload. The link
+/// is returned open.
+fn adopted_worker(listener: UnixListener, launch: WorkerLaunch) -> UnixStream {
+    let (mut stream, _) = listener.accept().expect("the new host connects");
+    let host = read_frame(&mut stream);
+    assert_eq!(host.kind, FrameType::HELLO);
+    let host = Hello::decode(&host.payload).expect("the host's hello");
+    let hello = Hello {
+        protocol: botster_worker_core::WORKER_PROTOCOL,
+        instance: launch.instance.clone(),
+        proof: token_proof(&launch.token, &launch.instance, host.host_epoch),
+        host_epoch: host.host_epoch,
+    };
+    let mut payload = Vec::new();
+    hello.encode(&mut payload).unwrap();
+    send(&mut stream, FrameType::HELLO, &payload);
+    say(
+        &mut stream,
+        &WorkerMsg::Adopted {
+            report: Box::new(AdoptReport {
+                payload: AdoptedPayload::Running {
+                    payload: PayloadId {
+                        pid: u32::MAX - 1,
+                        start_time: 1,
+                    },
+                },
+                features: BTreeSet::new(),
+                terminal: None,
+                formats: vec![],
+            }),
+        },
+    );
+    stream
+}
+
+fn request() -> SpawnRequest {
+    SpawnRequest {
+        argv: vec!["/bin/true".into()],
+        env: BTreeMap::new(),
+        cwd: "/".into(),
+        size: Size {
+            rows: 24,
+            cols: 80,
+            cell_px: None,
+        },
+        labels: BTreeMap::new(),
+        color_profile: None,
+        notification_policy: None,
+        size_policy: None,
+    }
+}
+
+/// DESIGN.md "Adoption (P5)" parts 1 and 3, AD-6, LC-12, LC-7: the real edges keep the worker endpoints in a private
+/// directory of the data directory. A new host adopts a live worker by a connect to its endpoint (`connect_worker`): the
+/// session is `Running` again. `Remove` deletes the endpoint that a session left (`remove_endpoint`). Without the connect,
+/// the adoption is `Lost(WorkerUnreachable)`; without the removal, the endpoint stays.
+#[test]
+fn a_new_host_adopts_a_live_worker_at_its_endpoint_and_remove_deletes_an_endpoint() {
+    use std::os::unix::fs::PermissionsExt;
+    let tmp = tempfile::tempdir().unwrap();
+    let launch = tmp.path().join("launch");
+    common::mkfifo(&launch);
+    let worker = common::ScriptWorker::new(
+        tmp.path(),
+        &format!(
+            "/bin/echo \"$BOTSTER_WORKER_TOKEN\" \"$@\" | /usr/bin/tee '{}' >/dev/null\n{}",
+            launch.display(),
+            common::WAIT_WHILE_THE_PARENT_LIVES
+        ),
+    );
+    let data_dir = tmp.path().join("d");
+    let open = || {
+        Core::open(OpenConfig {
+            data_dir: data_dir.clone(),
+            worker_path: Some(worker.path.clone()),
+            limits: CoreLimits::default(),
+        })
+        .expect("open")
+    };
+    let mut core = open();
+    let endpoints = data_dir.join("w");
+    let mode = std::fs::symlink_metadata(&endpoints)
+        .expect("the endpoint directory")
+        .permissions()
+        .mode();
+    assert_eq!(mode & 0o777, 0o700, "AD-6: only the host's user reaches it");
+
+    let create = core
+        .begin(Op::Create {
+            session: sid("s1"),
+            request: request(),
+        })
+        .unwrap();
+    pump_until(&mut core, |e| completed(e, create).is_some());
+    let start = core.begin(Op::Start { id: sid("s1") }).unwrap();
+    pump_until(&mut core, |_| true);
+    let text = std::fs::read_to_string(&launch).unwrap();
+    let mut words = text.split_whitespace();
+    let token = words.next().expect("the token");
+    let args: Vec<&str> = words.collect();
+    let parsed = WorkerLaunch::parse(&args, Some(token)).expect("a launch");
+    assert_eq!(parsed.endpoint, endpoints.join(&parsed.instance.0));
+    // The worker binds its endpoint before its first hello.
+    let listener = UnixListener::bind(&parsed.endpoint).expect("the worker binds its endpoint");
+    let stream = UnixStream::connect(&parsed.control).expect("the host listens");
+    let peer = {
+        let parsed = parsed.clone();
+        std::thread::spawn(move || stand_in_worker(stream, parsed))
+    };
+    let events = pump_until(&mut core, |e| completed(e, start).is_some());
+    assert_eq!(
+        core.get(&sid("s1")).unwrap().state,
+        SessionState::Running,
+        "{events:?}"
+    );
+
+    // LC-12: a dropped host leaves its worker running; the worker's link to it ends.
+    drop(core);
+    peer.join().unwrap();
+    let mut again = open();
+    let adoptee = std::thread::spawn(move || adopted_worker(listener, parsed));
+    let adopt = again.begin(Op::AdoptAll).unwrap();
+    let events = pump_until(&mut again, |e| completed(e, adopt).is_some());
+    assert!(
+        matches!(completed(&events, adopt), Some(OpResult::Ok(_))),
+        "{events:?}"
+    );
+    let _link = adoptee.join().unwrap();
+    assert_eq!(
+        again.get(&sid("s1")).unwrap().state,
+        SessionState::Running,
+        "{events:?}"
+    );
+
+    // LC-7 step 4: `Remove` deletes the session's endpoint. A `Created` session has no worker; its endpoint file stands
+    // for one that a killed worker left.
+    let create = again
+        .begin(Op::Create {
+            session: sid("s2"),
+            request: request(),
+        })
+        .unwrap();
+    let events = pump_until(&mut again, |e| completed(e, create).is_some());
+    let instance = events
+        .iter()
+        .find_map(|e| match e {
+            Event::SessionState { id, instance, .. } if *id == sid("s2") => Some(instance.clone()),
+            _ => None,
+        })
+        .expect("the created session's instance");
+    let left = endpoints.join(&instance.0);
+    std::fs::write(&left, b"").unwrap();
+    let remove = again.begin(Op::Remove { id: sid("s2") }).unwrap();
+    let events = pump_until(&mut again, |e| completed(e, remove).is_some());
+    assert!(
+        matches!(completed(&events, remove), Some(OpResult::Ok(_))),
+        "{events:?}"
+    );
+    assert!(!left.exists(), "the endpoint is removed");
 }
