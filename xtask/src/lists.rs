@@ -1298,4 +1298,24 @@ mod tests {
         assert_eq!(real_only_ids(map).unwrap(), set(&["conf::a"]));
         assert!(real_only_ids("{}").is_err());
     }
+
+    /// Plan 23s: `core-real-only.txt` is each Core ledger id with a real-only proof, with that proof, in byte order; an id
+    /// of another contract, a proof that is not `slow:*` and a row with no proof are left out.
+    #[test]
+    fn the_real_only_file_is_each_core_id_with_its_slow_proof_in_order() {
+        let map = r#"{"ids": [
+            {"id": "conf::z", "proof": "slow:late"},
+            {"id": "conf::a", "proof": "slow:fsync"},
+            {"id": "conf::hub", "proof": "slow:other"},
+            {"id": "conf::b", "proof": "core-testkit"},
+            {"id": "conf::d"}
+        ]}"#;
+        let ledger = set(&["conf::a", "conf::b", "conf::d", "conf::z"]);
+        assert_eq!(
+            real_only_text(map, &ledger).unwrap(),
+            "conf::a\tslow:fsync\nconf::z\tslow:late\n"
+        );
+        assert_eq!(real_only_text(r#"{"ids": []}"#, &ledger).unwrap(), "");
+        assert!(real_only_text("{}", &ledger).is_err());
+    }
 }
