@@ -315,22 +315,23 @@ impl HostEngine {
                 .expect("a flow has a session")
                 .lost_handoffs,
         );
-        if running && pending_end.is_none() {
-            // This step posts the start's completion. Each close is a parked step of its own (`Work::Parked`), so a pump's
-            // budget counts it (9B), and the closes keep their order after the completion (EV-6).
-            for route in lost {
-                self.parked.push_back(crate::engine::ParkedRoute::Close(
-                    route,
-                    RouteCloseReason::HandoffFailed,
-                ));
-            }
-        }
         if running {
             if let Some(end) = pending_end {
                 // The payload ended while the start was finishing: the exit is applied now, after `Running` (OR-2).
                 self.begin_end_flow(id, end);
-            } else if stop_after {
-                self.request_stop(id);
+            } else {
+                // The start runs on. This step posts its completion. Each close is a parked step of its own
+                // (`Work::Parked`), so a pump's budget counts it (9B), and the closes keep their order after the completion
+                // (EV-6).
+                for route in lost {
+                    self.parked.push_back(crate::engine::ParkedRoute::Close(
+                        route,
+                        RouteCloseReason::HandoffFailed,
+                    ));
+                }
+                if stop_after {
+                    self.request_stop(id);
+                }
             }
         } else {
             // The start failed: a `Stop` that waited ends with the state that the failure reached.
