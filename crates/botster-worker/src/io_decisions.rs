@@ -1,5 +1,8 @@
 //! Pure decisions of the real I/O adapter. The Driver uses these decisions for every real edge.
 
+use botster_core_link::launch::WorkerLaunch;
+use botster_worker_core::{CandidateId, Input, WorkerConfig};
+use std::collections::VecDeque;
 use std::io;
 use std::time::{Duration, Instant};
 
@@ -39,6 +42,10 @@ pub struct ReadyState {
     pub queued_inputs: usize,
     pub pending_write: bool,
     pub write_blocked: bool,
+    /// The worker endpoint may hold a connection to accept.
+    pub endpoint_readable: bool,
+    /// A candidate may hold bytes to read.
+    pub candidate_readable: bool,
 }
 
 impl ReadyState {
@@ -47,7 +54,9 @@ impl ReadyState {
             || (self.pty_registered && self.pty_readable)
             || self.draining.is_some()
             || self.queued_inputs != 0
-            || (self.pending_write && !self.write_blocked);
+            || (self.pending_write && !self.write_blocked)
+            || self.endpoint_readable
+            || self.candidate_readable;
         if busy {
             Some(Duration::ZERO)
         } else {
@@ -78,6 +87,77 @@ pub fn flush(link_open: bool, bytes: usize) -> bool {
 
 pub fn keep_writing(writable: bool, bytes: usize) -> bool {
     writable && bytes != 0
+}
+
+/// The poll token of the first candidate. A candidate's token is this value plus its id (DESIGN.md part 7).
+pub const FIRST_CANDIDATE: usize = 5;
+
+/// The poll token of candidate `id`.
+pub fn candidate_token(id: CandidateId) -> usize {
+    FIRST_CANDIDATE.saturating_add(usize::try_from(id.0).unwrap_or(usize::MAX))
+}
+
+/// The candidate of a poll token, or `None` for a token below the candidates.
+pub fn candidate_of(token: usize) -> Option<CandidateId> {
+    token
+        .checked_sub(FIRST_CANDIDATE)
+        .map(|n| CandidateId(n as u64))
+}
+
+/// The id of the next accepted candidate. Ids count up from 0 and never repeat in one worker, so an input of a closed
+/// candidate never names a later one.
+pub fn take_candidate(next: &mut u64) -> CandidateId {
+    let id = CandidateId(*next);
+    *next += 1;
+    id
+}
+
+/// The endpoint waits for its next event, and the driver accepts nothing from it, while it is not readable. The readiness
+/// is edge-triggered: a `WouldBlock` clears it, and the next endpoint event sets it again.
+pub fn endpoint_waits(readable: bool) -> bool {
+    !readable
+}
+
+/// A candidate waits for its next event, and the driver reads nothing of it, while it is not readable (the same
+/// edge-triggered rule as the endpoint).
+pub fn candidate_waits(readable: bool) -> bool {
+    !readable
+}
+
+/// The machine's configuration from the launch arguments. `startup` is `--startup-ms`: the bound of a candidate's hello,
+/// and of a worker with no payload and no host (AD-7).
+pub fn worker_config(launch: &WorkerLaunch) -> WorkerConfig {
+    WorkerConfig {
+        startup: Duration::from_millis(launch.startup_ms),
+        ..WorkerConfig::new(launch.instance.clone(), launch.token, launch.host_epoch)
+    }
+}
+
+/// The fence of `Action::AdoptLink(adopted)` on the inputs that the driver queued and the machine did not handle yet. An
+/// input of the old link is dropped: the machine hears nothing of the old link after the action. An input of the adopted
+/// candidate becomes the same input of the control link. When the driver no longer holds the candidate (`held` is false:
+/// its connection ended), the fence fails closed: the machine hears that its new link ended (`LinkClosed`), and nothing
+/// that it sends can reach the old host.
+pub fn fence(inputs: &mut VecDeque<Input>, adopted: CandidateId, held: bool) {
+    let queued = std::mem::take(inputs);
+    inputs.extend(queued.into_iter().filter_map(|input| match input {
+        Input::LinkBytes(_) | Input::LinkClosed | Input::LinkWritten { .. } => None,
+        Input::CandidateBytes(id, bytes) if id == adopted => Some(Input::LinkBytes(bytes)),
+        Input::CandidateClosed(id) if id == adopted => Some(Input::LinkClosed),
+        other => Some(other),
+    }));
+    if !held && !inputs.contains(&Input::LinkClosed) {
+        inputs.push_back(Input::LinkClosed);
+    }
+}
+
+/// The result of the removal of the worker endpoint at the worker's end. An endpoint that is not there is no failure: the
+/// host removes it at `Remove` (DESIGN.md part 1).
+pub fn unlinked(result: io::Result<()>) -> io::Result<()> {
+    match result {
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+        other => other,
+    }
 }
 
 /// The errno of a PTY that is gone, and of an OS failure that carries no errno.
@@ -166,7 +246,7 @@ mod tests {
     fn every_ready_source_prevents_a_blocking_wait() {
         let now = Instant::now();
         let later = now + Duration::from_secs(3);
-        for bits in 0u16..256 {
+        for bits in 0u16..1024 {
             let state = ReadyState {
                 link_open: bits & 1 != 0,
                 control_readable: bits & 2 != 0,
@@ -176,12 +256,15 @@ mod tests {
                 queued_inputs: usize::from(bits & 32 != 0),
                 pending_write: bits & 64 != 0,
                 write_blocked: bits & 128 != 0,
+                endpoint_readable: bits & 256 != 0,
+                candidate_readable: bits & 512 != 0,
             };
             let ready = match bits {
                 b if b & 3 == 3 => true,
                 b if b & 12 == 12 => true,
                 b if b & 48 != 0 => true,
                 b if b & 192 == 64 => true,
+                b if b & 768 != 0 => true,
                 _ => false,
             };
             assert_eq!(state.timeout(None, now), ready.then_some(Duration::ZERO));
@@ -291,5 +374,116 @@ mod tests {
         assert_eq!(pty_write_interest(true, true, false), change(true, false));
         assert_eq!(pty_write_interest(true, true, true), change(false, true));
         assert_eq!(pty_write_interest(true, false, false), change(false, false));
+    }
+
+    /// DESIGN.md part 7: each candidate has its own poll token above the fixed ones, and only those tokens name one.
+    #[test]
+    fn a_candidate_token_names_that_candidate_only() {
+        for id in [0, 1, 7, 4096] {
+            let token = candidate_token(CandidateId(id));
+            assert!(token >= FIRST_CANDIDATE);
+            assert_eq!(candidate_of(token), Some(CandidateId(id)));
+        }
+        for token in 0..FIRST_CANDIDATE {
+            assert_eq!(candidate_of(token), None);
+        }
+    }
+
+    /// The fence (DP-8, `Action::AdoptLink`): no queued input of the old link reaches the machine, the adopted candidate's
+    /// inputs become control-link inputs in their order, and every other input stays in its place.
+    #[test]
+    fn the_fence_drops_the_old_link_and_turns_the_adopted_candidate_into_the_link() {
+        let (adopted, other) = (CandidateId(2), CandidateId(3));
+        let mut inputs = VecDeque::from([
+            Input::LinkBytes(vec![1]),
+            Input::Timer,
+            Input::CandidateBytes(adopted, vec![2]),
+            Input::LinkWritten { total: 9 },
+            Input::CandidateBytes(other, vec![3]),
+            Input::LinkClosed,
+            Input::CandidateClosed(other),
+            Input::CandidateClosed(adopted),
+            Input::Candidate(CandidateId(4)),
+        ]);
+        let mut gone = inputs.clone();
+        fence(&mut inputs, adopted, true);
+        assert_eq!(
+            inputs,
+            VecDeque::from([
+                Input::Timer,
+                Input::LinkBytes(vec![2]),
+                Input::CandidateBytes(other, vec![3]),
+                Input::CandidateClosed(other),
+                Input::LinkClosed,
+                Input::Candidate(CandidateId(4)),
+            ])
+        );
+
+        // P3 review of #176 (L1): a candidate that the driver no longer holds gives one `LinkClosed` of the new link.
+        fence(&mut gone, adopted, false);
+        assert_eq!(
+            gone.iter().filter(|i| **i == Input::LinkClosed).count(),
+            1,
+            "{gone:?}"
+        );
+        let mut empty = VecDeque::new();
+        fence(&mut empty, adopted, true);
+        assert!(empty.is_empty(), "a held candidate adds no input");
+        fence(&mut empty, adopted, false);
+        assert_eq!(empty, VecDeque::from([Input::LinkClosed]));
+    }
+
+    /// DESIGN.md part 1: the worker removes its endpoint at its end; an endpoint that the host removed first is no failure.
+    #[test]
+    fn a_missing_endpoint_at_the_end_is_no_failure() {
+        assert!(unlinked(Ok(())).is_ok());
+        assert!(unlinked(Err(io::ErrorKind::NotFound.into())).is_ok());
+        assert_eq!(
+            unlinked(Err(io::ErrorKind::PermissionDenied.into()))
+                .unwrap_err()
+                .kind(),
+            io::ErrorKind::PermissionDenied
+        );
+    }
+
+    /// Candidate ids count up from 0, one per accepted connection, and never repeat.
+    #[test]
+    fn candidate_ids_count_up_and_never_repeat() {
+        let mut next = 0;
+        let ids: Vec<CandidateId> = (0..3).map(|_| take_candidate(&mut next)).collect();
+        assert_eq!(ids, [CandidateId(0), CandidateId(1), CandidateId(2)]);
+        assert_eq!(next, 3);
+    }
+
+    /// The endpoint and a candidate wait while they are not readable (edge-triggered readiness).
+    #[test]
+    fn the_endpoint_and_a_candidate_wait_while_not_readable() {
+        assert!(endpoint_waits(false));
+        assert!(!endpoint_waits(true));
+        assert!(candidate_waits(false));
+        assert!(!candidate_waits(true));
+    }
+
+    /// AD-7: the machine's startup bound is `--startup-ms`; the identity is the launch's.
+    #[test]
+    fn the_worker_config_takes_the_startup_bound_and_the_identity_of_the_launch() {
+        let launch = WorkerLaunch {
+            control: "/d/c".into(),
+            instance: botster_core_contract::prelude::InstanceId("7-1".into()),
+            host_epoch: 7,
+            token: [0xAB; 32],
+            endpoint: "/d/w/7-1".into(),
+            startup_ms: 1_234,
+        };
+        let config = worker_config(&launch);
+        assert_eq!(config.startup, Duration::from_millis(1_234));
+        assert_ne!(
+            WorkerConfig::new(launch.instance.clone(), launch.token, 7).startup,
+            config.startup,
+            "the default bound differs, so the test sees the field"
+        );
+        assert_eq!(config.instance, launch.instance);
+        assert_eq!(config.token, launch.token);
+        assert_eq!(config.host_epoch, 7);
     }
 }
