@@ -857,6 +857,7 @@ mod stand_ins {
     use crate::stand_in::Role;
     use crate::worker::{impostor_answer, ImpostorField, ImpostorPlan};
     use std::io::{Read as _, Write as _};
+    use std::os::unix::fs::MetadataExt as _;
     use std::os::unix::net::{UnixListener, UnixStream};
     use std::path::{Path, PathBuf};
 
@@ -879,7 +880,6 @@ mod stand_ins {
     fn rig_with_stand_in(dir: &Path) -> (PathBuf, UnixListener, Rig) {
         let path = dir.join("w");
         let worker = UnixListener::bind(&path).unwrap();
-        worker.set_nonblocking(true).unwrap();
         let stand_in =
             StandIn::install(sid("s1"), Role::Answer(plan()), &path, &dir.join("aside")).unwrap();
         let mut fake = Fake::default();
@@ -893,16 +893,25 @@ mod stand_ins {
         hello_of("i")
     }
 
+    /// What the host end can read now. The stand-in wrote its answer within the tap's call, in one write.
     fn answer(host: &mut UnixStream) -> Vec<u8> {
-        let mut got = vec![0u8; impostor_answer(&plan(), &host_hello()).len()];
-        host.read_exact(&mut got).unwrap();
+        host.set_nonblocking(true).unwrap();
+        let mut got = vec![0u8; 4096];
+        let n = host.read(&mut got).unwrap();
+        got.truncate(n);
         got
+    }
+
+    fn inode(path: &Path) -> u64 {
+        std::fs::symlink_metadata(path).unwrap().ino()
     }
 
     #[test]
     fn a_send_of_core_steps_the_stand_in_and_its_signals_start_at_its_answer() {
         let dir = tempfile::tempdir().unwrap();
-        let (path, worker, mut rig) = rig_with_stand_in(dir.path());
+        let (path, _worker, mut rig) = rig_with_stand_in(dir.path());
+        // The real endpoint waits aside while the tap holds the stand-in.
+        let real = inode(&dir.path().join("aside"));
         assert_eq!(
             rig.with(|t| t.signals_since_answer(&sid("s1"))),
             Some(vec![])
@@ -933,8 +942,7 @@ mod stand_ins {
         );
         assert_eq!(rig.with(|t| t.signals_since_answer(&sid("s2"))), None);
         drop(rig);
-        let _host = UnixStream::connect(&path).unwrap();
-        assert!(worker.accept().is_ok(), "the tap's end gives the path back");
+        assert_eq!(inode(&path), real, "the tap's end gives the path back");
     }
 
     #[test]

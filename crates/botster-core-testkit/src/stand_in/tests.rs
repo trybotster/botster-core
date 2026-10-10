@@ -6,6 +6,7 @@ use botster_core_link::frame::encode_frame;
 use botster_core_link::proof::{token_proof, TOKEN_LEN};
 use std::io::ErrorKind;
 use std::net::Shutdown;
+use std::os::unix::fs::MetadataExt as _;
 
 fn sid() -> SessionId {
     SessionId("s1".into())
@@ -78,23 +79,23 @@ fn readable(host: &mut UnixStream) -> io::Result<Vec<u8>> {
 #[test]
 fn the_stand_in_takes_the_endpoint_path_and_its_drop_gives_it_back() {
     let dir = tempfile::tempdir().expect("tempdir");
-    let (path, worker, mut stand_in) = install(dir.path(), Role::Withhold);
+    let (path, _worker) = endpoint(dir.path());
+    let aside = dir.path().join("aside");
+    let real = inode(&path);
+    let mut stand_in = StandIn::install(sid(), Role::Withhold, &path, &aside).expect("installs");
     assert_eq!(stand_in.session(), &sid());
+    assert_eq!(inode(&aside), real, "the real endpoint waits aside");
+    assert_ne!(inode(&path), real, "the stand-in has the path");
     let _host = UnixStream::connect(&path).expect("the stand-in listens at the path");
     assert!(!stand_in.step());
     assert_eq!(stand_in.links.len(), 1, "the stand-in took the connection");
-    assert_eq!(
-        worker.accept().map(|_| ()).map_err(|e| e.kind()),
-        Err(ErrorKind::WouldBlock),
-        "the real worker is not connected"
-    );
     drop(stand_in);
-    assert!(!dir.path().join("aside").exists());
-    let _host = UnixStream::connect(&path).expect("the real endpoint is back");
-    assert!(
-        worker.accept().is_ok(),
-        "the real worker takes the connection"
-    );
+    assert!(!aside.exists());
+    assert_eq!(inode(&path), real, "the real endpoint is back");
+}
+
+fn inode(path: &Path) -> u64 {
+    std::fs::symlink_metadata(path).expect("the file").ino()
 }
 
 #[test]
@@ -175,8 +176,10 @@ fn the_stand_in_closes_its_end_when_the_host_closes() {
     host.shutdown(Shutdown::Write).expect("shuts down");
     assert!(stand_in.step());
     assert!(stand_in.links[0].stream.is_none());
-    // The stand-in closed its end, so a blocking read ends.
-    let mut got = Vec::new();
-    host.read_to_end(&mut got).expect("reads to the end");
-    assert_eq!(got, expected);
+    assert_eq!(readable(&mut host).expect("reads"), expected);
+    assert_eq!(
+        host.read(&mut [0u8; 1]).ok(),
+        Some(0),
+        "the stand-in closed its end"
+    );
 }
