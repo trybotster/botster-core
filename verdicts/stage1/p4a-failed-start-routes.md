@@ -94,3 +94,68 @@ I ran no builds, tests, gates, or mutants.
 
 NOT CLEAN: R1-1 remains open at HIGH severity.
 The package verdict for this head is pending.
+
+## Round 2 — 2026-10-10
+
+Reviewed head: `5d55a0a8306fb91ce0ddb6487c64ca204808608c`.
+Base: `d174ef48a218b74beb4bac9ec555c6c39d2650a4`, unchanged.
+I read the complete four-file replacement diff, the updated PR body, and the new driver test.
+Remote head and base match. The ancestry check and `git diff --check` pass.
+
+### R1-1 — CLOSED for the reported two-event sequence
+
+The driver distinguishes a retained mark lost with its link from a failed descriptor send.
+The engine leaves `HandoffLost` to the Start or Stop flow instead of immediately posting `HandoffFailed`.
+The new driver test holds the descriptor, defers Running, and delivers both process exit and link close in each order.
+It checks Lost before exactly one SessionLost close and verifies endpoint release.
+The supplied gate runs that test successfully.
+Genuine descriptor-send failures retain their previous path.
+
+### R2-1 — HIGH — Link loss alone discards a close obligation during late startup
+
+The new `HandoffLost` branch ignores every route whose session has a Start flow (`inbound.rs:53-63`).
+That condition does not establish that the flow will end the session or close the route.
+
+The following sequence uses the new test's setup:
+
+1. Attach during Starting.
+2. Receive Launched and retain the descriptor mark because transmission is blocked.
+3. Defer PostRunning.
+4. Close the control link while the worker remains alive.
+5. Release the deferral and pump until Start completes.
+
+`on_link_closed` clears the worker link, but its Start guards exclude PostRunning and Finish (`inbound.rs:617-675`).
+It does not set a startup failure or pending end for either phase.
+The new `HandoffLost` handler discards the notification because the flow is still Start.
+PostRunning then posts Running. `finish_start` completes successfully with no pending end and no requested Stop.
+The route remains registered even though its stream was dropped with the driver's mark.
+No worker can report that route's close, and the host has retained no close obligation.
+
+The same gap exists if the link closes while a successful Start is in Finish.
+The new test always supplies ProcessExited after LinkClosed, which hides the missing close when only LinkClosed arrives.
+The existing running-session test reaches Flow::Idle before link loss, so it also misses this boundary.
+
+Defer the close only when an end flow will perform it, or retain an explicit close obligation until that decision is known.
+Add driver tests for link loss alone in PostRunning and successful Finish.
+Require exactly one close without depending on a later process exit.
+Preserve the two-event ordering test and genuine descriptor-send failures.
+
+Status: OPEN. I sent R2-1 to the implementer and asked the package reviewer to check the same sequence.
+This is a regression in the replacement's new deferral condition.
+
+### Evidence and verdict
+
+Gate: `botster-core-stage1-p4a-failed-start-routes-5d55a0a8-pool-20261010-051705-82976.log`.
+The header names the exact head and base. All ten stages pass.
+Default tests: 1,452 passed. Slow tests: 260 passed.
+Both conformance reports show 193 passing trials, 407 pending trials, 70 entries without transcripts, two deferred trials, and 18 withdrawn trials.
+Both mutation stages report 64 mutants: 60 caught, four unviable, no misses, and no timeouts.
+The second stage still sets only the slow environment variable; it does not enable the slow test feature.
+Full gate time is 428.7 seconds. The repeated mutation stage takes 134.3 seconds.
+The pool job exits zero after 575 seconds: one queued second and 574 execution seconds.
+The real edge source remains identical to the separate slow mutation evidence from Round 1.
+I read package Round 144 at `9adde0deba393a0809f4646c049e1df0c47e6d57`; it confirms the earlier finding.
+I ran no builds, tests, gates, or mutants.
+
+NOT CLEAN: R2-1 remains open at HIGH severity.
+The package verdict for this replacement head is pending.
