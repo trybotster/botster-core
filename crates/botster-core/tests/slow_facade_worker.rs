@@ -494,6 +494,7 @@ fn a_new_host_adopts_a_live_worker_at_its_endpoint_and_remove_deletes_an_endpoin
 
     // LC-12: a dropped host leaves its worker running; the worker's link to it ends.
     drop(core);
+    // timer: deadline — bounds the stand-in's end after the host drops its link.
     peer.recv_timeout(Deadline::cleanup().remaining())
         .expect("the stand-in ends with its link");
     let mut again = open();
