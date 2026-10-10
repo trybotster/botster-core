@@ -250,12 +250,20 @@ fn a_link_closed_with_a_handoff_pending_closes_the_stream_and_the_route() {
         1,
         "the stream closed with the link"
     );
-    let closes = rig
+    let closes: Vec<RouteCloseReason> = rig
         .drain_events()
         .into_iter()
-        .filter(|e| matches!(e, Event::RouteClosed { route, .. } if *route == result.route))
-        .count();
-    assert_eq!(closes, 1, "one close of the route");
+        .filter_map(|e| match e {
+            Event::RouteClosed { route, reason, .. } if route == result.route => Some(reason),
+            _ => None,
+        })
+        .collect();
+    // The session runs: its route is not left to a start or a stop, so it closes as a failed handoff.
+    assert_eq!(
+        closes,
+        vec![RouteCloseReason::HandoffFailed],
+        "one close of the route"
+    );
 }
 
 /// R-50, OU-2: a route whose hand-over waits for the launch closes when the launch is refused. The driver gives its stream
