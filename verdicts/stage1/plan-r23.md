@@ -813,3 +813,92 @@ This plan verdict does not approve that future implementation.
 The reviewer ran no builds, tests, or gates. No finding remains open.
 
 VERDICT: CLEAN (0 open) at a79803845973128942564dee79983923d458a5fa
+
+
+## Round 24 — Revision 23q contracts pin and A20 exception
+
+Reviewed head: `9512a9af320474f23a44b5518b5ced67a197c6b0`.
+Scope: the complete three-file delta after `a79803845973128942564dee79983923d458a5fa`.
+
+The reviewer read the orchestrate-delivery skill and its Botster lessons for the changed acceptance premise.
+The frozen A20 text permits one named testkit-only proof at the worker process allocator boundary.
+That class has only `conf::dp_3_frame_limit_checked_before_allocation`.
+A new member requires a Core amendment.
+The real tier reports the class as testkit-proven and does not execute it.
+The new plan paragraph follows that rule and keeps these IDs out of `core-real-pending.txt`.
+
+### Pin and ownership checks
+
+- `contracts-v0.1.24` resolves to `d79aed5e84d4a8bc9b76f6163ca6bc4a9d89b951`.
+- `manifest-final39` resolves to `4156e7118f7fcd09d1dcab8cff6c4f18b7fa8c6e`.
+- The frozen A20 file hashes to `571acfe63c1de73e71e516aff554b894b1f4ef66d6ab5217d5c636cae16c53d0`.
+
+All three match the plan.
+The reviewer independently applied the revised ownership function to the tagged ledger and status lists.
+All ten generated package lists match exactly.
+The total is 672 active IDs. P6 owns 16 IDs, including the new A20 static-check ID.
+The minimum list remains byte-identical with 69 IDs.
+The minimum includes `dp_3_frame_limit_checked_before_allocation`.
+
+The tagged source contains three stop-grace clock advances after Stopping events and the `in_9` assertion reorder.
+The probe changes follow published R-48: terminal input disables canonical mode and echo; pipe input remains unchanged.
+The tag includes the R-47 route-fill ruling, but no route-fill implementation.
+The code pin move remains a separate HIGH PR.
+
+### R24-1 — MEDIUM — real-tier selection and counts still include the A20 exception
+
+The end of section 8 still says that every ID outside `core-pending.txt` and the deferred set runs on the real tier.
+It also defines real-passing as minimum IDs in neither pending list.
+The A20 ID is a minimum ID and must never enter `core-real-pending.txt`.
+Thus, those definitions would execute an excluded ID or count its testkit proof as a real-tier pass.
+
+Update trial selection to exclude the contract-derived A20 set.
+Report its testkit-proven minimum count separately from actual real-tier passes.
+If the plan needs a combined acceptance count, name that count explicitly.
+The reviewer sent this finding to the lead.
+
+The reviewer also requested the existing record for the new reference-tier claim of 54 to 67 passes out of 121, with no regression.
+No new execution was requested.
+`git diff --check` passes. The reviewer ran no builds, tests, or gates.
+
+### R24-1 closure and final head
+
+Final reviewed head: `bae71c81e0d9f1bd6fc291910f496be495414076`.
+The reviewer read all corrections after `9512a9af`, including `docs/stage1-minimum-core.md`.
+Section 8 now excludes the contract-derived A20 list from real-tier trials.
+It never counts an A20 ID as real-passing.
+Sections 1 and 8 and the minimum-Core document use distinct measures:
+
+- Testkit-passing: 69 required IDs.
+- Real-passing: 68 required IDs, excluding the one A20 minimum ID.
+- Real-accepted: 69 required IDs, adding the A20 minimum ID only when its testkit proof passes.
+
+Minimum acceptance requires 69 testkit-passing and 69 real-accepted IDs.
+This preserves the full minimum while distinguishing actual process evidence from the authorized A20 proof.
+R24-1 is closed.
+The lead also corrected the revision-history table cell at the final head.
+
+### Reference-run evidence
+
+The reviewer read [contracts PR #22](https://github.com/trybotster/botster-contracts/pull/22) and its named existing Core probe logs:
+
+- `~/botster-sessions/gates/botster-core-stage1-p6-real-core-r46probe-cde60ed1-pool-20261009-194110-48535.log`.
+- `~/botster-sessions/gates/botster-core-stage1-p6-real-core-r46probe-99f643b7-pool-20261009-195613-20654.log`.
+- `~/botster-sessions/gates/botster-core-stage1-p6-real-core-r46probe-a46b7958-pool-20261009-200839-70465.log`.
+
+Each real run has 121 outcomes.
+The raw per-ID results exactly match the corresponding saved outcomes files.
+The real-pass counts are 54, 58, and 67.
+The first transition changes four failures to passes. The second changes nine failures to passes.
+Neither transition loses a prior pass.
+The latter two runs also pass all 121 testkit trials.
+The final probe log builds the conformance probe from `/work/probe-bin`.
+The PR describes that copy and the later equivalent rewrite of the terminal-mode flag removal.
+These are reference measurements, not acceptance gates for the future Core harness.
+The real runs retain failures; the latter commands finish with an echo, so their outer zero exits do not establish passing suites.
+
+The tag, manifest, frozen hash, ownership lists, and unchanged minimum checks remain valid at the final head.
+`git diff --check` passes. No execution gate applies to this documentation and ownership change.
+The reviewer ran no builds, tests, or gates.
+
+VERDICT: CLEAN (0 open) at bae71c81e0d9f1bd6fc291910f496be495414076
