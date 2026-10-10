@@ -72,10 +72,13 @@ pub enum HostMsg {
     Cancel { req: u64 },
     /// LC-7 step 3: delete the uploaded files, answer [`WorkerMsg::RemoveResult`], and end.
     Remove,
-    /// A route is registered (OU-1). The route's connected stream follows by descriptor handoff (DP-2); P4a owns the rest.
+    /// A route is registered (OU-1). Its connected stream rides with the first byte of this frame (DP-2, `SCM_RIGHTS`).
+    /// `limits` are the values that the host applied and returned in `AttachResult`: the worker enforces them as given
+    /// (OU-1: one source, passed through).
     AttachRoute {
         route: RouteId,
         options: AttachOptions,
+        limits: AppliedRouteLimits,
     },
     /// `Detach` (DP-7). The worker answers with `RouteClosed`.
     Detach {

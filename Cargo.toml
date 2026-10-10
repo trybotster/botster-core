@@ -20,6 +20,7 @@ base64 = { version = "0.22", default-features = false, features = ["alloc"] }
 botster-core-contract = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.22" }
 botster-conformance = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.22" }
 botster-core-conformance = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.22" }
+botster-hub-conformance = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.22" }
 botster-route-codec = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.22" }
 botster-probe-script = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.22" }
 botster-test-support = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.22" }
