@@ -650,3 +650,17 @@ fn an_unfinished_sequence_of_half_the_continuation_limit_is_in_the_snapshot() {
     let snapshot = terminal.snapshot().unwrap();
     assert_eq!(restore_and_encode(&snapshot), snapshot);
 }
+
+/// Core DP-3: a bounded snapshot is the whole snapshot at its exact size, and `None` one byte below it.
+#[test]
+fn a_bounded_snapshot_is_whole_at_its_size_and_none_below() {
+    let mut source = terminal();
+    source.vt_write(b"bounded");
+    let whole = source.snapshot().unwrap();
+    assert!(!whole.is_empty());
+    assert_eq!(
+        source.snapshot_at_most(whole.len()).unwrap(),
+        Some(whole.clone())
+    );
+    assert_eq!(source.snapshot_at_most(whole.len() - 1).unwrap(), None);
+}
