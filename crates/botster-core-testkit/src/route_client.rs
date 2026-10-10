@@ -1,12 +1,14 @@
 //! The client end of a stream route (`attach_stream`, P4a): the in-memory stream whose other end Core hands to the worker
 //! (DP-2). A read runs the workers' ready work and no host pump, because the data plane is the worker's (Core TH-3).
 
+use crate::core::RowReader;
 use crate::net::StreamEnd;
 use crate::worker::Workers;
 use botster_conformance::Deadline;
 use botster_core_conformance::RouteClient;
-use botster_core_contract::prelude::{RouteCloseReason, RouteId};
+use botster_core_contract::prelude::{InstanceId, RouteCloseReason, RouteId, SessionId};
 use botster_core_edges::RouteTransport;
+use botster_core_host::session::Row;
 use botster_hub_conformance::route::RouteRead;
 use botster_route_codec::prelude::RouteEndReason;
 use serde_json::{json, Value};
@@ -26,13 +28,8 @@ pub struct RouteEnds(Arc<Mutex<BTreeMap<RouteId, RouteEndReason>>>);
 impl RouteEnds {
     /// Records a close. A healthy reason has its `route_closed` frame and no route-ended cause.
     pub fn closed(&self, route: RouteId, reason: RouteCloseReason) {
-        let ended = match reason {
-            RouteCloseReason::HandoffFailed => RouteEndReason::HandoffFailed,
-            RouteCloseReason::WriteFailed => RouteEndReason::WriteFailed,
-            RouteCloseReason::StallTimeout => RouteEndReason::Stalled,
-            RouteCloseReason::SessionLost => RouteEndReason::SessionLost,
-            RouteCloseReason::PeerClosed => RouteEndReason::TransportLost,
-            _ => return,
+        let Some(ended) = botster_core_link::route::route_ended_cause(reason) else {
+            return;
         };
         self.0.lock().expect("not poisoned").insert(route, ended);
     }
@@ -46,6 +43,21 @@ impl RouteEnds {
     }
 }
 
+/// The session instance of each route that Core attached, as the host held it at the attach (`route_fill`). An attach can come
+/// before the session's row is stored (Create and Start begun, not pumped), so the testkit records the instance there.
+#[derive(Debug, Clone, Default)]
+pub struct RouteInstances(Arc<Mutex<BTreeMap<RouteId, InstanceId>>>);
+
+impl RouteInstances {
+    pub fn attached(&self, route: RouteId, instance: InstanceId) {
+        self.0.lock().expect("not poisoned").insert(route, instance);
+    }
+
+    pub fn of(&self, route: RouteId) -> Option<InstanceId> {
+        self.0.lock().expect("not poisoned").get(&route).cloned()
+    }
+}
+
 /// The controls that `TestkitRoute::control` runs.
 pub(crate) const ROUTE_CONTROLS: &[&str] = &[
     "client_close",
@@ -55,6 +67,7 @@ pub(crate) const ROUTE_CONTROLS: &[&str] = &[
     "fail_writes",
     "drop_transport",
     "route_stream_written",
+    "route_fill",
 ];
 
 /// The optional bool `key` of a control's arguments; absent is true (`route_gate`, `fail_writes`).
@@ -66,6 +79,27 @@ fn flag(args: &Value, key: &str) -> Result<bool, String> {
     }
 }
 
+/// The byte `k` of a `route_fill` is 0x61 + (k mod 26), with `k` from 0 for each fill (R-47 item 3).
+fn fill_pattern(bytes: usize) -> Vec<u8> {
+    (0..bytes).map(|k| b'a' + (k % 26) as u8).collect()
+}
+
+/// The stored row of the route's session, and the session instance that the route attached to.
+#[derive(Debug, Clone)]
+pub struct SessionRow {
+    pub rows: RowReader,
+    pub session: SessionId,
+    pub instance: InstanceId,
+}
+
+/// What a `route_fill` needs of the route: the row of its session, whose worker's program edge the fill writes to, and the
+/// route's applied frame bound F (`AttachResult.limits.max_frame_bytes`).
+#[derive(Debug, Clone)]
+pub struct RouteFill {
+    pub session: Option<SessionRow>,
+    pub max_frame_bytes: usize,
+}
+
 pub struct TestkitRoute {
     end: StreamEnd,
     route: RouteId,
@@ -75,6 +109,8 @@ pub struct TestkitRoute {
     unsent: Vec<u8>,
     /// The stream failed: the client's bytes have nowhere to go.
     failed: bool,
+    /// `None` for a route that `attach_stream` did not build: it runs no `route_fill`.
+    fill: Option<RouteFill>,
 }
 
 impl TestkitRoute {
@@ -86,7 +122,56 @@ impl TestkitRoute {
             workers,
             unsent: Vec::new(),
             failed: false,
+            fill: None,
         }
+    }
+
+    /// The route runs `route_fill` with its session's worker and its frame bound.
+    pub fn with_fill(mut self, fill: RouteFill) -> TestkitRoute {
+        self.fill = Some(fill);
+        self
+    }
+
+    /// `route_fill` (R-47 item 3): the session's program writes N = C + F bytes of the fill pattern, where C is the bytes that
+    /// the stream takes from the worker now (0 while gated) and F is the route's frame bound. The worker's queue to the route
+    /// then holds a frame that the stream does not take. The control returns when the program edge has the bytes, and the
+    /// host is woken. A payload that has exited is refused.
+    fn route_fill(&mut self) -> Result<Value, String> {
+        let fill = self
+            .fill
+            .as_ref()
+            .ok_or("route_fill needs a route that attach_stream built")?;
+        let max_frame_bytes = fill.max_frame_bytes;
+        let session = fill
+            .session
+            .as_ref()
+            .ok_or("route_fill: the route has no session row")?;
+        // The worker of the route's own session instance, as the row names it now (the worker can come after the attach,
+        // while `Starting`). A removed or recreated session is not the route's.
+        let row = session
+            .rows
+            .read()
+            .ok_or("route_fill: the route's session has no stored row (not yet, or removed)")?;
+        let row = Row::decode(&session.session, &row)
+            .filter(|row| row.instance == session.instance)
+            .ok_or("route_fill: the route's session instance is gone")?;
+        let worker = row
+            .worker
+            .ok_or("route_fill: the route's session has no worker process yet")?
+            .identity();
+        if !self.workers.payload_alive(worker) {
+            return Err(
+                "route_fill: the payload of the route's session has exited: it writes nothing more"
+                    .into(),
+            );
+        }
+        let (program, wake) = self.workers.program_edge(worker)?;
+        let bytes = self.worker_end().room().saturating_add(max_frame_bytes);
+        program.write(&fill_pattern(bytes));
+        if let Some(wake) = wake {
+            wake.signal();
+        }
+        Ok(json!({"bytes": bytes}))
     }
 
     /// Writes the waiting bytes while the stream takes them. `Interrupted` writes again; any other error ends the writes.
@@ -205,6 +290,8 @@ impl RouteClient for TestkitRoute {
             }
             // Core OU-9, OU-3, DP-5: the bytes that the stream took from the worker, cumulative (R-14.3).
             "route_stream_written" => Ok(json!({"bytes": self.worker_end().written()})),
+            // R-47 item 3, Core OU-3b: the session's output fills the stream and one frame more.
+            "route_fill" => self.route_fill(),
             _ => Err(format!("unsupported_control: {op}")),
         }
     }
@@ -232,6 +319,38 @@ mod tests {
 
     fn deadline() -> Deadline {
         Deadline::after(None)
+    }
+
+    /// R-47 item 3: byte k of a fill is 0x61 + (k mod 26). `route_fill` needs the session's worker, which only a route that
+    /// `attach_stream` built has; the harness tests prove the fill itself.
+    #[test]
+    fn route_fill_is_the_pattern_and_needs_the_session_worker() {
+        assert_eq!(fill_pattern(28), b"abcdefghijklmnopqrstuvwxyzab");
+        // C: the free room of the worker's queue, limited by route_accept, and 0 while gated.
+        let (mut client, mut worker) = route(16);
+        assert_eq!(worker.write(b"abcde").unwrap(), 5);
+        assert_eq!(client.worker_end().room(), 11, "16 less the 5 queued");
+        client.worker_end().accept_at_most(3);
+        assert_eq!(client.worker_end().room(), 3);
+        client.worker_end().accept_at_most(20);
+        assert_eq!(client.worker_end().room(), 11);
+        client.worker_end().gate(true);
+        assert_eq!(client.worker_end().room(), 0);
+        let (client, _worker) = route(16);
+        let mut bare = client;
+        assert!(bare
+            .control("route_fill", &json!({}))
+            .unwrap_err()
+            .contains("attach_stream"));
+        let (client, _worker) = route(16);
+        let mut no_row = client.with_fill(RouteFill {
+            session: None,
+            max_frame_bytes: 8,
+        });
+        assert!(no_row
+            .control("route_fill", &json!({}))
+            .unwrap_err()
+            .contains("no session row"));
     }
 
     /// The route stream holds a socket buffer each way: 64 KiB that no one reads yet are taken whole.

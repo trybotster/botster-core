@@ -238,6 +238,9 @@ fn test_budget_job(root: &Path) -> Result<()> {
     test_budget::command(root, &[])
 }
 
+/// The slow tier: the slow tests, with every real-tier conformance id, under nextest; then the report of the ids of
+/// `conformance/core-real-pending.txt` (plan 23l). Nextest skips those ids (ignored trials); here they run once, and their
+/// outcome is reported, never counted as passed and never a failure of the step.
 fn slow_job(root: &Path) -> Result<()> {
     test_budget::command(
         root,
@@ -246,7 +249,25 @@ fn slow_job(root: &Path) -> Result<()> {
             "--deadline".to_string(),
             "10m".to_string(),
         ],
-    )
+    )?;
+    // The pending-real trials run under the slow tier's bounds: the same deadline, process group, tracker and leftover
+    // check (#220 R1-1).
+    let (success, report) = test_budget::pending_real(root, test_budget::SLOW_DEADLINE)?;
+    real_report_ran(success, &report)
+}
+
+/// The verdict on the run of the real tier's pending-real ids: the binary succeeded and printed its report, with the count
+/// of the pending-real ids. A pending-real id never fails the run (its outcome is in the report); a binary that failed or
+/// printed no report did not run them.
+fn real_report_ran(success: bool, report: &str) -> Result<()> {
+    let has = |prefix: &str| report.lines().any(|line| line.starts_with(prefix));
+    if !success {
+        bail!("the real-tier conformance binary failed under --ignored");
+    }
+    if !has("real conformance: passed ") || !has("real conformance: pending-real ") {
+        bail!("the real-tier conformance binary printed no pending-real report");
+    }
+    Ok(())
 }
 
 /// The paths that the diff against the base changes.
@@ -813,6 +834,19 @@ mod tests {
         for failed in [Some(1), Some(2), Some(3), Some(4), None] {
             assert!(mutation_verdict(failed).is_err(), "{failed:?}");
         }
+    }
+
+    #[test]
+    fn the_pending_real_run_passes_only_with_a_success_and_its_report() {
+        let report = "real conformance: passed 0, failed 0, pending 3 (+ 1 with no transcript), deferred 2, withdrawn 17\n\
+                      real conformance: pending-real 2 (they run under --ignored, never counted as passed), of which passed 1\n";
+        assert!(real_report_ran(true, report).is_ok());
+        assert!(real_report_ran(false, report).is_err());
+        assert!(real_report_ran(true, "").is_err());
+        let no_pending_line = report.lines().next().unwrap();
+        assert!(real_report_ran(true, no_pending_line).is_err());
+        let no_count_line = report.lines().nth(1).unwrap();
+        assert!(real_report_ran(true, no_count_line).is_err());
     }
 
     #[test]
