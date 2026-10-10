@@ -303,8 +303,8 @@ pub fn check(input: &Input<'_>) -> Vec<String> {
             let new_in_ledger: BTreeSet<&String> =
                 input.ledger.difference(base.ledger_file).collect();
             for id in input.pending.difference(base.pending) {
-                let repended = input.tag_moved && input.transcript_changed.contains(id);
-                if !new_in_ledger.contains(id) && !repended {
+                let _repended = input.tag_moved && input.transcript_changed.contains(id);
+                if !new_in_ledger.contains(id) {
                     problems.push(format!(
                         "{PENDING_FILE}: {id} is new; the file may only shrink (plan 23u: only the commit that moves \
                          the contracts pin may add an id, and only one that is new in the ledger or whose transcript \
