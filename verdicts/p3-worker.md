@@ -7739,3 +7739,122 @@ The reviewer changed no product code and ran no tests, builds, gates, measuremen
 All earlier exact-head verdicts remain preserved.
 
 VERDICT: CLEAN
+
+
+## Round 134 — PR #206 P4a PR1 route machine and stream handoff — 2026-10-09
+
+Reviewed head: `1484a9ea50d6553d27db1524d8f6393ffb4477fb`.
+Base: `9b255cff007552f3952563852104f00a14ddf842`.
+Parent: `ed6ed38b86c0c8f2eedb21660a42c5fe42e0ac8c`.
+Tier: HIGH under BUILD.md rules 1, 3, and 5: mutation configuration, shared crates/workspace dependencies, and handoff/real paths.
+The PR body states HIGH and names its shared-crate scope. The head contains the current v1 base.
+The delta changes 33 files, with 2453 insertions and 160 deletions.
+Authority: BUILD.md, accepted plan 23k at 2cec1a39, contracts v0.1.21 at 60a4169, and the lead's P4a split and limits ruling.
+Plan pin: stage1-plan.73969100.md, sha256 73969100d06b36134bf849a42e1511b6ab706ad5899e30cc77a542ee920f952b.
+The minimum list now contains 69 IDs. The earlier 70/71 counts are historical, not the current denominator.
+The reviewer read the complete PR body, changed source and proofs, design corrections, pinned transcripts/map, and completed gate.
+The reviewer checked the host writer and marks, descriptor queues, worker baseline/output paths, testkit binding/client, and real stubs.
+
+### Accepted scope and authority
+
+The lead's option (b) adds AppliedRouteLimits to AttachRoute. The host computes those limits once and sends the returned values.
+The worker announces the supplied values. The design and PR body name the link-message correction.
+The ordered host writer places each descriptor on its frame's first bytes and completes earlier partial frames first.
+Blocked returns endpoint ownership to the mark. Failed closes the endpoint and removes the unstarted frame.
+The testkit tags descriptor offsets and feeds Descriptor before matching LinkBytes.
+The worker pairs descriptors in FIFO order and cleans unbound descriptors on link closure/adoption.
+The baseline uses the consumed model cut and forwards the unfed suffix before later output.
+These mechanisms have useful source proofs. The findings below prevent acceptance of the complete implementation at this head.
+
+The body identifies history, HandoffSent, route input, and real handoff as later work in the approved P4a sequence.
+The real edge still refuses every descriptor send. The packaged worker receives no route descriptor and ignores the new actions.
+This PR implements no successful real fd transfer. Its named real-process transfer proof remains required before that production behavior merges.
+The real-edge mutation exclusion follows only the function rename and retains its existing named slow failure proof.
+The prior-art note still identifies reused codec/edges and rejected old mechanisms with reasons.
+
+### F78 — MEDIUM — Emitted frames do not enforce their applied bounds before allocation; OPEN
+
+worker/route.rs:61-64 encodes and queues every control frame without checking its applied max_frame_bytes.
+The applied-limits test uses max_frame_bytes = 9, but its Client decodes with u64::MAX for every bound.
+It therefore accepts attached and baseline_begin frames larger than the limit that the worker announces.
+DP-3 bounds every frame except screen/history by the route's max_frame_bytes and requires checking before allocation.
+route.rs:79-82 also forces one payload byte when max_frame_bytes = 1, so output has length two and exceeds that legal cap.
+Required: enforce the applicable bound for each emitted frame. Do not force a positive output payload when the cap cannot hold it.
+Use actual applied bounds in boundary proofs, including small control caps and a cap of one.
+
+The screen allocation also precedes its check: route.rs:189-195 calls Terminal::snapshot before inspecting either size bound.
+Terminal::snapshot queries the native size, reserves/resizes that full size, and only then returns its Vec.
+Checking the returned length is too late for the pre-allocation rule.
+Required: use the native size query to check the applicable native/frame bound before buffer reservation.
+Keep the library's encoder and format. This does not authorize a hand-written snapshot or changed transcript expectation.
+
+### F79 — MEDIUM — Baseline insertion exceeds the route queue bound; OPEN
+
+route.rs:150-154 queues every baseline frame before send_budget. Route::push increments queued without a bound check.
+baseline builds all frames and adds the retained unfed suffix at once.
+A valid route_queue_bytes equal to max_snapshot_bytes can hold an exactly fitting native snapshot.
+This code also queues attached, baseline controls, stream framing, and any retained suffix, so queued exceeds route_queue_bytes.
+The later zero PTY budget does not undo that already excessive queue.
+Core 9B bounds frames queued per route. OU-9 guarantees that a permitted snapshot can fit the queue.
+Required: define and enforce bounded baseline formation/delivery, including its byte accounting and retained suffix.
+Do not reject a permitted native snapshot merely because surrounding frame overhead shares this eager insertion.
+Add a proof for the tight valid queue bound and a retained suffix, with queue usage checked throughout delivery.
+
+### F80 — MEDIUM — The testkit client loses a partial-write suffix; OPEN
+
+route_client.rs:43-49 keeps the suffix only in a borrowed local slice and returns on WouldBlock or any other error.
+The TestkitRoute object retains no unsent bytes. A full stream therefore loses the suffix.
+Its test writes abcdef into capacity four, accepts abcd, then writes and accepts g. The missing ef is never retried.
+The void RouteClient::write returns without an incomplete-write result, so a transcript can silently lose input.
+The comment and PR body describe retained backpressure, but the code drops the bytes.
+Required: retain and retry the suffix in order, or fail explicitly while the consumer remains unsupported.
+Never return as a completed write after losing bytes. Test complete ordered delivery after partial acceptance.
+This finding does not require implementing the deferred route-input consumer in this PR.
+
+### F81 — MEDIUM — Interrupted route writes become terminal failures; OPEN
+
+testkit worker.rs:1335-1341 handles WouldBlock, but maps every other error to a terminal RouteWritten Err.
+EndControl can inject Interrupted. That input then closes the route WriteFailed instead of retrying.
+The new Input contract and accepted design explicitly require the driver to retry Interrupted.
+Required: retry the same outstanding bytes on Interrupted without advancing progress or emitting a terminal failure.
+Add an edge proof that injects Interrupted, then succeeds, with every byte delivered once.
+
+### F82 — MEDIUM — Write failure overwrites an earlier close reason; OPEN
+
+route.rs:276-280 always calls end_route(WriteFailed) for a terminal write error.
+A baseline refusal already sets closing to SnapshotTooLarge or BadPeer before delivering route_closed.
+If that write fails, the host receives WriteFailed instead of the stored first reason.
+OU-2 requires the first reason and exactly one close/report. The accepted design states the same rule.
+Required: preserve an existing closing reason when a subsequent write fails, while closing the failed transport immediately.
+Add a proof for failure while a healthy close is queued or partly written, with one report of its first reason.
+
+### Completed evidence and verdict
+
+Gate: ~/botster-sessions/gates/botster-core-stage1-p4a-route-machine-1484a9ea-pool-20261009-170209-10406.log.
+The log names this exact head and base. It ran on msa1, slot 1, kernel 6.12.111+deb13-amd64.
+All ten full CI steps PASS. Default: 1303 tests in 8.227 s. Slow: 254 tests in 21.887 s.
+Active facade conformance: 116 passed, zero failed. Ledger: 679 IDs, 559 pending, two deferred, two withdrawn.
+Signals scan: 182 Rust files. Timers scan: 180 Rust files.
+Both mutation runs test 147 mutants: 135 caught, 12 unviable, zero missed, zero timeouts.
+Separate slow-profile mutation timeout: 20 s. Full CI: 493.2 s. Separate mutants: 271.5 s. Gate exit zero after 775 s.
+The gate supplies completed evidence but does not resolve the source findings.
+
+The two removed pending IDs are ou_9_baseline_then_live_no_gap and dp_3_screen_is_one_frame_within_max_screen_frame_bytes.
+Both replacement-map rows at 60a4169 permit core-testkit proofs. The reviewer read both pinned transcripts.
+The reviewer independently counted testkit minimum 40/69 at base and 42/69 at head. The corrected PR count is accepted.
+The real minimum count does not increase from these testkit removals. No successful real handoff is claimed.
+The terminal-format ID stays pending. The pinned runner merges attach options without binding substitution, as the body reports.
+That runner issue does not excuse F78-F82 or authorize a transcript change in Core.
+
+The reviewer sent F78-F82 directly to P3 and integration with this exact head.
+Integration independently confirms F80-F82 and is checking F78/F79 before its published verdict.
+PR #206 is NOT CLEAN at `1484a9ea50d6553d27db1524d8f6393ffb4477fb`.
+F78-F82 MEDIUM are OPEN. This is #206's first recorded package NOT CLEAN round. No round-limit notice is due.
+These findings stay in the implementer/reviewer loop. They are not a BLOCKED report to the lead.
+#203 retains round 133 CLEAN at c1d26778 and merge cd97009e. F71-F77 remain CLOSED as design corrections.
+The new implementation findings do not rewrite that exact-head design verdict.
+P3's non-minimum queue stays parked. Earlier F39, F61/F62, and scoped carry items remain preserved.
+The reviewer changed no product code and ran no tests, builds, gates, measurements, or mutants.
+All earlier exact-head verdicts remain preserved.
+
+VERDICT: NOT CLEAN
