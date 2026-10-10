@@ -254,3 +254,40 @@ VERDICT: CLEAN (0 open)
 I read replacement package verdict `a685c84e5af3f7d7a1a4440018b6bdbdd79303d7`, `verdicts/p6-two-stage-mutants.md` on `stage1/review-p6`.
 It reports CLEAN on the same head and closes MS-R1-1, MS-R1-2, and MS-R1-3.
 This receipt changes no review scope or conclusion. Round 2 remains CLEAN.
+
+### Round 2 addendum — 2026-10-10 — CLEAN withdrawn for stage-2 selection
+
+The later #222 gate at `deb34002eae1df16199b753c510ebfc44475b8a9` exposes a missed integration finding.
+Evidence: `/Users/jasonconigliari/botster-sessions/shared/core-stage1/gate-logs/ctl-a-full-deb34002.log`.
+I read its stage-1 and stage-2 results and the installed cargo-mutants 27.1.0 source.
+I withdraw Round 2 CLEAN for the selection defect below. The three original corrections remain closed.
+
+#### R2-1 — MEDIUM — OPEN — Stage 2 can select a mutant already caught by stage 1
+
+Location: `xtask/src/ci.rs`, `stage2_args` and stage-2 outcome validation.
+
+Stage 2 uses exact-name `-F` expressions to select only stage-1 misses.
+In cargo-mutants 27.1.0, `visit_expr_struct` adds field-deletion mutants without `options.allows_mutant`.
+Those mutants bypass both `-F` and `--exclude-re`.
+The exact regex arguments therefore do not guarantee the required selection.
+
+The supplied gate has 82 stage-1 mutants: 52 caught, 22 missed, and eight unviable.
+Stage 2 discovers 23 mutants for 22 requested misses.
+Its extra mutant deletes `frames` from `LinkTap::connected` at `edge_tap.rs:83:13`.
+Stage 1 caught that mutant, but stage 2 misses it.
+The gate correctly fails the differing total before accepting a combined verdict.
+However, the gate wastes a full slow mutation run and does not run exactly the required stage-1 misses.
+Stage 2 takes 1,174.3 seconds; the gate exits one after 1,691 seconds.
+This is a false selection, not evidence that both stages missed that extra mutant.
+
+Use a selection mechanism that also handles field-deletion mutants.
+Validate the complete tested identity set against the stage-1 miss set before deciding the combined result.
+Retain a proof with a field deletion caught by stage 1 beside a mutant caught only by stage 2.
+The fixture must prove that the caught field deletion never joins stage 2.
+P6 reports a correction in progress on `stage1/p6-stage2-identity`; its READY and evidence are pending.
+
+P6 also reports that field-deletion mutants bypass stage-1 regex exclusions.
+That separate tool consequence needs its own stated scope; this finding concerns stage-2 selection.
+I ran no build, test, gate, mutation job, or reversal job.
+
+VERDICT: NOT CLEAN (1 open: R2-1 MEDIUM; Round 2 CLEAN withdrawn).
