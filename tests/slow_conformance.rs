@@ -13,6 +13,7 @@ use botster_core_testkit::real::RealCoreHarness;
 fn main() {
     suite::run(
         "real conformance",
+        suite::Tier::Real,
         |_seed| {
             let dir = Candidate::beside_test_binary().expect("the candidate directory");
             let candidate = Candidate::locate(&dir).unwrap_or_else(|error| panic!("{error}"));

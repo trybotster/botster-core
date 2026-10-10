@@ -7,6 +7,9 @@
 //!   P0 has no passing proof, so every ledger id is in one of the two files.
 //! - After that the pending file only shrinks. A moved contracts pin may add the ids that the new ledger adds.
 //! - The deferred file follows the four rules of plan section 5.
+//! - `core-real-pending.txt` (plan 23l): its ids are Core ledger ids that are not pending, deferred, withdrawn or real-only
+//!   (a `slow:*` proof in the contracts' replacement map). The harness PR initializes it (the base has no such file); after
+//!   that an id enters only in the pull request that removes it from `core-pending.txt`, or as a new ledger id.
 
 use crate::fsutil::{base, git_show};
 use anyhow::{bail, Context, Result};
@@ -18,6 +21,7 @@ use std::path::Path;
 
 const LEDGER_FILE: &str = "conformance/core-ledger-ids.txt";
 const PENDING_FILE: &str = "conformance/core-pending.txt";
+const REAL_PENDING_FILE: &str = "conformance/core-real-pending.txt";
 const DEFERRED_FILE: &str = "conformance/core-deferred.toml";
 /// Verbatim copies of the contracts' status files at the pinned tag (`conformance/deferred.txt`, `conformance/withdrawn.txt`).
 /// The harness reads the copies; `check` fails when a copy differs from the pinned source.
@@ -316,6 +320,77 @@ pub fn check(input: &Input<'_>) -> Vec<String> {
     problems
 }
 
+/// What the checks of `core-real-pending.txt` read (plan 23l).
+pub struct RealInput<'a> {
+    /// The Core ids of the ledger at the pinned tag.
+    pub ledger: &'a BTreeSet<String>,
+    pub pending: &'a BTreeSet<String>,
+    pub deferred: &'a BTreeSet<String>,
+    pub withdrawn: &'a BTreeSet<String>,
+    /// The ids whose proof is real-only: a `slow:*` proof in the contracts' replacement map.
+    pub real_only: &'a BTreeSet<String>,
+    pub real_pending: &'a BTreeSet<String>,
+    /// The base ref's files. `None`: the base has no `core-real-pending.txt` (initialization).
+    pub base: Option<RealBase<'a>>,
+}
+
+pub struct RealBase<'a> {
+    pub real_pending: &'a BTreeSet<String>,
+    pub pending: &'a BTreeSet<String>,
+    /// The ids of the base's `core-ledger-ids.txt`.
+    pub ledger_file: &'a BTreeSet<String>,
+}
+
+/// Every problem of `core-real-pending.txt`, one string each. Empty means the file is valid.
+pub fn check_real(input: &RealInput<'_>) -> Vec<String> {
+    let mut problems = Vec::new();
+    for id in input.real_pending {
+        let why = if !input.ledger.contains(id) {
+            "is not a Core id of the ledger"
+        } else if input.pending.contains(id) {
+            "is in core-pending.txt; this file holds ids that pass on the TestkitHarness"
+        } else if input.deferred.contains(id) {
+            "is deferred"
+        } else if input.withdrawn.contains(id) {
+            "is withdrawn"
+        } else if input.real_only.contains(id) {
+            "is real-only (a slow:* proof); it passes by its named real-process proof, never from this file"
+        } else {
+            continue;
+        };
+        problems.push(format!("{REAL_PENDING_FILE}: {id} {why}"));
+    }
+    if let Some(base) = &input.base {
+        let new_in_ledger: BTreeSet<&String> = input.ledger.difference(base.ledger_file).collect();
+        for id in input.real_pending.difference(base.real_pending) {
+            let leaves_pending = base.pending.contains(id) && !input.pending.contains(id);
+            if !leaves_pending && !new_in_ledger.contains(id) {
+                problems.push(format!(
+                    "{REAL_PENDING_FILE}: {id} is new; an id enters only in the pull request that removes it from \
+                     {PENDING_FILE}, or as a new ledger id"
+                ));
+            }
+        }
+    }
+    problems
+}
+
+/// The ids whose proof is real-only: a `proof` that starts with `slow:` in the contracts' `replacement-map.json`.
+pub fn real_only_ids(map_json: &str) -> Result<BTreeSet<String>> {
+    let json: serde_json::Value = serde_json::from_str(map_json)?;
+    Ok(json["ids"]
+        .as_array()
+        .context("the replacement map has no `ids`")?
+        .iter()
+        .filter(|row| {
+            row["proof"]
+                .as_str()
+                .is_some_and(|p| p.starts_with("slow:"))
+        })
+        .filter_map(|row| row["id"].as_str().map(str::to_string))
+        .collect())
+}
+
 /// `Some(reason)` when the start condition holds now (so the id is no longer deferred), `None` when it is still false.
 /// An unknown condition holds, so that it fails the gate.
 fn condition_holds(condition: &str, t: u8, features: &[(u8, &[Feature])]) -> Option<String> {
@@ -427,7 +502,31 @@ pub fn command(root: &Path, args: &[String]) -> Result<()> {
         base,
         tag_moved,
     }));
+    let real_pending = parse_ids(&read(REAL_PENDING_FILE)?).map_err(anyhow::Error::msg)?;
+    let base_real_pending = git_show(root, &base_name, REAL_PENDING_FILE)?
+        .as_deref()
+        .map(parse_ids)
+        .transpose()
+        .map_err(anyhow::Error::msg)?;
+    let map = std::fs::read_to_string(meta.contracts_root.join("conformance/replacement-map.json"))
+        .context("read the pinned replacement map")?;
+    let no_ids = BTreeSet::new();
+    let deferred_ids: BTreeSet<String> = deferred.iter().map(|d| d.id.clone()).collect();
+    problems.extend(check_real(&RealInput {
+        ledger: &ledger,
+        pending: &pending,
+        deferred: &deferred_ids,
+        withdrawn: &withdrawn,
+        real_only: &real_only_ids(&map)?,
+        real_pending: &real_pending,
+        base: base_real_pending.as_ref().map(|real_pending| RealBase {
+            real_pending,
+            pending: base_pending.as_ref().unwrap_or(&no_ids),
+            ledger_file: &base_ledger,
+        }),
+    }));
     report(&problems)?;
+    println!("lists: real-pending {}", real_pending.len());
     let withdrawn = withdrawn.intersection(&ledger).count();
     println!(
         "lists: ok. ledger {} ids, pending {}, deferred {}, withdrawn {}, to run {}",
@@ -985,5 +1084,98 @@ mod tests {
         let bad = copy_problems(&[("x", "same", "same"), ("y", "old", "new")]);
         assert_eq!(bad.len(), 1);
         assert!(bad[0].starts_with("y is not the pinned file"));
+    }
+
+    /// Ledger `a b c d s x`: `a` pending, `d` deferred, `x` withdrawn, `s` real-only; `b` and `c` pass on the testkit.
+    struct RealWorld {
+        ledger: BTreeSet<String>,
+        pending: BTreeSet<String>,
+        deferred: BTreeSet<String>,
+        withdrawn: BTreeSet<String>,
+        real_only: BTreeSet<String>,
+    }
+
+    fn real_world() -> RealWorld {
+        RealWorld {
+            ledger: set(&["a", "b", "c", "d", "s", "x"]),
+            pending: set(&["a"]),
+            deferred: set(&["d"]),
+            withdrawn: set(&["x"]),
+            real_only: set(&["s"]),
+        }
+    }
+
+    fn real_check(
+        w: &RealWorld,
+        real_pending: &[&str],
+        base: Option<(&[&str], &[&str], &[&str])>,
+    ) -> Vec<String> {
+        let real_pending = set(real_pending);
+        let base_sets = base.map(|(r, p, l)| (set(r), set(p), set(l)));
+        check_real(&RealInput {
+            ledger: &w.ledger,
+            pending: &w.pending,
+            deferred: &w.deferred,
+            withdrawn: &w.withdrawn,
+            real_only: &w.real_only,
+            real_pending: &real_pending,
+            base: base_sets.as_ref().map(|(r, p, l)| RealBase {
+                real_pending: r,
+                pending: p,
+                ledger_file: l,
+            }),
+        })
+    }
+
+    #[test]
+    fn at_initialization_the_real_pending_file_takes_any_id_that_passes_on_the_testkit() {
+        let w = real_world();
+        assert!(real_check(&w, &[], None).is_empty());
+        assert!(real_check(&w, &["b", "c"], None).is_empty());
+    }
+
+    #[test]
+    fn a_real_pending_id_is_a_ledger_id_that_is_not_pending_deferred_withdrawn_or_real_only() {
+        let w = real_world();
+        for (id, why) in [
+            ("z", "is not a Core id of the ledger"),
+            ("a", "is in core-pending.txt"),
+            ("d", "is deferred"),
+            ("x", "is withdrawn"),
+            ("s", "is real-only"),
+        ] {
+            let problems = real_check(&w, &["b", id], None);
+            assert_eq!(problems.len(), 1, "{id}: {problems:?}");
+            assert!(problems[0].contains(&format!("{id} {why}")), "{problems:?}");
+        }
+    }
+
+    #[test]
+    fn after_initialization_an_id_enters_only_from_core_pending_or_the_new_ledger() {
+        let w = real_world();
+        let ledger: &[&str] = &["a", "b", "c", "d", "s", "x"];
+        // It may shrink.
+        assert!(real_check(&w, &["b"], Some((&["b", "c"], &["a"], ledger))).is_empty());
+        // `c` passed on the testkit already: it may not enter.
+        let problems = real_check(&w, &["b", "c"], Some((&["b"], &["a"], ledger)));
+        assert_eq!(problems.len(), 1, "{problems:?}");
+        assert!(problems[0].contains("c is new"), "{problems:?}");
+        // `c` leaves core-pending.txt in this pull request: it may enter.
+        assert!(real_check(&w, &["b", "c"], Some((&["b"], &["a", "c"], ledger))).is_empty());
+        // `c` is new in the ledger (a pin move): it may enter.
+        let old_ledger: &[&str] = &["a", "b", "d", "s", "x"];
+        assert!(real_check(&w, &["b", "c"], Some((&["b"], &["a"], old_ledger))).is_empty());
+    }
+
+    #[test]
+    fn real_only_ids_are_the_slow_proofs_of_the_replacement_map() {
+        let map = r#"{"ids": [
+            {"id": "conf::a", "proof": "slow:fsync"},
+            {"id": "conf::b", "proof": "core-testkit"},
+            {"id": "conf::c", "proof": "core-testkit+edge", "note": "a real host crash is the named slow test 'slow:x'"},
+            {"id": "conf::d"}
+        ]}"#;
+        assert_eq!(real_only_ids(map).unwrap(), set(&["conf::a"]));
+        assert!(real_only_ids("{}").is_err());
     }
 }
