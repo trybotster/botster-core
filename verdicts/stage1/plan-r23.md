@@ -727,3 +727,48 @@ This plan verdict does not certify the future gate implementation.
 The reviewer ran no builds, tests, or gates. No finding remains open.
 
 VERDICT: CLEAN at f545597b2213f0373a69696840dec560e708b284
+
+## Round 22 — Revision 23o clock ownership and delivery order
+
+Reviewed head: `0ec6d6b06bd0fa3d64991b58757fca685426ff92`.
+Scope: the complete plan delta from `f545597b2213f0373a69696840dec560e708b284`, including its replacement drafts.
+
+The reviewer applied the orchestrate-delivery premise and evidence checks.
+The source at contracts `af5771c` confirms that `idle_wait` jumps an injected clock to Core's next deadline.
+The real workers continue on their own clocks. The jump can therefore expire a host deadline before a worker responds.
+
+The reviewer checked both named raw logs and the complete source delta between their heads:
+
+- Injected clock: `019b277cb55cf271b895b946aca755211559ca49`, 21 passing and 100 failing real conformance trials.
+  Log: `~/botster-sessions/gates/botster-core-stage1-p6-real-core-019b277c-pool-20261009-182809-79811.log`.
+- Real clock: `4775acfe0f15f5412b3ae730fc080258ed70b181`, 55 passing and 66 failing real conformance trials.
+  Log: `~/botster-sessions/gates/botster-core-stage1-p6-real-core-clockprobe-4775acfe-pool-20261009-184010-16861.log`.
+
+The heads differ only in `RealCoreHarness::injects_clock`, from true to false.
+Both runs use `Limits::real()` and contain the same 121 real conformance IDs.
+The real clock adds 34 passes. No ID passes only with the injected clock in these runs.
+These are failing probes, not acceptance gates. Their commands differ: the second runs only prebuild and real conformance.
+The final text corrects the earlier claim that the probes used the same head.
+It also distinguishes assertion failures from timeouts before the target assertion for the four R-43(A) IDs.
+
+R-46 replaces the initial proposal to use the real clock.
+The lead supplied the steward's verbatim ruling in message `msg_plugin-w_1791597035_3312b5`.
+The steward explicitly authorized immediate use. Publication in the rulings document remains pending.
+The final plan agrees with that ruling:
+
+- The real tier keeps the transcript's injected clock and exact time assertions.
+- The driver jumps only when the harness controls every source of progress.
+- On the real tier, explicit `advance_clock` steps move that clock. Idle waits use the wake handle and step limit.
+- P6 measures the affected transcripts after the driver change. Transcript fixes put clock advances after the required real event.
+- Worker timers retain their real-process proofs. The four R-43(A) IDs must pass rather than enter the real pending list.
+- The contracts driver and transcript changes precede the tag, Core pin move, and RealCoreHarness PR.
+- The real pending list is initialized once under the final clock rule.
+
+R-46 also requires tests of both driver branches. The contracts review must check those tests and any remaining failing step.
+The local path override supports measurement before the tag; it does not replace the tagged acceptance evidence.
+This verdict approves the plan only. The driver, transcripts, pin move, and harness still require their own reviews and evidence.
+
+`git diff --check` passes. No execution gate applies to this documentation-only change.
+The reviewer ran no builds, tests, or gates. No finding remains open.
+
+VERDICT: CLEAN (0 open) at 0ec6d6b06bd0fa3d64991b58757fca685426ff92
