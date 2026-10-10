@@ -222,3 +222,71 @@ The package artifact for this head is pending.
 This is the third NOT CLEAN integration round for #219.
 The round-limit rule in contracts `56bd0a5:docs/BUILD.md:119` requires a lead decision before round four.
 The lead must split the PR, settle the disputed point, or replan the root cause. A fourth review does not start by default.
+
+## Round 4 — 2026-10-10
+
+Reviewed head: `9daf3ec427b36ad68d8654962f2e9a0f2d815899`.
+Base: `b41e88be535c7e1c62ddf272c4295a87b94f5685`.
+The lead authorized this round by settling R3-1 and requiring an audit of paths that can post multiple events per input.
+The lead also accepted the existing engine parked-close mechanism as within that settlement.
+I reviewed the complete replacement changes, the merge, the root audit, and the new EdgeTap forwarding method.
+
+### R3-1 — CLOSED
+
+`finish_start` posts the completion and places each retained close in `ParkedRoute::Close`.
+Only a successful start without a pending end takes this branch.
+Failed starts and starts with a pending end retain the end flow's close reason.
+The change reuses existing work owned by the engine and adds no driver queue.
+
+`ready` offers `Work::Parked` only when the mandatory queue has room.
+`run_parked` takes one item and posts at most one close.
+It restores the item to the front if the queue refuses the close.
+It skips routes that already closed. The driver accounts for the step before selecting more work.
+Thus the startup completion and route closes no longer share one event-producing step.
+
+Both link-only proofs check `PumpReport.events_posted <= 1` after the link loss, including the completion and close.
+The three-route proof checks the same limit and one close per route after the completion.
+The queue-pressure proof uses two mandatory slots and stops polling.
+It verifies that two routes remain retained until polling frees room, then verifies all closes.
+The proofs retain endpoint-release, close-reason, and route-retirement assertions.
+All four proofs pass in the supplied gate, as do the earlier failed-start and Stop-order proofs.
+
+### Root audit and merge
+
+I checked the audit against the event-posting paths and their callers.
+Completions after an event use `Next::Complete`; completion loops use `complete_later`.
+Stop and Remove close one route per flow step. Adoption processes one row per step.
+Metadata steps post and return. Observation variants post at most one event, and due silences run as separate budgeted steps.
+Launch waiter and handoff loops schedule work or actions without posting events.
+The driver processes failed handoffs separately and accounts for each input.
+Polling removes events and releases capacity without posting events.
+I found no additional multiple-event breach in these paths.
+
+The saved base-merge check fails because both sides changed `.cargo/mutants.toml` and `Cargo.lock`.
+I independently compared the complete PR diff before and after the merge.
+After removal of index and hunk metadata, those diffs are identical. The combined merge diff is empty.
+`EdgeTap::close_route_stream` forwards the endpoint and bytes unchanged.
+Its pass-through proof checks both values and passes in the supplied gate.
+The real edge implementation remains byte-identical to the accepted slow mutation evidence at `40ea69f7`.
+
+### Supplied gate
+
+Log: `botster-core-stage1-p4a-failed-start-routes-9daf3ec4-pool-20261010-091039-97716.log`.
+The header names the reviewed head and base. All ten stages pass in 548.9 seconds.
+Default tests: 1,479 passed. Slow tests: 378 passed.
+Conformance: 193 testkit passes, 407 pending trials, 70 entries without transcripts, two deferred trials, and 18 withdrawn trials.
+The minimum counts remain testkit 50/69, real-passing 29/68, and real-accepted 29/69.
+Both mutation stages report 68 mutants: 63 caught, five unviable, zero missed, and zero timeouts.
+The repeated mutation stage takes 242.5 seconds and still does not enable the slow feature.
+The pool job exits zero after 804 seconds on gaming; the wrapper exits zero after 805 seconds.
+The remote head and base match. Ancestry and `git diff --check` pass.
+I ran no builds, tests, gates, mutants, or base-merge checks.
+
+The implementer reports three regression failures at `5c1b8d90`, with 2, 2, and 4 events per pump.
+No retained log exists, so those execution results are unverified. I requested no new execution.
+
+I read the exact-head package verdict at `194d7fbc14c9170cac4b5341e34e3940a10f8f64:verdicts/p3-worker.md`, Round 147.
+It reports CLEAN and agrees on closure, scope, the root audit, merge checks, and supplied gate evidence.
+R1-1, R2-1, and R3-1 are CLOSED. No new finding remains open.
+
+VERDICT: CLEAN (0 open) at 9daf3ec427b36ad68d8654962f2e9a0f2d815899.
