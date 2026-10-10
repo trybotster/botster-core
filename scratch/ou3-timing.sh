@@ -16,10 +16,14 @@ build() { # $1 label, $2 target dir: a clean build of every workspace test targe
   echo "$1 build_seconds $t"
 }
 
-ou3() { # $1 label, $2 target dir: three nextest runs of ou_3 over seeds 0-31
+ou3() { # $1 label, $2 target dir: three runs of the conformance binary on ou_3 over seeds 0-31 (no nextest: its default
+  # profile stops a test at 2 s). The time is the harness's own "finished in".
+  CARGO_TARGET_DIR="$2" cargo test -q -p botster-core --test conformance --no-run 2>/dev/null
+  local bin
+  bin=$(ls -t "$2"/debug/deps/conformance-* | grep -v '\.d$' | head -1)
   for i in 1 2 3; do
-    CARGO_TARGET_DIR="$2" BOTSTER_SEEDS=0-31 cargo nextest run -p botster-core --test conformance \
-      -E "test(=$ID)" --no-fail-fast 2>&1 | grep -E "PASS|FAIL|SIGSEGV|TIMEOUT|error" | grep -v "^\s*Summary" | sed "s/^/$1 run $i: /"
+    BOTSTER_SEEDS=0-31 "$bin" --exact "$ID" 2>&1 | grep -E "^test |test result" | tr '\n' ' ' | sed "s/^/$1 run $i: /"
+    echo
   done
 }
 
