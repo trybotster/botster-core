@@ -8,9 +8,10 @@
 # Each id is a finding for its owner.
 #
 # Initialization (plan 23l, revision 23q): the real run of the gate on b01225dd (contracts-v0.1.24, v1 e9901293), 182 active ids,
-# 99 passed and 83 failed. Every failing id is listed here, with its cause and owner.
+# 99 passed and 83 failed. Every failing id is listed here, with its cause and owner. The merge of v1 159cc400 (#217) made 11 more ids
+# active; each fails on the real tier (the gate on 97a8015a) and is listed here with its cause and owner (lead, 2026-10-09).
 
-# the route data plane on the real tier: RealCoreHarness attach_stream (R-47 (A) route forms, real client end), P6 (18).
+# the route data plane on the real tier: RealCoreHarness attach_stream (R-47 (A) route forms, real client end), P6 (21).
 conf::a2_4_other_osc_forms_stay_in_output
 conf::a7_1_frame_cap_above_route_frame_max_is_invalid_input
 conf::a7_1_overlong_route_tag_or_owner_is_invalid_input
@@ -22,7 +23,10 @@ conf::a7_1_refused_attach_reserves_nothing
 conf::a7_1_screen_cap_below_snapshot_plus_one_is_invalid_input
 conf::a7_1_screen_cap_equal_to_snapshot_plus_one_attaches
 conf::dp_3_route_limits_reject_a_screen_cap_below_snapshot_plus_one
+conf::dp_7_revoked_reason_reaches_client_and_host
 conf::e2_1_osc_1_gives_no_title_changed_and_stays_in_output
+conf::er_route_limit
+conf::ev_5_repeated_attach_detach_without_polling_stays_bounded
 conf::ev_7_event_and_output_both_carry_the_sequence
 conf::ev_8_attach_requires_a_positive_query_deadline
 conf::id_1_old_handles_do_not_reach_new_instance
@@ -30,7 +34,7 @@ conf::lc_12_drop_leaves_workers_running
 conf::ou_1_attach_options_carry_no_paste_policy
 conf::ou_1_terminal_format_is_negotiated_against_the_target_worker
 
-# the program controls (pty_output, pty_input, pty_chunk, pty_blocked, pty_accept) through the probe program on a real PTY, P6 (P3 mapping) (30).
+# the program controls (pty_output, pty_input, pty_chunk, pty_blocked, pty_accept) through the probe program on a real PTY, P6 (P3 mapping) (32).
 conf::a2_2_cancel_is_ok_cancelled_never_err
 conf::a2_2_cancel_race_reports_the_real_outcome
 conf::ad_3_adopted_equals_started
@@ -51,6 +55,8 @@ conf::in_7_lost_worker_ends_pending
 conf::in_8_require_bracketed_refuses_with_exact_zero
 conf::in_9_event_with_no_encoding_is_typed_zero
 conf::in_9_key_repeat_is_checked_by_the_guards_once_at_start
+conf::ou_12_output_bytes_are_unmodified_and_in_order
+conf::ou_6_slow_route_does_not_delay_others
 conf::ou_9_adopted_session_attaches_by_baseline
 conf::ou_9_baseline_then_live_no_gap
 conf::st_6_capture_is_frozen_at_model_rev
@@ -62,12 +68,13 @@ conf::tm_3_next_deadline_is_host_armed
 conf::tm_4_silent_fires_once_at_threshold
 conf::tm_5_deadlines_in_order
 
-# the adoption and worker controls (withhold_control_link, lose_worker, impostor_worker, announce_protocol, payload_alive, hold_start_at, corrupt_registry_row, fail_next) at the HostEdges tap, P6 (21).
+# the adoption and worker controls (withhold_control_link, lose_worker, impostor_worker, announce_protocol, payload_alive, hold_start_at, corrupt_registry_row, fail_next): their real forms by steward ruling R-49 at the HostEdges tap and the endpoint path, P5 (real-controls PRs) on P6's harness (22).
 conf::a10_1_wrong_instance_is_never_signalled
 conf::a10_1_wrong_token_is_never_signalled
 conf::a10_2_corrupted_row_is_lost_registry_corrupt
 conf::a2_1_adopt_completes_ok_with_the_state_it_reached
 conf::a2_1_read_of_created_or_lost_is_wrong_state
+conf::a2_3_lost_session_closes_routes_session_lost
 conf::a5_3_only_sync_column_codes_scripted
 conf::a5_3_sync_refusal_has_no_op_event_slot_or_state
 conf::a6_1_withheld_control_link_gives_worker_unreachable_not_worker_gone
@@ -84,6 +91,17 @@ conf::ev_5_stop_kills_while_queue_full
 conf::lc_12_stop_all_leaves_created_exited_lost
 conf::lc_9_worker_protocol_absent_for_an_unreachable_worker_whose_hello_was_never_read
 conf::tm_6_more_means_runnable_not_blocked
+
+# the route fault controls of #217 (P4a PR2): fail_handoff, a HostEdges wrapper around link_send_descriptor that returns Err((endpoint, Failed)) once, P6 (2).
+conf::dp_2_failed_handoff_closes_route_handoff_failed
+conf::ou_2b_handoff_failure_is_reported_as_handoff_failed
+
+# fail_writes on the real tier has no portable socket form (on macOS, shutdown(SHUT_RD) of the client end does not fail the worker's send); a seam in the botster-worker route transport needs a design ruling (#217), P3 (P4a routes) (2).
+conf::a2_3_close_first_reason_wins_with_new_reasons
+conf::a2_3_write_failed_closes_with_write_failed
+
+# R-47 route_fill pending (lead, #217): the transcript needs a fill before its accept loop; on the real tier it also stops at pty_output, P3 (P4a routes) with P6 (1).
+conf::ou_3_progressing_reader_lossless
 
 # no_spurious_wakes on the real tier: waits for the contracts no_spurious_wakes PR (real form), P6 (4).
 conf::ev_5_poll_wakes_pending_work
