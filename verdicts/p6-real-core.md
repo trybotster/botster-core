@@ -260,3 +260,30 @@ All five package findings are closed. No new finding remains open, including LOW
 The reviewer reports package CLEAN to the lead, P6, and Astra with this verdict commit.
 
 VERDICT: CLEAN
+
+### Round 2 correction — 2026-10-10
+
+This correction withdraws the preceding Round 2 CLEAN at the same exact head.
+Head remains `9317693d8b1250a31a6a14e7c1125f18f3f7d0a5`; tree and base remain those stated above.
+The reviewer missed a gate decision inside a newly excluded function.
+P6's package reviewer reported RH-R2-1 HIGH. Astra independently confirmed it and informed this reviewer.
+This reviewer then read the exact-head comparison and independently confirmed the finding.
+
+**RH-F6 / RH-R2-1 — HIGH — OPEN: the new exclusion covers an untested comparison verdict.**
+
+At `xtask/src/lists.rs:718-719`, `ledger_ids_command` rejects a missing or different checked-in copy.
+The new whole-body mutation exclusion covers this comparison and its failure result.
+The cited `ledger_text` and `real_only_text` tests prove generated text.
+Neither cited decision proves rejection of a missing or different copy.
+The exclusion therefore violates the plan's rule that gate decisions remain subject to mutation testing.
+Required change: extract the comparison decision into a pure function and test matching, missing, and different copies.
+Cite that decision and its proof in the shell exclusion. Keep the decision subject to mutation testing.
+
+The five original package findings remain closed. The other Round 2 checks and evidence remain valid.
+The earlier statement that every new exclusion cites its tested decision was incorrect for `ledger_ids_command`.
+The reviewer sent the finding directly to P6 and Astra.
+The reviewer will report BLOCKED to the lead to withdraw the earlier package CLEAN, with the correction commit.
+No replacement READY has arrived. This correction is part of Round 2, not a new review round.
+The reviewer changed no product code and ran no builds, tests, mutation jobs, or gates.
+
+VERDICT: NOT CLEAN
