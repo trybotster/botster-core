@@ -1,45 +1,66 @@
-//! The one exception to the workspace's `unsafe_code = "forbid"` (lead ruling 2026-10-09 on #171 TP3, (A)).
+//! The exceptions to the workspace's `unsafe_code = "forbid"`, each of one item in one file of one crate:
+//! - botster-test-process, the function `close_inherited` of its anchor binary (lead ruling 2026-10-09 on #171 TP3, (A));
+//! - botster-core-testkit, `unsafe impl GlobalAlloc for PeakAllocator`, the allocator of the `alloc_window` and
+//!   `alloc_peak` controls (lead ruling 2026-10-10, (A); steward rulings R-37, R-52). Its methods only call the system
+//!   allocator.
 //!
-//! botster-test-process copies the workspace's lint table with exactly one difference, `unsafe_code = "deny"`, so that one
-//! function of its anchor binary, `close_inherited`, can allow the lint. The check fails:
-//! - on any other difference between that crate's lint table and the workspace's;
+//! Each of these crates copies the workspace's lint table with exactly one difference, `unsafe_code = "deny"`, so that its
+//! one item can allow the lint. The check fails:
+//! - on any other difference between such a crate's lint table and the workspace's;
 //! - on any key or string that names the lint in a manifest or a Cargo configuration (`rustflags` included), but the lint
-//!   entries of the workspace, of that crate and of the libghostty-vt binding (the earlier exception: that crate calls a C
+//!   entries of the workspace, of those crates and of the libghostty-vt binding (the earlier exception: that crate calls a C
 //!   ABI, and its manifest allows `unsafe_code` for the whole crate). TOML is parsed, so an escaped key is read as Cargo reads
 //!   it; `-` is read as `_`, as rustc reads a lint name;
-//! - on any `unsafe_code` identifier in a Rust source, other than the one in the `#[allow(unsafe_code)]` of the top-level
-//!   `fn close_inherited` of the anchor binary. Sources are read as Rust tokens: comments and string literals are not
-//!   identifiers, and an attribute on several lines, a `cfg_attr`, an `expect` or a macro body is read as a whole (#171
-//!   round 2, TP7).
+//! - on any `unsafe_code` identifier in a Rust source, other than the one in the `#[allow(unsafe_code)]` of an exception's
+//!   top-level item in its own file. Sources are read as Rust tokens: comments and string literals are not identifiers, and
+//!   an attribute on several lines, a `cfg_attr`, an `expect` or a macro body is read as a whole (#171 round 2, TP7).
 
 use crate::fsutil::tracked_files;
 use anyhow::{bail, Context, Result};
 use proc_macro2::{Delimiter, LineColumn, TokenStream, TokenTree};
 use std::path::Path;
 
-/// The crate with the exception.
-const CRATE: &str = "crates/botster-test-process/Cargo.toml";
+/// One exception: the crate's manifest, the file, and the identifiers that start the item (after its attributes).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Exception {
+    pub manifest: &'static str,
+    pub file: &'static str,
+    pub item: &'static [&'static str],
+}
+
+/// The exceptions (see the module's text).
+pub const EXCEPTIONS: [Exception; 2] = [
+    Exception {
+        manifest: "crates/botster-test-process/Cargo.toml",
+        file: "crates/botster-test-process/src/bin/botster-test-anchor.rs",
+        item: &["fn", "close_inherited"],
+    },
+    Exception {
+        manifest: "crates/botster-core-testkit/Cargo.toml",
+        file: "crates/botster-core-testkit/src/alloc_controls.rs",
+        item: &["unsafe", "impl", "GlobalAlloc", "for", "PeakAllocator"],
+    },
+];
 /// The C ABI binding of libghostty-vt, which allows `unsafe_code` in its own lint table (eddd5e75; not this ruling).
 const FFI_CRATE: &str = "crates/botster-terminal-ghostty/Cargo.toml";
-/// The lint entries that may name `unsafe_code`: each manifest and the path of its entry.
-const LINT_ENTRIES: [(&str, &str); 3] = [
-    ("Cargo.toml", "workspace.lints.rust.unsafe_code"),
-    (CRATE, "lints.rust.unsafe_code"),
-    (FFI_CRATE, "lints.rust.unsafe_code"),
-];
-/// The file and the function that may allow `unsafe_code`.
-const ALLOWED_FILE: &str = "crates/botster-test-process/src/bin/botster-test-anchor.rs";
-const ALLOWED_FN: &str = "close_inherited";
+
+/// Whether `(file, entry)` is a lint entry that may name `unsafe_code`: the workspace's, an exception crate's or the FFI
+/// crate's.
+fn lint_entry(file: &str, entry: &str) -> bool {
+    let crate_entry = entry == "lints.rust.unsafe_code"
+        && (file == FFI_CRATE || EXCEPTIONS.iter().any(|e| e.manifest == file));
+    crate_entry || (file == "Cargo.toml" && entry == "workspace.lints.rust.unsafe_code")
+}
 
 /// Whether the crate's lint table is the workspace's with `unsafe_code = "deny"` in place of `"forbid"`, and nothing else.
 ///
 /// # Errors
 /// A manifest does not parse, the workspace does not forbid `unsafe_code`, or the tables differ otherwise.
-pub fn lint_drift(workspace: &str, krate: &str) -> Result<(), String> {
+pub fn lint_drift(workspace: &str, name: &str, krate: &str) -> Result<(), String> {
     let workspace: toml::Table = workspace
         .parse()
         .map_err(|e| format!("the workspace manifest: {e}"))?;
-    let krate: toml::Table = krate.parse().map_err(|e| format!("{CRATE}: {e}"))?;
+    let krate: toml::Table = krate.parse().map_err(|e| format!("{name}: {e}"))?;
     let mut expected = workspace
         .get("workspace")
         .and_then(|w| w.get("lints"))
@@ -55,10 +76,10 @@ pub fn lint_drift(workspace: &str, krate: &str) -> Result<(), String> {
     rust.insert("unsafe_code".into(), "deny".into());
     let actual = krate
         .get("lints")
-        .ok_or(format!("{CRATE} has no lint table"))?;
+        .ok_or(format!("{name} has no lint table"))?;
     if actual != &expected {
         return Err(format!(
-            "the lint table of {CRATE} must be the workspace's with only unsafe_code = \"deny\": it is {actual}, expected {expected}"
+            "the lint table of {name} must be the workspace's with only unsafe_code = \"deny\": it is {actual}, expected {expected}"
         ));
     }
     Ok(())
@@ -110,13 +131,10 @@ pub fn other_manifests(tables: &[(String, String)]) -> Vec<String> {
         let mut paths = Vec::new();
         lint_paths(&table, "", &mut paths);
         for path in paths {
-            let allowed = LINT_ENTRIES.iter().any(|&(manifest, entry)| {
-                file == manifest
-                    && (path == entry
-                        || path
-                            .strip_prefix(entry)
-                            .is_some_and(|v| v.starts_with(" = ")))
-            });
+            let entry = path
+                .split_once(" = ")
+                .map_or(path.as_str(), |(entry, _)| entry);
+            let allowed = lint_entry(file, entry);
             if !allowed {
                 found.push(format!("{file}: {path}"));
             }
@@ -162,8 +180,8 @@ fn allow_attribute(tokens: &[TokenTree]) -> Option<LineColumn> {
 }
 
 /// The position of the one allowed identifier: in the first `#[allow(unsafe_code)]` at the top level of the file whose
-/// item, after any other outer attributes (doc comments included), is `fn close_inherited`.
-fn the_exception(tokens: TokenStream) -> Option<LineColumn> {
+/// item, after any other outer attributes (doc comments included), starts with the identifiers `item`.
+fn the_exception(tokens: TokenStream, item_words: &[&str]) -> Option<LineColumn> {
     let tokens: Vec<TokenTree> = tokens.into_iter().collect();
     (0..tokens.len()).find_map(|index| {
         let position = allow_attribute(&tokens[index..])?;
@@ -174,9 +192,12 @@ fn the_exception(tokens: TokenStream) -> Option<LineColumn> {
             }
             item = rest;
         }
-        matches!(item, [TokenTree::Ident(keyword), TokenTree::Ident(name), ..]
-            if keyword == "fn" && name == ALLOWED_FN)
-        .then_some(position)
+        let starts = item_words.len() <= item.len()
+            && item_words
+                .iter()
+                .zip(item)
+                .all(|(word, tree)| matches!(tree, TokenTree::Ident(ident) if ident == word));
+        starts.then_some(position)
     })
 }
 
@@ -192,11 +213,10 @@ pub fn other_attributes(sources: &[(String, String)]) -> Vec<String> {
                 continue;
             }
         };
-        let allowed = if file == ALLOWED_FILE {
-            the_exception(tokens.clone())
-        } else {
-            None
-        };
+        let allowed = EXCEPTIONS
+            .iter()
+            .find(|e| e.file == file)
+            .and_then(|e| the_exception(tokens.clone(), e.item));
         let mut idents = Vec::new();
         lint_idents(tokens, &mut idents);
         for position in idents.into_iter().filter(|&p| Some(p) != allowed) {
@@ -225,10 +245,17 @@ fn is_table(file: &str) -> bool {
 ///
 /// # Errors
 /// The report of the problems that the check found.
-pub fn verdict(workspace: &str, krate: &str, files: &[(String, String)]) -> Result<String, String> {
+pub fn verdict(
+    workspace: &str,
+    krates: &[(&str, String)],
+    files: &[(String, String)],
+) -> Result<String, String> {
     let (tables, sources): (Vec<_>, Vec<_>) =
         files.iter().cloned().partition(|(file, _)| is_table(file));
-    let mut problems: Vec<String> = lint_drift(workspace, krate).err().into_iter().collect();
+    let mut problems: Vec<String> = krates
+        .iter()
+        .filter_map(|(name, krate)| lint_drift(workspace, name, krate).err())
+        .collect();
     problems.extend(other_manifests(&tables));
     problems.extend(other_attributes(&sources));
     if problems.is_empty() {
@@ -265,8 +292,11 @@ pub fn command(root: &Path, args: &[String]) -> Result<()> {
         let text = read(&file)?;
         files.push((file, text));
     }
-    let summary =
-        verdict(&read("Cargo.toml")?, &read(CRATE)?, &files).map_err(anyhow::Error::msg)?;
+    let mut krates = Vec::new();
+    for exception in EXCEPTIONS {
+        krates.push((exception.manifest, read(exception.manifest)?));
+    }
+    let summary = verdict(&read("Cargo.toml")?, &krates, &files).map_err(anyhow::Error::msg)?;
     println!("{summary}");
     Ok(())
 }
@@ -277,14 +307,28 @@ mod tests {
 
     const WORKSPACE: &str = include_str!("../../Cargo.toml");
     const KRATE: &str = include_str!("../../crates/botster-test-process/Cargo.toml");
+    const TESTKIT: &str = include_str!("../../crates/botster-core-testkit/Cargo.toml");
+    const ALLOC: &str = include_str!("../../crates/botster-core-testkit/src/alloc_controls.rs");
+    const CRATE: &str = EXCEPTIONS[0].manifest;
+    const ALLOWED_FILE: &str = EXCEPTIONS[0].file;
+    const TESTKIT_CRATE: &str = EXCEPTIONS[1].manifest;
+    const ALLOC_FILE: &str = EXCEPTIONS[1].file;
+
+    fn krates() -> Vec<(&'static str, String)> {
+        vec![
+            (CRATE, KRATE.to_string()),
+            (TESTKIT_CRATE, TESTKIT.to_string()),
+        ]
+    }
     const FFI: &str = include_str!("../../crates/botster-terminal-ghostty/Cargo.toml");
     const CONFIG: &str = include_str!("../../.cargo/config.toml");
     const ANCHOR: &str =
         include_str!("../../crates/botster-test-process/src/bin/botster-test-anchor.rs");
 
     #[test]
-    fn the_crate_differs_from_the_workspace_only_by_deny() {
-        assert_eq!(lint_drift(WORKSPACE, KRATE), Ok(()));
+    fn each_exception_crate_differs_from_the_workspace_only_by_deny() {
+        assert_eq!(lint_drift(WORKSPACE, CRATE, KRATE), Ok(()));
+        assert_eq!(lint_drift(WORKSPACE, TESTKIT_CRATE, TESTKIT), Ok(()));
     }
 
     /// Red on revert: each other difference of the crate's table fails the check, and so does a workspace without `forbid`.
@@ -304,14 +348,21 @@ mod tests {
             KRATE.replace("[lints.rust]\nunsafe_code = \"deny\"\n", ""),
         ] {
             assert_ne!(changed, KRATE, "the replacement applies");
-            assert!(lint_drift(WORKSPACE, &changed).is_err(), "{changed}");
+            assert!(lint_drift(WORKSPACE, CRATE, &changed).is_err(), "{changed}");
         }
         let unforbidden = WORKSPACE.replace("unsafe_code = \"forbid\"", "unsafe_code = \"deny\"");
         assert_eq!(
-            lint_drift(&unforbidden, KRATE),
+            lint_drift(&unforbidden, CRATE, KRATE),
             Err("the workspace does not forbid unsafe_code".into())
         );
-        assert!(lint_drift("[workspace]\n", KRATE).is_err());
+        assert!(lint_drift("[workspace]\n", CRATE, KRATE).is_err());
+        // The testkit back on the workspace's table fails too.
+        let workspace_only = TESTKIT.replace(
+            "[lints.rust]\nunsafe_code = \"deny\"",
+            "[lints]\nworkspace = true",
+        );
+        assert_ne!(workspace_only, TESTKIT, "the replacement applies");
+        assert!(lint_drift(WORKSPACE, TESTKIT_CRATE, &workspace_only).is_err());
     }
 
     #[test]
@@ -320,18 +371,20 @@ mod tests {
             ("Cargo.toml".to_string(), WORKSPACE.to_string()),
             (CRATE.to_string(), KRATE.to_string()),
             (".cargo/config.toml".to_string(), CONFIG.to_string()),
+            (TESTKIT_CRATE.to_string(), TESTKIT.to_string()),
             (ALLOWED_FILE.to_string(), ANCHOR.to_string()),
+            (ALLOC_FILE.to_string(), ALLOC.to_string()),
         ];
         assert_eq!(
-            verdict(WORKSPACE, KRATE, &files),
-            Ok("unsafe-code: 3 manifests and configurations and 1 sources checked".into())
+            verdict(WORKSPACE, &krates(), &files),
+            Ok("unsafe-code: 4 manifests and configurations and 2 sources checked".into())
         );
         // A source that names the lint is still a source, and a manifest is never read as a source.
         let bad = vec![
             ("a.rs".to_string(), "#![allow(unsafe_code)]\n".to_string()),
             ("x/Cargo.toml".to_string(), "[lints\n".to_string()),
         ];
-        let report = verdict(WORKSPACE, KRATE, &bad).unwrap_err();
+        let report = verdict(WORKSPACE, &krates(), &bad).unwrap_err();
         assert!(
             report.starts_with("x/Cargo.toml: does not parse: "),
             "{report}"
@@ -342,7 +395,12 @@ mod tests {
             ),
             "{report}"
         );
-        let drift = verdict(WORKSPACE, "[lints]\nworkspace = true\n", &[]).unwrap_err();
+        let drift = verdict(
+            WORKSPACE,
+            &[(CRATE, "[lints]\nworkspace = true\n".to_string())],
+            &[],
+        )
+        .unwrap_err();
         assert!(
             drift.ends_with("\n1 problem(s) with the unsafe_code exception"),
             "{drift}"
@@ -379,13 +437,14 @@ mod tests {
         other_manifests(&[(file.to_string(), text.to_string())])
     }
 
-    /// Red on revert (#171 round 2, TP7): the manifests are parsed, so only the three lint entries name the lint, whatever
+    /// Red on revert (#171 round 2, TP7): the manifests are parsed, so only the four lint entries name the lint, whatever
     /// their spelling; an escaped key, a dashed name or a flag elsewhere is found, in any manifest or configuration.
     #[test]
-    fn only_the_three_lint_entries_name_unsafe_code() {
+    fn only_the_four_lint_entries_name_unsafe_code() {
         for (file, text) in [
             ("Cargo.toml", WORKSPACE),
             (CRATE, KRATE),
+            (TESTKIT_CRATE, TESTKIT),
             (FFI_CRATE, FFI),
             (".cargo/config.toml", CONFIG),
         ] {
@@ -514,6 +573,38 @@ mod tests {
         assert!(
             unlexed[0].starts_with("crates/x/src/lib.rs: does not lex: "),
             "{unlexed:?}"
+        );
+    }
+
+    /// Red on revert (lead ruling 2026-10-10): the testkit's one exception is the allocator's `impl` in its own file. The
+    /// file has exactly that identifier; a second unsafe item in the crate fails, and so does the same item in another file.
+    #[test]
+    fn only_the_peak_allocator_impl_allows_unsafe_code_in_the_testkit() {
+        assert_eq!(attributes(ALLOC_FILE, ALLOC), Vec::<String>::new());
+        let second = format!("{ALLOC}\n#[allow(unsafe_code)]\nfn read_raw() {{}}\n");
+        let found = attributes(ALLOC_FILE, &second);
+        assert_eq!(found.len(), 1, "{found:?}");
+        let other_file = "crates/botster-core-testkit/src/harness.rs";
+        let moved = "#[allow(unsafe_code)]\nunsafe impl GlobalAlloc for PeakAllocator {}\n";
+        assert_eq!(
+            attributes(other_file, moved),
+            [format!("{other_file}:1: #[allow(unsafe_code)]")]
+        );
+        assert!(attributes(ALLOC_FILE, moved).is_empty());
+        // The whole item: another trait or another type is not the exception.
+        for text in [
+            "#[allow(unsafe_code)]\nunsafe impl GlobalAlloc for Other {}\n",
+            "#[allow(unsafe_code)]\nunsafe impl Send for PeakAllocator {}\n",
+            "#[allow(unsafe_code)]\nunsafe impl GlobalAlloc {}\n",
+            "#[allow(unsafe_code)]\nfn close_inherited() {}\n",
+        ] {
+            assert_eq!(attributes(ALLOC_FILE, text).len(), 1, "{text}");
+        }
+        // The anchor's item is not allowed in the allocator's file, nor the reverse.
+        assert_eq!(
+            attributes(ALLOWED_FILE, moved).len(),
+            1,
+            "the allocator's item in the anchor binary"
         );
     }
 }
