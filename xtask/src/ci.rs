@@ -140,6 +140,16 @@ const SELECTION_VARS: [&str; 3] = ["BOTSTER_ONLY", "BOTSTER_CLAUSE", "BOTSTER_SE
 
 /// Runs the conformance binary and returns its report text.
 fn conformance_report(root: &Path, extra: &[&str], env: &[(&str, &str)]) -> Result<String> {
+    let out = conformance_command(root, extra, env)
+        .output()
+        .context("run the conformance binary")?;
+    print!("{}", String::from_utf8_lossy(&out.stdout));
+    run_report(out.status.success(), &out.stdout, &out.stderr)
+}
+
+/// The command of one conformance run of the lists step: every id, so no selection variable of the runner reaches it,
+/// whatever the caller's environment or `env` sets.
+fn conformance_command(root: &Path, extra: &[&str], env: &[(&str, &str)]) -> Command {
     let mut cmd = cargo(root);
     cmd.args([
         "test",
@@ -158,9 +168,7 @@ fn conformance_report(root: &Path, extra: &[&str], env: &[(&str, &str)]) -> Resu
     for var in SELECTION_VARS {
         cmd.env_remove(var);
     }
-    let out = cmd.output().context("run the conformance binary")?;
-    print!("{}", String::from_utf8_lossy(&out.stdout));
-    run_report(out.status.success(), &out.stdout, &out.stderr)
+    cmd
 }
 
 /// The report of one conformance run: its output when the process succeeded. A failed run (a trial failed, or the build
@@ -869,12 +877,34 @@ mod tests {
         assert!(error.contains("trial failed"), "{error}");
     }
 
-    /// The lists step clears exactly the runner's selection variables.
+    /// A lists run cannot be narrowed: the command removes each selection variable that the runner reads
+    /// (`botster_conformance::Selection::from_env`: `BOTSTER_ONLY`, `BOTSTER_CLAUSE`, `BOTSTER_SEED`), also when the
+    /// caller passes one, and it keeps the other variables.
     #[test]
-    fn the_lists_runs_clear_the_runners_selection_variables() {
+    fn a_lists_run_removes_the_runners_selection_variables() {
+        let selection = [
+            ("BOTSTER_ONLY", "conf::x"),
+            ("BOTSTER_CLAUSE", "Core A2-3"),
+            ("BOTSTER_SEED", "7"),
+        ];
+        let mut env = selection.to_vec();
+        env.push(("BOTSTER_PENDING_STRICT", "1"));
+        let cmd = conformance_command(Path::new("."), &[], &env);
+        let envs: std::collections::BTreeMap<_, _> = cmd
+            .get_envs()
+            .map(|(k, v)| {
+                (
+                    k.to_string_lossy().into_owned(),
+                    v.map(|v| v.to_string_lossy().into_owned()),
+                )
+            })
+            .collect();
+        for (name, _) in selection {
+            assert_eq!(envs.get(name), Some(&None), "{name} is removed: {envs:?}");
+        }
         assert_eq!(
-            SELECTION_VARS,
-            ["BOTSTER_ONLY", "BOTSTER_CLAUSE", "BOTSTER_SEED"]
+            envs.get("BOTSTER_PENDING_STRICT"),
+            Some(&Some("1".to_string()))
         );
     }
 

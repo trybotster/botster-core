@@ -79,12 +79,13 @@ exclude_re = [
     # mutants: the diff changes no Rust source ...").
     'xtask/src/ci\.rs:\d+:\d+: replace mutants_job -> Result<\(\)> with Ok\(\(\)\)$',
     # xtask ci.rs lists_job -> Ok(()) and conformance_report -> Ok(..): process glue. lists_job runs the lists commands and
-    # the conformance binary twice and forwards both reports to lists_verdict; conformance_report starts `cargo test` on
-    # the conformance binary with the selection variables cleared and forwards its exit and output to run_report. A test
+    # the conformance binary twice and forwards both reports to lists_verdict; conformance_report runs the command of
+    # conformance_command (`cargo test` on the conformance binary) and forwards its exit and output to run_report. A test
     # cannot start the conformance build inside a mutation run. Only these whole-body replacements are excluded. The
     # decisions are pure functions with unit tests: lists_verdict (the_lists_verdict_needs_the_strict_line_and_equal_pass_counts),
     # the step's pass or fail on the two reports; strict_ran (the_strict_run_needs_its_report_line), the strict run checked
-    # every pending id; passed_count (the_passed_count_is_read_from_the_report_line); and run_report
+    # every pending id; passed_count (the_passed_count_is_read_from_the_report_line); conformance_command
+    # (a_lists_run_removes_the_runners_selection_variables), no selection variable narrows a run; and run_report
     # (a_failed_conformance_run_fails_the_step), a failed process fails the step. A body replaced by Ok gives no
     # `conformance strict:` line and no `conformance: passed` line, which every gate log of the step shows.
     'xtask/src/ci\.rs:\d+:\d+: replace lists_job -> Result<\(\)> with Ok\(\(\)\)$',
