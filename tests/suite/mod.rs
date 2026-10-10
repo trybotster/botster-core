@@ -17,7 +17,8 @@
 //! selection come from the runner's environment variables (`BOTSTER_SEEDS`, `BOTSTER_ONLY`, `BOTSTER_CLAUSE`, `BOTSTER_SEED`).
 
 use botster_conformance::report::describe;
-use botster_conformance::{load_dir, run_transcript, Limits, SeedSet, Selection, Transcript};
+pub use botster_conformance::Limits;
+use botster_conformance::{load_dir, run_transcript, SeedSet, Selection, Transcript};
 use botster_core_conformance::{driver_for, CoreHarness, CoreSchemas, CORE_TRANSCRIPTS};
 use botster_core_testkit::status::{parse_deferred as parse_status_deferred, parse_withdrawn};
 use libtest_mimic::{Arguments, Completion, Failed, Trial};
@@ -82,14 +83,14 @@ fn never_passes(id: &str, kind: &str, reason: String) -> Trial {
         .with_ignored_flag(true)
 }
 
-fn run_id(make: Factory, transcript: &Transcript) -> Result<(), Failed> {
+fn run_id(make: Factory, limits: Limits, transcript: &Transcript) -> Result<(), Failed> {
     let seeds = Selection::from_env().seeds(&SeedSet::from_env());
     let outcome = run_transcript(
         transcript,
         &|seed| driver_for(make(seed)),
         &seeds,
         &CoreSchemas,
-        &Limits::default(),
+        &limits,
     );
     if outcome.is_pass() {
         Ok(())
@@ -98,8 +99,9 @@ fn run_id(make: Factory, transcript: &Transcript) -> Result<(), Failed> {
     }
 }
 
-/// Runs every Core id of the ledger on the harnesses that `make` builds and prints the report under `name`.
-pub fn run(name: &str, make: Factory) {
+/// Runs every Core id of the ledger on the harnesses that `make` builds, under the runner's execution `limits` (design 6.1),
+/// and prints the report under `name`.
+pub fn run(name: &str, make: Factory, limits: Limits) {
     let args = Arguments::from_args();
     let ledger = id_list(LEDGER_IDS);
     let pending = id_list(PENDING_IDS);
@@ -140,7 +142,9 @@ pub fn run(name: &str, make: Factory) {
         } else if let Some(transcript) = transcript {
             if selection.selects(transcript) {
                 let transcript = transcript.clone();
-                trials.push(Trial::test(id.clone(), move || run_id(make, &transcript)));
+                trials.push(Trial::test(id.clone(), move || {
+                    run_id(make, limits, &transcript)
+                }));
             } else {
                 trials.push(never_passes(
                     id,
