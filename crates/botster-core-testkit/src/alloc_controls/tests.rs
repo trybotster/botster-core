@@ -139,7 +139,7 @@ fn a_frame_that_the_in_process_route_reader_takes_is_in_the_calling_threads_peak
         monotonic: at,
         unix: 1_000_000,
     };
-    let mut run = |core: &mut Box<dyn CoreApi>, op: OpId| {
+    let run = |core: &mut Box<dyn CoreApi>, op: OpId| {
         for _ in 0..50 {
             core.pump(now);
             for event in core.poll_events(64) {
@@ -196,7 +196,7 @@ fn a_frame_that_the_in_process_route_reader_takes_is_in_the_calling_threads_peak
     );
     // A new window after the client's write. The client's end now only moves its buffered bytes into a stream of
     // ROUTE_STREAM_BYTES, which allocates less than LARGE, so an allocation of LARGE is the worker's.
-    assert!(crate::route_client::ROUTE_STREAM_BYTES < LARGE);
+    const { assert!(crate::route_client::ROUTE_STREAM_BYTES < LARGE) };
     window(&mut harness);
     for _ in 0..8 {
         route.read(1 << 20, &Deadline::none());

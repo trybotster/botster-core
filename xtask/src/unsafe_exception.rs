@@ -395,16 +395,25 @@ mod tests {
             ),
             "{report}"
         );
-        let drift = verdict(
-            WORKSPACE,
-            &[(CRATE, "[lints]\nworkspace = true\n".to_string())],
-            &[],
-        )
-        .unwrap_err();
-        assert!(
-            drift.ends_with("\n1 problem(s) with the unsafe_code exception"),
-            "{drift}"
-        );
+        // Each exception crate's table is checked: the anchor's crate, and the testkit.
+        for name in [CRATE, TESTKIT_CRATE] {
+            let krates: Vec<(&str, String)> = krates()
+                .into_iter()
+                .map(|(n, text)| {
+                    if n == name {
+                        (n, "[lints]\nworkspace = true\n".to_string())
+                    } else {
+                        (n, text)
+                    }
+                })
+                .collect();
+            let drift = verdict(WORKSPACE, &krates, &[]).unwrap_err();
+            assert!(drift.contains(name), "{drift}");
+            assert!(
+                drift.ends_with("\n1 problem(s) with the unsafe_code exception"),
+                "{drift}"
+            );
+        }
     }
 
     #[test]
