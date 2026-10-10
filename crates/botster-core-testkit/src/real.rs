@@ -42,6 +42,13 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
 use std::time::Duration;
 
+/// The binary that a wrapper execs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Role {
+    Worker,
+    Probe,
+}
+
 /// The tap of one open handle. The driver owns the tap; the harness keeps a `Weak`, so the data directory's lock ends with
 /// the handle (LC-2).
 struct Handle {
@@ -143,7 +150,7 @@ impl RealCoreHarness {
         };
         // `Core::open` creates the data directory itself, not its parent.
         std::fs::create_dir(harness.root.path().join("d"))?;
-        harness.probe = harness.wrapper(PROBE, CoreLimits::default().stop_grace)?;
+        harness.probe = harness.wrapper(Role::Probe, PROBE, CoreLimits::default().stop_grace)?;
         Ok(harness)
     }
 
@@ -160,19 +167,20 @@ impl RealCoreHarness {
         self.root.path()
     }
 
-    /// The wrapper `<root>/w/<grace>/<file_name>` of the guard of `grace`: it execs the verified binary of `file_name`'s
-    /// kind (the probe for `PROBE`, else the worker) through that guard's anchor.
-    fn wrapper(&mut self, file_name: &str, grace: Duration) -> io::Result<PathBuf> {
-        let program = if file_name == PROBE {
-            self.candidate.probe.clone()
-        } else {
-            self.candidate.worker.clone()
+    /// The wrapper `<root>/w/<grace>/<role>/<file_name>` of the guard of `grace`: it execs the verified binary of `role`
+    /// through that guard's anchor. The role, not the file name, selects the binary: a worker may have any file name (Core
+    /// E1-1), the probe's too, and each role has its own directory, so the two never share a path.
+    fn wrapper(&mut self, role: Role, file_name: &str, grace: Duration) -> io::Result<PathBuf> {
+        let (program, role_dir) = match role {
+            Role::Worker => (self.candidate.worker.clone(), "worker"),
+            Role::Probe => (self.candidate.probe.clone(), "probe"),
         };
         let dir = self
             .root
             .path()
             .join("w")
-            .join(grace.as_nanos().to_string());
+            .join(grace.as_nanos().to_string())
+            .join(role_dir);
         std::fs::create_dir_all(&dir)?;
         let path = dir.join(file_name);
         self.guard(grace)?.wrapper(&path, &program, &[])?;
@@ -199,7 +207,7 @@ impl RealCoreHarness {
         if let Some(path) = self.workers.get(&key) {
             return Ok(path.clone());
         }
-        let path = self.wrapper(file_name, grace)?;
+        let path = self.wrapper(Role::Worker, file_name, grace)?;
         self.workers.insert(key, path.clone());
         Ok(path)
     }
@@ -306,7 +314,7 @@ impl CoreHarness for RealCoreHarness {
             Box::new(botster_core::Core::open(config)?)
         };
         self.probe = self
-            .wrapper(PROBE, grace)
+            .wrapper(Role::Probe, PROBE, grace)
             .map_err(RealCoreHarness::harness_failed)?;
         Ok(core)
     }
@@ -503,6 +511,36 @@ mod slow_tests {
         );
         harness.drop_handle("h");
         assert_eq!(harness.data_dir_of("h"), None);
+    }
+
+    /// Core E1-1: a worker may have any file name, the probe's too (#220 RH-F1). The role selects the binary, and the
+    /// worker's wrapper and the probe's never share a path.
+    #[test]
+    fn a_worker_named_like_the_probe_still_runs_the_worker() {
+        let mut harness = RealCoreHarness::new(nonexistent()).unwrap();
+        let grace = CoreLimits::default().stop_grace;
+        let worker = harness.worker_wrapper(PROBE, grace).unwrap();
+        let probe = harness.wrapper(Role::Probe, PROBE, grace).unwrap();
+        assert_ne!(worker, probe);
+        assert_eq!(worker.file_name(), probe.file_name());
+        let worker_script = std::fs::read_to_string(&worker).unwrap();
+        let probe_script = std::fs::read_to_string(&probe).unwrap();
+        assert!(
+            worker_script.contains("/nonexistent/worker"),
+            "{worker_script}"
+        );
+        assert!(
+            !worker_script.contains("/nonexistent/probe"),
+            "{worker_script}"
+        );
+        assert!(
+            probe_script.contains("/nonexistent/probe"),
+            "{probe_script}"
+        );
+        assert!(
+            !probe_script.contains("/nonexistent/worker"),
+            "{probe_script}"
+        );
     }
 
     /// A failed trial prints the harness, so its debug form names the binaries under test and the root directory.
