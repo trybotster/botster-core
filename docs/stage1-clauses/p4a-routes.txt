@@ -1,4 +1,7 @@
 conf::a15_1_route_key_text_over_the_bound_is_too_large	A15-1	pending
+conf::a17_1_attach_webrtc_is_not_an_operation	A17-1	pending
+conf::a17_1_features_list_only_the_stream_transport	A17-1	pending
+conf::a17_2_host_socketpair_route_is_an_ordinary_stream_route	A17-2	pending
 conf::a2_3_close_first_reason_wins_with_new_reasons	A2-3	transcript
 conf::a2_3_every_route_close_reason_maps_to_one_wire_reason	A2-3	transcript
 conf::a2_3_lost_session_closes_routes_session_lost	A2-3	transcript
@@ -40,8 +43,6 @@ conf::a3_2_stall_changes_no_focus_value_and_posts_no_focus_changed	OU-2	transcri
 conf::a3_2_stall_writes_no_focus_out	OU-2	transcript
 conf::a3_3_features_list_output_dropped_and_notification_policy	A3-3	transcript
 conf::a3_3_set_notification_policy_has_its_table_row	A3-3	transcript
-conf::a7_1_chunk_cap_above_sctp_max_is_not_refused_and_chunks_stay_within_it	A7-1	transcript
-conf::a7_1_connect_deadline_out_of_range_is_invalid_input	A7-1	transcript
 conf::a7_1_frame_cap_above_route_frame_max_is_invalid_input	A7-1	transcript
 conf::a7_1_overlong_route_tag_or_owner_is_invalid_input	A7-1	transcript
 conf::a7_1_query_deadline_above_max_is_invalid_input	A7-1	transcript
@@ -70,7 +71,6 @@ conf::dp_12_terminal_state_focused_matches_the_event	DP-12	transcript
 conf::dp_12_unreachable_or_n_minus_1_worker_leaves_focused_unknown	DP-12	transcript
 conf::dp_1_host_process_never_sees_route_bytes	DP-1	transcript
 conf::dp_2_failed_handoff_closes_route_handoff_failed	DP-2	transcript
-conf::dp_2_offer_must_carry_all_candidates	DP-2	transcript
 conf::dp_2_stream_handoff_transfers_ownership_and_closes_host_copy	DP-2	transcript
 conf::dp_3_data_frames_are_raw	DP-3	transcript
 conf::dp_3_exactly_maximal_snapshot_fits_with_the_type_byte	DP-3	pending
@@ -122,7 +122,6 @@ conf::ou_1_attach_options_carry_no_paste_policy	OU-1	transcript
 conf::ou_1_attached_features_are_the_intersection	OU-1	transcript
 conf::ou_1_no_common_terminal_format_is_unsupported_before_reservation	OU-1	transcript
 conf::ou_1_terminal_format_is_negotiated_against_the_target_worker	OU-1	transcript
-conf::ou_1_unavailable_binding_auth_is_unsupported_and_never_attached_unauthenticated	OU-1	transcript
 conf::ou_1_view_only_route_ignores_input	OU-1	transcript
 conf::ou_2_close_once_first_reason_wins	OU-2	transcript
 conf::ou_2_route_state_machine	OU-2	transcript
