@@ -37,6 +37,10 @@
 //!   and the payload leads its own group (`setsid`), so the kill never targets the payload's group; the payload ends with
 //!   its terminal. Only `worker_gone` (the default) is built; `worker_unreachable` gives `unsupported_control`, as on the
 //!   testkit.
+//! - `worker_alive` (`{session}` → `{alive}`, Core AD-7; steward ruling R-46 follow-up, contracts `main` `bf55649`): the
+//!   recorded worker still matches its identity (the inner edge's AD-6 check). That is the read of Core's own re-check of a
+//!   worker that it did not spawn, so a fence on it ends exactly when that re-check would find the worker gone. It sends no
+//!   signal. A session whose row names no worker has none that runs.
 //! - `impostor_worker` (`{session, field, script?}`, Core A10-1, A11-1), `announce_protocol` (`{session, protocol}`, Core
 //!   A6-2, AD-4) and `withhold_control_link` (`{session}`, Core A6-1): a stand-in at the endpoint path of the session's
 //!   worker (steward ruling R-49 Q4, [`crate::stand_in`]). The control only arms it, from the stored row (the recorded
@@ -429,6 +433,16 @@ impl RealCoreHarness {
         Ok(json!({ "alive": !children.is_empty() }))
     }
 
+    /// Core AD-7, R-46 follow-up: `{alive}`, whether the session's recorded worker still matches its pid and start time.
+    fn worker_alive(&self, handle: &str, args: &Value) -> Result<Value, ControlError> {
+        let OfSession { session } = parse(args)?;
+        let (tap, processes) = self.recorded(handle, &session)?;
+        let alive = processes
+            .worker
+            .is_some_and(|worker| lock(&tap).identity_state(worker) == IdentityState::Matches);
+        Ok(json!({ "alive": alive }))
+    }
+
     /// Core AD-2, IN-7: the session's worker ends from outside Core, as a kill does. A recorded worker that no longer
     /// matches its identity (it ended, or its pid was reused) gets no signal, and the control is `Bad`.
     fn lose_worker(&self, handle: &str, args: &Value) -> Result<Value, ControlError> {
@@ -666,6 +680,7 @@ impl CoreHarness for RealCoreHarness {
                     | "corrupt_registry_row"
                     | "payload_alive"
                     | "lose_worker"
+                    | "worker_alive"
                     | "impostor_worker"
                     | "announce_protocol"
                     | "withhold_control_link"
@@ -685,6 +700,7 @@ impl CoreHarness for RealCoreHarness {
             "corrupt_registry_row" if self.tapped => self.corrupt_registry_row(handle, args),
             "payload_alive" if self.tapped => self.payload_alive(handle, args),
             "lose_worker" if self.tapped => self.lose_worker(handle, args),
+            "worker_alive" if self.tapped => self.worker_alive(handle, args),
             "impostor_worker" if self.tapped => self.impostor_worker(handle, args),
             "announce_protocol" if self.tapped => self.announce_protocol(handle, args),
             "withhold_control_link" if self.tapped => self.withhold_control_link(handle, args),
@@ -777,6 +793,7 @@ mod slow_controls {
             "corrupt_registry_row",
             "payload_alive",
             "lose_worker",
+            "worker_alive",
             "impostor_worker",
             "announce_protocol",
             "withhold_control_link",
@@ -981,6 +998,13 @@ mod slow_controls {
         assert_eq!(lock(&tap).identity_state(worker), IdentityState::Matches);
         assert!(runs(worker).unwrap(), "a reused pid is never signalled");
 
+        let worker_alive = |h: &mut RealCoreHarness, s: &str| {
+            h.control("a", "worker_alive", &json!({ "session": s }))
+        };
+        assert_eq!(
+            worker_alive(&mut harness, "s1"),
+            Ok(json!({ "alive": true }))
+        );
         assert_eq!(
             harness.control("a", "lose_worker", &json!({ "session": "s1" })),
             Ok(Value::Null)
@@ -988,6 +1012,18 @@ mod slow_controls {
         pump_until(core.as_mut(), |_| {
             lock(&tap).identity_state(worker) == IdentityState::Absent
         });
+        assert_eq!(
+            worker_alive(&mut harness, "s1"),
+            Ok(json!({ "alive": false }))
+        );
+        assert_eq!(
+            worker_alive(&mut harness, "s2"),
+            Ok(json!({ "alive": true }))
+        );
+        assert!(matches!(
+            worker_alive(&mut harness, "s9"),
+            Err(ControlError::Bad(_))
+        ));
         assert!(matches!(
             harness.control("a", "lose_worker", &json!({ "session": "s1" })),
             Err(ControlError::Bad(_))
