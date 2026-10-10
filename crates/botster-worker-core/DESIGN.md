@@ -86,8 +86,8 @@ and `options`. P4a changes this as follows.
 **Sender (host).** The descriptor travels with the first byte of its `AttachRoute` frame, in the link's ordered outbound
 path (the `SCM_RIGHTS` model):
 
-1. On `HandoffRoute`, the driver encodes `HostMsg::AttachRoute{route, options}` into the link's outbound buffer like any
-   frame. It records a mark: the offset of the frame's first byte, the route, and the endpoint. The mark owns the endpoint.
+1. On `HandoffRoute`, the driver encodes `HostMsg::AttachRoute{route, options, limits}` into the link's outbound buffer
+   like any frame. It records a mark: the offset of the frame's first byte, the route, and the endpoint. The mark owns the endpoint.
 2. The writer sends bytes up to the mark with `link_send`. A partly written earlier frame is therefore always complete
    first.
 3. At the mark, the writer calls a new edge (it replaces `handoff_route`):
@@ -101,10 +101,17 @@ path (the `SCM_RIGHTS` model):
      readiness of the link;
    - `Err((endpoint, Failed))`: any other error, nothing taken. The driver closes the endpoint and drops the frame (it
      was not started, so the framing stays intact).
-4. `Ok` feeds `Input::HandoffSent{route}` to the engine. `Failed` feeds the route to `failed_handoffs` (`HandoffFailed`,
-   as today). `Blocked` feeds nothing.
+4. `Failed` feeds the route to `failed_handoffs` (`HandoffFailed`, as today). `Ok` and `Blocked` feed nothing in PR1.
+   `Input::HandoffSent{route}` comes in PR3, with the consumer that needs it.
 5. The marks are link-scoped. When the link closes, each mark is dropped, its endpoint is closed, and its route is a failed
    handoff, unless the session's loss closed the route first (the first reason wins, OU-2).
+
+**The limits (correction in PR1).** `HostMsg::AttachRoute` carries `limits: AppliedRouteLimits`. The host computes
+the limits once in `attach` (OU-1), returns them in `AttachResult`, and sends the same values in the frame. The worker
+announces them in `attached` and enforces them as given; it computes no limit of its own. The first version of this
+design said "no link message change". That was wrong: the worker cannot know the host's applied defaults and choices
+(for example a `max_frame_bytes` choice) from `options` alone. A test proves that the worker announces and enforces
+exactly the limits that the host sent.
 
 **Receiver (worker).** A binding delivers each descriptor before the link bytes that it rides with:
 
@@ -232,6 +239,24 @@ The resync sequence (at `Stalled → Open`, OU-9):
     exactly `max_snapshot_bytes + 1` (`dp_3_screen_is_one_frame_within_max_screen_frame_bytes`: 65537 for 65536). The
     check is `snapshot_payload + 1 <= applied max_screen_frame_bytes`, computed before the frame is built
     (`dp_3_frame_limit_checked_before_allocation`).
+- Every frame is checked against its codec bound (`bound_of`: `max_screen_frame_bytes` for `screen`,
+  `max_history_page_bytes` for `history`, `max_frame_bytes` for every other frame) before it is queued. The snapshot is
+  checked on the library's size query, before its buffer is reserved (`snapshot_at_most`). A route whose `max_frame_bytes`
+  cannot carry an attach frame closes `HandoffFailed` with no frame (steward ruling R-44: the worker holds the stream but
+  cannot make a working route from the options; OU-2b sends no `route_closed` for it, and the host reports
+  `route_ended{handoff_failed}`). An attach with no common terminal format closes the same way; the host refuses it first
+  (OU-1). The host's sync floor refusal is Core A19-1 (accepted, staged for final38) and comes after Core pins final38.
+  A9-1's floor was the `attached` frame, but `baseline_begin` and `modes` are larger (747 bytes each against 344 for
+  `attached`, at default limits). A19 withdraws `conf::a9_1_frame_cap_equal_to_the_attached_frame_attaches`.
+- The queue threshold (9B, OU-9, OU-3d; steward ruling R-45). Each queued frame is charged its stream-delimited size. The
+  baseline goes whole into the route's empty queue at the bind. R-45 exempts the one baseline sequence in delivery (the
+  attach frames through `live`, with their stream prefixes; the `screen` frame of `max_snapshot_bytes + 5` bytes
+  included) from the `route_queue_bytes` threshold. Only the frames behind the sequence count: the output after `R`, the
+  held suffix included. `attached` is ahead of the sequence, not behind it, so it does not count either. The PTY read
+  budget is the free payload space under the threshold, so no output is added past it, and a route that is behind stops
+  the PTY (OU-3d). A route over the threshold only because of its baseline is not "not progressing" (9B) and has no stall
+  clock of its own; OU-3b(b) alone makes it `Stalled` (the stall clock is a later P4a PR). A resync starts a new sequence
+  (at most one per route, because a resync drops the unstarted baseline frames) and sets its exempt bytes the same way.
 - PTY output goes to each `Open` route unchanged and in order (OU-12). The worker splits it into `output` frames whose size
   is within the route's `max_frame_bytes`, as the codec measures a frame (`bound_of`).
 - Client frames (`ToWorker`) go to the one admission point that host input already uses (AM-2, DP-4, DP-9). Input is
@@ -294,10 +319,12 @@ Rejected:
 - A host-terminated relay: it puts the host on the data path (DP-1, DP-11).
 - WebRTC: withdrawn by A17.
 - A descriptor id in `AttachRoute`: an id alone fixes neither the order nor the cleanup. The ordered outbound path above
-  fixes both with no link message change.
+  fixes both with no new descriptor field.
 
 ### Changes outside worker-core (each is HIGH)
 
-- `botster-core-host`: the outbound marks, `link_send_descriptor` in place of `handoff_route`, and `Input::HandoffSent`.
+- `botster-core-host`: the outbound marks and `link_send_descriptor` in place of `handoff_route` (PR1), and
+  `Input::HandoffSent` (PR3).
 - `botster-core-testkit`: `send_with_descriptor`, the tagged `recv`, the worker binding, and the PTY read budget.
-- No link message change: `HostMsg::AttachRoute{route, options}` exists.
+- `botster-core-link`: `HostMsg::AttachRoute` gets `limits: AppliedRouteLimits` (PR1, the correction above), and
+  `route::terminal_format`, which names a snapshot format on the wire as `{name lowercase}/{version}+raw`.
