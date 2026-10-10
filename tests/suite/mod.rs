@@ -11,8 +11,9 @@
 //! - a `not-applicable` line of the contracts' `deferred.txt` names a CASE of an active id: the id runs, and the report lists the
 //!   case;
 //! - a ledger id without a transcript that is not deferred is an ignored trial of kind `pending: no transcript`;
-//! - on the real tier only, an id in `conformance/core-real-pending.txt` (plan 23l) runs as a trial of kind `pending-real`:
-//!   it reports itself ignored with its outcome, never as passed and never as failed. A pass names the id for removal;
+//! - on the real tier only, an id in `conformance/core-real-pending.txt` (plan 23l) is an ignored trial of kind
+//!   `pending-real`. Under `--ignored` (the run of `cargo xtask ci --job slow` after nextest) it runs and reports itself
+//!   ignored with its outcome, never as passed and never as failed; the report names each one that passed, for removal;
 //! - every other id runs `run_transcript` over the seed set and passes only on `Outcome::Passed`. On the real tier it then
 //!   runs again on a plain `Core::open` (the pass-through test of plan 23l): it must pass there too, unless it needs a
 //!   control, which only the wrapped composition serves (`unsupported_control` on the plain harness).
@@ -110,39 +111,21 @@ fn run_id(make: Factory, limits: Limits, transcript: &Transcript) -> Result<(), 
     }
 }
 
-/// How many real-tier ids passed on the plain `Core::open`, and how many need a control that only the wrapped composition
-/// serves.
-#[derive(Default)]
-struct PassThrough {
-    plain_passed: usize,
-    needs_control: usize,
-}
-
 /// The pass-through test (plan 23l): an id that passed on the wrapped composition passes on a plain `Core::open` too, unless
 /// it needs a control.
-fn pass_through(
-    plain: Factory,
-    limits: Limits,
-    transcript: &Transcript,
-    count: &Mutex<PassThrough>,
-) -> Result<(), String> {
-    let outcome = outcome_of(plain, limits, transcript);
-    let mut count = count.lock().unwrap_or_else(PoisonError::into_inner);
-    match outcome {
-        Outcome::Passed => count.plain_passed += 1,
-        Outcome::UnsupportedControl { .. } => count.needs_control += 1,
-        other => {
-            return Err(format!(
-                "pass-through: passes on the wrapped composition and not on a plain Core::open: {}",
-                describe(&transcript.id, &other)
-            ))
-        }
+fn pass_through(plain: Factory, limits: Limits, transcript: &Transcript) -> Result<(), String> {
+    match outcome_of(plain, limits, transcript) {
+        Outcome::Passed | Outcome::UnsupportedControl { .. } => Ok(()),
+        other => Err(format!(
+            "pass-through: passes on the wrapped composition and not on a plain Core::open: {}",
+            describe(&transcript.id, &other)
+        )),
     }
-    Ok(())
 }
 
-/// A trial of an id of `core-real-pending.txt`: it runs, and reports itself ignored with its outcome. It is never counted as
-/// passed, and its failure never fails the run. A pass is recorded in `passed`, so that the report names the id for removal.
+/// A trial of an id of `core-real-pending.txt`: an ignored trial, so that nextest skips it. Under `--ignored` it runs and
+/// reports itself ignored with its outcome: it is never counted as passed, and its failure never fails the run. A pass is
+/// recorded in `passed`, so that the report names the id for removal.
 fn pending_real(
     make: Factory,
     limits: Limits,
@@ -165,6 +148,7 @@ fn pending_real(
         })
     })
     .with_kind("pending-real")
+    .with_ignored_flag(true)
 }
 
 /// Runs every Core id of the ledger on the harnesses that `make` builds, under the runner's execution `limits` (design 6.1),
@@ -179,7 +163,6 @@ pub fn run(name: &str, make: Factory, plain: Option<Factory>, limits: Limits) {
         Some(_) => id_list(REAL_PENDING_IDS),
     };
     let real_passed = Arc::new(Mutex::new(Vec::new()));
-    let pass_count = Arc::new(Mutex::new(PassThrough::default()));
     let mut real_pending_count = 0usize;
     let deferred = deferred_entries(DEFERRED);
     let withdrawn = parse_withdrawn(CONTRACTS_WITHDRAWN).expect("withdrawn.txt parses");
@@ -226,11 +209,10 @@ pub fn run(name: &str, make: Factory, plain: Option<Factory>, limits: Limits) {
                 ));
             } else if selection.selects(transcript) {
                 let transcript = transcript.clone();
-                let count = Arc::clone(&pass_count);
                 trials.push(Trial::test(id.clone(), move || {
                     run_id(make, limits, &transcript)?;
                     match plain {
-                        Some(plain) => pass_through(plain, limits, &transcript, &count),
+                        Some(plain) => pass_through(plain, limits, &transcript),
                         None => Ok(()),
                     }
                     .map_err(Failed::from)
@@ -259,14 +241,9 @@ pub fn run(name: &str, make: Factory, plain: Option<Factory>, limits: Limits) {
             withdrawn_count
         );
         if plain.is_some() {
-            let count = pass_count.lock().unwrap_or_else(PoisonError::into_inner);
-            println!(
-                "{name}: pass-through: {} ids passed on a plain Core::open too; {} need a control of the wrapped composition",
-                count.plain_passed, count.needs_control
-            );
             let passed = real_passed.lock().unwrap_or_else(PoisonError::into_inner);
             println!(
-                "{name}: pending-real {real_pending_count} (ran, never counted as passed), of which passed {}",
+                "{name}: pending-real {real_pending_count} (they run under --ignored, never counted as passed), of which passed {}",
                 passed.len()
             );
             for id in passed.iter() {
