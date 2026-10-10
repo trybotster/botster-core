@@ -346,6 +346,18 @@ impl EndControl {
         lock(&self.shared).sent[self.side]
     }
 
+    /// The bytes that the stream takes from this end's owner now: the free room of its queue, limited by `route_accept`, and 0
+    /// while gated (`route_fill`, R-47 item 3). A write of this end takes exactly this many bytes, if no failure comes first.
+    pub fn room(&self) -> usize {
+        let shared = lock(&self.shared);
+        let control = &shared.control[self.side];
+        if control.gate {
+            return 0;
+        }
+        let room = shared.capacity - shared.queues[self.side].len();
+        control.accept.map_or(room, |accept| room.min(accept))
+    }
+
     /// The owner of this side holds it from now on (the worker's bind of a route stream, DP-2): the bytes through it are the
     /// owner's, and `peer_holders` does not count them.
     pub fn owned(&self) {

@@ -470,3 +470,34 @@ fn a_failed_pty_write_completes_failed_with_its_exact_count() {
     );
     assert_eq!(input(&mut harness), json!("61"));
 }
+
+/// R-47 item 3: `route_fill` writes as the payload of the route's session does, so a payload that has exited is refused, as
+/// with `pty_output`.
+#[test]
+fn route_fill_refuses_a_payload_that_has_exited() {
+    let mut harness = TestkitHarness::new(0);
+    let (mut core, at) = session_of(&mut harness, true, &json!([{"print": {"bytes_hex": "78"}}]));
+    let options: AttachOptions = serde_json::from_value(
+        json!({"file_directory": "/tmp", "answers_queries": false, "input": true}),
+    )
+    .unwrap();
+    let (_, mut route) = harness
+        .attach_stream(
+            "a",
+            core.as_mut(),
+            ClientId("c".into()),
+            &sid("s1"),
+            options,
+        )
+        .expect("attached while the payload runs");
+    settle(core.as_mut(), at);
+    assert_eq!(
+        harness
+            .control("a", "payload_alive", &json!({"session": "s1"}))
+            .unwrap()["alive"],
+        false,
+        "the probe program ended after its last step"
+    );
+    let refused = route.control("route_fill", &json!({})).unwrap_err();
+    assert!(refused.contains("has exited"), "{refused}");
+}
