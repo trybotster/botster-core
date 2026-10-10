@@ -67,3 +67,11 @@ Round 1's wrapper and closed-LinkId proof obligations remain assigned to the Rea
 No integration finding remains open. The separate package verdict remains required for merge.
 
 VERDICT: CLEAN at b89c850e1f174193a39322aafb07784b2f3b8852
+
+### Round 2 follow-up — Package finding closure
+
+The reviewer read package verdict `2f114a7ff1615dab79cc9d96fe894483d03989f7` and the complete corrected PR body.
+Package OP-F1 LOW is closed. The body now names b89c850e, base 5348befa, the passing merge check, and the current gate.
+It retains 79107e9a's gate as earlier evidence. The PR head remains unchanged.
+Package and integration verdicts are both CLEAN at `b89c850e1f174193a39322aafb07784b2f3b8852`.
+The later wrapper proof obligations remain unchanged.
