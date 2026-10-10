@@ -444,6 +444,7 @@ fn mutants_job(root: &Path) -> Result<()> {
     // keeps both of a failed gate (ci/remote/job.sh).
     let stage1_dir = target.clone();
     let stage2_dir = target.join("mutants-stage2");
+    let slow_packages = fsutil::metadata(root)?.slow_packages;
     let lines = two_stage_decision(
         listed,
         || {
@@ -462,9 +463,16 @@ fn mutants_job(root: &Path) -> Result<()> {
                 took,
             })
         },
+        || {
+            let mut cmd = cargo(root);
+            cmd.args(stage2_baseline_args(&slow_packages))
+                .envs(test_budget::tier_env(true));
+            let started = Instant::now();
+            let status = cmd.status().context("start the stage 2 baseline")?;
+            Ok((status.code(), started.elapsed()))
+        },
         |missed| {
             let out = fresh(&stage2_dir)?;
-            let slow_packages = fsutil::metadata(root)?.slow_packages;
             let selection = ["--in-diff".to_string(), diff_path.display().to_string()];
             let mut cmd = cargo(root);
             cmd.args(stage2_args(
@@ -644,6 +652,7 @@ fn stage_outcomes(
 fn two_stage_decision(
     listed: usize,
     stage1: impl FnOnce() -> Result<Stage>,
+    baseline2: impl FnOnce() -> Result<(Option<i32>, Duration)>,
     stage2: impl FnOnce(&[String]) -> Result<Stage>,
 ) -> Result<Vec<String>> {
     if listed == 0 {
@@ -669,6 +678,18 @@ fn two_stage_decision(
         "{line}; outcomes.json names {} missed mutants",
         first.missed.len()
     );
+    // cargo-mutants 27.1 builds its own baseline with the mutated packages only, where the `slow` features of the other
+    // packages are not valid; so stage 2 skips it, and this baseline (the slow tier, unmutated) must pass first.
+    let (base, took) = baseline2()?;
+    let base_line = format!(
+        "mutants: stage 2 baseline (the slow tier, unmutated): exit code {base:?}, in {:.1} s",
+        took.as_secs_f64()
+    );
+    lines.push(base_line.clone());
+    anyhow::ensure!(
+        base == Some(0),
+        "{base_line}: the unmutated slow tier must pass before stage 2 tests a mutant"
+    );
     let (code2, second, line2) =
         stage_outcomes("stage 2 (slow)", first.missed.len(), stage2(&first.missed)?)?;
     lines.push(line2.clone());
@@ -687,8 +708,8 @@ fn two_stage_decision(
 }
 
 /// The arguments of stage 2 (plan 23r) after `cargo`: the mutants of `selection` (the diff), in place (so serial), with
-/// the slow features of `slow_packages`, their tests, and the slow tier's filter; exactly the stage-1 misses (`-F` with
-/// each whole name); the same exclusions; and the slow tier's deadline as the timeout of each mutant.
+/// the slow features of `slow_packages`, the workspace's tests, and the slow tier's filter; exactly the stage-1 misses
+/// (`-F` with each whole name); the same exclusions; and the slow tier's deadline as the timeout of each mutant.
 fn stage2_args(
     selection: &[String],
     slow_packages: &[String],
@@ -718,10 +739,13 @@ fn stage2_args(
             .collect::<Vec<_>>()
             .join(","),
     );
-    for package in slow_packages {
-        args.push("--test-package".into());
-        args.push(package.clone());
-    }
+    // Each mutant builds and tests the whole workspace, so `<member>/slow` is valid for each member; the slow filter
+    // selects the tests. The baseline is `stage2_baseline_args`.
+    args.extend(
+        ["--test-workspace", "true", "--baseline", "skip"]
+            .iter()
+            .map(|s| s.to_string()),
+    );
     for re in exclusions {
         args.push("--exclude-re".into());
         args.push(re.clone());
@@ -735,6 +759,34 @@ fn stage2_args(
     args.extend(MUTANTS_TEST_ARGS.iter().map(|s| s.to_string()));
     args.push("-E".into());
     args.push(test_budget::SLOW_FILTER.into());
+    args
+}
+
+/// The arguments of stage 2's baseline after `cargo`: the slow tier unmutated, as stage 2 runs it for each mutant (the
+/// workspace with the slow features of `slow_packages`, the `mutants` profile and the slow filter).
+fn stage2_baseline_args(slow_packages: &[String]) -> Vec<String> {
+    let mut args: Vec<String> = ["nextest", "run", "--workspace", "--features"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+    args.push(
+        slow_packages
+            .iter()
+            .map(|p| format!("{p}/slow"))
+            .collect::<Vec<_>>()
+            .join(","),
+    );
+    args.extend(
+        [
+            "--profile",
+            "mutants",
+            "--no-tests=pass",
+            "-E",
+            test_budget::SLOW_FILTER,
+        ]
+        .iter()
+        .map(|s| s.to_string()),
+    );
     args
 }
 
@@ -1070,12 +1122,20 @@ mod tests {
     fn a_mutation_step_passes_only_with_no_mutant_or_every_outcome_and_exit_code_0() {
         let no_stage2 =
             |_: &[String]| -> Result<Stage> { panic!("stage 1 missed nothing, so no stage 2") };
+        let no_base =
+            || -> Result<(Option<i32>, Duration)> { panic!("no stage 2, so no baseline") };
         assert_eq!(
-            two_stage_decision(0, || panic!("no mutant listed, so no run"), no_stage2).unwrap(),
+            two_stage_decision(
+                0,
+                || panic!("no mutant listed, so no run"),
+                no_base,
+                no_stage2
+            )
+            .unwrap(),
             ["mutants: the diff has no mutant (cargo mutants --list), so no run starts"]
         );
         assert_eq!(
-            two_stage_decision(3, || stage(Some(0), Some(counts(3, 2, 0, 0, 1))), no_stage2).unwrap(),
+            two_stage_decision(3, || stage(Some(0), Some(counts(3, 2, 0, 0, 1))), no_base, no_stage2).unwrap(),
             [
                 "mutants: stage 1 (default): 3 mutants: 2 caught, 0 missed, 0 timeout, 1 unviable, in 2.5 s",
                 "mutants: stage 2 (slow): stage 1 missed no mutant, so it does not run",
@@ -1083,23 +1143,31 @@ mod tests {
             ]
         );
         assert_eq!(
-            two_stage_decision(3, || stage(Some(0), None), no_stage2)
+            two_stage_decision(3, || stage(Some(0), None), no_base, no_stage2)
                 .unwrap_err()
                 .to_string(),
             "mutants: stage 1 (default): cargo mutants wrote no outcomes.json for its 3 mutants (exit code Some(0)): the \
              run failed before its outcomes"
         );
         assert!(
-            two_stage_decision(3, || stage(None, None), no_stage2).is_err(),
+            two_stage_decision(3, || stage(None, None), no_base, no_stage2).is_err(),
             "a signal"
         );
-        let failed =
-            two_stage_decision(3, || Err(anyhow::anyhow!("start cargo mutants")), no_stage2);
+        let failed = two_stage_decision(
+            3,
+            || Err(anyhow::anyhow!("start cargo mutants")),
+            no_base,
+            no_stage2,
+        );
         assert_eq!(failed.unwrap_err().to_string(), "start cargo mutants");
-        let partial =
-            two_stage_decision(3, || stage(Some(0), Some(counts(2, 2, 0, 0, 0))), no_stage2)
-                .unwrap_err()
-                .to_string();
+        let partial = two_stage_decision(
+            3,
+            || stage(Some(0), Some(counts(2, 2, 0, 0, 0))),
+            no_base,
+            no_stage2,
+        )
+        .unwrap_err()
+        .to_string();
         assert!(
             partial.ends_with("it had 3 mutants to test: the run did not report every one"),
             "{partial}"
@@ -1112,14 +1180,17 @@ mod tests {
     #[test]
     fn a_stage_1_miss_passes_only_when_stage_2_catches_it() {
         let no_stage2 = |_: &[String]| -> Result<Stage> { panic!("stage 1 failed, so no stage 2") };
+        let no_base =
+            || -> Result<(Option<i32>, Duration)> { panic!("stage 1 failed, so no baseline") };
+        let base = || Ok((Some(0), Duration::from_millis(1500)));
         for (code, summary) in [
             (Some(3), counts(4, 3, 0, 1, 0)),
             (Some(2), counts(4, 2, 1, 1, 0)),
             (Some(4), counts(4, 0, 0, 0, 0)),
             (Some(1), counts(4, 4, 0, 0, 0)),
         ] {
-            let error =
-                two_stage_decision(4, || stage(code, Some(summary)), no_stage2).unwrap_err();
+            let error = two_stage_decision(4, || stage(code, Some(summary)), no_base, no_stage2)
+                .unwrap_err();
             assert!(
                 format!("{error:#}").contains(&format!("exit code {code:?}")),
                 "{error:#}"
@@ -1129,6 +1200,7 @@ mod tests {
         let caught = two_stage_decision(
             5,
             || stage(Some(2), Some(counts(5, 2, 2, 0, 1))),
+            base,
             |missed| {
                 seen.borrow_mut().extend(missed.iter().cloned());
                 stage(Some(0), Some(counts(2, 1, 0, 0, 1)))
@@ -1140,6 +1212,7 @@ mod tests {
             caught,
             [
                 "mutants: stage 1 (default): 5 mutants: 2 caught, 2 missed, 0 timeout, 1 unviable, in 2.5 s",
+                "mutants: stage 2 baseline (the slow tier, unmutated): exit code Some(0), in 1.5 s",
                 "mutants: stage 2 (slow): 2 mutants: 1 caught, 0 missed, 0 timeout, 1 unviable, in 2.5 s",
                 "mutants: 5 mutants: 3 caught (1 by stage 2), 0 missed, 0 timeout, 2 unviable",
             ]
@@ -1149,23 +1222,54 @@ mod tests {
             (Some(2), counts(2, 1, 1, 0, 0)),
             (Some(3), counts(2, 1, 0, 1, 0)),
         ] {
-            let error = two_stage_decision(5, first, |_| stage(code, Some(summary))).unwrap_err();
+            let error =
+                two_stage_decision(5, first, base, |_| stage(code, Some(summary))).unwrap_err();
             assert!(
                 format!("{error:#}")
                     .contains("a mutant that both stages miss, or a timeout in stage 2"),
                 "{error:#}"
             );
         }
-        let short = two_stage_decision(5, first, |_| stage(Some(0), Some(counts(1, 1, 0, 0, 0))))
-            .unwrap_err()
-            .to_string();
+        let short = two_stage_decision(5, first, base, |_| {
+            stage(Some(0), Some(counts(1, 1, 0, 0, 0)))
+        })
+        .unwrap_err()
+        .to_string();
         assert!(short.contains("it had 2 mutants to test"), "{short}");
-        let none = two_stage_decision(5, first, |_| stage(Some(0), None))
+        let none = two_stage_decision(5, first, base, |_| stage(Some(0), None))
             .unwrap_err()
             .to_string();
         assert!(
             none.starts_with("mutants: stage 2 (slow): cargo mutants wrote no outcomes.json"),
             "{none}"
+        );
+        // Stage 2 skips cargo-mutants' baseline, so its own baseline must pass before stage 2 tests a mutant.
+        for code in [Some(100), None] {
+            let error = two_stage_decision(
+                5,
+                first,
+                || Ok((code, Duration::from_millis(1500))),
+                |_| panic!("the baseline failed, so no stage 2"),
+            )
+            .unwrap_err()
+            .to_string();
+            assert_eq!(
+                error,
+                format!(
+                    "mutants: stage 2 baseline (the slow tier, unmutated): exit code {code:?}, in 1.5 s: the unmutated \
+                     slow tier must pass before stage 2 tests a mutant"
+                )
+            );
+        }
+        let unstarted = two_stage_decision(
+            5,
+            first,
+            || Err(anyhow::anyhow!("start the stage 2 baseline")),
+            |_| panic!("the baseline did not start, so no stage 2"),
+        );
+        assert_eq!(
+            unstarted.unwrap_err().to_string(),
+            "start the stage 2 baseline"
         );
         // The names of the missed mutants must match the missed count.
         let unnamed = two_stage_decision(
@@ -1175,6 +1279,7 @@ mod tests {
                 s.outcomes.as_mut().unwrap().missed.pop();
                 Ok(s)
             },
+            no_base,
             |_| panic!("the names do not match the count"),
         )
         .unwrap_err()
@@ -1186,6 +1291,7 @@ mod tests {
         let zero = two_stage_decision(
             5,
             || stage(Some(2), Some(counts(5, 5, 0, 0, 0))),
+            no_base,
             |_| panic!("no missed mutant to test"),
         )
         .unwrap_err()
@@ -1219,8 +1325,9 @@ mod tests {
         assert!(parse_stage_outcomes(unnamed).is_err());
     }
 
-    /// Plan 23r: stage 2 runs in place with the slow features, the slow packages' tests, the slow filter, the never
+    /// Plan 23r: stage 2 runs in place with the slow features, the workspace's tests, the slow filter, the never
     /// terminating profile and the slow deadline as its timeout, and tests exactly each missed mutant, by its whole name.
+    /// Its baseline is the same slow tier, unmutated.
     #[test]
     fn stage_2_tests_exactly_the_missed_mutants_with_the_slow_tier() {
         let args = stage2_args(
@@ -1242,10 +1349,10 @@ mod tests {
             "600",
             "--features",
             "p/slow,q/slow",
-            "--test-package",
-            "p",
-            "--test-package",
-            "q",
+            "--test-workspace",
+            "true",
+            "--baseline",
+            "skip",
             "--exclude-re",
             "x\\.rs",
             "-F",
@@ -1270,6 +1377,22 @@ mod tests {
         assert!(pattern.is_match("a.rs:1:2: replace f -> bool with true"));
         assert!(!pattern.is_match("xa.rs:1:2: replace f -> bool with true"));
         assert!(!pattern.is_match("a.rs:1:2: replace f -> bool with truex"));
+        let baseline: Vec<String> = [
+            "nextest",
+            "run",
+            "--workspace",
+            "--features",
+            "p/slow,q/slow",
+            "--profile",
+            "mutants",
+            "--no-tests=pass",
+            "-E",
+            "binary(/^slow/) | test(/(^|::)slow_/)",
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+        assert_eq!(stage2_baseline_args(&["p".into(), "q".into()]), baseline);
     }
 
     #[test]
@@ -1593,9 +1716,11 @@ mod slow_tests {
 
     /// The red-on-revert proof of plan 23n, on real cargo-mutants runs of the fixture `xtask/fixtures/mutants-two-stage`:
     /// `triple` is compiled only with the `slow` feature, so stage 1 (the step's default run) misses each of its mutants.
-    /// Stage 2 (`stage2_args`: in place, the `slow` feature, the slow filter) tests exactly those, the slow test catches
-    /// each one, and the step passes. With a slow test that checks nothing in its place, both stages miss them, and the
-    /// step fails.
+    /// Stage 2 (`stage2_args`: in place, the `slow` features, the workspace's tests, the slow filter) tests exactly
+    /// those after its baseline (`stage2_baseline_args`), the slow test catches each one, and the step passes. With a
+    /// slow test that checks nothing in its place, both stages miss them, and the step fails. The second member `other`
+    /// has a `slow` feature that `twostage` does not depend on: a stage 2 that tests only the mutated package fails to
+    /// build.
     #[test]
     fn a_mutant_that_only_a_slow_test_catches_passes_and_one_that_both_stages_miss_fails() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -1604,11 +1729,17 @@ mod slow_tests {
         let fixture = root.join("xtask/fixtures/mutants-two-stage");
         let copy = |with_slow_test: bool| {
             let dir = tempfile::tempdir().unwrap();
-            for sub in ["src", "tests", ".config"] {
+            for sub in ["src", "tests", ".config", "other/src"] {
                 std::fs::create_dir_all(dir.path().join(sub)).unwrap();
             }
-            std::fs::copy(fixture.join("Cargo.toml.in"), dir.path().join("Cargo.toml")).unwrap();
-            std::fs::copy(fixture.join("src/lib.rs"), dir.path().join("src/lib.rs")).unwrap();
+            for (from, to) in [
+                ("Cargo.toml.in", "Cargo.toml"),
+                ("src/lib.rs", "src/lib.rs"),
+                ("other/Cargo.toml.in", "other/Cargo.toml"),
+                ("other/src/lib.rs", "other/src/lib.rs"),
+            ] {
+                std::fs::copy(fixture.join(from), dir.path().join(to)).unwrap();
+            }
             if with_slow_test {
                 std::fs::copy(
                     fixture.join("tests/slow_triple.rs"),
@@ -1645,6 +1776,8 @@ mod slow_tests {
                 took: Duration::ZERO,
             })
         };
+        // Two slow packages, and `twostage` does not depend on `other`, as in the real workspace.
+        let slow_packages = ["other".to_string(), "twostage".to_string()];
         let step = |dir: &Path| {
             two_stage_decision(
                 8,
@@ -1660,13 +1793,24 @@ mod slow_tests {
                         .envs(test_budget::tier_env(false));
                     finish(command, &out)
                 },
+                || {
+                    let mut command = crate::tools::cargo(dir);
+                    command
+                        .args(stage2_baseline_args(&slow_packages))
+                        .envs(test_budget::tier_env(true))
+                        .stdout(std::process::Stdio::null());
+                    let status = OwnedChild::spawn_group(&mut command)
+                        .unwrap()
+                        .status_by(Deadline::after(test_budget::SLOW_DEADLINE));
+                    Ok((status.code(), Duration::ZERO))
+                },
                 |missed| {
                     assert_eq!(missed.len(), 4, "the four mutants of triple: {missed:?}");
                     assert!(missed.iter().all(|m| m.contains("triple")), "{missed:?}");
                     let out = dir.join("stage2");
                     let mut command = crate::tools::cargo(dir);
                     command
-                        .args(stage2_args(&[], &["twostage".into()], &[], missed, &out))
+                        .args(stage2_args(&[], &slow_packages, &[], missed, &out))
                         .envs(test_budget::tier_env(true));
                     finish(command, &out)
                 },
