@@ -117,3 +117,96 @@ No ordinary NOT CLEAN report went to the lead.
 Wait for replacement READY at an exact head.
 
 VERDICT: NOT CLEAN
+
+
+## Round 2
+
+Implementation head: `92d6fc3fd662630b437fb7dd8e7c2dca070dcd1d`.
+Integration and full gate base: `159cc4003c8910ba6ef28402c360ba4d2dd820a4`.
+Previous reviewed head: `3a72d1a0b670f07fd70cbd6f5f5127d51685039d`.
+
+The reviewer checked HIGH first. The same rules apply, with an added gate-image change.
+The reviewer read the fix delta, current eleven-path PR diff, updated exclusions, callers, tests, PR body, and supplied logs.
+The exact head merges `6cc73cf5f399ff3bc412e2c2c805c4ff443d4c06` with the integration base above.
+Integration changes remain in the base; this review covers the PR's own changes.
+The reviewer changed no product code and ran no gate, build, test, mutation job, or reversal.
+
+### Round 1 findings closed
+
+R1-1 closes. `lists_job` now forwards its two reports to `lists_verdict`.
+That pure function requires a strict report and equal, present pass counts.
+Its tests prove passing equal counts and failing missing or unequal counts.
+`conformance_report` forwards process success and captured bytes to `run_report`.
+That pure function returns the report on success and fails with the error output on failure.
+Its test checks both public results.
+The exclusion reasons cite these tested decisions. Neither decision has an exclusion.
+
+The strict report now counts pending transcripts and real-only transcripts separately.
+`strict_ran` rejects missing reports and totals that do not cover the pending transcripts.
+Its tests cover complete, empty, narrowed, excessive, missing, and incomplete reports.
+Both conformance commands remove `BOTSTER_ONLY`, `BOTSTER_CLAUSE`, and `BOTSTER_SEED` from their environments.
+The supplied gate reports 386 run plus 21 real-only, covering 407 pending transcripts.
+Five other derived real-only ids have no transcript and remain in the separate no-transcript count.
+
+R1-2 closes. `held_problems` now accepts the pinned transcript ids and rejects a held id absent from that set.
+`lists::command` obtains that set from `pending::transcript_ids` and forwards validation errors to `report`.
+The public input/output test proves that missing transcript membership produces a problem.
+The checked-in-file test also validates both current held entries against the pinned transcripts.
+Ordinary pending ids without transcripts retain their ignored result.
+
+R1-3 closes. `parse_held` trims and rejects empty owner, authority, and reason fields.
+The parser test rejects `()`, `( )`, an empty owner, and an empty reason.
+
+### R2-1 LOW — the selection test asserts a private constant instead of behavior
+
+At `xtask/src/ci.rs:874-878`, `the_lists_runs_clear_the_runners_selection_variables` compares the private `SELECTION_VARS` constant with three strings.
+The test does not observe command configuration or the effect of selection variables.
+Removing the `env_remove` loop leaves this assertion unchanged and passing.
+The test therefore does not prove the behavior named in its comment and PR description.
+The user requires tests to assert public behavior.
+
+Remove this implementation-value assertion, or replace it with a public behavior proof that selection values cannot narrow the lists run.
+The existing `strict_ran` tests already prove rejection of a narrowed report.
+This finding does not require another process test or a new gate decision.
+The reviewer sent the finding directly to P3 and Astra.
+
+### Gate-image change and other scope
+
+The new cargo-mutants shim records the invoking Cargo path in `BOTSTER_MUTANTS_CARGO`.
+It sets `CARGO` to a wrapper outside `PATH` and keeps its source-copy `TMPDIR` on `/work/target/tmp`.
+The wrapper resets `TMPDIR` to `BOTSTER_TEST_TMPDIR` or `/tmp`, then executes the recorded Cargo path with the same arguments.
+The installed cargo-mutants 27.1.0 source confirms that `cargo_bin` reads `CARGO` for build and test commands.
+The unchanged image-tag code includes the Dockerfile hash.
+The updated PR explains the reused shim, wrapper mechanism, and reason for the separate temporary directories.
+
+The supplied image evidence shows the Git-source test passing in the mutation baseline.
+It also shows the source copy under `/work/target/tmp/cargo-mutants-work-GIuSWn.tmp`.
+The test itself is unchanged. The wrapper does not weaken its assertion or change process ownership.
+No process test is added or migrated. No group owner, derived wait, sleep, cleanup, or production reaper changes.
+The conformance trials retain their public result assertions and ignored-count behavior.
+The four own mutation exclusions remain limited to whole-body I/O-shell replacements.
+The Prior art note remains complete.
+
+### Evidence and limits
+
+The reviewer read all three supplied local proof logs in `~/botster-sessions/shared/core-stage1/evidence/p3-strict-pending-3a72d1a0/`.
+`red-pending-passes-lc_12.log` reports the required failure for a re-pended passing id.
+`red-held-failing-a2_1.log` reports the required failure for a held failing id.
+`control-same-edits-without-strict.log` reports one ignored trial and no failure without strict mode.
+These logs establish the reported trial behavior. They are not full gates of the new head.
+
+Full Linux log: `~/botster-sessions/gates/botster-core-stage1-p3-strict-pending-92d6fc3f-pool-20261009-231412-38921.log`.
+It names the exact head and base above. All ten jobs pass, and the gate exits 0.
+Both conformance runs report 193 passed, zero failed, and 497 ignored.
+The default tier reports 1446 passed. The slow tier reports 259 passed.
+Both mutation commands report 50 mutants: 45 caught, zero missed, zero timeout, and five unviable.
+The repeated command does not add slow-feature mutation coverage.
+
+Image evidence log: `~/botster-sessions/gates/botster-core-stage1-p3-strict-pending-92d6fc3f-pool-20261009-232223-63612.log`.
+It names the same head and base, records the mutation baseline and source-copy directory, and exits 0.
+
+All round 1 findings close. R2-1 remains open.
+No ordinary NOT CLEAN report went to the lead.
+Wait for replacement READY at an exact head.
+
+VERDICT: NOT CLEAN
