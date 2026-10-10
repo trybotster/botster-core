@@ -1477,15 +1477,33 @@ mod tests {
         baseline2: impl FnOnce() -> Result<(bool, Duration)>,
         stage2: impl FnOnce(&Stage2Selection) -> Result<Stage>,
     ) -> (Vec<String>, Result<()>) {
+        decide_listed(&listed_m(listed), stage1, baseline2, stage2)
+    }
+
+    /// The decision over the listed mutants `listed`, with the lines that it gave, and its result.
+    fn decide_listed(
+        listed: &Listed,
+        stage1: impl FnOnce() -> Result<Stage>,
+        baseline2: impl FnOnce() -> Result<(bool, Duration)>,
+        stage2: impl FnOnce(&Stage2Selection) -> Result<Stage>,
+    ) -> (Vec<String>, Result<()>) {
         let mut lines = Vec::new();
         let result = two_stage_decision(
-            &listed_m(listed),
+            listed,
             |_| stage1(),
             baseline2,
             stage2,
             |line| lines.push(line),
         );
         (lines, result)
+    }
+
+    /// The listed mutants `names`, every one selected.
+    fn listed_names(names: &[String]) -> Listed {
+        Listed {
+            selected: names.to_vec(),
+            excluded: vec![],
+        }
     }
 
     /// `listed` selected mutants, named `m0`, `m1`, ... as `stage` names them, and none excluded.
@@ -1862,8 +1880,8 @@ mod tests {
                 skip: names(&[field, h]),
             }
         );
-        let (lines, result) = decide_lines(
-            4,
+        let (lines, result) = decide_listed(
+            &listed_names(&names(&[f, field, g, h])),
             || {
                 Ok(Stage {
                     code: Some(2),
@@ -1905,8 +1923,8 @@ mod tests {
         assert!(check_stage2_selection(&names(&[f, f, g]), &names(&[g, f, f])).is_ok());
         // #229 SI-R1-2 through the whole decision: stage 1 missed [f, f, g]; stage 2 tested [f, g, g], caught all three,
         // with exit code 0. The sets and the totals are equal, and the step still fails before any verdict.
-        let (lines, result) = decide_lines(
-            3,
+        let (lines, result) = decide_listed(
+            &listed_names(&names(&[f, f, g])),
             || {
                 Ok(Stage {
                     code: Some(2),
@@ -1978,8 +1996,8 @@ mod tests {
                  of them, so stage 2 cannot select it by name"
             )
         );
-        let (lines, result) = decide_lines(
-            2,
+        let (lines, result) = decide_listed(
+            &listed_names(&[x.clone(), x.clone()]),
             || {
                 Ok(Stage {
                     code: Some(2),
