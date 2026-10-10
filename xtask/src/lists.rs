@@ -8,8 +8,11 @@
 //! - After that the pending file only shrinks. A moved contracts pin may add the ids that the new ledger adds.
 //! - The deferred file follows the four rules of plan section 5.
 //! - `core-real-pending.txt` (plan 23l): its ids are Core ledger ids that are not pending, deferred, withdrawn, real-only
-//!   (a `slow:*` proof in the contracts' replacement map) or testkit-proven (Core A20-1, `TESTKIT_PROVEN`). The harness PR initializes it (the base has no such file); after
-//!   that an id enters only in the pull request that removes it from `core-pending.txt`, or as a new ledger id.
+//!   (a `slow:*` proof in the contracts' replacement map) or testkit-proven (Core A20-1, `TESTKIT_PROVEN`). The harness PR
+//!   initializes it (the base has no such file); after that an id enters only in the pull request that removes it from
+//!   `core-pending.txt`, or as a new ledger id.
+//! - `minimum-core.txt` (plan section 1, revision 23q): the canonical list of the minimum Core. Each id is listed once and
+//!   is a Core ledger id; an id that the contracts withdrew fails the check by name (a withdrawn minimum id goes to the lead).
 
 use crate::fsutil::{base, git_show};
 use anyhow::{bail, Context, Result};
@@ -22,6 +25,7 @@ use std::path::Path;
 const LEDGER_FILE: &str = "conformance/core-ledger-ids.txt";
 const PENDING_FILE: &str = "conformance/core-pending.txt";
 const REAL_PENDING_FILE: &str = "conformance/core-real-pending.txt";
+const MINIMUM_FILE: &str = "conformance/minimum-core.txt";
 const DEFERRED_FILE: &str = "conformance/core-deferred.toml";
 /// Verbatim copies of the contracts' status files at the pinned tag (`conformance/deferred.txt`, `conformance/withdrawn.txt`).
 /// The harness reads the copies; `check` fails when a copy differs from the pinned source.
@@ -320,6 +324,46 @@ pub fn check(input: &Input<'_>) -> Vec<String> {
     problems
 }
 
+/// The ids of `minimum-core.txt`: the first tab-separated field of each line that is not empty or a comment.
+pub fn parse_minimum(text: &str) -> Result<BTreeSet<String>, String> {
+    let mut ids = BTreeSet::new();
+    for line in text
+        .lines()
+        .filter(|l| !l.trim().is_empty() && !l.starts_with('#'))
+    {
+        let id = line.split('\t').next().unwrap_or_default().trim();
+        if !ids.insert(id.to_string()) {
+            return Err(format!("{MINIMUM_FILE}: {id} is listed twice"));
+        }
+    }
+    Ok(ids)
+}
+
+/// Every problem of `minimum-core.txt`, one string each: an id that the contracts withdrew, or one that is not a Core id
+/// of the ledger. Empty means the file is valid.
+pub fn check_minimum(
+    minimum: &BTreeSet<String>,
+    ledger: &BTreeSet<String>,
+    withdrawn: &BTreeSet<String>,
+) -> Vec<String> {
+    let mut problems = Vec::new();
+    if minimum.is_empty() {
+        problems.push(format!("{MINIMUM_FILE} names no id"));
+    }
+    for id in minimum {
+        if withdrawn.contains(id) {
+            problems.push(format!(
+                "{MINIMUM_FILE}: the minimum id {id} is withdrawn by the contracts; a withdrawn minimum id goes to the lead"
+            ));
+        } else if !ledger.contains(id) {
+            problems.push(format!(
+                "{MINIMUM_FILE}: {id} is not a Core id of the ledger"
+            ));
+        }
+    }
+    problems
+}
+
 /// What the checks of `core-real-pending.txt` read (plan 23l).
 pub struct RealInput<'a> {
     /// The Core ids of the ledger at the pinned tag.
@@ -533,8 +577,11 @@ pub fn command(root: &Path, args: &[String]) -> Result<()> {
             ledger_file: &base_ledger,
         }),
     }));
+    let minimum = parse_minimum(&read(MINIMUM_FILE)?).map_err(anyhow::Error::msg)?;
+    problems.extend(check_minimum(&minimum, &ledger, &withdrawn));
     report(&problems)?;
     println!("lists: real-pending {}", real_pending.len());
+    println!("lists: minimum {}", minimum.len());
     let withdrawn = withdrawn.intersection(&ledger).count();
     println!(
         "lists: ok. ledger {} ids, pending {}, deferred {}, withdrawn {}, to run {}",
@@ -1137,6 +1184,34 @@ mod tests {
                 ledger_file: l,
             }),
         })
+    }
+
+    #[test]
+    fn a_minimum_id_is_listed_once_and_is_an_active_core_ledger_id() {
+        let text = "# The minimum Core.\nconf::a\tA1-1\tp1\nconf::b\tA1-2\tp1\n";
+        let minimum = parse_minimum(text).unwrap();
+        assert_eq!(minimum, set(&["conf::a", "conf::b"]));
+        let ledger = set(&["conf::a", "conf::b", "conf::w"]);
+        assert!(check_minimum(&minimum, &ledger, &set(&[])).is_empty());
+        // Listed twice.
+        let twice = parse_minimum("conf::a\tA1-1\tp1\nconf::a\tA1-1\tp1\n").unwrap_err();
+        assert!(twice.contains("conf::a is listed twice"), "{twice}");
+        // Withdrawn: the failure names the id.
+        let withdrawn = check_minimum(&set(&["conf::a", "conf::w"]), &ledger, &set(&["conf::w"]));
+        assert_eq!(withdrawn.len(), 1, "{withdrawn:?}");
+        assert!(
+            withdrawn[0].contains("the minimum id conf::w is withdrawn"),
+            "{withdrawn:?}"
+        );
+        // Not a Core ledger id.
+        let unknown = check_minimum(&set(&["conf::a", "conf::z"]), &ledger, &set(&[]));
+        assert_eq!(unknown.len(), 1, "{unknown:?}");
+        assert!(
+            unknown[0].contains("conf::z is not a Core id of the ledger"),
+            "{unknown:?}"
+        );
+        // An empty list is a failure.
+        assert_eq!(check_minimum(&set(&[]), &ledger, &set(&[])).len(), 1);
     }
 
     #[test]
