@@ -183,3 +183,16 @@ fn the_stand_in_closes_its_end_when_the_host_closes() {
         "the stand-in closed its end"
     );
 }
+
+#[test]
+fn a_reset_by_the_host_closes_the_stand_ins_end() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let (path, _worker, mut stand_in) = install(dir.path(), Role::Answer(plan(Vec::new())));
+    let mut host = UnixStream::connect(&path).expect("connects");
+    host.write_all(&hello_frame(&host_hello())).expect("writes");
+    assert!(stand_in.step());
+    // The host closes with the answer unread: the stand-in's read is a reset (Linux) or an end of file.
+    drop(host);
+    assert!(stand_in.step());
+    assert!(stand_in.links[0].stream.is_none());
+}

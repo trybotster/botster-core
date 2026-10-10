@@ -377,3 +377,11 @@ fn announce_protocol_refuses_an_adoptable_protocol() {
         Ok(Value::Null)
     );
 }
+
+/// `signals_received` names each group signal as the testkit records it; the real tier gives the same names.
+#[test]
+fn each_group_signal_has_its_name_in_signals_received() {
+    assert_eq!(signal_name(GroupSignal::EndPayload), "end_payload");
+    assert_eq!(signal_name(GroupSignal::Term), "term");
+    assert_eq!(signal_name(GroupSignal::Kill), "kill");
+}

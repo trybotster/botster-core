@@ -1069,6 +1069,12 @@ mod slow_controls {
             harness.control("a", "announce_protocol", &current),
             Err(ControlError::Unsupported)
         );
+        let other =
+            json!({ "session": "s9", "protocol": botster_worker_core::WORKER_PROTOCOL + 1 });
+        assert!(matches!(
+            harness.control("a", "announce_protocol", &other),
+            Err(ControlError::Bad(_))
+        ));
         assert_eq!(
             harness.control("a", "withhold_control_link", &of("s2")),
             Ok(Value::Null)
@@ -1096,9 +1102,20 @@ mod slow_controls {
         assert!(empty(&aside));
         assert_eq!((endpoint(&path1), endpoint(&path2)), (ino1, ino2));
 
+        // A live Core of another directory does not hold this one, and neither does the handle "a" once its Core is gone,
+        // before the runner's `drop_handle`.
+        let other = harness.data_dir("o");
+        let other = harness
+            .open(&OpenSpec {
+                handle: "o".into(),
+                data_dir: other,
+                worker: harness.worker(WorkerBuild::Current),
+                limits: serde_json::to_value(CoreLimits::default()).unwrap(),
+            })
+            .expect("open another directory");
         drop(core);
-        harness.drop_handle("a");
         let mut core = harness.open(&spec("b", &harness)).expect("reopen");
+        drop(other);
         assert_ne!(endpoint(&path1), ino1, "the stand-in has the path");
         assert_ne!(endpoint(&path2), ino2, "the stand-in has the path");
         assert_eq!(
