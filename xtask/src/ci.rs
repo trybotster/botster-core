@@ -11,7 +11,7 @@ use crate::{
 };
 use anyhow::{anyhow, bail, Context, Result};
 use botster_core_testkit::pending;
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use std::process::Command;
 use std::time::{Duration, Instant};
@@ -718,13 +718,25 @@ fn stage2_selection(first: &Outcomes) -> Result<Stage2Selection> {
 /// Stage 2 must test exactly the stage-1 misses, by full name (file, line, column and change). A mutant that it tested
 /// and stage 1 did not miss, or a miss that it did not test, is an error of the selection, never a verdict on a mutant.
 ///
+/// The names are compared with their counts (#229 R1, 017a): two misses with one name need two tests of that name, so
+/// misses `[A, A, B]` and tested `[A, B, B]` are an error although their sets are equal.
+///
 /// # Errors
-/// The tested names and the missed names are not the same set.
+/// A name was tested more often or less often than stage 1 missed it.
 fn check_stage2_selection(missed: &[String], tested: &[String]) -> Result<()> {
-    let missed: BTreeSet<&String> = missed.iter().collect();
-    let tested: BTreeSet<&String> = tested.iter().collect();
-    let extra: Vec<&&String> = tested.difference(&missed).collect();
-    let absent: Vec<&&String> = missed.difference(&tested).collect();
+    let mut counts: BTreeMap<&String, (usize, usize)> = BTreeMap::new();
+    for name in missed {
+        counts.entry(name).or_default().0 += 1;
+    }
+    for name in tested {
+        counts.entry(name).or_default().1 += 1;
+    }
+    let mut extra: Vec<&String> = Vec::new();
+    let mut absent: Vec<&String> = Vec::new();
+    for (name, (missed, tested)) in counts {
+        extra.extend(std::iter::repeat_n(name, tested.saturating_sub(missed)));
+        absent.extend(std::iter::repeat_n(name, missed.saturating_sub(tested)));
+    }
     if !extra.is_empty() || !absent.is_empty() {
         bail!(
             "mutants: stage 2 (slow): selection error: it tested {extra:?}, which stage 1 did not miss, and did not test \
@@ -848,7 +860,15 @@ fn two_stage_decision(
     );
     let tested = stage2(&selection)?;
     if let Some(outcomes) = &tested.outcomes {
-        check_stage2_selection(&selection.missed, &outcomes.tested)?;
+        // A selection error comes before any verdict on a mutant, and keeps the stage's time (#229 SI-R1-1).
+        if let Err(error) = check_stage2_selection(&selection.missed, &outcomes.tested) {
+            out(format!(
+                "mutants: stage 2 (slow): it tested {} mutants, in {:.1} s; no verdict, because the selection is wrong",
+                outcomes.tested.len(),
+                tested.took.as_secs_f64()
+            ));
+            return Err(error);
+        }
     }
     let (code2, second, line2) = stage_outcomes("stage 2 (slow)", first.missed.len(), tested)?;
     out(line2.clone());
@@ -1740,12 +1760,24 @@ mod tests {
             )
         );
         assert_eq!(
-            lines.len(),
-            2,
-            "the lines of stage 1 and the baseline: {lines:?}"
+            lines,
+            [
+                "mutants: stage 1 (default): 4 mutants: 2 caught, 2 missed, 0 timeout, 0 unviable, in 2.5 s",
+                "mutants: stage 2 baseline (the slow tier, unmutated): passed, in 1.5 s",
+                "mutants: stage 2 (slow): it tested 3 mutants, in 2.5 s; no verdict, because the selection is wrong",
+            ]
         );
-        // The same set, in another order, is the selection.
+        // The same names, in another order, are the selection.
         assert!(check_stage2_selection(&names(&[f, g]), &names(&[g, f])).is_ok());
+        assert!(check_stage2_selection(&names(&[f, f, g]), &names(&[g, f, f])).is_ok());
+        // 017a (#229 R1): equal sets and equal totals, with other counts of each name.
+        let counted = check_stage2_selection(&names(&[f, f, g]), &names(&[f, g, g])).unwrap_err();
+        assert!(
+            counted.to_string().contains(&format!(
+                "it tested [\"{g}\"], which stage 1 did not miss, and did not test [\"{f}\"]"
+            )),
+            "{counted}"
+        );
         let absent = check_stage2_selection(&names(&[f, g]), &names(&[f])).unwrap_err();
         assert!(
             absent.to_string().contains(&format!(
