@@ -3,12 +3,13 @@
 # conf::st_6b_resume_invariant_holds_at_every_byte_offset_of_a_corpus_with_partial_escape_sequences: fit evidence awaits P3 M2b worker paging (R-30).
 # conf::a14_*: A14: P3 worker (M2b) + fork binding (option 39).
 # conf::a16_1_*: A16: P7 services.
-# conf::a17_*: A17 (contracts-v0.1.22): Core has one route transport, `Stream`; waits for a contracts transcript (pending in contracts-v0.1.23).
-# conf::a19_*: A19 (contracts-v0.1.23): the frame floor (Core A19-1, A19-2) and query_id as a u64 decimal string; owners by the plan's A19 rule; waits for a contracts transcript (pending in contracts-v0.1.23).
-# conf::a18_*: A18 (contracts-v0.1.21): P5 adoption (last_output_at None until output; TM-4 idle period from the adoption); waits for a contracts transcript (pending in contracts-v0.1.23).
-# conf::a15_1_host_key_text_over_the_bound_is_invalid_input_sync: A15: P1 lifecycle (host check; owners.py), worked by P5; engine proof a_key_text_over_the_bound_is_invalid_input_at_begin; waits for a contracts transcript (pending in contracts-v0.1.23).
+# conf::a17_*: A17 (contracts-v0.1.22): Core has one route transport, `Stream`; waits for a contracts transcript (pending in contracts-v0.1.24).
+# conf::a19_*: A19 (contracts-v0.1.23): the frame floor (Core A19-1, A19-2) and query_id as a u64 decimal string; owners by the plan's A19 rule; waits for a contracts transcript (pending in contracts-v0.1.24).
+# conf::a20_1_testkit_proven_ids_are_exactly_the_named_list: A20 (contracts-v0.1.24), P6: the upstream type_check reads the contracts' own lists, not Core's; it waits for the real-tier runner that reports TESTKIT_PROVEN (the RealCoreHarness PR) and for dp_3_frame_limit_checked_before_allocation to pass on the testkit (P4a, alloc_peak).
+# conf::a18_*: A18 (contracts-v0.1.21): P5 adoption (last_output_at None until output; TM-4 idle period from the adoption); waits for a contracts transcript (pending in contracts-v0.1.24).
+# conf::a15_1_host_key_text_over_the_bound_is_invalid_input_sync: A15: P1 lifecycle (host check; owners.py), worked by P5; engine proof a_key_text_over_the_bound_is_invalid_input_at_begin; waits for a contracts transcript (pending in contracts-v0.1.24).
 # conf::a15_1_key_text_at_the_bound_is_admitted: A15: P3 (worker).
-# conf::a15_1_key_text_bound_out_of_range_is_invalid_config: A15: P1 lifecycle (limits; owners.py), worked by P5; host proof open_refuses_a_key_text_bound_out_of_its_range; waits for a contracts transcript (pending in contracts-v0.1.23).
+# conf::a15_1_key_text_bound_out_of_range_is_invalid_config: A15: P1 lifecycle (limits; owners.py), worked by P5; host proof open_refuses_a_key_text_bound_out_of_its_range; waits for a contracts transcript (pending in contracts-v0.1.24).
 # conf::a15_1_route_key_text_over_the_bound_is_too_large: A15: P4a (route).
 conf::a11_1_frames_after_a_failed_handshake_change_nothing
 conf::a12_1_held_report_released_proceeds_normally
@@ -59,8 +60,8 @@ conf::a19_1_frame_cap_one_byte_below_the_floor_is_invalid_input
 conf::a19_1_query_id_is_a_u64_decimal_string
 conf::a19_1_terminal_query_is_in_the_floor_only_when_the_route_answers_queries
 conf::a19_2_path_frame_over_max_frame_is_refused_before_the_file_is_created
+conf::a20_1_testkit_proven_ids_are_exactly_the_named_list
 conf::a2_1_attach_state_rules
-conf::a2_1_cancel_non_input_is_not_cancellable
 conf::a2_1_env_is_exact
 conf::a2_1_every_begin_operation_has_a_row_and_the_documented_ok_value
 conf::a2_1_no_deadline_code_exists
@@ -82,7 +83,6 @@ conf::a2_3_unknown_reason_maps_to_transport_lost
 conf::a2_3_write_failed_closes_with_write_failed
 conf::a2_4_events_lost_kinds_set
 conf::a2_4_notification_oversize_is_truncated_with_flag
-conf::a2_4_other_osc_forms_stay_in_output
 conf::a2_5_lane_end_reason_values
 conf::a2_5_peer_identity_and_required_bounds
 conf::a2_5_recv_after_exit_until_remove
@@ -95,12 +95,8 @@ conf::a2_5_spawn_failure_codes
 conf::a2_5_startup_runs_to_epoch_one_commit
 conf::a2_6_features_lists_every_documented_name
 conf::a2_6_missing_optional_feature_is_unsupported
-conf::a2_6_per_worker_features_in_worker_features
-conf::a2_7_set_silence_threshold_errors
 # TI-1: waits for spawn_record (M2a).
 conf::a2_8_core_sets_no_term_in_the_session_env
-# TI-1: testkit passes; waits for RealCoreHarness.
-conf::a2_8_terminal_identity_names_the_entry
 # TI-1: waits for tic_compile (slow tier, real process).
 conf::a2_8_terminfo_source_compiles_with_tic
 conf::a2_9_extension_too_long_to_keep_is_dropped_with_the_name_cut
@@ -122,7 +118,6 @@ conf::a3_1_feature_negotiated_in_attached_features
 conf::a3_1_host_notification_events_are_unchanged
 conf::a3_1_last_fits_the_route_max_frame_bytes_including_json_escapes
 conf::a3_1_no_feature_no_frame_and_no_guarantee
-conf::a3_1_no_policy_is_refused_for_size_or_content
 conf::a3_1_output_dropped_is_retained_and_survives_the_resync
 conf::a3_1_output_dropped_waits_in_the_route_queue_under_route_queue_bytes
 conf::a3_1_overflow_resync_reports_dropped_notifications
@@ -152,36 +147,23 @@ conf::a4_1_service_report_survives_adoption
 conf::a4_1_unknown_or_removed_service
 conf::a5_1_deterministic_under_script_and_seed
 conf::a5_1_edges_scripted
-conf::a5_1_not_in_facade_or_ffi
 conf::a5_1_testkit_is_real_core_one_worker_code_path
 conf::a5_2_deferred_completion_keeps_slot_until_polled
 conf::a5_2_each_section_11_variation_has_a_source
 conf::a5_2_reads_match_atomic_transitions
 conf::a5_3_async_failure_only_through_edges_and_real_completion
 conf::a5_3_every_code_reachable_or_listed_real_only
-conf::a5_3_only_sync_column_codes_scripted
-conf::a5_3_sync_refusal_has_no_op_event_slot_or_state
 conf::a5_4_hub_tests_on_testkit_under_seeds
 conf::a5_4_suite_runs_real_and_testkit
 conf::a6_1_lane_and_epoch_outcomes_match_real_lanes
 conf::a6_1_peer_identity_is_real_process_only
 conf::a6_1_scripted_service_over_in_memory_lanes_uses_the_real_preamble_and_epoch_checks
-conf::a6_2_deferred_set_is_exactly_the_enumerated_ids_with_start_conditions
 conf::a6_3_delete_failure_does_not_stop_teardown_and_lists_exact_paths
 conf::a6_3_lost_result_reports_outcome_unknown
 conf::a6_3_unauthenticated_result_is_not_trusted
 conf::a6_3_unreachable_worker_reports_outcome_unknown
 conf::a6_3_uploads_deleted_at_remove_report_deleted
 conf::a6_3_worker_lost_during_cleanup_reports_outcome_unknown
-conf::a7_1_frame_cap_above_route_frame_max_is_invalid_input
-conf::a7_1_overlong_route_tag_or_owner_is_invalid_input
-conf::a7_1_query_deadline_above_max_is_invalid_input
-conf::a7_1_query_deadline_absent_or_zero_is_invalid_input
-conf::a7_1_query_deadline_at_1ms_and_at_max_attaches
-conf::a7_1_query_deadline_positive_below_1ms_is_invalid_input
-conf::a7_1_refused_attach_reserves_nothing
-conf::a7_1_screen_cap_below_snapshot_plus_one_is_invalid_input
-conf::a7_1_screen_cap_equal_to_snapshot_plus_one_attaches
 conf::a8_1_capture_reserves_max_snapshot_bytes_at_begin
 conf::a8_1_failed_capture_releases_its_reservation
 conf::a8_1_k_captures_admitted_then_capture_limit
@@ -204,12 +186,10 @@ conf::ad_2_lost_reasons
 conf::ad_6_reused_pid_is_never_killed
 conf::ad_7_crash_between_steps_leaves_no_unregistered_payload
 conf::ad_7_uncertain_registry_write_is_reported
-conf::am_1_start_then_remove_refused
 conf::am_2_fairness_bound_across_routes
 conf::am_2_no_interleave_across_paste_markers
 conf::am_2_one_admission_point_orders_all_sources
 conf::am_2_transaction_is_contiguous_across_short_writes
-conf::am_4_refusal_is_stateless
 conf::dp_10_t1_keystroke_to_pty_latency_budget
 conf::dp_10_t1_pty_to_client_latency_budget
 conf::dp_10_t1_throughput_and_byte_identity
@@ -238,7 +218,6 @@ conf::dp_3_output_deflate_inflates_to_the_exact_pty_bytes_in_order
 conf::dp_3_output_deflate_only_when_negotiated
 conf::dp_3_output_deflate_over_the_frame_bound_is_invalid_input
 conf::dp_3_route_codec_matches_client_appendix_a4_a5
-conf::dp_3_route_limits_reject_a_screen_cap_below_snapshot_plus_one
 conf::dp_3_unknown_type_closes_route
 conf::dp_4_worker_encodes_route_frames_with_write_time_modes
 conf::dp_5_abort_before_commit_writes_nothing_and_sends_no_frame
@@ -297,7 +276,6 @@ conf::dp_8_route_adopted_event_per_live_route
 conf::dp_8_routes_survive_host_restart_and_bytes_keep_flowing
 conf::dp_9_fairness_bound_holds_under_flood
 conf::e1_1_worker_found_by_host_supplied_path
-conf::e2_1_osc_1_gives_no_title_changed_and_stays_in_output
 conf::e2_2_other_modes_are_tracked_model_modes
 conf::e2_2_unrecognized_mode_number_changes_no_field
 conf::e2_3_mode_change_posts_latest_flags
@@ -314,34 +292,23 @@ conf::e3_1_two_silences_due_together_with_budget_one
 conf::e4_1_client_reply_reserves_its_frame_size
 conf::e4_1_fallback_reserves_its_reply_length
 conf::e4_1_reply_one_byte_over_the_free_bound_is_parked
-conf::er_deadline_expired
-conf::er_pending_limit
 conf::er_registry_failed
 conf::er_route_limit
 conf::er_service_limit
-conf::er_session_limit
-conf::er_unknown_route
-conf::er_unknown_session
 conf::er_unsupported_feature
-conf::er_wrong_state
 conf::ev_1_replaced_keyed_event_moves_to_latest_position
 conf::ev_2_mandatory_and_keyed_never_dropped
-conf::ev_5_full_queue_defers_transition_not_output
 conf::ev_5_keyed_events_bounded_by_keys
-conf::ev_5_released_retires_keyed_droppable_and_loss_events
 conf::ev_5_repeated_attach_detach_without_polling_stays_bounded
 conf::ev_5_route_closed_retires_route_keyed_events
 conf::ev_5_service_released_retires_service_keyed_events
-conf::ev_5_slot_held_until_polled
 conf::ev_6_keyed_event_carries_latest
 conf::ev_6_loss_leaves_marker_then_state_is_readable
 conf::ev_7_each_terminal_feature_reaches_the_host
-conf::ev_7_event_and_output_both_carry_the_sequence
 conf::ev_7_every_mode_change_posts_modes_changed
 conf::ev_7_hyperlink_in_output_and_snapshot
 conf::ev_8_a_sent_or_started_query_is_not_affected_by_a_resync
 conf::ev_8_admission_reserves_full_bytes
-conf::ev_8_attach_requires_a_positive_query_deadline
 conf::ev_8_client_answers_first_shadow_suppressed
 conf::ev_8_client_decline_makes_shadow_answer_at_once
 conf::ev_8_client_reply_after_a_resync_is_rejected_query_expired
@@ -349,6 +316,7 @@ conf::ev_8_client_silent_shadow_answers_at_deadline
 conf::ev_8_core_has_no_other_query_timer
 conf::ev_8_decline_does_not_consume_the_query_id_before_fallback_admission
 conf::ev_8_encoded_reply_is_bounded_and_once
+# conf::ev_8_every_query_stays_in_output: passes on the testkit at seeds 0-31, but it took 2.005 s, over the 2 s default-tier test budget (gate 42cdfda9 on msa1). p4b-queries-files: make it faster or move it to the slow tier.
 conf::ev_8_every_query_stays_in_output
 conf::ev_8_exactly_one_reply_under_every_interleaving
 conf::ev_8_fallback_started_means_admitted_refused_fallback_stays_pending
@@ -372,10 +340,6 @@ conf::ev_8_shadow_reply_is_computed_at_the_query_point
 conf::ev_8_unstarted_query_frame_is_retired_by_a_resync
 conf::ev_8_worker_never_writes_before_client_opportunity_ends
 conf::ev_9_every_session_event_carries_instance_id
-conf::ev_9_old_instance_event_is_distinguishable
-conf::id_1_old_handles_do_not_reach_new_instance
-conf::id_1_session_id_over_limit_refused
-conf::id_2_ops_do_not_survive_restart
 conf::in_10_both_guards_are_checked_atomically_with_ordering
 conf::in_10_guard_does_not_withdraw_after_start
 conf::in_10_guard_refuses_when_client_frame_received_before_start
@@ -391,12 +355,9 @@ conf::in_4_input_rev_client_advances_on_receipt
 conf::in_4_worker_tags_client_input_and_reports_activity
 conf::in_6_cancel_result_kinds
 conf::in_6_refused_full_wakes_on_room
-conf::in_7_write_to_ended
 conf::in_8_mode_checked_at_write_start_by_worker
 conf::in_8_no_recheck_after_start
-conf::in_9_admission_bound_holds_for_every_mode
 conf::in_9_application_cursor_and_keypad
-conf::in_9_explicit_repeat_with_release_or_repeat_event_is_invalid_input
 conf::in_9_focus_needs_reporting_mode
 conf::in_9_key_encoded_by_worker_modes_at_write
 conf::in_9_key_repeat_is_one_contiguous_guarded_transaction
@@ -409,28 +370,18 @@ conf::in_9_kitty_text_with_control_codepoint_omitted
 conf::in_9_kitty_unknown_flag_bits_ignored
 conf::in_9_legacy_keys_table
 conf::in_9_legacy_release_is_not_reported
-conf::in_9_malformed_input_is_invalid_input_sync
 conf::in_9_modes_read_at_write_start
 conf::in_9_mouse_each_encoding_and_limits
 conf::in_9_mouse_each_tracking_mode
 conf::in_9_non_us_layout_uses_supplied_text
 conf::in_9_text_is_one_transaction_and_utf8
-conf::lc_10_status_has_no_counters
-conf::lc_12_drop_leaves_workers_running
 conf::lc_12_stop_all_target_set
 conf::lc_2_data_dir_is_exclusive
-conf::lc_3_remove_created
 conf::lc_6_signal_reaches_group
-conf::lc_7_id_free_after_completion
-conf::lc_7_remove_created
-conf::lc_9_record_exposes_the_worker_protocol
-conf::lc_9_update_metadata_is_durable
-conf::or_3_unspecified_orders_are_randomized
 conf::ou_10_no_authorization_in_core
 conf::ou_11_transport_ownership_is_defined
 conf::ou_12_output_bytes_are_unmodified_and_in_order
 conf::ou_1_attach_hands_transport_to_worker
-conf::ou_1_attach_options_carry_no_paste_policy
 conf::ou_1_attached_features_are_the_intersection
 conf::ou_1_no_common_terminal_format_is_unsupported_before_reservation
 conf::ou_1_view_only_route_ignores_input
@@ -455,7 +406,6 @@ conf::ou_7_exit_after_tail_queued_then_close
 conf::ou_7_progressing_slow_route_delays_exit_lossless
 conf::ou_7_stalled_route_does_not_hold_exit
 conf::ou_8_route_output_frame_kinds
-conf::ou_9_adopted_session_attaches_by_baseline
 conf::ou_9_attach_is_sync_baseline_in_pump
 conf::ou_9_oversize_snapshot_closes_route_typed
 conf::ou_9_resync_completes_a_partial_frame
@@ -486,7 +436,6 @@ conf::st_7_gap_is_reported_when_retention_removed_a_record
 conf::st_7_incomplete_history_is_flagged
 conf::st_7_incremental_read_returns_records_after_the_cursor
 conf::st_7_incremental_reader_sees_completion_of_a_pending_record
-conf::st_7_limits_that_cannot_hold_the_protected_records_are_invalid_config
 conf::st_7_new_client_rev_is_never_visible_without_its_record
 conf::st_7_newest_record_is_never_dropped_even_when_oversize
 conf::st_7_one_cursor_orders_client_and_host_records
@@ -543,12 +492,7 @@ conf::sz_1_resize_without_route
 conf::sz_2_same_size_is_noop
 conf::sz_3_coalesced_resize_is_superseded
 conf::sz_3_every_resize_completes
-conf::th_2_wake_handle_cross_thread
 conf::th_3_no_route_io_in_the_host
-conf::tm_1_clocks_are_injected
-conf::tm_1_deadlines_use_monotonic
-conf::tm_4_silent_fires_once_at_threshold
-conf::tm_5_deadlines_in_order
 conf::tm_6_begin_and_attach_signal_wake
 conf::tm_6_parked_work_does_not_spin
 conf::tp_1_at_most_one_unacknowledged_tap_frame_on_the_control_link
