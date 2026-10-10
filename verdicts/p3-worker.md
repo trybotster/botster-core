@@ -8910,3 +8910,79 @@ The reviewer changes no product code and runs no tests, builds, gates, measureme
 All earlier exact-head verdicts remain preserved.
 
 VERDICT: NOT CLEAN
+
+
+## Round 145 — PR #219 replacement review — 2026-10-10
+
+Reviewed head: `5d55a0a8306fb91ce0ddb6487c64ca204808608c`.
+PR base: `d174ef48a218b74beb4bac9ec555c6c39d2650a4`.
+Prior reviewed head: `b506a09b192a101c03cedd046cae17cf4f265bdb`.
+Tier: HIGH under BUILD rules 3 and 5. Round 144's whole-change review remains part of this review.
+The replacement changes four host paths: driver.rs, inbound.rs, io.rs, and tests/driver/handoff.rs.
+No other product path changes from the prior reviewed head.
+
+### F95 — MEDIUM — CLOSED for the reported two-edge orders
+
+Driver link cleanup now feeds HandoffLost for a retained descriptor mark.
+A descriptor-send Failed result, encoding failure, or missing link still feeds HandoffFailed.
+HandoffLost defers route closure while the session has a Start or Stop flow.
+When ProcessExited selects the failed-start Lost state, Finish closes the route once with SessionLost after that state.
+The new full-driver proof retains the stream under DescriptorSendError::Blocked and defers PostRunning.
+It supplies both process/link end orders and asserts Lost before exactly one SessionLost close.
+It also checks that the stream token returns to one reference.
+The existing running-session proof now asserts exactly one HandoffFailed close.
+These proofs cover F95's reported two-edge paths. F96 below records another path introduced by this deferral.
+
+### F96 — MEDIUM — OPEN: link loss alone discards the held route's close
+
+The new HandoffLost handler assumes that every Start flow ends with link loss.
+on_link_closed does not establish that condition during StartPhase::PostRunning.
+
+1. Attach while Starting.
+2. Receive Launched. The driver receives the endpoint through HandoffRoute.
+3. DescriptorSendError::Blocked retains the mark. Defer the session's PostRunning step.
+4. Close only the control link. The worker remains alive, so no ProcessExited input follows.
+5. on_link_closed clears worker.link and sets link_failed, but its Start match omits PostRunning.
+6. HandoffLost sees Flow::Start and discards the route close.
+7. Resume session work. PostRunning posts Running and finish_start completes Start successfully.
+
+No failure or pending_end was set. finish_start does not install an end flow.
+The route remains bound, but its driver endpoint has dropped and its worker never received the descriptor.
+No remaining link can report a route close. The host receives no RouteClosed for this transport close.
+This violates OU-2's requirement for one RouteClosed per closed route.
+At the prior head, driver cleanup fed HandoffFailed and closed this route; the new blanket deferral removes that path.
+
+Required: retain a route close or session end path when link loss occurs during PostRunning without a process exit.
+Add a full-driver proof with a blocked mark, a deferred PostRunning step, and link loss while the worker remains alive.
+Do not supply ProcessExited to complete this proof. Assert one RouteClosed and no retained route.
+Preserve F95's state-before-close behavior in both process/link orders and genuine descriptor-send failures.
+Integration independently identifies this same path. The package reviewer confirms it from source and sends F96 directly to P3.
+The new proof always supplies the other end edge, which hides this link-only path.
+
+### Completed evidence and retained scope
+
+Gate: ~/botster-sessions/gates/botster-core-stage1-p4a-failed-start-routes-5d55a0a8-pool-20261010-051705-82976.log.
+The header names the exact reviewed head and base. All ten full CI steps PASS on msa1.
+Default: 1452 pass in 18.346 seconds. Slow: 260 pass in 22.768 seconds.
+Both facade reports: 193 passed, zero failed, 497 ignored.
+Both mutation runs: 64 tested, 60 caught, four unviable, zero missed, zero timeouts.
+The new retained-mark proof, running-session close proof, and real-socket close proof have PASS lines.
+Full CI: 428.7 seconds. Repeated mutation job: 134.3 seconds.
+Job and wrapper exit zero after 575 seconds. Queue: one second. Run: 574 seconds.
+The env-only second mutation job repeats default coverage. Round 144's separate slow exclusion evidence remains applicable.
+The replacement changes no real facade code, mutation exclusion, guard, deadline, process edge, pin, or pending list.
+BUILD rule 5, real-process requirements, anchor rulings, and the prior whole-change findings remain unchanged.
+The green gate does not prove F96's link-only path.
+
+PR #219 is NOT CLEAN at `5d55a0a8306fb91ce0ddb6487c64ca204808608c`.
+F95 is CLOSED for its reported paths. F96 MEDIUM is OPEN. This is #219's second package NOT CLEAN round.
+A third NOT CLEAN requires the lead before a fourth review. No round-limit notice is due now.
+The lead receives no ordinary NOT CLEAN report. Findings go directly to P3 and integration.
+The shared handoff records this exact head and verdict commit.
+F94 and #221's merged closure remain preserved. F91/F92/F93 remain closed.
+F86/F87/F88/F90 remain PR3 requirements. F39 and F61/F62 retain their prior scopes.
+Testkit minimum remains 50/69. P3's non-minimum queue stays parked.
+The reviewer changes no product code and runs no tests, builds, gates, measurements, mutants, or base-merge-check.
+All earlier exact-head verdicts remain preserved.
+
+VERDICT: NOT CLEAN
