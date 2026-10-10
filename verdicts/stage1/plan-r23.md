@@ -576,3 +576,21 @@ The pass-through proof must preserve bytes and order when the driver cannot acce
 `git diff --check` passes. No execution gate applies to this documentation-only review.
 
 VERDICT: NOT CLEAN (1 open: R15-1 HIGH) at 6f80686aa1963164c6069b152c0fcf7b933bfff7
+
+## Round 17 — revision 23l corrected quiet check
+
+Reviewed head: `a538765fe9e3a8243bad5acf2a44619510c34edc`.
+Scope: the complete delta from round 16 head `6f80686aa1963164c6069b152c0fcf7b933bfff7`.
+
+R15-1 is closed. The wrapper forwards connect_worker only when the driver requests an adoption connection.
+The quiet check never calls that operation.
+The plan now accounts for budget limits and held input.
+The wrapper bounds retained input and reports non-quiet until the driver takes that input.
+The plan also requires a proof that later operations on a closed LinkId cannot reach a reused descriptor.
+R15-2 remains closed.
+
+The shared production composition, wrapper behavior, and required proofs remain implementation review obligations.
+This plan review does not count any real-tier transcript as passing.
+`git diff --check` passes. No execution gate applies to this documentation-only review.
+
+VERDICT: CLEAN at a538765fe9e3a8243bad5acf2a44619510c34edc
