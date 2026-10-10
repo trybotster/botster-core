@@ -79,3 +79,56 @@ I changed no product code.
 I ran no builds, tests, gates, mutation jobs, or reversal jobs.
 
 VERDICT: NOT CLEAN (1 open)
+
+## Round 2 — 2026-10-10
+
+Reviewed head: `5988faa2fc3fc5acdeff23acdc821389815a6c59`.
+Review and gate base: `7caf3457a04bd37f5d4e844db1900525eea7c8ec`.
+Tier: HIGH, contracts pin move.
+Authority: plan 23y at `65f78ee18a6d574ecdeba488dc97dbb8dee0e5cf`.
+The plan pin has SHA256 `b3dd30aa073d8332db34e4873830124506378a5f5556c3bae416341ff5c5c3d8`.
+Scope: the complete replacement delta, the four-file PR delta, the PR body, and exact-head gate evidence.
+
+### R1-1 — CLOSED
+
+The replacement restores `xtask/src/lists.rs` and `.cargo/mutants.toml` to the base bytes.
+These are the only two paths changed since the Round 1 head.
+The PR now contains no gate decision or mutation exclusion change.
+It no longer permits pin-move re-pending on either tier.
+The existing entry rules remain, including new ledger ids and moves from Core pending to real pending.
+This follows the lead's option A and approved plan 23y.
+The separate exception PR must follow #218 and enforce the failing-result condition on both tiers.
+
+The remaining four-file delta is unchanged from Round 1.
+Seven workspace dependencies move from `contracts-v0.1.24` to `contracts-v0.1.26`.
+Nine lockfile source fields name `0ac061d225724f6f7fc7b2368f637ba2c9a6c2b6`.
+The other changes are five pending-reason comments and the pinned-file test's tag description.
+The Round 1 upstream tag and transcript checks still apply.
+No Core runtime code changes. No pending id enters or leaves either list.
+The ledger, real-only map, minimum list, deferred files, and copied status files retain the base bytes.
+
+### Exact-head evidence
+
+Log:
+`/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-p6-pin-v0.1.25-5988faa2-pool-20261010-111323-74887.log`.
+
+The header names the reviewed head and base. All ten stages pass.
+Default: 1,481 passed, 497 skipped. Slow: 381 passed, 1,932 skipped.
+Testkit conformance: 193 passed, zero failed.
+The lists report gives 690 ledger ids, 477 pending ids, two deferred ids, and 18 withdrawn ids.
+The real report gives 87 pending-real ids with zero passes.
+Minimum counts remain testkit 50/69, real-passing 29/68, and real-accepted 29/69.
+`conf::ou_3_progressing_reader_lossless` passes in 0.680 seconds.
+Both mutation steps list no mutant and start no mutation run.
+That scope matches this pin-and-comment delta; the former list decisions are absent.
+The full command takes 163.7 seconds. The repeated mutation step takes 2.0 seconds.
+The job exits zero after 175 seconds; the gate exits zero after 176 seconds on msa1.
+
+The remote PR head and base match the reviewed commits.
+The base is the single merge base and is an ancestor of the head.
+`git diff --check` passes.
+I read Round 1 package verdict `682f1c8e553130b9166bda718accb85bce63cad1`, `verdicts/contracts-pin.md`.
+Its PIN26-F1 matches R1-1. The replacement package verdict is pending.
+I changed no product code and ran no builds, tests, gates, mutation jobs, or reversal jobs.
+
+VERDICT: CLEAN (0 open)
