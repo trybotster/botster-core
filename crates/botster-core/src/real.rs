@@ -563,6 +563,22 @@ impl HostEdges for RealEdges {
         Err((endpoint, DescriptorSendError::Failed))
     }
 
+    fn close_route_stream(&mut self, endpoint: StreamEndpoint, bytes: &[u8]) {
+        // The embedder's stream (DP-2): a connected unix stream, as a `UnixStream` or as its `OwnedFd`. One non-blocking write
+        // takes what fits now; its result does not matter: the stream closes either way, when it drops here (R-50). Another
+        // type is only dropped.
+        let stream = match endpoint.downcast::<std::os::unix::net::UnixStream>() {
+            Ok(stream) => stream,
+            Err(endpoint) => match endpoint.downcast::<std::os::fd::OwnedFd>() {
+                Ok(fd) => std::os::unix::net::UnixStream::from(fd),
+                Err(_) => return,
+            },
+        };
+        if !bytes.is_empty() && stream.set_nonblocking(true).is_ok() {
+            let _ = retry_interrupted(|| std::io::Write::write(&mut &stream, bytes));
+        }
+    }
+
     fn wake(&self) -> Arc<dyn HostWake> {
         Arc::clone(&self.wake) as Arc<dyn HostWake>
     }
@@ -934,6 +950,37 @@ mod slow_tests {
             edges.link_send_descriptor(LinkId(1), b"x", endpoint),
             Err((_, DescriptorSendError::Failed))
         ));
+    }
+
+    /// R-50, OU-2: a route stream that Core still holds closes with its frame: the client reads the bytes, then the end of
+    /// the stream. The stream may come as a `UnixStream` or as its `OwnedFd`. A full stream takes what fits, without
+    /// blocking, and still closes; empty bytes close it with no frame.
+    #[test]
+    fn a_held_route_stream_closes_after_one_write_without_blocking() {
+        use std::io::Read;
+        use std::os::unix::net::UnixStream as Std;
+        let (mut edges, _tmp) = edges();
+        let read_all = |mut client: Std| {
+            let mut got = Vec::new();
+            client.read_to_end(&mut got).unwrap();
+            got
+        };
+        let (core, client) = Std::pair().unwrap();
+        edges.close_route_stream(StreamEndpoint::new(core), b"frame");
+        assert_eq!(read_all(client), b"frame");
+        let (core, client) = Std::pair().unwrap();
+        edges.close_route_stream(StreamEndpoint::new(std::os::fd::OwnedFd::from(core)), b"fd");
+        assert_eq!(read_all(client), b"fd");
+        let (core, client) = Std::pair().unwrap();
+        edges.close_route_stream(StreamEndpoint::new(core), b"");
+        assert_eq!(read_all(client), b"");
+        // More than a socket buffer takes: one write takes a part, and the stream closes at once.
+        let big = vec![7u8; 8 << 20];
+        let (core, client) = Std::pair().unwrap();
+        edges.close_route_stream(StreamEndpoint::new(core), &big);
+        let got = read_all(client);
+        assert!(!got.is_empty() && got.len() < big.len(), "{}", got.len());
+        edges.close_route_stream(StreamEndpoint::new(()), b"x");
     }
 
     /// Plan 2.5: a client that connects is a link with its own number; the host reads what it writes, sends what it is

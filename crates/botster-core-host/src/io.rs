@@ -122,6 +122,14 @@ pub enum Action {
         options: AttachOptions,
         limits: AppliedRouteLimits,
     },
+    /// Closes a route's stream that Core still holds, before its hand-over (OU-2, steward ruling R-50): the driver writes
+    /// `frame` (the stream bytes of the route's `route_closed`, when its reason has one and it fits) once, without waiting,
+    /// and then closes the stream. A stream that takes fewer bytes, or none, closes anyway.
+    CloseRoute {
+        route: RouteId,
+        transport: StreamEndpoint,
+        frame: Option<Vec<u8>>,
+    },
 }
 
 /// What a driver tells the engine.

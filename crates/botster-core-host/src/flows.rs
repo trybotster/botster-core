@@ -1,6 +1,6 @@
 //! The flows of a session: create, start (AD-7), stop (LC-5) and remove (LC-7). See [`crate::flow`].
 
-use crate::engine::{HostEngine, Next, Owner, Step};
+use crate::engine::{HostEngine, Next, Owner, PendingHandoff, Step};
 use crate::flow::*;
 use crate::io::Action;
 use crate::run::registry_failed;
@@ -32,10 +32,15 @@ fn failed_start_exit() -> Exit {
 /// with the host's exit once the worker reported that it delivered the route's queue; the report stays the route's end
 /// even if the link goes later. While the worker's link lives, an undelivered route waits. Once the link is gone, by any
 /// path (its close, the end of the worker's process, a teardown), no undelivered route can be delivered: it closes
-/// `SessionLost`. No bound route still waits in `pending_handoffs`: `Exited` needs the launch, and the launch moves every
-/// waiting route into a `HandoffRoute` action (`flush_handoffs`). The driver can still hold that descriptor; the route
-/// then waits here until the worker reports it delivered, or until the link is gone.
-pub(crate) fn finish_close(s: &Session) -> Option<(RouteId, RouteCloseReason)> {
+/// `SessionLost`. After a normal exit, no bound route still waits in `pending_handoffs`: `Exited` needs the launch, and the
+/// launch moves every waiting route into a `HandoffRoute` action (`flush_handoffs`); the driver can still hold that
+/// descriptor, and the route then waits here until the worker reports it delivered, or until the link is gone. A failed
+/// start has routes in `pending_handoffs`: Core still holds their streams, so each closes now with the reason of the end
+/// state (steward ruling R-50), and `close_route` writes its frame to the stream.
+pub(crate) fn finish_close(
+    s: &Session,
+    pending: &[PendingHandoff],
+) -> Option<(RouteId, RouteCloseReason)> {
     let Flow::Stop(f) = &s.flow else {
         return None;
     };
@@ -48,7 +53,8 @@ pub(crate) fn finish_close(s: &Session) -> Option<(RouteId, RouteCloseReason)> {
             .next()
             .map(|route| (*route, RouteCloseReason::SessionLost)),
         End::Exited(exit) => bound.find_map(|route| {
-            if s.delivered.contains(route) {
+            let held = pending.iter().any(|(r, ..)| r == route);
+            if held || s.delivered.contains(route) {
                 Some((*route, RouteCloseReason::SessionEnded { exit }))
             } else if s.worker.link.is_none() {
                 Some((*route, RouteCloseReason::SessionLost))
@@ -60,10 +66,10 @@ pub(crate) fn finish_close(s: &Session) -> Option<(RouteId, RouteCloseReason)> {
 }
 
 /// `StopPhase::Finish` of `s` waits: routes bound at the end remain, and none of them can close now (OU-7).
-pub(crate) fn finish_waits(s: &Session) -> bool {
+pub(crate) fn finish_waits(s: &Session, pending: &[PendingHandoff]) -> bool {
     matches!(&s.flow, Flow::Stop(f) if f.phase == StopPhase::Finish)
         && s.routes.intersection(&s.bound_at_end).next().is_some()
-        && finish_close(s).is_none()
+        && finish_close(s, pending).is_none()
 }
 
 impl HostEngine {
@@ -310,9 +316,28 @@ impl HostEngine {
         } else {
             // The start failed: a `Stop` that waited ends with the state that the failure reached.
             let end = self.session_end(id);
-            let waiters = std::mem::take(&mut self.sessions.get_mut(id).expect("kept").waiters);
-            for op in waiters {
-                self.complete_later(op, OpResult::Ok(OpOutput::End(end.public())));
+            let s = self.sessions.get_mut(id).expect("kept");
+            if !s.routes.is_empty() {
+                // A2-3 (steward rulings, 2026-10-09; R-50): the routes of a failed start close after its state, once, with
+                // the reason of the end state, as the routes of any ended session do, whichever edge reported the end:
+                // `Lost` gives `SessionLost`, `Exited` gives `SessionEnded` with the state's exit. The Stop flow's `Finish`
+                // closes them and then completes the waiters; a flow that waits runs after it.
+                s.bound_at_end = s.routes.clone();
+                let next = std::mem::replace(
+                    &mut s.flow,
+                    Flow::Stop(StopFlow {
+                        phase: StopPhase::Finish,
+                        deadline: None,
+                        end: Some(end),
+                    }),
+                );
+                if !matches!(next, Flow::Idle) {
+                    s.queue.push_front(next);
+                }
+            } else {
+                for op in std::mem::take(&mut s.waiters) {
+                    self.complete_later(op, OpResult::Ok(OpOutput::End(end.public())));
+                }
             }
         }
         self.wake_launch_waiters(id);
@@ -436,11 +461,13 @@ impl HostEngine {
                 // route's close follows delivery of its own queue (or its stall)". A route that closed for another
                 // reason first (a detach, a stall, a failure) was closed with that reason when the worker reported it.
                 // The step needs room for the close (`flow_needs_room`).
-                if let Some((route, reason)) = finish_close(&self.sessions[id]) {
+                if let Some((route, reason)) =
+                    finish_close(&self.sessions[id], &self.pending_handoffs)
+                {
                     self.close_route(route, reason);
                     return;
                 }
-                if finish_waits(&self.sessions[id]) {
+                if finish_waits(&self.sessions[id], &self.pending_handoffs) {
                     // `flow_waiting`: the worker has not reported every route's close yet.
                     return;
                 }

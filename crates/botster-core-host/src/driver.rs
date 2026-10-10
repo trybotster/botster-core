@@ -104,6 +104,10 @@ pub trait HostEdges: Send {
         bytes: &[u8],
         endpoint: StreamEndpoint,
     ) -> Result<usize, (StreamEndpoint, DescriptorSendError)>;
+    /// Closes a route stream that the host still holds (OU-2, steward ruling R-50): writes `bytes` once, without waiting,
+    /// then closes the stream. Best effort: a write that takes fewer bytes, or fails, still closes the stream. It never
+    /// blocks the pump.
+    fn close_route_stream(&mut self, endpoint: StreamEndpoint, bytes: &[u8]);
 
     /// The wake object (`Wake`). The driver signals and drains it, and hands it out as the `WakeHandle`.
     fn wake(&self) -> Arc<dyn HostWake>;
@@ -344,6 +348,13 @@ impl<E: HostEdges> HostDriver<E> {
                 options,
                 limits,
             } => self.send_handoff(link, route, transport, options, limits),
+            Action::CloseRoute {
+                route: _,
+                transport,
+                frame,
+            } => self
+                .edges
+                .close_route_stream(transport, frame.as_deref().unwrap_or_default()),
         }
     }
 

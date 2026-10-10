@@ -257,3 +257,44 @@ fn a_link_closed_with_a_handoff_pending_closes_the_stream_and_the_route() {
         .count();
     assert_eq!(closes, 1, "one close of the route");
 }
+
+/// R-50, OU-2: a route whose hand-over waits for the launch closes when the launch is refused. The driver gives its stream
+/// back to the edges with the route's `route_closed` bytes (`HostEdges::close_route_stream`), once, and never hands it
+/// over.
+#[test]
+fn a_route_closed_before_its_handoff_gives_its_stream_and_frame_to_the_edges() {
+    let mut rig = Rig::new(CoreLimits::default());
+    super::deadlines::to_launch(&mut rig, "s1", LinkId(1));
+    let token = Arc::new(8);
+    let result = attach(&mut rig, Arc::clone(&token));
+    rig.worker_says(
+        LinkId(1),
+        WorkerMsg::LaunchFailed {
+            reason: StartFailReason::ExecFailed { errno: 2 },
+        },
+    );
+    let events = rig.run_out();
+    let reason = events
+        .iter()
+        .find_map(|e| match e {
+            Event::RouteClosed { route, reason, .. } if *route == result.route => Some(*reason),
+            _ => None,
+        })
+        .expect("the route closes");
+    assert!(
+        matches!(reason, RouteCloseReason::SessionEnded { .. }),
+        "{events:?}"
+    );
+    let closed = std::mem::take(&mut rig.mock.lock().unwrap().closed_streams);
+    assert_eq!(closed.len(), 1, "one close of the stream");
+    let (endpoint, bytes) = closed.into_iter().next().unwrap();
+    assert!(Arc::ptr_eq(
+        &endpoint.downcast::<Arc<u32>>().unwrap(),
+        &token
+    ));
+    assert_eq!(
+        Some(bytes),
+        botster_core_link::route::route_closed_bytes(reason, &result.limits)
+    );
+    assert!(descriptors(&rig).is_empty(), "never handed over");
+}

@@ -782,3 +782,185 @@ fn a_delivered_routes_close_waits_for_room_and_keeps_its_delivery() {
         "{events:?}"
     );
 }
+
+/// A2-3 (steward ruling, 2026-10-09): a route attaches while the session starts, and the worker is lost after `Launched`
+/// and before `Running` is posted. Whichever edge reports the loss first (the link's close or the end of the worker's
+/// process), the session shows `Lost(WorkerGone)`, and then the route closes `SessionLost`, once.
+#[test]
+fn a_lost_starts_route_closes_session_lost_after_the_state_whichever_edge_reports_first() {
+    for process_first in [true, false] {
+        let mut w = World::default();
+        w.autopilot = Autopilot::Silent;
+        w.ok(create("s1"));
+        w.engine.begin(Op::Start { id: sid("s1") }).unwrap();
+        w.pump();
+        let link = w.link_of_after_hello("s1");
+        let route = attach(&mut w);
+        w.feed(Input::LinkMsg {
+            link,
+            msg: WorkerMsg::Launched {
+                features: BTreeSet::from([Feature::FocusReport]),
+                terminal: terminal_state(),
+                formats: vec![],
+                payload: botster_core_link::msg::PayloadId {
+                    pid: 900,
+                    start_time: 3,
+                },
+            },
+        });
+        if process_first {
+            w.exited("s1");
+            w.feed(Input::LinkClosed { link });
+        } else {
+            w.feed(Input::LinkClosed { link });
+            w.exited("s1");
+        }
+        let events = settle(&mut w);
+        let lost = events
+            .iter()
+            .position(|e| {
+                matches!(
+                    e,
+                    Event::SessionState {
+                        state: SessionState::Lost(LostReason::WorkerGone),
+                        ..
+                    }
+                )
+            })
+            .unwrap_or_else(|| panic!("process first {process_first}: {events:?}"));
+        let closes = route_closes(&events);
+        assert_eq!(
+            closes_of(&events),
+            vec![(route, RouteCloseReason::SessionLost)],
+            "process first {process_first}: {events:?}"
+        );
+        assert!(closes[0].0 > lost, "{events:?}");
+        assert!(w.engine.ready().is_empty(), "the flows ended");
+    }
+}
+
+/// A route that attaches while the session starts, before the launch: its hand-over waits, so Core holds its stream.
+fn attach_before_the_launch(w: &mut World) -> (RouteId, AppliedRouteLimits, LinkId) {
+    w.ok(create("s1"));
+    w.engine.begin(Op::Start { id: sid("s1") }).unwrap();
+    w.pump();
+    let link = w.link_of_after_hello("s1");
+    let attached = w
+        .engine
+        .attach(
+            ClientId("c".into()),
+            sid("s1"),
+            RouteTransport::Stream(StreamEndpoint::new(())),
+            AttachOptions {
+                file_directory: "/tmp".into(),
+                file_permissions: None,
+                route_features: vec![],
+                terminal_formats: vec![],
+                owner: None,
+                query_deadline: Some(Duration::from_secs(1)),
+                route_tag: None,
+                route_limits: None,
+                history: None,
+                stall_deadline: None,
+                answers_queries: true,
+                input: true,
+            },
+        )
+        .unwrap();
+    (attached.route, attached.limits, link)
+}
+
+/// The session's last state in `events`, with its index.
+fn last_state(events: &[Event]) -> (usize, SessionState) {
+    events
+        .iter()
+        .enumerate()
+        .rev()
+        .find_map(|(i, e)| match e {
+            Event::SessionState { state, .. } => Some((i, *state)),
+            _ => None,
+        })
+        .expect("a state")
+}
+
+/// R-50, A2-3, LC-4: the startup deadline ends the start `Exited` before the launch. The route that waited for its hand-over
+/// closes after the state, once, `SessionEnded` with the state's exit; Core writes the route's `route_closed` to the
+/// stream that it still holds and closes it. The route is never handed over.
+#[test]
+fn a_timed_out_starts_waiting_route_closes_session_ended_with_the_states_exit() {
+    let mut w = World::new(limits(|l| l.startup = Duration::from_secs(2)));
+    w.autopilot = Autopilot::Silent;
+    let (route, limits, _) = attach_before_the_launch(&mut w);
+    w.advance(Duration::from_secs(2));
+    let events = settle(&mut w);
+    let (state_at, state) = last_state(&events);
+    let SessionState::Exited(exit) = state else {
+        panic!("the start ended Exited: {events:?}");
+    };
+    let reason = RouteCloseReason::SessionEnded { exit };
+    assert_eq!(closes_of(&events), vec![(route, reason)], "{events:?}");
+    assert!(route_closes(&events)[0].0 > state_at, "{events:?}");
+    let frame = botster_core_link::route::route_closed_bytes(reason, &limits);
+    assert!(frame.is_some(), "session_ended has its frame");
+    assert_eq!(w.route_streams_closed, vec![(route, frame)]);
+    assert!(!w.trace.contains(&"handoff".to_string()), "{:?}", w.trace);
+    assert!(w.engine.ready().is_empty(), "the flows ended");
+}
+
+/// R-50, LC-4: a refused launch ends the start `Exited`. The waiting route closes `SessionEnded` with the state's exit
+/// after the state, and a `Stop` that waited for the start completes after the close.
+#[test]
+fn a_refused_launchs_waiting_route_closes_before_the_waiting_stop_completes() {
+    let mut w = World::default();
+    w.autopilot = Autopilot::Silent;
+    let (route, limits, link) = attach_before_the_launch(&mut w);
+    let stop = w.engine.begin(Op::Stop { id: sid("s1") }).unwrap();
+    w.feed(Input::LinkMsg {
+        link,
+        msg: WorkerMsg::LaunchFailed {
+            reason: StartFailReason::ExecFailed { errno: 2 },
+        },
+    });
+    let events = settle(&mut w);
+    let (state_at, state) = last_state(&events);
+    let SessionState::Exited(exit) = state else {
+        panic!("the start ended Exited: {events:?}");
+    };
+    let reason = RouteCloseReason::SessionEnded { exit };
+    assert_eq!(closes_of(&events), vec![(route, reason)], "{events:?}");
+    let closed_at = route_closes(&events)[0].0;
+    assert!(closed_at > state_at, "{events:?}");
+    let stopped = events
+        .iter()
+        .position(|e| matches!(e, Event::Completed { op, .. } if *op == stop))
+        .expect("the stop completes");
+    assert!(stopped > closed_at, "{events:?}");
+    assert_eq!(
+        w.route_streams_closed,
+        vec![(
+            route,
+            botster_core_link::route::route_closed_bytes(reason, &limits)
+        )]
+    );
+}
+
+/// R-50, A2-3: the worker's process ends before the launch, so the start ends `Lost`. The waiting route closes
+/// `SessionLost` after the state, once; `session_lost` is a failed reason, so Core closes the stream with no frame.
+#[test]
+fn a_lost_starts_waiting_route_closes_session_lost_with_no_frame() {
+    let mut w = World::default();
+    w.autopilot = Autopilot::Silent;
+    let (route, _, _) = attach_before_the_launch(&mut w);
+    w.exited("s1");
+    let events = settle(&mut w);
+    let (state_at, state) = last_state(&events);
+    assert!(matches!(state, SessionState::Lost(_)), "{events:?}");
+    assert_eq!(
+        closes_of(&events),
+        vec![(route, RouteCloseReason::SessionLost)],
+        "{events:?}"
+    );
+    assert!(route_closes(&events)[0].0 > state_at, "{events:?}");
+    assert_eq!(w.route_streams_closed, vec![(route, None)]);
+    assert!(w.engine.ready().is_empty(), "the flows ended");
+}
