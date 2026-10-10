@@ -385,8 +385,9 @@ exclude_re = [
     # decisions (`wake_after`, `interest_of`, `registration`, `retry_interrupted`, and from audit A28 `broken_after`,
     # `LinkIo::record`, `AcceptFailures::take`, `edge_diagnostics`) are pure functions tested in the default tier. Each function
     # below is caught by the slow tier (slow-tier mutation run of 2026-10-04), in real.rs `slow_tests`:
-    # `the_edges_keep_rows_in_the_registry` (`write_row`, `read_rows`, `delete_row`), `the_edges_draw_random_bytes_and_refuse_the_handoff`
-    # (`fill_random`, `handoff_route`, which P4a PR1 renamed `link_send_descriptor`, `poll_process_exit`, `accept_link`),
+    # `the_edges_keep_rows_in_the_registry` (`write_row`, `read_rows`, `delete_row`), `the_edges_draw_random_bytes_and_fail_an_endpoint_that_cannot_ride`
+    # (`fill_random`, `poll_process_exit`, `accept_link`, and `link_send_descriptor` with an endpoint that cannot ride;
+    # DP-2 PR A: its sends are in `a_route_stream_rides_on_its_frame_and_a_gone_peer_fails_the_handoff`),
     # `a_link_reads_writes_and_closes` (accept_link, link_recv,
     # link_send, link_close, set_read_interest, set_write_interest, LinkIo::apply), `the_socket_lives_with_the_edges`
     # (socket_path, the Drop of RealEdges), `the_wake_follows_its_flag` (PollWake signal, drain, wait, fd, consume,
