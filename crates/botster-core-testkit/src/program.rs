@@ -230,11 +230,7 @@ impl Output {
         };
         let fits = front.bytes.len().min(buf.len());
         let n = if front.atomic { fits } else { choose(fits) };
-        for slot in &mut buf[..n] {
-            if let Some(byte) = front.bytes.pop_front() {
-                *slot = byte;
-            }
-        }
+        crate::net::take_front(&mut front.bytes, &mut buf[..n]);
         if front.bytes.is_empty() {
             self.pieces.pop_front();
         }
