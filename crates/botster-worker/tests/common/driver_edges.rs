@@ -150,7 +150,7 @@ impl Harness {
             reader.as_fd(),
             rustix::event::PollFlags::IN,
         )];
-        // timer: deadline — bounds the program's queued-output marker.
+        // timer: deadline — bounds the program's queued-output marker, and then its PTY output.
         let limit = rustix::event::Timespec {
             tv_sec: 10,
             tv_nsec: 0,
@@ -160,6 +160,18 @@ impl Harness {
         let mut marker = [0; 64];
         let count = reader.read(&mut marker).unwrap();
         assert_eq!(&marker[..count], b"queued\n");
+        // The marker and the PTY output travel on two channels: on Linux the slave's bytes reach the master through the
+        // asynchronous flip-buffer push, so the marker can arrive first (P5's gate on #222 at `7c93a2e7`). The test waits for
+        // the PTY bytes themselves; the `printf` is one push of all its bytes, so a readable master holds the whole `ready`.
+        let mut pty = [rustix::event::PollFd::from_borrowed_fd(
+            self.driver.payload.as_ref().unwrap().master(),
+            rustix::event::PollFlags::IN,
+        )];
+        assert!(
+            rustix::event::poll(&mut pty, Some(&limit)).unwrap() > 0,
+            "the program's PTY output did not arrive"
+        );
+        assert!(pty[0].revents().contains(rustix::event::PollFlags::IN));
     }
 }
 
