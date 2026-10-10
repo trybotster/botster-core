@@ -67,6 +67,20 @@ exclude_re = [
     # Ok(()) prints no slow summary and no "real conformance: pending-real" line, which every gate log of the step shows. Its
     # decision is the tested real_report_ran (the_pending_real_run_passes_only_with_a_success_and_its_report).
     'xtask/src/ci\.rs:\d+:\d+: replace slow_job -> Result<\(\)> with Ok\(\(\)\)$',
+    # xtask lists.rs command -> Ok(()): process glue. The body reads the lists, the pinned ledger, the status copies, the
+    # replacement map and the base ref's files, and prints the verdict; a test cannot run it on the workspace. Only this
+    # whole-body replacement is excluded. A body replaced by Ok(()) prints no "lists: ok" line, which every gate log of the
+    # step shows. Its decisions are tested: check, check_real
+    # (a_real_pending_id_is_a_ledger_id_that_is_not_pending_deferred_withdrawn_real_only_or_testkit_proven) and
+    # check_minimum (a_minimum_id_is_listed_once_and_is_an_active_core_ledger_id).
+    'xtask/src/lists\.rs:\d+:\d+: replace command -> Result<\(\)> with Ok\(\(\)\)$',
+    # botster-core-testkit real.rs, every mutant: the module is `#[cfg(feature = "slow")]` (RealCoreHarness, plan 23l), so
+    # the default mutation run never compiles it and lists each mutant as missed with no test run. Interim until the plan
+    # 23n two-stage verdict; removed by that PR, whose second stage builds `--features slow` and tests these mutants. Until
+    # then the proof is a focused manual slow mutation run of real.rs (its own pool job; the log is in the RealCoreHarness
+    # PR body), where every mutant is caught by a slow test (the_real_harness_injects_the_clock_but_not_its_progress and
+    # the real tier of slow_conformance) or is excluded below with its own reason.
+    'crates/botster-core-testkit/src/real\.rs:\d+:\d+: ',
     # xtask mutants_job -> Ok(()): process glue. The body runs `git diff`, writes the diff file, lists the mutants of the
     # diff, starts `cargo mutants` and prints its summary; a test cannot start a mutation run inside a mutation run, so no
     # test can run the body. Only this whole-body replacement is excluded: every other mutant of mutants_job stays tested.
