@@ -8,7 +8,9 @@
 
 use botster_test_process::anchor::start_anchor;
 use botster_test_process::anchor::{Line, Report};
-use botster_test_process::platform::{await_end, await_status, peek, pid, start_time, Waited};
+use botster_test_process::platform::{
+    await_end, await_status, live_children, peek, pid, start_time, Waited,
+};
 use botster_test_process::{
     eof, first_line, quoted, run_to_completion, Blocker, Bounded, Deadline, Guard, OwnedChild,
     CLEANUP,
@@ -178,6 +180,41 @@ fn a_released_blocker_ends_its_child_with_code_0_and_its_shell_words_name_the_fi
     assert!(blocker.send(b"x").is_err());
     assert_eq!(child.status().code(), Some(0));
     assert_eq!(child.status().code(), Some(0), "the status is kept");
+}
+
+/// `live_children`: a running child of this process is live; an ended child is not, as a zombie and after its reap. A
+/// process with no child has none, also when an earlier call left `errno` set (libproc on macOS reads `errno` to tell an
+/// empty listing from an error).
+#[test]
+fn a_running_child_is_a_live_child_and_an_ended_one_is_not() {
+    let dir = tempfile::tempdir().unwrap();
+    let blocker = Blocker::new(dir.path(), "block").unwrap();
+    let mut child = OwnedChild::spawn(&mut blocker.command()).unwrap();
+    let me = rustix::process::getpid();
+    let child_pid = pid(child.id()).unwrap();
+    let is_live_child = || {
+        live_children(me)
+            .unwrap()
+            .iter()
+            .any(|m| m.pid == child_pid)
+    };
+    assert!(is_live_child());
+    assert!(std::fs::metadata(dir.path().join("absent")).is_err());
+    assert_eq!(
+        live_children(child_pid).unwrap(),
+        Vec::new(),
+        "cat has no child"
+    );
+    // A kill, not the release: a `cat` that has not opened the FIFO yet would block in its open after the release.
+    child.kill().unwrap();
+    assert_eq!(
+        await_end(child_pid, Deadline::after(CLEANUP)).unwrap(),
+        Waited::Exited
+    );
+    assert!(peek(child_pid).unwrap().is_some(), "unreaped: a zombie");
+    assert!(!is_live_child(), "a zombie is not live");
+    assert_eq!(child.status().signal(), Some(KILL));
+    assert!(!is_live_child(), "a reaped child is gone");
 }
 
 /// The owner hands out the child's stdin: what the test writes there comes back through the child.

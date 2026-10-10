@@ -18,6 +18,9 @@
 //! - The record of the processes: every registry row that passes through `write_row` or `read_rows` is decoded with Core's
 //!   own decoder (`Row::decode`), so the harness knows each session's instance, worker and payload identity; the hello of
 //!   each link names its instance.
+//! - The harness's own calls of the inner edges, which the tap records as no call of Core: a stored row and its write
+//!   ([`Tap::stored_row`], [`Tap::store_row`]; `corrupt_registry_row`), the identity check ([`Tap::identity_state`];
+//!   `payload_alive`) and the identity-checked kill of a recorded process group ([`Tap::kill_group`]; `lose_worker`).
 
 use botster_core_contract::prelude::*;
 use botster_core_edges::edges::{
@@ -29,6 +32,7 @@ use botster_core_host::session::{Row, ROW_PREFIX};
 use botster_core_host::LinkId;
 use botster_core_link::frame::{FrameDecoder, FrameType, DEFAULT_MAX_PAYLOAD};
 use botster_core_link::hello::Hello;
+use botster_core_link::msg::WorkerMsg;
 use std::collections::{BTreeMap, VecDeque};
 use std::io;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
@@ -57,8 +61,9 @@ struct LinkTap {
     held: VecDeque<u8>,
     /// The end that a take-ahead met after `held`, not yet handed to the driver.
     end: Option<End>,
-    /// The decoder of the link's first frame, until the hello is read or the first frame is not one.
-    first: Option<FrameDecoder>,
+    /// The decoder of the link's inbound frames: from the first frame until the worker's `Launched` report is read, or until
+    /// a frame is not one that the tap reads.
+    frames: Option<FrameDecoder>,
     /// The instance that the link's hello names, or that `connect_worker` asked for.
     instance: Option<InstanceId>,
 }
@@ -68,36 +73,70 @@ impl LinkTap {
         LinkTap {
             held: VecDeque::new(),
             end: None,
-            first: Some(FrameDecoder::new(DEFAULT_MAX_PAYLOAD)),
+            frames: Some(FrameDecoder::new(DEFAULT_MAX_PAYLOAD)),
             instance: None,
         }
     }
 
     fn connected(instance: &InstanceId) -> LinkTap {
         LinkTap {
-            first: None,
+            frames: None,
             instance: Some(instance.clone()),
             ..LinkTap::accepted()
         }
     }
 
-    /// Reads the link's first frame from bytes that passed through, without changing them: a hello names the instance.
-    /// The decoder takes bytes up to the end of the first frame, so when it has no complete frame it took every byte; bytes
-    /// after the first frame are not read.
-    fn observe(&mut self, bytes: &[u8]) {
-        let Some(decoder) = self.first.as_mut() else {
-            return;
-        };
-        decoder.push(bytes);
-        match decoder.next_frame() {
-            Ok(None) => {}
-            Ok(Some(frame)) => {
-                if frame.kind == FrameType::HELLO {
-                    self.instance = Hello::decode(&frame.payload).ok().map(|h| h.instance);
+    /// Reads the link's frames from bytes that passed through, without changing them: the first frame, a hello, names the
+    /// instance, and the worker's `Launched` report names the payload in `launches`. The tap reads no frame after the
+    /// report, after a first frame that is not a hello, or after bytes that are not a frame.
+    fn observe(&mut self, bytes: &[u8], launches: &mut BTreeMap<InstanceId, ProcessIdentity>) {
+        let mut rest = bytes;
+        while let Some(decoder) = self.frames.as_mut() {
+            // The decoder takes bytes up to the end of the current frame.
+            let used = decoder.push(rest);
+            rest = &rest[used..];
+            match decoder.next_frame() {
+                Ok(None) => return,
+                Ok(Some(frame)) => {
+                    if !self.read(frame.kind, &frame.payload, launches) {
+                        self.frames = None;
+                    }
                 }
-                self.first = None;
+                Err(_) => self.frames = None,
             }
-            Err(_) => self.first = None,
+        }
+    }
+
+    /// Reads one inbound frame. False when the tap reads no later frame of the link.
+    fn read(
+        &mut self,
+        kind: FrameType,
+        payload: &[u8],
+        launches: &mut BTreeMap<InstanceId, ProcessIdentity>,
+    ) -> bool {
+        let Some(instance) = &self.instance else {
+            if kind != FrameType::HELLO {
+                return false;
+            }
+            self.instance = Hello::decode(payload).ok().map(|h| h.instance);
+            return self.instance.is_some();
+        };
+        if kind != FrameType::WORKER_MSG {
+            return false;
+        }
+        match WorkerMsg::decode(payload) {
+            Ok(WorkerMsg::Launched { payload, .. }) => {
+                launches.insert(
+                    instance.clone(),
+                    ProcessIdentity {
+                        pid: payload.pid,
+                        start_time: payload.start_time,
+                    },
+                );
+                false
+            }
+            Ok(_) => true,
+            Err(_) => false,
         }
     }
 
@@ -117,6 +156,10 @@ pub struct Tap<E> {
     accepts: VecDeque<LinkId>,
     exits: VecDeque<(ProcessIdentity, ExitStatus)>,
     rows: Rows,
+    /// The payload of each worker's `Launched` report that the tap read (Core AD-7, LC-5). It outlives the link. The host
+    /// keeps a started payload in memory and writes it to the row only at a later row write. A report that the tap has
+    /// not read gives no entry, and no entry never means that no payload runs.
+    launches: BTreeMap<InstanceId, ProcessIdentity>,
 }
 
 impl<E: HostEdges> Tap<E> {
@@ -151,7 +194,7 @@ impl<E: HostEdges> Tap<E> {
                     match self.inner.link_recv(*link, &mut buf) {
                         Ok(0) => tap.end = Some(End::Closed),
                         Ok(n) => {
-                            tap.observe(&buf[..n]);
+                            tap.observe(&buf[..n], &mut self.launches);
                             tap.held.extend(&buf[..n]);
                         }
                         Err(e) if e.kind() == io::ErrorKind::WouldBlock => break,
@@ -183,6 +226,12 @@ impl<E: HostEdges> Tap<E> {
             .map(|(link, _)| *link)
     }
 
+    /// The payload that the `Launched` report of the worker of `instance` named. `None` when the tap has not read that report:
+    /// the report may still be unread, or another tap read it, so `None` never means that no payload runs.
+    pub fn launch_of(&self, instance: &InstanceId) -> Option<ProcessIdentity> {
+        self.launches.get(instance).copied()
+    }
+
     /// Breaks `link` at the edge (Core LC-5, A2-1): the inner edge closes it, and what the tap held for it is dropped, so
     /// every later call on it reaches the inner edge's closed-link state. The driver's own `link_close` comes later.
     pub fn break_link(&mut self, link: LinkId) {
@@ -191,6 +240,44 @@ impl<E: HostEdges> Tap<E> {
             tap.end = None;
         }
         self.inner.link_close(link);
+    }
+
+    /// The bytes of the row `key` as the inner storage edge holds them: the bytes that Core's own encoder wrote. `None` when
+    /// no row has exactly that key, or the storage cannot be read.
+    pub fn stored_row(&mut self, key: &str) -> Option<Vec<u8>> {
+        self.inner
+            .read_rows(key)
+            .ok()?
+            .into_iter()
+            .find_map(|(k, bytes)| (k == key).then_some(bytes))
+    }
+
+    /// Writes the row `key` through the inner storage edge (Core A10-2: the storage edge damages the stored bytes). The write
+    /// is the harness's, not Core's, so it passes by the record of the session's processes: the record keeps what Core
+    /// wrote.
+    ///
+    /// # Errors
+    /// The inner storage edge's error.
+    pub fn store_row(&mut self, key: &str, bytes: &[u8]) -> Result<(), StorageError> {
+        self.inner.write_row(key, bytes)
+    }
+
+    /// The inner edge's identity check of `identity` (Core AD-6): its pid and its start time.
+    pub fn identity_state(&self, identity: ProcessIdentity) -> IdentityState {
+        self.inner.identity_state(identity)
+    }
+
+    /// Ends the process group of `identity` from outside Core, as a kill does (Core AD-2, IN-7): the inner edge's own
+    /// identity-checked `signal_group` sends `KILL`, and only when the pid and the start time still match, so a process that
+    /// reuses the pid is never signalled (Core AD-6). Then the wake edge signals, so that the host pumps and meets the end.
+    /// The call is the harness's, not Core's: it goes to the inner edge, and the tap records it as no call of Core.
+    pub fn kill_group(&mut self, identity: ProcessIdentity) -> IdentityState {
+        let state = self.inner.identity_state(identity);
+        if state == IdentityState::Matches {
+            self.inner.signal_group(identity, GroupSignal::Kill);
+            self.inner.wake().signal();
+        }
+        state
     }
 }
 
@@ -226,6 +313,7 @@ impl<E: HostEdges> EdgeTap<E> {
             accepts: VecDeque::new(),
             exits: VecDeque::new(),
             rows,
+            launches: BTreeMap::new(),
         }));
         let weak = Arc::downgrade(&tap);
         let scheduler = SchedulerTap {
@@ -307,7 +395,12 @@ impl<E: HostEdges> HostEdges for EdgeTap<E> {
 
     fn link_recv(&mut self, link: LinkId, buf: &mut [u8]) -> io::Result<usize> {
         let mut tap = self.tap();
-        let Tap { inner, links, .. } = &mut *tap;
+        let Tap {
+            inner,
+            links,
+            launches,
+            ..
+        } = &mut *tap;
         let Some(state) = links.get_mut(&link) else {
             return inner.link_recv(link, buf);
         };
@@ -323,7 +416,7 @@ impl<E: HostEdges> HostEdges for EdgeTap<E> {
             Some(End::Failed(kind)) => Err(kind.into()),
             None => {
                 let n = inner.link_recv(link, buf)?;
-                state.observe(&buf[..n]);
+                state.observe(&buf[..n], launches);
                 Ok(n)
             }
         }

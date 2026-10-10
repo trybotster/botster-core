@@ -460,7 +460,7 @@ impl Directories {
         let Some(bytes) = registry.rows.get_mut(key) else {
             return false;
         };
-        bytes.truncate(bytes.len() / 2);
+        *bytes = crate::controls::damaged(bytes);
         true
     }
 

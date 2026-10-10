@@ -73,6 +73,8 @@ struct Fake {
     settles: usize,
     wake: Arc<FakeWake>,
     picks: Picks,
+    /// The identity check's answer for each pid; `Absent` for every other pid.
+    states: BTreeMap<u32, IdentityState>,
 }
 
 impl HostEdges for Fake {
@@ -111,8 +113,11 @@ impl HostEdges for Fake {
             .push(format!("signal {} {signal:?}", identity.pid));
     }
 
-    fn identity_state(&self, _identity: ProcessIdentity) -> IdentityState {
-        IdentityState::Absent
+    fn identity_state(&self, identity: ProcessIdentity) -> IdentityState {
+        self.states
+            .get(&identity.pid)
+            .copied()
+            .unwrap_or(IdentityState::Absent)
     }
 
     fn poll_process_exit(&mut self) -> Option<(ProcessIdentity, ExitStatus)> {
@@ -612,4 +617,205 @@ fn the_tap_ends_with_the_driver() {
     assert!(tap.upgrade().is_some());
     drop(edges);
     assert!(tap.upgrade().is_none());
+}
+
+/// `corrupt_registry_row` (Core A10-2): the harness reads the bytes of exactly the session's row from the inner storage edge,
+/// and its write reaches the inner storage but not the record of the session's processes.
+#[test]
+fn the_harness_reads_and_writes_exactly_one_stored_row_past_the_record() {
+    let mut fake = Fake::default();
+    fake.rows
+        .insert("session/s1".into(), row_bytes("s1", "1-1"));
+    fake.rows
+        .insert("session/s10".into(), row_bytes("s10", "1-2"));
+    let rig = rig(fake);
+    rig.with(|t| {
+        assert_eq!(t.stored_row("session/s1"), Some(row_bytes("s1", "1-1")));
+        assert_eq!(t.stored_row("session/s10"), Some(row_bytes("s10", "1-2")));
+        assert_eq!(t.stored_row("session/s"), None, "a prefix is no key");
+        assert_eq!(t.stored_row("session/s2"), None);
+        assert_eq!(t.store_row("session/s1", b"{"), Ok(()));
+        assert_eq!(t.inner.rows["session/s1"], b"{");
+        assert_eq!(t.stored_row("session/s1"), Some(b"{".to_vec()));
+    });
+    assert!(
+        lock(&rig.rows).is_empty(),
+        "the harness's write is no row of Core"
+    );
+    rig.with(|t| t.inner.fail_writes = true);
+    assert_eq!(
+        rig.with(|t| t.store_row("session/s1", b"x")),
+        Err(StorageError::Failed { errno: 5 })
+    );
+}
+
+/// `lose_worker` (Core AD-2, AD-6): only a recorded identity whose pid and start time still match gets the `KILL` of its
+/// group, followed by a wake; a pid that another process reuses, or an ended process, gets no signal and no wake. The
+/// identity check is the inner edge's own.
+#[test]
+fn only_a_matching_identity_is_killed_and_the_host_is_woken() {
+    let mut fake = Fake::default();
+    fake.states.insert(41, IdentityState::Matches);
+    fake.states.insert(42, IdentityState::Reused);
+    let rig = rig(fake);
+    rig.with(|t| {
+        assert_eq!(t.identity_state(identity(41)), IdentityState::Matches);
+        assert_eq!(t.identity_state(identity(42)), IdentityState::Reused);
+        assert_eq!(t.identity_state(identity(43)), IdentityState::Absent);
+        assert_eq!(t.kill_group(identity(42)), IdentityState::Reused);
+        assert_eq!(t.kill_group(identity(43)), IdentityState::Absent);
+        assert!(t.inner.calls.is_empty(), "{:?}", t.inner.calls);
+    });
+    assert_eq!(rig.signals(), 0);
+    assert_eq!(
+        rig.with(|t| t.kill_group(identity(41))),
+        IdentityState::Matches
+    );
+    rig.with(|t| assert_eq!(t.inner.calls, ["signal 41 Kill"]));
+    assert_eq!(rig.signals(), 1);
+}
+
+fn worker_frame(msg: &WorkerMsg) -> Vec<u8> {
+    let mut payload = Vec::new();
+    msg.encode(&mut payload);
+    let mut frame = Vec::new();
+    encode_frame(
+        FrameType::WORKER_MSG,
+        &payload,
+        DEFAULT_MAX_PAYLOAD,
+        &mut frame,
+    )
+    .unwrap();
+    frame
+}
+
+fn launched(payload: ProcessIdentity) -> WorkerMsg {
+    WorkerMsg::Launched {
+        features: BTreeSet::new(),
+        terminal: TerminalState {
+            size: Size {
+                rows: 24,
+                cols: 80,
+                cell_px: None,
+            },
+            modes: ModeFlags::default(),
+            title: None,
+            cwd: None,
+            last_output_at: None,
+            focused: Some(false),
+            model_rev: ModelRev(1),
+            input_rev: InputRevs {
+                client: InputRev(0),
+                host: InputRev(0),
+            },
+        },
+        formats: Vec::new(),
+        payload: botster_core_link::msg::PayloadId {
+            pid: payload.pid,
+            start_time: payload.start_time,
+        },
+    }
+}
+
+/// `payload_alive` (Core AD-7, LC-5, EV-5(c)): the host keeps a started payload in memory. The worker's `Launched` report
+/// on the link names the payload; before the tap reads it, no payload is named. The tap reads the report across reads,
+/// after other reports and with later frames in the same read, without changing a byte; the launch outlives the link.
+#[test]
+fn a_launched_report_names_the_payload_of_the_link() {
+    let exited = worker_frame(&WorkerMsg::Exited {
+        code: Some(0),
+        signal: None,
+    });
+    let mut report = worker_frame(&launched(identity(77)));
+    let rest = report.split_off(5);
+    let later = worker_frame(&launched(identity(78)));
+    let reads = vec![
+        Read::Data([hello_frame("1-7"), exited.clone()].concat()),
+        Read::Data(report.clone()),
+        Read::Data([rest.clone(), later.clone()].concat()),
+    ];
+    let mut rig = rig(fake_with_link(reads));
+    let instance = InstanceId("1-7".into());
+    assert_eq!(rig.edges.accept_link(), Some(A));
+    let first = rig.recv(A, 4096).unwrap();
+    let second = rig.recv(A, 4096).unwrap();
+    assert_eq!(
+        rig.with(|t| t.launch_of(&instance)),
+        None,
+        "half a report names nothing"
+    );
+    let third = rig.recv(A, 4096).unwrap();
+    assert_eq!(
+        [first, second, third].concat(),
+        [hello_frame("1-7"), exited, report, rest, later].concat()
+    );
+    assert_eq!(rig.with(|t| t.launch_of(&instance)), Some(identity(77)));
+    assert_eq!(rig.with(|t| t.launch_of(&InstanceId("1-8".into()))), None);
+    rig.edges.link_close(A);
+    assert_eq!(
+        rig.with(|t| t.launch_of(&instance)),
+        Some(identity(77)),
+        "the launch outlives the link"
+    );
+}
+
+/// The tap reads only the frames of a worker after its hello: after a frame of another kind, the launch of the spawned
+/// worker is not known, and a later `Launched` report names nothing.
+#[test]
+fn a_report_after_a_frame_of_another_kind_names_nothing() {
+    let mut other = Vec::new();
+    encode_frame(FrameType::HOST_MSG, b"{}", DEFAULT_MAX_PAYLOAD, &mut other).unwrap();
+    let reads = vec![Read::Data(
+        [
+            hello_frame("1-7"),
+            other,
+            worker_frame(&launched(identity(77))),
+        ]
+        .concat(),
+    )];
+    let mut rig = rig(fake_with_link(reads));
+    assert_eq!(rig.edges.accept_link(), Some(A));
+    rig.recv(A, 4096).unwrap();
+    let instance = InstanceId("1-7".into());
+    assert_eq!(rig.with(|t| t.link_of(&instance)), Some(A));
+    assert_eq!(
+        rig.with(|t| t.launch_of(&instance)),
+        None,
+        "the launch is not known"
+    );
+}
+
+/// A first frame that is a hello by kind but not by its bytes names nothing, and the tap reads no later frame: a valid
+/// hello after it names no instance.
+#[test]
+fn a_hello_that_does_not_decode_ends_the_reading_of_the_link() {
+    let mut bad = Vec::new();
+    encode_frame(
+        FrameType::HELLO,
+        b"not a hello",
+        DEFAULT_MAX_PAYLOAD,
+        &mut bad,
+    )
+    .unwrap();
+    let reads = vec![Read::Data([bad, hello_frame("1-7")].concat())];
+    let mut rig = rig(fake_with_link(reads));
+    assert_eq!(rig.edges.accept_link(), Some(A));
+    rig.recv(A, 4096).unwrap();
+    assert_eq!(rig.with(|t| t.link_of(&InstanceId("1-7".into()))), None);
+}
+
+/// A link that Core connected to (an adoption) is not read: a `Launched` report on it names nothing.
+#[test]
+fn a_connected_link_is_not_read_for_a_launch() {
+    let mut fake = Fake::default();
+    fake.connects.insert(InstanceId("2-1".into()), B);
+    fake.reads.insert(
+        B,
+        vec![Read::Data(worker_frame(&launched(identity(77))))].into(),
+    );
+    let mut rig = rig(fake);
+    let instance = InstanceId("2-1".into());
+    assert_eq!(rig.edges.connect_worker(&instance), Some(B));
+    rig.recv(B, 4096).unwrap();
+    assert_eq!(rig.with(|t| t.launch_of(&instance)), None);
 }

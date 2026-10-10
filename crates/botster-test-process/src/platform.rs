@@ -1,5 +1,6 @@
-//! The platform adapters: the live members of a group, the wait for a process's exit, and the start time of a process (libproc
-//! and kqueue on macOS, /proc and pidfd on Linux). They only observe: nothing here signals or reaps.
+//! The platform adapters: the live members of a group, the live children of a process, the wait for a process's exit,
+//! and the start time of a process (libproc and kqueue on macOS, /proc and pidfd on Linux). They only observe: nothing
+//! here signals or reaps.
 
 use rustix::process::Pid;
 
@@ -99,18 +100,19 @@ mod linux;
 #[cfg(target_os = "macos")]
 mod macos;
 #[cfg(target_os = "linux")]
-pub use linux::{await_end, await_status, live_members, start_time};
+pub use linux::{await_end, await_status, live_children, live_members, start_time};
 #[cfg(target_os = "macos")]
-pub use macos::{await_end, await_status, live_members, start_time};
+pub use macos::{await_end, await_status, live_children, live_members, start_time};
 
-/// The state and the group of a `/proc/<pid>/stat` line: the first and third fields after the command name, which is in
-/// parentheses and may hold spaces.
+/// The state, the parent and the group of a `/proc/<pid>/stat` line: the first three fields after the command name, which
+/// is in parentheses and may hold spaces.
 #[cfg(any(target_os = "linux", test))]
-fn state_and_group(stat: &str) -> Option<(&str, i32)> {
+fn state_parent_and_group(stat: &str) -> Option<(&str, i32, i32)> {
     let mut fields = stat.rsplit_once(") ")?.1.split_whitespace();
     let state = fields.next()?;
-    let pgrp = fields.nth(1)?.parse().ok()?;
-    Some((state, pgrp))
+    let ppid = fields.next()?.parse().ok()?;
+    let pgrp = fields.next()?.parse().ok()?;
+    Some((state, ppid, pgrp))
 }
 
 #[cfg(test)]
@@ -118,10 +120,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_stat_line_gives_its_state_and_group_after_a_command_with_spaces_and_parentheses() {
-        assert_eq!(state_and_group("41 (a (b) c) S 7 40 40 0"), Some(("S", 40)));
-        assert_eq!(state_and_group("41 (cat) Z 7 x 40"), None);
-        assert_eq!(state_and_group("41 cat S 7 40"), None);
+    fn a_stat_line_gives_its_state_parent_and_group_after_a_command_with_spaces_and_parentheses() {
+        assert_eq!(
+            state_parent_and_group("41 (a (b) c) S 7 40 40 0"),
+            Some(("S", 7, 40))
+        );
+        assert_eq!(state_parent_and_group("41 (cat) Z 7 x 40"), None);
+        assert_eq!(state_parent_and_group("41 (cat) Z x 40 40"), None);
+        assert_eq!(state_parent_and_group("41 cat S 7 40"), None);
     }
 
     #[test]
@@ -132,7 +138,8 @@ mod tests {
     }
 
     #[test]
-    fn this_process_has_a_start_time_and_is_a_live_member_of_its_group() {
+    fn this_process_has_a_start_time_and_is_a_live_member_of_its_group_and_a_live_child_of_its_parent(
+    ) {
         let me = rustix::process::getpid();
         assert!(start_time(me).unwrap().is_some());
         assert_eq!(
@@ -142,6 +149,8 @@ mod tests {
         );
         let group = rustix::process::getpgrp();
         assert!(live_members(group).unwrap().iter().any(|m| m.pid == me));
+        let parent = rustix::process::getppid().expect("a test process has a parent");
+        assert!(live_children(parent).unwrap().iter().any(|m| m.pid == me));
         let shown = live_members(group).unwrap()[0].to_string();
         assert!(shown.contains('('), "{shown}");
     }
