@@ -1,0 +1,11 @@
+# Pending ids that pass on the testkit and stay pending (the strict pending check, `botster_core_testkit::pending`).
+# Each line: the id, the reason class, the owner, the authority, and the reason. Two classes:
+# - `budget`: the id passes, but over the default-tier time budget. It runs at the first seed only.
+# - `unproven`: the id passes on the testkit, but that pass does not prove the clause; the line names the missing proofs.
+#   It runs at every seed. Its line leaves this file in the PR that adds the last missing proof, which also flips the id.
+# A real-only id needs no line here: core-real-only.txt comes from the replacement map.
+# A held id must pass: when it fails, the strict run fails until its line is removed (the id stays pending).
+# A `budget` id runs at the first seed only, so its line states that its full-seed proof is missing, and why.
+# This list must not grow: a second `budget` line, and every new `unproven` line, goes to the Core lead first (lead, 2026-10-09).
+conf::ev_8_every_query_stays_in_output  budget  owner: p4b-queries-files (unstaffed)  (Core lead, 2026-10-09)  because: it passes on the testkit at seeds 0-31 in about 38 s, about 1.2 s per seed (38.8 s locally under nextest; strict run 40.1 s on msa1, gate 4ab8ab49), over the 2 s default-tier test budget. Gate 42cdfda9 did not show this: nextest's terminate-after ended the test at 2 s (2.005 s). Full-seed proof missing: the strict run runs it at the first seed only, because 32 seeds would add about 38 s to every gate. Open question: why does this query transcript cost about 1.2 s per seed on a virtual clock, when every other pending id costs 0.38 s or less (a testkit or Core cost, or the transcript)? p4b answers it, and makes the id faster or moves it to the slow tier
+conf::a20_1_testkit_proven_ids_are_exactly_the_named_list  unproven  owner: p6-testkit  (#216 R1-1, integration review)  because: it passes on the testkit only through the upstream type_check, which reads the contracts' own pending and withdrawn lists, not Core's. Missing proofs: the RealCoreHarness TESTKIT_PROVEN list (P6's real-tier runner), and dp_3_frame_limit_checked_before_allocation passing on the testkit (the alloc_peak proof, P4a)
