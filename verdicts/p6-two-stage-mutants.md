@@ -152,3 +152,45 @@ The current head incorporates the required newer base. This verdict certifies th
 The reviewer changed no product code and ran no gate, build, test, mutation job, merge check, or reversal.
 
 VERDICT: CLEAN
+
+
+## Round 3 — reassessment, 2026-10-10: Round 2 CLEAN withdrawn
+
+Exact head reassessed: `3890e23093b77c3620237e7c9349c9ca0bf2c1a1`.
+Recorded review and gate base: `c19ad938bd87c60331bd002c0117102d8756b1ae`.
+Risk tier remains HIGH.
+
+The reviewer withdraws Round 2 CLEAN. The three original findings remain closed.
+The later P5 evidence contradicts the claim that exact `-F` arguments select only stage-1 misses.
+The reviewer confirmed the defect in the retained outcomes and primary cargo-mutants 27.1.0 source during #229 review.
+Sol integration also withdrew its Round 2 CLEAN in commit `f4b6f3682ce1c0cad6c8d1b0fe5f51f1a36aa28d`.
+The reviewer read that withdrawal and the reassessed head's selection and verdict code.
+
+**MS-R3-1 — MEDIUM: stage 2 can test a mutant that stage 1 already caught.**
+`visit_expr_struct` adds struct-field deletion mutants without applying `allows_mutant`.
+These mutants bypass the exact name filters and exclusion regexes.
+The reassessed head relies on those filters and checks only the total number of stage-2 outcomes.
+It does not verify each tested identity against the requested misses.
+
+P5's retained stage 1 has 82 mutants: 52 caught, 22 missed, zero timeout, and eight unviable.
+Stage 2 tests 23 mutants for those 22 misses.
+The extra mutant deletes `frames` in `LinkTap::connected` at `edge_tap.rs:83:13`.
+The primary outcome rows show the same full name and span caught in stage 1 and missed in stage 2.
+The old decision fails the different total. This evidence does not show a false passing gate.
+It does show a wrong selection and unnecessary slow execution of an already-caught mutant.
+
+Evidence: `~/botster-sessions/shared/core-stage1/gate-logs/deb34002-mutants/`.
+Stage-1 outcomes SHA256: `83a79706637af8bd4e81c62315f0210457066c3520f0f1b3005a396ddb1c5c90`.
+Stage-2 outcomes SHA256: `0bfc3143065c758a4449a84f30cc88a71131f692f71fcb0ae5c253ed49a28906`.
+The exact-head gate and original fixture pass remain historical evidence. They did not cover this mutant kind.
+
+Use a selection mechanism that filters every mutant kind. Verify the tested identities before the combined mutant verdict.
+Retain a real fixture that catches a field deletion in stage 1 and catches another mutant only in stage 2.
+The field deletion must not enter stage 2.
+PR #229 tracks this correction. Its first-round package verdict is NOT CLEAN at `7acaabc555091caa307e84ae412d7cd3404167c1`.
+That review also identifies selection-error timing and changed duplicate counts as open findings.
+The separate stage-1 field-exclusion limit is outside this finding.
+
+The reviewer changed no product code and ran no gate, build, test, mutation job, merge check, or reversal.
+
+VERDICT: NOT CLEAN
