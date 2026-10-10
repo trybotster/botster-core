@@ -26,9 +26,7 @@ use botster_core_link::launch::{WorkerLaunch, TOKEN_VAR};
 use botster_core_link::msg::PayloadId;
 use botster_core_sys::payload::{self, Payload, PayloadCommand};
 use botster_core_sys::process::start_time;
-use botster_worker_core::{
-    Action, CandidateId, Input, PayloadSpec, SpawnFailure, Worker, WorkerConfig,
-};
+use botster_worker_core::{Action, CandidateId, Input, PayloadSpec, SpawnFailure, Worker};
 use io_decisions::{IoFailure, ReadyState};
 use mio::net::{UnixListener, UnixStream};
 use mio::unix::SourceFd;
@@ -43,7 +41,7 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 use std::sync::mpsc;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 const CONTROL: Token = Token(0);
 const PTY: Token = Token(1);
@@ -157,10 +155,7 @@ impl Driver {
         poll.registry()
             .register(&mut signals, SIGNALS, Interest::READABLE)?;
         let waker = Arc::new(Waker::new(poll.registry(), EXIT)?);
-        let worker = Worker::new(WorkerConfig {
-            startup: Duration::from_millis(launch.startup_ms),
-            ..WorkerConfig::new(launch.instance.clone(), launch.token, launch.host_epoch)
-        });
+        let worker = Worker::new(io_decisions::worker_config(launch));
         Ok(Driver {
             read_chunk,
             worker,
@@ -575,13 +570,12 @@ impl Driver {
     /// At most one connection of the endpoint per turn. Each one is a candidate for the machine. A failed accept leaves
     /// the endpoint; the worker keeps its control link and its payload.
     fn accept_candidate(&mut self) {
-        if !self.endpoint_readable {
+        if !io_decisions::accept_endpoint(self.endpoint_readable) {
             return;
         }
         match self.endpoint.listener.accept() {
             Ok((mut stream, _)) => {
-                let id = CandidateId(self.next_candidate);
-                self.next_candidate += 1;
+                let id = io_decisions::take_candidate(&mut self.next_candidate);
                 let token = Token(io_decisions::candidate_token(id));
                 if self
                     .poll
@@ -616,7 +610,7 @@ impl Driver {
         let mut buf = vec![0u8; self.read_chunk.get()];
         let mut ended = Vec::new();
         for (&id, candidate) in &mut self.candidates {
-            if !candidate.readable {
+            if !io_decisions::read_candidate(candidate.readable) {
                 continue;
             }
             let closed = match candidate.stream.read(&mut buf) {
