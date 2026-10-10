@@ -21,7 +21,9 @@ use botster_core_contract::prelude::*;
 use botster_core_link::frame::{encode_frame, FrameDecoder, FrameType};
 use botster_core_link::hello::Hello;
 use botster_core_link::launch::WorkerLaunch;
-use botster_core_link::msg::{HostMsg, LaunchSpec, Observation, PayloadId, WorkerMsg};
+use botster_core_link::msg::{
+    AdoptedPayload, HostMsg, LaunchSpec, Observation, PayloadId, WorkerMsg,
+};
 use botster_core_link::proof::token_proof;
 use botster_test_process::{quoted, Blocker, Bounded, Deadline, Guard, OwnedChild};
 use payload_guard::PayloadGuard;
@@ -184,6 +186,8 @@ impl Session {
             instance: InstanceId("1-1".into()),
             host_epoch: 1,
             token: [5; 32],
+            endpoint: root.join("e"),
+            startup_ms: WorkerLaunch::millis(CoreLimits::default().startup),
         };
         let observer_guard = crate::DRIVER_OBSERVER.map(|_| process_guard::GroupGuard::new(root));
         let mut command = if let Some(observer) = crate::DRIVER_OBSERVER {
@@ -229,7 +233,11 @@ impl Session {
     /// LC-7: `Remove` gives the complete result, and then the worker ends with code 0.
     fn remove(mut self) {
         self.link.msg(&HostMsg::Remove);
-        assert!(matches!(self.link.report(), WorkerMsg::RemoveResult { .. }));
+        let report = self.link.report();
+        assert!(
+            matches!(report, WorkerMsg::RemoveResult { .. }),
+            "{report:?}"
+        );
         let status = self.worker.worker.wait().unwrap();
         assert_eq!(
             status.code(),
@@ -413,6 +421,71 @@ fn lc_5_the_worker_control_signal_ends_the_payload_and_the_worker_stays() {
         "TERM is ignored, so the kill of the grace ends it"
     );
     s.remove();
+}
+
+/// DESIGN.md "Adoption (P5)" parts 1, 3 and 7; AD-6, DP-8: the real worker binds its endpoint before its first hello. A new
+/// host connects there and proves the host role at a higher epoch. The worker answers on that link with its own proof at
+/// that epoch and an `Adopted` report of its running payload, and it closes the old link (the fence). The new link obeys
+/// the new host: `Remove` ends the worker, and the worker's end removes its endpoint.
+#[test]
+fn a_new_host_adopts_the_real_worker_at_its_endpoint() {
+    let root = temp_root();
+    // The payload waits on its PTY's input without a timer; the stop below ends it.
+    let mut s = GuardedSession::launch(root.path(), "exec /bin/cat", 200);
+    let endpoint = root.path().join("e");
+    let (instance, token, epoch) = (InstanceId("1-1".into()), [5; 32], 2);
+    let stream = UnixStream::connect(&endpoint).expect("the worker listens at its endpoint");
+    // timer: deadline — the limit of a wait for a real worker's frame; not a contract value.
+    stream
+        .set_read_timeout(Some(Duration::from_secs(20)))
+        .unwrap();
+    let mut adopter = Link {
+        stream,
+        decoder: FrameDecoder::new(1 << 20),
+        pending: Vec::new(),
+    };
+    let mut hello = Vec::new();
+    Hello {
+        protocol: 1,
+        instance: instance.clone(),
+        proof: botster_core_link::proof::host_proof(&token, &instance, epoch),
+        host_epoch: epoch,
+    }
+    .encode(&mut hello)
+    .unwrap();
+    adopter.send(FrameType::HELLO, &hello);
+    let (kind, payload) = adopter.frame();
+    assert_eq!(kind, FrameType::HELLO);
+    let answer = Hello::decode(&payload).unwrap();
+    assert_eq!(answer.host_epoch, epoch);
+    assert_eq!(answer.proof, token_proof(&token, &instance, epoch), "AD-6");
+    match adopter.report() {
+        WorkerMsg::Adopted { report } => assert!(
+            matches!(report.payload, AdoptedPayload::Running { .. }),
+            "{report:?}"
+        ),
+        other => panic!("{other:?}"),
+    }
+    // The fence: the old host's link ends.
+    let mut rest = [0u8; 64];
+    loop {
+        match s.link.stream.read(&mut rest) {
+            Ok(0) => break,
+            Err(error) if error.kind() == std::io::ErrorKind::ConnectionReset => break,
+            Ok(_) => {}
+            Err(error) => panic!("the old link did not end: {error}"),
+        }
+    }
+    // The new link obeys the new host: `Stop` ends the payload (LC-5), and `Remove` ends the worker (LC-7).
+    adopter.msg(&HostMsg::Stop);
+    let report = adopter.report();
+    assert!(matches!(report, WorkerMsg::Exited { .. }), "{report:?}");
+    s.link = adopter;
+    s.remove();
+    assert!(
+        !endpoint.exists(),
+        "the worker removes its endpoint at its end"
+    );
 }
 
 /// Plan R12 (teardown is TERM, then KILL, then reap): `SIGTERM` on the worker kills the payload group that it holds at
@@ -619,6 +692,8 @@ impl GuardedSession {
             instance: InstanceId("1-1".into()),
             host_epoch: 1,
             token: [5; 32],
+            endpoint: root.join("e"),
+            startup_ms: WorkerLaunch::millis(CoreLimits::default().startup),
         };
         let (program, args) = if let Some(observer) = crate::DRIVER_OBSERVER {
             (
@@ -696,7 +771,11 @@ impl GuardedSession {
     /// LC-7: `Remove` gives the complete result, and then the worker ends with code 0.
     fn remove(mut self) {
         self.link.msg(&HostMsg::Remove);
-        assert!(matches!(self.link.report(), WorkerMsg::RemoveResult { .. }));
+        let report = self.link.report();
+        assert!(
+            matches!(report, WorkerMsg::RemoveResult { .. }),
+            "{report:?}"
+        );
         let status = self.worker.status_by(Deadline::cleanup());
         assert_eq!(
             status.code(),
