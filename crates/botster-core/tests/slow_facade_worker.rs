@@ -462,12 +462,13 @@ fn a_new_host_adopts_a_live_worker_at_its_endpoint_and_remove_deletes_an_endpoin
         matches!(completed(&events, adopt), Some(OpResult::Ok(_))),
         "{events:?}"
     );
-    let _link = adoptee.join().unwrap();
+    // The state comes first: a host that never connects leaves the stand-in in its accept.
     assert_eq!(
         again.get(&sid("s1")).unwrap().state,
         SessionState::Running,
         "{events:?}"
     );
+    let _link = adoptee.join().unwrap();
 
     // LC-7 step 4: `Remove` deletes the session's endpoint. A `Created` session has no worker; its endpoint file stands
     // for one that a killed worker left.
