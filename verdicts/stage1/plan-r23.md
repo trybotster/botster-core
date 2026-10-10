@@ -1157,3 +1157,49 @@ This documentation change requires no execution gate.
 I ran no build, test, gate, mutation job, merge-check job, or reversal job.
 
 VERDICT: CLEAN (0 open) at 515cf3b61c94800e00ac2489f76fdab707f47ee1
+
+## Round 35 — revision 23aa — 2026-10-10
+
+Reviewed head: `5774a0a0954ac49f1cf4e992a75c21f468479f88`.
+Prior accepted head: `515cf3b61c94800e00ac2489f76fdab707f47ee1`.
+Scope: the complete two-hunk delta in `docs/stage1-plan.md`.
+
+### P23aa-1 — MEDIUM — OPEN — The link-write failure claim does not match the current driver
+
+Section 6.3 item 2 says Core uses `write(2)` without signal suppression on worker links.
+It states that a host with default `SIGPIPE` handling dies when it writes to a gone worker.
+The current driver and its pinned dependencies contradict that premise.
+
+At v1 `3677b37e502497d5e63a91dfad92e5671bd19196`, `RealEdges::link_send` calls `mio::net::UnixStream::write`.
+Cargo.lock pins Mio 1.2.3. Mio's stream contains `std::os::unix::net::UnixStream` and forwards `write` to that stream.
+In the local Rust 1.97.0 source, `UnixStream::write` calls `send_with_flags(buf, MSG_NOSIGNAL)`.
+The Linux branch imports `libc::MSG_NOSIGNAL`.
+Mio's Unix `new_socket` also sets `SO_NOSIGPIPE` on macOS before returning a socket.
+The connection path uses that constructor. The listener construction also uses that constructor.
+Core therefore already receives suppression through its dependencies on the ordinary link-write path.
+
+Primary source checked:
+
+- `mio-1.2.3/src/net/uds/stream.rs`: the stream type and both `Write` implementations.
+- `mio-1.2.3/src/sys/unix/uds/stream.rs`: `connect_addr` uses `new_socket`.
+- `mio-1.2.3/src/sys/unix/net.rs`: `new_socket` sets `SO_NOSIGPIPE` on Apple systems.
+- Local Rust 1.97.0 source documentation, `std/os/unix/net/stream.rs:675-677`: the Linux write uses `MSG_NOSIGNAL`.
+- Local Rust 1.97.0 source documentation, `std/sys/net/connection/socket/unix.rs:100-103`: Apple socket construction sets `SO_NOSIGPIPE`.
+
+The [Rust UnixStream source](https://raw.githubusercontent.com/rust-lang/rust/1.92.0/library/std/src/os/unix/net/stream.rs) also documents this suppression.
+The current descriptor-send method is a typed failure stub. It performs no syscall and has no current signal exposure.
+A future Linux `sendmsg` implementation must preserve suppression. That is a valid requirement for the descriptor work.
+
+Replace the asserted existing link-write defect with the supported remaining scope.
+The entry can require a real-process proof with default `SIGPIPE` handling and suppression in the future descriptor send.
+If a current path is exposed, name its exact syscall and explain how it bypasses the dependency behavior.
+Remove or correct the "section 0 known gap" reference: section 0 contains no SIGPIPE or A49 entry at this head.
+Update the revision row to match the corrected scope.
+I ran no process proof and make no observed host-death claim.
+
+The owner, separate PR, order after DP-2, and non-minimum status do not change the stage's acceptance conditions.
+The remote plan head matches the reviewed head. `git diff --check` passes.
+This documentation change requires no execution gate.
+I ran no build, test, gate, mutation job, merge-check job, or reversal job.
+
+VERDICT: NOT CLEAN (1 open: P23aa-1 MEDIUM) at 5774a0a0954ac49f1cf4e992a75c21f468479f88
