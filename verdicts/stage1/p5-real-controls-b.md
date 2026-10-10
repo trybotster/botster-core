@@ -199,3 +199,22 @@ The next completed review needs the corrected gate, its exact head and base, and
 #222 still must merge first and still needs native Mac evidence.
 I sent this source result to P5 and its package reviewer.
 I ran no build, test, gate, mutation job, or reversal job.
+
+### Further base imports — 2026-10-10 — Gate pending
+
+Reported head: `5586e0eebed19df81247c12c82642fab077a2d7b`.
+Own base: #222 `996a17f0afab8f6509d32623cfeaf00619fd2a01`.
+This head merges #222's updated bases and its native Mac correction into the source-checked `7251ba42`.
+There is no additional own correction.
+The sole changed byte line in a #228 own file imports #218's `pub mod pending` into testkit `lib.rs`.
+
+The automatic `7251ba42` plus `7351d67e` tree equals actual `3aab17d0`, tree `cb503af88673652fc28af1755c2f09ddfbdee5fe`.
+The automatic `3aab17d0` plus `996a17f0` tree equals actual `5586e0ee`, tree `ce95fd91facec1a91ca0292a00a9ba2fe0e48a69`.
+The inherited Mac correction is reviewed in `verdicts/stage1/p5-real-controls-a.md`, Round 3.
+The required native Mac evidence now closes there. Its final full gate and package verdict remain pending.
+
+The three #228 source corrections remain present. `git diff --check` passes.
+No exact-head gate is supplied for this head. #222 must still merge before #228.
+This entry gives no new CLEAN or completed round.
+I ran no build, test, gate, mutation job, merge-check job, or reversal job.
+The tree comparison uses Git source objects only.
