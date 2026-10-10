@@ -147,3 +147,8 @@ crates/botster-core-sys/src/signal.rs | a_signal_to_our_own_group_reaches_this_p
 # see that. Temporary: the next botster-test-process PR (owner P6) adds a bounded accept to the crate, moves this loop
 # onto it and removes this entry. The legacy Session::launch accept keeps its own entry above.
 crates/botster-worker/tests/common/session.rs | launch | blocking-read
+
+# The real adoption at the worker endpoint (P5 #176b): the test makes the host connect in one pump, then takes the queued
+# connection with ONE accept on a non-blocking listener. The accept never waits (a host that did not connect fails it at
+# once with WouldBlock); the check cannot see the non-blocking listener.
+crates/botster-core/tests/slow_facade_worker.rs | a_new_host_adopts_a_live_worker_at_its_endpoint_and_remove_deletes_an_endpoint | blocking-read
