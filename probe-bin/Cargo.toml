@@ -1,0 +1,13 @@
+# Probe only (never merge): the R-48 botster-conformance-probe (contracts 32fd664) as a Core member, so prebuild-worker builds it offline.
+[package]
+name = "botster-conformance-probe"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+botster-probe-script.workspace = true
+botster-route-codec.workspace = true
+serde_json.workspace = true
+signal-hook.workspace = true
+rustix = { workspace = true, features = ["termios"] }

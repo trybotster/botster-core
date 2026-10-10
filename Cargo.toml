@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/*", "xtask"]
+members = ["crates/*", "xtask", "probe-bin"]
 # PROBE ONLY (never merged): the R-46 transcript-fix conformance crate copy.
 exclude = ["probe-contracts"]
 

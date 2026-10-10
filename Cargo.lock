@@ -269,6 +269,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "botster-conformance-probe"
+version = "0.1.0"
+dependencies = [
+ "botster-probe-script",
+ "botster-route-codec",
+ "rustix",
+ "serde_json",
+ "signal-hook",
+]
+
+[[package]]
 name = "botster-core"
 version = "0.1.0"
 dependencies = [

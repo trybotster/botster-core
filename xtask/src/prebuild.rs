@@ -98,20 +98,12 @@ fn build_anchor(root: &Path, meta: &Meta, candidate: &Path) -> Result<(String, S
 }
 
 fn build_probe(root: &Path, meta: &Meta, candidate: &Path) -> Result<(String, String)> {
-    let (git, tag) = contracts_source(&std::fs::read_to_string(root.join("Cargo.toml"))?)?;
-    let install_root: PathBuf = meta.target_dir.join("probe-install");
-    let mut install = cargo(root);
-    install
-        .args([
-            "install", "--locked", "--force", "--git", &git, "--tag", &tag,
-        ])
-        .arg("--root")
-        .arg(&install_root)
-        .arg("--target-dir")
-        .arg(meta.target_dir.join("probe-build"))
-        .arg(PROBE);
-    run(install)?;
-    let built = install_root.join("bin").join(PROBE);
+    // PROBE ONLY (never merge): the R-48 probe is the workspace member `probe-bin`.
+    let _ = contracts_source;
+    let mut build = cargo(root);
+    build.args(["build", "-p", PROBE]);
+    run(build)?;
+    let built = meta.target_dir.join("debug").join(PROBE);
     let target = candidate.join(PROBE);
     install_executable(&built, &target)?;
     Ok((PROBE.to_string(), sha256_hex(&target)?))
