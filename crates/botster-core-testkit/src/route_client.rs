@@ -48,6 +48,21 @@ impl RouteEnds {
     }
 }
 
+/// The session instance of each route that Core attached, as the host held it at the attach (`route_fill`). An attach can come
+/// before the session's row is stored (Create and Start begun, not pumped), so the testkit records the instance there.
+#[derive(Debug, Clone, Default)]
+pub struct RouteInstances(Arc<Mutex<BTreeMap<RouteId, InstanceId>>>);
+
+impl RouteInstances {
+    pub fn attached(&self, route: RouteId, instance: InstanceId) {
+        self.0.lock().expect("not poisoned").insert(route, instance);
+    }
+
+    pub fn of(&self, route: RouteId) -> Option<InstanceId> {
+        self.0.lock().expect("not poisoned").get(&route).cloned()
+    }
+}
+
 /// The controls that `TestkitRoute::control` runs.
 pub(crate) const ROUTE_CONTROLS: &[&str] = &[
     "client_close",
@@ -141,7 +156,8 @@ impl TestkitRoute {
         let row = session
             .rows
             .read()
-            .and_then(|bytes| Row::decode(&session.session, &bytes))
+            .ok_or("route_fill: the route's session has no stored row (not yet, or removed)")?;
+        let row = Row::decode(&session.session, &row)
             .filter(|row| row.instance == session.instance)
             .ok_or("route_fill: the route's session instance is gone")?;
         let worker = row

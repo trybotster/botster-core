@@ -591,3 +591,91 @@ fn route_fill_of_a_route_of_a_removed_session_is_refused_after_a_recreate() {
         "the new payload gets no byte from the old route"
     );
 }
+
+/// F94 / integration R1-1 (round 2): Create and Start begun, neither pumped, then the attach: no row is stored yet, and the
+/// route still belongs to that instance. After both complete, the fill writes to its payload. After the session is removed
+/// and a new one with the same id runs, the old route's fill is refused, and the new payload gets no byte.
+#[test]
+fn route_fill_after_an_attach_before_the_first_row_belongs_to_that_instance() {
+    for seed in 0..8 {
+        let mut harness = TestkitHarness::new(seed);
+        let mut core = harness.open(&spec("a")).expect("open");
+        let mut at = Instant::now();
+        let create_s1 = |harness: &TestkitHarness, core: &mut Box<dyn CoreApi>, program: Value| {
+            let mut create = json!({"Create": {"session": "s1", "request": {"program": program}}});
+            normalize_op(&mut create, &harness.probe_binary());
+            core.begin(serde_json::from_value(create).unwrap()).unwrap()
+        };
+        let create = create_s1(&harness, &mut core, json!([{"hold": {}}]));
+        let start = core.begin(Op::Start { id: sid("s1") }).unwrap();
+        assert!(
+            harness
+                .directories()
+                .row("d", &botster_core_host::session::row_key(&sid("s1")))
+                .is_none(),
+            "seed {seed}: no row is stored before the first pump"
+        );
+        let mut route = attach(&mut harness, core.as_mut());
+        let early = route.control("route_fill", &json!({})).unwrap_err();
+        assert!(early.contains("no stored row"), "seed {seed}: {early}");
+        assert!(matches!(
+            complete(core.as_mut(), &mut at, create),
+            OpResult::Ok(_)
+        ));
+        assert!(matches!(
+            complete(core.as_mut(), &mut at, start),
+            OpResult::Ok(_)
+        ));
+        let filled = route.control("route_fill", &json!({})).unwrap();
+        assert!(
+            filled["bytes"].as_u64().unwrap() > 0,
+            "seed {seed}: {filled}"
+        );
+        assert!(
+            unread(&harness) > 0,
+            "seed {seed}: the running payload's edge has the fill"
+        );
+        // The replacement: the first instance ends and is removed, and a new s1 runs. The client closes its end first: the
+        // route's unread tail would hold its close, and so the Remove. route_fill does not look at the route's state, so only
+        // the instance check refuses the fill below.
+        route.control("client_close", &json!({})).unwrap();
+        let signal = core
+            .begin(Op::Signal {
+                id: sid("s1"),
+                sig: Signal::Kill,
+            })
+            .unwrap();
+        assert!(matches!(
+            complete(core.as_mut(), &mut at, signal),
+            OpResult::Ok(_)
+        ));
+        settle(core.as_mut(), at);
+        let remove = core.begin(Op::Remove { id: sid("s1") }).unwrap();
+        assert!(
+            matches!(complete(core.as_mut(), &mut at, remove), OpResult::Ok(_)),
+            "seed {seed}"
+        );
+        let create = create_s1(&harness, &mut core, json!([{"hold": {}}]));
+        assert!(matches!(
+            complete(core.as_mut(), &mut at, create),
+            OpResult::Ok(_)
+        ));
+        let start = core.begin(Op::Start { id: sid("s1") }).unwrap();
+        assert!(matches!(
+            complete(core.as_mut(), &mut at, start),
+            OpResult::Ok(_)
+        ));
+        settle(core.as_mut(), at);
+        let before = unread(&harness);
+        let refused = route.control("route_fill", &json!({})).unwrap_err();
+        assert!(
+            refused.contains("instance is gone"),
+            "seed {seed}: {refused}"
+        );
+        assert_eq!(
+            unread(&harness),
+            before,
+            "seed {seed}: the new payload gets no byte from the old route"
+        );
+    }
+}

@@ -49,6 +49,8 @@ struct HandleEdges {
     captures: CaptureLog,
     /// The route-ended causes of its routes (A2-3).
     route_ends: crate::route_client::RouteEnds,
+    /// The session instance of each of its routes (`route_fill`).
+    route_instances: crate::route_client::RouteInstances,
     /// The failures that a control injects at its host's edges (`fail_handoff`, `hold_handoff`).
     faults: Arc<Mutex<crate::core::Faults>>,
     /// The wake object of its host: a control that releases held work signals it.
@@ -181,6 +183,7 @@ impl CoreHarness for TestkitHarness {
                 processes: table,
                 captures: core.captures(),
                 route_ends: core.route_ends(),
+                route_instances: core.route_instances(),
                 faults,
                 wake,
             },
@@ -281,19 +284,24 @@ impl CoreHarness for TestkitHarness {
             .get(handle)
             .map(|h| h.route_ends.clone())
             .unwrap_or_default();
-        // The route belongs to this instance of the session. Its worker can come later (an attach while `Starting`), so a
-        // fill reads the row when it runs.
+        // The route belongs to the session instance that the host held at the attach, which Core recorded: the attach can come
+        // before the row is stored (Create and Start begun, not pumped), and the worker later still. So a fill reads the row
+        // when it runs, and refuses a row of another instance.
+        let instance = self
+            .handles
+            .get(handle)
+            .and_then(|h| h.route_instances.of(result.route));
         let session_row = self
             .directory_of(handle)
             .and_then(|dir| {
                 self.directories
                     .row_reader(dir, &botster_core_host::session::row_key(session))
             })
-            .zip(crate::controls::session_row(self, handle, session).ok())
-            .map(|(rows, row)| crate::route_client::SessionRow {
+            .zip(instance)
+            .map(|(rows, instance)| crate::route_client::SessionRow {
                 rows,
                 session: session.clone(),
-                instance: row.instance,
+                instance,
             });
         let route = crate::route_client::TestkitRoute::new(
             client_end,
