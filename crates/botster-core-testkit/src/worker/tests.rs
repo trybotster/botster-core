@@ -734,7 +734,7 @@ fn the_pty_read_budget_bounds_the_reads() {
     edges.ready(now, &worker);
     edges.take(now, &worker, 0);
     // At most eight reads (one byte each at the least), then the edge must offer none.
-    let mut read_all = |edges: &mut WorkerEdges, read: &mut Vec<u8>| {
+    let read_all = |edges: &mut WorkerEdges, read: &mut Vec<u8>| {
         for _ in 0..8 {
             if edges.ready(now, &worker) != 1 {
                 break;
