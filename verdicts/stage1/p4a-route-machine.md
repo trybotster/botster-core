@@ -178,3 +178,74 @@ Real descriptor transfer remains later work. No real-route acceptance is claimed
 `git diff --check` passes. The reviewer ran no builds, tests, or gates.
 
 VERDICT: NOT CLEAN at 959a716cf9b918c1a7fa8845a7ca8ed15c3f87b4 — R1-2 MEDIUM, R2-1 LOW, R2-2 MEDIUM remain open.
+
+## Round 3 — R-45 accounting and slow mutation evidence
+
+Reviewed head: `cb5b8822425a15b41337a7468a8b43a493a14501`.
+Base: `1627732f5f651f5946e5d60b64dedcbf6c4cb683` (`v1`).
+Scope: the complete one-commit, five-file delta from `959a716cf9b918c1a7fa8845a7ca8ed15c3f87b4` and the updated evidence.
+
+### R1-2 — CLOSED
+
+The reviewer read published R-45 in contracts commit `7f7a467`, `docs/steward-rulings.md`.
+The ruling exempts the single baseline sequence in delivery, including its stream prefixes, from the queue threshold.
+Only frames behind that sequence count. Output after the model's consumed cut, including the held suffix, remains charged.
+Baseline occupancy alone starts no stall clock. The existing progress deadline still applies under OU-3b(b).
+
+`Route::baseline` records the unwritten bytes through `live` before the held suffix is added.
+The attached frame is ahead of the sequence; it is not a frame behind it.
+The queue charge is `queued - baseline`.
+Writes consume the front of the queue and reduce both counters until the exempt bytes reach zero.
+Subsequent output remains charged, including its type bytes and stream prefixes.
+Closing routes do not constrain the PTY budget. Route removal drops both counters together.
+The changed paths preserve `baseline <= queued`.
+
+The worker proof uses equal queue and snapshot bounds, with a held escape byte.
+It checks the budget before and after additional output, ordered delivery, and the absence of resync frames.
+The Core test measures a snapshot, opens Core with both bounds equal to that size, and reads the baseline through `live`.
+Its next read is empty. The PR correctly states that this Core test alone does not distinguish the old accounting.
+The worker budget assertions provide that regression check.
+Both tests pass in the exact-head gate.
+The later stall and resync implementation must preserve R-45. This PR does not claim those paths are complete.
+
+### R2-1 — CLOSED
+
+The PR correctly states that contracts-v0.1.22 substitutes bindings in attach options.
+`conf::ou_1_terminal_format_is_negotiated_against_the_target_worker` is the only pending removal in this delta.
+It passes through the facade harness in the supplied gate.
+The reviewer independently counted 41 of 69 minimum IDs at the base and 44 of 69 at this head.
+All 44 have PASS evidence. The facade suite passes 124 IDs with zero failures.
+The corrected description reports these counts and preserves the real-route gap.
+
+### R2-2 — CLOSED
+
+Manual log: `~/botster-sessions/gates/botster-core-stage1-p4a-route-machine-cb5b8822-pool-20261009-190622-24485.log`.
+It names this head and base and exits 0 on the Linux pool.
+The command uses `--no-config --in-place --features slow`, the slow profile and selection, and `--max-fail 1:immediate`.
+The baseline runs 51 slow tests and passes all 51.
+Both descriptor-send mutants, `Ok(0)` and `Ok(1)`, fail the named handoff-refusal assertion at `real.rs:661`.
+The log reports two caught mutants, with no misses or timeouts.
+The PR names this evidence for the renamed exclusion.
+
+### Gate and merge evidence
+
+Full log: `~/botster-sessions/gates/botster-core-stage1-p4a-route-machine-cb5b8822-pool-20261009-185035-66116.log`.
+All ten CI stages pass. Default tests: 1329 passed. Slow tests: 254 passed.
+Both ordinary mutation invocations report 179 mutants: 166 caught, 13 unviable, zero missed, and zero timeouts.
+The second environment-only invocation is not the manual slow-feature evidence above.
+
+The pool command exits 1 after CI because an appended manual command combines incompatible `--in-place` and `--jobs` options.
+That command fails during argument parsing and runs no mutation test.
+The separate corrected manual job supplies the missing evidence.
+The lead explicitly accepted these completed stages and the corrected job as merge evidence in message `msg_plugin-w_1791598161_3b263b`.
+The lead requires future manual evidence runs to use separate pool jobs.
+
+The head contains current remote `v1`. This delta has no new merge commit.
+The earlier merge checks remain applicable. The correction preserves all four previously closed product findings.
+`git diff --check` passes. The reviewer ran no builds, tests, or gates.
+
+The reviewer read the package's same-head CLEAN verdict, round 137, at `6a706997a716ec5da7a47cb6365b88807a472f6d`.
+Its closed findings and remaining implementation scope agree with this review.
+No integration finding remains open.
+
+VERDICT: CLEAN (0 open) at cb5b8822425a15b41337a7468a8b43a493a14501
