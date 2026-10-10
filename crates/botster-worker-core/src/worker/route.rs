@@ -34,10 +34,10 @@ use super::{model, Action, Worker};
 use botster_core_contract::prelude::*;
 use botster_core_link::msg::Observation;
 use botster_core_link::msg::WorkerMsg;
+use botster_core_link::route::{frame_bounds, frame_fits, route_closed_frame};
 use botster_route_codec::prelude::{
-    bound_of, stream_wrap, AttachFailedReason, Attached, BaselineBegin, BaselineEnd, CloseReason,
-    Decoded, Exit as WireExit, FrameBounds, HistoryState, HistoryUnavailable, InputRefused, Op,
-    RefusalReason, RouteClosed as RouteClosedFrame, RouteLimits, StreamReader, ToClient, ToWorker,
+    stream_wrap, Attached, BaselineBegin, BaselineEnd, Decoded, HistoryState, HistoryUnavailable,
+    InputRefused, Op, RefusalReason, RouteLimits, StreamReader, ToClient, ToWorker,
 };
 use std::collections::{BTreeMap, VecDeque};
 
@@ -99,19 +99,9 @@ impl Route {
         self.queue.push_back(bytes);
     }
 
-    fn bounds(&self) -> FrameBounds {
-        FrameBounds {
-            max_frame: self.limits.max_frame_bytes,
-            max_screen: self.limits.max_screen_frame_bytes,
-            max_history: self.limits.max_history_page_bytes,
-        }
-    }
-
     /// True when the encoded frame is within its bound on this route (DP-3, `bound_of`).
     fn fits(&self, frame: &[u8]) -> bool {
-        frame
-            .first()
-            .is_some_and(|&kind| frame.len() as u64 <= bound_of(kind, &self.bounds()))
+        frame_fits(frame, &self.limits)
     }
 
     /// The PTY bytes that the queue can still take as `output` frames: `free` bytes of queue hold `n` payload bytes in
@@ -251,12 +241,10 @@ impl Worker {
             }
             Err(reason) => {
                 // No partial baseline (OU-9): `route_closed` is the only frame, when the route's bound carries it.
-                let closed = ToClient::RouteClosed(RouteClosedFrame {
-                    reason: CloseReason::AttachFailed {
-                        reason: AttachFailedReason::SnapshotTooLarge,
-                    },
-                    exit: None,
-                })
+                let closed = ToClient::RouteClosed(
+                    route_closed_frame(RouteCloseReason::SnapshotTooLarge)
+                        .expect("a healthy reason has its frame"),
+                )
                 .encode();
                 entry.closing = Some(reason);
                 if !entry.fits(&closed) {
@@ -457,13 +445,7 @@ impl Worker {
     /// A healthy close (OU-2b): `route_closed` goes after every frame that is queued, and the transport closes when it is
     /// written. A route whose bound cannot carry the frame closes with no frame. A route that is closing already keeps its
     /// first reason.
-    fn close_healthy(
-        &mut self,
-        id: RouteId,
-        reason: RouteCloseReason,
-        wire: CloseReason,
-        exit: Option<WireExit>,
-    ) {
+    fn close_healthy(&mut self, id: RouteId, reason: RouteCloseReason) {
         let Some(route) = self.routes.routes.get_mut(&id) else {
             return;
         };
@@ -471,7 +453,10 @@ impl Worker {
             return;
         }
         route.closing = Some(reason);
-        let frame = ToClient::RouteClosed(RouteClosedFrame { reason: wire, exit }).encode();
+        let frame = ToClient::RouteClosed(
+            route_closed_frame(reason).expect("a healthy reason has its frame"),
+        )
+        .encode();
         if !route.fits(&frame) {
             self.end_route(id, reason);
             return;
@@ -484,11 +469,11 @@ impl Worker {
     /// `Detach` (DP-7, OU-2b): the route closes with its reason, after the frames that are queued. A route that this worker
     /// does not hold is reported closed at once, so the host's `Detach` completes.
     pub(super) fn on_detach(&mut self, id: RouteId, reason: DetachReason) {
-        let (close, wire) = match reason {
-            DetachReason::Replaced => (RouteCloseReason::Replaced, CloseReason::Replaced),
-            DetachReason::Revoked => (RouteCloseReason::Revoked, CloseReason::Revoked),
+        let close = match reason {
+            DetachReason::Replaced => RouteCloseReason::Replaced,
+            DetachReason::Revoked => RouteCloseReason::Revoked,
             // `Detached`; the enum is non-exhaustive, so a later reason closes the route as a plain detach (as the host does).
-            _ => (RouteCloseReason::Detached, CloseReason::Detached),
+            _ => RouteCloseReason::Detached,
         };
         if !self.routes.routes.contains_key(&id) {
             self.report(&WorkerMsg::RouteClosed {
@@ -498,7 +483,7 @@ impl Worker {
             });
             return;
         }
-        self.close_healthy(id, close, wire, None);
+        self.close_healthy(id, close);
     }
 
     /// OU-7: when the exit is reported, after the output tail is queued, every route closes `session_ended` with the exit.
@@ -519,12 +504,7 @@ impl Worker {
                 cause: ExitCause::Other,
             },
         };
-        self.close_healthy(
-            id,
-            reason,
-            CloseReason::SessionEnded,
-            Some(WireExit { code, signal }),
-        );
+        self.close_healthy(id, reason);
     }
 
     /// The client's bytes on a route (DP-5, TS-3). Each complete frame is client input: it is tagged with its route and
@@ -553,7 +533,7 @@ impl Worker {
             if route.closing.is_some() || !route.refusal_room(queue_bytes) {
                 return;
             }
-            let bounds = route.bounds();
+            let bounds = frame_bounds(&route.limits);
             let decoded = match route.reader.next_frame(&bounds) {
                 Ok(None) => return,
                 Ok(Some(frame)) => ToWorker::decode(&frame, &bounds),
@@ -573,12 +553,7 @@ impl Worker {
                 }
                 Err(error) => {
                     let code = error.code;
-                    self.close_healthy(
-                        id,
-                        RouteCloseReason::BadFrame { code },
-                        CloseReason::ProtocolError { code },
-                        None,
-                    );
+                    self.close_healthy(id, RouteCloseReason::BadFrame { code });
                     return;
                 }
             }
