@@ -49,6 +49,8 @@ struct HandleEdges {
     captures: CaptureLog,
     /// The route-ended causes of its routes (A2-3).
     route_ends: crate::route_client::RouteEnds,
+    /// The session instance of each of its routes (`route_fill`).
+    route_instances: crate::route_client::RouteInstances,
     /// The failures that a control injects at its host's edges (`fail_handoff`, `hold_handoff`).
     faults: Arc<Mutex<crate::core::Faults>>,
     /// The wake object of its host: a control that releases held work signals it.
@@ -181,6 +183,7 @@ impl CoreHarness for TestkitHarness {
                 processes: table,
                 captures: core.captures(),
                 route_ends: core.route_ends(),
+                route_instances: core.route_instances(),
                 faults,
                 wake,
             },
@@ -281,12 +284,35 @@ impl CoreHarness for TestkitHarness {
             .get(handle)
             .map(|h| h.route_ends.clone())
             .unwrap_or_default();
+        // The route belongs to the session instance that the host held at the attach, which Core recorded: the attach can come
+        // before the row is stored (Create and Start begun, not pumped), and the worker later still. So a fill reads the row
+        // when it runs, and refuses a row of another instance.
+        let instance = self
+            .handles
+            .get(handle)
+            .and_then(|h| h.route_instances.of(result.route));
+        let session_row = self
+            .directory_of(handle)
+            .and_then(|dir| {
+                self.directories
+                    .row_reader(dir, &botster_core_host::session::row_key(session))
+            })
+            .zip(instance)
+            .map(|(rows, instance)| crate::route_client::SessionRow {
+                rows,
+                session: session.clone(),
+                instance,
+            });
         let route = crate::route_client::TestkitRoute::new(
             client_end,
             self.workers.clone(),
             result.route,
             ends,
-        );
+        )
+        .with_fill(crate::route_client::RouteFill {
+            session: session_row,
+            max_frame_bytes: usize::try_from(result.limits.max_frame_bytes).unwrap_or(usize::MAX),
+        });
         Ok((result, Box::new(route)))
     }
 }
@@ -314,6 +340,19 @@ mod tests {
     fn attached_route(
         limits: serde_json::Value,
     ) -> (TestkitHarness, Box<dyn CoreApi>, Box<dyn RouteClient>) {
+        let (harness, core, route, _) = attached_route_and_result(limits);
+        (harness, core, route)
+    }
+
+    /// `attached_route`, and the result of the attach.
+    fn attached_route_and_result(
+        limits: serde_json::Value,
+    ) -> (
+        TestkitHarness,
+        Box<dyn CoreApi>,
+        Box<dyn RouteClient>,
+        AttachResult,
+    ) {
         let mut harness = TestkitHarness::new(0);
         let mut core = harness
             .open(&OpenSpec { limits, ..spec() })
@@ -361,12 +400,12 @@ mod tests {
             json!({"file_directory": "/tmp", "answers_queries": false, "input": true}),
         )
         .unwrap();
-        let (_, route) = harness
+        let (result, route) = harness
             .attach_stream("h", core.as_mut(), ClientId("c".into()), &session, options)
             .expect("attached");
         // The one pump that hands the stream to the worker (Core OU-9, OR-1).
         core.pump(now());
-        (harness, core, route)
+        (harness, core, route, result)
     }
 
     /// Core TH-3, OU-9: a stream route's frames reach the client with no host pump after the one that hands the stream over:
@@ -478,6 +517,64 @@ mod tests {
             matches!(after, RouteRead::Empty),
             "no resync and no close: {after:?}"
         );
+    }
+
+    /// R-47 item 3: `route_fill` writes N = C + F bytes of the pattern at the session's program edge. C is the bytes that the
+    /// stream takes from the worker now (0 while gated, the `route_accept` limit, or the free room of the queue); F is the
+    /// route's applied `max_frame_bytes`. The client reads the pattern, k from 0 for each fill, as output.
+    #[test]
+    fn route_fill_writes_the_room_and_one_frame_of_the_pattern() {
+        use botster_route_codec::prelude::TYPE_OUTPUT;
+        let (_h, _core, mut route, result) = attached_route_and_result(json!({}));
+        let frame = usize::try_from(result.limits.max_frame_bytes).unwrap();
+        read_baseline(route.as_mut());
+        let deadline = botster_conformance::Deadline::after(None);
+        // The output that the client reads until it has `bytes` bytes of it.
+        let read_output = |route: &mut Box<dyn RouteClient>, bytes: usize| {
+            let (mut stream, mut output) = (Vec::<u8>::new(), Vec::<u8>::new());
+            while output.len() < bytes {
+                match route.read(1 << 20, &deadline) {
+                    RouteRead::Bytes(more) => stream.extend(more),
+                    other => panic!("{other:?} after {} output bytes", output.len()),
+                }
+                while stream.len() >= 4 {
+                    let len = u32::from_be_bytes(stream[..4].try_into().unwrap()) as usize;
+                    if stream.len() < 4 + len {
+                        break;
+                    }
+                    let frame: Vec<u8> = stream.drain(..4 + len).skip(4).collect();
+                    assert_eq!(frame[0], TYPE_OUTPUT, "only output: {frame:?}");
+                    output.extend(&frame[1..]);
+                }
+            }
+            output
+        };
+        let pattern =
+            |bytes: usize| -> Vec<u8> { (0..bytes).map(|k| b'a' + (k % 26) as u8).collect() };
+        let fill = |route: &mut Box<dyn RouteClient>| {
+            route
+                .control("route_fill", &json!({"op": "route_fill"}))
+                .unwrap()["bytes"]
+                .as_u64()
+                .unwrap() as usize
+        };
+        route.control("route_gate", &json!({"on": true})).unwrap();
+        assert_eq!(fill(&mut route), frame, "gated: C is 0");
+        route.control("route_gate", &json!({"on": false})).unwrap();
+        assert_eq!(read_output(&mut route, frame), pattern(frame));
+        route
+            .control("route_accept", &json!({"bytes": 10}))
+            .unwrap();
+        assert_eq!(fill(&mut route), 10 + frame, "C is the accept limit");
+        route.control("route_gate", &json!({"on": false})).unwrap();
+        assert_eq!(read_output(&mut route, 10 + frame), pattern(10 + frame));
+        let open = crate::route_client::ROUTE_STREAM_BYTES + frame;
+        assert_eq!(
+            fill(&mut route),
+            open,
+            "C is the free room of the empty queue"
+        );
+        assert_eq!(read_output(&mut route, open), pattern(open));
     }
 
     /// Core LC-1, LC-2, 9B: `open` builds the real Core, refuses a second open of the directory while the first lives, and a
