@@ -48,11 +48,11 @@ pub fn botster_core::RealEdges::accept_link(&mut self) -> core::option::Option<b
 pub fn botster_core::RealEdges::delete_row(&mut self, &str) -> core::result::Result<(), botster_core_edges::edges::StorageError>
 pub fn botster_core::RealEdges::diagnostics(&self) -> serde_json::value::Value
 pub fn botster_core::RealEdges::fill_random(&mut self, &mut [u8])
-pub fn botster_core::RealEdges::handoff_route(&mut self, botster_core_host::io::LinkId, botster_core_contract::ids::RouteId, botster_core_contract::route::StreamEndpoint, &botster_core_contract::route::AttachOptions) -> core::result::Result<(), botster_core_host::driver::HandoffError>
 pub fn botster_core::RealEdges::identity_state(&self, botster_core_edges::edges::ProcessIdentity) -> botster_core_edges::edges::IdentityState
 pub fn botster_core::RealEdges::link_close(&mut self, botster_core_host::io::LinkId)
 pub fn botster_core::RealEdges::link_recv(&mut self, botster_core_host::io::LinkId, &mut [u8]) -> core::io::error::Result<usize>
 pub fn botster_core::RealEdges::link_send(&mut self, botster_core_host::io::LinkId, &[u8]) -> core::io::error::Result<usize>
+pub fn botster_core::RealEdges::link_send_descriptor(&mut self, botster_core_host::io::LinkId, &[u8], botster_core_contract::route::StreamEndpoint) -> core::result::Result<usize, (botster_core_contract::route::StreamEndpoint, botster_core_host::driver::DescriptorSendError)>
 pub fn botster_core::RealEdges::poll_process_exit(&mut self) -> core::option::Option<(botster_core_edges::edges::ProcessIdentity, botster_core_edges::edges::ExitStatus)>
 pub fn botster_core::RealEdges::read_rows(&mut self, &str) -> core::result::Result<alloc::vec::Vec<(alloc::string::String, alloc::vec::Vec<u8>)>, botster_core_edges::edges::StorageError>
 pub fn botster_core::RealEdges::scheduler(&mut self) -> &mut dyn botster_core_edges::scheduler::Scheduler

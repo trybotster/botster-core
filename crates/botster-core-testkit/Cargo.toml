@@ -19,7 +19,9 @@ botster-core = { workspace = true, optional = true }
 botster-test-process = { workspace = true, optional = true }
 tempfile = { workspace = true, optional = true }
 botster-core-contract.workspace = true
+botster-conformance.workspace = true
 botster-core-conformance.workspace = true
+botster-hub-conformance.workspace = true
 botster-core-edges.workspace = true
 botster-core-host.workspace = true
 botster-core-sys.workspace = true
@@ -37,6 +39,5 @@ sha2.workspace = true
 toml.workspace = true
 
 [dev-dependencies]
-botster-conformance.workspace = true
 schemars.workspace = true
 tempfile.workspace = true
