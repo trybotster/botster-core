@@ -8990,3 +8990,91 @@ The reviewer changes no product code and runs no tests, builds, gates, measureme
 All earlier exact-head verdicts remain preserved.
 
 VERDICT: NOT CLEAN
+
+
+## Round 146 — PR #219 replacement review — 2026-10-10
+
+Reviewed head: `5c1b8d9040e2f3ec4faf3e77b3d6ae2ab39e8878`.
+PR base: `d174ef48a218b74beb4bac9ec555c6c39d2650a4`.
+Prior reviewed head: `5d55a0a8306fb91ce0ddb6487c64ca204808608c`.
+Tier: HIGH under BUILD rules 3 and 5. The prior whole-change review remains part of this review.
+The replacement changes six host paths. It changes no other product path from the prior reviewed head.
+The remote PR head and base match these exact commits.
+
+### F96 — MEDIUM — CLOSED
+
+The engine records HandoffLost during Start in Session::lost_handoffs.
+finish_start settles those obligations when Start succeeds without a pending end.
+A failed start or a pending end still closes each bound route through the end flow with its end reason.
+close_route removes the obligation when another reason closes the route first.
+The two new full-driver proofs cover link loss alone at PostRunning and Finish.
+They keep the worker alive, supply no ProcessExited, and assert one HandoffFailed close after Running.
+Both proofs assert that the route is no longer registered and that the driver released the stream token.
+The added Stop proof retains closure after the end state. F95's two-edge proof remains unchanged and passes.
+These changes close the missing-obligation paths in F96. F97 below records a new event-limit failure in obligation settlement.
+
+### F97 — MEDIUM — OPEN: finish_start exceeds pump_events while it settles lost handoffs
+
+Core 9B requires one pump to post at most pump_events events.
+The new finish_start path posts Start's completion, then loops over every lost_handoffs route and calls route_close.
+The driver accounts events only after this Input::Run(Work::Session) finishes.
+
+1. Set pump_events to one and retain event-queue room.
+2. Hold a route descriptor with DescriptorSendError::Blocked after Launched.
+3. Post Running, then close only the link before the start's Finish step. Keep the worker alive.
+4. HandoffLost records the route in lost_handoffs.
+5. The next session step calls finish_start.
+6. complete posts Completed because this step has posted no prior event.
+7. route_close posts RouteClosed because the mandatory queue has room.
+8. Budget::account counts both events after the step, so PumpReport.events_posted is two.
+
+flow_done changes only the active flow. It posts no event that could defer complete.
+complete's existing step_mark check protects completion after an earlier event; it cannot defer a route close posted after completion.
+With multiple held routes, the same loop posts every close before the driver checks the limit.
+This violates Core 9B and bypasses the one-close-per-step pattern already used by StopPhase::Finish.
+The new after-Running proof sets pump_events to one, but it discards each PumpReport and does not assert the limit.
+Both reviewers independently confirm this path from source. No reviewer execution is needed.
+
+Required: carry the route closes as budgeted work. Post at most one event per step when pump_events is one.
+Retain every close obligation until its close can post. Preserve event backpressure, the wake, and PumpReport.more.
+Assert PumpReport.events_posted <= 1 for every pump in both link-only proofs.
+Add a multiple-route proof and prove that all routes eventually close once without exceeding the event limit.
+Preserve F95's state-before-close order, F96's link-only closure, genuine descriptor-send failures, and earlier close reasons.
+The reviewer sends F97 directly to P3 and integration.
+
+### Whole-change scope and completed evidence
+
+The new state is a route obligation set. It does not change real descriptor transfer, real stream closure, or process control.
+The shared mapping, failed-start Finish path, base overlap, and manual slow exclusion evidence retain the round 144 conclusions.
+The replacement changes no mutation exclusion, real facade code, guard, anchor, timeout, deadline, pin, or pending list.
+BUILD rule 5 and real-process proof requirements remain in force.
+The reviewer reads the PR's updated review sections and exact-head gate.
+The intermediate gate at 31072282 had two surviving mutants. The final head adds the Stop proof and removes the redundant failure guard.
+The final gate reports no surviving mutant.
+
+Gate: ~/botster-sessions/gates/botster-core-stage1-p4a-failed-start-routes-5c1b8d90-pool-20261010-083157-19297.log.
+The header names the exact reviewed head and base. All ten full CI steps PASS on msa1.
+Default: 1455 pass in 10.825 seconds. Slow: 260 pass in 22.185 seconds.
+Both facade reports: 193 passed, zero failed, 497 ignored.
+Both mutation reports: 68 tested, 63 caught, five unviable, zero missed, zero timeouts.
+The two link-only proofs, Stop proof, retained F95 proof, and real-socket close proof have PASS lines.
+Full CI: 410.0 seconds. Repeated mutation job: 145.2 seconds.
+Job and wrapper exit zero after 563 seconds. Queue: one second. Run: 562 seconds.
+The env-only second mutation job repeats default coverage. Round 144's separate slow exclusion proof remains applicable.
+The green gate does not establish F97's per-pump event limit.
+
+### Verdict and round limit
+
+PR #219 is NOT CLEAN at `5c1b8d9040e2f3ec4faf3e77b3d6ae2ab39e8878`.
+F95 and F96 remain CLOSED. F97 MEDIUM is OPEN.
+This is #219's third package NOT CLEAN round: rounds 144, 145, and 146.
+BUILD's round limit requires a lead decision before round four: split the PR, settle the point, or replan the root cause.
+The reviewer sends the lead QUESTION with this exact head and the published verdict commit.
+The reviewer does not begin round four without that decision.
+F94 and #221's merged closure remain preserved. F91/F92/F93 remain closed.
+F86/F87/F88/F90 remain PR3 requirements. F39 and F61/F62 retain their prior scopes.
+Testkit minimum remains 50/69. P3's non-minimum queue stays parked.
+The reviewer changes no product code and runs no tests, builds, gates, measurements, mutants, or base-merge-check.
+All earlier exact-head verdicts remain preserved.
+
+VERDICT: NOT CLEAN
