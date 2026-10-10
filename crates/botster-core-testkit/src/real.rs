@@ -24,7 +24,7 @@
 //!   which Core's own encoder wrote ([`Tap::stored_row`], [`Tap::store_row`]), in the testkit's way
 //!   ([`crate::controls::damaged`]). Core's real decoder rejects them.
 //! - `payload_alive` (`{session}` → `{alive}`, Core EV-5(c), AD-7): the payload of the session's row, or of its worker's
-//!   `Launched` report on the link ([`Tap::payload_of`]), still matches its identity (the inner edge's AD-6 check,
+//!   `Launched` report on the link ([`Tap::launch_of`]), still matches its identity (the inner edge's AD-6 check,
 //!   [`Tap::identity_state`]) and is live, not a zombie that its worker has yet to reap
 //!   ([`botster_test_process::platform::live_members`] of its own group: the payload leads its group, `setsid`). A
 //!   worker whose payload is not known is `Bad`. It sends no signal.
@@ -39,7 +39,7 @@
 
 use crate::candidate::{Candidate, PROBE, WORKER};
 use crate::controls::{damaged, parse};
-use crate::edge_tap::{EdgeTap, Rows, Tap};
+use crate::edge_tap::{EdgeTap, Launch, Rows, Tap};
 use crate::harness::{limits_of, no_route};
 use crate::process_controls::LoseReason;
 use botster_core::RealEdges;
@@ -351,8 +351,9 @@ impl RealCoreHarness {
 
     /// Core EV-5(c), AD-7: `{alive}`, whether the session's payload runs now. The payload is the one that the session's row
     /// names, or, while a started session runs, the one that its worker's `Launched` report named on the link (the host
-    /// writes it to the row only later). A session whose row names no worker has no payload. A worker whose payload is not
-    /// known is `Bad`, never a payload that does not run.
+    /// writes it to the row only later). A session whose row names no worker has no payload, and neither has a worker whose
+    /// link, read from its hello on, has no `Launched` report yet. A worker whose payload is not known otherwise is `Bad`,
+    /// never a payload that does not run.
     fn payload_alive(&self, handle: &str, args: &Value) -> Result<Value, ControlError> {
         let OfSession { session } = parse(args)?;
         let (tap, processes) = self.recorded(handle, &session)?;
@@ -360,15 +361,16 @@ impl RealCoreHarness {
             return Ok(json!({ "alive": false }));
         }
         let tap = lock(&tap);
-        let payload = processes
-            .payload
-            .or_else(|| tap.payload_of(&processes.instance))
-            .ok_or_else(|| {
-                ControlError::Bad(format!(
+        let payload = match (processes.payload, tap.launch_of(&processes.instance)) {
+            (Some(payload), _) | (None, Some(Launch::Payload(payload))) => payload,
+            (None, Some(Launch::Pending)) => return Ok(json!({ "alive": false })),
+            (None, None) => {
+                return Err(ControlError::Bad(format!(
                     "the payload of the session {} is not known",
                     session.0
-                ))
-            })?;
+                )))
+            }
+        };
         let alive = tap.identity_state(payload) == IdentityState::Matches
             && runs(payload).map_err(|error| {
                 ControlError::Bad(format!(
@@ -643,7 +645,10 @@ mod slow_controls {
         // The row, or the worker's `Launched` report on the link, names the payload of a started session.
         let payload = s1
             .payload
-            .or_else(|| lock(&tap).payload_of(&s1.instance))
+            .or_else(|| match lock(&tap).launch_of(&s1.instance) {
+                Some(Launch::Payload(payload)) => Some(payload),
+                _ => None,
+            })
             .expect("the payload is known");
         assert_eq!(lock(&tap).identity_state(payload), IdentityState::Matches);
         let payload_pid = platform::pid(payload.pid).unwrap();
