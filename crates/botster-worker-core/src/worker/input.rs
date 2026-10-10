@@ -33,6 +33,8 @@ pub(super) enum Pending {
     Host(HostWrite),
     /// A reply of the model to the program (EV-8 shadow reply, a model PTY write).
     Reply(Vec<u8>),
+    /// A client's `bytes` or `text` frame (DP-5): fire-and-forget, in its receive order on the route.
+    Route(Vec<u8>),
 }
 
 /// The transaction that owns the PTY input (AM-2).
@@ -84,6 +86,12 @@ pub(super) struct InputState {
 }
 
 impl InputState {
+    /// IN-4: a complete client input frame advances `input_rev{client}` on receipt.
+    pub(super) fn client_received(&mut self) -> InputRev {
+        self.client_rev += 1;
+        InputRev(self.client_rev)
+    }
+
     pub(super) fn input_revs(&self) -> InputRevs {
         InputRevs {
             client: InputRev(self.client_rev),
@@ -120,6 +128,16 @@ impl Worker {
             return;
         }
         self.input.queue.push_back(Pending::Reply(bytes));
+        self.try_start();
+    }
+
+    /// DP-5: a client's input joins the admission point in its receive order. An empty frame writes nothing, so it does not
+    /// join.
+    pub(super) fn enqueue_route_input(&mut self, bytes: Vec<u8>) {
+        if bytes.is_empty() {
+            return;
+        }
+        self.input.queue.push_back(Pending::Route(bytes));
         self.try_start();
     }
 
@@ -170,8 +188,9 @@ impl Worker {
                 return;
             };
             let write = match pending {
-                Pending::Reply(bytes) => {
-                    // A reply goes only to a live payload; it advances no revision and completes no operation.
+                Pending::Reply(bytes) | Pending::Route(bytes) => {
+                    // A reply or a client's input goes only to a live payload. It completes no operation: a reply advances no
+                    // revision, and a client's input advanced its revision on receipt (IN-4).
                     if matches!(self.payload, PayloadState::Live(_)) && self.exit.is_none() {
                         let len = bytes.len();
                         self.input.active = Some(Active {

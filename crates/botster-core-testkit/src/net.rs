@@ -63,6 +63,8 @@ struct SideControl {
     accept: Option<usize>,
     /// The next write fails with this kind, once (`fail_writes`).
     fail_write: Option<io::ErrorKind>,
+    /// The next read fails with this kind, once (a unit-test fault of the worker binding's read loop).
+    fail_read: Option<io::ErrorKind>,
     /// The end reports itself writable although it takes no byte (`route_spurious_ready`).
     spurious_writable: bool,
     /// Each read returns at most this many bytes (`route_read_size`).
@@ -187,6 +189,9 @@ impl End {
         if shared.reset {
             return Err(io::ErrorKind::ConnectionReset.into());
         }
+        if let Some(kind) = shared.control[me].fail_read.take() {
+            return Err(kind.into());
+        }
         let max = shared.control[me].read_cap.map_or(max, |cap| max.min(cap));
         // A read never crosses the byte of a descriptor that was not received: the descriptor comes first.
         let before_descriptor = shared.descriptors[peer]
@@ -310,6 +315,11 @@ impl EndControl {
     /// The next write of this end's owner fails with `kind` (`fail_writes`, Core OU-2b, A2-3).
     pub fn fail_next_write(&self, kind: io::ErrorKind) {
         self.with(|c| c.fail_write = Some(kind));
+    }
+
+    /// The next read of this end's owner fails with `kind`, once: `Interrupted`, `WouldBlock`, or a lost stream.
+    pub fn fail_next_read(&self, kind: io::ErrorKind) {
+        self.with(|c| c.fail_read = Some(kind));
     }
 
     /// Lifts a pending write failure.
@@ -1052,6 +1062,28 @@ mod tests {
         while total < 8 {
             total += worker.read(&mut buf).unwrap();
         }
+    }
+
+    /// A scripted read failure fails the next read once, and takes no byte.
+    #[test]
+    fn a_read_failure_fails_one_read_and_keeps_the_bytes() {
+        let (mut worker, mut client) = pair_of_streams();
+        client.write(b"ab").unwrap();
+        worker
+            .end()
+            .control()
+            .fail_next_read(io::ErrorKind::Interrupted);
+        let mut buf = [0u8; 8];
+        assert_eq!(
+            worker.read(&mut buf).unwrap_err().kind(),
+            io::ErrorKind::Interrupted
+        );
+        let mut got = Vec::new();
+        while got.len() < 2 {
+            let n = worker.read(&mut buf).unwrap();
+            got.extend_from_slice(&buf[..n]);
+        }
+        assert_eq!(got, b"ab");
     }
 
     /// `input_blocked`: the end sees whether its peer's writes toward it are blocked, which is the worker's view of a full input
