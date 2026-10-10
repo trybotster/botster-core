@@ -294,6 +294,16 @@ mod tests {
     #[test]
     fn route_fill_is_the_pattern_and_needs_the_session_worker() {
         assert_eq!(fill_pattern(28), b"abcdefghijklmnopqrstuvwxyzab");
+        // C: the free room of the worker's queue, limited by route_accept, and 0 while gated.
+        let (mut client, mut worker) = route(16);
+        assert_eq!(worker.write(b"abcde").unwrap(), 5);
+        assert_eq!(client.worker_end().room(), 11, "16 less the 5 queued");
+        client.worker_end().accept_at_most(3);
+        assert_eq!(client.worker_end().room(), 3);
+        client.worker_end().accept_at_most(20);
+        assert_eq!(client.worker_end().room(), 11);
+        client.worker_end().gate(true);
+        assert_eq!(client.worker_end().room(), 0);
         let (client, _worker) = route(16);
         let mut bare = client;
         assert!(bare
