@@ -16,11 +16,43 @@ pub const ROUTE_STREAM_BYTES: usize = 64 * 1024;
 pub struct TestkitRoute {
     end: StreamEnd,
     workers: Workers,
+    /// Client bytes that the full stream did not take yet, in order. They go before any later bytes.
+    unsent: Vec<u8>,
+    /// The stream failed: the client's bytes have nowhere to go.
+    failed: bool,
 }
 
 impl TestkitRoute {
     pub fn new(end: StreamEnd, workers: Workers) -> TestkitRoute {
-        TestkitRoute { end, workers }
+        TestkitRoute {
+            end,
+            workers,
+            unsent: Vec::new(),
+            failed: false,
+        }
+    }
+
+    /// Writes the waiting bytes while the stream takes them. `Interrupted` writes again; any other error ends the writes.
+    fn flush(&mut self) {
+        while !self.unsent.is_empty() {
+            match self.end.write(&self.unsent) {
+                Ok(n) => {
+                    self.unsent.drain(..n);
+                }
+                Err(e) if e.kind() == io::ErrorKind::WouldBlock => return,
+                Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
+                // The stream is lost: its bytes go with it, as with a lost transport (OU-5).
+                Err(_) => {
+                    self.failed = true;
+                    self.unsent.clear();
+                }
+            }
+        }
+    }
+
+    /// The client bytes that wait for room in the stream.
+    pub fn unsent(&self) -> usize {
+        self.unsent.len()
     }
 
     fn try_read(&mut self, max: usize) -> Option<RouteRead> {
@@ -38,20 +70,18 @@ impl TestkitRoute {
 }
 
 impl RouteClient for TestkitRoute {
-    /// Writes the bytes that the stream takes. No worker reads a route's input yet (P4a PR1), so a full stream keeps the rest,
-    /// as a full socket does.
+    /// Queues the bytes after any that wait, and writes what the stream takes. A full stream keeps the rest in order, and
+    /// each later write or read sends it first (no byte is lost). No worker reads a route's input yet (P4a PR1).
     fn write(&mut self, bytes: &[u8]) {
-        let mut rest = bytes;
-        while !rest.is_empty() {
-            match self.end.write(rest) {
-                Ok(n) => rest = &rest[n..],
-                Err(_) => return,
-            }
+        if !self.failed {
+            self.unsent.extend_from_slice(bytes);
         }
+        self.flush();
     }
 
     /// The bytes that wait, or the bytes that the workers' ready work writes; `Empty` when that writes none.
     fn read(&mut self, max: usize, _deadline: &Deadline) -> RouteRead {
+        self.flush();
         if let Some(read) = self.try_read(max) {
             return read;
         }
@@ -131,9 +161,38 @@ mod tests {
             got
         };
         client.write(b"abcdef");
+        assert_eq!(client.unsent(), 2, "the full stream keeps two bytes");
         assert_eq!(drain(&mut worker), b"abcd", "the stream took four bytes");
         client.write(b"g");
-        assert_eq!(drain(&mut worker), b"g");
+        assert_eq!(
+            drain(&mut worker),
+            b"efg",
+            "the kept bytes go first, then the new one"
+        );
+        assert_eq!(client.unsent(), 0);
+        // A read sends the kept bytes too.
+        client.write(b"hijkl");
+        assert_eq!(drain(&mut worker), b"hijk");
+        assert_eq!(client.read(8, &deadline()), RouteRead::Empty);
+        assert_eq!(drain(&mut worker), b"l");
+        // `Interrupted` writes again; it loses and repeats nothing.
+        client
+            .end
+            .end()
+            .control()
+            .fail_next_write(io::ErrorKind::Interrupted);
+        client.write(b"mn");
+        assert_eq!(drain(&mut worker), b"mn");
+        // Another error is the end of the stream for the client: nothing more is sent.
+        client
+            .end
+            .end()
+            .control()
+            .fail_next_write(io::ErrorKind::BrokenPipe);
+        client.write(b"o");
+        client.write(b"p");
+        assert_eq!(drain(&mut worker), b"", "a failed stream takes no byte");
+        assert_eq!(client.unsent(), 0, "and keeps none");
     }
 
     #[test]

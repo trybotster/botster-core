@@ -1332,13 +1332,18 @@ impl Binding<SharedWorker> for WorkerEdges {
             Ready::RouteWrite(id) => {
                 let route = self.routes.get_mut(&id).expect("counted as ready");
                 let bytes = route.write.take().expect("counted as ready");
-                let result = match route.end.write(&bytes) {
-                    Ok(n) => Ok(n),
-                    Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
-                        route.wait_writable = true;
-                        Ok(0)
+                // As the real driver: `Interrupted` writes again, `WouldBlock` is `Ok(0)` and waits for writable, and only
+                // another error is terminal (`Input::RouteWritten`).
+                let result = loop {
+                    match route.end.write(&bytes) {
+                        Ok(n) => break Ok(n),
+                        Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
+                            route.wait_writable = true;
+                            break Ok(0);
+                        }
+                        Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
+                        Err(e) => break Err(e.raw_os_error().unwrap_or(EIO)),
                     }
-                    Err(e) => Err(e.raw_os_error().unwrap_or(EIO)),
                 };
                 Input::RouteWritten { route: id, result }
             }

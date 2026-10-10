@@ -325,8 +325,16 @@ impl Worker {
         let Some(model) = self.model.as_ref() else {
             return no_model(ErrorCode::WrongState);
         };
-        let bytes = match model.term.snapshot() {
-            Ok(bytes) => bytes,
+        // The library gives the size first, so a snapshot over the limit allocates nothing (DP-3).
+        let max = usize::try_from(self.limits.max_snapshot_bytes).unwrap_or(usize::MAX);
+        let bytes = match model.term.snapshot_at_most(max) {
+            Ok(Some(bytes)) => bytes,
+            Ok(None) => {
+                return OpResult::Err(CoreError::new(
+                    ErrorCode::SnapshotTooLarge,
+                    "the snapshot is over max_snapshot_bytes",
+                ))
+            }
             Err(_) => {
                 return OpResult::Err(CoreError::new(
                     ErrorCode::Internal,
@@ -335,12 +343,6 @@ impl Worker {
             }
         };
         let total_bytes = bytes.len() as u64;
-        if total_bytes > self.limits.max_snapshot_bytes {
-            return OpResult::Err(CoreError::new(
-                ErrorCode::SnapshotTooLarge,
-                format!("{total_bytes} bytes are over max_snapshot_bytes"),
-            ));
-        }
         self.report(&WorkerMsg::Pages {
             req,
             pages: vec![Page {
