@@ -1203,3 +1203,32 @@ This documentation change requires no execution gate.
 I ran no build, test, gate, mutation job, merge-check job, or reversal job.
 
 VERDICT: NOT CLEAN (1 open: P23aa-1 MEDIUM) at 5774a0a0954ac49f1cf4e992a75c21f468479f88
+
+## Round 36 — revision 23aa correction — 2026-10-10
+
+Reviewed head: `d8fbe67afc9e7192268cb36b97690fa04b17401e`.
+Prior reviewed head: `5774a0a0954ac49f1cf4e992a75c21f468479f88`.
+Prior accepted head: `515cf3b61c94800e00ac2489f76fdab707f47ee1`.
+Scope: both corrected entries and the complete 23aa delta from the prior accepted head.
+
+P23aa-1 is CLOSED.
+Item 2 now records the existing ordinary link-write suppression in Rust and Mio.
+It identifies the incorrect A49 row in `botster-core-host/DESIGN.md`, which I read at v1 `3677b37e`.
+It requires that row's correction in the descriptor-handoff PR A.
+The unsupported reference to a section 0 known gap is removed.
+The revision row matches the corrected scope.
+
+The remaining requirement applies to the new descriptor `sendmsg` implementation.
+That implementation must pass the no-signal flag on Linux and retain and check `SO_NOSIGPIPE` on the macOS link socket.
+A real-process test must use the default `SIGPIPE` disposition on both operating systems.
+It must send a descriptor to a gone worker and observe `EPIPE` and a `Failed` handoff, without a signal.
+The correction places this implementation and proof inside item 1's PRs, under the same P3 pair.
+It removes the separate follow-up PR and preserves DP-2's top priority.
+
+This plan verdict accepts the corrected requirement and assignment. It accepts no descriptor implementation or process proof.
+The revision changes no ledger id, contract pin, pending rule, passing count, staffing limit, or stage acceptance condition.
+The remote plan head matches the reviewed head. `git diff --check` passes.
+This documentation change requires no execution gate.
+I ran no build, test, gate, mutation job, merge-check job, or reversal job.
+
+VERDICT: CLEAN (0 open) at d8fbe67afc9e7192268cb36b97690fa04b17401e
