@@ -18,7 +18,7 @@ mod real;
 /// The production edges of a host (plan 2.3): the `HostEdges` that [`Core`] runs on. They are exported, with
 /// [`open_parts`], so that a host can compose `botster_core_host::driver::HostDriver` over them (plan 23l: the
 /// RealCoreHarness wraps them pass-through for its edge controls). Core has no test branch: these are the edges that
-/// `Core::open` itself uses.
+/// `Core::open` itself uses. Core TH-1 (`Send`, not `Sync`) is a property of the [`Core`] handle only, not of these edges.
 pub use real::RealEdges;
 
 /// The Core contract crate, whole.
@@ -94,7 +94,8 @@ impl Core {
 
 /// The parts of [`Core::open`]: every check and every step of `open` except starting the driver, so that a host that composes
 /// `HostDriver` itself opens exactly as `Core::open` does (plan 23l). `Core::open` is
-/// `HostDriver::open(cfg, edges)` over these parts.
+/// `HostDriver::open(cfg, edges)` over these parts. A caller passes the `EngineConfig` to `HostDriver::open` unchanged: a
+/// changed one opens a host that `Core::open` would not open.
 ///
 /// # Errors
 /// The errors of [`Core::open`].
