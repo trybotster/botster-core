@@ -975,7 +975,12 @@ enum Ready {
     RouteWrite(RouteId),
     /// The route's stream takes bytes again after a write that it did not take.
     RouteWritable(RouteId),
+    /// The route's stream has client bytes, or the client closed it.
+    RouteRead(RouteId),
 }
+
+/// The most bytes that one read of a route's stream takes (a socket read's buffer).
+const ROUTE_READ_BYTES: usize = 64 * 1024;
 
 /// The worker's end of a route's stream (DP-2), and its one outstanding write.
 #[derive(Debug)]
@@ -983,6 +988,10 @@ struct RouteEdge {
     end: StreamEnd,
     write: Option<Vec<u8>>,
     wait_writable: bool,
+    /// The client's end closed, or a read failed: the machine was told once, and the stream is not read again.
+    ended: bool,
+    /// The client bytes that the machine lets the route read still (`RouteReadAllowance`, DP-5): none before its first.
+    allowance: usize,
 }
 
 /// The edges of one in-process worker: the control link, the scripted program on its PTY, and its process cell.
@@ -1228,9 +1237,13 @@ impl Binding<SharedWorker> for WorkerEdges {
         }
         for (id, route) in &mut self.routes {
             route.end.end().set_interest(Interest {
-                read: false,
+                read: !route.ended && route.allowance > 0,
                 write: route.write.is_some() || route.wait_writable,
             });
+            // Plan 2.5 rule 8: read only with the read interest that the route registered (none once it ended).
+            if route.end.end().readiness().readable && route.end.end().interest().read {
+                self.ready.push(Ready::RouteRead(*id));
+            }
             if route.end.end().readiness().writable {
                 if route.write.is_some() {
                     self.ready.push(Ready::RouteWrite(*id));
@@ -1389,6 +1402,37 @@ impl Binding<SharedWorker> for WorkerEdges {
                     .wait_writable = false;
                 Input::RouteWritable { route: id }
             }
+            // As the real driver: a read of what the stream holds; the end of the stream, or an error other than
+            // `Interrupted`, ends the route's reads (OU-5).
+            Ready::RouteRead(id) => {
+                let route = self.routes.get_mut(&id).expect("counted as ready");
+                let mut buf = vec![0u8; ROUTE_READ_BYTES.min(route.allowance)];
+                let read = loop {
+                    match route.end.read(&mut buf) {
+                        Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
+                        other => break other,
+                    }
+                };
+                match read {
+                    Ok(n) if n > 0 => {
+                        buf.truncate(n);
+                        route.allowance -= n;
+                        Input::RouteRead {
+                            route: id,
+                            bytes: buf,
+                        }
+                    }
+                    // Readable with nothing to take: an empty read, which the machine ignores.
+                    Err(e) if e.kind() == io::ErrorKind::WouldBlock => Input::RouteRead {
+                        route: id,
+                        bytes: Vec::new(),
+                    },
+                    _ => {
+                        route.ended = true;
+                        Input::RouteEnded { route: id }
+                    }
+                }
+            }
         }
     }
 
@@ -1453,6 +1497,8 @@ impl Binding<SharedWorker> for WorkerEdges {
                         end,
                         write: None,
                         wait_writable: false,
+                        ended: false,
+                        allowance: 0,
                     },
                 );
             }
@@ -1473,6 +1519,11 @@ impl Binding<SharedWorker> for WorkerEdges {
                 }
             }
             Action::PtyReadBudget(budget) => self.pty_budget = budget,
+            Action::RouteReadAllowance { route, bytes } => {
+                if let Some(edge) = self.routes.get_mut(&route) {
+                    edge.allowance = bytes;
+                }
+            }
             // The fence (DP-8): the old link closes with its unwritten bytes, and the candidate is the link from now on. A
             // break of the old link (`break_control`) ends with it.
             Action::AdoptLink(id) => {

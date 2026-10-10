@@ -17,6 +17,14 @@
 //! While the frames behind the sequence are at the threshold, the budget is 0 and no PTY byte is read. A resync (a later
 //! PR) starts a new sequence and must set its exempt bytes the same way.
 //!
+//! **Input backpressure (DP-5).** The driver reads a route's client bytes only within the route's read allowance
+//! ([`Action::RouteReadAllowance`]). The allowance is the input bound less the bytes that the route holds: the client bytes
+//! that are not decoded yet, and the route's input that waits at the admission point or is being written. The input bound is
+//! `route_input_queue_bytes`, and at least one whole frame of the route (so a frame can always complete). The allowance is 0
+//! while the route's outgoing queue cannot hold one more `input_refused` frame behind the baseline sequence
+//! (`route_queue_bytes`), and the worker then decodes no more frames: a client that floods refused input and does not read
+//! is held at `route_queue_bytes`. A closing route discards the client bytes that it reads: no frame of it is applied.
+//!
 //! **Frame bounds (DP-3).** Every frame is checked against its codec bound (`bound_of`) before it is queued, and the
 //! snapshot's size is checked before it is allocated. A route whose limits cannot carry the attach frames is closed
 //! `HandoffFailed` with no frame (steward ruling R-44; the host's floor check, A19-1, keeps this from happening). So is a
@@ -24,11 +32,12 @@
 
 use super::{model, Action, Worker};
 use botster_core_contract::prelude::*;
+use botster_core_link::msg::Observation;
 use botster_core_link::msg::WorkerMsg;
-use botster_core_link::route::{frame_fits, route_closed_frame};
+use botster_core_link::route::{frame_bounds, frame_fits, route_closed_frame};
 use botster_route_codec::prelude::{
-    stream_wrap, Attached, BaselineBegin, BaselineEnd, HistoryState, HistoryUnavailable,
-    RouteLimits, ToClient,
+    stream_wrap, Attached, BaselineBegin, BaselineEnd, Decoded, HistoryState, HistoryUnavailable,
+    InputRefused, Op, RefusalReason, RouteLimits, StreamReader, ToClient, ToWorker,
 };
 use std::collections::{BTreeMap, VecDeque};
 
@@ -71,6 +80,12 @@ struct Route {
     writing: bool,
     /// A healthy close: `route_closed` is the last queued frame, and the route closes when it is written (OU-2b).
     closing: Option<RouteCloseReason>,
+    /// The client's bytes that do not make a whole frame yet (TS-3).
+    reader: StreamReader,
+    /// `options.input`: false makes the route view-only (OU-1).
+    input: bool,
+    /// The last read allowance that the driver got (`Action::RouteReadAllowance`); none yet at the bind.
+    allowance: Option<usize>,
 }
 
 impl Route {
@@ -99,6 +114,19 @@ impl Route {
         free.saturating_sub(frames * OUTPUT_OVERHEAD)
     }
 
+    /// True when one more `input_refused` frame fits behind the baseline sequence under `route_queue_bytes` (DP-5).
+    fn refusal_room(&self, queue_bytes: usize) -> bool {
+        self.queued - self.baseline + refusal_bound() <= queue_bytes
+    }
+
+    /// The input bound of the route (DP-5): `route_input_queue_bytes`, and at least one whole frame with its stream prefix.
+    fn input_bound(&self) -> usize {
+        let frame = usize::try_from(self.limits.max_frame_bytes).unwrap_or(usize::MAX);
+        usize::try_from(self.limits.route_input_queue_bytes)
+            .unwrap_or(usize::MAX)
+            .max(frame.saturating_add(STREAM_PREFIX))
+    }
+
     /// The payload of one `output` frame: the frame bound less the type byte (TS-3). A route that takes output carried its
     /// attach frames, so its bound holds the type byte and at least one byte.
     fn output_payload(&self) -> usize {
@@ -118,6 +146,26 @@ impl Routes {
         self.unbound.drain(..).collect()
     }
 }
+
+/// The largest `input_refused` frame that this worker queues, with its stream prefix: the largest op and written count, and
+/// an `unsupported` reason whose `what` is at most `REFUSAL_WHAT_BYTES` (DP-5, "Bound on refusals").
+fn refusal_bound() -> usize {
+    stream_wrap(
+        &ToClient::InputRefused(InputRefused {
+            op: Some(Op(u64::MAX)),
+            reason: RefusalReason::Unsupported {
+                what: "w".repeat(REFUSAL_WHAT_BYTES),
+            },
+            written_bytes: Some(u64::MAX),
+            path: None,
+        })
+        .encode(),
+    )
+    .len()
+}
+
+/// The longest `what` of a refusal: the codec's names of an input field or kind, and this worker's own names.
+const REFUSAL_WHAT_BYTES: usize = 64;
 
 /// The wire form of the applied limits (OU-1, "wire projection").
 fn wire_limits(limits: &AppliedRouteLimits) -> RouteLimits {
@@ -171,6 +219,9 @@ impl Worker {
             baseline: 0,
             writing: false,
             closing: None,
+            reader: StreamReader::default(),
+            input: options.input,
+            allowance: None,
         };
         match self.baseline(&entry, &options) {
             Ok((frames, sequence)) => {
@@ -365,6 +416,8 @@ impl Worker {
                 return;
             }
         }
+        // The written bytes may make room for a refusal: the frames that wait for it are decoded now (DP-5).
+        self.decode_route(id);
         self.pump_route(id);
         self.send_budget();
     }
@@ -454,6 +507,172 @@ impl Worker {
         self.close_healthy(id, reason);
     }
 
+    /// The client's bytes on a route (DP-5, TS-3). Each complete frame is client input: it is tagged with its route and
+    /// advances `input_rev{client}` on receipt (IN-4). `bytes` and `text` go to the admission point in their receive order
+    /// (AM-2). A frame that cannot be decoded closes the route `BadFrame` with its code (OU-5: only that route).
+    pub(super) fn on_route_read(&mut self, id: RouteId, bytes: &[u8]) {
+        let Some(route) = self.routes.routes.get_mut(&id) else {
+            return;
+        };
+        // A closing route applies no more input: its bytes are discarded, so they are not held (DP-5, OU-2b).
+        if route.closing.is_none() {
+            route.reader.push(bytes);
+            self.decode_route(id);
+        }
+        self.read_allowances();
+    }
+
+    /// Decodes the route's complete frames in order, while the route is open and one more refusal fits (DP-5). The bytes of
+    /// a frame that is not decoded stay in the reader, and decoding goes on when the queue has room again.
+    fn decode_route(&mut self, id: RouteId) {
+        let queue_bytes = usize::try_from(self.limits.route_queue_bytes).unwrap_or(usize::MAX);
+        loop {
+            let Some(route) = self.routes.routes.get_mut(&id) else {
+                return;
+            };
+            if route.closing.is_some() || !route.refusal_room(queue_bytes) {
+                return;
+            }
+            let bounds = frame_bounds(&route.limits);
+            let decoded = match route.reader.next_frame(&bounds) {
+                Ok(None) => return,
+                Ok(Some(frame)) => ToWorker::decode(&frame, &bounds),
+                Err(error) => Err(error),
+            };
+            match decoded {
+                Ok(Decoded::Frame(frame)) => self.on_client_frame(id, frame),
+                Ok(Decoded::Ignored { .. }) => {}
+                // A complete input frame that cannot be applied is still client input: it is received, then refused (IN-4).
+                Ok(Decoded::Unsupported { op, what }) => {
+                    self.client_received(id);
+                    self.refuse(id, op, RefusalReason::Unsupported { what }, None)
+                }
+                Ok(Decoded::Invalid { op, .. }) => {
+                    self.client_received(id);
+                    self.refuse(id, op, RefusalReason::InvalidInput, None)
+                }
+                Err(error) => {
+                    let code = error.code;
+                    self.close_healthy(id, RouteCloseReason::BadFrame { code });
+                    return;
+                }
+            }
+        }
+    }
+
+    /// The read allowance of each route (DP-5), sent to the driver when it changed. A closing route reads with no limit: it
+    /// discards what it reads.
+    pub(super) fn read_allowances(&mut self) {
+        let queue_bytes = usize::try_from(self.limits.route_queue_bytes).unwrap_or(usize::MAX);
+        let ids: Vec<RouteId> = self.routes.routes.keys().copied().collect();
+        for id in ids {
+            let held = self.input.route_bytes(id);
+            let route = self.routes.routes.get_mut(&id).expect("listed");
+            let allowance = if route.closing.is_some() {
+                usize::MAX
+            } else if !route.refusal_room(queue_bytes) {
+                0
+            } else {
+                route
+                    .input_bound()
+                    .saturating_sub(held.saturating_add(route.reader.pending()))
+            };
+            if route.allowance != Some(allowance) {
+                route.allowance = Some(allowance);
+                self.actions.push_back(Action::RouteReadAllowance {
+                    route: id,
+                    bytes: allowance,
+                });
+            }
+        }
+    }
+
+    /// The client closed its end, or its read failed (OU-5: `PeerClosed`, only that route). The transport ends now. A healthy
+    /// close that was delivering keeps its first reason (OU-2), as a failed write does in `on_route_written`.
+    pub(super) fn on_route_ended(&mut self, id: RouteId) {
+        let Some(route) = self.routes.routes.get(&id) else {
+            return;
+        };
+        let reason = route.closing.unwrap_or(RouteCloseReason::PeerClosed);
+        self.end_route(id, reason);
+    }
+
+    /// The receipt of one complete client input frame, applied or refused: `input_rev{client}` advances, and the activity
+    /// carries its route (IN-4). An ignored extension frame is not input.
+    fn client_received(&mut self, id: RouteId) {
+        let input_rev = self.input.client_received();
+        self.report(&WorkerMsg::Observed {
+            observation: Observation::ClientInput {
+                route: id,
+                input_rev,
+            },
+        });
+    }
+
+    /// One complete client input frame (IN-4, DP-5).
+    fn on_client_frame(&mut self, id: RouteId, frame: ToWorker) {
+        self.client_received(id);
+        let (op, bytes) = match frame {
+            ToWorker::Bytes { op, bytes } => (op, bytes.0.to_vec()),
+            ToWorker::Text { op, text } => (op, text.into_bytes()),
+            // Keys, mouse, pastes and files are later P4a work (DP-5): they are refused, and the route stays open.
+            other => {
+                let what = match other {
+                    ToWorker::PasteChunk { .. } => "paste_chunk",
+                    ToWorker::FileChunk { .. } => "file_chunk",
+                    _ => "input",
+                };
+                self.refuse(
+                    id,
+                    None,
+                    RefusalReason::Unsupported {
+                        what: what.to_string(),
+                    },
+                    None,
+                );
+                return;
+            }
+        };
+        let op = (op.0 != 0).then_some(op);
+        let route = self
+            .routes
+            .routes
+            .get(&id)
+            .expect("the caller holds the route");
+        if !route.input {
+            self.refuse(id, op, RefusalReason::NotWritable, None);
+        } else if route.baseline > 0 {
+            // DP-5: no input before `live` is written.
+            self.refuse(id, op, RefusalReason::NotReady, None);
+        } else {
+            self.enqueue_route_input(id, op, bytes);
+        }
+    }
+
+    /// An `input_refused` for a frame that is not applied as sent (DP-5), queued in order with the route's frames, with the
+    /// bytes written when part of it was (exact, or `None` when nothing was). A route that closed gets nothing.
+    pub(super) fn refuse(
+        &mut self,
+        id: RouteId,
+        op: Option<Op>,
+        reason: RefusalReason,
+        written_bytes: Option<u64>,
+    ) {
+        let Some(route) = self.routes.routes.get_mut(&id) else {
+            return;
+        };
+        let frame = ToClient::InputRefused(InputRefused {
+            op,
+            reason,
+            written_bytes,
+            path: None,
+        });
+        debug_assert!(stream_wrap(&frame.encode()).len() <= refusal_bound());
+        route.push(&frame);
+        self.pump_route(id);
+        self.send_budget();
+    }
+
     /// The PTY read budget (OU-3d): the smallest free payload space of the routes that are not closing. With no such route
     /// the limit is lifted, once.
     fn send_budget(&mut self) {
@@ -476,6 +695,17 @@ impl Worker {
             }
             None => {}
         }
+        self.read_allowances();
+    }
+
+    /// The route's queued bytes behind the baseline sequence, and its client bytes that are not decoded yet: the two bounds
+    /// of DP-5 that the tests check.
+    #[cfg(test)]
+    pub(super) fn route_held(&self, id: RouteId) -> Option<(usize, usize)> {
+        self.routes
+            .routes
+            .get(&id)
+            .map(|r| (r.queued - r.baseline, r.reader.pending()))
     }
 
     /// The unbound descriptors of a link that ended or was replaced are closed (DP-8).
@@ -510,8 +740,11 @@ mod tests {
             written: 0,
             queued,
             baseline: 0,
+            reader: StreamReader::default(),
+            input: true,
             writing: false,
             closing: None,
+            allowance: None,
         }
     }
 
