@@ -94,6 +94,56 @@ impl Client {
         }
     }
 
+    /// As `take_all`, and it also returns the encoded size (with the stream prefix) of the frames that the client reads after
+    /// the first positive read allowance of `route`. At that allowance the worker has applied every frame that it received
+    /// (a frame waits only while the route has no room, and the allowance is then 0), so those frames are the route's
+    /// queue at that point.
+    fn take_after_room(
+        &mut self,
+        w: &mut World,
+        route: RouteId,
+        mut actions: Vec<Action>,
+    ) -> (Vec<Action>, Option<usize>) {
+        let mut all = Vec::new();
+        let mut room_at = None;
+        loop {
+            if room_at.is_none() && allowance(&actions, route).is_some_and(|n| n > 0) {
+                room_at = Some(self.frames.len());
+            }
+            let writes: Vec<Vec<u8>> = actions
+                .iter()
+                .filter_map(|a| match a {
+                    Action::RouteWrite { route: r, bytes } if *r == route => Some(bytes.clone()),
+                    _ => None,
+                })
+                .collect();
+            all.append(&mut actions);
+            if writes.is_empty() {
+                let queued = room_at.map(|at| {
+                    self.frames[at..]
+                        .iter()
+                        .map(|f| botster_route_codec::prelude::stream_wrap(&f.encode()).len())
+                        .sum()
+                });
+                return (all, queued);
+            }
+            for bytes in writes {
+                self.reader.push(&bytes);
+                actions.extend(w.feed(Input::RouteWritten {
+                    route,
+                    result: Ok(bytes.len()),
+                }));
+            }
+            let bounds = self.bounds;
+            while let Some(frame) = self.reader.next_frame(&bounds).unwrap() {
+                match ToClient::decode(&frame, &bounds).unwrap() {
+                    botster_route_codec::prelude::Decoded::Frame(f) => self.frames.push(f),
+                    other => panic!("{other:?}"),
+                }
+            }
+        }
+    }
+
     /// The bytes of the `output` frames after `live`, and the size of each frame.
     fn output(&self) -> (Vec<u8>, Vec<usize>) {
         let live = self
@@ -1401,11 +1451,11 @@ fn refused_input_against_a_client_that_does_not_read_is_held_at_the_queue_bound(
     // Before the client reads: every frame is received, the refusals that the worker queued fit the queue, and the other
     // frames wait.
     assert_eq!(received(&mut w, &actions), 200, "each frame on its read");
-    let (queued, waiting) = w.worker.route_pressure(RouteId(1));
-    assert!(queued <= queue as usize, "{queued} bytes of refusals");
-    assert!(waiting > 0, "the frames past the queue wait");
     assert_eq!(allowance(&actions, RouteId(1)), Some(0), "the reads stop");
-    let all = client.take_all(&mut w, RouteId(1), actions);
+    let (all, queued) = client.take_after_room(&mut w, RouteId(1), actions);
+    // When the route has room again, every frame is applied: its unread refusals fit the queue.
+    let queued = queued.expect("the route gets room again");
+    assert!(queued <= queue as usize, "{queued} bytes of refusals");
     let ops: Vec<Option<Op>> = refusals(&client).into_iter().map(|(op, _)| op).collect();
     assert_eq!(ops, (1..=200).map(|k| Some(Op(k))).collect::<Vec<_>>());
     assert_eq!(
@@ -1627,18 +1677,17 @@ fn deferred_refusals_of_queued_route_input_stay_within_the_route_queue() {
         bytes: flood,
     }));
     assert_eq!(received(&mut w, &actions), 50, "each frame on its read");
-    assert!(
-        w.worker.route_pressure(RouteId(1)).1 > 0,
-        "the frames past the reserved room wait"
-    );
+    // The frames past the reserved room wait: the route has no room, so the reads stop. Without the reservation (PR3
+    // F100), the worker would admit the whole batch and the route would have room.
     assert_eq!(allowance(&actions, RouteId(1)), Some(0), "the reads stop");
     actions.extend(w.feed(Input::PayloadExited(ExitStatus::Code(0))));
     actions.extend(w.feed(Input::PtyWritten(Ok(3))));
     assert_eq!(pty_writes(&actions), b"abc", "only the host's write");
-    // The payload ended: every input that the worker applied is refused at once, and those refusals fit the queue.
-    let (queued, _) = w.worker.route_pressure(RouteId(1));
+    // The payload ended: every input that the worker applied is refused at once, and the reads still stop.
+    assert_eq!(allowance(&actions, RouteId(1)), Some(0), "the reads stop");
+    let (all, queued) = client.take_after_room(&mut w, RouteId(1), actions);
+    let queued = queued.expect("the route gets room again");
     assert!(queued <= queue as usize, "{queued} bytes of refusals");
-    let all = client.take_all(&mut w, RouteId(1), actions);
     assert_eq!(
         refusals_written(&client),
         (1..=50)
@@ -1843,11 +1892,14 @@ fn a_quiet_batch_that_waits_for_reserved_room_reaches_the_pty_as_the_writes_end(
         route: RouteId(1),
         bytes: read,
     });
-    assert!(
-        w.worker.route_pressure(RouteId(1)).1 > 0,
-        "part of the batch waits for room"
+    // Part of the batch waits for room: the route has no refusal room, so the reads stop.
+    assert_eq!(
+        allowance(&actions, RouteId(1)),
+        Some(0),
+        "part of the batch waits"
     );
     let mut writes = Vec::new();
+    let mut last = None;
     loop {
         assert!(
             !actions
@@ -1855,6 +1907,7 @@ fn a_quiet_batch_that_waits_for_reserved_room_reaches_the_pty_as_the_writes_end(
                 .any(|a| matches!(a, Action::RouteWrite { .. })),
             "no outgoing frame"
         );
+        last = allowance(&actions, RouteId(1)).or(last);
         let started = pty_writes(&actions);
         if started.is_empty() {
             break;
@@ -1864,7 +1917,11 @@ fn a_quiet_batch_that_waits_for_reserved_room_reaches_the_pty_as_the_writes_end(
         actions = w.feed(Input::PtyWritten(Ok(n)));
     }
     assert_eq!(writes, batch, "the whole batch, in order");
-    assert_eq!(w.worker.route_pressure(RouteId(1)), (0, 0));
+    assert_eq!(
+        last,
+        Some(limits().route_input_queue_bytes as usize),
+        "nothing is held: the whole bound"
+    );
 }
 
 /// IN-4, IN-10 (PR3 F106): a view-only route whose client floods input and reads nothing. Each complete frame of the read
@@ -1890,8 +1947,9 @@ fn a_guard_at_the_reported_client_revision_counts_every_frame_of_the_read() {
         route: RouteId(1),
         bytes: flood,
     });
-    assert!(
-        w.worker.route_pressure(RouteId(1)).1 > 0,
+    assert_eq!(
+        allowance(&read, RouteId(1)),
+        Some(0),
         "refusals wait for room"
     );
     let revs: Vec<InputRev> = w
@@ -1929,4 +1987,39 @@ fn a_guard_at_the_reported_client_revision_counts_every_frame_of_the_read() {
     // The actions hold the read's 50 reports, and no later report: no frame was left to count.
     assert_eq!(received(&mut w, &later), 50, "only the read's reports");
     assert_eq!(refusals(&client).len(), 50, "every frame is refused");
+}
+
+/// DP-5, R-51 (PR3 F107): a complete batch that the worker receives before its `live` is written, within the allowance, on
+/// a route whose queue cannot hold all the refusals. The frames that wait for room were decided at their receipt: when the
+/// client then reads the baseline through `live` and the refusals, every early op is `NotReady`, in order, and none
+/// reaches the PTY.
+#[test]
+fn input_received_before_live_stays_not_ready_when_it_waits_for_room() {
+    let mut w = with_limits(|l| l.route_queue_bytes = 1000);
+    w.feed(Input::Descriptor(DescriptorId(1)));
+    let mut client = Client::default();
+    let bind = attach(&mut w, RouteId(1), options(), limits());
+    let first = allowance(&bind, RouteId(1)).expect("an allowance");
+    let batch: Vec<u8> = (1..=50)
+        .flat_map(|k| client_frame(&bytes_frame(k, b"x")))
+        .collect();
+    assert!(batch.len() <= first, "{} of {first}: one read", batch.len());
+    let read = w.feed(Input::RouteRead {
+        route: RouteId(1),
+        bytes: batch,
+    });
+    assert_eq!(received(&mut w, &read), 50, "each frame on its read");
+    assert_eq!(allowance(&read, RouteId(1)), Some(0), "refusals wait for room");
+    let all = client.take_all(&mut w, RouteId(1), [bind, read].concat());
+    assert!(
+        client.frames.iter().any(|f| matches!(f, ToClient::Live)),
+        "the client read live"
+    );
+    assert!(pty_writes(&all).is_empty(), "no early input is written");
+    assert_eq!(
+        refusals(&client),
+        (1..=50)
+            .map(|k| (Some(Op(k)), RefusalReason::NotReady))
+            .collect::<Vec<_>>()
+    );
 }
