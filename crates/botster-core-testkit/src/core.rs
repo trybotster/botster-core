@@ -18,7 +18,7 @@ use botster_core_edges::edges::{
 use botster_core_edges::scheduler::ChoicePoint;
 use botster_core_edges::{Entropy, Link, Scheduler, Wake as WakeEdge};
 use botster_core_host::driver::{
-    check_open, HandoffError, HostDriver, HostEdges, HostWake, WorkerSpawn,
+    check_open, DescriptorSendError, HostDriver, HostEdges, HostWake, WorkerSpawn,
 };
 use botster_core_host::{EngineConfig, LinkId};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
@@ -315,19 +315,30 @@ impl HostEdges for SimEdges {
         }
     }
 
-    fn handoff_route(
+    fn link_send_descriptor(
         &mut self,
         link: LinkId,
-        _route: RouteId,
-        transport: StreamEndpoint,
-        _options: &AttachOptions,
-    ) -> Result<(), HandoffError> {
-        // The descriptor travels with the link by value (plan 2.3: "descriptor objects passed by value").
-        let descriptor = crate::net::Descriptor::new(transport);
-        match self.links.get_mut(&link) {
-            Some(end) => end.send_descriptor(descriptor).map_err(|_| HandoffError),
-            None => Err(HandoffError),
-        }
+        bytes: &[u8],
+        endpoint: StreamEndpoint,
+    ) -> Result<usize, (StreamEndpoint, DescriptorSendError)> {
+        // The descriptor travels with the link by value, on the first byte of `bytes` (plan 2.3: "descriptor objects passed
+        // by value"; `SCM_RIGHTS`).
+        let Some(end) = self.links.get_mut(&link) else {
+            return Err((endpoint, DescriptorSendError::Failed));
+        };
+        end.send_with_descriptor(bytes, crate::net::Descriptor::new(endpoint))
+            .map_err(|(descriptor, error)| {
+                let endpoint = descriptor
+                    .downcast::<StreamEndpoint>()
+                    .expect("the descriptor that was sent");
+                let why = match error.kind() {
+                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::Interrupted => {
+                        DescriptorSendError::Blocked
+                    }
+                    _ => DescriptorSendError::Failed,
+                };
+                (endpoint, why)
+            })
     }
 
     fn wake(&self) -> Arc<dyn HostWake> {

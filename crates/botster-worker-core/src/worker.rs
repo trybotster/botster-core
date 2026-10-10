@@ -138,6 +138,17 @@ pub enum Input {
     CandidateBytes(CandidateId, Vec<u8>),
     /// A candidate's connection ended.
     CandidateClosed(CandidateId),
+    /// The control link delivered a descriptor (a route's stream, DP-2), before the link bytes that it rides with.
+    Descriptor(DescriptorId),
+    /// The answer to [`Action::RouteWrite`]: `Ok(n)` is the bytes that the transport accepted (OU-3a), and `Ok(0)` waits for
+    /// [`Input::RouteWritable`]. `Err(errno)` is a terminal write error; the driver writes again on `Interrupted` and
+    /// reports `WouldBlock` as `Ok(0)`.
+    RouteWritten {
+        route: RouteId,
+        result: Result<usize, i32>,
+    },
+    /// The route's transport takes bytes again after a write that it did not take.
+    RouteWritable { route: RouteId },
 }
 
 /// An action of the worker, for its driver.
@@ -169,6 +180,20 @@ pub enum Action {
     /// [`Input::LinkWritten`] is about the new link, and `LinkWritten` counts from zero on it. The driver reports no input of
     /// the old link after this action.
     AdoptLink(CandidateId),
+    /// The stream of `descriptor` is `route`'s transport from now (DP-2).
+    BindRoute {
+        descriptor: DescriptorId,
+        route: RouteId,
+    },
+    /// Close a descriptor that no route took (its link ended or was replaced, DP-8).
+    CloseDescriptor(DescriptorId),
+    /// Write these bytes to the route's transport, and answer with [`Input::RouteWritten`]. One write is out per route.
+    RouteWrite { route: RouteId, bytes: Vec<u8> },
+    /// Close the route's transport. The driver reports nothing more of the route.
+    RouteClose { route: RouteId },
+    /// Read at most this many PTY bytes in total until the next budget (OU-3d source backpressure); `Some(0)` stops every
+    /// PTY read, a drain too. `None` lifts the limit. A driver starts with no limit.
+    PtyReadBudget(Option<usize>),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -269,6 +294,8 @@ pub struct Worker {
     model: Option<model::Model>,
     /// Core's limits that the worker applies itself (`LaunchSpec.limits`).
     limits: CoreLimits,
+    /// The stream routes (P4a).
+    routes: route::Routes,
     actions: VecDeque<Action>,
 }
 
@@ -315,6 +342,7 @@ impl Worker {
             input: input::InputState::default(),
             model: None,
             limits: CoreLimits::default(),
+            routes: route::Routes::default(),
             actions: VecDeque::new(),
         };
         if !worker.send_hello() {
@@ -394,6 +422,10 @@ impl Worker {
     /// last `Output` report is not written, the read is not reported on its own: the next report carries the latest
     /// revision (the host keeps only the latest `Activity` too).
     fn on_output(&mut self, bytes: &[u8]) {
+        // The routes get the PTY bytes as they were read (OU-12); a route bound later gets what the model holds (OU-9).
+        if !bytes.is_empty() {
+            self.route_output(bytes);
+        }
         if bytes.is_empty() || !self.feed_model(bytes) {
             return;
         }
@@ -518,7 +550,12 @@ impl Worker {
             HostMsg::Op { req, op } => self.on_op(now, req, op),
             HostMsg::Cancel { req } => self.on_cancel(req),
             HostMsg::Remove => self.on_remove(),
-            // `AttachRoute` and `Detach` belong to the route milestone (P4a); a later variant of the enum is a later host's.
+            HostMsg::AttachRoute {
+                route,
+                options,
+                limits,
+            } => self.on_attach_route(route, options, limits),
+            // `Detach` belongs to a later P4a PR; a later variant of the enum is a later host's.
             _ => {}
         }
     }
@@ -915,6 +952,7 @@ impl Worker {
         self.epoch = epoch;
         // The driver drops the bytes that are still unwritten on the old link; they never reach the new one.
         self.actions.push_back(Action::AdoptLink(id));
+        self.close_unbound();
         self.queued_total = 0;
         self.written_total = 0;
         // The new link counts its bytes from zero, so an `Output` report of the old link waits for nothing on it. The
@@ -1001,6 +1039,7 @@ impl Machine for Worker {
                 // DP-8: the worker keeps its payload and its model when the host is gone. Unwritten bytes are lost with
                 // the link, so a staged close is complete, and a staged end follows.
                 self.link = LinkState::Closed;
+                self.close_unbound();
                 self.finish_close();
             }
             Input::LinkWritten { total } => {
@@ -1032,6 +1071,9 @@ impl Machine for Worker {
                     self.candidate = None;
                 }
             }
+            Input::Descriptor(id) => self.routes.descriptor(id),
+            Input::RouteWritten { route, result } => self.on_route_written(route, result),
+            Input::RouteWritable { route } => self.on_route_writable(route),
         }
         self.arm_orphan(now);
     }
@@ -1093,6 +1135,9 @@ fn op_name(op: &Op) -> String {
 
 mod input;
 mod model;
+mod route;
+
+pub use route::DescriptorId;
 
 #[cfg(test)]
 mod tests;

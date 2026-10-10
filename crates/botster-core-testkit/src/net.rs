@@ -78,7 +78,12 @@ struct Shared {
     reset: bool,
     /// `queues[s]` holds the bytes that side `s` wrote and side `1 - s` has not read.
     queues: [VecDeque<u8>; 2],
-    descriptors: [VecDeque<Descriptor>; 2],
+    /// `descriptors[s]`: the descriptors that side `s` sent and side `1 - s` has not received, each with the stream offset
+    /// of the byte that it rides with (`SCM_RIGHTS`: a descriptor travels with a byte).
+    descriptors: [VecDeque<(u64, Descriptor)>; 2],
+    /// `sent[s]`: the bytes that side `s` wrote so far. `taken[s]`: the bytes of them that side `1 - s` read so far.
+    sent: [u64; 2],
+    taken: [u64; 2],
     capacity: usize,
     closed: [bool; 2],
 }
@@ -110,6 +115,8 @@ impl End {
             reset: false,
             queues: [VecDeque::new(), VecDeque::new()],
             descriptors: [VecDeque::new(), VecDeque::new()],
+            sent: [0, 0],
+            taken: [0, 0],
             capacity,
             closed: [false, false],
         }));
@@ -171,9 +178,14 @@ impl End {
             return Err(io::ErrorKind::ConnectionReset.into());
         }
         let max = shared.control[me].read_cap.map_or(max, |cap| max.min(cap));
+        // A read never crosses the byte of a descriptor that was not received: the descriptor comes first.
+        let before_descriptor = shared.descriptors[peer]
+            .front()
+            .map(|(at, _)| usize::try_from(at - shared.taken[peer]).unwrap_or(usize::MAX));
+        let max = before_descriptor.map_or(max, |left| max.min(left));
         let queue = &mut shared.queues[peer];
-        if queue.is_empty() {
-            return if shared.closed[peer] {
+        if queue.is_empty() || max == 0 {
+            return if queue.is_empty() && shared.closed[peer] {
                 Ok(0)
             } else {
                 Err(io::ErrorKind::WouldBlock.into())
@@ -183,13 +195,18 @@ impl End {
         for slot in &mut buf[..n] {
             *slot = queue.pop_front().unwrap_or_default();
         }
+        shared.taken[peer] += n as u64;
         Ok(n)
     }
 
     /// Writes as many bytes as the queue has room for.
     pub fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
         let mut shared = lock(&self.shared);
-        let (me, peer) = (self.side, 1 - self.side);
+        Self::write_locked(&mut shared, self.side, bytes)
+    }
+
+    fn write_locked(shared: &mut Shared, me: usize, bytes: &[u8]) -> io::Result<usize> {
+        let peer = 1 - me;
         if shared.reset {
             return Err(io::ErrorKind::ConnectionReset.into());
         }
@@ -207,6 +224,7 @@ impl End {
         }
         let n = room.min(bytes.len());
         shared.queues[me].extend(&bytes[..n]);
+        shared.sent[me] += n as u64;
         if let Some(accept) = &mut shared.control[me].accept {
             *accept -= n;
         }
@@ -221,7 +239,10 @@ impl End {
         let released: Vec<Descriptor> = {
             let mut shared = lock(&self.shared);
             shared.closed[self.side] = true;
-            shared.descriptors[1 - self.side].drain(..).collect()
+            shared.descriptors[1 - self.side]
+                .drain(..)
+                .map(|(_, descriptor)| descriptor)
+                .collect()
         };
         // Dropped outside the lock: a descriptor can hold an endpoint of another duplex, whose drop takes its own lock.
         drop(released);
@@ -341,27 +362,44 @@ impl LinkEnd {
         self.0.is_ready()
     }
 
-    /// Hands a descriptor to the peer. It never blocks (`SCM_RIGHTS` rides with bytes that the link already carries).
+    /// Hands a descriptor to the peer with the first byte of `bytes`, as `sendmsg` with `SCM_RIGHTS` does: `Ok(n)`, `n >= 1`,
+    /// when the link took the descriptor and the first `n` bytes. On an error nothing was taken, and the descriptor comes
+    /// back: `WouldBlock` when the link takes no byte now, another kind when the handoff failed (DESIGN.md "The handoff").
     ///
     /// Clause: Core DP-2.
-    pub fn send_descriptor(&mut self, descriptor: Descriptor) -> io::Result<()> {
+    pub fn send_with_descriptor(
+        &mut self,
+        bytes: &[u8],
+        descriptor: Descriptor,
+    ) -> Result<usize, (Descriptor, io::Error)> {
         let mut shared = lock(&self.0.shared);
-        let (me, peer) = (self.0.side, 1 - self.0.side);
+        let me = self.0.side;
+        if bytes.is_empty() {
+            return Err((descriptor, io::ErrorKind::InvalidInput.into()));
+        }
         if std::mem::take(&mut shared.control[me].fail_descriptor) {
-            return Err(io::ErrorKind::ConnectionReset.into());
+            return Err((descriptor, io::ErrorKind::ConnectionReset.into()));
         }
-        if shared.closed[me] || shared.closed[peer] {
-            return Err(io::ErrorKind::BrokenPipe.into());
+        let at = shared.sent[me];
+        match End::write_locked(&mut shared, me, bytes) {
+            Ok(n) => {
+                shared.descriptors[me].push_back((at, descriptor));
+                Ok(n)
+            }
+            Err(error) => Err((descriptor, error)),
         }
-        shared.descriptors[me].push_back(descriptor);
-        Ok(())
     }
 
-    /// The next descriptor that the peer sent, in order.
+    /// The next descriptor that the peer sent, once every byte before its own byte was read (`recvmsg` returns it with that
+    /// byte). A read stops before that byte until the descriptor is taken.
     pub fn recv_descriptor(&mut self) -> Option<Descriptor> {
         let mut shared = lock(&self.0.shared);
         let peer = 1 - self.0.side;
-        shared.descriptors[peer].pop_front()
+        let taken = shared.taken[peer];
+        match shared.descriptors[peer].front() {
+            Some((at, _)) if *at == taken => shared.descriptors[peer].pop_front().map(|(_, d)| d),
+            _ => None,
+        }
     }
 }
 
@@ -434,6 +472,20 @@ impl RouteTransport for StreamEnd {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Hands `descriptor` over with one byte, as the host's writer does with the first byte of a frame.
+    fn hand(link: &mut LinkEnd, descriptor: Descriptor) -> Result<(), io::ErrorKind> {
+        link.send_with_descriptor(b"d", descriptor)
+            .map(|n| assert_eq!(n, 1))
+            .map_err(|(_, error)| error.kind())
+    }
+
+    /// Takes the next descriptor and the byte that it rides with.
+    fn take(link: &mut LinkEnd) -> Option<Descriptor> {
+        let descriptor = link.recv_descriptor()?;
+        assert_eq!(link.recv(&mut [0u8; 1]).unwrap(), 1);
+        Some(descriptor)
+    }
 
     fn drain(link: &mut LinkEnd) -> Vec<u8> {
         let mut out = Vec::new();
@@ -523,27 +575,79 @@ mod tests {
         let sched = SchedulerHandle::with_seed(0);
         let (mut a, mut b) = link_pair(4);
         let (route_worker, mut route_client) = stream_pair(&sched, 8);
-        a.send_descriptor(Descriptor::new(route_worker)).unwrap();
-        a.send_descriptor(Descriptor::new(7u32)).unwrap();
+        hand(&mut a, Descriptor::new(route_worker)).unwrap();
+        hand(&mut a, Descriptor::new(7u32)).unwrap();
         assert!(
             b.end().readiness().readable,
             "a descriptor is readable work"
         );
-        let mut worker_end = b
-            .recv_descriptor()
-            .unwrap()
-            .downcast::<StreamEnd>()
-            .unwrap();
-        assert_eq!(b.recv_descriptor().unwrap().downcast::<u32>().unwrap(), 7);
-        assert!(b.recv_descriptor().is_none());
+        let mut worker_end = take(&mut b).unwrap().downcast::<StreamEnd>().unwrap();
+        assert_eq!(take(&mut b).unwrap().downcast::<u32>().unwrap(), 7);
+        assert!(take(&mut b).is_none());
         // The descriptor is the very stream end, still connected to the client.
         route_client.write(b"hi").unwrap();
         let mut buf = [0u8; 8];
         let n = worker_end.read(&mut buf).unwrap();
         assert_eq!(&buf[..n], &b"hi"[..n]);
         // A wrong type returns the descriptor.
-        a.send_descriptor(Descriptor::new(1u8)).unwrap();
-        assert!(b.recv_descriptor().unwrap().downcast::<u32>().is_err());
+        hand(&mut a, Descriptor::new(1u8)).unwrap();
+        assert!(take(&mut b).unwrap().downcast::<u32>().is_err());
+    }
+
+    /// DP-2 (DESIGN.md "The handoff"): a descriptor rides with one byte. A read stops before that byte until the descriptor is
+    /// taken, and the descriptor is offered only once every earlier byte was read, so the receiver always has the descriptor
+    /// before the frame that it starts. A link that takes no byte gives the descriptor back.
+    #[test]
+    fn a_descriptor_arrives_with_its_byte_and_never_before_earlier_bytes() {
+        let (mut a, mut b) = link_pair(8);
+        a.send(b"ab").unwrap();
+        assert_eq!(
+            a.send_with_descriptor(b"cd", Descriptor::new(1u8)).unwrap(),
+            2
+        );
+        a.send(b"e").unwrap();
+        assert!(
+            b.recv_descriptor().is_none(),
+            "two earlier bytes are unread"
+        );
+        let mut buf = [0u8; 8];
+        assert_eq!(
+            b.recv(&mut buf).unwrap(),
+            2,
+            "the read stops before the descriptor's byte"
+        );
+        assert_eq!(&buf[..2], b"ab");
+        assert_eq!(
+            b.recv(&mut buf).unwrap_err().kind(),
+            io::ErrorKind::WouldBlock,
+            "no byte after the descriptor is read before it"
+        );
+        assert!(
+            b.end().readiness().readable,
+            "the descriptor is readable work"
+        );
+        assert_eq!(b.recv_descriptor().unwrap().downcast::<u8>().unwrap(), 1);
+        assert_eq!(drain(&mut b), b"cde");
+
+        let (mut a, _b) = link_pair(1);
+        a.send(b"x").unwrap();
+        let (back, error) = a
+            .send_with_descriptor(b"y", Descriptor::new(2u8))
+            .unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::WouldBlock);
+        assert_eq!(
+            back.downcast::<u8>().unwrap(),
+            2,
+            "a blocked send gives the descriptor back"
+        );
+        assert_eq!(
+            a.send_with_descriptor(b"", Descriptor::new(3u8))
+                .unwrap_err()
+                .1
+                .kind(),
+            io::ErrorKind::InvalidInput,
+            "a descriptor needs a byte to ride with"
+        );
     }
 
     /// A5-2: the read size of a route stream is a seed-chosen number of bytes. Every byte arrives in order whatever the sizes,
@@ -622,7 +726,7 @@ mod tests {
 
         let (mut a, b) = link_pair(4);
         let (worker, mut client) = stream_pair(&sched, 8);
-        a.send_descriptor(Descriptor::new(worker)).unwrap();
+        hand(&mut a, Descriptor::new(worker)).unwrap();
         // The receiver closes without taking the descriptor: the descriptor, and the route end in it, are released.
         drop(b);
         assert_eq!(client.read(&mut [0u8; 4]).unwrap(), 0);
@@ -680,16 +784,16 @@ mod tests {
     #[test]
     fn a_descriptor_needs_two_open_ends() {
         let (mut a, b) = link_pair(2);
-        a.send_descriptor(Descriptor::new(1u8)).unwrap();
+        hand(&mut a, Descriptor::new(1u8)).unwrap();
         drop(b);
         assert_eq!(
-            a.send_descriptor(Descriptor::new(2u8)).unwrap_err().kind(),
+            hand(&mut a, Descriptor::new(2u8)).unwrap_err(),
             io::ErrorKind::BrokenPipe
         );
         let (mut a, _b) = link_pair(2);
         Link::close(&mut a);
         assert_eq!(
-            a.send_descriptor(Descriptor::new(3u8)).unwrap_err().kind(),
+            hand(&mut a, Descriptor::new(3u8)).unwrap_err(),
             io::ErrorKind::BrokenPipe
         );
     }
@@ -699,11 +803,11 @@ mod tests {
     fn the_second_end_sends_descriptors_too() {
         let (a, mut b) = link_pair(2);
         let mut a = a;
-        b.send_descriptor(Descriptor::new(5u8)).unwrap();
-        assert_eq!(a.recv_descriptor().unwrap().downcast::<u8>().unwrap(), 5);
+        hand(&mut b, Descriptor::new(5u8)).unwrap();
+        assert_eq!(take(&mut a).unwrap().downcast::<u8>().unwrap(), 5);
         drop(a);
         assert_eq!(
-            b.send_descriptor(Descriptor::new(6u8)).unwrap_err().kind(),
+            hand(&mut b, Descriptor::new(6u8)).unwrap_err(),
             io::ErrorKind::BrokenPipe
         );
     }
@@ -865,18 +969,18 @@ mod tests {
         let (end, mut other) = pair_of_streams();
         a.end().control().fail_next_handoff();
         assert_eq!(
-            a.send_descriptor(Descriptor::new(end)).unwrap_err().kind(),
+            hand(&mut a, Descriptor::new(end)).unwrap_err(),
             io::ErrorKind::ConnectionReset
         );
-        assert!(b.recv_descriptor().is_none());
+        assert!(take(&mut b).is_none());
         assert_eq!(
             other.read(&mut buf).unwrap(),
             0,
             "the dropped descriptor closed its stream end"
         );
         let (end, _other) = pair_of_streams();
-        a.send_descriptor(Descriptor::new(end)).unwrap();
-        assert!(b.recv_descriptor().is_some(), "only one handoff failed");
+        hand(&mut a, Descriptor::new(end)).unwrap();
+        assert!(take(&mut b).is_some(), "only one handoff failed");
     }
 
     /// `edges_quiet`: a side holds a report for its peer while it has written bytes or a descriptor that the peer has not
@@ -891,12 +995,12 @@ mod tests {
         assert_eq!(drain(&mut b), b"x");
         assert!(!held.holds_for_peer());
         let (end, _other) = pair_of_streams();
-        a.send_descriptor(Descriptor::new(end)).unwrap();
+        hand(&mut a, Descriptor::new(end)).unwrap();
         assert!(
             held.holds_for_peer(),
             "a descriptor the peer has not received"
         );
-        assert!(b.recv_descriptor().is_some());
+        assert!(take(&mut b).is_some());
         assert!(!held.holds_for_peer());
         assert!(
             !b.end().control().holds_for_peer(),
