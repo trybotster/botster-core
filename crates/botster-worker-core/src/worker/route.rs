@@ -20,10 +20,15 @@
 //! **Input backpressure (DP-5).** The driver reads a route's client bytes only within the route's read allowance
 //! ([`Action::RouteReadAllowance`]). The allowance is the input bound less the bytes that the route holds: the client bytes
 //! that are not decoded yet, and the route's input that waits at the admission point or is being written. The input bound is
-//! `route_input_queue_bytes`, and at least one whole frame of the route (so a frame can always complete). The allowance is 0
-//! while the route's outgoing queue cannot hold one more `input_refused` frame behind the baseline sequence
-//! (`route_queue_bytes`), and the worker then decodes no more frames: a client that floods refused input and does not read
-//! is held at `route_queue_bytes`. A closing route discards the client bytes that it reads: no frame of it is applied.
+//! `route_input_queue_bytes`, and at least one whole frame of the route with its stream prefix (steward ruling R-53: DP-3
+//! admits a frame of `max_frame_bytes`, so the reader must be able to read one). The driver spends an allowance read by
+//! read, so the worker's copy of it is lowered by each read, and a new allowance goes out whenever the driver's rest differs
+//! from the value now. The allowance is 0 while the route's outgoing queue cannot hold one more `input_refused` frame behind
+//! the baseline sequence (`route_queue_bytes`), and the worker then decodes no more frames: a client that floods refused
+//! input and does not read is held at `route_queue_bytes`. Each input of the route at the admission point can still be
+//! refused (a failed write, the payload's end), so the room of one refusal is kept for each of them, in that check and in the
+//! PTY read budget. A closing route discards the client bytes that it reads: no frame of it is applied, and no frame goes
+//! after its `route_closed` (OU-2b).
 //!
 //! **Frame bounds (DP-3).** Every frame is checked against its codec bound (`bound_of`) before it is queued, and the
 //! snapshot's size is checked before it is allocated. A route whose limits cannot carry the attach frames is closed
@@ -107,19 +112,21 @@ impl Route {
     /// The PTY bytes that the queue can still take as `output` frames: `free` bytes of queue hold `n` payload bytes in
     /// `ceil(n / per)` frames of `OUTPUT_OVERHEAD` each. With `f = free / (per + OUTPUT_OVERHEAD) + 1`, the payload
     /// `free - f * OUTPUT_OVERHEAD` needs at most `f` frames, so it always fits.
-    fn free_payload(&self, queue_bytes: usize) -> usize {
-        let free = queue_bytes.saturating_sub(self.queued - self.baseline);
+    fn free_payload(&self, queue_bytes: usize, reserved: usize) -> usize {
+        let free = queue_bytes.saturating_sub(self.queued - self.baseline + reserved);
         let per = self.output_payload();
         let frames = free / (per + OUTPUT_OVERHEAD) + 1;
         free.saturating_sub(frames * OUTPUT_OVERHEAD)
     }
 
-    /// True when one more `input_refused` frame fits behind the baseline sequence under `route_queue_bytes` (DP-5).
-    fn refusal_room(&self, queue_bytes: usize) -> bool {
-        self.queued - self.baseline + refusal_bound() <= queue_bytes
+    /// True when one more `input_refused` frame fits behind the baseline sequence under `route_queue_bytes`, with the room
+    /// `reserved` for the refusals that the route's held input may still need (DP-5).
+    fn refusal_room(&self, queue_bytes: usize, reserved: usize) -> bool {
+        self.queued - self.baseline + reserved + refusal_bound() <= queue_bytes
     }
 
-    /// The input bound of the route (DP-5): `route_input_queue_bytes`, and at least one whole frame with its stream prefix.
+    /// The input bound of the route (DP-5): `route_input_queue_bytes`, and at least one whole frame with its stream prefix
+    /// (steward ruling R-53).
     fn input_bound(&self) -> usize {
         let frame = usize::try_from(self.limits.max_frame_bytes).unwrap_or(usize::MAX);
         usize::try_from(self.limits.route_input_queue_bytes)
@@ -514,12 +521,17 @@ impl Worker {
         let Some(route) = self.routes.routes.get_mut(&id) else {
             return;
         };
+        // The driver spent these bytes of its allowance (an unlimited one stays unlimited).
+        if let Some(allowance) = route.allowance.filter(|&a| a != usize::MAX) {
+            route.allowance = Some(allowance.saturating_sub(bytes.len()));
+        }
         // A closing route applies no more input: its bytes are discarded, so they are not held (DP-5, OU-2b).
         if route.closing.is_none() {
             route.reader.push(bytes);
             self.decode_route(id);
         }
-        self.read_allowances();
+        // The decoded input may reserve the room of its refusal: the PTY budget and the allowances follow.
+        self.send_budget();
     }
 
     /// Decodes the route's complete frames in order, while the route is open and one more refusal fits (DP-5). The bytes of
@@ -527,10 +539,11 @@ impl Worker {
     fn decode_route(&mut self, id: RouteId) {
         let queue_bytes = usize::try_from(self.limits.route_queue_bytes).unwrap_or(usize::MAX);
         loop {
+            let reserved = self.reserved(id);
             let Some(route) = self.routes.routes.get_mut(&id) else {
                 return;
             };
-            if route.closing.is_some() || !route.refusal_room(queue_bytes) {
+            if route.closing.is_some() || !route.refusal_room(queue_bytes, reserved) {
                 return;
             }
             let bounds = frame_bounds(&route.limits);
@@ -567,10 +580,11 @@ impl Worker {
         let ids: Vec<RouteId> = self.routes.routes.keys().copied().collect();
         for id in ids {
             let held = self.input.route_bytes(id);
+            let reserved = self.reserved(id);
             let route = self.routes.routes.get_mut(&id).expect("listed");
             let allowance = if route.closing.is_some() {
                 usize::MAX
-            } else if !route.refusal_room(queue_bytes) {
+            } else if !route.refusal_room(queue_bytes, reserved) {
                 0
             } else {
                 route
@@ -615,16 +629,18 @@ impl Worker {
         let (op, bytes) = match frame {
             ToWorker::Bytes { op, bytes } => (op, bytes.0.to_vec()),
             ToWorker::Text { op, text } => (op, text.into_bytes()),
-            // Keys, mouse, pastes and files are later P4a work (DP-5): they are refused, and the route stays open.
+            // Keys, mouse, pastes and files are later P4a work (DP-5): they are refused with their op (TS-5b), and the
+            // route stays open. A chunk always has a nonzero op: the codec rejects a chunk with op 0 as malformed.
             other => {
-                let what = match other {
-                    ToWorker::PasteChunk { .. } => "paste_chunk",
-                    ToWorker::FileChunk { .. } => "file_chunk",
-                    _ => "input",
+                let (op, what) = match other {
+                    ToWorker::PasteChunk { op, .. } => (Some(op), "paste_chunk"),
+                    ToWorker::FileChunk { op, .. } => (Some(op), "file_chunk"),
+                    ToWorker::Input(input) => (input.op(), "input"),
+                    _ => (None, "input"),
                 };
                 self.refuse(
                     id,
-                    None,
+                    op,
                     RefusalReason::Unsupported {
                         what: what.to_string(),
                     },
@@ -650,7 +666,8 @@ impl Worker {
     }
 
     /// An `input_refused` for a frame that is not applied as sent (DP-5), queued in order with the route's frames, with the
-    /// bytes written when part of it was (exact, or `None` when nothing was). A route that closed gets nothing.
+    /// bytes written when part of it was (exact, or `None` when nothing was). A route that closed gets nothing, and so does a
+    /// closing one: its `route_closed` is its last frame (OU-2b).
     pub(super) fn refuse(
         &mut self,
         id: RouteId,
@@ -658,7 +675,12 @@ impl Worker {
         reason: RefusalReason,
         written_bytes: Option<u64>,
     ) {
-        let Some(route) = self.routes.routes.get_mut(&id) else {
+        let Some(route) = self
+            .routes
+            .routes
+            .get_mut(&id)
+            .filter(|r| r.closing.is_none())
+        else {
             return;
         };
         let frame = ToClient::InputRefused(InputRefused {
@@ -675,14 +697,14 @@ impl Worker {
 
     /// The PTY read budget (OU-3d): the smallest free payload space of the routes that are not closing. With no such route
     /// the limit is lifted, once.
-    fn send_budget(&mut self) {
+    pub(super) fn send_budget(&mut self) {
         let queue_bytes = usize::try_from(self.limits.route_queue_bytes).unwrap_or(usize::MAX);
         let budget = self
             .routes
             .routes
-            .values()
-            .filter(|r| r.closing.is_none())
-            .map(|r| r.free_payload(queue_bytes))
+            .iter()
+            .filter(|(_, r)| r.closing.is_none())
+            .map(|(&id, r)| r.free_payload(queue_bytes, self.reserved(id)))
             .min();
         match budget {
             Some(n) => {
@@ -698,14 +720,10 @@ impl Worker {
         self.read_allowances();
     }
 
-    /// The route's queued bytes behind the baseline sequence, and its client bytes that are not decoded yet: the two bounds
-    /// of DP-5 that the tests check.
-    #[cfg(test)]
-    pub(super) fn route_held(&self, id: RouteId) -> Option<(usize, usize)> {
-        self.routes
-            .routes
-            .get(&id)
-            .map(|r| (r.queued - r.baseline, r.reader.pending()))
+    /// The queue room that the route keeps for the refusals of its held input: one `input_refused` for each of its inputs at
+    /// the admission point (DP-5).
+    fn reserved(&self, id: RouteId) -> usize {
+        self.input.route_inputs(id) * refusal_bound()
     }
 
     /// The unbound descriptors of a link that ended or was replaced are closed (DP-8).
@@ -748,33 +766,41 @@ mod tests {
         }
     }
 
-    /// OU-3d: the budget is the largest payload whose `output` frames always fit the free queue space, for every frame size.
+    /// OU-3d: the budget is the largest payload whose `output` frames always fit the free queue space, less the room kept
+    /// for refusals (DP-5), for every frame size.
     #[test]
     fn the_free_payload_always_fits_the_queue_as_output_frames() {
         for max_frame in [2u64, 3, 7, 64, 1025] {
             for queued in [0usize, 1, 50, 99, 100] {
-                let r = route(max_frame, queued);
-                let payload = r.free_payload(100);
-                let per = r.output_payload();
-                let cost = payload + payload.div_ceil(per) * OUTPUT_OVERHEAD;
-                assert!(
-                    cost <= 100 - queued,
-                    "frame {max_frame}, queued {queued}: {payload} costs {cost}"
-                );
+                for reserved in [0usize, 1, 30] {
+                    let r = route(max_frame, queued);
+                    let payload = r.free_payload(100, reserved);
+                    let per = r.output_payload();
+                    let cost = payload + payload.div_ceil(per) * OUTPUT_OVERHEAD;
+                    assert!(
+                        cost <= 100usize.saturating_sub(queued + reserved),
+                        "frame {max_frame}, queued {queued}, reserved {reserved}: {payload} costs {cost}"
+                    );
+                }
             }
         }
         assert_eq!(
-            route(1025, 0).free_payload(100),
+            route(1025, 0).free_payload(100, 0),
             95,
             "one frame of 95 bytes and its 5"
         );
         assert_eq!(
-            route(1025, 100).free_payload(100),
+            route(1025, 0).free_payload(100, 50),
+            45,
+            "the reserved room is not free"
+        );
+        assert_eq!(
+            route(1025, 100).free_payload(100, 0),
             0,
             "a full queue takes nothing"
         );
         assert_eq!(
-            route(1025, 101).free_payload(100),
+            route(1025, 101).free_payload(100, 0),
             0,
             "an overfull queue takes nothing"
         );

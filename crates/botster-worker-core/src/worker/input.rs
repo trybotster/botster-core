@@ -124,6 +124,21 @@ impl InputState {
         queued + active
     }
 
+    /// The inputs of a route that the admission point holds: queued, and the route's write in progress. Each may still be
+    /// refused on the route (DP-5).
+    pub(super) fn route_inputs(&self, route: RouteId) -> usize {
+        let queued = self
+            .queue
+            .iter()
+            .filter(|p| matches!(p, Pending::Route(input) if input.route == route))
+            .count();
+        let active = self
+            .active
+            .as_ref()
+            .is_some_and(|a| matches!(a.owner, Owner::Route(r, _) if r == route));
+        queued + usize::from(active)
+    }
+
     /// IN-4: a complete client input frame advances `input_rev{client}` on receipt.
     pub(super) fn client_received(&mut self) -> InputRev {
         self.client_rev += 1;
@@ -474,8 +489,9 @@ impl Worker {
                 if let Some(reason) = refusal {
                     self.refuse(route, op, reason, (written > 0).then_some(written));
                 }
-                // The route's held input is less: its read allowance grows (DP-5).
-                self.read_allowances();
+                // The route holds one input less: its reserved refusal room is free, so the PTY budget and its read
+                // allowance grow (DP-5).
+                self.send_budget();
             }
         }
         self.try_start();

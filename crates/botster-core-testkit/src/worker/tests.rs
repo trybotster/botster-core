@@ -783,6 +783,26 @@ fn bind_route_of(
     route: RouteId,
     capacity: usize,
 ) -> crate::net::StreamEnd {
+    let client = bind_route_unread(edges, peer, worker, now, route, capacity);
+    edges.perform(
+        now,
+        Action::RouteReadAllowance {
+            route,
+            bytes: usize::MAX,
+        },
+    );
+    client
+}
+
+/// A route bound to a stream, with no read allowance yet (DP-5).
+fn bind_route_unread(
+    edges: &mut WorkerEdges,
+    peer: &mut LinkEnd,
+    worker: &SharedWorker,
+    now: Instant,
+    route: RouteId,
+    capacity: usize,
+) -> crate::net::StreamEnd {
     let (descriptor, client) = route_descriptor_of(&edges.scheduler, capacity);
     peer.send_with_descriptor(b"f", descriptor).unwrap();
     edges.ready(now, worker);
@@ -796,13 +816,6 @@ fn bind_route_of(
         Action::BindRoute {
             descriptor: id,
             route,
-        },
-    );
-    edges.perform(
-        now,
-        Action::RouteReadAllowance {
-            route,
-            bytes: usize::MAX,
         },
     );
     client
@@ -978,7 +991,7 @@ fn the_clients_bytes_reach_the_machine_and_its_close_ends_the_route_once() {
 #[test]
 fn a_route_is_read_only_within_its_allowance() {
     let (mut edges, mut peer, worker, now) = fixture(16);
-    let mut client = bind_route_of(&mut edges, &mut peer, &worker, now, RouteId(1), 16);
+    let mut client = bind_route_unread(&mut edges, &mut peer, &worker, now, RouteId(1), 16);
     let allow = |edges: &mut WorkerEdges, bytes: usize| {
         edges.perform(
             now,
@@ -988,11 +1001,22 @@ fn a_route_is_read_only_within_its_allowance() {
             },
         );
     };
-    allow(&mut edges, 0);
     assert_eq!(
         botster_core_edges::RouteTransport::write(&mut client, b"abcdef").unwrap(),
         6
     );
+    assert_eq!(
+        edges.ready(now, &worker),
+        0,
+        "no read comes before the first allowance"
+    );
+    allow(&mut edges, 2);
+    assert_eq!(edges.ready(now, &worker), 1, "the stream is readable");
+    let Input::RouteRead { bytes, .. } = edges.take(now, &worker, 0) else {
+        panic!("a route read")
+    };
+    assert_eq!(bytes, b"ab", "the first allowance");
+    allow(&mut edges, 0);
     assert_eq!(
         edges.ready(now, &worker),
         0,
@@ -1006,7 +1030,12 @@ fn a_route_is_read_only_within_its_allowance() {
         };
         got.extend(bytes);
     }
-    assert_eq!(got, b"abcd", "the reads stop at the allowance");
+    assert_eq!(got, b"cdef", "the reads stop at the allowance");
+    assert_eq!(
+        botster_core_edges::RouteTransport::write(&mut client, b"gh").unwrap(),
+        2
+    );
+    assert_eq!(edges.ready(now, &worker), 0, "the allowance is spent");
     allow(&mut edges, 10);
     while got.len() < 6 {
         assert_eq!(edges.ready(now, &worker), 1, "the stream is readable");
@@ -1015,7 +1044,7 @@ fn a_route_is_read_only_within_its_allowance() {
         };
         got.extend(bytes);
     }
-    assert_eq!(got, b"abcdef");
+    assert_eq!(got, b"cdefgh");
 }
 
 /// A socket read's buffer: the most bytes that one route read takes (64 KiB, as the real driver).
