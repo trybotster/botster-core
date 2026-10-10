@@ -315,6 +315,12 @@ impl CoreHarness for RealCoreHarness {
         true
     }
 
+    /// Real workers, payloads, PTYs and sockets make progress that the injected clock does not control: the driver never
+    /// jumps the clock to Core's next deadline (steward ruling R-46). It moves only by `advance_clock`.
+    fn progress_is_injected(&self) -> bool {
+        false
+    }
+
     /// A directory under the harness's root (`<root>/d/<name>`), kept across a drop and a reopen (Core LC-12, AD-1).
     /// `Core::open` creates it; `new` made its parent.
     fn data_dir(&mut self, name: &str) -> DataDirRef {
