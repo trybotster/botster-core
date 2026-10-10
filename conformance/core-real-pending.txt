@@ -3,6 +3,6 @@
 # Rules (`cargo xtask lists` checks them):
 # - The harness PR initializes the file from the gate's real run; after that it only shrinks.
 # - An id enters only in the pull request that removes it from core-pending.txt, or as a new ledger id.
-# - An id here is a Core ledger id, and is not pending, deferred, withdrawn or real-only (a `slow:*` proof).
+# - An id here is a Core ledger id, and is not pending, deferred, withdrawn, real-only (a `slow:*` proof) or testkit-proven (Core A20-1).
 # - An id that passes on the real tier and later fails there is a gate failure, never a new entry.
 # Each id is a finding for its owner.
