@@ -133,7 +133,7 @@ The worker holds no transport object. The driver keeps each received descriptor 
 | `Descriptor(DescriptorId)`: the link delivered one, before the bytes that it rides with | `BindRoute{descriptor, route}`: the transport of `descriptor` is `route`'s from now |
 | `RouteBytes{route, bytes}`: bytes that the route delivered, in order | `CloseDescriptor(DescriptorId)`: close an unbound descriptor |
 | `RouteWritten{route, result}`: the answer to `RouteWrite`. `Ok(n)` is the bytes that the kernel accepted (the progress point of OU-3a), and `Ok(0)` waits for `RouteWritable`. `Err(errno)` is a terminal write error: the route closes `WriteFailed`. The driver never reports `WouldBlock` (it is `Ok(0)`) or `Interrupted` (the driver writes again) as `Err` | `RouteWrite{route, bytes}`: one write; at most one is out per route |
-| `RouteWritable{route}` | `RouteRead{route, on}`: read interest (off while the admission point is full, DP-5) |
+| `RouteWritable{route}` | `RouteReadAllowance{route, bytes}`: the client bytes that the driver may still read from the route until the next allowance; `0` stops its reads (DP-5: the route's input bound, `route_input_queue_bytes` and at least one frame, less the bytes it holds; 0 while one more `input_refused` does not fit in `route_queue_bytes`) |
 | `RouteClosedByPeer{route}`: a read returned `Ok(0)`, a reset or another terminal read error (OU-5): the route closes `PeerClosed`. `WouldBlock` waits for read readiness and `Interrupted` reads again; neither is reported | `RouteClose{route}`: close the transport; the driver reports nothing more of `route` |
 | | `PtyReadBudget(n)`: the driver reads at most `n` PTY bytes in total until the next budget; `0` stops every PTY read, a drain too |
 
