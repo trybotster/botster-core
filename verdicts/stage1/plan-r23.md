@@ -1126,3 +1126,34 @@ This documentation change requires no execution gate.
 I ran no builds, tests, gates, mutation jobs, or reversal jobs.
 
 VERDICT: CLEAN (0 open) at 65f78ee18a6d574ecdeba488dc97dbb8dee0e5cf
+
+## Round 34 — revision 23z — 2026-10-10
+
+Reviewed head: `515cf3b61c94800e00ac2489f76fdab707f47ee1`.
+Prior accepted head: `65f78ee18a6d574ecdeba488dc97dbb8dee0e5cf`.
+Scope: the complete two-hunk delta in `docs/stage1-plan.md`.
+
+Section 6.3 records real-only production work, its owner, and its priority until it lands.
+The first item assigns the DP-2 descriptor handoff to P4a, the P3 pair, at top priority.
+It includes the host send, host copy closure, worker receive, PTY read budget, and socket route edge.
+The revision row records the same assignment and tracking rule.
+A PR that adds a real-only stub must include its tracking entry. A reviewer must reject an untracked stub.
+
+I checked the producer and consumer at current v1 `3677b37e502497d5e63a91dfad92e5671bd19196`.
+The host's `link_send_descriptor` always returns the endpoint with `DescriptorSendError::Failed`.
+The worker reads control bytes with `Read::read` and provides no `Input::Descriptor`.
+Its route binding, route write, route close, and PTY budget action branches do nothing.
+The worker-core DESIGN.md "Real-only" section lists these same missing paths.
+The new entry therefore includes both sides of the descriptor handoff and the remaining route driver work.
+
+The revision preserves package ownership, pending rules, acceptance conditions, and staffing limits.
+It changes no ledger id, contract pin, passing count, or required real-tier proof.
+The program-controls pair retains its existing scope and shared-file agreement requirement.
+This plan verdict accepts the work assignment and tracking rule. It does not accept an implementation or real-tier completion.
+
+The prior plan pin equals the parent revision, SHA256 `b3dd30aa073d8332db34e4873830124506378a5f5556c3bae416341ff5c5c3d8`.
+The remote plan head matches the reviewed head. `git diff --check` passes.
+This documentation change requires no execution gate.
+I ran no build, test, gate, mutation job, merge-check job, or reversal job.
+
+VERDICT: CLEAN (0 open) at 515cf3b61c94800e00ac2489f76fdab707f47ee1
