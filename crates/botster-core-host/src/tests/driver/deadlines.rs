@@ -356,6 +356,14 @@ fn two_failed_handoffs_post_one_event_per_pump() {
         l.max_sessions = 4;
     }));
     run_session(&mut rig, "s1", LinkId(1));
+    // Both handoffs fail at the link (DP-2).
+    rig.mock
+        .lock()
+        .unwrap()
+        .links
+        .get_mut(&LinkId(1))
+        .unwrap()
+        .fail_descriptor = vec![DescriptorSendError::Failed; 2];
     let attach = |rig: &mut Rig| {
         rig.driver
             .attach(

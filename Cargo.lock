@@ -376,6 +376,7 @@ dependencies = [
  "botster-core-host",
  "botster-core-link",
  "botster-core-sys",
+ "botster-hub-conformance",
  "botster-probe-script",
  "botster-route-codec",
  "botster-terminal-ghostty",

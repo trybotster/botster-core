@@ -8,7 +8,7 @@ use botster_core_edges::edges::{
 };
 use botster_core_edges::scheduler::Production;
 use botster_core_edges::{Entropy, Scheduler, Wake as WakeEdge};
-use botster_core_host::driver::{HandoffError, HostEdges, HostWake, WorkerSpawn};
+use botster_core_host::driver::{DescriptorSendError, HostEdges, HostWake, WorkerSpawn};
 use botster_core_host::LinkId;
 use botster_core_link::launch::WorkerLaunch;
 use botster_core_sys::entropy::OsEntropy;
@@ -450,16 +450,15 @@ impl HostEdges for RealEdges {
         }
     }
 
-    fn handoff_route(
+    fn link_send_descriptor(
         &mut self,
         _link: LinkId,
-        _route: RouteId,
-        _transport: StreamEndpoint,
-        _options: &AttachOptions,
-    ) -> Result<(), HandoffError> {
-        // The descriptor handoff over the control link (`SCM_RIGHTS`, DP-2) belongs to the route data plane (P4a). Until it
-        // exists, a route closes with the typed `HandoffFailed` (OU-2), and Core closes the endpoint.
-        Err(HandoffError)
+        _bytes: &[u8],
+        endpoint: StreamEndpoint,
+    ) -> Result<usize, (StreamEndpoint, DescriptorSendError)> {
+        // `SCM_RIGHTS` over the control link (DP-2) is real-only work after the testkit PRs of P4a (worker-core DESIGN.md
+        // "Real-only"). Until it exists, a route closes with the typed `HandoffFailed` (OU-2), and Core closes the endpoint.
+        Err((endpoint, DescriptorSendError::Failed))
     }
 
     fn wake(&self) -> Arc<dyn HostWake> {
@@ -659,23 +658,10 @@ mod slow_tests {
         assert!(edges.poll_process_exit().is_none());
         assert!(edges.accept_link().is_none(), "no client waits");
         let endpoint = StreamEndpoint::new(());
-        let options = AttachOptions {
-            file_directory: "/tmp".into(),
-            file_permissions: None,
-            route_features: vec![],
-            terminal_formats: vec![],
-            owner: None,
-            query_deadline: None,
-            route_tag: None,
-            route_limits: None,
-            history: None,
-            stall_deadline: None,
-            answers_queries: false,
-            input: true,
-        };
-        assert!(edges
-            .handoff_route(LinkId(1), RouteId(1), endpoint, &options)
-            .is_err());
+        assert!(matches!(
+            edges.link_send_descriptor(LinkId(1), b"x", endpoint),
+            Err((_, DescriptorSendError::Failed))
+        ));
     }
 
     /// Plan 2.5: a client that connects is a link with its own number; the host reads what it writes, sends what it is
