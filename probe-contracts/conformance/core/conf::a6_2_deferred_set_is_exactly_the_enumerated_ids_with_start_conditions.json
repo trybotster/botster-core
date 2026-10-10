@@ -1,0 +1,14 @@
+{
+  "id": "conf::a6_2_deferred_set_is_exactly_the_enumerated_ids_with_start_conditions",
+  "contract": "core",
+  "clause": "A6-2",
+  "subject": "core",
+  "fake": "structural",
+  "ruling": "R-12",
+  "steps": [
+    {
+      "type_check": "a6_2_deferred_set",
+      "because": "Core A6-2"
+    }
+  ]
+}

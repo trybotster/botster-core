@@ -1,0 +1,351 @@
+{
+  "id": "conf::a3_1_bell_osc9_osc777_are_counted_and_osc52_is_not",
+  "contract": "core",
+  "clause": "A3-1",
+  "subject": "core",
+  "requires": {
+    "features": [
+      "output_dropped"
+    ],
+    "controls": [
+      "edges_quiet",
+      "pty_output",
+      "queue_overflow",
+      "route_gate"
+    ]
+  },
+  "steps": [
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s1",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$c_s1",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s1",
+                  "state": "Created"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core LC-3"
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "s1"
+          }
+        }
+      },
+      "bind": "$s_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$s_s1",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s1",
+                  "state": "Running"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core A2-1"
+    },
+    {
+      "attach_route": {
+        "route": "r1",
+        "session": "s1",
+        "client": "c1",
+        "options": {
+          "history": "none",
+          "route_features": [
+            "output_dropped"
+          ]
+        }
+      },
+      "because": "Core OU-1"
+    },
+    {
+      "expect": {
+        "frame": "attached",
+        "terminal_format": {
+          "$type": "string"
+        },
+        "features": [
+          "output_dropped"
+        ]
+      },
+      "on": "r1",
+      "because": [
+        "Core OU-1",
+        "Codec TS-1"
+      ]
+    },
+    {
+      "expect": {
+        "frame": "baseline_begin",
+        "rows": {
+          "$type": "integer"
+        },
+        "cols": {
+          "$type": "integer"
+        },
+        "modes": {
+          "$type": "object"
+        }
+      },
+      "on": "r1",
+      "because": [
+        "Core OU-9",
+        "Codec TS-4"
+      ]
+    },
+    {
+      "expect": {
+        "frame": "screen",
+        "payload": {
+          "$any": true
+        }
+      },
+      "on": "r1",
+      "because": [
+        "Core OU-9",
+        "Codec TS-4"
+      ]
+    },
+    {
+      "expect_eventually": {
+        "frame": "baseline_end",
+        "history": "not_requested"
+      },
+      "ignore": [
+        {
+          "frame": "history",
+          "payload": {
+            "$any": true
+          }
+        }
+      ],
+      "on": "r1",
+      "because": [
+        "Core OU-9",
+        "Codec TS-4"
+      ]
+    },
+    {
+      "expect": {
+        "frame": "live"
+      },
+      "on": "r1",
+      "because": [
+        "Core OU-9",
+        "Codec TS-4"
+      ]
+    },
+    {
+      "control": {
+        "op": "route_gate",
+        "on": true
+      },
+      "route": "r1"
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s1",
+        "bytes_hex": "07"
+      }
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Bell": {
+            "id": "s1"
+          }
+        }
+      },
+      "because": "Core A2-4"
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s1",
+        "bytes_hex": "1b5d393b6e696e6507"
+      }
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Notification": {
+            "id": "s1",
+            "source": "Osc9",
+            "body": "nine"
+          }
+        }
+      },
+      "because": "Core A2-4"
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s1",
+        "bytes_hex": "1b5d3737373b6e6f746966793b543b4207"
+      }
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Notification": {
+            "id": "s1",
+            "source": "Osc777",
+            "title": "T",
+            "body": "B"
+          }
+        }
+      },
+      "because": "Core A2-4"
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s1",
+        "bytes_hex": "1b5d35323b633b61476b3d07"
+      }
+    },
+    {
+      "pump_until": {
+        "event": {
+          "ClipboardWrite": {
+            "id": "s1"
+          }
+        }
+      },
+      "because": "Core A2-4"
+    },
+    {
+      "await_quiet": {}
+    },
+    {
+      "control": {
+        "op": "queue_overflow"
+      },
+      "route": "r1"
+    },
+    {
+      "control": {
+        "op": "route_gate",
+        "on": false
+      },
+      "route": "r1"
+    },
+    {
+      "expect_eventually": {
+        "frame": "output_dropped",
+        "notifications": 3,
+        "last": {
+          "source": "osc777",
+          "title": "T",
+          "body": "B"
+        }
+      },
+      "ignore": [
+        {
+          "frame": "modes"
+        }
+      ],
+      "on": "r1",
+      "because": [
+        "Core A3-1",
+        "Core A2-4"
+      ]
+    },
+    {
+      "expect": {
+        "frame": "resync",
+        "reason": "overflow"
+      },
+      "on": "r1",
+      "because": [
+        "Core A3-1",
+        "Core A2-4"
+      ]
+    },
+    {
+      "expect": {
+        "frame": "baseline_begin"
+      },
+      "on": "r1",
+      "because": [
+        "Core OU-9",
+        "Codec TS-4c"
+      ]
+    },
+    {
+      "expect": {
+        "frame": "screen"
+      },
+      "on": "r1",
+      "because": [
+        "Core OU-9",
+        "Codec TS-4c"
+      ]
+    },
+    {
+      "expect_eventually": {
+        "frame": "baseline_end"
+      },
+      "ignore": [
+        {
+          "frame": "history",
+          "payload": {
+            "$any": true
+          }
+        }
+      ],
+      "on": "r1",
+      "because": [
+        "Core OU-9",
+        "Codec TS-4c"
+      ]
+    },
+    {
+      "expect": {
+        "frame": "live"
+      },
+      "on": "r1",
+      "because": [
+        "Core OU-9",
+        "Codec TS-4c"
+      ]
+    }
+  ],
+  "fake": "structural",
+  "ruling": "R-12"
+}

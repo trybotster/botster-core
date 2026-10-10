@@ -1,0 +1,179 @@
+{
+  "id": "conf::st_1_resize_changes_rev_without_output",
+  "contract": "core",
+  "clause": "ST-1",
+  "subject": "core",
+  "fake": "structural",
+  "ruling": "R-12",
+  "steps": [
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s1",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ],
+              "size": {
+                "rows": 10,
+                "cols": 40
+              }
+            }
+          }
+        }
+      },
+      "bind": "$c_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$c_s1",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s1",
+                  "state": "Created"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core LC-3"
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "s1"
+          }
+        }
+      },
+      "bind": "$s_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$s_s1",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s1",
+                  "state": "Running"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core A2-1"
+    },
+    {
+      "begin": {
+        "op": {
+          "ReadModeFlags": {
+            "session": "s1"
+          }
+        }
+      },
+      "bind": "$a"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$a",
+            "result": {
+              "ok": {
+                "modes": {
+                  "model_rev": "$m1"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core ST-1"
+    },
+    {
+      "begin": {
+        "op": {
+          "Resize": {
+            "session": "s1",
+            "size": {
+              "rows": 20,
+              "cols": 50
+            }
+          }
+        }
+      },
+      "bind": "$r"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$r",
+            "result": {
+              "ok": {
+                "resize": {
+                  "Applied": {
+                    "actual": {
+                      "rows": 20,
+                      "cols": 50
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core ST-1",
+        "Core SZ-1"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "ReadModeFlags": {
+            "session": "s1"
+          }
+        }
+      },
+      "bind": "$b"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$b",
+            "result": {
+              "ok": {
+                "modes": {
+                  "model_rev": "$m2"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core ST-1"
+    },
+    {
+      "check": {
+        "ne": [
+          "$m1",
+          "$m2"
+        ]
+      },
+      "because": "Core ST-1"
+    }
+  ]
+}

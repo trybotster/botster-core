@@ -1,0 +1,226 @@
+{
+  "id": "conf::lc_12_stop_all_leaves_created_exited_lost",
+  "contract": "core",
+  "clause": "LC-12",
+  "subject": "core",
+  "requires": {
+    "controls": [
+      "lose_worker"
+    ]
+  },
+  "steps": [
+    {
+      "begin": {
+        "op": "StopAll"
+      },
+      "bind": "$empty"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$empty",
+            "result": {
+              "ok": "unit"
+            }
+          }
+        }
+      },
+      "because": "Core LC-12"
+    },
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "c1",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c"
+    },
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "l1",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c_l1"
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "l1"
+          }
+        }
+      },
+      "bind": "$s_l1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$s_l1",
+            "result": {}
+          }
+        }
+      },
+      "because": "Core LC-3"
+    },
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "x1",
+            "request": {
+              "program": [
+                {
+                  "exit": {
+                    "code": 0
+                  }
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c_x1"
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "x1"
+          }
+        }
+      },
+      "bind": "$s_x1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$s_x1",
+            "result": {}
+          }
+        }
+      },
+      "because": "Core LC-3"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "SessionState": {
+            "id": "x1",
+            "state": {
+              "Exited": {
+                "$any": true
+              }
+            }
+          }
+        }
+      },
+      "because": "Core EV-4"
+    },
+    {
+      "control": {
+        "op": "lose_worker",
+        "session": "l1"
+      }
+    },
+    {
+      "pump_until": {
+        "event": {
+          "SessionState": {
+            "id": "l1",
+            "state": {
+              "Lost": {
+                "$any": true
+              }
+            }
+          }
+        }
+      },
+      "because": "Core AD-2"
+    },
+    {
+      "begin": {
+        "op": "StopAll"
+      },
+      "bind": "$sa"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$sa",
+            "result": {
+              "ok": "unit"
+            }
+          }
+        }
+      },
+      "because": "Core LC-12"
+    },
+    {
+      "call": {
+        "method": "get",
+        "args": {
+          "id": "c1"
+        }
+      },
+      "expect": {
+        "state": "Created"
+      },
+      "because": "Core LC-12"
+    },
+    {
+      "call": {
+        "method": "get",
+        "args": {
+          "id": "x1"
+        }
+      },
+      "expect": {
+        "state": {
+          "Exited": {
+            "code": 0
+          }
+        }
+      },
+      "because": "Core LC-12"
+    },
+    {
+      "call": {
+        "method": "get",
+        "args": {
+          "id": "l1"
+        }
+      },
+      "expect": {
+        "state": {
+          "Lost": {
+            "$any": true
+          }
+        }
+      },
+      "because": "Core LC-12"
+    }
+  ]
+}

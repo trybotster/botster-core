@@ -1,0 +1,197 @@
+{
+  "id": "conf::or_2_session_order",
+  "contract": "core",
+  "clause": "OR-2",
+  "subject": "core",
+  "fake": "structural",
+  "ruling": "R-12",
+  "steps": [
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s1",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c"
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "s1"
+          }
+        }
+      },
+      "bind": "$s"
+    },
+    {
+      "begin": {
+        "op": {
+          "Stop": {
+            "id": "s1"
+          }
+        }
+      },
+      "bind": "$p"
+    },
+    {
+      "expect_eventually": {
+        "SessionState": {
+          "id": "s1",
+          "state": "Created"
+        }
+      },
+      "because": "Core OR-2",
+      "ignore": [
+        {
+          "$any": true
+        }
+      ]
+    },
+    {
+      "expect_eventually": {
+        "Completed": {
+          "op": "$c",
+          "result": {}
+        }
+      },
+      "because": "Core OR-2",
+      "ignore": [
+        {
+          "$any": true
+        }
+      ]
+    },
+    {
+      "expect_eventually": {
+        "SessionState": {
+          "id": "s1",
+          "state": "Starting"
+        }
+      },
+      "because": "Core OR-2",
+      "ignore": [
+        {
+          "$any": true
+        }
+      ]
+    },
+    {
+      "expect_eventually": {
+        "SessionState": {
+          "id": "s1",
+          "state": "Running"
+        }
+      },
+      "because": "Core OR-2",
+      "ignore": [
+        {
+          "$any": true
+        }
+      ]
+    },
+    {
+      "expect_eventually": {
+        "Completed": {
+          "op": "$s",
+          "result": {}
+        }
+      },
+      "because": "Core OR-2",
+      "ignore": [
+        {
+          "$any": true
+        }
+      ]
+    },
+    {
+      "expect_eventually": {
+        "SessionState": {
+          "id": "s1",
+          "state": {
+            "Exited": {
+              "$any": true
+            }
+          }
+        }
+      },
+      "because": "Core OR-2",
+      "ignore": [
+        {
+          "$any": true
+        }
+      ]
+    },
+    {
+      "expect_eventually": {
+        "Completed": {
+          "op": "$p",
+          "result": {}
+        }
+      },
+      "because": "Core OR-2",
+      "ignore": [
+        {
+          "$any": true
+        }
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "Remove": {
+            "id": "s1"
+          }
+        }
+      },
+      "bind": "$r"
+    },
+    {
+      "expect_eventually": {
+        "SessionState": {
+          "id": "s1",
+          "state": "Released"
+        }
+      },
+      "because": "Core OR-2",
+      "ignore": [
+        {
+          "$any": true
+        }
+      ]
+    },
+    {
+      "expect_eventually": {
+        "Completed": {
+          "op": "$r",
+          "result": {
+            "ok": {
+              "remove_report": {
+                "uploads": "deleted"
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core LC-7",
+        "Core A6-3",
+        "Core A6-4"
+      ],
+      "ignore": [
+        {
+          "$any": true
+        }
+      ]
+    }
+  ]
+}

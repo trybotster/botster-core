@@ -1,0 +1,667 @@
+{
+  "id": "conf::a5_1_edges_scripted",
+  "contract": "core",
+  "clause": "A5-1",
+  "subject": "core",
+  "requires": {
+    "controls": [
+      "process_end_worker",
+      "process_refuse_spawn",
+      "pty_input",
+      "storage_fail_write",
+      "wake_spurious"
+    ]
+  },
+  "fake": "structural",
+  "ruling": "R-12",
+  "steps": [
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s1",
+            "request": {
+              "program": [
+                {
+                  "print_after_input": {
+                    "match_hex": "31",
+                    "bytes_hex": "78"
+                  }
+                },
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$c_s1",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s1",
+                  "state": "Created"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core LC-3"
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "s1"
+          }
+        }
+      },
+      "bind": "$s_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$s_s1",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s1",
+                  "state": "Running"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core A2-1"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "bytes": {
+                "bytes": {
+                  "$bytes_hex": "31"
+                }
+              }
+            }
+          }
+        }
+      },
+      "bind": "$w"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$w",
+            "result": {
+              "ok": {
+                "input": {
+                  "outcome": "Written"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core IN-2"
+    },
+    {
+      "await_pty": {
+        "session": "s1",
+        "min_bytes": 1
+      }
+    },
+    {
+      "control": {
+        "op": "pty_input",
+        "session": "s1"
+      },
+      "expect": {
+        "bytes": {
+          "$bytes_hex": "31"
+        }
+      },
+      "because": [
+        "Core A5-1"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s2",
+            "request": {
+              "program": [
+                {
+                  "exit": {
+                    "code": 3
+                  }
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c_s2"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$c_s2",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s2",
+                  "state": "Created"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core LC-3"
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "s2"
+          }
+        }
+      },
+      "bind": "$s_s2"
+    },
+    {
+      "pump_collect": {
+        "events": [
+          {
+            "Completed": {
+              "op": "$s_s2",
+              "result": {
+                "ok": {
+                  "record": {
+                    "id": "s2",
+                    "state": "Running"
+                  }
+                }
+              }
+            }
+          },
+          {
+            "SessionState": {
+              "id": "s2",
+              "state": {
+                "Exited": {
+                  "code": 3,
+                  "cause": "Normal"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "because": [
+        "Core A5-1",
+        "Core EV-4"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s3",
+            "request": {
+              "program": [
+                {
+                  "signal_self": {
+                    "n": 15
+                  }
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c_s3"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$c_s3",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s3",
+                  "state": "Created"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core LC-3"
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "s3"
+          }
+        }
+      },
+      "bind": "$s_s3"
+    },
+    {
+      "pump_collect": {
+        "events": [
+          {
+            "Completed": {
+              "op": "$s_s3",
+              "result": {
+                "ok": {
+                  "record": {
+                    "id": "s3",
+                    "state": "Running"
+                  }
+                }
+              }
+            }
+          },
+          {
+            "SessionState": {
+              "id": "s3",
+              "state": {
+                "Exited": {
+                  "signal": 15,
+                  "cause": "Signal"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "because": [
+        "Core A5-1",
+        "Core EV-4"
+      ]
+    },
+    {
+      "control": {
+        "op": "storage_fail_write"
+      },
+      "because": "Core A5-1"
+    },
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s4",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c4"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$c4",
+            "result": {
+              "err": {
+                "code": {
+                  "RegistryFailed": {
+                    "uncertain": false
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core A5-1",
+        "Core AD-7"
+      ]
+    },
+    {
+      "control": {
+        "op": "storage_fail_write",
+        "uncertain": true
+      },
+      "because": "Core A5-1"
+    },
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s4",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c4b"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$c4b",
+            "result": {
+              "err": {
+                "code": {
+                  "RegistryFailed": {
+                    "uncertain": true
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core A5-1",
+        "Core AD-7"
+      ]
+    },
+    {
+      "control": {
+        "op": "process_refuse_spawn",
+        "errno": 13
+      },
+      "because": "Core A5-1"
+    },
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s5",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c5"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$c5",
+            "result": {}
+          }
+        }
+      },
+      "because": "Core LC-3"
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "s5"
+          }
+        }
+      },
+      "bind": "$s5"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$s5",
+            "result": {
+              "err": {
+                "code": {
+                  "StartFailed": {
+                    "ExecFailed": {
+                      "errno": 13
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core A5-1",
+        "Core A2-1"
+      ]
+    },
+    {
+      "control": {
+        "op": "process_end_worker",
+        "session": "s1"
+      },
+      "because": "Core A5-1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "SessionState": {
+            "id": "s1",
+            "state": {
+              "Lost": "WorkerGone"
+            }
+          }
+        }
+      },
+      "because": [
+        "Core A5-1",
+        "Core AD-2"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s6",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c_s6"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$c_s6",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s6",
+                  "state": "Created"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core LC-3"
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "s6"
+          }
+        }
+      },
+      "bind": "$s_s6"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$s_s6",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s6",
+                  "state": "Running"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core A2-1"
+    },
+    {
+      "attach_route": {
+        "route": "r6",
+        "session": "s6",
+        "client": "c1"
+      },
+      "because": "Core OU-1"
+    },
+    {
+      "expect": {
+        "frame": "attached",
+        "terminal_format": {
+          "$type": "string"
+        }
+      },
+      "on": "r6",
+      "because": "Core OU-9"
+    },
+    {
+      "expect": {
+        "frame": "baseline_begin",
+        "rows": {
+          "$type": "integer"
+        },
+        "cols": {
+          "$type": "integer"
+        },
+        "modes": {
+          "$type": "object"
+        }
+      },
+      "on": "r6",
+      "because": "Core OU-9"
+    },
+    {
+      "expect": {
+        "frame": "screen",
+        "payload": {
+          "$any": true
+        }
+      },
+      "on": "r6",
+      "because": "Core OU-9"
+    },
+    {
+      "expect_eventually": {
+        "frame": "baseline_end",
+        "history": "not_requested"
+      },
+      "ignore": [
+        {
+          "frame": "history",
+          "payload": {
+            "$any": true
+          }
+        }
+      ],
+      "on": "r6",
+      "because": "Core OU-9"
+    },
+    {
+      "expect": {
+        "frame": "live"
+      },
+      "on": "r6",
+      "because": "Core OU-9"
+    },
+    {
+      "route_send": {
+        "frame": "bytes",
+        "op": "1",
+        "bytes": {
+          "$bytes_hex": "7a"
+        }
+      },
+      "route": "r6"
+    },
+    {
+      "route_expect_pty": [
+        {
+          "hex": "7a"
+        }
+      ],
+      "because": [
+        "Core A5-1",
+        "Core DP-1"
+      ]
+    },
+    {
+      "drain": {}
+    },
+    {
+      "control": {
+        "op": "wake_spurious"
+      },
+      "because": "Core A5-1"
+    },
+    {
+      "wait_wake": {
+        "timeout_ms": 0
+      },
+      "expect": "Woken",
+      "because": [
+        "Core A5-1",
+        "Core TH-2"
+      ]
+    },
+    {
+      "pump": {},
+      "expect": {
+        "events_posted": 0
+      },
+      "because": [
+        "Core A5-1",
+        "Core OU-6"
+      ]
+    }
+  ]
+}

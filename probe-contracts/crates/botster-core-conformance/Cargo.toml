@@ -1,0 +1,24 @@
+# PROBE ONLY (never merged): botster-core-conformance at contracts d4e3a8c (v0.1.23 + the R-46 transcript fixes), with its
+# workspace values written out and its sibling crates taken from the same tag as Core's other contracts crates.
+[package]
+name = "botster-core-conformance"
+version = "0.1.0"
+edition = "2021"
+license = "UNLICENSED"
+publish = false
+build = "build.rs"
+
+[features]
+fake = ["dep:botster-fake-core", "dep:botster-fake-route"]
+
+[dependencies]
+botster-conformance = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.23" }
+botster-core-contract = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.23" }
+botster-fake-core = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.23", optional = true }
+botster-fake-route = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.23", optional = true }
+botster-probe-script = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.23" }
+botster-hub-conformance = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.23" }
+botster-route-codec = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.23", features = ["unstable"] }
+include_dir = "0.7"
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order", "float_roundtrip"] }

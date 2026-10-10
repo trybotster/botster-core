@@ -1,6 +1,8 @@
 [workspace]
 resolver = "2"
 members = ["crates/*", "xtask"]
+# PROBE ONLY (never merged): the R-46 transcript-fix conformance crate copy.
+exclude = ["probe-contracts"]
 
 [workspace.package]
 version = "0.1.0"
@@ -64,3 +66,7 @@ inherits = "dev"
 opt-level = 3
 incremental = false
 codegen-units = 1
+
+# PROBE ONLY (never merged): botster-core-conformance with the R-46 transcript fixes (contracts d4e3a8c).
+[patch."https://github.com/trybotster/botster-contracts"]
+botster-core-conformance = { path = "probe-contracts/crates/botster-core-conformance" }

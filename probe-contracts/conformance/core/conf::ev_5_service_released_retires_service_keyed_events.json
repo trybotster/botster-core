@@ -1,0 +1,227 @@
+{
+  "id": "conf::ev_5_service_released_retires_service_keyed_events",
+  "contract": "core",
+  "clause": "EV-5",
+  "subject": "core",
+  "requires": {
+    "controls": [
+      "edges_quiet",
+      "service_connect",
+      "service_send_frame"
+    ]
+  },
+  "fake": "structural",
+  "ruling": "R-12",
+  "steps": [
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s2",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c_s2"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$c_s2",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s2",
+                  "state": "Created"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core LC-3"
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "s2"
+          }
+        }
+      },
+      "bind": "$s_s2"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$s_s2",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s2",
+                  "state": "Running"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core A2-1"
+    },
+    {
+      "begin": {
+        "op": {
+          "SpawnService": {
+            "service_id": "1111111111111111111111111111111111111111111111111111111111111111"
+          }
+        }
+      },
+      "bind": "$sp"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$sp",
+            "result": {
+              "ok": {
+                "spawn": {
+                  "$any": true
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core SV-1"
+    },
+    {
+      "control": {
+        "op": "service_connect",
+        "service": "1111111111111111111111111111111111111111111111111111111111111111",
+        "epoch": 1
+      }
+    },
+    {
+      "pump_until": {
+        "event": {
+          "LaneConnected": {
+            "id": "1111111111111111111111111111111111111111111111111111111111111111",
+            "epoch": 1
+          }
+        }
+      },
+      "because": "Core A2-5"
+    },
+    {
+      "drain": {}
+    },
+    {
+      "control": {
+        "op": "service_send_frame",
+        "service": "1111111111111111111111111111111111111111111111111111111111111111",
+        "lane": 0,
+        "type": 1,
+        "payload_hex": "00"
+      }
+    },
+    {
+      "pump_until": {
+        "event": {
+          "ServiceReadable": {
+            "id": "1111111111111111111111111111111111111111111111111111111111111111",
+            "lane": 0
+          }
+        }
+      },
+      "because": [
+        "Core EV-5",
+        "Core SV-3"
+      ]
+    },
+    {
+      "await_quiet": {}
+    },
+    {
+      "begin": {
+        "op": {
+          "StopService": {
+            "id": "1111111111111111111111111111111111111111111111111111111111111111"
+          }
+        }
+      },
+      "bind": "$stp"
+    },
+    {
+      "await_quiet": {}
+    },
+    {
+      "begin": {
+        "op": {
+          "RemoveService": {
+            "id": "1111111111111111111111111111111111111111111111111111111111111111"
+          }
+        }
+      },
+      "bind": "$rms"
+    },
+    {
+      "await_quiet": {}
+    },
+    {
+      "call": {
+        "method": "service_report",
+        "args": {
+          "id": "1111111111111111111111111111111111111111111111111111111111111111"
+        }
+      },
+      "expect_error": {
+        "code": "UnknownService"
+      },
+      "because": [
+        "Core A4-1",
+        "Core SV-4"
+      ]
+    },
+    {
+      "expect_quiet_until": {
+        "ServiceReadable": {
+          "id": "1111111111111111111111111111111111111111111111111111111111111111"
+        }
+      },
+      "barrier": {
+        "begin": {
+          "op": {
+            "UpdateMetadata": {
+              "id": "s2",
+              "labels": {
+                "b": "1"
+              }
+            }
+          }
+        },
+        "bind": "$bar_s2"
+      },
+      "until": {
+        "Completed": {
+          "op": "$bar_s2",
+          "result": {
+            "ok": "unit"
+          }
+        }
+      },
+      "because": [
+        "Core EV-5",
+        "Core 6.2"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,139 @@
+{
+  "id": "conf::tm_1_clocks_are_injected",
+  "contract": "core",
+  "clause": "TM-1",
+  "subject": "core",
+  "requires": {
+    "controls": [
+      "pty_output"
+    ]
+  },
+  "fake": "structural",
+  "ruling": "R-12",
+  "steps": [
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s1",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$c_s1",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s1",
+                  "state": "Created"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core LC-3"
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "s1"
+          }
+        }
+      },
+      "bind": "$s_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$s_s1",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s1",
+                  "state": "Running"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core A2-1"
+    },
+    {
+      "drain": {}
+    },
+    {
+      "advance_clock": {
+        "unix": 4242
+      }
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s1",
+        "bytes_hex": "78"
+      }
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Activity": {
+            "id": "s1",
+            "source": "Output",
+            "at": 4242
+          }
+        }
+      },
+      "because": [
+        "Core TM-1",
+        "Core 6.2"
+      ]
+    },
+    {
+      "drain": {}
+    },
+    {
+      "advance_clock": {
+        "ms": 2000,
+        "unix": 9000
+      }
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s1",
+        "bytes_hex": "78"
+      }
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Activity": {
+            "id": "s1",
+            "source": "Output",
+            "at": 9000
+          }
+        }
+      },
+      "because": [
+        "Core TM-1",
+        "Core 6.2"
+      ]
+    }
+  ]
+}

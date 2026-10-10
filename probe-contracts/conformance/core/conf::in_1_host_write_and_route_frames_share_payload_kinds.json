@@ -1,0 +1,412 @@
+{
+  "id": "conf::in_1_host_write_and_route_frames_share_payload_kinds",
+  "contract": "core",
+  "clause": "IN-1",
+  "subject": "core",
+  "requires": {
+    "controls": []
+  },
+  "steps": [
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s1",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ],
+              "fake": {
+                "writes": {
+                  "key": "61",
+                  "mouse": "4d",
+                  "focus_in": "49",
+                  "focus_out": "4f",
+                  "paste": "1b5b3230307e68656c6c6f1b5b3230317e"
+                },
+                "admission": {
+                  "key": 12,
+                  "mouse": 12,
+                  "focus": 3,
+                  "paste": 64
+                }
+              }
+            }
+          }
+        }
+      },
+      "bind": "$c_s1"
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "s1"
+          }
+        }
+      },
+      "bind": "$s_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$s_s1",
+            "result": {}
+          }
+        }
+      },
+      "because": "Core LC-3"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "bytes": {
+                "bytes": {
+                  "$bytes_hex": "61"
+                }
+              }
+            }
+          }
+        }
+      },
+      "bind": "$k1"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "text": {
+                "text": "b"
+              }
+            }
+          }
+        }
+      },
+      "bind": "$k2"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "paste": {
+                "bytes": {
+                  "$bytes_hex": "63"
+                },
+                "require_bracketed": false
+              }
+            }
+          }
+        }
+      },
+      "bind": "$k3"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "key": {
+                "key": {
+                  "char": "a"
+                },
+                "mods": [],
+                "event": "press",
+                "text": "a"
+              }
+            }
+          }
+        }
+      },
+      "bind": "$k4"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "mouse": {
+                "action": "press",
+                "button": "left",
+                "row": 0,
+                "col": 0,
+                "mods": []
+              }
+            }
+          }
+        }
+      },
+      "bind": "$k5"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "focus": {
+                "focused": true
+              }
+            }
+          }
+        }
+      },
+      "bind": "$k6"
+    },
+    {
+      "pump_collect": {
+        "events": [
+          {
+            "Completed": {
+              "op": "$k1",
+              "result": {
+                "ok": {
+                  "input": {
+                    "outcome": {
+                      "$any": true
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "Completed": {
+              "op": "$k2",
+              "result": {
+                "ok": {
+                  "input": {
+                    "outcome": {
+                      "$any": true
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "Completed": {
+              "op": "$k3",
+              "result": {
+                "ok": {
+                  "input": {
+                    "outcome": {
+                      "$any": true
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "Completed": {
+              "op": "$k4",
+              "result": {
+                "ok": {
+                  "input": {
+                    "outcome": {
+                      "$any": true
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "Completed": {
+              "op": "$k5",
+              "result": {
+                "ok": {
+                  "input": {
+                    "outcome": {
+                      "$any": true
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "Completed": {
+              "op": "$k6",
+              "result": {
+                "ok": {
+                  "input": {
+                    "outcome": {
+                      "$any": true
+                    }
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "because": "Core IN-1"
+    },
+    {
+      "attach_route": {
+        "route": "r1",
+        "session": "s1",
+        "client": "c1"
+      },
+      "because": "Core OU-1"
+    },
+    {
+      "expect": {
+        "frame": "attached",
+        "terminal_format": {
+          "$type": "string"
+        }
+      },
+      "on": "r1",
+      "because": "Core OU-9"
+    },
+    {
+      "expect": {
+        "frame": "baseline_begin",
+        "rows": {
+          "$type": "integer"
+        },
+        "cols": {
+          "$type": "integer"
+        },
+        "modes": {
+          "$type": "object"
+        }
+      },
+      "on": "r1",
+      "because": "Core OU-9"
+    },
+    {
+      "expect": {
+        "frame": "screen",
+        "payload": {
+          "$any": true
+        }
+      },
+      "on": "r1",
+      "because": "Core OU-9"
+    },
+    {
+      "expect_eventually": {
+        "frame": "baseline_end",
+        "history": "not_requested"
+      },
+      "ignore": [
+        {
+          "frame": "history",
+          "payload": {
+            "$any": true
+          }
+        }
+      ],
+      "on": "r1",
+      "because": "Core OU-9"
+    },
+    {
+      "expect": {
+        "frame": "live"
+      },
+      "on": "r1",
+      "because": "Core OU-9"
+    },
+    {
+      "route_send": {
+        "frame": "bytes",
+        "op": "1",
+        "bytes": {
+          "$bytes_hex": "61"
+        }
+      },
+      "route": "r1"
+    },
+    {
+      "route_send": {
+        "frame": "text",
+        "op": "2",
+        "text": "b"
+      },
+      "route": "r1"
+    },
+    {
+      "route_send": {
+        "frame": "input",
+        "kind": "key",
+        "op": "3",
+        "key": {
+          "char": "c"
+        },
+        "mods": [],
+        "event": "press",
+        "text": "c"
+      },
+      "route": "r1"
+    },
+    {
+      "route_send": {
+        "frame": "input",
+        "kind": "mouse",
+        "op": "4",
+        "action": "press",
+        "button": "left",
+        "row": 1,
+        "col": 1,
+        "mods": []
+      },
+      "route": "r1"
+    },
+    {
+      "route_send": {
+        "frame": "input",
+        "kind": "focus",
+        "op": "5",
+        "focused": true
+      },
+      "route": "r1"
+    },
+    {
+      "expect_quiet_until": {
+        "frame": "input_refused",
+        "op": {
+          "$one_of": [
+            "1",
+            "2",
+            "3",
+            "4",
+            "5"
+          ]
+        }
+      },
+      "barrier": {
+        "route_send": {
+          "frame": "input",
+          "kind": "paste_commit",
+          "op": "99"
+        },
+        "route": "r1"
+      },
+      "until": {
+        "frame": "input_refused",
+        "op": "99",
+        "reason": "refused"
+      },
+      "on": "r1",
+      "because": [
+        "Core IN-1",
+        "Core DP-5"
+      ]
+    }
+  ]
+}

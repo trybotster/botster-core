@@ -1,0 +1,274 @@
+{
+  "id": "conf::a6_1_peer_identity_is_real_process_only",
+  "contract": "core",
+  "clause": "A6-1",
+  "subject": "core",
+  "requires": {
+    "controls": [
+      "host_uid",
+      "service_connect",
+      "service_connection_closed",
+      "service_extra_connection"
+    ]
+  },
+  "steps": [
+    {
+      "control": {
+        "op": "host_uid"
+      },
+      "bind_fields": {
+        "uid": "$uid"
+      },
+      "because": [
+        "Core A2-5"
+      ]
+    },
+    {
+      "let": {
+        "$other": {
+          "add": [
+            "$uid",
+            1
+          ]
+        }
+      }
+    },
+    {
+      "begin": {
+        "op": {
+          "SpawnService": {
+            "service_id": "1111111111111111111111111111111111111111111111111111111111111111",
+            "limits": {
+              "lanes": [
+                {
+                  "max_frame_bytes": 1024,
+                  "outbound_queue_bytes": 4096,
+                  "inbound_queue_bytes": 4096
+                },
+                {
+                  "max_frame_bytes": 1024,
+                  "outbound_queue_bytes": 4096,
+                  "inbound_queue_bytes": 4096
+                }
+              ],
+              "rlimits": {},
+              "startup": 10000,
+              "stop_grace": 5000,
+              "orphan_grace": 5000,
+              "peer_identity": "$uid"
+            }
+          }
+        }
+      },
+      "bind": "$o1"
+    },
+    {
+      "pump_collect": {
+        "events": [
+          {
+            "Completed": {
+              "op": "$o1",
+              "result": {
+                "ok": {
+                  "spawn": {
+                    "applied": {
+                      "$type": "array"
+                    },
+                    "unsupported": {
+                      "$type": "array"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "ServiceState": {
+              "id": "1111111111111111111111111111111111111111111111111111111111111111",
+              "state": "Started"
+            }
+          }
+        ]
+      },
+      "because": [
+        "Core SV-1",
+        "Core SV-5",
+        "Core A2-1"
+      ]
+    },
+    {
+      "control": {
+        "op": "service_connect",
+        "service": "1111111111111111111111111111111111111111111111111111111111111111",
+        "epoch": 1
+      }
+    },
+    {
+      "pump_collect": {
+        "events": [
+          {
+            "LaneConnected": {
+              "id": "1111111111111111111111111111111111111111111111111111111111111111",
+              "lane": 0,
+              "epoch": 1
+            }
+          },
+          {
+            "LaneConnected": {
+              "id": "1111111111111111111111111111111111111111111111111111111111111111",
+              "lane": 1,
+              "epoch": 1
+            }
+          },
+          {
+            "ServiceState": {
+              "id": "1111111111111111111111111111111111111111111111111111111111111111",
+              "state": {
+                "Reconnected": {
+                  "epoch": 1
+                }
+              }
+            }
+          }
+        ]
+      },
+      "because": [
+        "Core SV-2",
+        "Core SV-5"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "SpawnService": {
+            "service_id": "2222222222222222222222222222222222222222222222222222222222222222",
+            "limits": {
+              "lanes": [
+                {
+                  "max_frame_bytes": 1024,
+                  "outbound_queue_bytes": 4096,
+                  "inbound_queue_bytes": 4096
+                },
+                {
+                  "max_frame_bytes": 1024,
+                  "outbound_queue_bytes": 4096,
+                  "inbound_queue_bytes": 4096
+                }
+              ],
+              "rlimits": {},
+              "startup": 10000,
+              "stop_grace": 5000,
+              "orphan_grace": 5000,
+              "peer_identity": "$other"
+            }
+          }
+        }
+      },
+      "bind": "$o2"
+    },
+    {
+      "pump_collect": {
+        "events": [
+          {
+            "Completed": {
+              "op": "$o2",
+              "result": {
+                "ok": {
+                  "spawn": {
+                    "applied": {
+                      "$type": "array"
+                    },
+                    "unsupported": {
+                      "$type": "array"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "ServiceState": {
+              "id": "2222222222222222222222222222222222222222222222222222222222222222",
+              "state": "Started"
+            }
+          }
+        ]
+      },
+      "because": [
+        "Core SV-1",
+        "Core SV-5",
+        "Core A2-1"
+      ]
+    },
+    {
+      "control": {
+        "op": "service_extra_connection",
+        "service": "2222222222222222222222222222222222222222222222222222222222222222",
+        "lane": 0,
+        "epoch": 1
+      },
+      "bind_fields": {
+        "connection": "$conn3"
+      }
+    },
+    {
+      "await_control": {
+        "control": {
+          "op": "service_connection_closed",
+          "connection": "$conn3"
+        },
+        "expect": {
+          "closed": true
+        }
+      },
+      "because": [
+        "Core SV-2"
+      ]
+    },
+    {
+      "await_quiet": {}
+    },
+    {
+      "expect_quiet_until": {
+        "LaneConnected": {
+          "id": "2222222222222222222222222222222222222222222222222222222222222222"
+        }
+      },
+      "barrier": {
+        "begin": {
+          "op": {
+            "Create": {
+              "session": "fence1",
+              "request": {
+                "program": [
+                  {
+                    "hold": {}
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "bind": "$bar1"
+      },
+      "until": {
+        "Completed": {
+          "op": "$bar1",
+          "result": {
+            "ok": {
+              "record": {
+                "id": "fence1",
+                "state": "Created"
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core SV-2"
+      ]
+    }
+  ],
+  "fake": "structural",
+  "ruling": "R-12"
+}

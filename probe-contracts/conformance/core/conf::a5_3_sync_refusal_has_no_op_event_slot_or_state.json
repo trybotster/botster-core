@@ -1,0 +1,119 @@
+{
+  "id": "conf::a5_3_sync_refusal_has_no_op_event_slot_or_state",
+  "contract": "core",
+  "clause": "A5-3",
+  "subject": "core",
+  "requires": {
+    "controls": [
+      "fail_next"
+    ]
+  },
+  "setup": {
+    "limits": {
+      "pending_ops": 1
+    }
+  },
+  "fake": "structural",
+  "ruling": "R-12",
+  "steps": [
+    {
+      "control": {
+        "op": "fail_next",
+        "target": "Create",
+        "error": "SessionLimit"
+      },
+      "because": "Core A5-3"
+    },
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s1",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$x",
+      "expect_error": {
+        "code": "SessionLimit"
+      },
+      "because": [
+        "Core A5-3",
+        "Core AM-4"
+      ]
+    },
+    {
+      "pump_idle": {}
+    },
+    {
+      "poll_events": {
+        "max": 64
+      },
+      "expect": [],
+      "because": [
+        "Core A5-3",
+        "Core AM-4"
+      ]
+    },
+    {
+      "call": {
+        "method": "get",
+        "args": {
+          "id": "s1"
+        }
+      },
+      "expect_error": {
+        "code": "UnknownSession"
+      },
+      "because": [
+        "Core A5-3",
+        "Core AM-4"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s1",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c",
+      "because": [
+        "Core A5-3",
+        "Core AM-4"
+      ]
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$c",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s1",
+                  "state": "Created"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core LC-3"
+    }
+  ]
+}

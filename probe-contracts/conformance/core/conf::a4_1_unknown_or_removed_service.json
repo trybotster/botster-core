@@ -1,0 +1,285 @@
+{
+  "id": "conf::a4_1_unknown_or_removed_service",
+  "contract": "core",
+  "clause": "A4-1",
+  "subject": "core",
+  "requires": {
+    "controls": [
+      "fail_next",
+      "service_exit"
+    ]
+  },
+  "steps": [
+    {
+      "call": {
+        "method": "service_report",
+        "args": {
+          "id": "9999999999999999999999999999999999999999999999999999999999999999"
+        }
+      },
+      "expect_error": {
+        "code": "UnknownService"
+      },
+      "because": [
+        "Core A4-1"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "SpawnService": {
+            "service_id": "2222222222222222222222222222222222222222222222222222222222222222",
+            "limits": {
+              "lanes": [
+                {
+                  "max_frame_bytes": 1024,
+                  "outbound_queue_bytes": 1023,
+                  "inbound_queue_bytes": 4096
+                }
+              ],
+              "rlimits": {},
+              "startup": 10000,
+              "stop_grace": 5000,
+              "orphan_grace": 5000
+            }
+          }
+        }
+      },
+      "bind": "$o1",
+      "expect_error": {
+        "code": {
+          "InvalidConfig": {
+            "field": {
+              "$type": "string"
+            }
+          }
+        }
+      },
+      "because": [
+        "Core SV-2"
+      ]
+    },
+    {
+      "call": {
+        "method": "service_report",
+        "args": {
+          "id": "2222222222222222222222222222222222222222222222222222222222222222"
+        }
+      },
+      "expect_error": {
+        "code": "UnknownService"
+      },
+      "because": [
+        "Core A4-1"
+      ]
+    },
+    {
+      "control": {
+        "op": "fail_next",
+        "target": "SpawnService",
+        "error": {
+          "StartFailed": {
+            "ExecFailed": {
+              "errno": 2
+            }
+          }
+        }
+      },
+      "because": [
+        "Core ER-0"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "SpawnService": {
+            "service_id": "3333333333333333333333333333333333333333333333333333333333333333",
+            "limits": {
+              "lanes": [
+                {
+                  "max_frame_bytes": 1024,
+                  "outbound_queue_bytes": 4096,
+                  "inbound_queue_bytes": 4096
+                },
+                {
+                  "max_frame_bytes": 1024,
+                  "outbound_queue_bytes": 4096,
+                  "inbound_queue_bytes": 4096
+                }
+              ],
+              "rlimits": {},
+              "startup": 10000,
+              "stop_grace": 5000,
+              "orphan_grace": 5000
+            }
+          }
+        }
+      },
+      "bind": "$o2"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$o2",
+            "result": {
+              "err": {
+                "code": {
+                  "StartFailed": {
+                    "ExecFailed": {
+                      "errno": 2
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core ER-0"
+      ]
+    },
+    {
+      "call": {
+        "method": "service_report",
+        "args": {
+          "id": "3333333333333333333333333333333333333333333333333333333333333333"
+        }
+      },
+      "expect_error": {
+        "code": "UnknownService"
+      },
+      "because": [
+        "Core A4-1"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "SpawnService": {
+            "service_id": "1111111111111111111111111111111111111111111111111111111111111111",
+            "limits": {
+              "lanes": [
+                {
+                  "max_frame_bytes": 1024,
+                  "outbound_queue_bytes": 4096,
+                  "inbound_queue_bytes": 4096
+                },
+                {
+                  "max_frame_bytes": 1024,
+                  "outbound_queue_bytes": 4096,
+                  "inbound_queue_bytes": 4096
+                }
+              ],
+              "rlimits": {},
+              "startup": 10000,
+              "stop_grace": 5000,
+              "orphan_grace": 5000
+            }
+          }
+        }
+      },
+      "bind": "$o3"
+    },
+    {
+      "pump_collect": {
+        "events": [
+          {
+            "Completed": {
+              "op": "$o3",
+              "result": {
+                "ok": {
+                  "spawn": {
+                    "applied": {
+                      "$type": "array"
+                    },
+                    "unsupported": {
+                      "$type": "array"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "ServiceState": {
+              "id": "1111111111111111111111111111111111111111111111111111111111111111",
+              "state": "Started"
+            }
+          }
+        ]
+      },
+      "because": [
+        "Core SV-1",
+        "Core SV-5",
+        "Core A2-1"
+      ]
+    },
+    {
+      "control": {
+        "op": "service_exit",
+        "service": "1111111111111111111111111111111111111111111111111111111111111111",
+        "code": 0
+      }
+    },
+    {
+      "pump_until": {
+        "event": {
+          "ServiceState": {
+            "id": "1111111111111111111111111111111111111111111111111111111111111111",
+            "state": {
+              "Exited": {
+                "cause": "Normal"
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core SV-5"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "RemoveService": {
+            "id": "1111111111111111111111111111111111111111111111111111111111111111"
+          }
+        }
+      },
+      "bind": "$o4"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$o4",
+            "result": {
+              "ok": "unit"
+            }
+          }
+        }
+      },
+      "because": [
+        "Core A2-1"
+      ]
+    },
+    {
+      "call": {
+        "method": "service_report",
+        "args": {
+          "id": "1111111111111111111111111111111111111111111111111111111111111111"
+        }
+      },
+      "expect_error": {
+        "code": "UnknownService"
+      },
+      "because": [
+        "Core A4-1"
+      ]
+    }
+  ],
+  "fake": "structural",
+  "ruling": "R-12"
+}

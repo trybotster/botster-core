@@ -1,0 +1,79 @@
+{
+  "id": "conf::a2_1_empty_argv_is_invalid_input",
+  "contract": "core",
+  "clause": "A2-1",
+  "subject": "core",
+  "steps": [
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s1",
+            "request": {
+              "argv": []
+            }
+          }
+        }
+      },
+      "bind": "$c_s1",
+      "expect_error": {
+        "code": {
+          "InvalidInput": {}
+        }
+      },
+      "because": [
+        "Core A2-1",
+        "Core ER-0"
+      ]
+    },
+    {
+      "call": {
+        "method": "get",
+        "args": {
+          "id": "s1"
+        }
+      },
+      "expect_error": {
+        "code": "UnknownSession"
+      },
+      "because": [
+        "Core ER-0",
+        "Core A2-1"
+      ]
+    },
+    {
+      "expect_quiet_until": {
+        "SessionState": {
+          "id": "s1"
+        }
+      },
+      "barrier": {
+        "begin": {
+          "op": {
+            "Create": {
+              "session": "s2",
+              "request": {
+                "program": [
+                  {
+                    "hold": {}
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "bind": "$c_s2"
+      },
+      "until": {
+        "Completed": {
+          "op": "$c_s2",
+          "result": {}
+        }
+      },
+      "because": [
+        "Core ER-0",
+        "Core OR-1"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,64 @@
+{
+  "id": "conf::a3_3_features_list_output_dropped_and_notification_policy",
+  "contract": "core",
+  "clause": "A3-3",
+  "subject": "core",
+  "requires": {
+    "features": [
+      "output_dropped",
+      "notification_policy"
+    ]
+  },
+  "steps": [
+    {
+      "call": {
+        "method": "features"
+      },
+      "bind_fields": {
+        "names": "$names"
+      }
+    },
+    {
+      "let": {
+        "$has_od": {
+          "contains": [
+            "$names",
+            "output_dropped"
+          ]
+        },
+        "$has_np": {
+          "contains": [
+            "$names",
+            "notification_policy"
+          ]
+        }
+      }
+    },
+    {
+      "check": {
+        "eq": [
+          "$has_od",
+          true
+        ]
+      },
+      "because": [
+        "Core A3-3",
+        "Core A2-6"
+      ]
+    },
+    {
+      "check": {
+        "eq": [
+          "$has_np",
+          true
+        ]
+      },
+      "because": [
+        "Core A3-3",
+        "Core A2-6"
+      ]
+    }
+  ],
+  "fake": "structural",
+  "ruling": "R-12"
+}

@@ -1,0 +1,212 @@
+{
+  "id": "conf::st_4_terminal_state",
+  "contract": "core",
+  "clause": "ST-4",
+  "subject": "core",
+  "fake": "structural",
+  "ruling": "R-12",
+  "steps": [
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s1",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$c_s1",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s1",
+                  "state": "Created"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core LC-3"
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "s1"
+          }
+        }
+      },
+      "bind": "$s_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$s_s1",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s1",
+                  "state": "Running"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core A2-1"
+    },
+    {
+      "drain": {}
+    },
+    {
+      "call": {
+        "method": "terminal_state",
+        "args": {
+          "id": "s1"
+        }
+      },
+      "expect": {
+        "size": {
+          "rows": 24,
+          "cols": 80
+        },
+        "modes": {
+          "$type": "object"
+        },
+        "model_rev": {
+          "$type": "integer"
+        },
+        "input_rev": {
+          "client": {
+            "$type": "integer"
+          },
+          "host": {
+            "$type": "integer"
+          }
+        },
+        "focused": false
+      },
+      "because": [
+        "Core ST-4",
+        "Core DP-12"
+      ]
+    },
+    {
+      "advance_clock": {
+        "unix": 5000
+      }
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s1",
+        "bytes_hex": "1b5b3f32356c1b5d303b54491b5c"
+      }
+    },
+    {
+      "pump_collect": {
+        "events": [
+          {
+            "Activity": {
+              "id": "s1",
+              "source": "Output",
+              "at": 5000
+            }
+          },
+          {
+            "ModesChanged": {
+              "id": "s1",
+              "flags": "$ev"
+            }
+          },
+          {
+            "TitleChanged": {
+              "id": "s1",
+              "title": "$t"
+            }
+          }
+        ]
+      },
+      "because": [
+        "Core ST-4",
+        "Core EV-6",
+        "Core EV-7"
+      ]
+    },
+    {
+      "await_quiet": {}
+    },
+    {
+      "control": {
+        "op": "oracle_state",
+        "session": "s1"
+      },
+      "bind_fields": {
+        "modes": "$om",
+        "title": "$ot"
+      }
+    },
+    {
+      "check": {
+        "eq": [
+          "$ev",
+          "$om"
+        ]
+      },
+      "because": [
+        "Core ST-4",
+        "Core EV-6",
+        "Core EV-7"
+      ]
+    },
+    {
+      "check": {
+        "eq": [
+          "$t",
+          "$ot"
+        ]
+      },
+      "because": [
+        "Core EV-7"
+      ]
+    },
+    {
+      "call": {
+        "method": "terminal_state",
+        "args": {
+          "id": "s1"
+        }
+      },
+      "expect": {
+        "modes": "$om",
+        "title": "$ot",
+        "last_output_at": 5000
+      },
+      "because": [
+        "Core ST-4",
+        "Core EV-6"
+      ]
+    }
+  ],
+  "requires": {
+    "controls": [
+      "edges_quiet",
+      "oracle_state",
+      "pty_output"
+    ]
+  }
+}

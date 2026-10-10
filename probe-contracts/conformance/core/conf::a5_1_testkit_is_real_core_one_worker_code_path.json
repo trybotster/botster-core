@@ -1,0 +1,229 @@
+{
+  "id": "conf::a5_1_testkit_is_real_core_one_worker_code_path",
+  "contract": "core",
+  "clause": "A5-1",
+  "subject": "core",
+  "requires": {
+    "controls": [
+      "pty_input"
+    ]
+  },
+  "fake": "structural",
+  "ruling": "R-12",
+  "steps": [
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s1",
+            "request": {
+              "program": [
+                {
+                  "print_after_input": {
+                    "match_hex": "31",
+                    "bytes_hex": "6f7574"
+                  }
+                },
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$c_s1",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s1",
+                  "state": "Created"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core LC-3"
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "s1"
+          }
+        }
+      },
+      "bind": "$s_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$s_s1",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s1",
+                  "state": "Running"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core A2-1"
+    },
+    {
+      "attach_route": {
+        "route": "r1",
+        "session": "s1",
+        "client": "c1"
+      },
+      "because": "Core OU-1"
+    },
+    {
+      "expect": {
+        "frame": "attached",
+        "terminal_format": {
+          "$type": "string"
+        }
+      },
+      "on": "r1",
+      "because": "Core OU-9"
+    },
+    {
+      "expect": {
+        "frame": "baseline_begin",
+        "rows": {
+          "$type": "integer"
+        },
+        "cols": {
+          "$type": "integer"
+        },
+        "modes": {
+          "$type": "object"
+        }
+      },
+      "on": "r1",
+      "because": "Core OU-9"
+    },
+    {
+      "expect": {
+        "frame": "screen",
+        "payload": {
+          "$any": true
+        }
+      },
+      "on": "r1",
+      "because": "Core OU-9"
+    },
+    {
+      "expect_eventually": {
+        "frame": "baseline_end",
+        "history": "not_requested"
+      },
+      "ignore": [
+        {
+          "frame": "history",
+          "payload": {
+            "$any": true
+          }
+        }
+      ],
+      "on": "r1",
+      "because": "Core OU-9"
+    },
+    {
+      "expect": {
+        "frame": "live"
+      },
+      "on": "r1",
+      "because": "Core OU-9"
+    },
+    {
+      "call": {
+        "method": "worker_protocol"
+      },
+      "expect": {
+        "$type": "integer"
+      },
+      "because": [
+        "Core A5-1",
+        "Core AD-4"
+      ]
+    },
+    {
+      "call": {
+        "method": "get",
+        "args": {
+          "id": "s1"
+        }
+      },
+      "expect": {
+        "state": "Running",
+        "worker_protocol": {
+          "$type": "integer"
+        }
+      },
+      "because": [
+        "Core A5-1",
+        "Core A2-1"
+      ]
+    },
+    {
+      "route_send": {
+        "frame": "bytes",
+        "op": "1",
+        "bytes": {
+          "$bytes_hex": "31"
+        }
+      },
+      "route": "r1"
+    },
+    {
+      "route_expect_output": {
+        "bytes_hex": "6f7574"
+      },
+      "because": [
+        "Core A5-1",
+        "Core OU-12"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_input",
+        "session": "s1"
+      },
+      "expect": {
+        "bytes": {
+          "$bytes_hex": "31"
+        }
+      },
+      "because": [
+        "Core A5-1",
+        "Core DP-1"
+      ]
+    },
+    {
+      "run_suite": {
+        "subject": "core",
+        "harnesses": [
+          "real_worker_processes",
+          "testkit"
+        ],
+        "filter": "conf::lc_"
+      },
+      "because": [
+        "Core A5-1",
+        "Core A5-4"
+      ]
+    }
+  ]
+}

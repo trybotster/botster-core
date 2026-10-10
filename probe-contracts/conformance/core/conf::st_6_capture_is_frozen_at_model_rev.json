@@ -1,0 +1,215 @@
+{
+  "id": "conf::st_6_capture_is_frozen_at_model_rev",
+  "contract": "core",
+  "clause": "ST-6",
+  "subject": "core",
+  "requires": {
+    "controls": [
+      "edges_quiet",
+      "pty_output"
+    ]
+  },
+  "fake": "structural",
+  "ruling": "R-12",
+  "steps": [
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s1",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$c_s1",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s1",
+                  "state": "Created"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core LC-3"
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "s1"
+          }
+        }
+      },
+      "bind": "$s_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$s_s1",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s1",
+                  "state": "Running"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core A2-1"
+    },
+    {
+      "drain": {}
+    },
+    {
+      "advance_clock": {
+        "unix": 5000
+      }
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s1",
+        "bytes_hex": "41"
+      }
+    },
+    {
+      "await_quiet": {}
+    },
+    {
+      "begin": {
+        "op": {
+          "CaptureSnapshot": {
+            "session": "s1",
+            "owner": "c1"
+          }
+        }
+      },
+      "bind": "$k_cap"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$k_cap",
+            "result": {
+              "ok": {
+                "capture": {
+                  "capture": "$cap",
+                  "model_rev": "$rev1"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core ST-6"
+    },
+    {
+      "call": {
+        "method": "read_page",
+        "args": {
+          "capture": "$cap",
+          "page": 0
+        }
+      },
+      "because": "Core ST-6",
+      "bind_fields": {
+        "bytes": "$p0"
+      }
+    },
+    {
+      "drain": {}
+    },
+    {
+      "advance_clock": {
+        "unix": 5001
+      }
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s1",
+        "bytes_hex": "42"
+      }
+    },
+    {
+      "await_quiet": {}
+    },
+    {
+      "begin": {
+        "op": {
+          "ReadScreen": {
+            "session": "s1",
+            "history": false
+          }
+        }
+      },
+      "bind": "$rs"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$rs",
+            "result": {
+              "ok": {
+                "screen": {
+                  "model_rev": "$rev2"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core ST-1",
+        "Core ST-6"
+      ]
+    },
+    {
+      "check": {
+        "ne": [
+          "$rev1",
+          "$rev2"
+        ]
+      },
+      "because": [
+        "Core ST-1",
+        "Core ST-6"
+      ]
+    },
+    {
+      "call": {
+        "method": "read_page",
+        "args": {
+          "capture": "$cap",
+          "page": 0
+        }
+      },
+      "because": [
+        "Core ST-6"
+      ],
+      "expect": {
+        "bytes": "$p0"
+      }
+    }
+  ]
+}

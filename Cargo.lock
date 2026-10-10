@@ -298,7 +298,6 @@ dependencies = [
 [[package]]
 name = "botster-core-conformance"
 version = "0.1.0"
-source = "git+https://github.com/trybotster/botster-contracts?tag=contracts-v0.1.23#fe3eb952d6f61b89cf7bcbe8c54ab079987ec002"
 dependencies = [
  "botster-conformance",
  "botster-core-contract",

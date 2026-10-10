@@ -1,0 +1,550 @@
+{
+  "id": "conf::e2_3_write_start_uses_current_model_modes",
+  "contract": "core",
+  "clause": "E2-3",
+  "subject": "core",
+  "requires": {
+    "controls": [
+      "program_write_once"
+    ]
+  },
+  "fake": "structural",
+  "ruling": "R-12",
+  "steps": [
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s1",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$c_s1",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s1",
+                  "state": "Created"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core LC-3"
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "s1"
+          }
+        }
+      },
+      "bind": "$s_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$s_s1",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s1",
+                  "state": "Running"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core A2-1"
+    },
+    {
+      "control": {
+        "op": "oracle_modes",
+        "session": "s1"
+      },
+      "bind_fields": {
+        "flags": "$m0"
+      }
+    },
+    {
+      "control": {
+        "op": "program_write_once",
+        "session": "s1",
+        "bytes_hex": "1b5b3f3230303468"
+      }
+    },
+    {
+      "pump_collect": {
+        "events": [
+          {
+            "Activity": {
+              "id": "s1",
+              "source": "Output"
+            }
+          },
+          {
+            "ModesChanged": {
+              "id": "s1",
+              "flags": "$f1"
+            }
+          }
+        ]
+      },
+      "because": [
+        "Core E2-3",
+        "Core EV-7"
+      ]
+    },
+    {
+      "control": {
+        "op": "oracle_modes",
+        "session": "s1"
+      },
+      "expect": {
+        "flags": "$f1"
+      },
+      "because": [
+        "Core E2-3",
+        "Core EV-7"
+      ]
+    },
+    {
+      "check": {
+        "ne": [
+          "$m0",
+          "$f1"
+        ]
+      },
+      "because": [
+        "Core E2-3",
+        "Core EV-7"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "paste": {
+                "bytes": {
+                  "$bytes_hex": "616263"
+                },
+                "require_bracketed": true
+              }
+            }
+          }
+        }
+      },
+      "bind": "$w_1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$w_1",
+            "result": {
+              "ok": {
+                "input": {
+                  "outcome": "$o_1",
+                  "payload_bytes_written": "$p_1",
+                  "pty_bytes_written": "$q_1"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core E2-3",
+        "Core IN-8"
+      ]
+    },
+    {
+      "let": {
+        "$bp_1": {
+          "field": [
+            "$f1",
+            "bracketed_paste"
+          ]
+        }
+      }
+    },
+    {
+      "let": {
+        "$wrapped_1": {
+          "gt": [
+            "$q_1",
+            "$p_1"
+          ]
+        },
+        "$refused_1": {
+          "eq": [
+            "$o_1",
+            {
+              "NotWritten": "ModePreconditionFailed"
+            }
+          ]
+        },
+        "$off_1": {
+          "eq": [
+            "$bp_1",
+            false
+          ]
+        }
+      }
+    },
+    {
+      "check": {
+        "eq": [
+          "$wrapped_1",
+          "$bp_1"
+        ]
+      },
+      "because": [
+        "Core E2-3",
+        "Core IN-8"
+      ]
+    },
+    {
+      "check": {
+        "eq": [
+          "$refused_1",
+          "$off_1"
+        ]
+      },
+      "because": [
+        "Core E2-3",
+        "Core IN-8"
+      ]
+    },
+    {
+      "forbid_events": {
+        "events": [
+          {
+            "ModesChanged": {
+              "id": "s1"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "control": {
+        "op": "program_write_once",
+        "session": "s1",
+        "bytes_hex": "1b5b3f323030346c1b5b3f3230303468"
+      }
+    },
+    {
+      "pump_collect": {
+        "events": [
+          {
+            "Activity": {
+              "id": "s1",
+              "source": "Output"
+            }
+          }
+        ]
+      },
+      "because": [
+        "Core E2-3"
+      ]
+    },
+    {
+      "drain": {}
+    },
+    {
+      "control": {
+        "op": "oracle_modes",
+        "session": "s1"
+      },
+      "bind_fields": {
+        "flags": "$f2"
+      }
+    },
+    {
+      "check": {
+        "eq": [
+          "$f1",
+          "$f2"
+        ]
+      },
+      "because": [
+        "Core E2-3"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "paste": {
+                "bytes": {
+                  "$bytes_hex": "616263"
+                },
+                "require_bracketed": true
+              }
+            }
+          }
+        }
+      },
+      "bind": "$w_2"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$w_2",
+            "result": {
+              "ok": {
+                "input": {
+                  "outcome": "$o_2",
+                  "payload_bytes_written": "$p_2",
+                  "pty_bytes_written": "$q_2"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core E2-3",
+        "Core IN-8"
+      ]
+    },
+    {
+      "let": {
+        "$bp_2": {
+          "field": [
+            "$f2",
+            "bracketed_paste"
+          ]
+        }
+      }
+    },
+    {
+      "let": {
+        "$wrapped_2": {
+          "gt": [
+            "$q_2",
+            "$p_2"
+          ]
+        },
+        "$refused_2": {
+          "eq": [
+            "$o_2",
+            {
+              "NotWritten": "ModePreconditionFailed"
+            }
+          ]
+        },
+        "$off_2": {
+          "eq": [
+            "$bp_2",
+            false
+          ]
+        }
+      }
+    },
+    {
+      "check": {
+        "eq": [
+          "$wrapped_2",
+          "$bp_2"
+        ]
+      },
+      "because": [
+        "Core E2-3",
+        "Core IN-8"
+      ]
+    },
+    {
+      "check": {
+        "eq": [
+          "$refused_2",
+          "$off_2"
+        ]
+      },
+      "because": [
+        "Core E2-3",
+        "Core IN-8"
+      ]
+    },
+    {
+      "forbid_events": {
+        "clear": true
+      }
+    },
+    {
+      "control": {
+        "op": "program_write_once",
+        "session": "s1",
+        "bytes_hex": "1b5b3f323030346c"
+      }
+    },
+    {
+      "pump_collect": {
+        "events": [
+          {
+            "Activity": {
+              "id": "s1",
+              "source": "Output"
+            }
+          },
+          {
+            "ModesChanged": {
+              "id": "s1",
+              "flags": "$f3"
+            }
+          }
+        ]
+      },
+      "because": [
+        "Core E2-3",
+        "Core EV-7"
+      ]
+    },
+    {
+      "control": {
+        "op": "oracle_modes",
+        "session": "s1"
+      },
+      "expect": {
+        "flags": "$f3"
+      },
+      "because": [
+        "Core E2-3",
+        "Core EV-7"
+      ]
+    },
+    {
+      "check": {
+        "ne": [
+          "$f2",
+          "$f3"
+        ]
+      },
+      "because": [
+        "Core E2-3",
+        "Core EV-7"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "paste": {
+                "bytes": {
+                  "$bytes_hex": "616263"
+                },
+                "require_bracketed": true
+              }
+            }
+          }
+        }
+      },
+      "bind": "$w_3"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$w_3",
+            "result": {
+              "ok": {
+                "input": {
+                  "outcome": "$o_3",
+                  "payload_bytes_written": "$p_3",
+                  "pty_bytes_written": "$q_3"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core E2-3",
+        "Core IN-8"
+      ]
+    },
+    {
+      "let": {
+        "$bp_3": {
+          "field": [
+            "$f3",
+            "bracketed_paste"
+          ]
+        }
+      }
+    },
+    {
+      "let": {
+        "$wrapped_3": {
+          "gt": [
+            "$q_3",
+            "$p_3"
+          ]
+        },
+        "$refused_3": {
+          "eq": [
+            "$o_3",
+            {
+              "NotWritten": "ModePreconditionFailed"
+            }
+          ]
+        },
+        "$off_3": {
+          "eq": [
+            "$bp_3",
+            false
+          ]
+        }
+      }
+    },
+    {
+      "check": {
+        "eq": [
+          "$wrapped_3",
+          "$bp_3"
+        ]
+      },
+      "because": [
+        "Core E2-3",
+        "Core IN-8"
+      ]
+    },
+    {
+      "check": {
+        "eq": [
+          "$refused_3",
+          "$off_3"
+        ]
+      },
+      "because": [
+        "Core E2-3",
+        "Core IN-8"
+      ]
+    }
+  ]
+}

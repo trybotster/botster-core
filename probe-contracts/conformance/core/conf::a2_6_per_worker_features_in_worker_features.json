@@ -1,0 +1,171 @@
+{
+  "id": "conf::a2_6_per_worker_features_in_worker_features",
+  "contract": "core",
+  "clause": "A2-6",
+  "subject": "core",
+  "steps": [
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s1",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$c_s1",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s1",
+                  "state": "Created"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core LC-3"
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "s1"
+          }
+        }
+      },
+      "bind": "$s_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$s_s1",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s1",
+                  "state": "Running"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core A2-1"
+    },
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s2",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c_s2"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$c_s2",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s2",
+                  "state": "Created"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core LC-3"
+    },
+    {
+      "call": {
+        "method": "get",
+        "args": {
+          "id": "s1"
+        }
+      },
+      "bind_fields": {
+        "worker_features": "$wf"
+      }
+    },
+    {
+      "check": {
+        "contains": [
+          "$wf",
+          "focus_report"
+        ]
+      },
+      "because": [
+        "Core A2-6",
+        "Core A6-2"
+      ]
+    },
+    {
+      "check": {
+        "subset_of": [
+          "$wf",
+          [
+            "route_transport:stream",
+            "service_preamble_versions",
+            "silence",
+            "size_policy_other",
+            "snapshot_graphics",
+            "focus_report",
+            "payload_dies_with_guardian",
+            "bound:cpu_seconds",
+            "bound:open_files",
+            "bound:processes",
+            "bound:address_space_bytes",
+            "output_dropped",
+            "notification_policy"
+          ]
+        ]
+      },
+      "because": [
+        "Core A2-6"
+      ]
+    },
+    {
+      "call": {
+        "method": "get",
+        "args": {
+          "id": "s2"
+        }
+      },
+      "expect": {
+        "worker_features": {
+          "$absent": true
+        }
+      },
+      "because": [
+        "Core A2-6",
+        "Core LC-9"
+      ]
+    }
+  ]
+}

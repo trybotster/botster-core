@@ -1,0 +1,129 @@
+{
+  "id": "conf::a4_1_service_report_equals_spawn_completion",
+  "contract": "core",
+  "clause": "A4-1",
+  "subject": "core",
+  "requires": {
+    "features": [
+      "bound:cpu_seconds"
+    ],
+    "controls": [
+      "unavailable_bound"
+    ]
+  },
+  "steps": [
+    {
+      "control": {
+        "op": "unavailable_bound",
+        "bound": "processes"
+      },
+      "because": [
+        "Core SV-4"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "SpawnService": {
+            "service_id": "1111111111111111111111111111111111111111111111111111111111111111",
+            "limits": {
+              "lanes": [
+                {
+                  "max_frame_bytes": 1024,
+                  "outbound_queue_bytes": 4096,
+                  "inbound_queue_bytes": 4096
+                },
+                {
+                  "max_frame_bytes": 1024,
+                  "outbound_queue_bytes": 4096,
+                  "inbound_queue_bytes": 4096
+                }
+              ],
+              "rlimits": {
+                "cpu_seconds": {
+                  "value": 10,
+                  "required": false
+                },
+                "processes": {
+                  "value": 8,
+                  "required": false
+                }
+              },
+              "startup": 10000,
+              "stop_grace": 5000,
+              "orphan_grace": 5000
+            }
+          }
+        }
+      },
+      "bind": "$o1"
+    },
+    {
+      "pump_collect": {
+        "events": [
+          {
+            "Completed": {
+              "op": "$o1",
+              "result": {
+                "ok": {
+                  "spawn": {
+                    "applied": "$a",
+                    "unsupported": "$u"
+                  }
+                }
+              }
+            }
+          },
+          {
+            "ServiceState": {
+              "id": "1111111111111111111111111111111111111111111111111111111111111111",
+              "state": "Started"
+            }
+          }
+        ]
+      },
+      "because": [
+        "Core SV-1",
+        "Core SV-5",
+        "Core A2-1"
+      ]
+    },
+    {
+      "call": {
+        "method": "service_report",
+        "args": {
+          "id": "1111111111111111111111111111111111111111111111111111111111111111"
+        }
+      },
+      "expect": {
+        "applied": "$a",
+        "unsupported": "$u"
+      },
+      "because": [
+        "Core A4-1"
+      ]
+    },
+    {
+      "call": {
+        "method": "service_report",
+        "args": {
+          "id": "1111111111111111111111111111111111111111111111111111111111111111"
+        }
+      },
+      "expect": {
+        "applied": [
+          "cpu_seconds"
+        ],
+        "unsupported": [
+          "processes"
+        ]
+      },
+      "because": [
+        "Core A4-1",
+        "Core SV-4"
+      ]
+    }
+  ],
+  "fake": "structural",
+  "ruling": "R-12"
+}

@@ -1,0 +1,249 @@
+{
+  "id": "conf::st_6_release_idempotent_and_by_owner",
+  "contract": "core",
+  "clause": "ST-6",
+  "subject": "core",
+  "steps": [
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s1",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$c_s1",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s1",
+                  "state": "Created"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core LC-3"
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "s1"
+          }
+        }
+      },
+      "bind": "$s_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$s_s1",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s1",
+                  "state": "Running"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core A2-1"
+    },
+    {
+      "begin": {
+        "op": {
+          "CaptureSnapshot": {
+            "session": "s1",
+            "owner": "c1"
+          }
+        }
+      },
+      "bind": "$k_a"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$k_a",
+            "result": {
+              "ok": {
+                "capture": {
+                  "capture": "$a"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core ST-6"
+    },
+    {
+      "begin": {
+        "op": {
+          "CaptureSnapshot": {
+            "session": "s1",
+            "owner": "c1"
+          }
+        }
+      },
+      "bind": "$k_b"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$k_b",
+            "result": {
+              "ok": {
+                "capture": {
+                  "capture": "$b"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core ST-6"
+    },
+    {
+      "begin": {
+        "op": {
+          "CaptureSnapshot": {
+            "session": "s1",
+            "owner": "c2"
+          }
+        }
+      },
+      "bind": "$k_c"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$k_c",
+            "result": {
+              "ok": {
+                "capture": {
+                  "capture": "$c"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core ST-6"
+    },
+    {
+      "call": {
+        "method": "release",
+        "args": {
+          "capture": "$a"
+        }
+      },
+      "because": "Core ST-6"
+    },
+    {
+      "call": {
+        "method": "read_page",
+        "args": {
+          "capture": "$a",
+          "page": 0
+        }
+      },
+      "because": [
+        "Core ST-6",
+        "Core ER-0"
+      ],
+      "expect_error": {
+        "code": "UnknownCapture"
+      }
+    },
+    {
+      "call": {
+        "method": "release",
+        "args": {
+          "capture": "$a"
+        }
+      },
+      "because": "Core ST-6"
+    },
+    {
+      "call": {
+        "method": "read_page",
+        "args": {
+          "capture": "$b",
+          "page": 0
+        }
+      },
+      "because": "Core ST-6",
+      "expect": {
+        "index": 0
+      }
+    },
+    {
+      "call": {
+        "method": "release_owner",
+        "args": {
+          "client": "c1"
+        }
+      },
+      "because": "Core ST-6"
+    },
+    {
+      "call": {
+        "method": "read_page",
+        "args": {
+          "capture": "$b",
+          "page": 0
+        }
+      },
+      "because": [
+        "Core ST-6",
+        "Core ER-0"
+      ],
+      "expect_error": {
+        "code": "UnknownCapture"
+      }
+    },
+    {
+      "call": {
+        "method": "read_page",
+        "args": {
+          "capture": "$c",
+          "page": 0
+        }
+      },
+      "because": "Core ST-6",
+      "expect": {
+        "index": 0
+      }
+    },
+    {
+      "call": {
+        "method": "release_owner",
+        "args": {
+          "client": "c1"
+        }
+      },
+      "because": "Core ST-6"
+    }
+  ]
+}

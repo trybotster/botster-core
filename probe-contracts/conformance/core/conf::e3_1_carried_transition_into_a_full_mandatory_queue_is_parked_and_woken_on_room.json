@@ -1,0 +1,353 @@
+{
+  "id": "conf::e3_1_carried_transition_into_a_full_mandatory_queue_is_parked_and_woken_on_room",
+  "contract": "core",
+  "clause": "E3-1",
+  "subject": "core",
+  "requires": {
+    "features": [
+      "silence"
+    ],
+    "controls": [
+      "edges_quiet",
+      "no_spurious_wakes",
+      "payload_alive",
+      "pty_output",
+      "route_gate"
+    ]
+  },
+  "setup": {
+    "limits": {
+      "pump_events": 1,
+      "max_sessions": 2,
+      "mandatory_events": 2,
+      "reader_progress_deadline": 1000,
+      "stall_close_after": 50000,
+      "stop_grace": 1500
+    }
+  },
+  "fake": "structural",
+  "ruling": "R-12",
+  "steps": [
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s1",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$c_s1",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s1",
+                  "state": "Created"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core LC-3"
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "s1"
+          }
+        }
+      },
+      "bind": "$s_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$s_s1",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s1",
+                  "state": "Running"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core A2-1"
+    },
+    {
+      "attach_route": {
+        "route": "r1",
+        "session": "s1",
+        "client": "c1",
+        "options": {
+          "history": "none"
+        }
+      },
+      "because": "Core OU-1"
+    },
+    {
+      "expect": {
+        "frame": "attached",
+        "terminal_format": {
+          "$type": "string"
+        }
+      },
+      "because": "Core OU-9",
+      "on": "r1"
+    },
+    {
+      "expect": {
+        "frame": "baseline_begin",
+        "rows": {
+          "$type": "integer"
+        },
+        "cols": {
+          "$type": "integer"
+        },
+        "modes": {
+          "$type": "object"
+        }
+      },
+      "because": "Core OU-9",
+      "on": "r1"
+    },
+    {
+      "expect": {
+        "frame": "screen",
+        "payload": {
+          "$any": true
+        }
+      },
+      "because": "Core OU-9",
+      "on": "r1"
+    },
+    {
+      "expect_eventually": {
+        "frame": "baseline_end",
+        "history": "not_requested"
+      },
+      "because": "Core OU-9",
+      "ignore": [
+        {
+          "frame": "history",
+          "payload": {
+            "$any": true
+          }
+        }
+      ],
+      "on": "r1"
+    },
+    {
+      "expect": {
+        "frame": "live"
+      },
+      "because": "Core OU-9",
+      "on": "r1"
+    },
+    {
+      "drain": {}
+    },
+    {
+      "advance_clock": {
+        "unix": 7000
+      }
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s1",
+        "bytes_hex": "78"
+      }
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Activity": {
+            "id": "s1",
+            "source": "Output",
+            "at": 7000
+          }
+        }
+      },
+      "because": [
+        "Core 6.2",
+        "Core TM-1"
+      ]
+    },
+    {
+      "drain": {}
+    },
+    {
+      "control": {
+        "op": "route_gate",
+        "on": true
+      },
+      "route": "r1"
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s1",
+        "bytes_hex": "78"
+      }
+    },
+    {
+      "await_quiet": {}
+    },
+    {
+      "drain": {}
+    },
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s2",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c_s2"
+    },
+    {
+      "pump_idle": {}
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "s2"
+          }
+        }
+      },
+      "bind": "$s_s2"
+    },
+    {
+      "await_control": {
+        "control": {
+          "op": "payload_alive",
+          "session": "s2"
+        },
+        "expect": {
+          "alive": true
+        }
+      },
+      "because": [
+        "Core LC-4",
+        "Core EV-5"
+      ]
+    },
+    {
+      "await_get": {
+        "id": "s2",
+        "expect": {
+          "state": "Starting"
+        }
+      },
+      "because": [
+        "Core EV-5",
+        "Core TM-6"
+      ]
+    },
+    {
+      "call": {
+        "method": "set_silence_threshold",
+        "args": {
+          "id": "s1",
+          "ms": 900
+        }
+      }
+    },
+    {
+      "advance_clock": {
+        "ms": 1000
+      }
+    },
+    {
+      "pump": {},
+      "expect": {
+        "more": true,
+        "events_posted": 1
+      },
+      "because": [
+        "Core E3-1",
+        "Core TM-5"
+      ]
+    },
+    {
+      "control": {
+        "op": "no_spurious_wakes"
+      }
+    },
+    {
+      "pump": {},
+      "expect": {
+        "more": false,
+        "events_posted": 0
+      },
+      "because": [
+        "Core E3-1",
+        "Core EV-5",
+        "Core TM-6"
+      ]
+    },
+    {
+      "wait_wake": {
+        "timeout_ms": 0
+      },
+      "expect": "TimedOut",
+      "because": [
+        "Core E3-1",
+        "Core TM-6"
+      ]
+    },
+    {
+      "poll_all": {}
+    },
+    {
+      "wait_wake": {
+        "timeout_ms": 0
+      },
+      "expect": "Woken",
+      "because": [
+        "Core E3-1",
+        "Core TM-6"
+      ]
+    },
+    {
+      "pump_until": {
+        "event": {
+          "RouteStalled": {
+            "route": "$r1"
+          }
+        }
+      },
+      "because": [
+        "Core E3-1",
+        "Core EV-5"
+      ]
+    }
+  ]
+}
