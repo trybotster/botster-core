@@ -9484,6 +9484,17 @@ If a binding exception permits this behavior, cite its exact authority before cl
 Integration identified this defect. The package reviewer independently confirms the source path.
 This finding joins round 150 in a follow-up verdict commit. It does not count as another review round.
 
+After publication, P3 sends the new steward ruling R-53.
+The reviewer reads contracts commit `3a6dd2d3ee7a0e1f0e1830bccbae407ee6bb342f` and verifies the authority.
+R-53 permits the existing max(route_input_queue_bytes, max_frame_bytes + 4) floor.
+It rejects a validation range that would fail the default configuration.
+The reviewer accepts this binding interpretation. The enlarged effective allowance is no longer a source defect.
+R-53 requires Core #227 to state the ruling and prove one exactly maximal frame at the default limits.
+The submitted head has no such citation or proof. F104 remains OPEN for that evidence requirement.
+P3 will also add the legal small-queue proof against the effective allowance.
+No input-bound redesign is required under R-53.
+This disposition is part of round 150. It does not start another review round.
+
 ### Whole-change review and retained requirements
 
 The reviewer reads all eleven changed paths at this exact head.
