@@ -413,6 +413,33 @@ mod slow_tests {
         assert!(!harness.progress_is_injected());
     }
 
+    /// Core E1-1, A6-2: the real tier has the current worker, under its own name or another file name, and no previous
+    /// build.
+    #[test]
+    fn the_real_harness_has_the_current_worker_under_any_name_and_no_previous_one() {
+        let harness = RealCoreHarness::new(Candidate {
+            worker: PathBuf::from("/nonexistent/worker"),
+            probe: PathBuf::from("/nonexistent/probe"),
+            anchor: PathBuf::from("/nonexistent/anchor"),
+        })
+        .unwrap();
+        assert_eq!(
+            harness.worker(WorkerBuild::Current),
+            Some(WorkerRef {
+                build: WorkerBuild::Current,
+                file_name: None
+            })
+        );
+        assert_eq!(harness.worker(WorkerBuild::Previous), None);
+        assert_eq!(
+            harness.worker_named("renamed-worker"),
+            Some(WorkerRef {
+                build: WorkerBuild::Current,
+                file_name: Some("renamed-worker".into()),
+            })
+        );
+    }
+
     /// A failed trial prints the harness, so its debug form names the binaries under test and the root directory.
     #[test]
     fn the_debug_form_names_the_candidate_and_the_root() {
