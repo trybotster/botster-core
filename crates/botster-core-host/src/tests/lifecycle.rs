@@ -19,6 +19,27 @@ fn begin_and_poll_make_no_progress() {
     );
 }
 
+/// The host holds a session's instance from its `begin`, before any pump writes the row; an unknown session has none.
+#[test]
+fn a_session_has_its_instance_from_its_begin() {
+    let mut w = World::default();
+    assert_eq!(w.engine.instance(&sid("s1")), None);
+    w.engine.begin(create("s1")).unwrap();
+    assert!(w.rows.is_empty(), "no row before a pump");
+    let instance = w
+        .engine
+        .instance(&sid("s1"))
+        .expect("the instance of the begun session");
+    assert_eq!(instance, w.instance_of("s1"));
+    w.pump();
+    assert_eq!(
+        w.engine.instance(&sid("s1")),
+        Some(instance),
+        "the pump keeps it"
+    );
+    assert_eq!(w.engine.instance(&sid("s2")), None);
+}
+
 /// Core LC-3, OR-2: `Create` writes the row, then posts `SessionState{Created}`, then `Completed`.
 #[test]
 fn create_posts_the_state_and_then_the_completion() {
