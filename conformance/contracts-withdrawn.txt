@@ -25,3 +25,4 @@ conf::tb_w4_progress_and_close  withdrawn by HC A8-4  replaced by conf::a8_4_pro
 conf::a8_3_every_message_is_at_most_max_chunk_bytes  withdrawn by HC A8-3  replaced by conf::a8_3_chunk_payload_is_at_most_max_chunk_bytes
 conf::a8_3_large_frame_on_one_route_does_not_delay_another_route  withdrawn by HC A8-3  replaced by conf::a8_3_ready_chunk_of_another_route_is_submitted_first
 conf::wp_6_hub_and_workers_use_the_configuration  withdrawn by HP A9-1  replaced by conf::a9_1_hub_uses_the_ice_configuration
+conf::a9_1_frame_cap_equal_to_the_attached_frame_attaches  withdrawn by Core A19-1  replaced by conf::a19_1_frame_cap_equal_to_the_floor_attaches_and_carries_its_baseline
