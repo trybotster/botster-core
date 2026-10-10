@@ -8796,3 +8796,117 @@ The reviewer changes no product code and runs no tests, builds, gates, measureme
 All earlier exact-head verdicts remain preserved.
 
 VERDICT: CLEAN
+
+
+## Round 144 — PR #219 full review after base merge — 2026-10-10
+
+Reviewed head: `b506a09b192a101c03cedd046cae17cf4f265bdb`.
+PR base: `d174ef48a218b74beb4bac9ec555c6c39d2650a4`.
+Merge parents: `46caa1b8a738712aff358e3faaeee291ed53d710` and the PR base.
+Tier: HIGH under BUILD rules 3 and 5. The PR crosses host, worker-core, core-link, testkit, and real facade code.
+It adds a HostEdges method on the route stream path and changes the mutation exclusion list.
+
+P3 initially called this a delta review over a reviewed 46caa1b8 head.
+Neither this package branch nor integration has a prior #219 verdict. P3 confirms that the earlier READY went only to the lead.
+This is the first recorded full package review of #219, not a delta-only verdict or a review inherited from a missing artifact.
+The reviewer reads the complete 19-path change against the merged base, R-50, the overlap with #221, and supplied evidence.
+
+### F95 — MEDIUM — OPEN: driver-held handoffs close before the failed-start state
+
+The new lost-start proof attaches before Launched, then reports ProcessExited before Running is posted.
+Its World records the HandoffRoute action without retaining a real driver mark or executing descriptor-send backpressure.
+The full driver permits a different outcome at that boundary.
+
+1. Attach while the session starts.
+2. Receive Launched. flush_handoffs emits HandoffRoute and removes the endpoint from the engine's pending_handoffs.
+3. The driver reaches the descriptor mark. DescriptorSendError::Blocked retains the endpoint and mark without transferring a byte.
+4. Receive ProcessExited during Start/PostRunning, before the Running state is posted.
+5. on_process_exited queues CloseLink through close_worker_link and sets PostFailed with Lost(WorkerGone).
+6. Driver cleanup removes the retained mark and queues HandoffFailed for its route.
+7. perform_counted feeds HandoffFailed before the next session step posts the failed-start Lost state.
+
+close_worker_link already removed the engine's link mapping. The driver's later LinkClosed input therefore cannot change this order.
+With event capacity available, Input::HandoffFailed immediately calls route_close(HandoffFailed).
+The host posts RouteClosed before the Lost state and removes the route.
+The new finish_start and Finish logic then find no route to close with SessionLost.
+The driver's retained endpoint also drops during link cleanup rather than closing through the new end-state path.
+
+R-50 requires the failed-start state first, then one route close with the reason derived from that state.
+Lost(WorkerGone) requires SessionLost. A blocked descriptor send did not return DescriptorSendError::Failed.
+Its later cleanup must not turn the failed start into an earlier HandoffFailed close.
+The new engine-only proof does not establish this behavior across the engine/driver ownership boundary.
+
+Required: preserve held handoff ownership and closure through the failed-start state transition.
+Close this route once with SessionLost after the Lost event.
+Prove the full driver path with a retained mark from DescriptorSendError::Blocked, then ProcessExited before PostRunning.
+Also prove the reverse process/link end order, the transport's one close, and the absence of an earlier HandoffFailed event.
+Preserve genuine descriptor-send failures and earlier committed close reasons.
+The reviewer independently confirms integration's candidate finding from close_worker_link, close_link, and perform_counted.
+The reviewer sends F95 directly to P3 and integration.
+
+### Whole-change review and merge overlap
+
+The three overlapping paths are host engine.rs, testkit core.rs, and testkit route_client.rs.
+The reviewer independently compares the PR's original diff and its merged-base diff for each path.
+The changed content is identical after excluding Git index lines and hunk coordinates.
+The merged engine retains #221's read-only instance accessor and adds the PendingHandoff alias.
+The merged testkit retains RowReader and adds close_route_stream.
+The merged route client retains the original-instance binding and route_fill; only the failed-reason mapping moves into core-link.
+The completed gate includes the pre-row route_fill regression proof.
+The overlap does not meet the disjoint-base exemption, so a review is required regardless of unchanged own lines.
+
+The failed-start Finish path preserves a queued flow by putting it back ahead of later work.
+It closes bound routes one per step after the state and completes waiting Stops after route closure.
+finish_close selects engine-pending streams from the end state, and close_route returns their endpoint through CloseRoute.
+flow_needs_room and finish_waits use that same selection, retaining event-capacity and no-busy-work behavior.
+The host proofs cover Lost versus Exited, timeout, refused launch, state order, waiting Stop, and queued Remove.
+They do not cover the driver-held endpoint in F95.
+
+The shared mapping provides healthy close frames, failed route-ended causes, frame bounds, and stream-wrapped bytes.
+The worker and testkit use that mapping. Healthy reasons do not also produce a failed cause.
+The codec proof reads back one wrapped close frame, checks exact and one-byte-short bounds, and rejects an empty frame.
+The testkit closes its stream after one write, including short, gated, and empty writes.
+RealEdges accepts UnixStream or OwnedFd, enables nonblocking mode, attempts the write, and drops the endpoint.
+Unsupported endpoint types are dropped. The real-socket slow proof covers both accepted forms, an empty write, and an oversized partial write.
+No new timeout, process spawn, signal, wait, reap, guard, anchor, or deadline behavior is added.
+The named real-socket proof covers the new I/O operation. Existing real-process and guard requirements remain unchanged.
+
+### Mutation exclusion and completed evidence
+
+The new exclusion selects only the whole-body replacement of RealEdges::close_route_stream.
+Its comment identifies the I/O shell, the pure byte decision, the named slow proof, and the separate mutation evidence.
+The reviewer reads the manual log at 40ea69f79da8ebeddd16f5d4e07de734fe7e51e6:
+~/botster-sessions/gates/botster-core-stage1-p4a-failed-start-routes-40ea69f7-pool-20261009-225653-94279.log.
+It uses --no-config, --features slow, --in-diff, and the slow nextest profile with immediate fail-fast.
+The unmutated baseline passes. All three selected mutants are caught, including the excluded real whole-body replacement.
+The manual job exits zero after 53 seconds. The complete real.rs file is byte-identical at this proof head and the reviewed head.
+The manual evidence is a separate job and does not replace the exact-head full gate.
+
+Exact-head gate:
+~/botster-sessions/gates/botster-core-stage1-p4a-failed-start-routes-b506a09b-pool-20261010-045613-28848.log.
+The header names head b506a09b and base d174ef48. All ten full CI steps PASS.
+Default: 1451 tests pass in 11.868 seconds. Slow: 260 pass in 21.827 seconds.
+Both facade reports show 193 passed, zero failed, and 497 ignored.
+Both mutation reports show 57 tested: 53 caught, four unviable, zero missed, and zero timeouts.
+The five host lifecycle proofs, shared codec proof, real-socket proof, and inherited route_fill proof have PASS lines.
+Full CI takes 552.5 seconds. The repeated mutation job takes 124.3 seconds.
+Job and wrapper exit zero after 753 seconds on msa1. Queue time is one second; run time is 752 seconds.
+The env-only second mutation job remains repeated default coverage. The separate slow evidence supports the new I/O-shell exclusion.
+The green gate does not prove the missing retained-mark order in F95.
+
+### Verdict and retained scopes
+
+PR #219 is NOT CLEAN at `b506a09b192a101c03cedd046cae17cf4f265bdb`.
+F95 MEDIUM is OPEN. This is #219's first recorded package NOT CLEAN round. No round-limit notice is due.
+The lead receives no ordinary NOT CLEAN report under the reporting rule.
+P3 confirms that the lead permits #219 at contracts-v0.1.24; the next pin carries the merged R-50 transcript cases.
+This PR changes no pending list. Testkit minimum remains 50/69.
+
+#221 is merged at d174ef48. Round 143 CLEAN at d8809fb8 and F94's closure remain preserved.
+Package verdict: 7fc828384b74862e9658bc4202906e29297521cf. Integration verdict: 7e359b88.
+#217 is merged at 159cc400. F91/F92/F93 closures remain preserved. F86/F87/F88/F90 remain PR3 requirements.
+F39 for #163 and F61/F62 for #192 retain their prior scopes. P3's non-minimum queue stays parked.
+The reviewer changes no product code and runs no tests, builds, gates, measurements, mutants, or base-merge-check.
+All earlier exact-head verdicts remain preserved.
+
+VERDICT: NOT CLEAN
