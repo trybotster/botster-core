@@ -1,0 +1,6 @@
+# Pending ids that pass on the testkit and stay pending (the strict pending check, `botster_core_testkit::pending`).
+# Each line: the id, the reason class, the owner, the authority, and the reason. The only class is `budget`: the id passes,
+# but over the default-tier time budget. A real-only id needs no line here: core-real-only.txt comes from the replacement map.
+# A held id must pass: when it fails, the strict run fails until its line is removed (the id stays pending).
+# This list must not grow: a second `budget` line goes to the Core lead first (lead, 2026-10-09).
+conf::ev_8_every_query_stays_in_output  budget  owner: p4b-queries-files (unstaffed)  (Core lead, 2026-10-09)  because: it passes on the testkit at seeds 0-31 in 2.005 s, over the 2 s default-tier test budget (gate 42cdfda9 on msa1); p4b makes it faster or moves it to the slow tier
