@@ -1328,3 +1328,62 @@ This documentation change requires no execution gate.
 I ran no build, test, gate, mutation job, merge-check job, or reversal job.
 
 VERDICT: CLEAN (0 open) at 5b335476838e3872c9c8cb2b016ad6e6d1d1a030
+
+## Round 40 — revision 23ae — 2026-10-10
+
+Reviewed head: `b895ad493b9919dd63a9e11a596ba5fd210f1ea5`.
+Prior accepted head: `5b335476838e3872c9c8cb2b016ad6e6d1d1a030`.
+Scope: the descriptor framing rule in section 6.3 item 1 and its revision row.
+The revision changes one plan file in one commit on the prior accepted head.
+
+The lead removes the condition that a read's descriptors belong to its first byte.
+The supplied Linux evidence disproves that condition.
+I read `~/botster-sessions/gates/botster-core-stage1-p4a-real-handoff-send-259fa4fd-pool-20261010-163135-22828.log`.
+The header identifies head 259fa4fd and base 78b011d1.
+The old proof expected plain, but its first read returned plainattach.
+The source sends plain bytes, then attach with one descriptor. Its buffer holds both sends.
+The same gate passes the proof of two descriptor sends with separate descriptor-bearing reads.
+This gate fails two tests overall. I use its boundary measurement, not a passing implementation claim.
+
+The [Linux unix(7) manual](https://man7.org/linux/man-pages/man7/unix.7.html) describes this receive barrier.
+Its example combines preceding plain bytes with the descriptor-bearing send and leaves following plain bytes for the next read.
+I also read Linux v6.6's [unix_stream_read_generic source](https://github.com/torvalds/linux/blob/v6.6/net/unix/af_unix.c).
+The normal receive path detaches the descriptors after copying bytes and stops before another descriptor-bearing segment.
+It delivers descriptors with the first bytes consumed from their send, including a partial read of that send.
+
+I read the retained macOS record:
+`~/botster-sessions/shared/core-stage1/evidence/p3-handoff-send/descriptor-read-boundary-macos.log`.
+It identifies macOS 27.0.1 arm64 and source head d563187edd10218d8eb757d51cb628b923eedace.
+Both named boundary proofs pass. I read their source at that head.
+For plain, attach with a descriptor, then after, the macOS proof expects plain with zero descriptors, then attachafter with one.
+The two-send proof expects one with its descriptor, then two! with its descriptor.
+These fixed sends fit the proof's 64-byte receive buffer.
+The retained temporary probe also records a descriptor-bearing send followed by plain bytes in one macOS read.
+The revised Linux branch expects plainattach with one descriptor, then after with none. Its new gate is still pending.
+I ran no measurement or proof.
+
+The replacement associates descriptors with the one AttachRoute frame that starts in their read.
+The host must start each AttachRoute at its descriptor send and send no other frame with a descriptor.
+The operating-system receive boundaries therefore prevent two valid descriptor sends from sharing a descriptor-bearing read.
+Preceding plain frames on Linux and following plain frames on macOS do not change the association.
+The rule concerns the frame start, not completion. A frame can span reads under section 3's length-prefixed framing.
+A later complete-frame decode must retain the starting read's descriptor association.
+The worker implementation remains subject to source and proof review.
+
+The rule requires a broken link for each mismatch: no AttachRoute start, multiple starts, a start without descriptors, or a wrong count.
+The worker must close every descriptor received in the offending read.
+The required worker proofs cover these errors without descriptor leaks.
+The per-OS proofs must establish the receive boundaries used by the association.
+This replaces the false kernel premise with a private-link framing requirement.
+
+I checked DP-2 and Amendment 17 at contracts-v0.1.27.
+Core still owns the route after successful attach, transfers the stream to its worker, and closes the host copy after successful handoff.
+A failed handoff still closes the descriptor and route as HandoffFailed.
+The revision changes no public route framing, contract pin, ID list, passing count, staffing limit, or stage acceptance condition.
+This verdict approves the plan rule. It accepts no #234 source, completed worker receive path, or conformance proof.
+
+The remote plan head matches the reviewed head. git diff --check passes.
+This documentation change requires no execution gate.
+I ran no build, test, gate, mutation job, merge-check job, or reversal job.
+
+VERDICT: CLEAN (0 open) at b895ad493b9919dd63a9e11a596ba5fd210f1ea5
