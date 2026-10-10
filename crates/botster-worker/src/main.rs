@@ -13,6 +13,10 @@
 //!
 //! The host starts it with the arguments and the environment of `botster_core_link::launch::WorkerLaunch` (AD-6: the token is
 //! in the environment only).
+//!
+//! **The worker endpoint (DESIGN.md parts 1 and 7).** The driver binds `--endpoint` before the first hello and removes it at
+//! its end. Each connection on it is a candidate: the driver names it, reads at most one chunk of it per turn, and never
+//! writes to it. `AdoptLink` makes a candidate the control link (the fence drops the old link and its queued inputs).
 
 mod command_line;
 mod io_decisions;
@@ -22,17 +26,18 @@ use botster_core_link::launch::{WorkerLaunch, TOKEN_VAR};
 use botster_core_link::msg::PayloadId;
 use botster_core_sys::payload::{self, Payload, PayloadCommand};
 use botster_core_sys::process::start_time;
-use botster_worker_core::{Action, Input, PayloadSpec, SpawnFailure, Worker, WorkerConfig};
+use botster_worker_core::{Action, CandidateId, Input, PayloadSpec, SpawnFailure, Worker};
 use io_decisions::{IoFailure, ReadyState};
-use mio::net::UnixStream;
+use mio::net::{UnixListener, UnixStream};
 use mio::unix::SourceFd;
 use mio::{Events, Interest, Poll, Token, Waker};
 use signal_hook::consts::{SIGTERM, SIGUSR1};
 use signal_hook_mio::v1_0::Signals;
-use std::collections::VecDeque;
+use std::collections::{BTreeMap, VecDeque};
 use std::io::{self, Read, Write};
 use std::num::NonZeroUsize;
 use std::os::fd::AsRawFd;
+use std::path::PathBuf;
 use std::process::ExitCode;
 use std::sync::mpsc;
 use std::sync::Arc;
@@ -42,6 +47,7 @@ const CONTROL: Token = Token(0);
 const PTY: Token = Token(1);
 const SIGNALS: Token = Token(2);
 const EXIT: Token = Token(3);
+const ENDPOINT: Token = Token(4);
 
 /// The bytes of one read of the control socket or the PTY.
 const READ_CHUNK: NonZeroUsize = NonZeroUsize::new(64 * 1024).expect("positive driver read bound");
@@ -56,6 +62,29 @@ fn main() -> ExitCode {
         eprintln!("botster-worker: {error}");
     }
     code
+}
+
+/// The bound worker endpoint. Its drop removes the endpoint, so every end of the driver removes it.
+struct Endpoint {
+    listener: UnixListener,
+    path: PathBuf,
+}
+
+impl Drop for Endpoint {
+    fn drop(&mut self) {
+        if let Err(error) = io_decisions::unlinked(std::fs::remove_file(&self.path)) {
+            eprintln!(
+                "botster-worker: the endpoint {} is not removed: {error}",
+                self.path.display()
+            );
+        }
+    }
+}
+
+/// A connection on the worker endpoint that is not the control link.
+struct CandidateIo {
+    stream: UnixStream,
+    readable: bool,
 }
 
 /// The real edges of one worker and the machine they drive.
@@ -74,6 +103,10 @@ struct Driver {
     control_readable: bool,
     control_writable: bool,
     pty_readable: bool,
+    endpoint: Endpoint,
+    endpoint_readable: bool,
+    candidates: BTreeMap<CandidateId, CandidateIo>,
+    next_candidate: u64,
     signals: Signals,
     payload: Option<Payload>,
     pty_registered: bool,
@@ -103,6 +136,14 @@ impl Driver {
         read_chunk: NonZeroUsize,
     ) -> io::Result<Driver> {
         let poll = Poll::new()?;
+        // The endpoint is bound before the first hello: a host that has the hello can adopt the worker. `Endpoint` owns it
+        // from the bind on, so every later failure of the start removes it (DESIGN.md part 7).
+        let mut endpoint = Endpoint {
+            listener: UnixListener::bind(&launch.endpoint)?,
+            path: launch.endpoint.clone(),
+        };
+        poll.registry()
+            .register(&mut endpoint.listener, ENDPOINT, Interest::READABLE)?;
         let std_control = std::os::unix::net::UnixStream::connect(&launch.control)?;
         std_control.set_nonblocking(true)?;
         let mut control = UnixStream::from_std(std_control);
@@ -112,11 +153,7 @@ impl Driver {
         poll.registry()
             .register(&mut signals, SIGNALS, Interest::READABLE)?;
         let waker = Arc::new(Waker::new(poll.registry(), EXIT)?);
-        let worker = Worker::new(WorkerConfig::new(
-            launch.instance.clone(),
-            launch.token,
-            launch.host_epoch,
-        ));
+        let worker = Worker::new(io_decisions::worker_config(launch));
         Ok(Driver {
             read_chunk,
             worker,
@@ -129,6 +166,10 @@ impl Driver {
             control_readable: true,
             control_writable: true,
             pty_readable: false,
+            endpoint,
+            endpoint_readable: true,
+            candidates: BTreeMap::new(),
+            next_candidate: 0,
             signals,
             payload: None,
             pty_registered: false,
@@ -152,6 +193,8 @@ impl Driver {
             // One bounded turn. Plan 2.4: the control link first.
             self.flush()?;
             self.read_control();
+            self.accept_candidate();
+            self.read_candidates();
             self.settle()?;
             if self.exit {
                 return Ok(());
@@ -174,6 +217,8 @@ impl Driver {
                 queued_inputs: self.inputs.len(),
                 pending_write: self.pty_write.is_some(),
                 write_blocked: self.pty_wants_write,
+                endpoint_readable: self.endpoint_readable,
+                candidate_readable: self.candidates.values().any(|c| c.readable),
             }
             .timeout(self.worker.next_deadline(), Instant::now());
             if io_decisions::poll_interrupted(self.poll.poll(&mut events, timeout))? {
@@ -220,7 +265,26 @@ impl Driver {
                             self.inputs.push_back(Input::PayloadExited(status));
                         }
                     }
-                    _ => {}
+                    ENDPOINT => {
+                        self.endpoint_readable = io_decisions::control_ready(
+                            self.endpoint_readable,
+                            event.is_readable(),
+                            event.is_read_closed(),
+                            event.is_error(),
+                        );
+                    }
+                    Token(token) => {
+                        let candidate = io_decisions::candidate_of(token)
+                            .and_then(|id| self.candidates.get_mut(&id));
+                        if let Some(candidate) = candidate {
+                            candidate.readable = io_decisions::control_ready(
+                                candidate.readable,
+                                event.is_readable(),
+                                event.is_read_closed(),
+                                event.is_error(),
+                            );
+                        }
+                    }
                 }
             }
         }
@@ -274,10 +338,13 @@ impl Driver {
                 self.drain_left = None;
             }
             Action::Exit => self.exit = true,
-            // The worker endpoint and its candidates come with the launch argument `--endpoint`, after
-            // `botster-test-process` (#171; DESIGN.md parts 1 and 7). Until then this driver gives no `Input::Candidate`,
-            // so the machine names no candidate.
-            Action::CandidateClose(_) | Action::AdoptLink(_) => {}
+            Action::CandidateClose(id) => {
+                if let Some(mut candidate) = self.candidates.remove(&id) {
+                    let _ = self.poll.registry().deregister(&mut candidate.stream);
+                    let _ = candidate.stream.shutdown(std::net::Shutdown::Both);
+                }
+            }
+            Action::AdoptLink(id) => self.adopt_link(id)?,
             // The route descriptors come with `SCM_RIGHTS` on the control socket, which is real-only work after the testkit
             // PRs of P4a (worker-core DESIGN.md "Real-only"). Until then this driver gives no `Input::Descriptor`, so the
             // machine binds no route and names none; with no route, the PTY read budget only lifts a limit it never set.
@@ -506,6 +573,103 @@ impl Driver {
         Ok(())
     }
 
+    /// At most one connection of the endpoint per turn. Each one is a candidate for the machine. A failed accept leaves
+    /// the endpoint; the worker keeps its control link and its payload.
+    fn accept_candidate(&mut self) {
+        if io_decisions::endpoint_waits(self.endpoint_readable) {
+            return;
+        }
+        match self.endpoint.listener.accept() {
+            Ok((mut stream, _)) => {
+                let id = io_decisions::take_candidate(&mut self.next_candidate);
+                let token = Token(io_decisions::candidate_token(id));
+                if self
+                    .poll
+                    .registry()
+                    .register(&mut stream, token, Interest::READABLE)
+                    .is_ok()
+                {
+                    self.candidates.insert(
+                        id,
+                        CandidateIo {
+                            stream,
+                            readable: true,
+                        },
+                    );
+                    self.inputs.push_back(Input::Candidate(id));
+                }
+            }
+            Err(error) => match io_decisions::failure(&error) {
+                IoFailure::Retry => {}
+                IoFailure::Blocked => self.endpoint_readable = false,
+                IoFailure::Closed => {
+                    let _ = self.poll.registry().deregister(&mut self.endpoint.listener);
+                    self.endpoint_readable = false;
+                }
+            },
+        }
+    }
+
+    /// At most one chunk of each candidate. A candidate whose connection ended leaves the driver: the machine hears
+    /// `CandidateClosed` and closes nothing of it.
+    fn read_candidates(&mut self) {
+        let mut buf = vec![0u8; self.read_chunk.get()];
+        let mut ended = Vec::new();
+        for (&id, candidate) in &mut self.candidates {
+            if io_decisions::candidate_waits(candidate.readable) {
+                continue;
+            }
+            let closed = match candidate.stream.read(&mut buf) {
+                Ok(0) => true,
+                Ok(n) => {
+                    self.inputs
+                        .push_back(Input::CandidateBytes(id, buf[..n].to_vec()));
+                    false
+                }
+                Err(error) => match io_decisions::failure(&error) {
+                    IoFailure::Retry => false,
+                    IoFailure::Blocked => {
+                        candidate.readable = false;
+                        false
+                    }
+                    IoFailure::Closed => true,
+                },
+            };
+            if closed {
+                ended.push(id);
+            }
+        }
+        for id in ended {
+            if let Some(mut candidate) = self.candidates.remove(&id) {
+                let _ = self.poll.registry().deregister(&mut candidate.stream);
+            }
+            self.inputs.push_back(Input::CandidateClosed(id));
+        }
+    }
+
+    /// The fence (DP-8): the old link and every byte still unwritten on it are dropped, and the candidate becomes the
+    /// control link. `LinkWritten` counts from zero on it. A candidate that the driver no longer holds fails closed
+    /// (`io_decisions::fence`): the old link is dropped all the same.
+    fn adopt_link(&mut self, id: CandidateId) -> io::Result<()> {
+        self.drop_link();
+        let Some(mut candidate) = self.candidates.remove(&id) else {
+            io_decisions::fence(&mut self.inputs, id, false);
+            return Ok(());
+        };
+        self.poll.registry().deregister(&mut candidate.stream)?;
+        self.poll
+            .registry()
+            .register(&mut candidate.stream, CONTROL, Interest::READABLE)?;
+        self.control = candidate.stream;
+        self.link_open = true;
+        self.written = 0;
+        self.writable_interest = false;
+        self.control_readable = true;
+        self.control_writable = true;
+        io_decisions::fence(&mut self.inputs, id, true);
+        Ok(())
+    }
+
     /// The link failed or the host closed it: the machine hears `LinkClosed`.
     fn link_lost(&mut self) {
         if self.link_open {
@@ -540,10 +704,14 @@ fn driver_observer() {
         return;
     };
     let launch = WorkerLaunch {
-        control: control.into(),
+        control: control.clone().into(),
         instance: botster_core_contract::prelude::InstanceId("1-1".into()),
         host_epoch: 1,
         token: [5; 32],
+        endpoint: PathBuf::from(&control).with_file_name("e"),
+        startup_ms: WorkerLaunch::millis(
+            botster_core_contract::prelude::CoreLimits::default().startup,
+        ),
     };
     Driver::start(&launch).and_then(Driver::run).unwrap();
 }
