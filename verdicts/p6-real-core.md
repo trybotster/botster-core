@@ -287,3 +287,50 @@ No replacement READY has arrived. This correction is part of Round 2, not a new 
 The reviewer changed no product code and ran no builds, tests, mutation jobs, or gates.
 
 VERDICT: NOT CLEAN
+
+## PR #220 — Round 3 — 2026-10-10
+
+Head: `8e73278755d66ab02b09141ad57c4bd0f41272b7`.
+Tree: `bed25a7846737e17ffae1ca2af2f1c2c04b74a00`.
+Parent: `9317693d8b1250a31a6a14e7c1125f18f3f7d0a5`.
+PR and gate base: `d174ef48a218b74beb4bac9ec555c6c39d2650a4`.
+The head contains the base. `git diff --check` finds no whitespace error.
+
+Risk tier remains HIGH, under BUILD.md rules 1, 3, and 5.
+The complete Round 3 change consists of one commit in two files: `lists.rs` and `.cargo/mutants.toml`.
+The reviewer read the complete change, the reused decision and its proof, the updated body, and the exact-head gate evidence.
+The reviewer changed no product code and ran no builds, tests, mutation jobs, or gates.
+
+**RH-F6 / RH-R2-1 — HIGH — CLOSED.**
+
+`ledger_ids_command` reads each checked-in copy with a contextual error on a failed read.
+A missing file therefore fails before the comparison. The function no longer converts read errors to optional comparison inputs.
+It passes every `(path, copy, pinned text)` tuple to the existing pure `copy_problems` decision.
+That decision returns a named problem for each different copy.
+The shell reports those problems with `anyhow::ensure!` and prints success only when no problem remains.
+The existing proof checks matching copies, matching empty copies, and a different copy with its correct file name.
+The exact-head default gate passes `a_copy_that_is_not_the_pinned_file_is_a_problem`.
+The corrected exclusion cites `copy_problems` and that proof in the required form.
+The exclusion covers only the whole-body replacement of `ledger_ids_command`.
+No exclusion covers `copy_problems` or its comparison operator.
+
+The five original findings remain closed. All other corrected Round 2 checks and evidence carry to this head.
+`real.rs` is byte-identical to the reviewed parent, so the accepted manual slow-mutation evidence remains applicable.
+No merge or list change occurs in Round 3.
+Plan 23u's separate pin-move exception does not apply: this PR retains contracts-v0.1.24 and adds no pending ID.
+
+Supplied exact-head log:
+`~/botster-sessions/gates/botster-core-stage1-p6-real-core-8e732787-pool-20261010-084907-54482.log`.
+The recorded head and base match the values above. All ten stages PASS.
+Default: 1464 passed, 497 skipped. Slow: 377 passed, 1929 skipped.
+The reviewer compared the PASS sets with Round 2: all 193 testkit IDs and 106 real IDs remain passing.
+The report retains 87 real-pending IDs, with zero newly passing IDs.
+Minimum counts remain testkit 50 / 69, real-passing 29 / 68, and real-accepted 29 / 69.
+Both default mutation steps report 125 tested, 95 caught, 30 unviable, zero missed, and zero timeout.
+The job exits zero after 761 seconds; the gate exits zero after 762 seconds on msa1.
+The second default mutation command still does not establish slow-feature coverage; the accepted manual evidence supplies it.
+
+All six package findings are closed. No new finding remains open, including LOW.
+The reviewer reports package CLEAN to the lead, P6, and Astra with this verdict commit.
+
+VERDICT: CLEAN
