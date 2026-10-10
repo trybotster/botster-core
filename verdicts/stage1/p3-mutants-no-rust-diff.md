@@ -146,3 +146,42 @@ This CLEAN verdict applies to the reviewed pre-merge head `9f33b53eebc0a530a18ad
 Acceptance of the later head still requires its merge proof and exact-head gate evidence.
 
 VERDICT: CLEAN (0 open)
+
+
+## Base merge after Round 2
+
+- Head: `ad383cd74d0bcee716714a240837d108f74ace5a`.
+- Base: `f2eb577d58edd6c1d09215d21f9e51e9d5668e70`.
+- Reviewed parent: `9f33b53eebc0a530a18ad363d626bc656cf61b9f`.
+
+The merge parents are the reviewed head and the new base.
+The base contains the separately accepted PR #214 contracts pin.
+I independently checked the disjoint-merge conditions using Git objects.
+The base's six changed paths do not overlap the PR's two changed paths.
+The PR diff is byte-identical before and after the base merge.
+The plain Git diff contains 11,904 bytes, with SHA256 `d131a27c26182835836d5f6c1a318b5def023e12bdd9344daa85c775a204a042`.
+`git merge-tree --write-tree` succeeds and returns the actual merge tree, `ef312acc1ea4b8949e5df531c7911689a36d7ca4`.
+The prior source review therefore applies under BUILD.md's disjoint-base-merge rule.
+
+Exact-head gate log:
+`~/botster-sessions/gates/botster-core-stage1-p3-mutants-no-rust-diff-ad383cd7-pool-20261009-200633-59607.log`.
+
+The log names the head and base above.
+The Linux pool job ran on `msa1` and exited 0 after 269 seconds.
+All ten CI steps passed.
+The default tier passed 1,332 tests. The slow tier passed 256 tests.
+Conformance passed 124 cases with zero failures, matching the new base's accounting.
+Both mutation commands caught all 13 mutants, with zero missed, timeout, or unviable outcomes.
+Remote head and base match these commits.
+This review ran no builds, tests, or gates.
+
+The required script output and gate record are published in [the PR comment](https://github.com/trybotster/botster-core/pull/213#issuecomment-6093187123).
+I read that comment. Its four conditions report PASS.
+Its binary diff with full object IDs has 12,032 bytes and SHA256 `b41ec5c9d0a146b9eaefacea0346edc2af377b4a2a515cf62df5c99d6b2d3d63`.
+The different byte count above uses the ordinary plain diff format; both comparisons establish equality.
+The package CLEAN at `7aefd888e745e25366bb65f4098ecc1142f5b071` applies to the unchanged reviewed changes under the same merge rule.
+
+GitHub reports that the lead merged PR #213 at `6ff4be7f6e064d0d4abcb524219a048b9ddc6e57`.
+This record completes the evidence for the reviewed merge head `ad383cd74d0bcee716714a240837d108f74ace5a`.
+
+VERDICT: CLEAN (0 open)
