@@ -25,7 +25,21 @@ The boundary is `HostEdges` (`src/edge_tap.rs`). `EdgeTap` passes every call to 
   The hello of each link (or the `connect_worker` call) names the link's instance.
 - The harness keeps only a `Weak` to each tap. The data directory's lock (LC-2) ends with the driver.
 - `injects_clock` is true (R-43 A): Core reads no clock, and `pump` takes `now` from the runner. Workers and payloads
-  follow real time.
+  follow real time, so `progress_is_injected` is false (steward ruling R-46): the driver never jumps the clock to Core's
+  next deadline, and the clock moves only by a transcript's `advance_clock`.
+
+The real tier's trials (`tests/suite/mod.rs`, plan 23l and 23q):
+
+- It runs every id that is not pending, deferred or withdrawn, except the Core A20-1 testkit-proven ids
+  (`botster_core_conformance::TESTKIT_PROVEN`, derived from the contract): each is listed as `testkit-proven`, not run
+  and not a failure. `cargo xtask lists` refuses such an id in `core-real-pending.txt`.
+- An id of `conformance/core-real-pending.txt` runs only under `--ignored` and is reported as pending-real. The file was
+  initialized once from the gate's real run and only shrinks.
+- The report gives the minimum counts of `conformance/minimum-core.txt`, the canonical minimum list: "testkit-passing /
+  69" on the testkit tier, and "real-passing / 68, real-accepted / 69" on the real tier. The denominators are derived:
+  68 leaves out the A20-1 members of the list, and real-accepted adds back each A20-1 member that is not in
+  `core-pending.txt`. The real tier's report run is `--ignored`, after the nextest run of the same job passed every
+  trial that must pass, so it counts those trials.
 
 Prior art: none copied. The scripted inner edges of `edge_tap/tests.rs` are new.
 
