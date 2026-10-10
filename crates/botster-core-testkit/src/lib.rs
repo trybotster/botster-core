@@ -7,6 +7,7 @@ pub mod adopt_controls;
 pub mod candidate;
 pub mod controls;
 pub mod core;
+pub mod edge_tap;
 pub mod entropy;
 pub mod every_cut;
 pub mod harness;
