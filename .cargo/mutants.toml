@@ -7,6 +7,18 @@
 # Every decision of xtask is mutation-tested (the gate order, the caps, the lists rules, the taint and timer scans, the
 # budgets, the snapshot comparison). Only the glue that starts a process, reads a file or prints is excluded, per function.
 
+# The mutation step has two stages (plan section 8, revisions 23n and 23r; xtask ci.rs `two_stage_decision`). Stage 1 is
+# the default run. Stage 2 builds the `slow` features in place and runs the slow tier's tests of the workspace on exactly
+# the mutants that stage 1 missed, after the same tests pass unmutated (its own baseline); code behind the `slow` feature
+# is a stage-1 miss, so stage 2 tests it. The step fails on a mutant that both stages miss, on a failed stage-2 baseline,
+# or on a timeout in either stage.
+#
+# The prebuilt worker gap (plan 23n): `cargo xtask ci --job prebuild-worker` builds the worker binaries into
+# `target/candidate` once, before the mutation step, and no stage rebuilds them for a mutant. So a test that executes
+# `target/candidate` does not see a mutant of the worker's code; a test whose own binary contains the changed code does
+# (for example the unit tests of `slow_driver` in crates/botster-worker/src/main.rs, #210). A worker mutant that only a test of
+# `target/candidate` could catch is MISSED in both stages, which fails the step: it is never passed silently.
+#
 # Test code is not mutated: the tests are the checks.
 exclude_globs = ["**/tests/**", "tests/**"]
 
@@ -82,19 +94,19 @@ exclude_re = [
     # (a_copy_that_is_not_the_pinned_file_is_a_problem); the pinned text, ledger_text
     # (the_ledger_file_is_one_id_per_line_in_order) and real_only_text (the_real_only_file_is_each_core_id_with_its_slow_proof_in_order).
     'xtask/src/lists\.rs:\d+:\d+: replace ledger_ids_command -> Result<\(\)> with Ok\(\(\)\)$',
-    # botster-core-testkit real.rs, every mutant: the module is `#[cfg(feature = "slow")]` (RealCoreHarness, plan 23l), so
-    # the default mutation run never compiles it and lists each mutant as missed with no test run. Interim until the plan
-    # 23n two-stage verdict; removed by that PR, whose second stage builds `--features slow` and tests these mutants. Until
-    # then the proof is a focused manual slow mutation run of real.rs (its own pool job; the log is in the RealCoreHarness
-    # PR body), where every mutant is caught by a slow test (the_real_harness_injects_the_clock_but_not_its_progress and
-    # the real tier of slow_conformance) or is excluded below with its own reason.
-    'crates/botster-core-testkit/src/real\.rs:\d+:\d+: ',
     # xtask mutants_job -> Ok(()): process glue. The body runs `git diff`, writes the diff file, lists the mutants of the
-    # diff, starts `cargo mutants` and prints its summary; a test cannot start a mutation run inside a mutation run, so no
-    # test can run the body. Only this whole-body replacement is excluded: every other mutant of mutants_job stays tested.
-    # Its decisions are pure functions with unit tests, which stay mutation-tested: mutation_decision
-    # (a_mutation_step_passes_only_with_no_mutant_or_every_outcome_and_exit_code_0), the pass or fail of the step from the
-    # listed count, the outcomes and the exit code, mutation_verdict
+    # diff, starts the two `cargo mutants` stages (plan 23n, 23r) and the stage-2 baseline, and prints their lines; a test
+    # cannot start a mutation run inside a mutation run, so no test can run the body. Only this whole-body replacement is
+    # excluded: every other mutant of mutants_job stays tested. Its decisions are pure functions with unit tests, which stay
+    # mutation-tested: two_stage_decision
+    # (a_mutation_step_passes_only_with_no_mutant_or_every_outcome_and_exit_code_0, a_stage_1_miss_passes_only_when_stage_2_catches_it,
+    # a_failed_later_stage_keeps_the_lines_of_the_stages_before_it),
+    # the pass or fail of the step from the listed count, each stage's outcomes and exit code and the stage-2 baseline,
+    # with its helper stage_outcomes; stage2_args and stage2_baseline_args
+    # (stage_2_tests_exactly_the_missed_mutants_with_the_slow_tier), the selection of stage 2 and of its baseline;
+    # bounded_success (a_bounded_success_is_the_runs_success_and_a_hung_run_or_a_leftover_fails,
+    # a_hung_baseline_or_a_leftover_fails_the_step_before_stage_2_starts), the slow tier's bounds on that baseline;
+    # parse_stage_outcomes (the_missed_mutants_are_read_by_name_from_outcomes_json); mutation_verdict
     # (only_a_mutation_run_with_every_mutant_caught_passes), changes_rust_source
     # (only_a_new_rust_path_is_a_change_to_rust_source), diff_mutants
     # (a_diff_without_rust_source_skips_the_listing_and_a_rust_diff_needs_it), the skip of the listing for a diff with no
@@ -102,9 +114,10 @@ exclude_re = [
     # parse_outcomes (the_mutation_summary_is_read_from_outcomes_json),
     # platform_exclusions (only_a_gate_off_macos_adds_the_off_macos_exclusions) and derived_exclusions, the code that the
     # gate's OS does not compile (each_gate_os_excludes_the_adapters_of_the_other_os), and package_rust_files
-    # (the_package_sources_are_the_rust_files_outside_the_fixtures). A body replaced by Ok(()) skips the
-    # step without its summary line, which every gate log of the step shows ("mutants: N mutants: ..." or "mutants: 0
-    # mutants: the diff changes no Rust source ...").
+    # (the_package_sources_are_the_rust_files_outside_the_fixtures). The two stages on real cargo-mutants runs:
+    # a_mutant_that_only_a_slow_test_catches_passes_and_one_that_both_stages_miss_fails (slow tier). A body replaced by
+    # Ok(()) skips the step without its lines, which every gate log of the step shows ("mutants: stage 1 (default): ...",
+    # "mutants: N mutants: ..." or "mutants: 0 mutants: the diff changes no Rust source ...").
     'xtask/src/ci\.rs:\d+:\d+: replace mutants_job -> Result<\(\)> with Ok\(\(\)\)$',
     # xtask gate-decisions command -> Ok(()): process glue. It runs `cargo mutants --list` on the xtask and reads the
     # repository; a test cannot list the mutants of the real xtask inside a mutation run of it. Only this whole-body
