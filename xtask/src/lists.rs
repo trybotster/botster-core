@@ -540,16 +540,25 @@ pub fn ledger_ids_command(root: &Path, args: &[String]) -> Result<()> {
         );
         return Ok(());
     }
-    for (path, text) in &files {
-        if std::fs::read_to_string(root.join(path)).ok().as_deref() != Some(text.as_str()) {
-            bail!("{path} is not the pinned file; run `cargo xtask ledger-ids --write`");
-        }
+    if let Some(path) = first_stale(&files, |path| std::fs::read_to_string(root.join(path)).ok()) {
+        bail!("{path} is not the pinned file; run `cargo xtask ledger-ids --write`");
     }
     println!(
         "ledger-ids: {} ids, the status files and the real-only ids match the pin",
         ledger.len()
     );
     Ok(())
+}
+
+/// The first file whose checked-in text (`read`; `None` when it cannot be read) is not its text from the pin.
+fn first_stale<'a>(
+    files: &'a [(&'a str, String)],
+    read: impl Fn(&str) -> Option<String>,
+) -> Option<&'a str> {
+    files
+        .iter()
+        .find(|(path, text)| read(path).as_deref() != Some(text.as_str()))
+        .map(|(path, _)| *path)
 }
 
 /// The contracts dependency line of a root `Cargo.toml`: its `tag`, or its `rev`.
@@ -996,5 +1005,19 @@ mod tests {
         let bad = copy_problems(&[("x", "same", "same"), ("y", "old", "new")]);
         assert_eq!(bad.len(), 1);
         assert!(bad[0].starts_with("y is not the pinned file"));
+    }
+
+    /// ledger-ids: a file is stale when its text differs from the pin's or it cannot be read; the first one is named.
+    #[test]
+    fn the_first_file_that_differs_from_the_pin_is_stale() {
+        let files = [("a", "one".to_string()), ("b", "two".to_string())];
+        let disk = |a: Option<&str>, b: Option<&str>| {
+            let (a, b) = (a.map(str::to_string), b.map(str::to_string));
+            move |path: &str| if path == "a" { a.clone() } else { b.clone() }
+        };
+        assert_eq!(first_stale(&files, disk(Some("one"), Some("two"))), None);
+        assert_eq!(first_stale(&files, disk(Some("one"), Some("2"))), Some("b"));
+        assert_eq!(first_stale(&files, disk(None, Some("2"))), Some("a"));
+        assert_eq!(first_stale(&files, disk(Some("one"), None)), Some("b"));
     }
 }
