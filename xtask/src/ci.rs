@@ -1770,6 +1770,46 @@ mod tests {
         // The same names, in another order, are the selection.
         assert!(check_stage2_selection(&names(&[f, g]), &names(&[g, f])).is_ok());
         assert!(check_stage2_selection(&names(&[f, f, g]), &names(&[g, f, f])).is_ok());
+        // #229 SI-R1-2 through the whole decision: stage 1 missed [f, f, g]; stage 2 tested [f, g, g], caught all three,
+        // with exit code 0. The sets and the totals are equal, and the step still fails before any verdict.
+        let (lines, result) = decide_lines(
+            3,
+            || {
+                Ok(Stage {
+                    code: Some(2),
+                    outcomes: Some(Outcomes {
+                        summary: counts(3, 0, 3, 0, 0),
+                        missed: names(&[f, f, g]),
+                        tested: names(&[f, f, g]),
+                    }),
+                    took: Duration::from_millis(2500),
+                })
+            },
+            || Ok((true, Duration::from_millis(1500))),
+            |_| {
+                Ok(Stage {
+                    code: Some(0),
+                    outcomes: Some(Outcomes {
+                        summary: counts(3, 3, 0, 0, 0),
+                        missed: vec![],
+                        tested: names(&[f, g, g]),
+                    }),
+                    took: Duration::from_millis(2500),
+                })
+            },
+        );
+        assert_eq!(
+            result.unwrap_err().to_string(),
+            format!(
+                "mutants: stage 2 (slow): selection error: it tested [\"{g}\"], which stage 1 did not miss, and did \
+                 not test [\"{f}\"]; stage 2 must test exactly the stage-1 misses, by file, line, column and change"
+            )
+        );
+        assert_eq!(
+            lines.last().map(String::as_str),
+            Some("mutants: stage 2 (slow): it tested 3 mutants, in 2.5 s; no verdict, because the selection is wrong"),
+            "{lines:?}"
+        );
         // 017a (#229 R1): equal sets and equal totals, with other counts of each name.
         let counted = check_stage2_selection(&names(&[f, f, g]), &names(&[f, g, g])).unwrap_err();
         assert!(
