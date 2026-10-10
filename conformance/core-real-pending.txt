@@ -98,7 +98,7 @@ conf::tm_6_more_means_runnable_not_blocked
 conf::dp_2_failed_handoff_closes_route_handoff_failed
 conf::ou_2b_handoff_failure_is_reported_as_handoff_failed
 
-# fail_writes: no portable real form of a write failure with reads intact (macOS accepts the send after SHUT_RD); steward, 2026-10-10: no amendment now, a Linux-only form with a platform-scoped amendment is the future base, not built now (off the minimum path), P3 (P4a routes) (2).
+# fail_writes: no portable real form of a write failure with reads intact (macOS accepts the send after SHUT_RD); steward and lead, 2026-10-10: a Linux-only form behind a platform check is allowed at low priority, after the minimum ids, P3 (P4a routes) (2).
 conf::a2_3_close_first_reason_wins_with_new_reasons
 conf::a2_3_write_failed_closes_with_write_failed
 
