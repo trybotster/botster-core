@@ -8048,3 +8048,113 @@ The reviewer changed no product code and ran no tests, builds, gates, measuremen
 All earlier exact-head verdicts remain preserved.
 
 VERDICT: NOT CLEAN
+
+
+## Round 137 — PR #206 R-45 accounting and completed slow evidence — 2026-10-09
+
+Reviewed head: `cb5b8822425a15b41337a7468a8b43a493a14501`.
+Base: `1627732f5f651f5946e5d60b64dedcbf6c4cb683`.
+Parent: `959a716cf9b918c1a7fa8845a7ca8ed15c3f87b4`.
+Tier: HIGH. The full change crosses packages, includes the terminal FFI binding, and changes the mutation configuration.
+Authority: BUILD.md; accepted plan 23n at f545597b; contracts v0.1.22 at af5771c; R-44 at dede41d.
+R-45 is now published at contracts `7f7a4679cc29d2dc361c8b9a9da204bf2ecd1cd2`, docs/steward-rulings.md.
+The reviewer read that fixed source and the lead's gate-evidence ruling of this round.
+
+The reviewer read all five changed files since round 136, the corrected full PR body, and both completed evidence logs.
+The correction contains 159 insertions and 41 deletions. The full PR contains 36 files, 2927 insertions, and 171 deletions.
+The complete own change retains the source and union review from rounds 134 and 136.
+No new base merge occurs in this round. The head contains the named current base.
+The final change retains the applied limits, ordered descriptor handoff, model cut, native snapshot encoder, and failure stub scopes.
+No prior-art choice, product process rule, guard, anchor, wait, timeout, or cleanup rule changes in this correction.
+F78/F80/F81/F82 remain CLOSED with their round 136 proofs and scopes.
+
+### F79 — MEDIUM — CLOSED under R-45
+
+Route::baseline tracks the unwritten bytes through live at the front of the queue.
+At attach, the worker sets that count before it adds the output after R.
+free_payload charges queued minus baseline. The held suffix becomes output and remains in the charged bytes.
+Every route write starts at the front. Each successful partial write reduces queued and baseline by the same accepted byte count.
+baseline saturates at zero. Later output writes reduce only queued. The invariant baseline <= queued remains valid.
+The queue budget therefore charges only frames behind the baseline while it drains.
+The attached frame precedes baseline_begin and is not a frame behind the sequence. The design states this explicitly.
+The exemption does not change the frame bounds or the native snapshot limit.
+
+The worker proof uses route_queue_bytes = max_snapshot_bytes = the measured native snapshot size and retains an ESC suffix.
+The proof observes the emitted PTY budget after attach. It then adds exactly the admitted output and observes the reduced budget.
+The proof delivers the complete ordered baseline, live, held suffix, and later output. Its exact frame list excludes resync.
+The old accounting would return a zero budget at attach and fail the changed proof.
+The proof's budget helper repeats the arithmetic, but its inputs are measured snapshot bytes and actual queued output frames.
+The action observations verify that the baseline is exempt and the held suffix and later output are charged.
+
+The Core test opens with both limits at the measured snapshot size and attaches through the public API.
+It reads attached, baseline_begin, an exactly fitting screen, baseline_end, and live, then Empty.
+It observes no resync or route close. This is R-45's named tight-queue proof with no new ledger ID.
+The body correctly states that this Core test alone is not red on revert of the exemption.
+The worker proof supplies that distinction. Both tests PASS in the completed default gate.
+This PR has no stall clock. Baseline occupancy starts no extra stall clock.
+Later stall and resync work must preserve R-45 and the unchanged reader_progress_deadline.
+The prior hard-cap remedy remains superseded. F79 is CLOSED.
+
+### F84 — LOW — CLOSED
+
+The corrected body states that v0.1.22 substitutes attach_route bindings before attach, as ff5ac74 implements.
+The unchanged OU-1 transcript now passes and leaves core-pending.txt in this commit.
+The reviewer read its pinned transcript and replacement-map row at af5771c. The row assigns a core-testkit proof.
+The gate selects and passes ou_1_terminal_format_is_negotiated_against_the_target_worker.
+The reviewer independently counted 69 minimum IDs: 41 pass at base and 44 pass at head.
+The body reports that count and all three removed pending IDs. Active facade conformance is 124 passed, zero failed.
+The three IDs are ou_9_baseline_then_live_no_gap, dp_3_screen_is_one_frame_within_max_screen_frame_bytes, and the OU-1 format ID.
+The body claims no real minimum gain. No transcript or expectation changes in Core. F84 is CLOSED.
+
+### F85 — MEDIUM — CLOSED
+
+Manual log: ~/botster-sessions/gates/botster-core-stage1-p4a-route-machine-cb5b8822-pool-20261009-190622-24485.log.
+The header names this exact head and base. The separate pool job exits zero after 15 seconds on msa1.
+The command includes --no-config, --in-place, --features slow, --profile slow, and --max-fail 1:immediate.
+Its scoped file and regex select RealEdges::link_send_descriptor. It uses the gate's slow selection and prebuilds the worker.
+The unmutated baseline selects 51 slow tests and passes all 51.
+Both method replacements, Ok(0) and Ok(1), are caught. The log shows no missed mutant or mutation timeout.
+Both mutants fail real::slow_tests::the_edges_draw_random_bytes_and_refuse_the_handoff at the typed Failed assertion, real.rs:661.
+The nextest failure summaries are ordinary assertion failures, not tests terminated at a deadline.
+The body names this log, command, baseline, mutants, and proof. This supplies plan 23n's manual slow-feature evidence.
+The source still implements only the real handoff refusal. Successful production transfer remains later work with a required named real-process proof.
+F85 is CLOSED. The env-only repeated xtask mutation job is not treated as slow-feature mutation evidence.
+
+### Completed gate evidence and lead ruling
+
+Full log: ~/botster-sessions/gates/botster-core-stage1-p4a-route-machine-cb5b8822-pool-20261009-185035-66116.log.
+The header names the exact head and base. The job ran on msa1 with zero queue time.
+All ten full CI steps PASS. Default: 1329 tests passed in 8.549 seconds. Slow: 254 passed in 21.940 seconds.
+Both facade runs report 124 passed, zero failed, and 558 ignored.
+Full CI takes 539.9 seconds. The separate xtask mutation job takes 333.7 seconds.
+Each mutation job reports 179 tested: 166 caught, 13 unviable, zero missed, zero timeouts.
+The repeated mutation job uses a 20-second mutation timeout.
+
+The pool command exits one after 885 seconds because an appended manual command combines incompatible --in-place and --jobs flags.
+The argument parser refuses that appended command before it builds or tests anything.
+Both CI commands precede it with || exit $? and complete with exit zero.
+P3 reruns the manual command alone on the same head, producing the zero-exit log above.
+The body reports this status accurately. It does not describe the full pool command as exit zero.
+
+The lead reads the log and explicitly accepts these completed same-head results as gate evidence for #206 at cb5b8822.
+The lead states that the gate commands were green and that only the appended manual command failed argument parsing.
+The lead also requires all future manual evidence runs to use separate pool jobs, so the gate exit reflects only the gate.
+This review relies on that explicit ruling. It does not infer a general exception for failed CI steps or skipped gates.
+
+### Verdict and retained scopes
+
+PR #206 is CLEAN at `cb5b8822425a15b41337a7468a8b43a493a14501` for the assigned package review.
+F78-F82, F84, and F85 are CLOSED. No package finding remains at this head.
+Integration must publish its own same-head HIGH verdict before merge.
+#206 has two earlier recorded package NOT CLEAN rounds. No fourth-round decision or round-limit notice is due.
+The package reviewer sends CLEAN with this exact head and verdict commit to the lead after push.
+
+The real minimum count gains nothing from the three testkit removals. Successful real transfer is not implemented or claimed.
+P4a must add its route transport term to edges_quiet in PR2. History, HandoffSent, route input, stall/resync, and real transfer retain later scopes.
+#184 retains round 135 CLEAN and its 5348befa merge. F57/F83 remain CLOSED.
+#203 retains round 133 design CLEAN and its cd97009e merge. F71-F77 remain CLOSED as design findings.
+F39 for #163 and F61/F62 for #192 retain their prior scopes. P3's non-minimum queue stays parked.
+The reviewer changed no product code and ran no tests, builds, gates, measurements, or mutants.
+All earlier exact-head verdicts remain preserved.
+
+VERDICT: CLEAN
