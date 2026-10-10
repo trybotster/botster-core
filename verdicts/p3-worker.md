@@ -8623,3 +8623,90 @@ The reviewer changes no product code and runs no tests, builds, gates, measureme
 All earlier exact-head verdicts remain preserved.
 
 VERDICT: NOT CLEAN
+
+
+## Round 142 — PR #221 replacement testkit route_fill — 2026-10-10
+
+Reviewed head: `ef5e785935e057c394469e2f73bed23e8f588d7d`.
+PR base: `159cc4003c8910ba6ef28402c360ba4d2dd820a4`.
+Prior reviewed head: `3bc22068416fded17d3935e8bfd57aec6ad0135c`, round 141.
+Tier: HIGH under BUILD rule 3 because the PR changes the shared crate botster-core-testkit.
+The reviewer reads the four-file correction and the final five-file change, the complete description, and the exact-head gate.
+The full R-47, program-edge, transport, socket-buffer, and paired-evidence review from round 141 remains part of this review.
+
+### F94 — MEDIUM — OPEN: the durable row can also arrive after attach
+
+The correction adds RowReader, which retains the storage registry and row key.
+RouteFill now stores SessionRow with that reader, SessionId, and the instance read at attach time.
+Each fill reads and decodes the current row, checks its instance, obtains its current worker, and checks payload liveness.
+This corrects the round 141 sequence after Create completes: a worker can arrive after attach without leaving a permanent None.
+The replacement-instance check also prevents an old route from writing to a new instance with the same SessionId.
+
+However, harness.rs:284-296 constructs SessionRow by zipping row_reader with session_row(...).ok() at attach time.
+If the durable row does not exist yet, that zip produces None, which RouteFill retains permanently.
+A legal AM-1 order reaches this case:
+
+1. Begin Create and do not pump it.
+2. Begin Start for the new session and do not pump it.
+3. Attach the route while Start is admitted.
+4. Pump Create and Start to successful completion and Running.
+5. Call route_fill on the same route.
+
+new_session sets Admit::Created when Create is accepted, before its row write.
+admit.rs:198 therefore accepts Start. commit immediately sets Admit::Starting and queues Start behind the Create flow.
+check_attach accepts Starting. The accepted attach registers the route for the eventual handoff.
+The row write has not occurred at step 3. session_row returns an error, which .ok() converts to None.
+The fill metadata remains session=None even after the row, worker, and running payload exist.
+route_fill then refuses with "the route has no session row" instead of writing to that running payload's program edge.
+The existing host proof a_failed_create_completes_the_ops_admitted_after_it confirms that Start can queue behind an unpumped Create.
+No extra product execution is needed to establish this admission and metadata path.
+
+The new startup proof completes Create through session_of before it begins Start.
+It checks early no-worker refusal, then successful fill after Start across seeds 0-7.
+That proof covers the corrected case, but not an attach before the first durable row write.
+The other new proof exits and removes the old session, recreates the same SessionId, and checks refusal without output in the new payload.
+That isolation behavior is correct and must remain intact in the next correction.
+
+Required: retain the original session instance even when its first durable row does not exist at attach time.
+Resolve that instance's later row and worker without binding the route to a replacement instance.
+Prove the unpumped Create, Start, and attach sequence, followed by successful fill after Running.
+Preserve and extend the removed/recreated instance isolation proof as needed for the chosen binding.
+F94 is partially corrected but remains OPEN. The reviewer sends the exact order to P3 and integration.
+
+### Retained source and evidence
+
+The fill formula, gate behavior, cumulative accept allowance, applied frame bound, and deterministic pattern remain unchanged.
+The control still uses ProgramControl::write and the current control host's wake.
+It returns after the program edge holds the bytes and refuses an exited payload.
+It changes no pending list, production hook, real descriptor transfer, timeout, guard, anchor, wait, deadline, or process cleanup.
+The paired contracts PR and its assigned crate-catchup review retain their scope.
+The separate class B queue_overflow and missing RouteStalled implementation remain outside this PR.
+The correction adds no socket-buffer setter. BUILD rule 5 and real-process proof requirements remain in force for later real transport work.
+
+Gate: ~/botster-sessions/gates/botster-core-stage1-p4a-route-fill-ef5e7859-pool-20261010-042753-60177.log.
+The header names the exact head and base. All ten full CI steps PASS.
+Default: 1440 tests pass in 13.702 seconds. Slow: 259 pass in 22.395 seconds.
+Both facade reports show 193 passed, zero failed, and 497 ignored.
+Both mutation reports show 24 tested: 21 caught, three unviable, zero missed, and zero timeouts.
+Both new identity proofs have PASS lines in the completed gate.
+Full CI takes 181.6 seconds. The repeated mutation job takes 101.0 seconds.
+The job exits zero after 292 seconds on msa1, with no queue time. The wrapper exits zero after 293 seconds.
+The env-only second mutation job remains repeated default coverage. This PR adds no slow-based mutation exclusion.
+The green gate does not prove the missing pre-row admission sequence.
+
+### Verdict and retained scopes
+
+PR #221 is NOT CLEAN at `ef5e785935e057c394469e2f73bed23e8f588d7d`.
+F94 MEDIUM remains OPEN. This is #221's second package NOT CLEAN round. No third-round notice is due yet.
+The reviewer sends the finding directly to P3 and integration. It does not meet the BLOCKED condition.
+The lead receives no ordinary NOT CLEAN report under the reporting rule.
+
+#217 is merged at 159cc400. Round 140 CLEAN and F91/F92/F93 closures remain preserved.
+F86/F87/F88/F90 remain PR3 requirements. The failed-start closure follows R-50 in #219.
+The shared lead handoff records accepted plan 23s at 8a9727e5 after 23r at 09ac30a7.
+Contracts v0.1.24 remains the Core pin at this base. Testkit minimum remains 50/69.
+F39 for #163 and F61/F62 for #192 retain their prior scopes. P3's non-minimum queue stays parked.
+The reviewer changes no product code and runs no tests, builds, gates, measurements, or mutants.
+All earlier exact-head verdicts remain preserved.
+
+VERDICT: NOT CLEAN
