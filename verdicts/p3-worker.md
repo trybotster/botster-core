@@ -9078,3 +9078,105 @@ The reviewer changes no product code and runs no tests, builds, gates, measureme
 All earlier exact-head verdicts remain preserved.
 
 VERDICT: NOT CLEAN
+
+
+## Round 147 — PR #219 authorized round four and base merge — 2026-10-10
+
+Reviewed head: `9daf3ec427b36ad68d8654962f2e9a0f2d815899`.
+PR base: `b41e88be535c7e1c62ddf272c4295a87b94f5685`.
+Prior reviewed head: `5c1b8d9040e2f3ec4faf3e77b3d6ae2ab39e8878`.
+Tier: HIGH under BUILD rules 3 and 5. This verdict includes the prior whole-change review.
+The remote PR head and base match these exact commits.
+
+The lead settled the third-round point in msg_plugin-w_1791647072_e2b6e6 and authorized round four.
+The required scope was separate budgeted closes, several routes at pump_events=1, checked PumpReports, and an engine loop audit.
+P3 used the engine's existing parked closes rather than the driver's input queue.
+The lead explicitly accepted Work::Parked in msg_plugin-w_1791649533_7f9fd7.
+This mechanism is within the authorized settlement. No further round-limit decision is required for this review.
+
+### F97 — MEDIUM — CLOSED
+
+finish_start posts the Start completion and appends each lost route as ParkedRoute::Close(HandoffFailed).
+That loop posts no route event. It retains each close as separate engine work.
+ready lists Work::Parked only when the mandatory queue has room.
+run_parked takes one item, closes at most one route, and restores the item if the queue cannot take its event.
+The driver accounts the event after each Work::Parked input and stops event work at the pump limit.
+A route that already closed is skipped. close_route removes its lost_handoffs entry.
+The parked queue also retains earlier route-event order. Polling frees room and signals work through the existing wake path.
+
+The final branch parks closes only when Start succeeds with no pending end.
+A failed start retains the failed-start Finish path. A pending end retains begin_end_flow.
+Neither end branch also schedules HandoffFailed. The mutation survivor from the intermediate condition is removed by this branch structure.
+F95's end-state order and F96's link-only close obligations remain intact.
+Genuine descriptor-send Failed, encoding failure, and absent-link paths retain HandoffFailed.
+
+The two link-only proofs now use pump_events=1 and check the affected PumpReports.
+The three-route proof checks one event per pump and one HandoffFailed close per route after Start completion.
+The backpressure proof uses three routes, mandatory_events=2, and no poll.
+Running and one route close fill the mandatory queue. Two routes remain registered until a poll frees room.
+Each remaining close then posts in a separate budgeted step. All three routes close once and leave no registered route.
+The proofs check the stream tokens, event reason, event order, and absence of retained routes.
+The reported counterfactuals fail at 5c1b8d90 with two, two, and four events in one pump.
+The reviewer reads source and completed evidence only; the reviewer does not run these counterfactuals.
+
+### Root audit and merge review
+
+The PR body contains the required audit of engine paths that can post several events per input.
+The reviewer checks the completion guard, deferred inflight completions, waiters, retired operations, and waiting Detaches.
+These paths schedule separate completion steps rather than posting each completion inside their loops.
+Stop Finish and Remove close one route per flow step. Driver handoff inputs use the existing per-input budget feed.
+Launch waiters and flush_handoffs change work or actions without posting events.
+Adoption processes one row per step. Metadata posts and returns. Due silences use the budgeted driver loop.
+Polling posts no event. No additional breach is found in these audited paths.
+The audit identifies the F97 loop as the breach in this PR and records its parked-work fix.
+
+Merge commit 6ee3b4f29507ca14487e179dd5ae03b69e9351f3 incorporates #220 at b41e88be.
+The supplied base-merge-check is FAIL because .cargo/mutants.toml and Cargo.lock changed on both branches.
+The reviewer reads the saved output and does not run base-merge-check.
+The reviewer independently compares all 21 prior own-path diffs before and after the merge.
+After removing Git index lines and hunk coordinates, every own-path diff is identical.
+The mutation exclusion union retains #219's exact whole-body real-stream entry. Cargo.lock retains the core-link codec dependency.
+The additional exclusions and dependencies are the merged #220 base changes; this verdict does not replace #220's reviews.
+
+The final commit adds EdgeTap::close_route_stream and its pass-through proof.
+The tap forwards the same endpoint and bytes to its inner HostEdges without changing them.
+The existing all-calls proof now checks endpoint value 6 and bytes rc at the inner edge.
+No new production hook, descriptor-send behavior, socket policy, timeout, guard, anchor, or process edge is introduced.
+The real facade file remains byte-identical to the manual slow mutation proof at 40ea69f7.
+Round 144's named real-socket proof and separate exclusion evidence remain applicable.
+BUILD rule 5 and real-process proof requirements retain their scope.
+
+Saved PR body: ~/botster-sessions/shared/core-stage1/evidence/p3-219-round4/pr-219-body-9daf3ec4.md.
+SHA-256: e248e75737c300f5c194b75c02be0728f4852cefc4213a1f54742a7eefa1ff0b.
+Saved merge output: base-merge-check-53bafb51-6ee3b4f2.txt in the same directory.
+SHA-256: 07a97f095b766eed86e622fdb0085b3acb448f212d1b342a366c4cbad037984d.
+Both hashes match P3's supplied artifacts. The full PR body was also read through the authorized GitHub fallback.
+
+### Exact-head completed evidence
+
+Gate: ~/botster-sessions/gates/botster-core-stage1-p4a-failed-start-routes-9daf3ec4-pool-20261010-091039-97716.log.
+The header names the exact reviewed head and base. All ten full CI steps PASS on gaming, including the real tier.
+Default: 1479 pass in 15.788 seconds. Slow: 378 pass in 114.638 seconds.
+Both facade reports: 193 passed, zero failed, 497 ignored.
+Both mutation reports: 68 tested, 63 caught, five unviable, zero missed, zero timeouts.
+The two link-only proofs, two multi-route proofs, retained F95 proof, Stop proof, tap-forward proof, and real-socket proof pass.
+Full CI: 548.9 seconds. Repeated mutation job: 242.5 seconds.
+Job exits zero after 804 seconds. Wrapper exits zero after 805 seconds. Queue: zero seconds. Run: 804 seconds.
+The env-only second mutation job repeats default coverage. The separate slow exclusion evidence retains its narrow scope.
+The real report records real-passing 29/68 and real-accepted 29/69.
+The ignored pending-real run records 87 pending-real ids and zero passes. It is not added to accepted counts.
+Testkit minimum remains 50/69. This PR changes no pending list or pin.
+
+### Verdict and retained scopes
+
+PR #219 is CLEAN at `9daf3ec427b36ad68d8654962f2e9a0f2d815899`.
+F95, F96, and F97 are CLOSED. No finding remains open within this PR's approved scope.
+The reviewer sends CLEAN to the lead with the exact head and published verdict commit.
+Integration retains its separate HIGH review. This package verdict does not substitute for that review.
+F94 and #221's merged closure remain preserved. F91/F92/F93 remain closed.
+F86/F87/F88/F90 remain PR3 requirements. F39 and F61/F62 retain their prior scopes.
+P3's non-minimum queue stays parked. Later real descriptor transfer and input work retain their proof requirements.
+The reviewer changes no product code and runs no tests, builds, gates, measurements, mutants, or base-merge-check.
+All earlier exact-head verdicts remain preserved.
+
+VERDICT: CLEAN
