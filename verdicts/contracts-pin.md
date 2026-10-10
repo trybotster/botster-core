@@ -76,6 +76,7 @@ Integration owns its cross-package review. The lead owns the merge decision.
 VERDICT: CLEAN
 
 
+
 ## PR #182 Round 1 — 2026-10-09
 
 - Exact head: `217de31035b309dbebec582fc412323f06256785`.
@@ -404,6 +405,81 @@ No mutation exclusion changes occur in this PR.
 Integration must publish its separate exact-head CLEAN artifact for this HIGH pin move.
 The later #206 merge must remove any uses of fields that A17 deletes.
 This verdict closes no pending ID and no separate #210 finding or real-adoption proof duty.
+The reviewer changed no product code and ran no builds, tests, mutation jobs, or gates.
+
+VERDICT: CLEAN
+
+## PR #214 — Round 1 — contracts-v0.1.23
+
+Reviewed head: `08792a76fff142b14c72f77a1c3cf3a84e60c76f`.
+Tree: `8ca5f6006e95aed22bf6857ac07c2dbae29c2333`.
+Parent, PR base, and gate base: `f6128fd6dd96a27f82520c82b9553d038dfa9dba`.
+Contracts tag: `contracts-v0.1.23` at `fe3eb952d6f61b89cf7bcbe8c54ab079987ec002`.
+
+The reviewer checked the HIGH tier first. BUILD.md rule 4 requires HIGH for this pin move.
+The PR names P5 as the P1 package reviewer and Astra as the integration reviewer.
+The Prior art note cites the earlier pin moves and their list and status checks.
+The reviewer read the complete six-file delta, the full PR body, and the supplied gate log.
+No finding remains open, including LOW findings.
+
+### Pin and dependency checks
+
+All seven direct contracts dependencies use the new tag.
+All nine contracts sources in Cargo.lock use the exact tagged commit.
+The lock retains 222 packages. Only the nine source fields change; versions, checksums, and dependencies stay equal.
+The local contracts tag resolves to the stated commit.
+The final38 manifest includes accepted Core A19 candidate 2 and its crate change on the final branch.
+
+The reviewer read the complete dependency delta that Core uses.
+The R-46 driver adds `CoreHarness::progress_is_injected`, with `injects_clock` as its default.
+An idle wait jumps only when the clock and progress are injected.
+With real progress and an injected clock, the step limit bounds the wait and `advance_clock` moves the clock.
+TestkitHarness already returns true from `injects_clock` and does not override the new method. Its existing jump behavior stays equal.
+The tagged driver tests cover both injected-progress branches and the real-clock deadline bound.
+RealCoreHarness is not present on v1. This verdict makes no real-harness acceptance claim.
+
+The codec delta adds only a comment on `TerminalQuery.query_id`.
+The comment states the A19-1 u64 decimal-string rule. The type and wire representation stay equal.
+The reviewed Core head has no query_id producer.
+The plugin-contract delta does not enter Core's dependency graph.
+No Core runtime code, transcript, timeout, or mutation exclusion changes in this PR.
+
+### Conformance accounting
+
+The checked Core ledger equals the tag's sorted 689 Core IDs byte for byte.
+The ledger adds seven A19 IDs. All seven enter pending, are pending in the tag, and have no tagged transcript.
+The copied withdrawn and unchanged deferred files equal the tag byte for byte.
+A19-1 withdraws `conf::a9_1_frame_cap_equal_to_the_attached_frame_attaches` and names its replacement.
+That ID was pending, had no transcript, and is not a minimum ID. Its removal loses no passing ID.
+The global withdrawal count changes from 26 to 27. Seven withdrawals still have no replacement.
+The pinned-count test matches those facts.
+The revised pending reasons still refer to IDs pending in the new tag.
+
+The tag adds three clause-cited `pump_until RouteClosed` steps to the existing ou_2b transcript.
+That ID remains pending in Core. The pin move claims no new pass from this change.
+The active suite remains set-equal at 124 IDs. Every active ID has a PASS line in the supplied gate.
+The approved plan 23p keeps all 69 minimum IDs. All 44 active minimum IDs have PASS lines.
+Minimum testkit progress remains 44 / 69. No A19 ID is minimum.
+The plan pin is `~/botster-sessions/pins/stage1-plan.a7980384.md`.
+Its SHA256 is `28f2220a44a3e2580baf896049cb10e82e27323f4edca7dc25b51d93827ffd46`.
+
+### Supplied gate and scope
+
+Log: `~/botster-sessions/gates/botster-core-stage1-p6-pin-v0.1.23-08792a76-pool-20261009-195055-94076.log`.
+The log names the exact reviewed head and its parent as the base.
+All ten CI stages report PASS. The job and gate exit with zero on msa1.
+
+- Default: 1329 passed, 565 skipped.
+- Slow: 256 passed, 1294 skipped.
+- Conformance: 124 passed, zero failed, 475 pending with transcripts, 70 pending without transcripts, two deferred, 18 withdrawn.
+- Both mutation steps: the diff has no mutant, as reported by `cargo mutants --list`. No mutation run starts.
+- Fuzz: no changed crate with a decoder harness.
+
+The extra outer `NEXTEST_PROFILE=slow` command does not enable slow-feature tests.
+This PR changes no exclusion citation and makes no slow-feature mutation claim.
+Integration must publish its separate exact-head CLEAN artifact for this HIGH pin move.
+The later A19 implementation and RealCoreHarness work remain separate.
+This verdict closes no #210 finding.
 The reviewer changed no product code and ran no builds, tests, mutation jobs, or gates.
 
 VERDICT: CLEAN
