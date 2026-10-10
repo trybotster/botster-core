@@ -4,6 +4,7 @@
 //! the machine crates may not (plan 2.3c), and it adds no test branch to a production crate (BUILD.md testing rule 8).
 
 pub mod adopt_controls;
+pub mod alloc_controls;
 pub mod candidate;
 pub mod controls;
 pub mod core;
@@ -34,6 +35,7 @@ pub mod wake;
 pub mod wake_controls;
 pub mod worker;
 
+pub use alloc_controls::PeakAllocator;
 pub use entropy::SeededEntropy;
 pub use harness::TestkitHarness;
 pub use net::{link_pair, stream_pair, Descriptor, End, Interest, LinkEnd, Readiness, StreamEnd};
@@ -43,3 +45,8 @@ pub use scheduler::{SchedulerHandle, SeededScheduler};
 pub use sim::{Binding, Handled, Livelock, MachineNode, Node, NodeId, Sim, TraceEntry};
 pub use wake::SimWake;
 pub use worker::{TestkitCore, WorkerSpawner, Workers};
+
+/// The unit tests of the allocation controls measure through the allocator, as the conformance binary does.
+#[cfg(test)]
+#[global_allocator]
+static ALLOCATOR: PeakAllocator = PeakAllocator;
