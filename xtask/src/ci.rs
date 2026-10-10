@@ -11,6 +11,7 @@ use crate::{
 };
 use anyhow::{anyhow, bail, Context, Result};
 use botster_core_testkit::pending;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use std::process::Command;
 use std::time::{Duration, Instant};
@@ -535,15 +536,16 @@ fn mutants_job(root: &Path) -> Result<()> {
             )?;
             Ok((passed, started.elapsed()))
         },
-        |missed| {
-            let out = fresh(&stage2_dir)?;
-            let selection = ["--in-diff".to_string(), diff_path.display().to_string()];
+        |selection| {
+            let out = stage2_dir.join("mutants.out");
+            write_stage2_skip(&stage2_dir, &selection.skip)?;
+            let diff = ["--in-diff".to_string(), diff_path.display().to_string()];
             let mut cmd = cargo(root);
             cmd.args(stage2_args(
-                &selection,
+                &diff,
                 &slow_packages,
                 &exclusions,
-                missed,
+                &selection.missed,
                 &stage2_dir,
             ))
             .envs(test_budget::tier_env(true));
@@ -631,12 +633,14 @@ fn parse_listing(listing: &std::process::Output) -> Result<usize> {
         .context("the mutant listing is not an array")
 }
 
-/// What one mutation stage's `outcomes.json` reports: the counts, and the names of the missed mutants (the names that
-/// cargo-mutants lists and that `-F` matches: `<file>:<line>:<column>: <change>`).
+/// What one mutation stage's `outcomes.json` reports: the counts, the names of the missed mutants, and the names of every
+/// mutant that it tested (whatever the outcome). A name is a mutant's full identity in cargo-mutants:
+/// `<file>:<line>:<column>: <change>`.
 #[derive(Debug, PartialEq)]
 struct Outcomes {
     summary: MutantSummary,
     missed: Vec<String>,
+    tested: Vec<String>,
 }
 
 /// The outcomes of a stage (`Outcomes`) from its `outcomes.json`.
@@ -646,19 +650,116 @@ struct Outcomes {
 fn parse_stage_outcomes(json: &str) -> Result<Outcomes> {
     let summary = parse_outcomes(json)?;
     let v: serde_json::Value = serde_json::from_str(json)?;
-    let missed = v["outcomes"]
+    let mutants = v["outcomes"]
         .as_array()
         .context("outcomes.json has no `outcomes`")?
         .iter()
-        .filter(|o| o["summary"] == "MissedMutant")
+        .filter(|o| o["scenario"].get("Mutant").is_some())
         .map(|o| {
             o["scenario"]["Mutant"]["name"]
                 .as_str()
-                .map(str::to_string)
-                .context("a missed outcome in outcomes.json has no mutant name")
+                .map(|name| (name.to_string(), o["summary"] == "MissedMutant"))
+                .context("a mutant outcome in outcomes.json has no mutant name")
         })
         .collect::<Result<Vec<_>>>()?;
-    Ok(Outcomes { summary, missed })
+    let missed = mutants
+        .iter()
+        .filter(|(_, missed)| *missed)
+        .map(|(name, _)| name.clone())
+        .collect();
+    let tested = mutants.into_iter().map(|(name, _)| name).collect();
+    Ok(Outcomes {
+        summary,
+        missed,
+        tested,
+    })
+}
+
+/// What stage 2 tests: exactly the mutants that stage 1 missed (`missed`). cargo-mutants 27.1.0 does not apply `-F` or
+/// `--exclude-re` to a struct-field deletion mutant (`visit_expr_struct` does not call `allows_mutant`), so the names
+/// alone can select more. Stage 2 also gets `--iterate` with every other mutant that stage 1 tested (`skip`) as
+/// previously caught; `--iterate` removes a mutant by its full name after discovery, for each kind of mutant.
+#[derive(Debug, PartialEq)]
+struct Stage2Selection {
+    missed: Vec<String>,
+    skip: Vec<String>,
+}
+
+/// The selection of stage 2 from the outcomes of stage 1.
+///
+/// # Errors
+/// A name that stage 1 missed is also the name of a mutant that it did not miss: two mutants share a full name, so no
+/// name can select only one of them.
+fn stage2_selection(first: &Outcomes) -> Result<Stage2Selection> {
+    let missed: BTreeSet<&String> = first.missed.iter().collect();
+    let skip: Vec<String> = first
+        .tested
+        .iter()
+        .filter(|name| !missed.contains(name))
+        .cloned()
+        .collect();
+    let count = |names: &[String], name: &String| names.iter().filter(|n| *n == name).count();
+    let shared = first
+        .missed
+        .iter()
+        .find(|name| count(&first.tested, name) > count(&first.missed, name));
+    if let Some(name) = shared {
+        bail!(
+            "mutants: stage 2 (slow): selection error: two mutants share the name `{name}`, and stage 1 missed only one \
+             of them, so stage 2 cannot select it by name"
+        );
+    }
+    Ok(Stage2Selection {
+        missed: first.missed.clone(),
+        skip,
+    })
+}
+
+/// Stage 2 must test exactly the stage-1 misses, by full name (file, line, column and change). A mutant that it tested
+/// and stage 1 did not miss, or a miss that it did not test, is an error of the selection, never a verdict on a mutant.
+///
+/// The names are compared with their counts (#229 R1, 017a): two misses with one name need two tests of that name, so
+/// misses `[A, A, B]` and tested `[A, B, B]` are an error although their sets are equal.
+///
+/// # Errors
+/// A name was tested more often or less often than stage 1 missed it.
+fn check_stage2_selection(missed: &[String], tested: &[String]) -> Result<()> {
+    let mut counts: BTreeMap<&String, (usize, usize)> = BTreeMap::new();
+    for name in missed {
+        counts.entry(name).or_default().0 += 1;
+    }
+    for name in tested {
+        counts.entry(name).or_default().1 += 1;
+    }
+    let mut extra: Vec<&String> = Vec::new();
+    let mut absent: Vec<&String> = Vec::new();
+    for (name, (missed, tested)) in counts {
+        extra.extend(std::iter::repeat_n(name, tested.saturating_sub(missed)));
+        absent.extend(std::iter::repeat_n(name, missed.saturating_sub(tested)));
+    }
+    if !extra.is_empty() || !absent.is_empty() {
+        bail!(
+            "mutants: stage 2 (slow): selection error: it tested {extra:?}, which stage 1 did not miss, and did not test \
+             {absent:?}; stage 2 must test exactly the stage-1 misses, by file, line, column and change"
+        );
+    }
+    Ok(())
+}
+
+/// Prepares the output directory of stage 2 (`<output>/mutants.out`, which `--iterate` reads before the run moves it to
+/// `mutants.out.old`): only `previously_caught.txt`, with one name of `skip` on each line.
+///
+/// # Errors
+/// The directory could not be replaced or the file could not be written.
+fn write_stage2_skip(output: &Path, skip: &[String]) -> Result<()> {
+    let out = output.join("mutants.out");
+    if out.exists() {
+        std::fs::remove_dir_all(&out).with_context(|| format!("remove {}", out.display()))?;
+    }
+    std::fs::create_dir_all(&out).with_context(|| format!("create {}", out.display()))?;
+    let text: String = skip.iter().map(|name| format!("{name}\n")).collect();
+    let file = out.join("previously_caught.txt");
+    std::fs::write(&file, text).with_context(|| format!("write {}", file.display()))
 }
 
 /// One mutation stage: its exit code (`None`: ended by a signal), its outcomes (`None`: no `outcomes.json`), and its time.
@@ -716,7 +817,7 @@ fn two_stage_decision(
     listed: usize,
     stage1: impl FnOnce() -> Result<Stage>,
     baseline2: impl FnOnce() -> Result<(bool, Duration)>,
-    stage2: impl FnOnce(&[String]) -> Result<Stage>,
+    stage2: impl FnOnce(&Stage2Selection) -> Result<Stage>,
     mut out: impl FnMut(String),
 ) -> Result<()> {
     if listed == 0 {
@@ -741,6 +842,7 @@ fn two_stage_decision(
         "{line}; outcomes.json names {} missed mutants",
         first.missed.len()
     );
+    let selection = stage2_selection(&first)?;
     // cargo-mutants 27.1 builds its own baseline with the mutated packages only, where the `slow` features of the other
     // packages are not valid; so stage 2 skips it, and this baseline (the slow tier, unmutated) must pass first.
     let (passed, took) = baseline2().context(
@@ -756,8 +858,19 @@ fn two_stage_decision(
         passed,
         "{base_line}: the unmutated slow tier must pass before stage 2 tests a mutant"
     );
-    let (code2, second, line2) =
-        stage_outcomes("stage 2 (slow)", first.missed.len(), stage2(&first.missed)?)?;
+    let tested = stage2(&selection)?;
+    if let Some(outcomes) = &tested.outcomes {
+        // A selection error comes before any verdict on a mutant, and keeps the stage's time (#229 SI-R1-1).
+        if let Err(error) = check_stage2_selection(&selection.missed, &outcomes.tested) {
+            out(format!(
+                "mutants: stage 2 (slow): it tested {} mutants, in {:.1} s; no verdict, because the selection is wrong",
+                outcomes.tested.len(),
+                tested.took.as_secs_f64()
+            ));
+            return Err(error);
+        }
+    }
+    let (code2, second, line2) = stage_outcomes("stage 2 (slow)", first.missed.len(), tested)?;
     out(line2.clone());
     mutation_verdict(code2).with_context(|| {
         format!("{line2}: a mutant that both stages miss, or a timeout in stage 2, fails the step")
@@ -775,7 +888,8 @@ fn two_stage_decision(
 
 /// The arguments of stage 2 (plan 23r) after `cargo`: the mutants of `selection` (the diff), in place (so serial), with
 /// the slow features of `slow_packages`, the workspace's tests, and the slow tier's filter; exactly the stage-1 misses
-/// (`-F` with each whole name); the same exclusions; and the slow tier's deadline as the timeout of each mutant.
+/// (`-F` with each whole name, and `--iterate`, which skips the names of `write_stage2_skip`: `Stage2Selection`); the same
+/// exclusions; and the slow tier's deadline as the timeout of each mutant.
 fn stage2_args(
     selection: &[String],
     slow_packages: &[String],
@@ -820,6 +934,7 @@ fn stage2_args(
         args.push("-F".into());
         args.push(format!("^{}$", regex::escape(name)));
     }
+    args.push("--iterate".into());
     args.push("--output".into());
     args.push(output.display().to_string());
     args.extend(MUTANTS_TEST_ARGS.iter().map(|s| s.to_string()));
@@ -1259,7 +1374,7 @@ mod tests {
         listed: usize,
         stage1: impl FnOnce() -> Result<Stage>,
         baseline2: impl FnOnce() -> Result<(bool, Duration)>,
-        stage2: impl FnOnce(&[String]) -> Result<Stage>,
+        stage2: impl FnOnce(&Stage2Selection) -> Result<Stage>,
     ) -> (Vec<String>, Result<()>) {
         let mut lines = Vec::new();
         let result = two_stage_decision(listed, stage1, baseline2, stage2, |line| lines.push(line));
@@ -1271,18 +1386,20 @@ mod tests {
         listed: usize,
         stage1: impl FnOnce() -> Result<Stage>,
         baseline2: impl FnOnce() -> Result<(bool, Duration)>,
-        stage2: impl FnOnce(&[String]) -> Result<Stage>,
+        stage2: impl FnOnce(&Stage2Selection) -> Result<Stage>,
     ) -> Result<Vec<String>> {
         let (lines, result) = decide_lines(listed, stage1, baseline2, stage2);
         result.map(|()| lines)
     }
 
-    /// A stage with exit code `code` and outcomes `summary`, whose missed mutants are named `m0`, `m1`, ...
+    /// A stage with exit code `code` and outcomes `summary`, whose tested mutants are named `m0`, `m1`, ... and whose
+    /// missed mutants are the first of them. So a stage 2 tests the names that its stage 1 missed.
     fn stage(code: Option<i32>, summary: Option<MutantSummary>) -> Result<Stage> {
         Ok(Stage {
             code,
             outcomes: summary.map(|summary| Outcomes {
                 missed: (0..summary.missed).map(|i| format!("m{i}")).collect(),
+                tested: (0..summary.total).map(|i| format!("m{i}")).collect(),
                 summary,
             }),
             took: Duration::from_millis(2500),
@@ -1293,8 +1410,9 @@ mod tests {
     /// starts no run; stage 1 must report every listed mutant; with exit code 0 the step passes and stage 2 does not run.
     #[test]
     fn a_mutation_step_passes_only_with_no_mutant_or_every_outcome_and_exit_code_0() {
-        let no_stage2 =
-            |_: &[String]| -> Result<Stage> { panic!("stage 1 missed nothing, so no stage 2") };
+        let no_stage2 = |_: &Stage2Selection| -> Result<Stage> {
+            panic!("stage 1 missed nothing, so no stage 2")
+        };
         let no_base = || -> Result<(bool, Duration)> { panic!("no stage 2, so no baseline") };
         assert_eq!(
             decide(
@@ -1351,7 +1469,8 @@ mod tests {
     /// both stages miss or on a timeout in stage 2.
     #[test]
     fn a_stage_1_miss_passes_only_when_stage_2_catches_it() {
-        let no_stage2 = |_: &[String]| -> Result<Stage> { panic!("stage 1 failed, so no stage 2") };
+        let no_stage2 =
+            |_: &Stage2Selection| -> Result<Stage> { panic!("stage 1 failed, so no stage 2") };
         let no_base = || -> Result<(bool, Duration)> { panic!("stage 1 failed, so no baseline") };
         let base = || Ok((true, Duration::from_millis(1500)));
         for (code, summary) in [
@@ -1371,13 +1490,14 @@ mod tests {
             5,
             || stage(Some(2), Some(counts(5, 2, 2, 0, 1))),
             base,
-            |missed| {
-                seen.borrow_mut().extend(missed.iter().cloned());
+            |selection| {
+                seen.borrow_mut().push(selection.missed.clone());
+                seen.borrow_mut().push(selection.skip.clone());
                 stage(Some(0), Some(counts(2, 1, 0, 0, 1)))
             },
         )
         .unwrap();
-        assert_eq!(*seen.borrow(), ["m0", "m1"]);
+        assert_eq!(*seen.borrow(), [vec!["m0", "m1"], vec!["m2", "m3", "m4"]]);
         assert_eq!(
             caught,
             [
@@ -1404,7 +1524,10 @@ mod tests {
         })
         .unwrap_err()
         .to_string();
-        assert!(short.contains("it had 2 mutants to test"), "{short}");
+        assert!(
+            short.contains("selection error: it tested [], which stage 1 did not miss, and did not test [\"m1\"]"),
+            "{short}"
+        );
         let none = decide(5, first, base, |_| stage(Some(0), None))
             .unwrap_err()
             .to_string();
@@ -1564,11 +1687,221 @@ mod tests {
                 "b.rs:5:6: replace + with - in h"
             ]
         );
+        assert_eq!(
+            outcomes.tested,
+            [
+                "a.rs:1:2: replace f -> bool with true",
+                "a.rs:3:4: replace g with ()",
+                "b.rs:5:6: replace + with - in h"
+            ]
+        );
         let no_list = r#"{"total_mutants":0,"caught":0,"missed":0,"timeout":0,"unviable":0}"#;
         assert!(parse_stage_outcomes(no_list).is_err());
         let unnamed = r#"{"total_mutants":1,"caught":0,"missed":1,"timeout":0,"unviable":0,"outcomes":[
             {"scenario":{"Mutant":{}},"summary":"MissedMutant"}]}"#;
         assert!(parse_stage_outcomes(unnamed).is_err());
+        let unnamed_caught = r#"{"total_mutants":1,"caught":1,"missed":0,"timeout":0,"unviable":0,"outcomes":[
+            {"scenario":{"Mutant":{}},"summary":"CaughtMutant"}]}"#;
+        assert!(parse_stage_outcomes(unnamed_caught).is_err());
+    }
+
+    /// P5's gate on #222 (`deb34002`): cargo-mutants 27.1.0 tested a struct-field deletion that stage 1 had caught,
+    /// although no `-F` name matched it, and reported it MISSED. Stage 2 now skips every name that stage 1 did not miss
+    /// (`--iterate`), and a mutant that stage 2 tests outside the misses is a selection error before any verdict.
+    #[test]
+    fn stage_2_selects_the_misses_by_full_name_and_a_mutant_outside_them_is_a_selection_error() {
+        let field =
+            "e.rs:83:13: delete field frames from struct LinkTap expression in LinkTap::connected";
+        let f = "r.rs:1:2: replace f -> bool with true";
+        let g = "r.rs:3:4: delete ! in g";
+        let h = "r.rs:5:6: replace h with ()";
+        let names = |names: &[&str]| names.iter().map(|n| n.to_string()).collect::<Vec<_>>();
+        let first = || Outcomes {
+            summary: counts(4, 2, 2, 0, 0),
+            missed: names(&[f, g]),
+            tested: names(&[f, field, g, h]),
+        };
+        let selection = stage2_selection(&first()).unwrap();
+        assert_eq!(
+            selection,
+            Stage2Selection {
+                missed: names(&[f, g]),
+                skip: names(&[field, h]),
+            }
+        );
+        let (lines, result) = decide_lines(
+            4,
+            || {
+                Ok(Stage {
+                    code: Some(2),
+                    outcomes: Some(first()),
+                    took: Duration::from_millis(2500),
+                })
+            },
+            || Ok((true, Duration::from_millis(1500))),
+            |_| {
+                Ok(Stage {
+                    code: Some(2),
+                    outcomes: Some(Outcomes {
+                        summary: counts(3, 2, 1, 0, 0),
+                        missed: names(&[field]),
+                        tested: names(&[f, field, g]),
+                    }),
+                    took: Duration::from_millis(2500),
+                })
+            },
+        );
+        let error = format!("{:#}", result.unwrap_err());
+        assert_eq!(
+            error,
+            format!(
+                "mutants: stage 2 (slow): selection error: it tested [\"{field}\"], which stage 1 did not miss, and did \
+                 not test []; stage 2 must test exactly the stage-1 misses, by file, line, column and change"
+            )
+        );
+        assert_eq!(
+            lines,
+            [
+                "mutants: stage 1 (default): 4 mutants: 2 caught, 2 missed, 0 timeout, 0 unviable, in 2.5 s",
+                "mutants: stage 2 baseline (the slow tier, unmutated): passed, in 1.5 s",
+                "mutants: stage 2 (slow): it tested 3 mutants, in 2.5 s; no verdict, because the selection is wrong",
+            ]
+        );
+        // The same names, in another order, are the selection.
+        assert!(check_stage2_selection(&names(&[f, g]), &names(&[g, f])).is_ok());
+        assert!(check_stage2_selection(&names(&[f, f, g]), &names(&[g, f, f])).is_ok());
+        // #229 SI-R1-2 through the whole decision: stage 1 missed [f, f, g]; stage 2 tested [f, g, g], caught all three,
+        // with exit code 0. The sets and the totals are equal, and the step still fails before any verdict.
+        let (lines, result) = decide_lines(
+            3,
+            || {
+                Ok(Stage {
+                    code: Some(2),
+                    outcomes: Some(Outcomes {
+                        summary: counts(3, 0, 3, 0, 0),
+                        missed: names(&[f, f, g]),
+                        tested: names(&[f, f, g]),
+                    }),
+                    took: Duration::from_millis(2500),
+                })
+            },
+            || Ok((true, Duration::from_millis(1500))),
+            |_| {
+                Ok(Stage {
+                    code: Some(0),
+                    outcomes: Some(Outcomes {
+                        summary: counts(3, 3, 0, 0, 0),
+                        missed: vec![],
+                        tested: names(&[f, g, g]),
+                    }),
+                    took: Duration::from_millis(2500),
+                })
+            },
+        );
+        assert_eq!(
+            result.unwrap_err().to_string(),
+            format!(
+                "mutants: stage 2 (slow): selection error: it tested [\"{g}\"], which stage 1 did not miss, and did \
+                 not test [\"{f}\"]; stage 2 must test exactly the stage-1 misses, by file, line, column and change"
+            )
+        );
+        assert_eq!(
+            lines.last().map(String::as_str),
+            Some("mutants: stage 2 (slow): it tested 3 mutants, in 2.5 s; no verdict, because the selection is wrong"),
+            "{lines:?}"
+        );
+        // 017a (#229 R1): equal sets and equal totals, with other counts of each name.
+        let counted = check_stage2_selection(&names(&[f, f, g]), &names(&[f, g, g])).unwrap_err();
+        assert!(
+            counted.to_string().contains(&format!(
+                "it tested [\"{g}\"], which stage 1 did not miss, and did not test [\"{f}\"]"
+            )),
+            "{counted}"
+        );
+        let absent = check_stage2_selection(&names(&[f, g]), &names(&[f])).unwrap_err();
+        assert!(
+            absent.to_string().contains(&format!(
+                "it tested [], which stage 1 did not miss, and did not test [\"{g}\"]"
+            )),
+            "{absent}"
+        );
+    }
+
+    /// Two mutants with one full name, of which stage 1 missed one: no name selects only that one, so stage 2 does not
+    /// start. Two misses with one name are both selected.
+    #[test]
+    fn two_mutants_that_share_a_name_and_one_outcome_are_a_selection_error() {
+        let x = "s.rs:7:8: replace == with != in k".to_string();
+        let shared = Outcomes {
+            summary: counts(2, 1, 1, 0, 0),
+            missed: vec![x.clone()],
+            tested: vec![x.clone(), x.clone()],
+        };
+        let error = stage2_selection(&shared).unwrap_err().to_string();
+        assert_eq!(
+            error,
+            format!(
+                "mutants: stage 2 (slow): selection error: two mutants share the name `{x}`, and stage 1 missed only one \
+                 of them, so stage 2 cannot select it by name"
+            )
+        );
+        let (lines, result) = decide_lines(
+            2,
+            || {
+                Ok(Stage {
+                    code: Some(2),
+                    outcomes: Some(shared),
+                    took: Duration::from_millis(2500),
+                })
+            },
+            || panic!("the selection failed, so no baseline"),
+            |_| panic!("the selection failed, so no stage 2"),
+        );
+        assert_eq!(result.unwrap_err().to_string(), error);
+        assert_eq!(lines.len(), 1, "only the stage-1 line: {lines:?}");
+        let both = Outcomes {
+            summary: counts(2, 0, 2, 0, 0),
+            missed: vec![x.clone(), x.clone()],
+            tested: vec![x.clone(), x.clone()],
+        };
+        assert_eq!(
+            stage2_selection(&both).unwrap(),
+            Stage2Selection {
+                missed: vec![x.clone(), x],
+                skip: vec![],
+            }
+        );
+    }
+
+    /// `--iterate` reads `<output>/mutants.out/previously_caught.txt`: the directory holds only that file, with one skipped
+    /// name on each line, and nothing of an earlier run.
+    #[test]
+    fn the_stage_2_output_holds_only_the_skipped_names() {
+        let dir = tempfile::tempdir().unwrap();
+        write_stage2_skip(&dir.path().join("first"), &["a.rs:1:2: x".into()]).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("first/mutants.out/previously_caught.txt"))
+                .unwrap(),
+            "a.rs:1:2: x\n"
+        );
+        let out = dir.path().join("mutants.out");
+        std::fs::create_dir_all(out.join("log")).unwrap();
+        std::fs::write(out.join("caught.txt"), "old\n").unwrap();
+        write_stage2_skip(dir.path(), &["a.rs:1:2: x".into(), "b.rs:3:4: y".into()]).unwrap();
+        let entries: Vec<_> = std::fs::read_dir(&out)
+            .unwrap()
+            .map(|e| e.unwrap().file_name())
+            .collect();
+        assert_eq!(entries, ["previously_caught.txt"]);
+        assert_eq!(
+            std::fs::read_to_string(out.join("previously_caught.txt")).unwrap(),
+            "a.rs:1:2: x\nb.rs:3:4: y\n"
+        );
+        write_stage2_skip(dir.path(), &[]).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(out.join("previously_caught.txt")).unwrap(),
+            ""
+        );
     }
 
     /// Plan 23r: stage 2 runs in place with the slow features, the workspace's tests, the slow filter, the never
@@ -1603,6 +1936,7 @@ mod tests {
             "x\\.rs",
             "-F",
             r"^a\.rs:1:2: replace f \-> bool with true$",
+            "--iterate",
             "--output",
             "out",
             "--",
@@ -1965,7 +2299,8 @@ mod slow_tests {
     /// those after its baseline (`stage2_baseline_args`), the slow test catches each one, and the step passes. With a
     /// slow test that checks nothing in its place, both stages miss them, and the step fails. The second member `other`
     /// has a `slow` feature that `twostage` does not depend on: a stage 2 that tests only the mutated package fails to
-    /// build.
+    /// build. The struct-field deletion of `wide`, which stage 1 catches, passes the `-F` names of stage 2 (cargo-mutants
+    /// 27.1.0); without the skipped names of `--iterate`, stage 2 tests it, and the step fails with a selection error.
     #[test]
     fn a_mutant_that_only_a_slow_test_catches_passes_and_one_that_both_stages_miss_fails() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -2023,10 +2358,10 @@ mod slow_tests {
         };
         // Two slow packages, and `twostage` does not depend on `other`, as in the real workspace.
         let slow_packages = ["other".to_string(), "twostage".to_string()];
-        let step = |dir: &Path| -> Result<Vec<String>> {
+        let step = |dir: &Path, skip: bool| -> Result<Vec<String>> {
             let mut lines = Vec::new();
             two_stage_decision(
-                8,
+                10,
                 || {
                     let out = dir.join("stage1");
                     let mut command = crate::tools::cargo(dir);
@@ -2053,10 +2388,18 @@ mod slow_tests {
                     )?;
                     Ok((passed, Duration::ZERO))
                 },
-                |missed| {
+                |selection| {
+                    let missed = &selection.missed;
                     assert_eq!(missed.len(), 4, "the four mutants of triple: {missed:?}");
                     assert!(missed.iter().all(|m| m.contains("triple")), "{missed:?}");
                     let out = dir.join("stage2");
+                    // The revert: no skipped name, as before the fix.
+                    let skipped = if skip {
+                        selection.skip.clone()
+                    } else {
+                        Vec::new()
+                    };
+                    write_stage2_skip(&out, &skipped).unwrap();
                     let mut command = crate::tools::cargo(dir);
                     command
                         .args(stage2_args(&[], &slow_packages, &[], missed, &out))
@@ -2068,14 +2411,24 @@ mod slow_tests {
             Ok(lines)
         };
         let with = copy(true);
-        let lines = step(with.path()).unwrap();
+        let lines = step(with.path(), true).unwrap();
         assert_eq!(
             lines.last().map(String::as_str),
-            Some("mutants: 8 mutants: 8 caught (4 by stage 2), 0 missed, 0 timeout, 0 unviable"),
+            Some("mutants: 10 mutants: 10 caught (4 by stage 2), 0 missed, 0 timeout, 0 unviable"),
             "{lines:?}"
         );
+        let unskipped = copy(true);
+        let error = step(unskipped.path(), false).unwrap_err();
+        assert!(
+            format!("{error:#}").contains("selection error: it tested [\"src/lib.rs:"),
+            "{error:#}"
+        );
+        assert!(
+            format!("{error:#}").contains("delete field width from struct Size expression in wide"),
+            "{error:#}"
+        );
         let without = copy(false);
-        let error = step(without.path()).unwrap_err();
+        let error = step(without.path(), true).unwrap_err();
         assert!(
             format!("{error:#}")
                 .contains("a mutant that both stages miss, or a timeout in stage 2"),
@@ -2111,6 +2464,9 @@ mod slow_tests {
                                 unviable: 0,
                             },
                             missed: vec!["a.rs:1:2: replace f -> bool with true".into()],
+                            tested: (0..5)
+                                .map(|i| format!("a.rs:{i}:2: replace f -> bool with true"))
+                                .collect(),
                         }),
                         took: Duration::ZERO,
                     })
