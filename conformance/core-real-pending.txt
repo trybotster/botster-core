@@ -36,7 +36,7 @@ conf::lc_12_drop_leaves_workers_running
 conf::ou_1_attach_options_carry_no_paste_policy
 conf::ou_1_terminal_format_is_negotiated_against_the_target_worker
 
-# the program controls (pty_output, pty_input, pty_chunk, pty_blocked, pty_accept) through the probe program on a real PTY, P6 (P3 mapping) (32).
+# the program controls (pty_output, pty_input, pty_chunk, pty_blocked, pty_accept) through the probe program on a real PTY, the fourth pair (lead, 2026-10-10), with P3 for the mapping (32).
 conf::a2_2_cancel_is_ok_cancelled_never_err
 conf::a2_2_cancel_race_reports_the_real_outcome
 conf::ad_3_adopted_equals_started
@@ -98,7 +98,7 @@ conf::tm_6_more_means_runnable_not_blocked
 conf::dp_2_failed_handoff_closes_route_handoff_failed
 conf::ou_2b_handoff_failure_is_reported_as_handoff_failed
 
-# fail_writes on the real tier has no portable socket form (on macOS, shutdown(SHUT_RD) of the client end does not fail the worker's send); a seam in the botster-worker route transport needs a design ruling (#217), P3 (P4a routes) (2).
+# fail_writes: no portable real form of a write failure with reads intact (macOS accepts the send after SHUT_RD); steward, 2026-10-10: no amendment now, a Linux-only form with a platform-scoped amendment is the future base, not built now (off the minimum path), P3 (P4a routes) (2).
 conf::a2_3_close_first_reason_wins_with_new_reasons
 conf::a2_3_write_failed_closes_with_write_failed
 
