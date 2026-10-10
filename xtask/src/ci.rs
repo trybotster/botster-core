@@ -2656,7 +2656,12 @@ mod slow_tests {
                 list.arg("--exclude-re").arg(re);
             }
             list.args(["--list", "--json"]);
-            let listed = split_listed(parse_listing(&list.output()?)?, &exclusions)?;
+            // The listing runs as the stages run: its own process group, within the slow deadline (#236 EX-R1-1).
+            let output = botster_test_process::run_to_completion(
+                &mut list,
+                Deadline::after(test_budget::SLOW_DEADLINE),
+            )?;
+            let listed = split_listed(parse_listing(&output)?, &exclusions)?;
             let field: Vec<&str> = listed
                 .excluded
                 .iter()
