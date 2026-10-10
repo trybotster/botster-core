@@ -46,6 +46,7 @@ The cited R-46 follow-up calls for an identity-checked read like `payload_alive`
 It does not redefine liveness as identity presence.
 The existing `lives` helper already combines the matching identity with `runs`, which excludes zombies.
 Use that helper or an equivalent identity-and-liveness check.
+Correct the method description to state the required liveness result.
 Add a real-process proof that retains an ended process unreaped and expects false for the recorded identity.
 Retain the live-worker result and the refusal of a reused identity.
 Use the shared process guards and production ownership of reaping.
@@ -154,3 +155,11 @@ The package verdict commit is pending; its reported RC-B-F1 and RC-B-F2 are conf
 I changed no product code and ran no builds, tests, gates, mutation jobs, merge-check jobs, or reversal jobs.
 
 VERDICT: NOT CLEAN (1 HIGH, 2 LOW open)
+
+### Package verdict receipt — 2026-10-10
+
+I read package verdict `8d5f0f38f3a25076e2e349caf4017824468e51c9`, `verdicts/p5-real-controls-b.md` on `stage1/review-p5`.
+It reports NOT CLEAN on the same head with the same three findings.
+RC-B-F1 matches R1-2; RC-B-F2 matches R1-3; RC-B-F3 matches R1-1.
+Both reviewers accept the non-blocking process-check allowance and retain #222's separate native evidence finding.
+This receipt changes no review scope or conclusion. Round 1 remains NOT CLEAN.
