@@ -95,7 +95,10 @@ impl HostEngine {
                 f.phase,
                 StartPhase::PostStarting | StartPhase::PostRunning | StartPhase::PostFailed
             ),
-            Flow::Stop(f) => matches!(f.phase, StopPhase::PostStopping | StopPhase::PostEnd),
+            Flow::Stop(f) => {
+                matches!(f.phase, StopPhase::PostStopping | StopPhase::PostEnd)
+                    || crate::flows::finish_close(session).is_some()
+            }
             Flow::Adopt(f) => f.phase == AdoptPhase::Post,
             Flow::Remove(f) => match f.phase {
                 RemovePhase::CloseRoutes => !session.routes.is_empty(),
@@ -110,7 +113,7 @@ impl HostEngine {
             Flow::Idle => true,
             Flow::Create(_) => false,
             Flow::Start(f) => matches!(f.phase, StartPhase::AwaitHello | StartPhase::AwaitLaunched),
-            Flow::Stop(f) => f.phase == StopPhase::AwaitExit || self.finish_waits(session),
+            Flow::Stop(f) => f.phase == StopPhase::AwaitExit || crate::flows::finish_waits(session),
             Flow::Remove(f) => f.phase == RemovePhase::AwaitTeardown,
             Flow::Adopt(f) => matches!(
                 f.phase,
@@ -637,7 +640,7 @@ impl HostEngine {
         let entry = self.routes.remove(&route).expect("read above");
         if let Some(s) = self.sessions.get_mut(&entry.session) {
             s.routes.remove(&route);
-            s.route_ends.remove(&route);
+            s.delivered.remove(&route);
         }
         self.queue.retire_route(route);
         let waiting: Vec<OpId> = self

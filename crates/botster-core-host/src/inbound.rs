@@ -4,7 +4,6 @@ use crate::engine::{CaptureEntry, HostEngine, Next, Owner, ParkedRoute, Step};
 use crate::flow::*;
 use crate::io::{Action, Input, LinkId, Ticket};
 use crate::run::registry_failed;
-use crate::session::RouteEnd;
 use botster_core_contract::prelude::*;
 use botster_core_edges::edges::{ExitStatus, GroupSignal, ProcessIdentity};
 use botster_core_link::hello::Hello;
@@ -296,9 +295,7 @@ impl HostEngine {
             } => match reason {
                 // OU-7: an ended session's route closes after its queue is delivered. The host posts the close in
                 // `StopPhase::Finish`, after the session's state and with its own exit (A2-3, LC-5).
-                RouteCloseReason::SessionEnded { .. } => {
-                    self.route_ended(id, route, RouteEnd::Delivered)
-                }
+                RouteCloseReason::SessionEnded { .. } => self.route_delivered(id, route),
                 _ => self.route_close(route, reason),
             },
             WorkerMsg::RouteStalled { route } => self.route_event(route, true),
@@ -311,10 +308,10 @@ impl HostEngine {
     }
 
     /// Records how a route of an ended session ended (OU-7). A route that is no longer the session's needs nothing.
-    fn route_ended(&mut self, id: &SessionId, route: RouteId, end: RouteEnd) {
+    fn route_delivered(&mut self, id: &SessionId, route: RouteId) {
         if let Some(s) = self.sessions.get_mut(id) {
             if s.routes.contains(&route) {
-                s.route_ends.entry(route).or_insert(end);
+                s.delivered.insert(route);
             }
         }
     }
@@ -614,14 +611,6 @@ impl HostEngine {
         };
         s.worker.link = None;
         s.worker.link_failed = true;
-        // OU-7: a route of an ended session that the worker did not report closed can no longer be delivered.
-        if matches!(&s.flow, Flow::Stop(f) if f.end.is_some()) {
-            let routes: Vec<RouteId> = s.routes.iter().copied().collect();
-            for route in routes {
-                self.route_ended(&id, route, RouteEnd::Lost);
-            }
-        }
-        let s = self.sessions.get_mut(&id).expect("read above");
         match s.flow.clone() {
             // The start of an adoption: the worker may have accepted the `Launch` before the link ended, so the session is
             // indeterminate, and `Adopt(id)` may retry it (AD-2; steward ruling R-36).
