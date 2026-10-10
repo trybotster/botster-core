@@ -902,3 +902,31 @@ The tag, manifest, frozen hash, ownership lists, and unchanged minimum checks re
 The reviewer ran no builds, tests, or gates.
 
 VERDICT: CLEAN (0 open) at bae71c81e0d9f1bd6fc291910f496be495414076
+
+## Round 25 — revision 23r — 2026-10-10
+
+Reviewed head: `09ac30a747a9a8013da3d4956e4ac5ccf32ff893`.
+Prior accepted head: `bae71c81e0d9f1bd6fc291910f496be495414076`.
+Scope: the complete delta, which changes only `docs/stage1-plan.md`.
+
+The staffing paragraph records the fourth pair's bounded program-controls assignment.
+It names all four reported orchestrator conditions, retains package ownership, and requires a file split with P6.
+It assigns a separate package reviewer and keeps integration review for the HIGH pull requests.
+The shared brief agrees with the group and its stop condition.
+I independently checked the group against #220's pending list: 32 ids, including the seven named minimum ids.
+This plan review does not approve the unfinished #220 implementation or its evidence.
+
+The mutation paragraph retains the existing two-stage acceptance rule and adds the execution design.
+Both stages stay inside the gate and report separate times.
+Stage 2 selects the in-diff misses, enables the slow features, and uses immediate fail-fast with the existing slow-tier deadline value.
+Whole-file evidence runs remain separate pool jobs.
+The second, duplicate gate command is removed only when 23n lands, with an instruction to all pairs.
+The existing timeout failure rule and the prebuilt-worker coverage limitation remain explicit.
+A later change to move required stage-2 work outside the gate still requires the lead's decision.
+The revision-history row matches these two changes.
+
+The remote plan head matches the reviewed revision. `git diff --check` passes.
+No execution gate applies to this documentation-only revision.
+I ran no builds, tests, or gates.
+
+VERDICT: CLEAN (0 open) at 09ac30a747a9a8013da3d4956e4ac5ccf32ff893
