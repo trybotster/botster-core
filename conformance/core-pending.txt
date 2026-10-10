@@ -3,13 +3,13 @@
 # conf::st_6b_resume_invariant_holds_at_every_byte_offset_of_a_corpus_with_partial_escape_sequences: fit evidence awaits P3 M2b worker paging (R-30).
 # conf::a14_*: A14: P3 worker (M2b) + fork binding (option 39).
 # conf::a16_1_*: A16: P7 services.
-# conf::a17_*: A17 (contracts-v0.1.22): Core has one route transport, `Stream`; waits for a contracts transcript (pending in contracts-v0.1.24).
-# conf::a19_*: A19 (contracts-v0.1.23): the frame floor (Core A19-1, A19-2) and query_id as a u64 decimal string; owners by the plan's A19 rule; waits for a contracts transcript (pending in contracts-v0.1.24).
+# conf::a17_*: A17 (contracts-v0.1.22): Core has one route transport, `Stream`; waits for a contracts transcript (pending in contracts-v0.1.26).
+# conf::a19_*: A19 (contracts-v0.1.23): the frame floor (Core A19-1, A19-2) and query_id as a u64 decimal string; owners by the plan's A19 rule; waits for a contracts transcript (pending in contracts-v0.1.26).
 # conf::a20_1_testkit_proven_ids_are_exactly_the_named_list: A20 (contracts-v0.1.24), P6: the upstream type_check reads the contracts' own lists, not Core's; it waits for the real-tier runner that reports TESTKIT_PROVEN (the RealCoreHarness PR) and for dp_3_frame_limit_checked_before_allocation to pass on the testkit (P4a, alloc_peak).
-# conf::a18_*: A18 (contracts-v0.1.21): P5 adoption (last_output_at None until output; TM-4 idle period from the adoption); waits for a contracts transcript (pending in contracts-v0.1.24).
-# conf::a15_1_host_key_text_over_the_bound_is_invalid_input_sync: A15: P1 lifecycle (host check; owners.py), worked by P5; engine proof a_key_text_over_the_bound_is_invalid_input_at_begin; waits for a contracts transcript (pending in contracts-v0.1.24).
+# conf::a18_*: A18 (contracts-v0.1.21): P5 adoption (last_output_at None until output; TM-4 idle period from the adoption); waits for a contracts transcript (pending in contracts-v0.1.26).
+# conf::a15_1_host_key_text_over_the_bound_is_invalid_input_sync: A15: P1 lifecycle (host check; owners.py), worked by P5; engine proof a_key_text_over_the_bound_is_invalid_input_at_begin; waits for a contracts transcript (pending in contracts-v0.1.26).
 # conf::a15_1_key_text_at_the_bound_is_admitted: A15: P3 (worker).
-# conf::a15_1_key_text_bound_out_of_range_is_invalid_config: A15: P1 lifecycle (limits; owners.py), worked by P5; host proof open_refuses_a_key_text_bound_out_of_its_range; waits for a contracts transcript (pending in contracts-v0.1.24).
+# conf::a15_1_key_text_bound_out_of_range_is_invalid_config: A15: P1 lifecycle (limits; owners.py), worked by P5; host proof open_refuses_a_key_text_bound_out_of_its_range; waits for a contracts transcript (pending in contracts-v0.1.26).
 # conf::a15_1_route_key_text_over_the_bound_is_too_large: A15: P4a (route).
 conf::a11_1_frames_after_a_failed_handshake_change_nothing
 conf::a12_1_held_report_released_proceeds_normally
