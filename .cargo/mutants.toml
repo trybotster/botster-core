@@ -556,7 +556,8 @@ exclude_re = [
     'crates/botster-test-process/src/anchor\.rs:\d+:\d+: (replace start_anchor( ->| with)|.* in start_anchor$)',
     # bin/botster-test-anchor.rs: the anchor binary. Its stages (`wrap`, `intermediate`, `anchor`), main, and the helpers group_now
     # and number run in every guard test: the_guard_ends_the_group_and_production_still_reaps_its_own_child,
-    # the_anchor_ends_the_group_when_the_test_dies, an_anchor_survives_the_hangup_of_its_session_leader. verify:
+    # the_anchor_ends_the_group_when_the_test_dies, an_anchor_survives_the_hangup_of_its_session_leader. The acknowledgement
+    # with no reader in `anchor`: an_anchor_whose_acknowledgement_has_no_reader_still_holds_and_ends_the_group. verify:
     # a_leader_that_moved_to_another_group_is_refused_and_not_signalled. terminate: a_grace_ends_the_members_by_term.
     # close_inherited (#171 TP3): a_writer_that_production_hands_the_program_reaches_no_helper_stage kills its whole-body
     # replacement and its descriptor filter. Six mutants survive the slow tier (Linux --no-config run, #171 round 2 E1), each
