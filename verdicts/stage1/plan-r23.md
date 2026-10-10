@@ -1292,3 +1292,39 @@ This documentation change requires no execution gate.
 I ran no build, test, gate, mutation job, merge-check job, or reversal job.
 
 VERDICT: CLEAN (0 open) at aefed7592c07e453d3e5733d8ea2abef0616baf6
+
+## Round 39 — revision 23ad — 2026-10-10
+
+Reviewed head: `5b335476838e3872c9c8cb2b016ad6e6d1d1a030`.
+Prior accepted head: `aefed7592c07e453d3e5733d8ea2abef0616baf6`.
+Scope: the new section 8 receipt rule and its revision row.
+
+The lead chooses to replan the receipt decisions after PR #227's third NOT CLEAN round.
+The received queue must hold decided route operations instead of frames that application evaluates against later route state.
+Receipt decides the client revision, readiness, route role, and validity.
+Application waits for refusal room and the PTY transaction. A route close discards its received queue.
+P3 must send a QUESTION if a required decision cannot occur at receipt before Round 4.
+
+This rule addresses the remaining F107 path.
+R-51 defines early input by worker receipt before the worker's own live transition.
+The required proof holds an early complete batch under refusal pressure across that transition.
+Every early operation must retain NotReady, and the batch must produce no PTY write.
+The transport-order exception cannot excuse input that the worker has already received.
+
+The rule concerns route-state decisions.
+The binding AM-2 admission point still orders contiguous PTY transactions.
+DP-5 still defines outcomes from later session end, write failure, and partial writes.
+IN-8 still requires its mode decision at transaction start.
+I checked these clauses at contracts-v0.1.27. This plan review accepts no change to those contract boundaries.
+
+The proof rule settles the F103 correction method: use actions, decoded frames, and transport progress without private queue accessors.
+It does not close F103 or F107 on the existing PR head.
+Those findings require source and proof review on the replacement.
+The lead expressly authorizes a full Round 4 review of that replacement.
+
+The revision changes no contract pin, ID list, passing count, staffing limit, or stage acceptance condition.
+The remote plan head matches the reviewed head. `git diff --check` passes.
+This documentation change requires no execution gate.
+I ran no build, test, gate, mutation job, merge-check job, or reversal job.
+
+VERDICT: CLEAN (0 open) at 5b335476838e3872c9c8cb2b016ad6e6d1d1a030
