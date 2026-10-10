@@ -3,11 +3,12 @@
 # conf::st_6b_resume_invariant_holds_at_every_byte_offset_of_a_corpus_with_partial_escape_sequences: fit evidence awaits P3 M2b worker paging (R-30).
 # conf::a14_*: A14: P3 worker (M2b) + fork binding (option 39).
 # conf::a16_1_*: A16: P7 services.
-# conf::a17_*: A17 (contracts-v0.1.22): Core has one route transport, `Stream`; waits for a contracts transcript (pending in contracts-v0.1.22).
-# conf::a18_*: A18 (contracts-v0.1.21): P5 adoption (last_output_at None until output; TM-4 idle period from the adoption); waits for a contracts transcript (pending in contracts-v0.1.22).
-# conf::a15_1_host_key_text_over_the_bound_is_invalid_input_sync: A15: P1 lifecycle (host check; owners.py), worked by P5; engine proof a_key_text_over_the_bound_is_invalid_input_at_begin; waits for a contracts transcript (pending in contracts-v0.1.22).
+# conf::a17_*: A17 (contracts-v0.1.22): Core has one route transport, `Stream`; waits for a contracts transcript (pending in contracts-v0.1.23).
+# conf::a19_*: A19 (contracts-v0.1.23): the frame floor (Core A19-1, A19-2) and query_id as a u64 decimal string; owners by the plan's A19 rule; waits for a contracts transcript (pending in contracts-v0.1.23).
+# conf::a18_*: A18 (contracts-v0.1.21): P5 adoption (last_output_at None until output; TM-4 idle period from the adoption); waits for a contracts transcript (pending in contracts-v0.1.23).
+# conf::a15_1_host_key_text_over_the_bound_is_invalid_input_sync: A15: P1 lifecycle (host check; owners.py), worked by P5; engine proof a_key_text_over_the_bound_is_invalid_input_at_begin; waits for a contracts transcript (pending in contracts-v0.1.23).
 # conf::a15_1_key_text_at_the_bound_is_admitted: A15: P3 (worker).
-# conf::a15_1_key_text_bound_out_of_range_is_invalid_config: A15: P1 lifecycle (limits; owners.py), worked by P5; host proof open_refuses_a_key_text_bound_out_of_its_range; waits for a contracts transcript (pending in contracts-v0.1.22).
+# conf::a15_1_key_text_bound_out_of_range_is_invalid_config: A15: P1 lifecycle (limits; owners.py), worked by P5; host proof open_refuses_a_key_text_bound_out_of_its_range; waits for a contracts transcript (pending in contracts-v0.1.23).
 # conf::a15_1_route_key_text_over_the_bound_is_too_large: A15: P4a (route).
 conf::a11_1_frames_after_a_failed_handshake_change_nothing
 conf::a12_1_held_report_released_proceeds_normally
@@ -51,6 +52,13 @@ conf::a18_1_adopted_last_output_at_is_none_until_output
 conf::a18_1_adopted_last_output_at_is_set_by_the_first_output
 conf::a18_2_adopted_idle_session_is_silent_a_threshold_after_adoption
 conf::a18_2_adopted_silent_due_at_an_exhausted_budget_is_carried
+conf::a19_1_every_floor_frame_at_its_widest_value_fits_the_floor
+conf::a19_1_floor_above_the_ceiling_opens_and_refuses_every_attach_with_those_options
+conf::a19_1_frame_cap_equal_to_the_floor_attaches_and_carries_its_baseline
+conf::a19_1_frame_cap_one_byte_below_the_floor_is_invalid_input
+conf::a19_1_query_id_is_a_u64_decimal_string
+conf::a19_1_terminal_query_is_in_the_floor_only_when_the_route_answers_queries
+conf::a19_2_path_frame_over_max_frame_is_refused_before_the_file_is_created
 conf::a2_1_attach_state_rules
 conf::a2_1_cancel_non_input_is_not_cancellable
 conf::a2_1_env_is_exact
@@ -187,7 +195,6 @@ conf::a8_2_capture_inside_an_uncarriable_sequence_is_snapshot_too_large
 conf::a8_2_offered_snapshots_still_satisfy_the_resume_invariant
 conf::a8_2_resync_inside_an_uncarriable_sequence_closes_route_snapshot_too_large
 conf::a9_1_frame_cap_below_the_routes_attached_frame_is_invalid_input
-conf::a9_1_frame_cap_equal_to_the_attached_frame_attaches
 conf::a9_2_every_attached_route_can_carry_the_minimum_output_dropped_frame
 conf::a9_3_ineligible_payload_is_never_compressed
 conf::a9_3_scripted_compression_choice_is_the_workers_only_decision
@@ -232,7 +239,6 @@ conf::dp_3_output_deflate_only_when_negotiated
 conf::dp_3_output_deflate_over_the_frame_bound_is_invalid_input
 conf::dp_3_route_codec_matches_client_appendix_a4_a5
 conf::dp_3_route_limits_reject_a_screen_cap_below_snapshot_plus_one
-conf::dp_3_screen_is_one_frame_within_max_screen_frame_bytes
 conf::dp_3_unknown_type_closes_route
 conf::dp_4_worker_encodes_route_frames_with_write_time_modes
 conf::dp_5_abort_before_commit_writes_nothing_and_sends_no_frame
@@ -427,7 +433,6 @@ conf::ou_1_attach_hands_transport_to_worker
 conf::ou_1_attach_options_carry_no_paste_policy
 conf::ou_1_attached_features_are_the_intersection
 conf::ou_1_no_common_terminal_format_is_unsupported_before_reservation
-conf::ou_1_terminal_format_is_negotiated_against_the_target_worker
 conf::ou_1_view_only_route_ignores_input
 conf::ou_2_close_once_first_reason_wins
 conf::ou_2_route_state_machine
@@ -452,7 +457,6 @@ conf::ou_7_stalled_route_does_not_hold_exit
 conf::ou_8_route_output_frame_kinds
 conf::ou_9_adopted_session_attaches_by_baseline
 conf::ou_9_attach_is_sync_baseline_in_pump
-conf::ou_9_baseline_then_live_no_gap
 conf::ou_9_oversize_snapshot_closes_route_typed
 conf::ou_9_resync_completes_a_partial_frame
 conf::ou_9_resync_drops_unstarted_frames

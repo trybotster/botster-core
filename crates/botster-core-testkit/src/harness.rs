@@ -129,7 +129,7 @@ pub(crate) fn limits_of(spec: &OpenSpec) -> Result<CoreLimits, CoreError> {
     })
 }
 
-/// The refusal of `attach_stream` while no route data plane exists (P4a). Both harnesses give it.
+/// The refusal of `attach_stream` while a harness has no route data plane (P4a). The real tier gives it until its route form exists.
 pub(crate) fn no_route(what: &str) -> CoreError {
     CoreError::new(
         ErrorCode::Unsupported { what: None },
@@ -246,21 +246,37 @@ impl CoreHarness for TestkitHarness {
         botster_probe_script::PROBE_BINARY.to_string()
     }
 
+    /// A connected in-memory stream: one end goes to `Core::attach`, which hands it to the worker (DP-2); the other end is
+    /// the client's.
     fn attach_stream(
         &mut self,
         _handle: &str,
-        _core: &mut dyn CoreApi,
-        _client: ClientId,
-        _session: &SessionId,
-        _options: AttachOptions,
+        core: &mut dyn CoreApi,
+        client: ClientId,
+        session: &SessionId,
+        options: AttachOptions,
     ) -> Result<(AttachResult, Box<dyn RouteClient>), CoreError> {
-        Err(no_route("attach_stream"))
+        let (worker_end, client_end) = crate::net::stream_pair(
+            &self.workers.scheduler(),
+            crate::route_client::ROUTE_STREAM_BYTES,
+        );
+        let result = core
+            .attach(
+                client,
+                session.clone(),
+                RouteTransport::Stream(StreamEndpoint::new(worker_end)),
+                options,
+            )
+            .map_err(|refused| refused.error)?;
+        let route = crate::route_client::TestkitRoute::new(client_end, self.workers.clone());
+        Ok((result, Box::new(route)))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use botster_hub_conformance::route::RouteRead;
     use serde_json::json;
 
     fn spec() -> OpenSpec {
@@ -273,6 +289,151 @@ mod tests {
             }),
             limits: json!({}),
         }
+    }
+
+    /// A Core opened with `limits`, a running session `s`, and a stream route attached to it after the one pump that hands
+    /// the stream to the worker (Core OU-9, OR-1).
+    fn attached_route(
+        limits: serde_json::Value,
+    ) -> (TestkitHarness, Box<dyn CoreApi>, Box<dyn RouteClient>) {
+        let mut harness = TestkitHarness::new(0);
+        let mut core = harness
+            .open(&OpenSpec { limits, ..spec() })
+            .expect("a Core");
+        let session = SessionId("s".into());
+        let now = || Now {
+            monotonic: Instant::now(),
+            unix: 1,
+        };
+        let pump_until = |core: &mut Box<dyn CoreApi>, state: SessionState| {
+            for _ in 0..64 {
+                core.pump(now());
+                core.poll_events(64);
+                if core.get(&SessionId("s".into())).map(|r| r.state) == Ok(state) {
+                    return;
+                }
+            }
+            panic!("the session is not {state:?}");
+        };
+        core.begin(Op::Create {
+            session: session.clone(),
+            request: SpawnRequest {
+                argv: vec!["/bin/sh".into()],
+                env: BTreeMap::new(),
+                cwd: "/".into(),
+                size: Size {
+                    rows: 24,
+                    cols: 80,
+                    cell_px: None,
+                },
+                labels: BTreeMap::new(),
+                color_profile: None,
+                notification_policy: None,
+                size_policy: None,
+            },
+        })
+        .unwrap();
+        pump_until(&mut core, SessionState::Created);
+        core.begin(Op::Start {
+            id: session.clone(),
+        })
+        .unwrap();
+        pump_until(&mut core, SessionState::Running);
+        let options: AttachOptions = serde_json::from_value(
+            json!({"file_directory": "/tmp", "answers_queries": false, "input": true}),
+        )
+        .unwrap();
+        let (_, route) = harness
+            .attach_stream("h", core.as_mut(), ClientId("c".into()), &session, options)
+            .expect("attached");
+        // The one pump that hands the stream to the worker (Core OU-9, OR-1).
+        core.pump(now());
+        (harness, core, route)
+    }
+
+    /// Core TH-3, OU-9: a stream route's frames reach the client with no host pump after the one that hands the stream over:
+    /// a read runs the workers' ready work.
+    #[test]
+    fn a_stream_route_reads_its_frames_with_no_host_pump_after_the_handoff() {
+        let (_harness, _core, mut route) = attached_route(json!({}));
+        let deadline = botster_conformance::Deadline::after(None);
+        let mut bytes = Vec::new();
+        while bytes.len() < 5 {
+            match route.read(64, &deadline) {
+                RouteRead::Bytes(more) => bytes.extend(more),
+                other => panic!("the frames come with no pump: {other:?} after {bytes:?}"),
+            }
+        }
+        assert_eq!(
+            bytes[4],
+            botster_route_codec::prelude::TYPE_ATTACHED,
+            "the first frame is attached"
+        );
+    }
+
+    /// The frames that a route reads until `live` (the stream prefix is 4 bytes, big-endian), then the read after it.
+    fn read_baseline(route: &mut dyn RouteClient) -> (Vec<Vec<u8>>, RouteRead) {
+        let deadline = botster_conformance::Deadline::after(None);
+        let mut bytes = Vec::new();
+        let mut frames = Vec::new();
+        loop {
+            while bytes.len() >= 4 {
+                let len = u32::from_be_bytes(bytes[..4].try_into().unwrap()) as usize;
+                if bytes.len() < 4 + len {
+                    break;
+                }
+                let frame: Vec<u8> = bytes.drain(..4 + len).skip(4).collect();
+                let live = frame[0] == botster_route_codec::prelude::TYPE_LIVE;
+                frames.push(frame);
+                if live {
+                    assert!(bytes.is_empty(), "no frame after live: {bytes:?}");
+                    return (frames, route.read(1 << 20, &deadline));
+                }
+            }
+            match route.read(1 << 20, &deadline) {
+                RouteRead::Bytes(more) => bytes.extend(more),
+                other => panic!(
+                    "the baseline comes with no pump: {other:?} after {} frames",
+                    frames.len()
+                ),
+            }
+        }
+    }
+
+    /// Steward ruling R-45, OU-9 (`conf::ou_9_baseline_then_live_no_gap` at the edge of 9B): with `route_queue_bytes` and
+    /// `max_snapshot_bytes` both exactly the snapshot's size, the route attaches and delivers the whole baseline and `live`,
+    /// with no resync. The baseline sequence does not count against the queue threshold.
+    #[test]
+    fn a_queue_of_exactly_the_snapshot_delivers_the_baseline_and_live() {
+        use botster_route_codec::prelude::{
+            TYPE_ATTACHED, TYPE_BASELINE_BEGIN, TYPE_BASELINE_END, TYPE_LIVE, TYPE_SCREEN,
+        };
+        let (_h, _core, mut probe) = attached_route(json!({}));
+        let (frames, _) = read_baseline(probe.as_mut());
+        let size = frames[2].len() - 1;
+        let (_h, _core, mut route) =
+            attached_route(json!({"max_snapshot_bytes": size, "route_queue_bytes": size}));
+        let (frames, after) = read_baseline(route.as_mut());
+        let kinds: Vec<u8> = frames.iter().map(|f| f[0]).collect();
+        assert_eq!(
+            kinds,
+            vec![
+                TYPE_ATTACHED,
+                TYPE_BASELINE_BEGIN,
+                TYPE_SCREEN,
+                TYPE_BASELINE_END,
+                TYPE_LIVE
+            ]
+        );
+        assert_eq!(
+            frames[2].len() - 1,
+            size,
+            "the snapshot is exactly the limit"
+        );
+        assert!(
+            matches!(after, RouteRead::Empty),
+            "no resync and no close: {after:?}"
+        );
     }
 
     /// Core LC-1, LC-2, 9B: `open` builds the real Core, refuses a second open of the directory while the first lives, and a

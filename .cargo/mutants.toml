@@ -73,12 +73,16 @@ exclude_re = [
     # Its decisions are pure functions with unit tests, which stay mutation-tested: mutation_decision
     # (a_mutation_step_passes_only_with_no_mutant_or_every_outcome_and_exit_code_0), the pass or fail of the step from the
     # listed count, the outcomes and the exit code, mutation_verdict
-    # (only_a_mutation_run_with_every_mutant_caught_passes), parse_listing (a_mutant_listing_is_counted_and_anything_else_fails),
+    # (only_a_mutation_run_with_every_mutant_caught_passes), changes_rust_source
+    # (only_a_new_rust_path_is_a_change_to_rust_source), diff_mutants
+    # (a_diff_without_rust_source_skips_the_listing_and_a_rust_diff_needs_it), the skip of the listing for a diff with no
+    # Rust source, parse_listing (a_mutant_listing_is_counted_and_anything_else_fails),
     # parse_outcomes (the_mutation_summary_is_read_from_outcomes_json),
     # platform_exclusions (only_a_gate_off_macos_adds_the_off_macos_exclusions) and derived_exclusions, the code that the
     # gate's OS does not compile (each_gate_os_excludes_the_adapters_of_the_other_os), and package_rust_files
     # (the_package_sources_are_the_rust_files_outside_the_fixtures). A body replaced by Ok(()) skips the
-    # step without its summary line, which every gate log of the step shows ("mutants: N mutants: ...").
+    # step without its summary line, which every gate log of the step shows ("mutants: N mutants: ..." or "mutants: 0
+    # mutants: the diff changes no Rust source ...").
     'xtask/src/ci\.rs:\d+:\d+: replace mutants_job -> Result<\(\)> with Ok\(\(\)\)$',
     # xtask gate-decisions command -> Ok(()): process glue. It runs `cargo mutants --list` on the xtask and reads the
     # repository; a test cannot list the mutants of the real xtask inside a mutation run of it. Only this whole-body
@@ -289,7 +293,8 @@ exclude_re = [
     # `LinkIo::record`, `AcceptFailures::take`, `edge_diagnostics`) are pure functions tested in the default tier. Each function
     # below is caught by the slow tier (slow-tier mutation run of 2026-10-04), in real.rs `slow_tests`:
     # `the_edges_keep_rows_in_the_registry` (`write_row`, `read_rows`, `delete_row`), `the_edges_draw_random_bytes_and_refuse_the_handoff`
-    # (`fill_random`, `handoff_route`, `poll_process_exit`, `accept_link`), `a_link_reads_writes_and_closes` (accept_link, link_recv,
+    # (`fill_random`, `handoff_route`, which P4a PR1 renamed `link_send_descriptor`, `poll_process_exit`, `accept_link`),
+    # `a_link_reads_writes_and_closes` (accept_link, link_recv,
     # link_send, link_close, set_read_interest, set_write_interest, LinkIo::apply), `the_socket_lives_with_the_edges`
     # (socket_path, the Drop of RealEdges), `the_wake_follows_its_flag` (PollWake signal, drain, wait, fd, consume,
     # settle_wake); and tests/slow_real_core.rs `a_worker_that_exits_before_it_connects_ends_the_start_at_once` (the reaper's
@@ -303,7 +308,7 @@ exclude_re = [
     'crates/botster-core/src/real\.rs:\d+:\d+: (replace <impl HostEdges for RealEdges>::read_rows( ->| with)|.* in <impl HostEdges for RealEdges>::read_rows$)',
     'crates/botster-core/src/real\.rs:\d+:\d+: (replace <impl HostEdges for RealEdges>::delete_row( ->| with)|.* in <impl HostEdges for RealEdges>::delete_row$)',
     'crates/botster-core/src/real\.rs:\d+:\d+: (replace <impl HostEdges for RealEdges>::fill_random( ->| with)|.* in <impl HostEdges for RealEdges>::fill_random$)',
-    'crates/botster-core/src/real\.rs:\d+:\d+: (replace <impl HostEdges for RealEdges>::handoff_route( ->| with)|.* in <impl HostEdges for RealEdges>::handoff_route$)',
+    'crates/botster-core/src/real\.rs:\d+:\d+: (replace <impl HostEdges for RealEdges>::link_send_descriptor( ->| with)|.* in <impl HostEdges for RealEdges>::link_send_descriptor$)',
     'crates/botster-core/src/real\.rs:\d+:\d+: (replace <impl HostEdges for RealEdges>::poll_process_exit( ->| with)|.* in <impl HostEdges for RealEdges>::poll_process_exit$)',
     'crates/botster-core/src/real\.rs:\d+:\d+: (replace <impl HostEdges for RealEdges>::accept_link( ->| with)|.* in <impl HostEdges for RealEdges>::accept_link$)',
     'crates/botster-core/src/real\.rs:\d+:\d+: (replace <impl HostEdges for RealEdges>::link_recv( ->| with)|.* in <impl HostEdges for RealEdges>::link_recv$)',
@@ -562,7 +567,9 @@ exclude_re = [
     'crates/botster-test-process/src/anchor\.rs:\d+:\d+: (replace start_anchor( ->| with)|.* in start_anchor$)',
     # bin/botster-test-anchor.rs: the anchor binary. Its stages (`wrap`, `intermediate`, `anchor`), main, and the helpers group_now
     # and number run in every guard test: the_guard_ends_the_group_and_production_still_reaps_its_own_child,
-    # the_anchor_ends_the_group_when_the_test_dies, an_anchor_survives_the_hangup_of_its_session_leader. verify:
+    # the_anchor_ends_the_group_when_the_test_dies, an_anchor_survives_the_hangup_of_its_session_leader. The acknowledgement
+    # with no reader in `anchor`: an_anchor_whose_acknowledgement_has_no_reader_still_holds_and_ends_the_group,
+    # an_acknowledgement_that_fails_otherwise_fails_the_anchor_stage. verify:
     # a_leader_that_moved_to_another_group_is_refused_and_not_signalled. terminate: a_grace_ends_the_members_by_term.
     # close_inherited (#171 TP3): a_writer_that_production_hands_the_program_reaches_no_helper_stage kills its whole-body
     # replacement and its descriptor filter. Six mutants survive the slow tier (Linux --no-config run, #171 round 2 E1), each

@@ -895,7 +895,8 @@ impl HostEngine {
         );
         let s = self.sessions.get_mut(&session).expect("checked");
         s.routes.insert(route);
-        self.pending_handoffs.push((route, endpoint, options));
+        self.pending_handoffs
+            .push((route, endpoint, options, limits));
         if self.sessions[&session].terminal.is_some() {
             self.flush_handoffs(&session);
         }
