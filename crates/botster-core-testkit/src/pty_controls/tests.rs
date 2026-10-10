@@ -501,3 +501,93 @@ fn route_fill_refuses_a_payload_that_has_exited() {
     let refused = route.control("route_fill", &json!({})).unwrap_err();
     assert!(refused.contains("has exited"), "{refused}");
 }
+
+fn attach(
+    harness: &mut TestkitHarness,
+    core: &mut dyn CoreApi,
+) -> Box<dyn botster_core_conformance::RouteClient> {
+    let options: AttachOptions = serde_json::from_value(
+        json!({"file_directory": "/tmp", "answers_queries": false, "input": true}),
+    )
+    .unwrap();
+    let (_, route) = harness
+        .attach_stream("a", core, ClientId("c".into()), &sid("s1"), options)
+        .expect("attached");
+    route
+}
+
+/// F94 / integration R1-1: a route that attaches while `Starting`, before the worker exists, fills once the payload runs.
+/// The fill reads the session's row when it runs: before the spawn there is no worker yet.
+#[test]
+fn route_fill_after_an_attach_before_the_spawn_writes_once_the_payload_runs() {
+    for seed in 0..8 {
+        let mut harness = TestkitHarness::new(seed);
+        let (mut core, mut at) = session_of(&mut harness, false, &json!([{"hold": {}}]));
+        let start = core.begin(Op::Start { id: sid("s1") }).unwrap();
+        let mut route = attach(&mut harness, core.as_mut());
+        // Start is begun and not pumped: Core admits the attach, and the row names no worker yet.
+        assert!(session_row(&harness, "a", &sid("s1"))
+            .unwrap()
+            .worker
+            .is_none());
+        let early = route.control("route_fill", &json!({})).unwrap_err();
+        assert!(
+            early.contains("no worker process yet"),
+            "seed {seed}: {early}"
+        );
+        assert!(matches!(
+            complete(core.as_mut(), &mut at, start),
+            OpResult::Ok(_)
+        ));
+        let filled = route.control("route_fill", &json!({})).unwrap();
+        assert!(
+            filled["bytes"].as_u64().unwrap() > 0,
+            "seed {seed}: {filled}"
+        );
+        assert!(
+            unread(&harness) > 0,
+            "seed {seed}: the running payload's edge has the fill"
+        );
+    }
+}
+
+/// F94 / integration R1-1: a route belongs to the session instance that it attached to. After that session is removed and a
+/// new one with the same id runs, the old route's fill is refused, and the new payload gets no byte from it.
+#[test]
+fn route_fill_of_a_route_of_a_removed_session_is_refused_after_a_recreate() {
+    let mut harness = TestkitHarness::new(0);
+    let (mut core, mut at) =
+        session_of(&mut harness, true, &json!([{"print": {"bytes_hex": "78"}}]));
+    let mut route = attach(&mut harness, core.as_mut());
+    settle(core.as_mut(), at);
+    assert!(matches!(
+        core.get(&sid("s1")).unwrap().state,
+        SessionState::Exited(_)
+    ));
+    let remove = core.begin(Op::Remove { id: sid("s1") }).unwrap();
+    assert!(matches!(
+        complete(core.as_mut(), &mut at, remove),
+        OpResult::Ok(_)
+    ));
+    let mut create = json!({"Create": {"session": "s1", "request": {"program": [{"hold": {}}]}}});
+    normalize_op(&mut create, &harness.probe_binary());
+    let create = core.begin(serde_json::from_value(create).unwrap()).unwrap();
+    assert!(matches!(
+        complete(core.as_mut(), &mut at, create),
+        OpResult::Ok(_)
+    ));
+    let start = core.begin(Op::Start { id: sid("s1") }).unwrap();
+    assert!(matches!(
+        complete(core.as_mut(), &mut at, start),
+        OpResult::Ok(_)
+    ));
+    settle(core.as_mut(), at);
+    let before = unread(&harness);
+    let refused = route.control("route_fill", &json!({})).unwrap_err();
+    assert!(refused.contains("instance is gone"), "{refused}");
+    assert_eq!(
+        unread(&harness),
+        before,
+        "the new payload gets no byte from the old route"
+    );
+}

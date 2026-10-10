@@ -1,13 +1,14 @@
 //! The client end of a stream route (`attach_stream`, P4a): the in-memory stream whose other end Core hands to the worker
 //! (DP-2). A read runs the workers' ready work and no host pump, because the data plane is the worker's (Core TH-3).
 
+use crate::core::RowReader;
 use crate::net::StreamEnd;
 use crate::worker::Workers;
 use botster_conformance::Deadline;
 use botster_core_conformance::RouteClient;
-use botster_core_contract::prelude::{RouteCloseReason, RouteId};
-use botster_core_edges::edges::ProcessIdentity;
+use botster_core_contract::prelude::{InstanceId, RouteCloseReason, RouteId, SessionId};
 use botster_core_edges::RouteTransport;
+use botster_core_host::session::Row;
 use botster_hub_conformance::route::RouteRead;
 use botster_route_codec::prelude::RouteEndReason;
 use serde_json::{json, Value};
@@ -73,11 +74,19 @@ fn fill_pattern(bytes: usize) -> Vec<u8> {
     (0..bytes).map(|k| b'a' + (k % 26) as u8).collect()
 }
 
-/// What a `route_fill` needs of the route: the worker process of its session, whose program edge the fill writes to, and the
+/// The stored row of the route's session, and the session instance that the route attached to.
+#[derive(Debug, Clone)]
+pub struct SessionRow {
+    pub rows: RowReader,
+    pub session: SessionId,
+    pub instance: InstanceId,
+}
+
+/// What a `route_fill` needs of the route: the row of its session, whose worker's program edge the fill writes to, and the
 /// route's applied frame bound F (`AttachResult.limits.max_frame_bytes`).
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct RouteFill {
-    pub worker: Option<ProcessIdentity>,
+    pub session: Option<SessionRow>,
     pub max_frame_bytes: usize,
 }
 
@@ -120,10 +129,25 @@ impl TestkitRoute {
     fn route_fill(&mut self) -> Result<Value, String> {
         let fill = self
             .fill
+            .as_ref()
             .ok_or("route_fill needs a route that attach_stream built")?;
-        let worker = fill
+        let max_frame_bytes = fill.max_frame_bytes;
+        let session = fill
+            .session
+            .as_ref()
+            .ok_or("route_fill: the route has no session row")?;
+        // The worker of the route's own session instance, as the row names it now (the worker can come after the attach,
+        // while `Starting`). A removed or recreated session is not the route's.
+        let row = session
+            .rows
+            .read()
+            .and_then(|bytes| Row::decode(&session.session, &bytes))
+            .filter(|row| row.instance == session.instance)
+            .ok_or("route_fill: the route's session instance is gone")?;
+        let worker = row
             .worker
-            .ok_or("route_fill: the route's session has no worker process")?;
+            .ok_or("route_fill: the route's session has no worker process yet")?
+            .identity();
         if !self.workers.payload_alive(worker) {
             return Err(
                 "route_fill: the payload of the route's session has exited: it writes nothing more"
@@ -131,10 +155,7 @@ impl TestkitRoute {
             );
         }
         let (program, wake) = self.workers.program_edge(worker)?;
-        let bytes = self
-            .worker_end()
-            .room()
-            .saturating_add(fill.max_frame_bytes);
+        let bytes = self.worker_end().room().saturating_add(max_frame_bytes);
         program.write(&fill_pattern(bytes));
         if let Some(wake) = wake {
             wake.signal();
@@ -311,14 +332,14 @@ mod tests {
             .unwrap_err()
             .contains("attach_stream"));
         let (client, _worker) = route(16);
-        let mut no_worker = client.with_fill(RouteFill {
-            worker: None,
+        let mut no_row = client.with_fill(RouteFill {
+            session: None,
             max_frame_bytes: 8,
         });
-        assert!(no_worker
+        assert!(no_row
             .control("route_fill", &json!({}))
             .unwrap_err()
-            .contains("no worker process"));
+            .contains("no session row"));
     }
 
     /// The route stream holds a socket buffer each way: 64 KiB that no one reads yet are taken whole.
