@@ -382,7 +382,7 @@ pub struct RealEdges {
 
 impl RealEdges {
     /// Opens the edges of a host over an open data directory. The directory's lock and registry move into the edges.
-    pub fn new(data: DataDir, data_dir: &Path) -> io::Result<(RealEdges, u64)> {
+    pub(crate) fn new(data: DataDir, data_dir: &Path) -> io::Result<(RealEdges, u64)> {
         let (lock, storage, epoch) = data.into_storage();
         open_endpoint_dir(data_dir)?;
         let socket = socket_path(data_dir);
