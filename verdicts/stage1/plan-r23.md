@@ -1232,3 +1232,32 @@ This documentation change requires no execution gate.
 I ran no build, test, gate, mutation job, merge-check job, or reversal job.
 
 VERDICT: CLEAN (0 open) at d8fbe67afc9e7192268cb36b97690fa04b17401e
+
+## Round 37 — revision 23ab — 2026-10-10
+
+Reviewed head: `77739f966cd99042b0db56085994cb55dece6dde`.
+Prior accepted head: `d8fbe67afc9e7192268cb36b97690fa04b17401e`.
+Scope: both section 0 pin entries and the new revision row.
+
+The remote annotated tag `contracts-v0.1.27` resolves to `b161db87ca82873b4f6b21d8433a69f086abb7cf`.
+The plan names the correct commit and retains the prior pin history.
+The new tag contains the probe control socket, the ad_3 Activity output fence, R-52, and R-53.
+I read the changed controls documentation, ruling text, and ad_3 transcript.
+The transcript adds the named output fence before the terminal-state call.
+The control documentation names the real PTY probe and distinguishes worker writes from probe reads.
+R-52 retains allocator observation at the calling thread and requires positive and negative proofs.
+R-53 permits one whole admitted frame and requires the exact-max-frame proof.
+The complete changed-path list contains no ledger, withdrawn, pending, frozen, or manifest change.
+The only changed transcript is `conf::ad_3_adopted_equals_started`.
+The joint manifest therefore remains final39, with 672 active Core ids.
+
+The program-controls pair owns the separate HIGH code pin move.
+This plan review accepts the pin reference and assignment. It does not accept that code PR or the probe implementation.
+The pin move must retain the existing pending rules and exact-head gate requirements.
+The revision changes no staffing limit, clause ownership, passing count, or stage acceptance condition.
+
+The remote plan head matches the reviewed head. `git diff --check` passes.
+This documentation change requires no execution gate.
+I ran no build, test, gate, mutation job, merge-check job, or reversal job.
+
+VERDICT: CLEAN (0 open) at 77739f966cd99042b0db56085994cb55dece6dde
