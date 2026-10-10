@@ -11,6 +11,8 @@
 //! - a `not-applicable` line of the contracts' `deferred.txt` names a CASE of an active id: the id runs, and the report lists the
 //!   case;
 //! - a ledger id without a transcript that is not deferred is an ignored trial of kind `pending: no transcript`;
+//! - on the real tier only, an id in `conformance/core-real-pending.txt` (plan 23l) runs as a trial of kind `pending-real`:
+//!   it reports itself ignored with its outcome, never as passed and never as failed. A pass names the id for removal;
 //! - every other id runs `run_transcript` over the seed set and passes only on `Outcome::Passed`.
 //!
 //! A pending or deferred id is never counted as passed. `cargo xtask ci` validates the three files. The seed set and the
@@ -23,10 +25,13 @@ use botster_core_conformance::{driver_for, CoreHarness, CoreSchemas, CORE_TRANSC
 use botster_core_testkit::status::{parse_deferred as parse_status_deferred, parse_withdrawn};
 use libtest_mimic::{Arguments, Completion, Failed, Trial};
 use std::collections::BTreeSet;
+use std::sync::{Arc, Mutex, PoisonError};
 
 /// The Core ids of the ledger at the pinned contracts tag.
 const LEDGER_IDS: &str = include_str!("../../conformance/core-ledger-ids.txt");
 const PENDING_IDS: &str = include_str!("../../conformance/core-pending.txt");
+/// The ids that pass on the `TestkitHarness` and not yet on the real tier (plan 23l). `cargo xtask lists` checks its rules.
+const REAL_PENDING_IDS: &str = include_str!("../../conformance/core-real-pending.txt");
 const DEFERRED: &str = include_str!("../../conformance/core-deferred.toml");
 /// The contracts' status files at the pinned tag (`cargo xtask lists` checks that they are the pinned files).
 const CONTRACTS_DEFERRED: &str = include_str!("../../conformance/contracts-deferred.txt");
@@ -41,6 +46,13 @@ pub const CORE_IS_SEND_NOT_SYNC: bool = true;
 
 /// Builds the harness of one seed.
 pub type Factory = fn(u64) -> Box<dyn CoreHarness>;
+
+/// The tier of a run (plan section 5): the `TestkitHarness`, or the real tier, which also reads `core-real-pending.txt`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Tier {
+    Testkit,
+    Real,
+}
 
 fn id_list(text: &str) -> BTreeSet<String> {
     text.lines()
@@ -83,7 +95,7 @@ fn never_passes(id: &str, kind: &str, reason: String) -> Trial {
         .with_ignored_flag(true)
 }
 
-fn run_id(make: Factory, limits: Limits, transcript: &Transcript) -> Result<(), Failed> {
+fn run_id(make: Factory, limits: Limits, transcript: &Transcript) -> Result<(), String> {
     let seeds = Selection::from_env().seeds(&SeedSet::from_env());
     let outcome = run_transcript(
         transcript,
@@ -95,16 +107,48 @@ fn run_id(make: Factory, limits: Limits, transcript: &Transcript) -> Result<(), 
     if outcome.is_pass() {
         Ok(())
     } else {
-        Err(Failed::from(describe(&transcript.id, &outcome)))
+        Err(describe(&transcript.id, &outcome))
     }
+}
+
+/// A trial of an id of `core-real-pending.txt`: it runs, and reports itself ignored with its outcome. It is never counted as
+/// passed, and its failure never fails the run. A pass is recorded in `passed`, so that the report names the id for removal.
+fn pending_real(
+    make: Factory,
+    limits: Limits,
+    transcript: Transcript,
+    passed: Arc<Mutex<Vec<String>>>,
+) -> Trial {
+    let id = transcript.id.clone();
+    Trial::ignorable_test(id, move || {
+        Ok(match run_id(make, limits, &transcript) {
+            Ok(()) => {
+                passed
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .push(transcript.id.clone());
+                Completion::ignored_with(
+                    "pending-real: PASSED on the real tier; remove it from core-real-pending.txt",
+                )
+            }
+            Err(why) => Completion::ignored_with(format!("pending-real: {why}")),
+        })
+    })
+    .with_kind("pending-real")
 }
 
 /// Runs every Core id of the ledger on the harnesses that `make` builds, under the runner's execution `limits` (design 6.1),
 /// and prints the report under `name`.
-pub fn run(name: &str, make: Factory, limits: Limits) {
+pub fn run(name: &str, tier: Tier, make: Factory, limits: Limits) {
     let args = Arguments::from_args();
     let ledger = id_list(LEDGER_IDS);
     let pending = id_list(PENDING_IDS);
+    let real_pending = match tier {
+        Tier::Testkit => BTreeSet::new(),
+        Tier::Real => id_list(REAL_PENDING_IDS),
+    };
+    let real_passed = Arc::new(Mutex::new(Vec::new()));
+    let mut real_pending_count = 0usize;
     let deferred = deferred_entries(DEFERRED);
     let withdrawn = parse_withdrawn(CONTRACTS_WITHDRAWN).expect("withdrawn.txt parses");
     let (_, cases) = parse_status_deferred(CONTRACTS_DEFERRED).expect("deferred.txt parses");
@@ -140,10 +184,18 @@ pub fn run(name: &str, make: Factory, limits: Limits) {
             };
             trials.push(never_passes(id, kind, reason.to_string()));
         } else if let Some(transcript) = transcript {
-            if selection.selects(transcript) {
+            if selection.selects(transcript) && real_pending.contains(id) {
+                real_pending_count += 1;
+                trials.push(pending_real(
+                    make,
+                    limits,
+                    transcript.clone(),
+                    Arc::clone(&real_passed),
+                ));
+            } else if selection.selects(transcript) {
                 let transcript = transcript.clone();
                 trials.push(Trial::test(id.clone(), move || {
-                    run_id(make, limits, &transcript)
+                    run_id(make, limits, &transcript).map_err(Failed::from)
                 }));
             } else {
                 trials.push(never_passes(
@@ -168,6 +220,16 @@ pub fn run(name: &str, make: Factory, limits: Limits) {
             deferred.len(),
             withdrawn_count
         );
+        if tier == Tier::Real {
+            let passed = real_passed.lock().unwrap_or_else(PoisonError::into_inner);
+            println!(
+                "{name}: pending-real {real_pending_count} (ran, never counted as passed), of which passed {}",
+                passed.len()
+            );
+            for id in passed.iter() {
+                println!("{name}: pending-real {id} PASSED: remove it from conformance/core-real-pending.txt");
+            }
+        }
         // A not-applicable case belongs to an ACTIVE id: the id itself is counted under its run result.
         for case in &cases {
             println!(

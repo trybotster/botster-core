@@ -1,0 +1,8 @@
+# The ids that pass on the TestkitHarness and not yet on the real tier (plan 23l, RealCoreHarness).
+# The real tier runs each id here and reports it as pending-real: never counted as passed, never a gate failure.
+# Rules (`cargo xtask lists` checks them):
+# - The harness PR initializes the file from the gate's real run; after that it only shrinks.
+# - An id enters only in the pull request that removes it from core-pending.txt, or as a new ledger id.
+# - An id here is a Core ledger id, and is not pending, deferred, withdrawn or real-only (a `slow:*` proof).
+# - An id that passes on the real tier and later fails there is a gate failure, never a new entry.
+# Each id is a finding for its owner.
