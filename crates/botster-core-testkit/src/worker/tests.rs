@@ -798,6 +798,13 @@ fn bind_route_of(
             route,
         },
     );
+    edges.perform(
+        now,
+        Action::RouteReadAllowance {
+            route,
+            bytes: usize::MAX,
+        },
+    );
     client
 }
 
@@ -963,6 +970,52 @@ fn the_clients_bytes_reach_the_machine_and_its_close_ends_the_route_once() {
         0,
         "an ended stream is not read again"
     );
+}
+
+/// DP-5: the edge reads a route only within the machine's allowance. A read takes at most the allowance, an allowance of 0
+/// stops the reads (the client's bytes stay in the stream), and a new allowance lets them go on. No read comes before the
+/// first allowance.
+#[test]
+fn a_route_is_read_only_within_its_allowance() {
+    let (mut edges, mut peer, worker, now) = fixture(16);
+    let mut client = bind_route_of(&mut edges, &mut peer, &worker, now, RouteId(1), 16);
+    let allow = |edges: &mut WorkerEdges, bytes: usize| {
+        edges.perform(
+            now,
+            Action::RouteReadAllowance {
+                route: RouteId(1),
+                bytes,
+            },
+        );
+    };
+    allow(&mut edges, 0);
+    assert_eq!(
+        botster_core_edges::RouteTransport::write(&mut client, b"abcdef").unwrap(),
+        6
+    );
+    assert_eq!(
+        edges.ready(now, &worker),
+        0,
+        "an allowance of 0 stops the reads"
+    );
+    allow(&mut edges, 4);
+    let mut got = Vec::new();
+    while edges.ready(now, &worker) == 1 {
+        let Input::RouteRead { bytes, .. } = edges.take(now, &worker, 0) else {
+            panic!("a route read")
+        };
+        got.extend(bytes);
+    }
+    assert_eq!(got, b"abcd", "the reads stop at the allowance");
+    allow(&mut edges, 10);
+    while got.len() < 6 {
+        assert_eq!(edges.ready(now, &worker), 1, "the stream is readable");
+        let Input::RouteRead { bytes, .. } = edges.take(now, &worker, 0) else {
+            panic!("a route read")
+        };
+        got.extend(bytes);
+    }
+    assert_eq!(got, b"abcdef");
 }
 
 /// A socket read's buffer: the most bytes that one route read takes (64 KiB, as the real driver).

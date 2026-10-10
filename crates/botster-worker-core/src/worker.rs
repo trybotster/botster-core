@@ -198,6 +198,10 @@ pub enum Action {
     /// Read at most this many PTY bytes in total until the next budget (OU-3d source backpressure); `Some(0)` stops every
     /// PTY read, a drain too. `None` lifts the limit. A driver starts with no limit.
     PtyReadBudget(Option<usize>),
+    /// Read at most `bytes` more client bytes of the route's stream until its next allowance (DP-5: the route's input bound,
+    /// and room for one more `input_refused`); `0` stops the route's reads, and so the client gets transport backpressure.
+    /// The worker sends one after the bind, before the driver reads the route.
+    RouteReadAllowance { route: RouteId, bytes: usize },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
