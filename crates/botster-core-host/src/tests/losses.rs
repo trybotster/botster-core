@@ -484,6 +484,57 @@ fn an_ended_sessions_route_closes_after_the_worker_delivered_it_with_the_hosts_e
     ));
 }
 
+/// OU-7: after `Exited`, each route closes at the worker's report for that route. When the worker delivered one route
+/// and not the other, only the delivered one closes; the other stays held until its own report.
+#[test]
+fn after_the_exit_each_route_closes_at_its_own_delivery() {
+    let mut w = World::default();
+    w.autopilot = Autopilot::Silent;
+    w.running("s1");
+    settle(&mut w);
+    let (one, two) = (attach(&mut w), attach(&mut w));
+    settle(&mut w);
+    w.worker_says(
+        "s1",
+        WorkerMsg::Exited {
+            code: Some(4),
+            signal: None,
+        },
+    );
+    settle(&mut w);
+    let delivered = |route| WorkerMsg::RouteClosed {
+        route,
+        reason: RouteCloseReason::SessionEnded {
+            exit: Exit {
+                code: None,
+                signal: None,
+                cause: ExitCause::Other,
+            },
+        },
+        route_tag: None,
+    };
+    w.worker_says("s1", delivered(two));
+    let events = settle(&mut w);
+    let closes = route_closes(&events);
+    assert_eq!(closes.len(), 1, "{events:?}");
+    assert!(matches!(
+        closes[0].1,
+        Event::RouteClosed { route: r, reason: RouteCloseReason::SessionEnded { .. }, .. } if *r == two
+    ));
+    assert!(
+        w.engine.ready().is_empty(),
+        "the held close is no busy work"
+    );
+    w.worker_says("s1", delivered(one));
+    let events = settle(&mut w);
+    let closes = route_closes(&events);
+    assert_eq!(closes.len(), 1, "{events:?}");
+    assert!(matches!(
+        closes[0].1,
+        Event::RouteClosed { route: r, reason: RouteCloseReason::SessionEnded { .. }, .. } if *r == one
+    ));
+}
+
 /// OU-7, DP-7 (#217 R1-3): a `Detach` that waits across the payload's exit completes only when the worker reports the
 /// route's close, and the close keeps the detach's reason (the first one).
 #[test]
