@@ -349,3 +349,103 @@ fn a_worker_exit_is_lost_before_the_launch_and_nothing_after_an_exited_report() 
         "an exit after the end changes nothing"
     );
 }
+
+/// Pumps and polls until nothing more comes, and returns the events in order.
+fn settle(w: &mut World) -> Vec<Event> {
+    let mut events = Vec::new();
+    for _ in 0..32 {
+        w.pump();
+        events.extend(w.engine.poll_events(64));
+    }
+    events
+}
+
+/// A2-3, OU-2b: the routes of a lost session close `SessionLost`, each once and after the session's state. No worker is
+/// left to close them, so the host does.
+#[test]
+fn a_lost_session_closes_its_routes_session_lost_after_its_state() {
+    let mut w = World::default();
+    w.autopilot = Autopilot::Silent;
+    w.running("s1");
+    settle(&mut w);
+    let (one, two) = (attach(&mut w), attach(&mut w));
+    settle(&mut w);
+    w.exited("s1");
+    let events = settle(&mut w);
+    let lost = events
+        .iter()
+        .position(|e| {
+            matches!(
+                e,
+                Event::SessionState {
+                    state: SessionState::Lost(_),
+                    ..
+                }
+            )
+        })
+        .expect("the session is lost");
+    let closed: Vec<(usize, RouteId)> = events
+        .iter()
+        .enumerate()
+        .filter_map(|(i, e)| match e {
+            Event::RouteClosed {
+                route,
+                reason: RouteCloseReason::SessionLost,
+                ..
+            } => Some((i, *route)),
+            Event::RouteClosed { reason, .. } => panic!("another reason: {reason:?}"),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        closed.iter().map(|c| c.1).collect::<Vec<_>>(),
+        vec![one, two]
+    );
+    assert!(closed.iter().all(|(i, _)| *i > lost), "{events:?}");
+}
+
+/// OU-7, LC-5: the routes of an ended session close `SessionEnded` with the exit that the host shows, after the state.
+#[test]
+fn an_ended_session_closes_its_routes_session_ended_with_the_hosts_exit() {
+    let mut w = World::default();
+    w.autopilot = Autopilot::Silent;
+    w.running("s1");
+    settle(&mut w);
+    let route = attach(&mut w);
+    settle(&mut w);
+    w.worker_says(
+        "s1",
+        WorkerMsg::Exited {
+            code: Some(4),
+            signal: None,
+        },
+    );
+    let events = settle(&mut w);
+    let SessionState::Exited(exit) = w.engine.get(&sid("s1")).unwrap().state else {
+        panic!("the session ended");
+    };
+    let ended = events
+        .iter()
+        .position(|e| {
+            matches!(
+                e,
+                Event::SessionState {
+                    state: SessionState::Exited(_),
+                    ..
+                }
+            )
+        })
+        .expect("the state");
+    let closes: Vec<(usize, &Event)> = events
+        .iter()
+        .enumerate()
+        .filter(|(_, e)| matches!(e, Event::RouteClosed { .. }))
+        .collect();
+    assert_eq!(closes.len(), 1, "{events:?}");
+    assert!(closes[0].0 > ended);
+    assert!(matches!(
+        closes[0].1,
+        Event::RouteClosed { route: r, reason: RouteCloseReason::SessionEnded { exit: e }, .. }
+            if *r == route && *e == exit && e.code == Some(4)
+    ));
+}

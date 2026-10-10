@@ -149,6 +149,10 @@ pub enum Input {
     },
     /// The route's transport takes bytes again after a write that it did not take.
     RouteWritable { route: RouteId },
+    /// Bytes that the driver read from a bound route's transport: the client's frames (DP-5).
+    RouteRead { route: RouteId, bytes: Vec<u8> },
+    /// The client closed the route's transport, or a read of it failed (OU-5).
+    RouteEnded { route: RouteId },
 }
 
 /// An action of the worker, for its driver.
@@ -555,7 +559,8 @@ impl Worker {
                 options,
                 limits,
             } => self.on_attach_route(route, options, limits),
-            // `Detach` belongs to a later P4a PR; a later variant of the enum is a later host's.
+            HostMsg::Detach { route, reason } => self.on_detach(route, reason),
+            // A later variant of the enum is a later host's.
             _ => {}
         }
     }
@@ -776,12 +781,14 @@ impl Worker {
     }
 
     /// EV-4: the exit carries the code or the signal.
+    /// OU-7: then every route closes `session_ended`, after its output tail.
     fn report_exit(&mut self, status: ExitStatus) {
         let (code, signal) = match status {
             ExitStatus::Code(code) => (Some(code), None),
             ExitStatus::Signal(signal) => (None, Some(signal)),
         };
         self.report(&WorkerMsg::Exited { code, signal });
+        self.routes_session_ended(code, signal);
     }
 
     /// The leader is reaped only when its group kill is complete: a `SIGKILL` went to the group and the leader has ended
@@ -1074,6 +1081,8 @@ impl Machine for Worker {
             Input::Descriptor(id) => self.routes.descriptor(id),
             Input::RouteWritten { route, result } => self.on_route_written(route, result),
             Input::RouteWritable { route } => self.on_route_writable(route),
+            Input::RouteRead { route, bytes } => self.on_route_read(route, &bytes),
+            Input::RouteEnded { route } => self.on_route_ended(route),
         }
         self.arm_orphan(now);
     }

@@ -390,6 +390,19 @@ impl HostEngine {
             // One waiter per step, so that a step posts at most one event (9B `pump_events`).
             StopPhase::Finish => {
                 let end = f.end.expect("Finish has its end");
+                // The session's routes close after its state, one per step (A2-3, OU-7). The host closes them: a lost
+                // session has no worker, and an ended one's exit cause is the host's decision (LC-5). The worker sends an
+                // ended session's `route_closed{session_ended}` after the output tail and reports nothing; a lost session's
+                // routes end with no frame (OU-2b, a failed reason).
+                let route = self.sessions[id].routes.first().copied();
+                if let Some(route) = route {
+                    let reason = match end {
+                        End::Exited(exit) => RouteCloseReason::SessionEnded { exit },
+                        End::Lost(_) => RouteCloseReason::SessionLost,
+                    };
+                    self.close_route(route, reason);
+                    return;
+                }
                 let waiters = &mut self
                     .sessions
                     .get_mut(id)

@@ -1,10 +1,12 @@
 //! The stream routes (P4a PR1; DESIGN.md "P4a: the stream route"): the handoff, the baseline at the consumed cut, live output
-//! within the frame bound, the PTY read budget, and the closes of this PR.
+//! within the frame bound, the PTY read budget, the closes (PR1, PR2), and the client's input (PR2).
 
 use super::*;
+use botster_core_link::msg::Observation;
 use botster_route_codec::prelude::{
-    AttachFailedReason, CloseReason, FrameBounds, HistoryState, RouteClosed as RouteClosedFrame,
-    StreamReader, ToClient,
+    AttachFailedReason, CloseReason, Exit as WireExit, FrameBounds, HistoryState, Op,
+    ProtocolErrorCode, RefusalReason, RouteClosed as RouteClosedFrame, StreamReader, ToClient,
+    ToWorker,
 };
 
 /// The frame bound of the test routes: it carries the attach frames (`baseline_begin` is the largest, A19-1), and output
@@ -742,4 +744,372 @@ fn a_queue_of_exactly_the_snapshot_takes_the_baseline_and_the_held_suffix() {
     );
     let drained = budgets(&all).last().copied().flatten().expect("a limit");
     assert!(drained > 0, "an empty queue takes PTY bytes again");
+}
+
+/// The client's bytes of one frame, as the stream carries it (TS-3).
+fn client_frame(frame: &ToWorker) -> Vec<u8> {
+    botster_route_codec::prelude::stream_wrap(&frame.encode())
+}
+
+fn bytes_frame(op: u64, bytes: &[u8]) -> ToWorker {
+    ToWorker::Bytes {
+        op: Op(op),
+        bytes: bytes.to_vec().into(),
+    }
+}
+
+fn pty_writes(actions: &[Action]) -> Vec<u8> {
+    actions
+        .iter()
+        .filter_map(|a| match a {
+            Action::PtyWrite(bytes) => Some(bytes.clone()),
+            _ => None,
+        })
+        .flatten()
+        .collect()
+}
+
+fn route_closed(reason: CloseReason, exit: Option<WireExit>) -> ToClient {
+    ToClient::RouteClosed(RouteClosedFrame { reason, exit })
+}
+
+/// DP-7, OU-2b: a `Detach` closes the route with its reason after every frame that is queued: `route_closed` is the last
+/// frame, the transport closes once it is written, and the host is told once with the reason.
+#[test]
+fn a_detach_sends_route_closed_last_with_its_reason() {
+    for (reason, close, wire) in [
+        (
+            DetachReason::Detached,
+            RouteCloseReason::Detached,
+            CloseReason::Detached,
+        ),
+        (
+            DetachReason::Replaced,
+            RouteCloseReason::Replaced,
+            CloseReason::Replaced,
+        ),
+        (
+            DetachReason::Revoked,
+            RouteCloseReason::Revoked,
+            CloseReason::Revoked,
+        ),
+    ] {
+        let (mut w, mut client, _) = attached(limits());
+        let mut actions = w.feed(Input::PtyOutput(b"tail".to_vec()));
+        actions.extend(w.send(&HostMsg::Detach {
+            route: RouteId(1),
+            reason,
+        }));
+        let all = client.take_all(&mut w, RouteId(1), actions);
+        assert_eq!(
+            client.output().0,
+            b"tail",
+            "{reason:?}: the output before the close"
+        );
+        assert_eq!(client.frames.last(), Some(&route_closed(wire, None)));
+        assert!(all.contains(&Action::RouteClose { route: RouteId(1) }));
+        assert_eq!(
+            closes(&mut w, &all),
+            vec![WorkerMsg::RouteClosed {
+                route: RouteId(1),
+                reason: close,
+                route_tag: None
+            }]
+        );
+    }
+}
+
+/// DP-7: a `Detach` of a route that the worker does not hold is reported closed at once, so the host's `Detach` completes.
+#[test]
+fn a_detach_of_a_route_that_the_worker_does_not_hold_is_reported_closed() {
+    let mut w = World::running();
+    let actions = w.send(&HostMsg::Detach {
+        route: RouteId(7),
+        reason: DetachReason::Revoked,
+    });
+    assert!(!actions
+        .iter()
+        .any(|a| matches!(a, Action::RouteClose { .. })));
+    assert_eq!(
+        closes(&mut w, &actions),
+        vec![WorkerMsg::RouteClosed {
+            route: RouteId(7),
+            reason: RouteCloseReason::Revoked,
+            route_tag: None
+        }]
+    );
+}
+
+/// OU-2: a second close of a closing route keeps the first reason, and the host is told once.
+#[test]
+fn a_detach_of_a_closing_route_keeps_the_first_reason() {
+    let (mut w, mut client, _) = attached(limits());
+    let mut actions = w.send(&HostMsg::Detach {
+        route: RouteId(1),
+        reason: DetachReason::Replaced,
+    });
+    actions.extend(w.send(&HostMsg::Detach {
+        route: RouteId(1),
+        reason: DetachReason::Revoked,
+    }));
+    let all = client.take_all(&mut w, RouteId(1), actions);
+    let closed: Vec<&ToClient> = client
+        .frames
+        .iter()
+        .filter(|f| matches!(f, ToClient::RouteClosed(_)))
+        .collect();
+    assert_eq!(closed, vec![&route_closed(CloseReason::Replaced, None)]);
+    assert_eq!(
+        closes(&mut w, &all),
+        vec![WorkerMsg::RouteClosed {
+            route: RouteId(1),
+            reason: RouteCloseReason::Replaced,
+            route_tag: None
+        }]
+    );
+}
+
+/// OU-7: when the exit is reported, after the output tail, every route closes `session_ended` with the exit. The worker
+/// does not report it: the host closes those routes with the exit and cause that it decides (LC-5).
+#[test]
+fn the_exit_closes_every_route_session_ended_after_the_tail_and_reports_no_close() {
+    let mut w = World::running();
+    w.feed(Input::Descriptor(DescriptorId(1)));
+    w.feed(Input::Descriptor(DescriptorId(2)));
+    let mut one = Client::default();
+    let mut two = Client::default();
+    let a = attach(&mut w, RouteId(1), options(), limits());
+    one.take_all(&mut w, RouteId(1), a);
+    let b = attach(&mut w, RouteId(2), options(), limits());
+    two.take_all(&mut w, RouteId(2), b);
+    let mut actions = w.feed(Input::PtyOutput(b"bye".to_vec()));
+    actions.extend(w.feed(Input::PayloadExited(ExitStatus::Code(3))));
+    assert!(
+        !actions
+            .iter()
+            .any(|a| matches!(a, Action::RouteClose { .. })),
+        "no close before the drain reports the exit"
+    );
+    actions.extend(w.feed(Input::PtyDrained));
+    let ended = route_closed(
+        CloseReason::SessionEnded,
+        Some(WireExit {
+            code: Some(3),
+            signal: None,
+        }),
+    );
+    let mut all = one.take_all(&mut w, RouteId(1), actions.clone());
+    all.extend(two.take_all(&mut w, RouteId(2), actions));
+    for client in [&one, &two] {
+        assert_eq!(client.output().0, b"bye");
+        assert_eq!(client.frames.last(), Some(&ended));
+    }
+    assert!(all.contains(&Action::RouteClose { route: RouteId(1) }));
+    assert!(all.contains(&Action::RouteClose { route: RouteId(2) }));
+    assert_eq!(closes(&mut w, &all), vec![]);
+}
+
+/// OU-7: a route that attaches after the exit was reported gets its baseline, then the session's close.
+#[test]
+fn a_route_that_attaches_after_the_exit_gets_its_baseline_then_session_ended() {
+    let mut w = World::running();
+    w.feed(Input::PayloadExited(ExitStatus::Signal(9)));
+    w.feed(Input::PtyDrained);
+    w.feed(Input::Descriptor(DescriptorId(1)));
+    let mut client = Client::default();
+    let actions = attach(&mut w, RouteId(1), options(), limits());
+    client.take_all(&mut w, RouteId(1), actions);
+    assert!(client.frames.contains(&ToClient::Live));
+    assert_eq!(
+        client.frames.last(),
+        Some(&route_closed(
+            CloseReason::SessionEnded,
+            Some(WireExit {
+                code: None,
+                signal: Some(9)
+            })
+        ))
+    );
+}
+
+/// DP-5, IN-4, AM-2: after `live`, a client's `bytes` and `text` frames go to the PTY in their receive order. Each complete
+/// frame advances `input_rev{client}` on receipt and is reported with its route; a frame split across reads waits for its
+/// last byte.
+#[test]
+fn client_input_after_live_reaches_the_pty_in_order_and_is_tagged() {
+    let (mut w, _, _) = attached(limits());
+    let mut stream = client_frame(&bytes_frame(1, b"ab"));
+    stream.extend(client_frame(&ToWorker::Text {
+        op: Op(0),
+        text: "cd".into(),
+    }));
+    let (first, rest) = stream.split_at(3);
+    let mut all = w.feed(Input::RouteRead {
+        route: RouteId(1),
+        bytes: first.to_vec(),
+    });
+    assert!(
+        pty_writes(&all).is_empty(),
+        "no write before the frame is whole"
+    );
+    all.extend(w.feed(Input::RouteRead {
+        route: RouteId(1),
+        bytes: rest.to_vec(),
+    }));
+    // The first transaction owns the PTY until its count (AM-2); then the second starts.
+    all.extend(w.feed(Input::PtyWritten(Ok(2))));
+    assert_eq!(pty_writes(&all), b"abcd");
+    let tags: Vec<WorkerMsg> = w
+        .reports(&all)
+        .into_iter()
+        .filter(|m| matches!(m, WorkerMsg::Observed { .. }))
+        .collect();
+    assert_eq!(
+        tags,
+        [1, 2]
+            .map(|rev| WorkerMsg::Observed {
+                observation: Observation::ClientInput {
+                    route: RouteId(1),
+                    input_rev: InputRev(rev),
+                },
+            })
+            .to_vec()
+    );
+}
+
+fn refusals(client: &Client) -> Vec<(Option<Op>, RefusalReason)> {
+    client
+        .frames
+        .iter()
+        .filter_map(|f| match f {
+            ToClient::InputRefused(r) => Some((r.op, r.reason.clone())),
+            _ => None,
+        })
+        .collect()
+}
+
+/// DP-5: input before `live` is written is refused `not_ready` with its op and reaches no PTY.
+#[test]
+fn input_before_live_is_written_is_refused_not_ready() {
+    let mut w = World::running();
+    w.feed(Input::Descriptor(DescriptorId(1)));
+    let bound = attach(&mut w, RouteId(1), options(), limits());
+    // The baseline is queued, and no write of it is answered yet.
+    let mut actions = w.feed(Input::RouteRead {
+        route: RouteId(1),
+        bytes: client_frame(&bytes_frame(5, b"x")),
+    });
+    assert!(pty_writes(&actions).is_empty());
+    actions.splice(0..0, bound);
+    let mut client = Client::default();
+    client.take_all(&mut w, RouteId(1), actions);
+    assert_eq!(
+        refusals(&client),
+        vec![(Some(Op(5)), RefusalReason::NotReady)]
+    );
+    let live = client
+        .frames
+        .iter()
+        .position(|f| f == &ToClient::Live)
+        .unwrap();
+    assert!(
+        matches!(client.frames[live + 1], ToClient::InputRefused(_)),
+        "the refusal is behind the baseline"
+    );
+}
+
+/// OU-1: a view-only route (`input: false`) refuses its input `not_writable`; op 0 is no op (DP-5).
+#[test]
+fn a_view_only_route_refuses_input_not_writable() {
+    let mut w = World::running();
+    w.feed(Input::Descriptor(DescriptorId(1)));
+    let mut opts = options();
+    opts.input = false;
+    let mut client = Client::default();
+    let bound = attach(&mut w, RouteId(1), opts, limits());
+    client.take_all(&mut w, RouteId(1), bound);
+    let actions = w.feed(Input::RouteRead {
+        route: RouteId(1),
+        bytes: client_frame(&bytes_frame(0, b"x")),
+    });
+    assert!(pty_writes(&actions).is_empty());
+    client.take_all(&mut w, RouteId(1), actions);
+    assert_eq!(refusals(&client), vec![(None, RefusalReason::NotWritable)]);
+}
+
+/// DP-5: a frame kind that this worker does not apply yet is refused `unsupported`, and the route stays open.
+#[test]
+fn an_unapplied_input_kind_is_refused_unsupported_and_the_route_stays_open() {
+    let (mut w, mut client, _) = attached(limits());
+    let actions = w.feed(Input::RouteRead {
+        route: RouteId(1),
+        bytes: client_frame(&ToWorker::PasteChunk {
+            op: Op(2),
+            bytes: b"p".to_vec().into(),
+        }),
+    });
+    let all = client.take_all(&mut w, RouteId(1), actions);
+    assert_eq!(
+        refusals(&client),
+        vec![(
+            None,
+            RefusalReason::Unsupported {
+                what: "paste_chunk".into()
+            }
+        )]
+    );
+    assert!(!all.contains(&Action::RouteClose { route: RouteId(1) }));
+}
+
+/// OU-5: a frame that cannot be decoded closes only that route, `BadFrame` with its code: `route_closed{protocol_error}`
+/// is the last frame, and the host is told once.
+#[test]
+fn a_bad_client_frame_closes_the_route_bad_frame_with_its_code() {
+    let (mut w, mut client, _) = attached(limits());
+    // A declared length over the route's frame bound.
+    let mut bytes = (u32::try_from(FRAME).unwrap() + 1).to_be_bytes().to_vec();
+    bytes.push(0x10);
+    let actions = w.feed(Input::RouteRead {
+        route: RouteId(1),
+        bytes,
+    });
+    let all = client.take_all(&mut w, RouteId(1), actions);
+    assert_eq!(
+        client.frames.last(),
+        Some(&route_closed(
+            CloseReason::ProtocolError {
+                code: ProtocolErrorCode::FrameTooLarge
+            },
+            None
+        ))
+    );
+    assert_eq!(
+        closes(&mut w, &all),
+        vec![WorkerMsg::RouteClosed {
+            route: RouteId(1),
+            reason: RouteCloseReason::BadFrame {
+                code: ProtocolErrorCode::FrameTooLarge
+            },
+            route_tag: None
+        }]
+    );
+}
+
+/// OU-5: the client's close of its end closes that route `PeerClosed` with no frame, and the host is told once.
+#[test]
+fn the_clients_close_closes_the_route_peer_closed() {
+    let (mut w, _, _) = attached(limits());
+    let actions = w.feed(Input::RouteEnded { route: RouteId(1) });
+    assert!(actions.contains(&Action::RouteClose { route: RouteId(1) }));
+    assert!(!actions
+        .iter()
+        .any(|a| matches!(a, Action::RouteWrite { .. })));
+    assert_eq!(
+        closes(&mut w, &actions),
+        vec![WorkerMsg::RouteClosed {
+            route: RouteId(1),
+            reason: RouteCloseReason::PeerClosed,
+            route_tag: None
+        }]
+    );
 }
