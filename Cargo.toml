@@ -70,9 +70,11 @@ incremental = false
 codegen-units = 1
 
 # The checker of the conformance suite runs as test code in every default-tier test: the contracts' route driver turns each
-# route frame into JSON with a hex payload and validates it. Only these four test-only dependencies are optimized in the dev
-# profile (lead ruling, 2026-10-10: `conf::ou_3_progressing_reader_lossless` moves 1 MiB per seed through them). No Core crate
-# is listed, so the mutation and coverage builds of Core code are unchanged.
+# route frame into JSON with a hex payload and validates it. These four dependencies that the checker uses are optimized in
+# the dev profile (lead ruling, 2026-10-10: `conf::ou_3_progressing_reader_lossless` moves 1 MiB per seed through them).
+# A package override applies wherever the dev profile builds the package: botster-route-codec and serde_json are also normal
+# dependencies of Core crates (botster-core, botster-core-link, botster-worker-core and others), so their dev-profile
+# production builds are optimized too. No Core crate is listed, so the mutation and coverage builds of Core code are unchanged.
 [profile.dev.package.botster-hub-conformance]
 opt-level = 2
 
