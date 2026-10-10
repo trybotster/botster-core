@@ -163,3 +163,39 @@ It reports NOT CLEAN on the same head with the same three findings.
 RC-B-F1 matches R1-2; RC-B-F2 matches R1-3; RC-B-F3 matches R1-1.
 Both reviewers accept the non-blocking process-check allowance and retain #222's separate native evidence finding.
 This receipt changes no review scope or conclusion. Round 1 remains NOT CLEAN.
+
+### Replacement source inspection — 2026-10-10 — Gate pending
+
+Reported replacement head: `7251ba42d7023585cadeac00e9f8a9f18fa3c62f`.
+Own PR base: #222 `deb34002eae1df16199b753c510ebfc44475b8a9`.
+The replacement contains v1 `fc1e8160abfd8248b155383ef1d766c6377f8a11`.
+Its correction commit follows base import `74347be6385d1a0e1c14ccee7aa5bccb218cb926`.
+The lead permits source review before the replacement gate completes.
+This entry records that source inspection. It gives no new CLEAN or completed round.
+
+All three source corrections are present:
+
+- R1-1: private links, stream, and signal-vector assertions are removed.
+  The new signal proof reads `signals_since_answer` and distinguishes the harness kill from Core's signal.
+  The retained `the_stand_in_closes_its_end_when_the_host_closes` checks socket EOF.
+  It covers the common closure arm of the deleted reset test.
+- R1-2: `worker_alive` calls `lives`, which requires matching identity and live group membership.
+  Observation errors become `ControlError::Bad`; a missing recorded worker returns false.
+  The new real-tap proof checks a live identity, a reused identity, and a matching unreaped ended identity.
+  Its shared `OwnedChild` guards own the test children and observe exit within a deadline without reaping early.
+  Their drops clean up those children on every path. Core retains its own worker reaper.
+  The control-level live, ended, and invalid-session proofs remain.
+- R1-3: the payload documentation is back above `payload_alive`.
+
+The correction changes four files. The other nine own files equal Round 1 bytes.
+The automatic base-import tree and actual import tree both equal `f4061e77a249a0cb205efb6cae71bf323d2370a9`.
+The own base and stated v1 tip are ancestors of the replacement.
+I found no new source issue in this correction.
+
+P5 supplies no exact-head gate for this replacement yet.
+P5 reports that #222's Linux gate failed on #225's stage-2 selection defect.
+The separate #225 addendum records the independently confirmed defect.
+The next completed review needs the corrected gate, its exact head and base, and the supplied merge evidence.
+#222 still must merge first and still needs native Mac evidence.
+I sent this source result to P5 and its package reviewer.
+I ran no build, test, gate, mutation job, or reversal job.

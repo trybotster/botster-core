@@ -180,3 +180,6 @@ The package reviewer independently confirms the original small-queue path and ac
 This addendum changes no review round or reviewed head.
 
 VERDICT: NOT CLEAN (6 open: 5 MEDIUM, 1 LOW; R1-6 now requires the R-53 citation and proof).
+
+Package receipt: I read the final round 150 artifact at `3a7522d7879a48809a383cbd23320efbd5b2bae2`.
+F104 records the same R-53 citation and proof requirement. Both reviewers agree on all six open findings.
