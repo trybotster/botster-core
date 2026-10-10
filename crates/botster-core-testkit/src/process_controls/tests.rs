@@ -255,3 +255,114 @@ fn a_dropped_handle_is_gone_and_a_reopen_reaches_the_surviving_worker() {
         Ok(Value::Null)
     );
 }
+
+fn state(core: &dyn CoreApi) -> SessionState {
+    core.get(&sid("s1")).unwrap().state
+}
+
+/// Core AD-2, IN-7: `lose_worker` ends the worker process from outside Core. The host that spawned it takes the exit, and the
+/// session is `Lost(WorkerGone)`; the payload ends with the process. The control wakes the idle host (TM-6).
+#[test]
+fn a_lost_worker_is_worker_gone_and_its_payload_ends() {
+    for reason in [json!({}), json!({"reason": "worker_gone"})] {
+        let mut harness = TestkitHarness::new(0);
+        let (mut core, at) = session(&mut harness, true);
+        assert_eq!(
+            harness.control("a", "no_spurious_wakes", &json!({})),
+            Ok(Value::Null)
+        );
+        let mut settled = false;
+        for _ in 0..PUMPS {
+            let report = core.pump(Now {
+                monotonic: at,
+                unix: 1_000_000,
+            });
+            core.poll_events(64);
+            if !report.more {
+                settled = true;
+                break;
+            }
+        }
+        assert!(settled, "the host has no runnable work left");
+        let wake = core.wake_handle();
+        assert_eq!(wake.wait(Duration::ZERO), Wake::TimedOut);
+        let mut args = json!({"session": "s1"});
+        args.as_object_mut()
+            .unwrap()
+            .extend(reason.as_object().unwrap().clone());
+        assert_eq!(harness.control("a", "lose_worker", &args), Ok(Value::Null));
+        assert_eq!(wake.wait(Duration::ZERO), Wake::Woken);
+        assert_eq!(
+            harness.control("a", "payload_alive", &json!({"session": "s1"})),
+            Ok(json!({"alive": false}))
+        );
+        for _ in 0..PUMPS {
+            if state(core.as_ref()) != SessionState::Running {
+                break;
+            }
+            core.pump(Now {
+                monotonic: at,
+                unix: 1_000_000,
+            });
+            core.poll_events(64);
+        }
+        assert_eq!(
+            state(core.as_ref()),
+            SessionState::Lost(LostReason::WorkerGone),
+            "{reason}"
+        );
+        assert!(matches!(
+            harness.control("a", "lose_worker", &json!({"session": "s1"})),
+            Err(ControlError::Bad(_))
+        ));
+    }
+}
+
+/// `lose_worker` builds only `worker_gone`: `worker_unreachable` is `Unsupported`. It refuses another reason, an unknown
+/// handle or session, a session with no worker process and an unknown argument with `Bad`.
+#[test]
+fn lose_worker_refuses_what_it_cannot_end() {
+    let mut harness = TestkitHarness::new(0);
+    let bad = |result: Result<Value, ControlError>| matches!(result, Err(ControlError::Bad(_)));
+    assert!(bad(harness.control(
+        "a",
+        "lose_worker",
+        &json!({"session": "s1"})
+    )));
+    let (_core, _at) = session(&mut harness, false);
+    assert!(bad(harness.control(
+        "a",
+        "lose_worker",
+        &json!({"session": "s1"})
+    )));
+    assert!(bad(harness.control(
+        "a",
+        "lose_worker",
+        &json!({"session": "s9"})
+    )));
+    assert!(bad(harness.control(
+        "a",
+        "lose_worker",
+        &json!({"session": "s1", "reason": "no_such_reason"})
+    )));
+    for reason in ["worker_version", "registry_corrupt", "WorkerGone"] {
+        assert!(bad(harness.control(
+            "a",
+            "lose_worker",
+            &json!({"session": "s1", "reason": reason})
+        )));
+    }
+    assert!(bad(harness.control(
+        "a",
+        "lose_worker",
+        &json!({"session": "s1", "seconds": 1})
+    )));
+    assert_eq!(
+        harness.control(
+            "a",
+            "lose_worker",
+            &json!({"session": "s1", "reason": "worker_unreachable"})
+        ),
+        Err(ControlError::Unsupported)
+    );
+}

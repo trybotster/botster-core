@@ -6,8 +6,8 @@
 
 use crate::tools::{cargo, cargo_nightly, ensure_nightly, require_cargo_tool, run};
 use crate::{
-    caps, fsutil, gate_decisions, lists, mutants_cited, platform_code, prebuild, process_check,
-    public_api, signals, taint, test_budget, timers, unsafe_exception,
+    caps, fsutil, gate_decisions, high_tier, lists, mutants_cited, platform_code, prebuild,
+    process_check, public_api, signals, taint, test_budget, timers, unsafe_exception,
 };
 use anyhow::{anyhow, bail, Context, Result};
 use std::path::Path;
@@ -32,7 +32,7 @@ const JOBS: &[(&str, &str, JobFn)] = &[
     ),
     (
         "taint",
-        "banned old-world names; unmarked timers; the one unsafe_code exception; raw signal calls; real-process test code outside its owner; cited mutants tests; no excluded gate decision; platform-only code",
+        "banned old-world names; unmarked timers; the one unsafe_code exception; raw signal calls; real-process test code outside its owner; cited mutants tests; no excluded gate decision; platform-only code; the HIGH-path list",
         taint_job,
     ),
     (
@@ -106,6 +106,7 @@ fn taint_job(root: &Path) -> Result<()> {
     process_check::command(root, &[])?;
     mutants_cited::command(root, &[])?;
     gate_decisions::command(root, &[])?;
+    high_tier::command(root, &[])?;
     // The mutation step derives the platform-only code on its own OS; this static step fails early, on both gate OSes,
     // when the derivation cannot place some code.
     let files = package_sources(root)?;
