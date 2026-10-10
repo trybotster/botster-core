@@ -1104,3 +1104,25 @@ This plan review does not review #218 or remove its user-approval hold.
 I ran no builds, tests, gates, mutation jobs, or reversal jobs.
 
 VERDICT: NOT CLEAN (1 open) at 214684de9e15ea9fa54dbbeeacf2a2ebf2113153
+
+## Round 33 — revision 23y correction — 2026-10-10
+
+Reviewed head: `65f78ee18a6d574ecdeba488dc97dbb8dee0e5cf`.
+Prior reviewed head: `214684de9e15ea9fa54dbbeeacf2a2ebf2113153`.
+Scope: both corrected sentences and the complete 23y delta from `c0b6f32ef7edaccf871051749399302604962be1`.
+
+P23y-1 is CLOSED.
+Both sentences now prohibit only the pin-move re-pending exception until its separate HIGH PR lands.
+Both sentences preserve the existing new-ledger and core-pending to core-real-pending entry rules.
+The correction agrees with the lead's clarified option A ruling.
+
+The separate PR must follow #218 and enforce the required failing result on both tiers.
+Its strict real-tier check retains the red-on-revert proof requirement.
+The pin move can proceed independently after the exception code leaves #226 and its reviewers accept the replacement head.
+This plan verdict does not close #226 R1-1 or release the user-approval hold on #218.
+
+The remote plan head matches the reviewed head. `git diff --check` passes.
+This documentation change requires no execution gate.
+I ran no builds, tests, gates, mutation jobs, or reversal jobs.
+
+VERDICT: CLEAN (0 open) at 65f78ee18a6d574ecdeba488dc97dbb8dee0e5cf
