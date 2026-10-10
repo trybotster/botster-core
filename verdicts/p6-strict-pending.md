@@ -327,3 +327,45 @@ The repeated command does not add slow-feature mutation coverage. PR #225 owns t
 The reviewer changed no product code and ran no gate, build, test, mutation job, or reversal.
 
 VERDICT: CLEAN
+
+
+## Round 5 — delta review, 2026-10-10
+
+Exact head: `b40badeb59024274ddf361d20ffeddadde6aab99`.
+Review and full gate base: `c19ad938bd87c60331bd002c0117102d8756b1ae`.
+Previous CLEAN head: `d7976cc3b3549816ff14f857c0ead26b0d4806eb`.
+Risk tier remains HIGH under rules 1, 3, and 5.
+
+No package finding remains. All prior findings remain closed.
+The head merges the new base into the previous CLEAN head, with no separate implementation commit.
+The supplied merge check passes ancestry and condition (1), but fails conditions (2)–(4).
+The base touches the status module and pending file, which are also in the PR's diff.
+Condition (4) also rejects this PR's existing edit to the query-budget comment as a pure id-line removal.
+The reviewer read the supplied failure report and shared-path diff in:
+`~/botster-sessions/shared/core-stage1/evidence/p3-218-merge/`.
+The reviewer reviewed the delta rather than treating the failed check as a pass.
+
+The complete delta from round 4 changes four files.
+`Cargo.toml` and `Cargo.lock` exactly match the new base and pin contracts-v0.1.26 at `0ac061d225724f6f7fc7b2368f637ba2c9a6c2b6`.
+The shared changes in the pending file and status module update tag comments only.
+All 477 pending id lines remain identical and in the same order.
+The strict runner, parser, held file, derived real-only file, gate decisions, and mutation exclusions remain byte-identical to round 4.
+The existing public behavior assertions, Prior art decisions, and retained red-on-revert evidence remain applicable.
+The delta adds no process ownership, wait, sleep, polling loop, cleanup, reaper, or contract assertion change.
+The updated PR body records this merge and the failed check.
+
+The reviewer read the exact-head Linux gate log:
+`~/botster-sessions/gates/botster-core-stage1-p3-strict-pending-b40badeb-pool-20261010-112358-95449.log`.
+It names the exact head and base above. All ten jobs pass, and the gate exits 0.
+Default: 1491 passing tests. Slow: 381 passing tests. Both conformance reports show 193 passed and zero failed.
+At the new contracts pin, the strict report covers 407 pending transcripts: 386 run, 21 real-only not run, and two held.
+The tab-format parser proof and command-environment proof pass.
+The ledger command reports that its copies and derived real-only ids match the pin.
+Minimum counts remain testkit 50/69, real 29/68, and real-accepted 29/69.
+The real report names 87 pending-real ids, with zero newly passing.
+Both mutation commands report 46 mutants: 42 caught, zero missed, zero timeout, and four unviable.
+The repeated command still adds no slow-feature mutation coverage; PR #225 owns that separate change.
+
+The reviewer changed no product code and ran no gate, build, test, mutation job, merge check, or reversal.
+
+VERDICT: CLEAN
