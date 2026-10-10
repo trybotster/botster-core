@@ -45,10 +45,10 @@ fn a_descriptor_arrives_with_the_bytes_and_with_close_on_exec() {
     assert_same_stream(fd, &mut peer, b"same");
 }
 
-/// Lead condition 2: two sends back to back, each with a descriptor, and a read buffer large enough for both. Each read
-/// stops before the next descriptor, so each read's descriptor belongs to its first byte.
+/// Two sends back to back, each with a descriptor, and a read buffer large enough for both: each is a read of its own with
+/// its own descriptor, on both kernels (a read holds at most one descriptor segment).
 #[test]
-fn each_reads_descriptor_belongs_to_its_first_byte() {
+fn two_sends_with_descriptors_are_two_reads_each_with_its_own() {
     let (a, b, first, mut first_peer) = pairs();
     let (second, mut second_peer) = UnixStream::pair().unwrap();
     assert_eq!(send_with_fd(&a, b"one", first.as_fd()).unwrap(), 3);
@@ -58,7 +58,7 @@ fn each_reads_descriptor_belongs_to_its_first_byte() {
     assert_eq!(
         &buf[..one.len],
         b"one",
-        "the read stops before the second descriptor"
+        "the read stops at the second descriptor"
     );
     assert_eq!(one.fds.len(), 1);
     let two = recv_with_fds(&b, &mut buf).unwrap();
@@ -68,20 +68,30 @@ fn each_reads_descriptor_belongs_to_its_first_byte() {
     assert_same_stream(two.fds.into_iter().next().unwrap(), &mut second_peer, b"2");
 }
 
-/// Bytes with no descriptor before a send with one: the plain bytes come first with none, and the descriptor comes with
-/// the first byte of its own send.
+/// Where a read stops around a descriptor's segment (plain bytes, a send with a descriptor, plain bytes; all sent before the
+/// reads). The two kernels differ, and both keep at most one descriptor segment in a read:
+/// - macOS stops a read before a segment with descriptors once it has copied data, and goes on after it: the descriptor
+///   comes with the read's first byte.
+/// - Linux goes on into a segment with descriptors and stops after it: the descriptor's segment is the end of the read.
 #[test]
-fn plain_bytes_before_a_descriptor_come_without_it() {
+fn a_read_holds_one_descriptor_segment_at_its_start_on_macos_and_at_its_end_on_linux() {
     let (mut a, b, passed, _peer) = pairs();
     a.write_all(b"plain").unwrap();
     send_with_fd(&a, b"attach", passed.as_fd()).unwrap();
+    a.write_all(b"after").unwrap();
+    b.set_nonblocking(true).unwrap();
     let mut buf = [0u8; 64];
-    let plain = recv_with_fds(&b, &mut buf).unwrap();
-    assert_eq!(&buf[..plain.len], b"plain");
-    assert!(plain.fds.is_empty());
-    let attach = recv_with_fds(&b, &mut buf).unwrap();
-    assert_eq!(&buf[..attach.len], b"attach");
-    assert_eq!(attach.fds.len(), 1);
+    let mut reads = Vec::new();
+    while let Ok(read) = recv_with_fds(&b, &mut buf) {
+        reads.push((buf[..read.len].to_vec(), read.fds.len()));
+    }
+    let expected: [(&[u8], usize); 2] = if cfg!(target_os = "macos") {
+        [(b"plain", 0), (b"attachafter", 1)]
+    } else {
+        [(b"plainattach", 1), (b"after", 0)]
+    };
+    let expected: Vec<(Vec<u8>, usize)> = expected.iter().map(|(b, n)| (b.to_vec(), *n)).collect();
+    assert_eq!(reads, expected);
 }
 
 /// Sends one message with `count` descriptors.
@@ -200,12 +210,13 @@ fn the_end_of_the_stream_is_a_read_of_nothing() {
     assert_eq!((received.len, received.fds.len()), (0, 0));
 }
 
-/// Lead condition 3: a message that the kernel cuts (`MSG_CTRUNC`; here a control space for one descriptor, and four sent) is
+/// Lead condition 3: a message that the kernel cuts (`MSG_CTRUNC`; here a control space for one descriptor, and 32 sent) is
 /// an error, and it is not parsed, so the process does not abort on macOS (see `CONTROL_BYTES`).
 #[test]
 fn a_message_that_the_kernel_cuts_is_an_error_and_is_not_parsed() {
     let (a, b) = UnixStream::pair().unwrap();
-    send_many(&a, MAX_FDS);
+    // rustix's space for one descriptor holds a few (it rounds up for the alignment): far more is cut on both kernels.
+    send_many(&a, 8 * MAX_FDS);
     let mut buf = [0u8; 8];
     let mut space = [MaybeUninit::uninit(); rustix::cmsg_space!(ScmRights(1))];
     let error = recv_into(&b, &mut buf, &mut space).unwrap_err();

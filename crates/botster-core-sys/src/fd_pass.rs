@@ -3,8 +3,15 @@
 //! is never ours.
 //!
 //! **A descriptor rides on the first byte of its send.** [`send_with_fd`] sends the descriptor with the bytes, and the kernel
-//! attaches it to the first of them. A stream read stops before a segment that carries descriptors once it has copied data, so
-//! the descriptors that one [`recv_with_fds`] returns belong to the first byte that it read.
+//! keeps it with that send's segment. One [`recv_with_fds`] holds at most one segment with descriptors, and the kernels
+//! place it differently (measured; `a_read_holds_one_descriptor_segment_at_its_start_on_macos_and_at_its_end_on_linux`):
+//! - macOS stops a read before a segment with descriptors once it has copied data, and goes on after it, so the segment
+//!   is the start of the read;
+//! - Linux goes on into a segment with descriptors and stops after it, so the segment is the end of the read.
+//!
+//! So a reader cannot place a descriptor by its byte position alone. The host sends each `AttachRoute` frame from its first
+//! byte with its stream, and nothing else with a descriptor: a read with descriptors holds the start of exactly one
+//! `AttachRoute` frame, and the descriptors belong to that frame.
 //!
 //! **Close-on-exec.** A received descriptor must never reach a process that the receiver starts. On Linux the kernel sets
 //! `FD_CLOEXEC` as the descriptor arrives (`MSG_CMSG_CLOEXEC`). macOS has no such flag: [`recv_with_fds`] sets `FD_CLOEXEC`
