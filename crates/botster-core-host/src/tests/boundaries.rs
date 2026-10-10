@@ -593,37 +593,11 @@ fn an_op_of_a_removed_instance_is_unknown_to_cancel() {
 }
 
 /// Core A2-1: an op that names no live session is refused by its own row: `UnknownSession`, `UnknownRoute`, `Unsupported`
-/// (WebRTC, services, a live adopt) or `UnknownService`.
+/// (services, a live adopt) or `UnknownService`.
 #[test]
 fn the_rows_of_the_unbuilt_operations_have_their_own_codes() {
     let mut w = World::default();
     w.running("s1");
-    let webrtc = |session: &str| Op::AttachWebRtc {
-        client: ClientId("c".into()),
-        session: sid(session),
-        offer: String::new(),
-        expected_fingerprint: String::new(),
-        options: AttachOptions {
-            file_directory: "/tmp".into(),
-            file_permissions: None,
-            route_features: vec![],
-            terminal_formats: vec![],
-            connect_deadline: None,
-            owner: None,
-            query_deadline: None,
-            route_tag: None,
-            route_limits: None,
-            history: None,
-            stall_deadline: None,
-            answers_queries: false,
-            input: true,
-        },
-    };
-    assert_eq!(refused(&mut w, webrtc("nope")), ErrorCode::UnknownSession);
-    assert!(matches!(
-        refused(&mut w, webrtc("s1")),
-        ErrorCode::Unsupported { .. }
-    ));
     assert_eq!(
         refused(&mut w, Op::Adopt { id: sid("nope") }),
         ErrorCode::UnknownSession
@@ -791,7 +765,6 @@ fn attach_options() -> AttachOptions {
         file_permissions: None,
         route_features: vec![],
         terminal_formats: vec![],
-        connect_deadline: None,
         owner: None,
         query_deadline: Some(Duration::from_secs(1)),
         route_tag: None,
@@ -854,7 +827,6 @@ fn attach_checks_each_route_limit_at_its_bound() {
                 max_frame_bytes: frame,
                 max_screen_frame_bytes: screen,
                 max_history_page_bytes: None,
-                max_chunk_bytes: None,
             })
         }
     };
@@ -905,7 +877,6 @@ fn attach_checks_each_route_limit_at_its_bound() {
         default.max_history_page_bytes,
         limits.max_history_page_bytes
     );
-    assert_eq!(default.max_chunk_bytes, limits.default_route_chunk_bytes);
     assert_eq!(default.max_paste_bytes, limits.max_paste_bytes);
     assert_eq!(default.max_query_bytes, limits.max_query_bytes);
     assert_eq!(default.max_query_reply_bytes, limits.max_query_reply_bytes);
@@ -922,7 +893,6 @@ fn attach_checks_each_route_limit_at_its_bound() {
             max_frame_bytes: Some(1000),
             max_screen_frame_bytes: Some(floor + 5),
             max_history_page_bytes: Some(7000),
-            max_chunk_bytes: Some(2000),
         });
     })
     .unwrap()
@@ -930,7 +900,6 @@ fn attach_checks_each_route_limit_at_its_bound() {
     assert_eq!(chosen.max_frame_bytes, 1000);
     assert_eq!(chosen.max_screen_frame_bytes, floor + 5);
     assert_eq!(chosen.max_history_page_bytes, 7000);
-    assert_eq!(chosen.max_chunk_bytes, 2000);
     assert_eq!(chosen.stall_deadline, Duration::from_secs(3));
 }
 
