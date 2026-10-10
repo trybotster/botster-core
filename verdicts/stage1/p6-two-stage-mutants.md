@@ -291,3 +291,12 @@ That separate tool consequence needs its own stated scope; this finding concerns
 I ran no build, test, gate, mutation job, or reversal job.
 
 VERDICT: NOT CLEAN (1 open: R2-1 MEDIUM; Round 2 CLEAN withdrawn).
+
+### Retained primary outcome receipt — 2026-10-10
+
+During #229 review, I read both P5 outcome files in `~/botster-sessions/shared/core-stage1/gate-logs/deb34002-mutants/`.
+Their complete mutant names and spans independently confirm the field-selection finding above.
+Stage 1 catches the `edge_tap.rs:83:13` field deletion. Stage 2 misses the same mutant.
+The stage 1 file SHA256 is `83a79706637af8bd4e81c62315f0210457066c3520f0f1b3005a396ddb1c5c90`.
+The stage 2 file SHA256 is `0bfc3143065c758a4449a84f30cc88a71131f692f71fcb0ae5c253ed49a28906`.
+This receipt changes no review round or verdict. The replacement review is in `verdicts/stage1/p6-stage2-identity.md`.
