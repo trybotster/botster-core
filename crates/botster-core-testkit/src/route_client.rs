@@ -87,11 +87,9 @@ fn flag(args: &Value, key: &str) -> Result<bool, String> {
 /// The byte `k` of a `route_fill` is 0x61 + (k mod 26), with `k` from 0 for each fill (R-47 item 3).
 fn fill_pattern(bytes: usize) -> Vec<u8> {
     const ALPHABET: &[u8; 26] = b"abcdefghijklmnopqrstuvwxyz";
-    let mut pattern = Vec::with_capacity(bytes);
-    while pattern.len() < bytes {
-        let more = (bytes - pattern.len()).min(ALPHABET.len());
-        pattern.extend_from_slice(&ALPHABET[..more]);
-    }
+    // Whole copies of the alphabet, cut to length: no loop condition, so no mutant of one can hang the fill.
+    let mut pattern = ALPHABET.repeat(bytes.div_ceil(ALPHABET.len()));
+    pattern.truncate(bytes);
     pattern
 }
 
@@ -337,6 +335,8 @@ mod tests {
     #[test]
     fn route_fill_is_the_pattern_and_needs_the_session_worker() {
         assert_eq!(fill_pattern(28), b"abcdefghijklmnopqrstuvwxyzab");
+        assert_eq!(fill_pattern(26), b"abcdefghijklmnopqrstuvwxyz");
+        assert!(fill_pattern(0).is_empty());
         // C: the free room of the worker's queue, limited by route_accept, and 0 while gated.
         let (mut client, mut worker) = route(16);
         assert_eq!(worker.write(b"abcde").unwrap(), 5);
