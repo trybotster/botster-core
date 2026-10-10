@@ -10,6 +10,7 @@ use crate::{
     process_check, public_api, signals, taint, test_budget, timers, unsafe_exception,
 };
 use anyhow::{anyhow, bail, Context, Result};
+use botster_core_testkit::pending;
 use std::path::Path;
 use std::process::Command;
 use std::time::{Duration, Instant};
@@ -134,7 +135,7 @@ fn passed_count(report: &str) -> Option<u64> {
 }
 
 /// Runs the conformance binary and returns its report text.
-fn conformance_report(root: &Path, extra: &[&str]) -> Result<String> {
+fn conformance_report(root: &Path, extra: &[&str], env: &[(&str, &str)]) -> Result<String> {
     let mut cmd = cargo(root);
     cmd.args([
         "test",
@@ -148,7 +149,8 @@ fn conformance_report(root: &Path, extra: &[&str]) -> Result<String> {
         "terse",
     ])
     .args(extra)
-    .envs(test_budget::tier_env(false));
+    .envs(test_budget::tier_env(false))
+    .envs(env.iter().copied());
     let out = cmd.output().context("run the conformance binary")?;
     let text = String::from_utf8_lossy(&out.stdout).into_owned();
     print!("{text}");
@@ -162,17 +164,31 @@ fn conformance_report(root: &Path, extra: &[&str]) -> Result<String> {
 }
 
 /// The lists check, then the report of the conformance harness (its four counts). A run that asks for the ignored trials too
-/// must not pass more ids: a pending or deferred id is never a pass (plan section 5).
+/// must not pass more ids: a pending or deferred id is never a pass (plan section 5). The first run is strict
+/// (`botster_core_testkit::pending`): a pending id that passes, or a held id that fails, fails its trial and the step.
 fn lists_job(root: &Path) -> Result<()> {
     lists::command(root, &[])?;
     lists::ledger_ids_command(root, &[])?;
-    let normal = conformance_report(root, &[])?;
-    let with_ignored = conformance_report(root, &["--include-ignored"])?;
+    let normal = conformance_report(root, &[], &[(pending::STRICT_ENV, "1")])?;
+    strict_ran(&normal)?;
+    let with_ignored = conformance_report(root, &["--include-ignored"], &[])?;
     let (a, b) = (passed_count(&normal), passed_count(&with_ignored));
     if a.is_none() || a != b {
         bail!("the conformance report counts {a:?} passed, and {b:?} passed when ignored trials are included");
     }
     Ok(())
+}
+
+/// The strict run reported itself. A harness that ignores the variable gives no strict line, and fails here.
+fn strict_ran(report: &str) -> Result<()> {
+    if report
+        .lines()
+        .any(|l| l.starts_with("conformance strict: "))
+    {
+        Ok(())
+    } else {
+        bail!("the strict pending run gave no `conformance strict:` report")
+    }
 }
 
 fn public_api_job(root: &Path) -> Result<()> {
@@ -771,6 +787,15 @@ mod tests {
         assert_eq!(passed_count(report), Some(12));
         assert_eq!(passed_count("conformance: passed 0, failed 0"), Some(0));
         assert_eq!(passed_count("no report"), None);
+    }
+
+    /// The strict pending run must report itself: the normal report alone means the harness ignored the variable.
+    #[test]
+    fn the_strict_run_needs_its_report_line() {
+        let strict = "conformance: passed 12, failed 0, pending 3\nconformance strict: every pending id ran, except 1 real-only; 1 held\n";
+        assert!(strict_ran(strict).is_ok());
+        assert!(strict_ran("conformance: passed 12, failed 0, pending 3\n").is_err());
+        assert!(strict_ran(" conformance strict: every pending id ran\n").is_err());
     }
 
     #[test]

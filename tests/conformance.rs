@@ -13,10 +13,16 @@
 //!
 //! A pending or deferred id is never counted as passed. `cargo xtask ci` validates the three files. The seed set and the
 //! selection come from the runner's environment variables (`BOTSTER_SEEDS`, `BOTSTER_ONLY`, `BOTSTER_CLAUSE`, `BOTSTER_SEED`).
+//!
+//! With `BOTSTER_PENDING_STRICT=1` (set by the `lists` step of `cargo xtask ci`; `botster_core_testkit::pending`), a selected
+//! pending id with a transcript runs: it must fail, a held id (`core-held.txt`) must pass, and a real-only id
+//! (`core-real-only.txt`) does not run. The expected result reports itself ignored, so a pending id is still never a pass.
+//! The nextest tiers do not set the variable: there a pending trial stays ignored and does not run.
 
 use botster_conformance::report::describe;
 use botster_conformance::{load_dir, run_transcript, Limits, SeedSet, Selection, Transcript};
 use botster_core_conformance::{driver_for, CoreHarness, CoreSchemas, CORE_TRANSCRIPTS};
+use botster_core_testkit::pending::{self, Class};
 use botster_core_testkit::status::{parse_deferred as parse_status_deferred, parse_withdrawn};
 use botster_core_testkit::TestkitHarness;
 use libtest_mimic::{Arguments, Completion, Failed, Trial};
@@ -29,6 +35,9 @@ const DEFERRED: &str = include_str!("../conformance/core-deferred.toml");
 /// The contracts' status files at the pinned tag (`cargo xtask lists` checks that they are the pinned files).
 const CONTRACTS_DEFERRED: &str = include_str!("../conformance/contracts-deferred.txt");
 const CONTRACTS_WITHDRAWN: &str = include_str!("../conformance/contracts-withdrawn.txt");
+/// The exemptions of the strict pending run (`cargo xtask lists` checks both files).
+const REAL_ONLY: &str = include_str!("../conformance/core-real-only.txt");
+const HELD: &str = include_str!("../conformance/core-held.txt");
 
 // Core TH-1, checked when this suite compiles: the facade's handle is `Send` and not `Sync` (no nightly feature).
 static_assertions::assert_impl_all!(botster_core::Core: Send);
@@ -85,12 +94,13 @@ fn never_passes(id: &str, kind: &str, reason: String) -> Trial {
         .with_ignored_flag(true)
 }
 
-fn run_id(transcript: &Transcript) -> Result<(), Failed> {
+/// Runs one transcript over the seed set: `Ok(())` on a pass, else the description of the outcome.
+fn outcome_of(transcript: &Transcript) -> Result<(), String> {
     let Some(make) = harness_factory() else {
-        return Err(Failed::from(format!(
+        return Err(format!(
             "{}: no harness is available yet; the id belongs in conformance/core-pending.txt",
             transcript.id
-        )));
+        ));
     };
     let seeds = Selection::from_env().seeds(&SeedSet::from_env());
     let outcome = run_transcript(
@@ -103,8 +113,31 @@ fn run_id(transcript: &Transcript) -> Result<(), Failed> {
     if outcome.is_pass() {
         Ok(())
     } else {
-        Err(Failed::from(describe(&transcript.id, &outcome)))
+        Err(describe(&transcript.id, &outcome))
     }
+}
+
+fn run_id(transcript: &Transcript) -> Result<(), Failed> {
+    outcome_of(transcript).map_err(Failed::from)
+}
+
+/// The trial of a pending id in the strict run. A real-only id does not run. Another one runs, and `pending::verdict`
+/// decides: a pending id that passes fails its trial, and so does a held id that fails. An expected result reports
+/// itself ignored, so that the strict run counts no pass.
+fn strict_trial(transcript: &Transcript, class: Class) -> Trial {
+    let id = transcript.id.clone();
+    if let Class::RealOnly(_) = class {
+        let note = pending::verdict(&id, &class, false).unwrap_or_default();
+        return never_passes(&id, "pending: real-only", note);
+    }
+    let transcript = transcript.clone();
+    Trial::ignorable_test(id.clone(), move || {
+        let passed = outcome_of(&transcript).is_ok();
+        pending::verdict(&id, &class, passed)
+            .map(Completion::ignored_with)
+            .map_err(Failed::from)
+    })
+    .with_kind("pending: strict")
 }
 
 fn main() {
@@ -116,6 +149,9 @@ fn main() {
     let (_, cases) = parse_status_deferred(CONTRACTS_DEFERRED).expect("deferred.txt parses");
     let transcripts = load_dir(&CORE_TRANSCRIPTS).expect("the Core transcripts load");
     let selection = Selection::from_env();
+    let strict = std::env::var(pending::STRICT_ENV).is_ok_and(|v| v == "1");
+    let real_only = pending::parse_real_only(REAL_ONLY).expect("core-real-only.txt parses");
+    let held = pending::parse_held(HELD).expect("core-held.txt parses");
 
     let mut trials = Vec::new();
     let (mut pending_count, mut no_transcript_count, mut withdrawn_count) =
@@ -132,6 +168,12 @@ fn main() {
             trials.push(never_passes(id, "deferred", reason));
         } else if pending.contains(id) || transcript.is_none() {
             let (kind, reason) = match transcript {
+                Some(transcript) if strict && selection.selects(transcript) => {
+                    pending_count += 1;
+                    let class = pending::class_of(id, &real_only, &held);
+                    trials.push(strict_trial(transcript, class));
+                    continue;
+                }
                 Some(_) => {
                     pending_count += 1;
                     ("pending", "pending: no passing proof yet")
@@ -181,6 +223,14 @@ fn main() {
         }
         for (id, authority, start) in &deferred {
             println!("conformance: deferred {id} ({authority}; starts when {start})");
+        }
+        if strict {
+            // `cargo xtask ci` needs this line: without it, the harness ignored the variable.
+            println!(
+                "conformance strict: every pending id ran, except {} real-only; {} held",
+                real_only.iter().filter(|r| pending.contains(&r.id)).count(),
+                held.len()
+            );
         }
     }
     conclusion.exit();

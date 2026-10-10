@@ -11,7 +11,7 @@
 use crate::fsutil::{base, git_show};
 use anyhow::{bail, Context, Result};
 use botster_core_contract::prelude::Feature;
-use botster_core_testkit::status;
+use botster_core_testkit::{pending, status};
 use botster_worker_core::{WORKER_FEATURES_BY_PROTOCOL, WORKER_PROTOCOL};
 use std::collections::BTreeSet;
 use std::path::Path;
@@ -23,6 +23,9 @@ const DEFERRED_FILE: &str = "conformance/core-deferred.toml";
 /// The harness reads the copies; `check` fails when a copy differs from the pinned source.
 pub const CONTRACTS_DEFERRED_COPY: &str = "conformance/contracts-deferred.txt";
 pub const CONTRACTS_WITHDRAWN_COPY: &str = "conformance/contracts-withdrawn.txt";
+/// The real-only Core ids, derived from the pinned replacement map; and the held ids (`botster_core_testkit::pending`).
+pub const REAL_ONLY_FILE: &str = "conformance/core-real-only.txt";
+pub const HELD_FILE: &str = "conformance/core-held.txt";
 
 /// The deferred set that Core A6-2 enumerates, with the start condition of each id. A later accepted text replaces this data
 /// in the commit that moves the contracts pin (plan section 5, rule 3). Source: A6-2 of
@@ -377,6 +380,9 @@ pub fn command(root: &Path, args: &[String]) -> Result<()> {
     let ledger_file = parse_ids(&read(LEDGER_FILE)?).map_err(anyhow::Error::msg)?;
     let pending = parse_ids(&read(PENDING_FILE)?).map_err(anyhow::Error::msg)?;
     let deferred = parse_deferred(&read(DEFERRED_FILE)?)?;
+    let real_only = pending::parse_real_only(&read(REAL_ONLY_FILE)?).map_err(anyhow::Error::msg)?;
+    let held = pending::parse_held(&read(HELD_FILE)?).map_err(anyhow::Error::msg)?;
+    problems.extend(pending::held_problems(&held, &pending, &real_only));
     let manifest = std::fs::read_to_string(meta.contracts_root.join("frozen/current/MANIFEST.md"))
         .unwrap_or_default();
 
@@ -470,6 +476,7 @@ fn ledger_text(ledger: &BTreeSet<String>) -> String {
 pub struct StatusSources {
     pub deferred: String,
     pub withdrawn: String,
+    pub replacement_map: String,
 }
 
 pub fn status_sources(contracts_root: &Path) -> Result<StatusSources> {
@@ -480,6 +487,7 @@ pub fn status_sources(contracts_root: &Path) -> Result<StatusSources> {
     Ok(StatusSources {
         deferred: read("deferred.txt")?,
         withdrawn: read("withdrawn.txt")?,
+        replacement_map: read("replacement-map.json")?,
     })
 }
 
@@ -514,17 +522,20 @@ pub fn ledger_ids_command(root: &Path, args: &[String]) -> Result<()> {
     let meta = crate::fsutil::metadata(root)?;
     let ledger = ledger_of(&meta.contracts_root)?;
     let source = status_sources(&meta.contracts_root)?;
+    let real_only =
+        pending::real_only_of_map(&source.replacement_map, &ledger).map_err(anyhow::Error::msg)?;
     let files = [
         (LEDGER_FILE, ledger_text(&ledger)),
         (CONTRACTS_DEFERRED_COPY, source.deferred),
         (CONTRACTS_WITHDRAWN_COPY, source.withdrawn),
+        (REAL_ONLY_FILE, pending::real_only_text(&real_only)),
     ];
     if write {
         for (path, text) in &files {
             std::fs::write(root.join(path), text)?;
         }
         println!(
-            "ledger-ids: wrote {} ids and the two status files",
+            "ledger-ids: wrote {} ids, the two status files and the real-only ids",
             ledger.len()
         );
         return Ok(());
@@ -535,7 +546,7 @@ pub fn ledger_ids_command(root: &Path, args: &[String]) -> Result<()> {
         }
     }
     println!(
-        "ledger-ids: {} ids and the status files match the pin",
+        "ledger-ids: {} ids, the status files and the real-only ids match the pin",
         ledger.len()
     );
     Ok(())

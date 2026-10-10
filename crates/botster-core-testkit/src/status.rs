@@ -41,7 +41,7 @@ pub struct Withdrawn {
 }
 
 /// The lines of a status file: fields split on two or more spaces, with the line number for the error text.
-fn lines(text: &str) -> impl Iterator<Item = (usize, Vec<&str>)> {
+pub(crate) fn lines(text: &str) -> impl Iterator<Item = (usize, Vec<&str>)> {
     text.lines().enumerate().filter_map(|(i, line)| {
         let line = line.trim();
         if line.is_empty() || line.starts_with('#') {
@@ -57,7 +57,7 @@ fn lines(text: &str) -> impl Iterator<Item = (usize, Vec<&str>)> {
     })
 }
 
-fn clause(field: &str) -> Option<&str> {
+pub(crate) fn clause(field: &str) -> Option<&str> {
     field.strip_prefix('(')?.strip_suffix(')')
 }
 
