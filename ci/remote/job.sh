@@ -7,7 +7,8 @@
 #                    -- <command and args...>
 #
 # --run names the job for its caller: botster-gate finds and cancels the job by it. A failed job keeps its mutation reports
-# (mutants.out, mutants-fakes, target/mutants.out) in ~/testq/projects/<project>/artifacts/<run> for 7 days.
+# (mutants.out, mutants-fakes, target/mutants.out, target/mutants-stage2/mutants.out) in
+# ~/testq/projects/<project>/artifacts/<run> for 7 days.
 # --branch picks the target volume: one per project and branch, so a branch's gates build incrementally. botster-gate
 # holds a host lock per branch for the whole gate, so two gates never share a target volume at once.
 # --base sets BOTSTER_CI_BASE_REF to the base commit that the client recorded, so the diff checks use it.
@@ -276,7 +277,7 @@ if (( status )); then
   remove_child "$artifacts" "$artifacts/$run"
   mkdir -p "$artifacts/$run"
   container --name "$name-artifacts" "${mounts[@]}" -v "$artifacts/$run:/out" "$image" \
-    sh -c 'for p in mutants.out mutants-fakes target/mutants.out; do
+    sh -c 'for p in mutants.out mutants-fakes target/mutants.out target/mutants-stage2/mutants.out; do
              [ -e "/work/$p" ] && cp -a "/work/$p" "/out/$(echo "$p" | tr / -)"; done; true' || true
   if [ -n "$(ls -A "$artifacts/$run")" ]; then
     echo "Failure artifacts: $artifacts/$run (kept 7 days)"
