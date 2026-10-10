@@ -741,11 +741,10 @@ fn stage2_args(
     );
     // Each mutant builds and tests the whole workspace, so `<member>/slow` is valid for each member; the slow filter
     // selects the tests. The baseline is `stage2_baseline_args`.
-    args.extend(
-        ["--test-workspace", "true", "--baseline", "skip"]
-            .iter()
-            .map(|s| s.to_string()),
-    );
+    for package in slow_packages {
+        args.push("--test-package".into());
+        args.push(package.clone());
+    }
     for re in exclusions {
         args.push("--exclude-re".into());
         args.push(re.clone());
