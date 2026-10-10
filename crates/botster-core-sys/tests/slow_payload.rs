@@ -11,7 +11,7 @@ mod payload_guard;
 mod process_guard;
 
 use botster_core_edges::edges::ExitStatus;
-use botster_core_sys::payload::{Payload, PayloadCommand, SpawnFailure};
+use botster_core_sys::payload::{LoopThread, Payload, PayloadCommand, SpawnFailure};
 use payload_guard::PayloadGuard;
 use std::collections::BTreeMap;
 use std::io;
@@ -71,13 +71,16 @@ fn spawn(argv: &[&str], cwd: &str) -> Result<GuardedPayload, SpawnFailure> {
             *script = format!("{}{script}", guard.prefix());
         }
     }
-    let payload = Payload::spawn(&PayloadCommand {
-        argv: &argv,
-        env: &env(),
-        cwd,
-        rows: 24,
-        cols: 80,
-    })?;
+    let payload = Payload::spawn(
+        LoopThread::current(),
+        &PayloadCommand {
+            argv: &argv,
+            env: &env(),
+            cwd,
+            rows: 24,
+            cols: 80,
+        },
+    )?;
     Ok(GuardedPayload {
         payload: Some(payload),
         guard: Some(guard),
