@@ -230,7 +230,12 @@ fn anchor(args: &[OsString]) -> io::Result<()> {
     }
     verify(&report).map_err(other)?;
     send(io::stderr(), &Line::Anchor(report))?;
-    io::Write::write_all(&mut io::stdout(), b"ready\n")?;
+    // The wrap stage reads this acknowledgement before its exec. Production can end the wrap stage before that (a Stop right
+    // after its Start, Core LC-5): the pipe then has no reader, and the anchor still holds the group to its end.
+    match io::Write::write_all(&mut io::stdout(), b"ready\n") {
+        Err(error) if error.kind() == io::ErrorKind::BrokenPipe => {}
+        written => written?,
+    }
     // Blocks until the guard connection ends. An error is an end as well: a connection that the guard never accepted is reset
     // when the guard's process dies. Neither a timer nor a loop of the CPU is involved.
     let _ = io::copy(&mut io::stdin().lock().by_ref(), &mut io::sink());

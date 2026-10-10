@@ -345,6 +345,14 @@ impl Driver {
                 }
             }
             Action::AdoptLink(id) => self.adopt_link(id)?,
+            // The route descriptors come with `SCM_RIGHTS` on the control socket, which is real-only work after the testkit
+            // PRs of P4a (worker-core DESIGN.md "Real-only"). Until then this driver gives no `Input::Descriptor`, so the
+            // machine binds no route and names none; with no route, the PTY read budget only lifts a limit it never set.
+            Action::BindRoute { .. }
+            | Action::CloseDescriptor(_)
+            | Action::RouteWrite { .. }
+            | Action::RouteClose { .. }
+            | Action::PtyReadBudget(_) => {}
         }
         Ok(())
     }

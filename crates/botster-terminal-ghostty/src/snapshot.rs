@@ -183,6 +183,13 @@ impl Terminal {
     /// The complete snapshot: screen, scrollback, modes and the unfinished parser input. It is the library's own
     /// format, and `Terminal::new` is not its reader.
     pub fn snapshot(&self) -> Result<Vec<u8>, SnapshotError> {
+        self.snapshot_at_most(usize::MAX)
+            .map(|snapshot| snapshot.expect("no snapshot is over usize::MAX"))
+    }
+
+    /// The snapshot when it is at most `max` bytes, else `None`. The library gives the size first, so a snapshot over `max`
+    /// allocates nothing (Core DP-3: the frame limit is checked before allocation).
+    pub fn snapshot_at_most(&self, max: usize) -> Result<Option<Vec<u8>>, SnapshotError> {
         let mut needed = 0usize;
         // SAFETY: a null buffer of length zero asks for the size, and `needed` is a valid out pointer.
         let code = unsafe {
@@ -195,9 +202,12 @@ impl Terminal {
         };
         match code {
             sys::OUT_OF_SPACE => {}
-            sys::SUCCESS => return Ok(Vec::new()),
+            sys::SUCCESS => return Ok(Some(Vec::new())),
             sys::INVALID_VALUE => return Err(SnapshotError::ContinuationUnavailable),
             other => return Err(SnapshotError::Library(Error::from_code(other))),
+        }
+        if needed > max {
+            return Ok(None);
         }
         let mut out = Vec::new();
         out.try_reserve_exact(needed)
@@ -217,7 +227,7 @@ impl Terminal {
         match code {
             sys::SUCCESS => {
                 out.truncate(written);
-                Ok(out)
+                Ok(Some(out))
             }
             sys::INVALID_VALUE => Err(SnapshotError::ContinuationUnavailable),
             other => Err(SnapshotError::Library(Error::from_code(other))),

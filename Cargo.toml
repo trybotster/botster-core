@@ -14,15 +14,19 @@ unsafe_code = "forbid"
 
 [workspace.dependencies]
 base64 = { version = "0.22", default-features = false, features = ["alloc"] }
-# botster-contracts, by tag (plan section 0; contracts-v0.1.22 = af5771c, manifest-final37: Core Amendment 17 candidate 2, WebRTC moves to the Hub
-# and Core has one route transport, `Stream`; HC Amendment 8, HP Amendment 9, codec rev37; Limits::real (R-43); the Stop-race transcripts;
-# earlier: final36, Core Amendment 18 candidate 2; Core Amendments 13 to 16 in the crates, InvalidInput{field}; rulings R-30 to R-37).
-botster-core-contract = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.22" }
-botster-conformance = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.22" }
-botster-core-conformance = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.22" }
-botster-route-codec = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.22" }
-botster-probe-script = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.22" }
-botster-test-support = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.22" }
+# botster-contracts, by tag (plan section 0; contracts-v0.1.24 = d79aed5, manifest-final39: Core Amendment 20 (a proof that observes the
+# worker's own allocator is a testkit proof; TESTKIT_PROVEN); the R-46 stop-grace clock steps and the in_9 reorder; R-48 (the probe sets a
+# terminal stdin to non-canonical mode with no echo); earlier: final38, Core Amendment 19 (the frame floor; query_id as a u64 decimal
+# string), rulings R-44 to R-47, the R-46 driver, the ou_2b Detach pumps; final37, Core Amendment 17 candidate 2 (WebRTC moves to the Hub;
+# one route transport, `Stream`), HC A8, HP A9, codec rev37, Limits::real (R-43); final36, Core Amendment 18 candidate 2; Core Amendments
+# 13 to 16; rulings R-30 to R-37).
+botster-core-contract = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.24" }
+botster-conformance = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.24" }
+botster-core-conformance = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.24" }
+botster-hub-conformance = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.24" }
+botster-route-codec = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.24" }
+botster-probe-script = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.24" }
+botster-test-support = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.24" }
 
 anyhow = "1"
 data-encoding = "2"
