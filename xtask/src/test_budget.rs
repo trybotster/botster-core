@@ -11,9 +11,10 @@ use anyhow::{bail, Context, Result};
 use botster_test_support::census::{leftovers, ps_snapshot, update_owned, Proc};
 use regex::Regex;
 use std::collections::{BTreeMap, HashMap};
+use std::io::{BufRead, BufReader};
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
-use std::process::{Command, ExitStatus};
+use std::process::{Command, ExitStatus, Stdio};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
@@ -233,19 +234,52 @@ fn run_nextest(
     pidfile: &Path,
     slow: bool,
 ) -> Result<Run> {
-    let started = Instant::now();
     let mut command = Command::new("cargo");
     command
         .current_dir(root)
         .args(["nextest", "run"])
         .args(args)
         .env("BOTSTER_TEST_PIDFILE", pidfile)
-        .envs(tier_env(slow))
-        .process_group(0);
-    let mut child = caps::apply(&mut command)
-        .spawn()
-        .context("start cargo nextest (install it with `cargo install cargo-nextest --locked`)")?;
+        .envs(tier_env(slow));
+    let (run, _) = run_bounded(
+        command,
+        deadline,
+        pidfile,
+        None,
+        "start cargo nextest (install it with `cargo install cargo-nextest --locked`)",
+    )?;
+    Ok(run)
+}
+
+/// Runs `command` in its own process group, and kills that group when `deadline` passes. A tracker thread records which
+/// processes belong to the run while it goes (see `update_owned`). With `capture`, the run's stdout goes through a pipe:
+/// each line is printed as it comes and sent to `capture`, so the caller reads it after [`clean_up`] (a leftover that holds
+/// the pipe keeps it open until then). Everything after the spawn returns a value, so the caller can always clean up.
+fn run_bounded(
+    mut command: Command,
+    deadline: Duration,
+    pidfile: &Path,
+    capture: Option<mpsc::Sender<String>>,
+    start: &'static str,
+) -> Result<(Run, Option<std::thread::JoinHandle<()>>)> {
+    let started = Instant::now();
+    command.process_group(0);
+    if capture.is_some() {
+        command.stdout(Stdio::piped());
+    }
+    let mut child = caps::apply(&mut command).spawn().context(start)?;
     let group = child.id();
+    let reader = match (capture, child.stdout.take()) {
+        (Some(lines), Some(stdout)) => Some(std::thread::spawn(move || {
+            for line in BufReader::new(stdout).lines().map_while(Result::ok) {
+                println!("{line}");
+                if lines.send(line).is_err() {
+                    break;
+                }
+            }
+        })),
+        _ => None,
+    };
 
     let (stop_tx, stop_rx) = mpsc::channel::<()>();
     let tracker = std::thread::spawn(move || {
@@ -287,13 +321,112 @@ fn run_nextest(
             owned
         })
     });
-    Ok(Run {
-        status: status.map_err(|e| e.to_string()),
-        timed_out,
-        wall,
-        group,
-        owned,
-    })
+    Ok((
+        Run {
+            status: status.map_err(|e| e.to_string()),
+            timed_out,
+            wall,
+            group,
+            owned,
+        },
+        reader,
+    ))
+}
+
+/// Runs the real tier's pending-real trials (`cargo test -p botster-core --features slow --test slow_conformance --
+/// --ignored`) under the slow tier's bounds: its own process group, `deadline`, the process tracker and the leftover check
+/// (#220 R1-1). A pending-real id never fails the run, and its outcome is in the report that the binary prints: returns
+/// that stdout, and whether the binary succeeded. A run past `deadline`, a process that it left behind, or a report pipe
+/// still open at `deadline` fails.
+///
+/// # Errors
+/// The run could not start, passed its deadline, or left processes behind.
+pub fn pending_real(root: &Path, deadline: Duration) -> Result<(bool, String)> {
+    caps::require()?;
+    let meta = metadata(root)?;
+    let pidfile = meta
+        .target_dir
+        .join("nextest")
+        .join("slow")
+        .join("pending-real-pids");
+    let _ = std::fs::remove_file(&pidfile);
+    if let Some(dir) = pidfile.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    let mut command = Command::new("cargo");
+    command
+        .current_dir(root)
+        .args([
+            "test",
+            "-p",
+            "botster-core",
+            "--features",
+            "slow",
+            "--test",
+            "slow_conformance",
+            "--locked",
+            "--",
+            "--ignored",
+            "--format",
+            "terse",
+            "--test-threads",
+            "4",
+        ])
+        .envs(tier_env(true));
+    bounded_report(
+        command,
+        deadline,
+        &pidfile,
+        "start the real-tier conformance binary",
+    )
+}
+
+/// Runs `command` with [`run_bounded`], capturing its stdout, and judges it: past `deadline`, a leftover process, or a
+/// report pipe still open at `deadline` fails; otherwise returns whether it succeeded and what it printed.
+fn bounded_report(
+    command: Command,
+    deadline: Duration,
+    pidfile: &Path,
+    start: &'static str,
+) -> Result<(bool, String)> {
+    let started = Instant::now();
+    let (lines_tx, lines_rx) = mpsc::channel();
+    let (run, reader) = run_bounded(command, deadline, pidfile, Some(lines_tx), start)?;
+    // First, before any step that can fail: report and kill the leftovers.
+    let mut failures: Vec<String> = clean_up(&run).into_iter().collect();
+    if run.timed_out {
+        failures.push(format!(
+            "the run passed its {} s deadline; it was killed",
+            deadline.as_secs()
+        ));
+    }
+    let mut lines = Vec::new();
+    // The reader ends when every holder of the pipe has closed it; the leftovers are killed above.
+    loop {
+        match lines_rx.recv_timeout(deadline.saturating_sub(started.elapsed())) {
+            Ok(line) => lines.push(line),
+            Err(mpsc::RecvTimeoutError::Disconnected) => break,
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                failures.push(format!(
+                    "the run's output stayed open past its {} s deadline",
+                    deadline.as_secs()
+                ));
+                break;
+            }
+        }
+    }
+    if failures.is_empty() {
+        if let Some(reader) = reader {
+            let _ = reader.join();
+        }
+    }
+    if !failures.is_empty() {
+        bail!("{}", failures.join("; "));
+    }
+    let success = matches!(&run.status, Ok(status) if status.success());
+    let mut text = lines.join("\n");
+    text.push('\n');
+    Ok((success, text))
 }
 
 /// Reports and kills what the run left behind. It runs first after the run, on every path, so a later error cannot skip it.
@@ -750,5 +883,65 @@ mod tests {
         let timed = exit_failures(true, &Ok(ExitStatus::from_raw(0)), "slow", d);
         assert_eq!(timed.len(), 1);
         assert!(timed[0].contains("slow tier passed its 90 s deadline"));
+    }
+}
+
+/// The bounds of the pending-real run (#220 R1-1), with real processes.
+#[cfg(all(test, feature = "slow"))]
+mod slow_tests {
+    use super::*;
+
+    fn sh(script: &str) -> Command {
+        let mut command = Command::new("/bin/sh");
+        command.args(["-c", script]);
+        command
+    }
+
+    fn pidfile() -> (tempfile::TempDir, PathBuf) {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("pids");
+        (dir, path)
+    }
+
+    #[test]
+    fn a_bounded_run_returns_its_status_and_what_it_printed() {
+        let (_dir, pids) = pidfile();
+        let (success, text) = bounded_report(
+            sh("echo 'real conformance: passed 1'; echo second"),
+            SLOW_DEADLINE,
+            &pids,
+            "start sh",
+        )
+        .unwrap();
+        assert!(success);
+        assert_eq!(text, "real conformance: passed 1\nsecond\n");
+        let (success, _) = bounded_report(sh("exit 3"), SLOW_DEADLINE, &pids, "start sh").unwrap();
+        assert!(!success);
+    }
+
+    /// A run that does not end by its deadline is killed with its group, and fails. A zero deadline has passed at the
+    /// start, so the test needs no timeout value of its own.
+    #[test]
+    fn a_run_past_its_deadline_is_killed_and_fails() {
+        let (_dir, pids) = pidfile();
+        let error = bounded_report(sh("exec sleep 600"), Duration::ZERO, &pids, "start sh")
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("deadline"), "{error}");
+    }
+
+    /// A process that the run leaves behind fails the run, and is killed before the report is read (it holds the pipe).
+    #[test]
+    fn a_process_left_behind_fails_the_run_and_is_killed() {
+        let (_dir, pids) = pidfile();
+        let error = bounded_report(
+            sh("sleep 600 & echo 'real conformance: passed 1'"),
+            SLOW_DEADLINE,
+            &pids,
+            "start sh",
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(error.contains("processes left behind"), "{error}");
     }
 }
