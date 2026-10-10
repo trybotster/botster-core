@@ -1,3 +1,4 @@
+conf::a20_1_testkit_proven_ids_are_exactly_the_named_list	A20-1	transcript
 conf::a5_1_deterministic_under_script_and_seed	A5-1	transcript
 conf::a5_1_edges_scripted	A5-1	transcript
 conf::a5_1_not_in_facade_or_ffi	A5-1	transcript
