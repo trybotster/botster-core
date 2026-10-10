@@ -367,7 +367,6 @@ fn two_failed_handoffs_post_one_event_per_pump() {
                     file_permissions: None,
                     route_features: vec![],
                     terminal_formats: vec![],
-                    connect_deadline: None,
                     owner: None,
                     query_deadline: Some(Duration::from_secs(1)),
                     route_tag: None,
