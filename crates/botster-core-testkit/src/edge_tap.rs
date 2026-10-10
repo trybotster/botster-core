@@ -66,9 +66,6 @@ struct LinkTap {
     frames: Option<FrameDecoder>,
     /// The instance that the link's hello names, or that `connect_worker` asked for.
     instance: Option<InstanceId>,
-    /// The payload that the worker's `Launched` report names (Core LC-5). The host keeps it in memory and writes it to the
-    /// session's row only at a later row write, so while a started session runs, only its link names the payload.
-    payload: Option<ProcessIdentity>,
 }
 
 impl LinkTap {
@@ -78,7 +75,6 @@ impl LinkTap {
             end: None,
             frames: Some(FrameDecoder::new(DEFAULT_MAX_PAYLOAD)),
             instance: None,
-            payload: None,
         }
     }
 
@@ -91,47 +87,60 @@ impl LinkTap {
     }
 
     /// Reads the link's frames from bytes that passed through, without changing them: the first frame, a hello, names the
-    /// instance, and the worker's `Launched` report names the payload. The tap reads no frame after the report, after a
-    /// first frame that is not a hello, or after bytes that are not a frame.
-    fn observe(&mut self, bytes: &[u8]) {
-        let Some(decoder) = self.frames.as_mut() else {
-            return;
-        };
-        decoder.push(bytes);
-        loop {
-            let Some(decoder) = self.frames.as_mut() else {
-                return;
-            };
+    /// instance, and the worker's `Launched` report names the payload in `launches`. The tap reads no frame after the
+    /// report, after a first frame that is not a hello, or after bytes that are not a frame; a link whose reading ends
+    /// before the report leaves its launch unknown.
+    fn observe(&mut self, bytes: &[u8], launches: &mut BTreeMap<InstanceId, Launch>) {
+        let mut rest = bytes;
+        while let Some(decoder) = self.frames.as_mut() {
+            // The decoder takes bytes up to the end of the current frame.
+            let used = decoder.push(rest);
+            rest = &rest[used..];
             match decoder.next_frame() {
                 Ok(None) => return,
                 Ok(Some(frame)) => {
-                    if !self.read(frame.kind, &frame.payload) {
+                    if !self.read(frame.kind, &frame.payload, launches) {
                         self.frames = None;
                     }
                 }
                 Err(_) => self.frames = None,
             }
+            if self.frames.is_none() {
+                if let Some(instance) = &self.instance {
+                    if !matches!(launches.get(instance), Some(Launch::Payload(_))) {
+                        launches.remove(instance);
+                    }
+                }
+            }
         }
     }
 
     /// Reads one inbound frame. False when the tap reads no later frame of the link.
-    fn read(&mut self, kind: FrameType, payload: &[u8]) -> bool {
-        if self.instance.is_none() {
+    fn read(
+        &mut self,
+        kind: FrameType,
+        payload: &[u8],
+        launches: &mut BTreeMap<InstanceId, Launch>,
+    ) -> bool {
+        let Some(instance) = &self.instance else {
             if kind != FrameType::HELLO {
                 return false;
             }
             self.instance = Hello::decode(payload).ok().map(|h| h.instance);
             return self.instance.is_some();
-        }
+        };
         if kind != FrameType::WORKER_MSG {
             return false;
         }
         match WorkerMsg::decode(payload) {
             Ok(WorkerMsg::Launched { payload, .. }) => {
-                self.payload = Some(ProcessIdentity {
-                    pid: payload.pid,
-                    start_time: payload.start_time,
-                });
+                launches.insert(
+                    instance.clone(),
+                    Launch::Payload(ProcessIdentity {
+                        pid: payload.pid,
+                        start_time: payload.start_time,
+                    }),
+                );
                 false
             }
             Ok(_) => true,
@@ -144,10 +153,10 @@ impl LinkTap {
     }
 }
 
-/// What a link that the tap reads from its hello on shows of the payload's launch (Core AD-7, LC-5).
+/// What the tap knows of the payload launch of a worker that it spawned (Core AD-7, LC-5).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Launch {
-    /// The tap read every frame of the link, and no `Launched` report came: no payload runs yet.
+    /// The worker was spawned, and the tap read every frame of its link without a `Launched` report: no payload runs yet.
     Pending,
     /// The worker's `Launched` report named this payload.
     Payload(ProcessIdentity),
@@ -164,6 +173,10 @@ pub struct Tap<E> {
     accepts: VecDeque<LinkId>,
     exits: VecDeque<(ProcessIdentity, ExitStatus)>,
     rows: Rows,
+    /// What the tap knows of the payload launch of each worker that it spawned (Core AD-7, LC-5): pending from the spawn,
+    /// then the payload of the worker's `Launched` report. It outlives the link. The host keeps a started payload in
+    /// memory and writes it to the row only at a later row write.
+    launches: BTreeMap<InstanceId, Launch>,
 }
 
 impl<E: HostEdges> Tap<E> {
@@ -198,7 +211,7 @@ impl<E: HostEdges> Tap<E> {
                     match self.inner.link_recv(*link, &mut buf) {
                         Ok(0) => tap.end = Some(End::Closed),
                         Ok(n) => {
-                            tap.observe(&buf[..n]);
+                            tap.observe(&buf[..n], &mut self.launches);
                             tap.held.extend(&buf[..n]);
                         }
                         Err(e) if e.kind() == io::ErrorKind::WouldBlock => break,
@@ -230,18 +243,10 @@ impl<E: HostEdges> Tap<E> {
             .map(|(link, _)| *link)
     }
 
-    /// What the link of `instance` shows of the payload's launch, while the driver has not closed that link. `None` when no
-    /// open link of the instance is read from its hello on.
+    /// What the tap knows of the payload launch of the worker of `instance`. `None` when this tap did not spawn it, or
+    /// stopped reading its link before the `Launched` report.
     pub fn launch_of(&self, instance: &InstanceId) -> Option<Launch> {
-        let tap = self
-            .links
-            .values()
-            .find(|tap| tap.instance.as_ref() == Some(instance))?;
-        match (tap.payload, &tap.frames) {
-            (Some(payload), _) => Some(Launch::Payload(payload)),
-            (None, Some(_)) => Some(Launch::Pending),
-            (None, None) => None,
-        }
+        self.launches.get(instance).copied()
     }
 
     /// Breaks `link` at the edge (Core LC-5, A2-1): the inner edge closes it, and what the tap held for it is dropped, so
@@ -325,6 +330,7 @@ impl<E: HostEdges> EdgeTap<E> {
             accepts: VecDeque::new(),
             exits: VecDeque::new(),
             rows,
+            launches: BTreeMap::new(),
         }));
         let weak = Arc::downgrade(&tap);
         let scheduler = SchedulerTap {
@@ -364,7 +370,12 @@ impl<E: HostEdges> HostEdges for EdgeTap<E> {
     }
 
     fn spawn_worker(&mut self, spec: &WorkerSpawn) -> Result<ProcessIdentity, SpawnError> {
-        self.tap().inner.spawn_worker(spec)
+        let mut tap = self.tap();
+        let spawned = tap.inner.spawn_worker(spec);
+        if spawned.is_ok() {
+            tap.launches.insert(spec.instance.clone(), Launch::Pending);
+        }
+        spawned
     }
 
     fn signal_group(&mut self, identity: ProcessIdentity, signal: GroupSignal) {
@@ -406,7 +417,12 @@ impl<E: HostEdges> HostEdges for EdgeTap<E> {
 
     fn link_recv(&mut self, link: LinkId, buf: &mut [u8]) -> io::Result<usize> {
         let mut tap = self.tap();
-        let Tap { inner, links, .. } = &mut *tap;
+        let Tap {
+            inner,
+            links,
+            launches,
+            ..
+        } = &mut *tap;
         let Some(state) = links.get_mut(&link) else {
             return inner.link_recv(link, buf);
         };
@@ -422,7 +438,7 @@ impl<E: HostEdges> HostEdges for EdgeTap<E> {
             Some(End::Failed(kind)) => Err(kind.into()),
             None => {
                 let n = inner.link_recv(link, buf)?;
-                state.observe(&buf[..n]);
+                state.observe(&buf[..n], launches);
                 Ok(n)
             }
         }
