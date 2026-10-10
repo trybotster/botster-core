@@ -435,6 +435,26 @@ mod slow_tests {
         }
     }
 
+    /// Both real harnesses name their own control socket, `<root>/p`, in the probe's environment, and nothing else: the
+    /// probe connects under either harness (steward condition 2).
+    #[test]
+    fn both_real_harnesses_name_their_control_socket_in_the_probe_env() {
+        for harness in [
+            RealCoreHarness::new(nonexistent()).unwrap(),
+            RealCoreHarness::plain(nonexistent()).unwrap(),
+        ] {
+            let socket = harness.root.path().join("p");
+            assert!(socket.exists());
+            assert_eq!(
+                harness.probe_env(),
+                BTreeMap::from([(
+                    botster_probe_script::control::CONTROL_ENV.to_string(),
+                    socket.display().to_string()
+                )])
+            );
+        }
+    }
+
     /// The tapped harness serves only the controls that it builds at its tap; the plain harness of the pass-through test
     /// serves none.
     #[test]

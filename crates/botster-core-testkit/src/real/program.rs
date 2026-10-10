@@ -11,8 +11,9 @@
 //! A control returns when the probe acknowledges the request, so the request is in effect (P3 rule 4: it never waits for a
 //! write to complete). A probe that has not connected yet is waited for: the connection, or the worker's exit, ends the wait. Each
 //! input byte that a probe reports goes to its log, and the wake handle of every open handle is signalled, because a read of the
-//! probe gives Core no wake and `await_pty` waits on that handle (TM-6). The waits are on these real events only: no timer and no
-//! sleep.
+//! probe gives Core no wake and `await_pty` waits on that handle (TM-6). The waits are on these real events, bounded by the
+//! guards' cleanup bound: a probe connects right after its terminal setup and acknowledges at once, so a wait that reaches the
+//! bound is a setup failure.
 
 use super::RealCoreHarness;
 use crate::controls::parse;
@@ -84,10 +85,23 @@ impl Hub {
         self.state.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    fn wait<'a>(&self, state: MutexGuard<'a, State>) -> MutexGuard<'a, State> {
-        self.changed
-            .wait(state)
-            .unwrap_or_else(PoisonError::into_inner)
+    /// Waits for the next change of the state, by `deadline`; `None` once the deadline has passed. A probe connects right
+    /// after its terminal setup and acknowledges a request as soon as it is in effect, so a wait that reaches the deadline is
+    /// a setup failure, never a slow probe.
+    fn wait<'a>(
+        &self,
+        state: MutexGuard<'a, State>,
+        deadline: Deadline,
+    ) -> Option<MutexGuard<'a, State>> {
+        if deadline.expired() {
+            return None;
+        }
+        let (state, _) = self
+            .changed
+            // timer: deadline — the cleanup bound of a control's wait for its probe
+            .wait_timeout(state, deadline.remaining())
+            .unwrap_or_else(PoisonError::into_inner);
+        Some(state)
     }
 
     /// Signals every live wake handle, outside the state lock.
@@ -159,6 +173,7 @@ impl Programs {
                     })?;
             }
         }
+        let deadline = Deadline::cleanup();
         loop {
             if state.probes.contains_key(&pid) {
                 return Ok(state);
@@ -169,7 +184,13 @@ impl Programs {
                      connect exits {CONNECT_FAILED_EXIT}): a setup failure"
                 )));
             }
-            state = self.hub.wait(state);
+            state = self.hub.wait(state, deadline).ok_or_else(|| {
+                ControlError::Bad(format!(
+                    "the probe of the worker {pid} did not connect to the control socket within {:?} (is {CONTROL_ENV} in \
+                     its environment?): a setup failure",
+                    deadline.limit()
+                ))
+            })?;
         }
     }
 
@@ -188,6 +209,7 @@ impl Programs {
         }
         probe.sent += 1;
         let target = probe.sent;
+        let deadline = Deadline::cleanup();
         loop {
             let probe = &state.probes[&pid];
             if probe.acked == target {
@@ -196,7 +218,12 @@ impl Programs {
             if probe.closed {
                 return Err(exited(pid));
             }
-            state = self.hub.wait(state);
+            state = self.hub.wait(state, deadline).ok_or_else(|| {
+                ControlError::Bad(format!(
+                    "the probe of the worker {pid} did not acknowledge {request:?} within {:?}: a setup failure",
+                    deadline.limit()
+                ))
+            })?;
         }
     }
 
