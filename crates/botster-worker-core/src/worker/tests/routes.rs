@@ -7,7 +7,7 @@ use botster_route_codec::prelude::{
     StreamReader, ToClient,
 };
 
-/// The frame bound of the test routes: it carries the attach frames (`baseline_begin` is the largest, A9-1), and output
+/// The frame bound of the test routes: it carries the attach frames (`baseline_begin` is the largest, A19-1), and output
 /// frames of `FRAME - 1` payload bytes.
 const FRAME: u64 = 1000;
 
@@ -17,7 +17,6 @@ fn limits() -> AppliedRouteLimits {
         max_frame_bytes: FRAME,
         max_screen_frame_bytes: CoreLimits::default().max_snapshot_bytes + 77,
         max_history_page_bytes: 4321,
-        max_chunk_bytes: 333,
         max_paste_bytes: 1234,
         max_query_bytes: 55,
         max_query_reply_bytes: 66,
@@ -201,15 +200,9 @@ fn the_worker_announces_and_enforces_exactly_the_limits_that_the_host_sent() {
         (
             l.max_frame_bytes,
             l.max_screen_frame_bytes,
-            l.max_history_page_bytes,
-            l.max_chunk_bytes
+            l.max_history_page_bytes
         ),
-        (
-            FRAME,
-            CoreLimits::default().max_snapshot_bytes + 77,
-            4321,
-            333
-        )
+        (FRAME, CoreLimits::default().max_snapshot_bytes + 77, 4321)
     );
     assert_eq!(
         (l.max_paste_bytes, l.max_file_bytes, l.max_query_reply_bytes),
@@ -330,33 +323,17 @@ fn a_snapshot_over_the_routes_screen_frame_bound_closes_the_route() {
     assert_eq!(closes(&mut w, &all).len(), 1);
 }
 
-/// OU-1: no format that the client lists can be emitted (the host refuses such an attach first): the route closes with
-/// `attach_failed{bad_peer}` and no baseline.
+/// OU-1, R-44: no format that the client lists can be emitted (the host refuses such an attach first): the worker cannot
+/// make a working route from the options, so the handoff failed. No frame is written, the transport closes, and the host
+/// is told `HandoffFailed` once.
 #[test]
-fn an_attach_with_no_common_format_closes_the_route_bad_peer() {
+fn an_attach_with_no_common_format_fails_the_handoff_with_no_frame() {
     let mut w = World::running();
     w.feed(Input::Descriptor(DescriptorId(1)));
     let mut opts = options();
     opts.terminal_formats = vec!["no_such_format".into()];
     let actions = attach(&mut w, RouteId(1), opts, limits());
-    let mut client = Client::default();
-    let all = client.take_all(&mut w, RouteId(1), actions);
-    assert!(matches!(
-        client.frames.as_slice(),
-        [ToClient::RouteClosed(RouteClosedFrame {
-            reason: CloseReason::AttachFailed {
-                reason: AttachFailedReason::BadPeer
-            },
-            ..
-        })]
-    ));
-    assert!(matches!(
-        closes(&mut w, &all).as_slice(),
-        [WorkerMsg::RouteClosed {
-            reason: RouteCloseReason::BadPeer,
-            ..
-        }]
-    ));
+    assert_handoff_failed_with_no_frame(&mut w, &actions);
 }
 
 /// OU-1: `attached.features` is the intersection of the client's route features with the worker's (none yet).
@@ -573,48 +550,60 @@ fn a_frame_written_in_parts_frees_exactly_its_bytes() {
     assert_eq!(budgets(&done).last(), Some(&Some(empty)));
 }
 
-fn route_closed_bad_peer() -> ToClient {
+/// R-44: a failed handoff writes no frame and binds no output. The transport closes, and the host is told
+/// `HandoffFailed` once.
+fn assert_handoff_failed_with_no_frame(w: &mut World, actions: &[Action]) {
+    assert!(
+        !actions
+            .iter()
+            .any(|a| matches!(a, Action::RouteWrite { .. })),
+        "{actions:?}"
+    );
+    assert!(actions.contains(&Action::RouteClose { route: RouteId(1) }));
+    assert_eq!(
+        closes(w, actions),
+        vec![WorkerMsg::RouteClosed {
+            route: RouteId(1),
+            reason: RouteCloseReason::HandoffFailed,
+            route_tag: None
+        }]
+    );
+    assert!(
+        budgets(actions).iter().all(|b| b.is_none()),
+        "no route takes output"
+    );
+}
+
+/// The `route_closed` frame of a snapshot that cannot be offered (OU-2b).
+fn route_closed_snapshot_too_large() -> ToClient {
     ToClient::RouteClosed(RouteClosedFrame {
         reason: CloseReason::AttachFailed {
-            reason: AttachFailedReason::BadPeer,
+            reason: AttachFailedReason::SnapshotTooLarge,
         },
         exit: None,
     })
 }
 
-/// DP-3, A9-1: a route whose `max_frame_bytes` cannot carry an attach frame gets no frame over its bound. When
-/// `route_closed{attach_failed{bad_peer}}` fits, it is the only frame; the host is told `BadPeer` once.
+/// DP-3, A19-1, R-44: a route whose `max_frame_bytes` cannot carry an attach frame gets no frame: the handoff failed.
 #[test]
-fn a_route_bound_below_the_attach_frames_closes_bad_peer_with_its_frame() {
-    let closed = route_closed_bad_peer().encode().len() as u64;
+fn a_route_bound_below_the_attach_frames_fails_the_handoff_with_no_frame() {
     let mut small = limits();
-    // Above `route_closed`, below `baseline_begin` (A9-1's floor is `attached`; Core A19 is drafted).
+    // Above `route_closed`, below `baseline_begin`.
     small.max_frame_bytes = 500;
-    assert!(closed <= 500);
+    assert!(route_closed_snapshot_too_large().encode().len() <= 500);
     let mut w = World::running();
     w.feed(Input::Descriptor(DescriptorId(1)));
     let actions = attach(&mut w, RouteId(1), options(), small);
-    let mut client = Client::with(&small);
-    let all = client.take_all(&mut w, RouteId(1), actions);
-    assert_eq!(client.frames, vec![route_closed_bad_peer()]);
-    assert!(all.contains(&Action::RouteClose { route: RouteId(1) }));
-    assert_eq!(
-        closes(&mut w, &all),
-        vec![WorkerMsg::RouteClosed {
-            route: RouteId(1),
-            reason: RouteCloseReason::BadPeer,
-            route_tag: None
-        }]
-    );
+    assert_handoff_failed_with_no_frame(&mut w, &actions);
 }
 
-/// DP-3: when not even `route_closed` fits the bound, nothing is written: the transport closes at once, and the host is
-/// told `BadPeer` once.
+/// DP-3: when a snapshot cannot be offered and not even its `route_closed` fits the bound, nothing is written: the
+/// transport closes at once, and the host is told `SnapshotTooLarge` once.
 #[test]
 fn a_route_bound_below_route_closed_closes_with_no_frame() {
+    let mut w = with_limits(|l| l.max_snapshot_bytes = 8);
     let mut tiny = limits();
-    tiny.max_frame_bytes = route_closed_bad_peer().encode().len() as u64 - 1;
-    let mut w = World::running();
+    tiny.max_frame_bytes = route_closed_snapshot_too_large().encode().len() as u64 - 1;
     w.feed(Input::Descriptor(DescriptorId(1)));
     let actions = attach(&mut w, RouteId(1), options(), tiny);
     assert!(
@@ -628,7 +617,7 @@ fn a_route_bound_below_route_closed_closes_with_no_frame() {
         closes(&mut w, &actions),
         vec![WorkerMsg::RouteClosed {
             route: RouteId(1),
-            reason: RouteCloseReason::BadPeer,
+            reason: RouteCloseReason::SnapshotTooLarge,
             route_tag: None
         }]
     );
@@ -659,18 +648,16 @@ fn a_route_bound_equal_to_the_largest_attach_frame_attaches() {
     );
     exact.max_frame_bytes = largest - 1;
     let (_, client, _) = attached(exact);
-    assert_eq!(client.frames, vec![route_closed_bad_peer()]);
+    assert!(client.frames.is_empty(), "{:?}", client.frames);
 }
 
 /// OU-2: a write error while a healthy close delivers its `route_closed` keeps the first reason, and the host is told
 /// once.
 #[test]
 fn a_write_error_during_a_healthy_close_keeps_the_first_reason() {
-    let mut w = World::running();
+    let mut w = with_limits(|l| l.max_snapshot_bytes = 8);
     w.feed(Input::Descriptor(DescriptorId(1)));
-    let mut opts = options();
-    opts.terminal_formats = vec!["no_such_format".into()];
-    let actions = attach(&mut w, RouteId(1), opts, limits());
+    let actions = attach(&mut w, RouteId(1), options(), limits());
     assert!(actions
         .iter()
         .any(|a| matches!(a, Action::RouteWrite { .. })));
@@ -683,7 +670,7 @@ fn a_write_error_during_a_healthy_close_keeps_the_first_reason() {
         closes(&mut w, &failed),
         vec![WorkerMsg::RouteClosed {
             route: RouteId(1),
-            reason: RouteCloseReason::BadPeer,
+            reason: RouteCloseReason::SnapshotTooLarge,
             route_tag: None
         }]
     );

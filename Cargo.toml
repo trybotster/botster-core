@@ -14,15 +14,16 @@ unsafe_code = "forbid"
 
 [workspace.dependencies]
 base64 = { version = "0.22", default-features = false, features = ["alloc"] }
-# botster-contracts, by tag (plan section 0; contracts-v0.1.21 = 60a4169, manifest-final36: Core Amendment 18 candidate 2, HC Amendment 7 candidate 2,
-# UI erratum 2; earlier: Core Amendments 13 to 16 in the crates, InvalidInput{field}; rulings R-30 to R-37).
-botster-core-contract = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.21" }
-botster-conformance = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.21" }
-botster-core-conformance = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.21" }
-botster-hub-conformance = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.21" }
-botster-route-codec = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.21" }
-botster-probe-script = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.21" }
-botster-test-support = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.21" }
+# botster-contracts, by tag (plan section 0; contracts-v0.1.22 = af5771c, manifest-final37: Core Amendment 17 candidate 2, WebRTC moves to the Hub
+# and Core has one route transport, `Stream`; HC Amendment 8, HP Amendment 9, codec rev37; Limits::real (R-43); the Stop-race transcripts;
+# earlier: final36, Core Amendment 18 candidate 2; Core Amendments 13 to 16 in the crates, InvalidInput{field}; rulings R-30 to R-37).
+botster-core-contract = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.22" }
+botster-conformance = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.22" }
+botster-core-conformance = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.22" }
+botster-hub-conformance = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.22" }
+botster-route-codec = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.22" }
+botster-probe-script = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.22" }
+botster-test-support = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.22" }
 
 anyhow = "1"
 data-encoding = "2"
