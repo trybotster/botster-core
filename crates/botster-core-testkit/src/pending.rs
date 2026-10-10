@@ -13,7 +13,7 @@
 //!
 //! ```text
 //! conf::<id>  slow:<what>                                          (core-real-only.txt)
-//! conf::<id>  budget  owner: <package>  (<authority>)  because: <why>   (core-held.txt)
+//! conf::<id>  budget|unproven  owner: <package>  (<authority>)  because: <why>   (core-held.txt)
 //! ```
 
 use crate::status::{clause, lines};
@@ -33,8 +33,11 @@ pub struct RealOnly {
 /// The reason class of a held id. `real-only` is not a class of the held file: those ids come from the replacement map.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HeldReason {
-    /// The id passes, but over the default-tier time budget.
+    /// The id passes, but over the default-tier time budget. It runs at the first seed only.
     Budget,
+    /// The id passes on the testkit, but that pass does not prove the clause; the line names the missing proofs. It runs at
+    /// every seed, and its line leaves the file in the PR that adds the last missing proof (lead, 2026-10-09).
+    Unproven,
 }
 
 /// A pending id that passes on the testkit and stays pending.
@@ -111,9 +114,10 @@ pub fn parse_held(text: &str) -> Result<Vec<Held>, String> {
             }
             let reason = match reason {
                 "budget" => HeldReason::Budget,
+                "unproven" => HeldReason::Unproven,
                 other => {
                     return Err(format!(
-                        "line {line}: the reason class `{other}` is not `budget` (a real-only id comes from the replacement map)"
+                        "line {line}: the reason class `{other}` is not `budget` or `unproven` (a real-only id comes from the replacement map)"
                     ))
                 }
             };
@@ -271,7 +275,11 @@ mod tests {
             }]
         );
         let bad = |line: &str| parse_held(line).unwrap_err();
-        assert!(bad("conf::a  real-only  owner: p  (x)  because: y\n").contains("not `budget`"));
+        assert!(bad("conf::a  real-only  owner: p  (x)  because: y\n")
+            .contains("not `budget` or `unproven`"));
+        let unproven =
+            parse_held("conf::a  unproven  owner: p6-testkit  (x)  because: y\n").unwrap();
+        assert_eq!(unproven[0].reason, HeldReason::Unproven);
         assert!(bad("conf::a  budget  p  (x)  because: y\n").contains("owner"));
         assert!(bad("conf::a  budget  owner: p  x  because: y\n").contains("authority"));
         assert!(bad("conf::a  budget  owner: p  (x)  y\n").contains("because"));
@@ -331,7 +339,7 @@ mod tests {
         );
     }
 
-    /// A `budget` held id runs at the first seed of the set only; a pending id runs at every seed.
+    /// A `budget` held id runs at the first seed of the set only; an `unproven` or pending id runs at every seed.
     #[test]
     fn a_budget_id_runs_at_the_first_seed_and_a_pending_id_at_every_seed() {
         let held = parse_held(HELD).unwrap();
@@ -339,6 +347,11 @@ mod tests {
         assert_eq!(seeds_of(&class, &[3, 4, 5]), [3]);
         assert_eq!(seeds_of(&class, &[]), Vec::<u64>::new());
         assert_eq!(seeds_of(&Class::Pending, &[3, 4, 5]), [3, 4, 5]);
+        let unproven = parse_held("conf::b  unproven  owner: p  (x)  because: y\n").unwrap();
+        assert_eq!(
+            seeds_of(&Class::Held(unproven[0].clone()), &[3, 4, 5]),
+            [3, 4, 5]
+        );
         assert_eq!(
             seeds_of(&Class::RealOnly(real("conf::lock")), &[3, 4]),
             [3, 4]
