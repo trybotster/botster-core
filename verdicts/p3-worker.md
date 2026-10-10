@@ -8533,3 +8533,93 @@ The reviewer changes no product code and runs no tests, builds, gates, measureme
 All earlier exact-head verdicts remain preserved.
 
 VERDICT: CLEAN
+
+
+## Round 141 — PR #221 testkit route_fill — 2026-10-10
+
+Reviewed head: `3bc22068416fded17d3935e8bfd57aec6ad0135c`.
+PR base: `159cc4003c8910ba6ef28402c360ba4d2dd820a4`.
+Tier: HIGH under BUILD rule 3 because the PR changes the shared crate botster-core-testkit.
+The reviewer reads all four changed files, the complete PR body, R-47 item 3, and the completed gate.
+The paired contracts PR is #28 at e19fbd038dbcc86a3f38ff505a88f1a1a552142c, base 4449c095d9070d00a9fc87fae1a6aa2054c1c3ad.
+This verdict covers Core #221. It does not replace the assigned crate-catchup review of contracts #28.
+
+### F94 — MEDIUM — OPEN: an attach before spawn retains no worker identity
+
+harness.rs:285-300 reads session_row at attach time and stores its optional worker identity in RouteFill.
+route_client.rs:123-128 refuses route_fill when that retained identity is None.
+Host admit.rs immediately sets Admit::Starting when begin accepts Start. check_attach accepts Starting.
+A legal sequence is: complete Create, begin Start, attach before the first startup pump, then pump to Running.
+At attach time, the worker has not spawned and the row has no worker identity.
+The later startup hands that same route to its worker, but RouteFill still retains None.
+route_fill therefore refuses after the route's own payload runs. The control never obtains the later worker identity.
+The current harness proof attaches only after startup. Its no-worker proof checks refusal of an explicitly constructed None.
+Neither proof covers the legal startup sequence.
+
+Required: bind the route to its original session instance and resolve or update that instance's worker when startup supplies it.
+Preserve isolation from a removed and recreated session that uses the same SessionId.
+Prove successful route_fill after attach-before-spawn and startup completion.
+Also prove that an old route cannot write to the replacement instance's program edge.
+The reviewer independently confirms integration R1-1 from admission, the spawn flow, and RouteFill's immutable snapshot.
+
+### Remaining source review
+
+EndControl::room reads the worker end's outgoing queue, its capacity, the gate, and the remaining route_accept allowance.
+The stream subtracts accepted bytes from that allowance after each write. The allowance is cumulative, not a per-call cap.
+A gate makes C zero. Otherwise C is the lesser of free queue room and the remaining allowance.
+route_fill adds the route's applied max_frame_bytes F and generates byte k as 0x61 + (k mod 26).
+Each fill starts k at zero. The pattern contains no newline byte, so R-48 newline handling cannot change it.
+The control writes through ProgramControl::write, as pty_output does, and signals the current control host's wake when available.
+It does not inject PtyOutput into the worker machine or fabricate a route frame.
+The control returns after the program edge accepts the bytes. It does not wait for the worker or a blocked payload write.
+It refuses an exited payload. It takes F from AttachResult rather than a requested limit or route_queue_bytes.
+
+The registry includes route_fill. The harness supplies the route's fill metadata through attach_stream.
+The proofs cover gated C=0, a remaining accept allowance, an empty stream, exact pattern output, and reset pattern position.
+The correction test covers a nonempty stream with five queued bytes and accept allowances below and above its free room.
+It catches the first gate's subtraction-to-addition mutant in EndControl::room.
+The exited-payload proof checks refusal after the script finishes.
+The implementation uses existing program, transport, identity, and wake components.
+It changes no production hook, timeout, guard, anchor, wait, deadline, process cleanup, or real descriptor transfer.
+BUILD rule 5 and the real-process proof requirements remain in force for later real transport work.
+The reviewer independently confirms that the only socket buffer setter is in a worker test's control socket.
+Production Core does not change route socket SO_SNDBUF or SO_RCVBUF at this head.
+
+### Paired evidence and completed gate
+
+The paired contracts body names 20 class A transcripts, the parts output assertion, and the permitted pending real-tier work.
+The existing class B queue_overflow scope remains separate under R-47 item 7.
+The saved ou_3_progressing_reader_lossless before and after results both pass.
+The saved stall result remains non-PASS. The body identifies the missing worker RouteStalled report as existing Core work.
+This PR changes no pending list and claims no additional conformance pass or real-tier acceptance.
+The paired contracts scope does not replace the separate Core source finding F94.
+
+Gate: ~/botster-sessions/gates/botster-core-stage1-p4a-route-fill-3bc22068-pool-20261010-041221-24128.log.
+The header names the exact head and base. All ten full CI steps PASS.
+Default: 1438 tests pass in 11.961 seconds. Slow: 259 pass in 22.114 seconds.
+Both facade reports show 193 passed, zero failed, and 497 ignored.
+Both mutation reports show 17 tested: 15 caught, two unviable, zero missed, and zero timeouts.
+The three new route_fill proofs have PASS lines in the completed default gate.
+Full CI takes 339.1 seconds. The repeated mutation job takes 140.8 seconds.
+Job and wrapper exit zero after 569 seconds on msa1. Queue time is one second; run time is 568 seconds.
+The env-only second mutation job remains repeated default coverage. This PR adds no slow-based mutation exclusion.
+The first gate at 53cd68df is historical. The final result does not close the startup identity fault.
+
+### Verdict and retained scopes
+
+PR #221 is NOT CLEAN at `3bc22068416fded17d3935e8bfd57aec6ad0135c`.
+F94 MEDIUM is OPEN. This is #221's first package NOT CLEAN round. No round-limit notice is due.
+The reviewer sends the finding directly to P3 and integration. It does not meet the BLOCKED condition.
+The lead receives no ordinary NOT CLEAN report under the reporting rule.
+
+#217 is merged at 159cc400. Round 140 CLEAN at 987c6b04 remains preserved.
+Its package verdict is 7075bcc164fca5d817f4422a4929c607d000c1ee.
+Its integration verdict is 005fe3bdd2dc6ae3958ce470df01e9ea930ec1fe. F91/F92/F93 remain CLOSED at that scope.
+F86/F87/F88/F90 remain PR3 requirements. The separate failed-start route work follows R-50 in #219.
+The shared lead handoff records accepted plan 23s at 8a9727e5 after 23r at 09ac30a7.
+Contracts v0.1.24 remains the Core pin at this base. Testkit minimum remains 50/69.
+F39 for #163 and F61/F62 for #192 retain their prior scopes. P3's non-minimum queue stays parked.
+The reviewer changes no product code and runs no tests, builds, gates, measurements, or mutants.
+All earlier exact-head verdicts remain preserved.
+
+VERDICT: NOT CLEAN
