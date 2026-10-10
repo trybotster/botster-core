@@ -480,7 +480,7 @@ fn a_first_frame_that_is_not_a_hello_names_nothing() {
 
 #[test]
 fn a_hello_taken_ahead_also_names_the_link() {
-    let mut rig = rig(fake_with_link(vec![Read::Data(hello_frame("3-3"))]));
+    let rig = rig(fake_with_link(vec![Read::Data(hello_frame("3-3"))]));
     assert!(!rig.with(Tap::quiet));
     assert_eq!(rig.with(|t| t.link_of(&InstanceId("3-3".into()))), Some(A));
 }
