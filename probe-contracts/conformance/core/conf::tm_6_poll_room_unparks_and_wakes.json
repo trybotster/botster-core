@@ -1,0 +1,177 @@
+{
+  "id": "conf::tm_6_poll_room_unparks_and_wakes",
+  "contract": "core",
+  "clause": "TM-6",
+  "subject": "core",
+  "requires": {
+    "controls": [
+      "no_spurious_wakes",
+      "payload_alive"
+    ]
+  },
+  "setup": {
+    "limits": {
+      "max_sessions": 2,
+      "mandatory_events": 2
+    }
+  },
+  "fake": "structural",
+  "ruling": "R-12",
+  "steps": [
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s1",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$c_s1",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s1",
+                  "state": "Created"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core LC-3"
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "s1"
+          }
+        }
+      },
+      "bind": "$s_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$s_s1",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s1",
+                  "state": "Running"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core A2-1"
+    },
+    {
+      "drain": {}
+    },
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s2",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c_s2"
+    },
+    {
+      "pump_idle": {}
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "s2"
+          }
+        }
+      },
+      "bind": "$s_s2"
+    },
+    {
+      "await_control": {
+        "control": {
+          "op": "payload_alive",
+          "session": "s2"
+        },
+        "expect": {
+          "alive": true
+        }
+      }
+    },
+    {
+      "control": {
+        "op": "no_spurious_wakes"
+      }
+    },
+    {
+      "pump_idle": {}
+    },
+    {
+      "wait_wake": {
+        "timeout_ms": 0
+      },
+      "expect": "TimedOut",
+      "because": [
+        "Core TM-6",
+        "Core EV-5"
+      ]
+    },
+    {
+      "poll_all": {}
+    },
+    {
+      "wait_wake": {
+        "timeout_ms": 0
+      },
+      "expect": "Woken",
+      "because": [
+        "Core TM-6",
+        "Core EV-5"
+      ]
+    },
+    {
+      "pump_idle": {}
+    },
+    {
+      "pump_until": {
+        "event": {
+          "SessionState": {
+            "id": "s2",
+            "state": "Running"
+          }
+        }
+      },
+      "because": [
+        "Core TM-6",
+        "Core EV-5"
+      ]
+    }
+  ]
+}

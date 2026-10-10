@@ -1,0 +1,97 @@
+{
+  "id": "conf::tm_6_create_without_worker_input_wakes",
+  "contract": "core",
+  "clause": "TM-6",
+  "subject": "core",
+  "requires": {
+    "controls": [
+      "no_spurious_wakes"
+    ]
+  },
+  "fake": "structural",
+  "ruling": "R-12",
+  "steps": [
+    {
+      "control": {
+        "op": "no_spurious_wakes"
+      }
+    },
+    {
+      "pump_idle": {}
+    },
+    {
+      "wait_wake": {
+        "timeout_ms": 0
+      },
+      "expect": "TimedOut",
+      "because": [
+        "Core TM-6"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s1",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c_s1"
+    },
+    {
+      "wait_wake": {
+        "timeout_ms": 0
+      },
+      "expect": "Woken",
+      "because": [
+        "Core TM-6"
+      ]
+    },
+    {
+      "wait_wake": {
+        "timeout_ms": 0
+      },
+      "expect": "Woken",
+      "because": [
+        "Core TM-6"
+      ]
+    },
+    {
+      "pump_idle": {}
+    },
+    {
+      "wait_wake": {
+        "timeout_ms": 0
+      },
+      "expect": "TimedOut",
+      "because": [
+        "Core TM-6"
+      ]
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$c_s1",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s1",
+                  "state": "Created"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core TM-6"
+    }
+  ]
+}

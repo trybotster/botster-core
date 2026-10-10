@@ -1,0 +1,327 @@
+{
+  "id": "conf::st_7_facts_are_read_at_one_ordering_point",
+  "contract": "core",
+  "clause": "ST-7",
+  "subject": "core",
+  "requires": {
+    "controls": [
+      "pty_blocked"
+    ]
+  },
+  "fake": "structural",
+  "ruling": "R-12",
+  "steps": [
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s1",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ],
+              "size": {
+                "rows": 10,
+                "cols": 40
+              }
+            }
+          }
+        }
+      },
+      "bind": "$c_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$c_s1",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s1",
+                  "state": "Created"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core LC-3"
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "s1"
+          }
+        }
+      },
+      "bind": "$s_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$s_s1",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s1",
+                  "state": "Running"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core A2-1"
+    },
+    {
+      "attach_route": {
+        "route": "r1",
+        "session": "s1",
+        "client": "c1"
+      },
+      "because": "Core OU-1"
+    },
+    {
+      "expect": {
+        "frame": "attached",
+        "terminal_format": {
+          "$type": "string"
+        }
+      },
+      "on": "r1",
+      "because": "Core OU-9"
+    },
+    {
+      "expect": {
+        "frame": "baseline_begin",
+        "rows": {
+          "$type": "integer"
+        },
+        "cols": {
+          "$type": "integer"
+        },
+        "modes": {
+          "$type": "object"
+        }
+      },
+      "on": "r1",
+      "because": "Core OU-9"
+    },
+    {
+      "expect": {
+        "frame": "screen",
+        "payload": {
+          "$any": true
+        }
+      },
+      "on": "r1",
+      "because": "Core OU-9"
+    },
+    {
+      "expect_eventually": {
+        "frame": "baseline_end",
+        "history": "not_requested"
+      },
+      "ignore": [
+        {
+          "frame": "history",
+          "payload": {
+            "$any": true
+          }
+        }
+      ],
+      "on": "r1",
+      "because": "Core OU-9"
+    },
+    {
+      "expect": {
+        "frame": "live"
+      },
+      "on": "r1",
+      "because": "Core OU-9"
+    },
+    {
+      "begin": {
+        "op": {
+          "ReadFacts": {
+            "session": "s1"
+          }
+        }
+      },
+      "bind": "$f0"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$f0",
+            "result": {
+              "ok": {
+                "facts": {
+                  "model_rev": {
+                    "$type": "u64"
+                  },
+                  "modes": {
+                    "$type": "object"
+                  },
+                  "size": {
+                    "rows": 10,
+                    "cols": 40
+                  },
+                  "cursor": {
+                    "row": {
+                      "$type": "u64"
+                    },
+                    "col": {
+                      "$type": "u64"
+                    },
+                    "visible": {
+                      "$type": "boolean"
+                    }
+                  },
+                  "input": {
+                    "client": {
+                      "rev": "$rev0",
+                      "age_ms": {
+                        "$type": "u64"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core ST-7"
+    },
+    {
+      "control": {
+        "op": "pty_blocked",
+        "session": "s1",
+        "on": true
+      }
+    },
+    {
+      "route_send": {
+        "frame": "bytes",
+        "op": "1",
+        "bytes": {
+          "$bytes_hex": "61"
+        }
+      },
+      "route": "r1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Activity": {
+            "id": "s1",
+            "source": {
+              "Client": "$r1"
+            }
+          }
+        }
+      },
+      "because": "Core IN-4"
+    },
+    {
+      "begin": {
+        "op": {
+          "ReadFacts": {
+            "session": "s1"
+          }
+        }
+      },
+      "bind": "$f1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$f1",
+            "result": {
+              "ok": {
+                "facts": {
+                  "model_rev": {
+                    "$type": "u64"
+                  },
+                  "modes": {
+                    "$type": "object"
+                  },
+                  "size": {
+                    "rows": 10,
+                    "cols": 40
+                  },
+                  "cursor": {
+                    "row": {
+                      "$type": "u64"
+                    },
+                    "col": {
+                      "$type": "u64"
+                    },
+                    "visible": {
+                      "$type": "boolean"
+                    }
+                  },
+                  "input": {
+                    "client": {
+                      "rev": "$rev1",
+                      "age_ms": {
+                        "$type": "u64"
+                      }
+                    },
+                    "host": {
+                      "rev": {
+                        "$type": "u64"
+                      }
+                    },
+                    "tail_complete": {
+                      "$type": "boolean"
+                    },
+                    "gap": {
+                      "$type": "boolean"
+                    },
+                    "next_cursor": {
+                      "$type": "u64"
+                    },
+                    "input_records": [
+                      {
+                        "record": {
+                          "source": {
+                            "Client": {
+                              "$any": true
+                            }
+                          },
+                          "kind": "bytes"
+                        }
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core ST-7"
+    },
+    {
+      "check": {
+        "ne": [
+          "$rev0",
+          "$rev1"
+        ]
+      },
+      "because": [
+        "Core ST-7",
+        "Core IN-4"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,2793 @@
+{
+  "id": "conf::sv_2_config_must_fit_wire_and_one_frame",
+  "contract": "core",
+  "clause": "SV-2",
+  "subject": "core",
+  "requires": {
+    "controls": []
+  },
+  "steps": [
+    {
+      "begin": {
+        "op": {
+          "SpawnService": {
+            "service_id": "1111111111111111111111111111111111111111111111111111111111111111",
+            "limits": {
+              "lanes": [
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                }
+              ],
+              "rlimits": {},
+              "startup": 10000,
+              "stop_grace": 5000,
+              "orphan_grace": 5000
+            }
+          }
+        }
+      },
+      "bind": "$o1",
+      "expect_error": {
+        "code": {
+          "InvalidConfig": {
+            "field": {
+              "$type": "string"
+            }
+          }
+        }
+      },
+      "because": [
+        "Core SV-2",
+        "Core ER-0"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "SpawnService": {
+            "service_id": "1111111111111111111111111111111111111111111111111111111111111111",
+            "limits": {
+              "lanes": [
+                {
+                  "max_frame_bytes": 1024,
+                  "outbound_queue_bytes": 1023,
+                  "inbound_queue_bytes": 4096
+                }
+              ],
+              "rlimits": {},
+              "startup": 10000,
+              "stop_grace": 5000,
+              "orphan_grace": 5000
+            }
+          }
+        }
+      },
+      "bind": "$o2",
+      "expect_error": {
+        "code": {
+          "InvalidConfig": {
+            "field": {
+              "$type": "string"
+            }
+          }
+        }
+      },
+      "because": [
+        "Core SV-2"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "SpawnService": {
+            "service_id": "1111111111111111111111111111111111111111111111111111111111111111",
+            "limits": {
+              "lanes": [
+                {
+                  "max_frame_bytes": 1024,
+                  "outbound_queue_bytes": 4096,
+                  "inbound_queue_bytes": 1023
+                }
+              ],
+              "rlimits": {},
+              "startup": 10000,
+              "stop_grace": 5000,
+              "orphan_grace": 5000
+            }
+          }
+        }
+      },
+      "bind": "$o3",
+      "expect_error": {
+        "code": {
+          "InvalidConfig": {
+            "field": {
+              "$type": "string"
+            }
+          }
+        }
+      },
+      "because": [
+        "Core SV-2"
+      ]
+    },
+    {
+      "call": {
+        "method": "service_report",
+        "args": {
+          "id": "1111111111111111111111111111111111111111111111111111111111111111"
+        }
+      },
+      "expect_error": {
+        "code": "UnknownService"
+      },
+      "because": [
+        "Core A4-1",
+        "Core ER-0"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "SpawnService": {
+            "service_id": "1111111111111111111111111111111111111111111111111111111111111111",
+            "limits": {
+              "lanes": [
+                {
+                  "max_frame_bytes": 1024,
+                  "outbound_queue_bytes": 1024,
+                  "inbound_queue_bytes": 1024
+                }
+              ],
+              "rlimits": {},
+              "startup": 10000,
+              "stop_grace": 5000,
+              "orphan_grace": 5000
+            }
+          }
+        }
+      },
+      "bind": "$o4"
+    },
+    {
+      "pump_collect": {
+        "events": [
+          {
+            "Completed": {
+              "op": "$o4",
+              "result": {
+                "ok": {
+                  "spawn": {
+                    "applied": {
+                      "$type": "array"
+                    },
+                    "unsupported": {
+                      "$type": "array"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "ServiceState": {
+              "id": "1111111111111111111111111111111111111111111111111111111111111111",
+              "state": "Started"
+            }
+          }
+        ]
+      },
+      "because": [
+        "Core SV-1",
+        "Core SV-5",
+        "Core A2-1"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "SpawnService": {
+            "service_id": "2222222222222222222222222222222222222222222222222222222222222222",
+            "limits": {
+              "lanes": [
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                },
+                {
+                  "max_frame_bytes": 64,
+                  "outbound_queue_bytes": 64,
+                  "inbound_queue_bytes": 64
+                }
+              ],
+              "rlimits": {},
+              "startup": 10000,
+              "stop_grace": 5000,
+              "orphan_grace": 5000
+            }
+          }
+        }
+      },
+      "bind": "$o5"
+    },
+    {
+      "pump_collect": {
+        "events": [
+          {
+            "Completed": {
+              "op": "$o5",
+              "result": {
+                "ok": {
+                  "spawn": {
+                    "applied": {
+                      "$type": "array"
+                    },
+                    "unsupported": {
+                      "$type": "array"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "ServiceState": {
+              "id": "2222222222222222222222222222222222222222222222222222222222222222",
+              "state": "Started"
+            }
+          }
+        ]
+      },
+      "because": [
+        "Core SV-1",
+        "Core SV-5",
+        "Core A2-1"
+      ]
+    }
+  ],
+  "fake": "structural",
+  "ruling": "R-12"
+}

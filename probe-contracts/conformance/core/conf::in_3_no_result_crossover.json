@@ -1,0 +1,200 @@
+{
+  "id": "conf::in_3_no_result_crossover",
+  "contract": "core",
+  "clause": "IN-3",
+  "subject": "core",
+  "steps": [
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s1",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c_s1"
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "s1"
+          }
+        }
+      },
+      "bind": "$s_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$s_s1",
+            "result": {}
+          }
+        }
+      },
+      "because": "Core LC-3"
+    },
+    {
+      "attach_route": {
+        "route": "r1",
+        "session": "s1",
+        "client": "c1"
+      },
+      "because": "Core OU-1"
+    },
+    {
+      "expect": {
+        "frame": "attached",
+        "terminal_format": {
+          "$type": "string"
+        }
+      },
+      "on": "r1",
+      "because": "Core OU-9"
+    },
+    {
+      "expect": {
+        "frame": "baseline_begin",
+        "rows": {
+          "$type": "integer"
+        },
+        "cols": {
+          "$type": "integer"
+        },
+        "modes": {
+          "$type": "object"
+        }
+      },
+      "on": "r1",
+      "because": "Core OU-9"
+    },
+    {
+      "expect": {
+        "frame": "screen",
+        "payload": {
+          "$any": true
+        }
+      },
+      "on": "r1",
+      "because": "Core OU-9"
+    },
+    {
+      "expect_eventually": {
+        "frame": "baseline_end",
+        "history": "not_requested"
+      },
+      "ignore": [
+        {
+          "frame": "history",
+          "payload": {
+            "$any": true
+          }
+        }
+      ],
+      "on": "r1",
+      "because": "Core OU-9"
+    },
+    {
+      "expect": {
+        "frame": "live"
+      },
+      "on": "r1",
+      "because": "Core OU-9"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "bytes": {
+                "bytes": {
+                  "$bytes_hex": "61"
+                }
+              }
+            }
+          }
+        }
+      },
+      "bind": "$w"
+    },
+    {
+      "route_send": {
+        "frame": "input",
+        "kind": "paste_commit",
+        "op": "3"
+      },
+      "route": "r1"
+    },
+    {
+      "expect": {
+        "frame": "input_refused",
+        "op": "3",
+        "reason": "refused"
+      },
+      "because": [
+        "Core IN-3",
+        "Core DP-5"
+      ],
+      "on": "r1"
+    },
+    {
+      "pump_collect": {
+        "events": [
+          {
+            "Completed": {
+              "op": "$w",
+              "result": {
+                "ok": {
+                  "input": {
+                    "outcome": "Written"
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "because": "Core IN-3"
+    },
+    {
+      "expect_quiet_until": {
+        "Completed": {
+          "op": "$w",
+          "result": {}
+        }
+      },
+      "barrier": {
+        "begin": {
+          "op": {
+            "UpdateMetadata": {
+              "id": "s1",
+              "labels": {}
+            }
+          }
+        },
+        "bind": "$u"
+      },
+      "until": {
+        "Completed": {
+          "op": "$u",
+          "result": {
+            "ok": "unit"
+          }
+        }
+      },
+      "because": [
+        "Core IN-3",
+        "Core AM-3"
+      ]
+    }
+  ]
+}

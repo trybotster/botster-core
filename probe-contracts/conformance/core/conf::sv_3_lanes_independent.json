@@ -1,0 +1,349 @@
+{
+  "id": "conf::sv_3_lanes_independent",
+  "contract": "core",
+  "clause": "SV-3",
+  "subject": "core",
+  "requires": {
+    "controls": [
+      "service_connect",
+      "service_lane_accept",
+      "service_read",
+      "service_send_frame",
+      "service_unread"
+    ]
+  },
+  "steps": [
+    {
+      "begin": {
+        "op": {
+          "SpawnService": {
+            "service_id": "1111111111111111111111111111111111111111111111111111111111111111",
+            "limits": {
+              "lanes": [
+                {
+                  "max_frame_bytes": 256,
+                  "outbound_queue_bytes": 256,
+                  "inbound_queue_bytes": 256
+                },
+                {
+                  "max_frame_bytes": 256,
+                  "outbound_queue_bytes": 256,
+                  "inbound_queue_bytes": 256
+                }
+              ],
+              "rlimits": {},
+              "startup": 10000,
+              "stop_grace": 5000,
+              "orphan_grace": 5000
+            }
+          }
+        }
+      },
+      "bind": "$o1"
+    },
+    {
+      "pump_collect": {
+        "events": [
+          {
+            "Completed": {
+              "op": "$o1",
+              "result": {
+                "ok": {
+                  "spawn": {
+                    "applied": {
+                      "$type": "array"
+                    },
+                    "unsupported": {
+                      "$type": "array"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "ServiceState": {
+              "id": "1111111111111111111111111111111111111111111111111111111111111111",
+              "state": "Started"
+            }
+          }
+        ]
+      },
+      "because": [
+        "Core SV-1",
+        "Core SV-5",
+        "Core A2-1"
+      ]
+    },
+    {
+      "control": {
+        "op": "service_connect",
+        "service": "1111111111111111111111111111111111111111111111111111111111111111",
+        "epoch": 1
+      }
+    },
+    {
+      "pump_collect": {
+        "events": [
+          {
+            "LaneConnected": {
+              "id": "1111111111111111111111111111111111111111111111111111111111111111",
+              "lane": 0,
+              "epoch": 1
+            }
+          },
+          {
+            "LaneConnected": {
+              "id": "1111111111111111111111111111111111111111111111111111111111111111",
+              "lane": 1,
+              "epoch": 1
+            }
+          },
+          {
+            "ServiceState": {
+              "id": "1111111111111111111111111111111111111111111111111111111111111111",
+              "state": {
+                "Reconnected": {
+                  "epoch": 1
+                }
+              }
+            }
+          }
+        ]
+      },
+      "because": [
+        "Core SV-6",
+        "Core SV-5"
+      ]
+    },
+    {
+      "control": {
+        "op": "service_send_frame",
+        "service": "1111111111111111111111111111111111111111111111111111111111111111",
+        "lane": 0,
+        "type": 1,
+        "payload_hex": "01010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101"
+      }
+    },
+    {
+      "control": {
+        "op": "service_send_frame",
+        "service": "1111111111111111111111111111111111111111111111111111111111111111",
+        "lane": 0,
+        "type": 2,
+        "payload_hex": "02020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202020202"
+      }
+    },
+    {
+      "control": {
+        "op": "service_send_frame",
+        "service": "1111111111111111111111111111111111111111111111111111111111111111",
+        "lane": 0,
+        "type": 3,
+        "payload_hex": "03030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303"
+      }
+    },
+    {
+      "control": {
+        "op": "service_send_frame",
+        "service": "1111111111111111111111111111111111111111111111111111111111111111",
+        "lane": 0,
+        "type": 4,
+        "payload_hex": "04040404040404040404040404040404040404040404040404040404040404040404040404040404040404040404040404040404040404040404040404040404040404040404040404040404040404040404040404040404040404040404040404040404"
+      }
+    },
+    {
+      "control": {
+        "op": "service_send_frame",
+        "service": "1111111111111111111111111111111111111111111111111111111111111111",
+        "lane": 0,
+        "type": 5,
+        "payload_hex": "05050505050505050505050505050505050505050505050505050505050505050505050505050505050505050505050505050505050505050505050505050505050505050505050505050505050505050505050505050505050505050505050505050505"
+      }
+    },
+    {
+      "control": {
+        "op": "service_send_frame",
+        "service": "1111111111111111111111111111111111111111111111111111111111111111",
+        "lane": 0,
+        "type": 6,
+        "payload_hex": "06060606060606060606060606060606060606060606060606060606060606060606060606060606060606060606060606060606060606060606060606060606060606060606060606060606060606060606060606060606060606060606060606060606"
+      }
+    },
+    {
+      "control": {
+        "op": "service_send_frame",
+        "service": "1111111111111111111111111111111111111111111111111111111111111111",
+        "lane": 1,
+        "type": 9,
+        "payload_hex": "ee"
+      }
+    },
+    {
+      "await_quiet": {}
+    },
+    {
+      "control": {
+        "op": "service_unread",
+        "service": "1111111111111111111111111111111111111111111111111111111111111111",
+        "lane": 0
+      },
+      "bind_fields": {
+        "bytes": "$unread"
+      },
+      "because": [
+        "Core SV-3"
+      ]
+    },
+    {
+      "check": {
+        "gt": [
+          "$unread",
+          0
+        ]
+      },
+      "because": [
+        "Core SV-3"
+      ]
+    },
+    {
+      "call": {
+        "method": "service_recv",
+        "args": {
+          "id": "1111111111111111111111111111111111111111111111111111111111111111",
+          "lane": 1
+        }
+      },
+      "expect": {
+        "ok": {
+          "epoch": 1,
+          "type": 9,
+          "payload": {
+            "$bytes_hex": "ee"
+          }
+        }
+      },
+      "because": [
+        "Core SV-3"
+      ]
+    },
+    {
+      "control": {
+        "op": "service_lane_accept",
+        "service": "1111111111111111111111111111111111111111111111111111111111111111",
+        "lane": 0,
+        "bytes": 0
+      }
+    },
+    {
+      "call": {
+        "method": "service_send",
+        "args": {
+          "id": "1111111111111111111111111111111111111111111111111111111111111111",
+          "lane": 0,
+          "type": 1,
+          "payload_hex": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      },
+      "expect": {
+        "ok": null
+      },
+      "because": [
+        "Core SV-3"
+      ]
+    },
+    {
+      "call": {
+        "method": "service_send",
+        "args": {
+          "id": "1111111111111111111111111111111111111111111111111111111111111111",
+          "lane": 0,
+          "type": 2,
+          "payload_hex": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        }
+      },
+      "expect": {
+        "ok": null
+      },
+      "because": [
+        "Core SV-3"
+      ]
+    },
+    {
+      "call": {
+        "method": "service_send",
+        "args": {
+          "id": "1111111111111111111111111111111111111111111111111111111111111111",
+          "lane": 0,
+          "type": 3,
+          "payload_hex": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+        }
+      },
+      "expect": {
+        "error": "Backpressured"
+      },
+      "because": [
+        "Core SV-3"
+      ]
+    },
+    {
+      "call": {
+        "method": "service_send",
+        "args": {
+          "id": "1111111111111111111111111111111111111111111111111111111111111111",
+          "lane": 1,
+          "type": 4,
+          "payload_hex": "ff"
+        }
+      },
+      "expect": {
+        "ok": null
+      },
+      "because": [
+        "Core SV-3"
+      ]
+    },
+    {
+      "await_control": {
+        "control": {
+          "op": "service_read",
+          "service": "1111111111111111111111111111111111111111111111111111111111111111",
+          "lane": 1
+        },
+        "expect": {
+          "frames": [
+            {
+              "lane": 1,
+              "type": 4,
+              "payload": {
+                "$bytes_hex": "ff"
+              }
+            }
+          ]
+        }
+      },
+      "because": [
+        "Core SV-3"
+      ]
+    },
+    {
+      "await_quiet": {}
+    },
+    {
+      "control": {
+        "op": "service_read",
+        "service": "1111111111111111111111111111111111111111111111111111111111111111",
+        "lane": 0
+      },
+      "expect": {
+        "bytes": 0,
+        "frames": []
+      },
+      "because": [
+        "Core SV-3"
+      ]
+    }
+  ],
+  "fake": "structural",
+  "ruling": "R-12"
+}

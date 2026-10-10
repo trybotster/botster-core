@@ -1,0 +1,475 @@
+{
+  "id": "conf::dp_5b_oversize_encoded_path_is_refused_before_the_file_is_created",
+  "contract": "core",
+  "clause": "DP-5b",
+  "subject": "core",
+  "requires": {
+    "controls": [
+      "edges_quiet",
+      "fs_directory",
+      "fs_list",
+      "oracle_encode",
+      "pty_input",
+      "pty_output"
+    ]
+  },
+  "fake": "structural",
+  "ruling": "R-12",
+  "steps": [
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s1",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$c_s1",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s1",
+                  "state": "Created"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core LC-3"
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "s1"
+          }
+        }
+      },
+      "bind": "$s_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$s_s1",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s1",
+                  "state": "Running"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core A2-1"
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s1",
+        "bytes_hex": "1b5b3f3230303468",
+        "scripted": {
+          "modes": {
+            "bracketed_paste": true
+          }
+        }
+      }
+    },
+    {
+      "pump_until": {
+        "event": {
+          "ModesChanged": {
+            "id": "s1",
+            "flags": {
+              "bracketed_paste": true
+            }
+          }
+        }
+      },
+      "because": "Core EV-7"
+    },
+    {
+      "control": {
+        "op": "fs_directory",
+        "name": "bd1"
+      },
+      "bind_fields": {
+        "path": "$d1",
+        "name_max": "$name_max"
+      }
+    },
+    {
+      "let": {
+        "$ln": {
+          "add": [
+            "$name_max",
+            50
+          ]
+        }
+      }
+    },
+    {
+      "let": {
+        "$stem": {
+          "repeat": [
+            "a",
+            "$ln"
+          ]
+        }
+      }
+    },
+    {
+      "let": {
+        "$LONG": {
+          "concat": [
+            "$stem",
+            ".txt"
+          ]
+        }
+      }
+    },
+    {
+      "control": {
+        "op": "oracle_encode",
+        "session": "s1",
+        "input": {
+          "text": "x"
+        },
+        "kind": "paste",
+        "modes": {
+          "bracketed_paste": true
+        }
+      },
+      "bind": "$one"
+    },
+    {
+      "let": {
+        "$m1": {
+          "hex_len": [
+            "$one",
+            0
+          ]
+        },
+        "$dirlen": {
+          "str_len": [
+            "$d1",
+            0
+          ]
+        }
+      }
+    },
+    {
+      "let": {
+        "$markers": {
+          "sub": [
+            "$m1",
+            1
+          ]
+        },
+        "$w1": {
+          "add": [
+            "$dirlen",
+            1
+          ]
+        }
+      }
+    },
+    {
+      "let": {
+        "$w2": {
+          "add": [
+            "$w1",
+            "$name_max"
+          ]
+        }
+      }
+    },
+    {
+      "let": {
+        "$w3": {
+          "add": [
+            "$w2",
+            1
+          ]
+        }
+      }
+    },
+    {
+      "let": {
+        "$bound": {
+          "add": [
+            "$w3",
+            "$markers"
+          ]
+        }
+      }
+    },
+    {
+      "let": {
+        "$tight": {
+          "sub": [
+            "$bound",
+            1
+          ]
+        }
+      }
+    },
+    {
+      "data_dir": "dd_t"
+    },
+    {
+      "open": {
+        "as": "t",
+        "data_dir": "dd_t",
+        "limits": {
+          "max_paste_bytes": "$tight"
+        }
+      }
+    },
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s1",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        },
+        "handle": "t"
+      },
+      "bind": "$c_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$c_s1",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s1",
+                  "state": "Created"
+                }
+              }
+            }
+          }
+        },
+        "handle": "t"
+      },
+      "because": "Core LC-3"
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "s1"
+          }
+        },
+        "handle": "t"
+      },
+      "bind": "$s_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$s_s1",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s1",
+                  "state": "Running"
+                }
+              }
+            }
+          }
+        },
+        "handle": "t"
+      },
+      "because": "Core A2-1"
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s1",
+        "bytes_hex": "1b5b3f3230303468",
+        "scripted": {
+          "modes": {
+            "bracketed_paste": true
+          }
+        },
+        "handle": "t"
+      }
+    },
+    {
+      "pump_until": {
+        "event": {
+          "ModesChanged": {
+            "id": "s1",
+            "flags": {
+              "bracketed_paste": true
+            }
+          }
+        },
+        "handle": "t"
+      },
+      "because": "Core EV-7"
+    },
+    {
+      "attach_route": {
+        "route": "r_t",
+        "session": "s1",
+        "client": "c1",
+        "handle": "t",
+        "options": {
+          "history": "none",
+          "file_directory": "$d1"
+        }
+      },
+      "because": "Core OU-1"
+    },
+    {
+      "expect": {
+        "frame": "attached",
+        "terminal_format": {
+          "$type": "string"
+        }
+      },
+      "because": "Core OU-9",
+      "on": "r_t"
+    },
+    {
+      "expect": {
+        "frame": "baseline_begin",
+        "rows": {
+          "$type": "integer"
+        },
+        "cols": {
+          "$type": "integer"
+        },
+        "modes": {
+          "$type": "object"
+        }
+      },
+      "because": "Core OU-9",
+      "on": "r_t"
+    },
+    {
+      "expect": {
+        "frame": "screen",
+        "payload": {
+          "$any": true
+        }
+      },
+      "because": "Core OU-9",
+      "on": "r_t"
+    },
+    {
+      "expect_eventually": {
+        "frame": "baseline_end",
+        "history": "not_requested"
+      },
+      "because": "Core OU-9",
+      "ignore": [
+        {
+          "frame": "history",
+          "payload": {
+            "$any": true
+          }
+        }
+      ],
+      "on": "r_t"
+    },
+    {
+      "expect": {
+        "frame": "live"
+      },
+      "because": "Core OU-9",
+      "on": "r_t"
+    },
+    {
+      "route_send": {
+        "frame": "input",
+        "kind": "file_begin",
+        "op": "1",
+        "name": "$LONG"
+      },
+      "route": "r_t"
+    },
+    {
+      "expect_eventually": {
+        "frame": "input_refused",
+        "op": "1",
+        "reason": "too_large"
+      },
+      "because": [
+        "Core DP-5b"
+      ],
+      "ignore": [
+        {
+          "frame": "modes"
+        },
+        {
+          "frame": "output"
+        },
+        {
+          "frame": "output_deflate"
+        }
+      ],
+      "on": "r_t"
+    },
+    {
+      "control": {
+        "op": "fs_list",
+        "path": "$d1"
+      },
+      "expect": {
+        "count": 0
+      },
+      "because": [
+        "Core DP-5b"
+      ]
+    },
+    {
+      "await_quiet": {
+        "handle": "t"
+      }
+    },
+    {
+      "control": {
+        "op": "pty_input",
+        "session": "s1",
+        "handle": "t"
+      },
+      "expect": {
+        "bytes": {
+          "$bytes_hex": ""
+        }
+      },
+      "because": [
+        "Core DP-5b"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,227 @@
+{
+  "id": "conf::a2_5_service_recv_empty_is_none",
+  "contract": "core",
+  "clause": "A2-5",
+  "subject": "core",
+  "requires": {
+    "controls": [
+      "service_connect",
+      "service_send_frame"
+    ]
+  },
+  "steps": [
+    {
+      "begin": {
+        "op": {
+          "SpawnService": {
+            "service_id": "1111111111111111111111111111111111111111111111111111111111111111",
+            "limits": {
+              "lanes": [
+                {
+                  "max_frame_bytes": 1024,
+                  "outbound_queue_bytes": 4096,
+                  "inbound_queue_bytes": 4096
+                },
+                {
+                  "max_frame_bytes": 1024,
+                  "outbound_queue_bytes": 4096,
+                  "inbound_queue_bytes": 4096
+                }
+              ],
+              "rlimits": {},
+              "startup": 10000,
+              "stop_grace": 5000,
+              "orphan_grace": 5000
+            }
+          }
+        }
+      },
+      "bind": "$o1"
+    },
+    {
+      "pump_collect": {
+        "events": [
+          {
+            "Completed": {
+              "op": "$o1",
+              "result": {
+                "ok": {
+                  "spawn": {
+                    "applied": {
+                      "$type": "array"
+                    },
+                    "unsupported": {
+                      "$type": "array"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "ServiceState": {
+              "id": "1111111111111111111111111111111111111111111111111111111111111111",
+              "state": "Started"
+            }
+          }
+        ]
+      },
+      "because": [
+        "Core SV-1",
+        "Core SV-5",
+        "Core A2-1"
+      ]
+    },
+    {
+      "control": {
+        "op": "service_connect",
+        "service": "1111111111111111111111111111111111111111111111111111111111111111",
+        "epoch": 1
+      }
+    },
+    {
+      "pump_collect": {
+        "events": [
+          {
+            "LaneConnected": {
+              "id": "1111111111111111111111111111111111111111111111111111111111111111",
+              "lane": 0,
+              "epoch": 1
+            }
+          },
+          {
+            "LaneConnected": {
+              "id": "1111111111111111111111111111111111111111111111111111111111111111",
+              "lane": 1,
+              "epoch": 1
+            }
+          },
+          {
+            "ServiceState": {
+              "id": "1111111111111111111111111111111111111111111111111111111111111111",
+              "state": {
+                "Reconnected": {
+                  "epoch": 1
+                }
+              }
+            }
+          }
+        ]
+      },
+      "because": [
+        "Core SV-6",
+        "Core SV-5"
+      ]
+    },
+    {
+      "call": {
+        "method": "service_recv",
+        "args": {
+          "id": "1111111111111111111111111111111111111111111111111111111111111111",
+          "lane": 0
+        }
+      },
+      "expect": {
+        "ok": null
+      },
+      "because": [
+        "Core A2-5"
+      ]
+    },
+    {
+      "call": {
+        "method": "service_recv",
+        "args": {
+          "id": "1111111111111111111111111111111111111111111111111111111111111111",
+          "lane": 1
+        }
+      },
+      "expect": {
+        "ok": null
+      },
+      "because": [
+        "Core A2-5"
+      ]
+    },
+    {
+      "call": {
+        "method": "service_recv",
+        "args": {
+          "id": "1111111111111111111111111111111111111111111111111111111111111111",
+          "lane": 9
+        }
+      },
+      "expect": {
+        "error": "NoSuchLane"
+      },
+      "because": [
+        "Core A2-5"
+      ]
+    },
+    {
+      "call": {
+        "method": "service_recv",
+        "args": {
+          "id": "9999999999999999999999999999999999999999999999999999999999999999",
+          "lane": 0
+        }
+      },
+      "expect": {
+        "error": "UnknownService"
+      },
+      "because": [
+        "Core A2-5"
+      ]
+    },
+    {
+      "control": {
+        "op": "service_send_frame",
+        "service": "1111111111111111111111111111111111111111111111111111111111111111",
+        "lane": 0,
+        "type": 1,
+        "payload_hex": "01"
+      }
+    },
+    {
+      "await_quiet": {}
+    },
+    {
+      "call": {
+        "method": "service_recv",
+        "args": {
+          "id": "1111111111111111111111111111111111111111111111111111111111111111",
+          "lane": 0
+        }
+      },
+      "expect": {
+        "ok": {
+          "epoch": 1,
+          "type": 1,
+          "payload": {
+            "$bytes_hex": "01"
+          }
+        }
+      },
+      "because": [
+        "Core SV-3"
+      ]
+    },
+    {
+      "call": {
+        "method": "service_recv",
+        "args": {
+          "id": "1111111111111111111111111111111111111111111111111111111111111111",
+          "lane": 0
+        }
+      },
+      "expect": {
+        "ok": null
+      },
+      "because": [
+        "Core A2-5"
+      ]
+    }
+  ],
+  "fake": "structural",
+  "ruling": "R-12"
+}

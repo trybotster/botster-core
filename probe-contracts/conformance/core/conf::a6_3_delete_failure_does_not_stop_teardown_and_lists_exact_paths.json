@@ -1,0 +1,513 @@
+{
+  "id": "conf::a6_3_delete_failure_does_not_stop_teardown_and_lists_exact_paths",
+  "contract": "core",
+  "clause": "A6-3",
+  "subject": "core",
+  "requires": {
+    "controls": [
+      "edges_quiet",
+      "fs_chmod",
+      "fs_directory",
+      "fs_list",
+      "pty_input",
+      "pty_output"
+    ]
+  },
+  "fake": "structural",
+  "ruling": "R-12",
+  "steps": [
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s1",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$c_s1",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s1",
+                  "state": "Created"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core LC-3"
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "s1"
+          }
+        }
+      },
+      "bind": "$s_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$s_s1",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s1",
+                  "state": "Running"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core A2-1"
+    },
+    {
+      "control": {
+        "op": "fs_directory",
+        "name": "ua"
+      },
+      "bind_fields": {
+        "path": "$dirA",
+        "name_max": "$name_max"
+      }
+    },
+    {
+      "control": {
+        "op": "fs_directory",
+        "name": "ub"
+      },
+      "bind_fields": {
+        "path": "$dirB",
+        "name_max": "$name_max"
+      }
+    },
+    {
+      "attach_route": {
+        "route": "r1",
+        "session": "s1",
+        "client": "c1",
+        "options": {
+          "history": "none",
+          "file_directory": "$dirA"
+        }
+      },
+      "because": "Core OU-1"
+    },
+    {
+      "expect": {
+        "frame": "attached",
+        "terminal_format": {
+          "$type": "string"
+        }
+      },
+      "because": "Core OU-9",
+      "on": "r1"
+    },
+    {
+      "expect": {
+        "frame": "baseline_begin",
+        "rows": {
+          "$type": "integer"
+        },
+        "cols": {
+          "$type": "integer"
+        },
+        "modes": {
+          "$type": "object"
+        }
+      },
+      "because": "Core OU-9",
+      "on": "r1"
+    },
+    {
+      "expect": {
+        "frame": "screen",
+        "payload": {
+          "$any": true
+        }
+      },
+      "because": "Core OU-9",
+      "on": "r1"
+    },
+    {
+      "expect_eventually": {
+        "frame": "baseline_end",
+        "history": "not_requested"
+      },
+      "because": "Core OU-9",
+      "ignore": [
+        {
+          "frame": "history",
+          "payload": {
+            "$any": true
+          }
+        }
+      ],
+      "on": "r1"
+    },
+    {
+      "expect": {
+        "frame": "live"
+      },
+      "because": "Core OU-9",
+      "on": "r1"
+    },
+    {
+      "attach_route": {
+        "route": "r2",
+        "session": "s1",
+        "client": "c2",
+        "options": {
+          "history": "none",
+          "file_directory": "$dirB"
+        }
+      },
+      "because": "Core OU-1"
+    },
+    {
+      "expect": {
+        "frame": "attached",
+        "terminal_format": {
+          "$type": "string"
+        }
+      },
+      "because": "Core OU-9",
+      "on": "r2"
+    },
+    {
+      "expect": {
+        "frame": "baseline_begin",
+        "rows": {
+          "$type": "integer"
+        },
+        "cols": {
+          "$type": "integer"
+        },
+        "modes": {
+          "$type": "object"
+        }
+      },
+      "because": "Core OU-9",
+      "on": "r2"
+    },
+    {
+      "expect": {
+        "frame": "screen",
+        "payload": {
+          "$any": true
+        }
+      },
+      "because": "Core OU-9",
+      "on": "r2"
+    },
+    {
+      "expect_eventually": {
+        "frame": "baseline_end",
+        "history": "not_requested"
+      },
+      "because": "Core OU-9",
+      "ignore": [
+        {
+          "frame": "history",
+          "payload": {
+            "$any": true
+          }
+        }
+      ],
+      "on": "r2"
+    },
+    {
+      "expect": {
+        "frame": "live"
+      },
+      "because": "Core OU-9",
+      "on": "r2"
+    },
+    {
+      "route_send": {
+        "frame": "input",
+        "kind": "file_begin",
+        "op": "1",
+        "name": "a.txt"
+      },
+      "route": "r1"
+    },
+    {
+      "route_send": {
+        "frame": "file_chunk",
+        "op": "1",
+        "bytes": {
+          "$bytes_hex": "6161"
+        }
+      },
+      "route": "r1"
+    },
+    {
+      "route_send": {
+        "frame": "input",
+        "kind": "file_commit",
+        "op": "1"
+      },
+      "route": "r1"
+    },
+    {
+      "expect_eventually": {
+        "frame": "input_done",
+        "op": "1",
+        "written_bytes": "$wb1",
+        "path": "$p1"
+      },
+      "because": [
+        "Core A6-3",
+        "Core LC-7",
+        "Core DP-5b"
+      ],
+      "ignore": [
+        {
+          "frame": "modes"
+        },
+        {
+          "frame": "output"
+        },
+        {
+          "frame": "output_deflate"
+        }
+      ],
+      "on": "r1"
+    },
+    {
+      "route_send": {
+        "frame": "input",
+        "kind": "file_begin",
+        "op": "2",
+        "name": "b.txt"
+      },
+      "route": "r2"
+    },
+    {
+      "route_send": {
+        "frame": "file_chunk",
+        "op": "2",
+        "bytes": {
+          "$bytes_hex": "6262"
+        }
+      },
+      "route": "r2"
+    },
+    {
+      "route_send": {
+        "frame": "input",
+        "kind": "file_commit",
+        "op": "2"
+      },
+      "route": "r2"
+    },
+    {
+      "expect_eventually": {
+        "frame": "input_done",
+        "op": "2",
+        "written_bytes": "$wb2",
+        "path": "$p2"
+      },
+      "because": [
+        "Core A6-3",
+        "Core LC-7",
+        "Core DP-5b"
+      ],
+      "ignore": [
+        {
+          "frame": "modes"
+        },
+        {
+          "frame": "output"
+        },
+        {
+          "frame": "output_deflate"
+        }
+      ],
+      "on": "r2"
+    },
+    {
+      "control": {
+        "op": "fs_list",
+        "path": "$dirB"
+      },
+      "expect": {
+        "files": [
+          {
+            "path": "$pB"
+          }
+        ]
+      },
+      "because": [
+        "Core A6-3",
+        "Core LC-7"
+      ]
+    },
+    {
+      "control": {
+        "op": "fs_chmod",
+        "path": "$dirB",
+        "mode": 320
+      },
+      "bind_fields": {
+        "enforced": "$enforced"
+      }
+    },
+    {
+      "assume": {
+        "eq": [
+          "$enforced",
+          true
+        ]
+      },
+      "because": [
+        "Core A6-3",
+        "Core LC-7"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "Stop": {
+            "id": "s1"
+          }
+        }
+      },
+      "bind": "$stp"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$stp",
+            "result": {
+              "ok": {
+                "end": {
+                  "$any": true
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core LC-5",
+        "Core A2-1"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "Remove": {
+            "id": "s1"
+          }
+        }
+      },
+      "bind": "$rm"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$rm",
+            "result": {
+              "ok": {
+                "remove_report": {
+                  "uploads": {
+                    "not_deleted": {
+                      "reason": "delete_failed",
+                      "paths": [
+                        "$pB"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core A6-3",
+        "Core LC-7"
+      ]
+    },
+    {
+      "control": {
+        "op": "fs_list",
+        "path": "$dirA"
+      },
+      "expect": {
+        "files": []
+      },
+      "because": [
+        "Core A6-3",
+        "Core LC-7"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s1",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$again"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$again",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s1",
+                  "state": "Created"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core A6-3",
+        "Core LC-7"
+      ]
+    },
+    {
+      "control": {
+        "op": "fs_chmod",
+        "path": "$dirB",
+        "mode": 448
+      }
+    }
+  ]
+}

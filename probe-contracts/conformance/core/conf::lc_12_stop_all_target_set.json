@@ -1,0 +1,316 @@
+{
+  "id": "conf::lc_12_stop_all_target_set",
+  "contract": "core",
+  "clause": "LC-12",
+  "subject": "core",
+  "steps": [
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s1",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c_s1"
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "s1"
+          }
+        }
+      },
+      "bind": "$s_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$s_s1",
+            "result": {}
+          }
+        }
+      },
+      "because": "Core LC-3"
+    },
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s2",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c_s2"
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "s2"
+          }
+        }
+      },
+      "bind": "$s_s2"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$s_s2",
+            "result": {}
+          }
+        }
+      },
+      "because": "Core LC-3"
+    },
+    {
+      "begin": {
+        "op": {
+          "SpawnService": {
+            "service_id": "0101010101010101010101010101010101010101010101010101010101010101"
+          }
+        }
+      },
+      "bind": "$svc"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$svc",
+            "result": {}
+          }
+        }
+      },
+      "because": "Core SV-1"
+    },
+    {
+      "begin": {
+        "op": "StopAll"
+      },
+      "bind": "$sa"
+    },
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s3",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c3"
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "s3"
+          }
+        }
+      },
+      "bind": "$s3"
+    },
+    {
+      "pump_collect": {
+        "events": [
+          {
+            "Completed": {
+              "op": "$sa",
+              "result": {
+                "ok": "unit"
+              }
+            }
+          },
+          {
+            "ServiceState": {
+              "id": "0101010101010101010101010101010101010101010101010101010101010101",
+              "state": {
+                "Exited": {
+                  "cause": "HostStop"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "because": [
+        "Core LC-12",
+        "Core SV-9"
+      ]
+    },
+    {
+      "call": {
+        "method": "get",
+        "args": {
+          "id": "s1"
+        }
+      },
+      "expect": {
+        "state": {
+          "Exited": {
+            "$any": true
+          }
+        }
+      },
+      "because": "Core LC-12"
+    },
+    {
+      "call": {
+        "method": "get",
+        "args": {
+          "id": "s2"
+        }
+      },
+      "expect": {
+        "state": {
+          "Exited": {
+            "$any": true
+          }
+        }
+      },
+      "because": "Core LC-12"
+    },
+    {
+      "call": {
+        "method": "get",
+        "args": {
+          "id": "s3"
+        }
+      },
+      "expect": {
+        "state": {
+          "$one_of": [
+            "Created",
+            "Starting",
+            "Running"
+          ]
+        }
+      },
+      "because": "Core LC-12"
+    },
+    {
+      "begin": {
+        "op": {
+          "SpawnService": {
+            "service_id": "0202020202020202020202020202020202020202020202020202020202020202"
+          }
+        }
+      },
+      "bind": "$sp2"
+    },
+    {
+      "begin": {
+        "op": "StopAll"
+      },
+      "bind": "$sa2"
+    },
+    {
+      "begin": {
+        "op": {
+          "SpawnService": {
+            "service_id": "0303030303030303030303030303030303030303030303030303030303030303"
+          }
+        }
+      },
+      "bind": "$sp3"
+    },
+    {
+      "pump_collect": {
+        "events": [
+          {
+            "Completed": {
+              "op": "$sp2",
+              "result": {}
+            }
+          },
+          {
+            "Completed": {
+              "op": "$sa2",
+              "result": {
+                "ok": "unit"
+              }
+            }
+          },
+          {
+            "Completed": {
+              "op": "$sp3",
+              "result": {}
+            }
+          },
+          {
+            "ServiceState": {
+              "id": "0202020202020202020202020202020202020202020202020202020202020202",
+              "state": {
+                "Exited": {
+                  "cause": "HostStop"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "because": [
+        "Core LC-12",
+        "Core SV-9"
+      ]
+    },
+    {
+      "expect_quiet_until": {
+        "ServiceState": {
+          "id": "0303030303030303030303030303030303030303030303030303030303030303",
+          "state": {
+            "Exited": {
+              "$any": true
+            }
+          }
+        }
+      },
+      "barrier": {
+        "begin": {
+          "op": {
+            "UpdateMetadata": {
+              "id": "s1",
+              "labels": {}
+            }
+          }
+        },
+        "bind": "$u"
+      },
+      "until": {
+        "Completed": {
+          "op": "$u",
+          "result": {
+            "ok": "unit"
+          }
+        }
+      },
+      "because": [
+        "Core LC-12"
+      ]
+    }
+  ]
+}

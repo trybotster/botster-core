@@ -1,0 +1,10145 @@
+{
+  "id": "conf::in_9_kitty_all_32_flag_combinations_pinned",
+  "contract": "core",
+  "clause": "IN-9",
+  "subject": "core",
+  "requires": {
+    "controls": [
+      "oracle_encode",
+      "pty_input",
+      "pty_output"
+    ]
+  },
+  "steps": [
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s1",
+            "request": {
+              "program": [
+                {
+                  "print": {
+                    "bytes_hex": "1b5b3d303b3175",
+                    "fake": {
+                      "modes": {
+                        "kitty_flags": 0
+                      }
+                    }
+                  }
+                },
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c_s1"
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "s1"
+          }
+        }
+      },
+      "bind": "$s_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$s_s1",
+            "result": {}
+          }
+        }
+      },
+      "because": "Core LC-3"
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s1",
+        "bytes_hex": "1b5b3d303b3175",
+        "scripted": {
+          "modes": {
+            "kitty_flags": 0
+          }
+        }
+      }
+    },
+    {
+      "pump_until": {
+        "event": {
+          "ModesChanged": {
+            "id": "s1",
+            "flags": {
+              "kitty_flags": 0
+            }
+          }
+        }
+      },
+      "because": "Core EV-7"
+    },
+    {
+      "control": {
+        "op": "oracle_encode",
+        "session": "s1",
+        "input": {
+          "key": {
+            "char": "a"
+          },
+          "mods": [],
+          "event": "press",
+          "text": "a"
+        },
+        "kind": "key",
+        "modes": {
+          "kitty_flags": 0
+        }
+      },
+      "bind": "$e0"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "key": {
+                "key": {
+                  "char": "a"
+                },
+                "mods": [],
+                "event": "press",
+                "text": "a"
+              }
+            }
+          }
+        }
+      },
+      "bind": "$w0"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$w0",
+            "result": {
+              "ok": {
+                "input": {
+                  "outcome": "Written",
+                  "payload_bytes_written": "$n0",
+                  "pty_bytes_written": "$n0"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_input",
+        "session": "s1"
+      },
+      "expect": {
+        "bytes": "$log0"
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_ends_with": [
+          "$log0",
+          "$e0"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_len_eq": [
+          "$e0",
+          "$n0"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "oracle_encode",
+        "session": "s1",
+        "input": {
+          "key": {
+            "named": "enter"
+          },
+          "mods": [],
+          "event": "press"
+        },
+        "kind": "key",
+        "modes": {
+          "kitty_flags": 0
+        }
+      },
+      "bind": "$e1"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "key": {
+                "key": {
+                  "named": "enter"
+                },
+                "mods": [],
+                "event": "press"
+              }
+            }
+          }
+        }
+      },
+      "bind": "$w1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$w1",
+            "result": {
+              "ok": {
+                "input": {
+                  "outcome": "Written",
+                  "payload_bytes_written": "$n1",
+                  "pty_bytes_written": "$n1"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_input",
+        "session": "s1"
+      },
+      "expect": {
+        "bytes": "$log1"
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_ends_with": [
+          "$log1",
+          "$e1"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_len_eq": [
+          "$e1",
+          "$n1"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "oracle_encode",
+        "session": "s1",
+        "input": {
+          "key": {
+            "named": "arrow_up"
+          },
+          "mods": [],
+          "event": "press"
+        },
+        "kind": "key",
+        "modes": {
+          "kitty_flags": 0
+        }
+      },
+      "bind": "$e2"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "key": {
+                "key": {
+                  "named": "arrow_up"
+                },
+                "mods": [],
+                "event": "press"
+              }
+            }
+          }
+        }
+      },
+      "bind": "$w2"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$w2",
+            "result": {
+              "ok": {
+                "input": {
+                  "outcome": "Written",
+                  "payload_bytes_written": "$n2",
+                  "pty_bytes_written": "$n2"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_input",
+        "session": "s1"
+      },
+      "expect": {
+        "bytes": "$log2"
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_ends_with": [
+          "$log2",
+          "$e2"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_len_eq": [
+          "$e2",
+          "$n2"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s1",
+        "bytes_hex": "1b5b3d313b3175",
+        "scripted": {
+          "modes": {
+            "kitty_flags": 1
+          }
+        }
+      }
+    },
+    {
+      "pump_until": {
+        "event": {
+          "ModesChanged": {
+            "id": "s1",
+            "flags": {
+              "kitty_flags": 1
+            }
+          }
+        }
+      },
+      "because": "Core EV-7"
+    },
+    {
+      "control": {
+        "op": "oracle_encode",
+        "session": "s1",
+        "input": {
+          "key": {
+            "char": "a"
+          },
+          "mods": [],
+          "event": "press",
+          "text": "a"
+        },
+        "kind": "key",
+        "modes": {
+          "kitty_flags": 1
+        }
+      },
+      "bind": "$e3"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "key": {
+                "key": {
+                  "char": "a"
+                },
+                "mods": [],
+                "event": "press",
+                "text": "a"
+              }
+            }
+          }
+        }
+      },
+      "bind": "$w3"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$w3",
+            "result": {
+              "ok": {
+                "input": {
+                  "outcome": "Written",
+                  "payload_bytes_written": "$n3",
+                  "pty_bytes_written": "$n3"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_input",
+        "session": "s1"
+      },
+      "expect": {
+        "bytes": "$log3"
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_ends_with": [
+          "$log3",
+          "$e3"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_len_eq": [
+          "$e3",
+          "$n3"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "oracle_encode",
+        "session": "s1",
+        "input": {
+          "key": {
+            "named": "enter"
+          },
+          "mods": [],
+          "event": "press"
+        },
+        "kind": "key",
+        "modes": {
+          "kitty_flags": 1
+        }
+      },
+      "bind": "$e4"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "key": {
+                "key": {
+                  "named": "enter"
+                },
+                "mods": [],
+                "event": "press"
+              }
+            }
+          }
+        }
+      },
+      "bind": "$w4"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$w4",
+            "result": {
+              "ok": {
+                "input": {
+                  "outcome": "Written",
+                  "payload_bytes_written": "$n4",
+                  "pty_bytes_written": "$n4"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_input",
+        "session": "s1"
+      },
+      "expect": {
+        "bytes": "$log4"
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_ends_with": [
+          "$log4",
+          "$e4"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_len_eq": [
+          "$e4",
+          "$n4"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "oracle_encode",
+        "session": "s1",
+        "input": {
+          "key": {
+            "named": "arrow_up"
+          },
+          "mods": [],
+          "event": "press"
+        },
+        "kind": "key",
+        "modes": {
+          "kitty_flags": 1
+        }
+      },
+      "bind": "$e5"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "key": {
+                "key": {
+                  "named": "arrow_up"
+                },
+                "mods": [],
+                "event": "press"
+              }
+            }
+          }
+        }
+      },
+      "bind": "$w5"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$w5",
+            "result": {
+              "ok": {
+                "input": {
+                  "outcome": "Written",
+                  "payload_bytes_written": "$n5",
+                  "pty_bytes_written": "$n5"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_input",
+        "session": "s1"
+      },
+      "expect": {
+        "bytes": "$log5"
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_ends_with": [
+          "$log5",
+          "$e5"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_len_eq": [
+          "$e5",
+          "$n5"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s1",
+        "bytes_hex": "1b5b3d323b3175",
+        "scripted": {
+          "modes": {
+            "kitty_flags": 2
+          }
+        }
+      }
+    },
+    {
+      "pump_until": {
+        "event": {
+          "ModesChanged": {
+            "id": "s1",
+            "flags": {
+              "kitty_flags": 2
+            }
+          }
+        }
+      },
+      "because": "Core EV-7"
+    },
+    {
+      "control": {
+        "op": "oracle_encode",
+        "session": "s1",
+        "input": {
+          "key": {
+            "char": "a"
+          },
+          "mods": [],
+          "event": "press",
+          "text": "a"
+        },
+        "kind": "key",
+        "modes": {
+          "kitty_flags": 2
+        }
+      },
+      "bind": "$e6"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "key": {
+                "key": {
+                  "char": "a"
+                },
+                "mods": [],
+                "event": "press",
+                "text": "a"
+              }
+            }
+          }
+        }
+      },
+      "bind": "$w6"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$w6",
+            "result": {
+              "ok": {
+                "input": {
+                  "outcome": "Written",
+                  "payload_bytes_written": "$n6",
+                  "pty_bytes_written": "$n6"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_input",
+        "session": "s1"
+      },
+      "expect": {
+        "bytes": "$log6"
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_ends_with": [
+          "$log6",
+          "$e6"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_len_eq": [
+          "$e6",
+          "$n6"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "oracle_encode",
+        "session": "s1",
+        "input": {
+          "key": {
+            "named": "enter"
+          },
+          "mods": [],
+          "event": "press"
+        },
+        "kind": "key",
+        "modes": {
+          "kitty_flags": 2
+        }
+      },
+      "bind": "$e7"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "key": {
+                "key": {
+                  "named": "enter"
+                },
+                "mods": [],
+                "event": "press"
+              }
+            }
+          }
+        }
+      },
+      "bind": "$w7"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$w7",
+            "result": {
+              "ok": {
+                "input": {
+                  "outcome": "Written",
+                  "payload_bytes_written": "$n7",
+                  "pty_bytes_written": "$n7"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_input",
+        "session": "s1"
+      },
+      "expect": {
+        "bytes": "$log7"
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_ends_with": [
+          "$log7",
+          "$e7"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_len_eq": [
+          "$e7",
+          "$n7"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "oracle_encode",
+        "session": "s1",
+        "input": {
+          "key": {
+            "named": "arrow_up"
+          },
+          "mods": [],
+          "event": "press"
+        },
+        "kind": "key",
+        "modes": {
+          "kitty_flags": 2
+        }
+      },
+      "bind": "$e8"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "key": {
+                "key": {
+                  "named": "arrow_up"
+                },
+                "mods": [],
+                "event": "press"
+              }
+            }
+          }
+        }
+      },
+      "bind": "$w8"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$w8",
+            "result": {
+              "ok": {
+                "input": {
+                  "outcome": "Written",
+                  "payload_bytes_written": "$n8",
+                  "pty_bytes_written": "$n8"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_input",
+        "session": "s1"
+      },
+      "expect": {
+        "bytes": "$log8"
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_ends_with": [
+          "$log8",
+          "$e8"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_len_eq": [
+          "$e8",
+          "$n8"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s1",
+        "bytes_hex": "1b5b3d333b3175",
+        "scripted": {
+          "modes": {
+            "kitty_flags": 3
+          }
+        }
+      }
+    },
+    {
+      "pump_until": {
+        "event": {
+          "ModesChanged": {
+            "id": "s1",
+            "flags": {
+              "kitty_flags": 3
+            }
+          }
+        }
+      },
+      "because": "Core EV-7"
+    },
+    {
+      "control": {
+        "op": "oracle_encode",
+        "session": "s1",
+        "input": {
+          "key": {
+            "char": "a"
+          },
+          "mods": [],
+          "event": "press",
+          "text": "a"
+        },
+        "kind": "key",
+        "modes": {
+          "kitty_flags": 3
+        }
+      },
+      "bind": "$e9"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "key": {
+                "key": {
+                  "char": "a"
+                },
+                "mods": [],
+                "event": "press",
+                "text": "a"
+              }
+            }
+          }
+        }
+      },
+      "bind": "$w9"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$w9",
+            "result": {
+              "ok": {
+                "input": {
+                  "outcome": "Written",
+                  "payload_bytes_written": "$n9",
+                  "pty_bytes_written": "$n9"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_input",
+        "session": "s1"
+      },
+      "expect": {
+        "bytes": "$log9"
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_ends_with": [
+          "$log9",
+          "$e9"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_len_eq": [
+          "$e9",
+          "$n9"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "oracle_encode",
+        "session": "s1",
+        "input": {
+          "key": {
+            "named": "enter"
+          },
+          "mods": [],
+          "event": "press"
+        },
+        "kind": "key",
+        "modes": {
+          "kitty_flags": 3
+        }
+      },
+      "bind": "$e10"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "key": {
+                "key": {
+                  "named": "enter"
+                },
+                "mods": [],
+                "event": "press"
+              }
+            }
+          }
+        }
+      },
+      "bind": "$w10"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$w10",
+            "result": {
+              "ok": {
+                "input": {
+                  "outcome": "Written",
+                  "payload_bytes_written": "$n10",
+                  "pty_bytes_written": "$n10"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_input",
+        "session": "s1"
+      },
+      "expect": {
+        "bytes": "$log10"
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_ends_with": [
+          "$log10",
+          "$e10"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_len_eq": [
+          "$e10",
+          "$n10"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "oracle_encode",
+        "session": "s1",
+        "input": {
+          "key": {
+            "named": "arrow_up"
+          },
+          "mods": [],
+          "event": "press"
+        },
+        "kind": "key",
+        "modes": {
+          "kitty_flags": 3
+        }
+      },
+      "bind": "$e11"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "key": {
+                "key": {
+                  "named": "arrow_up"
+                },
+                "mods": [],
+                "event": "press"
+              }
+            }
+          }
+        }
+      },
+      "bind": "$w11"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$w11",
+            "result": {
+              "ok": {
+                "input": {
+                  "outcome": "Written",
+                  "payload_bytes_written": "$n11",
+                  "pty_bytes_written": "$n11"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_input",
+        "session": "s1"
+      },
+      "expect": {
+        "bytes": "$log11"
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_ends_with": [
+          "$log11",
+          "$e11"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_len_eq": [
+          "$e11",
+          "$n11"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s1",
+        "bytes_hex": "1b5b3d343b3175",
+        "scripted": {
+          "modes": {
+            "kitty_flags": 4
+          }
+        }
+      }
+    },
+    {
+      "pump_until": {
+        "event": {
+          "ModesChanged": {
+            "id": "s1",
+            "flags": {
+              "kitty_flags": 4
+            }
+          }
+        }
+      },
+      "because": "Core EV-7"
+    },
+    {
+      "control": {
+        "op": "oracle_encode",
+        "session": "s1",
+        "input": {
+          "key": {
+            "char": "a"
+          },
+          "mods": [],
+          "event": "press",
+          "text": "a"
+        },
+        "kind": "key",
+        "modes": {
+          "kitty_flags": 4
+        }
+      },
+      "bind": "$e12"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "key": {
+                "key": {
+                  "char": "a"
+                },
+                "mods": [],
+                "event": "press",
+                "text": "a"
+              }
+            }
+          }
+        }
+      },
+      "bind": "$w12"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$w12",
+            "result": {
+              "ok": {
+                "input": {
+                  "outcome": "Written",
+                  "payload_bytes_written": "$n12",
+                  "pty_bytes_written": "$n12"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_input",
+        "session": "s1"
+      },
+      "expect": {
+        "bytes": "$log12"
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_ends_with": [
+          "$log12",
+          "$e12"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_len_eq": [
+          "$e12",
+          "$n12"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "oracle_encode",
+        "session": "s1",
+        "input": {
+          "key": {
+            "named": "enter"
+          },
+          "mods": [],
+          "event": "press"
+        },
+        "kind": "key",
+        "modes": {
+          "kitty_flags": 4
+        }
+      },
+      "bind": "$e13"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "key": {
+                "key": {
+                  "named": "enter"
+                },
+                "mods": [],
+                "event": "press"
+              }
+            }
+          }
+        }
+      },
+      "bind": "$w13"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$w13",
+            "result": {
+              "ok": {
+                "input": {
+                  "outcome": "Written",
+                  "payload_bytes_written": "$n13",
+                  "pty_bytes_written": "$n13"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_input",
+        "session": "s1"
+      },
+      "expect": {
+        "bytes": "$log13"
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_ends_with": [
+          "$log13",
+          "$e13"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_len_eq": [
+          "$e13",
+          "$n13"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "oracle_encode",
+        "session": "s1",
+        "input": {
+          "key": {
+            "named": "arrow_up"
+          },
+          "mods": [],
+          "event": "press"
+        },
+        "kind": "key",
+        "modes": {
+          "kitty_flags": 4
+        }
+      },
+      "bind": "$e14"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "key": {
+                "key": {
+                  "named": "arrow_up"
+                },
+                "mods": [],
+                "event": "press"
+              }
+            }
+          }
+        }
+      },
+      "bind": "$w14"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$w14",
+            "result": {
+              "ok": {
+                "input": {
+                  "outcome": "Written",
+                  "payload_bytes_written": "$n14",
+                  "pty_bytes_written": "$n14"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_input",
+        "session": "s1"
+      },
+      "expect": {
+        "bytes": "$log14"
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_ends_with": [
+          "$log14",
+          "$e14"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_len_eq": [
+          "$e14",
+          "$n14"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s1",
+        "bytes_hex": "1b5b3d353b3175",
+        "scripted": {
+          "modes": {
+            "kitty_flags": 5
+          }
+        }
+      }
+    },
+    {
+      "pump_until": {
+        "event": {
+          "ModesChanged": {
+            "id": "s1",
+            "flags": {
+              "kitty_flags": 5
+            }
+          }
+        }
+      },
+      "because": "Core EV-7"
+    },
+    {
+      "control": {
+        "op": "oracle_encode",
+        "session": "s1",
+        "input": {
+          "key": {
+            "char": "a"
+          },
+          "mods": [],
+          "event": "press",
+          "text": "a"
+        },
+        "kind": "key",
+        "modes": {
+          "kitty_flags": 5
+        }
+      },
+      "bind": "$e15"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "key": {
+                "key": {
+                  "char": "a"
+                },
+                "mods": [],
+                "event": "press",
+                "text": "a"
+              }
+            }
+          }
+        }
+      },
+      "bind": "$w15"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$w15",
+            "result": {
+              "ok": {
+                "input": {
+                  "outcome": "Written",
+                  "payload_bytes_written": "$n15",
+                  "pty_bytes_written": "$n15"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_input",
+        "session": "s1"
+      },
+      "expect": {
+        "bytes": "$log15"
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_ends_with": [
+          "$log15",
+          "$e15"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_len_eq": [
+          "$e15",
+          "$n15"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "oracle_encode",
+        "session": "s1",
+        "input": {
+          "key": {
+            "named": "enter"
+          },
+          "mods": [],
+          "event": "press"
+        },
+        "kind": "key",
+        "modes": {
+          "kitty_flags": 5
+        }
+      },
+      "bind": "$e16"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "key": {
+                "key": {
+                  "named": "enter"
+                },
+                "mods": [],
+                "event": "press"
+              }
+            }
+          }
+        }
+      },
+      "bind": "$w16"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$w16",
+            "result": {
+              "ok": {
+                "input": {
+                  "outcome": "Written",
+                  "payload_bytes_written": "$n16",
+                  "pty_bytes_written": "$n16"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_input",
+        "session": "s1"
+      },
+      "expect": {
+        "bytes": "$log16"
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_ends_with": [
+          "$log16",
+          "$e16"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_len_eq": [
+          "$e16",
+          "$n16"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "oracle_encode",
+        "session": "s1",
+        "input": {
+          "key": {
+            "named": "arrow_up"
+          },
+          "mods": [],
+          "event": "press"
+        },
+        "kind": "key",
+        "modes": {
+          "kitty_flags": 5
+        }
+      },
+      "bind": "$e17"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "key": {
+                "key": {
+                  "named": "arrow_up"
+                },
+                "mods": [],
+                "event": "press"
+              }
+            }
+          }
+        }
+      },
+      "bind": "$w17"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$w17",
+            "result": {
+              "ok": {
+                "input": {
+                  "outcome": "Written",
+                  "payload_bytes_written": "$n17",
+                  "pty_bytes_written": "$n17"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_input",
+        "session": "s1"
+      },
+      "expect": {
+        "bytes": "$log17"
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_ends_with": [
+          "$log17",
+          "$e17"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_len_eq": [
+          "$e17",
+          "$n17"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s1",
+        "bytes_hex": "1b5b3d363b3175",
+        "scripted": {
+          "modes": {
+            "kitty_flags": 6
+          }
+        }
+      }
+    },
+    {
+      "pump_until": {
+        "event": {
+          "ModesChanged": {
+            "id": "s1",
+            "flags": {
+              "kitty_flags": 6
+            }
+          }
+        }
+      },
+      "because": "Core EV-7"
+    },
+    {
+      "control": {
+        "op": "oracle_encode",
+        "session": "s1",
+        "input": {
+          "key": {
+            "char": "a"
+          },
+          "mods": [],
+          "event": "press",
+          "text": "a"
+        },
+        "kind": "key",
+        "modes": {
+          "kitty_flags": 6
+        }
+      },
+      "bind": "$e18"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "key": {
+                "key": {
+                  "char": "a"
+                },
+                "mods": [],
+                "event": "press",
+                "text": "a"
+              }
+            }
+          }
+        }
+      },
+      "bind": "$w18"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$w18",
+            "result": {
+              "ok": {
+                "input": {
+                  "outcome": "Written",
+                  "payload_bytes_written": "$n18",
+                  "pty_bytes_written": "$n18"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_input",
+        "session": "s1"
+      },
+      "expect": {
+        "bytes": "$log18"
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_ends_with": [
+          "$log18",
+          "$e18"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_len_eq": [
+          "$e18",
+          "$n18"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "oracle_encode",
+        "session": "s1",
+        "input": {
+          "key": {
+            "named": "enter"
+          },
+          "mods": [],
+          "event": "press"
+        },
+        "kind": "key",
+        "modes": {
+          "kitty_flags": 6
+        }
+      },
+      "bind": "$e19"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "key": {
+                "key": {
+                  "named": "enter"
+                },
+                "mods": [],
+                "event": "press"
+              }
+            }
+          }
+        }
+      },
+      "bind": "$w19"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$w19",
+            "result": {
+              "ok": {
+                "input": {
+                  "outcome": "Written",
+                  "payload_bytes_written": "$n19",
+                  "pty_bytes_written": "$n19"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_input",
+        "session": "s1"
+      },
+      "expect": {
+        "bytes": "$log19"
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_ends_with": [
+          "$log19",
+          "$e19"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_len_eq": [
+          "$e19",
+          "$n19"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "oracle_encode",
+        "session": "s1",
+        "input": {
+          "key": {
+            "named": "arrow_up"
+          },
+          "mods": [],
+          "event": "press"
+        },
+        "kind": "key",
+        "modes": {
+          "kitty_flags": 6
+        }
+      },
+      "bind": "$e20"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "key": {
+                "key": {
+                  "named": "arrow_up"
+                },
+                "mods": [],
+                "event": "press"
+              }
+            }
+          }
+        }
+      },
+      "bind": "$w20"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$w20",
+            "result": {
+              "ok": {
+                "input": {
+                  "outcome": "Written",
+                  "payload_bytes_written": "$n20",
+                  "pty_bytes_written": "$n20"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_input",
+        "session": "s1"
+      },
+      "expect": {
+        "bytes": "$log20"
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_ends_with": [
+          "$log20",
+          "$e20"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_len_eq": [
+          "$e20",
+          "$n20"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s1",
+        "bytes_hex": "1b5b3d373b3175",
+        "scripted": {
+          "modes": {
+            "kitty_flags": 7
+          }
+        }
+      }
+    },
+    {
+      "pump_until": {
+        "event": {
+          "ModesChanged": {
+            "id": "s1",
+            "flags": {
+              "kitty_flags": 7
+            }
+          }
+        }
+      },
+      "because": "Core EV-7"
+    },
+    {
+      "control": {
+        "op": "oracle_encode",
+        "session": "s1",
+        "input": {
+          "key": {
+            "char": "a"
+          },
+          "mods": [],
+          "event": "press",
+          "text": "a"
+        },
+        "kind": "key",
+        "modes": {
+          "kitty_flags": 7
+        }
+      },
+      "bind": "$e21"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "key": {
+                "key": {
+                  "char": "a"
+                },
+                "mods": [],
+                "event": "press",
+                "text": "a"
+              }
+            }
+          }
+        }
+      },
+      "bind": "$w21"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$w21",
+            "result": {
+              "ok": {
+                "input": {
+                  "outcome": "Written",
+                  "payload_bytes_written": "$n21",
+                  "pty_bytes_written": "$n21"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_input",
+        "session": "s1"
+      },
+      "expect": {
+        "bytes": "$log21"
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_ends_with": [
+          "$log21",
+          "$e21"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_len_eq": [
+          "$e21",
+          "$n21"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "oracle_encode",
+        "session": "s1",
+        "input": {
+          "key": {
+            "named": "enter"
+          },
+          "mods": [],
+          "event": "press"
+        },
+        "kind": "key",
+        "modes": {
+          "kitty_flags": 7
+        }
+      },
+      "bind": "$e22"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "key": {
+                "key": {
+                  "named": "enter"
+                },
+                "mods": [],
+                "event": "press"
+              }
+            }
+          }
+        }
+      },
+      "bind": "$w22"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$w22",
+            "result": {
+              "ok": {
+                "input": {
+                  "outcome": "Written",
+                  "payload_bytes_written": "$n22",
+                  "pty_bytes_written": "$n22"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_input",
+        "session": "s1"
+      },
+      "expect": {
+        "bytes": "$log22"
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_ends_with": [
+          "$log22",
+          "$e22"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_len_eq": [
+          "$e22",
+          "$n22"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "oracle_encode",
+        "session": "s1",
+        "input": {
+          "key": {
+            "named": "arrow_up"
+          },
+          "mods": [],
+          "event": "press"
+        },
+        "kind": "key",
+        "modes": {
+          "kitty_flags": 7
+        }
+      },
+      "bind": "$e23"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "key": {
+                "key": {
+                  "named": "arrow_up"
+                },
+                "mods": [],
+                "event": "press"
+              }
+            }
+          }
+        }
+      },
+      "bind": "$w23"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$w23",
+            "result": {
+              "ok": {
+                "input": {
+                  "outcome": "Written",
+                  "payload_bytes_written": "$n23",
+                  "pty_bytes_written": "$n23"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_input",
+        "session": "s1"
+      },
+      "expect": {
+        "bytes": "$log23"
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_ends_with": [
+          "$log23",
+          "$e23"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_len_eq": [
+          "$e23",
+          "$n23"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s1",
+        "bytes_hex": "1b5b3d383b3175",
+        "scripted": {
+          "modes": {
+            "kitty_flags": 8
+          }
+        }
+      }
+    },
+    {
+      "pump_until": {
+        "event": {
+          "ModesChanged": {
+            "id": "s1",
+            "flags": {
+              "kitty_flags": 8
+            }
+          }
+        }
+      },
+      "because": "Core EV-7"
+    },
+    {
+      "control": {
+        "op": "oracle_encode",
+        "session": "s1",
+        "input": {
+          "key": {
+            "char": "a"
+          },
+          "mods": [],
+          "event": "press",
+          "text": "a"
+        },
+        "kind": "key",
+        "modes": {
+          "kitty_flags": 8
+        }
+      },
+      "bind": "$e24"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "key": {
+                "key": {
+                  "char": "a"
+                },
+                "mods": [],
+                "event": "press",
+                "text": "a"
+              }
+            }
+          }
+        }
+      },
+      "bind": "$w24"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$w24",
+            "result": {
+              "ok": {
+                "input": {
+                  "outcome": "Written",
+                  "payload_bytes_written": "$n24",
+                  "pty_bytes_written": "$n24"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_input",
+        "session": "s1"
+      },
+      "expect": {
+        "bytes": "$log24"
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_ends_with": [
+          "$log24",
+          "$e24"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_len_eq": [
+          "$e24",
+          "$n24"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "oracle_encode",
+        "session": "s1",
+        "input": {
+          "key": {
+            "named": "enter"
+          },
+          "mods": [],
+          "event": "press"
+        },
+        "kind": "key",
+        "modes": {
+          "kitty_flags": 8
+        }
+      },
+      "bind": "$e25"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "key": {
+                "key": {
+                  "named": "enter"
+                },
+                "mods": [],
+                "event": "press"
+              }
+            }
+          }
+        }
+      },
+      "bind": "$w25"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$w25",
+            "result": {
+              "ok": {
+                "input": {
+                  "outcome": "Written",
+                  "payload_bytes_written": "$n25",
+                  "pty_bytes_written": "$n25"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_input",
+        "session": "s1"
+      },
+      "expect": {
+        "bytes": "$log25"
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_ends_with": [
+          "$log25",
+          "$e25"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_len_eq": [
+          "$e25",
+          "$n25"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "oracle_encode",
+        "session": "s1",
+        "input": {
+          "key": {
+            "named": "arrow_up"
+          },
+          "mods": [],
+          "event": "press"
+        },
+        "kind": "key",
+        "modes": {
+          "kitty_flags": 8
+        }
+      },
+      "bind": "$e26"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "key": {
+                "key": {
+                  "named": "arrow_up"
+                },
+                "mods": [],
+                "event": "press"
+              }
+            }
+          }
+        }
+      },
+      "bind": "$w26"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$w26",
+            "result": {
+              "ok": {
+                "input": {
+                  "outcome": "Written",
+                  "payload_bytes_written": "$n26",
+                  "pty_bytes_written": "$n26"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_input",
+        "session": "s1"
+      },
+      "expect": {
+        "bytes": "$log26"
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_ends_with": [
+          "$log26",
+          "$e26"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_len_eq": [
+          "$e26",
+          "$n26"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s1",
+        "bytes_hex": "1b5b3d393b3175",
+        "scripted": {
+          "modes": {
+            "kitty_flags": 9
+          }
+        }
+      }
+    },
+    {
+      "pump_until": {
+        "event": {
+          "ModesChanged": {
+            "id": "s1",
+            "flags": {
+              "kitty_flags": 9
+            }
+          }
+        }
+      },
+      "because": "Core EV-7"
+    },
+    {
+      "control": {
+        "op": "oracle_encode",
+        "session": "s1",
+        "input": {
+          "key": {
+            "char": "a"
+          },
+          "mods": [],
+          "event": "press",
+          "text": "a"
+        },
+        "kind": "key",
+        "modes": {
+          "kitty_flags": 9
+        }
+      },
+      "bind": "$e27"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "key": {
+                "key": {
+                  "char": "a"
+                },
+                "mods": [],
+                "event": "press",
+                "text": "a"
+              }
+            }
+          }
+        }
+      },
+      "bind": "$w27"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$w27",
+            "result": {
+              "ok": {
+                "input": {
+                  "outcome": "Written",
+                  "payload_bytes_written": "$n27",
+                  "pty_bytes_written": "$n27"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_input",
+        "session": "s1"
+      },
+      "expect": {
+        "bytes": "$log27"
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_ends_with": [
+          "$log27",
+          "$e27"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_len_eq": [
+          "$e27",
+          "$n27"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "oracle_encode",
+        "session": "s1",
+        "input": {
+          "key": {
+            "named": "enter"
+          },
+          "mods": [],
+          "event": "press"
+        },
+        "kind": "key",
+        "modes": {
+          "kitty_flags": 9
+        }
+      },
+      "bind": "$e28"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "key": {
+                "key": {
+                  "named": "enter"
+                },
+                "mods": [],
+                "event": "press"
+              }
+            }
+          }
+        }
+      },
+      "bind": "$w28"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$w28",
+            "result": {
+              "ok": {
+                "input": {
+                  "outcome": "Written",
+                  "payload_bytes_written": "$n28",
+                  "pty_bytes_written": "$n28"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_input",
+        "session": "s1"
+      },
+      "expect": {
+        "bytes": "$log28"
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_ends_with": [
+          "$log28",
+          "$e28"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_len_eq": [
+          "$e28",
+          "$n28"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "oracle_encode",
+        "session": "s1",
+        "input": {
+          "key": {
+            "named": "arrow_up"
+          },
+          "mods": [],
+          "event": "press"
+        },
+        "kind": "key",
+        "modes": {
+          "kitty_flags": 9
+        }
+      },
+      "bind": "$e29"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "key": {
+                "key": {
+                  "named": "arrow_up"
+                },
+                "mods": [],
+                "event": "press"
+              }
+            }
+          }
+        }
+      },
+      "bind": "$w29"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$w29",
+            "result": {
+              "ok": {
+                "input": {
+                  "outcome": "Written",
+                  "payload_bytes_written": "$n29",
+                  "pty_bytes_written": "$n29"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_input",
+        "session": "s1"
+      },
+      "expect": {
+        "bytes": "$log29"
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_ends_with": [
+          "$log29",
+          "$e29"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_len_eq": [
+          "$e29",
+          "$n29"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s1",
+        "bytes_hex": "1b5b3d31303b3175",
+        "scripted": {
+          "modes": {
+            "kitty_flags": 10
+          }
+        }
+      }
+    },
+    {
+      "pump_until": {
+        "event": {
+          "ModesChanged": {
+            "id": "s1",
+            "flags": {
+              "kitty_flags": 10
+            }
+          }
+        }
+      },
+      "because": "Core EV-7"
+    },
+    {
+      "control": {
+        "op": "oracle_encode",
+        "session": "s1",
+        "input": {
+          "key": {
+            "char": "a"
+          },
+          "mods": [],
+          "event": "press",
+          "text": "a"
+        },
+        "kind": "key",
+        "modes": {
+          "kitty_flags": 10
+        }
+      },
+      "bind": "$e30"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "key": {
+                "key": {
+                  "char": "a"
+                },
+                "mods": [],
+                "event": "press",
+                "text": "a"
+              }
+            }
+          }
+        }
+      },
+      "bind": "$w30"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$w30",
+            "result": {
+              "ok": {
+                "input": {
+                  "outcome": "Written",
+                  "payload_bytes_written": "$n30",
+                  "pty_bytes_written": "$n30"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_input",
+        "session": "s1"
+      },
+      "expect": {
+        "bytes": "$log30"
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_ends_with": [
+          "$log30",
+          "$e30"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_len_eq": [
+          "$e30",
+          "$n30"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "oracle_encode",
+        "session": "s1",
+        "input": {
+          "key": {
+            "named": "enter"
+          },
+          "mods": [],
+          "event": "press"
+        },
+        "kind": "key",
+        "modes": {
+          "kitty_flags": 10
+        }
+      },
+      "bind": "$e31"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "key": {
+                "key": {
+                  "named": "enter"
+                },
+                "mods": [],
+                "event": "press"
+              }
+            }
+          }
+        }
+      },
+      "bind": "$w31"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$w31",
+            "result": {
+              "ok": {
+                "input": {
+                  "outcome": "Written",
+                  "payload_bytes_written": "$n31",
+                  "pty_bytes_written": "$n31"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_input",
+        "session": "s1"
+      },
+      "expect": {
+        "bytes": "$log31"
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_ends_with": [
+          "$log31",
+          "$e31"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_len_eq": [
+          "$e31",
+          "$n31"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "oracle_encode",
+        "session": "s1",
+        "input": {
+          "key": {
+            "named": "arrow_up"
+          },
+          "mods": [],
+          "event": "press"
+        },
+        "kind": "key",
+        "modes": {
+          "kitty_flags": 10
+        }
+      },
+      "bind": "$e32"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "key": {
+                "key": {
+                  "named": "arrow_up"
+                },
+                "mods": [],
+                "event": "press"
+              }
+            }
+          }
+        }
+      },
+      "bind": "$w32"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$w32",
+            "result": {
+              "ok": {
+                "input": {
+                  "outcome": "Written",
+                  "payload_bytes_written": "$n32",
+                  "pty_bytes_written": "$n32"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_input",
+        "session": "s1"
+      },
+      "expect": {
+        "bytes": "$log32"
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_ends_with": [
+          "$log32",
+          "$e32"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_len_eq": [
+          "$e32",
+          "$n32"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s1",
+        "bytes_hex": "1b5b3d31313b3175",
+        "scripted": {
+          "modes": {
+            "kitty_flags": 11
+          }
+        }
+      }
+    },
+    {
+      "pump_until": {
+        "event": {
+          "ModesChanged": {
+            "id": "s1",
+            "flags": {
+              "kitty_flags": 11
+            }
+          }
+        }
+      },
+      "because": "Core EV-7"
+    },
+    {
+      "control": {
+        "op": "oracle_encode",
+        "session": "s1",
+        "input": {
+          "key": {
+            "char": "a"
+          },
+          "mods": [],
+          "event": "press",
+          "text": "a"
+        },
+        "kind": "key",
+        "modes": {
+          "kitty_flags": 11
+        }
+      },
+      "bind": "$e33"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "key": {
+                "key": {
+                  "char": "a"
+                },
+                "mods": [],
+                "event": "press",
+                "text": "a"
+              }
+            }
+          }
+        }
+      },
+      "bind": "$w33"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$w33",
+            "result": {
+              "ok": {
+                "input": {
+                  "outcome": "Written",
+                  "payload_bytes_written": "$n33",
+                  "pty_bytes_written": "$n33"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_input",
+        "session": "s1"
+      },
+      "expect": {
+        "bytes": "$log33"
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_ends_with": [
+          "$log33",
+          "$e33"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_len_eq": [
+          "$e33",
+          "$n33"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "oracle_encode",
+        "session": "s1",
+        "input": {
+          "key": {
+            "named": "enter"
+          },
+          "mods": [],
+          "event": "press"
+        },
+        "kind": "key",
+        "modes": {
+          "kitty_flags": 11
+        }
+      },
+      "bind": "$e34"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "key": {
+                "key": {
+                  "named": "enter"
+                },
+                "mods": [],
+                "event": "press"
+              }
+            }
+          }
+        }
+      },
+      "bind": "$w34"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$w34",
+            "result": {
+              "ok": {
+                "input": {
+                  "outcome": "Written",
+                  "payload_bytes_written": "$n34",
+                  "pty_bytes_written": "$n34"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_input",
+        "session": "s1"
+      },
+      "expect": {
+        "bytes": "$log34"
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_ends_with": [
+          "$log34",
+          "$e34"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_len_eq": [
+          "$e34",
+          "$n34"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "oracle_encode",
+        "session": "s1",
+        "input": {
+          "key": {
+            "named": "arrow_up"
+          },
+          "mods": [],
+          "event": "press"
+        },
+        "kind": "key",
+        "modes": {
+          "kitty_flags": 11
+        }
+      },
+      "bind": "$e35"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "key": {
+                "key": {
+                  "named": "arrow_up"
+                },
+                "mods": [],
+                "event": "press"
+              }
+            }
+          }
+        }
+      },
+      "bind": "$w35"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$w35",
+            "result": {
+              "ok": {
+                "input": {
+                  "outcome": "Written",
+                  "payload_bytes_written": "$n35",
+                  "pty_bytes_written": "$n35"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_input",
+        "session": "s1"
+      },
+      "expect": {
+        "bytes": "$log35"
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_ends_with": [
+          "$log35",
+          "$e35"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_len_eq": [
+          "$e35",
+          "$n35"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s1",
+        "bytes_hex": "1b5b3d31323b3175",
+        "scripted": {
+          "modes": {
+            "kitty_flags": 12
+          }
+        }
+      }
+    },
+    {
+      "pump_until": {
+        "event": {
+          "ModesChanged": {
+            "id": "s1",
+            "flags": {
+              "kitty_flags": 12
+            }
+          }
+        }
+      },
+      "because": "Core EV-7"
+    },
+    {
+      "control": {
+        "op": "oracle_encode",
+        "session": "s1",
+        "input": {
+          "key": {
+            "char": "a"
+          },
+          "mods": [],
+          "event": "press",
+          "text": "a"
+        },
+        "kind": "key",
+        "modes": {
+          "kitty_flags": 12
+        }
+      },
+      "bind": "$e36"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "key": {
+                "key": {
+                  "char": "a"
+                },
+                "mods": [],
+                "event": "press",
+                "text": "a"
+              }
+            }
+          }
+        }
+      },
+      "bind": "$w36"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$w36",
+            "result": {
+              "ok": {
+                "input": {
+                  "outcome": "Written",
+                  "payload_bytes_written": "$n36",
+                  "pty_bytes_written": "$n36"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_input",
+        "session": "s1"
+      },
+      "expect": {
+        "bytes": "$log36"
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_ends_with": [
+          "$log36",
+          "$e36"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_len_eq": [
+          "$e36",
+          "$n36"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "oracle_encode",
+        "session": "s1",
+        "input": {
+          "key": {
+            "named": "enter"
+          },
+          "mods": [],
+          "event": "press"
+        },
+        "kind": "key",
+        "modes": {
+          "kitty_flags": 12
+        }
+      },
+      "bind": "$e37"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "key": {
+                "key": {
+                  "named": "enter"
+                },
+                "mods": [],
+                "event": "press"
+              }
+            }
+          }
+        }
+      },
+      "bind": "$w37"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$w37",
+            "result": {
+              "ok": {
+                "input": {
+                  "outcome": "Written",
+                  "payload_bytes_written": "$n37",
+                  "pty_bytes_written": "$n37"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_input",
+        "session": "s1"
+      },
+      "expect": {
+        "bytes": "$log37"
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_ends_with": [
+          "$log37",
+          "$e37"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_len_eq": [
+          "$e37",
+          "$n37"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "oracle_encode",
+        "session": "s1",
+        "input": {
+          "key": {
+            "named": "arrow_up"
+          },
+          "mods": [],
+          "event": "press"
+        },
+        "kind": "key",
+        "modes": {
+          "kitty_flags": 12
+        }
+      },
+      "bind": "$e38"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "key": {
+                "key": {
+                  "named": "arrow_up"
+                },
+                "mods": [],
+                "event": "press"
+              }
+            }
+          }
+        }
+      },
+      "bind": "$w38"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$w38",
+            "result": {
+              "ok": {
+                "input": {
+                  "outcome": "Written",
+                  "payload_bytes_written": "$n38",
+                  "pty_bytes_written": "$n38"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_input",
+        "session": "s1"
+      },
+      "expect": {
+        "bytes": "$log38"
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_ends_with": [
+          "$log38",
+          "$e38"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_len_eq": [
+          "$e38",
+          "$n38"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s1",
+        "bytes_hex": "1b5b3d31333b3175",
+        "scripted": {
+          "modes": {
+            "kitty_flags": 13
+          }
+        }
+      }
+    },
+    {
+      "pump_until": {
+        "event": {
+          "ModesChanged": {
+            "id": "s1",
+            "flags": {
+              "kitty_flags": 13
+            }
+          }
+        }
+      },
+      "because": "Core EV-7"
+    },
+    {
+      "control": {
+        "op": "oracle_encode",
+        "session": "s1",
+        "input": {
+          "key": {
+            "char": "a"
+          },
+          "mods": [],
+          "event": "press",
+          "text": "a"
+        },
+        "kind": "key",
+        "modes": {
+          "kitty_flags": 13
+        }
+      },
+      "bind": "$e39"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "key": {
+                "key": {
+                  "char": "a"
+                },
+                "mods": [],
+                "event": "press",
+                "text": "a"
+              }
+            }
+          }
+        }
+      },
+      "bind": "$w39"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$w39",
+            "result": {
+              "ok": {
+                "input": {
+                  "outcome": "Written",
+                  "payload_bytes_written": "$n39",
+                  "pty_bytes_written": "$n39"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_input",
+        "session": "s1"
+      },
+      "expect": {
+        "bytes": "$log39"
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_ends_with": [
+          "$log39",
+          "$e39"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_len_eq": [
+          "$e39",
+          "$n39"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "oracle_encode",
+        "session": "s1",
+        "input": {
+          "key": {
+            "named": "enter"
+          },
+          "mods": [],
+          "event": "press"
+        },
+        "kind": "key",
+        "modes": {
+          "kitty_flags": 13
+        }
+      },
+      "bind": "$e40"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "key": {
+                "key": {
+                  "named": "enter"
+                },
+                "mods": [],
+                "event": "press"
+              }
+            }
+          }
+        }
+      },
+      "bind": "$w40"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$w40",
+            "result": {
+              "ok": {
+                "input": {
+                  "outcome": "Written",
+                  "payload_bytes_written": "$n40",
+                  "pty_bytes_written": "$n40"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_input",
+        "session": "s1"
+      },
+      "expect": {
+        "bytes": "$log40"
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_ends_with": [
+          "$log40",
+          "$e40"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_len_eq": [
+          "$e40",
+          "$n40"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "oracle_encode",
+        "session": "s1",
+        "input": {
+          "key": {
+            "named": "arrow_up"
+          },
+          "mods": [],
+          "event": "press"
+        },
+        "kind": "key",
+        "modes": {
+          "kitty_flags": 13
+        }
+      },
+      "bind": "$e41"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "key": {
+                "key": {
+                  "named": "arrow_up"
+                },
+                "mods": [],
+                "event": "press"
+              }
+            }
+          }
+        }
+      },
+      "bind": "$w41"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$w41",
+            "result": {
+              "ok": {
+                "input": {
+                  "outcome": "Written",
+                  "payload_bytes_written": "$n41",
+                  "pty_bytes_written": "$n41"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_input",
+        "session": "s1"
+      },
+      "expect": {
+        "bytes": "$log41"
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_ends_with": [
+          "$log41",
+          "$e41"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_len_eq": [
+          "$e41",
+          "$n41"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s1",
+        "bytes_hex": "1b5b3d31343b3175",
+        "scripted": {
+          "modes": {
+            "kitty_flags": 14
+          }
+        }
+      }
+    },
+    {
+      "pump_until": {
+        "event": {
+          "ModesChanged": {
+            "id": "s1",
+            "flags": {
+              "kitty_flags": 14
+            }
+          }
+        }
+      },
+      "because": "Core EV-7"
+    },
+    {
+      "control": {
+        "op": "oracle_encode",
+        "session": "s1",
+        "input": {
+          "key": {
+            "char": "a"
+          },
+          "mods": [],
+          "event": "press",
+          "text": "a"
+        },
+        "kind": "key",
+        "modes": {
+          "kitty_flags": 14
+        }
+      },
+      "bind": "$e42"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "key": {
+                "key": {
+                  "char": "a"
+                },
+                "mods": [],
+                "event": "press",
+                "text": "a"
+              }
+            }
+          }
+        }
+      },
+      "bind": "$w42"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$w42",
+            "result": {
+              "ok": {
+                "input": {
+                  "outcome": "Written",
+                  "payload_bytes_written": "$n42",
+                  "pty_bytes_written": "$n42"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_input",
+        "session": "s1"
+      },
+      "expect": {
+        "bytes": "$log42"
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_ends_with": [
+          "$log42",
+          "$e42"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_len_eq": [
+          "$e42",
+          "$n42"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "oracle_encode",
+        "session": "s1",
+        "input": {
+          "key": {
+            "named": "enter"
+          },
+          "mods": [],
+          "event": "press"
+        },
+        "kind": "key",
+        "modes": {
+          "kitty_flags": 14
+        }
+      },
+      "bind": "$e43"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "key": {
+                "key": {
+                  "named": "enter"
+                },
+                "mods": [],
+                "event": "press"
+              }
+            }
+          }
+        }
+      },
+      "bind": "$w43"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$w43",
+            "result": {
+              "ok": {
+                "input": {
+                  "outcome": "Written",
+                  "payload_bytes_written": "$n43",
+                  "pty_bytes_written": "$n43"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_input",
+        "session": "s1"
+      },
+      "expect": {
+        "bytes": "$log43"
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_ends_with": [
+          "$log43",
+          "$e43"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_len_eq": [
+          "$e43",
+          "$n43"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "oracle_encode",
+        "session": "s1",
+        "input": {
+          "key": {
+            "named": "arrow_up"
+          },
+          "mods": [],
+          "event": "press"
+        },
+        "kind": "key",
+        "modes": {
+          "kitty_flags": 14
+        }
+      },
+      "bind": "$e44"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "key": {
+                "key": {
+                  "named": "arrow_up"
+                },
+                "mods": [],
+                "event": "press"
+              }
+            }
+          }
+        }
+      },
+      "bind": "$w44"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$w44",
+            "result": {
+              "ok": {
+                "input": {
+                  "outcome": "Written",
+                  "payload_bytes_written": "$n44",
+                  "pty_bytes_written": "$n44"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_input",
+        "session": "s1"
+      },
+      "expect": {
+        "bytes": "$log44"
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_ends_with": [
+          "$log44",
+          "$e44"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_len_eq": [
+          "$e44",
+          "$n44"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s1",
+        "bytes_hex": "1b5b3d31353b3175",
+        "scripted": {
+          "modes": {
+            "kitty_flags": 15
+          }
+        }
+      }
+    },
+    {
+      "pump_until": {
+        "event": {
+          "ModesChanged": {
+            "id": "s1",
+            "flags": {
+              "kitty_flags": 15
+            }
+          }
+        }
+      },
+      "because": "Core EV-7"
+    },
+    {
+      "control": {
+        "op": "oracle_encode",
+        "session": "s1",
+        "input": {
+          "key": {
+            "char": "a"
+          },
+          "mods": [],
+          "event": "press",
+          "text": "a"
+        },
+        "kind": "key",
+        "modes": {
+          "kitty_flags": 15
+        }
+      },
+      "bind": "$e45"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "key": {
+                "key": {
+                  "char": "a"
+                },
+                "mods": [],
+                "event": "press",
+                "text": "a"
+              }
+            }
+          }
+        }
+      },
+      "bind": "$w45"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$w45",
+            "result": {
+              "ok": {
+                "input": {
+                  "outcome": "Written",
+                  "payload_bytes_written": "$n45",
+                  "pty_bytes_written": "$n45"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_input",
+        "session": "s1"
+      },
+      "expect": {
+        "bytes": "$log45"
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_ends_with": [
+          "$log45",
+          "$e45"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_len_eq": [
+          "$e45",
+          "$n45"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "oracle_encode",
+        "session": "s1",
+        "input": {
+          "key": {
+            "named": "enter"
+          },
+          "mods": [],
+          "event": "press"
+        },
+        "kind": "key",
+        "modes": {
+          "kitty_flags": 15
+        }
+      },
+      "bind": "$e46"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "key": {
+                "key": {
+                  "named": "enter"
+                },
+                "mods": [],
+                "event": "press"
+              }
+            }
+          }
+        }
+      },
+      "bind": "$w46"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$w46",
+            "result": {
+              "ok": {
+                "input": {
+                  "outcome": "Written",
+                  "payload_bytes_written": "$n46",
+                  "pty_bytes_written": "$n46"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_input",
+        "session": "s1"
+      },
+      "expect": {
+        "bytes": "$log46"
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_ends_with": [
+          "$log46",
+          "$e46"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_len_eq": [
+          "$e46",
+          "$n46"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "oracle_encode",
+        "session": "s1",
+        "input": {
+          "key": {
+            "named": "arrow_up"
+          },
+          "mods": [],
+          "event": "press"
+        },
+        "kind": "key",
+        "modes": {
+          "kitty_flags": 15
+        }
+      },
+      "bind": "$e47"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "key": {
+                "key": {
+                  "named": "arrow_up"
+                },
+                "mods": [],
+                "event": "press"
+              }
+            }
+          }
+        }
+      },
+      "bind": "$w47"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$w47",
+            "result": {
+              "ok": {
+                "input": {
+                  "outcome": "Written",
+                  "payload_bytes_written": "$n47",
+                  "pty_bytes_written": "$n47"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_input",
+        "session": "s1"
+      },
+      "expect": {
+        "bytes": "$log47"
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_ends_with": [
+          "$log47",
+          "$e47"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_len_eq": [
+          "$e47",
+          "$n47"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s1",
+        "bytes_hex": "1b5b3d31363b3175",
+        "scripted": {
+          "modes": {
+            "kitty_flags": 16
+          }
+        }
+      }
+    },
+    {
+      "pump_until": {
+        "event": {
+          "ModesChanged": {
+            "id": "s1",
+            "flags": {
+              "kitty_flags": 16
+            }
+          }
+        }
+      },
+      "because": "Core EV-7"
+    },
+    {
+      "control": {
+        "op": "oracle_encode",
+        "session": "s1",
+        "input": {
+          "key": {
+            "char": "a"
+          },
+          "mods": [],
+          "event": "press",
+          "text": "a"
+        },
+        "kind": "key",
+        "modes": {
+          "kitty_flags": 16
+        }
+      },
+      "bind": "$e48"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "key": {
+                "key": {
+                  "char": "a"
+                },
+                "mods": [],
+                "event": "press",
+                "text": "a"
+              }
+            }
+          }
+        }
+      },
+      "bind": "$w48"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$w48",
+            "result": {
+              "ok": {
+                "input": {
+                  "outcome": "Written",
+                  "payload_bytes_written": "$n48",
+                  "pty_bytes_written": "$n48"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_input",
+        "session": "s1"
+      },
+      "expect": {
+        "bytes": "$log48"
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_ends_with": [
+          "$log48",
+          "$e48"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_len_eq": [
+          "$e48",
+          "$n48"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "oracle_encode",
+        "session": "s1",
+        "input": {
+          "key": {
+            "named": "enter"
+          },
+          "mods": [],
+          "event": "press"
+        },
+        "kind": "key",
+        "modes": {
+          "kitty_flags": 16
+        }
+      },
+      "bind": "$e49"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "key": {
+                "key": {
+                  "named": "enter"
+                },
+                "mods": [],
+                "event": "press"
+              }
+            }
+          }
+        }
+      },
+      "bind": "$w49"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$w49",
+            "result": {
+              "ok": {
+                "input": {
+                  "outcome": "Written",
+                  "payload_bytes_written": "$n49",
+                  "pty_bytes_written": "$n49"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_input",
+        "session": "s1"
+      },
+      "expect": {
+        "bytes": "$log49"
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_ends_with": [
+          "$log49",
+          "$e49"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_len_eq": [
+          "$e49",
+          "$n49"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "oracle_encode",
+        "session": "s1",
+        "input": {
+          "key": {
+            "named": "arrow_up"
+          },
+          "mods": [],
+          "event": "press"
+        },
+        "kind": "key",
+        "modes": {
+          "kitty_flags": 16
+        }
+      },
+      "bind": "$e50"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "key": {
+                "key": {
+                  "named": "arrow_up"
+                },
+                "mods": [],
+                "event": "press"
+              }
+            }
+          }
+        }
+      },
+      "bind": "$w50"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$w50",
+            "result": {
+              "ok": {
+                "input": {
+                  "outcome": "Written",
+                  "payload_bytes_written": "$n50",
+                  "pty_bytes_written": "$n50"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_input",
+        "session": "s1"
+      },
+      "expect": {
+        "bytes": "$log50"
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_ends_with": [
+          "$log50",
+          "$e50"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_len_eq": [
+          "$e50",
+          "$n50"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s1",
+        "bytes_hex": "1b5b3d31373b3175",
+        "scripted": {
+          "modes": {
+            "kitty_flags": 17
+          }
+        }
+      }
+    },
+    {
+      "pump_until": {
+        "event": {
+          "ModesChanged": {
+            "id": "s1",
+            "flags": {
+              "kitty_flags": 17
+            }
+          }
+        }
+      },
+      "because": "Core EV-7"
+    },
+    {
+      "control": {
+        "op": "oracle_encode",
+        "session": "s1",
+        "input": {
+          "key": {
+            "char": "a"
+          },
+          "mods": [],
+          "event": "press",
+          "text": "a"
+        },
+        "kind": "key",
+        "modes": {
+          "kitty_flags": 17
+        }
+      },
+      "bind": "$e51"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "key": {
+                "key": {
+                  "char": "a"
+                },
+                "mods": [],
+                "event": "press",
+                "text": "a"
+              }
+            }
+          }
+        }
+      },
+      "bind": "$w51"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$w51",
+            "result": {
+              "ok": {
+                "input": {
+                  "outcome": "Written",
+                  "payload_bytes_written": "$n51",
+                  "pty_bytes_written": "$n51"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_input",
+        "session": "s1"
+      },
+      "expect": {
+        "bytes": "$log51"
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_ends_with": [
+          "$log51",
+          "$e51"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_len_eq": [
+          "$e51",
+          "$n51"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "oracle_encode",
+        "session": "s1",
+        "input": {
+          "key": {
+            "named": "enter"
+          },
+          "mods": [],
+          "event": "press"
+        },
+        "kind": "key",
+        "modes": {
+          "kitty_flags": 17
+        }
+      },
+      "bind": "$e52"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "key": {
+                "key": {
+                  "named": "enter"
+                },
+                "mods": [],
+                "event": "press"
+              }
+            }
+          }
+        }
+      },
+      "bind": "$w52"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$w52",
+            "result": {
+              "ok": {
+                "input": {
+                  "outcome": "Written",
+                  "payload_bytes_written": "$n52",
+                  "pty_bytes_written": "$n52"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_input",
+        "session": "s1"
+      },
+      "expect": {
+        "bytes": "$log52"
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_ends_with": [
+          "$log52",
+          "$e52"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_len_eq": [
+          "$e52",
+          "$n52"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "oracle_encode",
+        "session": "s1",
+        "input": {
+          "key": {
+            "named": "arrow_up"
+          },
+          "mods": [],
+          "event": "press"
+        },
+        "kind": "key",
+        "modes": {
+          "kitty_flags": 17
+        }
+      },
+      "bind": "$e53"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "key": {
+                "key": {
+                  "named": "arrow_up"
+                },
+                "mods": [],
+                "event": "press"
+              }
+            }
+          }
+        }
+      },
+      "bind": "$w53"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$w53",
+            "result": {
+              "ok": {
+                "input": {
+                  "outcome": "Written",
+                  "payload_bytes_written": "$n53",
+                  "pty_bytes_written": "$n53"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_input",
+        "session": "s1"
+      },
+      "expect": {
+        "bytes": "$log53"
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_ends_with": [
+          "$log53",
+          "$e53"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_len_eq": [
+          "$e53",
+          "$n53"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s1",
+        "bytes_hex": "1b5b3d31383b3175",
+        "scripted": {
+          "modes": {
+            "kitty_flags": 18
+          }
+        }
+      }
+    },
+    {
+      "pump_until": {
+        "event": {
+          "ModesChanged": {
+            "id": "s1",
+            "flags": {
+              "kitty_flags": 18
+            }
+          }
+        }
+      },
+      "because": "Core EV-7"
+    },
+    {
+      "control": {
+        "op": "oracle_encode",
+        "session": "s1",
+        "input": {
+          "key": {
+            "char": "a"
+          },
+          "mods": [],
+          "event": "press",
+          "text": "a"
+        },
+        "kind": "key",
+        "modes": {
+          "kitty_flags": 18
+        }
+      },
+      "bind": "$e54"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "key": {
+                "key": {
+                  "char": "a"
+                },
+                "mods": [],
+                "event": "press",
+                "text": "a"
+              }
+            }
+          }
+        }
+      },
+      "bind": "$w54"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$w54",
+            "result": {
+              "ok": {
+                "input": {
+                  "outcome": "Written",
+                  "payload_bytes_written": "$n54",
+                  "pty_bytes_written": "$n54"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_input",
+        "session": "s1"
+      },
+      "expect": {
+        "bytes": "$log54"
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_ends_with": [
+          "$log54",
+          "$e54"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_len_eq": [
+          "$e54",
+          "$n54"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "oracle_encode",
+        "session": "s1",
+        "input": {
+          "key": {
+            "named": "enter"
+          },
+          "mods": [],
+          "event": "press"
+        },
+        "kind": "key",
+        "modes": {
+          "kitty_flags": 18
+        }
+      },
+      "bind": "$e55"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "key": {
+                "key": {
+                  "named": "enter"
+                },
+                "mods": [],
+                "event": "press"
+              }
+            }
+          }
+        }
+      },
+      "bind": "$w55"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$w55",
+            "result": {
+              "ok": {
+                "input": {
+                  "outcome": "Written",
+                  "payload_bytes_written": "$n55",
+                  "pty_bytes_written": "$n55"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_input",
+        "session": "s1"
+      },
+      "expect": {
+        "bytes": "$log55"
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_ends_with": [
+          "$log55",
+          "$e55"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_len_eq": [
+          "$e55",
+          "$n55"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "oracle_encode",
+        "session": "s1",
+        "input": {
+          "key": {
+            "named": "arrow_up"
+          },
+          "mods": [],
+          "event": "press"
+        },
+        "kind": "key",
+        "modes": {
+          "kitty_flags": 18
+        }
+      },
+      "bind": "$e56"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "key": {
+                "key": {
+                  "named": "arrow_up"
+                },
+                "mods": [],
+                "event": "press"
+              }
+            }
+          }
+        }
+      },
+      "bind": "$w56"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$w56",
+            "result": {
+              "ok": {
+                "input": {
+                  "outcome": "Written",
+                  "payload_bytes_written": "$n56",
+                  "pty_bytes_written": "$n56"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_input",
+        "session": "s1"
+      },
+      "expect": {
+        "bytes": "$log56"
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_ends_with": [
+          "$log56",
+          "$e56"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_len_eq": [
+          "$e56",
+          "$n56"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s1",
+        "bytes_hex": "1b5b3d31393b3175",
+        "scripted": {
+          "modes": {
+            "kitty_flags": 19
+          }
+        }
+      }
+    },
+    {
+      "pump_until": {
+        "event": {
+          "ModesChanged": {
+            "id": "s1",
+            "flags": {
+              "kitty_flags": 19
+            }
+          }
+        }
+      },
+      "because": "Core EV-7"
+    },
+    {
+      "control": {
+        "op": "oracle_encode",
+        "session": "s1",
+        "input": {
+          "key": {
+            "char": "a"
+          },
+          "mods": [],
+          "event": "press",
+          "text": "a"
+        },
+        "kind": "key",
+        "modes": {
+          "kitty_flags": 19
+        }
+      },
+      "bind": "$e57"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "key": {
+                "key": {
+                  "char": "a"
+                },
+                "mods": [],
+                "event": "press",
+                "text": "a"
+              }
+            }
+          }
+        }
+      },
+      "bind": "$w57"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$w57",
+            "result": {
+              "ok": {
+                "input": {
+                  "outcome": "Written",
+                  "payload_bytes_written": "$n57",
+                  "pty_bytes_written": "$n57"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_input",
+        "session": "s1"
+      },
+      "expect": {
+        "bytes": "$log57"
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_ends_with": [
+          "$log57",
+          "$e57"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_len_eq": [
+          "$e57",
+          "$n57"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "oracle_encode",
+        "session": "s1",
+        "input": {
+          "key": {
+            "named": "enter"
+          },
+          "mods": [],
+          "event": "press"
+        },
+        "kind": "key",
+        "modes": {
+          "kitty_flags": 19
+        }
+      },
+      "bind": "$e58"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "key": {
+                "key": {
+                  "named": "enter"
+                },
+                "mods": [],
+                "event": "press"
+              }
+            }
+          }
+        }
+      },
+      "bind": "$w58"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$w58",
+            "result": {
+              "ok": {
+                "input": {
+                  "outcome": "Written",
+                  "payload_bytes_written": "$n58",
+                  "pty_bytes_written": "$n58"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_input",
+        "session": "s1"
+      },
+      "expect": {
+        "bytes": "$log58"
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_ends_with": [
+          "$log58",
+          "$e58"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_len_eq": [
+          "$e58",
+          "$n58"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "oracle_encode",
+        "session": "s1",
+        "input": {
+          "key": {
+            "named": "arrow_up"
+          },
+          "mods": [],
+          "event": "press"
+        },
+        "kind": "key",
+        "modes": {
+          "kitty_flags": 19
+        }
+      },
+      "bind": "$e59"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "key": {
+                "key": {
+                  "named": "arrow_up"
+                },
+                "mods": [],
+                "event": "press"
+              }
+            }
+          }
+        }
+      },
+      "bind": "$w59"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$w59",
+            "result": {
+              "ok": {
+                "input": {
+                  "outcome": "Written",
+                  "payload_bytes_written": "$n59",
+                  "pty_bytes_written": "$n59"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_input",
+        "session": "s1"
+      },
+      "expect": {
+        "bytes": "$log59"
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_ends_with": [
+          "$log59",
+          "$e59"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_len_eq": [
+          "$e59",
+          "$n59"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s1",
+        "bytes_hex": "1b5b3d32303b3175",
+        "scripted": {
+          "modes": {
+            "kitty_flags": 20
+          }
+        }
+      }
+    },
+    {
+      "pump_until": {
+        "event": {
+          "ModesChanged": {
+            "id": "s1",
+            "flags": {
+              "kitty_flags": 20
+            }
+          }
+        }
+      },
+      "because": "Core EV-7"
+    },
+    {
+      "control": {
+        "op": "oracle_encode",
+        "session": "s1",
+        "input": {
+          "key": {
+            "char": "a"
+          },
+          "mods": [],
+          "event": "press",
+          "text": "a"
+        },
+        "kind": "key",
+        "modes": {
+          "kitty_flags": 20
+        }
+      },
+      "bind": "$e60"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "key": {
+                "key": {
+                  "char": "a"
+                },
+                "mods": [],
+                "event": "press",
+                "text": "a"
+              }
+            }
+          }
+        }
+      },
+      "bind": "$w60"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$w60",
+            "result": {
+              "ok": {
+                "input": {
+                  "outcome": "Written",
+                  "payload_bytes_written": "$n60",
+                  "pty_bytes_written": "$n60"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_input",
+        "session": "s1"
+      },
+      "expect": {
+        "bytes": "$log60"
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_ends_with": [
+          "$log60",
+          "$e60"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_len_eq": [
+          "$e60",
+          "$n60"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "oracle_encode",
+        "session": "s1",
+        "input": {
+          "key": {
+            "named": "enter"
+          },
+          "mods": [],
+          "event": "press"
+        },
+        "kind": "key",
+        "modes": {
+          "kitty_flags": 20
+        }
+      },
+      "bind": "$e61"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "key": {
+                "key": {
+                  "named": "enter"
+                },
+                "mods": [],
+                "event": "press"
+              }
+            }
+          }
+        }
+      },
+      "bind": "$w61"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$w61",
+            "result": {
+              "ok": {
+                "input": {
+                  "outcome": "Written",
+                  "payload_bytes_written": "$n61",
+                  "pty_bytes_written": "$n61"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_input",
+        "session": "s1"
+      },
+      "expect": {
+        "bytes": "$log61"
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_ends_with": [
+          "$log61",
+          "$e61"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_len_eq": [
+          "$e61",
+          "$n61"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "oracle_encode",
+        "session": "s1",
+        "input": {
+          "key": {
+            "named": "arrow_up"
+          },
+          "mods": [],
+          "event": "press"
+        },
+        "kind": "key",
+        "modes": {
+          "kitty_flags": 20
+        }
+      },
+      "bind": "$e62"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "key": {
+                "key": {
+                  "named": "arrow_up"
+                },
+                "mods": [],
+                "event": "press"
+              }
+            }
+          }
+        }
+      },
+      "bind": "$w62"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$w62",
+            "result": {
+              "ok": {
+                "input": {
+                  "outcome": "Written",
+                  "payload_bytes_written": "$n62",
+                  "pty_bytes_written": "$n62"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_input",
+        "session": "s1"
+      },
+      "expect": {
+        "bytes": "$log62"
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_ends_with": [
+          "$log62",
+          "$e62"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_len_eq": [
+          "$e62",
+          "$n62"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s1",
+        "bytes_hex": "1b5b3d32313b3175",
+        "scripted": {
+          "modes": {
+            "kitty_flags": 21
+          }
+        }
+      }
+    },
+    {
+      "pump_until": {
+        "event": {
+          "ModesChanged": {
+            "id": "s1",
+            "flags": {
+              "kitty_flags": 21
+            }
+          }
+        }
+      },
+      "because": "Core EV-7"
+    },
+    {
+      "control": {
+        "op": "oracle_encode",
+        "session": "s1",
+        "input": {
+          "key": {
+            "char": "a"
+          },
+          "mods": [],
+          "event": "press",
+          "text": "a"
+        },
+        "kind": "key",
+        "modes": {
+          "kitty_flags": 21
+        }
+      },
+      "bind": "$e63"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "key": {
+                "key": {
+                  "char": "a"
+                },
+                "mods": [],
+                "event": "press",
+                "text": "a"
+              }
+            }
+          }
+        }
+      },
+      "bind": "$w63"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$w63",
+            "result": {
+              "ok": {
+                "input": {
+                  "outcome": "Written",
+                  "payload_bytes_written": "$n63",
+                  "pty_bytes_written": "$n63"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_input",
+        "session": "s1"
+      },
+      "expect": {
+        "bytes": "$log63"
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_ends_with": [
+          "$log63",
+          "$e63"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_len_eq": [
+          "$e63",
+          "$n63"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "oracle_encode",
+        "session": "s1",
+        "input": {
+          "key": {
+            "named": "enter"
+          },
+          "mods": [],
+          "event": "press"
+        },
+        "kind": "key",
+        "modes": {
+          "kitty_flags": 21
+        }
+      },
+      "bind": "$e64"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "key": {
+                "key": {
+                  "named": "enter"
+                },
+                "mods": [],
+                "event": "press"
+              }
+            }
+          }
+        }
+      },
+      "bind": "$w64"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$w64",
+            "result": {
+              "ok": {
+                "input": {
+                  "outcome": "Written",
+                  "payload_bytes_written": "$n64",
+                  "pty_bytes_written": "$n64"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_input",
+        "session": "s1"
+      },
+      "expect": {
+        "bytes": "$log64"
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_ends_with": [
+          "$log64",
+          "$e64"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_len_eq": [
+          "$e64",
+          "$n64"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "oracle_encode",
+        "session": "s1",
+        "input": {
+          "key": {
+            "named": "arrow_up"
+          },
+          "mods": [],
+          "event": "press"
+        },
+        "kind": "key",
+        "modes": {
+          "kitty_flags": 21
+        }
+      },
+      "bind": "$e65"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "key": {
+                "key": {
+                  "named": "arrow_up"
+                },
+                "mods": [],
+                "event": "press"
+              }
+            }
+          }
+        }
+      },
+      "bind": "$w65"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$w65",
+            "result": {
+              "ok": {
+                "input": {
+                  "outcome": "Written",
+                  "payload_bytes_written": "$n65",
+                  "pty_bytes_written": "$n65"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_input",
+        "session": "s1"
+      },
+      "expect": {
+        "bytes": "$log65"
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_ends_with": [
+          "$log65",
+          "$e65"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_len_eq": [
+          "$e65",
+          "$n65"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s1",
+        "bytes_hex": "1b5b3d32323b3175",
+        "scripted": {
+          "modes": {
+            "kitty_flags": 22
+          }
+        }
+      }
+    },
+    {
+      "pump_until": {
+        "event": {
+          "ModesChanged": {
+            "id": "s1",
+            "flags": {
+              "kitty_flags": 22
+            }
+          }
+        }
+      },
+      "because": "Core EV-7"
+    },
+    {
+      "control": {
+        "op": "oracle_encode",
+        "session": "s1",
+        "input": {
+          "key": {
+            "char": "a"
+          },
+          "mods": [],
+          "event": "press",
+          "text": "a"
+        },
+        "kind": "key",
+        "modes": {
+          "kitty_flags": 22
+        }
+      },
+      "bind": "$e66"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "key": {
+                "key": {
+                  "char": "a"
+                },
+                "mods": [],
+                "event": "press",
+                "text": "a"
+              }
+            }
+          }
+        }
+      },
+      "bind": "$w66"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$w66",
+            "result": {
+              "ok": {
+                "input": {
+                  "outcome": "Written",
+                  "payload_bytes_written": "$n66",
+                  "pty_bytes_written": "$n66"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_input",
+        "session": "s1"
+      },
+      "expect": {
+        "bytes": "$log66"
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_ends_with": [
+          "$log66",
+          "$e66"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_len_eq": [
+          "$e66",
+          "$n66"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "oracle_encode",
+        "session": "s1",
+        "input": {
+          "key": {
+            "named": "enter"
+          },
+          "mods": [],
+          "event": "press"
+        },
+        "kind": "key",
+        "modes": {
+          "kitty_flags": 22
+        }
+      },
+      "bind": "$e67"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "key": {
+                "key": {
+                  "named": "enter"
+                },
+                "mods": [],
+                "event": "press"
+              }
+            }
+          }
+        }
+      },
+      "bind": "$w67"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$w67",
+            "result": {
+              "ok": {
+                "input": {
+                  "outcome": "Written",
+                  "payload_bytes_written": "$n67",
+                  "pty_bytes_written": "$n67"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_input",
+        "session": "s1"
+      },
+      "expect": {
+        "bytes": "$log67"
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_ends_with": [
+          "$log67",
+          "$e67"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_len_eq": [
+          "$e67",
+          "$n67"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "oracle_encode",
+        "session": "s1",
+        "input": {
+          "key": {
+            "named": "arrow_up"
+          },
+          "mods": [],
+          "event": "press"
+        },
+        "kind": "key",
+        "modes": {
+          "kitty_flags": 22
+        }
+      },
+      "bind": "$e68"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "key": {
+                "key": {
+                  "named": "arrow_up"
+                },
+                "mods": [],
+                "event": "press"
+              }
+            }
+          }
+        }
+      },
+      "bind": "$w68"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$w68",
+            "result": {
+              "ok": {
+                "input": {
+                  "outcome": "Written",
+                  "payload_bytes_written": "$n68",
+                  "pty_bytes_written": "$n68"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_input",
+        "session": "s1"
+      },
+      "expect": {
+        "bytes": "$log68"
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_ends_with": [
+          "$log68",
+          "$e68"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_len_eq": [
+          "$e68",
+          "$n68"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s1",
+        "bytes_hex": "1b5b3d32333b3175",
+        "scripted": {
+          "modes": {
+            "kitty_flags": 23
+          }
+        }
+      }
+    },
+    {
+      "pump_until": {
+        "event": {
+          "ModesChanged": {
+            "id": "s1",
+            "flags": {
+              "kitty_flags": 23
+            }
+          }
+        }
+      },
+      "because": "Core EV-7"
+    },
+    {
+      "control": {
+        "op": "oracle_encode",
+        "session": "s1",
+        "input": {
+          "key": {
+            "char": "a"
+          },
+          "mods": [],
+          "event": "press",
+          "text": "a"
+        },
+        "kind": "key",
+        "modes": {
+          "kitty_flags": 23
+        }
+      },
+      "bind": "$e69"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "key": {
+                "key": {
+                  "char": "a"
+                },
+                "mods": [],
+                "event": "press",
+                "text": "a"
+              }
+            }
+          }
+        }
+      },
+      "bind": "$w69"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$w69",
+            "result": {
+              "ok": {
+                "input": {
+                  "outcome": "Written",
+                  "payload_bytes_written": "$n69",
+                  "pty_bytes_written": "$n69"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_input",
+        "session": "s1"
+      },
+      "expect": {
+        "bytes": "$log69"
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_ends_with": [
+          "$log69",
+          "$e69"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_len_eq": [
+          "$e69",
+          "$n69"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "oracle_encode",
+        "session": "s1",
+        "input": {
+          "key": {
+            "named": "enter"
+          },
+          "mods": [],
+          "event": "press"
+        },
+        "kind": "key",
+        "modes": {
+          "kitty_flags": 23
+        }
+      },
+      "bind": "$e70"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "key": {
+                "key": {
+                  "named": "enter"
+                },
+                "mods": [],
+                "event": "press"
+              }
+            }
+          }
+        }
+      },
+      "bind": "$w70"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$w70",
+            "result": {
+              "ok": {
+                "input": {
+                  "outcome": "Written",
+                  "payload_bytes_written": "$n70",
+                  "pty_bytes_written": "$n70"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_input",
+        "session": "s1"
+      },
+      "expect": {
+        "bytes": "$log70"
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_ends_with": [
+          "$log70",
+          "$e70"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_len_eq": [
+          "$e70",
+          "$n70"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "oracle_encode",
+        "session": "s1",
+        "input": {
+          "key": {
+            "named": "arrow_up"
+          },
+          "mods": [],
+          "event": "press"
+        },
+        "kind": "key",
+        "modes": {
+          "kitty_flags": 23
+        }
+      },
+      "bind": "$e71"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "key": {
+                "key": {
+                  "named": "arrow_up"
+                },
+                "mods": [],
+                "event": "press"
+              }
+            }
+          }
+        }
+      },
+      "bind": "$w71"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$w71",
+            "result": {
+              "ok": {
+                "input": {
+                  "outcome": "Written",
+                  "payload_bytes_written": "$n71",
+                  "pty_bytes_written": "$n71"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_input",
+        "session": "s1"
+      },
+      "expect": {
+        "bytes": "$log71"
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_ends_with": [
+          "$log71",
+          "$e71"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_len_eq": [
+          "$e71",
+          "$n71"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s1",
+        "bytes_hex": "1b5b3d32343b3175",
+        "scripted": {
+          "modes": {
+            "kitty_flags": 24
+          }
+        }
+      }
+    },
+    {
+      "pump_until": {
+        "event": {
+          "ModesChanged": {
+            "id": "s1",
+            "flags": {
+              "kitty_flags": 24
+            }
+          }
+        }
+      },
+      "because": "Core EV-7"
+    },
+    {
+      "control": {
+        "op": "oracle_encode",
+        "session": "s1",
+        "input": {
+          "key": {
+            "char": "a"
+          },
+          "mods": [],
+          "event": "press",
+          "text": "a"
+        },
+        "kind": "key",
+        "modes": {
+          "kitty_flags": 24
+        }
+      },
+      "bind": "$e72"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "key": {
+                "key": {
+                  "char": "a"
+                },
+                "mods": [],
+                "event": "press",
+                "text": "a"
+              }
+            }
+          }
+        }
+      },
+      "bind": "$w72"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$w72",
+            "result": {
+              "ok": {
+                "input": {
+                  "outcome": "Written",
+                  "payload_bytes_written": "$n72",
+                  "pty_bytes_written": "$n72"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_input",
+        "session": "s1"
+      },
+      "expect": {
+        "bytes": "$log72"
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_ends_with": [
+          "$log72",
+          "$e72"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_len_eq": [
+          "$e72",
+          "$n72"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "oracle_encode",
+        "session": "s1",
+        "input": {
+          "key": {
+            "named": "enter"
+          },
+          "mods": [],
+          "event": "press"
+        },
+        "kind": "key",
+        "modes": {
+          "kitty_flags": 24
+        }
+      },
+      "bind": "$e73"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "key": {
+                "key": {
+                  "named": "enter"
+                },
+                "mods": [],
+                "event": "press"
+              }
+            }
+          }
+        }
+      },
+      "bind": "$w73"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$w73",
+            "result": {
+              "ok": {
+                "input": {
+                  "outcome": "Written",
+                  "payload_bytes_written": "$n73",
+                  "pty_bytes_written": "$n73"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_input",
+        "session": "s1"
+      },
+      "expect": {
+        "bytes": "$log73"
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_ends_with": [
+          "$log73",
+          "$e73"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_len_eq": [
+          "$e73",
+          "$n73"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "oracle_encode",
+        "session": "s1",
+        "input": {
+          "key": {
+            "named": "arrow_up"
+          },
+          "mods": [],
+          "event": "press"
+        },
+        "kind": "key",
+        "modes": {
+          "kitty_flags": 24
+        }
+      },
+      "bind": "$e74"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "key": {
+                "key": {
+                  "named": "arrow_up"
+                },
+                "mods": [],
+                "event": "press"
+              }
+            }
+          }
+        }
+      },
+      "bind": "$w74"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$w74",
+            "result": {
+              "ok": {
+                "input": {
+                  "outcome": "Written",
+                  "payload_bytes_written": "$n74",
+                  "pty_bytes_written": "$n74"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_input",
+        "session": "s1"
+      },
+      "expect": {
+        "bytes": "$log74"
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_ends_with": [
+          "$log74",
+          "$e74"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_len_eq": [
+          "$e74",
+          "$n74"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s1",
+        "bytes_hex": "1b5b3d32353b3175",
+        "scripted": {
+          "modes": {
+            "kitty_flags": 25
+          }
+        }
+      }
+    },
+    {
+      "pump_until": {
+        "event": {
+          "ModesChanged": {
+            "id": "s1",
+            "flags": {
+              "kitty_flags": 25
+            }
+          }
+        }
+      },
+      "because": "Core EV-7"
+    },
+    {
+      "control": {
+        "op": "oracle_encode",
+        "session": "s1",
+        "input": {
+          "key": {
+            "char": "a"
+          },
+          "mods": [],
+          "event": "press",
+          "text": "a"
+        },
+        "kind": "key",
+        "modes": {
+          "kitty_flags": 25
+        }
+      },
+      "bind": "$e75"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "key": {
+                "key": {
+                  "char": "a"
+                },
+                "mods": [],
+                "event": "press",
+                "text": "a"
+              }
+            }
+          }
+        }
+      },
+      "bind": "$w75"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$w75",
+            "result": {
+              "ok": {
+                "input": {
+                  "outcome": "Written",
+                  "payload_bytes_written": "$n75",
+                  "pty_bytes_written": "$n75"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_input",
+        "session": "s1"
+      },
+      "expect": {
+        "bytes": "$log75"
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_ends_with": [
+          "$log75",
+          "$e75"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_len_eq": [
+          "$e75",
+          "$n75"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "oracle_encode",
+        "session": "s1",
+        "input": {
+          "key": {
+            "named": "enter"
+          },
+          "mods": [],
+          "event": "press"
+        },
+        "kind": "key",
+        "modes": {
+          "kitty_flags": 25
+        }
+      },
+      "bind": "$e76"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "key": {
+                "key": {
+                  "named": "enter"
+                },
+                "mods": [],
+                "event": "press"
+              }
+            }
+          }
+        }
+      },
+      "bind": "$w76"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$w76",
+            "result": {
+              "ok": {
+                "input": {
+                  "outcome": "Written",
+                  "payload_bytes_written": "$n76",
+                  "pty_bytes_written": "$n76"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_input",
+        "session": "s1"
+      },
+      "expect": {
+        "bytes": "$log76"
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_ends_with": [
+          "$log76",
+          "$e76"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_len_eq": [
+          "$e76",
+          "$n76"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "oracle_encode",
+        "session": "s1",
+        "input": {
+          "key": {
+            "named": "arrow_up"
+          },
+          "mods": [],
+          "event": "press"
+        },
+        "kind": "key",
+        "modes": {
+          "kitty_flags": 25
+        }
+      },
+      "bind": "$e77"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "key": {
+                "key": {
+                  "named": "arrow_up"
+                },
+                "mods": [],
+                "event": "press"
+              }
+            }
+          }
+        }
+      },
+      "bind": "$w77"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$w77",
+            "result": {
+              "ok": {
+                "input": {
+                  "outcome": "Written",
+                  "payload_bytes_written": "$n77",
+                  "pty_bytes_written": "$n77"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_input",
+        "session": "s1"
+      },
+      "expect": {
+        "bytes": "$log77"
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_ends_with": [
+          "$log77",
+          "$e77"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_len_eq": [
+          "$e77",
+          "$n77"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s1",
+        "bytes_hex": "1b5b3d32363b3175",
+        "scripted": {
+          "modes": {
+            "kitty_flags": 26
+          }
+        }
+      }
+    },
+    {
+      "pump_until": {
+        "event": {
+          "ModesChanged": {
+            "id": "s1",
+            "flags": {
+              "kitty_flags": 26
+            }
+          }
+        }
+      },
+      "because": "Core EV-7"
+    },
+    {
+      "control": {
+        "op": "oracle_encode",
+        "session": "s1",
+        "input": {
+          "key": {
+            "char": "a"
+          },
+          "mods": [],
+          "event": "press",
+          "text": "a"
+        },
+        "kind": "key",
+        "modes": {
+          "kitty_flags": 26
+        }
+      },
+      "bind": "$e78"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "key": {
+                "key": {
+                  "char": "a"
+                },
+                "mods": [],
+                "event": "press",
+                "text": "a"
+              }
+            }
+          }
+        }
+      },
+      "bind": "$w78"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$w78",
+            "result": {
+              "ok": {
+                "input": {
+                  "outcome": "Written",
+                  "payload_bytes_written": "$n78",
+                  "pty_bytes_written": "$n78"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_input",
+        "session": "s1"
+      },
+      "expect": {
+        "bytes": "$log78"
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_ends_with": [
+          "$log78",
+          "$e78"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_len_eq": [
+          "$e78",
+          "$n78"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "oracle_encode",
+        "session": "s1",
+        "input": {
+          "key": {
+            "named": "enter"
+          },
+          "mods": [],
+          "event": "press"
+        },
+        "kind": "key",
+        "modes": {
+          "kitty_flags": 26
+        }
+      },
+      "bind": "$e79"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "key": {
+                "key": {
+                  "named": "enter"
+                },
+                "mods": [],
+                "event": "press"
+              }
+            }
+          }
+        }
+      },
+      "bind": "$w79"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$w79",
+            "result": {
+              "ok": {
+                "input": {
+                  "outcome": "Written",
+                  "payload_bytes_written": "$n79",
+                  "pty_bytes_written": "$n79"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_input",
+        "session": "s1"
+      },
+      "expect": {
+        "bytes": "$log79"
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_ends_with": [
+          "$log79",
+          "$e79"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_len_eq": [
+          "$e79",
+          "$n79"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "oracle_encode",
+        "session": "s1",
+        "input": {
+          "key": {
+            "named": "arrow_up"
+          },
+          "mods": [],
+          "event": "press"
+        },
+        "kind": "key",
+        "modes": {
+          "kitty_flags": 26
+        }
+      },
+      "bind": "$e80"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "key": {
+                "key": {
+                  "named": "arrow_up"
+                },
+                "mods": [],
+                "event": "press"
+              }
+            }
+          }
+        }
+      },
+      "bind": "$w80"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$w80",
+            "result": {
+              "ok": {
+                "input": {
+                  "outcome": "Written",
+                  "payload_bytes_written": "$n80",
+                  "pty_bytes_written": "$n80"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_input",
+        "session": "s1"
+      },
+      "expect": {
+        "bytes": "$log80"
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_ends_with": [
+          "$log80",
+          "$e80"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_len_eq": [
+          "$e80",
+          "$n80"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s1",
+        "bytes_hex": "1b5b3d32373b3175",
+        "scripted": {
+          "modes": {
+            "kitty_flags": 27
+          }
+        }
+      }
+    },
+    {
+      "pump_until": {
+        "event": {
+          "ModesChanged": {
+            "id": "s1",
+            "flags": {
+              "kitty_flags": 27
+            }
+          }
+        }
+      },
+      "because": "Core EV-7"
+    },
+    {
+      "control": {
+        "op": "oracle_encode",
+        "session": "s1",
+        "input": {
+          "key": {
+            "char": "a"
+          },
+          "mods": [],
+          "event": "press",
+          "text": "a"
+        },
+        "kind": "key",
+        "modes": {
+          "kitty_flags": 27
+        }
+      },
+      "bind": "$e81"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "key": {
+                "key": {
+                  "char": "a"
+                },
+                "mods": [],
+                "event": "press",
+                "text": "a"
+              }
+            }
+          }
+        }
+      },
+      "bind": "$w81"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$w81",
+            "result": {
+              "ok": {
+                "input": {
+                  "outcome": "Written",
+                  "payload_bytes_written": "$n81",
+                  "pty_bytes_written": "$n81"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_input",
+        "session": "s1"
+      },
+      "expect": {
+        "bytes": "$log81"
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_ends_with": [
+          "$log81",
+          "$e81"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_len_eq": [
+          "$e81",
+          "$n81"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "oracle_encode",
+        "session": "s1",
+        "input": {
+          "key": {
+            "named": "enter"
+          },
+          "mods": [],
+          "event": "press"
+        },
+        "kind": "key",
+        "modes": {
+          "kitty_flags": 27
+        }
+      },
+      "bind": "$e82"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "key": {
+                "key": {
+                  "named": "enter"
+                },
+                "mods": [],
+                "event": "press"
+              }
+            }
+          }
+        }
+      },
+      "bind": "$w82"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$w82",
+            "result": {
+              "ok": {
+                "input": {
+                  "outcome": "Written",
+                  "payload_bytes_written": "$n82",
+                  "pty_bytes_written": "$n82"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_input",
+        "session": "s1"
+      },
+      "expect": {
+        "bytes": "$log82"
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_ends_with": [
+          "$log82",
+          "$e82"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_len_eq": [
+          "$e82",
+          "$n82"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "oracle_encode",
+        "session": "s1",
+        "input": {
+          "key": {
+            "named": "arrow_up"
+          },
+          "mods": [],
+          "event": "press"
+        },
+        "kind": "key",
+        "modes": {
+          "kitty_flags": 27
+        }
+      },
+      "bind": "$e83"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "key": {
+                "key": {
+                  "named": "arrow_up"
+                },
+                "mods": [],
+                "event": "press"
+              }
+            }
+          }
+        }
+      },
+      "bind": "$w83"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$w83",
+            "result": {
+              "ok": {
+                "input": {
+                  "outcome": "Written",
+                  "payload_bytes_written": "$n83",
+                  "pty_bytes_written": "$n83"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_input",
+        "session": "s1"
+      },
+      "expect": {
+        "bytes": "$log83"
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_ends_with": [
+          "$log83",
+          "$e83"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_len_eq": [
+          "$e83",
+          "$n83"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s1",
+        "bytes_hex": "1b5b3d32383b3175",
+        "scripted": {
+          "modes": {
+            "kitty_flags": 28
+          }
+        }
+      }
+    },
+    {
+      "pump_until": {
+        "event": {
+          "ModesChanged": {
+            "id": "s1",
+            "flags": {
+              "kitty_flags": 28
+            }
+          }
+        }
+      },
+      "because": "Core EV-7"
+    },
+    {
+      "control": {
+        "op": "oracle_encode",
+        "session": "s1",
+        "input": {
+          "key": {
+            "char": "a"
+          },
+          "mods": [],
+          "event": "press",
+          "text": "a"
+        },
+        "kind": "key",
+        "modes": {
+          "kitty_flags": 28
+        }
+      },
+      "bind": "$e84"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "key": {
+                "key": {
+                  "char": "a"
+                },
+                "mods": [],
+                "event": "press",
+                "text": "a"
+              }
+            }
+          }
+        }
+      },
+      "bind": "$w84"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$w84",
+            "result": {
+              "ok": {
+                "input": {
+                  "outcome": "Written",
+                  "payload_bytes_written": "$n84",
+                  "pty_bytes_written": "$n84"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_input",
+        "session": "s1"
+      },
+      "expect": {
+        "bytes": "$log84"
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_ends_with": [
+          "$log84",
+          "$e84"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_len_eq": [
+          "$e84",
+          "$n84"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "oracle_encode",
+        "session": "s1",
+        "input": {
+          "key": {
+            "named": "enter"
+          },
+          "mods": [],
+          "event": "press"
+        },
+        "kind": "key",
+        "modes": {
+          "kitty_flags": 28
+        }
+      },
+      "bind": "$e85"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "key": {
+                "key": {
+                  "named": "enter"
+                },
+                "mods": [],
+                "event": "press"
+              }
+            }
+          }
+        }
+      },
+      "bind": "$w85"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$w85",
+            "result": {
+              "ok": {
+                "input": {
+                  "outcome": "Written",
+                  "payload_bytes_written": "$n85",
+                  "pty_bytes_written": "$n85"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_input",
+        "session": "s1"
+      },
+      "expect": {
+        "bytes": "$log85"
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_ends_with": [
+          "$log85",
+          "$e85"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_len_eq": [
+          "$e85",
+          "$n85"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "oracle_encode",
+        "session": "s1",
+        "input": {
+          "key": {
+            "named": "arrow_up"
+          },
+          "mods": [],
+          "event": "press"
+        },
+        "kind": "key",
+        "modes": {
+          "kitty_flags": 28
+        }
+      },
+      "bind": "$e86"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "key": {
+                "key": {
+                  "named": "arrow_up"
+                },
+                "mods": [],
+                "event": "press"
+              }
+            }
+          }
+        }
+      },
+      "bind": "$w86"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$w86",
+            "result": {
+              "ok": {
+                "input": {
+                  "outcome": "Written",
+                  "payload_bytes_written": "$n86",
+                  "pty_bytes_written": "$n86"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_input",
+        "session": "s1"
+      },
+      "expect": {
+        "bytes": "$log86"
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_ends_with": [
+          "$log86",
+          "$e86"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_len_eq": [
+          "$e86",
+          "$n86"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s1",
+        "bytes_hex": "1b5b3d32393b3175",
+        "scripted": {
+          "modes": {
+            "kitty_flags": 29
+          }
+        }
+      }
+    },
+    {
+      "pump_until": {
+        "event": {
+          "ModesChanged": {
+            "id": "s1",
+            "flags": {
+              "kitty_flags": 29
+            }
+          }
+        }
+      },
+      "because": "Core EV-7"
+    },
+    {
+      "control": {
+        "op": "oracle_encode",
+        "session": "s1",
+        "input": {
+          "key": {
+            "char": "a"
+          },
+          "mods": [],
+          "event": "press",
+          "text": "a"
+        },
+        "kind": "key",
+        "modes": {
+          "kitty_flags": 29
+        }
+      },
+      "bind": "$e87"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "key": {
+                "key": {
+                  "char": "a"
+                },
+                "mods": [],
+                "event": "press",
+                "text": "a"
+              }
+            }
+          }
+        }
+      },
+      "bind": "$w87"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$w87",
+            "result": {
+              "ok": {
+                "input": {
+                  "outcome": "Written",
+                  "payload_bytes_written": "$n87",
+                  "pty_bytes_written": "$n87"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_input",
+        "session": "s1"
+      },
+      "expect": {
+        "bytes": "$log87"
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_ends_with": [
+          "$log87",
+          "$e87"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_len_eq": [
+          "$e87",
+          "$n87"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "oracle_encode",
+        "session": "s1",
+        "input": {
+          "key": {
+            "named": "enter"
+          },
+          "mods": [],
+          "event": "press"
+        },
+        "kind": "key",
+        "modes": {
+          "kitty_flags": 29
+        }
+      },
+      "bind": "$e88"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "key": {
+                "key": {
+                  "named": "enter"
+                },
+                "mods": [],
+                "event": "press"
+              }
+            }
+          }
+        }
+      },
+      "bind": "$w88"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$w88",
+            "result": {
+              "ok": {
+                "input": {
+                  "outcome": "Written",
+                  "payload_bytes_written": "$n88",
+                  "pty_bytes_written": "$n88"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_input",
+        "session": "s1"
+      },
+      "expect": {
+        "bytes": "$log88"
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_ends_with": [
+          "$log88",
+          "$e88"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_len_eq": [
+          "$e88",
+          "$n88"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "oracle_encode",
+        "session": "s1",
+        "input": {
+          "key": {
+            "named": "arrow_up"
+          },
+          "mods": [],
+          "event": "press"
+        },
+        "kind": "key",
+        "modes": {
+          "kitty_flags": 29
+        }
+      },
+      "bind": "$e89"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "key": {
+                "key": {
+                  "named": "arrow_up"
+                },
+                "mods": [],
+                "event": "press"
+              }
+            }
+          }
+        }
+      },
+      "bind": "$w89"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$w89",
+            "result": {
+              "ok": {
+                "input": {
+                  "outcome": "Written",
+                  "payload_bytes_written": "$n89",
+                  "pty_bytes_written": "$n89"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_input",
+        "session": "s1"
+      },
+      "expect": {
+        "bytes": "$log89"
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_ends_with": [
+          "$log89",
+          "$e89"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_len_eq": [
+          "$e89",
+          "$n89"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s1",
+        "bytes_hex": "1b5b3d33303b3175",
+        "scripted": {
+          "modes": {
+            "kitty_flags": 30
+          }
+        }
+      }
+    },
+    {
+      "pump_until": {
+        "event": {
+          "ModesChanged": {
+            "id": "s1",
+            "flags": {
+              "kitty_flags": 30
+            }
+          }
+        }
+      },
+      "because": "Core EV-7"
+    },
+    {
+      "control": {
+        "op": "oracle_encode",
+        "session": "s1",
+        "input": {
+          "key": {
+            "char": "a"
+          },
+          "mods": [],
+          "event": "press",
+          "text": "a"
+        },
+        "kind": "key",
+        "modes": {
+          "kitty_flags": 30
+        }
+      },
+      "bind": "$e90"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "key": {
+                "key": {
+                  "char": "a"
+                },
+                "mods": [],
+                "event": "press",
+                "text": "a"
+              }
+            }
+          }
+        }
+      },
+      "bind": "$w90"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$w90",
+            "result": {
+              "ok": {
+                "input": {
+                  "outcome": "Written",
+                  "payload_bytes_written": "$n90",
+                  "pty_bytes_written": "$n90"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_input",
+        "session": "s1"
+      },
+      "expect": {
+        "bytes": "$log90"
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_ends_with": [
+          "$log90",
+          "$e90"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_len_eq": [
+          "$e90",
+          "$n90"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "oracle_encode",
+        "session": "s1",
+        "input": {
+          "key": {
+            "named": "enter"
+          },
+          "mods": [],
+          "event": "press"
+        },
+        "kind": "key",
+        "modes": {
+          "kitty_flags": 30
+        }
+      },
+      "bind": "$e91"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "key": {
+                "key": {
+                  "named": "enter"
+                },
+                "mods": [],
+                "event": "press"
+              }
+            }
+          }
+        }
+      },
+      "bind": "$w91"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$w91",
+            "result": {
+              "ok": {
+                "input": {
+                  "outcome": "Written",
+                  "payload_bytes_written": "$n91",
+                  "pty_bytes_written": "$n91"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_input",
+        "session": "s1"
+      },
+      "expect": {
+        "bytes": "$log91"
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_ends_with": [
+          "$log91",
+          "$e91"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_len_eq": [
+          "$e91",
+          "$n91"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "oracle_encode",
+        "session": "s1",
+        "input": {
+          "key": {
+            "named": "arrow_up"
+          },
+          "mods": [],
+          "event": "press"
+        },
+        "kind": "key",
+        "modes": {
+          "kitty_flags": 30
+        }
+      },
+      "bind": "$e92"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "key": {
+                "key": {
+                  "named": "arrow_up"
+                },
+                "mods": [],
+                "event": "press"
+              }
+            }
+          }
+        }
+      },
+      "bind": "$w92"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$w92",
+            "result": {
+              "ok": {
+                "input": {
+                  "outcome": "Written",
+                  "payload_bytes_written": "$n92",
+                  "pty_bytes_written": "$n92"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_input",
+        "session": "s1"
+      },
+      "expect": {
+        "bytes": "$log92"
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_ends_with": [
+          "$log92",
+          "$e92"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_len_eq": [
+          "$e92",
+          "$n92"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s1",
+        "bytes_hex": "1b5b3d33313b3175",
+        "scripted": {
+          "modes": {
+            "kitty_flags": 31
+          }
+        }
+      }
+    },
+    {
+      "pump_until": {
+        "event": {
+          "ModesChanged": {
+            "id": "s1",
+            "flags": {
+              "kitty_flags": 31
+            }
+          }
+        }
+      },
+      "because": "Core EV-7"
+    },
+    {
+      "control": {
+        "op": "oracle_encode",
+        "session": "s1",
+        "input": {
+          "key": {
+            "char": "a"
+          },
+          "mods": [],
+          "event": "press",
+          "text": "a"
+        },
+        "kind": "key",
+        "modes": {
+          "kitty_flags": 31
+        }
+      },
+      "bind": "$e93"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "key": {
+                "key": {
+                  "char": "a"
+                },
+                "mods": [],
+                "event": "press",
+                "text": "a"
+              }
+            }
+          }
+        }
+      },
+      "bind": "$w93"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$w93",
+            "result": {
+              "ok": {
+                "input": {
+                  "outcome": "Written",
+                  "payload_bytes_written": "$n93",
+                  "pty_bytes_written": "$n93"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_input",
+        "session": "s1"
+      },
+      "expect": {
+        "bytes": "$log93"
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_ends_with": [
+          "$log93",
+          "$e93"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_len_eq": [
+          "$e93",
+          "$n93"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "oracle_encode",
+        "session": "s1",
+        "input": {
+          "key": {
+            "named": "enter"
+          },
+          "mods": [],
+          "event": "press"
+        },
+        "kind": "key",
+        "modes": {
+          "kitty_flags": 31
+        }
+      },
+      "bind": "$e94"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "key": {
+                "key": {
+                  "named": "enter"
+                },
+                "mods": [],
+                "event": "press"
+              }
+            }
+          }
+        }
+      },
+      "bind": "$w94"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$w94",
+            "result": {
+              "ok": {
+                "input": {
+                  "outcome": "Written",
+                  "payload_bytes_written": "$n94",
+                  "pty_bytes_written": "$n94"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_input",
+        "session": "s1"
+      },
+      "expect": {
+        "bytes": "$log94"
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_ends_with": [
+          "$log94",
+          "$e94"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_len_eq": [
+          "$e94",
+          "$n94"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "oracle_encode",
+        "session": "s1",
+        "input": {
+          "key": {
+            "named": "arrow_up"
+          },
+          "mods": [],
+          "event": "press"
+        },
+        "kind": "key",
+        "modes": {
+          "kitty_flags": 31
+        }
+      },
+      "bind": "$e95"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "key": {
+                "key": {
+                  "named": "arrow_up"
+                },
+                "mods": [],
+                "event": "press"
+              }
+            }
+          }
+        }
+      },
+      "bind": "$w95"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$w95",
+            "result": {
+              "ok": {
+                "input": {
+                  "outcome": "Written",
+                  "payload_bytes_written": "$n95",
+                  "pty_bytes_written": "$n95"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_input",
+        "session": "s1"
+      },
+      "expect": {
+        "bytes": "$log95"
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_ends_with": [
+          "$log95",
+          "$e95"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_len_eq": [
+          "$e95",
+          "$n95"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    }
+  ],
+  "fake": "structural",
+  "ruling": "R-5"
+}

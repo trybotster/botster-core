@@ -1,0 +1,736 @@
+{
+  "id": "conf::ev_2_drop_oldest_with_marker",
+  "contract": "core",
+  "clause": "EV-2",
+  "subject": "core",
+  "requires": {
+    "controls": [
+      "edges_quiet",
+      "pty_output"
+    ]
+  },
+  "setup": {
+    "limits": {
+      "event_queue": 16
+    }
+  },
+  "fake": "structural",
+  "ruling": "R-12",
+  "steps": [
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s1",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$c_s1",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s1",
+                  "state": "Created"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core LC-3"
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "s1"
+          }
+        }
+      },
+      "bind": "$s_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$s_s1",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s1",
+                  "state": "Running"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core A2-1"
+    },
+    {
+      "drain": {}
+    },
+    {
+      "advance_clock": {
+        "unix": 2000
+      }
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s1",
+        "bytes_hex": "07"
+      }
+    },
+    {
+      "await_quiet": {}
+    },
+    {
+      "advance_clock": {
+        "unix": 2001
+      }
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s1",
+        "bytes_hex": "07"
+      }
+    },
+    {
+      "await_quiet": {}
+    },
+    {
+      "advance_clock": {
+        "unix": 2002
+      }
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s1",
+        "bytes_hex": "07"
+      }
+    },
+    {
+      "await_quiet": {}
+    },
+    {
+      "advance_clock": {
+        "unix": 2003
+      }
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s1",
+        "bytes_hex": "07"
+      }
+    },
+    {
+      "await_quiet": {}
+    },
+    {
+      "advance_clock": {
+        "unix": 2004
+      }
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s1",
+        "bytes_hex": "07"
+      }
+    },
+    {
+      "await_quiet": {}
+    },
+    {
+      "advance_clock": {
+        "unix": 2005
+      }
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s1",
+        "bytes_hex": "07"
+      }
+    },
+    {
+      "await_quiet": {}
+    },
+    {
+      "advance_clock": {
+        "unix": 2006
+      }
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s1",
+        "bytes_hex": "07"
+      }
+    },
+    {
+      "await_quiet": {}
+    },
+    {
+      "advance_clock": {
+        "unix": 2007
+      }
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s1",
+        "bytes_hex": "07"
+      }
+    },
+    {
+      "await_quiet": {}
+    },
+    {
+      "advance_clock": {
+        "unix": 2008
+      }
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s1",
+        "bytes_hex": "07"
+      }
+    },
+    {
+      "await_quiet": {}
+    },
+    {
+      "advance_clock": {
+        "unix": 2009
+      }
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s1",
+        "bytes_hex": "07"
+      }
+    },
+    {
+      "await_quiet": {}
+    },
+    {
+      "advance_clock": {
+        "unix": 2010
+      }
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s1",
+        "bytes_hex": "07"
+      }
+    },
+    {
+      "await_quiet": {}
+    },
+    {
+      "advance_clock": {
+        "unix": 2011
+      }
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s1",
+        "bytes_hex": "07"
+      }
+    },
+    {
+      "await_quiet": {}
+    },
+    {
+      "advance_clock": {
+        "unix": 2012
+      }
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s1",
+        "bytes_hex": "07"
+      }
+    },
+    {
+      "await_quiet": {}
+    },
+    {
+      "advance_clock": {
+        "unix": 2013
+      }
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s1",
+        "bytes_hex": "07"
+      }
+    },
+    {
+      "await_quiet": {}
+    },
+    {
+      "advance_clock": {
+        "unix": 2014
+      }
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s1",
+        "bytes_hex": "07"
+      }
+    },
+    {
+      "await_quiet": {}
+    },
+    {
+      "advance_clock": {
+        "unix": 2015
+      }
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s1",
+        "bytes_hex": "07"
+      }
+    },
+    {
+      "await_quiet": {}
+    },
+    {
+      "advance_clock": {
+        "unix": 2016
+      }
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s1",
+        "bytes_hex": "07"
+      }
+    },
+    {
+      "await_quiet": {}
+    },
+    {
+      "advance_clock": {
+        "unix": 2017
+      }
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s1",
+        "bytes_hex": "07"
+      }
+    },
+    {
+      "await_quiet": {}
+    },
+    {
+      "advance_clock": {
+        "unix": 2018
+      }
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s1",
+        "bytes_hex": "07"
+      }
+    },
+    {
+      "await_quiet": {}
+    },
+    {
+      "advance_clock": {
+        "unix": 2019
+      }
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s1",
+        "bytes_hex": "07"
+      }
+    },
+    {
+      "await_quiet": {}
+    },
+    {
+      "expect_eventually": {
+        "EventsLost": {
+          "id": "s1",
+          "kinds": [
+            "Bell"
+          ]
+        }
+      },
+      "because": [
+        "Core EV-2",
+        "Core EV-6"
+      ],
+      "ignore": [
+        {
+          "Activity": {
+            "id": "s1"
+          }
+        }
+      ]
+    },
+    {
+      "expect_eventually": {
+        "Bell": {
+          "id": "s1",
+          "at": 2004
+        }
+      },
+      "because": [
+        "Core EV-2"
+      ],
+      "ignore": [
+        {
+          "Activity": {
+            "id": "s1"
+          }
+        }
+      ]
+    },
+    {
+      "expect_eventually": {
+        "Bell": {
+          "id": "s1",
+          "at": 2005
+        }
+      },
+      "because": [
+        "Core EV-2"
+      ],
+      "ignore": [
+        {
+          "Activity": {
+            "id": "s1"
+          }
+        }
+      ]
+    },
+    {
+      "expect_eventually": {
+        "Bell": {
+          "id": "s1",
+          "at": 2006
+        }
+      },
+      "because": [
+        "Core EV-2"
+      ],
+      "ignore": [
+        {
+          "Activity": {
+            "id": "s1"
+          }
+        }
+      ]
+    },
+    {
+      "expect_eventually": {
+        "Bell": {
+          "id": "s1",
+          "at": 2007
+        }
+      },
+      "because": [
+        "Core EV-2"
+      ],
+      "ignore": [
+        {
+          "Activity": {
+            "id": "s1"
+          }
+        }
+      ]
+    },
+    {
+      "expect_eventually": {
+        "Bell": {
+          "id": "s1",
+          "at": 2008
+        }
+      },
+      "because": [
+        "Core EV-2"
+      ],
+      "ignore": [
+        {
+          "Activity": {
+            "id": "s1"
+          }
+        }
+      ]
+    },
+    {
+      "expect_eventually": {
+        "Bell": {
+          "id": "s1",
+          "at": 2009
+        }
+      },
+      "because": [
+        "Core EV-2"
+      ],
+      "ignore": [
+        {
+          "Activity": {
+            "id": "s1"
+          }
+        }
+      ]
+    },
+    {
+      "expect_eventually": {
+        "Bell": {
+          "id": "s1",
+          "at": 2010
+        }
+      },
+      "because": [
+        "Core EV-2"
+      ],
+      "ignore": [
+        {
+          "Activity": {
+            "id": "s1"
+          }
+        }
+      ]
+    },
+    {
+      "expect_eventually": {
+        "Bell": {
+          "id": "s1",
+          "at": 2011
+        }
+      },
+      "because": [
+        "Core EV-2"
+      ],
+      "ignore": [
+        {
+          "Activity": {
+            "id": "s1"
+          }
+        }
+      ]
+    },
+    {
+      "expect_eventually": {
+        "Bell": {
+          "id": "s1",
+          "at": 2012
+        }
+      },
+      "because": [
+        "Core EV-2"
+      ],
+      "ignore": [
+        {
+          "Activity": {
+            "id": "s1"
+          }
+        }
+      ]
+    },
+    {
+      "expect_eventually": {
+        "Bell": {
+          "id": "s1",
+          "at": 2013
+        }
+      },
+      "because": [
+        "Core EV-2"
+      ],
+      "ignore": [
+        {
+          "Activity": {
+            "id": "s1"
+          }
+        }
+      ]
+    },
+    {
+      "expect_eventually": {
+        "Bell": {
+          "id": "s1",
+          "at": 2014
+        }
+      },
+      "because": [
+        "Core EV-2"
+      ],
+      "ignore": [
+        {
+          "Activity": {
+            "id": "s1"
+          }
+        }
+      ]
+    },
+    {
+      "expect_eventually": {
+        "Bell": {
+          "id": "s1",
+          "at": 2015
+        }
+      },
+      "because": [
+        "Core EV-2"
+      ],
+      "ignore": [
+        {
+          "Activity": {
+            "id": "s1"
+          }
+        }
+      ]
+    },
+    {
+      "expect_eventually": {
+        "Bell": {
+          "id": "s1",
+          "at": 2016
+        }
+      },
+      "because": [
+        "Core EV-2"
+      ],
+      "ignore": [
+        {
+          "Activity": {
+            "id": "s1"
+          }
+        }
+      ]
+    },
+    {
+      "expect_eventually": {
+        "Bell": {
+          "id": "s1",
+          "at": 2017
+        }
+      },
+      "because": [
+        "Core EV-2"
+      ],
+      "ignore": [
+        {
+          "Activity": {
+            "id": "s1"
+          }
+        }
+      ]
+    },
+    {
+      "expect_eventually": {
+        "Bell": {
+          "id": "s1",
+          "at": 2018
+        }
+      },
+      "because": [
+        "Core EV-2"
+      ],
+      "ignore": [
+        {
+          "Activity": {
+            "id": "s1"
+          }
+        }
+      ]
+    },
+    {
+      "expect_eventually": {
+        "Bell": {
+          "id": "s1",
+          "at": 2019
+        }
+      },
+      "because": [
+        "Core EV-2"
+      ],
+      "ignore": [
+        {
+          "Activity": {
+            "id": "s1"
+          }
+        }
+      ]
+    },
+    {
+      "expect_quiet_until": {
+        "$one_of": [
+          {
+            "Bell": {
+              "id": "s1"
+            }
+          },
+          {
+            "EventsLost": {
+              "id": "s1"
+            }
+          }
+        ]
+      },
+      "barrier": {
+        "begin": {
+          "op": {
+            "UpdateMetadata": {
+              "id": "s1",
+              "labels": {
+                "b": "1"
+              }
+            }
+          }
+        },
+        "bind": "$bar_s1"
+      },
+      "until": {
+        "Completed": {
+          "op": "$bar_s1",
+          "result": {
+            "ok": "unit"
+          }
+        }
+      },
+      "because": [
+        "Core EV-2"
+      ]
+    }
+  ]
+}

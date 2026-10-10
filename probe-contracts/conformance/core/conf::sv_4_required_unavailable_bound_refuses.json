@@ -1,0 +1,68 @@
+{
+  "id": "conf::sv_4_required_unavailable_bound_refuses",
+  "contract": "core",
+  "clause": "SV-4",
+  "subject": "core",
+  "requires": {
+    "controls": [
+      "unavailable_bound"
+    ]
+  },
+  "steps": [
+    {
+      "control": {
+        "op": "unavailable_bound",
+        "bound": "cpu_seconds"
+      }
+    },
+    {
+      "begin": {
+        "op": {
+          "SpawnService": {
+            "service_id": "0101010101010101010101010101010101010101010101010101010101010101",
+            "limits": {
+              "lanes": [
+                {
+                  "max_frame_bytes": 1024,
+                  "outbound_queue_bytes": 4096,
+                  "inbound_queue_bytes": 4096
+                }
+              ],
+              "rlimits": {
+                "cpu_seconds": {
+                  "value": 10,
+                  "required": true
+                }
+              },
+              "startup": 10000,
+              "stop_grace": 5000,
+              "orphan_grace": 5000
+            }
+          }
+        }
+      },
+      "bind": "$a",
+      "expect_error": {
+        "code": {
+          "BoundUnavailable": {
+            "bound": "cpu_seconds"
+          }
+        }
+      },
+      "because": [
+        "Core SV-4",
+        "Core ER-0"
+      ]
+    },
+    {
+      "pump": {}
+    },
+    {
+      "poll_events": {
+        "max": 64
+      },
+      "expect": [],
+      "because": "Core SV-4"
+    }
+  ]
+}

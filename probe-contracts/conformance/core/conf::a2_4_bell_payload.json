@@ -1,0 +1,134 @@
+{
+  "id": "conf::a2_4_bell_payload",
+  "contract": "core",
+  "clause": "A2-4",
+  "subject": "core",
+  "fake": "structural",
+  "ruling": "R-12",
+  "steps": [
+    {
+      "advance_clock": {
+        "unix": 5000000
+      }
+    },
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s1",
+            "request": {
+              "program": [
+                {
+                  "print_after_input": {
+                    "match_hex": "31",
+                    "bytes_hex": "07"
+                  }
+                },
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$c_s1",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s1",
+                  "state": "Created"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core LC-3"
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "s1"
+          }
+        }
+      },
+      "bind": "$s_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$s_s1",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s1",
+                  "state": "Running"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core A2-1"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "bytes": {
+                "bytes": {
+                  "$bytes_hex": "31"
+                }
+              }
+            }
+          }
+        }
+      },
+      "bind": "$t_s1_1"
+    },
+    {
+      "pump_collect": {
+        "events": [
+          {
+            "Completed": {
+              "op": "$t_s1_1",
+              "result": {
+                "ok": {
+                  "input": {
+                    "outcome": {
+                      "$any": true
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "Bell": {
+              "id": "s1",
+              "instance": {
+                "$type": "string"
+              },
+              "at": 5000000
+            }
+          }
+        ]
+      },
+      "because": [
+        "Core A2-4",
+        "Core TM-1"
+      ]
+    }
+  ]
+}

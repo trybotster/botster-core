@@ -1,0 +1,92 @@
+{
+  "id": "conf::lc_7_id_free_after_completion",
+  "contract": "core",
+  "clause": "LC-7",
+  "subject": "core",
+  "steps": [
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s1",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$c",
+            "result": {}
+          }
+        }
+      },
+      "because": "Core LC-3"
+    },
+    {
+      "begin": {
+        "op": {
+          "Remove": {
+            "id": "s1"
+          }
+        }
+      },
+      "bind": "$r"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$r",
+            "result": {}
+          }
+        }
+      },
+      "because": "Core LC-7"
+    },
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s1",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$again"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$again",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s1",
+                  "state": "Created"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core LC-7"
+    }
+  ]
+}

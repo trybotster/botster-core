@@ -1,0 +1,43 @@
+{
+  "id": "conf::or_1_begin_does_not_complete",
+  "contract": "core",
+  "clause": "OR-1",
+  "subject": "core",
+  "steps": [
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s1",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c"
+    },
+    {
+      "poll_events": {
+        "max": 64
+      },
+      "expect": [],
+      "because": "Core OR-1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$c",
+            "result": {}
+          }
+        }
+      },
+      "because": "Core OR-1"
+    }
+  ]
+}

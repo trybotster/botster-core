@@ -1,0 +1,394 @@
+{
+  "id": "conf::ou_8_route_output_frame_kinds",
+  "contract": "core",
+  "clause": "OU-8",
+  "subject": "core",
+  "requires": {
+    "controls": [
+      "pty_output",
+      "queue_overflow"
+    ]
+  },
+  "steps": [
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s1",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$c_s1",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s1",
+                  "state": "Created"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core LC-3"
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "s1"
+          }
+        }
+      },
+      "bind": "$s_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$s_s1",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s1",
+                  "state": "Running"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core A2-1"
+    },
+    {
+      "attach_route": {
+        "route": "r1",
+        "session": "s1",
+        "client": "c1",
+        "options": {
+          "history": "none",
+          "answers_queries": false
+        }
+      },
+      "because": "Core OU-1"
+    },
+    {
+      "expect": {
+        "frame": "attached",
+        "terminal_format": {
+          "$type": "string"
+        }
+      },
+      "on": "r1",
+      "because": [
+        "Core OU-1",
+        "Codec TS-1"
+      ]
+    },
+    {
+      "expect": {
+        "frame": "baseline_begin",
+        "rows": {
+          "$type": "integer"
+        },
+        "cols": {
+          "$type": "integer"
+        },
+        "modes": {
+          "$type": "object"
+        }
+      },
+      "on": "r1",
+      "because": [
+        "Core OU-9",
+        "Codec TS-4"
+      ]
+    },
+    {
+      "expect": {
+        "frame": "screen",
+        "payload": {
+          "$any": true
+        }
+      },
+      "on": "r1",
+      "because": [
+        "Core OU-9",
+        "Codec TS-4"
+      ]
+    },
+    {
+      "expect_eventually": {
+        "frame": "baseline_end",
+        "history": "not_requested"
+      },
+      "ignore": [
+        {
+          "frame": "history",
+          "payload": {
+            "$any": true
+          }
+        }
+      ],
+      "on": "r1",
+      "because": [
+        "Core OU-9",
+        "Codec TS-4"
+      ]
+    },
+    {
+      "expect": {
+        "frame": "live"
+      },
+      "on": "r1",
+      "because": [
+        "Core OU-9",
+        "Codec TS-4"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s1",
+        "bytes_hex": "6f7574"
+      }
+    },
+    {
+      "expect_eventually": {
+        "frame": "output"
+      },
+      "ignore": [
+        {
+          "frame": "modes"
+        }
+      ],
+      "on": "r1",
+      "because": [
+        "Core OU-8"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s1",
+        "bytes_hex": "1b5b3f3230303468"
+      }
+    },
+    {
+      "pump_until": {
+        "event": {
+          "ModesChanged": {
+            "id": "s1",
+            "flags": {
+              "bracketed_paste": true
+            }
+          }
+        }
+      },
+      "because": "Core EV-7"
+    },
+    {
+      "expect_eventually": {
+        "frame": "modes"
+      },
+      "ignore": [
+        {
+          "frame": "output"
+        }
+      ],
+      "on": "r1",
+      "because": [
+        "Core OU-8"
+      ]
+    },
+    {
+      "route_send": {
+        "frame": "input",
+        "kind": "paste_commit",
+        "op": "99"
+      },
+      "route": "r1"
+    },
+    {
+      "expect_eventually": {
+        "frame": "input_refused",
+        "op": "99",
+        "reason": "refused"
+      },
+      "ignore": [
+        {
+          "frame": "modes"
+        },
+        {
+          "frame": "output"
+        },
+        {
+          "frame": "output_deflate"
+        }
+      ],
+      "on": "r1",
+      "because": [
+        "Core OU-8",
+        "Core DP-5"
+      ]
+    },
+    {
+      "route_send": {
+        "frame": "input",
+        "kind": "paste_begin",
+        "op": "4"
+      },
+      "route": "r1"
+    },
+    {
+      "route_send": {
+        "frame": "paste_chunk",
+        "op": "4",
+        "bytes": {
+          "$bytes_hex": "68656c6c6f"
+        }
+      },
+      "route": "r1"
+    },
+    {
+      "route_send": {
+        "frame": "input",
+        "kind": "paste_commit",
+        "op": "4",
+        "want_result": true
+      },
+      "route": "r1"
+    },
+    {
+      "expect_eventually": {
+        "frame": "input_done",
+        "op": "4",
+        "written_bytes": {
+          "$type": "integer"
+        }
+      },
+      "ignore": [
+        {
+          "frame": "modes"
+        },
+        {
+          "frame": "output"
+        },
+        {
+          "frame": "output_deflate"
+        }
+      ],
+      "on": "r1",
+      "because": [
+        "Core OU-8",
+        "Core DP-5"
+      ]
+    },
+    {
+      "control": {
+        "op": "queue_overflow"
+      },
+      "route": "r1"
+    },
+    {
+      "expect_eventually": {
+        "frame": "resync",
+        "reason": "overflow"
+      },
+      "ignore": [
+        {
+          "frame": "modes"
+        },
+        {
+          "frame": "output"
+        },
+        {
+          "frame": "output_deflate"
+        }
+      ],
+      "on": "r1",
+      "because": [
+        "Core OU-8"
+      ]
+    },
+    {
+      "expect": {
+        "frame": "baseline_begin"
+      },
+      "on": "r1",
+      "because": "Core OU-8"
+    },
+    {
+      "expect": {
+        "frame": "screen"
+      },
+      "on": "r1",
+      "because": "Core OU-8"
+    },
+    {
+      "expect_eventually": {
+        "frame": "baseline_end"
+      },
+      "ignore": [
+        {
+          "frame": "history",
+          "payload": {
+            "$any": true
+          }
+        }
+      ],
+      "on": "r1",
+      "because": "Core OU-8"
+    },
+    {
+      "expect": {
+        "frame": "live"
+      },
+      "on": "r1",
+      "because": "Core OU-8"
+    },
+    {
+      "begin": {
+        "op": {
+          "Detach": {
+            "route": "$r1",
+            "reason": "Detached"
+          }
+        }
+      },
+      "bind": "$d"
+    },
+    {
+      "expect": {
+        "frame": "route_closed",
+        "reason": "detached"
+      },
+      "on": "r1",
+      "because": [
+        "Core OU-8"
+      ]
+    },
+    {
+      "expect_closed": null,
+      "on": "r1",
+      "because": [
+        "Core OU-8"
+      ]
+    }
+  ],
+  "fake": "structural",
+  "ruling": "R-12"
+}

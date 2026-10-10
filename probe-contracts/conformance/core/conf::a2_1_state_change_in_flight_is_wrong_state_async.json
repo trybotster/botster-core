@@ -1,0 +1,135 @@
+{
+  "id": "conf::a2_1_state_change_in_flight_is_wrong_state_async",
+  "contract": "core",
+  "clause": "A2-1",
+  "subject": "core",
+  "requires": {
+    "controls": [
+      "schedule",
+      "service_connect",
+      "service_exit"
+    ]
+  },
+  "fake": "structural",
+  "ruling": "R-12",
+  "steps": [
+    {
+      "begin": {
+        "op": {
+          "SpawnService": {
+            "service_id": "1111111111111111111111111111111111111111111111111111111111111111"
+          }
+        }
+      },
+      "bind": "$svc"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$svc",
+            "result": {
+              "ok": {
+                "spawn": {
+                  "$any": true
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core SV-1"
+    },
+    {
+      "control": {
+        "op": "service_connect",
+        "service": "1111111111111111111111111111111111111111111111111111111111111111",
+        "epoch": 1
+      }
+    },
+    {
+      "pump_until": {
+        "event": {
+          "LaneConnected": {
+            "id": "1111111111111111111111111111111111111111111111111111111111111111",
+            "epoch": 1
+          }
+        }
+      },
+      "because": "Core A2-5"
+    },
+    {
+      "drain": {}
+    },
+    {
+      "control": {
+        "op": "schedule",
+        "first": "edge_input"
+      }
+    },
+    {
+      "begin": {
+        "op": {
+          "EndEpoch": {
+            "service": "1111111111111111111111111111111111111111111111111111111111111111"
+          }
+        }
+      },
+      "bind": "$ee"
+    },
+    {
+      "control": {
+        "op": "service_exit",
+        "service": "1111111111111111111111111111111111111111111111111111111111111111",
+        "code": 0
+      }
+    },
+    {
+      "pump_collect": {
+        "events": [
+          {
+            "Completed": {
+              "op": "$ee",
+              "result": {
+                "err": {
+                  "code": "WrongState"
+                }
+              }
+            }
+          },
+          {
+            "ServiceState": {
+              "id": "1111111111111111111111111111111111111111111111111111111111111111",
+              "state": {
+                "Exited": {
+                  "$any": true
+                }
+              }
+            }
+          }
+        ]
+      },
+      "because": [
+        "Core ER-0",
+        "Core A2-1"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "EndEpoch": {
+            "service": "1111111111111111111111111111111111111111111111111111111111111111"
+          }
+        }
+      },
+      "bind": "$ee2",
+      "expect_error": {
+        "code": "WrongState"
+      },
+      "because": [
+        "Core ER-0",
+        "Core A2-1"
+      ]
+    }
+  ]
+}

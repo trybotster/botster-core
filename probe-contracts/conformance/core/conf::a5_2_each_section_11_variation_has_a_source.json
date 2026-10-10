@@ -1,0 +1,1574 @@
+{
+  "id": "conf::a5_2_each_section_11_variation_has_a_source",
+  "contract": "core",
+  "clause": "A5-2",
+  "subject": "core",
+  "requires": {
+    "controls": [
+      "program_write_size",
+      "route_read_size",
+      "scheduler_deadline",
+      "scheduler_delay",
+      "scheduler_hold",
+      "scheduler_order",
+      "scheduler_poll_batch",
+      "scheduler_ready",
+      "scheduler_release",
+      "scheduler_work_limit",
+      "wake_spurious"
+    ]
+  },
+  "setup": {
+    "limits": {
+      "stop_grace": 100
+    }
+  },
+  "fake": "structural",
+  "ruling": "R-12",
+  "steps": [
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s1",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c_s1"
+    },
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s2",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c_s2"
+    },
+    {
+      "control": {
+        "op": "scheduler_order",
+        "sessions": [
+          "s2",
+          "s1"
+        ]
+      },
+      "because": "Core A5-2"
+    },
+    {
+      "pump_idle": {}
+    },
+    {
+      "expect_eventually": {
+        "Completed": {
+          "op": "$c_s2",
+          "result": {}
+        }
+      },
+      "ignore": [
+        {
+          "SessionState": {
+            "$any": true
+          }
+        }
+      ],
+      "because": [
+        "Core A5-2",
+        "Core OR-3"
+      ]
+    },
+    {
+      "expect_eventually": {
+        "Completed": {
+          "op": "$c_s1",
+          "result": {}
+        }
+      },
+      "ignore": [
+        {
+          "SessionState": {
+            "$any": true
+          }
+        }
+      ],
+      "because": [
+        "Core A5-2",
+        "Core OR-3"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s3",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c_s3"
+    },
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s4",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c_s4"
+    },
+    {
+      "control": {
+        "op": "scheduler_order",
+        "sessions": [
+          "s3",
+          "s4"
+        ]
+      },
+      "because": "Core A5-2"
+    },
+    {
+      "pump_idle": {}
+    },
+    {
+      "expect_eventually": {
+        "Completed": {
+          "op": "$c_s3",
+          "result": {}
+        }
+      },
+      "ignore": [
+        {
+          "SessionState": {
+            "$any": true
+          }
+        }
+      ],
+      "because": [
+        "Core A5-2",
+        "Core OR-3"
+      ]
+    },
+    {
+      "expect_eventually": {
+        "Completed": {
+          "op": "$c_s4",
+          "result": {}
+        }
+      },
+      "ignore": [
+        {
+          "SessionState": {
+            "$any": true
+          }
+        }
+      ],
+      "because": [
+        "Core A5-2",
+        "Core OR-3"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "s1"
+          }
+        }
+      },
+      "bind": "$a2"
+    },
+    {
+      "poll_events": {
+        "max": 64
+      },
+      "expect": [],
+      "because": [
+        "Core A5-2",
+        "Core OR-1"
+      ]
+    },
+    {
+      "control": {
+        "op": "scheduler_hold",
+        "for_op": "$a2"
+      },
+      "because": "Core A5-2"
+    },
+    {
+      "pump_idle": {}
+    },
+    {
+      "call": {
+        "method": "get",
+        "args": {
+          "id": "s1"
+        }
+      },
+      "expect": {
+        "state": {
+          "$one_of": [
+            "Created",
+            "Starting"
+          ]
+        }
+      },
+      "because": [
+        "Core A5-2",
+        "Core OR-1"
+      ]
+    },
+    {
+      "control": {
+        "op": "scheduler_release",
+        "for_op": "$a2"
+      },
+      "because": "Core A5-2"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$a2",
+            "result": {
+              "ok": {
+                "record": {
+                  "state": "Running"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core A5-2",
+        "Core OR-1"
+      ]
+    },
+    {
+      "control": {
+        "op": "scheduler_delay",
+        "session": "s2",
+        "point": "running",
+        "pumps": 2
+      },
+      "because": "Core A5-2"
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "s2"
+          }
+        }
+      },
+      "bind": "$a3"
+    },
+    {
+      "pump": {}
+    },
+    {
+      "call": {
+        "method": "get",
+        "args": {
+          "id": "s2"
+        }
+      },
+      "expect": {
+        "state": {
+          "$one_of": [
+            "Created",
+            "Starting"
+          ]
+        }
+      },
+      "because": [
+        "Core A5-2",
+        "Core LC-3"
+      ]
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$a3",
+            "result": {
+              "ok": {
+                "record": {
+                  "state": "Running"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core A5-2",
+        "Core LC-3"
+      ]
+    },
+    {
+      "control": {
+        "op": "scheduler_delay",
+        "session": "s2",
+        "point": "exited",
+        "pumps": 2
+      },
+      "because": "Core A5-2"
+    },
+    {
+      "begin": {
+        "op": {
+          "Stop": {
+            "id": "s2"
+          }
+        }
+      },
+      "bind": "$a4"
+    },
+    {
+      "pump": {}
+    },
+    {
+      "call": {
+        "method": "get",
+        "args": {
+          "id": "s2"
+        }
+      },
+      "expect": {
+        "state": {
+          "$one_of": [
+            "Running",
+            "Stopping"
+          ]
+        }
+      },
+      "because": [
+        "Core A5-2",
+        "Core LC-5"
+      ]
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$a4",
+            "result": {
+              "ok": {
+                "end": {
+                  "Exited": {
+                    "cause": "HostStop"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core A5-2",
+        "Core LC-5"
+      ]
+    },
+    {
+      "control": {
+        "op": "scheduler_work_limit",
+        "per_pump": 1
+      },
+      "because": "Core A5-2"
+    },
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s5",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c5"
+    },
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s6",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c6"
+    },
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s7",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c7"
+    },
+    {
+      "pump": {},
+      "expect": {
+        "more": true
+      },
+      "because": [
+        "Core A5-2",
+        "Core OR-1"
+      ]
+    },
+    {
+      "pump_idle": {}
+    },
+    {
+      "pump_collect": {
+        "events": [
+          {
+            "Completed": {
+              "op": "$c5",
+              "result": {}
+            }
+          },
+          {
+            "Completed": {
+              "op": "$c6",
+              "result": {}
+            }
+          },
+          {
+            "Completed": {
+              "op": "$c7",
+              "result": {}
+            }
+          }
+        ]
+      },
+      "because": [
+        "Core A5-2",
+        "Core OR-1"
+      ]
+    },
+    {
+      "control": {
+        "op": "scheduler_work_limit",
+        "per_pump": 0
+      },
+      "because": "Core A5-2"
+    },
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s8",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c8"
+    },
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s9",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c9"
+    },
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s10",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c10"
+    },
+    {
+      "pump_idle": {}
+    },
+    {
+      "control": {
+        "op": "scheduler_poll_batch",
+        "events": 1
+      },
+      "because": "Core A5-2"
+    },
+    {
+      "poll_events": {
+        "max": 64
+      },
+      "expect": [
+        {
+          "$any": true
+        }
+      ],
+      "because": [
+        "Core A5-2",
+        "Core EV-5"
+      ]
+    },
+    {
+      "control": {
+        "op": "scheduler_poll_batch",
+        "events": 0
+      },
+      "because": "Core A5-2"
+    },
+    {
+      "pump_collect": {
+        "events": [
+          {
+            "$any": true
+          }
+        ]
+      },
+      "because": [
+        "Core A5-2",
+        "Core EV-5"
+      ]
+    },
+    {
+      "drain": {}
+    },
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s11",
+            "request": {
+              "program": [
+                {
+                  "print_after_input": {
+                    "match_hex": "31",
+                    "bytes_hex": "1b5d323b7431071b5d323b7432071b5d323b743307"
+                  }
+                },
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c_s11"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$c_s11",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s11",
+                  "state": "Created"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core LC-3"
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "s11"
+          }
+        }
+      },
+      "bind": "$s_s11"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$s_s11",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s11",
+                  "state": "Running"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core A2-1"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s11",
+            "payload": {
+              "bytes": {
+                "bytes": {
+                  "$bytes_hex": "31"
+                }
+              }
+            }
+          }
+        }
+      },
+      "bind": "$w11"
+    },
+    {
+      "pump_idle": {}
+    },
+    {
+      "pump_collect": {
+        "events": [
+          {
+            "TitleChanged": {
+              "id": "s11",
+              "title": "t3"
+            }
+          }
+        ],
+        "exhaustive": true,
+        "ignore": [
+          {
+            "Activity": {
+              "$any": true
+            }
+          },
+          {
+            "Completed": {
+              "$any": true
+            }
+          },
+          {
+            "SessionState": {
+              "$any": true
+            }
+          }
+        ]
+      },
+      "because": [
+        "Core A5-2",
+        "Core EV-6"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s12",
+            "request": {
+              "program": [
+                {
+                  "print_after_input": {
+                    "match_hex": "31",
+                    "bytes_hex": "61616161"
+                  }
+                },
+                {
+                  "print_after_input": {
+                    "match_hex": "32",
+                    "bytes_hex": "62626262"
+                  }
+                },
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c_s12"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$c_s12",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s12",
+                  "state": "Created"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core LC-3"
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "s12"
+          }
+        }
+      },
+      "bind": "$s_s12"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$s_s12",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s12",
+                  "state": "Running"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core A2-1"
+    },
+    {
+      "attach_route": {
+        "route": "r12a",
+        "session": "s12",
+        "client": "c1"
+      },
+      "because": "Core OU-1"
+    },
+    {
+      "expect": {
+        "frame": "attached",
+        "terminal_format": {
+          "$type": "string"
+        }
+      },
+      "on": "r12a",
+      "because": "Core OU-9"
+    },
+    {
+      "expect": {
+        "frame": "baseline_begin",
+        "rows": {
+          "$type": "integer"
+        },
+        "cols": {
+          "$type": "integer"
+        },
+        "modes": {
+          "$type": "object"
+        }
+      },
+      "on": "r12a",
+      "because": "Core OU-9"
+    },
+    {
+      "expect": {
+        "frame": "screen",
+        "payload": {
+          "$any": true
+        }
+      },
+      "on": "r12a",
+      "because": "Core OU-9"
+    },
+    {
+      "expect_eventually": {
+        "frame": "baseline_end",
+        "history": "not_requested"
+      },
+      "ignore": [
+        {
+          "frame": "history",
+          "payload": {
+            "$any": true
+          }
+        }
+      ],
+      "on": "r12a",
+      "because": "Core OU-9"
+    },
+    {
+      "expect": {
+        "frame": "live"
+      },
+      "on": "r12a",
+      "because": "Core OU-9"
+    },
+    {
+      "attach_route": {
+        "route": "r12b",
+        "session": "s12",
+        "client": "c2"
+      },
+      "because": "Core OU-1"
+    },
+    {
+      "expect": {
+        "frame": "attached",
+        "terminal_format": {
+          "$type": "string"
+        }
+      },
+      "on": "r12b",
+      "because": "Core OU-9"
+    },
+    {
+      "expect": {
+        "frame": "baseline_begin",
+        "rows": {
+          "$type": "integer"
+        },
+        "cols": {
+          "$type": "integer"
+        },
+        "modes": {
+          "$type": "object"
+        }
+      },
+      "on": "r12b",
+      "because": "Core OU-9"
+    },
+    {
+      "expect": {
+        "frame": "screen",
+        "payload": {
+          "$any": true
+        }
+      },
+      "on": "r12b",
+      "because": "Core OU-9"
+    },
+    {
+      "expect_eventually": {
+        "frame": "baseline_end",
+        "history": "not_requested"
+      },
+      "ignore": [
+        {
+          "frame": "history",
+          "payload": {
+            "$any": true
+          }
+        }
+      ],
+      "on": "r12b",
+      "because": "Core OU-9"
+    },
+    {
+      "expect": {
+        "frame": "live"
+      },
+      "on": "r12b",
+      "because": "Core OU-9"
+    },
+    {
+      "control": {
+        "op": "program_write_size",
+        "session": "s12",
+        "bytes": 1
+      },
+      "because": "Core A5-2"
+    },
+    {
+      "control": {
+        "op": "route_read_size",
+        "bytes": 1
+      },
+      "route": "r12a",
+      "because": "Core A5-2"
+    },
+    {
+      "control": {
+        "op": "route_read_size",
+        "bytes": 7
+      },
+      "route": "r12b",
+      "because": "Core A5-2"
+    },
+    {
+      "route_send": {
+        "frame": "bytes",
+        "op": "1",
+        "bytes": {
+          "$bytes_hex": "31"
+        }
+      },
+      "route": "r12a"
+    },
+    {
+      "route_send": {
+        "frame": "bytes",
+        "op": "2",
+        "bytes": {
+          "$bytes_hex": "32"
+        }
+      },
+      "route": "r12a"
+    },
+    {
+      "route_expect_output": {
+        "bytes_hex": "6161616162626262"
+      },
+      "route": "r12a",
+      "because": [
+        "Core A5-2",
+        "Core OU-12"
+      ]
+    },
+    {
+      "route_expect_output": {
+        "bytes_hex": "6161616162626262"
+      },
+      "route": "r12b",
+      "because": [
+        "Core A5-2",
+        "Core OU-12"
+      ]
+    },
+    {
+      "drain": {}
+    },
+    {
+      "control": {
+        "op": "wake_spurious"
+      },
+      "because": "Core A5-2"
+    },
+    {
+      "wait_wake": {
+        "timeout_ms": 0
+      },
+      "expect": "Woken",
+      "because": [
+        "Core A5-2",
+        "Core OU-6"
+      ]
+    },
+    {
+      "pump": {},
+      "expect": {
+        "events_posted": 0
+      },
+      "because": [
+        "Core A5-2",
+        "Core OU-6"
+      ]
+    },
+    {
+      "drain": {}
+    },
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s13a",
+            "request": {
+              "program": [
+                {
+                  "ignore_sigterm": {}
+                },
+                {
+                  "print": {
+                    "bytes_hex": "2a"
+                  }
+                },
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c_s13a"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$c_s13a",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s13a",
+                  "state": "Created"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core LC-3"
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "s13a"
+          }
+        }
+      },
+      "bind": "$s_s13a"
+    },
+    {
+      "pump_collect": {
+        "events": [
+          {
+            "Completed": {
+              "op": "$s_s13a",
+              "result": {
+                "ok": {
+                  "record": {
+                    "id": "s13a",
+                    "state": "Running"
+                  }
+                }
+              }
+            }
+          },
+          {
+            "Activity": {
+              "id": "s13a",
+              "source": "Output"
+            }
+          }
+        ]
+      },
+      "because": [
+        "Core A2-1",
+        "Core A5-1",
+        "Core LC-5"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "Stop": {
+            "id": "s13a"
+          }
+        }
+      },
+      "bind": "$spa"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "SessionState": {
+            "id": "s13a",
+            "state": "Stopping"
+          }
+        }
+      },
+      "because": [
+        "Core A5-2",
+        "Core LC-5"
+      ]
+    },
+    {
+      "call": {
+        "method": "next_deadline"
+      },
+      "expect": {
+        "in_ms": {
+          "$type": "u64"
+        }
+      },
+      "because": [
+        "Core A5-2",
+        "Core TM-3"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s14a",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$coa"
+    },
+    {
+      "control": {
+        "op": "scheduler_ready",
+        "for_op": "$coa"
+      },
+      "because": [
+        "Core A5-2",
+        "Core A5-2"
+      ]
+    },
+    {
+      "control": {
+        "op": "scheduler_deadline",
+        "before": true
+      },
+      "because": "Core A5-2"
+    },
+    {
+      "advance_clock": {
+        "ms": 100
+      }
+    },
+    {
+      "call": {
+        "method": "next_deadline"
+      },
+      "expect": {
+        "in_ms": 0
+      },
+      "because": [
+        "Core A5-2",
+        "Core TM-3"
+      ]
+    },
+    {
+      "pump": {}
+    },
+    {
+      "call": {
+        "method": "get",
+        "args": {
+          "id": "s13a"
+        }
+      },
+      "expect": {
+        "state": {
+          "Exited": {
+            "cause": "Killed"
+          }
+        }
+      },
+      "because": [
+        "Core A5-2",
+        "Core TM-3",
+        "Core LC-5"
+      ]
+    },
+    {
+      "call": {
+        "method": "get",
+        "args": {
+          "id": "s14a"
+        }
+      },
+      "expect": {
+        "state": "Created"
+      },
+      "because": [
+        "Core A5-2",
+        "Core LC-3"
+      ]
+    },
+    {
+      "pump_idle": {}
+    },
+    {
+      "expect_eventually": {
+        "SessionState": {
+          "id": "s13a",
+          "state": {
+            "Exited": {
+              "cause": "Killed"
+            }
+          }
+        }
+      },
+      "ignore": [
+        {
+          "Activity": {
+            "$any": true
+          }
+        },
+        {
+          "SessionState": {
+            "id": "s13a",
+            "state": "Stopping"
+          }
+        },
+        {
+          "SessionState": {
+            "id": "s14a",
+            "state": "Created"
+          }
+        }
+      ],
+      "because": [
+        "Core A5-2",
+        "Core TM-3"
+      ]
+    },
+    {
+      "expect_eventually": {
+        "Completed": {
+          "op": "$coa",
+          "result": {}
+        }
+      },
+      "ignore": [
+        {
+          "$any": true
+        }
+      ],
+      "because": [
+        "Core A5-2",
+        "Core TM-3"
+      ]
+    },
+    {
+      "drain": {}
+    },
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s13b",
+            "request": {
+              "program": [
+                {
+                  "ignore_sigterm": {}
+                },
+                {
+                  "print": {
+                    "bytes_hex": "2a"
+                  }
+                },
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c_s13b"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$c_s13b",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s13b",
+                  "state": "Created"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core LC-3"
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "s13b"
+          }
+        }
+      },
+      "bind": "$s_s13b"
+    },
+    {
+      "pump_collect": {
+        "events": [
+          {
+            "Completed": {
+              "op": "$s_s13b",
+              "result": {
+                "ok": {
+                  "record": {
+                    "id": "s13b",
+                    "state": "Running"
+                  }
+                }
+              }
+            }
+          },
+          {
+            "Activity": {
+              "id": "s13b",
+              "source": "Output"
+            }
+          }
+        ]
+      },
+      "because": [
+        "Core A2-1",
+        "Core A5-1",
+        "Core LC-5"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "Stop": {
+            "id": "s13b"
+          }
+        }
+      },
+      "bind": "$spb"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "SessionState": {
+            "id": "s13b",
+            "state": "Stopping"
+          }
+        }
+      },
+      "because": [
+        "Core A5-2",
+        "Core LC-5"
+      ]
+    },
+    {
+      "call": {
+        "method": "next_deadline"
+      },
+      "expect": {
+        "in_ms": {
+          "$type": "u64"
+        }
+      },
+      "because": [
+        "Core A5-2",
+        "Core TM-3"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s14b",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$cob"
+    },
+    {
+      "control": {
+        "op": "scheduler_ready",
+        "for_op": "$cob"
+      },
+      "because": [
+        "Core A5-2",
+        "Core A5-2"
+      ]
+    },
+    {
+      "control": {
+        "op": "scheduler_deadline",
+        "before": false
+      },
+      "because": "Core A5-2"
+    },
+    {
+      "advance_clock": {
+        "ms": 100
+      }
+    },
+    {
+      "call": {
+        "method": "next_deadline"
+      },
+      "expect": {
+        "in_ms": 0
+      },
+      "because": [
+        "Core A5-2",
+        "Core TM-3"
+      ]
+    },
+    {
+      "pump": {}
+    },
+    {
+      "call": {
+        "method": "get",
+        "args": {
+          "id": "s13b"
+        }
+      },
+      "expect": {
+        "state": {
+          "Exited": {
+            "cause": "Killed"
+          }
+        }
+      },
+      "because": [
+        "Core A5-2",
+        "Core TM-3",
+        "Core LC-5"
+      ]
+    },
+    {
+      "call": {
+        "method": "get",
+        "args": {
+          "id": "s14b"
+        }
+      },
+      "expect": {
+        "state": "Created"
+      },
+      "because": [
+        "Core A5-2",
+        "Core LC-3"
+      ]
+    },
+    {
+      "pump_idle": {}
+    },
+    {
+      "expect_eventually": {
+        "Completed": {
+          "op": "$cob",
+          "result": {}
+        }
+      },
+      "ignore": [
+        {
+          "Activity": {
+            "$any": true
+          }
+        },
+        {
+          "SessionState": {
+            "id": "s13b",
+            "state": "Stopping"
+          }
+        },
+        {
+          "SessionState": {
+            "id": "s14b",
+            "state": "Created"
+          }
+        },
+        {
+          "Completed": {
+            "op": "$spb",
+            "result": {}
+          }
+        }
+      ],
+      "because": [
+        "Core A5-2",
+        "Core TM-3"
+      ]
+    },
+    {
+      "expect_eventually": {
+        "SessionState": {
+          "id": "s13b",
+          "state": {
+            "Exited": {
+              "cause": "Killed"
+            }
+          }
+        }
+      },
+      "ignore": [
+        {
+          "$any": true
+        }
+      ],
+      "because": [
+        "Core A5-2",
+        "Core TM-3"
+      ]
+    }
+  ]
+}

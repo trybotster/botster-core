@@ -1,0 +1,216 @@
+{
+  "id": "conf::e2_1_osc_1_gives_no_title_changed_and_stays_in_output",
+  "contract": "core",
+  "clause": "E2-1",
+  "subject": "core",
+  "fake": "structural",
+  "ruling": "R-12",
+  "steps": [
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s1",
+            "request": {
+              "program": [
+                {
+                  "print_after_input": {
+                    "match_hex": "31",
+                    "bytes_hex": "1b5d313b69636f6e071b5d323b616674657207"
+                  }
+                },
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$c_s1",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s1",
+                  "state": "Created"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core LC-3"
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "s1"
+          }
+        }
+      },
+      "bind": "$s_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$s_s1",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s1",
+                  "state": "Running"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core A2-1"
+    },
+    {
+      "attach_route": {
+        "route": "r1",
+        "session": "s1",
+        "client": "c1"
+      },
+      "because": "Core OU-1"
+    },
+    {
+      "expect": {
+        "frame": "attached",
+        "terminal_format": {
+          "$type": "string"
+        }
+      },
+      "on": "r1",
+      "because": "Core OU-9"
+    },
+    {
+      "expect": {
+        "frame": "baseline_begin",
+        "rows": {
+          "$type": "integer"
+        },
+        "cols": {
+          "$type": "integer"
+        },
+        "modes": {
+          "$type": "object"
+        }
+      },
+      "on": "r1",
+      "because": "Core OU-9"
+    },
+    {
+      "expect": {
+        "frame": "screen",
+        "payload": {
+          "$any": true
+        }
+      },
+      "on": "r1",
+      "because": "Core OU-9"
+    },
+    {
+      "expect_eventually": {
+        "frame": "baseline_end",
+        "history": "not_requested"
+      },
+      "ignore": [
+        {
+          "frame": "history",
+          "payload": {
+            "$any": true
+          }
+        }
+      ],
+      "on": "r1",
+      "because": "Core OU-9"
+    },
+    {
+      "expect": {
+        "frame": "live"
+      },
+      "on": "r1",
+      "because": "Core OU-9"
+    },
+    {
+      "forbid_events": {
+        "events": [
+          {
+            "TitleChanged": {
+              "id": "s1",
+              "title": "icon"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "bytes": {
+                "bytes": {
+                  "$bytes_hex": "31"
+                }
+              }
+            }
+          }
+        }
+      },
+      "bind": "$t_s1_1"
+    },
+    {
+      "pump_collect": {
+        "events": [
+          {
+            "Completed": {
+              "op": "$t_s1_1",
+              "result": {
+                "ok": {
+                  "input": {
+                    "outcome": {
+                      "$any": true
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "TitleChanged": {
+              "id": "s1",
+              "title": "after"
+            }
+          }
+        ]
+      },
+      "because": [
+        "Core E2-1"
+      ]
+    },
+    {
+      "drain": {}
+    },
+    {
+      "route_expect_output": {
+        "bytes_hex": "1b5d313b69636f6e071b5d323b616674657207"
+      },
+      "because": [
+        "Core E2-1",
+        "Core OU-12"
+      ]
+    }
+  ]
+}

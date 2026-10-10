@@ -1,0 +1,76 @@
+{
+  "id": "conf::a2_6_features_lists_every_documented_name",
+  "contract": "core",
+  "clause": "A2-6",
+  "subject": "core",
+  "steps": [
+    {
+      "call": {
+        "method": "features"
+      },
+      "bind_fields": {
+        "names": "$names",
+        "service_preamble_versions": "$spv"
+      }
+    },
+    {
+      "check": {
+        "contains": [
+          "$names",
+          "route_transport:stream"
+        ]
+      },
+      "because": "Core A2-6"
+    },
+    {
+      "check": {
+        "contains": [
+          "$names",
+          "service_preamble_versions"
+        ]
+      },
+      "because": [
+        "Core A2-6",
+        "Core SV-2"
+      ]
+    },
+    {
+      "check": {
+        "ne": [
+          "$spv",
+          []
+        ]
+      },
+      "because": [
+        "Core A2-6",
+        "Core SV-2"
+      ]
+    },
+    {
+      "check": {
+        "subset_of": [
+          "$names",
+          [
+            "route_transport:stream",
+            "service_preamble_versions",
+            "silence",
+            "size_policy_other",
+            "snapshot_graphics",
+            "focus_report",
+            "payload_dies_with_guardian",
+            "bound:cpu_seconds",
+            "bound:open_files",
+            "bound:processes",
+            "bound:address_space_bytes",
+            "output_dropped",
+            "notification_policy"
+          ]
+        ]
+      },
+      "because": [
+        "Core A2-6",
+        "Core A3-3"
+      ]
+    }
+  ]
+}
