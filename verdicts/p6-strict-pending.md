@@ -264,3 +264,66 @@ The repeated command does not add slow-feature mutation coverage.
 All package findings close. No new source finding remains at this exact head.
 
 VERDICT: CLEAN
+
+
+## Round 4 — delta review, 2026-10-10
+
+PR: https://github.com/trybotster/botster-core/pull/218.
+Exact head: `d7976cc3b3549816ff14f857c0ead26b0d4806eb`.
+Review and full gate base: `7caf3457a04bd37f5d4e844db1900525eea7c8ec`.
+Previous CLEAN head: `5d06d47521d9f82de9e6bc9ef63971858cce9409`.
+Risk tier remains HIGH under rules 1, 3, and 5.
+
+No package finding remains. All prior findings remain closed.
+The reviewer read the conflict resolutions, current PR diff, old and new strict runners, entrypoints, parsers, ledger command, and corrected PR body.
+
+The merge of `v1` at `26843c74b460688c8e7219eb48a60420b930061e` had three conflicts.
+They affected `conformance/core-real-only.txt`, `tests/conformance.rs`, and `xtask/src/lists.rs`.
+The supplied check from the previous CLEAN head to `19d851b4f2559c618cb38ab33cd9d227d93a1d75` fails conditions (1)–(3).
+This round reviews those changes; the reviewer does not treat that merge as base-only.
+The later check from `19d851b4f2559c618cb38ab33cd9d227d93a1d75` to the exact head passes all four conditions.
+Its PR diff outside line-set files is byte-identical, with SHA256 `6b9a6b267d57ac4aaf821cc0a195258bfa90906c2d1a0293fc8f2041deb2782d`.
+The reviewer read both check reports and the conflict-resolution diff in:
+`~/botster-sessions/shared/core-stage1/evidence/p3-218-merge/`.
+The reviewer ran no merge check.
+
+The generated real-only file now matches `v1` byte-for-byte and uses `id<TAB>proof`.
+`pending::parse_real_only` reads that format and rejects malformed fields with their line number.
+Its new test checks the parser's public output and errors.
+The PR removes the duplicate testkit generator and reuses `v1`'s tested `real_only_text` generator.
+The ledger command retains `copy_problems`, including its existing mismatch proof.
+The PR removes `first_stale`, its duplicate proof, the unused replacement-map field, and duplicate mutation exclusions.
+The remaining exclusions name the tested decisions. They do not exclude the new parser or the strict verdict.
+
+The strict trial moves into `tests/suite/mod.rs`.
+It still checks the transcript's public outcome: a pending id must fail, and a held id must pass.
+It retains the first-seed rule for a budget entry and all seeds for other entries.
+An expected result still reports runtime ignored. It never increases the passed count.
+The testkit entrypoint passes `plain = None` and enables strict mode when the environment value is `1`.
+The real entrypoint passes `Some(plain)` and stays outside strict mode.
+The real runner retains its public pass-through assertion and pending-real reporting.
+The selection-variable command proof, strict coverage decision, and two-report verdict remain unchanged.
+The held file, pending file, Dockerfile wrapper, and status helpers match the previous CLEAN head.
+The delta adds no process spawn, group owner, derived wait, sleep, polling loop, cleanup, or production reaper change.
+The Prior art note and merge section record the reused generator, copy decision, and shared runner.
+P3 corrected the older description sections to name the current functions and proofs.
+
+The retained red-on-revert logs from round 2 remain the trial-behavior evidence.
+They show rejection of a re-pended passing id and a held failing id, plus the ignored control without strict mode.
+The moved trial preserves the outcome-to-verdict mapping that those proofs exercised.
+This round adds no reversal execution.
+
+The reviewer read the full Linux gate log:
+`~/botster-sessions/gates/botster-core-stage1-p3-strict-pending-d7976cc3-pool-20261010-110155-38054.log`.
+It names the exact head and base above. All ten jobs pass, and the gate exits 0.
+Default: 1491 passing tests. Slow: 381 passing tests. Both conformance reports show 193 passed and zero failed.
+The strict report covers 407 pending transcripts: 386 run, 21 real-only not run, and two held.
+The new tab-format parser proof and the command-environment proof pass.
+Minimum counts remain testkit 50/69, real 29/68, and real-accepted 29/69.
+The real report names 87 pending-real ids, with zero newly passing.
+Both mutation commands report 46 mutants: 42 caught, zero missed, zero timeout, and four unviable.
+The repeated command does not add slow-feature mutation coverage. PR #225 owns that separate gate change.
+
+The reviewer changed no product code and ran no gate, build, test, mutation job, or reversal.
+
+VERDICT: CLEAN
