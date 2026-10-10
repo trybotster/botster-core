@@ -610,19 +610,22 @@ fn the_start_needs_an_intermediate_that_ends_with_code_0_and_an_acknowledgement(
     assert_eq!(start("/bin/echo ready"), Ok(()));
 }
 
-/// Production can end the wrap stage before it reads the anchor's acknowledgement (Core `lc_5_stop_ends_payload`: a Stop
-/// right after the Start). The acknowledgement then has no reader. The anchor still holds the group until its guard
-/// connection ends, and then ends the group. Here the anchor stage runs in the leader's group with the reader of its
-/// acknowledgement already closed; its stdin and stderr stand for the guard connection. The test owns both processes on
-/// every path, independently of the anchor under test: the leader as a group owner, whose drop ends the group (the anchor
-/// is a member), and the anchor as an owned child.
-#[test]
-fn an_anchor_whose_acknowledgement_has_no_reader_still_holds_and_ends_the_group() {
-    let dir = tempfile::tempdir().unwrap();
-    let blocker = Blocker::new(dir.path(), "block").unwrap();
-    let mut production = OwnedChild::spawn_group(
+/// The anchor stage alone, with `acknowledgement` as its stdout, in the group of a leader blocked on `fifo`. Its stdin and
+/// stderr stand for the guard connection: the returned writer is the connection, and the reader has passed the anchor's
+/// report. The test owns both processes on every path, independently of the anchor under test: the leader as a group owner,
+/// whose drop ends the group (the anchor is a member), and the anchor as an owned child.
+fn anchor_stage(
+    fifo: &Path,
+    acknowledgement: Stdio,
+) -> (
+    OwnedChild,
+    OwnedChild,
+    std::io::PipeWriter,
+    Bounded<std::io::PipeReader>,
+) {
+    let production = OwnedChild::spawn_group(
         Command::new("/bin/cat")
-            .arg(blocker.path())
+            .arg(fifo)
             .stdin(Stdio::null())
             .stdout(Stdio::null()),
     )
@@ -631,9 +634,7 @@ fn an_anchor_whose_acknowledgement_has_no_reader_still_holds_and_ends_the_group(
     let leader_start = start_time(pid(leader).unwrap()).unwrap().unwrap();
     let (connection_end, connection) = std::io::pipe().unwrap();
     let (lines, lines_writer) = std::io::pipe().unwrap();
-    let (acknowledgement_reader, acknowledgement) = std::io::pipe().unwrap();
-    drop(acknowledgement_reader);
-    let mut anchor = OwnedChild::spawn(
+    let anchor = OwnedChild::spawn(
         Command::new(ANCHOR)
             // The leader's pid and start time, the group, a grace of 0 and the cleanup bound.
             .args([
@@ -650,11 +651,25 @@ fn an_anchor_whose_acknowledgement_has_no_reader_still_holds_and_ends_the_group(
             .process_group(i32::try_from(leader).unwrap()),
     )
     .unwrap();
-    let (mut rest, line) = first_line(lines);
+    let (rest, line) = first_line(lines);
     match Line::decode(&line) {
         Some(Line::Anchor(report)) => assert_eq!(report.leader.pid, leader),
         other => panic!("not the anchor's report: {line:?} {other:?}"),
     }
+    (production, anchor, connection, rest)
+}
+
+/// Production can end the wrap stage before it reads the anchor's acknowledgement (Core `lc_5_stop_ends_payload`: a Stop
+/// right after the Start). The acknowledgement then has no reader. The anchor still holds the group until its guard
+/// connection ends, and then ends the group.
+#[test]
+fn an_anchor_whose_acknowledgement_has_no_reader_still_holds_and_ends_the_group() {
+    let dir = tempfile::tempdir().unwrap();
+    let blocker = Blocker::new(dir.path(), "block").unwrap();
+    let (acknowledgement_reader, acknowledgement) = std::io::pipe().unwrap();
+    drop(acknowledgement_reader);
+    let (mut production, mut anchor, connection, mut rest) =
+        anchor_stage(blocker.path(), acknowledgement.into());
     // The end of the guard connection starts the cleanup.
     drop(connection);
     assert_eq!(
@@ -664,6 +679,33 @@ fn an_anchor_whose_acknowledgement_has_no_reader_still_holds_and_ends_the_group(
     // The anchor's KILL ended the leader, and its owner reaps it.
     assert_eq!(production.status().signal(), Some(KILL));
     assert_eq!(anchor.status().code(), Some(0));
+}
+
+/// Only a missing reader is ignored: any other failure of the acknowledgement fails the anchor stage, which reports it and
+/// holds nothing. Here its stdout is a full non-blocking pipe that still has a reader, so the write fails with
+/// `WouldBlock`. (std reads EBADF on stdout as success, so a closed or read-only descriptor gives no error.) The guard
+/// connection stays open, so an anchor that held the group would send no line within the bound.
+#[test]
+fn an_acknowledgement_that_fails_otherwise_fails_the_anchor_stage() {
+    use std::io::Write;
+    let dir = tempfile::tempdir().unwrap();
+    let blocker = Blocker::new(dir.path(), "block").unwrap();
+    let (_reader, mut full) = std::io::pipe().unwrap();
+    let flags = rustix::fs::fcntl_getfl(&full).unwrap();
+    rustix::fs::fcntl_setfl(&full, flags | rustix::fs::OFlags::NONBLOCK).unwrap();
+    let chunk = [0u8; 4096];
+    loop {
+        match full.write(&chunk) {
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => break,
+            Err(error) => panic!("fill the pipe: {error}"),
+        }
+    }
+    let (_production, mut anchor, _connection, mut rest) =
+        anchor_stage(blocker.path(), full.into());
+    let line = rest.line(Deadline::cleanup()).unwrap().unwrap();
+    assert!(line.starts_with("error anchor "), "{line:?}");
+    assert_eq!(anchor.status().code(), Some(1));
 }
 
 /// #171 TP4: when the test dies before any anchor registered with its guard, no process of the wrapped program is left: the
