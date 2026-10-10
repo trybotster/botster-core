@@ -7931,3 +7931,120 @@ The reviewer changed no product code and ran no tests, builds, gates, measuremen
 All earlier exact-head verdicts remain preserved.
 
 VERDICT: CLEAN
+
+
+## Round 136 — PR #206 P4a route machine corrections and v0.1.22 union — 2026-10-09
+
+Reviewed head: `959a716cf9b918c1a7fa8845a7ca8ed15c3f87b4`.
+Base: `1627732f5f651f5946e5d60b64dedcbf6c4cb683`.
+Parents: `b0d50044e52b0f4c000add8a30344cdb5f6fa0b3` and the base.
+Tier: HIGH. The change crosses host, link, testkit, worker, and terminal crates and changes the mutation configuration.
+Authority: BUILD.md risk rules and real-process rules; accepted plan 23n at f545597b; contracts v0.1.22 at af5771c.
+The reviewer read R-44 at dede41d7797f20d1fb0ee7d4720e4d7a09cc37e3.
+The lead supplied R-45 during this round and instructed the reviewers to act before its documentation lands.
+
+The last package verdict for #206 was round 134 at 1484a9ea, NOT CLEAN, commit ba5c9ebc.
+No package verdict exists here for b0d50044. This round reviews all corrections from 1484a9ea through the reviewed head.
+The reviewer read the full final own change and the final merge corrections, including the public API snapshot.
+The own change covers 36 files with 2808 insertions and 170 deletions.
+The public API snapshot follows the exported RealEdges method rename; it adds no unrelated API.
+The five final A17 removals preserve v0.1.22 and its stream-only contract. The hub conformance dependency also uses v0.1.22.
+The ordered host writer, applied limits sent once by the host, descriptor ownership, and model cut retain their accepted design.
+The prior-art note preserves reused codec/library mechanisms and rejected old mechanisms with reasons.
+The real edge still refuses descriptor sends. The packaged worker still implements no successful route descriptor transfer.
+The named real-process proof remains required before successful production transfer merges.
+No test-process guard, anchor, wait, timeout, or cleanup rule changes in this correction.
+
+### F78 — MEDIUM — CLOSED
+
+Terminal::snapshot_at_most checks the native size before buffer reservation. CaptureSnapshot and route baseline use this method.
+The method retains the native encoder, format, and continuation errors. Its boundary proof compares the native snapshot at its exact size.
+The worker checks each encoded baseline frame against bound_of before queuing it. Screen retains its separate frame bound.
+The route test client now decodes with the actual applied bounds.
+A route below its attach-frame bound sends no frame and reports HandoffFailed once, as R-44 requires.
+A route with no common terminal format follows that same path.
+A SnapshotTooLarge close sends its typed frame only when the frame fits. Otherwise the transport closes without a frame.
+The output payload no longer forces one byte. A successful baseline establishes a frame bound that permits output.
+The exact-largest-frame proof succeeds at the measured bound and fails one byte below it.
+These corrections close the emitted-frame and native-allocation finding.
+
+### F80, F81, and F82 — MEDIUM — CLOSED
+
+F80: TestkitRoute retains unsent client bytes and sends them before later bytes.
+Its capacity-four proof now delivers abcd, then efg. A later read also flushes retained bytes.
+A failed stream clears retained bytes and accepts no further client writes.
+The stream implementation returns WouldBlock rather than Ok(0) for a nonempty write with no room.
+
+F81: the worker route-write binding and TestkitRoute retry Interrupted. WouldBlock returns without an error loop.
+The binding proof injects Interrupted and observes the complete write. The client proof observes unchanged ordered bytes.
+
+F82: on_route_written retains route.closing when a later terminal write fails.
+The proof starts a SnapshotTooLarge close, injects a write error, closes the transport, and reports SnapshotTooLarge once.
+A route without an earlier close reason still reports WriteFailed.
+
+### F79 — MEDIUM — OPEN under R-45; the old hard-cap remedy is superseded
+
+OU-9 guarantees that a snapshot at max_snapshot_bytes fits when route_queue_bytes equals that limit.
+Core 9B explicitly describes a route over route_queue_bytes. The prior finding's unconditional hard-cap remedy overstates that text.
+The lead obtained the steward's R-45 clarification during this review:
+- One baseline sequence, baseline_begin through live, including its screen frame and stream prefixes, is exempt from the threshold test.
+- The threshold test counts only queued frames behind that sequence, including output after R and the held suffix as output.
+- Baseline-only overage is not a not-progressing condition and starts no extra stall clock.
+- The reader_progress_deadline rule remains unchanged. A transport that accepts bytes is progressing while the baseline drains.
+- A tight-queue proof must deliver the baseline and live without resync. The ruling adds no ledger ID.
+
+At this head, route.queued and free_payload count every queued byte without a separate baseline term.
+The body and DESIGN.md permit the baseline controls, framing, and held suffix as a combined overage.
+The held suffix is not part of R-45's exemption. The current test delivers the sequence but asserts only a zero PTY budget and final drain.
+It does not establish the new threshold distinction or the required no-resync behavior.
+P3 is correcting the source and proof under R-45. F79 remains OPEN for that new head.
+This finding does not require a hard cap or rejection of a fitting snapshot.
+
+### F84 — LOW — OPEN: stale runner statement and minimum count in the body
+
+The body says v0.1.22 still sends literal $fmt in attach_route options.
+The pinned af5771c includes ff5ac74, which substitutes the full attach_route specification before attach.
+An unbound variable becomes a bad step. The unchanged merge inside attach does not negate that earlier substitution.
+The package reviewer independently counted 69 minimum IDs: 41 pass at base and 43 pass at this head.
+The body still states 40 to 42. Correct both statements without changing the transcript or claiming the pending format ID passed.
+
+### F85 — MEDIUM — OPEN: manual slow-feature mutation evidence is not named
+
+Plan 23n states that an env-only NEXTEST_PROFILE=slow xtask mutation run repeats the default mutation stage.
+Until P6's gate fix lands, an exclusion based on slow mutation evidence must name its applicable manual log in the PR body.
+The required run includes --no-config --in-place --features slow and -- --profile slow with the gate's fail-fast setting.
+This PR renames the excluded RealEdges::handoff_route method to link_send_descriptor and updates its named slow failure proof.
+The body names only the env-only second xtask run. That run does not provide slow-feature mutation evidence.
+P3 must supply applicable manual evidence. Existing evidence needs explicit source, signature, and proof applicability.
+This request is scoped to the exclusion. It does not request a broad gate rerun or reviewer execution.
+
+### Completed evidence and verdict
+
+Gate: ~/botster-sessions/gates/botster-core-stage1-p4a-route-machine-959a716c-pool-20261009-182804-79349.log.
+The log names the exact reviewed head and base. It ran on msa1 and exited zero after 875 seconds.
+Queue time was one second. Run time was 874 seconds. All ten full CI steps PASS.
+Default: 1327 tests passed in 9.666 seconds. Slow: 254 tests passed in 22.941 seconds.
+Active facade conformance: 123 passed, zero failed. The default facade run reports 559 ignored.
+Signals scan: 183 Rust files. Timers scan: 181 Rust files. Citation check: 167 names.
+Gate decision check: 1104 xtask mutants, 189 regex exclusions, and two glob exclusions.
+Each mutation run reports 170 tested: 157 caught, 13 unviable, zero missed, and zero timeouts.
+Full CI took 555.5 seconds. The separate mutation job took 300.4 seconds with a 20-second mutation timeout.
+The two runs do not establish slow-feature mutation coverage under plan 23n.
+
+The two removed pending IDs remain ou_9_baseline_then_live_no_gap and dp_3_screen_is_one_frame_within_max_screen_frame_bytes.
+The minimum testkit count is 41/69 at base and 43/69 at head. The real minimum count gains nothing from these removals.
+No successful real handoff is claimed. P4a must add its route transport term to edges_quiet in PR2.
+History, HandoffSent, route input, and successful real transfer retain their named later scopes.
+
+The reviewer sent findings directly to P3 and integration. The reviewer sent only QUESTION to the lead for F79.
+The lead answered with R-45. Integration round 2 is NOT CLEAN at the same head, verdict 083087bab9a18763e5895395164e7e466c1e3e9c.
+PR #206 is NOT CLEAN at `959a716cf9b918c1a7fa8845a7ca8ed15c3f87b4`.
+F78/F80/F81/F82 are CLOSED. F79/F84/F85 remain OPEN. This is #206's second recorded package NOT CLEAN round.
+No round-limit notice is due. Ordinary findings remain in the implementer/reviewer loop.
+#184 is merged at 5348befa. Its round 135 CLEAN and F57/F83 closures remain preserved.
+#203 retains its exact-head design CLEAN. F71-F77 remain CLOSED as design findings.
+F39 for #163 and F61/F62 for #192 retain their prior scopes. P3's non-minimum queue stays parked.
+The reviewer changed no product code and ran no tests, builds, gates, measurements, or mutants.
+All earlier exact-head verdicts remain preserved.
+
+VERDICT: NOT CLEAN
