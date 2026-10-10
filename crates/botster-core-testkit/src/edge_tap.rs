@@ -80,21 +80,22 @@ impl LinkTap {
     }
 
     /// Reads the link's first frame from bytes that passed through, without changing them: a hello names the instance.
-    fn observe(&mut self, mut bytes: &[u8]) {
-        while let Some(decoder) = self.first.as_mut() {
-            let taken = decoder.push(bytes);
-            bytes = &bytes[taken..];
-            match decoder.next_frame() {
-                Ok(Some(frame)) => {
-                    if frame.kind == FrameType::HELLO {
-                        self.instance = Hello::decode(&frame.payload).ok().map(|h| h.instance);
-                    }
-                    self.first = None;
+    /// The decoder takes bytes up to the end of the first frame, so when it has no complete frame it took every byte; bytes
+    /// after the first frame are not read.
+    fn observe(&mut self, bytes: &[u8]) {
+        let Some(decoder) = self.first.as_mut() else {
+            return;
+        };
+        decoder.push(bytes);
+        match decoder.next_frame() {
+            Ok(None) => {}
+            Ok(Some(frame)) => {
+                if frame.kind == FrameType::HELLO {
+                    self.instance = Hello::decode(&frame.payload).ok().map(|h| h.instance);
                 }
-                Ok(None) if bytes.is_empty() => return,
-                Ok(None) => {}
-                Err(_) => self.first = None,
+                self.first = None;
             }
+            Err(_) => self.first = None,
         }
     }
 

@@ -492,6 +492,44 @@ fn a_first_frame_that_is_not_a_hello_names_nothing() {
 }
 
 #[test]
+fn a_link_or_an_exit_held_alone_keeps_the_edges_busy() {
+    // Only an accepted link is held: the next answer is "not quiet", and the tap takes nothing more.
+    let mut fake = Fake::default();
+    fake.accepts.push_back(A);
+    let mut rig = rig(fake);
+    assert!(!rig.with(Tap::quiet));
+    assert!(!rig.with(Tap::quiet), "the tap still holds the link");
+    assert_eq!(rig.edges.accept_link(), Some(A));
+    assert!(rig.with(Tap::quiet));
+    // Only an exit is held.
+    let mut fake = Fake::default();
+    fake.exits.push_back((identity(4), exit_status()));
+    let mut rig = rig(fake);
+    assert!(!rig.with(Tap::quiet));
+    assert!(!rig.with(Tap::quiet), "the tap still holds the exit");
+    assert_eq!(
+        rig.edges.poll_process_exit(),
+        Some((identity(4), exit_status()))
+    );
+    assert!(rig.with(Tap::quiet));
+}
+
+#[test]
+fn a_connected_link_keeps_the_instance_that_core_asked_for() {
+    // Core connects to the worker of 2-1 (adoption). A hello that names another instance on that link changes nothing:
+    // only an accepted link is named by its hello.
+    let mut fake = Fake::default();
+    fake.connects.insert(InstanceId("2-1".into()), B);
+    fake.reads
+        .insert(B, vec![Read::Data(hello_frame("5-5"))].into());
+    let mut rig = rig(fake);
+    assert_eq!(rig.edges.connect_worker(&InstanceId("2-1".into())), Some(B));
+    assert_eq!(rig.recv(B, 4096).unwrap(), hello_frame("5-5"));
+    assert_eq!(rig.with(|t| t.link_of(&InstanceId("2-1".into()))), Some(B));
+    assert_eq!(rig.with(|t| t.link_of(&InstanceId("5-5".into()))), None);
+}
+
+#[test]
 fn a_hello_taken_ahead_also_names_the_link() {
     let rig = rig(fake_with_link(vec![Read::Data(hello_frame("3-3"))]));
     assert!(!rig.with(Tap::quiet));

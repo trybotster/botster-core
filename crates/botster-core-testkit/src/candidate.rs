@@ -177,6 +177,17 @@ mod tests {
         ]})
     }
 
+    /// The running test binary is `<target>/<profile>/deps/<test>`: the candidate directory is `<target>/candidate`.
+    #[test]
+    fn the_candidate_directory_is_beside_the_profile_of_the_test_binary() {
+        let dir = Candidate::beside_test_binary().unwrap();
+        assert_eq!(dir.file_name(), Some("candidate".as_ref()));
+        let target = dir.parent().unwrap();
+        let exe = std::env::current_exe().unwrap();
+        let below = exe.strip_prefix(target).unwrap();
+        assert_eq!(below.components().count(), 3, "{}", exe.display());
+    }
+
     #[test]
     fn verified_binaries_are_returned() {
         let dir = candidate_dir(good);

@@ -208,6 +208,8 @@ pub fn run(name: &str, make: Factory, plain: Option<Factory>, limits: Limits) {
     let mut testkit_proven = Vec::new();
     // The ids whose trial ran and passed (on the real tier: on the wrapped composition and the plain one).
     let ran_passed = Arc::new(Mutex::new(BTreeSet::new()));
+    // The ids that have a trial that must pass (not ignored).
+    let mut must_pass = BTreeSet::new();
     let deferred = deferred_entries(DEFERRED);
     let withdrawn = parse_withdrawn(CONTRACTS_WITHDRAWN).expect("withdrawn.txt parses");
     let (_, cases) = parse_status_deferred(CONTRACTS_DEFERRED).expect("deferred.txt parses");
@@ -260,6 +262,7 @@ pub fn run(name: &str, make: Factory, plain: Option<Factory>, limits: Limits) {
                     Arc::clone(&real_passed),
                 ));
             } else if selection.selects(transcript) {
+                must_pass.insert(id.clone());
                 let transcript = transcript.clone();
                 let ran_passed = Arc::clone(&ran_passed);
                 trials.push(Trial::test(id.clone(), move || {
@@ -298,9 +301,24 @@ pub fn run(name: &str, make: Factory, plain: Option<Factory>, limits: Limits) {
             deferred.len(),
             withdrawn_count
         );
-        let passed = ran_passed.lock().unwrap_or_else(PoisonError::into_inner);
+        // Under `--ignored` (the real tier's report run in `cargo xtask ci --job slow`) the trials that must pass do not run
+        // here: they ran under nextest first, and the job reaches this run only when every one passed. Then those ids
+        // count; otherwise the ids whose trial passed in this run count.
+        let passed = if args.ignored {
+            must_pass
+        } else {
+            ran_passed
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .clone()
+        };
+        let source = if args.ignored {
+            " (under --ignored: the trials that passed in the nextest run of this job)"
+        } else {
+            ""
+        };
         println!(
-            "{name}: {}",
+            "{name}: {}{source}",
             minimum_report(&minimum_ids(MINIMUM), &passed, &pending, plain.is_some())
         );
         if plain.is_some() {
