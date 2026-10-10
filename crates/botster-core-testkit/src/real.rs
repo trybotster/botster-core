@@ -625,12 +625,18 @@ mod slow_controls {
         let alive = |h: &mut RealCoreHarness, s: &str| {
             h.control("a", "payload_alive", &json!({ "session": s }))
         };
-        assert_eq!(alive(&mut harness, "s1"), Ok(json!({ "alive": true })));
-
         let s1 = harness.session_processes(&data_dir, &sid("s1")).unwrap();
         let worker = s1.worker.expect("the worker is recorded");
         let payload = s1.payload.expect("the payload is recorded");
+        let tap = harness.tap("a").unwrap();
+        assert_eq!(lock(&tap).identity_state(payload), IdentityState::Matches);
         let payload_pid = platform::pid(payload.pid).unwrap();
+        assert!(
+            runs(payload).unwrap(),
+            "the payload is a live member of its own group: {:?}",
+            platform::live_members(payload_pid)
+        );
+        assert_eq!(alive(&mut harness, "s1"), Ok(json!({ "alive": true })));
         let worker_group = platform::live_members(platform::pid(worker.pid).unwrap()).unwrap();
         assert!(
             worker_group.iter().all(|m| m.pid != payload_pid),
@@ -640,7 +646,6 @@ mod slow_controls {
             pid: worker.pid,
             start_time: worker.start_time + 1,
         };
-        let tap = harness.tap("a").unwrap();
         assert_eq!(lock(&tap).kill_group(reused), IdentityState::Reused);
         assert_eq!(lock(&tap).identity_state(worker), IdentityState::Matches);
         assert!(runs(worker).unwrap(), "a reused pid is never signalled");
