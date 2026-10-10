@@ -137,3 +137,87 @@ This report does not close any finding on the reviewed head.
 A replacement READY and its exact-head gate are required for the next round.
 
 VERDICT: NOT CLEAN (5 open).
+
+## Round 2 — 2026-10-09
+
+Reviewed head: `557c414f3383dc357186972380291737a959f401`.
+PR and gate base: `e99012939c8df4f85da5ae5af7144534b129cb70`.
+Scope: the complete replacement change and its host/worker completion paths, with prior checks retained for unchanged controls.
+
+### Round 1 disposition
+
+The replacement applies the lead's reported option A without a compatibility flag.
+It removes route decoding, receipt accounting, admission, refusals, and the route-read binding.
+`worker/input.rs` equals the base file. The removed input symbols are absent from the worker and binding.
+Twelve input-dependent ids return to pending; none was removed on the base branch.
+R1-1, R1-2, R1-4, and R1-5 no longer describe code in this PR.
+Their behavioral requirements remain explicit PR3 work in the PR body, including ownership across adoption.
+This removal does not establish conformance for route input.
+
+R1-3's premature-completion mechanism is corrected on the normal delivery path.
+The worker reports each route close after its queued frames finish.
+The host preserves its exit cause and waits for each route's completion evidence.
+The worker preserves a detach's first reason across payload exit.
+The new host tests cover delayed reports, separate route delivery, pending detach, and a later link-loss input.
+Two related lifecycle defects remain below.
+
+### R2-1 — HIGH — Route completion can wait forever after worker loss
+
+The new loss recording in `inbound.rs:617` runs only through `on_link_closed` while a Stop flow already has an end.
+Two reachable paths bypass that condition:
+
+1. The host posts `Exited` and waits for a held route. `on_process_exited` then calls `close_worker_link`.
+   That helper takes the link and removes its mapping without recording `RouteEnd::Lost`.
+   The process-exit handler deliberately preserves the existing end flow.
+   A later `LinkClosed` cannot find the removed mapping, so the route never gets completion evidence.
+2. `Exited` arrives during `Flow::Start` before startup completion and sets `pending_end`.
+   The link closes before `finish_start` begins the end flow.
+   The new loss block records nothing because the flow is not yet `Flow::Stop`.
+   The later Finish waits with no live link and no route completion evidence.
+
+`finish_waits` then suppresses work indefinitely. The route remains bound and a queued Remove cannot proceed.
+Record route loss across every relevant teardown path and end-flow timing.
+Preserve earlier delivery evidence and the first close reason.
+Prove process exit before link EOF, and link loss while the session has a pending end before Finish exists.
+
+Status: OPEN.
+
+### R2-2 — MEDIUM — A full event queue leaves failed route closure ready
+
+`flow_needs_room` does not include the new route-closing work in `StopPhase::Finish`.
+Once a route has delivery or loss evidence, `finish_waits` returns false.
+With a full event queue, `ready` therefore offers `Work::Session` repeatedly.
+`run_stop` calls `close_route`, which returns false because the queue has no room.
+The route and flow remain unchanged, so the next readiness check offers the same work.
+
+This violates the host rule that work waiting for capacity is not ready work.
+Make the route-close step wait for event capacity.
+Prove that a full queue suppresses this work, then polling resumes it and posts exactly one close.
+
+Status: OPEN.
+
+### Evidence and merge state
+
+The pending delta against the base removes eleven ids and adds none.
+All eleven have PASS lines in the supplied gate.
+The minimum list remains 69 ids; testkit-passing increases from 46 to 50.
+The twelve restored ids and the PR3 requirements match the split recorded in the PR body.
+
+Gate:
+`/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-p4a-route-lifecycle-557c414f-pool-20261009-214620-89447.log`.
+
+The log names the reviewed head and its ancestor base. All ten steps pass in 345.7 seconds.
+Default tests: 1,419 passed. Slow tests: 256 passed.
+Conformance: 193 passed, zero failed; 407 pending with transcripts, 70 without transcripts, two deferred, and 18 withdrawn.
+Both mutation runs report 110 mutants: 95 caught, 15 unviable, zero missed, and zero timeouts.
+The second command still sets only `NEXTEST_PROFILE=slow`, without the slow feature.
+The pool job exits zero after 575 seconds on msa1.
+The green gate does not exercise the two failure paths above.
+
+The PR head still matches the reviewed revision. `git diff --check` passes.
+During review, remote v1 advanced to `dc7fb11d915b76d45fdae84b1edaa208a7f895eb`.
+The replacement must include current v1 and supply its exact-head gate.
+I sent both findings to P3 and the package reviewer. The package artifact for this round is pending.
+I ran no builds, tests, or gates.
+
+VERDICT: NOT CLEAN (2 open).
