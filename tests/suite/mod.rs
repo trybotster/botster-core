@@ -14,6 +14,8 @@
 //! - on the real tier only, an id in `conformance/core-real-pending.txt` (plan 23l) is an ignored trial of kind
 //!   `pending-real`. Under `--ignored` (the run of `cargo xtask ci --job slow` after nextest) it runs and reports itself
 //!   ignored with its outcome, never as passed and never as failed; the report names each one that passed, for removal;
+//! - on the real tier only, an id of `TESTKIT_PROVEN` (Core A20-1: its proof observes the worker's own allocator) is an
+//!   ignored trial of kind `testkit-proven`. It is not run and it is not a failure; the report lists it with its reason;
 //! - every other id runs `run_transcript` over the seed set and passes only on `Outcome::Passed`. On the real tier it then
 //!   runs again on a plain `Core::open` (the pass-through test of plan 23l): it must pass there too, unless it needs a
 //!   control, which only the wrapped composition serves (`unsupported_control` on the plain harness).
@@ -24,7 +26,9 @@
 use botster_conformance::report::describe;
 pub use botster_conformance::Limits;
 use botster_conformance::{load_dir, run_transcript, Outcome, SeedSet, Selection, Transcript};
-use botster_core_conformance::{driver_for, CoreHarness, CoreSchemas, CORE_TRANSCRIPTS};
+use botster_core_conformance::{
+    driver_for, CoreHarness, CoreSchemas, CORE_TRANSCRIPTS, TESTKIT_PROVEN,
+};
 use botster_core_testkit::status::{parse_deferred as parse_status_deferred, parse_withdrawn};
 use libtest_mimic::{Arguments, Completion, Failed, Trial};
 use std::collections::BTreeSet;
@@ -164,6 +168,7 @@ pub fn run(name: &str, make: Factory, plain: Option<Factory>, limits: Limits) {
     };
     let real_passed = Arc::new(Mutex::new(Vec::new()));
     let mut real_pending_count = 0usize;
+    let mut testkit_proven = Vec::new();
     let deferred = deferred_entries(DEFERRED);
     let withdrawn = parse_withdrawn(CONTRACTS_WITHDRAWN).expect("withdrawn.txt parses");
     let (_, cases) = parse_status_deferred(CONTRACTS_DEFERRED).expect("deferred.txt parses");
@@ -199,7 +204,15 @@ pub fn run(name: &str, make: Factory, plain: Option<Factory>, limits: Limits) {
             };
             trials.push(never_passes(id, kind, reason.to_string()));
         } else if let Some(transcript) = transcript {
-            if selection.selects(transcript) && real_pending.contains(id) {
+            if plain.is_some() && TESTKIT_PROVEN.contains(&id.as_str()) {
+                testkit_proven.push(id.clone());
+                trials.push(never_passes(
+                    id,
+                    "testkit-proven",
+                    "testkit-proven (Core A20-1): its proof observes the worker's own allocator; not run on the real tier"
+                        .to_string(),
+                ));
+            } else if selection.selects(transcript) && real_pending.contains(id) {
                 real_pending_count += 1;
                 trials.push(pending_real(
                     make,
@@ -248,6 +261,9 @@ pub fn run(name: &str, make: Factory, plain: Option<Factory>, limits: Limits) {
             );
             for id in passed.iter() {
                 println!("{name}: pending-real {id} PASSED: remove it from conformance/core-real-pending.txt");
+            }
+            for id in &testkit_proven {
+                println!("{name}: testkit-proven {id} (Core A20-1): not run on the real tier, not a failure");
             }
         }
         // A not-applicable case belongs to an ACTIVE id: the id itself is counted under its run result.
