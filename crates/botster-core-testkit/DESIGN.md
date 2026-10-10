@@ -1,5 +1,34 @@
 # botster-core-testkit: M0b design note
 
+## RealCoreHarness over Core's own composition (plan 23l)
+
+Scope: lead rulings of 2026-10-09 (plan 23l, R-43). `RealCoreHarness::open` calls `botster_core::open_parts` and then
+`HostDriver::open(cfg, EdgeTap::new(edges, rows))`. `Core::open` is `HostDriver::open` over the same parts, and `Core`
+only delegates to its driver, so every id runs on Core's own code. Core has no test branch and no feature flag.
+
+The boundary is `HostEdges` (`src/edge_tap.rs`). `EdgeTap` passes every call to the inner `RealEdges` unchanged:
+
+- Inbound edges are "take the next item" calls (`link_recv`, `accept_link`, `poll_process_exit`). The tap can take
+  ahead, hold the items, and hand them out in order. The driver reads every link until `WouldBlock` and drains new
+  links and exits on every pump, so a held item reaches the engine at the next pump. The tap signals the wake edge.
+- `edges_quiet` (`{quiet}`) is a take-ahead that finds nothing new and holds nothing. Bytes that are still inside a
+  worker process are not visible here. So quiet means "nothing arrived and nothing is unread", never "the worker
+  finished". A transcript that needs "the worker finished" must wait for an event of that.
+- `break_control` (`{session}`) calls the inner `link_close` on the session's link. `RealEdges` drops its end of the
+  stream (it does not call `shutdown`). The worker reads EOF, and every later call of the driver on that `LinkId` gets
+  the closed-link state: `Ok(0)` on `link_recv`, `BrokenPipe` on `link_send`. `RealEdges` never reuses a `LinkId` and
+  keeps no raw descriptor number, so a call never reaches a descriptor that the OS gave out again
+  (`tests/slow_edge_tap.rs`).
+- The process record: every registry row that passes through `write_row` or `read_rows` is decoded with Core's own
+  `Row::decode`. The rows of a data directory are kept across handles and outlive `Remove`.
+  `RealCoreHarness::session_processes(dir, session)` gives the instance, the worker identity and the payload identity.
+  The hello of each link (or the `connect_worker` call) names the link's instance.
+- The harness keeps only a `Weak` to each tap. The data directory's lock (LC-2) ends with the driver.
+- `injects_clock` is true (R-43 A): Core reads no clock, and `pump` takes `now` from the runner. Workers and payloads
+  follow real time.
+
+Prior art: none copied. The scripted inner edges of `edge_tap/tests.rs` are new.
+
 ## P6 oracle controls: current phase
 
 Scope: `brief-p6-oracle.md`, plan pin `bdda2359`, contracts `contracts-v0.1.13`.
