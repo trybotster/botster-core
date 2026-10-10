@@ -272,6 +272,13 @@ pub struct Session {
     pub input_ops: u32,
     pub input_bytes: u64,
     pub routes: BTreeSet<RouteId>,
+    /// The routes whose queue the worker delivered after the session ended, with their `route_closed{session_ended}`: the
+    /// worker reported the close (OU-7). `StopPhase::Finish` closes them `SessionEnded`. While the worker's link lives, a
+    /// bound route that is not here keeps `Finish` waiting; once the link is gone, it closes `SessionLost`.
+    pub delivered: BTreeSet<RouteId>,
+    /// The routes that were bound when the session ended. Only these close in `StopPhase::Finish`; a route that attaches
+    /// after the exit stays bound until `Remove` closes it `SessionRemoved` (LC-7 step 1, A2-3).
+    pub bound_at_end: BTreeSet<RouteId>,
     pub flow: crate::flow::Flow,
     /// Flows that were admitted while another one runs: `Start` or `Remove` after a `Create` that a `pump` has not finished
     /// (AM-1). The next one begins when the running one ends.

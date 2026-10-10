@@ -19,6 +19,62 @@ fn edges(seed: u64) -> SimEdges {
     }
 }
 
+/// `hold_handoff`: the next hand-over, on any link, is held, and every later hand-over on that link is `Blocked` until
+/// `release_handoff`; another link is not held. `fail_handoff`: the next hand-over fails, once, at the link's own hook, and
+/// the endpoint comes back. A held or failed hand-over takes no byte.
+#[test]
+fn a_held_handoff_blocks_its_link_and_a_failed_one_fails_once() {
+    let mut edges = edges(3);
+    let (one, mut peer_one) = crate::net::link_pair(32);
+    let (two, mut peer_two) = crate::net::link_pair(32);
+    edges.pending.push_back((LinkId(1), one));
+    edges.pending.push_back((LinkId(2), two));
+    let (a, b) = (edges.accept_link().unwrap(), edges.accept_link().unwrap());
+    let faults = edges.faults();
+    let send = |edges: &mut SimEdges, link, n: u64| {
+        edges
+            .link_send_descriptor(link, b"f", StreamEndpoint::new(n))
+            .map_err(|(back, why)| (back.downcast::<u64>().unwrap(), why))
+    };
+    lock(&faults).handoff_hold = HandoffHold::Armed;
+    assert_eq!(
+        send(&mut edges, a, 1),
+        Err((1, DescriptorSendError::Blocked))
+    );
+    assert_eq!(lock(&faults).handoff_hold, HandoffHold::Held(a));
+    assert_eq!(
+        send(&mut edges, a, 1),
+        Err((1, DescriptorSendError::Blocked)),
+        "still held"
+    );
+    assert_eq!(send(&mut edges, b, 2), Ok(1), "another link is not held");
+    let mut byte = [0u8; 1];
+    assert!(
+        peer_one.recv(&mut byte).is_err(),
+        "a held hand-over takes no byte"
+    );
+    lock(&faults).handoff_hold = HandoffHold::Off;
+    assert_eq!(send(&mut edges, a, 1), Ok(1), "released");
+    assert!(peer_one.recv_descriptor().is_some());
+    lock(&faults).fail_handoff = true;
+    assert_eq!(
+        send(&mut edges, b, 3),
+        Err((3, DescriptorSendError::Failed))
+    );
+    assert!(!lock(&faults).fail_handoff, "once");
+    assert_eq!(send(&mut edges, b, 4), Ok(1));
+    // Each descriptor comes before its byte; the failed hand-over sent neither.
+    for _ in 0..2 {
+        assert!(peer_two.recv_descriptor().is_some());
+        assert_eq!(peer_two.recv(&mut byte).unwrap(), 1);
+    }
+    assert!(
+        peer_two.recv_descriptor().is_none(),
+        "the failed hand-over sent nothing"
+    );
+    assert!(peer_two.recv(&mut byte).is_err());
+}
+
 /// AD-1 and A5-3: rows persist, prefix reads are ordered, and a failed write has no effect.
 #[test]
 fn rows_keep_their_bytes_and_failures_have_no_effect() {

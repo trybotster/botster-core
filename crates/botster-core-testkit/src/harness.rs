@@ -15,9 +15,10 @@ use botster_core_conformance::{
     ControlError, CoreHarness, DataDirRef, OpenSpec, RouteClient, WorkerBuild, WorkerRef,
 };
 use botster_core_contract::prelude::*;
+use botster_core_host::driver::HostWake;
 use serde_json::Value;
 use std::collections::BTreeMap;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 /// The default-tier harness for one seed (foundation design 6.1: seeds 0 to 31).
@@ -38,11 +39,20 @@ pub struct TestkitHarness {
 }
 
 /// What the controls reach of one handle: its data directory and the process table of its host.
+/// The edge failures of one host and its wake object, which a control that releases held work signals.
+pub(crate) type HostFaults = (Arc<Mutex<crate::core::Faults>>, Arc<dyn HostWake>);
+
 struct HandleEdges {
     dir: String,
     processes: ProcessTable,
     /// The captures that its host completed (`oracle_resume`).
     captures: CaptureLog,
+    /// The route-ended causes of its routes (A2-3).
+    route_ends: crate::route_client::RouteEnds,
+    /// The failures that a control injects at its host's edges (`fail_handoff`, `hold_handoff`).
+    faults: Arc<Mutex<crate::core::Faults>>,
+    /// The wake object of its host: a control that releases held work signals it.
+    wake: Arc<dyn HostWake>,
 }
 
 impl std::fmt::Debug for HandleEdges {
@@ -101,6 +111,13 @@ impl TestkitHarness {
         self.handles.get(handle).map(|h| h.captures.clone())
     }
 
+    /// The edge failures and the wake object of the host of `handle`, once `open` built it.
+    pub(crate) fn faults_of(&self, handle: &str) -> Option<HostFaults> {
+        self.handles
+            .get(handle)
+            .map(|h| (Arc::clone(&h.faults), Arc::clone(&h.wake)))
+    }
+
     /// The process table of the host of `handle`, once `open` built it.
     pub(crate) fn processes_of(&self, handle: &str) -> Option<&ProcessTable> {
         self.handles.get(handle).map(|h| &h.processes)
@@ -151,6 +168,7 @@ impl CoreHarness for TestkitHarness {
             Some(Box::new(spawner)),
         )?;
         table.set_wake(Arc::clone(&opened.wake));
+        let (faults, wake) = (opened.faults, Arc::clone(&opened.wake));
         let core = Box::new(TestkitCore::new(
             opened.driver,
             opened.wake,
@@ -162,6 +180,9 @@ impl CoreHarness for TestkitHarness {
                 dir: spec.data_dir.0.clone(),
                 processes: table,
                 captures: core.captures(),
+                route_ends: core.route_ends(),
+                faults,
+                wake,
             },
         );
         Ok(self.with_refusals(&spec.handle, core))
@@ -237,7 +258,7 @@ impl CoreHarness for TestkitHarness {
     /// the client's.
     fn attach_stream(
         &mut self,
-        _handle: &str,
+        handle: &str,
         core: &mut dyn CoreApi,
         client: ClientId,
         session: &SessionId,
@@ -255,7 +276,17 @@ impl CoreHarness for TestkitHarness {
                 options,
             )
             .map_err(|refused| refused.error)?;
-        let route = crate::route_client::TestkitRoute::new(client_end, self.workers.clone());
+        let ends = self
+            .handles
+            .get(handle)
+            .map(|h| h.route_ends.clone())
+            .unwrap_or_default();
+        let route = crate::route_client::TestkitRoute::new(
+            client_end,
+            self.workers.clone(),
+            result.route,
+            ends,
+        );
         Ok((result, Box::new(route)))
     }
 }
@@ -356,6 +387,32 @@ mod tests {
             botster_route_codec::prelude::TYPE_ATTACHED,
             "the first frame is attached"
         );
+    }
+
+    /// Core A2-3, OU-2b: the client end of a harness route reports the cause of a failed close that Core recorded: the
+    /// route's worker write fails, and after the host's pump the client's end of stream names `write_failed`.
+    #[test]
+    fn a_harness_route_reports_the_cause_that_core_recorded() {
+        let (_harness, mut core, mut route) = attached_route(json!({}));
+        route.control("fail_writes", &json!({"on": true})).unwrap();
+        let deadline = botster_conformance::Deadline::after(None);
+        let now = || Now {
+            monotonic: Instant::now(),
+            unix: 1,
+        };
+        for _ in 0..64 {
+            match route.read(1 << 20, &deadline) {
+                RouteRead::Eof { ended: Some(ended) } => {
+                    assert_eq!(ended, "write_failed");
+                    return;
+                }
+                _ => {
+                    core.pump(now());
+                    core.poll_events(64);
+                }
+            }
+        }
+        panic!("the client end never reports the cause of the close");
     }
 
     /// The frames that a route reads until `live` (the stream prefix is 4 bytes, big-endian), then the read after it.

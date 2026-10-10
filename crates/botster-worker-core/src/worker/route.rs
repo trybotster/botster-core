@@ -27,8 +27,8 @@ use botster_core_contract::prelude::*;
 use botster_core_link::msg::WorkerMsg;
 use botster_route_codec::prelude::{
     bound_of, stream_wrap, AttachFailedReason, Attached, BaselineBegin, BaselineEnd, CloseReason,
-    FrameBounds, HistoryState, HistoryUnavailable, RouteClosed as RouteClosedFrame, RouteLimits,
-    ToClient,
+    Exit as WireExit, FrameBounds, HistoryState, HistoryUnavailable,
+    RouteClosed as RouteClosedFrame, RouteLimits, ToClient,
 };
 use std::collections::{BTreeMap, VecDeque};
 
@@ -218,6 +218,14 @@ impl Worker {
             }
         }
         self.routes.routes.insert(route, entry);
+        // OU-7: a route that attaches after the exit was reported gets its baseline, then the session's close.
+        if let (true, Some(status)) = (self.exit_drained, self.exit) {
+            let (code, signal) = match status {
+                super::ExitStatus::Code(code) => (Some(code), None),
+                super::ExitStatus::Signal(signal) => (None, Some(signal)),
+            };
+            self.end_with_session(route, code, signal);
+        }
         self.pump_route(route);
         self.send_budget();
     }
@@ -377,7 +385,9 @@ impl Worker {
         self.pump_route(id);
     }
 
-    /// Closes the transport once and reports the close once (OU-2).
+    /// Closes the transport once and reports the close once (OU-2). An ended session's close is reported too, when its queue
+    /// is delivered or it fails or stalls (OU-7): the host waits for it, and posts it with the exit and the cause that the
+    /// host decides (LC-5).
     fn end_route(&mut self, id: RouteId, reason: RouteCloseReason) {
         let Some(route) = self.routes.routes.remove(&id) else {
             return;
@@ -389,6 +399,79 @@ impl Worker {
             route_tag: route.route_tag,
         });
         self.send_budget();
+    }
+
+    /// A healthy close (OU-2b): `route_closed` goes after every frame that is queued, and the transport closes when it is
+    /// written. A route whose bound cannot carry the frame closes with no frame. A route that is closing already keeps its
+    /// first reason.
+    fn close_healthy(
+        &mut self,
+        id: RouteId,
+        reason: RouteCloseReason,
+        wire: CloseReason,
+        exit: Option<WireExit>,
+    ) {
+        let Some(route) = self.routes.routes.get_mut(&id) else {
+            return;
+        };
+        if route.closing.is_some() {
+            return;
+        }
+        route.closing = Some(reason);
+        let frame = ToClient::RouteClosed(RouteClosedFrame { reason: wire, exit }).encode();
+        if !route.fits(&frame) {
+            self.end_route(id, reason);
+            return;
+        }
+        route.push_encoded(&frame);
+        self.pump_route(id);
+        self.send_budget();
+    }
+
+    /// `Detach` (DP-7, OU-2b): the route closes with its reason, after the frames that are queued. A route that this worker
+    /// does not hold is reported closed at once, so the host's `Detach` completes.
+    pub(super) fn on_detach(&mut self, id: RouteId, reason: DetachReason) {
+        let (close, wire) = match reason {
+            DetachReason::Replaced => (RouteCloseReason::Replaced, CloseReason::Replaced),
+            DetachReason::Revoked => (RouteCloseReason::Revoked, CloseReason::Revoked),
+            // `Detached`; the enum is non-exhaustive, so a later reason closes the route as a plain detach (as the host does).
+            _ => (RouteCloseReason::Detached, CloseReason::Detached),
+        };
+        if !self.routes.routes.contains_key(&id) {
+            self.report(&WorkerMsg::RouteClosed {
+                route: id,
+                reason: close,
+                route_tag: None,
+            });
+            return;
+        }
+        self.close_healthy(id, close, wire, None);
+    }
+
+    /// OU-7: when the exit is reported, after the output tail is queued, every route closes `session_ended` with the exit.
+    pub(super) fn routes_session_ended(&mut self, code: Option<i32>, signal: Option<i32>) {
+        let ids: Vec<RouteId> = self.routes.routes.keys().copied().collect();
+        for id in ids {
+            self.end_with_session(id, code, signal);
+        }
+    }
+
+    /// One route's close at the session's end. A route that is closing already keeps its first reason (`close_healthy`). The
+    /// host replaces the exit of the reported reason with its own (LC-5).
+    fn end_with_session(&mut self, id: RouteId, code: Option<i32>, signal: Option<i32>) {
+        let reason = RouteCloseReason::SessionEnded {
+            exit: Exit {
+                code,
+                signal,
+                cause: ExitCause::Other,
+            },
+        };
+        self.close_healthy(
+            id,
+            reason,
+            CloseReason::SessionEnded,
+            Some(WireExit { code, signal }),
+        );
     }
 
     /// The PTY read budget (OU-3d): the smallest free payload space of the routes that are not closing. With no such route

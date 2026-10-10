@@ -292,15 +292,27 @@ impl HostEngine {
                 route,
                 reason,
                 route_tag: _,
-            } => {
-                self.route_close(route, reason);
-            }
+            } => match reason {
+                // OU-7: an ended session's route closes after its queue is delivered. The host posts the close in
+                // `StopPhase::Finish`, after the session's state and with its own exit (A2-3, LC-5).
+                RouteCloseReason::SessionEnded { .. } => self.route_delivered(id, route),
+                _ => self.route_close(route, reason),
+            },
             WorkerMsg::RouteStalled { route } => self.route_event(route, true),
             WorkerMsg::RouteResumed { route } => self.route_event(route, false),
             WorkerMsg::RemoveResult { uploads } => self.flow_remove_result(id, uploads),
             WorkerMsg::Adopted { report } => self.adopt_report(id, *report),
             // The enum is non-exhaustive: a report that a later worker adds is ignored by this host.
             _ => {}
+        }
+    }
+
+    /// Records how a route of an ended session ended (OU-7). A route that is no longer the session's needs nothing.
+    fn route_delivered(&mut self, id: &SessionId, route: RouteId) {
+        if let Some(s) = self.sessions.get_mut(id) {
+            if s.routes.contains(&route) {
+                s.delivered.insert(route);
+            }
         }
     }
 

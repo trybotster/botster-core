@@ -569,7 +569,15 @@ fn a_held_spawn_waits_for_the_release_and_goes_with_the_worker() {
 fn route_descriptor(
     scheduler: &SchedulerHandle,
 ) -> (crate::net::Descriptor, crate::net::StreamEnd) {
-    let (worker_end, client_end) = crate::net::stream_pair(scheduler, 4);
+    route_descriptor_of(scheduler, 4)
+}
+
+/// A route descriptor whose stream holds `capacity` bytes in each direction.
+fn route_descriptor_of(
+    scheduler: &SchedulerHandle,
+    capacity: usize,
+) -> (crate::net::Descriptor, crate::net::StreamEnd) {
+    let (worker_end, client_end) = crate::net::stream_pair(scheduler, capacity);
     let endpoint = StreamEndpoint::new(worker_end);
     (crate::net::Descriptor::new(endpoint), client_end)
 }
@@ -763,7 +771,19 @@ fn bind_route(
     now: Instant,
     route: RouteId,
 ) -> crate::net::StreamEnd {
-    let (descriptor, client) = route_descriptor(&edges.scheduler);
+    bind_route_of(edges, peer, worker, now, route, 4)
+}
+
+/// `bind_route` with a stream that holds `capacity` bytes in each direction.
+fn bind_route_of(
+    edges: &mut WorkerEdges,
+    peer: &mut LinkEnd,
+    worker: &SharedWorker,
+    now: Instant,
+    route: RouteId,
+    capacity: usize,
+) -> crate::net::StreamEnd {
+    let (descriptor, client) = route_descriptor_of(&edges.scheduler, capacity);
     peer.send_with_descriptor(b"f", descriptor).unwrap();
     edges.ready(now, worker);
     let Input::Descriptor(id) = edges.take(now, worker, 0) else {
