@@ -10,21 +10,70 @@
 //! An anchor gives its group the subject's configured stop grace before its rounds of `KILL` (ruling item 9), so the harness
 //! keeps one guard for each stop grace that an `open` names.
 //!
-//! The harness builds no control yet: each control gives `unsupported_control`, which is never a pass.
+//! Plan 23l: `open` composes `HostDriver<EdgeTap<RealEdges>>` over [`botster_core::open_parts`], the parts of `Core::open`
+//! itself. `Core` only delegates to its `HostDriver`, so every id runs on Core's own composition; the [`EdgeTap`] passes
+//! every edge call through unchanged and observes it. The controls that it serves:
+//!
+//! - `edges_quiet` (`{quiet}`): [`Tap::quiet`]. Quiet means that nothing arrived on an edge and nothing is unread, never
+//!   that a worker finished.
+//! - `break_control` (`{session}`): the inner edge's `link_close` on the session's control link ([`Tap::break_link`]).
+//!   Core's end of the stream is dropped (not `shutdown`), so the worker reads EOF, and every later call of Core on that
+//!   `LinkId` reaches `RealEdges`' closed-link state: `Ok(0)` on `link_recv`, `BrokenPipe` on `link_send`.
+//!
+//! Every other control gives `unsupported_control`, which is never a pass.
 
 use crate::candidate::{Candidate, PROBE, WORKER};
+use crate::controls::parse;
+use crate::edge_tap::{EdgeTap, Rows, Tap};
 use crate::harness::{limits_of, no_route};
-use botster_core::Core;
+use botster_core::RealEdges;
 use botster_core_conformance::{
     ControlError, CoreHarness, DataDirRef, OpenSpec, RouteClient, WorkerBuild, WorkerRef,
 };
 use botster_core_contract::prelude::*;
+use botster_core_edges::edges::ProcessIdentity;
+use botster_core_host::driver::HostDriver;
 use botster_test_process::Guard;
-use serde_json::Value;
+use serde::Deserialize;
+use serde_json::{json, Value};
 use std::collections::BTreeMap;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
 use std::time::Duration;
+
+/// The tap of one open handle. The driver owns the tap; the harness keeps a `Weak`, so the data directory's lock ends with
+/// the handle (LC-2).
+struct Handle {
+    data_dir: PathBuf,
+    tap: Weak<Mutex<Tap<RealEdges>>>,
+}
+
+/// The processes of a session, as Core's own registry rows name them (AD-6, LC-5).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SessionProcesses {
+    pub instance: InstanceId,
+    /// The worker process, once Core recorded it.
+    pub worker: Option<ProcessIdentity>,
+    /// The payload process, once the worker reported it.
+    pub payload: Option<ProcessIdentity>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct EdgesQuiet {}
+
+fn on() -> bool {
+    true
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct BreakControl {
+    session: SessionId,
+    #[serde(default = "on")]
+    on: bool,
+}
 
 /// The real-tier harness. A real implementation ignores the seed (plan 4.2c).
 pub struct RealCoreHarness {
@@ -37,8 +86,17 @@ pub struct RealCoreHarness {
     probe: PathBuf,
     /// Core TH-1 for the facade's `Core` type, as the runner checked it at compile time (`with_core_type`).
     core_send_not_sync: Option<bool>,
+    /// The tap of each handle that `open` opened, until `drop_handle`.
+    handles: BTreeMap<String, Handle>,
+    /// The registry rows of each data directory, across every handle that opened it.
+    rows: BTreeMap<PathBuf, Rows>,
     /// The guards' sockets, the wrappers and the data directories.
     root: tempfile::TempDir,
+}
+
+/// Locks a tap or a row table. A panic while it was held leaves plain data behind, so a poisoned lock is still usable.
+fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
 impl std::fmt::Debug for RealCoreHarness {
@@ -63,6 +121,8 @@ impl RealCoreHarness {
             workers: BTreeMap::new(),
             probe: PathBuf::new(),
             core_send_not_sync: None,
+            handles: BTreeMap::new(),
+            rows: BTreeMap::new(),
             root: tempfile::tempdir()?,
         };
         // `Core::open` creates the data directory itself, not its parent.
@@ -128,6 +188,67 @@ impl RealCoreHarness {
         Ok(path)
     }
 
+    /// The processes of `session` in `data_dir`, from every registry row that passed through a tap of that directory, of
+    /// any handle. A row outlives the session's removal. `None` when no row of the session passed through.
+    pub fn session_processes(
+        &self,
+        data_dir: &DataDirRef,
+        session: &SessionId,
+    ) -> Option<SessionProcesses> {
+        let rows = self.rows.get(Path::new(&data_dir.0))?;
+        let rows = lock(rows);
+        let row = rows.get(session)?;
+        Some(SessionProcesses {
+            instance: row.instance.clone(),
+            worker: row.worker.map(|w| w.identity()),
+            payload: row.payload.map(|w| w.identity()),
+        })
+    }
+
+    /// The data directory of the open handle `handle`.
+    pub fn data_dir_of(&self, handle: &str) -> Option<DataDirRef> {
+        self.handles
+            .get(handle)
+            .map(|h| DataDirRef(h.data_dir.display().to_string()))
+    }
+
+    fn tap(&self, handle: &str) -> Result<Arc<Mutex<Tap<RealEdges>>>, ControlError> {
+        self.handles
+            .get(handle)
+            .and_then(|h| h.tap.upgrade())
+            .ok_or_else(|| ControlError::Bad(format!("the handle '{handle}' is not open")))
+    }
+
+    fn edges_quiet(&self, handle: &str, args: &Value) -> Result<Value, ControlError> {
+        let EdgesQuiet {} = parse(args)?;
+        let tap = self.tap(handle)?;
+        let quiet = lock(&tap).quiet();
+        Ok(json!({ "quiet": quiet }))
+    }
+
+    fn break_control(&self, handle: &str, args: &Value) -> Result<Value, ControlError> {
+        let args: BreakControl = parse(args)?;
+        if !args.on {
+            return Err(ControlError::Bad(
+                "a broken control link is not mended (`on: false`)".into(),
+            ));
+        }
+        let tap = self.tap(handle)?;
+        let dir = DataDirRef(self.handles[handle].data_dir.display().to_string());
+        let processes = self.session_processes(&dir, &args.session).ok_or_else(|| {
+            ControlError::Bad(format!("the session {} has no row", args.session.0))
+        })?;
+        let mut tap = lock(&tap);
+        let link = tap.link_of(&processes.instance).ok_or_else(|| {
+            ControlError::Bad(format!(
+                "the session {} has no open control link",
+                args.session.0
+            ))
+        })?;
+        tap.break_link(link);
+        Ok(Value::Null)
+    }
+
     fn harness_failed(error: io::Error) -> CoreError {
         CoreError::new(
             ErrorCode::Internal,
@@ -137,7 +258,8 @@ impl RealCoreHarness {
 }
 
 impl CoreHarness for RealCoreHarness {
-    /// Opens the real `Core` over a real data directory, with the guarded worker wrapper as its worker path (LC-1, LC-2, 9B).
+    /// Opens Core's own composition over a real data directory, with the guarded worker wrapper as its worker path (LC-1,
+    /// LC-2, 9B): `open_parts`, then `HostDriver::open` over the tapped edges, which is `Core::open` with the tap between.
     fn open(&mut self, spec: &OpenSpec) -> Result<Box<dyn CoreApi>, CoreError> {
         let limits = limits_of(spec)?;
         let grace = limits.stop_grace;
@@ -148,20 +270,27 @@ impl CoreHarness for RealCoreHarness {
             ),
             None => None,
         };
-        let core = Core::open(OpenConfig {
-            data_dir: PathBuf::from(&spec.data_dir.0),
+        let data_dir = PathBuf::from(&spec.data_dir.0);
+        let (cfg, edges) = botster_core::open_parts(OpenConfig {
+            data_dir: data_dir.clone(),
             worker_path,
             limits,
         })?;
+        let rows = Arc::clone(self.rows.entry(data_dir.clone()).or_default());
+        let (edges, tap) = EdgeTap::new(edges, rows);
+        let driver = HostDriver::open(cfg, edges)?;
+        self.handles
+            .insert(spec.handle.clone(), Handle { data_dir, tap });
         self.probe = self
             .wrapper(PROBE, grace)
             .map_err(RealCoreHarness::harness_failed)?;
-        Ok(Box::new(core))
+        Ok(Box::new(driver))
     }
 
-    /// A real Core follows real time (Core TM-1).
+    /// Core reads no clock: `pump` takes `now` from the host (Core TM-1), so the runner's clock is the one Core sees
+    /// (R-43 A). The workers and their payloads still follow real time.
     fn injects_clock(&self) -> bool {
-        false
+        true
     }
 
     /// A directory under the harness's root (`<root>/d/<name>`), kept across a drop and a reopen (Core LC-12, AD-1).
@@ -186,11 +315,14 @@ impl CoreHarness for RealCoreHarness {
         })
     }
 
-    /// The driver drops its `Core`; the workers keep running (Core LC-12) and stay in the guards' groups.
-    fn drop_handle(&mut self, _handle: &str) {}
+    /// The driver drops its `Core`; the workers keep running (Core LC-12) and stay in the guards' groups. The data
+    /// directory's rows stay.
+    fn drop_handle(&mut self, handle: &str) {
+        self.handles.remove(handle);
+    }
 
-    fn has_control(&self, _op: &str) -> bool {
-        false
+    fn has_control(&self, op: &str) -> bool {
+        matches!(op, "edges_quiet" | "break_control")
     }
 
     /// Core TH-1: the runner's compile-time answer for the facade's `Core` (`with_core_type`); `None` without one.
@@ -198,8 +330,12 @@ impl CoreHarness for RealCoreHarness {
         self.core_send_not_sync
     }
 
-    fn control(&mut self, _handle: &str, _op: &str, _args: &Value) -> Result<Value, ControlError> {
-        Err(ControlError::Unsupported)
+    fn control(&mut self, handle: &str, op: &str, args: &Value) -> Result<Value, ControlError> {
+        match op {
+            "edges_quiet" => self.edges_quiet(handle, args),
+            "break_control" => self.break_control(handle, args),
+            _ => Err(ControlError::Unsupported),
+        }
     }
 
     /// `check_crates` reads the workspace, which is the same for both harnesses (Core A5-1).
