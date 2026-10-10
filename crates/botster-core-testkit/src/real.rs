@@ -312,7 +312,7 @@ impl CoreHarness for RealCoreHarness {
     /// Core reads no clock: `pump` takes `now` from the host (Core TM-1), so the runner's clock is the one Core sees
     /// (R-43 A). The workers and their payloads still follow real time.
     fn injects_clock(&self) -> bool {
-        true
+        false
     }
 
     /// A directory under the harness's root (`<root>/d/<name>`), kept across a drop and a reopen (Core LC-12, AD-1).
