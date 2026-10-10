@@ -147,3 +147,116 @@ Integration Round 1 verdict: `37e9a9f1ae0a3def9c95c745853f6467689b4984`, `verdic
 The reviewer sends no NOT CLEAN report to the lead and awaits a replacement READY.
 
 VERDICT: NOT CLEAN
+
+## PR #220 — Round 2 — 2026-10-10
+
+Head: `9317693d8b1250a31a6a14e7c1125f18f3f7d0a5`.
+Tree: `e425a63ee5ae5574213f79112780bea4fb030658`.
+Parents: `3ee0f1185511304777a1742f9b2ab665d7037819` and `d174ef48a218b74beb4bac9ec555c6c39d2650a4`.
+PR and gate base: `d174ef48a218b74beb4bac9ec555c6c39d2650a4`.
+The head contains the base. `git diff --check` finds no whitespace error.
+
+Risk tier remains HIGH, under BUILD.md rules 1, 3, and 5.
+The reviewer read the complete Round 2 changes, the corrected body, the merge changes, and the supplied evidence.
+The reviewer read plan revision 23t at `pins/stage1-plan.23c132e0.md`.
+Its verified SHA256 is `9f28e812b5969fc1e932ba690b3af99be5915dd1e96c9b09f6cebf943f084fd7`.
+Revision 23s controls the new real-only progress counts. This head retains contracts-v0.1.24; the v0.1.25 move is a separate PR.
+The reviewer changed no product code and ran no builds, tests, mutation jobs, or gates.
+
+### Findings closed
+
+**RH-F1 — MEDIUM — CLOSED.**
+
+`wrapper` selects the candidate binary with the explicit `Role` enum.
+Worker and probe wrappers use separate role directories, even when their file names and stop grace match.
+The focused proof checks the distinct paths and each wrapper's selected binary.
+The exact-head slow gate passes `a_worker_named_like_the_probe_still_runs_the_worker`.
+
+**RH-F2 — HIGH — CLOSED.**
+
+`slow_job` calls `test_budget::pending_real` with the existing `SLOW_DEADLINE`.
+The pending-real command uses the extracted `run_bounded` path from `run_nextest`.
+That path owns a process group, tracks descendants, kills the group at its deadline, and returns cleanup data.
+`bounded_report` reports and kills leftovers before it reads the captured report.
+The report read uses the remaining deadline. `run_failures` rejects leftovers, an expired deadline, and an open report pipe.
+The command retains the existing seed environment and applies the cargo resource limits.
+Pending transcript outcomes remain non-failing; the binary's status and required report still control the gate verdict.
+The reviewer read the extracted process path and its cleanup order.
+The exact-head gate passes the decision proof and all three real-process proofs for status, deadline, and leftover behavior.
+
+**RH-F3 — MEDIUM — CLOSED.**
+
+Every socket read in the broken-link proof is non-blocking.
+The proof identifies the descriptor number that Core closes and checks that exactly one descriptor closes.
+It retains spare socket pairs until a new socket takes that number.
+The proof checks that a stale link neither reads nor writes the new socket.
+The exact-head slow gate passes `a_broken_link_never_reaches_a_descriptor_that_reuses_its_number`.
+
+**RH-F4 — LOW — CLOSED.**
+
+The module documentation and DESIGN.md now state that a read can stop at its budget or held input.
+They state that an item can wait for more than one pump.
+They correctly require both tap quiet and a clear `report.more` before the runner stops pumping.
+
+**RH-F5 — HIGH — CLOSED.**
+
+The final focused run uses fixed parent `3ee0f1185511304777a1742f9b2ab665d7037819`.
+`real.rs` is byte-identical in the final merge.
+The job first runs the intended baseline with both packages, slow features, the slow profile, and the slow filter.
+That baseline passes all 175 selected tests.
+The retained log contains the complete `outcomes.json` and the failure sections for all eighteen mutants.
+The reviewer parsed every outcome and read each failure section.
+Results: sixteen caught, two unviable, zero missed, and zero timeout.
+Each catch has a named test failure in a test that passes without the mutation.
+The two unviable mutants require absent `Default` implementations for `DataDirRef` and `WorkerRef`.
+The wrapper replacements cause the must-pass adoption trial to fail as inconclusive; they do not pass as pending outcomes.
+The nine earlier survivors are caught by their focused proofs or the must-pass broken-control trial.
+The cargo-mutants baseline still selects only testkit; each mutant test phase selects both packages.
+The separate passing baseline resolves that selection difference.
+The recovered initial 53 outcomes and their failure checks from Round 1 remain accepted.
+
+### Additional changes and merge checks
+
+The new `core-real-only.txt` contains exactly the 26 Core ledger rows whose pinned replacement-map proof starts with `slow:`.
+The reviewer compared its bytes with contracts-v0.1.24's authoritative map.
+`ledger-ids` writes or checks the file. `lists` also checks the file against the pin.
+The pure `real_only_text` proof covers ordering, the ledger filter, proof selection, and missing map data.
+The runner counts a non-pending real-only minimum ID through its named real-process proof on both tiers, under plan 23s.
+It prints each counted proof source. All four current real-only minimum IDs remain pending, so this change adds no pass.
+The A20 testkit-only member also remains pending and adds no accepted pass.
+
+The reviewer read every new or changed mutation exclusion.
+The five new gate shell exclusions cover whole-body replacements only and cite tested pure decisions.
+The decision functions remain subject to mutation testing.
+The shared bounded execution also has passing slow proofs that exercise its process behavior.
+The existing whole-module `real.rs` exclusion remains the explicit interim allowance until the separate plan 23n gate PR.
+The supplied manual slow-feature evidence supports that allowance; the repeated default mutation step is not slow-feature evidence.
+
+The eight merge patches equal the corresponding v1 imports after removal of blob headers and hunk positions.
+The merge introduces no additional package change or conflict resolution.
+Core ledger, pending, deferred, and copied contracts status files equal the base bytes.
+The canonical minimum file and the real-pending ID set remain unchanged from Round 1.
+Comments correctly assign program controls to the fourth pair and state the accepted Linux-only write-failure form.
+
+### Supplied evidence
+
+Exact-head gate:
+`~/botster-sessions/gates/botster-core-stage1-p6-real-core-9317693d-pool-20261010-083223-20264.log`.
+All ten stages PASS. The job exits zero after 747 seconds; the gate exits zero after 748 seconds on msa1.
+Default: 1464 passed, 497 skipped. Slow: 377 passed, 1929 skipped.
+The reviewer compared exact PASS sets with Round 1: all 193 testkit IDs and 106 real IDs remain passing, with no set change.
+The report retains 87 real-pending IDs, with zero newly passing IDs.
+Minimum counts remain testkit 50 / 69, real-passing 29 / 68, and real-accepted 29 / 69.
+Both default mutation steps report 125 tested, 95 caught, 30 unviable, zero missed, and zero timeout.
+
+Focused slow-feature evidence:
+`~/botster-sessions/gates/botster-core-stage1-p6-real-core-3ee0f118-pool-20261010-040958-20767.log`.
+The intended baseline passes 175 tests. The mutation baseline passes seventeen testkit tests.
+All eighteen mutant outcomes have retained command arguments and failure details in that log.
+The job and gate exit zero after 7018 seconds on msa1.
+Raw files also remain in the branch volume at `target/mutants-3ee0f118/mutants.out`.
+
+All five package findings are closed. No new finding remains open, including LOW.
+The reviewer reports package CLEAN to the lead, P6, and Astra with this verdict commit.
+
+VERDICT: CLEAN
