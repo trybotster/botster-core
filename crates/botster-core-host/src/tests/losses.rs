@@ -404,9 +404,35 @@ fn a_lost_session_closes_its_routes_session_lost_after_its_state() {
     assert!(closed.iter().all(|(i, _)| *i > lost), "{events:?}");
 }
 
-/// OU-7, LC-5: the routes of an ended session close `SessionEnded` with the exit that the host shows, after the state.
+/// The index of the session's `Exited` state in `events`.
+fn exited_at(events: &[Event]) -> usize {
+    events
+        .iter()
+        .position(|e| {
+            matches!(
+                e,
+                Event::SessionState {
+                    state: SessionState::Exited(_),
+                    ..
+                }
+            )
+        })
+        .expect("the state")
+}
+
+fn route_closes(events: &[Event]) -> Vec<(usize, &Event)> {
+    events
+        .iter()
+        .enumerate()
+        .filter(|(_, e)| matches!(e, Event::RouteClosed { .. }))
+        .collect()
+}
+
+/// OU-7, LC-5 (#217 R1-3): after `Exited`, an ended session's route closes only when the worker reports that it delivered
+/// its queue. Until then the route is held: no `RouteClosed`, and the stop flow waits without busy work. The worker's report
+/// then gives exactly one close, `SessionEnded` with the exit that the host shows, after the state.
 #[test]
-fn an_ended_session_closes_its_routes_session_ended_with_the_hosts_exit() {
+fn an_ended_sessions_route_closes_after_the_worker_delivered_it_with_the_hosts_exit() {
     let mut w = World::default();
     w.autopilot = Autopilot::Silent;
     w.running("s1");
@@ -421,31 +447,125 @@ fn an_ended_session_closes_its_routes_session_ended_with_the_hosts_exit() {
         },
     );
     let events = settle(&mut w);
+    exited_at(&events);
+    assert!(
+        route_closes(&events).is_empty(),
+        "the route is held: {events:?}"
+    );
+    assert!(
+        w.engine.ready().is_empty(),
+        "the held close is no busy work"
+    );
     let SessionState::Exited(exit) = w.engine.get(&sid("s1")).unwrap().state else {
         panic!("the session ended");
     };
-    let ended = events
-        .iter()
-        .position(|e| {
-            matches!(
-                e,
-                Event::SessionState {
-                    state: SessionState::Exited(_),
-                    ..
-                }
-            )
-        })
-        .expect("the state");
-    let closes: Vec<(usize, &Event)> = events
-        .iter()
-        .enumerate()
-        .filter(|(_, e)| matches!(e, Event::RouteClosed { .. }))
-        .collect();
+    // The worker's report carries its own view of the exit; the host posts its own (LC-5).
+    w.worker_says(
+        "s1",
+        WorkerMsg::RouteClosed {
+            route,
+            reason: RouteCloseReason::SessionEnded {
+                exit: Exit {
+                    code: None,
+                    signal: None,
+                    cause: ExitCause::Other,
+                },
+            },
+            route_tag: None,
+        },
+    );
+    let events = settle(&mut w);
+    let closes = route_closes(&events);
     assert_eq!(closes.len(), 1, "{events:?}");
-    assert!(closes[0].0 > ended);
     assert!(matches!(
         closes[0].1,
         Event::RouteClosed { route: r, reason: RouteCloseReason::SessionEnded { exit: e }, .. }
             if *r == route && *e == exit && e.code == Some(4)
+    ));
+}
+
+/// OU-7, DP-7 (#217 R1-3): a `Detach` that waits across the payload's exit completes only when the worker reports the
+/// route's close, and the close keeps the detach's reason (the first one).
+#[test]
+fn a_detach_that_waits_across_the_exit_completes_at_the_workers_close_with_its_reason() {
+    let mut w = World::default();
+    w.autopilot = Autopilot::Silent;
+    w.running("s1");
+    settle(&mut w);
+    let route = attach(&mut w);
+    settle(&mut w);
+    let detach = w
+        .engine
+        .begin(Op::Detach {
+            route,
+            reason: DetachReason::Revoked,
+        })
+        .unwrap();
+    settle(&mut w);
+    w.worker_says(
+        "s1",
+        WorkerMsg::Exited {
+            code: Some(4),
+            signal: None,
+        },
+    );
+    let events = settle(&mut w);
+    exited_at(&events);
+    assert!(route_closes(&events).is_empty(), "{events:?}");
+    assert!(
+        !events
+            .iter()
+            .any(|e| matches!(e, Event::Completed { op, .. } if *op == detach)),
+        "the detach waits for the worker: {events:?}"
+    );
+    w.worker_says(
+        "s1",
+        WorkerMsg::RouteClosed {
+            route,
+            reason: RouteCloseReason::Revoked,
+            route_tag: None,
+        },
+    );
+    let events = settle(&mut w);
+    let closes = route_closes(&events);
+    assert_eq!(closes.len(), 1, "{events:?}");
+    assert!(matches!(
+        closes[0].1,
+        Event::RouteClosed { route: r, reason: RouteCloseReason::Revoked, .. } if *r == route
+    ));
+    let completed = events
+        .iter()
+        .position(|e| matches!(e, Event::Completed { op, .. } if *op == detach))
+        .expect("the detach completes");
+    assert!(completed > closes[0].0, "{events:?}");
+}
+
+/// OU-7: when the worker's link is lost after the exit, a route that the worker did not report closed closes
+/// `SessionLost`, once.
+#[test]
+fn a_held_route_closes_session_lost_when_the_link_is_lost_after_the_exit() {
+    let mut w = World::default();
+    w.autopilot = Autopilot::Silent;
+    w.running("s1");
+    settle(&mut w);
+    let route = attach(&mut w);
+    settle(&mut w);
+    w.worker_says(
+        "s1",
+        WorkerMsg::Exited {
+            code: Some(4),
+            signal: None,
+        },
+    );
+    let events = settle(&mut w);
+    assert!(route_closes(&events).is_empty(), "{events:?}");
+    let link = w.link_of("s1");
+    w.feed(Input::LinkClosed { link });
+    let events = settle(&mut w);
+    let closes = route_closes(&events);
+    assert_eq!(closes.len(), 1, "{events:?}");
+    assert!(matches!(
+        closes[0].1,
+        Event::RouteClosed { route: r, reason: RouteCloseReason::SessionLost, .. } if *r == route
     ));
 }

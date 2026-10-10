@@ -24,12 +24,11 @@
 
 use super::{model, Action, Worker};
 use botster_core_contract::prelude::*;
-use botster_core_link::msg::Observation;
 use botster_core_link::msg::WorkerMsg;
 use botster_route_codec::prelude::{
     bound_of, stream_wrap, AttachFailedReason, Attached, BaselineBegin, BaselineEnd, CloseReason,
-    Decoded, Exit as WireExit, FrameBounds, HistoryState, HistoryUnavailable, InputRefused, Op,
-    RefusalReason, RouteClosed as RouteClosedFrame, RouteLimits, StreamReader, ToClient, ToWorker,
+    Exit as WireExit, FrameBounds, HistoryState, HistoryUnavailable,
+    RouteClosed as RouteClosedFrame, RouteLimits, ToClient,
 };
 use std::collections::{BTreeMap, VecDeque};
 
@@ -72,10 +71,6 @@ struct Route {
     writing: bool,
     /// A healthy close: `route_closed` is the last queued frame, and the route closes when it is written (OU-2b).
     closing: Option<RouteCloseReason>,
-    /// The client's bytes that do not make a whole frame yet (TS-3).
-    reader: StreamReader,
-    /// `options.input`: false makes the route view-only (OU-1).
-    input: bool,
 }
 
 impl Route {
@@ -186,8 +181,6 @@ impl Worker {
             baseline: 0,
             writing: false,
             closing: None,
-            reader: StreamReader::default(),
-            input: options.input,
         };
         match self.baseline(&entry, &options) {
             Ok((frames, sequence)) => {
@@ -392,20 +385,19 @@ impl Worker {
         self.pump_route(id);
     }
 
-    /// Closes the transport once and reports the close once (OU-2). An ended session's close is not reported: the host
-    /// closes those routes itself, with the exit and the cause that it decides (OU-7, LC-5).
+    /// Closes the transport once and reports the close once (OU-2). An ended session's close is reported too, when its queue
+    /// is delivered or it fails or stalls (OU-7): the host waits for it, and posts it with the exit and the cause that the
+    /// host decides (LC-5).
     fn end_route(&mut self, id: RouteId, reason: RouteCloseReason) {
         let Some(route) = self.routes.routes.remove(&id) else {
             return;
         };
         self.actions.push_back(Action::RouteClose { route: id });
-        if !matches!(reason, RouteCloseReason::SessionEnded { .. }) {
-            self.report(&WorkerMsg::RouteClosed {
-                route: id,
-                reason,
-                route_tag: route.route_tag,
-            });
-        }
+        self.report(&WorkerMsg::RouteClosed {
+            route: id,
+            reason,
+            route_tag: route.route_tag,
+        });
         self.send_budget();
     }
 
@@ -464,7 +456,8 @@ impl Worker {
         }
     }
 
-    /// One route's close at the session's end. The reason's cause is never reported (`end_route`): the host decides it.
+    /// One route's close at the session's end. A route that is closing already keeps its first reason (`close_healthy`). The
+    /// host replaces the exit of the reported reason with its own (LC-5).
     fn end_with_session(&mut self, id: RouteId, code: Option<i32>, signal: Option<i32>) {
         let reason = RouteCloseReason::SessionEnded {
             exit: Exit {
@@ -479,113 +472,6 @@ impl Worker {
             CloseReason::SessionEnded,
             Some(WireExit { code, signal }),
         );
-    }
-
-    /// The client's bytes on a route (DP-5, TS-3). Each complete frame is client input: it is tagged with its route and
-    /// advances `input_rev{client}` on receipt (IN-4). `bytes` and `text` go to the admission point in their receive order
-    /// (AM-2). A frame that cannot be decoded closes the route `BadFrame` with its code (OU-5: only that route).
-    pub(super) fn on_route_read(&mut self, id: RouteId, bytes: &[u8]) {
-        let Some(route) = self.routes.routes.get_mut(&id) else {
-            return;
-        };
-        route.reader.push(bytes);
-        loop {
-            let Some(route) = self.routes.routes.get_mut(&id) else {
-                return;
-            };
-            if route.closing.is_some() {
-                return;
-            }
-            let bounds = route.bounds();
-            let decoded = match route.reader.next_frame(&bounds) {
-                Ok(None) => return,
-                Ok(Some(frame)) => ToWorker::decode(&frame, &bounds),
-                Err(error) => Err(error),
-            };
-            match decoded {
-                Ok(Decoded::Frame(frame)) => self.on_client_frame(id, frame),
-                Ok(Decoded::Ignored { .. }) => {}
-                Ok(Decoded::Unsupported { op, what }) => {
-                    self.refuse(id, op, RefusalReason::Unsupported { what })
-                }
-                Ok(Decoded::Invalid { op, .. }) => self.refuse(id, op, RefusalReason::InvalidInput),
-                Err(error) => {
-                    let code = error.code;
-                    self.close_healthy(
-                        id,
-                        RouteCloseReason::BadFrame { code },
-                        CloseReason::ProtocolError { code },
-                        None,
-                    );
-                    return;
-                }
-            }
-        }
-    }
-
-    /// The client closed its end (OU-5: `PeerClosed`, only that route).
-    pub(super) fn on_route_ended(&mut self, id: RouteId) {
-        self.end_route(id, RouteCloseReason::PeerClosed);
-    }
-
-    /// One complete client input frame (IN-4, DP-5).
-    fn on_client_frame(&mut self, id: RouteId, frame: ToWorker) {
-        let input_rev = self.input.client_received();
-        self.report(&WorkerMsg::Observed {
-            observation: Observation::ClientInput {
-                route: id,
-                input_rev,
-            },
-        });
-        let (op, bytes) = match frame {
-            ToWorker::Bytes { op, bytes } => (op, bytes.0.to_vec()),
-            ToWorker::Text { op, text } => (op, text.into_bytes()),
-            // Keys, mouse, pastes and files are later P4a work (DP-5): they are refused, and the route stays open.
-            other => {
-                let what = match other {
-                    ToWorker::PasteChunk { .. } => "paste_chunk",
-                    ToWorker::FileChunk { .. } => "file_chunk",
-                    _ => "input",
-                };
-                self.refuse(
-                    id,
-                    None,
-                    RefusalReason::Unsupported {
-                        what: what.to_string(),
-                    },
-                );
-                return;
-            }
-        };
-        let op = (op.0 != 0).then_some(op);
-        let route = self
-            .routes
-            .routes
-            .get(&id)
-            .expect("the caller holds the route");
-        if !route.input {
-            self.refuse(id, op, RefusalReason::NotWritable);
-        } else if route.baseline > 0 {
-            // DP-5: no input before `live` is written.
-            self.refuse(id, op, RefusalReason::NotReady);
-        } else {
-            self.enqueue_route_input(bytes);
-        }
-    }
-
-    /// An `input_refused` for a frame that is not applied as sent (DP-5), queued in order with the route's frames.
-    fn refuse(&mut self, id: RouteId, op: Option<Op>, reason: RefusalReason) {
-        let Some(route) = self.routes.routes.get_mut(&id) else {
-            return;
-        };
-        route.push(&ToClient::InputRefused(InputRefused {
-            op,
-            reason,
-            written_bytes: None,
-            path: None,
-        }));
-        self.pump_route(id);
-        self.send_budget();
     }
 
     /// The PTY read budget (OU-3d): the smallest free payload space of the routes that are not closing. With no such route
@@ -644,8 +530,6 @@ mod tests {
             written: 0,
             queued,
             baseline: 0,
-            reader: StreamReader::default(),
-            input: true,
             writing: false,
             closing: None,
         }
