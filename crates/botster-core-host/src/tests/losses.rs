@@ -620,3 +620,165 @@ fn a_held_route_closes_session_lost_when_the_link_is_lost_after_the_exit() {
         Event::RouteClosed { route: r, reason: RouteCloseReason::SessionLost, .. } if *r == route
     ));
 }
+
+/// The worker's `route_closed{session_ended}` for `route`: its queue is delivered (OU-7).
+fn delivered(route: RouteId) -> WorkerMsg {
+    WorkerMsg::RouteClosed {
+        route,
+        reason: RouteCloseReason::SessionEnded {
+            exit: Exit {
+                code: None,
+                signal: None,
+                cause: ExitCause::Other,
+            },
+        },
+        route_tag: None,
+    }
+}
+
+/// The route closes of `events`, with their routes and reasons.
+fn closes_of(events: &[Event]) -> Vec<(RouteId, RouteCloseReason)> {
+    events
+        .iter()
+        .filter_map(|e| match e {
+            Event::RouteClosed { route, reason, .. } => Some((*route, *reason)),
+            _ => None,
+        })
+        .collect()
+}
+
+/// OU-7 (#217 R2-1): when the worker's process ends after `Exited` and before the link reports its close, the host
+/// closes the link itself. A route that the worker did not report delivered closes `SessionLost`, once, and the stop
+/// flow ends: no work is left.
+#[test]
+fn a_held_route_closes_session_lost_when_the_worker_process_ends_after_the_exit() {
+    let mut w = World::default();
+    w.autopilot = Autopilot::Silent;
+    w.running("s1");
+    settle(&mut w);
+    let route = attach(&mut w);
+    settle(&mut w);
+    w.worker_says(
+        "s1",
+        WorkerMsg::Exited {
+            code: Some(4),
+            signal: None,
+        },
+    );
+    assert!(closes_of(&settle(&mut w)).is_empty());
+    w.exited("s1");
+    let events = settle(&mut w);
+    assert_eq!(
+        closes_of(&events),
+        vec![(route, RouteCloseReason::SessionLost)],
+        "{events:?}"
+    );
+    assert!(w.engine.ready().is_empty(), "the stop flow ended");
+}
+
+/// OU-7 (#217 R2-1): the payload's exit comes while the start still posts `Running` (the end waits in `pending_end`), and
+/// the link is lost before the end flow begins. The route closes `SessionLost`, once, after the session's state.
+#[test]
+fn a_route_closes_session_lost_when_the_link_is_lost_before_the_end_flow_begins() {
+    let mut w = World::default();
+    w.autopilot = Autopilot::Silent;
+    w.ok(create("s1"));
+    w.engine.begin(Op::Start { id: sid("s1") }).unwrap();
+    w.pump();
+    let link = w.link_of_after_hello("s1");
+    let route = attach(&mut w);
+    w.feed(Input::LinkMsg {
+        link,
+        msg: WorkerMsg::Launched {
+            features: BTreeSet::from([Feature::FocusReport]),
+            terminal: terminal_state(),
+            formats: vec![],
+            payload: botster_core_link::msg::PayloadId {
+                pid: 900,
+                start_time: 3,
+            },
+        },
+    });
+    w.feed(Input::LinkMsg {
+        link,
+        msg: WorkerMsg::Exited {
+            code: Some(4),
+            signal: None,
+        },
+    });
+    assert!(
+        w.engine.sessions[&sid("s1")].pending_end.is_some(),
+        "the end waits for the start"
+    );
+    w.feed(Input::LinkClosed { link });
+    let events = settle(&mut w);
+    let state = events
+        .iter()
+        .rposition(|e| matches!(e, Event::SessionState { .. }))
+        .expect("the session's state");
+    let closes = route_closes(&events);
+    assert_eq!(
+        closes_of(&events),
+        vec![(route, RouteCloseReason::SessionLost)],
+        "{events:?}"
+    );
+    assert!(closes[0].0 > state, "{events:?}");
+    assert!(w.engine.ready().is_empty(), "the stop flow ended");
+}
+
+/// OU-7, EV-5 (#217 R2-2): the close that `Finish` posts needs room in the event queue. With the queue full, a delivered
+/// route gives no ready work; the delivery stays the route's end when the link goes after it; after a poll, the route
+/// closes exactly once, `SessionEnded` with the host's exit.
+#[test]
+fn a_delivered_routes_close_waits_for_room_and_keeps_its_delivery() {
+    let mut w = World::new(limits(|l| l.mandatory_events = 1));
+    w.autopilot = Autopilot::Silent;
+    w.running("s1");
+    settle(&mut w);
+    let route = attach(&mut w);
+    settle(&mut w);
+    w.worker_says(
+        "s1",
+        WorkerMsg::Exited {
+            code: Some(4),
+            signal: None,
+        },
+    );
+    for _ in 0..8 {
+        w.pump();
+    }
+    w.worker_says("s1", delivered(route));
+    for _ in 0..8 {
+        w.pump();
+    }
+    assert!(
+        w.engine.ready().is_empty(),
+        "a full queue gives no ready work"
+    );
+    let link = w.link_of("s1");
+    w.feed(Input::LinkClosed { link });
+    for _ in 0..8 {
+        w.pump();
+    }
+    assert!(w.engine.ready().is_empty());
+    let first = w.engine.poll_events(64);
+    assert!(
+        matches!(
+            &first[..],
+            [Event::SessionState {
+                state: SessionState::Exited(_),
+                ..
+            }]
+        ),
+        "{first:?}"
+    );
+    let SessionState::Exited(exit) = w.engine.get(&sid("s1")).unwrap().state else {
+        panic!("the session ended");
+    };
+    let events = settle(&mut w);
+    assert_eq!(
+        closes_of(&events),
+        vec![(route, RouteCloseReason::SessionEnded { exit })],
+        "{events:?}"
+    );
+}

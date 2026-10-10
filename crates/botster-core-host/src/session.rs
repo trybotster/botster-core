@@ -234,15 +234,6 @@ pub struct WorkerHandle {
     pub gone: bool,
 }
 
-/// How a route of an ended session ended (OU-7).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum RouteEnd {
-    /// The worker delivered the route's queue and its `route_closed{session_ended}`, and reported the close.
-    Delivered,
-    /// The worker's link was lost before the worker reported the close.
-    Lost,
-}
-
 /// A live session: the row, the two states, and the machines that work on it.
 #[derive(Debug)]
 pub struct Session {
@@ -281,9 +272,10 @@ pub struct Session {
     pub input_ops: u32,
     pub input_bytes: u64,
     pub routes: BTreeSet<RouteId>,
-    /// The routes whose end the host knows after the session ended (OU-7): the worker reported its `session_ended` close
-    /// after delivery, or the link was lost. `StopPhase::Finish` closes them; a route that is not here keeps it waiting.
-    pub route_ends: BTreeMap<RouteId, RouteEnd>,
+    /// The routes whose queue the worker delivered after the session ended, with their `route_closed{session_ended}`: the
+    /// worker reported the close (OU-7). `StopPhase::Finish` closes them `SessionEnded`. While the worker's link lives, a
+    /// bound route that is not here keeps `Finish` waiting; once the link is gone, it closes `SessionLost`.
+    pub delivered: BTreeSet<RouteId>,
     /// The routes that were bound when the session ended. Only these close in `StopPhase::Finish`; a route that attaches
     /// after the exit stays bound until `Remove` closes it `SessionRemoved` (LC-7 step 1, A2-3).
     pub bound_at_end: BTreeSet<RouteId>,
