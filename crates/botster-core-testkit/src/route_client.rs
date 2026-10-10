@@ -6,6 +6,7 @@ use crate::worker::Workers;
 use botster_conformance::Deadline;
 use botster_core_conformance::RouteClient;
 use botster_core_contract::prelude::{RouteCloseReason, RouteId};
+use botster_core_edges::edges::ProcessIdentity;
 use botster_core_edges::RouteTransport;
 use botster_hub_conformance::route::RouteRead;
 use botster_route_codec::prelude::RouteEndReason;
@@ -55,6 +56,7 @@ pub(crate) const ROUTE_CONTROLS: &[&str] = &[
     "fail_writes",
     "drop_transport",
     "route_stream_written",
+    "route_fill",
 ];
 
 /// The optional bool `key` of a control's arguments; absent is true (`route_gate`, `fail_writes`).
@@ -66,6 +68,19 @@ fn flag(args: &Value, key: &str) -> Result<bool, String> {
     }
 }
 
+/// The byte `k` of a `route_fill` is 0x61 + (k mod 26), with `k` from 0 for each fill (R-47 item 3).
+fn fill_pattern(bytes: usize) -> Vec<u8> {
+    (0..bytes).map(|k| b'a' + (k % 26) as u8).collect()
+}
+
+/// What a `route_fill` needs of the route: the worker process of its session, whose program edge the fill writes to, and the
+/// route's applied frame bound F (`AttachResult.limits.max_frame_bytes`).
+#[derive(Debug, Clone, Copy)]
+pub struct RouteFill {
+    pub worker: Option<ProcessIdentity>,
+    pub max_frame_bytes: usize,
+}
+
 pub struct TestkitRoute {
     end: StreamEnd,
     route: RouteId,
@@ -75,6 +90,8 @@ pub struct TestkitRoute {
     unsent: Vec<u8>,
     /// The stream failed: the client's bytes have nowhere to go.
     failed: bool,
+    /// `None` for a route that `attach_stream` did not build: it runs no `route_fill`.
+    fill: Option<RouteFill>,
 }
 
 impl TestkitRoute {
@@ -86,7 +103,43 @@ impl TestkitRoute {
             workers,
             unsent: Vec::new(),
             failed: false,
+            fill: None,
         }
+    }
+
+    /// The route runs `route_fill` with its session's worker and its frame bound.
+    pub fn with_fill(mut self, fill: RouteFill) -> TestkitRoute {
+        self.fill = Some(fill);
+        self
+    }
+
+    /// `route_fill` (R-47 item 3): the session's program writes N = C + F bytes of the fill pattern, where C is the bytes that
+    /// the stream takes from the worker now (0 while gated) and F is the route's frame bound. The worker's queue to the route
+    /// then holds a frame that the stream does not take. The control returns when the program edge has the bytes, and the
+    /// host is woken. A payload that has exited is refused.
+    fn route_fill(&mut self) -> Result<Value, String> {
+        let fill = self
+            .fill
+            .ok_or("route_fill needs a route that attach_stream built")?;
+        let worker = fill
+            .worker
+            .ok_or("route_fill: the route's session has no worker process")?;
+        if !self.workers.payload_alive(worker) {
+            return Err(
+                "route_fill: the payload of the route's session has exited: it writes nothing more"
+                    .into(),
+            );
+        }
+        let (program, wake) = self.workers.program_edge(worker)?;
+        let bytes = self
+            .worker_end()
+            .room()
+            .saturating_add(fill.max_frame_bytes);
+        program.write(&fill_pattern(bytes));
+        if let Some(wake) = wake {
+            wake.signal();
+        }
+        Ok(json!({"bytes": bytes}))
     }
 
     /// Writes the waiting bytes while the stream takes them. `Interrupted` writes again; any other error ends the writes.
@@ -205,6 +258,8 @@ impl RouteClient for TestkitRoute {
             }
             // Core OU-9, OU-3, DP-5: the bytes that the stream took from the worker, cumulative (R-14.3).
             "route_stream_written" => Ok(json!({"bytes": self.worker_end().written()})),
+            // R-47 item 3, Core OU-3b: the session's output fills the stream and one frame more.
+            "route_fill" => self.route_fill(),
             _ => Err(format!("unsupported_control: {op}")),
         }
     }
@@ -232,6 +287,28 @@ mod tests {
 
     fn deadline() -> Deadline {
         Deadline::after(None)
+    }
+
+    /// R-47 item 3: byte k of a fill is 0x61 + (k mod 26). `route_fill` needs the session's worker, which only a route that
+    /// `attach_stream` built has; the harness tests prove the fill itself.
+    #[test]
+    fn route_fill_is_the_pattern_and_needs_the_session_worker() {
+        assert_eq!(fill_pattern(28), b"abcdefghijklmnopqrstuvwxyzab");
+        let (client, _worker) = route(16);
+        let mut bare = client;
+        assert!(bare
+            .control("route_fill", &json!({}))
+            .unwrap_err()
+            .contains("attach_stream"));
+        let (client, _worker) = route(16);
+        let mut no_worker = client.with_fill(RouteFill {
+            worker: None,
+            max_frame_bytes: 8,
+        });
+        assert!(no_worker
+            .control("route_fill", &json!({}))
+            .unwrap_err()
+            .contains("no worker process"));
     }
 
     /// The route stream holds a socket buffer each way: 64 KiB that no one reads yet are taken whole.
