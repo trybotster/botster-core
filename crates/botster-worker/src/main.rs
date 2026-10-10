@@ -352,7 +352,8 @@ impl Driver {
             | Action::CloseDescriptor(_)
             | Action::RouteWrite { .. }
             | Action::RouteClose { .. }
-            | Action::PtyReadBudget(_) => {}
+            | Action::PtyReadBudget(_)
+            | Action::RouteReadAllowance { .. } => {}
         }
         Ok(())
     }

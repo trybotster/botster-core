@@ -12,8 +12,11 @@
 # active; each fails on the real tier (the gate on 97a8015a) and is listed here with its cause and owner (lead, 2026-10-09).
 # The merge of v1 dc7fb11d (#210, the real worker endpoint) made the 7 ids of the real-tier adoption group pass (the gate on
 # dfdcd05f), so they are not listed.
+# P4a PR3 (route input) takes 12 ids out of core-pending.txt: they pass on the testkit and fail on the real tier (the gate on
+# e9f1702c), each at a control that the real tier lacks; they are listed in the groups of those controls.
 
-# the route data plane on the real tier: RealCoreHarness attach_stream (R-47 (A) route forms, real client end), P6 (21).
+# the route data plane on the real tier: RealCoreHarness attach_stream (R-47 (A) route forms, real client end), P6 (28; 7 from P4a PR3: attach_stream, client_close, route_gate).
+conf::a2_2_missing_op_is_bad_frame_not_refused
 conf::a2_4_other_osc_forms_stay_in_output
 conf::a7_1_frame_cap_above_route_frame_max_is_invalid_input
 conf::a7_1_overlong_route_tag_or_owner_is_invalid_input
@@ -29,14 +32,20 @@ conf::dp_7_revoked_reason_reaches_client_and_host
 conf::e2_1_osc_1_gives_no_title_changed_and_stays_in_output
 conf::er_route_limit
 conf::ev_5_repeated_attach_detach_without_polling_stays_bounded
+conf::ev_5_route_closed_retires_route_keyed_events
 conf::ev_7_event_and_output_both_carry_the_sequence
 conf::ev_8_attach_requires_a_positive_query_deadline
 conf::id_1_old_handles_do_not_reach_new_instance
+conf::in_4_worker_tags_client_input_and_reports_activity
 conf::lc_12_drop_leaves_workers_running
 conf::ou_1_attach_options_carry_no_paste_policy
 conf::ou_1_terminal_format_is_negotiated_against_the_target_worker
+conf::ou_2b_healthy_reasons_send_route_closed_last
+conf::ou_5_peer_fault_closes_only_that_route
+conf::ou_7_exit_after_last_frame_then_close
+conf::ou_7_exit_after_tail_queued_then_close
 
-# the program controls (pty_output, pty_input, pty_chunk, pty_blocked, pty_accept) through the probe program on a real PTY, the fourth pair (lead, 2026-10-10), with P3 for the mapping (32).
+# the program controls (pty_output, pty_input, pty_chunk, pty_blocked, pty_accept) through the probe program on a real PTY, the fourth pair (lead, 2026-10-10), with P3 for the mapping (37; 5 from P4a PR3: pty_output, pty_input, pty_blocked).
 conf::a2_2_cancel_is_ok_cancelled_never_err
 conf::a2_2_cancel_race_reports_the_real_outcome
 conf::ad_3_adopted_equals_started
@@ -47,9 +56,13 @@ conf::ev_2_drop_oldest_with_marker
 conf::ev_2_one_marker_per_session
 conf::ev_2_retired_instance_never_creates_a_loss_marker
 conf::ev_5_released_retires_keyed_droppable_and_loss_events
+conf::in_10_both_guards_are_checked_atomically_with_ordering
+conf::in_10_guard_refuses_when_client_frame_received_before_start
+conf::in_10_lagging_host_view_gets_stale_not_a_wrong_write
 conf::in_10_terminal_guard_refuses_after_a_redraw_before_start
 conf::in_2_link_loss_is_unknown_not_zero
 conf::in_2_partial_is_certain
+conf::in_4_input_rev_client_advances_on_receipt
 conf::in_5_lane_bounds_refuse_at_begin
 conf::in_6_cancel_reports_progress
 conf::in_6_repeat_cancel_is_idempotent_no_slot
@@ -58,6 +71,7 @@ conf::in_8_require_bracketed_refuses_with_exact_zero
 conf::in_9_event_with_no_encoding_is_typed_zero
 conf::in_9_key_repeat_is_checked_by_the_guards_once_at_start
 conf::ou_12_output_bytes_are_unmodified_and_in_order
+conf::ou_1_view_only_route_ignores_input
 conf::ou_6_slow_route_does_not_delay_others
 conf::ou_9_adopted_session_attaches_by_baseline
 conf::ou_9_baseline_then_live_no_gap
