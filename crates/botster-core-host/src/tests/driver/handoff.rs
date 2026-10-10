@@ -298,3 +298,95 @@ fn a_route_closed_before_its_handoff_gives_its_stream_and_frame_to_the_edges() {
     );
     assert!(descriptors(&rig).is_empty(), "never handed over");
 }
+
+/// Which edge reports the worker's end first, in `a_held_handoff_of_a_failed_start_closes_session_lost_after_lost`.
+#[derive(Debug, Clone, Copy)]
+enum EndFirst {
+    Process,
+    Link,
+}
+
+/// Steward ruling R-50, OU-2 (#219 integration R1-1, package F95): a route attached while the start runs is handed over at
+/// the launch, and its descriptor send is held `Blocked`, so the driver's mark keeps the stream. The scheduler defers the
+/// start's `Running`, and the worker ends: its process exit and its link close, in either order. Nothing of the handoff was
+/// sent, and the stream closes with the link. The route closes once, `SessionLost`, after `Lost`: not `HandoffFailed`.
+#[test]
+fn a_held_handoff_of_a_failed_start_closes_session_lost_after_lost() {
+    for first in [EndFirst::Process, EndFirst::Link] {
+        let defer = Arc::new(AtomicBool::new(false));
+        let mut rig = Rig::with_scheduler(
+            CoreLimits::default(),
+            Box::new(super::deadlines::Switched(
+                Production::new(),
+                Arc::clone(&defer),
+            )),
+        );
+        rig.driver.begin(create("s1")).unwrap();
+        rig.pump();
+        rig.driver.begin(Op::Start { id: sid("s1") }).unwrap();
+        rig.pump();
+        let token = Arc::new(9);
+        let result = attach(&mut rig, Arc::clone(&token));
+        with_link(&rig, |l| l.send_budget = Some(0));
+        defer.store(true, Ordering::SeqCst);
+        rig.worker_says(LinkId(1), launched());
+        rig.pump();
+        assert_eq!(
+            Arc::strong_count(&token),
+            2,
+            "{first:?}: the driver's mark holds the stream"
+        );
+        let exit = || {
+            (
+                ProcessIdentity {
+                    pid: 500,
+                    start_time: 1,
+                },
+                ExitStatus::Code(0),
+            )
+        };
+        match first {
+            EndFirst::Process => rig.mock.lock().unwrap().exits.push(exit()),
+            EndFirst::Link => with_link(&rig, |l| l.peer_closed = true),
+        }
+        rig.pump();
+        match first {
+            EndFirst::Process => with_link(&rig, |l| l.peer_closed = true),
+            EndFirst::Link => rig.mock.lock().unwrap().exits.push(exit()),
+        }
+        defer.store(false, Ordering::SeqCst);
+        for _ in 0..8 {
+            rig.pump();
+        }
+        let events = rig.drain_events();
+        let lost = events
+            .iter()
+            .position(|e| {
+                matches!(
+                    e,
+                    Event::SessionState {
+                        state: SessionState::Lost(_),
+                        ..
+                    }
+                )
+            })
+            .unwrap_or_else(|| panic!("{first:?}: the session is lost: {events:?}"));
+        let closes: Vec<(usize, RouteCloseReason)> = events
+            .iter()
+            .enumerate()
+            .filter_map(|(i, e)| match e {
+                Event::RouteClosed { route, reason, .. } if *route == result.route => {
+                    Some((i, *reason))
+                }
+                _ => None,
+            })
+            .collect();
+        assert_eq!(closes.len(), 1, "{first:?}: one close: {events:?}");
+        assert_eq!(closes[0].1, RouteCloseReason::SessionLost, "{first:?}");
+        assert!(
+            closes[0].0 > lost,
+            "{first:?}: the close follows Lost: {events:?}"
+        );
+        assert_eq!(Arc::strong_count(&token), 1, "{first:?}: the stream closed");
+    }
+}

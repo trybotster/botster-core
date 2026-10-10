@@ -183,6 +183,12 @@ pub enum Input {
     HandoffFailed {
         route: RouteId,
     },
+    /// The worker's link closed while the driver still held the route's stream: no byte of its handoff was sent, and the
+    /// stream closed with the link. A session that is starting or stopping ends by that loss, and its end closes the route
+    /// after its state (steward ruling R-50); any other route closes `HandoffFailed`.
+    HandoffLost {
+        route: RouteId,
+    },
     /// A process that the engine spawned ended (the exit watch of the `Process` edge).
     ProcessExited {
         identity: ProcessIdentity,
