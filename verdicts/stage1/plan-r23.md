@@ -642,3 +642,29 @@ Update those active counts to match the 665-ID ledger. Preserve explicitly histo
 The reviewer ran no builds, tests, or gates. The separate code pin PR remains outside this review.
 
 VERDICT: NOT CLEAN (R18-1 MEDIUM, R18-2 MEDIUM, R18-3 LOW) at b186dd122f469c19fc31b96864037680240e6cab
+
+## Round 19 — Revision 23m corrected scope and inputs
+
+Reviewed head: `e3d737395242bc7da8fe528da3c16f38a022d9a8`.
+Scope: the complete three-commit correction from round 18 head `b186dd122f469c19fc31b96864037680240e6cab`.
+
+R18-1 is closed. The worker, RouteTransport, Entropy, crate-tree, and proposed-tools instructions no longer assign WebRTC work to Core.
+Q9 retains the four performance IDs and their real-minimum staffing condition.
+The A7 input row explicitly identifies the withdrawn AttachWebRtc and SCTP parts.
+Remaining WebRTC references describe the boundary, rejected tools, or explicitly withdrawn history.
+The str0m interface analogy does not assign implementation work.
+
+R18-2 is closed. The input table selects manifest-final37 and route codec revision 37.
+The manifest tag resolves to `a9c44c69819a5ef54cdd43d1066902feb9760027`, an ancestor of contracts tag `af5771c`.
+The reviewer hashed the codec file at that contracts tag. Its SHA-256 matches the plan:
+`30e254d64999d3bb8285ac683e0b8a6428d36f4cd577a1dd0b8bbedb25cb2e9a`.
+Section 7.2 also names codec revision 37.
+
+R18-3 is closed. Section 1 and R4 now use 665 active IDs. Historical counts remain labeled as history.
+The previously verified clause lists and 69-ID minimum list do not change in this correction.
+The separate code pin PR still requires its own review and execution evidence.
+
+`git diff --check` passes. No execution gate applies to this documentation-only correction.
+The reviewer ran no builds, tests, or gates. No finding remains open.
+
+VERDICT: CLEAN at e3d737395242bc7da8fe528da3c16f38a022d9a8
