@@ -444,8 +444,14 @@ fn mutants_job(root: &Path) -> Result<()> {
     // keeps both of a failed gate (ci/remote/job.sh).
     let stage1_dir = target.clone();
     let stage2_dir = target.join("mutants-stage2");
-    let slow_packages = fsutil::metadata(root)?.slow_packages;
-    let lines = two_stage_decision(
+    let meta = fsutil::metadata(root)?;
+    let slow_packages = meta.slow_packages;
+    let baseline_pids = meta
+        .target_dir
+        .join("nextest")
+        .join("slow")
+        .join("stage2-baseline-pids");
+    two_stage_decision(
         listed,
         || {
             let out = fresh(&stage1_dir)?;
@@ -464,12 +470,19 @@ fn mutants_job(root: &Path) -> Result<()> {
             })
         },
         || {
+            // The slow tier's bounds (#225 MS-R1-1): the `mutants` profile never ends a test, so the deadline and the
+            // leftover check of the slow tier hold the run.
             let mut cmd = cargo(root);
             cmd.args(stage2_baseline_args(&slow_packages))
                 .envs(test_budget::tier_env(true));
             let started = Instant::now();
-            let status = cmd.status().context("start the stage 2 baseline")?;
-            Ok((status.code(), started.elapsed()))
+            let passed = test_budget::bounded_success(
+                cmd,
+                test_budget::SLOW_DEADLINE,
+                &baseline_pids,
+                "start the stage 2 baseline (cargo nextest)",
+            )?;
+            Ok((passed, started.elapsed()))
         },
         |missed| {
             let out = fresh(&stage2_dir)?;
@@ -492,11 +505,8 @@ fn mutants_job(root: &Path) -> Result<()> {
                 took,
             })
         },
-    )?;
-    for line in lines {
-        println!("{line}");
-    }
-    Ok(())
+        |line| println!("{line}"),
+    )
 }
 
 /// The landing diff, `base...HEAD`, in plain unified form whatever the git configuration: no color (`color.diff`,
@@ -643,35 +653,37 @@ fn stage_outcomes(
 /// The verdict of the mutation step in two stages (plan section 8, revisions 23n and 23r), from the number of mutants that
 /// the diff lists and the two runs. With no mutant listed, no run starts. Stage 1 is the default run; it must report every
 /// listed mutant. A timeout or a failed baseline in stage 1 fails the step (`mutation_verdict`). A mutant that stage 1
-/// misses is not yet a failure: stage 2 (`stage2`, the slow tier with the `slow` features) tests exactly the missed
-/// mutants, and the step fails on a mutant that it also misses, or on a timeout there. The lines give each stage's counts
-/// and time, then the step's counts.
+/// misses is not yet a failure: after the stage-2 baseline (`baseline2`, the slow tier unmutated) passes, stage 2
+/// (`stage2`, the slow tier with the `slow` features) tests exactly the missed mutants, and the step fails on a mutant that
+/// it also misses, or on a timeout there. `out` gets each line when its stage ends, so a later failure keeps the lines of
+/// the stages before it (#225 MS-R1-2): each stage's counts and time, then the step's counts.
 ///
 /// # Errors
-/// A stage failed to start, wrote no outcomes or outcomes for another number of mutants, or its exit code fails.
+/// A stage failed to start, wrote no outcomes or outcomes for another number of mutants, or its exit code fails; the
+/// stage-2 baseline failed, passed its deadline or left a process behind.
 fn two_stage_decision(
     listed: usize,
     stage1: impl FnOnce() -> Result<Stage>,
-    baseline2: impl FnOnce() -> Result<(Option<i32>, Duration)>,
+    baseline2: impl FnOnce() -> Result<(bool, Duration)>,
     stage2: impl FnOnce(&[String]) -> Result<Stage>,
-) -> Result<Vec<String>> {
+    mut out: impl FnMut(String),
+) -> Result<()> {
     if listed == 0 {
-        return Ok(vec![
-            "mutants: the diff has no mutant (cargo mutants --list), so no run starts".into(),
-        ]);
+        out("mutants: the diff has no mutant (cargo mutants --list), so no run starts".into());
+        return Ok(());
     }
     let (code, first, line) = stage_outcomes("stage 1 (default)", listed, stage1()?)?;
-    let mut lines = vec![line.clone()];
+    out(line.clone());
     let s = &first.summary;
     let missed_only = code == Some(2) && s.timeout == 0;
     if !missed_only {
         mutation_verdict(code).with_context(|| line.clone())?;
-        lines.push("mutants: stage 2 (slow): stage 1 missed no mutant, so it does not run".into());
-        lines.push(format!(
+        out("mutants: stage 2 (slow): stage 1 missed no mutant, so it does not run".into());
+        out(format!(
             "mutants: {} mutants: {} caught, 0 missed, 0 timeout, {} unviable",
             s.total, s.caught, s.unviable
         ));
-        return Ok(lines);
+        return Ok(());
     }
     anyhow::ensure!(
         u64::try_from(first.missed.len()).ok() == Some(s.missed) && s.missed > 0,
@@ -680,31 +692,34 @@ fn two_stage_decision(
     );
     // cargo-mutants 27.1 builds its own baseline with the mutated packages only, where the `slow` features of the other
     // packages are not valid; so stage 2 skips it, and this baseline (the slow tier, unmutated) must pass first.
-    let (base, took) = baseline2()?;
+    let (passed, took) = baseline2().context(
+        "mutants: stage 2 baseline (the slow tier, unmutated): the run failed, so stage 2 does not start",
+    )?;
     let base_line = format!(
-        "mutants: stage 2 baseline (the slow tier, unmutated): exit code {base:?}, in {:.1} s",
+        "mutants: stage 2 baseline (the slow tier, unmutated): {}, in {:.1} s",
+        if passed { "passed" } else { "failed" },
         took.as_secs_f64()
     );
-    lines.push(base_line.clone());
+    out(base_line.clone());
     anyhow::ensure!(
-        base == Some(0),
+        passed,
         "{base_line}: the unmutated slow tier must pass before stage 2 tests a mutant"
     );
     let (code2, second, line2) =
         stage_outcomes("stage 2 (slow)", first.missed.len(), stage2(&first.missed)?)?;
-    lines.push(line2.clone());
+    out(line2.clone());
     mutation_verdict(code2).with_context(|| {
         format!("{line2}: a mutant that both stages miss, or a timeout in stage 2, fails the step")
     })?;
     let t = &second.summary;
-    lines.push(format!(
+    out(format!(
         "mutants: {} mutants: {} caught ({} by stage 2), 0 missed, 0 timeout, {} unviable",
         s.total,
         s.caught + t.caught,
         t.caught,
         s.unviable + t.unviable
     ));
-    Ok(lines)
+    Ok(())
 }
 
 /// The arguments of stage 2 (plan 23r) after `cargo`: the mutants of `selection` (the diff), in place (so serial), with
@@ -1104,6 +1119,29 @@ mod tests {
         }
     }
 
+    /// The decision with the lines that it gave, and its result.
+    fn decide_lines(
+        listed: usize,
+        stage1: impl FnOnce() -> Result<Stage>,
+        baseline2: impl FnOnce() -> Result<(bool, Duration)>,
+        stage2: impl FnOnce(&[String]) -> Result<Stage>,
+    ) -> (Vec<String>, Result<()>) {
+        let mut lines = Vec::new();
+        let result = two_stage_decision(listed, stage1, baseline2, stage2, |line| lines.push(line));
+        (lines, result)
+    }
+
+    /// The decision's lines when it passes, and its error otherwise.
+    fn decide(
+        listed: usize,
+        stage1: impl FnOnce() -> Result<Stage>,
+        baseline2: impl FnOnce() -> Result<(bool, Duration)>,
+        stage2: impl FnOnce(&[String]) -> Result<Stage>,
+    ) -> Result<Vec<String>> {
+        let (lines, result) = decide_lines(listed, stage1, baseline2, stage2);
+        result.map(|()| lines)
+    }
+
     /// A stage with exit code `code` and outcomes `summary`, whose missed mutants are named `m0`, `m1`, ...
     fn stage(code: Option<i32>, summary: Option<MutantSummary>) -> Result<Stage> {
         Ok(Stage {
@@ -1122,10 +1160,9 @@ mod tests {
     fn a_mutation_step_passes_only_with_no_mutant_or_every_outcome_and_exit_code_0() {
         let no_stage2 =
             |_: &[String]| -> Result<Stage> { panic!("stage 1 missed nothing, so no stage 2") };
-        let no_base =
-            || -> Result<(Option<i32>, Duration)> { panic!("no stage 2, so no baseline") };
+        let no_base = || -> Result<(bool, Duration)> { panic!("no stage 2, so no baseline") };
         assert_eq!(
-            two_stage_decision(
+            decide(
                 0,
                 || panic!("no mutant listed, so no run"),
                 no_base,
@@ -1135,7 +1172,7 @@ mod tests {
             ["mutants: the diff has no mutant (cargo mutants --list), so no run starts"]
         );
         assert_eq!(
-            two_stage_decision(3, || stage(Some(0), Some(counts(3, 2, 0, 0, 1))), no_base, no_stage2).unwrap(),
+            decide(3, || stage(Some(0), Some(counts(3, 2, 0, 0, 1))), no_base, no_stage2).unwrap(),
             [
                 "mutants: stage 1 (default): 3 mutants: 2 caught, 0 missed, 0 timeout, 1 unviable, in 2.5 s",
                 "mutants: stage 2 (slow): stage 1 missed no mutant, so it does not run",
@@ -1143,24 +1180,24 @@ mod tests {
             ]
         );
         assert_eq!(
-            two_stage_decision(3, || stage(Some(0), None), no_base, no_stage2)
+            decide(3, || stage(Some(0), None), no_base, no_stage2)
                 .unwrap_err()
                 .to_string(),
             "mutants: stage 1 (default): cargo mutants wrote no outcomes.json for its 3 mutants (exit code Some(0)): the \
              run failed before its outcomes"
         );
         assert!(
-            two_stage_decision(3, || stage(None, None), no_base, no_stage2).is_err(),
+            decide(3, || stage(None, None), no_base, no_stage2).is_err(),
             "a signal"
         );
-        let failed = two_stage_decision(
+        let failed = decide(
             3,
             || Err(anyhow::anyhow!("start cargo mutants")),
             no_base,
             no_stage2,
         );
         assert_eq!(failed.unwrap_err().to_string(), "start cargo mutants");
-        let partial = two_stage_decision(
+        let partial = decide(
             3,
             || stage(Some(0), Some(counts(2, 2, 0, 0, 0))),
             no_base,
@@ -1180,24 +1217,22 @@ mod tests {
     #[test]
     fn a_stage_1_miss_passes_only_when_stage_2_catches_it() {
         let no_stage2 = |_: &[String]| -> Result<Stage> { panic!("stage 1 failed, so no stage 2") };
-        let no_base =
-            || -> Result<(Option<i32>, Duration)> { panic!("stage 1 failed, so no baseline") };
-        let base = || Ok((Some(0), Duration::from_millis(1500)));
+        let no_base = || -> Result<(bool, Duration)> { panic!("stage 1 failed, so no baseline") };
+        let base = || Ok((true, Duration::from_millis(1500)));
         for (code, summary) in [
             (Some(3), counts(4, 3, 0, 1, 0)),
             (Some(2), counts(4, 2, 1, 1, 0)),
             (Some(4), counts(4, 0, 0, 0, 0)),
             (Some(1), counts(4, 4, 0, 0, 0)),
         ] {
-            let error = two_stage_decision(4, || stage(code, Some(summary)), no_base, no_stage2)
-                .unwrap_err();
+            let error = decide(4, || stage(code, Some(summary)), no_base, no_stage2).unwrap_err();
             assert!(
                 format!("{error:#}").contains(&format!("exit code {code:?}")),
                 "{error:#}"
             );
         }
         let seen = std::cell::RefCell::new(Vec::new());
-        let caught = two_stage_decision(
+        let caught = decide(
             5,
             || stage(Some(2), Some(counts(5, 2, 2, 0, 1))),
             base,
@@ -1212,7 +1247,7 @@ mod tests {
             caught,
             [
                 "mutants: stage 1 (default): 5 mutants: 2 caught, 2 missed, 0 timeout, 1 unviable, in 2.5 s",
-                "mutants: stage 2 baseline (the slow tier, unmutated): exit code Some(0), in 1.5 s",
+                "mutants: stage 2 baseline (the slow tier, unmutated): passed, in 1.5 s",
                 "mutants: stage 2 (slow): 2 mutants: 1 caught, 0 missed, 0 timeout, 1 unviable, in 2.5 s",
                 "mutants: 5 mutants: 3 caught (1 by stage 2), 0 missed, 0 timeout, 2 unviable",
             ]
@@ -1222,21 +1257,20 @@ mod tests {
             (Some(2), counts(2, 1, 1, 0, 0)),
             (Some(3), counts(2, 1, 0, 1, 0)),
         ] {
-            let error =
-                two_stage_decision(5, first, base, |_| stage(code, Some(summary))).unwrap_err();
+            let error = decide(5, first, base, |_| stage(code, Some(summary))).unwrap_err();
             assert!(
                 format!("{error:#}")
                     .contains("a mutant that both stages miss, or a timeout in stage 2"),
                 "{error:#}"
             );
         }
-        let short = two_stage_decision(5, first, base, |_| {
+        let short = decide(5, first, base, |_| {
             stage(Some(0), Some(counts(1, 1, 0, 0, 0)))
         })
         .unwrap_err()
         .to_string();
         assert!(short.contains("it had 2 mutants to test"), "{short}");
-        let none = two_stage_decision(5, first, base, |_| stage(Some(0), None))
+        let none = decide(5, first, base, |_| stage(Some(0), None))
             .unwrap_err()
             .to_string();
         assert!(
@@ -1244,35 +1278,47 @@ mod tests {
             "{none}"
         );
         // Stage 2 skips cargo-mutants' baseline, so its own baseline must pass before stage 2 tests a mutant.
-        for code in [Some(100), None] {
-            let error = two_stage_decision(
-                5,
-                first,
-                || Ok((code, Duration::from_millis(1500))),
-                |_| panic!("the baseline failed, so no stage 2"),
-            )
-            .unwrap_err()
-            .to_string();
-            assert_eq!(
-                error,
-                format!(
-                    "mutants: stage 2 baseline (the slow tier, unmutated): exit code {code:?}, in 1.5 s: the unmutated \
-                     slow tier must pass before stage 2 tests a mutant"
-                )
-            );
-        }
-        let unstarted = two_stage_decision(
+        let (lines, failed) = decide_lines(
             5,
             first,
-            || Err(anyhow::anyhow!("start the stage 2 baseline")),
-            |_| panic!("the baseline did not start, so no stage 2"),
+            || Ok((false, Duration::from_millis(1500))),
+            |_| panic!("the baseline failed, so no stage 2"),
         );
         assert_eq!(
-            unstarted.unwrap_err().to_string(),
-            "start the stage 2 baseline"
+            failed.unwrap_err().to_string(),
+            "mutants: stage 2 baseline (the slow tier, unmutated): failed, in 1.5 s: the unmutated slow tier must pass \
+             before stage 2 tests a mutant"
+        );
+        assert_eq!(
+            lines,
+            [
+                "mutants: stage 1 (default): 5 mutants: 3 caught, 2 missed, 0 timeout, 0 unviable, in 2.5 s",
+                "mutants: stage 2 baseline (the slow tier, unmutated): failed, in 1.5 s",
+            ]
+        );
+        // A baseline that did not start, passed its deadline or left a process behind (`bounded_success`) fails the step
+        // with its cause, and stage 2 does not start.
+        let unstarted = decide(
+            5,
+            first,
+            || {
+                Err(anyhow::anyhow!(
+                    "the run passed its 600 s deadline; it was killed"
+                ))
+            },
+            |_| panic!("the baseline did not end, so no stage 2"),
+        )
+        .unwrap_err();
+        assert_eq!(
+            unstarted.to_string(),
+            "mutants: stage 2 baseline (the slow tier, unmutated): the run failed, so stage 2 does not start"
+        );
+        assert!(
+            format!("{unstarted:#}").ends_with("the run passed its 600 s deadline; it was killed"),
+            "{unstarted:#}"
         );
         // The names of the missed mutants must match the missed count.
-        let unnamed = two_stage_decision(
+        let unnamed = decide(
             5,
             || {
                 let mut s = stage(Some(2), Some(counts(5, 3, 2, 0, 0)))?;
@@ -1288,7 +1334,7 @@ mod tests {
             unnamed.ends_with("outcomes.json names 1 missed mutants"),
             "{unnamed}"
         );
-        let zero = two_stage_decision(
+        let zero = decide(
             5,
             || stage(Some(2), Some(counts(5, 5, 0, 0, 0))),
             no_base,
@@ -1299,6 +1345,38 @@ mod tests {
         assert!(
             zero.ends_with("outcomes.json names 0 missed mutants"),
             "{zero}"
+        );
+    }
+
+    /// #225 MS-R1-2: each stage's line is given when the stage ends, so a later failure keeps the lines of the stages
+    /// before it (plan 23r: the gate prints each stage's time).
+    #[test]
+    fn a_failed_later_stage_keeps_the_lines_of_the_stages_before_it() {
+        let (lines, result) = decide_lines(
+            5,
+            || stage(Some(2), Some(counts(5, 3, 2, 0, 0))),
+            || Ok((true, Duration::from_millis(1500))),
+            |_| stage(Some(2), Some(counts(2, 1, 1, 0, 0))),
+        );
+        assert!(result.is_err());
+        assert_eq!(
+            lines,
+            [
+                "mutants: stage 1 (default): 5 mutants: 3 caught, 2 missed, 0 timeout, 0 unviable, in 2.5 s",
+                "mutants: stage 2 baseline (the slow tier, unmutated): passed, in 1.5 s",
+                "mutants: stage 2 (slow): 2 mutants: 1 caught, 1 missed, 0 timeout, 0 unviable, in 2.5 s",
+            ]
+        );
+        let (lines, result) = decide_lines(
+            4,
+            || stage(Some(3), Some(counts(4, 3, 0, 1, 0))),
+            || panic!("stage 1 failed, so no baseline"),
+            |_| panic!("stage 1 failed, so no stage 2"),
+        );
+        assert!(result.is_err());
+        assert_eq!(
+            lines,
+            ["mutants: stage 1 (default): 4 mutants: 3 caught, 0 missed, 1 timeout, 0 unviable, in 2.5 s"]
         );
     }
 
@@ -1372,7 +1450,6 @@ mod tests {
         .map(|s| s.to_string())
         .collect();
         assert_eq!(args, expected);
-        assert_eq!(test_budget::SLOW_DEADLINE.as_secs(), 600);
         let pattern = regex::Regex::new(&args[18]).unwrap();
         assert!(pattern.is_match("a.rs:1:2: replace f -> bool with true"));
         assert!(!pattern.is_match("xa.rs:1:2: replace f -> bool with true"));
@@ -1778,7 +1855,8 @@ mod slow_tests {
         };
         // Two slow packages, and `twostage` does not depend on `other`, as in the real workspace.
         let slow_packages = ["other".to_string(), "twostage".to_string()];
-        let step = |dir: &Path| {
+        let step = |dir: &Path| -> Result<Vec<String>> {
+            let mut lines = Vec::new();
             two_stage_decision(
                 8,
                 || {
@@ -1794,15 +1872,18 @@ mod slow_tests {
                     finish(command, &out)
                 },
                 || {
+                    // The baseline runs as the step runs it: bounded, tracked, with the leftover check.
                     let mut command = crate::tools::cargo(dir);
                     command
                         .args(stage2_baseline_args(&slow_packages))
-                        .envs(test_budget::tier_env(true))
-                        .stdout(std::process::Stdio::null());
-                    let status = OwnedChild::spawn_group(&mut command)
-                        .unwrap()
-                        .status_by(Deadline::after(test_budget::SLOW_DEADLINE));
-                    Ok((status.code(), Duration::ZERO))
+                        .envs(test_budget::tier_env(true));
+                    let passed = test_budget::bounded_success(
+                        command,
+                        test_budget::SLOW_DEADLINE,
+                        &dir.join("baseline-pids"),
+                        "start the stage 2 baseline",
+                    )?;
+                    Ok((passed, Duration::ZERO))
                 },
                 |missed| {
                     assert_eq!(missed.len(), 4, "the four mutants of triple: {missed:?}");
@@ -1814,7 +1895,9 @@ mod slow_tests {
                         .envs(test_budget::tier_env(true));
                     finish(command, &out)
                 },
-            )
+                |line| lines.push(line),
+            )?;
+            Ok(lines)
         };
         let with = copy(true);
         let lines = step(with.path()).unwrap();
@@ -1830,6 +1913,72 @@ mod slow_tests {
                 .contains("a mutant that both stages miss, or a timeout in stage 2"),
             "{error:#}"
         );
+    }
+
+    /// #225 MS-R1-1, with real processes: a stage-2 baseline that does not end by its deadline, and one that leaves a
+    /// process behind, each fail the step through `bounded_success`, and stage 2 never starts. A zero deadline has passed at
+    /// the start, so the test needs no timeout value of its own.
+    #[test]
+    fn a_hung_baseline_or_a_leftover_fails_the_step_before_stage_2_starts() {
+        let dir = tempfile::tempdir().unwrap();
+        let pids = dir.path().join("pids");
+        let sh = |script: &str| {
+            let mut command = Command::new("/bin/sh");
+            command.args(["-c", script]);
+            command
+        };
+        let decide = |command: Command, deadline: Duration| {
+            let mut lines = Vec::new();
+            let result = two_stage_decision(
+                5,
+                || {
+                    Ok(Stage {
+                        code: Some(2),
+                        outcomes: Some(Outcomes {
+                            summary: MutantSummary {
+                                total: 5,
+                                caught: 4,
+                                missed: 1,
+                                timeout: 0,
+                                unviable: 0,
+                            },
+                            missed: vec!["a.rs:1:2: replace f -> bool with true".into()],
+                        }),
+                        took: Duration::ZERO,
+                    })
+                },
+                || {
+                    let passed =
+                        test_budget::bounded_success(command, deadline, &pids, "start sh")?;
+                    Ok((passed, Duration::ZERO))
+                },
+                |_| panic!("the baseline failed, so stage 2 never starts"),
+                |line| lines.push(line),
+            );
+            (lines, format!("{:#}", result.unwrap_err()))
+        };
+        let hung_blocker = botster_test_process::Blocker::new(dir.path(), "hung").unwrap();
+        let (lines, hung) = decide(
+            sh(&format!("exec {}", hung_blocker.shell())),
+            Duration::ZERO,
+        );
+        assert!(
+            hung.contains("the run failed, so stage 2 does not start"),
+            "{hung}"
+        );
+        assert!(hung.contains("deadline"), "{hung}");
+        assert_eq!(lines.len(), 1, "only the stage-1 line: {lines:?}");
+        let left_blocker = botster_test_process::Blocker::new(dir.path(), "left").unwrap();
+        let (lines, left) = decide(
+            sh(&format!("{} & true", left_blocker.shell())),
+            test_budget::SLOW_DEADLINE,
+        );
+        assert!(
+            left.contains("the run failed, so stage 2 does not start"),
+            "{left}"
+        );
+        assert!(left.contains("processes left behind"), "{left}");
+        assert_eq!(lines.len(), 1, "only the stage-1 line: {lines:?}");
     }
 
     /// The fixture `xtask/fixtures/mutants-platform`: `triple` is `cfg(windows)` code, which no gate OS compiles. Without
