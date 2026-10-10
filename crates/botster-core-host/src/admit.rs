@@ -265,13 +265,6 @@ impl HostEngine {
                     ))
                 }
             }
-            Op::AttachWebRtc { session, .. } => {
-                self.require("attach", session, &[Starting, Running, Exited])?;
-                Err(err(
-                    ErrorCode::Unsupported { what: None },
-                    "route_transport:webrtc is not offered by this build (P4c)",
-                ))
-            }
             Op::AdoptAll => {
                 if self.adopt_all_begun {
                     Err(err(
@@ -922,9 +915,7 @@ impl HostEngine {
             &[Admit::Starting, Admit::Running, Admit::Exited],
         )?;
         if !matches!(transport, RouteTransport::Stream(_)) {
-            return Err(invalid(
-                "attach takes a connected stream; a WebRTC route uses AttachWebRtc",
-            ));
+            return Err(invalid("attach takes a connected stream (DP-2, A17-1)"));
         }
         let limits = self.applied_route_limits(options)?;
         let s = self.sessions.get(session).expect("checked");
@@ -998,9 +989,6 @@ impl HostEngine {
             max_history_page_bytes: choices
                 .max_history_page_bytes
                 .unwrap_or(limits.max_history_page_bytes),
-            max_chunk_bytes: choices
-                .max_chunk_bytes
-                .unwrap_or(limits.default_route_chunk_bytes),
             max_paste_bytes: limits.max_paste_bytes,
             max_query_bytes: limits.max_query_bytes,
             max_query_reply_bytes: limits.max_query_reply_bytes,
