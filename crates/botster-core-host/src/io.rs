@@ -122,6 +122,14 @@ pub enum Action {
         options: AttachOptions,
         limits: AppliedRouteLimits,
     },
+    /// Closes a route's stream that Core still holds, before its hand-over (OU-2, steward ruling R-50): the driver writes
+    /// `frame` (the stream bytes of the route's `route_closed`, when its reason has one and it fits) once, without waiting,
+    /// and then closes the stream. A stream that takes fewer bytes, or none, closes anyway.
+    CloseRoute {
+        route: RouteId,
+        transport: StreamEndpoint,
+        frame: Option<Vec<u8>>,
+    },
 }
 
 /// What a driver tells the engine.
@@ -173,6 +181,12 @@ pub enum Input {
     },
     /// The handoff of a route's stream to its worker failed: the route closes `HandoffFailed` (DP-2, OU-2).
     HandoffFailed {
+        route: RouteId,
+    },
+    /// The worker's link closed while the driver still held the route's stream: no byte of its handoff was sent, and the
+    /// stream closed with the link. A session that is starting or stopping ends by that loss, and its end closes the route
+    /// after its state (steward ruling R-50); any other route closes `HandoffFailed`.
+    HandoffLost {
         route: RouteId,
     },
     /// A process that the engine spawned ended (the exit watch of the `Process` edge).

@@ -345,6 +345,7 @@ version = "0.1.0"
 dependencies = [
  "bolero",
  "botster-core-contract",
+ "botster-route-codec",
  "serde",
  "serde_json",
  "sha2",
