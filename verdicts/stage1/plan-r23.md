@@ -998,3 +998,26 @@ No execution gate applies to this documentation-only revision.
 I ran no builds, tests, or gates.
 
 VERDICT: CLEAN (0 open) at 558a6c8dcb07a5c77ee6713b26bbec9cf20e9ffc
+
+## Round 29 — revision 23v — 2026-10-10
+
+Reviewed head: `596082d435ba30bfb0b6521e4566b2af6d97cbf1`.
+Prior accepted head: `558a6c8dcb07a5c77ee6713b26bbec9cf20e9ffc`.
+Scope: the complete three-file delta that points the plan to the canonical minimum list on `v1`.
+
+PR #220 merged at `b41e88be535c7e1c62ddf272c4295a87b94f5685`.
+Its `conformance/minimum-core.txt` is byte-identical to the list reviewed at `8e732787`.
+I compared all non-comment rows with the prior plan copy: all 69 rows match, including their order, clauses, and owning packages.
+All 69 ids are unique. The package counts match section 6.1.
+The old copy's stale 70-id comment is removed with the copy; the new pointer correctly states 69 ids.
+
+The plan, minimum rationale, and former list now identify the same canonical file.
+No other tracked file at the reviewed plan revision references the former list path.
+The change preserves the minimum membership, progress denominators, and acceptance conditions.
+Changes to the canonical list require a HIGH Core PR.
+
+The remote plan head and `v1` match the reviewed commits. `git diff --check` passes.
+No execution gate applies to this documentation-only revision.
+I ran no builds, tests, or gates.
+
+VERDICT: CLEAN (0 open) at 596082d435ba30bfb0b6521e4566b2af6d97cbf1
