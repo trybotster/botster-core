@@ -1594,7 +1594,8 @@ mod slow_tests {
     /// The red-on-revert proof of plan 23n, on real cargo-mutants runs of the fixture `xtask/fixtures/mutants-two-stage`:
     /// `triple` is compiled only with the `slow` feature, so stage 1 (the step's default run) misses each of its mutants.
     /// Stage 2 (`stage2_args`: in place, the `slow` feature, the slow filter) tests exactly those, the slow test catches
-    /// each one, and the step passes. Without the slow test, both stages miss them, and the step fails.
+    /// each one, and the step passes. With a slow test that checks nothing in its place, both stages miss them, and the
+    /// step fails.
     #[test]
     fn a_mutant_that_only_a_slow_test_catches_passes_and_one_that_both_stages_miss_fails() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -1612,6 +1613,13 @@ mod slow_tests {
                 std::fs::copy(
                     fixture.join("tests/slow_triple.rs"),
                     dir.path().join("tests/slow_triple.rs"),
+                )
+                .unwrap();
+            } else {
+                // The revert: a slow test that runs `triple` and checks nothing, so each mutant survives stage 2 too.
+                std::fs::write(
+                    dir.path().join("tests/slow_triple.rs"),
+                    "#[cfg(feature = \"slow\")]\n#[test]\nfn triple_runs() {\n    let _ = twostage::triple(3);\n}\n",
                 )
                 .unwrap();
             }
