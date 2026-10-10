@@ -409,7 +409,6 @@ conf::in_9_mouse_each_tracking_mode
 conf::in_9_non_us_layout_uses_supplied_text
 conf::in_9_text_is_one_transaction_and_utf8
 conf::lc_10_status_has_no_counters
-conf::lc_12_drop_leaves_workers_running
 conf::lc_12_stop_all_target_set
 conf::lc_2_data_dir_is_exclusive
 conf::lc_3_remove_created
@@ -448,7 +447,6 @@ conf::ou_7_exit_after_tail_queued_then_close
 conf::ou_7_progressing_slow_route_delays_exit_lossless
 conf::ou_7_stalled_route_does_not_hold_exit
 conf::ou_8_route_output_frame_kinds
-conf::ou_9_adopted_session_attaches_by_baseline
 conf::ou_9_attach_is_sync_baseline_in_pump
 conf::ou_9_oversize_snapshot_closes_route_typed
 conf::ou_9_resync_completes_a_partial_frame
