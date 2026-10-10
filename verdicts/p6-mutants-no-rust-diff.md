@@ -48,7 +48,7 @@ Add a proof that the generated Rust diff still requires listing under color conf
 Preserve genuine empty/non-Rust skips and failed-listing propagation.
 The reviewer sent this finding directly to P3 and Astra.
 
-### R1-2 LOW — complete the Prior art note
+### R1-2 LOW — Prior art note completed during review
 
 BUILD.md rule 0 requires recorded reuse and rejection decisions and a reason for hand-written infrastructure.
 The PR names cargo-mutants' rule and contrasts its log messages with the new predicate.
@@ -74,7 +74,13 @@ Log: `~/botster-sessions/gates/botster-core-stage1-p3-flip-passing-minimum-5d45e
 Its mutation step fails with the reported JSON EOF error and the gate exits 1.
 The PR promises a fixed flip gate after this fix merges; that future run is not current evidence.
 
-Both findings must close for this HIGH PR. No ordinary NOT CLEAN report went to the lead.
+The reviewer then read the body-only Prior art update at the same implementation head.
+It names the reused xtask pieces, cargo-mutants' source rule, three parser alternatives, and the log-text alternative.
+It records rejection reasons and the reason for the small predicate. R1-2 closes.
+Its claim that a misread line can only cause listing is contradicted by R1-1.
+Correct that claim when closing R1-1.
+
+R1-1 remains open for this HIGH PR. No ordinary NOT CLEAN report went to the lead.
 Wait for replacement READY at an exact head.
 
 VERDICT: NOT CLEAN
