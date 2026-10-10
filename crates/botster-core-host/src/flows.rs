@@ -41,14 +41,12 @@ impl HostEngine {
             End::Lost(_) => bound
                 .next()
                 .map(|route| (*route, RouteCloseReason::SessionLost)),
+            // Every bound route was handed to the worker: `Exited` needs the launch, and the launch hands over every
+            // waiting route (`flush_handoffs`).
             End::Exited(exit) => bound.find_map(|route| {
-                // A route that was never handed to the worker has no queue there: it closes now.
-                let handed = !self.pending_handoffs.iter().any(|(r, ..)| r == route);
-                let reason = match s.route_ends.get(route) {
-                    Some(RouteEnd::Delivered) => RouteCloseReason::SessionEnded { exit },
-                    None if !handed => RouteCloseReason::SessionEnded { exit },
-                    Some(RouteEnd::Lost) => RouteCloseReason::SessionLost,
-                    None => return None,
+                let reason = match s.route_ends.get(route)? {
+                    RouteEnd::Delivered => RouteCloseReason::SessionEnded { exit },
+                    RouteEnd::Lost => RouteCloseReason::SessionLost,
                 };
                 Some((*route, reason))
             }),
@@ -68,10 +66,7 @@ impl HostEngine {
             .peekable();
         finishing
             && bound.peek().is_some()
-            && bound.all(|route| {
-                !session.route_ends.contains_key(route)
-                    && !self.pending_handoffs.iter().any(|(r, ..)| r == route)
-            })
+            && bound.all(|route| !session.route_ends.contains_key(route))
     }
 
     fn stop_flow(&mut self, id: &SessionId) -> Option<&mut StopFlow> {
