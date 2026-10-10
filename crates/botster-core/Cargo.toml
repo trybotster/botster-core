@@ -11,7 +11,8 @@ workspace = true
 
 [features]
 # The real-process tests of this crate (BUILD.md testing rule 2): `cargo xtask slow` runs them.
-slow = []
+# It also runs the conformance suite on `RealCoreHarness` (`slow_conformance`, plan section 5).
+slow = ["botster-core-testkit/slow"]
 
 [dependencies]
 botster-core-contract.workspace = true
@@ -40,6 +41,12 @@ toml.workspace = true
 name = "conformance"
 path = "../../tests/conformance.rs"
 harness = false
+
+[[test]]
+name = "slow_conformance"
+path = "../../tests/slow_conformance.rs"
+harness = false
+required-features = ["slow"]
 
 # The guard fixture (tests/common/process_guard.rs) ends every member of a group: libproc lists them, kqueue awaits their
 # exits, and libc names the zombie state.

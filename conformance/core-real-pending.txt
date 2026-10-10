@@ -1,0 +1,117 @@
+# The ids that pass on the TestkitHarness and not yet on the real tier (plan 23l, RealCoreHarness).
+# The real tier runs each id here and reports it as pending-real: never counted as passed, never a gate failure.
+# Rules (`cargo xtask lists` checks them):
+# - The harness PR initializes the file from the gate's real run; after that it only shrinks.
+# - An id enters only in the pull request that removes it from core-pending.txt, or as a new ledger id.
+# - An id here is a Core ledger id, and is not pending, deferred, withdrawn, real-only (a `slow:*` proof) or testkit-proven (Core A20-1).
+# - An id that passes on the real tier and later fails there is a gate failure, never a new entry.
+# Each id is a finding for its owner.
+#
+# Initialization (plan 23l, revision 23q): the real run of the gate on b01225dd (contracts-v0.1.24, v1 e9901293), 182 active ids,
+# 99 passed and 83 failed. Every failing id is listed here, with its cause and owner. The merge of v1 159cc400 (#217) made 11 more ids
+# active; each fails on the real tier (the gate on 97a8015a) and is listed here with its cause and owner (lead, 2026-10-09).
+# The merge of v1 dc7fb11d (#210, the real worker endpoint) made the 7 ids of the real-tier adoption group pass (the gate on
+# dfdcd05f), so they are not listed.
+
+# the route data plane on the real tier: RealCoreHarness attach_stream (R-47 (A) route forms, real client end), P6 (21).
+conf::a2_4_other_osc_forms_stay_in_output
+conf::a7_1_frame_cap_above_route_frame_max_is_invalid_input
+conf::a7_1_overlong_route_tag_or_owner_is_invalid_input
+conf::a7_1_query_deadline_above_max_is_invalid_input
+conf::a7_1_query_deadline_absent_or_zero_is_invalid_input
+conf::a7_1_query_deadline_at_1ms_and_at_max_attaches
+conf::a7_1_query_deadline_positive_below_1ms_is_invalid_input
+conf::a7_1_refused_attach_reserves_nothing
+conf::a7_1_screen_cap_below_snapshot_plus_one_is_invalid_input
+conf::a7_1_screen_cap_equal_to_snapshot_plus_one_attaches
+conf::dp_3_route_limits_reject_a_screen_cap_below_snapshot_plus_one
+conf::dp_7_revoked_reason_reaches_client_and_host
+conf::e2_1_osc_1_gives_no_title_changed_and_stays_in_output
+conf::er_route_limit
+conf::ev_5_repeated_attach_detach_without_polling_stays_bounded
+conf::ev_7_event_and_output_both_carry_the_sequence
+conf::ev_8_attach_requires_a_positive_query_deadline
+conf::id_1_old_handles_do_not_reach_new_instance
+conf::lc_12_drop_leaves_workers_running
+conf::ou_1_attach_options_carry_no_paste_policy
+conf::ou_1_terminal_format_is_negotiated_against_the_target_worker
+
+# the program controls (pty_output, pty_input, pty_chunk, pty_blocked, pty_accept) through the probe program on a real PTY, the fourth pair (lead, 2026-10-10), with P3 for the mapping (32).
+conf::a2_2_cancel_is_ok_cancelled_never_err
+conf::a2_2_cancel_race_reports_the_real_outcome
+conf::ad_3_adopted_equals_started
+conf::am_2_next_write_waits_for_completion_or_partial_end
+conf::am_4_capacity_returns_on_poll
+conf::dp_3_screen_is_one_frame_within_max_screen_frame_bytes
+conf::ev_2_drop_oldest_with_marker
+conf::ev_2_one_marker_per_session
+conf::ev_2_retired_instance_never_creates_a_loss_marker
+conf::ev_5_released_retires_keyed_droppable_and_loss_events
+conf::in_10_terminal_guard_refuses_after_a_redraw_before_start
+conf::in_2_link_loss_is_unknown_not_zero
+conf::in_2_partial_is_certain
+conf::in_5_lane_bounds_refuse_at_begin
+conf::in_6_cancel_reports_progress
+conf::in_6_repeat_cancel_is_idempotent_no_slot
+conf::in_7_lost_worker_ends_pending
+conf::in_8_require_bracketed_refuses_with_exact_zero
+conf::in_9_event_with_no_encoding_is_typed_zero
+conf::in_9_key_repeat_is_checked_by_the_guards_once_at_start
+conf::ou_12_output_bytes_are_unmodified_and_in_order
+conf::ou_6_slow_route_does_not_delay_others
+conf::ou_9_adopted_session_attaches_by_baseline
+conf::ou_9_baseline_then_live_no_gap
+conf::st_6_capture_is_frozen_at_model_rev
+conf::st_6_pages_owned_last_flag_and_range
+conf::tm_1_clocks_are_injected
+conf::tm_1_deadlines_use_monotonic
+conf::tm_3_due_deadline_fires_in_pump
+conf::tm_3_next_deadline_is_host_armed
+conf::tm_4_silent_fires_once_at_threshold
+conf::tm_5_deadlines_in_order
+
+# the adoption and worker controls (withhold_control_link, lose_worker, impostor_worker, announce_protocol, payload_alive, hold_start_at, corrupt_registry_row, fail_next): their real forms by steward ruling R-49 at the HostEdges tap and the endpoint path, P5 (real-controls PRs) on P6's harness (22).
+conf::a10_1_wrong_instance_is_never_signalled
+conf::a10_1_wrong_token_is_never_signalled
+conf::a10_2_corrupted_row_is_lost_registry_corrupt
+conf::a2_1_adopt_completes_ok_with_the_state_it_reached
+conf::a2_1_read_of_created_or_lost_is_wrong_state
+conf::a2_3_lost_session_closes_routes_session_lost
+conf::a5_3_only_sync_column_codes_scripted
+conf::a5_3_sync_refusal_has_no_op_event_slot_or_state
+conf::a6_1_withheld_control_link_gives_worker_unreachable_not_worker_gone
+conf::a6_2_out_of_set_hello_is_lost_worker_version
+conf::ad_1_running_adopts_running
+conf::ad_2_lost_row_keeps_id_and_allows_retry
+conf::ad_4_absent_worker_protocol_is_unknown_never_compatible
+conf::ad_4_compatibility_is_not_a_guarantee_of_adoption_auth_and_reachability_can_still_fail
+conf::ad_4_unknown_version_is_lost
+conf::ad_6_token_and_instance_checked
+conf::ad_7_payload_launches_after_durable_identity
+conf::ev_5_full_queue_defers_transition_not_output
+conf::ev_5_stop_kills_while_queue_full
+conf::lc_12_stop_all_leaves_created_exited_lost
+conf::lc_9_worker_protocol_absent_for_an_unreachable_worker_whose_hello_was_never_read
+conf::tm_6_more_means_runnable_not_blocked
+
+# the route fault controls of #217 (P4a PR2): fail_handoff, a HostEdges wrapper around link_send_descriptor that returns Err((endpoint, Failed)) once, P6 (2).
+conf::dp_2_failed_handoff_closes_route_handoff_failed
+conf::ou_2b_handoff_failure_is_reported_as_handoff_failed
+
+# fail_writes: no portable real form of a write failure with reads intact (macOS accepts the send after SHUT_RD); steward and lead, 2026-10-10: a Linux-only form behind a platform check is allowed at low priority, after the minimum ids, P3 (P4a routes) (2).
+conf::a2_3_close_first_reason_wins_with_new_reasons
+conf::a2_3_write_failed_closes_with_write_failed
+
+# R-47 route_fill pending (lead, #217): the transcript needs a fill before its accept loop; on the real tier it also stops at pty_output, P3 (P4a routes) with P6 (1).
+conf::ou_3_progressing_reader_lossless
+
+# no_spurious_wakes on the real tier: waits for the contracts no_spurious_wakes PR (real form), P6 (4).
+conf::ev_5_poll_wakes_pending_work
+conf::tm_3_wake_handle_ignores_deadlines
+conf::tm_6_create_without_worker_input_wakes
+conf::tm_6_poll_room_unparks_and_wakes
+
+# oracle_resume on the real tier, P6 (oracle) with P3 (3).
+conf::st_6b_cut_inside_an_sgr_sequence_applies_the_suffix_not_prints_it
+conf::st_6b_model_after_baseline_plus_output_equals_the_sessions_model
+conf::st_6b_saved_cursor_tab_stops_margins_rendition_and_charsets_survive_a_cut
