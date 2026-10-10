@@ -149,3 +149,41 @@ The future fixed flip gate remains evidence for the flip PR, not a claimed run i
 All round 1 findings close. No new package finding remains at this exact head.
 
 VERDICT: CLEAN
+
+
+## Round 3 — base-merge carry
+
+Implementation head: `ad383cd74d0bcee716714a240837d108f74ace5a`.
+Reviewed first parent: `9f33b53eebc0a530a18ad363d626bc656cf61b9f`.
+New integration and gate base: `f2eb577d58edd6c1d09215d21f9e51e9d5668e70`.
+Reviewed base: `f6128fd6dd96a27f82520c82b9553d038dfa9dba`.
+Previous package CLEAN: `7aefd888e745e25366bb65f4098ecc1142f5b071`.
+
+HIGH still applies. The lead's base-merge rule permits review carry when the published merge check passes.
+The reviewer read the required [PR evidence record](https://github.com/trybotster/botster-core/pull/213#issuecomment-6093187123).
+It reports all four base-merge-check conditions PASS, including the conflict-free merge and the unchanged line-set file.
+The reviewer did not run base-merge-check or any gate.
+
+Read-only Git objects confirm the stated merge parents.
+The two own paths do not overlap the six imported base paths.
+Both own file blobs equal the reviewed first parent's blobs.
+The final diff against the new base contains those same two own paths.
+The old and new `--full-index` PR diffs are byte-identical: 12032 bytes.
+SHA256: `b41ec5c9d0a146b9eaefacea0346edc2af377b4a2a515cf62df5c99d6b2d3d63`.
+The actual merge tree is `ef312acc1ea4b8949e5df531c7911689a36d7ca4`.
+Astra independently confirms that this tree matches the conflict-free merge result.
+No source delta requires a new logic review. Both round 1 findings remain closed.
+
+Exact-head Linux log: `~/botster-sessions/gates/botster-core-stage1-p3-mutants-no-rust-diff-ad383cd7-pool-20261009-200633-59607.log`.
+It names the implementation head and new base above and exits 0.
+All ten jobs pass.
+Conformance: 124 passing tests. Default: 1332 passing tests. Slow: 256 passing tests.
+Both mutation commands report 13 caught mutants, zero misses, zero timeouts, and zero unviable mutants.
+This completes the required gate evidence for the merge head.
+
+Astra published same-head CLEAN carry in verdict `a587e0f50cf5425b28227126cb98f64c5fc83de3`.
+Astra reports that GitHub merged this head as `6ff4be7f6e064d0d4abcb524219a048b9ddc6e57`.
+The reviewer changed no product code and ran no gate, build, test, mutation job, or reversal.
+No open package finding remains at this exact head.
+
+VERDICT: CLEAN
