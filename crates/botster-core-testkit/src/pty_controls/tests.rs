@@ -698,7 +698,9 @@ fn route_fill_after_an_attach_before_the_first_row_belongs_to_that_instance() {
 /// route's client sends refused frames one at a time, many more bytes than the route's first allowance, and reads the
 /// refusal of each before it sends the next. So each read takes one whole frame and the route holds nothing after it: the
 /// worker's own value of the allowance does not change, and it still sends a new one when the binding's rest is lower.
-/// Every frame is refused, in order, and none stalls in the stream.
+/// Every frame is refused, in order, and none stalls in the stream. (The binding's reads are seeded and most end inside a
+/// frame, which changes the worker's value and sends a new allowance anyway; the worker test
+/// `a_driver_that_spends_its_allowance_on_refused_frames_gets_a_new_one` reads whole frames and so fails without the fix.)
 #[test]
 fn a_route_reads_past_its_first_allowance_while_its_frames_are_refused() {
     use botster_hub_conformance::route::RouteRead;

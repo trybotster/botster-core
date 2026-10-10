@@ -1687,15 +1687,17 @@ fn a_route_input_that_fails_after_a_detach_sends_no_frame_after_route_closed() {
     assert!(refusals(&client).is_empty(), "{:?}", client.frames);
 }
 
-/// DP-5 (PR3 F99): the driver spends an allowance read by read. Each read takes whole frames, and the client reads its
-/// refusals at once, so the route holds nothing after a read and the value that the worker computes does not change; the
-/// worker still sends a new allowance when the driver's rest is lower. A driver that reads only within its allowance moves
-/// more bytes than the first allowance, and every frame is refused.
+/// DP-5 (PR3 F99): the driver spends an allowance read by read. Each read takes one whole frame, the worker refuses it at
+/// once, and the client reads its refusals, so the route holds nothing after a read and the value that the worker computes
+/// does not change; the worker still sends a new allowance when the driver's rest is lower. A driver that reads only within
+/// its allowance moves more bytes than the first allowance, and every frame is refused. (A read that ends inside a frame
+/// changes the value, so it would send a new allowance anyway: only whole-frame reads show the driver's rest.)
 #[test]
 fn a_driver_that_spends_its_allowance_on_refused_frames_gets_a_new_one() {
     let mut opts = options();
     opts.input = false;
-    let mut w = World::running();
+    // A queue that holds every refusal: the worker decodes each read whole, and no full queue stops the reads.
+    let mut w = with_limits(|l| l.route_queue_bytes = 1 << 20);
     w.feed(Input::Descriptor(DescriptorId(1)));
     let mut client = Client::default();
     let bind = attach(&mut w, RouteId(1), opts, limits());
@@ -1712,8 +1714,8 @@ fn a_driver_that_spends_its_allowance_on_refused_frames_gets_a_new_one() {
     let frame = sent.len() / 400;
     let (mut rest, mut at) = (first, 0);
     while at < sent.len() {
-        // Whole frames only, at most seven.
-        let n = (rest.min(sent.len() - at).min(7 * frame) / frame) * frame;
+        // One whole frame, when the rest allows it.
+        let n = if rest >= frame { frame } else { 0 };
         assert!(
             n > 0,
             "the reads stopped at {at} of {} (rest {rest})",
@@ -1786,7 +1788,7 @@ fn feed_within_allowance(w: &mut World, frame: &[u8], mut rest: usize) -> Vec<Ac
 fn one_frame_of_exactly_max_frame_bytes_at_the_default_limits_is_written() {
     let limits = default_limits();
     assert!(limits.max_frame_bytes > limits.route_input_queue_bytes);
-    let (mut w, _, bind) = attached(limits.clone());
+    let (mut w, _, bind) = attached(limits);
     let first = allowance(&bind, RouteId(1)).expect("the bind's allowance");
     assert_eq!(first as u64, limits.max_frame_bytes + 4, "R-53");
     // The type byte and the op: the payload fills the rest of the frame.
