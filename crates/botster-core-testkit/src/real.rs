@@ -250,7 +250,9 @@ impl RealCoreHarness {
             ));
         }
         let tap = self.tap(handle)?;
-        let dir = DataDirRef(self.handles[handle].data_dir.display().to_string());
+        let dir = self
+            .data_dir_of(handle)
+            .ok_or_else(|| ControlError::Bad(format!("the handle '{handle}' is not open")))?;
         let processes = self.session_processes(&dir, &args.session).ok_or_else(|| {
             ControlError::Bad(format!("the session {} has no row", args.session.0))
         })?;
