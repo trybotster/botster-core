@@ -304,3 +304,31 @@ fn a_frame_larger_than_the_send_buffer_sends_a_prefix_with_the_descriptor() {
     assert_eq!(got, frame);
     assert_eq!(fds, [0], "one descriptor, with the first byte");
 }
+
+/// Lead ruling on PR A (plan 23ac): a real send of a message of exactly the send buffer's size, on an empty socket, goes
+/// with its descriptor (the largest send that `send_with_fd` makes), and the reader gets every byte and the descriptor once.
+#[test]
+fn a_message_of_exactly_the_send_buffer_size_goes_with_its_descriptor() {
+    let (mut a, b, passed, _peer) = pairs();
+    let send_buffer = rustix::net::sockopt::socket_send_buffer_size(&a).unwrap();
+    let frame: Vec<u8> = (0..send_buffer).map(|i| i as u8).collect();
+    let reader = std::thread::spawn(move || {
+        let mut buf = vec![0u8; 1 << 16];
+        let (mut got, mut fds) = (Vec::new(), Vec::new());
+        loop {
+            let received = recv_with_fds(&b, &mut buf).unwrap();
+            if received.len == 0 {
+                break (got, fds);
+            }
+            fds.extend(received.fds.into_iter().map(|_| got.len()));
+            got.extend_from_slice(&buf[..received.len]);
+        }
+    });
+    let sent = send_with_fd(&a, &frame, passed.as_fd()).unwrap();
+    assert!(sent >= 1, "{sent} of {send_buffer}");
+    a.write_all(&frame[sent..]).unwrap();
+    drop(a);
+    let (got, fds) = reader.join().unwrap();
+    assert_eq!(got, frame);
+    assert_eq!(fds, [0], "one descriptor, with the first byte");
+}
