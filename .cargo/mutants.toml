@@ -119,16 +119,24 @@ exclude_re = [
     # own in botster_core_sys::signal (a_target_of_0_1_out_of_range_or_our_own_is_refused,
     # our_own_group_and_process_are_never_signalled).
     'xtask/src/test_budget\.rs:\d+:\d+: replace kill with \(\)$',
-    # xtask test_budget.rs run_nextest, run_bounded, bounded_report and pending_real, every mutant (#220 R1-1): they start a
-    # real process group, track it, kill it at the deadline and capture its output, so only real-process tests reach them,
-    # and those are slow tests (BUILD.md testing rule 2): a_bounded_run_returns_its_status_and_what_it_printed,
-    # a_run_past_its_deadline_is_killed_and_fails, a_process_left_behind_fails_the_run_and_is_killed, and every gate's slow
-    # step. Interim until the plan 23n two-stage verdict, like real.rs above; removed by that PR. Until then the proof is a
-    # focused manual slow mutation run of these functions (its own pool job; the log is in the RealCoreHarness PR body).
-    'xtask/src/test_budget\.rs:\d+:\d+: (replace run_nextest( ->| with)|.* in run_nextest$)',
-    'xtask/src/test_budget\.rs:\d+:\d+: (replace run_bounded( ->| with)|.* in run_bounded$)',
-    'xtask/src/test_budget\.rs:\d+:\d+: (replace bounded_report( ->| with)|.* in bounded_report$)',
-    'xtask/src/test_budget\.rs:\d+:\d+: (replace pending_real( ->| with)|.* in pending_real$)',
+    # xtask test_budget.rs run_nextest and run_bounded -> a value: process glue. run_bounded starts a command in its own
+    # process group, tracks its processes, kills the group at the deadline and copies its stdout; run_nextest builds the
+    # nextest command for it. A default-tier test cannot start a real process group (BUILD.md testing rule 2). Only these
+    # whole-body replacements are excluded. Their decisions are tested: exit_failures (the_way_nextest_ended_is_judged) and
+    # run_failures (the_failures_of_a_bounded_run_are_its_leftovers_its_deadline_and_its_open_output); the slow tests
+    # a_run_past_its_deadline_is_killed_and_fails and a_process_left_behind_fails_the_run_and_is_killed run the glue itself.
+    'xtask/src/test_budget\.rs:\d+:\d+: replace run_nextest -> ',
+    'xtask/src/test_budget\.rs:\d+:\d+: replace run_bounded -> ',
+    # xtask test_budget.rs bounded_report -> a value: process glue (#220 R1-1). The body runs a command with run_bounded,
+    # kills its leftovers and reads its captured output until the deadline. Only this whole-body replacement is excluded. Its
+    # decision is the tested run_failures (the_failures_of_a_bounded_run_are_its_leftovers_its_deadline_and_its_open_output);
+    # the slow test a_bounded_run_returns_its_status_and_what_it_printed runs the glue.
+    'xtask/src/test_budget\.rs:\d+:\d+: replace bounded_report -> ',
+    # xtask test_budget.rs pending_real -> a value: process glue. The body builds the command of the real tier's pending-real
+    # run (`cargo test ... -- --ignored`) and runs it with bounded_report; a test cannot run the real tier inside the test
+    # run. Only this whole-body replacement is excluded. Its decision is the tested real_report_ran
+    # (the_pending_real_run_passes_only_with_a_success_and_its_report), and every gate's slow step runs it.
+    'xtask/src/test_budget\.rs:\d+:\d+: replace pending_real -> ',
     # P7 GuardianConfig::fmt: the debug text has no contract format. An empty successful
     # debug result still omits the service token, which is the only required property.
     # only_a_valid_host_hello_authenticates checks token omission.

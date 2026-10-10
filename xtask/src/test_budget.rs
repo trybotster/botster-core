@@ -241,27 +241,27 @@ fn run_nextest(
         .args(args)
         .env("BOTSTER_TEST_PIDFILE", pidfile)
         .envs(tier_env(slow));
-    let (run, _) = run_bounded(
+    run_bounded(
         command,
         deadline,
         pidfile,
         None,
         "start cargo nextest (install it with `cargo install cargo-nextest --locked`)",
-    )?;
-    Ok(run)
+    )
 }
 
 /// Runs `command` in its own process group, and kills that group when `deadline` passes. A tracker thread records which
 /// processes belong to the run while it goes (see `update_owned`). With `capture`, the run's stdout goes through a pipe:
 /// each line is printed as it comes and sent to `capture`, so the caller reads it after [`clean_up`] (a leftover that holds
-/// the pipe keeps it open until then). Everything after the spawn returns a value, so the caller can always clean up.
+/// the pipe keeps it open until then). Everything after the spawn returns a value, so the caller can always clean up. An
+/// I/O shell: its verdicts are [`exit_failures`] and [`run_failures`].
 fn run_bounded(
     mut command: Command,
     deadline: Duration,
     pidfile: &Path,
     capture: Option<mpsc::Sender<String>>,
     start: &'static str,
-) -> Result<(Run, Option<std::thread::JoinHandle<()>>)> {
+) -> Result<Run> {
     let started = Instant::now();
     command.process_group(0);
     if capture.is_some() {
@@ -269,17 +269,17 @@ fn run_bounded(
     }
     let mut child = caps::apply(&mut command).spawn().context(start)?;
     let group = child.id();
-    let reader = match (capture, child.stdout.take()) {
-        (Some(lines), Some(stdout)) => Some(std::thread::spawn(move || {
+    if let (Some(lines), Some(stdout)) = (capture, child.stdout.take()) {
+        // The reader ends with the pipe; nothing waits for it.
+        std::thread::spawn(move || {
             for line in BufReader::new(stdout).lines().map_while(Result::ok) {
                 println!("{line}");
                 if lines.send(line).is_err() {
                     break;
                 }
             }
-        })),
-        _ => None,
-    };
+        });
+    }
 
     let (stop_tx, stop_rx) = mpsc::channel::<()>();
     let tracker = std::thread::spawn(move || {
@@ -321,16 +321,13 @@ fn run_bounded(
             owned
         })
     });
-    Ok((
-        Run {
-            status: status.map_err(|e| e.to_string()),
-            timed_out,
-            wall,
-            group,
-            owned,
-        },
-        reader,
-    ))
+    Ok(Run {
+        status: status.map_err(|e| e.to_string()),
+        timed_out,
+        wall,
+        group,
+        owned,
+    })
 }
 
 /// Runs the real tier's pending-real trials (`cargo test -p botster-core --features slow --test slow_conformance --
@@ -381,8 +378,8 @@ pub fn pending_real(root: &Path, deadline: Duration) -> Result<(bool, String)> {
     )
 }
 
-/// Runs `command` with [`run_bounded`], capturing its stdout, and judges it: past `deadline`, a leftover process, or a
-/// report pipe still open at `deadline` fails; otherwise returns whether it succeeded and what it printed.
+/// Runs `command` with [`run_bounded`], capturing its stdout, and judges it with [`run_failures`]. The I/O shell of that
+/// decision: returns whether the run succeeded and what it printed.
 fn bounded_report(
     command: Command,
     deadline: Duration,
@@ -391,42 +388,42 @@ fn bounded_report(
 ) -> Result<(bool, String)> {
     let started = Instant::now();
     let (lines_tx, lines_rx) = mpsc::channel();
-    let (run, reader) = run_bounded(command, deadline, pidfile, Some(lines_tx), start)?;
+    let run = run_bounded(command, deadline, pidfile, Some(lines_tx), start)?;
     // First, before any step that can fail: report and kill the leftovers.
-    let mut failures: Vec<String> = clean_up(&run).into_iter().collect();
-    if run.timed_out {
-        failures.push(format!(
-            "the run passed its {} s deadline; it was killed",
-            deadline.as_secs()
-        ));
-    }
+    let leftover = clean_up(&run);
     let mut lines = Vec::new();
     // The reader ends when every holder of the pipe has closed it; the leftovers are killed above.
-    loop {
+    let output_open = loop {
         match lines_rx.recv_timeout(deadline.saturating_sub(started.elapsed())) {
             Ok(line) => lines.push(line),
-            Err(mpsc::RecvTimeoutError::Disconnected) => break,
-            Err(mpsc::RecvTimeoutError::Timeout) => {
-                failures.push(format!(
-                    "the run's output stayed open past its {} s deadline",
-                    deadline.as_secs()
-                ));
-                break;
-            }
+            Err(mpsc::RecvTimeoutError::Disconnected) => break false,
+            Err(mpsc::RecvTimeoutError::Timeout) => break true,
         }
-    }
-    if failures.is_empty() {
-        if let Some(reader) = reader {
-            let _ = reader.join();
-        }
-    }
-    if !failures.is_empty() {
-        bail!("{}", failures.join("; "));
-    }
+    };
+    let failures = run_failures(leftover, run.timed_out, output_open, deadline);
+    anyhow::ensure!(failures.is_empty(), "{}", failures.join("; "));
     let success = matches!(&run.status, Ok(status) if status.success());
     let mut text = lines.join("\n");
     text.push('\n');
     Ok((success, text))
+}
+
+/// The failures of a bounded run (#220 R1-1): the processes that it left behind (`clean_up`), a run past its deadline, and
+/// output still open at the deadline (a holder of the pipe outlived the run). None of them is the run's own exit status.
+fn run_failures(
+    leftover: Option<String>,
+    timed_out: bool,
+    output_open: bool,
+    deadline: Duration,
+) -> Vec<String> {
+    let secs = deadline.as_secs();
+    leftover
+        .into_iter()
+        .chain(timed_out.then(|| format!("the run passed its {secs} s deadline; it was killed")))
+        .chain(
+            output_open.then(|| format!("the run's output stayed open past its {secs} s deadline")),
+        )
+        .collect()
 }
 
 /// Reports and kills what the run left behind. It runs first after the run, on every path, so a later error cannot skip it.
@@ -868,6 +865,32 @@ mod tests {
         assert!(
             budget_failures(true, false, Duration::from_secs(900), &map(&[("a", 50.0)])).is_empty()
         );
+    }
+
+    /// #220 R1-1: a bounded run fails for each process that it left behind, for passing its deadline, and for output still
+    /// open at the deadline, each with its own message; a run with none of them has no failure.
+    #[test]
+    fn the_failures_of_a_bounded_run_are_its_leftovers_its_deadline_and_its_open_output() {
+        let d = SLOW_DEADLINE;
+        assert!(run_failures(None, false, false, d).is_empty());
+        assert_eq!(
+            run_failures(
+                Some("processes left behind by the tests: pid 9".into()),
+                false,
+                false,
+                d
+            ),
+            ["processes left behind by the tests: pid 9"]
+        );
+        assert_eq!(
+            run_failures(None, true, false, d),
+            ["the run passed its 600 s deadline; it was killed"]
+        );
+        assert_eq!(
+            run_failures(None, false, true, d),
+            ["the run's output stayed open past its 600 s deadline"]
+        );
+        assert_eq!(run_failures(Some("left".into()), true, true, d).len(), 3);
     }
 
     #[test]
