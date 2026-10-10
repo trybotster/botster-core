@@ -306,12 +306,23 @@ fn a_route_of_a_starting_session_is_handed_over_at_launch() {
     assert!(w.trace.contains(&"handoff".to_string()));
 }
 
-/// Core LC-7 step 1: `Remove` closes a route that is still bound with `SessionRemoved`.
+/// Core LC-7 step 1: `Remove` closes a route that is still bound with `SessionRemoved`. The exit closed the routes that
+/// were bound then (A2-3), so the route attaches after the exit (contracts `a2_3_every_route_close_reason_maps_to_one_wire_reason`,
+/// route r9).
 #[test]
 fn remove_closes_the_bound_routes_with_session_removed() {
     let mut w = World::default();
     w.autopilot = Autopilot::Silent;
     w.running("s1");
+    w.worker_says(
+        "s1",
+        WorkerMsg::Exited {
+            code: Some(0),
+            signal: None,
+        },
+    );
+    w.pump();
+    w.engine.poll_events(64);
     let options = AttachOptions {
         file_directory: "/tmp".into(),
         file_permissions: None,
@@ -336,13 +347,6 @@ fn remove_closes_the_bound_routes_with_session_removed() {
         )
         .unwrap()
         .route;
-    w.worker_says(
-        "s1",
-        WorkerMsg::Exited {
-            code: Some(0),
-            signal: None,
-        },
-    );
     w.pump();
     w.engine.poll_events(64);
     let remove = w.engine.begin(Op::Remove { id: sid("s1") }).unwrap();

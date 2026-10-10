@@ -51,6 +51,24 @@ pub struct Faults {
     pub next_write: Option<StorageError>,
     /// The next spawn is refused with this `errno`, once.
     pub next_spawn: Option<i32>,
+    /// The next hand-over of a stream endpoint to a worker fails, once (`fail_handoff`, Core DP-2).
+    pub fail_handoff: bool,
+    /// The hand-over that the edge holds until `release_handoff` (`hold_handoff`, Core OU-9).
+    pub handoff_hold: HandoffHold,
+}
+
+/// The hold of a hand-over at the edge (`hold_handoff`, `release_handoff`). While a link holds one, every hand-over on that
+/// link takes nothing and returns `Blocked`, as a socket that takes no byte now: the driver keeps the endpoint and its frame,
+/// and the frames after it on that link wait behind it. It is not a report to Core.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub enum HandoffHold {
+    /// No hold.
+    #[default]
+    Off,
+    /// The next hand-over, on any link, is held.
+    Armed,
+    /// The hand-over on this link is held.
+    Held(LinkId),
 }
 
 /// The wake object of the testkit: a level flag that a waiter on any thread sees (TM-6, TH-2). A wait on a clear flag can end
@@ -326,6 +344,24 @@ impl HostEdges for SimEdges {
         let Some(end) = self.links.get_mut(&link) else {
             return Err((endpoint, DescriptorSendError::Failed));
         };
+        {
+            let mut faults = lock(&self.faults);
+            match faults.handoff_hold {
+                HandoffHold::Armed => {
+                    faults.handoff_hold = HandoffHold::Held(link);
+                    return Err((endpoint, DescriptorSendError::Blocked));
+                }
+                HandoffHold::Held(held) if held == link => {
+                    return Err((endpoint, DescriptorSendError::Blocked));
+                }
+                HandoffHold::Off | HandoffHold::Held(_) => {}
+            }
+            // The link's own hook fails the hand-over as `sendmsg` fails: nothing is taken, and the endpoint comes back to the
+            // driver, which closes it (DP-2).
+            if std::mem::take(&mut faults.fail_handoff) {
+                end.end().control().fail_next_handoff();
+            }
+        }
         end.send_with_descriptor(bytes, crate::net::Descriptor::new(endpoint))
             .map_err(|(descriptor, error)| {
                 let endpoint = descriptor
