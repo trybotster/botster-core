@@ -188,7 +188,7 @@ fn a_released_blocker_ends_its_child_with_code_0_and_its_shell_words_name_the_fi
 #[test]
 fn a_running_child_is_a_live_child_and_an_ended_one_is_not() {
     let dir = tempfile::tempdir().unwrap();
-    let mut blocker = Blocker::new(dir.path(), "block").unwrap();
+    let blocker = Blocker::new(dir.path(), "block").unwrap();
     let mut child = OwnedChild::spawn(&mut blocker.command()).unwrap();
     let me = rustix::process::getpid();
     let child_pid = pid(child.id()).unwrap();
@@ -205,14 +205,15 @@ fn a_running_child_is_a_live_child_and_an_ended_one_is_not() {
         Vec::new(),
         "cat has no child"
     );
-    blocker.release();
+    // A kill, not the release: a `cat` that has not opened the FIFO yet would block in its open after the release.
+    child.kill().unwrap();
     assert_eq!(
         await_end(child_pid, Deadline::after(CLEANUP)).unwrap(),
         Waited::Exited
     );
     assert!(peek(child_pid).unwrap().is_some(), "unreaped: a zombie");
     assert!(!is_live_child(), "a zombie is not live");
-    assert_eq!(child.status().code(), Some(0));
+    assert_eq!(child.status().signal(), Some(KILL));
     assert!(!is_live_child(), "a reaped child is gone");
 }
 
