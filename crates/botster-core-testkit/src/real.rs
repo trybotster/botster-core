@@ -394,7 +394,7 @@ impl CoreHarness for RealCoreHarness {
 }
 
 #[cfg(test)]
-mod tests {
+mod slow_tests {
     use super::*;
 
     /// R-46: the runner's clock is the one Core sees, but real processes make progress, so the driver must not jump it. The
