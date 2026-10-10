@@ -281,11 +281,20 @@ impl CoreHarness for TestkitHarness {
             .get(handle)
             .map(|h| h.route_ends.clone())
             .unwrap_or_default();
-        // The route serves the worker that the session has now; a later worker serves a later route.
-        let worker = crate::controls::session_row(self, handle, session)
-            .ok()
-            .and_then(|row| row.worker)
-            .map(|worker| worker.identity());
+        // The route belongs to this instance of the session. Its worker can come later (an attach while `Starting`), so a
+        // fill reads the row when it runs.
+        let session_row = self
+            .directory_of(handle)
+            .and_then(|dir| {
+                self.directories
+                    .row_reader(dir, &botster_core_host::session::row_key(session))
+            })
+            .zip(crate::controls::session_row(self, handle, session).ok())
+            .map(|(rows, row)| crate::route_client::SessionRow {
+                rows,
+                session: session.clone(),
+                instance: row.instance,
+            });
         let route = crate::route_client::TestkitRoute::new(
             client_end,
             self.workers.clone(),
@@ -293,7 +302,7 @@ impl CoreHarness for TestkitHarness {
             ends,
         )
         .with_fill(crate::route_client::RouteFill {
-            worker,
+            session: session_row,
             max_frame_bytes: usize::try_from(result.limits.max_frame_bytes).unwrap_or(usize::MAX),
         });
         Ok((result, Box::new(route)))
