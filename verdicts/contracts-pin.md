@@ -620,3 +620,92 @@ Verified SHA256: `bc60e9705fc06938e947fdfc9e163da25d4786d148d93c615f92a2a923625a
 The reviewer changed no product code and ran no builds, tests, mutation jobs, or gates.
 
 VERDICT: CLEAN
+
+
+## PR #226 — contracts v0.1.26 — Round 1 — 2026-10-10
+
+Head: `87c42db4d2f81ffcb31a4862fab5a410f5ab32ab`.
+Tree: `7a9725775b6a7ee520d67b440eb3e29c05d9f8ec`.
+Parents: `cd54f683df9b7c879cf60f7c9e53274db9b02e20` and `7caf3457a04bd37f5d4e844db1900525eea7c8ec`.
+PR and gate base: `7caf3457a04bd37f5d4e844db1900525eea7c8ec`. The head contains this base.
+Tier: HIGH, rule 4, contracts pin move. The new gate decisions also require HIGH review.
+READY: `msg_plugin-w_1791655121_892f7c` from P6.
+
+Authority: approved plan 23x, pin `~/botster-sessions/pins/stage1-plan.c0b6f32e.md`.
+Verified SHA256: `ba89898ba66c2a4144a1978d0d89e791469b0b1645da167bf5e37178ae07f63f`.
+The plan permits the direct move from v0.1.24 to v0.1.26. It retains the section 5 exception from plan 23u.
+Sol now holds the integration seat: `sess-1791654840-017a-4e0798223b6086de3e26b7b486e22973`.
+Astra remains available only for handover.
+
+### PIN26-F1 — HIGH — OPEN
+
+The new rule permits an existing ID to enter a pending list without checking that it fails at the new tag.
+Plan section 5 permits this gain only when all three conditions hold:
+
+1. The commit changes the pinned tag.
+2. The ID's transcript differs between the old and new pinned sources.
+3. The ID fails at the new tag.
+
+The plan requires a tested decision in the `lists` step and a red-on-revert proof.
+`xtask/src/lists.rs:317` and `:432` implement only the first two conditions.
+Both decisions permit the gain when `tag_moved` and `transcript_changed.contains(id)` are true.
+Neither decision receives a failure result.
+
+The PR body assigns the third condition to the strict pending run in #218.
+This exact tree has no `xtask/src/pending.rs` and no strict pending run.
+`tests/suite/mod.rs:147` constructs `never_passes` trials that remain ignored even under `--include-ignored`.
+Core pending transcripts therefore do not execute during the existing lists report comparison.
+`xtask/src/ci.rs:196` checks only that the two pass counts are present and equal.
+An added pending ID lowers both counts equally, so this check cannot detect a passing ID that returns to pending.
+
+The real tier executes pending trials but reports a pass as ignored.
+`real_report_ran` checks only process success and report prefixes.
+It does not reject a pending-real ID that passes.
+A changed transcript that still passes can therefore leave either set of required tests under the new rule.
+No pending gain occurs at this head. That fact does not complete the new gate decision.
+
+Required correction: enforce the failing-result condition for both pending lists with focused tests and retained proof.
+Alternatively, remove the incomplete allowance from this pin PR under the lead's decision.
+Sol independently found the same issue as integration R1-1.
+The package reviewer sent PIN26-F1 directly to P6 in `msg_plugin-w_1791655399_4d64fe`.
+
+### Other checks
+
+The reviewer read the complete six-file Core delta, exact PR body, changed decisions, and their tests.
+The reviewer also checked the upstream tag and the output-check changes between v0.1.25 and v0.1.26.
+The tag resolves to `0ac061d225724f6f7fc7b2368f637ba2c9a6c2b6`.
+Seven workspace dependencies use v0.1.26. Nine lockfile source fields use that exact commit.
+All 222 lockfile packages retain their other fields.
+The v0.1.25-to-v0.1.26 upstream delta changes no transcript, ledger, manifest, or Cargo file.
+
+The Core ledger, deferred file, contracts status copies, real-only map, and minimum list equal the base bytes.
+Core pending IDs remain 477. Only five reason comments change.
+Real pending remains byte-identical at 87 IDs.
+The ledger remains 690 IDs. The minimum list remains 69 IDs.
+The new transcript query uses explicit output flags and NUL-separated paths.
+Its fixture covers changed files, renamed files, unchanged files, files outside Core, equal commits, initialization, and a missing commit.
+The new command exclusion covers only replacement of the whole `command` body.
+It cites the separate decisions and tests; their comparison code remains outside that exclusion.
+`git diff --check` reports no whitespace error.
+
+### Supplied evidence
+
+Exact-head log: `~/botster-sessions/gates/botster-core-stage1-p6-pin-v0.1.25-87c42db4-pool-20261010-104949-96536.log`.
+The log identifies the exact head and base. All ten stages report PASS.
+Default: 1486 passed, 497 skipped. Slow: 381 passed, 1937 skipped.
+Testkit conformance: 193 passed, zero failed.
+Real pending: 87 IDs, zero newly passing.
+Minimum: testkit-passing 50 / 69, real-passing 29 / 68, real-accepted 29 / 69.
+`ou_3_progressing_reader_lossless` passes in 0.717 seconds.
+Both mutation steps report 29 tested, 29 caught, zero unviable, missed, or timeout.
+The job exits zero after 489 seconds. The gate exits zero after 490 seconds on msa1.
+
+Earlier red-on-revert log: `~/botster-sessions/gates/botster-core-stage1-p6-pin25-revert-8cf3fac4-pool-20261010-090229-79976.log`.
+The reverted allowance fails one fixture and rejects the temporary `a2_3` pending gain.
+The restored allowance passes 32 fixtures and accepts that gain.
+This proof covers permission for a changed transcript. It does not prove rejection of a changed transcript that still passes.
+
+The reviewer changed no product code and ran no builds, tests, mutation jobs, or gates.
+PIN26-F1 remains open. The supplied green gate does not close it.
+
+VERDICT: NOT CLEAN
