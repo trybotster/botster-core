@@ -23,11 +23,13 @@ use botster_core_host::driver::HostWake;
 use botster_probe_script::control::{Report, Request, CONNECT_FAILED_EXIT, CONTROL_ENV};
 use botster_route_codec::prelude::{hex_decode, HexBytes};
 use botster_test_process::platform::{self, Waited};
-use botster_test_process::Deadline;
+use botster_test_process::{Bounded, Deadline, ReadError};
+use rustix::event::{poll, PollFd, PollFlags, Timespec};
+use rustix::io::Errno;
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
-use std::io::{self, BufRead, BufReader, Write};
+use std::io::{self, Write};
 use std::net::Shutdown;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
@@ -206,8 +208,8 @@ impl Programs {
 }
 
 impl Drop for Programs {
-    /// Stops the accept thread (one connection of its own wakes it) and ends every reader (the shutdown of its socket), then
-    /// joins them. An exit watcher ends with its probe's exit or its next bound.
+    /// Stops the accept thread (one connection of its own wakes its poll) and ends every reader (the shutdown of its socket),
+    /// then joins them. An exit watcher ends with its probe's exit or its next bound.
     fn drop(&mut self) {
         let connections = {
             let mut state = self.hub.lock();
@@ -234,15 +236,45 @@ fn exited(worker: u32) -> ControlError {
 /// The accept thread: one reader thread for each connection, until the drop.
 fn accept(listener: &UnixListener, hub: &Arc<Hub>) {
     let mut readers = vec![];
-    for stream in listener.incoming() {
-        let Ok(stream) = stream else { continue };
-        let mut state = hub.lock();
-        if state.closing {
+    // botster-test-process has no bounded accept yet (P6 adds one in its next crate PR, which replaces this loop). The
+    // listener is non-blocking, so the accept never blocks; a poll by the cleanup bound waits for a connection, and the bound
+    // only re-arms it (a probe connects whenever a session starts). The drop's `closing` is checked at each round.
+    if listener.set_nonblocking(true).is_err() {
+        return;
+    }
+    loop {
+        if hub.lock().closing {
             break;
+        }
+        let stream = match listener.accept() {
+            Ok((stream, _)) => stream,
+            Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                let deadline = Deadline::cleanup();
+                let mut ready = [PollFd::new(listener, PollFlags::IN)];
+                let Ok(left) = Timespec::try_from(deadline.remaining()) else {
+                    break;
+                };
+                // timer: deadline — bounds each wait for a probe's connection; the loop re-arms it.
+                match poll(&mut ready, Some(&left)) {
+                    Ok(_) | Err(Errno::INTR) => continue,
+                    Err(_) => break,
+                }
+            }
+            // A peer that reset before the accept: the next connection is accepted as usual.
+            Err(error) if error.kind() == io::ErrorKind::ConnectionAborted => continue,
+            Err(_) => break,
+        };
+        // macOS: an accepted socket inherits the listener's non-blocking mode; the requests are blocking writes.
+        if stream.set_nonblocking(false).is_err() {
+            continue;
         }
         let Ok(copy) = stream.try_clone() else {
             continue;
         };
+        let mut state = hub.lock();
+        if state.closing {
+            break;
+        }
         state.connections.push(copy);
         drop(state);
         let hub = Arc::clone(hub);
@@ -263,14 +295,13 @@ fn serve(hub: &Hub, stream: UnixStream) {
     let Ok(requests) = stream.try_clone() else {
         return;
     };
-    let mut lines = BufReader::new(stream);
-    let mut line = String::new();
-    let pid = match lines.read_line(&mut line) {
-        Ok(0) | Err(_) => return,
-        Ok(_) => match serde_json::from_str(&line) {
-            Ok(Report::Hello { parent, .. }) => parent,
-            _ => return,
-        },
+    let mut lines = Lines {
+        reader: Bounded::new(stream),
+        partial: vec![],
+    };
+    let pid = match lines.next(hub).map(|line| serde_json::from_str(&line)) {
+        Some(Ok(Report::Hello { parent, .. })) => parent,
+        _ => return,
     };
     hub.lock().probes.insert(
         pid,
@@ -284,11 +315,9 @@ fn serve(hub: &Hub, stream: UnixStream) {
     );
     hub.changed.notify_all();
     loop {
-        line.clear();
-        let report = match lines.read_line(&mut line) {
-            Ok(0) | Err(_) => None,
-            Ok(_) => serde_json::from_str::<Report>(&line).ok(),
-        };
+        let report = lines
+            .next(hub)
+            .and_then(|line| serde_json::from_str::<Report>(&line).ok());
         let mut state = hub.lock();
         let probe = state.probes.get_mut(&pid).expect("registered");
         let woke = match report {
@@ -314,6 +343,35 @@ fn serve(hub: &Hub, stream: UnixStream) {
         hub.changed.notify_all();
         if woke {
             hub.wake_hosts();
+        }
+    }
+}
+
+/// The lines of one connection.
+struct Lines {
+    reader: Bounded<UnixStream>,
+    /// The start of a line that a bound cut: the next line begins with it.
+    partial: Vec<u8>,
+}
+
+impl Lines {
+    /// The next line, or `None` at the end of the socket, at a read error, or once the harness closes. A probe may stay silent
+    /// for the whole session, so the cleanup bound of each read only re-arms it, and the drop's `closing` is checked at each
+    /// bound.
+    fn next(&mut self, hub: &Hub) -> Option<String> {
+        loop {
+            match self.reader.line(Deadline::cleanup()) {
+                Ok(line) => {
+                    let line = line?;
+                    let mut whole = std::mem::take(&mut self.partial);
+                    whole.extend_from_slice(line.as_bytes());
+                    return Some(String::from_utf8_lossy(&whole).into_owned());
+                }
+                Err(ReadError::Deadline { partial, .. }) if !hub.lock().closing => {
+                    self.partial.extend_from_slice(&partial);
+                }
+                Err(_) => return None,
+            }
         }
     }
 }
@@ -459,14 +517,14 @@ mod slow_tests {
     /// The real probe's own tests are in botster-contracts; the real-tier conformance ids run the real probe.
     struct FakeProbe {
         stream: UnixStream,
-        lines: BufReader<UnixStream>,
+        lines: Bounded<UnixStream>,
     }
 
     impl FakeProbe {
         fn connect(programs: &Programs, parent: u32) -> FakeProbe {
             let stream = UnixStream::connect(&programs.path).unwrap();
             let mut probe = FakeProbe {
-                lines: BufReader::new(stream.try_clone().unwrap()),
+                lines: Bounded::new(stream.try_clone().unwrap()),
                 stream,
             };
             probe.report(&Report::Hello { pid: 1, parent });
@@ -480,8 +538,11 @@ mod slow_tests {
         }
 
         fn next_request(&mut self) -> Request {
-            let mut line = String::new();
-            assert!(self.lines.read_line(&mut line).unwrap() > 0);
+            let line = self
+                .lines
+                .line(Deadline::cleanup())
+                .unwrap()
+                .expect("the harness sent a request");
             serde_json::from_str(&line).unwrap()
         }
     }

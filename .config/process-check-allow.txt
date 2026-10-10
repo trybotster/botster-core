@@ -97,6 +97,12 @@ crates/botster-worker/tests/common/session.rs | drop | child-wait
 crates/botster-worker/tests/common/session.rs | fifo | command-wait
 crates/botster-worker/tests/common/session.rs | first_line | blocking-read
 crates/botster-worker/tests/common/session.rs | launch | blocking-read
+
+# The probes' control socket of the real-tier program controls (PC, #233): the accept runs on a non-blocking listener after a
+# bounded poll (Deadline::cleanup() re-armed each round, closing checked each round); WouldBlock polls again; the check cannot
+# see the non-blocking listener. Temporary: the P6 bounded accept in botster-test-process replaces it (same plan as the
+# session.rs launch entry).
+crates/botster-core-testkit/src/real/program.rs | accept | blocking-read
 crates/botster-worker/tests/common/session.rs | launch | spawn
 crates/botster-worker/tests/common/session.rs | lc_5_stop_asks_then_kill_ends_and_the_worker_survives | shell-loop
 crates/botster-worker/tests/common/session.rs | lc_5_stop_asks_then_kill_ends_and_the_worker_survives | shell-loop
