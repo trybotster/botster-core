@@ -315,6 +315,12 @@ impl CoreHarness for RealCoreHarness {
         true
     }
 
+    /// The workers and payloads are real processes, so the injected clock does not control every source of progress. The
+    /// driver then never jumps the clock to Core's next deadline: it moves only by `advance_clock` (steward ruling R-46).
+    fn progress_is_injected(&self) -> bool {
+        false
+    }
+
     /// A directory under the harness's root (`<root>/d/<name>`), kept across a drop and a reopen (Core LC-12, AD-1).
     /// `Core::open` creates it; `new` made its parent.
     fn data_dir(&mut self, name: &str) -> DataDirRef {
@@ -384,5 +390,24 @@ impl CoreHarness for RealCoreHarness {
         _options: AttachOptions,
     ) -> Result<(AttachResult, Box<dyn RouteClient>), CoreError> {
         Err(no_route("attach_stream"))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// R-46: the runner's clock is the one Core sees, but real processes make progress, so the driver must not jump it. The
+    /// harness starts no process, so binaries that do not exist are enough.
+    #[test]
+    fn the_real_harness_injects_the_clock_but_not_its_progress() {
+        let harness = RealCoreHarness::new(Candidate {
+            worker: PathBuf::from("/nonexistent/worker"),
+            probe: PathBuf::from("/nonexistent/probe"),
+            anchor: PathBuf::from("/nonexistent/anchor"),
+        })
+        .unwrap();
+        assert!(harness.injects_clock());
+        assert!(!harness.progress_is_injected());
     }
 }
