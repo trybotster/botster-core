@@ -675,13 +675,7 @@ fn only_a_matching_identity_is_killed_and_the_host_is_woken() {
         rig.with(|t| t.kill_group(identity(41))),
         IdentityState::Matches
     );
-    rig.with(|t| {
-        assert_eq!(t.inner.calls, ["signal 41 Kill"]);
-        assert!(
-            t.signals.is_empty(),
-            "the harness's kill is no signal of Core"
-        );
-    });
+    rig.with(|t| assert_eq!(t.inner.calls, ["signal 41 Kill"]));
     assert_eq!(rig.signals(), 1);
 }
 
@@ -831,20 +825,12 @@ fn a_connected_link_is_not_read_for_a_launch() {
 }
 
 #[test]
-fn every_signal_of_core_is_recorded_in_order_with_its_target() {
+fn every_signal_of_core_passes_to_the_inner_edge_in_order() {
     let mut rig = rig(Fake::default());
     rig.edges.signal_group(identity(5), GroupSignal::Term);
     rig.edges.signal_group(identity(6), GroupSignal::EndPayload);
     rig.edges.signal_group(identity(5), GroupSignal::Kill);
     rig.with(|t| {
-        assert_eq!(
-            t.signals,
-            [
-                (identity(5), GroupSignal::Term),
-                (identity(6), GroupSignal::EndPayload),
-                (identity(5), GroupSignal::Kill)
-            ]
-        );
         assert_eq!(
             t.inner.calls,
             ["signal 5 Term", "signal 6 EndPayload", "signal 5 Kill"]
@@ -943,6 +929,35 @@ mod stand_ins {
         assert_eq!(rig.with(|t| t.signals_since_answer(&sid("s2"))), None);
         drop(rig);
         assert_eq!(inode(&path), real, "the tap's end gives the path back");
+    }
+
+    /// The harness's own kill (`lose_worker`) goes to the inner edge and is no signal of Core: the record from the
+    /// stand-in's answer on keeps only Core's signals.
+    #[test]
+    fn the_harnesss_kill_is_no_signal_of_core() {
+        let dir = tempfile::tempdir().unwrap();
+        let (path, _worker, mut rig) = rig_with_stand_in(dir.path());
+        rig.with(|t| t.inner.states.insert(41, IdentityState::Matches));
+        let mut host = UnixStream::connect(&path).unwrap();
+        assert_eq!(rig.edges.connect_worker(&InstanceId("i".into())), Some(A));
+        host.write_all(&hello_frame("i")).unwrap();
+        assert_eq!(rig.edges.link_send(A, b"hello").unwrap(), 5);
+        assert_eq!(answer(&mut host), impostor_answer(&plan(), &host_hello()));
+        assert_eq!(
+            rig.with(|t| t.kill_group(identity(41))),
+            IdentityState::Matches
+        );
+        assert_eq!(
+            rig.with(|t| t.signals_since_answer(&sid("s1"))),
+            Some(vec![]),
+            "the harness's kill is no signal of Core"
+        );
+        rig.edges.signal_group(identity(41), GroupSignal::Kill);
+        assert_eq!(
+            rig.with(|t| t.signals_since_answer(&sid("s1"))),
+            Some(vec![(identity(41), GroupSignal::Kill)]),
+            "Core's own signal is"
+        );
     }
 
     #[test]
