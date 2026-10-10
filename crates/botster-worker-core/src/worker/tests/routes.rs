@@ -676,9 +676,18 @@ fn a_write_error_during_a_healthy_close_keeps_the_first_reason() {
     );
 }
 
-/// OU-9, 9B, OU-3d: with `route_queue_bytes` and `max_snapshot_bytes` both exactly the snapshot, the snapshot is offered
-/// (the other baseline frames do not refuse it). The whole baseline and the held suffix go into the empty queue, the PTY
-/// budget is 0 while the queue is over `route_queue_bytes`, and every frame is delivered in order.
+/// The PTY read budget of a route whose threshold is `queue` and whose frames behind the baseline take `behind` bytes: the
+/// formula of `free_payload`, with output frames of `FRAME - 1` payload bytes and 5 bytes of overhead each.
+fn budget_behind(queue: u64, behind: u64) -> usize {
+    let free = usize::try_from(queue - behind).unwrap();
+    let per = usize::try_from(FRAME).unwrap() - 1;
+    free.saturating_sub((free / (per + 5) + 1) * 5)
+}
+
+/// OU-9, 9B, OU-3d, steward ruling R-45: with `route_queue_bytes` and `max_snapshot_bytes` both exactly the snapshot, the
+/// snapshot is offered. The whole baseline and the held suffix go into the empty queue. The baseline sequence does not
+/// count against the threshold: only the held suffix behind it does, and then the PTY output behind that. Every frame is
+/// delivered in order, with no resync.
 #[test]
 fn a_queue_of_exactly_the_snapshot_takes_the_baseline_and_the_held_suffix() {
     let held_input = b"\x1b]2;t\x1b";
@@ -694,11 +703,21 @@ fn a_queue_of_exactly_the_snapshot_takes_the_baseline_and_the_held_suffix() {
     w.feed(Input::PtyOutput(held_input.to_vec()));
     assert_eq!(snapshot_len(&w), size, "the same state");
     w.feed(Input::Descriptor(DescriptorId(1)));
-    let bound = attach(&mut w, RouteId(1), options(), limits());
+    let mut bound = attach(&mut w, RouteId(1), options(), limits());
+    // R-45 item 1: only the held suffix's `output` frame counts (its payload and 5 bytes of overhead).
+    let held_frame = held.len() as u64 + 5;
+    let first = budget_behind(size, held_frame);
+    assert_eq!(budgets(&bound).last(), Some(&Some(first)));
+    // The output behind the sequence counts: `first` bytes in frames of `FRAME - 1` payload bytes.
+    let more = vec![b'x'; first];
+    bound.extend(w.feed(Input::PtyOutput(more.clone())));
+    let frames = (first as u64).div_ceil(FRAME - 1);
     assert_eq!(
         budgets(&bound).last(),
-        Some(&Some(0)),
-        "the queue is over route_queue_bytes: no PTY read"
+        Some(&Some(budget_behind(
+            size,
+            held_frame + first as u64 + frames * 5
+        )))
     );
     let mut client = Client::default();
     let all = client.take_all(&mut w, RouteId(1), bound);
@@ -706,18 +725,21 @@ fn a_queue_of_exactly_the_snapshot_takes_the_baseline_and_the_held_suffix() {
     use botster_route_codec::prelude::{
         TYPE_ATTACHED, TYPE_BASELINE_BEGIN, TYPE_BASELINE_END, TYPE_LIVE, TYPE_OUTPUT, TYPE_SCREEN,
     };
+    let mut expected = vec![
+        TYPE_ATTACHED,
+        TYPE_BASELINE_BEGIN,
+        TYPE_SCREEN,
+        TYPE_BASELINE_END,
+        TYPE_LIVE,
+        TYPE_OUTPUT,
+    ];
+    expected.extend((0..frames).map(|_| TYPE_OUTPUT));
+    assert_eq!(kinds, expected, "no resync");
     assert_eq!(
-        kinds,
-        vec![
-            TYPE_ATTACHED,
-            TYPE_BASELINE_BEGIN,
-            TYPE_SCREEN,
-            TYPE_BASELINE_END,
-            TYPE_LIVE,
-            TYPE_OUTPUT
-        ]
+        client.output().0,
+        [held.as_slice(), more.as_slice()].concat(),
+        "the held suffix, then the output, after live"
     );
-    assert_eq!(client.output().0, held, "the held suffix after live");
     let drained = budgets(&all).last().copied().flatten().expect("a limit");
     assert!(drained > 0, "an empty queue takes PTY bytes again");
 }

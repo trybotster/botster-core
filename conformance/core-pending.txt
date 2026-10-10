@@ -426,7 +426,6 @@ conf::ou_1_attach_hands_transport_to_worker
 conf::ou_1_attach_options_carry_no_paste_policy
 conf::ou_1_attached_features_are_the_intersection
 conf::ou_1_no_common_terminal_format_is_unsupported_before_reservation
-conf::ou_1_terminal_format_is_negotiated_against_the_target_worker
 conf::ou_1_view_only_route_ignores_input
 conf::ou_2_close_once_first_reason_wins
 conf::ou_2_route_state_machine

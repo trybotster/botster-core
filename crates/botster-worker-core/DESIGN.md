@@ -248,11 +248,15 @@ The resync sequence (at `Stalled → Open`, OU-9):
   (OU-1). The host's sync floor refusal is Core A19-1 (accepted, staged for final38) and comes after Core pins final38.
   A9-1's floor was the `attached` frame, but `baseline_begin` and `modes` are larger (747 bytes each against 344 for
   `attached`, at default limits). A19 withdraws `conf::a9_1_frame_cap_equal_to_the_attached_frame_attaches`.
-- The queue bound (9B, OU-9, OU-3d). Each queued frame is charged its stream-delimited size. The baseline goes whole into
-  the route's empty queue at the bind: OU-9 relies on `route_queue_bytes >= max_snapshot_bytes`, so a snapshot within the
-  limit is offered even when the other baseline frames and the held suffix take the queue over `route_queue_bytes`. The
-  queue then holds at most `route_queue_bytes` plus those frames, their prefixes and the held suffix. While the queue is
-  over `route_queue_bytes`, the PTY read budget is 0, so no output is added until it drains.
+- The queue threshold (9B, OU-9, OU-3d; steward ruling R-45). Each queued frame is charged its stream-delimited size. The
+  baseline goes whole into the route's empty queue at the bind. R-45 exempts the one baseline sequence in delivery (the
+  attach frames through `live`, with their stream prefixes; the `screen` frame of `max_snapshot_bytes + 5` bytes
+  included) from the `route_queue_bytes` threshold. Only the frames behind the sequence count: the output after `R`, the
+  held suffix included. `attached` is ahead of the sequence, not behind it, so it does not count either. The PTY read
+  budget is the free payload space under the threshold, so no output is added past it, and a route that is behind stops
+  the PTY (OU-3d). A route over the threshold only because of its baseline is not "not progressing" (9B) and has no stall
+  clock of its own; OU-3b(b) alone makes it `Stalled` (the stall clock is a later P4a PR). A resync starts a new sequence
+  (at most one per route, because a resync drops the unstarted baseline frames) and sets its exempt bytes the same way.
 - PTY output goes to each `Open` route unchanged and in order (OU-12). The worker splits it into `output` frames whose size
   is within the route's `max_frame_bytes`, as the codec measures a frame (`bound_of`).
 - Client frames (`ToWorker`) go to the one admission point that host input already uses (AM-2, DP-4, DP-9). Input is
