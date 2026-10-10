@@ -570,7 +570,7 @@ impl Driver {
     /// At most one connection of the endpoint per turn. Each one is a candidate for the machine. A failed accept leaves
     /// the endpoint; the worker keeps its control link and its payload.
     fn accept_candidate(&mut self) {
-        if !io_decisions::accept_endpoint(self.endpoint_readable) {
+        if io_decisions::endpoint_waits(self.endpoint_readable) {
             return;
         }
         match self.endpoint.listener.accept() {
@@ -610,7 +610,7 @@ impl Driver {
         let mut buf = vec![0u8; self.read_chunk.get()];
         let mut ended = Vec::new();
         for (&id, candidate) in &mut self.candidates {
-            if !io_decisions::read_candidate(candidate.readable) {
+            if io_decisions::candidate_waits(candidate.readable) {
                 continue;
             }
             let closed = match candidate.stream.read(&mut buf) {
