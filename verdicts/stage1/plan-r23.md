@@ -1261,3 +1261,34 @@ This documentation change requires no execution gate.
 I ran no build, test, gate, mutation job, merge-check job, or reversal job.
 
 VERDICT: CLEAN (0 open) at 77739f966cd99042b0db56085994cb55dece6dde
+
+## Round 38 — revision 23ac — 2026-10-10
+
+Reviewed head: `aefed7592c07e453d3e5733d8ea2abef0616baf6`.
+Prior accepted head: `77739f966cd99042b0db56085994cb55dece6dde`.
+Scope: the section 6.3 item 2 correction and its revision row.
+
+The revised proof installs a recording SIGPIPE handler in a separate test target without the test harness.
+It requires EPIPE and a Failed descriptor handoff to a gone worker, with no recorded signal, on both operating systems.
+A control write must generate SIGPIPE and prove that the recording handler works.
+This control prevents the ignored startup disposition from concealing a missing signal-suppression flag.
+
+I checked the installed Rust 1.97.0 source, `std/sys/pal/unix/mod.rs:31-39,163-181`.
+Its default startup branch installs SIG_IGN for SIGPIPE.
+I checked `signal-hook` 0.3.18, the version in the current v1 lock file.
+Its safe `flag::register` API sets an AtomicBool when the signal arrives.
+The registry's forbidden-signal list does not include SIGPIPE.
+The proposed proof can therefore record delivery through the stated safe API.
+
+Linux still requires the no-signal send flag.
+macOS still requires the link socket's SO_NOSIGPIPE setting and its assertion.
+The P3 pair still owns the work inside the descriptor-handoff PRs.
+Those PRs still correct the host DESIGN.md A49 row.
+This verdict accepts the revised proof requirement, not an implementation or completed process proof.
+
+The revision changes no contract pin, ID list, passing count, staffing limit, or stage acceptance condition.
+The remote plan head matches the reviewed head. `git diff --check` passes.
+This documentation change requires no execution gate.
+I ran no build, test, gate, mutation job, merge-check job, or reversal job.
+
+VERDICT: CLEAN (0 open) at aefed7592c07e453d3e5733d8ea2abef0616baf6
