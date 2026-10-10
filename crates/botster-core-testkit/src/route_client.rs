@@ -86,7 +86,13 @@ fn flag(args: &Value, key: &str) -> Result<bool, String> {
 
 /// The byte `k` of a `route_fill` is 0x61 + (k mod 26), with `k` from 0 for each fill (R-47 item 3).
 fn fill_pattern(bytes: usize) -> Vec<u8> {
-    (0..bytes).map(|k| b'a' + (k % 26) as u8).collect()
+    const ALPHABET: &[u8; 26] = b"abcdefghijklmnopqrstuvwxyz";
+    let mut pattern = Vec::with_capacity(bytes);
+    while pattern.len() < bytes {
+        let more = (bytes - pattern.len()).min(ALPHABET.len());
+        pattern.extend_from_slice(&ALPHABET[..more]);
+    }
+    pattern
 }
 
 /// The stored row of the route's session, and the session instance that the route attached to.
