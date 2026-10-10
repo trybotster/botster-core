@@ -207,13 +207,18 @@ type Endpoint = Arc<Mutex<VecDeque<Connection>>>;
 /// until the host's `Remove` or a cleaner removes it. Every handle of the run reaches it, as a path in one file system.
 type Endpoints = Arc<Mutex<BTreeMap<InstanceKey, Option<Endpoint>>>>;
 
-/// The field of the handshake that an impostor gets wrong (`impostor_worker`, Core A10-1).
+/// The field of the handshake that an impostor gets wrong (`impostor_worker`, Core A10-1), or the protocol that a stand-in
+/// for the worker announces (`announce_protocol`, Core A6-2, AD-4).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ImpostorField {
     /// The proof is made with another token.
     Token,
     /// The hello names another `InstanceId`.
     Instance,
+    /// The hello proves the recorded token and instance, and it announces this worker protocol number. The in-process worker
+    /// has one protocol, and no worker of an invented protocol is built (the control's row): only Core's version check is
+    /// under test.
+    Protocol(u8),
 }
 
 /// A worker-shaped frame that an impostor sends behind its hello, so that Core meets it after its check rejected the
@@ -322,15 +327,18 @@ impl Impostor {
 /// The impostor's hello to the host's hello `host`: the instance of the endpoint and a proof from another token, or another
 /// instance with a proof from the recorded token (Core A10-1). Either one fails Core's AD-6 check.
 fn impostor_hello(plan: &ImpostorPlan, host: &Hello) -> Vec<u8> {
-    let (instance, token) = match plan.field {
-        ImpostorField::Token => (host.instance.clone(), plan.token.map(|b| !b)),
+    let protocol = botster_worker_core::WORKER_PROTOCOL;
+    let (instance, token, protocol) = match plan.field {
+        ImpostorField::Token => (host.instance.clone(), plan.token.map(|b| !b), protocol),
         ImpostorField::Instance => (
             InstanceId(format!("{}-impostor", host.instance.0)),
             plan.token,
+            protocol,
         ),
+        ImpostorField::Protocol(announced) => (host.instance.clone(), plan.token, announced),
     };
     let hello = Hello {
-        protocol: botster_worker_core::WORKER_PROTOCOL,
+        protocol,
         proof: token_proof(&token, &instance, host.host_epoch),
         instance,
         host_epoch: host.host_epoch,
@@ -549,6 +557,33 @@ impl Workers {
             cell.break_link = true;
         }
         if let Some(wake) = control_wake(&cell) {
+            wake.signal();
+        }
+        Ok(())
+    }
+
+    /// `lose_worker`: the process edge ends the worker process `identity`, as a kill from outside Core does (Core AD-2, IN-7).
+    /// Its exit goes to the host that spawned it, and its link, its endpoint and its payload end with it
+    /// (`WorkerEdges::ended`). The host that spawned it and the host that holds its control link are woken (TM-6).
+    ///
+    /// # Errors
+    /// The process is not a worker of this run, or it has ended.
+    pub(crate) fn lose_worker(&self, identity: ProcessIdentity) -> Result<(), String> {
+        let (cell, owner) = lock(&self.run_processes)
+            .get(&identity)
+            .cloned()
+            .ok_or_else(|| format!("no worker process {identity:?} in this run"))?;
+        if lock(&cell).ended {
+            return Err(format!("the worker process {identity:?} has ended"));
+        }
+        // The cell guard ends before a table is locked: `Processes::end` locks a table, then the cell.
+        let control = control_wake(&cell);
+        let spawner = {
+            let mut owner = lock(&owner);
+            owner.end(identity, ExitStatus::Signal(9));
+            owner.wake.clone()
+        };
+        for wake in [spawner, control].into_iter().flatten() {
             wake.signal();
         }
         Ok(())
