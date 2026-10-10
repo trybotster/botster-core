@@ -221,3 +221,73 @@ I sent both findings to P3 and the package reviewer. The package artifact for th
 I ran no builds, tests, or gates.
 
 VERDICT: NOT CLEAN (2 open).
+
+## Round 3 — 2026-10-09
+
+Reviewed head: `987c6b040f3085407fec2be6f79869c203c94b9a`.
+PR and gate base: `dc7fb11d915b76d45fdae84b1edaa208a7f895eb`.
+Scope: replacement changes since Round 2, the affected lifecycle, and the base merge.
+The unchanged PR changes retain their prior review.
+
+### Round 2 disposition
+
+R2-1 is CLOSED.
+`finish_close` derives the close from current session state instead of a loss marker recorded by one callback.
+A worker delivery report remains in `Session::delivered` until the route closes.
+For an exited session, that report selects `SessionEnded` with the host's exit.
+Without that report, a missing worker link selects `SessionLost`.
+This covers process exit through `close_worker_link` and link loss before the end flow begins.
+`finish_waits` waits only when bound routes remain and none can close.
+
+The new process-exit test reaches Finish before `ProcessExited`, without a preceding `LinkClosed`.
+It checks one `SessionLost` close and no remaining ready work.
+The new pending-end test feeds `Exited` during PostRunning, then closes the link before the end flow begins.
+It checks one `SessionLost` close after the session state and no remaining ready work.
+The existing link-loss test remains in place.
+
+R2-2 is CLOSED.
+`flow_needs_room` uses the same `finish_close` decision as `run_stop`.
+`ready` suppresses the session step when that close needs event capacity.
+The new capacity test fills the event queue, records delivery, and checks that the host offers no ready work.
+It then closes the link and checks that polling permits exactly one `SessionEnded` close with the host's exit.
+This test also proves that later link loss does not replace recorded delivery.
+All three new regression tests have PASS lines in the supplied gate.
+The implementer reports that all three fail on Round 2 source; I did not inspect a separate failure log.
+
+The PR title now describes route lifecycle and eleven flips.
+The source comment and PR body distinguish queued handoff actions from descriptor delivery.
+These changes address package finding F93.
+The PR body records failed-start route closure as separate work under the reported lead and steward rulings.
+This review does not claim that failed-start route closure is fixed.
+The route-input requirements remain PR3 work.
+
+### Merge and evidence
+
+The remote PR head and v1 base match the reviewed revisions.
+The base is an ancestor of the head. The merge has no combined conflict diff.
+The base's fourteen changed paths do not overlap this PR's twenty-three changed paths.
+After removing diff line numbers and blob identifiers, only the six expected host patches differ from Round 2.
+Those patches contain the two fixes and three regression tests.
+`git diff --check` passes.
+
+The pending delta still removes eleven ids and adds none.
+Each removed id has a PASS line in the supplied gate.
+
+Gate:
+`/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-p4a-route-lifecycle-987c6b04-pool-20261009-220228-39870.log`.
+
+The log names the reviewed head and base. All ten steps pass in 326.3 seconds.
+Default tests: 1,435 passed. Slow tests: 259 passed.
+Conformance: 193 passed, zero failed; 407 pending with transcripts, 70 without transcripts, two deferred, and 18 withdrawn.
+Both mutation runs report 112 mutants: 97 caught, 15 unviable, zero missed, and zero timeouts.
+The second command sets `NEXTEST_PROFILE=slow`; it does not enable the slow feature.
+The pool job exits zero after 577 seconds on msa1.
+I ran no builds, tests, or gates.
+
+Integration source findings: none open.
+I read package Round 140 at `7075bcc164fca5d817f4422a4929c607d000c1ee`, `verdicts/p3-worker.md`.
+That verdict is CLEAN at this same head and closes F91, F92, and F93.
+Its source findings, gate checks, and retained scope agree with this review.
+The remote head and base remain unchanged after the artifact check.
+
+VERDICT: CLEAN (0 open within the approved PR scope).
