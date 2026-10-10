@@ -6,7 +6,10 @@ mod suite;
 use botster_core_testkit::TestkitHarness;
 
 fn main() {
-    suite::run("conformance", |seed| {
-        Box::new(TestkitHarness::new(seed).with_core_type(suite::CORE_IS_SEND_NOT_SYNC))
-    });
+    // A fake: no step timeout (design 6.1).
+    suite::run(
+        "conformance",
+        |seed| Box::new(TestkitHarness::new(seed).with_core_type(suite::CORE_IS_SEND_NOT_SYNC)),
+        suite::Limits::default(),
+    );
 }
