@@ -334,11 +334,14 @@ fn read_frame(stream: &mut UnixStream) -> botster_core_link::frame::Frame {
     }
 }
 
-/// The worker side of an adoption at the worker endpoint (DESIGN.md "Adoption (P5)" part 3): the new host connects and
-/// sends its hello first; the worker proves its token for that host's epoch (AD-6) and reports a running payload. The link
-/// is returned open.
-fn adopted_worker(listener: UnixListener, launch: WorkerLaunch) -> UnixStream {
-    let (mut stream, _) = listener.accept().expect("the new host connects");
+/// The worker side of an adoption on the connection that the new host made to the worker endpoint (DESIGN.md "Adoption
+/// (P5)" part 3): the host sends its hello first; the worker proves its token for that host's epoch (AD-6) and reports a
+/// running payload. The link is returned open.
+fn adopted_worker(mut stream: UnixStream, launch: &WorkerLaunch) -> UnixStream {
+    // timer: deadline — the limit of a wait for the host's hello; not a contract value.
+    stream
+        .set_read_timeout(Some(Duration::from_secs(20)))
+        .unwrap();
     let host = read_frame(&mut stream);
     assert_eq!(host.kind, FrameType::HELLO);
     let host = Hello::decode(&host.payload).expect("the host's hello");
@@ -455,20 +458,26 @@ fn a_new_host_adopts_a_live_worker_at_its_endpoint_and_remove_deletes_an_endpoin
     drop(core);
     peer.join().unwrap();
     let mut again = open();
-    let adoptee = std::thread::spawn(move || adopted_worker(listener, parsed));
     let adopt = again.begin(Op::AdoptAll).unwrap();
+    // One pump: the new host connects to the endpoint and sends its hello. The connection waits in the listener's queue.
+    pump_until(&mut again, |_| true);
+    listener.set_nonblocking(true).unwrap();
+    // The accept never waits: the listener is non-blocking. A host that did not connect fails here at once.
+    let (stream, _) = listener
+        .accept()
+        .expect("the new host connected to the endpoint");
+    stream.set_nonblocking(false).unwrap();
+    let _link = adopted_worker(stream, &parsed);
     let events = pump_until(&mut again, |e| completed(e, adopt).is_some());
     assert!(
         matches!(completed(&events, adopt), Some(OpResult::Ok(_))),
         "{events:?}"
     );
-    // The state comes first: a host that never connects leaves the stand-in in its accept.
     assert_eq!(
         again.get(&sid("s1")).unwrap().state,
         SessionState::Running,
         "{events:?}"
     );
-    let _link = adoptee.join().unwrap();
 
     // LC-7 step 4: `Remove` deletes the session's endpoint. A `Created` session has no worker; its endpoint file stands
     // for one that a killed worker left.
