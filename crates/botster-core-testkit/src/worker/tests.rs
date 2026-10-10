@@ -947,6 +947,7 @@ fn the_clients_bytes_reach_the_machine_and_its_close_ends_the_route_once() {
             panic!("a route read")
         };
         assert_eq!(route, RouteId(1));
+        assert!(!bytes.is_empty(), "a stream that holds bytes gives bytes");
         got.extend_from_slice(&bytes);
     }
     assert_eq!(got, b"abcd");
