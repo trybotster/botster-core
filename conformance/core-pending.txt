@@ -314,6 +314,8 @@ conf::ev_8_client_silent_shadow_answers_at_deadline
 conf::ev_8_core_has_no_other_query_timer
 conf::ev_8_decline_does_not_consume_the_query_id_before_fallback_admission
 conf::ev_8_encoded_reply_is_bounded_and_once
+# conf::ev_8_every_query_stays_in_output: passes on the testkit at seeds 0-31, but it took 2.005 s, over the 2 s default-tier test budget (gate 42cdfda9 on msa1). p4b-queries-files: make it faster or move it to the slow tier.
+conf::ev_8_every_query_stays_in_output
 conf::ev_8_exactly_one_reply_under_every_interleaving
 conf::ev_8_fallback_started_means_admitted_refused_fallback_stays_pending
 conf::ev_8_full_query_capacity_backpressures_parser_in_order
