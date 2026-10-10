@@ -9362,3 +9362,179 @@ The reviewer changes no product code and runs no tests, builds, gates, measureme
 All earlier exact-head verdicts remain preserved.
 
 VERDICT: CLEAN
+
+
+## Round 150 — 2026-10-10 — P4a PR3 route input, first full review
+
+PR: #227.
+Exact head: `a65c8f9e347c752307c661f70871614c7ef72dee`.
+Exact base: `fc1e8160abfd8248b155383ef1d766c6377f8a11`.
+Branch: stage1/p4a-route-input.
+Tier: HIGH under BUILD rule 3. The change crosses the Worker and the shared testkit.
+BUILD rule 5 also applies to the listed Worker and production driver paths.
+This is this package reviewer's first full review of #227, not a delta from a prior #227 CLEAN.
+
+### F99 — MED — OPEN — The Worker caches an allowance that the binding consumes
+
+Locations: worker/route.rs:513-522 and 563-587; testkit worker.rs:1409-1419 and 1522-1525.
+The binding subtracts every positive stream read from its remaining allowance.
+The Worker retains only the last absolute allowance that it sent.
+The Worker sends another allowance only when its computed value changes.
+An empty bytes/text frame consumes framing bytes but joins no input transaction.
+An ignored extension also consumes framing bytes and holds no input.
+An immediate refusal holds no input after decoding.
+If room for another refusal remains, these paths compute the same allowance as before the read.
+The Worker therefore sends no replacement allowance for the stream bytes that the binding consumed.
+A client can drain refusals while sending more refused input.
+The binding can exhaust its allowance while the Worker holds no input and expects the route to remain readable.
+No PTY completion must occur on these paths to restore the allowance.
+The route can stop permanently despite available input space.
+
+DP-5 requires transport backpressure when the input or outgoing queue lacks room.
+It does not permit a permanent stop when those queues have room.
+Required: keep the Worker and binding allowance states consistent after each consumed read.
+Add a behavior proof through the Worker and binding that consumes more than the initial allowance on these paths.
+The existing Worker tests inspect emitted allowances directly and do not consume them through the binding.
+The binding-only tests manually replace allowances and do not exercise the Worker's cache.
+Integration independently confirms this source defect.
+
+### F100 — MED — OPEN — Deferred refusals can exceed route_queue_bytes
+
+Locations: worker/input.rs:238-245 and 467-475; worker/route.rs:118-120, 527-535, and 654-673.
+The decoder checks refusal_room before each complete frame.
+A valid bytes/text frame can join the input queue behind a blocked host write without producing a refusal.
+Admission reserves no outgoing space for a later refusal of that input.
+The client can send many one-byte frames while the input queue stays within route_input_queue_bytes.
+After PayloadExited, the active host write can receive its final count.
+try_start then removes every queued route input and refuses it SessionEnded in one loop.
+refuse appends each exception without checking the outgoing bound.
+The total exception bytes can exceed route_queue_bytes.
+A failed active route write can also append a deferred exception to an already full outgoing queue.
+The input bound does not enforce the separate outgoing bound.
+
+DP-5 and TS-7 require exception frames to wait under the existing outgoing byte bound without loss.
+Required: retain deferred outcomes within that bound and resume delivery when space becomes available.
+Add a proof with many queued valid inputs, a blocked PTY, a gated outgoing stream, and a payload end or write failure.
+The existing refusal-pressure proof covers immediate NotWritable refusals only.
+The queued-end proof covers one pending route input without queue pressure.
+Integration independently confirms this source defect.
+F88's queue requirement remains open.
+
+### F101 — MED — OPEN — A deferred refusal can follow route_closed
+
+Locations: worker/route.rs:448-466 and 654-673; worker/input.rs:467-475.
+A route can have a PTY write in flight when the host sends Detach.
+close_healthy commits the reason and appends route_closed to the outgoing queue.
+A gated outgoing transport keeps the route in the map while that frame waits.
+A later failed PTY count calls finish_active and then refuse for the same route.
+refuse checks only whether the route exists. It does not check whether the route is closing.
+The Worker appends input_refused after route_closed.
+The client can receive both frames in that order before the Worker closes the transport.
+This violates OU-2b's requirement that route_closed is the last frame.
+
+Required: preserve the last-frame guarantee while resolving already admitted input.
+Add a proof with an in-flight route write, Detach, a failed PTY count, and a gated outgoing transport.
+The existing closing-route proof covers only client bytes received after Detach.
+It does not cover a transaction admitted before Detach.
+Integration independently confirms this source defect.
+
+### F102 — MED — OPEN — Unsupported decoded inputs lose their operation ids
+
+Locations: worker/route.rs:618-633; worker/tests/routes.rs, an_unapplied_input_kind_is_refused_unsupported_and_the_route_stays_open.
+For decoded inputs other than Bytes/Text, on_client_frame sends Unsupported with op=None.
+PasteChunk with Op(2) and FileChunk with Op(3) therefore lose their supplied ids.
+The new test explicitly expects None for both refusals.
+Structured decoded inputs with supplied ids use the same branch.
+TS-5b requires input_refused to echo the input's op when the input had one.
+Required: preserve supplied ids for unsupported parsed inputs and correct the test.
+This requirement does not require implementation of the deferred input features.
+The refusal must retain its correlation id.
+
+### F103 — LOW — OPEN — New proofs assert private state and omit their claimed first-allowance boundary
+
+Locations: worker/route.rs:701-709; three route tests that call route_held; testkit worker/tests.rs, a_route_is_read_only_within_its_allowance.
+The new cfg(test) route_held accessor returns private queue accounting and StreamReader.pending.
+The refusal-pressure, closing-route, and baseline-refusal proofs assert those private values.
+BUILD Testing rule 3 forbids tests of helper internals.
+Required: prove these clauses through machine actions, transport behavior, and decoded frames.
+Remove the test-only accessor.
+
+The binding allowance proof claims that no read occurs before the first allowance.
+Its bind_route_of helper already sends usize::MAX before the proof sends zero.
+The proof therefore exercises a replacement allowance, not the first-allowance boundary.
+Required: exercise a bound route that has received no allowance, then grant an allowance and prove progress.
+Integration identified both test-shape gaps. The package reviewer confirms them from source.
+HIGH requires LOW findings to close before CLEAN.
+
+### Whole-change review and retained requirements
+
+The reviewer reads all eleven changed paths at this exact head.
+The Worker receives RouteRead and RouteEnded. The shared binding owns each transport and enforces byte allowances.
+The binding retries Interrupted, returns an empty read on WouldBlock, and reports a terminal read end once.
+The new one-shot testkit read fault retains its bytes. It adds no production process hook.
+The Worker tags supported, unsupported, and invalid complete input on receipt.
+Each receipt advances the client revision before admission, including refused input.
+The existing host guard checks still run at the single transaction start.
+The Worker retains route ownership through partial PTY counts and queues route input in receive order.
+The adoption fence removes host writes only. Route input and model replies retain their order.
+Partial route progress increases its read allowance before the next PTY write.
+The active unwritten count and route filter match the source of the four focused mutation proofs.
+F99 and F100 prevent acceptance of the complete allowance and queue mechanism.
+F102 prevents acceptance of operation ownership for every refusal.
+
+F86's first-reason requirement is satisfied by on_route_ended and the existing failed-write path.
+F87's receipt requirement is satisfied for Unsupported and Invalid as well as decoded inputs.
+The reviewer does not close F88 or F90 for the whole PR3 unit while F99-F103 remain open.
+F101 also blocks the healthy-close-last guarantee.
+The baseline remains exempt through live under R-45; only frames behind it count toward the outgoing threshold.
+R-51 retains its stated testkit precondition and real-tier limitation.
+This review does not invent a real pre-live precondition or alter its transcript.
+
+The PR removes twelve ids from core-pending and adds those ids to the stated missing-control groups in core-real-pending.
+Seven require route controls from P6. Five require program controls from PC.
+The lead explicitly records this split under plan 23l.
+The remaining DP-5 proof ids stay pending while their required controls are absent.
+The exact-head reports retain the real-tier limits. Package CLEAN would not claim real route input coverage.
+The production worker driver still ignores route actions, including the new allowance action.
+This PR changes the machine and in-process binding. It does not implement the production route driver.
+BUILD's named real-process requirements remain open for that later implementation.
+No real-process guard, anchor, timer, signal, wait, reap, fd-handoff, or native socket implementation changes in this PR's own diff.
+
+The actual merge incorporates v1 fc1e8160 and contracts-v0.1.26 at 0ac061d.
+The supplied base-merge-check from 8ac2e36f reports PASS and identical own-path bytes outside the line-set files.
+Its source head is not a previously accepted #227 head from this package reviewer.
+The reviewer performs the complete review at the submitted merge head and does not rely on that claim as a prior CLEAN.
+No reviewer base-merge-check is run. No mutation exclusion changes in this PR's own diff.
+
+### Completed evidence and limits
+
+Gate: ~/botster-sessions/gates/botster-core-stage1-p4a-route-input-a65c8f9e-pool-20261010-140656-95834.log.
+The header names this exact head and base. All ten CI steps PASS on gaming.
+Default: 1519 passed in 18.743 seconds. Slow: 384 passed in 143.256 seconds.
+Both testkit reports: 205 passed, zero failed, 485 ignored. Minimum: 54/69.
+Real minimum: 29/68 passing and 29/69 accepted.
+Mutation stage 1: 94 tested, 92 caught, two unviable, zero missed, zero timeouts.
+Stage 2 is skipped because stage 1 misses no mutant. This matches the newly merged two-stage gate.
+Full CI: 482.9 seconds. Job and wrapper exit zero after 493 seconds. Queue: zero seconds.
+The allowance, partial-write, immediate-refusal, queued-end, adoption, baseline-refusal, and binding proofs have PASS lines.
+These passing proofs do not cover F99-F102's source paths.
+
+The retained mutant-proofs.log records four manual mutant failures and one partial-refresh revert failure.
+Each run exits 101 at a named test assertion. The unmutated three-test selection passes and exits zero.
+The reviewer reads the script and recorded results without executing either.
+The source roles match the current route filter, unwritten-byte subtraction, absent zero count, baseline subtraction, and partial-refresh call.
+The earlier scratch pending run at e9f1702c reports fourteen failed ids and one newly passing lc_2 id.
+It is not exact-head evidence for this replacement and does not close remaining minimum or real-tier gaps.
+
+### Verdict
+
+PR #227 is NOT CLEAN at `a65c8f9e347c752307c661f70871614c7ef72dee`.
+F99, F100, F101, and F102 are MED and OPEN. F103 is LOW and OPEN.
+This is #227's first package NOT CLEAN round. No round-limit decision is due.
+Findings and the published artifact go directly to P3 and the current Sol integration reviewer.
+The lead receives no ordinary NOT CLEAN report.
+F39 and F61/F62 retain their prior scopes. P3's non-minimum queue stays parked.
+The reviewer changes no product code and runs no tests, builds, gates, measurements, mutants, or base-merge-check.
+All earlier exact-head verdicts and closures remain preserved.
+
+VERDICT: NOT CLEAN
