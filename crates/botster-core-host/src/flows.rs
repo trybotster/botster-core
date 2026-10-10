@@ -316,8 +316,13 @@ impl HostEngine {
                 .lost_handoffs,
         );
         if running && pending_end.is_none() {
+            // This step posts the start's completion. Each close is a parked step of its own (`Work::Parked`), so a pump's
+            // budget counts it (9B), and the closes keep their order after the completion (EV-6).
             for route in lost {
-                self.route_close(route, RouteCloseReason::HandoffFailed);
+                self.parked.push_back(crate::engine::ParkedRoute::Close(
+                    route,
+                    RouteCloseReason::HandoffFailed,
+                ));
             }
         }
         if running {
