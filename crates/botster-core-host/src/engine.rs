@@ -351,6 +351,13 @@ impl HostEngine {
             .ok_or_else(|| Self::error(ErrorCode::UnknownSession, format!("no session {}", id.0)))
     }
 
+    /// The instance of the session `id` that the host holds now, from its `begin` on: before its row is stored, too.
+    pub fn instance(&self, id: &SessionId) -> Option<InstanceId> {
+        self.sessions
+            .get(id)
+            .map(|session| session.instance.clone())
+    }
+
     pub fn list(&self) -> Vec<SessionRecord> {
         self.sessions.values().filter_map(Session::record).collect()
     }
