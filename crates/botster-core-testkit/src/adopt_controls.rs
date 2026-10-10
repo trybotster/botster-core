@@ -171,8 +171,9 @@ fn announce_protocol(
 ) -> Result<Value, ControlError> {
     let AnnounceProtocol { session, protocol } = parse(args)?;
     let current = botster_worker_core::WORKER_PROTOCOL;
-    if protocol == current || (current > 1 && protocol == current - 1) {
-        // An adoptable worker of another protocol is a real worker of that protocol, which no build of the testkit has.
+    // `{T, T-1}`, with no `T-1` below 1 (A6-2). An adoptable worker of another protocol is a real worker of that protocol,
+    // which no build of the testkit has.
+    if (current.saturating_sub(1).max(1)..=current).contains(&protocol) {
         return Err(ControlError::Unsupported);
     }
     let (key, token, worker) = stand_in(harness, handle, &session)?;
