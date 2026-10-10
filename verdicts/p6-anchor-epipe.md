@@ -111,3 +111,95 @@ All findings went directly to P6. No ordinary NOT CLEAN report went to the lead.
 Wait for the replacement READY head.
 
 VERDICT: NOT CLEAN
+
+
+## Round 2
+
+Implementation head: `a17ecd8b68197b0f047d242ea044fe3c5c32081d`.
+Integration and full gate base: `6cc7a72272ea56cdc128431ef39218a9c6743d08`.
+Plan 23n evidence rule: `stage1/plan` `f545597b`, section 8.
+BUILD.md rule 0: botster-contracts `85ecb225b9a646c522a4ef5ba4bd813615fd5f18`.
+
+The reviewer checked the stated HIGH tier first. It remains correct because this PR changes gate decisions.
+The lead's corrected assignment remains: this reviewer owns P6 package review; Astra owns integration review.
+The reviewer read the exact Git objects, the updated PR description, and the supplied logs.
+The reviewer changed no product code and ran no gate, build, test, mutation job, or reversal.
+
+### R1-1 closed — both test children have cleanup owners
+
+Commit `264151bd` moves setup into `anchor_stage`.
+It starts the FIFO leader with `OwnedChild::spawn_group` and the anchor with `OwnedChild::spawn`.
+Each owner exists before a later setup, read, or assertion can fail.
+The leader reserves the group identifier until its owner ends the group and reaps it.
+The anchor belongs to that group and also has its own child owner.
+These owners provide cleanup on setup failure and panic, independently of the anchor under test.
+Each owner reaps only its test-owned child. No production-owned child changes its reaper.
+
+The original test still asserts the public `ok` report, leader KILL status, and anchor exit code 0.
+The test observes leader status before owner cleanup, so owner cleanup cannot supply a false passing KILL assertion.
+The report reads and status waits use the existing cleanup deadline.
+The anchor's identity checks, group checks, blocking connection wait, bounded cleanup rounds, and reserve-only reap remain unchanged.
+
+### R1-2 closed — the slow-feature run catches the changed anchor mutants
+
+Commit `a35e8de8` adds `an_acknowledgement_that_fails_otherwise_fails_the_anchor_stage`.
+The test gives the anchor a full non-blocking pipe with a reader.
+It keeps the guard connection open and asserts the public error report and exit code 1.
+Its pipe-fill loop writes data until WouldBlock. It does not poll for another actor or retry WouldBlock.
+The test then waits for a report and process exit within the existing cleanup deadline.
+It adds no sleep, busy wait, or private-state assertion.
+Both acknowledgement tests use the cleanup owners above.
+
+The PR records the required focused command with `--no-config --in-place --features slow`, the PR diff, and the anchor binary filter.
+It passes `--profile slow --max-fail 1:immediate` to nextest.
+The exact-head log reports four caught mutants, zero missed mutants, and zero timeouts.
+The existing per-mutant logs confirm successful compilation and actual slow tests:
+
+- The baseline runs 82 tests; all 82 pass.
+- Replacing `anchor` with `Ok(())` fails `a_cleanup_that_cannot_finish_fails_through_the_guard`.
+- Replacing the BrokenPipe guard with `true` fails the new error test at its ten-second report deadline. The run reports 81 passed and one failed.
+- Replacing the guard with `false` fails the missing-reader test: it receives `error anchor Broken pipe` instead of `ok`.
+- Replacing `==` with `!=` fails the same public report assertion.
+
+The last two runs stop after the first failure under the required fail-fast setting.
+Their cancelled tests are not claimed as executed proof.
+The earlier `264151bd` log records the guard-to-true survivor; the new test closes that gap.
+The reviewer read existing evidence and requested no rerun.
+The exclusion reason now names both acknowledgement tests. No exclusion regex changes in this PR.
+
+### R1-3 closed — the PR records Prior art decisions
+
+The updated PR description has a Prior art section.
+It names the existing DESIGN.md guard design and keeps the acknowledgement mechanism.
+It records reuse of the anchor protocol, cleanup owners, deadline helpers, and existing listing parser.
+It records reuse of cargo-mutants 27.1.0's empty-filter message and explains why changed text makes the gate fail.
+It explains the two small conditions and adds no dependency.
+It rejects ignoring every acknowledgement error and accepting every empty listing, with a reason for each.
+The original crate Prior art decisions remain intact.
+
+### Scope, merge, and gate evidence
+
+The exact diff against `6cc7a722` changes only the five paths from round 1.
+The merge imports the base's route rename into `.cargo/mutants.toml`.
+The four other changed file blobs equal the first parent's blobs.
+The final PR diff contains only its acknowledgement proof citations in `.cargo/mutants.toml`; it contains no route exclusion change.
+No existing contract test is migrated or weakened.
+The parser and its public input/output assertions remain as reviewed in round 1.
+The parser still rejects failed status, malformed JSON, non-array output, and empty output without the required message.
+
+Full Linux log: `~/botster-sessions/gates/botster-core-stage1-p6-anchor-epipe-a17ecd8b-pool-20261009-191625-59285.log`.
+It names the exact head and base above and exits 0.
+All ten full-gate jobs pass.
+It reports 124 passing conformance tests, 1329 passing default tests, and 256 passing slow tests.
+Both acknowledgement tests and the parser proof pass.
+Both gate mutation commands report three caught parser mutants with no misses or timeouts.
+The separate manual run reports the four caught anchor mutants described above.
+
+Per-mutant evidence: `~/botster-sessions/gates/botster-core-stage1-p6-anchor-epipe-a17ecd8b-manual-mutants-per-mutant-logs.txt`.
+The read-only retrieval log is `~/botster-sessions/gates/botster-core-stage1-p6-anchor-epipe-a17ecd8b-pool-20261009-192232-74245.log`.
+The reviewer does not treat that retrieval as a new test run.
+P6 reports local Mac passing and red runs. The reviewer does not claim a focused Mac gate or independent execution.
+
+All three round 1 findings close. No new package finding remains at this exact head.
+
+VERDICT: CLEAN
