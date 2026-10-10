@@ -133,3 +133,25 @@ I sent the findings directly to the implementer and package reviewers.
 I changed no product code and ran no builds, tests, gates, or mutation tests.
 
 VERDICT: NOT CLEAN (4 open; manual mutation evidence also awaits verification).
+
+### Recovered evidence addendum — same reviewed head
+
+The implementer supplied the saved raw `619b92d2` artifacts after the initial verdict was published.
+Artifact root:
+`/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-p6-real-core-619b92d2-mutants.out/mutants.out/`.
+
+I checked all 53 entries in `outcomes.json` against their individual logs.
+All 23 caught mutants built successfully and ended with test exit 100.
+Their commands include both Core and testkit, both slow features, the slow profile, and immediate fail-fast.
+The logs identify real conformance failures, unsupported controls, step-limit failures, or the guard lookup panic caused by its mutant.
+They do not show a nextest termination being reported as a catch.
+All 21 unviable mutants fail compilation with type errors and exit 101.
+All nine missed mutants have successful build and test phases.
+
+The baseline differs from the mutant command: it runs only testkit, while each mutant runs Core and testkit.
+Thus this saved baseline does not establish a green Core conformance run for the same command.
+The focused `6c1624e9` run has no retained raw outcomes.
+The implementer will provide evidence on the corrected head, including the nine prior survivors and changed wrapper functions.
+The replacement evidence must show the intended unmutated tests and each claimed behavioral catch.
+No reviewer execution occurred.
+The four source findings remain OPEN, and the manual mutation evidence remains incomplete.
