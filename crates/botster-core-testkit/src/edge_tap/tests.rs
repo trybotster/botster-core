@@ -372,21 +372,25 @@ fn quiet_edges_are_quiet_and_signal_nothing() {
 #[test]
 fn bytes_taken_ahead_are_not_quiet_and_reach_the_driver_in_order() {
     let mut rig = rig(fake_with_link(vec![
-        Read::Data(b"abc".to_vec()),
         Read::Interrupted,
+        Read::Data(b"abc".to_vec()),
         Read::Data(b"de".to_vec()),
     ]));
     assert_eq!(rig.edges.accept_link(), Some(A));
+    // An interrupted take is taken again; the take stops at one chunk.
     assert!(!rig.with(Tap::quiet));
     assert_eq!(
         rig.signals(),
         1,
         "the tap wakes the host to read what it holds"
     );
-    // A second take-ahead finds nothing new, but the held bytes still keep the edges busy.
+    // While the tap holds bytes, it takes nothing more: the edges stay busy, and what it holds stays bounded.
     assert!(!rig.with(Tap::quiet));
+    rig.with(|t| assert_eq!(t.inner.reads[&A].len(), 1));
+    assert_eq!(rig.signals(), 2);
     assert_eq!(rig.recv(A, 2).unwrap(), b"ab");
-    assert_eq!(rig.recv(A, 16).unwrap(), b"cde");
+    assert_eq!(rig.recv(A, 16).unwrap(), b"c");
+    assert_eq!(rig.recv(A, 16).unwrap(), b"de");
     assert_eq!(
         rig.recv(A, 16).unwrap_err().kind(),
         io::ErrorKind::WouldBlock
@@ -395,8 +399,8 @@ fn bytes_taken_ahead_are_not_quiet_and_reach_the_driver_in_order() {
 }
 
 #[test]
-fn an_end_taken_ahead_reaches_the_driver_after_the_bytes() {
-    let mut rig = rig(fake_with_link(vec![Read::Data(b"z".to_vec()), Read::Eof]));
+fn an_end_taken_ahead_reaches_the_driver_once() {
+    let mut rig = rig(fake_with_link(vec![Read::Eof]));
     let mut fake_b = VecDeque::new();
     fake_b.push_back(Read::Fail(io::ErrorKind::ConnectionReset));
     rig.with(|t| {
@@ -406,13 +410,16 @@ fn an_end_taken_ahead_reaches_the_driver_after_the_bytes() {
     assert_eq!(rig.edges.accept_link(), Some(A));
     assert_eq!(rig.edges.accept_link(), Some(B));
     assert!(!rig.with(Tap::quiet));
-    assert_eq!(rig.recv(A, 16).unwrap(), b"z");
     assert_eq!(rig.recv(A, 16).unwrap(), b"", "the peer closed");
     assert_eq!(
         rig.recv(B, 16).unwrap_err().kind(),
         io::ErrorKind::ConnectionReset
     );
     // Each end is handed out once; after it the inner edge answers again.
+    assert_eq!(
+        rig.recv(A, 16).unwrap_err().kind(),
+        io::ErrorKind::WouldBlock
+    );
     assert_eq!(
         rig.recv(B, 16).unwrap_err().kind(),
         io::ErrorKind::WouldBlock
@@ -422,17 +429,27 @@ fn an_end_taken_ahead_reaches_the_driver_after_the_bytes() {
 #[test]
 fn new_links_and_exits_taken_ahead_are_handed_out_first() {
     let mut fake = Fake::default();
-    fake.accepts.push_back(A);
+    fake.accepts.extend([A, B]);
     fake.exits.push_back((identity(9), exit_status()));
+    fake.exits.push_back((identity(8), exit_status()));
     let mut rig = rig(fake);
+    // One take of each inbound edge: one link and one exit.
     assert!(!rig.with(Tap::quiet));
-    rig.with(|t| t.inner.accepts.push_back(B));
+    rig.with(|t| {
+        assert_eq!(t.inner.accepts, [B]);
+        assert_eq!(t.inner.exits.len(), 1);
+    });
     assert_eq!(rig.edges.accept_link(), Some(A));
     assert_eq!(rig.edges.accept_link(), Some(B));
     assert_eq!(rig.edges.accept_link(), None);
     assert_eq!(
         rig.edges.poll_process_exit(),
         Some((identity(9), exit_status()))
+    );
+    assert!(!rig.with(Tap::quiet), "the second exit is new");
+    assert_eq!(
+        rig.edges.poll_process_exit(),
+        Some((identity(8), exit_status()))
     );
     assert!(rig.with(Tap::quiet));
 }

@@ -7,8 +7,8 @@
 //! and in order. The driver reads every link on every pump until `WouldBlock`, and drains new links and exits on every
 //! pump, so what the tap holds reaches the engine at the next pump; the tap signals the wake edge so that a pump comes.
 //!
-//! - `edges_quiet` ([`Tap::quiet`]): a take-ahead finds nothing new on any edge and the tap holds nothing that it has not
-//!   handed out. Bytes still inside a worker process are invisible here: quiet means "nothing arrived and nothing is
+//! - `edges_quiet` ([`Tap::quiet`]): the tap holds nothing that it has not handed out, and a bounded zero-wait take finds
+//!   nothing new on any edge. Bytes still inside a worker process are invisible here: quiet means "nothing arrived and nothing is
 //!   unread", never "the worker finished".
 //! - `break_control` ([`Tap::break_link`]): the inner edge's own `link_close`. Core's end of the stream is dropped, so the
 //!   worker reads EOF and its writes fail; every later call on that `LinkId` reaches the inner edge's closed-link state
@@ -126,39 +126,50 @@ impl<E: HostEdges> Tap<E> {
         }
     }
 
-    /// Takes ahead from every inbound edge, and answers whether the edges are quiet: nothing new arrived and the tap holds
-    /// nothing that it has not handed to the driver. When it holds something, it signals the wake edge, so that the host
-    /// pumps and reads it (TM-6).
+    /// Answers whether the edges are quiet: the tap holds nothing that it has not handed to the driver, and a zero-wait
+    /// take on every inbound edge finds nothing new (plan 23l, R-43 item 8). The take is bounded: only when the tap holds
+    /// nothing, and at most one new link, one exit and one read chunk for each link. When the tap holds something, it
+    /// signals the wake edge, so that the host pumps and reads it (TM-6).
     pub fn quiet(&mut self) -> bool {
-        while let Some(link) = self.inner.accept_link() {
-            self.links.insert(link, LinkTap::accepted());
-            self.accepts.push_back(link);
-        }
-        while let Some(exit) = self.inner.poll_process_exit() {
-            self.exits.push_back(exit);
-        }
-        let mut buf = vec![0u8; READ_CHUNK];
-        for (link, tap) in &mut self.links {
-            while tap.end.is_none() {
-                match self.inner.link_recv(*link, &mut buf) {
-                    Ok(0) => tap.end = Some(End::Closed),
-                    Ok(n) => {
-                        tap.observe(&buf[..n]);
-                        tap.held.extend(&buf[..n]);
+        let mut quiet = !self.holds_anything();
+        if quiet {
+            if let Some(link) = self.inner.accept_link() {
+                self.links.insert(link, LinkTap::accepted());
+                self.accepts.push_back(link);
+                quiet = false;
+            }
+            if let Some(exit) = self.inner.poll_process_exit() {
+                self.exits.push_back(exit);
+                quiet = false;
+            }
+            let mut buf = vec![0u8; READ_CHUNK];
+            for (link, tap) in &mut self.links {
+                loop {
+                    match self.inner.link_recv(*link, &mut buf) {
+                        Ok(0) => tap.end = Some(End::Closed),
+                        Ok(n) => {
+                            tap.observe(&buf[..n]);
+                            tap.held.extend(&buf[..n]);
+                        }
+                        Err(e) if e.kind() == io::ErrorKind::WouldBlock => break,
+                        Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
+                        Err(e) => tap.end = Some(End::Failed(e.kind())),
                     }
-                    Err(e) if e.kind() == io::ErrorKind::WouldBlock => break,
-                    Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
-                    Err(e) => tap.end = Some(End::Failed(e.kind())),
+                    quiet = false;
+                    break;
                 }
             }
         }
-        let quiet = self.accepts.is_empty()
-            && self.exits.is_empty()
-            && !self.links.values().any(LinkTap::holds_anything);
         if !quiet {
             self.inner.wake().signal();
         }
         quiet
+    }
+
+    fn holds_anything(&self) -> bool {
+        !self.accepts.is_empty()
+            || !self.exits.is_empty()
+            || self.links.values().any(LinkTap::holds_anything)
     }
 
     /// The link whose hello (or adoption) names `instance`, while the driver has not closed it.

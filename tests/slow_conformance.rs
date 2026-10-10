@@ -22,8 +22,7 @@ fn main() {
                     .with_core_type(suite::CORE_IS_SEND_NOT_SYNC),
             )
         },
-        // TODO(plan 23l): `Limits::real()` once the contracts pin carries it (steward branch steward/real-step-limits). Until
-        // then a real run has no step timeout, so a real Core that waits for a worker is judged idle at once.
-        suite::Limits::default(),
+        // A real clock: the wall clock ends a waiting step, never the poll count (design 6.1, R-43; contracts-v0.1.22).
+        suite::Limits::real(),
     );
 }
