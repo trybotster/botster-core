@@ -54,3 +54,26 @@ I requested the package verdict commit from the PC reviewer. Its same-head artif
 This inspection gives no CLEAN and completes no verdict round.
 I changed no product code and ran no build, test, gate, mutation job, merge-check job, or reversal job.
 The tree comparison uses Git source objects only.
+
+## Round 1 — 2026-10-10 — CLEAN
+
+VERDICT: CLEAN (0 open findings).
+
+Reviewed head: `4521237e8200768a36ab4c8a27f268f3914a88ab`.
+Reviewed base: `6c2bccdad9ab6cfac860e63c5eb15d6f8ec5ac6c`.
+The scope and completed source checks are recorded in the inspection above.
+
+The PC package reviewer reports CLEAN on this exact head and base.
+I read `verdicts/pc-program-controls.md` at package verdict commit `392a290cb563fc9718e61f31478a71b0af30f258`.
+Both reviews agree on the pin, unchanged ID lists, empty probe environment, default probe path, and supplied gate evidence.
+The package verdict completes the remaining requirement for this round.
+
+All seven manifest pins and nine lock sources name contracts-v0.1.27 at `b161db87ca82873b4f6b21d8433a69f086abb7cf`.
+No other dependency value changes. No status-list membership changes.
+The automatic base merge matches the reviewed head tree.
+The full gate passes all ten jobs on the exact head and base.
+The gate finds no mutant in this diff. No native implementation changes in this PR.
+
+This verdict accepts the pin move only.
+The later program-controls implementation and pending-ID removals require separate review.
+I ran no build, test, gate, mutation job, merge-check job, or reversal job.
