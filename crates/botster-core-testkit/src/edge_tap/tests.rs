@@ -810,3 +810,23 @@ fn a_hello_that_does_not_decode_ends_the_reading_of_the_link() {
     rig.recv(A, 4096).unwrap();
     assert_eq!(rig.with(|t| t.link_of(&InstanceId("1-7".into()))), None);
 }
+
+/// A link that Core connected to (an adoption) is not read: what the tap knows of the launch of its instance stays.
+#[test]
+fn a_connected_link_is_not_read_for_a_launch() {
+    let mut fake = Fake::default();
+    fake.connects.insert(InstanceId("2-1".into()), B);
+    fake.reads.insert(
+        B,
+        vec![Read::Data(
+            [hello_frame("2-1"), worker_frame(&launched(identity(77)))].concat(),
+        )]
+        .into(),
+    );
+    let mut rig = rig(fake);
+    spawn(&mut rig, "2-1");
+    let instance = InstanceId("2-1".into());
+    assert_eq!(rig.edges.connect_worker(&instance), Some(B));
+    rig.recv(B, 4096).unwrap();
+    assert_eq!(rig.with(|t| t.launch_of(&instance)), Some(Launch::Pending));
+}
