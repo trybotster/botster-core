@@ -552,3 +552,27 @@ The fetched plan ref names the reviewed head. `git diff --check` passes.
 No execution gate applies to this documentation-only review.
 
 VERDICT: NOT CLEAN (2 open: R15-1 HIGH, R15-2 MEDIUM) at 0132ceff1638f7d1975d89c8d0ec834f694b0d1b
+
+## Round 16 — revision 23l resource boundary correction
+
+Reviewed head: `6f80686aa1963164c6069b152c0fcf7b933bfff7`.
+Scope: the complete delta from round 15 head `0132ceff1638f7d1975d89c8d0ec834f694b0d1b`.
+
+R15-2 is closed. Sections 4.2b, 5, and 8 now agree on real-tier selection, initialization, reporting, and regressions.
+The named real-process proof remains required for every applicable slow ID.
+
+R15-1 remains open. The proposed `link_close` control and shared production composition resolve the missing socket access.
+However, the proposed quiet check treats `connect_worker(instance)` as a passive input operation.
+HostEdges documents it as an active adoption connection (`crates/botster-core-host/src/driver.rs:73-79` at `9b255cff`).
+The driver calls it only for `Action::ConnectWorker` (`driver.rs:309-314`).
+A quiet check that calls it can create a connection that the engine did not request.
+Remove this operation from take-ahead and quiet probes. Forward it only when the driver requests it.
+
+The driver also does not drain every input on every pump.
+Its link reader stops for budget limits or held input (`driver.rs:452-503`).
+Correct that premise. A wrapper must bound retained input and report non-quiet while that input waits.
+The pass-through proof must preserve bytes and order when the driver cannot accept more input.
+
+`git diff --check` passes. No execution gate applies to this documentation-only review.
+
+VERDICT: NOT CLEAN (1 open: R15-1 HIGH) at 6f80686aa1963164c6069b152c0fcf7b933bfff7
