@@ -143,3 +143,108 @@ I changed no product code.
 I ran no builds, tests, gates, mutation jobs, or reversal jobs.
 
 VERDICT: NOT CLEAN (3 open)
+
+## Round 2 — 2026-10-10
+
+Reviewer: Sol.
+Reviewed head: `3890e23093b77c3620237e7c9349c9ca0bf2c1a1`.
+PR and gate base: `c19ad938bd87c60331bd002c0117102d8756b1ae`.
+Tier: HIGH. Authority: approved plan 23y; its mutation rules retain revisions 23n and 23r.
+Scope: all three correction paths, affected execution paths, the nine-file PR delta, supplied evidence, and the base merge.
+The unchanged source and evidence checks from Round 1 remain applicable.
+
+### R1-1 / MS-R1-1 — HIGH — CLOSED
+
+`mutants_job` now sends its unmutated stage-2 baseline through `test_budget::bounded_success`.
+The caller supplies `SLOW_DEADLINE`, a separate baseline pid file, the slow seeds, and the same slow selection as stage 2.
+The new helper prepares the pid file and sets `BOTSTER_TEST_PIDFILE` on the command.
+It delegates to the existing `bounded_report` and `run_bounded` path.
+That path starts a process group, tracks descendants, kills the group at the deadline, and checks for leftover processes.
+It performs cleanup before any later report error can return.
+It also fails when the output pipe remains open past the deadline.
+The helper returns the command's success only after these checks pass.
+The existing capped cargo command preserves the gate's resource limits.
+
+The real-process helper proof checks success, command failure, a blocked command, and a leftover child.
+The decision proof runs blocked and leftover baselines through the same helper.
+Both cases fail before the supplied stage-2 closure can start.
+The fixture now runs its baseline through this helper too.
+The exact-head gate selects and passes all three proofs.
+No new time value or copied process guard is introduced.
+
+### R1-2 / MS-R1-2 — MEDIUM — CLOSED
+
+`two_stage_decision` now gives each completed-stage line to an output callback immediately.
+`mutants_job` prints each callback line immediately.
+A later error therefore preserves the earlier completed-stage counts and times.
+The new proof checks a stage-2 miss, a stage-1 timeout, a failed stage-2 start, and a failed baseline start.
+The existing baseline-failure case now checks its retained lines too.
+The gate runs the new proof in 0.006 seconds.
+The closure failure paths retain their causes and do not start the next stage.
+
+### R1-3 / MS-R1-3 — LOW — CLOSED
+
+The argument proof no longer asserts the private deadline constant separately.
+Its complete command comparison still checks the observable `--timeout 600` argument.
+It also retains exact escaped mutant-name filters and the baseline selection check.
+
+### Source and evidence limits
+
+The correction changes only `.cargo/mutants.toml`, `xtask/src/ci.rs`, and `xtask/src/test_budget.rs` before the base merge.
+The revised exclusion comment cites the bounded-run and report proofs.
+It adds no exclusion for the new helper; stage 2 tests that helper.
+The removal of the interim `real.rs` exclusion remains valid.
+The `real.rs` bytes equal the source in the previously reviewed whole-file evidence run at `a9e0783d`.
+That run's 52 mutants remain supported by the Round 1 evidence review: 31 caught, 21 unviable, zero misses or timeouts.
+The slow-only fixture and its reversal remain part of the gate.
+
+The stated `target/candidate` limitation remains within the option permitted by plan 23n.
+A test that executes the prebuilt worker does not see a mutation in that worker binary.
+A worker mutant that neither stage catches fails the step; this review does not claim per-mutant candidate rebuilds.
+I found no additional source finding in the replacement.
+
+### Exact-head gate
+
+Log:
+`/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-p6-two-stage-mutants-3890e230-pool-20261010-133139-77510.log`.
+
+The header identifies the reviewed head and base. All ten stages pass.
+Default: 1,485 passed, 497 skipped. Slow: 384 passed, 1,936 skipped.
+Testkit conformance: 193 passed, zero failed.
+Pending-real: 87 ids, zero passes.
+Minimum counts remain testkit 50/69, real-passing 29/68, and real-accepted 29/69.
+The two-stage fixture passes in 7.282 seconds in the regular slow tier.
+The blocked-baseline proof passes in 0.011 seconds. The bounded-helper proof passes in 0.022 seconds.
+
+The first mutation command exercises both stages:
+
+- Stage 1: 25 mutants; 14 caught, two missed, zero timeouts, nine unviable; 146.9 seconds.
+- Unmutated stage-2 baseline: passed; 121.4 seconds.
+- Stage 2: two mutants; two caught, zero missed, zero timeouts, zero unviable; 169.3 seconds.
+- Combined verdict: 25 mutants; 16 caught, nine unviable, zero missed or timeouts.
+
+The repeated mutation command reports the same counts.
+Its times are stage 1 94.8 seconds, baseline 81.8 seconds, and stage 2 148.5 seconds.
+Both baselines pass all 384 selected tests.
+The job exits zero after 1,006 seconds; the gate exits zero after 1,007 seconds on msa1.
+These results now exercise the outer stage-2 path, unlike the Round 1 gate.
+
+### Base merge and package record
+
+Merge-check log:
+`/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-p6-two-stage-mutants-3890e230-pool-20261010-134832-14635.log`.
+
+The supplied check compares `9069dcf376b5fef28481d5fe0a600e0a083efd61` with this head and reports PASS for every condition.
+It reports disjoint base paths, an unchanged PR diff, and the base's unchanged pending membership.
+I independently compared both PR diffs with `git diff --binary`; they are byte-identical.
+I independently compared Git's automatic merge tree with the head's tree; both are `861cb847bedbec2c1b949d15de25028cab04b753`.
+The current base is the single merge base and is an ancestor of the head.
+The remote PR head and base match. `git diff --check` passes.
+
+I read Round 1 package verdict `c4a2ebab5b2dff66c16cb4b2852f5b57ae8069a5`, `verdicts/p6-two-stage-mutants.md`.
+Its three findings match the closed findings above.
+The package reviewer reports that the replacement source and evidence review closes all three findings, with no additional finding.
+The replacement package verdict commit is pending.
+I changed no product code and ran no builds, tests, gates, mutation tests, or reversal jobs.
+
+VERDICT: CLEAN (0 open)
