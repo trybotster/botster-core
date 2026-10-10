@@ -1378,6 +1378,39 @@ mod tests {
             lines,
             ["mutants: stage 1 (default): 4 mutants: 3 caught, 0 missed, 1 timeout, 0 unviable, in 2.5 s"]
         );
+        // A stage that fails to start keeps the lines before it too: stage 2, and the baseline.
+        let (lines, result) = decide_lines(
+            5,
+            || stage(Some(2), Some(counts(5, 3, 2, 0, 0))),
+            || Ok((true, Duration::from_millis(1500))),
+            |_| Err(anyhow::anyhow!("start cargo mutants (stage 2)")),
+        );
+        assert_eq!(
+            result.unwrap_err().to_string(),
+            "start cargo mutants (stage 2)"
+        );
+        assert_eq!(
+            lines,
+            [
+                "mutants: stage 1 (default): 5 mutants: 3 caught, 2 missed, 0 timeout, 0 unviable, in 2.5 s",
+                "mutants: stage 2 baseline (the slow tier, unmutated): passed, in 1.5 s",
+            ]
+        );
+        let (lines, result) = decide_lines(
+            5,
+            || stage(Some(2), Some(counts(5, 3, 2, 0, 0))),
+            || {
+                Err(anyhow::anyhow!(
+                    "start the stage 2 baseline (cargo nextest)"
+                ))
+            },
+            |_| panic!("the baseline did not start, so no stage 2"),
+        );
+        assert!(result.is_err());
+        assert_eq!(
+            lines,
+            ["mutants: stage 1 (default): 5 mutants: 3 caught, 2 missed, 0 timeout, 0 unviable, in 2.5 s"]
+        );
     }
 
     #[test]
