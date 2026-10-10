@@ -296,7 +296,7 @@ WebRTC ids (all DEFERRED):
   2. B2: will the Hub attach with `answers_queries: false`? If not, the EV-8 client-answer path is IN.
   3. B3/B4: is "the session keeps its spawn size" and "a client re-attaches by baseline after a host restart" acceptable for the first session? If not, resize (SZ, DP-6) and DP-8 move IN.
 - **WebRTC.** The minimum session runs over a Stream route under the current text, but A2-6 makes `route_transport:webrtc` mandatory for 0.1. Deferring it is a staging order. The placement question is with the steward.
-- **Progress measure.** Core reports two counts, "testkit-passing / 69" and "real-passing / 69" (plan revisions 23a and 23k; this was "/ 70" before 23k).
+- **Progress measure.** Core reports "testkit-passing / 69", "real-passing / 68" and "real-accepted / 69" (plan revisions 23a, 23k and 23q; this was "/ 70" before 23k). Real-passing excludes `dp_3_frame_limit_checked_before_allocation`, which Core A20-1 makes a testkit-proven id; real-accepted adds it back when it passes on the testkit. The minimum Core is done when testkit-passing and real-accepted are both 69.
 
 ## 8. Answers (orchestrator, 2026-10-09)
 
