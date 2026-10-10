@@ -496,22 +496,22 @@ fn a_link_or_an_exit_held_alone_keeps_the_edges_busy() {
     // Only an accepted link is held: the next answer is "not quiet", and the tap takes nothing more.
     let mut fake = Fake::default();
     fake.accepts.push_back(A);
-    let mut rig = rig(fake);
-    assert!(!rig.with(Tap::quiet));
-    assert!(!rig.with(Tap::quiet), "the tap still holds the link");
-    assert_eq!(rig.edges.accept_link(), Some(A));
-    assert!(rig.with(Tap::quiet));
+    let mut links = rig(fake);
+    assert!(!links.with(Tap::quiet));
+    assert!(!links.with(Tap::quiet), "the tap still holds the link");
+    assert_eq!(links.edges.accept_link(), Some(A));
+    assert!(links.with(Tap::quiet));
     // Only an exit is held.
     let mut fake = Fake::default();
     fake.exits.push_back((identity(4), exit_status()));
-    let mut rig = rig(fake);
-    assert!(!rig.with(Tap::quiet));
-    assert!(!rig.with(Tap::quiet), "the tap still holds the exit");
+    let mut exits = rig(fake);
+    assert!(!exits.with(Tap::quiet));
+    assert!(!exits.with(Tap::quiet), "the tap still holds the exit");
     assert_eq!(
-        rig.edges.poll_process_exit(),
+        exits.edges.poll_process_exit(),
         Some((identity(4), exit_status()))
     );
-    assert!(rig.with(Tap::quiet));
+    assert!(exits.with(Tap::quiet));
 }
 
 #[test]
