@@ -1,0 +1,834 @@
+{
+  "id": "conf::ev_2_retired_instance_never_creates_a_loss_marker",
+  "contract": "core",
+  "clause": "EV-5",
+  "subject": "core",
+  "requires": {
+    "controls": [
+      "edges_quiet",
+      "pty_output"
+    ]
+  },
+  "setup": {
+    "limits": {
+      "event_queue": 16,
+      "max_sessions": 4,
+      "mandatory_events": 64
+    }
+  },
+  "fake": "structural",
+  "ruling": "R-12",
+  "steps": [
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s1",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$c_s1",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s1",
+                  "state": "Created"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core LC-3"
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "s1"
+          }
+        }
+      },
+      "bind": "$s_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$s_s1",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s1",
+                  "state": "Running"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core A2-1"
+    },
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s2",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c_s2"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$c_s2",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s2",
+                  "state": "Created"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core LC-3"
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "s2"
+          }
+        }
+      },
+      "bind": "$s_s2"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$s_s2",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s2",
+                  "state": "Running"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core A2-1"
+    },
+    {
+      "drain": {}
+    },
+    {
+      "advance_clock": {
+        "unix": 2000
+      }
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s1",
+        "bytes_hex": "07"
+      }
+    },
+    {
+      "await_quiet": {}
+    },
+    {
+      "advance_clock": {
+        "unix": 2001
+      }
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s1",
+        "bytes_hex": "07"
+      }
+    },
+    {
+      "await_quiet": {}
+    },
+    {
+      "advance_clock": {
+        "unix": 2002
+      }
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s1",
+        "bytes_hex": "07"
+      }
+    },
+    {
+      "await_quiet": {}
+    },
+    {
+      "advance_clock": {
+        "unix": 2003
+      }
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s1",
+        "bytes_hex": "07"
+      }
+    },
+    {
+      "await_quiet": {}
+    },
+    {
+      "advance_clock": {
+        "unix": 2004
+      }
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s1",
+        "bytes_hex": "07"
+      }
+    },
+    {
+      "await_quiet": {}
+    },
+    {
+      "advance_clock": {
+        "unix": 2005
+      }
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s1",
+        "bytes_hex": "07"
+      }
+    },
+    {
+      "await_quiet": {}
+    },
+    {
+      "advance_clock": {
+        "unix": 2006
+      }
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s1",
+        "bytes_hex": "07"
+      }
+    },
+    {
+      "await_quiet": {}
+    },
+    {
+      "advance_clock": {
+        "unix": 2007
+      }
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s1",
+        "bytes_hex": "07"
+      }
+    },
+    {
+      "await_quiet": {}
+    },
+    {
+      "advance_clock": {
+        "unix": 2008
+      }
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s1",
+        "bytes_hex": "07"
+      }
+    },
+    {
+      "await_quiet": {}
+    },
+    {
+      "advance_clock": {
+        "unix": 2009
+      }
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s1",
+        "bytes_hex": "07"
+      }
+    },
+    {
+      "await_quiet": {}
+    },
+    {
+      "advance_clock": {
+        "unix": 2010
+      }
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s1",
+        "bytes_hex": "07"
+      }
+    },
+    {
+      "await_quiet": {}
+    },
+    {
+      "advance_clock": {
+        "unix": 2011
+      }
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s1",
+        "bytes_hex": "07"
+      }
+    },
+    {
+      "await_quiet": {}
+    },
+    {
+      "advance_clock": {
+        "unix": 2012
+      }
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s1",
+        "bytes_hex": "07"
+      }
+    },
+    {
+      "await_quiet": {}
+    },
+    {
+      "advance_clock": {
+        "unix": 2013
+      }
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s1",
+        "bytes_hex": "07"
+      }
+    },
+    {
+      "await_quiet": {}
+    },
+    {
+      "advance_clock": {
+        "unix": 2014
+      }
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s1",
+        "bytes_hex": "07"
+      }
+    },
+    {
+      "await_quiet": {}
+    },
+    {
+      "advance_clock": {
+        "unix": 2015
+      }
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s1",
+        "bytes_hex": "07"
+      }
+    },
+    {
+      "await_quiet": {}
+    },
+    {
+      "begin": {
+        "op": {
+          "Stop": {
+            "id": "s1"
+          }
+        }
+      },
+      "bind": "$p1"
+    },
+    {
+      "await_quiet": {}
+    },
+    {
+      "call": {
+        "method": "get",
+        "args": {
+          "id": "s1"
+        }
+      },
+      "expect": {
+        "state": {
+          "Exited": {
+            "$any": true
+          }
+        }
+      },
+      "because": [
+        "Core LC-5",
+        "Core LC-7"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "Remove": {
+            "id": "s1"
+          }
+        }
+      },
+      "bind": "$rm1"
+    },
+    {
+      "await_quiet": {}
+    },
+    {
+      "call": {
+        "method": "get",
+        "args": {
+          "id": "s1"
+        }
+      },
+      "expect_error": {
+        "code": "UnknownSession"
+      },
+      "because": [
+        "Core A2-1",
+        "Core LC-7"
+      ]
+    },
+    {
+      "advance_clock": {
+        "unix": 3000
+      }
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s2",
+        "bytes_hex": "07"
+      }
+    },
+    {
+      "await_quiet": {}
+    },
+    {
+      "advance_clock": {
+        "unix": 3001
+      }
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s2",
+        "bytes_hex": "07"
+      }
+    },
+    {
+      "await_quiet": {}
+    },
+    {
+      "advance_clock": {
+        "unix": 3002
+      }
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s2",
+        "bytes_hex": "07"
+      }
+    },
+    {
+      "await_quiet": {}
+    },
+    {
+      "advance_clock": {
+        "unix": 3003
+      }
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s2",
+        "bytes_hex": "07"
+      }
+    },
+    {
+      "await_quiet": {}
+    },
+    {
+      "advance_clock": {
+        "unix": 3004
+      }
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s2",
+        "bytes_hex": "07"
+      }
+    },
+    {
+      "await_quiet": {}
+    },
+    {
+      "advance_clock": {
+        "unix": 3005
+      }
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s2",
+        "bytes_hex": "07"
+      }
+    },
+    {
+      "await_quiet": {}
+    },
+    {
+      "advance_clock": {
+        "unix": 3006
+      }
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s2",
+        "bytes_hex": "07"
+      }
+    },
+    {
+      "await_quiet": {}
+    },
+    {
+      "advance_clock": {
+        "unix": 3007
+      }
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s2",
+        "bytes_hex": "07"
+      }
+    },
+    {
+      "await_quiet": {}
+    },
+    {
+      "advance_clock": {
+        "unix": 3008
+      }
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s2",
+        "bytes_hex": "07"
+      }
+    },
+    {
+      "await_quiet": {}
+    },
+    {
+      "advance_clock": {
+        "unix": 3009
+      }
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s2",
+        "bytes_hex": "07"
+      }
+    },
+    {
+      "await_quiet": {}
+    },
+    {
+      "advance_clock": {
+        "unix": 3010
+      }
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s2",
+        "bytes_hex": "07"
+      }
+    },
+    {
+      "await_quiet": {}
+    },
+    {
+      "advance_clock": {
+        "unix": 3011
+      }
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s2",
+        "bytes_hex": "07"
+      }
+    },
+    {
+      "await_quiet": {}
+    },
+    {
+      "advance_clock": {
+        "unix": 3012
+      }
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s2",
+        "bytes_hex": "07"
+      }
+    },
+    {
+      "await_quiet": {}
+    },
+    {
+      "advance_clock": {
+        "unix": 3013
+      }
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s2",
+        "bytes_hex": "07"
+      }
+    },
+    {
+      "await_quiet": {}
+    },
+    {
+      "advance_clock": {
+        "unix": 3014
+      }
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s2",
+        "bytes_hex": "07"
+      }
+    },
+    {
+      "await_quiet": {}
+    },
+    {
+      "advance_clock": {
+        "unix": 3015
+      }
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s2",
+        "bytes_hex": "07"
+      }
+    },
+    {
+      "await_quiet": {}
+    },
+    {
+      "advance_clock": {
+        "unix": 3016
+      }
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s2",
+        "bytes_hex": "07"
+      }
+    },
+    {
+      "await_quiet": {}
+    },
+    {
+      "advance_clock": {
+        "unix": 3017
+      }
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s2",
+        "bytes_hex": "07"
+      }
+    },
+    {
+      "await_quiet": {}
+    },
+    {
+      "advance_clock": {
+        "unix": 3018
+      }
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s2",
+        "bytes_hex": "07"
+      }
+    },
+    {
+      "await_quiet": {}
+    },
+    {
+      "advance_clock": {
+        "unix": 3019
+      }
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s2",
+        "bytes_hex": "07"
+      }
+    },
+    {
+      "await_quiet": {}
+    },
+    {
+      "expect_eventually": {
+        "EventsLost": {
+          "id": "s2",
+          "kinds": [
+            "Bell"
+          ]
+        }
+      },
+      "because": [
+        "Core EV-2",
+        "Core EV-5"
+      ],
+      "ignore": [
+        {
+          "SessionState": {
+            "$any": true
+          }
+        },
+        {
+          "Completed": {
+            "$any": true
+          }
+        },
+        {
+          "Activity": {
+            "id": "s1"
+          }
+        },
+        {
+          "Activity": {
+            "id": "s2"
+          }
+        },
+        {
+          "Bell": {
+            "id": "s2"
+          }
+        }
+      ]
+    },
+    {
+      "expect_quiet_until": {
+        "$one_of": [
+          {
+            "Bell": {
+              "id": "s1"
+            }
+          },
+          {
+            "EventsLost": {
+              "id": "s1"
+            }
+          }
+        ]
+      },
+      "barrier": {
+        "begin": {
+          "op": {
+            "UpdateMetadata": {
+              "id": "s2",
+              "labels": {
+                "b": "1"
+              }
+            }
+          }
+        },
+        "bind": "$bar_s2"
+      },
+      "until": {
+        "Completed": {
+          "op": "$bar_s2",
+          "result": {
+            "ok": "unit"
+          }
+        }
+      },
+      "because": [
+        "Core EV-2",
+        "Core EV-5"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,380 @@
+{
+  "id": "conf::dp_5_full_input_queue_stops_reading_the_route_and_never_drops",
+  "contract": "core",
+  "clause": "DP-5",
+  "subject": "core",
+  "requires": {
+    "controls": [
+      "pty_blocked",
+      "pty_input",
+      "input_blocked",
+      "edges_quiet"
+    ]
+  },
+  "setup": {
+    "limits": {
+      "route_input_queue_bytes": 8
+    }
+  },
+  "steps": [
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s1",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ],
+              "fake": {
+                "writes": {
+                  "key": "6b",
+                  "paste": "70"
+                },
+                "admission": {
+                  "key": 12,
+                  "mouse": 12,
+                  "focus": 3,
+                  "paste": 64
+                }
+              }
+            }
+          }
+        }
+      },
+      "bind": "$c_s1"
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "s1"
+          }
+        }
+      },
+      "bind": "$s_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$s_s1",
+            "result": {}
+          }
+        }
+      },
+      "because": "Core LC-3"
+    },
+    {
+      "attach_route": {
+        "route": "r1",
+        "session": "s1",
+        "client": "c1"
+      },
+      "because": "Core OU-1"
+    },
+    {
+      "expect": {
+        "frame": "attached",
+        "terminal_format": {
+          "$type": "string"
+        }
+      },
+      "on": "r1",
+      "because": "Core OU-9"
+    },
+    {
+      "expect": {
+        "frame": "baseline_begin",
+        "rows": {
+          "$type": "integer"
+        },
+        "cols": {
+          "$type": "integer"
+        },
+        "modes": {
+          "$type": "object"
+        }
+      },
+      "on": "r1",
+      "because": "Core OU-9"
+    },
+    {
+      "expect": {
+        "frame": "screen",
+        "payload": {
+          "$any": true
+        }
+      },
+      "on": "r1",
+      "because": "Core OU-9"
+    },
+    {
+      "expect_eventually": {
+        "frame": "baseline_end",
+        "history": "not_requested"
+      },
+      "ignore": [
+        {
+          "frame": "history",
+          "payload": {
+            "$any": true
+          }
+        }
+      ],
+      "on": "r1",
+      "because": "Core OU-9"
+    },
+    {
+      "expect": {
+        "frame": "live"
+      },
+      "on": "r1",
+      "because": "Core OU-9"
+    },
+    {
+      "control": {
+        "op": "pty_blocked",
+        "session": "s1",
+        "on": true
+      }
+    },
+    {
+      "route_send": {
+        "frame": "bytes",
+        "op": "1",
+        "bytes": {
+          "$bytes_hex": "336330313365"
+        }
+      }
+    },
+    {
+      "route_send": {
+        "frame": "bytes",
+        "op": "2",
+        "bytes": {
+          "$bytes_hex": "336330323365"
+        }
+      }
+    },
+    {
+      "route_send": {
+        "frame": "bytes",
+        "op": "3",
+        "bytes": {
+          "$bytes_hex": "336330333365"
+        }
+      }
+    },
+    {
+      "route_send": {
+        "frame": "bytes",
+        "op": "4",
+        "bytes": {
+          "$bytes_hex": "336330343365"
+        }
+      }
+    },
+    {
+      "route_send": {
+        "frame": "bytes",
+        "op": "5",
+        "bytes": {
+          "$bytes_hex": "336330353365"
+        }
+      }
+    },
+    {
+      "route_send": {
+        "frame": "bytes",
+        "op": "6",
+        "bytes": {
+          "$bytes_hex": "336330363365"
+        }
+      }
+    },
+    {
+      "route_send": {
+        "frame": "bytes",
+        "op": "7",
+        "bytes": {
+          "$bytes_hex": "336330373365"
+        }
+      }
+    },
+    {
+      "route_send": {
+        "frame": "bytes",
+        "op": "8",
+        "bytes": {
+          "$bytes_hex": "336330383365"
+        }
+      }
+    },
+    {
+      "route_send": {
+        "frame": "bytes",
+        "op": "9",
+        "bytes": {
+          "$bytes_hex": "336330393365"
+        }
+      }
+    },
+    {
+      "route_send": {
+        "frame": "bytes",
+        "op": "10",
+        "bytes": {
+          "$bytes_hex": "336331303365"
+        }
+      }
+    },
+    {
+      "route_send": {
+        "frame": "bytes",
+        "op": "11",
+        "bytes": {
+          "$bytes_hex": "336331313365"
+        }
+      }
+    },
+    {
+      "route_send": {
+        "frame": "bytes",
+        "op": "12",
+        "bytes": {
+          "$bytes_hex": "336331323365"
+        }
+      }
+    },
+    {
+      "control": {
+        "op": "input_blocked"
+      },
+      "route": "r1",
+      "expect": {
+        "blocked": true
+      },
+      "because": [
+        "Core DP-5"
+      ]
+    },
+    {
+      "await_quiet": {}
+    },
+    {
+      "route_expect_pty": [],
+      "because": [
+        "Core DP-5"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_blocked",
+        "session": "s1",
+        "on": false
+      }
+    },
+    {
+      "await_pty": {
+        "session": "s1",
+        "min_bytes": 48
+      }
+    },
+    {
+      "await_quiet": {}
+    },
+    {
+      "route_expect_pty": [
+        {
+          "hex": "336330313365"
+        },
+        {
+          "hex": "336330323365"
+        },
+        {
+          "hex": "336330333365"
+        },
+        {
+          "hex": "336330343365"
+        },
+        {
+          "hex": "336330353365"
+        },
+        {
+          "hex": "336330363365"
+        },
+        {
+          "hex": "336330373365"
+        },
+        {
+          "hex": "336330383365"
+        },
+        {
+          "hex": "336330393365"
+        },
+        {
+          "hex": "336331303365"
+        },
+        {
+          "hex": "336331313365"
+        },
+        {
+          "hex": "336331323365"
+        }
+      ],
+      "because": [
+        "Core DP-5",
+        "Core AM-2"
+      ]
+    },
+    {
+      "control": {
+        "op": "input_blocked"
+      },
+      "route": "r1",
+      "expect": {
+        "blocked": false
+      },
+      "because": [
+        "Core DP-5"
+      ]
+    },
+    {
+      "expect_quiet_until": {
+        "$one_of": [
+          {
+            "frame": "input_done"
+          },
+          {
+            "frame": "input_refused",
+            "op": {
+              "$not": "99"
+            }
+          }
+        ]
+      },
+      "barrier": {
+        "route_send": {
+          "frame": "input",
+          "kind": "paste_commit",
+          "op": "99"
+        },
+        "route": "r1"
+      },
+      "until": {
+        "frame": "input_refused",
+        "op": "99",
+        "reason": "refused"
+      },
+      "on": "r1",
+      "because": [
+        "Core DP-5"
+      ]
+    }
+  ],
+  "fake": "structural",
+  "ruling": "R-12"
+}

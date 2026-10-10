@@ -1,0 +1,451 @@
+{
+  "id": "conf::a5_3_async_failure_only_through_edges_and_real_completion",
+  "contract": "core",
+  "clause": "A5-3",
+  "subject": "core",
+  "requires": {
+    "controls": [
+      "process_end_guardian",
+      "process_end_worker",
+      "process_refuse_spawn",
+      "storage_fail_write",
+      "withhold_control_link"
+    ]
+  },
+  "fake": "structural",
+  "ruling": "R-12",
+  "steps": [
+    {
+      "control": {
+        "op": "storage_fail_write"
+      },
+      "because": "Core A5-3"
+    },
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s1",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$c1",
+            "result": {
+              "err": {
+                "code": {
+                  "RegistryFailed": {
+                    "uncertain": false
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core A5-3",
+        "Core AD-7"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s1",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c2",
+      "because": [
+        "Core A5-3",
+        "Core EV-5"
+      ]
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$c2",
+            "result": {
+              "ok": {
+                "record": {
+                  "state": "Created"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core LC-3"
+    },
+    {
+      "control": {
+        "op": "storage_fail_write",
+        "uncertain": true
+      },
+      "because": "Core A5-3"
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "s1"
+          }
+        }
+      },
+      "bind": "$s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$s1",
+            "result": {
+              "err": {
+                "code": {
+                  "RegistryFailed": {
+                    "uncertain": true
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core A5-3",
+        "Core AD-7"
+      ]
+    },
+    {
+      "control": {
+        "op": "process_refuse_spawn",
+        "errno": 2
+      },
+      "because": "Core A5-3"
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "s1"
+          }
+        }
+      },
+      "bind": "$s2"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$s2",
+            "result": {
+              "err": {
+                "code": {
+                  "StartFailed": {
+                    "ExecFailed": {
+                      "errno": 2
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core A5-3",
+        "Core A2-1"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s2",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c_s2"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$c_s2",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s2",
+                  "state": "Created"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core LC-3"
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "s2"
+          }
+        }
+      },
+      "bind": "$s_s2"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$s_s2",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s2",
+                  "state": "Running"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core A2-1"
+    },
+    {
+      "control": {
+        "op": "process_end_worker",
+        "session": "s2"
+      },
+      "because": "Core A5-3"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "SessionState": {
+            "id": "s2",
+            "state": {
+              "Lost": "WorkerGone"
+            }
+          }
+        }
+      },
+      "because": [
+        "Core A5-3",
+        "Core AD-2"
+      ]
+    },
+    {
+      "call": {
+        "method": "get",
+        "args": {
+          "id": "s2"
+        }
+      },
+      "expect": {
+        "state": {
+          "Lost": "WorkerGone"
+        }
+      },
+      "because": [
+        "Core A5-3",
+        "Core AD-2"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "SpawnService": {
+            "service_id": "0202020202020202020202020202020202020202020202020202020202020202",
+            "limits": {
+              "lanes": [
+                {
+                  "max_frame_bytes": 1024,
+                  "outbound_queue_bytes": 4096,
+                  "inbound_queue_bytes": 4096
+                }
+              ],
+              "rlimits": {},
+              "startup": 10000,
+              "stop_grace": 5000,
+              "orphan_grace": 5000
+            }
+          }
+        }
+      },
+      "bind": "$sv"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$sv",
+            "result": {
+              "ok": {
+                "spawn": {
+                  "$any": true
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core A5-3",
+        "Core A2-5"
+      ]
+    },
+    {
+      "control": {
+        "op": "process_end_guardian",
+        "service": "0202020202020202020202020202020202020202020202020202020202020202"
+      },
+      "because": "Core A5-3"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "ServiceState": {
+            "id": "0202020202020202020202020202020202020202020202020202020202020202",
+            "state": {
+              "Lost": {
+                "reason": "GuardianLost"
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core A5-3",
+        "Core A2-5"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s3",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c3"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$c3",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s3",
+                  "state": "Created"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core LC-3"
+    },
+    {
+      "control": {
+        "op": "withhold_control_link",
+        "session": "s3"
+      },
+      "because": [
+        "Core A5-3",
+        "Core A6-1"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "s3"
+          }
+        }
+      },
+      "bind": "$s3"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "SessionState": {
+            "id": "s3",
+            "state": "Starting"
+          }
+        }
+      },
+      "because": [
+        "Core A5-3",
+        "Core LC-4"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "ReadCursor": {
+            "session": "s3"
+          }
+        }
+      },
+      "bind": "$rc"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$rc",
+            "result": {
+              "err": {
+                "code": "CursorReadUnsupported"
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core A5-3",
+        "Core A2-1",
+        "Core R-14"
+      ]
+    }
+  ]
+}

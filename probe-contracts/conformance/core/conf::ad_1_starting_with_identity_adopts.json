@@ -1,0 +1,150 @@
+{
+  "id": "conf::ad_1_starting_with_identity_adopts",
+  "contract": "core",
+  "clause": "AD-1",
+  "subject": "core",
+  "requires": {
+    "controls": [
+      "edges_quiet",
+      "hold_start_at",
+      "payload_alive",
+      "registry_row"
+    ]
+  },
+  "fake": "structural",
+  "ruling": "R-12",
+  "steps": [
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s1",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$c_s1",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s1",
+                  "state": "Created"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core LC-3"
+    },
+    {
+      "control": {
+        "op": "hold_start_at",
+        "session": "s1",
+        "before": "running"
+      }
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "s1"
+          }
+        }
+      },
+      "bind": "$s_s1"
+    },
+    {
+      "await_quiet": {}
+    },
+    {
+      "control": {
+        "op": "registry_row",
+        "session": "s1"
+      },
+      "expect": {
+        "state": "Starting",
+        "identity_recorded": true
+      },
+      "because": [
+        "Core AD-7",
+        "Core AD-1"
+      ]
+    },
+    {
+      "drop": {
+        "handle": "h"
+      }
+    },
+    {
+      "open": {
+        "as": "h2"
+      }
+    },
+    {
+      "begin": {
+        "op": "AdoptAll",
+        "handle": "h2"
+      },
+      "bind": "$aa"
+    },
+    {
+      "pump_collect": {
+        "events": [
+          {
+            "SessionState": {
+              "id": "s1",
+              "state": {
+                "$one_of": [
+                  "Running",
+                  {
+                    "Exited": {
+                      "$any": true
+                    }
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "Completed": {
+              "op": "$aa",
+              "result": {
+                "ok": "unit"
+              }
+            }
+          }
+        ],
+        "handle": "h2"
+      },
+      "because": [
+        "Core AD-1",
+        "Core LC-11",
+        "Core A2-1"
+      ]
+    },
+    {
+      "control": {
+        "op": "payload_alive",
+        "session": "s1",
+        "handle": "h2"
+      },
+      "expect": {
+        "alive": true
+      },
+      "because": "Core AD-1"
+    }
+  ]
+}

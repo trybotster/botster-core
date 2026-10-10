@@ -1,0 +1,220 @@
+{
+  "id": "conf::dp_5_refusals_survive_a_resync",
+  "contract": "core",
+  "clause": "DP-5",
+  "subject": "core",
+  "requires": {
+    "controls": [
+      "edges_quiet",
+      "pty_output",
+      "queue_overflow",
+      "route_gate"
+    ]
+  },
+  "fake": "structural",
+  "ruling": "R-12",
+  "steps": [
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s1",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$c_s1",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s1",
+                  "state": "Created"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core LC-3"
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "s1"
+          }
+        }
+      },
+      "bind": "$s_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$s_s1",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s1",
+                  "state": "Running"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core A2-1"
+    },
+    {
+      "attach_route": {
+        "route": "r1",
+        "session": "s1",
+        "client": "c1",
+        "options": {
+          "history": "none"
+        }
+      },
+      "because": "Core OU-1"
+    },
+    {
+      "expect": {
+        "frame": "attached",
+        "terminal_format": {
+          "$type": "string"
+        }
+      },
+      "because": "Core OU-9",
+      "on": "r1"
+    },
+    {
+      "expect": {
+        "frame": "baseline_begin",
+        "rows": {
+          "$type": "integer"
+        },
+        "cols": {
+          "$type": "integer"
+        },
+        "modes": {
+          "$type": "object"
+        }
+      },
+      "because": "Core OU-9",
+      "on": "r1"
+    },
+    {
+      "expect": {
+        "frame": "screen",
+        "payload": {
+          "$any": true
+        }
+      },
+      "because": "Core OU-9",
+      "on": "r1"
+    },
+    {
+      "expect_eventually": {
+        "frame": "baseline_end",
+        "history": "not_requested"
+      },
+      "because": "Core OU-9",
+      "ignore": [
+        {
+          "frame": "history",
+          "payload": {
+            "$any": true
+          }
+        }
+      ],
+      "on": "r1"
+    },
+    {
+      "expect": {
+        "frame": "live"
+      },
+      "because": "Core OU-9",
+      "on": "r1"
+    },
+    {
+      "control": {
+        "op": "route_gate",
+        "on": true
+      },
+      "route": "r1"
+    },
+    {
+      "route_send": {
+        "frame": "input",
+        "kind": "paste_commit",
+        "op": "98"
+      },
+      "route": "r1"
+    },
+    {
+      "route_send": {
+        "frame": "input",
+        "kind": "paste_commit",
+        "op": "99"
+      },
+      "route": "r1"
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s1",
+        "bytes_hex": "6f6c64"
+      }
+    },
+    {
+      "await_quiet": {}
+    },
+    {
+      "control": {
+        "op": "queue_overflow"
+      },
+      "route": "r1"
+    },
+    {
+      "control": {
+        "op": "route_gate",
+        "on": false
+      },
+      "route": "r1"
+    },
+    {
+      "expect_set": [
+        {
+          "frame": "input_refused",
+          "op": "98",
+          "reason": "refused"
+        },
+        {
+          "frame": "input_refused",
+          "op": "99",
+          "reason": "refused"
+        },
+        {
+          "frame": "resync",
+          "reason": "overflow"
+        }
+      ],
+      "on": "r1",
+      "because": [
+        "Core DP-5",
+        "Core OU-9"
+      ]
+    }
+  ]
+}

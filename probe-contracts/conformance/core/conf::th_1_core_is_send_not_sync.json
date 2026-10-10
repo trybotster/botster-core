@@ -1,0 +1,12 @@
+{
+  "id": "conf::th_1_core_is_send_not_sync",
+  "contract": "core",
+  "clause": "TH-1",
+  "subject": "core",
+  "steps": [
+    {
+      "type_check": "send_not_sync",
+      "because": "Core TH-1"
+    }
+  ]
+}

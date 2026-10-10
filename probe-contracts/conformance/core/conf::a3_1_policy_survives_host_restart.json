@@ -1,0 +1,266 @@
+{
+  "id": "conf::a3_1_policy_survives_host_restart",
+  "contract": "core",
+  "clause": "A3-1",
+  "subject": "core",
+  "requires": {
+    "features": [
+      "output_dropped"
+    ],
+    "controls": [
+      "edges_quiet",
+      "pty_output",
+      "queue_overflow",
+      "route_gate"
+    ]
+  },
+  "fake": "structural",
+  "ruling": "R-12",
+  "steps": [
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s1",
+            "request": {
+              "notification_policy": "all",
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$c_s1",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s1",
+                  "state": "Created"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core LC-3"
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "s1"
+          }
+        }
+      },
+      "bind": "$s_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$s_s1",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s1",
+                  "state": "Running"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core A2-1"
+    },
+    {
+      "drop": {
+        "handle": "h"
+      }
+    },
+    {
+      "open": {
+        "as": "h2"
+      }
+    },
+    {
+      "begin": {
+        "op": "AdoptAll",
+        "handle": "h2"
+      },
+      "bind": "$aa"
+    },
+    {
+      "pump_collect": {
+        "events": [
+          {
+            "SessionState": {
+              "id": "s1",
+              "state": "Running"
+            }
+          },
+          {
+            "Completed": {
+              "op": "$aa",
+              "result": {
+                "ok": "unit"
+              }
+            }
+          }
+        ],
+        "handle": "h2"
+      },
+      "because": [
+        "Core AD-1",
+        "Core LC-11",
+        "Core A2-1"
+      ]
+    },
+    {
+      "attach_route": {
+        "route": "r1",
+        "session": "s1",
+        "client": "c1",
+        "options": {
+          "history": "none",
+          "route_features": [
+            "output_dropped"
+          ]
+        },
+        "handle": "h2"
+      },
+      "because": "Core OU-1"
+    },
+    {
+      "expect": {
+        "frame": "attached",
+        "terminal_format": {
+          "$type": "string"
+        },
+        "features": [
+          "output_dropped"
+        ]
+      },
+      "because": "Core OU-9",
+      "on": "r1"
+    },
+    {
+      "expect": {
+        "frame": "baseline_begin",
+        "rows": {
+          "$type": "integer"
+        },
+        "cols": {
+          "$type": "integer"
+        },
+        "modes": {
+          "$type": "object"
+        }
+      },
+      "because": "Core OU-9",
+      "on": "r1"
+    },
+    {
+      "expect": {
+        "frame": "screen",
+        "payload": {
+          "$any": true
+        }
+      },
+      "because": "Core OU-9",
+      "on": "r1"
+    },
+    {
+      "expect_eventually": {
+        "frame": "baseline_end",
+        "history": "not_requested"
+      },
+      "because": "Core OU-9",
+      "ignore": [
+        {
+          "frame": "history",
+          "payload": {
+            "$any": true
+          }
+        }
+      ],
+      "on": "r1"
+    },
+    {
+      "expect": {
+        "frame": "live"
+      },
+      "because": "Core OU-9",
+      "on": "r1"
+    },
+    {
+      "control": {
+        "op": "route_gate",
+        "on": true
+      },
+      "route": "r1"
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s1",
+        "bytes_hex": "07",
+        "handle": "h2"
+      }
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Bell": {
+            "id": "s1"
+          }
+        },
+        "handle": "h2"
+      },
+      "because": "Core A2-4"
+    },
+    {
+      "await_quiet": {
+        "handle": "h2"
+      }
+    },
+    {
+      "control": {
+        "op": "queue_overflow",
+        "handle": "h2"
+      },
+      "route": "r1"
+    },
+    {
+      "control": {
+        "op": "route_gate",
+        "on": false
+      },
+      "route": "r1"
+    },
+    {
+      "expect_eventually": {
+        "frame": "output_dropped",
+        "notifications": 1,
+        "last": {
+          "source": "bell"
+        }
+      },
+      "because": "Core A3-1",
+      "ignore": [
+        {
+          "frame": "modes"
+        }
+      ],
+      "on": "r1"
+    }
+  ]
+}

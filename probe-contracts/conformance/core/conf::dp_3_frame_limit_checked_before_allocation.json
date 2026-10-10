@@ -1,0 +1,444 @@
+{
+  "id": "conf::dp_3_frame_limit_checked_before_allocation",
+  "contract": "core",
+  "clause": "DP-3",
+  "subject": "core",
+  "requires": {
+    "controls": [
+      "alloc_peak",
+      "alloc_window",
+      "edges_quiet"
+    ]
+  },
+  "steps": [
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s1",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$c_s1",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s1",
+                  "state": "Created"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core LC-3"
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "s1"
+          }
+        }
+      },
+      "bind": "$s_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$s_s1",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s1",
+                  "state": "Running"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core A2-1"
+    },
+    {
+      "attach_route": {
+        "route": "r1",
+        "session": "s1",
+        "client": "c1",
+        "options": {
+          "history": "none",
+          "route_limits": {
+            "max_frame_bytes": 4096
+          }
+        }
+      },
+      "because": "Core OU-1"
+    },
+    {
+      "expect": {
+        "frame": "attached",
+        "terminal_format": {
+          "$type": "string"
+        },
+        "limits": {
+          "max_frame_bytes": 4096
+        }
+      },
+      "on": "r1",
+      "because": [
+        "Core OU-1",
+        "Core DP-3"
+      ]
+    },
+    {
+      "expect": {
+        "frame": "baseline_begin",
+        "rows": {
+          "$type": "integer"
+        },
+        "cols": {
+          "$type": "integer"
+        },
+        "modes": {
+          "$type": "object"
+        }
+      },
+      "on": "r1",
+      "because": [
+        "Core OU-9",
+        "Codec TS-4"
+      ]
+    },
+    {
+      "expect": {
+        "frame": "screen",
+        "payload": {
+          "$any": true
+        }
+      },
+      "on": "r1",
+      "because": [
+        "Core OU-9",
+        "Core DP-3"
+      ]
+    },
+    {
+      "expect_eventually": {
+        "frame": "baseline_end",
+        "history": "not_requested"
+      },
+      "ignore": [
+        {
+          "frame": "history",
+          "payload": {
+            "$any": true
+          }
+        }
+      ],
+      "on": "r1",
+      "because": [
+        "Core OU-9",
+        "Codec TS-4"
+      ]
+    },
+    {
+      "expect": {
+        "frame": "live"
+      },
+      "on": "r1",
+      "because": [
+        "Core OU-9",
+        "Codec TS-4"
+      ]
+    },
+    {
+      "await_quiet": {}
+    },
+    {
+      "control": {
+        "op": "alloc_window"
+      },
+      "because": [
+        "Core DP-3",
+        "Steward R-37"
+      ]
+    },
+    {
+      "route_send_wire": {
+        "bytes_hex": "0000100183"
+      },
+      "route": "r1"
+    },
+    {
+      "expect_eventually": {
+        "frame": "route_closed",
+        "reason": {
+          "protocol_error": {
+            "code": "frame_too_large"
+          }
+        }
+      },
+      "ignore": [
+        {
+          "frame": "modes"
+        },
+        {
+          "frame": "output"
+        },
+        {
+          "frame": "output_deflate"
+        }
+      ],
+      "on": "r1",
+      "because": [
+        "Core DP-3",
+        "Core A2-3"
+      ]
+    },
+    {
+      "expect_closed": null,
+      "on": "r1",
+      "because": [
+        "Core DP-3",
+        "Core A2-3"
+      ]
+    },
+    {
+      "pump_until": {
+        "event": {
+          "RouteClosed": {
+            "route": "$r1",
+            "reason": {
+              "BadFrame": {
+                "code": "frame_too_large"
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core DP-3",
+        "Core A2-3"
+      ]
+    },
+    {
+      "await_quiet": {}
+    },
+    {
+      "control": {
+        "op": "alloc_peak"
+      },
+      "expect": {
+        "bytes": "$peak_small"
+      },
+      "because": [
+        "Core DP-3",
+        "Steward R-37"
+      ]
+    },
+    {
+      "attach_route": {
+        "route": "r2",
+        "session": "s1",
+        "client": "c2",
+        "options": {
+          "history": "none",
+          "route_limits": {
+            "max_frame_bytes": 4096
+          }
+        }
+      },
+      "because": "Core OU-1"
+    },
+    {
+      "expect": {
+        "frame": "attached",
+        "terminal_format": {
+          "$type": "string"
+        },
+        "limits": {
+          "max_frame_bytes": 4096
+        }
+      },
+      "on": "r2",
+      "because": [
+        "Core OU-1",
+        "Core DP-3"
+      ]
+    },
+    {
+      "expect": {
+        "frame": "baseline_begin",
+        "rows": {
+          "$type": "integer"
+        },
+        "cols": {
+          "$type": "integer"
+        },
+        "modes": {
+          "$type": "object"
+        }
+      },
+      "on": "r2",
+      "because": [
+        "Core OU-9",
+        "Codec TS-4"
+      ]
+    },
+    {
+      "expect": {
+        "frame": "screen",
+        "payload": {
+          "$any": true
+        }
+      },
+      "on": "r2",
+      "because": [
+        "Core OU-9",
+        "Core DP-3"
+      ]
+    },
+    {
+      "expect_eventually": {
+        "frame": "baseline_end",
+        "history": "not_requested"
+      },
+      "ignore": [
+        {
+          "frame": "history",
+          "payload": {
+            "$any": true
+          }
+        }
+      ],
+      "on": "r2",
+      "because": [
+        "Core OU-9",
+        "Codec TS-4"
+      ]
+    },
+    {
+      "expect": {
+        "frame": "live"
+      },
+      "on": "r2",
+      "because": [
+        "Core OU-9",
+        "Codec TS-4"
+      ]
+    },
+    {
+      "await_quiet": {}
+    },
+    {
+      "control": {
+        "op": "alloc_window"
+      },
+      "because": [
+        "Core DP-3",
+        "Steward R-37"
+      ]
+    },
+    {
+      "route_send_wire": {
+        "bytes_hex": "7fffffff83"
+      },
+      "route": "r2"
+    },
+    {
+      "expect_eventually": {
+        "frame": "route_closed",
+        "reason": {
+          "protocol_error": {
+            "code": "frame_too_large"
+          }
+        }
+      },
+      "ignore": [
+        {
+          "frame": "modes"
+        },
+        {
+          "frame": "output"
+        },
+        {
+          "frame": "output_deflate"
+        }
+      ],
+      "on": "r2",
+      "because": [
+        "Core DP-3",
+        "Core A2-3"
+      ]
+    },
+    {
+      "expect_closed": null,
+      "on": "r2",
+      "because": [
+        "Core DP-3",
+        "Core A2-3"
+      ]
+    },
+    {
+      "pump_until": {
+        "event": {
+          "RouteClosed": {
+            "route": "$r2",
+            "reason": {
+              "BadFrame": {
+                "code": "frame_too_large"
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core DP-3",
+        "Core A2-3"
+      ]
+    },
+    {
+      "await_quiet": {}
+    },
+    {
+      "control": {
+        "op": "alloc_peak"
+      },
+      "expect": {
+        "bytes": "$peak_large"
+      },
+      "because": [
+        "Core DP-3",
+        "Steward R-37"
+      ]
+    },
+    {
+      "check": {
+        "le": [
+          "$peak_large",
+          "$peak_small"
+        ]
+      },
+      "because": [
+        "Core DP-3",
+        "Steward R-37"
+      ]
+    }
+  ],
+  "fake": "structural",
+  "ruling": "R-12"
+}

@@ -1,0 +1,151 @@
+{
+  "id": "conf::in_6_repeat_cancel_is_idempotent_no_slot",
+  "contract": "core",
+  "clause": "IN-6",
+  "subject": "core",
+  "requires": {
+    "controls": [
+      "pty_chunk"
+    ]
+  },
+  "setup": {
+    "limits": {
+      "pending_ops": 2
+    }
+  },
+  "steps": [
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s1",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c_s1"
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "s1"
+          }
+        }
+      },
+      "bind": "$s_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$s_s1",
+            "result": {}
+          }
+        }
+      },
+      "because": "Core LC-3"
+    },
+    {
+      "control": {
+        "op": "pty_chunk",
+        "session": "s1",
+        "bytes": 1
+      }
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "bytes": {
+                "bytes": {
+                  "$bytes_hex": "6162636465"
+                }
+              }
+            }
+          }
+        }
+      },
+      "bind": "$w1"
+    },
+    {
+      "call": {
+        "method": "cancel",
+        "args": {
+          "op": "$w1"
+        }
+      },
+      "expect": "Admitted",
+      "because": "Core IN-6"
+    },
+    {
+      "call": {
+        "method": "cancel",
+        "args": {
+          "op": "$w1"
+        }
+      },
+      "expect": "AlreadyAdmitted",
+      "because": "Core IN-6"
+    },
+    {
+      "call": {
+        "method": "cancel",
+        "args": {
+          "op": "$w1"
+        }
+      },
+      "expect": "AlreadyAdmitted",
+      "because": "Core IN-6"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "bytes": {
+                "bytes": {
+                  "$bytes_hex": "66"
+                }
+              }
+            }
+          }
+        }
+      },
+      "bind": "$w2"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "bytes": {
+                "bytes": {
+                  "$bytes_hex": "67"
+                }
+              }
+            }
+          }
+        }
+      },
+      "bind": "$w3",
+      "expect_error": {
+        "code": "PendingLimit"
+      },
+      "because": [
+        "Core IN-6",
+        "Core EV-5"
+      ]
+    }
+  ]
+}

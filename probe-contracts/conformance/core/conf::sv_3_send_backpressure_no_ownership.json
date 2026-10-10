@@ -1,0 +1,363 @@
+{
+  "id": "conf::sv_3_send_backpressure_no_ownership",
+  "contract": "core",
+  "clause": "SV-3",
+  "subject": "core",
+  "requires": {
+    "controls": [
+      "service_connect",
+      "service_lane_accept",
+      "service_read"
+    ]
+  },
+  "setup": {
+    "limits": {
+      "pending_ops": 2
+    }
+  },
+  "steps": [
+    {
+      "begin": {
+        "op": {
+          "SpawnService": {
+            "service_id": "1111111111111111111111111111111111111111111111111111111111111111",
+            "limits": {
+              "lanes": [
+                {
+                  "max_frame_bytes": 256,
+                  "outbound_queue_bytes": 256,
+                  "inbound_queue_bytes": 256
+                },
+                {
+                  "max_frame_bytes": 256,
+                  "outbound_queue_bytes": 256,
+                  "inbound_queue_bytes": 256
+                }
+              ],
+              "rlimits": {},
+              "startup": 10000,
+              "stop_grace": 5000,
+              "orphan_grace": 5000
+            }
+          }
+        }
+      },
+      "bind": "$o1"
+    },
+    {
+      "pump_collect": {
+        "events": [
+          {
+            "Completed": {
+              "op": "$o1",
+              "result": {
+                "ok": {
+                  "spawn": {
+                    "applied": {
+                      "$type": "array"
+                    },
+                    "unsupported": {
+                      "$type": "array"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "ServiceState": {
+              "id": "1111111111111111111111111111111111111111111111111111111111111111",
+              "state": "Started"
+            }
+          }
+        ]
+      },
+      "because": [
+        "Core SV-1",
+        "Core SV-5",
+        "Core A2-1"
+      ]
+    },
+    {
+      "control": {
+        "op": "service_connect",
+        "service": "1111111111111111111111111111111111111111111111111111111111111111",
+        "epoch": 1
+      }
+    },
+    {
+      "pump_collect": {
+        "events": [
+          {
+            "LaneConnected": {
+              "id": "1111111111111111111111111111111111111111111111111111111111111111",
+              "lane": 0,
+              "epoch": 1
+            }
+          },
+          {
+            "LaneConnected": {
+              "id": "1111111111111111111111111111111111111111111111111111111111111111",
+              "lane": 1,
+              "epoch": 1
+            }
+          },
+          {
+            "ServiceState": {
+              "id": "1111111111111111111111111111111111111111111111111111111111111111",
+              "state": {
+                "Reconnected": {
+                  "epoch": 1
+                }
+              }
+            }
+          }
+        ]
+      },
+      "because": [
+        "Core SV-6",
+        "Core SV-5"
+      ]
+    },
+    {
+      "control": {
+        "op": "service_lane_accept",
+        "service": "1111111111111111111111111111111111111111111111111111111111111111",
+        "lane": 0,
+        "bytes": 0
+      }
+    },
+    {
+      "call": {
+        "method": "service_send",
+        "args": {
+          "id": "1111111111111111111111111111111111111111111111111111111111111111",
+          "lane": 0,
+          "type": 1,
+          "payload_hex": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      },
+      "expect": {
+        "ok": null
+      },
+      "because": [
+        "Core SV-3"
+      ]
+    },
+    {
+      "call": {
+        "method": "service_send",
+        "args": {
+          "id": "1111111111111111111111111111111111111111111111111111111111111111",
+          "lane": 0,
+          "type": 2,
+          "payload_hex": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        }
+      },
+      "expect": {
+        "ok": null
+      },
+      "because": [
+        "Core SV-3"
+      ]
+    },
+    {
+      "call": {
+        "method": "service_send",
+        "args": {
+          "id": "1111111111111111111111111111111111111111111111111111111111111111",
+          "lane": 0,
+          "type": 3,
+          "payload_hex": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+        }
+      },
+      "expect": {
+        "error": "Backpressured"
+      },
+      "because": [
+        "Core SV-3",
+        "Core A2-5"
+      ]
+    },
+    {
+      "call": {
+        "method": "service_send",
+        "args": {
+          "id": "1111111111111111111111111111111111111111111111111111111111111111",
+          "lane": 0,
+          "type": 3,
+          "payload_hex": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+        }
+      },
+      "expect": {
+        "error": "Backpressured"
+      },
+      "because": [
+        "Core SV-3",
+        "Core A2-5"
+      ]
+    },
+    {
+      "call": {
+        "method": "service_send",
+        "args": {
+          "id": "1111111111111111111111111111111111111111111111111111111111111111",
+          "lane": 0,
+          "type": 3,
+          "payload_hex": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+        }
+      },
+      "expect": {
+        "error": "Backpressured"
+      },
+      "because": [
+        "Core SV-3",
+        "Core A2-5"
+      ]
+    },
+    {
+      "await_quiet": {}
+    },
+    {
+      "expect_quiet_until": {
+        "ServiceWritable": {
+          "id": "1111111111111111111111111111111111111111111111111111111111111111"
+        }
+      },
+      "barrier": {
+        "begin": {
+          "op": {
+            "Create": {
+              "session": "fence1",
+              "request": {
+                "program": [
+                  {
+                    "hold": {}
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "bind": "$bar1"
+      },
+      "until": {
+        "Completed": {
+          "op": "$bar1",
+          "result": {
+            "ok": {
+              "record": {
+                "id": "fence1",
+                "state": "Created"
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core SV-3",
+        "Core AM-4"
+      ]
+    },
+    {
+      "control": {
+        "op": "service_lane_accept",
+        "service": "1111111111111111111111111111111111111111111111111111111111111111",
+        "lane": 0
+      }
+    },
+    {
+      "pump_until": {
+        "event": {
+          "ServiceWritable": {
+            "id": "1111111111111111111111111111111111111111111111111111111111111111",
+            "lane": 0
+          }
+        }
+      },
+      "because": [
+        "Core SV-3"
+      ]
+    },
+    {
+      "await_control": {
+        "control": {
+          "op": "service_read",
+          "service": "1111111111111111111111111111111111111111111111111111111111111111",
+          "lane": 0
+        },
+        "expect": {
+          "frames": [
+            {
+              "lane": 0,
+              "type": 1,
+              "payload": {
+                "$bytes_hex": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              }
+            },
+            {
+              "lane": 0,
+              "type": 2,
+              "payload": {
+                "$bytes_hex": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+              }
+            }
+          ]
+        }
+      },
+      "because": [
+        "Core SV-3"
+      ]
+    },
+    {
+      "call": {
+        "method": "service_send",
+        "args": {
+          "id": "1111111111111111111111111111111111111111111111111111111111111111",
+          "lane": 0,
+          "type": 3,
+          "payload_hex": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+        }
+      },
+      "expect": {
+        "ok": null
+      },
+      "because": [
+        "Core SV-3"
+      ]
+    },
+    {
+      "await_control": {
+        "control": {
+          "op": "service_read",
+          "service": "1111111111111111111111111111111111111111111111111111111111111111",
+          "lane": 0
+        },
+        "expect": {
+          "frames": [
+            {
+              "lane": 0,
+              "type": 1
+            },
+            {
+              "lane": 0,
+              "type": 2
+            },
+            {
+              "lane": 0,
+              "type": 3,
+              "payload": {
+                "$bytes_hex": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+              }
+            }
+          ]
+        }
+      },
+      "because": [
+        "Core SV-3"
+      ]
+    }
+  ],
+  "fake": "structural",
+  "ruling": "R-12"
+}

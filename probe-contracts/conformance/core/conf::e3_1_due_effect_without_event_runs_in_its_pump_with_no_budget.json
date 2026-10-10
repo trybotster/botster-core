@@ -1,0 +1,473 @@
+{
+  "id": "conf::e3_1_due_effect_without_event_runs_in_its_pump_with_no_budget",
+  "contract": "core",
+  "clause": "E3-1",
+  "subject": "core",
+  "requires": {
+    "features": [
+      "silence"
+    ],
+    "controls": [
+      "pty_output",
+      "signals_sent"
+    ]
+  },
+  "setup": {
+    "limits": {
+      "pump_events": 1,
+      "stop_grace": 1000
+    }
+  },
+  "fake": "structural",
+  "ruling": "R-12",
+  "steps": [
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "sA",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c_sA"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$c_sA",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "sA",
+                  "state": "Created"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core LC-3"
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "sA"
+          }
+        }
+      },
+      "bind": "$s_sA"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$s_sA",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "sA",
+                  "state": "Running"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core A2-1"
+    },
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "sB",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c_sB"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$c_sB",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "sB",
+                  "state": "Created"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core LC-3"
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "sB"
+          }
+        }
+      },
+      "bind": "$s_sB"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$s_sB",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "sB",
+                  "state": "Running"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core A2-1"
+    },
+    {
+      "drain": {}
+    },
+    {
+      "advance_clock": {
+        "unix": 7000
+      }
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "sA",
+        "bytes_hex": "78"
+      }
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Activity": {
+            "id": "sA",
+            "source": "Output",
+            "at": 7000
+          }
+        }
+      },
+      "because": [
+        "Core 6.2",
+        "Core TM-1"
+      ]
+    },
+    {
+      "drain": {}
+    },
+    {
+      "advance_clock": {
+        "unix": 7000
+      }
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "sB",
+        "bytes_hex": "78"
+      }
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Activity": {
+            "id": "sB",
+            "source": "Output",
+            "at": 7000
+          }
+        }
+      },
+      "because": [
+        "Core 6.2",
+        "Core TM-1"
+      ]
+    },
+    {
+      "drain": {}
+    },
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "sK",
+            "request": {
+              "program": [
+                {
+                  "ignore_sigterm": {}
+                },
+                {
+                  "print": {
+                    "bytes_hex": "2a"
+                  }
+                },
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c_sK"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$c_sK",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "sK",
+                  "state": "Created"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core LC-3"
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "sK"
+          }
+        }
+      },
+      "bind": "$s_sK"
+    },
+    {
+      "pump_collect": {
+        "events": [
+          {
+            "Completed": {
+              "op": "$s_sK",
+              "result": {
+                "ok": {
+                  "record": {
+                    "id": "sK",
+                    "state": "Running"
+                  }
+                }
+              }
+            }
+          },
+          {
+            "Activity": {
+              "id": "sK",
+              "source": "Output"
+            }
+          }
+        ]
+      },
+      "because": [
+        "Core A2-1",
+        "Core A5-1",
+        "Core LC-5"
+      ]
+    },
+    {
+      "drain": {}
+    },
+    {
+      "advance_clock": {
+        "unix": 7000
+      }
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "sK",
+        "bytes_hex": "78"
+      }
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Activity": {
+            "id": "sK",
+            "source": "Output",
+            "at": 7000
+          }
+        }
+      },
+      "because": [
+        "Core 6.2",
+        "Core TM-1"
+      ]
+    },
+    {
+      "drain": {}
+    },
+    {
+      "begin": {
+        "op": {
+          "Stop": {
+            "id": "sK"
+          }
+        }
+      },
+      "bind": "$stp"
+    },
+    {
+      "await_get": {
+        "id": "sK",
+        "expect": {
+          "state": "Stopping"
+        }
+      },
+      "because": [
+        "Core LC-5",
+        "Core EV-5"
+      ]
+    },
+    {
+      "drain": {}
+    },
+    {
+      "call": {
+        "method": "set_silence_threshold",
+        "args": {
+          "id": "sA",
+          "ms": 1000
+        }
+      }
+    },
+    {
+      "call": {
+        "method": "set_silence_threshold",
+        "args": {
+          "id": "sB",
+          "ms": 1000
+        }
+      }
+    },
+    {
+      "control": {
+        "op": "signals_sent",
+        "session": "sK"
+      },
+      "bind_fields": {
+        "signals": "$before"
+      }
+    },
+    {
+      "let": {
+        "$had_kill": {
+          "contains": [
+            "$before",
+            "kill"
+          ]
+        }
+      }
+    },
+    {
+      "check": {
+        "eq": [
+          "$had_kill",
+          false
+        ]
+      },
+      "because": [
+        "Core LC-5"
+      ]
+    },
+    {
+      "advance_clock": {
+        "ms": 1000
+      }
+    },
+    {
+      "pump": {},
+      "bind": "$r1",
+      "expect": {
+        "more": true
+      },
+      "because": [
+        "Core E3-1",
+        "Core 9B"
+      ]
+    },
+    {
+      "let": {
+        "$n": {
+          "field": [
+            "$r1",
+            "events_posted"
+          ]
+        }
+      }
+    },
+    {
+      "check": {
+        "lt": [
+          "$n",
+          2
+        ]
+      },
+      "because": [
+        "Core E3-1",
+        "Core 9B"
+      ]
+    },
+    {
+      "control": {
+        "op": "signals_sent",
+        "session": "sK"
+      },
+      "bind_fields": {
+        "signals": "$after"
+      }
+    },
+    {
+      "let": {
+        "$has_kill": {
+          "contains": [
+            "$after",
+            "kill"
+          ]
+        }
+      }
+    },
+    {
+      "check": {
+        "eq": [
+          "$has_kill",
+          true
+        ]
+      },
+      "because": [
+        "Core E3-1",
+        "Core LC-5",
+        "Core EV-5"
+      ]
+    }
+  ]
+}

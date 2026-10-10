@@ -1,0 +1,168 @@
+{
+  "id": "conf::st_3_trimming_rules",
+  "contract": "core",
+  "clause": "ST-3",
+  "subject": "core",
+  "requires": {
+    "controls": [
+      "oracle_cursor"
+    ]
+  },
+  "fake": "structural",
+  "ruling": "R-12",
+  "steps": [
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s1",
+            "request": {
+              "program": [
+                {
+                  "print": {
+                    "bytes_hex": "6120622020"
+                  }
+                },
+                {
+                  "hold": {}
+                }
+              ],
+              "size": {
+                "rows": 10,
+                "cols": 40
+              }
+            }
+          }
+        }
+      },
+      "bind": "$c_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$c_s1",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s1",
+                  "state": "Created"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core LC-3"
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "s1"
+          }
+        }
+      },
+      "bind": "$s_s1"
+    },
+    {
+      "pump_collect": {
+        "events": [
+          {
+            "Completed": {
+              "op": "$s_s1",
+              "result": {
+                "ok": {
+                  "record": {
+                    "id": "s1",
+                    "state": "Running"
+                  }
+                }
+              }
+            }
+          },
+          {
+            "Activity": {
+              "id": "s1",
+              "source": "Output"
+            }
+          }
+        ]
+      },
+      "because": "Core 6.2"
+    },
+    {
+      "begin": {
+        "op": {
+          "ReadCursor": {
+            "session": "s1"
+          }
+        }
+      },
+      "bind": "$a"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$a",
+            "result": {
+              "ok": {
+                "cursor": {
+                  "row": "$r",
+                  "col": "$c",
+                  "visible": "$v",
+                  "row_text": "$rt",
+                  "text_before_cursor": "$tb",
+                  "model_rev": {
+                    "$type": "u64"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core ST-3"
+    },
+    {
+      "control": {
+        "op": "oracle_cursor",
+        "session": "s1"
+      },
+      "expect": {
+        "col": "$c",
+        "before_raw": "$tb",
+        "row_raw": "$raw"
+      },
+      "because": "Core ST-3"
+    },
+    {
+      "let": {
+        "$want": {
+          "rtrim_spaces": [
+            "$raw"
+          ]
+        }
+      }
+    },
+    {
+      "check": {
+        "eq": [
+          "$rt",
+          "$want"
+        ]
+      },
+      "because": "Core ST-3"
+    },
+    {
+      "check": {
+        "ne": [
+          "$rt",
+          "$raw"
+        ]
+      },
+      "because": "Core ST-3"
+    }
+  ]
+}

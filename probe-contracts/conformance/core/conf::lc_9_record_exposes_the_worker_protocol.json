@@ -1,0 +1,93 @@
+{
+  "id": "conf::lc_9_record_exposes_the_worker_protocol",
+  "contract": "core",
+  "clause": "LC-9",
+  "subject": "core",
+  "steps": [
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s1",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$c",
+            "result": {}
+          }
+        }
+      },
+      "because": "Core LC-3"
+    },
+    {
+      "call": {
+        "method": "get",
+        "args": {
+          "id": "s1"
+        }
+      },
+      "expect": {
+        "worker_protocol": {
+          "$absent": true
+        }
+      },
+      "because": "Core LC-9"
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "s1"
+          }
+        }
+      },
+      "bind": "$s"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$s",
+            "result": {}
+          }
+        }
+      },
+      "because": "Core LC-3"
+    },
+    {
+      "call": {
+        "method": "worker_protocol"
+      },
+      "expect": "$t",
+      "because": "Core AD-4"
+    },
+    {
+      "call": {
+        "method": "get",
+        "args": {
+          "id": "s1"
+        }
+      },
+      "expect": {
+        "worker_protocol": "$t"
+      },
+      "because": [
+        "Core LC-9",
+        "Core AD-4"
+      ]
+    }
+  ]
+}

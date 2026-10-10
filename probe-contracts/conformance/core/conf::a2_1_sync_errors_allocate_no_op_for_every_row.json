@@ -1,0 +1,3842 @@
+{
+  "id": "conf::a2_1_sync_errors_allocate_no_op_for_every_row",
+  "contract": "core",
+  "clause": "A2-1",
+  "subject": "core",
+  "requires": {
+    "controls": [
+      "lose_worker",
+      "service_connect",
+      "unavailable_bound",
+      "withhold_control_link",
+      "withhold_feature"
+    ]
+  },
+  "setup": {
+    "open": false
+  },
+  "fake": "structural",
+  "ruling": "R-12",
+  "steps": [
+    {
+      "open": {
+        "as": "k",
+        "data_dir": "dk",
+        "limits": {
+          "pending_ops": 1
+        }
+      }
+    },
+    {
+      "data_dir": "d"
+    },
+    {
+      "open": {
+        "as": "a",
+        "data_dir": "d"
+      }
+    },
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "sUR",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        },
+        "handle": "a"
+      },
+      "bind": "$c_sUR"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$c_sUR",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "sUR",
+                  "state": "Created"
+                }
+              }
+            }
+          }
+        },
+        "handle": "a"
+      },
+      "because": "Core LC-3"
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "sUR"
+          }
+        },
+        "handle": "a"
+      },
+      "bind": "$s_sUR"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$s_sUR",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "sUR",
+                  "state": "Running"
+                }
+              }
+            }
+          }
+        },
+        "handle": "a"
+      },
+      "because": "Core A2-1"
+    },
+    {
+      "control": {
+        "op": "withhold_control_link",
+        "session": "sUR",
+        "handle": "a"
+      }
+    },
+    {
+      "drop": {
+        "handle": "a"
+      }
+    },
+    {
+      "open": {
+        "as": "h",
+        "data_dir": "d",
+        "limits": {
+          "max_session_id_bytes": 8,
+          "max_sessions": 5,
+          "mandatory_events": 64,
+          "open_captures_per_client": 1,
+          "max_services": 3,
+          "max_paste_bytes": 1024,
+          "max_route_frame_bytes": 300000,
+          "pending_ops": 4
+        }
+      }
+    },
+    {
+      "begin": {
+        "op": "AdoptAll",
+        "handle": "h"
+      },
+      "bind": "$aa_h"
+    },
+    {
+      "advance_clock": {
+        "ms": 60000
+      }
+    },
+    {
+      "pump_until": {
+        "event": {
+          "SessionState": {
+            "id": "sUR",
+            "state": {
+              "Lost": "WorkerUnreachable"
+            }
+          }
+        },
+        "handle": "h"
+      },
+      "because": [
+        "Core AD-2",
+        "Core A6-1"
+      ]
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$aa_h",
+            "result": {
+              "ok": "unit"
+            }
+          }
+        },
+        "handle": "h"
+      },
+      "because": [
+        "Core A2-1",
+        "Core LC-11"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "sC",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        },
+        "handle": "h"
+      },
+      "bind": "$c_sC"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$c_sC",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "sC",
+                  "state": "Created"
+                }
+              }
+            }
+          }
+        },
+        "handle": "h"
+      },
+      "because": "Core LC-3"
+    },
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "sR",
+            "request": {
+              "program": [
+                {
+                  "ignore_sigterm": {}
+                },
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        },
+        "handle": "h"
+      },
+      "bind": "$c_sR"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$c_sR",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "sR",
+                  "state": "Created"
+                }
+              }
+            }
+          }
+        },
+        "handle": "h"
+      },
+      "because": "Core LC-3"
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "sR"
+          }
+        },
+        "handle": "h"
+      },
+      "bind": "$s_sR"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$s_sR",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "sR",
+                  "state": "Running"
+                }
+              }
+            }
+          }
+        },
+        "handle": "h"
+      },
+      "because": "Core A2-1"
+    },
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "sE",
+            "request": {
+              "program": [
+                {
+                  "exit": {
+                    "code": 0
+                  }
+                }
+              ]
+            }
+          }
+        },
+        "handle": "h"
+      },
+      "bind": "$c_sE"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$c_sE",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "sE",
+                  "state": "Created"
+                }
+              }
+            }
+          }
+        },
+        "handle": "h"
+      },
+      "because": "Core LC-3"
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "sE"
+          }
+        },
+        "handle": "h"
+      },
+      "bind": "$s_sE"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "SessionState": {
+            "id": "sE",
+            "state": {
+              "Exited": {
+                "$any": true
+              }
+            }
+          }
+        },
+        "handle": "h"
+      },
+      "because": "Core OR-2"
+    },
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "sL",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        },
+        "handle": "h"
+      },
+      "bind": "$c_sL"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$c_sL",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "sL",
+                  "state": "Created"
+                }
+              }
+            }
+          }
+        },
+        "handle": "h"
+      },
+      "because": "Core LC-3"
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "sL"
+          }
+        },
+        "handle": "h"
+      },
+      "bind": "$s_sL"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$s_sL",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "sL",
+                  "state": "Running"
+                }
+              }
+            }
+          }
+        },
+        "handle": "h"
+      },
+      "because": "Core A2-1"
+    },
+    {
+      "control": {
+        "op": "lose_worker",
+        "session": "sL",
+        "reason": "worker_gone",
+        "handle": "h"
+      }
+    },
+    {
+      "pump_until": {
+        "event": {
+          "SessionState": {
+            "id": "sL",
+            "state": {
+              "Lost": "WorkerGone"
+            }
+          }
+        },
+        "handle": "h"
+      },
+      "because": "Core AD-2"
+    },
+    {
+      "begin": {
+        "op": {
+          "SpawnService": {
+            "service_id": "1111111111111111111111111111111111111111111111111111111111111111"
+          }
+        },
+        "handle": "h"
+      },
+      "bind": "$sp_11"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$sp_11",
+            "result": {
+              "ok": {
+                "spawn": {
+                  "$any": true
+                }
+              }
+            }
+          }
+        },
+        "handle": "h"
+      },
+      "because": "Core SV-1"
+    },
+    {
+      "control": {
+        "op": "service_connect",
+        "service": "1111111111111111111111111111111111111111111111111111111111111111",
+        "epoch": 1,
+        "handle": "h"
+      }
+    },
+    {
+      "pump_until": {
+        "event": {
+          "LaneConnected": {
+            "id": "1111111111111111111111111111111111111111111111111111111111111111",
+            "epoch": 1
+          }
+        },
+        "handle": "h"
+      },
+      "because": "Core A2-5"
+    },
+    {
+      "begin": {
+        "op": {
+          "SpawnService": {
+            "service_id": "2222222222222222222222222222222222222222222222222222222222222222"
+          }
+        },
+        "handle": "h"
+      },
+      "bind": "$sp_22"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$sp_22",
+            "result": {
+              "ok": {
+                "spawn": {
+                  "$any": true
+                }
+              }
+            }
+          }
+        },
+        "handle": "h"
+      },
+      "because": "Core SV-1"
+    },
+    {
+      "begin": {
+        "op": {
+          "StopService": {
+            "id": "2222222222222222222222222222222222222222222222222222222222222222"
+          }
+        },
+        "handle": "h"
+      },
+      "bind": "$stp2"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$stp2",
+            "result": {
+              "ok": {
+                "service_end": {
+                  "$any": true
+                }
+              }
+            }
+          }
+        },
+        "handle": "h"
+      },
+      "because": [
+        "Core A2-1",
+        "Core A16-1"
+      ]
+    },
+    {
+      "control": {
+        "op": "withhold_feature",
+        "name": "size_policy_other"
+      }
+    },
+    {
+      "control": {
+        "op": "withhold_feature",
+        "name": "notification_policy"
+      }
+    },
+    {
+      "control": {
+        "op": "unavailable_bound",
+        "bound": "OpenFiles"
+      }
+    },
+    {
+      "begin": {
+        "op": {
+          "CaptureSnapshot": {
+            "session": "sR",
+            "owner": "c1"
+          }
+        }
+      },
+      "bind": "$k1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$k1",
+            "result": {
+              "ok": {
+                "capture": {
+                  "capture": "$cap"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core ST-6"
+    },
+    {
+      "begin": {
+        "op": {
+          "SpawnService": {
+            "service_id": "4444444444444444444444444444444444444444444444444444444444444444"
+          }
+        }
+      },
+      "bind": "$sp4"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$sp4",
+            "result": {
+              "ok": {
+                "spawn": {
+                  "$any": true
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core SV-1"
+    },
+    {
+      "drain": {}
+    },
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "xxxxxxxxx",
+            "request": {
+              "argv": [
+                "/bin/true"
+              ],
+              "env": {},
+              "cwd": "/",
+              "size": {
+                "rows": 24,
+                "cols": 80
+              }
+            }
+          }
+        }
+      },
+      "bind": "$e0",
+      "expect_error": {
+        "code": "IdTooLong"
+      },
+      "because": [
+        "Core A2-1",
+        "Core ER-0"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "sC",
+            "request": {
+              "argv": [
+                "/bin/true"
+              ],
+              "env": {},
+              "cwd": "/",
+              "size": {
+                "rows": 24,
+                "cols": 80
+              }
+            }
+          }
+        }
+      },
+      "bind": "$e1",
+      "expect_error": {
+        "code": "IdInUse"
+      },
+      "because": [
+        "Core A2-1",
+        "Core ER-0"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "sX",
+            "request": {
+              "argv": [],
+              "env": {},
+              "cwd": "/",
+              "size": {
+                "rows": 24,
+                "cols": 80
+              }
+            }
+          }
+        }
+      },
+      "bind": "$e2",
+      "expect_error": {
+        "code": {
+          "InvalidInput": {}
+        }
+      },
+      "because": [
+        "Core A2-1",
+        "Core ER-0"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "nope"
+          }
+        }
+      },
+      "bind": "$e3",
+      "expect_error": {
+        "code": "UnknownSession"
+      },
+      "because": [
+        "Core A2-1",
+        "Core ER-0"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "Stop": {
+            "id": "nope"
+          }
+        }
+      },
+      "bind": "$e4",
+      "expect_error": {
+        "code": "UnknownSession"
+      },
+      "because": [
+        "Core A2-1",
+        "Core ER-0"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "Signal": {
+            "id": "nope",
+            "sig": "term"
+          }
+        }
+      },
+      "bind": "$e5",
+      "expect_error": {
+        "code": "UnknownSession"
+      },
+      "because": [
+        "Core A2-1",
+        "Core ER-0"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "Remove": {
+            "id": "nope"
+          }
+        }
+      },
+      "bind": "$e6",
+      "expect_error": {
+        "code": "UnknownSession"
+      },
+      "because": [
+        "Core A2-1",
+        "Core ER-0"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "UpdateMetadata": {
+            "id": "nope",
+            "labels": {}
+          }
+        }
+      },
+      "bind": "$e7",
+      "expect_error": {
+        "code": "UnknownSession"
+      },
+      "because": [
+        "Core A2-1",
+        "Core ER-0"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "SetSizePolicy": {
+            "session": "nope",
+            "policy": "latest"
+          }
+        }
+      },
+      "bind": "$e8",
+      "expect_error": {
+        "code": "UnknownSession"
+      },
+      "because": [
+        "Core A2-1",
+        "Core ER-0"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "SetSizePolicy": {
+            "session": "sR",
+            "policy": "smallest"
+          }
+        }
+      },
+      "bind": "$e9",
+      "expect_error": {
+        "code": {
+          "Unsupported": {}
+        }
+      },
+      "because": [
+        "Core A2-1",
+        "Core ER-0"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "SetColorProfile": {
+            "session": "nope",
+            "profile": {
+              "foreground": {
+                "r": 1,
+                "g": 2,
+                "b": 3
+              },
+              "background": {
+                "r": 4,
+                "g": 5,
+                "b": 6
+              }
+            }
+          }
+        }
+      },
+      "bind": "$e10",
+      "expect_error": {
+        "code": "UnknownSession"
+      },
+      "because": [
+        "Core A2-1",
+        "Core ER-0"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "SetColorProfile": {
+            "session": "sR",
+            "profile": {
+              "foreground": {
+                "r": 1,
+                "g": 2,
+                "b": 3
+              },
+              "background": {
+                "r": 4,
+                "g": 5,
+                "b": 6
+              },
+              "palette": [
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                },
+                {
+                  "r": 0,
+                  "g": 0,
+                  "b": 0
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$e11",
+      "expect_error": {
+        "code": {
+          "InvalidInput": {}
+        }
+      },
+      "because": [
+        "Core A2-1",
+        "Core ER-0"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "SetOutputTap": {
+            "session": "nope",
+            "enabled": true
+          }
+        }
+      },
+      "bind": "$e12",
+      "expect_error": {
+        "code": "UnknownSession"
+      },
+      "because": [
+        "Core A2-1",
+        "Core ER-0"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "ReadScreen": {
+            "session": "nope",
+            "history": false
+          }
+        }
+      },
+      "bind": "$e13",
+      "expect_error": {
+        "code": "UnknownSession"
+      },
+      "because": [
+        "Core A2-1",
+        "Core ER-0"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "ReadCursor": {
+            "session": "nope"
+          }
+        }
+      },
+      "bind": "$e14",
+      "expect_error": {
+        "code": "UnknownSession"
+      },
+      "because": [
+        "Core A2-1",
+        "Core ER-0"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "ReadModeFlags": {
+            "session": "nope"
+          }
+        }
+      },
+      "bind": "$e15",
+      "expect_error": {
+        "code": "UnknownSession"
+      },
+      "because": [
+        "Core A2-1",
+        "Core ER-0"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "CaptureSnapshot": {
+            "session": "nope",
+            "owner": "c1"
+          }
+        }
+      },
+      "bind": "$e16",
+      "expect_error": {
+        "code": "UnknownSession"
+      },
+      "because": [
+        "Core A2-1",
+        "Core ER-0"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "ReadFacts": {
+            "session": "nope"
+          }
+        }
+      },
+      "bind": "$e17",
+      "expect_error": {
+        "code": "UnknownSession"
+      },
+      "because": [
+        "Core A2-1",
+        "Core ER-0"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "Resize": {
+            "session": "nope",
+            "size": {
+              "rows": 24,
+              "cols": 80
+            }
+          }
+        }
+      },
+      "bind": "$e18",
+      "expect_error": {
+        "code": "UnknownSession"
+      },
+      "because": [
+        "Core A2-1",
+        "Core ER-0"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "Resize": {
+            "session": "sR",
+            "size": {
+              "rows": 0,
+              "cols": 80
+            }
+          }
+        }
+      },
+      "bind": "$e19",
+      "expect_error": {
+        "code": {
+          "InvalidInput": {}
+        }
+      },
+      "because": [
+        "Core A2-1",
+        "Core ER-0"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "nope",
+            "payload": {
+              "bytes": {
+                "bytes": {
+                  "$bytes_hex": "61"
+                }
+              }
+            }
+          }
+        }
+      },
+      "bind": "$e20",
+      "expect_error": {
+        "code": "UnknownSession"
+      },
+      "because": [
+        "Core A2-1",
+        "Core ER-0"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "sR",
+            "payload": {
+              "bytes": {
+                "bytes": {
+                  "$bytes_hex": "6161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161"
+                }
+              }
+            }
+          }
+        }
+      },
+      "bind": "$e21",
+      "expect_error": {
+        "code": "PayloadTooLarge"
+      },
+      "because": [
+        "Core A2-1",
+        "Core ER-0"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "Detach": {
+            "route": 9999,
+            "reason": "Detached"
+          }
+        }
+      },
+      "bind": "$e22",
+      "expect_error": {
+        "code": "UnknownRoute"
+      },
+      "because": [
+        "Core A2-1",
+        "Core ER-0"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "Adopt": {
+            "id": "nope"
+          }
+        }
+      },
+      "bind": "$e24",
+      "expect_error": {
+        "code": "UnknownSession"
+      },
+      "because": [
+        "Core A2-1",
+        "Core ER-0"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "SpawnService": {
+            "service_id": "1111111111111111111111111111111111111111111111111111111111111111"
+          }
+        }
+      },
+      "bind": "$e25",
+      "expect_error": {
+        "code": "IdInUse"
+      },
+      "because": [
+        "Core A2-1",
+        "Core ER-0"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "SpawnService": {
+            "service_id": "3333333333333333333333333333333333333333333333333333333333333333",
+            "limits": {
+              "lanes": [
+                {
+                  "max_frame_bytes": 1024,
+                  "outbound_queue_bytes": 4096,
+                  "inbound_queue_bytes": 4096
+                }
+              ],
+              "rlimits": {
+                "open_files": {
+                  "value": 8,
+                  "required": true
+                }
+              },
+              "startup": 10000,
+              "stop_grace": 5000,
+              "orphan_grace": 5000
+            }
+          }
+        }
+      },
+      "bind": "$e26",
+      "expect_error": {
+        "code": {
+          "BoundUnavailable": {
+            "bound": "OpenFiles"
+          }
+        }
+      },
+      "because": [
+        "Core A2-1",
+        "Core ER-0"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "StopService": {
+            "id": "9999999999999999999999999999999999999999999999999999999999999999"
+          }
+        }
+      },
+      "bind": "$e27",
+      "expect_error": {
+        "code": "UnknownService"
+      },
+      "because": [
+        "Core A2-1",
+        "Core ER-0"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "RemoveService": {
+            "id": "9999999999999999999999999999999999999999999999999999999999999999"
+          }
+        }
+      },
+      "bind": "$e28",
+      "expect_error": {
+        "code": "UnknownService"
+      },
+      "because": [
+        "Core A2-1",
+        "Core ER-0"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "EndEpoch": {
+            "service": "9999999999999999999999999999999999999999999999999999999999999999"
+          }
+        }
+      },
+      "bind": "$e29",
+      "expect_error": {
+        "code": "UnknownService"
+      },
+      "because": [
+        "Core A2-1",
+        "Core ER-0"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "SetNotificationPolicy": {
+            "session": "nope",
+            "policy": "all"
+          }
+        }
+      },
+      "bind": "$e30",
+      "expect_error": {
+        "code": "UnknownSession"
+      },
+      "because": [
+        "Core A2-1",
+        "Core ER-0"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "SetNotificationPolicy": {
+            "session": "sR",
+            "policy": "none"
+          }
+        }
+      },
+      "bind": "$e31",
+      "expect_error": {
+        "code": {
+          "Unsupported": {}
+        }
+      },
+      "because": [
+        "Core A2-1",
+        "Core ER-0"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "CaptureSnapshot": {
+            "session": "sR",
+            "owner": "c1"
+          }
+        }
+      },
+      "bind": "$k2",
+      "expect_error": {
+        "code": "CaptureLimit"
+      },
+      "because": [
+        "Core A2-1",
+        "Core ER-0"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "sM",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c_sM",
+      "expect_error": {
+        "code": "SessionLimit"
+      },
+      "because": [
+        "Core A2-1",
+        "Core ER-0"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "SpawnService": {
+            "service_id": "3333333333333333333333333333333333333333333333333333333333333333"
+          }
+        }
+      },
+      "bind": "$sp3",
+      "expect_error": {
+        "code": "ServiceLimit"
+      },
+      "because": [
+        "Core A2-1",
+        "Core ER-0"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "ReadModeFlags": {
+            "session": "sR"
+          }
+        }
+      },
+      "bind": "$f0"
+    },
+    {
+      "begin": {
+        "op": {
+          "ReadModeFlags": {
+            "session": "sR"
+          }
+        }
+      },
+      "bind": "$f1"
+    },
+    {
+      "begin": {
+        "op": {
+          "ReadModeFlags": {
+            "session": "sR"
+          }
+        }
+      },
+      "bind": "$f2"
+    },
+    {
+      "begin": {
+        "op": {
+          "ReadModeFlags": {
+            "session": "sR"
+          }
+        }
+      },
+      "bind": "$f3"
+    },
+    {
+      "begin": {
+        "op": {
+          "ReadModeFlags": {
+            "session": "sR"
+          }
+        }
+      },
+      "bind": "$f4",
+      "expect_error": {
+        "code": "PendingLimit"
+      },
+      "because": [
+        "Core A2-1",
+        "Core EV-5",
+        "Core AM-4"
+      ]
+    },
+    {
+      "poll_events": {
+        "max": 64
+      },
+      "expect": [],
+      "because": [
+        "Core A2-1",
+        "Core AM-4",
+        "Core OR-1"
+      ]
+    },
+    {
+      "pump_collect": {
+        "exhaustive": true,
+        "events": [
+          {
+            "Completed": {
+              "op": "$f0",
+              "result": {
+                "ok": {
+                  "modes": {
+                    "$any": true
+                  }
+                }
+              }
+            }
+          },
+          {
+            "Completed": {
+              "op": "$f1",
+              "result": {
+                "ok": {
+                  "modes": {
+                    "$any": true
+                  }
+                }
+              }
+            }
+          },
+          {
+            "Completed": {
+              "op": "$f2",
+              "result": {
+                "ok": {
+                  "modes": {
+                    "$any": true
+                  }
+                }
+              }
+            }
+          },
+          {
+            "Completed": {
+              "op": "$f3",
+              "result": {
+                "ok": {
+                  "modes": {
+                    "$any": true
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "because": [
+        "Core A2-1",
+        "Core AM-4",
+        "Core OR-1"
+      ]
+    },
+    {
+      "data_dir": "dp"
+    },
+    {
+      "open": {
+        "as": "a2",
+        "data_dir": "dp"
+      }
+    },
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "sUR",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        },
+        "handle": "a2"
+      },
+      "bind": "$c_sUR"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$c_sUR",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "sUR",
+                  "state": "Created"
+                }
+              }
+            }
+          }
+        },
+        "handle": "a2"
+      },
+      "because": "Core LC-3"
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "sUR"
+          }
+        },
+        "handle": "a2"
+      },
+      "bind": "$s_sUR"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$s_sUR",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "sUR",
+                  "state": "Running"
+                }
+              }
+            }
+          }
+        },
+        "handle": "a2"
+      },
+      "because": "Core A2-1"
+    },
+    {
+      "control": {
+        "op": "withhold_control_link",
+        "session": "sUR",
+        "handle": "a2"
+      }
+    },
+    {
+      "drop": {
+        "handle": "a2"
+      }
+    },
+    {
+      "open": {
+        "as": "p",
+        "data_dir": "dp",
+        "limits": {
+          "pending_ops": 4
+        }
+      }
+    },
+    {
+      "begin": {
+        "op": "AdoptAll",
+        "handle": "p"
+      },
+      "bind": "$aa_p"
+    },
+    {
+      "advance_clock": {
+        "ms": 60000
+      }
+    },
+    {
+      "pump_until": {
+        "event": {
+          "SessionState": {
+            "id": "sUR",
+            "state": {
+              "Lost": "WorkerUnreachable"
+            }
+          }
+        },
+        "handle": "p"
+      },
+      "because": [
+        "Core AD-2",
+        "Core A6-1"
+      ]
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$aa_p",
+            "result": {
+              "ok": "unit"
+            }
+          }
+        },
+        "handle": "p"
+      },
+      "because": [
+        "Core A2-1",
+        "Core LC-11"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "sC",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        },
+        "handle": "p"
+      },
+      "bind": "$c_sC"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$c_sC",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "sC",
+                  "state": "Created"
+                }
+              }
+            }
+          }
+        },
+        "handle": "p"
+      },
+      "because": "Core LC-3"
+    },
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "sR",
+            "request": {
+              "program": [
+                {
+                  "ignore_sigterm": {}
+                },
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        },
+        "handle": "p"
+      },
+      "bind": "$c_sR"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$c_sR",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "sR",
+                  "state": "Created"
+                }
+              }
+            }
+          }
+        },
+        "handle": "p"
+      },
+      "because": "Core LC-3"
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "sR"
+          }
+        },
+        "handle": "p"
+      },
+      "bind": "$s_sR"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$s_sR",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "sR",
+                  "state": "Running"
+                }
+              }
+            }
+          }
+        },
+        "handle": "p"
+      },
+      "because": "Core A2-1"
+    },
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "sE",
+            "request": {
+              "program": [
+                {
+                  "exit": {
+                    "code": 0
+                  }
+                }
+              ]
+            }
+          }
+        },
+        "handle": "p"
+      },
+      "bind": "$c_sE"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$c_sE",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "sE",
+                  "state": "Created"
+                }
+              }
+            }
+          }
+        },
+        "handle": "p"
+      },
+      "because": "Core LC-3"
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "sE"
+          }
+        },
+        "handle": "p"
+      },
+      "bind": "$s_sE"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "SessionState": {
+            "id": "sE",
+            "state": {
+              "Exited": {
+                "$any": true
+              }
+            }
+          }
+        },
+        "handle": "p"
+      },
+      "because": "Core OR-2"
+    },
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "sL",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        },
+        "handle": "p"
+      },
+      "bind": "$c_sL"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$c_sL",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "sL",
+                  "state": "Created"
+                }
+              }
+            }
+          }
+        },
+        "handle": "p"
+      },
+      "because": "Core LC-3"
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "sL"
+          }
+        },
+        "handle": "p"
+      },
+      "bind": "$s_sL"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$s_sL",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "sL",
+                  "state": "Running"
+                }
+              }
+            }
+          }
+        },
+        "handle": "p"
+      },
+      "because": "Core A2-1"
+    },
+    {
+      "control": {
+        "op": "lose_worker",
+        "session": "sL",
+        "reason": "worker_gone",
+        "handle": "p"
+      }
+    },
+    {
+      "pump_until": {
+        "event": {
+          "SessionState": {
+            "id": "sL",
+            "state": {
+              "Lost": "WorkerGone"
+            }
+          }
+        },
+        "handle": "p"
+      },
+      "because": "Core AD-2"
+    },
+    {
+      "begin": {
+        "op": {
+          "SpawnService": {
+            "service_id": "1111111111111111111111111111111111111111111111111111111111111111"
+          }
+        },
+        "handle": "p"
+      },
+      "bind": "$sp_11"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$sp_11",
+            "result": {
+              "ok": {
+                "spawn": {
+                  "$any": true
+                }
+              }
+            }
+          }
+        },
+        "handle": "p"
+      },
+      "because": "Core SV-1"
+    },
+    {
+      "control": {
+        "op": "service_connect",
+        "service": "1111111111111111111111111111111111111111111111111111111111111111",
+        "epoch": 1,
+        "handle": "p"
+      }
+    },
+    {
+      "pump_until": {
+        "event": {
+          "LaneConnected": {
+            "id": "1111111111111111111111111111111111111111111111111111111111111111",
+            "epoch": 1
+          }
+        },
+        "handle": "p"
+      },
+      "because": "Core A2-5"
+    },
+    {
+      "begin": {
+        "op": {
+          "SpawnService": {
+            "service_id": "2222222222222222222222222222222222222222222222222222222222222222"
+          }
+        },
+        "handle": "p"
+      },
+      "bind": "$sp_22"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$sp_22",
+            "result": {
+              "ok": {
+                "spawn": {
+                  "$any": true
+                }
+              }
+            }
+          }
+        },
+        "handle": "p"
+      },
+      "because": "Core SV-1"
+    },
+    {
+      "begin": {
+        "op": {
+          "StopService": {
+            "id": "2222222222222222222222222222222222222222222222222222222222222222"
+          }
+        },
+        "handle": "p"
+      },
+      "bind": "$stp2"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$stp2",
+            "result": {
+              "ok": {
+                "service_end": {
+                  "$any": true
+                }
+              }
+            }
+          }
+        },
+        "handle": "p"
+      },
+      "because": [
+        "Core A2-1",
+        "Core A16-1"
+      ]
+    },
+    {
+      "attach_route": {
+        "route": "r1",
+        "session": "sR",
+        "handle": "p"
+      }
+    },
+    {
+      "drain": {
+        "handle": "p"
+      }
+    },
+    {
+      "begin": {
+        "op": {
+          "ReadModeFlags": {
+            "session": "sR"
+          }
+        },
+        "handle": "p"
+      },
+      "bind": "$pf0"
+    },
+    {
+      "begin": {
+        "op": {
+          "ReadModeFlags": {
+            "session": "sR"
+          }
+        },
+        "handle": "p"
+      },
+      "bind": "$pf1"
+    },
+    {
+      "begin": {
+        "op": {
+          "ReadModeFlags": {
+            "session": "sR"
+          }
+        },
+        "handle": "p"
+      },
+      "bind": "$pf2"
+    },
+    {
+      "begin": {
+        "op": {
+          "ReadModeFlags": {
+            "session": "sR"
+          }
+        },
+        "handle": "p"
+      },
+      "bind": "$pf3"
+    },
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "sP",
+            "request": {
+              "argv": [
+                "/bin/true"
+              ],
+              "env": {},
+              "cwd": "/",
+              "size": {
+                "rows": 24,
+                "cols": 80
+              }
+            }
+          }
+        },
+        "handle": "p"
+      },
+      "bind": "$q0",
+      "expect_error": {
+        "code": "PendingLimit"
+      },
+      "because": [
+        "Core A2-1",
+        "Core EV-5",
+        "Core ER-0"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "sC"
+          }
+        },
+        "handle": "p"
+      },
+      "bind": "$q1",
+      "expect_error": {
+        "code": "PendingLimit"
+      },
+      "because": [
+        "Core A2-1",
+        "Core EV-5",
+        "Core ER-0"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "Stop": {
+            "id": "sR"
+          }
+        },
+        "handle": "p"
+      },
+      "bind": "$q2",
+      "expect_error": {
+        "code": "PendingLimit"
+      },
+      "because": [
+        "Core A2-1",
+        "Core EV-5",
+        "Core ER-0"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "Signal": {
+            "id": "sR",
+            "sig": "term"
+          }
+        },
+        "handle": "p"
+      },
+      "bind": "$q3",
+      "expect_error": {
+        "code": "PendingLimit"
+      },
+      "because": [
+        "Core A2-1",
+        "Core EV-5",
+        "Core ER-0"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "Remove": {
+            "id": "sE"
+          }
+        },
+        "handle": "p"
+      },
+      "bind": "$q4",
+      "expect_error": {
+        "code": "PendingLimit"
+      },
+      "because": [
+        "Core A2-1",
+        "Core EV-5",
+        "Core ER-0"
+      ]
+    },
+    {
+      "begin": {
+        "op": "StopAll",
+        "handle": "p"
+      },
+      "bind": "$q5",
+      "expect_error": {
+        "code": "PendingLimit"
+      },
+      "because": [
+        "Core A2-1",
+        "Core EV-5",
+        "Core ER-0"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "UpdateMetadata": {
+            "id": "sR",
+            "labels": {}
+          }
+        },
+        "handle": "p"
+      },
+      "bind": "$q6",
+      "expect_error": {
+        "code": "PendingLimit"
+      },
+      "because": [
+        "Core A2-1",
+        "Core EV-5",
+        "Core ER-0"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "SetSizePolicy": {
+            "session": "sR",
+            "policy": "latest"
+          }
+        },
+        "handle": "p"
+      },
+      "bind": "$q7",
+      "expect_error": {
+        "code": "PendingLimit"
+      },
+      "because": [
+        "Core A2-1",
+        "Core EV-5",
+        "Core ER-0"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "SetColorProfile": {
+            "session": "sR",
+            "profile": {
+              "foreground": {
+                "r": 1,
+                "g": 2,
+                "b": 3
+              },
+              "background": {
+                "r": 4,
+                "g": 5,
+                "b": 6
+              }
+            }
+          }
+        },
+        "handle": "p"
+      },
+      "bind": "$q8",
+      "expect_error": {
+        "code": "PendingLimit"
+      },
+      "because": [
+        "Core A2-1",
+        "Core EV-5",
+        "Core ER-0"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "SetOutputTap": {
+            "session": "sR",
+            "enabled": true
+          }
+        },
+        "handle": "p"
+      },
+      "bind": "$q9",
+      "expect_error": {
+        "code": "PendingLimit"
+      },
+      "because": [
+        "Core A2-1",
+        "Core EV-5",
+        "Core ER-0"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "ReadScreen": {
+            "session": "sR",
+            "history": false
+          }
+        },
+        "handle": "p"
+      },
+      "bind": "$q10",
+      "expect_error": {
+        "code": "PendingLimit"
+      },
+      "because": [
+        "Core A2-1",
+        "Core EV-5",
+        "Core ER-0"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "ReadCursor": {
+            "session": "sR"
+          }
+        },
+        "handle": "p"
+      },
+      "bind": "$q11",
+      "expect_error": {
+        "code": "PendingLimit"
+      },
+      "because": [
+        "Core A2-1",
+        "Core EV-5",
+        "Core ER-0"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "ReadModeFlags": {
+            "session": "sR"
+          }
+        },
+        "handle": "p"
+      },
+      "bind": "$q12",
+      "expect_error": {
+        "code": "PendingLimit"
+      },
+      "because": [
+        "Core A2-1",
+        "Core EV-5",
+        "Core ER-0"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "CaptureSnapshot": {
+            "session": "sR",
+            "owner": "c2"
+          }
+        },
+        "handle": "p"
+      },
+      "bind": "$q13",
+      "expect_error": {
+        "code": "PendingLimit"
+      },
+      "because": [
+        "Core A2-1",
+        "Core EV-5",
+        "Core ER-0"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "ReadFacts": {
+            "session": "sR"
+          }
+        },
+        "handle": "p"
+      },
+      "bind": "$q14",
+      "expect_error": {
+        "code": "PendingLimit"
+      },
+      "because": [
+        "Core A2-1",
+        "Core EV-5",
+        "Core ER-0"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "Resize": {
+            "session": "sR",
+            "size": {
+              "rows": 30,
+              "cols": 100
+            }
+          }
+        },
+        "handle": "p"
+      },
+      "bind": "$q15",
+      "expect_error": {
+        "code": "PendingLimit"
+      },
+      "because": [
+        "Core A2-1",
+        "Core EV-5",
+        "Core ER-0"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "sR",
+            "payload": {
+              "bytes": {
+                "bytes": {
+                  "$bytes_hex": "61"
+                }
+              }
+            }
+          }
+        },
+        "handle": "p"
+      },
+      "bind": "$q16",
+      "expect_error": {
+        "code": "PendingLimit"
+      },
+      "because": [
+        "Core A2-1",
+        "Core EV-5",
+        "Core ER-0"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "Detach": {
+            "route": "$r1",
+            "reason": "Detached"
+          }
+        },
+        "handle": "p"
+      },
+      "bind": "$q17",
+      "expect_error": {
+        "code": "PendingLimit"
+      },
+      "because": [
+        "Core A2-1",
+        "Core EV-5",
+        "Core ER-0"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "Adopt": {
+            "id": "sUR"
+          }
+        },
+        "handle": "p"
+      },
+      "bind": "$q19",
+      "expect_error": {
+        "code": "PendingLimit"
+      },
+      "because": [
+        "Core A2-1",
+        "Core EV-5",
+        "Core ER-0"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "SpawnService": {
+            "service_id": "5555555555555555555555555555555555555555555555555555555555555555"
+          }
+        },
+        "handle": "p"
+      },
+      "bind": "$q20",
+      "expect_error": {
+        "code": "PendingLimit"
+      },
+      "because": [
+        "Core A2-1",
+        "Core EV-5",
+        "Core ER-0"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "StopService": {
+            "id": "1111111111111111111111111111111111111111111111111111111111111111"
+          }
+        },
+        "handle": "p"
+      },
+      "bind": "$q21",
+      "expect_error": {
+        "code": "PendingLimit"
+      },
+      "because": [
+        "Core A2-1",
+        "Core EV-5",
+        "Core ER-0"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "RemoveService": {
+            "id": "2222222222222222222222222222222222222222222222222222222222222222"
+          }
+        },
+        "handle": "p"
+      },
+      "bind": "$q22",
+      "expect_error": {
+        "code": "PendingLimit"
+      },
+      "because": [
+        "Core A2-1",
+        "Core EV-5",
+        "Core ER-0"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "EndEpoch": {
+            "service": "1111111111111111111111111111111111111111111111111111111111111111"
+          }
+        },
+        "handle": "p"
+      },
+      "bind": "$q23",
+      "expect_error": {
+        "code": "PendingLimit"
+      },
+      "because": [
+        "Core A2-1",
+        "Core EV-5",
+        "Core ER-0"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "SetNotificationPolicy": {
+            "session": "sR",
+            "policy": "all"
+          }
+        },
+        "handle": "p"
+      },
+      "bind": "$q24",
+      "expect_error": {
+        "code": "PendingLimit"
+      },
+      "because": [
+        "Core A2-1",
+        "Core EV-5",
+        "Core ER-0"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "k1",
+            "request": {
+              "argv": [
+                "/bin/true"
+              ],
+              "env": {},
+              "cwd": "/",
+              "size": {
+                "rows": 24,
+                "cols": 80
+              }
+            }
+          }
+        },
+        "handle": "k"
+      },
+      "bind": "$kc"
+    },
+    {
+      "begin": {
+        "op": "AdoptAll",
+        "handle": "k"
+      },
+      "bind": "$kaa",
+      "expect_error": {
+        "code": "PendingLimit"
+      },
+      "because": [
+        "Core A2-1",
+        "Core EV-5",
+        "Core ER-0"
+      ]
+    }
+  ]
+}

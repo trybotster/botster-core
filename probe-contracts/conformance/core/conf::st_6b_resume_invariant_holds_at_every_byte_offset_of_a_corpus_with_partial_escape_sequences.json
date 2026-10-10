@@ -1,0 +1,140 @@
+{
+  "id": "conf::st_6b_resume_invariant_holds_at_every_byte_offset_of_a_corpus_with_partial_escape_sequences",
+  "contract": "core",
+  "clause": "ST-6b",
+  "subject": "core",
+  "requires": {
+    "controls": [
+      "oracle_resume_every_cut"
+    ]
+  },
+  "fake": "structural",
+  "ruling": "R-12",
+  "steps": [
+    {
+      "control": {
+        "op": "oracle_resume_every_cut",
+        "size": {
+          "rows": 6,
+          "cols": 20
+        },
+        "corpus_hex": [
+          "1b5b313b33316d7265641b5b306d20706c61696e201b5b33383b323b313b323b336d7267621b5b306d",
+          "1b5d303b61207469746c651b5c746578741b5d383b3b687474703a2f2f781b5c6c696e6b1b5d383b3b1b5c",
+          "1b371b5b323b33486d6f7665641b386261636b",
+          "1b28306c71716b1b2842781b4809746162",
+          "68c3a96c6c6f20e697a5e69cac2077696465",
+          "1b5b3f3130343968616c741b5b333b35721b5b3f313034396c",
+          "1b50312472306d1b5c1b5b3f376c777261701b5b3468696e73"
+        ],
+        "beyond_limit": [
+          "osc",
+          "dcs"
+        ]
+      },
+      "bind": "$res"
+    },
+    {
+      "let": {
+        "$checked": {
+          "field": [
+            "$res",
+            "cuts_checked"
+          ]
+        },
+        "$offered": {
+          "field": [
+            "$res",
+            "offered"
+          ]
+        },
+        "$refused": {
+          "field": [
+            "$res",
+            "refused_beyond_limit"
+          ]
+        },
+        "$mm": {
+          "field": [
+            "$res",
+            "mismatches"
+          ]
+        },
+        "$inc": {
+          "field": [
+            "$res",
+            "inconclusive"
+          ]
+        }
+      }
+    },
+    {
+      "assume": {
+        "eq": [
+          "$inc",
+          false
+        ]
+      },
+      "because": [
+        "Core A8-2",
+        "Core ST-6b"
+      ]
+    },
+    {
+      "let": {
+        "$sum": {
+          "add": [
+            "$offered",
+            "$refused"
+          ]
+        }
+      }
+    },
+    {
+      "check": {
+        "eq": [
+          "$checked",
+          "$sum"
+        ]
+      },
+      "because": [
+        "Core ST-6b",
+        "Core A8-2"
+      ]
+    },
+    {
+      "check": {
+        "gt": [
+          "$offered",
+          0
+        ]
+      },
+      "because": [
+        "Core ST-6b"
+      ]
+    },
+    {
+      "check": {
+        "gt": [
+          "$refused",
+          0
+        ]
+      },
+      "because": [
+        "Core A8-2"
+      ]
+    },
+    {
+      "check": {
+        "eq": [
+          "$mm",
+          []
+        ]
+      },
+      "because": [
+        "Core ST-6b",
+        "Core A8-2"
+      ]
+    }
+  ]
+}

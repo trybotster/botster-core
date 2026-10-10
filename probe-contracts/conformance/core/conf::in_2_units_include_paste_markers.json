@@ -1,0 +1,126 @@
+{
+  "id": "conf::in_2_units_include_paste_markers",
+  "contract": "core",
+  "clause": "IN-2",
+  "subject": "core",
+  "steps": [
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s1",
+            "request": {
+              "program": [
+                {
+                  "print": {
+                    "bytes_hex": "1b5b3f3230303468",
+                    "fake": {
+                      "modes": {
+                        "bracketed_paste": true
+                      }
+                    }
+                  }
+                },
+                {
+                  "hold": {}
+                }
+              ],
+              "fake": {
+                "writes": {
+                  "paste": "1b5b3230307e68656c6c6f1b5b3230317e"
+                }
+              }
+            }
+          }
+        }
+      },
+      "bind": "$c_s1"
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "s1"
+          }
+        }
+      },
+      "bind": "$s_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$s_s1",
+            "result": {}
+          }
+        }
+      },
+      "because": "Core LC-3"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "ModesChanged": {
+            "id": "s1",
+            "flags": {
+              "bracketed_paste": true
+            }
+          }
+        }
+      },
+      "because": "Core EV-7"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "paste": {
+                "bytes": {
+                  "$bytes_hex": "68656c6c6f"
+                },
+                "require_bracketed": false
+              }
+            }
+          }
+        }
+      },
+      "bind": "$p"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$p",
+            "result": {
+              "ok": {
+                "input": {
+                  "outcome": "Written",
+                  "payload_bytes_written": 5,
+                  "pty_bytes_written": "$q"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core IN-2",
+        "Core IN-8"
+      ]
+    },
+    {
+      "check": {
+        "gt": [
+          "$q",
+          5
+        ]
+      },
+      "because": [
+        "Core IN-2",
+        "Core IN-8"
+      ]
+    }
+  ]
+}

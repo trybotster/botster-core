@@ -1,0 +1,686 @@
+{
+  "id": "conf::ad_2_lost_reasons",
+  "contract": "core",
+  "clause": "AD-2",
+  "subject": "core",
+  "requires": {
+    "controls": [
+      "announce_protocol",
+      "corrupt_registry_row",
+      "edges_quiet",
+      "guardian_exit",
+      "hold_start",
+      "lose_worker",
+      "service_connect",
+      "withhold_control_link"
+    ]
+  },
+  "fake": "structural",
+  "ruling": "R-12",
+  "steps": [
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "sGone",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c_sGone"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$c_sGone",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "sGone",
+                  "state": "Created"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core LC-3"
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "sGone"
+          }
+        }
+      },
+      "bind": "$s_sGone"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$s_sGone",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "sGone",
+                  "state": "Running"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core A2-1"
+    },
+    {
+      "control": {
+        "op": "lose_worker",
+        "session": "sGone",
+        "reason": "worker_gone"
+      }
+    },
+    {
+      "pump_until": {
+        "event": {
+          "SessionState": {
+            "id": "sGone",
+            "state": {
+              "Lost": "WorkerGone"
+            }
+          }
+        }
+      },
+      "because": "Core AD-2"
+    },
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "sUnr",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c_sUnr"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$c_sUnr",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "sUnr",
+                  "state": "Created"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core LC-3"
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "sUnr"
+          }
+        }
+      },
+      "bind": "$s_sUnr"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$s_sUnr",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "sUnr",
+                  "state": "Running"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core A2-1"
+    },
+    {
+      "control": {
+        "op": "withhold_control_link",
+        "session": "sUnr"
+      }
+    },
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "sVer",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c_sVer"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$c_sVer",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "sVer",
+                  "state": "Created"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core LC-3"
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "sVer"
+          }
+        }
+      },
+      "bind": "$s_sVer"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$s_sVer",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "sVer",
+                  "state": "Running"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core A2-1"
+    },
+    {
+      "control": {
+        "op": "announce_protocol",
+        "session": "sVer",
+        "protocol": 2
+      }
+    },
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "sCor",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c_sCor"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$c_sCor",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "sCor",
+                  "state": "Created"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core LC-3"
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "sCor"
+          }
+        }
+      },
+      "bind": "$s_sCor"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$s_sCor",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "sCor",
+                  "state": "Running"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core A2-1"
+    },
+    {
+      "control": {
+        "op": "corrupt_registry_row",
+        "session": "sCor"
+      }
+    },
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "sSt",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c_sSt"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$c_sSt",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "sSt",
+                  "state": "Created"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core LC-3"
+    },
+    {
+      "control": {
+        "op": "hold_start",
+        "session": "sSt"
+      }
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "sSt"
+          }
+        }
+      },
+      "bind": "$s_sSt"
+    },
+    {
+      "await_quiet": {}
+    },
+    {
+      "drop": {
+        "handle": "h"
+      }
+    },
+    {
+      "open": {
+        "as": "h2"
+      }
+    },
+    {
+      "begin": {
+        "op": "AdoptAll",
+        "handle": "h2"
+      },
+      "bind": "$aa"
+    },
+    {
+      "advance_clock": {
+        "ms": 60000
+      }
+    },
+    {
+      "pump_collect": {
+        "events": [
+          {
+            "SessionState": {
+              "id": "sGone",
+              "state": {
+                "Lost": "WorkerGone"
+              }
+            }
+          },
+          {
+            "SessionState": {
+              "id": "sUnr",
+              "state": {
+                "Lost": "WorkerUnreachable"
+              }
+            }
+          },
+          {
+            "SessionState": {
+              "id": "sVer",
+              "state": {
+                "Lost": "WorkerVersion"
+              }
+            }
+          },
+          {
+            "SessionState": {
+              "id": "sCor",
+              "state": {
+                "Lost": "RegistryCorrupt"
+              }
+            }
+          },
+          {
+            "SessionState": {
+              "id": "sSt",
+              "state": {
+                "Lost": "StartInterrupted"
+              }
+            }
+          },
+          {
+            "Completed": {
+              "op": "$aa",
+              "result": {
+                "ok": "unit"
+              }
+            }
+          }
+        ],
+        "handle": "h2"
+      },
+      "because": [
+        "Core AD-2",
+        "Core AD-1",
+        "Core A10-2",
+        "Core A2-1"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "SpawnService": {
+            "service_id": "4444444444444444444444444444444444444444444444444444444444444444"
+          }
+        },
+        "handle": "h2"
+      },
+      "bind": "$spg"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$spg",
+            "result": {
+              "ok": {
+                "spawn": {
+                  "$any": true
+                }
+              }
+            }
+          }
+        },
+        "handle": "h2"
+      },
+      "because": "Core SV-1"
+    },
+    {
+      "control": {
+        "op": "service_connect",
+        "service": "4444444444444444444444444444444444444444444444444444444444444444",
+        "epoch": 1,
+        "handle": "h2"
+      }
+    },
+    {
+      "pump_until": {
+        "event": {
+          "LaneConnected": {
+            "id": "4444444444444444444444444444444444444444444444444444444444444444",
+            "epoch": 1
+          }
+        },
+        "handle": "h2"
+      },
+      "because": "Core A2-5"
+    },
+    {
+      "control": {
+        "op": "guardian_exit",
+        "service": "4444444444444444444444444444444444444444444444444444444444444444",
+        "handle": "h2"
+      }
+    },
+    {
+      "pump_until": {
+        "event": {
+          "ServiceState": {
+            "id": "4444444444444444444444444444444444444444444444444444444444444444",
+            "state": {
+              "Lost": {
+                "reason": "GuardianLost",
+                "payload_may_remain": {
+                  "$type": "boolean"
+                }
+              }
+            }
+          }
+        },
+        "handle": "h2"
+      },
+      "because": [
+        "Core AD-2",
+        "Core SV-8"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "SpawnService": {
+            "service_id": "5555555555555555555555555555555555555555555555555555555555555555"
+          }
+        },
+        "handle": "h2"
+      },
+      "bind": "$spe"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$spe",
+            "result": {
+              "ok": {
+                "spawn": {
+                  "$any": true
+                }
+              }
+            }
+          }
+        },
+        "handle": "h2"
+      },
+      "because": "Core SV-1"
+    },
+    {
+      "control": {
+        "op": "service_connect",
+        "service": "5555555555555555555555555555555555555555555555555555555555555555",
+        "epoch": 1,
+        "handle": "h2"
+      }
+    },
+    {
+      "pump_until": {
+        "event": {
+          "LaneConnected": {
+            "id": "5555555555555555555555555555555555555555555555555555555555555555",
+            "epoch": 1
+          }
+        },
+        "handle": "h2"
+      },
+      "because": "Core A2-5"
+    },
+    {
+      "begin": {
+        "op": {
+          "EndEpoch": {
+            "service": "5555555555555555555555555555555555555555555555555555555555555555"
+          }
+        },
+        "handle": "h2"
+      },
+      "bind": "$ee1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$ee1",
+            "result": {
+              "ok": "unit"
+            }
+          }
+        },
+        "handle": "h2"
+      },
+      "because": [
+        "Core SV-6",
+        "Core A2-1"
+      ]
+    },
+    {
+      "control": {
+        "op": "service_connect",
+        "service": "5555555555555555555555555555555555555555555555555555555555555555",
+        "epoch": 18446744073709551615,
+        "handle": "h2"
+      }
+    },
+    {
+      "pump_until": {
+        "event": {
+          "LaneConnected": {
+            "id": "5555555555555555555555555555555555555555555555555555555555555555",
+            "epoch": 18446744073709551615
+          }
+        },
+        "handle": "h2"
+      },
+      "because": [
+        "Core SV-6",
+        "Core A2-5"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "EndEpoch": {
+            "service": "5555555555555555555555555555555555555555555555555555555555555555"
+          }
+        },
+        "handle": "h2"
+      },
+      "bind": "$ee2"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$ee2",
+            "result": {
+              "ok": "unit"
+            }
+          }
+        },
+        "handle": "h2"
+      },
+      "because": [
+        "Core SV-6",
+        "Core A2-1"
+      ]
+    },
+    {
+      "control": {
+        "op": "service_connect",
+        "service": "5555555555555555555555555555555555555555555555555555555555555555",
+        "epoch": 18446744073709551615,
+        "handle": "h2"
+      }
+    },
+    {
+      "pump_until": {
+        "event": {
+          "ServiceState": {
+            "id": "5555555555555555555555555555555555555555555555555555555555555555",
+            "state": {
+              "Lost": {
+                "reason": "EpochExhausted",
+                "payload_may_remain": {
+                  "$type": "boolean"
+                }
+              }
+            }
+          }
+        },
+        "handle": "h2"
+      },
+      "because": [
+        "Core AD-2",
+        "Core SV-6"
+      ]
+    }
+  ]
+}

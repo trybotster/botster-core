@@ -1,0 +1,306 @@
+{
+  "id": "conf::dp_5_input_done_only_for_want_result_true",
+  "contract": "core",
+  "clause": "DP-5",
+  "subject": "core",
+  "requires": {
+    "controls": [
+      "pty_input",
+      "pty_output",
+      "edges_quiet"
+    ]
+  },
+  "steps": [
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s1",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ],
+              "fake": {
+                "writes": {
+                  "key": "6b",
+                  "paste": "70"
+                },
+                "admission": {
+                  "key": 12,
+                  "mouse": 12,
+                  "focus": 3,
+                  "paste": 64
+                }
+              }
+            }
+          }
+        }
+      },
+      "bind": "$c_s1"
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "s1"
+          }
+        }
+      },
+      "bind": "$s_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$s_s1",
+            "result": {}
+          }
+        }
+      },
+      "because": "Core LC-3"
+    },
+    {
+      "attach_route": {
+        "route": "r1",
+        "session": "s1",
+        "client": "c1"
+      },
+      "because": "Core OU-1"
+    },
+    {
+      "expect": {
+        "frame": "attached",
+        "terminal_format": {
+          "$type": "string"
+        }
+      },
+      "on": "r1",
+      "because": "Core OU-9"
+    },
+    {
+      "expect": {
+        "frame": "baseline_begin",
+        "rows": {
+          "$type": "integer"
+        },
+        "cols": {
+          "$type": "integer"
+        },
+        "modes": {
+          "$type": "object"
+        }
+      },
+      "on": "r1",
+      "because": "Core OU-9"
+    },
+    {
+      "expect": {
+        "frame": "screen",
+        "payload": {
+          "$any": true
+        }
+      },
+      "on": "r1",
+      "because": "Core OU-9"
+    },
+    {
+      "expect_eventually": {
+        "frame": "baseline_end",
+        "history": "not_requested"
+      },
+      "ignore": [
+        {
+          "frame": "history",
+          "payload": {
+            "$any": true
+          }
+        }
+      ],
+      "on": "r1",
+      "because": "Core OU-9"
+    },
+    {
+      "expect": {
+        "frame": "live"
+      },
+      "on": "r1",
+      "because": "Core OU-9"
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s1",
+        "bytes_hex": "1b5b3f323030346c",
+        "scripted": {
+          "modes": {
+            "bracketed_paste": false
+          }
+        }
+      }
+    },
+    {
+      "await_quiet": {}
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s1",
+        "bytes_hex": "1b5b3f3230303468",
+        "scripted": {
+          "modes": {
+            "bracketed_paste": true
+          }
+        }
+      }
+    },
+    {
+      "pump_until": {
+        "event": {
+          "ModesChanged": {
+            "id": "s1",
+            "flags": {
+              "bracketed_paste": true
+            }
+          }
+        }
+      },
+      "because": "Core EV-7"
+    },
+    {
+      "route_send": {
+        "frame": "input",
+        "kind": "paste_begin",
+        "op": "4"
+      }
+    },
+    {
+      "route_send": {
+        "frame": "paste_chunk",
+        "op": "4",
+        "bytes": {
+          "$bytes_hex": "68656c6c6f"
+        }
+      }
+    },
+    {
+      "route_send": {
+        "frame": "input",
+        "kind": "paste_commit",
+        "op": "4",
+        "want_result": true
+      }
+    },
+    {
+      "expect_eventually": {
+        "frame": "input_done",
+        "op": "4",
+        "written_bytes": "$n"
+      },
+      "ignore": [
+        {
+          "frame": "modes"
+        },
+        {
+          "frame": "output"
+        },
+        {
+          "frame": "output_deflate"
+        }
+      ],
+      "on": "r1",
+      "because": [
+        "Core DP-5"
+      ]
+    },
+    {
+      "await_quiet": {}
+    },
+    {
+      "route_expect_pty": [
+        {
+          "written_by_op": "4",
+          "len_var": "$n"
+        }
+      ],
+      "because": [
+        "Core DP-5",
+        "Core IN-2"
+      ]
+    },
+    {
+      "route_send": {
+        "frame": "input",
+        "kind": "paste_begin",
+        "op": "5"
+      }
+    },
+    {
+      "route_send": {
+        "frame": "paste_chunk",
+        "op": "5",
+        "bytes": {
+          "$bytes_hex": "616761696e"
+        }
+      }
+    },
+    {
+      "route_send": {
+        "frame": "input",
+        "kind": "paste_commit",
+        "op": "5"
+      }
+    },
+    {
+      "route_send": {
+        "frame": "bytes",
+        "op": "6",
+        "bytes": {
+          "$bytes_hex": "7a"
+        }
+      }
+    },
+    {
+      "route_send": {
+        "frame": "text",
+        "op": "7",
+        "text": "y"
+      }
+    },
+    {
+      "expect_quiet_until": {
+        "$one_of": [
+          {
+            "frame": "input_done"
+          },
+          {
+            "frame": "input_refused",
+            "op": {
+              "$not": "99"
+            }
+          }
+        ]
+      },
+      "barrier": {
+        "route_send": {
+          "frame": "input",
+          "kind": "paste_commit",
+          "op": "99"
+        },
+        "route": "r1"
+      },
+      "until": {
+        "frame": "input_refused",
+        "op": "99",
+        "reason": "refused"
+      },
+      "on": "r1",
+      "because": [
+        "Core DP-5"
+      ]
+    }
+  ],
+  "fake": "structural",
+  "ruling": "R-12"
+}

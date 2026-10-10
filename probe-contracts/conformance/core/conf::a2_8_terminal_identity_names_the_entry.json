@@ -1,0 +1,34 @@
+{
+  "id": "conf::a2_8_terminal_identity_names_the_entry",
+  "contract": "core",
+  "clause": "TI-1",
+  "subject": "core",
+  "fake": "structural",
+  "ruling": "R-12",
+  "steps": [
+    {
+      "call": {
+        "method": "terminal_identity"
+      },
+      "expect": {
+        "term": "xterm-ghostty",
+        "terminfo_source": {
+          "$type": "string"
+        }
+      },
+      "bind_fields": {
+        "terminfo_source": "$src"
+      },
+      "because": "Core TI-1"
+    },
+    {
+      "check": {
+        "ne": [
+          "$src",
+          ""
+        ]
+      },
+      "because": "Core TI-1"
+    }
+  ]
+}

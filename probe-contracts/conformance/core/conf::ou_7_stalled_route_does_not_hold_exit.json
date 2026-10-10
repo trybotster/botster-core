@@ -1,0 +1,263 @@
+{
+  "id": "conf::ou_7_stalled_route_does_not_hold_exit",
+  "contract": "core",
+  "clause": "OU-7",
+  "subject": "core",
+  "requires": {
+    "controls": [
+      "edges_quiet",
+      "route_gate"
+    ]
+  },
+  "setup": {
+    "limits": {
+      "reader_progress_deadline": 1000,
+      "stall_close_after": 5000
+    }
+  },
+  "steps": [
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s1",
+            "request": {
+              "program": [
+                {
+                  "print_after_input": {
+                    "match_hex": "78",
+                    "bytes_hex": "7461696c"
+                  }
+                },
+                {
+                  "exit": {
+                    "code": 0
+                  }
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$c_s1",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s1",
+                  "state": "Created"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core LC-3"
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "s1"
+          }
+        }
+      },
+      "bind": "$s_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$s_s1",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s1",
+                  "state": "Running"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core A2-1"
+    },
+    {
+      "attach_route": {
+        "route": "r1",
+        "session": "s1",
+        "client": "c1",
+        "options": {
+          "history": "none"
+        }
+      },
+      "because": "Core OU-1"
+    },
+    {
+      "expect": {
+        "frame": "attached",
+        "terminal_format": {
+          "$type": "string"
+        }
+      },
+      "on": "r1",
+      "because": [
+        "Core OU-1",
+        "Codec TS-1"
+      ]
+    },
+    {
+      "expect": {
+        "frame": "baseline_begin",
+        "rows": {
+          "$type": "integer"
+        },
+        "cols": {
+          "$type": "integer"
+        },
+        "modes": {
+          "$type": "object"
+        }
+      },
+      "on": "r1",
+      "because": [
+        "Core OU-9",
+        "Codec TS-4"
+      ]
+    },
+    {
+      "expect": {
+        "frame": "screen",
+        "payload": {
+          "$any": true
+        }
+      },
+      "on": "r1",
+      "because": [
+        "Core OU-9",
+        "Codec TS-4"
+      ]
+    },
+    {
+      "expect_eventually": {
+        "frame": "baseline_end",
+        "history": "not_requested"
+      },
+      "ignore": [
+        {
+          "frame": "history",
+          "payload": {
+            "$any": true
+          }
+        }
+      ],
+      "on": "r1",
+      "because": [
+        "Core OU-9",
+        "Codec TS-4"
+      ]
+    },
+    {
+      "expect": {
+        "frame": "live"
+      },
+      "on": "r1",
+      "because": [
+        "Core OU-9",
+        "Codec TS-4"
+      ]
+    },
+    {
+      "control": {
+        "op": "route_gate",
+        "on": true
+      },
+      "route": "r1"
+    },
+    {
+      "route_send": {
+        "frame": "bytes",
+        "op": "1",
+        "bytes": {
+          "$bytes_hex": "78"
+        }
+      },
+      "route": "r1"
+    },
+    {
+      "await_quiet": {}
+    },
+    {
+      "advance_clock": {
+        "ms": 1000
+      }
+    },
+    {
+      "pump_until": {
+        "event": {
+          "RouteStalled": {
+            "route": "$r1"
+          }
+        }
+      },
+      "because": [
+        "Core OU-7",
+        "Core OU-2"
+      ]
+    },
+    {
+      "pump_until": {
+        "event": {
+          "SessionState": {
+            "id": "s1",
+            "state": {
+              "Exited": {
+                "code": 0
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core OU-7"
+      ]
+    },
+    {
+      "control": {
+        "op": "route_gate",
+        "on": false
+      },
+      "route": "r1"
+    },
+    {
+      "expect_eventually": {
+        "$one_of": [
+          {
+            "frame": "resync",
+            "reason": "stalled"
+          },
+          {
+            "frame": "route_closed",
+            "reason": "session_ended"
+          }
+        ]
+      },
+      "ignore": [
+        {
+          "frame": "modes"
+        }
+      ],
+      "on": "r1",
+      "because": [
+        "Core OU-7"
+      ]
+    }
+  ],
+  "fake": "structural",
+  "ruling": "R-12"
+}

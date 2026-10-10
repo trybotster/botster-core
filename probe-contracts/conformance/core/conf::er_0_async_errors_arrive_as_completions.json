@@ -1,0 +1,67 @@
+{
+  "id": "conf::er_0_async_errors_arrive_as_completions",
+  "contract": "core",
+  "clause": "ER-0",
+  "subject": "core",
+  "steps": [
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s1",
+            "request": {
+              "cwd": "/botster-no-such-cwd",
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$c",
+            "result": {}
+          }
+        }
+      },
+      "because": "Core ER-0"
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "s1"
+          }
+        }
+      },
+      "bind": "$s"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$s",
+            "result": {
+              "err": {
+                "code": {
+                  "StartFailed": "CwdMissing"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core ER-0",
+        "Core A2-1"
+      ]
+    }
+  ]
+}

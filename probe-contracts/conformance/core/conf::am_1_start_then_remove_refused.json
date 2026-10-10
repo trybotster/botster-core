@@ -1,0 +1,63 @@
+{
+  "id": "conf::am_1_start_then_remove_refused",
+  "contract": "core",
+  "clause": "AM-1",
+  "subject": "core",
+  "steps": [
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s1",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$c",
+            "result": {}
+          }
+        }
+      },
+      "because": "Core AM-1"
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "s1"
+          }
+        }
+      },
+      "bind": "$s"
+    },
+    {
+      "begin": {
+        "op": {
+          "Remove": {
+            "id": "s1"
+          }
+        }
+      },
+      "bind": "$r",
+      "expect_error": {
+        "code": "WrongState"
+      },
+      "because": [
+        "Core AM-1",
+        "Core LC-7"
+      ]
+    }
+  ]
+}
