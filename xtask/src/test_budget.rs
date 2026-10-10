@@ -923,19 +923,29 @@ mod slow_tests {
     /// start, so the test needs no timeout value of its own.
     #[test]
     fn a_run_past_its_deadline_is_killed_and_fails() {
-        let (_dir, pids) = pidfile();
-        let error = bounded_report(sh("exec sleep 600"), Duration::ZERO, &pids, "start sh")
-            .unwrap_err()
-            .to_string();
+        let (dir, pids) = pidfile();
+        let blocker = botster_test_process::Blocker::new(dir.path(), "block").unwrap();
+        let error = bounded_report(
+            sh(&format!("exec {}", blocker.shell())),
+            Duration::ZERO,
+            &pids,
+            "start sh",
+        )
+        .unwrap_err()
+        .to_string();
         assert!(error.contains("deadline"), "{error}");
     }
 
     /// A process that the run leaves behind fails the run, and is killed before the report is read (it holds the pipe).
     #[test]
     fn a_process_left_behind_fails_the_run_and_is_killed() {
-        let (_dir, pids) = pidfile();
+        let (dir, pids) = pidfile();
+        let blocker = botster_test_process::Blocker::new(dir.path(), "block").unwrap();
         let error = bounded_report(
-            sh("sleep 600 & echo 'real conformance: passed 1'"),
+            sh(&format!(
+                "{} & echo 'real conformance: passed 1'",
+                blocker.shell()
+            )),
             SLOW_DEADLINE,
             &pids,
             "start sh",
