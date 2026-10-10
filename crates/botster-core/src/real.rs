@@ -246,14 +246,28 @@ fn endpoint_dir_safe(facts: DirFacts, uid: u32) -> bool {
     facts.is_dir && facts.owner == uid && facts.mode & 0o077 == 0
 }
 
+/// The result of the create of the endpoint directory. A directory that is there already is no failure: `open` then checks
+/// that it is safe. Any other failure fails the open with its own error.
+fn created(result: io::Result<()>) -> io::Result<()> {
+    match result {
+        Err(error) if error.kind() == io::ErrorKind::AlreadyExists => Ok(()),
+        other => other,
+    }
+}
+
+/// The id of the next link of this host. Ids count up from 1 and never repeat, so a closed link's id never names a later
+/// link (plan 23l).
+fn take_link(next: &mut u64) -> LinkId {
+    let link = LinkId(*next);
+    *next += 1;
+    link
+}
+
 /// Creates the endpoint directory with mode `0700` when it is missing, and refuses one that is not safe.
 fn open_endpoint_dir(data_dir: &Path) -> io::Result<()> {
     use std::os::unix::fs::{DirBuilderExt, MetadataExt};
     let dir = endpoint_dir(data_dir);
-    match std::fs::DirBuilder::new().mode(0o700).create(&dir) {
-        Err(error) if error.kind() != io::ErrorKind::AlreadyExists => return Err(error),
-        _ => {}
-    }
+    created(std::fs::DirBuilder::new().mode(0o700).create(&dir))?;
     let owner = std::fs::metadata(data_dir)?.uid();
     let meta = std::fs::symlink_metadata(&dir)?;
     let facts = DirFacts {
@@ -571,8 +585,7 @@ impl RealEdges {
     /// A link of an accepted or a connected stream, registered for reading. A link that the poll does not take is broken:
     /// its first read fails, and the driver closes it and records why.
     fn add_stream(&mut self, mut stream: UnixStream) -> LinkId {
-        let link = LinkId(self.next_link);
-        self.next_link += 1;
+        let link = take_link(&mut self.next_link);
         let registered =
             self.wake
                 .registry
@@ -725,6 +738,29 @@ mod tests {
         );
     }
 
+    /// Link ids count up from 1, one per link, and never repeat (plan 23l).
+    #[test]
+    fn link_ids_count_up_and_never_repeat() {
+        let mut next = 1;
+        let links: Vec<LinkId> = (0..3).map(|_| take_link(&mut next)).collect();
+        assert_eq!(links, [LinkId(1), LinkId(2), LinkId(3)]);
+        assert_eq!(next, 4);
+    }
+
+    /// DESIGN.md part 1: an endpoint directory that is there already is no failure of its create; any other failure is.
+    #[test]
+    fn only_an_existing_endpoint_directory_is_no_failure_of_the_create() {
+        assert!(created(Ok(())).is_ok());
+        assert!(created(Err(io::ErrorKind::AlreadyExists.into())).is_ok());
+        for kind in [
+            io::ErrorKind::PermissionDenied,
+            io::ErrorKind::NotFound,
+            io::ErrorKind::Other,
+        ] {
+            assert_eq!(created(Err(kind.into())).unwrap_err().kind(), kind);
+        }
+    }
+
     /// DESIGN.md "Adoption (P5)" part 1: the endpoint of an instance is `<data_dir>/w/<InstanceId>`.
     #[test]
     fn a_worker_endpoint_is_in_the_endpoint_directory() {
@@ -764,6 +800,59 @@ mod tests {
                     501
                 ),
                 "{bits:o}"
+            );
+        }
+    }
+
+    /// AD-6, DESIGN.md part 1: `open` creates the endpoint directory with mode 0700 and opens an existing private one. It
+    /// refuses one that other users can reach and a link, and a failed create fails the open with its own error.
+    #[test]
+    fn the_endpoint_directory_is_created_private_and_an_unsafe_one_is_refused() {
+        use std::os::unix::fs::{symlink, PermissionsExt};
+        let mode = |path: &Path| {
+            std::fs::symlink_metadata(path)
+                .unwrap()
+                .permissions()
+                .mode()
+        };
+        let data = tempfile::tempdir().unwrap();
+        open_endpoint_dir(data.path()).unwrap();
+        assert_eq!(mode(&endpoint_dir(data.path())) & 0o777, 0o700);
+        open_endpoint_dir(data.path()).expect("an existing private directory is opened");
+
+        std::fs::set_permissions(
+            endpoint_dir(data.path()),
+            std::fs::Permissions::from_mode(0o750),
+        )
+        .unwrap();
+        assert_eq!(
+            open_endpoint_dir(data.path()).unwrap_err().kind(),
+            io::ErrorKind::PermissionDenied
+        );
+
+        let linked = tempfile::tempdir().unwrap();
+        let target = linked.path().join("target");
+        std::fs::DirBuilder::new().create(&target).unwrap();
+        std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o700)).unwrap();
+        symlink(&target, endpoint_dir(linked.path())).unwrap();
+        assert_eq!(
+            open_endpoint_dir(linked.path()).unwrap_err().kind(),
+            io::ErrorKind::PermissionDenied,
+            "a link is not the directory itself"
+        );
+
+        // The superuser creates in a read-only directory, so the create cannot fail there.
+        if !rustix::process::geteuid().is_root() {
+            let closed = tempfile::tempdir().unwrap();
+            std::fs::set_permissions(closed.path(), std::fs::Permissions::from_mode(0o500))
+                .unwrap();
+            let refused = open_endpoint_dir(closed.path()).unwrap_err().kind();
+            std::fs::set_permissions(closed.path(), std::fs::Permissions::from_mode(0o700))
+                .unwrap();
+            assert_eq!(
+                refused,
+                io::ErrorKind::PermissionDenied,
+                "the create's own error"
             );
         }
     }

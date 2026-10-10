@@ -1,6 +1,7 @@
 //! Pure decisions of the real I/O adapter. The Driver uses these decisions for every real edge.
 
-use botster_worker_core::{CandidateId, Input};
+use botster_core_link::launch::WorkerLaunch;
+use botster_worker_core::{CandidateId, Input, WorkerConfig};
 use std::collections::VecDeque;
 use std::io;
 use std::time::{Duration, Instant};
@@ -101,6 +102,34 @@ pub fn candidate_of(token: usize) -> Option<CandidateId> {
     token
         .checked_sub(FIRST_CANDIDATE)
         .map(|n| CandidateId(n as u64))
+}
+
+/// The id of the next accepted candidate. Ids count up from 0 and never repeat in one worker, so an input of a closed
+/// candidate never names a later one.
+pub fn take_candidate(next: &mut u64) -> CandidateId {
+    let id = CandidateId(*next);
+    *next += 1;
+    id
+}
+
+/// The driver accepts a connection of the endpoint only while the endpoint is readable. The readiness is edge-triggered:
+/// a `WouldBlock` clears it, and the next endpoint event sets it again.
+pub fn accept_endpoint(readable: bool) -> bool {
+    readable
+}
+
+/// The driver reads a candidate only while it is readable, by the same edge-triggered rule as the endpoint.
+pub fn read_candidate(readable: bool) -> bool {
+    readable
+}
+
+/// The machine's configuration from the launch arguments. `startup` is `--startup-ms`: the bound of a candidate's hello,
+/// and of a worker with no payload and no host (AD-7).
+pub fn worker_config(launch: &WorkerLaunch) -> WorkerConfig {
+    WorkerConfig {
+        startup: Duration::from_millis(launch.startup_ms),
+        ..WorkerConfig::new(launch.instance.clone(), launch.token, launch.host_epoch)
+    }
 }
 
 /// The fence of `Action::AdoptLink(adopted)` on the inputs that the driver queued and the machine did not handle yet. An
@@ -414,5 +443,46 @@ mod tests {
                 .kind(),
             io::ErrorKind::PermissionDenied
         );
+    }
+
+    /// Candidate ids count up from 0, one per accepted connection, and never repeat.
+    #[test]
+    fn candidate_ids_count_up_and_never_repeat() {
+        let mut next = 0;
+        let ids: Vec<CandidateId> = (0..3).map(|_| take_candidate(&mut next)).collect();
+        assert_eq!(ids, [CandidateId(0), CandidateId(1), CandidateId(2)]);
+        assert_eq!(next, 3);
+    }
+
+    /// The endpoint and a candidate are read only while they are readable (edge-triggered readiness).
+    #[test]
+    fn the_endpoint_and_a_candidate_are_read_only_while_readable() {
+        assert!(accept_endpoint(true));
+        assert!(!accept_endpoint(false));
+        assert!(read_candidate(true));
+        assert!(!read_candidate(false));
+    }
+
+    /// AD-7: the machine's startup bound is `--startup-ms`; the identity is the launch's.
+    #[test]
+    fn the_worker_config_takes_the_startup_bound_and_the_identity_of_the_launch() {
+        let launch = WorkerLaunch {
+            control: "/d/c".into(),
+            instance: botster_core_contract::prelude::InstanceId("7-1".into()),
+            host_epoch: 7,
+            token: [0xAB; 32],
+            endpoint: "/d/w/7-1".into(),
+            startup_ms: 1_234,
+        };
+        let config = worker_config(&launch);
+        assert_eq!(config.startup, Duration::from_millis(1_234));
+        assert_ne!(
+            WorkerConfig::new(launch.instance.clone(), launch.token, 7).startup,
+            config.startup,
+            "the default bound differs, so the test sees the field"
+        );
+        assert_eq!(config.instance, launch.instance);
+        assert_eq!(config.token, launch.token);
+        assert_eq!(config.host_epoch, 7);
     }
 }
