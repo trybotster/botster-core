@@ -61,6 +61,12 @@ exclude_re = [
     # body replaced by Ok(()) gives no clippy output, which every gate log of the step shows. Its decision is the tested
     # succeeded (only_a_successful_run_passes), the verdict on the exit.
     'xtask/src/ci\.rs:\d+:\d+: replace clippy_job -> Result<\(\)> with Ok\(\(\)\)$',
+    # xtask ci.rs slow_job -> Ok(()): process glue. The body runs the slow tier under nextest (test_budget::command), then
+    # the real-tier conformance binary under `--ignored` (the ids of core-real-pending.txt, plan 23l), and prints its report;
+    # a test cannot run the slow tier inside the test run. Only this whole-body replacement is excluded. A body replaced by
+    # Ok(()) prints no slow summary and no "real conformance: pending-real" line, which every gate log of the step shows. Its
+    # decision is the tested real_report_ran (the_pending_real_run_passes_only_with_a_success_and_its_report).
+    'xtask/src/ci\.rs:\d+:\d+: replace slow_job -> Result<\(\)> with Ok\(\(\)\)$',
     # xtask mutants_job -> Ok(()): process glue. The body runs `git diff`, writes the diff file, lists the mutants of the
     # diff, starts `cargo mutants` and prints its summary; a test cannot start a mutation run inside a mutation run, so no
     # test can run the body. Only this whole-body replacement is excluded: every other mutant of mutants_job stays tested.
