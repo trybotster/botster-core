@@ -8936,7 +8936,7 @@ These proofs cover F95's reported two-edge paths. F96 below records another path
 ### F96 — MEDIUM — OPEN: link loss alone discards the held route's close
 
 The new HandoffLost handler assumes that every Start flow ends with link loss.
-on_link_closed does not establish that condition during StartPhase::PostRunning.
+on_link_closed does not establish that condition during StartPhase::PostRunning or StartPhase::Finish.
 
 1. Attach while Starting.
 2. Receive Launched. The driver receives the endpoint through HandoffRoute.
@@ -8949,14 +8949,18 @@ on_link_closed does not establish that condition during StartPhase::PostRunning.
 No failure or pending_end was set. finish_start does not install an end flow.
 The route remains bound, but its driver endpoint has dropped and its worker never received the descriptor.
 No remaining link can report a route close. The host receives no RouteClosed for this transport close.
+The same deferral occurs after Running is posted but before StartPhase::Finish completes Start.
+That phase also has no link-loss branch and remains Flow::Start when HandoffLost is fed.
 This violates OU-2's requirement for one RouteClosed per closed route.
 At the prior head, driver cleanup fed HandoffFailed and closed this route; the new blanket deferral removes that path.
 
 Required: retain a route close or session end path when link loss occurs during PostRunning without a process exit.
-Add a full-driver proof with a blocked mark, a deferred PostRunning step, and link loss while the worker remains alive.
+Add full-driver proofs with a blocked mark and link loss while the worker remains alive.
+Cover both the deferred PostRunning boundary and the deferred Finish boundary.
 Do not supply ProcessExited to complete this proof. Assert one RouteClosed and no retained route.
 Preserve F95's state-before-close behavior in both process/link orders and genuine descriptor-send failures.
-Integration independently identifies this same path. The package reviewer confirms it from source and sends F96 directly to P3.
+Integration independently identifies both boundaries as R2-1 HIGH. Its published round 2 verdict is ac9a0abb.
+The package reviewer confirms these paths from source and sends F96 directly to P3.
 The new proof always supplies the other end edge, which hides this link-only path.
 
 ### Completed evidence and retained scope
