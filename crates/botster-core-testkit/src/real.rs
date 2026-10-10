@@ -399,16 +399,34 @@ impl CoreHarness for RealCoreHarness {
 mod slow_tests {
     use super::*;
 
+    /// Binaries that do not exist: enough for a harness that starts no process.
+    fn nonexistent() -> Candidate {
+        Candidate {
+            worker: PathBuf::from("/nonexistent/worker"),
+            probe: PathBuf::from("/nonexistent/probe"),
+            anchor: PathBuf::from("/nonexistent/anchor"),
+        }
+    }
+
+    /// The tapped harness serves only the controls that it builds at its tap; the plain harness of the pass-through test
+    /// serves none.
+    #[test]
+    fn only_the_tapped_harness_has_controls_and_only_its_own() {
+        let tapped = RealCoreHarness::new(nonexistent()).unwrap();
+        assert!(tapped.has_control("edges_quiet"));
+        assert!(tapped.has_control("break_control"));
+        assert!(!tapped.has_control("pty_output"));
+        assert!(!tapped.has_control("fail_next"));
+        let plain = RealCoreHarness::plain(nonexistent()).unwrap();
+        assert!(!plain.has_control("edges_quiet"));
+        assert!(!plain.has_control("break_control"));
+    }
+
     /// R-46: the runner's clock is the one Core sees, but real processes make progress, so the driver must not jump it. The
     /// harness starts no process, so binaries that do not exist are enough.
     #[test]
     fn the_real_harness_injects_the_clock_but_not_its_progress() {
-        let harness = RealCoreHarness::new(Candidate {
-            worker: PathBuf::from("/nonexistent/worker"),
-            probe: PathBuf::from("/nonexistent/probe"),
-            anchor: PathBuf::from("/nonexistent/anchor"),
-        })
-        .unwrap();
+        let harness = RealCoreHarness::new(nonexistent()).unwrap();
         assert!(harness.injects_clock());
         assert!(!harness.progress_is_injected());
     }
@@ -417,12 +435,7 @@ mod slow_tests {
     /// build.
     #[test]
     fn the_real_harness_has_the_current_worker_under_any_name_and_no_previous_one() {
-        let harness = RealCoreHarness::new(Candidate {
-            worker: PathBuf::from("/nonexistent/worker"),
-            probe: PathBuf::from("/nonexistent/probe"),
-            anchor: PathBuf::from("/nonexistent/anchor"),
-        })
-        .unwrap();
+        let harness = RealCoreHarness::new(nonexistent()).unwrap();
         assert_eq!(
             harness.worker(WorkerBuild::Current),
             Some(WorkerRef {
@@ -443,12 +456,7 @@ mod slow_tests {
     /// After the driver drops a handle, the harness no longer names its data directory.
     #[test]
     fn a_dropped_handle_is_no_longer_open() {
-        let mut harness = RealCoreHarness::new(Candidate {
-            worker: PathBuf::from("/nonexistent/worker"),
-            probe: PathBuf::from("/nonexistent/probe"),
-            anchor: PathBuf::from("/nonexistent/anchor"),
-        })
-        .unwrap();
+        let mut harness = RealCoreHarness::new(nonexistent()).unwrap();
         harness.handles.insert(
             "h".into(),
             Handle {
@@ -467,12 +475,7 @@ mod slow_tests {
     /// A failed trial prints the harness, so its debug form names the binaries under test and the root directory.
     #[test]
     fn the_debug_form_names_the_candidate_and_the_root() {
-        let harness = RealCoreHarness::new(Candidate {
-            worker: PathBuf::from("/nonexistent/worker"),
-            probe: PathBuf::from("/nonexistent/probe"),
-            anchor: PathBuf::from("/nonexistent/anchor"),
-        })
-        .unwrap();
+        let harness = RealCoreHarness::new(nonexistent()).unwrap();
         let debug = format!("{harness:?}");
         assert!(debug.starts_with("RealCoreHarness {"), "{debug}");
         assert!(debug.contains("/nonexistent/worker"), "{debug}");
