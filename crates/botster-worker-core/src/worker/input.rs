@@ -411,6 +411,8 @@ impl Worker {
                 } else if self.exit.is_some() {
                     self.finish_active(WriteOutcome::Partial, "the payload ended during the write");
                 } else {
+                    // A route's held input is the unwritten rest of its write: its read allowance grows (DP-5).
+                    self.read_allowances();
                     self.write_more();
                 }
             }

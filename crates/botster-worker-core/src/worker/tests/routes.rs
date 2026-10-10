@@ -1476,3 +1476,96 @@ fn queued_route_input_survives_an_adoption() {
     client.take_all(&mut w, RouteId(1), actions);
     assert!(refusals(&client).is_empty());
 }
+
+/// DP-5 (PR3 F88): each route's read allowance counts only its own held input. Route 1's write is in progress, part of it
+/// written, and one more frame waits; route 2's frame waits behind them. Route 1 holds the unwritten rest of its write and its
+/// queued frame; route 2 holds only its own frame, and its input does not change route 1's allowance.
+#[test]
+fn each_routes_allowance_counts_only_its_own_input_and_the_unwritten_rest_of_its_write() {
+    let (mut w, _, _) = attached(limits());
+    let bound = limits().route_input_queue_bytes as usize;
+    w.feed(Input::Descriptor(DescriptorId(2)));
+    let mut second = Client::default();
+    let bind = attach(&mut w, RouteId(2), options(), limits());
+    let bind = second.take_all(&mut w, RouteId(2), bind);
+    assert_eq!(allowance(&bind, RouteId(2)), Some(bound));
+    let actions = w.feed(Input::RouteRead {
+        route: RouteId(1),
+        bytes: client_frame(&bytes_frame(1, &[b'a'; 100])),
+    });
+    assert_eq!(pty_writes(&actions), [b'a'; 100], "route 1's write is out");
+    assert_eq!(allowance(&actions, RouteId(1)), Some(bound - 100));
+    // The PTY takes 40 bytes: route 1 holds the 60 that are not written.
+    let actions = w.feed(Input::PtyWritten(Ok(40)));
+    assert_eq!(allowance(&actions, RouteId(1)), Some(bound - 60));
+    let actions = w.feed(Input::RouteRead {
+        route: RouteId(1),
+        bytes: client_frame(&bytes_frame(2, &[b'b'; 30])),
+    });
+    assert_eq!(allowance(&actions, RouteId(1)), Some(bound - 60 - 30));
+    let actions = w.feed(Input::RouteRead {
+        route: RouteId(2),
+        bytes: client_frame(&bytes_frame(3, &[b'c'; 50])),
+    });
+    assert_eq!(allowance(&actions, RouteId(2)), Some(bound - 50));
+    assert_eq!(
+        allowance(&actions, RouteId(1)),
+        None,
+        "route 2's input leaves route 1's allowance as it was"
+    );
+}
+
+/// DP-5 (PR3 F90): a client's write that fails before any byte is written is refused `failed` with no written bytes.
+#[test]
+fn a_route_input_that_fails_before_any_byte_is_written_is_refused_with_no_written_bytes() {
+    let (mut w, mut client, _) = attached(limits());
+    let mut actions = w.feed(Input::RouteRead {
+        route: RouteId(1),
+        bytes: client_frame(&bytes_frame(7, b"abcd")),
+    });
+    actions.extend(w.feed(Input::PtyWritten(Err(5))));
+    client.take_all(&mut w, RouteId(1), actions);
+    assert_eq!(
+        refusals_written(&client),
+        vec![(Some(Op(7)), RefusalReason::Failed, None)]
+    );
+}
+
+/// DP-5, R-45: the baseline sequence is exempt from `route_queue_bytes`, so a refusal needs room only behind it. With
+/// `route_queue_bytes` equal to the baseline's size and a client that has read nothing, the route still decodes and
+/// refuses a frame: the refusal is queued behind the baseline, and the reads go on.
+#[test]
+fn a_refusal_needs_room_only_behind_an_unread_baseline() {
+    let mut opts = options();
+    opts.input = false;
+    // The baseline's size, from a client that reads all of it.
+    let mut w = with_limits(|_| {});
+    w.feed(Input::Descriptor(DescriptorId(1)));
+    let bind = attach(&mut w, RouteId(1), opts.clone(), limits());
+    let all = Client::default().take_all(&mut w, RouteId(1), bind);
+    let baseline: usize = all
+        .iter()
+        .filter_map(|a| match a {
+            Action::RouteWrite { route, bytes } if *route == RouteId(1) => Some(bytes.len()),
+            _ => None,
+        })
+        .sum();
+    let mut w = with_limits(|l| l.route_queue_bytes = baseline as u64);
+    w.feed(Input::Descriptor(DescriptorId(1)));
+    let bind = attach(&mut w, RouteId(1), opts, limits());
+    assert!(allowance(&bind, RouteId(1)).is_some_and(|n| n > 0));
+    let actions = w.feed(Input::RouteRead {
+        route: RouteId(1),
+        bytes: client_frame(&bytes_frame(5, b"x")),
+    });
+    let (behind, pending) = w.worker.route_held(RouteId(1)).unwrap();
+    assert!(behind > 0, "the refusal is queued behind the baseline");
+    assert_eq!(pending, 0, "the frame was decoded");
+    assert!(allowance(&actions, RouteId(1)).is_none_or(|n| n > 0));
+    let mut client = Client::default();
+    client.take_all(&mut w, RouteId(1), [bind, actions].concat());
+    assert_eq!(
+        refusals(&client),
+        vec![(Some(Op(5)), RefusalReason::NotWritable)]
+    );
+}
