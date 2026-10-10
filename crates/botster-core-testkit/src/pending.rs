@@ -5,7 +5,9 @@
 //!   run does not run it. `conformance/core-real-only.txt` is derived from the map (`cargo xtask ledger-ids --write`), never
 //!   written by hand.
 //! - **held**: `conformance/core-held.txt` lists a pending id that passes but stays pending, with its reason class, owner and
-//!   authority. A held id must pass: a held id that fails is an error, so the list cannot go stale.
+//!   authority. A held id must pass: a held id that fails is an error, so the list cannot go stale. A `budget` id is over the
+//!   time budget, so the strict run runs it at the first seed of the set only (lead, 2026-10-09): its full-seed proof is
+//!   missing, and the held file says so.
 //!
 //! Formats (fields separated by two or more spaces, as in `status`):
 //!
@@ -184,6 +186,18 @@ pub fn class_of(id: &str, real_only: &[RealOnly], held: &[Held]) -> Class {
     }
 }
 
+/// The seeds at which the strict run runs a pending id of `class`: a `budget` held id at the first seed only, every other id
+/// at every seed of the set.
+pub fn seeds_of(class: &Class, seeds: &[u64]) -> Vec<u64> {
+    match class {
+        Class::Held(Held {
+            reason: HeldReason::Budget,
+            ..
+        }) => seeds.iter().take(1).copied().collect(),
+        _ => seeds.to_vec(),
+    }
+}
+
 /// The strict result of a pending id that ran on the testkit: `Ok(note)` when its result is the expected one, else the error.
 pub fn verdict(id: &str, class: &Class, passed: bool) -> Result<String, String> {
     match (class, passed) {
@@ -314,6 +328,20 @@ mod tests {
         assert_eq!(
             class_of("conf::slow_query", &both, &held),
             Class::RealOnly(both[0].clone())
+        );
+    }
+
+    /// A `budget` held id runs at the first seed of the set only; a pending id runs at every seed.
+    #[test]
+    fn a_budget_id_runs_at_the_first_seed_and_a_pending_id_at_every_seed() {
+        let held = parse_held(HELD).unwrap();
+        let class = class_of("conf::slow_query", &[], &held);
+        assert_eq!(seeds_of(&class, &[3, 4, 5]), [3]);
+        assert_eq!(seeds_of(&class, &[]), Vec::<u64>::new());
+        assert_eq!(seeds_of(&Class::Pending, &[3, 4, 5]), [3, 4, 5]);
+        assert_eq!(
+            seeds_of(&Class::RealOnly(real("conf::lock")), &[3, 4]),
+            [3, 4]
         );
     }
 
