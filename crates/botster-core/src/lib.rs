@@ -15,6 +15,12 @@ use std::time::{Duration, Instant};
 
 mod real;
 
+/// The production edges of a host (plan 2.3): the `HostEdges` that [`Core`] runs on. They are exported, with
+/// [`open_parts`], so that a host can compose `botster_core_host::driver::HostDriver` over them (plan 23l: the
+/// RealCoreHarness wraps them pass-through for its edge controls). Core has no test branch: these are the edges that
+/// `Core::open` itself uses.
+pub use real::RealEdges;
+
 /// The Core contract crate, whole.
 pub use botster_core_contract as contract;
 
@@ -30,7 +36,7 @@ const WORKER_PROTOCOL: u8 = botster_worker_core::WORKER_PROTOCOL;
 ///
 /// Clause: Core TH-1, Core LC-1, Core LC-2, Core LC-12.
 pub struct Core {
-    driver: HostDriver<real::RealEdges>,
+    driver: HostDriver<RealEdges>,
     /// `Cell` is `Send` and not `Sync`, so the handle has the same two properties.
     _not_sync: PhantomData<Cell<()>>,
 }
@@ -78,38 +84,48 @@ impl Core {
     /// `InvalidConfig`, `MissingWorkerPath`, `DataDirInUse`, or `RegistryFailed` when the directory cannot be used:
     /// `RegistryFailed` also when the parent of `data_dir` is missing or cannot be opened for its sync.
     pub fn open(config: OpenConfig) -> Result<Core, CoreError> {
-        let worker_path = check_open(&config)?;
-        real::check_socket_path(&config.data_dir)?;
-        let data = DataDir::open(&config.data_dir).map_err(open_error)?;
-        let (edges, host_epoch) =
-            real::RealEdges::new(data, &config.data_dir).map_err(|error| {
-                CoreError::new(
-                    ErrorCode::RegistryFailed { uncertain: false },
-                    format!("the control socket failed: {error}"),
-                )
-            })?;
-        let features = Features {
-            names: BTreeSet::from([Feature::Silence, Feature::NotificationPolicy]),
-            service_preamble_versions: vec![1],
-        };
-        let identity = botster_terminal_ghostty::terminal_identity();
-        let cfg = EngineConfig {
-            limits: config.limits,
-            features,
-            host_epoch,
-            worker_path,
-            worker_protocol: WORKER_PROTOCOL,
-            shadow_answerable: Vec::new(),
-            terminal_identity: TerminalIdentity {
-                term: identity.term,
-                terminfo_source: identity.terminfo_source,
-            },
-        };
+        let (cfg, edges) = open_parts(config)?;
         Ok(Core {
             driver: HostDriver::open(cfg, edges)?,
             _not_sync: PhantomData,
         })
     }
+}
+
+/// The parts of [`Core::open`]: every check and every step of `open` except starting the driver, so that a host that composes
+/// `HostDriver` itself opens exactly as `Core::open` does (plan 23l). `Core::open` is
+/// `HostDriver::open(cfg, edges)` over these parts.
+///
+/// # Errors
+/// The errors of [`Core::open`].
+pub fn open_parts(config: OpenConfig) -> Result<(EngineConfig, RealEdges), CoreError> {
+    let worker_path = check_open(&config)?;
+    real::check_socket_path(&config.data_dir)?;
+    let data = DataDir::open(&config.data_dir).map_err(open_error)?;
+    let (edges, host_epoch) = RealEdges::new(data, &config.data_dir).map_err(|error| {
+        CoreError::new(
+            ErrorCode::RegistryFailed { uncertain: false },
+            format!("the control socket failed: {error}"),
+        )
+    })?;
+    let features = Features {
+        names: BTreeSet::from([Feature::Silence, Feature::NotificationPolicy]),
+        service_preamble_versions: vec![1],
+    };
+    let identity = botster_terminal_ghostty::terminal_identity();
+    let cfg = EngineConfig {
+        limits: config.limits,
+        features,
+        host_epoch,
+        worker_path,
+        worker_protocol: WORKER_PROTOCOL,
+        shadow_answerable: Vec::new(),
+        terminal_identity: TerminalIdentity {
+            term: identity.term,
+            terminfo_source: identity.terminfo_source,
+        },
+    };
+    Ok((cfg, edges))
 }
 
 impl CoreApi for Core {
