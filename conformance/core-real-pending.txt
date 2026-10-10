@@ -70,13 +70,12 @@ conf::tm_3_next_deadline_is_host_armed
 conf::tm_4_silent_fires_once_at_threshold
 conf::tm_5_deadlines_in_order
 
-# the adoption and worker controls (withhold_control_link, lose_worker, impostor_worker, announce_protocol, payload_alive, hold_start_at, corrupt_registry_row, fail_next): their real forms by steward ruling R-49 at the HostEdges tap and the endpoint path, P5 (real-controls PRs) on P6's harness (22).
+# the adoption and worker controls (withhold_control_link, lose_worker, impostor_worker, announce_protocol, payload_alive, hold_start_at, corrupt_registry_row, fail_next): their real forms by steward ruling R-49 at the HostEdges tap and the endpoint path, P5 (real-controls PRs) on P6's harness (21). The v0.1.25 pin move re-pended conf::a2_3_lost_session_closes_routes_session_lost in core-pending.txt (plan 23u), so it leaves this file; #219 decides where it goes when it leaves core-pending.txt.
 conf::a10_1_wrong_instance_is_never_signalled
 conf::a10_1_wrong_token_is_never_signalled
 conf::a10_2_corrupted_row_is_lost_registry_corrupt
 conf::a2_1_adopt_completes_ok_with_the_state_it_reached
 conf::a2_1_read_of_created_or_lost_is_wrong_state
-conf::a2_3_lost_session_closes_routes_session_lost
 conf::a5_3_only_sync_column_codes_scripted
 conf::a5_3_sync_refusal_has_no_op_event_slot_or_state
 conf::a6_1_withheld_control_link_gives_worker_unreachable_not_worker_gone

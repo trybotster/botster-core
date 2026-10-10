@@ -390,6 +390,10 @@ pub struct RealInput<'a> {
     pub real_pending: &'a BTreeSet<String>,
     /// The base ref's files. `None`: the base has no `core-real-pending.txt` (initialization).
     pub base: Option<RealBase<'a>>,
+    /// The contracts tag moved against the base.
+    pub tag_moved: bool,
+    /// The ids whose Core transcript differs between the base's pinned commit and this one (`changed_transcripts`).
+    pub transcript_changed: &'a BTreeSet<String>,
 }
 
 pub struct RealBase<'a> {
@@ -424,10 +428,13 @@ pub fn check_real(input: &RealInput<'_>) -> Vec<String> {
         let new_in_ledger: BTreeSet<&String> = input.ledger.difference(base.ledger_file).collect();
         for id in input.real_pending.difference(base.real_pending) {
             let leaves_pending = base.pending.contains(id) && !input.pending.contains(id);
-            if !leaves_pending && !new_in_ledger.contains(id) {
+            // Plan 23u: the commit that moves the pin may add an id whose transcript changed and that fails on the real tier.
+            let repended = input.tag_moved && input.transcript_changed.contains(id);
+            if !leaves_pending && !new_in_ledger.contains(id) && !repended {
                 problems.push(format!(
                     "{REAL_PENDING_FILE}: {id} is new; an id enters only in the pull request that removes it from \
-                     {PENDING_FILE}, or as a new ledger id"
+                     {PENDING_FILE}, as a new ledger id, or in the commit that moves the contracts pin when its \
+                     transcript changed (plan 23u)"
                 ));
             }
         }
@@ -617,6 +624,8 @@ pub fn command(root: &Path, args: &[String]) -> Result<()> {
             pending: base_pending.as_ref().unwrap_or(&no_ids),
             ledger_file: &base_ledger,
         }),
+        tag_moved,
+        transcript_changed: &transcript_changed,
     }));
     problems.extend(copy_problems(&[(
         REAL_ONLY_FILE,
@@ -1397,6 +1406,8 @@ source = "git+https://github.com/trybotster/botster-contracts?tag=contracts-v0.1
         withdrawn: BTreeSet<String>,
         real_only: BTreeSet<String>,
         testkit_proven: BTreeSet<String>,
+        tag_moved: bool,
+        transcript_changed: BTreeSet<String>,
     }
 
     fn real_world() -> RealWorld {
@@ -1407,6 +1418,8 @@ source = "git+https://github.com/trybotster/botster-contracts?tag=contracts-v0.1
             withdrawn: set(&["x"]),
             real_only: set(&["s"]),
             testkit_proven: set(&["t"]),
+            tag_moved: false,
+            transcript_changed: BTreeSet::new(),
         }
     }
 
@@ -1430,7 +1443,29 @@ source = "git+https://github.com/trybotster/botster-contracts?tag=contracts-v0.1
                 pending: p,
                 ledger_file: l,
             }),
+            tag_moved: w.tag_moved,
+            transcript_changed: &w.transcript_changed,
         })
+    }
+
+    /// Plan 23u on the real tier: the commit that moves the pin may add an id of the old ledger to core-real-pending.txt
+    /// when its transcript changed; without the move, or for an unchanged transcript, the file only shrinks.
+    #[test]
+    fn a_moved_pin_may_re_pend_a_real_tier_id_whose_transcript_changed() {
+        let base: Option<(&[&str], &[&str], &[&str])> = Some((&[], &["a"], &["a", "b", "c"]));
+        let mut w = real_world();
+        w.transcript_changed = set(&["b"]);
+        w.tag_moved = true;
+        assert!(real_check(&w, &["b"], base).is_empty());
+        w.tag_moved = false;
+        let problems = real_check(&w, &["b"], base);
+        assert_eq!(problems.len(), 1, "{problems:?}");
+        assert!(problems[0].contains("b is new"), "{problems:?}");
+        w.tag_moved = true;
+        w.transcript_changed = set(&["c"]);
+        let problems = real_check(&w, &["b"], base);
+        assert_eq!(problems.len(), 1, "{problems:?}");
+        assert!(problems[0].contains("plan 23u"), "{problems:?}");
     }
 
     #[test]
