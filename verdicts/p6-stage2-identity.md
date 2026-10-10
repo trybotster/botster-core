@@ -82,3 +82,60 @@ It adds no sleep, polling loop, or production reaping. Its assertions check comm
 The reviewer changed no product code and ran no gate, build, test, mutation job, merge check, or reversal.
 
 VERDICT: NOT CLEAN
+
+## Round 2 — 2026-10-10
+
+PR: https://github.com/trybotster/botster-core/pull/229.
+Exact head: `893899110d37c56d77f0520cde80317e990a1ffc`.
+Review and full gate base: `3677b37e502497d5e63a91dfad92e5671bd19196`.
+Risk tier remains HIGH.
+
+Both Round 1 findings are closed. The reviewer read the full replacement diff and the current PR body.
+Only `xtask/src/ci.rs` changes from the reviewed Round 1 head: 83 additions and 11 deletions.
+The exclusion file, fixture, selection arguments, outcome parser, and process code are unchanged.
+The Git merge base matches the recorded gate base.
+
+**SI-R1-1 — CLOSED.**
+When a completed stage 2 has a selection error, `two_stage_decision` now prints its tested count and elapsed time.
+It then returns the selection error before any mutant verdict.
+The P5-case proof checks all three report lines, including a known 2.5-second stage-2 duration.
+The duplicate-count proof also checks this stage-2 report line.
+
+**SI-R1-2 — CLOSED.**
+`check_stage2_selection` now compares each full name's count in the requested and tested names.
+It reports each excess occurrence and each absent occurrence.
+The complete decision proof supplies stage-1 names `[A, A, B]` and stage-2 names `[A, B, B]`.
+The totals and sets match. Stage 2 reports all three caught and exit 0.
+The decision still fails with the selection error before the combined mutant verdict.
+The proof also accepts reordered names with equal counts.
+This closes the decision counterexample. It does not establish a real tool run with changed duplicate counts.
+
+The reviewer read the exact-head Linux gate:
+`~/botster-sessions/gates/botster-core-stage1-p6-stage2-identity-89389911-pool-20261010-144307-19526.log`.
+Its header names the full head and base. All ten jobs pass, exit 0 after 524 seconds.
+Default: 1498 passing tests. Slow: 384 passing tests.
+Both conformance reports show 193 passed and zero failed.
+The strict report covers 407 pending transcripts: 386 run, 21 real-only not run, and two held.
+Minimum counts remain testkit 50/69, real 29/68, and real-accepted 29/69.
+The real report names 87 pending-real ids, with zero newly passing.
+Stage 1 reports 21 mutants: 19 caught, zero missed, zero timeout, and two unviable, in 92.9 seconds.
+Stage 2 does not run in the main mutation job.
+The selection, duplicate-name, and skip-file proofs pass.
+
+The real fixture proof passes in 11.270 seconds and runs stage 2 itself.
+The reviewer read its command paths and assertions again.
+With the skipped names, it requires ten caught mutants, including four caught by stage 2.
+Without the skipped names, it requires a selection error that names the extra field deletion.
+With the slow assertion removed, it still requires a mutant missed by both stages to fail.
+The fixture's tests assert the returned public values and command results.
+Its process commands retain group ownership, the derived slow deadline, and bounded baseline cleanup.
+This round adds no process command, wait, sleep, polling loop, or production reaping.
+
+The Prior art note still reuses cargo-mutants' iteration filter and #225's decision and fixture forms.
+The new count comparison adds no external component or broader mutation exclusion.
+This head closes #225 MS-R3-1 with the selection correction already reviewed in Round 1.
+The historical #225 CLEAN withdrawal remains recorded. The separate stage-1 field-exclusion limit remains outside this PR.
+
+The reviewer changed no product code and ran no gate, build, test, mutation job, merge check, or reversal.
+
+VERDICT: CLEAN
