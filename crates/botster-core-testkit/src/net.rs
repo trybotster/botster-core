@@ -207,9 +207,7 @@ impl End {
             };
         }
         let n = queue.len().min(buf.len()).min(max);
-        for slot in &mut buf[..n] {
-            *slot = queue.pop_front().unwrap_or_default();
-        }
+        take_front(queue, &mut buf[..n]);
         shared.taken[peer] += n as u64;
         if !shared.owned[me] {
             shared.foreign[me] += n as u64;
@@ -536,6 +534,17 @@ impl RouteTransport for StreamEnd {
     }
 }
 
+/// Moves the first `buf.len()` bytes of `queue` into `buf`, in order: two slice copies, not one call per byte, because a run
+/// can move a large output (`route_fill`). The queue holds at least that many bytes.
+pub(crate) fn take_front(queue: &mut VecDeque<u8>, buf: &mut [u8]) {
+    let n = buf.len();
+    let (front, back) = queue.as_slices();
+    let first = n.min(front.len());
+    buf[..first].copy_from_slice(&front[..first]);
+    buf[first..].copy_from_slice(&back[..n - first]);
+    queue.drain(..n);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -564,6 +573,26 @@ mod tests {
             out.extend_from_slice(&buf[..n]);
         }
         out
+    }
+
+    /// `take_front` moves the first bytes in order when the queue's bytes wrap around its buffer (two slices), and leaves
+    /// the rest.
+    #[test]
+    fn take_front_moves_the_first_bytes_across_the_wrap() {
+        let mut queue: VecDeque<u8> = VecDeque::with_capacity(8);
+        let cap = queue.capacity();
+        queue.extend((0..cap).map(|b| b as u8));
+        queue.drain(..cap - 2);
+        queue.extend([100, 101, 102]);
+        let (front, back) = queue.as_slices();
+        assert_eq!((front.len(), back.len()), (2, 3), "the bytes wrap");
+        let mut buf = [0u8; 4];
+        take_front(&mut queue, &mut buf);
+        assert_eq!(buf, [(cap - 2) as u8, (cap - 1) as u8, 100, 101]);
+        assert_eq!(queue, [102]);
+        let mut none = [0u8; 0];
+        take_front(&mut queue, &mut none);
+        assert_eq!(queue, [102]);
     }
 
     #[test]

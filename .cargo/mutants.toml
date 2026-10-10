@@ -61,6 +61,34 @@ exclude_re = [
     # body replaced by Ok(()) gives no clippy output, which every gate log of the step shows. Its decision is the tested
     # succeeded (only_a_successful_run_passes), the verdict on the exit.
     'xtask/src/ci\.rs:\d+:\d+: replace clippy_job -> Result<\(\)> with Ok\(\(\)\)$',
+    # xtask ci.rs slow_job -> Ok(()): process glue. The body runs the slow tier under nextest (test_budget::command), then
+    # the real-tier conformance binary under `--ignored` with the slow tier's bounds (test_budget::pending_real; the ids of
+    # core-real-pending.txt, plan 23l), and prints its report;
+    # a test cannot run the slow tier inside the test run. Only this whole-body replacement is excluded. A body replaced by
+    # Ok(()) prints no slow summary and no "real conformance: pending-real" line, which every gate log of the step shows. Its
+    # decision is the tested real_report_ran (the_pending_real_run_passes_only_with_a_success_and_its_report).
+    'xtask/src/ci\.rs:\d+:\d+: replace slow_job -> Result<\(\)> with Ok\(\(\)\)$',
+    # xtask lists.rs command -> Ok(()): process glue. The body reads the lists, the pinned ledger, the status copies, the
+    # replacement map and the base ref's files, and prints the verdict; a test cannot run it on the workspace. Only this
+    # whole-body replacement is excluded. A body replaced by Ok(()) prints no "lists: ok" line, which every gate log of the
+    # step shows. Its decisions are tested: check, check_real
+    # (a_real_pending_id_is_a_ledger_id_that_is_not_pending_deferred_withdrawn_real_only_or_testkit_proven) and
+    # check_minimum (a_minimum_id_is_listed_once_and_is_an_active_core_ledger_id).
+    'xtask/src/lists\.rs:\d+:\d+: replace command -> Result<\(\)> with Ok\(\(\)\)$',
+    # xtask lists.rs ledger_ids_command -> Ok(()): process glue. The body reads the pinned ledger, status files and
+    # replacement map, then writes the four files or reads the checked-in copies; a test cannot run it on the pinned
+    # checkout inside the test run. Only this whole-body replacement is excluded. Every gate log shows its
+    # "ledger-ids: ... match the pin" line. Its decisions are tested: whether each copy is the pinned file, copy_problems
+    # (a_copy_that_is_not_the_pinned_file_is_a_problem); the pinned text, ledger_text
+    # (the_ledger_file_is_one_id_per_line_in_order) and real_only_text (the_real_only_file_is_each_core_id_with_its_slow_proof_in_order).
+    'xtask/src/lists\.rs:\d+:\d+: replace ledger_ids_command -> Result<\(\)> with Ok\(\(\)\)$',
+    # botster-core-testkit real.rs, every mutant: the module is `#[cfg(feature = "slow")]` (RealCoreHarness, plan 23l), so
+    # the default mutation run never compiles it and lists each mutant as missed with no test run. Interim until the plan
+    # 23n two-stage verdict; removed by that PR, whose second stage builds `--features slow` and tests these mutants. Until
+    # then the proof is a focused manual slow mutation run of real.rs (its own pool job; the log is in the RealCoreHarness
+    # PR body), where every mutant is caught by a slow test (the_real_harness_injects_the_clock_but_not_its_progress and
+    # the real tier of slow_conformance) or is excluded below with its own reason.
+    'crates/botster-core-testkit/src/real\.rs:\d+:\d+: ',
     # xtask mutants_job -> Ok(()): process glue. The body runs `git diff`, writes the diff file, lists the mutants of the
     # diff, starts `cargo mutants` and prints its summary; a test cannot start a mutation run inside a mutation run, so no
     # test can run the body. Only this whole-body replacement is excluded: every other mutant of mutants_job stays tested.
@@ -98,6 +126,24 @@ exclude_re = [
     # own in botster_core_sys::signal (a_target_of_0_1_out_of_range_or_our_own_is_refused,
     # our_own_group_and_process_are_never_signalled).
     'xtask/src/test_budget\.rs:\d+:\d+: replace kill with \(\)$',
+    # xtask test_budget.rs run_nextest and run_bounded -> a value: process glue. run_bounded starts a command in its own
+    # process group, tracks its processes, kills the group at the deadline and copies its stdout; run_nextest builds the
+    # nextest command for it. A default-tier test cannot start a real process group (BUILD.md testing rule 2). Only these
+    # whole-body replacements are excluded. Their decisions are tested: exit_failures (the_way_nextest_ended_is_judged) and
+    # run_failures (the_failures_of_a_bounded_run_are_its_leftovers_its_deadline_and_its_open_output); the slow tests
+    # a_run_past_its_deadline_is_killed_and_fails and a_process_left_behind_fails_the_run_and_is_killed run the glue itself.
+    'xtask/src/test_budget\.rs:\d+:\d+: replace run_nextest -> ',
+    'xtask/src/test_budget\.rs:\d+:\d+: replace run_bounded -> ',
+    # xtask test_budget.rs bounded_report -> a value: process glue (#220 R1-1). The body runs a command with run_bounded,
+    # kills its leftovers and reads its captured output until the deadline. Only this whole-body replacement is excluded. Its
+    # decision is the tested run_failures (the_failures_of_a_bounded_run_are_its_leftovers_its_deadline_and_its_open_output);
+    # the slow test a_bounded_run_returns_its_status_and_what_it_printed runs the glue.
+    'xtask/src/test_budget\.rs:\d+:\d+: replace bounded_report -> ',
+    # xtask test_budget.rs pending_real -> a value: process glue. The body builds the command of the real tier's pending-real
+    # run (`cargo test ... -- --ignored`) and runs it with bounded_report; a test cannot run the real tier inside the test
+    # run. Only this whole-body replacement is excluded. Its decision is the tested real_report_ran
+    # (the_pending_real_run_passes_only_with_a_success_and_its_report), and every gate's slow step runs it.
+    'xtask/src/test_budget\.rs:\d+:\d+: replace pending_real -> ',
     # P7 GuardianConfig::fmt: the debug text has no contract format. An empty successful
     # debug result still omits the service token, which is the only required property.
     # only_a_valid_host_hello_authenticates checks token omission.
@@ -342,6 +388,15 @@ exclude_re = [
     # tier catches it (slow-tier mutation run of 2026-10-08 on Linux), in tests/slow_real_core.rs
     # `a_damaged_row_is_registry_corrupt_and_a_foreign_file_is_left_alone`.
     'crates/botster-core/src/real\.rs:\d+:\d+: (replace <impl HostEdges for RealEdges>::diagnostics( ->| with)|.* in <impl HostEdges for RealEdges>::diagnostics$)',
+    # RealEdges::close_route_stream (R-50): an I/O shell with no decision. It takes the embedder's unix stream, makes it
+    # non-blocking, writes the bytes once and drops the stream. The bytes are the decision of the pure
+    # botster_core_link::route::route_closed_bytes (a_held_routes_close_bytes_are_its_wrapped_frame_within_the_bound, default
+    # tier). Only the whole-body replacement is excluded. The slow tier catches it, in real.rs `slow_tests`
+    # `a_held_route_stream_closes_after_one_write_without_blocking`: without the write the client reads no frame. Slow-tier
+    # mutation evidence (`--no-config --in-place --features slow`, `--in-diff` of v1 159cc400, `--re close_route_stream`,
+    # `-- --profile slow --max-fail 1:immediate`): 3 mutants, 3 caught, at 40ea69f7, log
+    # gates/botster-core-stage1-p4a-failed-start-routes-40ea69f7-pool-20261009-225653-94279.log.
+    'crates/botster-core/src/real\.rs:\d+:\d+: replace <impl HostEdges for RealEdges>::close_route_stream with \(\)$',
     # botster-core real edges, the worker endpoint (P5 #176b; botster-core-host DESIGN.md "Adoption (P5)" parts 1 and 3): only
     # the whole-body replacement of two I/O shells is excluded. connect_worker connects a Unix socket and hands the stream to
     # add_stream; remove_endpoint unlinks a file and hands the result to the record of the failures. Their decisions are pure

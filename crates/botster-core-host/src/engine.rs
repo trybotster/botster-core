@@ -151,6 +151,10 @@ pub(crate) enum Owner {
     FinalRow,
 }
 
+/// A route that waits for the hand-over of its stream (DP-2): its id, the stream that Core holds, and what `attach`
+/// returned.
+pub(crate) type PendingHandoff = (RouteId, StreamEndpoint, AttachOptions, AppliedRouteLimits);
+
 /// The host engine.
 pub struct HostEngine {
     pub(crate) cfg: EngineConfig,
@@ -186,7 +190,7 @@ pub struct HostEngine {
     /// registry rows), and `AdoptAll` turns each into a session (AD-1).
     pub(crate) unadopted: BTreeSet<SessionId>,
     /// Routes that are registered and wait for the handoff of their stream to the worker (DP-2).
-    pub(crate) pending_handoffs: Vec<(RouteId, StreamEndpoint, AttachOptions, AppliedRouteLimits)>,
+    pub(crate) pending_handoffs: Vec<PendingHandoff>,
     /// Route closes and route events that wait for mandatory-queue room (EV-5b).
     /// One queue in arrival order, so that the events of a route keep the worker's order (EV-6): a close is never posted
     /// before an event that the worker sent ahead of it.
@@ -681,6 +685,7 @@ pub(crate) fn new_session(
         routes: BTreeSet::new(),
         delivered: BTreeSet::new(),
         bound_at_end: BTreeSet::new(),
+        lost_handoffs: BTreeSet::new(),
         flow,
         queue: VecDeque::new(),
         ticket: None,

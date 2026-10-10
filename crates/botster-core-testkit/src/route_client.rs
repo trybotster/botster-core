@@ -28,13 +28,8 @@ pub struct RouteEnds(Arc<Mutex<BTreeMap<RouteId, RouteEndReason>>>);
 impl RouteEnds {
     /// Records a close. A healthy reason has its `route_closed` frame and no route-ended cause.
     pub fn closed(&self, route: RouteId, reason: RouteCloseReason) {
-        let ended = match reason {
-            RouteCloseReason::HandoffFailed => RouteEndReason::HandoffFailed,
-            RouteCloseReason::WriteFailed => RouteEndReason::WriteFailed,
-            RouteCloseReason::StallTimeout => RouteEndReason::Stalled,
-            RouteCloseReason::SessionLost => RouteEndReason::SessionLost,
-            RouteCloseReason::PeerClosed => RouteEndReason::TransportLost,
-            _ => return,
+        let Some(ended) = botster_core_link::route::route_ended_cause(reason) else {
+            return;
         };
         self.0.lock().expect("not poisoned").insert(route, ended);
     }
@@ -86,7 +81,11 @@ fn flag(args: &Value, key: &str) -> Result<bool, String> {
 
 /// The byte `k` of a `route_fill` is 0x61 + (k mod 26), with `k` from 0 for each fill (R-47 item 3).
 fn fill_pattern(bytes: usize) -> Vec<u8> {
-    (0..bytes).map(|k| b'a' + (k % 26) as u8).collect()
+    const ALPHABET: &[u8; 26] = b"abcdefghijklmnopqrstuvwxyz";
+    // Whole copies of the alphabet, cut to length: no loop condition, so no mutant of one can hang the fill.
+    let mut pattern = ALPHABET.repeat(bytes.div_ceil(ALPHABET.len()));
+    pattern.truncate(bytes);
+    pattern
 }
 
 /// The stored row of the route's session, and the session instance that the route attached to.
@@ -331,6 +330,8 @@ mod tests {
     #[test]
     fn route_fill_is_the_pattern_and_needs_the_session_worker() {
         assert_eq!(fill_pattern(28), b"abcdefghijklmnopqrstuvwxyzab");
+        assert_eq!(fill_pattern(26), b"abcdefghijklmnopqrstuvwxyz");
+        assert!(fill_pattern(0).is_empty());
         // C: the free room of the worker's queue, limited by route_accept, and 0 while gated.
         let (mut client, mut worker) = route(16);
         assert_eq!(worker.write(b"abcde").unwrap(), 5);
