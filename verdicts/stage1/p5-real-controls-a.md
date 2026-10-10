@@ -98,6 +98,48 @@ I changed no product code and ran no builds, tests, gates, or mutation tests.
 
 VERDICT: NOT CLEAN (1 HIGH open).
 
+## Round 3 — 2026-10-10 — Native Mac correction and base imports
+
+Reviewed head: `996a17f0afab8f6509d32623cfeaf00619fd2a01`.
+Current PR base: `3677b37e502497d5e63a91dfad92e5671bd19196`.
+Prior reviewed head: `a6aa195660d9021995a0487db403c57534415103`.
+Scope: three base merges and the sole new source correction in `platform/macos.rs`.
+
+R2-1 is CLOSED for the required native Mac mutation evidence.
+The exact-head focused Mac log is:
+`~/botster-sessions/gates/botster-core-stage1-p5-real-controls-a-996a17f0-pool-20261010-145010-46992.log`.
+The job runs on Mac kernel 27.0.0 with Rust 1.97.0 and cargo-mutants 27.1.0.
+It prebuilds the candidate binaries and tests `live_` functions with `--no-config`, `--in-place`, `slow`, and the slow profile.
+The unmutated baseline passes all 83 tests.
+I parsed all ten mutant outcomes: seven caught, three unviable, zero missed, and zero timeout.
+The mutation run takes 25 seconds. The job exits zero after 32 seconds.
+
+The earlier focused run at `7351d67e` reports eleven mutants: seven caught, three unviable, one missed, and zero timeout.
+Its sole miss changes `keep(&info) && info.pbi_status != SZOMB` to an OR expression in `live_of`.
+The correction puts the zombie rejection before `keep`, with the same behavior for every returned `BSDInfo`.
+It removes the redundant compound condition, not the zombie rejection.
+The comment records the measured Darwin 27 refusal path and preserves the guard for a kernel that returns zombie information.
+The changed equality is caught in the new native run.
+The original unread-report correction remains closed. I found no new source defect in this delta.
+
+I compared the automatic source merge trees with the actual merge trees:
+
+- `a6aa1956` plus `c19ad938` equals `b4847bf5`, tree `8ff8e06d6b5c70c052269450ff06f2cc03d52477`.
+- `b4847bf5` plus `fc1e8160` equals `deb34002`, tree `c0a6ec75d48d2b549cf8230efe8f95b77a034b4e`.
+- `deb34002` plus `3677b37e` equals `7351d67e`, tree `9f38d4228fa6003034fdb881ba9851931555b506`.
+
+These merges import the accepted #226, #225, and #218 base changes without another own correction.
+The withdrawn #225 selection verdict still applies to its inherited code.
+The new head contains the current base. `git diff --check` passes.
+
+A full exact-head Linux gate and package verdict remain pending.
+P5 waits for the #229 selection fix before that gate.
+The focused Mac run does not replace the full gate or accept the inherited selection defect.
+I changed no product code and ran no build, test, gate, mutation job, merge-check job, or reversal job.
+The tree comparison uses Git source objects only.
+
+VERDICT: NOT CLEAN for acceptance. No source finding remains in this reviewed delta; the full gate and package verdict are pending.
+
 ## Round 2 — 2026-10-10
 
 Reviewed head: `a6aa195660d9021995a0487db403c57534415103`.

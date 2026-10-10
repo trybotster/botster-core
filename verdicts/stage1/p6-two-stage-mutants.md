@@ -300,3 +300,11 @@ Stage 1 catches the `edge_tap.rs:83:13` field deletion. Stage 2 misses the same 
 The stage 1 file SHA256 is `83a79706637af8bd4e81c62315f0210457066c3520f0f1b3005a396ddb1c5c90`.
 The stage 2 file SHA256 is `0bfc3143065c758a4449a84f30cc88a71131f692f71fcb0ae5c253ed49a28906`.
 This receipt changes no review round or verdict. The replacement review is in `verdicts/stage1/p6-stage2-identity.md`.
+
+### Package withdrawal receipt — 2026-10-10
+
+I read package verdict `52b0806dda436ae23cfa27aaee24119f04528663`, `verdicts/p6-two-stage-mutants.md`, Round 3.
+The package reviewer also withdraws its CLEAN at `3890e230` for MS-R3-1 MEDIUM.
+Both reviews agree on the field-selection defect, the retained evidence, and closure of the original three findings.
+The evidence shows an incorrect selection and a correctly failing total check, not a false passing gate.
+PR #229 retains the replacement review and its two open findings.
