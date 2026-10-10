@@ -136,16 +136,14 @@ impl Driver {
         read_chunk: NonZeroUsize,
     ) -> io::Result<Driver> {
         let poll = Poll::new()?;
-        // The endpoint is bound before the first hello: a host that has the hello can adopt the worker.
-        let mut listener = UnixListener::bind(&launch.endpoint)?;
-        let endpoint = Endpoint {
+        // The endpoint is bound before the first hello: a host that has the hello can adopt the worker. `Endpoint` owns it
+        // from the bind on, so every later failure of the start removes it (DESIGN.md part 7).
+        let mut endpoint = Endpoint {
+            listener: UnixListener::bind(&launch.endpoint)?,
             path: launch.endpoint.clone(),
-            listener: {
-                poll.registry()
-                    .register(&mut listener, ENDPOINT, Interest::READABLE)?;
-                listener
-            },
         };
+        poll.registry()
+            .register(&mut endpoint.listener, ENDPOINT, Interest::READABLE)?;
         let std_control = std::os::unix::net::UnixStream::connect(&launch.control)?;
         std_control.set_nonblocking(true)?;
         let mut control = UnixStream::from_std(std_control);

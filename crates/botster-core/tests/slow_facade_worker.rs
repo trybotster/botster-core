@@ -17,9 +17,12 @@ use botster_core_link::hello::Hello;
 use botster_core_link::launch::WorkerLaunch;
 use botster_core_link::msg::{AdoptReport, AdoptedPayload, HostMsg, PayloadId, WorkerMsg};
 use botster_core_link::proof::token_proof;
+use botster_test_process::{quoted, Blocker, Bounded, Deadline, Guard, OwnedChild};
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::{Read, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
+use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::time::Duration;
 
 fn sid(name: &str) -> SessionId {
@@ -312,6 +315,25 @@ fn the_facade_reaches_a_host_with_a_worker_on_a_real_link() {
     );
 }
 
+/// A FIFO in `dir` that a fixture script writes and the test reads by deadlines. The test holds it open for reading and
+/// writing, so the script's open for writing does not wait. Close-on-exec: no child inherits it.
+fn marker_fifo(dir: &Path, name: &str) -> (Bounded<std::fs::File>, PathBuf) {
+    let path = dir.join(name);
+    let made = OwnedChild::spawn(Command::new("/usr/bin/mkfifo").arg(&path))
+        .unwrap()
+        .status();
+    assert!(made.success());
+    let file = std::fs::File::from(
+        rustix::fs::open(
+            &path,
+            rustix::fs::OFlags::RDWR | rustix::fs::OFlags::NONBLOCK | rustix::fs::OFlags::CLOEXEC,
+            rustix::fs::Mode::empty(),
+        )
+        .unwrap(),
+    );
+    (Bounded::new(file), path)
+}
+
 /// Reads one frame of `stream`.
 fn read_frame(stream: &mut UnixStream) -> botster_core_link::frame::Frame {
     let mut decoder = FrameDecoder::new(1 << 22);
@@ -398,21 +420,26 @@ fn request() -> SpawnRequest {
 fn a_new_host_adopts_a_live_worker_at_its_endpoint_and_remove_deletes_an_endpoint() {
     use std::os::unix::fs::PermissionsExt;
     let tmp = tempfile::tempdir().unwrap();
-    let launch = tmp.path().join("launch");
-    common::mkfifo(&launch);
-    let worker = common::ScriptWorker::new(
-        tmp.path(),
-        &format!(
-            "/bin/echo \"$BOTSTER_WORKER_TOKEN\" \"$@\" | /usr/bin/tee '{}' >/dev/null\n{}",
-            launch.display(),
-            common::WAIT_WHILE_THE_PARENT_LIVES
-        ),
+    // Plan 6.1 (shared test code): the worker is a script under the guard of botster-test-process. It hands its launch
+    // (token, then arguments) to the test through a FIFO that the test reads by a deadline, then blocks on a fixture child
+    // until the guard ends its group.
+    let (mut launch, launch_path) = marker_fifo(tmp.path(), "launch");
+    let hold = Blocker::new(tmp.path(), "hold").unwrap();
+    let mut guard = Guard::new(tmp.path()).unwrap();
+    let worker = tmp.path().join("worker");
+    let body = format!(
+        "/bin/echo \"$BOTSTER_WORKER_TOKEN\" \"$@\" > {}; exec {}",
+        quoted(&launch_path),
+        hold.shell()
     );
+    guard
+        .wrapper(&worker, Path::new("/bin/sh"), &["-c", &body, "worker"])
+        .unwrap();
     let data_dir = tmp.path().join("d");
     let open = || {
         Core::open(OpenConfig {
             data_dir: data_dir.clone(),
-            worker_path: Some(worker.path.clone()),
+            worker_path: Some(worker.clone()),
             limits: CoreLimits::default(),
         })
         .expect("open")
@@ -434,7 +461,13 @@ fn a_new_host_adopts_a_live_worker_at_its_endpoint_and_remove_deletes_an_endpoin
     pump_until(&mut core, |e| completed(e, create).is_some());
     let start = core.begin(Op::Start { id: sid("s1") }).unwrap();
     pump_until(&mut core, |_| true);
-    let text = std::fs::read_to_string(&launch).unwrap();
+    let text = launch
+        .line(Deadline::cleanup())
+        .expect("the launch line")
+        .expect("the worker wrote its launch");
+    guard
+        .anchors(1, Deadline::cleanup())
+        .expect("the guard holds the worker's group");
     let mut words = text.split_whitespace();
     let token = words.next().expect("the token");
     let args: Vec<&str> = words.collect();
@@ -443,10 +476,15 @@ fn a_new_host_adopts_a_live_worker_at_its_endpoint_and_remove_deletes_an_endpoin
     // The worker binds its endpoint before its first hello.
     let listener = UnixListener::bind(&parsed.endpoint).expect("the worker binds its endpoint");
     let stream = UnixStream::connect(&parsed.control).expect("the host listens");
-    let peer = {
+    // The stand-in reports its end on a channel, which the test reads by a deadline.
+    let (ended, peer) = std::sync::mpsc::channel();
+    {
         let parsed = parsed.clone();
-        std::thread::spawn(move || stand_in_worker(stream, parsed))
-    };
+        std::thread::spawn(move || {
+            stand_in_worker(stream, parsed);
+            let _ = ended.send(());
+        });
+    }
     let events = pump_until(&mut core, |e| completed(e, start).is_some());
     assert_eq!(
         core.get(&sid("s1")).unwrap().state,
@@ -456,7 +494,8 @@ fn a_new_host_adopts_a_live_worker_at_its_endpoint_and_remove_deletes_an_endpoin
 
     // LC-12: a dropped host leaves its worker running; the worker's link to it ends.
     drop(core);
-    peer.join().unwrap();
+    peer.recv_timeout(Deadline::cleanup().remaining())
+        .expect("the stand-in ends with its link");
     let mut again = open();
     let adopt = again.begin(Op::AdoptAll).unwrap();
     // One pump: the new host connects to the endpoint and sends its hello. The connection waits in the listener's queue.

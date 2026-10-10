@@ -70,4 +70,9 @@ fn failed_control_connection_returns_driver_failure() {
     assert!(output.stdout.is_empty());
     assert!(output.stderr.starts_with(b"botster-worker: "));
     assert!(output.stderr.len() > b"botster-worker: \n".len());
+    // DESIGN.md part 7: the endpoint was bound before the failed connect, and the failed start removed it.
+    assert!(
+        !launch.endpoint.exists(),
+        "a failed start removes the endpoint"
+    );
 }
