@@ -112,15 +112,16 @@ pub fn take_candidate(next: &mut u64) -> CandidateId {
     id
 }
 
-/// The driver accepts a connection of the endpoint only while the endpoint is readable. The readiness is edge-triggered:
-/// a `WouldBlock` clears it, and the next endpoint event sets it again.
-pub fn accept_endpoint(readable: bool) -> bool {
-    readable
+/// The endpoint waits for its next event, and the driver accepts nothing from it, while it is not readable. The readiness
+/// is edge-triggered: a `WouldBlock` clears it, and the next endpoint event sets it again.
+pub fn endpoint_waits(readable: bool) -> bool {
+    !readable
 }
 
-/// The driver reads a candidate only while it is readable, by the same edge-triggered rule as the endpoint.
-pub fn read_candidate(readable: bool) -> bool {
-    readable
+/// A candidate waits for its next event, and the driver reads nothing of it, while it is not readable (the same
+/// edge-triggered rule as the endpoint).
+pub fn candidate_waits(readable: bool) -> bool {
+    !readable
 }
 
 /// The machine's configuration from the launch arguments. `startup` is `--startup-ms`: the bound of a candidate's hello,
@@ -454,13 +455,13 @@ mod tests {
         assert_eq!(next, 3);
     }
 
-    /// The endpoint and a candidate are read only while they are readable (edge-triggered readiness).
+    /// The endpoint and a candidate wait while they are not readable (edge-triggered readiness).
     #[test]
-    fn the_endpoint_and_a_candidate_are_read_only_while_readable() {
-        assert!(accept_endpoint(true));
-        assert!(!accept_endpoint(false));
-        assert!(read_candidate(true));
-        assert!(!read_candidate(false));
+    fn the_endpoint_and_a_candidate_wait_while_not_readable() {
+        assert!(endpoint_waits(false));
+        assert!(!endpoint_waits(true));
+        assert!(candidate_waits(false));
+        assert!(!candidate_waits(true));
     }
 
     /// AD-7: the machine's startup bound is `--startup-ms`; the identity is the launch's.
