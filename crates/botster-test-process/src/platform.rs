@@ -1,5 +1,6 @@
-//! The platform adapters: the live members of a group, the live children of a process, the wait for a process's exit, and the start time of a process (libproc
-//! and kqueue on macOS, /proc and pidfd on Linux). They only observe: nothing here signals or reaps.
+//! The platform adapters: the live members of a group, the live children of a process, the wait for a process's exit,
+//! and the start time of a process (libproc and kqueue on macOS, /proc and pidfd on Linux). They only observe: nothing
+//! here signals or reaps.
 
 use rustix::process::Pid;
 
