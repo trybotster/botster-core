@@ -45,6 +45,8 @@ const CONTRACTS_DEFERRED: &str = include_str!("../../conformance/contracts-defer
 const CONTRACTS_WITHDRAWN: &str = include_str!("../../conformance/contracts-withdrawn.txt");
 /// The minimum Core (plan section 1, revision 23q): the canonical list; its first column is the id.
 const MINIMUM: &str = include_str!("../../conformance/minimum-core.txt");
+/// The real-only Core ids with their named real-process proofs (`id<TAB>proof`; `cargo xtask ledger-ids` checks it).
+const REAL_ONLY: &str = include_str!("../../conformance/core-real-only.txt");
 
 // Core TH-1, checked when this suite compiles: the facade's handle is `Send` and not `Sync` (no nightly feature).
 static_assertions::assert_impl_all!(botster_core::Core: Send);
@@ -73,18 +75,34 @@ fn minimum_ids(text: &str) -> BTreeSet<String> {
         .collect()
 }
 
+/// The minimum ids that count by their named real-process proof (plan 23s): a real-only id (`core-real-only.txt`) that is
+/// not in `core-pending.txt` left it only with that proof (plan section 5), and the gate's slow step runs it. With the proof.
+fn named_proofs(minimum: &BTreeSet<String>, pending: &BTreeSet<String>) -> Vec<(String, String)> {
+    REAL_ONLY
+        .lines()
+        .filter_map(|line| line.split_once('\t'))
+        .filter(|(id, _)| minimum.contains(*id) && !pending.contains(*id))
+        .map(|(id, proof)| (id.to_string(), proof.trim().to_string()))
+        .collect()
+}
+
 /// The progress counts of the minimum Core (plan section 1, revision 23q). `passed` holds the ids whose trial ran and passed
 /// on this tier. On the testkit tier: "testkit-passing / N". On the real tier: "real-passing / N - P", where P is the
 /// number of A20-1 testkit-proven minimum ids, which the real tier never runs, and "real-accepted / N" = real-passing plus
-/// the A20-1 minimum ids that are not in `core-pending.txt` (the testkit tier of the same gate proves that they pass).
+/// the A20-1 minimum ids that are not in `core-pending.txt` (the testkit tier of the same gate proves that they pass). On
+/// both tiers an id of `by_proof` (`named_proofs`) passes too (plan 23s).
 fn minimum_report(
     minimum: &BTreeSet<String>,
     passed: &BTreeSet<String>,
+    by_proof: &[(String, String)],
     pending: &BTreeSet<String>,
     real: bool,
 ) -> String {
     let total = minimum.len();
-    let passing = minimum.intersection(passed).count();
+    let passing = minimum
+        .iter()
+        .filter(|id| passed.contains(*id) || by_proof.iter().any(|(p, _)| p == *id))
+        .count();
     if !real {
         return format!("minimum: testkit-passing {passing} / {total}");
     }
@@ -317,10 +335,17 @@ pub fn run(name: &str, make: Factory, plain: Option<Factory>, limits: Limits) {
         } else {
             ""
         };
+        let minimum = minimum_ids(MINIMUM);
+        let by_proof = named_proofs(&minimum, &pending);
         println!(
             "{name}: {}{source}",
-            minimum_report(&minimum_ids(MINIMUM), &passed, &pending, plain.is_some())
+            minimum_report(&minimum, &passed, &by_proof, &pending, plain.is_some())
         );
+        for (id, proof) in &by_proof {
+            println!(
+                "{name}: minimum: {id} counts by its named real-process proof {proof} (plan 23s)"
+            );
+        }
         if plain.is_some() {
             let passed = real_passed.lock().unwrap_or_else(PoisonError::into_inner);
             println!(

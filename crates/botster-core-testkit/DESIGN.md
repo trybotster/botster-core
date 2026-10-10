@@ -41,7 +41,9 @@ The real tier's trials (`tests/suite/mod.rs`, plan 23l and 23q):
   69" on the testkit tier, and "real-passing / 68, real-accepted / 69" on the real tier. The denominators are derived:
   68 leaves out the A20-1 members of the list, and real-accepted adds back each A20-1 member that is not in
   `core-pending.txt`. The real tier's report run is `--ignored`, after the nextest run of the same job passed every
-  trial that must pass, so it counts those trials.
+  trial that must pass, so it counts those trials. On both tiers, a real-only minimum id (`conformance/core-real-only.txt`,
+  the `slow:*` proofs of the pinned replacement map) that is not in `core-pending.txt` counts by its named real-process
+  proof, and the report names the proof (plan 23s).
 
 Prior art: none copied. The scripted inner edges of `edge_tap/tests.rs` are new.
 
