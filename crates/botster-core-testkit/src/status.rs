@@ -203,7 +203,7 @@ mod tests {
         assert!(parse_deferred("not-applicable conf::a\n").is_err());
     }
 
-    /// The files of the pinned contracts tag parse (`contracts-v0.1.25`, the same files as v0.1.23 and v0.1.24: two deferred ids,
+    /// The files of the pinned contracts tag parse (`contracts-v0.1.26`, the same files as v0.1.23 to v0.1.25: two deferred ids,
     /// one case, 27 withdrawn ids; seven are withdrawn with no replacement: the Hub id `wp_3` and six Core A17-1 ids. A19-1
     /// withdraws `a9_1_frame_cap_equal_to_the_attached_frame_attaches` with a replacement).
     #[test]
