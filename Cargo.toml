@@ -70,19 +70,32 @@ incremental = false
 codegen-units = 1
 
 # The checker of the conformance suite runs as test code in every default-tier test: the contracts' route driver turns each
-# route frame into JSON with a hex payload and validates it. These four dependencies that the checker uses are optimized in
-# the dev profile (lead ruling, 2026-10-10: `conf::ou_3_progressing_reader_lossless` moves 1 MiB per seed through them).
-# A package override applies wherever the dev profile builds the package: botster-route-codec and serde_json are also normal
-# dependencies of Core crates (botster-core, botster-core-link, botster-worker-core and others), so their dev-profile
-# production builds are optimized too. No Core crate is listed, so the mutation and coverage builds of Core code are unchanged.
+# route frame into JSON with a hex payload and validates it. The four dependencies that the checker uses below are optimized
+# in dev and test builds for speed; assertions and overflow checks kept (lead ruling, 2026-10-10:
+# `conf::ou_3_progressing_reader_lossless` moves 1 MiB per seed through them). An override applies wherever the dev profile
+# builds the package:
+# - botster-route-codec and serde_json are production dependencies of Core crates (botster-core, botster-core-link,
+#   botster-worker-core and others), so their dev-profile builds are optimized too;
+# - regex-automata is also built for a production crate's build script (bindgen, which libproc of botster-core-sys uses);
+# - botster-hub-conformance is a dependency of the testkit and the xtask only.
+# Each override sets the opt-level and keeps the dev profile's debug assertions and overflow checks explicitly. No Core
+# workspace crate has an override, so the mutation and coverage builds of Core code are unchanged.
 [profile.dev.package.botster-hub-conformance]
 opt-level = 2
+debug-assertions = true
+overflow-checks = true
 
 [profile.dev.package.botster-route-codec]
 opt-level = 2
+debug-assertions = true
+overflow-checks = true
 
 [profile.dev.package.serde_json]
 opt-level = 2
+debug-assertions = true
+overflow-checks = true
 
 [profile.dev.package.regex-automata]
 opt-level = 2
+debug-assertions = true
+overflow-checks = true
