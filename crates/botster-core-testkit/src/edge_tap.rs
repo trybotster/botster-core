@@ -19,7 +19,7 @@
 
 use botster_core_contract::prelude::*;
 use botster_core_edges::edges::{
-    ExitStatus, GroupSignal, IdentityState, ProcessIdentity, SpawnError, StorageError, Wake as _,
+    ExitStatus, GroupSignal, IdentityState, ProcessIdentity, SpawnError, StorageError,
 };
 use botster_core_edges::scheduler::{ChoicePoint, Scheduler};
 use botster_core_host::driver::{HandoffError, HostEdges, HostWake, WorkerSpawn};
