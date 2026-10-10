@@ -381,17 +381,15 @@ impl RealCoreHarness {
             .payload
             .or_else(|| tap.launch_of(&processes.instance))
         {
-            let alive = tap.identity_state(payload) == IdentityState::Matches
-                && runs(payload).map_err(unreadable)?;
+            let alive = lives(&tap, payload).map_err(unreadable)?;
             return Ok(json!({ "alive": alive }));
         }
         let children = platform::pid(worker.pid)
             .and_then(platform::live_children)
             .map_err(unreadable)?;
-        let state = tap.identity_state(worker);
-        if state != IdentityState::Matches || !runs(worker).map_err(unreadable)? {
+        if !lives(&tap, worker).map_err(unreadable)? {
             return Err(ControlError::Bad(format!(
-                "the payload of the session {} is not known, and its worker does not run ({state:?})",
+                "the payload of the session {} is not known, and its worker does not run",
                 session.0
             )));
         }
@@ -556,6 +554,12 @@ impl CoreHarness for RealCoreHarness {
     ) -> Result<(AttachResult, Box<dyn RouteClient>), CoreError> {
         Err(no_route("attach_stream"))
     }
+}
+
+/// Whether the recorded process `identity` lives: it still matches its pid and start time (the inner edge's AD-6 check),
+/// and it [`runs`].
+fn lives(tap: &Tap<RealEdges>, identity: ProcessIdentity) -> io::Result<bool> {
+    Ok(tap.identity_state(identity) == IdentityState::Matches && runs(identity)?)
 }
 
 /// Whether the process `identity` is live: a member of its own process group that is not a zombie. The payload leads its
