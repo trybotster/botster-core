@@ -9466,6 +9466,24 @@ Required: exercise a bound route that has received no allowance, then grant an a
 Integration identified both test-shape gaps. The package reviewer confirms them from source.
 HIGH requires LOW findings to close before CLEAN.
 
+### F104 — MED — OPEN — The input bound can exceed the configured queue
+
+Locations: worker/route.rs:122-128; worker/input.rs:174-181.
+input_bound uses max(route_input_queue_bytes, max_frame_bytes + 4).
+CoreLimits::validate requires route_input_queue_bytes to be nonzero, without a one-frame floor.
+The host copies that value into AppliedRouteLimits without increasing it.
+A valid configuration can therefore have an input queue smaller than one route frame.
+With a host write blocked, the client can send a valid frame whose payload exceeds that configured queue.
+The Worker's increased allowance permits the whole frame, and enqueue_route_input puts its whole payload into Pending::Route.
+The retained payload can exceed route_input_queue_bytes.
+DP-5 names that configured queue as the threshold at which the Worker stops reading.
+No pinned ruling grants a larger input queue. R-45 exempts an outgoing baseline only.
+Required: preserve frame progress without silently increasing the configured input queue.
+Prove the legal small-queue case with a blocked PTY and a frame larger than the queue.
+If a binding exception permits this behavior, cite its exact authority before closure.
+Integration identified this defect. The package reviewer independently confirms the source path.
+This finding joins round 150 in a follow-up verdict commit. It does not count as another review round.
+
 ### Whole-change review and retained requirements
 
 The reviewer reads all eleven changed paths at this exact head.
@@ -9484,7 +9502,7 @@ F102 prevents acceptance of operation ownership for every refusal.
 
 F86's first-reason requirement is satisfied by on_route_ended and the existing failed-write path.
 F87's receipt requirement is satisfied for Unsupported and Invalid as well as decoded inputs.
-The reviewer does not close F88 or F90 for the whole PR3 unit while F99-F103 remain open.
+The reviewer does not close F88 or F90 for the whole PR3 unit while F99-F104 remain open.
 F101 also blocks the healthy-close-last guarantee.
 The baseline remains exempt through live under R-45; only frames behind it count toward the outgoing threshold.
 R-51 retains its stated testkit precondition and real-tier limitation.
@@ -9529,7 +9547,7 @@ It is not exact-head evidence for this replacement and does not close remaining 
 ### Verdict
 
 PR #227 is NOT CLEAN at `a65c8f9e347c752307c661f70871614c7ef72dee`.
-F99, F100, F101, and F102 are MED and OPEN. F103 is LOW and OPEN.
+F99, F100, F101, F102, and F104 are MED and OPEN. F103 is LOW and OPEN.
 This is #227's first package NOT CLEAN round. No round-limit decision is due.
 Findings and the published artifact go directly to P3 and the current Sol integration reviewer.
 The lead receives no ordinary NOT CLEAN report.
