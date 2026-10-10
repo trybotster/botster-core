@@ -772,3 +772,44 @@ This verdict approves the plan only. The driver, transcripts, pin move, and harn
 The reviewer ran no builds, tests, or gates. No finding remains open.
 
 VERDICT: CLEAN (0 open) at 0ec6d6b06bd0fa3d64991b58757fca685426ff92
+
+## Round 23 — Revision 23p contracts pin and ownership lists
+
+Reviewed head: `a79803845973128942564dee79983923d458a5fa`.
+Scope: both commits after `0ec6d6b06bd0fa3d64991b58757fca685426ff92`, including all four changed files.
+
+The reviewer verified the tagged inputs:
+
+- `contracts-v0.1.23` resolves to `fe3eb952d6f61b89cf7bcbe8c54ab079987ec002`.
+- `manifest-final38` resolves to `9b1cf0fcde3d76794b850a0d313a351f17066948`.
+- The frozen A19 candidate 2 file hashes to `14e2bac0f54a523a5323e27f171bce64615b6102908307586c51b07a814c123d`.
+
+The pin and manifest descriptions agree with these inputs.
+A19-1 replaces the attached-frame floor with the largest worst-case floor frame.
+It also specifies the u64 decimal-string query identifier.
+A19-2 checks every possible path-bearing frame before file creation.
+The A9 row correctly records the replacement without changing the remaining A9 clauses.
+
+The tag contains published R-44 through R-47 and the R-46 driver change with `progress_is_injected`.
+The only changed Core transcript is `ou_2b_healthy_reasons_send_route_closed_last`.
+It adds host pumping until the route-close events before reading the corresponding wire close frames.
+The tag does not contain the R-46 clock-advance transcript fixes or frozen A20.
+The plan distinguishes those remaining changes from the published ruling and A20 proposal.
+
+The reviewer independently applied the revised ownership function to the tagged ledger and pending and withdrawn lists.
+Every generated package list exactly matches the plan branch.
+There are 671 active Core IDs, with no duplicate ID.
+The six new A19-1 IDs belong to P4a, and the A19-2 path-frame ID belongs to P4b.
+All seven are pending in the tag. The former attached-frame equality ID is withdrawn.
+P4a has 156 IDs. P4b has 69. Every other package count is unchanged.
+The plan's acceptance count, package total, and budget row all use 671.
+
+The minimum list remains byte-identical and contains 69 IDs.
+None of the seven new IDs or the withdrawn equality ID belongs to that list.
+The code pin move remains P6's separate HIGH PR and requires its own review and execution evidence.
+This plan verdict does not approve that future implementation.
+
+`git diff --check` passes. No execution gate applies to this documentation and ownership-list change.
+The reviewer ran no builds, tests, or gates. No finding remains open.
+
+VERDICT: CLEAN (0 open) at a79803845973128942564dee79983923d458a5fa
