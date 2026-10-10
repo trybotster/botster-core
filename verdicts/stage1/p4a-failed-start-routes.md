@@ -159,3 +159,66 @@ I ran no builds, tests, gates, or mutants.
 
 NOT CLEAN: R2-1 remains open at HIGH severity.
 The package verdict for this replacement head is pending.
+
+## Round 3 — 2026-10-10
+
+Reviewed head: `5c1b8d9040e2f3ec4faf3e77b3d6ae2ab39e8878`.
+Base: `d174ef48a218b74beb4bac9ec555c6c39d2650a4`, unchanged.
+I read the complete six-file replacement diff, the updated PR body, and all three new driver tests.
+Remote head and base match. The ancestry check and `git diff --check` pass.
+
+### R2-1 — CLOSED
+
+The Start flow now retains each lost handoff in `Session::lost_handoffs`.
+A successful start with no pending end closes those routes as HandoffFailed.
+A failed start or pending end leaves route closure to the end flow.
+`close_route` removes an obligation when that route closes.
+The link-only driver tests cover PostRunning and successful Finish with the worker alive.
+They verify one close, the expected reason, endpoint release, and no retained route.
+The Stop-flow proof checks state-before-close ordering. The earlier two-event proof remains intact and passes.
+
+### R3-1 — HIGH — Closing all retained handoffs in one startup step exceeds the event budget
+
+`finish_start` calls `complete(f.op, result)` and then iterates over every retained handoff (`flows.rs:307-322`).
+For a successful start with no pending end, each iteration calls `route_close`.
+With mandatory queue room available, each call immediately posts a RouteClosed event.
+
+The completion posts first (`engine.rs:321-333`). Its `step_mark` guard only detects an event posted before that completion.
+The later route closes do not check that guard or the pump budget.
+The driver calls `Budget::account` only after the whole `Input::Run` returns.
+
+With `pump_events = 1` and one retained handoff, the Finish step can therefore post Completed and RouteClosed in one pump.
+With multiple retained handoffs, the same step posts their closes as well.
+Mandatory queue capacity is separate from the per-pump event limit; sufficient queue room permits this violation.
+
+The new after-Running proof already configures `pump_events = 1`, but it does not inspect each PumpReport.
+The test's eventual close assertions pass even when a pump exceeds its limit.
+
+Process each close through separately budgeted work and retain the remaining obligations until their steps run.
+Preserve state order, the first close reason, and behavior when the mandatory queue is full.
+Add a driver proof with multiple retained handoffs and `pump_events = 1`.
+Check every pump's `events_posted`, eventual completion, exactly one close per route, and no retained routes.
+
+Status: OPEN. Both reviewers independently confirmed the same mechanism.
+I sent the finding to the implementer. This finding concerns the new loop, not the closed link-only gap.
+
+### Evidence and verdict
+
+Gate: `botster-core-stage1-p4a-failed-start-routes-5c1b8d90-pool-20261010-083157-19297.log`.
+The header names the exact head and base. All ten stages pass.
+Default tests: 1,455 passed. Slow tests: 260 passed.
+Both conformance reports show 193 passing trials, 407 pending trials, 70 entries without transcripts, two deferred trials, and 18 withdrawn trials.
+Both mutation stages report 68 mutants: 63 caught, five unviable, no misses, and no timeouts.
+The second stage remains an environment-only repeat of default mutation coverage.
+All three new driver tests and the earlier loss-order test have PASS results.
+Full gate time is 410.0 seconds. The repeated mutation stage takes 145.2 seconds.
+The job exits zero after 563 seconds: one queued second and 562 execution seconds.
+The real edge source remains unchanged from the separate slow mutation evidence.
+The package's Round 145 verdict at `2c1fd9ea95290301fbad38f417f1ddf010786669` records the prior finding and unchanged scope.
+I ran no builds, tests, gates, or mutants.
+
+NOT CLEAN: R3-1 remains open at HIGH severity. R1-1 and R2-1 remain closed at their recorded scopes.
+The package artifact for this head is pending.
+This is the third NOT CLEAN integration round for #219.
+The round-limit rule in contracts `56bd0a5:docs/BUILD.md:119` requires a lead decision before round four.
+The lead must split the PR, settle the disputed point, or replan the root cause. A fourth review does not start by default.
