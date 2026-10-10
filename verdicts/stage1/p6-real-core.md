@@ -238,3 +238,55 @@ P6 reports the same open finding and is preparing its verdict artifact.
 I changed no product code and ran no builds, tests, gates, or mutation tests.
 
 VERDICT: NOT CLEAN (1 HIGH open).
+
+## Round 3 — 2026-10-10
+
+Reviewed head: `8e73278755d66ab02b09141ad57c4bd0f41272b7`.
+PR and gate base: `d174ef48a218b74beb4bac9ec555c6c39d2650a4`.
+Tier: HIGH. I reviewed the complete two-file replacement diff and the updated PR description.
+
+### R2-1 closed
+
+`ledger_ids_command` reads every copy and propagates read errors, including a missing file, with repair instructions.
+After successful reads, it pairs each copy with the corresponding path and expected text.
+The existing `copy_problems` helper compares the pairs. The command returns an error when that helper reports problems.
+The helper's existing proof checks equal text, equal empty text, and one mismatch among matching copies.
+The proof verifies that the mismatch identifies the correct file.
+The exclusion comment now cites this comparison helper and its proof.
+The exclusion still covers only the command's whole-body replacement. The comparison helper remains eligible for mutation testing.
+R2-1 is CLOSED. I found no new defect.
+
+### Supplied evidence
+
+Log:
+`/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-p6-real-core-8e732787-pool-20261010-084907-54482.log`.
+
+The header names the reviewed head and base. All ten steps pass in 478.5 seconds.
+Default tests: 1,464 passed, including `a_copy_that_is_not_the_pinned_file_is_a_problem`.
+Slow tests: 377 passed. The list command confirms that the checked-in files match the pin.
+Conformance: 193 testkit passes; the pending-real report retains 87 ids with zero passes.
+Minimum counts remain testkit 50/69, real-passing 29/68, and real-accepted 29/69.
+Both mutation steps report 125 mutants: 95 caught, 30 unviable, zero missed, and zero timeouts.
+The second step takes 275.6 seconds. It selects the slow profile without enabling the slow feature.
+The pool job exits zero after 761 seconds on msa1; the gate wrapper exits zero after 762 seconds.
+
+The manual slow mutation evidence accepted in Round 2 remains applicable: `real.rs` is byte-identical to its tested revision.
+The base is an ancestor of the head. `git diff --check` passes.
+The remote head and base match the reviewed commits.
+I read both Round 2 package artifacts, including P5's withdrawal of its earlier CLEAN verdict.
+Both confirm that R2-1 was the sole remaining finding.
+I changed no product code and ran no builds, tests, gates, or mutation tests.
+
+### Package verdicts and conclusion
+
+I read both exact-head package verdicts:
+
+- P6: `a68d78a51451c541a3af5944a82d3de9653fe09d:verdicts/p6-real-core.md`, Round 3, CLEAN.
+- P5: `4bb1b12cf2f675c2a5dc923b182a16461b834988:verdicts/p6-real-core.md`, Round 3, CLEAN.
+
+Both confirm R2-1's closure and retain the earlier findings' closures and accepted mutation evidence.
+All integration findings are closed. No new finding remains open.
+This verdict retains the plan's interim manual evidence allowance. It does not replace the separate plan 23n gate change.
+The 87 pending-real ids remain unfinished work; this PR does not establish Stage 1 completion.
+
+VERDICT: CLEAN (0 open) at 8e73278755d66ab02b09141ad57c4bd0f41272b7.
