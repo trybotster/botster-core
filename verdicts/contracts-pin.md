@@ -483,3 +483,78 @@ This verdict closes no #210 finding.
 The reviewer changed no product code and ran no builds, tests, mutation jobs, or gates.
 
 VERDICT: CLEAN
+
+## PR #216 — Round 1 — contracts-v0.1.24
+
+Reviewed head: `5b150cf4c5d704673ce6c6284723384c48ae5987`.
+Tree: `18e34b5a2aa7d4f11a646fdba5de62d15042c6af`.
+Parent, PR base, and gate base: `9103dca15664496630c4397ea3a60721427b38da`.
+Contracts tag: `contracts-v0.1.24` at `d79aed5e84d4a8bc9b76f6163ca6bc4a9d89b951`.
+
+The reviewer checked the HIGH tier first. BUILD.md rule 4 requires HIGH for this pin move.
+The PR names P5 as the P1 package reviewer and Astra as the integration reviewer.
+The Prior art note cites the previous pin moves and the ledger-generation rule.
+The reviewer read the complete five-file Core delta, full PR body, relevant tagged crate and transcript changes, and supplied gate.
+
+### C24-F1 — HIGH — OPEN at the reviewed head
+
+The new `conf::a20_1_testkit_proven_ids_are_exactly_the_named_list` trial reports PASS without the required Core proof.
+Frozen A20 states: "the real-tier runner's list of testkit-proven ids equals the list in A20-1. Each listed id passes on the testkit."
+The tagged transcript calls `type_check: a20_1_testkit_proven`.
+That check reads the contracts crate's `A20_TXT`, `PENDING_TXT`, and `WITHDRAWN_TXT`.
+It does not read Core's list or validate Core's real-tier runner.
+Core's runner calls this upstream check without a local A20 check.
+Core has no real-tier runner at this head, and no Core runner consumes `TESTKIT_PROVEN`.
+Core still lists the class member, `conf::dp_3_frame_limit_checked_before_allocation`, as pending.
+The 183rd reported PASS therefore does not prove Core's required A20 test.
+
+Required change for this pin-only PR: add the new A20 ID to `core-pending.txt` with the two missing Core proofs as its reason.
+Activate it later when Core's real-tier runner uses the exact class and the class member passes on Core's testkit.
+Update the PR body and supply the replacement-head gate.
+The reviewer sent the finding directly to P6 and copied Astra. Astra independently confirms the same gap as R1-1 HIGH.
+P6 accepted the finding and supplied fix commit `d18b41726b4fffb1e2043d5220b32a34444cd27b`.
+Its two-line pending-list delta addresses the source finding. Its gate and updated body are pending, so it has no verdict yet.
+This Round 1 verdict applies only to the original head.
+
+### Remaining checks
+
+All seven direct pins and all nine lock sources use the exact new contracts tag.
+The local tag resolves to that commit. The lock retains 222 packages and changes only nine source fields.
+The final39 manifest records accepted A20 candidate 1 and its crate change on the final branch.
+The Core ledger equals all 690 tagged Core IDs byte for byte. The only added ID is the A20 check.
+The deferred and withdrawn copies remain unchanged and equal the tag byte for byte.
+The pending ID set stays equal at 487. The five revised reasons still refer to IDs pending in the tag.
+No prior passing ID is lost. All 182 prior active IDs and all 46 active minimum IDs have PASS lines.
+Minimum testkit progress stays 46 / 69. This verdict accepts no real-tier milestone.
+
+The reviewer read the tagged R-46 clock steps and the in_9 reorder.
+Three Stop transcripts wait for Stopping before advancing the injected clock by the configured grace.
+The key-repeat transcript checks stateless refusals before the accepted write can post an event.
+The four changed existing transcripts retain PASS evidence at the Core head.
+
+The R-48 probe change clears only the specified canonical and echo flags on terminal stdin, with VMIN 1 and VTIME 0.
+It retains the input, output, control, and signal flags. Non-terminal stdin stays unchanged.
+The tagged PTY test checks a byte without a newline, no echo, and the retained terminal flags.
+Core's prebuild step installs the probe from the contracts tag.
+The supplied upstream gate at the exact tag has a PASS line for the named PTY test and exits zero.
+Upstream log: `~/botster-sessions/gates/botster-contracts-p6-r46-transcripts-d79aed5e-pool-20261009-202249-29552.log`.
+The upstream gate reports 1990 default passes, 20 slow passes, and three caught mutants.
+The Core review adds no runtime code, transcript, timeout, or mutation exclusion.
+
+### Supplied Core gate and scope
+
+Log: `~/botster-sessions/gates/botster-core-stage1-p6-pin-v0.1.24-5b150cf4-pool-20261009-203054-60221.log`.
+The log names the exact reviewed head and its parent as the base.
+All ten stages report PASS. The job and gate exit zero on msa1.
+
+- Default: 1391 passed, 507 skipped.
+- Slow: 256 passed, 1298 skipped.
+- Conformance: 183 reported passes, zero failures, 417 pending with transcripts, 70 pending without transcripts, two deferred, 18 withdrawn.
+- Both mutation steps: cargo-mutants lists no mutant, so no mutation run starts.
+- Fuzz: no changed crate with a decoder harness.
+
+The A20 reported pass does not close C24-F1. A green gate cannot replace the required Core proof.
+The reviewer changed no product code and ran no builds, tests, mutation jobs, or gates.
+Await replacement-head READY and evidence. No NOT CLEAN report goes to the lead.
+
+VERDICT: NOT CLEAN
