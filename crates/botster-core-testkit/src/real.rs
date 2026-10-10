@@ -422,6 +422,17 @@ mod slow_tests {
         assert!(!plain.has_control("break_control"));
     }
 
+    /// Core TH-1: the harness answers for the facade's `Core` only what the runner told it at compile time.
+    #[test]
+    fn the_core_type_answer_is_the_runners_and_none_without_one() {
+        let harness = RealCoreHarness::new(nonexistent()).unwrap();
+        assert_eq!(harness.core_is_send_not_sync(), None);
+        let harness = harness.with_core_type(true);
+        assert_eq!(harness.core_is_send_not_sync(), Some(true));
+        let harness = harness.with_core_type(false);
+        assert_eq!(harness.core_is_send_not_sync(), Some(false));
+    }
+
     /// R-46: the runner's clock is the one Core sees, but real processes make progress, so the driver must not jump it. The
     /// harness starts no process, so binaries that do not exist are enough.
     #[test]
