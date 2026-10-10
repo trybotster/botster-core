@@ -8158,3 +8158,161 @@ The reviewer changed no product code and ran no tests, builds, gates, measuremen
 All earlier exact-head verdicts remain preserved.
 
 VERDICT: CLEAN
+
+
+## Round 138 — PR #217 P4a route lifecycle — 2026-10-09
+
+Reviewed head: `8ae2643d8a2ddb1fffceda129c3775b3abfa0f88`.
+Base: `e99012939c8df4f85da5ae5af7144534b129cb70`.
+Parent: `50b53cce611b3eb166b579058d73974f850227b7`.
+Tier: HIGH under BUILD.md rule 3. The change crosses worker, host, and testkit packages and adds shared controls.
+Authority: BUILD.md; accepted plan 23q at bae71c81; contracts v0.1.24 at d79aed5; R-44 through R-48 and the lead's PR2 order.
+The reviewer read the updated lead and implementer handoffs, full PR body, source change, tests, replacement-map rows, and completed gate.
+The reviewer inspected closure, route input, admission, host completion, edge interests, controls, cause recording, and quiet-state composition.
+The change covers 20 files with 1636 insertions and 78 deletions.
+The approved PR2 scope includes basic bytes/text input. PR3 retains its later input controls and minimum work.
+That scope does not authorize loss, unbounded retention, or missing failure reports in the paths implemented here.
+
+### Accepted parts and retained limits
+
+The worker queues a healthy close after existing frames and keeps a reason against a later Detach or write error.
+Session exit queues the session_ended frame after the tail. Attach after exit queues baseline, live, then the ended frame.
+The host's SessionLost path can close routes without a worker, with the host's typed cause and event order.
+The handoff hold returns Blocked with the endpoint intact and preserves the ordered writer's mark.
+The release clears the hold and signals the host wake. Another link is not held.
+The failure hook takes no byte and returns the endpoint with Failed once. The driver owns its release.
+Route controls act at the stream edges. The body states their real-tier forms and unresolved real-tier gaps explicitly.
+R-47 route_fill and the portable fail_writes form remain tracked real-tier work; they are not acceptance exemptions.
+If the real harness lands first, this PR must add its failing real IDs to core-real-pending with reason and owner.
+The PR that lands second must adapt. No real passing count is inferred from the testkit flips.
+
+The new read loop retries Interrupted and maps EOF or a terminal read error to one RouteEnded input.
+A WouldBlock read returns an empty input and does not end the route.
+The binding selects route reads only when readable matches registered read interest.
+Sim::has_ready reaches WorkerEdges::ready, so edges_quiet now includes ready route reads and writes through that composition.
+Its readiness term does not fix the missing queue allowances described in F88.
+The pinned codec uses fixed refusal field names. The reviewer has no separate oversized-refusal-frame finding at this head.
+The retained design prior-art note identifies reused codec, transport, stream controls, and admission mechanisms.
+No process guard, anchor, wait, deadline, or cleanup rule changes. No production test hook is added.
+Successful real transfer and the production route driver remain later scopes with required named real-process proofs.
+
+### F86 — MEDIUM — OPEN: a peer close replaces the first route reason
+
+worker/route.rs:527-528 calls end_route(PeerClosed) for every RouteEnded.
+A prior Detach, BadFrame, or SnapshotTooLarge close can already set route.closing while its last frame waits.
+A client EOF or read error at that point removes the route and reports PeerClosed instead of the first reason.
+on_route_written already preserves route.closing for the corresponding write fault. The new read-fault path does not.
+OU-2 requires the first reason and one transport close/report.
+Required: preserve an existing closing reason while closing the failed transport immediately.
+Prove a held healthy close followed by RouteEnded, with exactly one transport close and one report of the original reason.
+Integration R1-1 independently identifies the same path, with HIGH integration severity.
+
+### F87 — MEDIUM — OPEN: refused complete input can bypass receipt accounting
+
+worker/route.rs:508-511 sends a refusal directly for Decoded::Unsupported or Decoded::Invalid.
+Only on_client_frame calls client_received and reports Observation::ClientInput.
+The codec returns those decoded variants for complete input with unknown enums, invalid input fields, or invalid UTF-8 text.
+Those frames therefore leave client_rev unchanged and produce no client activity report, despite a known route and complete receipt.
+IN-4 requires every complete client input frame to advance input_rev{client} on receipt and carry its route.
+This also affects host input guards that compare the client revision.
+Required: account complete client input in a common receipt path before application or refusal.
+Keep ignored extension frames distinct from client input. Do not advance twice for a valid frame.
+Prove unknown-enum and invalid-input refusal, correct route/revision activity, no PTY write, and an unaffected open route.
+Integration independently confirms this finding as R1-4.
+
+### F88 — MEDIUM — OPEN: the new route-read path has no queue allowance
+
+Pending::Route stores each accepted input in the shared input queue without route byte accounting.
+The binding registers read interest from !route.ended and reads up to 64 KiB each time.
+It never receives a route_input_queue_bytes allowance from the machine.
+When the PTY is blocked, continued bytes/text frames therefore accumulate without the contractual per-route input bound.
+
+refuse unconditionally pushes another input_refused frame into the route's outgoing queue.
+When the client floods refused input and does not read, those frames accumulate past route_queue_bytes.
+The PTY read budget does not stop the route input reader. DP-5 explicitly requires that read stop when one more refusal cannot fit.
+R-45 exempts the one baseline sequence; it does not exempt refusals or other frames behind it.
+
+on_route_read also pushes bytes into StreamReader before it checks route.closing.
+A gated closing route therefore retains every later client read without decoding or removing it.
+The edge keeps reading because ended remains false until EOF or a read error.
+This is unbounded retention even when the input application path has already stopped.
+
+Required: implement byte allowances for the implemented route input and outgoing exception queues.
+Stop transport reads when no allowance remains. Retain bytes already taken in order without exceeding the documented bound.
+Handle closing-route bytes before decoder insertion, and stop or safely discard further input once the close is committed.
+Prove blocked PTY input, refusal flooding against a blocked client, partial frames at the allowance edge, and a gated closing route.
+Preserve R-45 accounting and the first close reason. Do not replace a full queue with byte loss or a new timeout.
+Integration R1-2 confirms the closing-route retention path and includes the other queue paths after package feedback.
+
+### F89 — MEDIUM — OPEN: the host retires ended routes before their actual close
+
+flows.rs StopPhase::Finish now calls close_route(SessionEnded) after the session's state, one route per step.
+Worker::report_exit posts Exited when the tail is queued, then queues each route's session_ended close.
+end_route suppresses the later SessionEnded report, so the host has no completion boundary for actual route delivery.
+With route_gate active, the host therefore retires a route while its tail, close frame, and transport still exist.
+run.rs close_route also completes a waiting Detach. That completion can occur before the worker closes the transport.
+It can replace the reason of an earlier worker Detach close with the host's SessionEnded reason.
+
+OU-7 distinguishes queued output at Exited from each route's later delivery and close.
+DP-7 completes Detach only after the route closes. The event-order unit tests do not hold a real testkit tail across this boundary.
+Required: retain Exited-session routes until worker close completion or a typed failure/stall ends them.
+Preserve the host's exit cause in the SessionEnded result and preserve an earlier route reason.
+Use an explicit completion boundary between worker and host. Do not infer completion from Exited.
+Prove a held tail and a pending Detach across payload exit, with no premature route retirement or Detach completion.
+Keep SessionLost separate: that path has no worker left to deliver a completion.
+The reviewer independently confirms integration R1-3 from report_exit, StopPhase::Finish, end_route, and close_route.
+
+### F90 — MEDIUM — OPEN: route input loses ownership and lifecycle outcomes
+
+Pending::Route contains only Vec<u8>. on_client_frame discards route/op identity when it calls enqueue_route_input.
+try_start makes Active with req:None. finish_active reports only a host req, so a route write has no outcome destination.
+A PTY error or payload end after a known partial bytes/text write therefore emits no input_refused with its route/op/written_bytes.
+try_start also silently discards queued route bytes when the payload no longer runs.
+DP-5 requires failure and session-ended exceptions when input is not applied as sent; successful bytes/text writes still remain silent.
+
+input_fence clears the entire queue on host adoption. It cannot distinguish old-host requests from continuing route input.
+A route transaction queued behind an active host write is therefore lost at adoption.
+DP-8 keeps route transports and byte flow independent of the host's lifetime.
+
+Required: retain route/op ownership through queue, active write, and completion.
+Report the DP-5 exception with the correct known written_bytes for partial failure or session end.
+Preserve continuing route transactions across the old-host request fence and maintain one ordered PTY admission point.
+Prove partial bytes/text failure, queued input at payload end, and queued route input across adoption.
+The reviewer independently reads the ownership, finish_active, and input_fence paths and confirms integration R1-5.
+
+### Completed evidence and pending removals
+
+Gate: ~/botster-sessions/gates/botster-core-stage1-p4a-route-lifecycle-8ae2643d-pool-20261009-205549-59478.log.
+The header names the exact head and base. The job runs on msa1 with zero queue time.
+All ten full CI steps PASS. Default: 1437 tests passed in 12.452 seconds. Slow: 256 passed in 21.854 seconds.
+Both facade reports show 205 passed, zero failed, and 485 ignored.
+Each mutation run reports 128 tested: 113 caught, 15 unviable, zero missed and zero timeouts.
+Full CI takes 365.6 seconds. The repeated mutation job takes 255.4 seconds.
+The job exits zero after 635 seconds. The botster-gate wrapper reports zero after 636 seconds.
+The env-only second mutation job remains repeated default coverage. This PR adds no slow-based mutation exclusion.
+The first gate's missed mutants and timeout are historical. The final gate reports none.
+The tests now fail on an empty read while the controlled stream holds bytes, so that earlier mutant cannot cause an endless test loop.
+
+The pending list removes exactly 23 IDs. All 23 replacement-map rows at d79aed5 permit core-testkit, edge, or perturb proofs.
+None is slow:* or a real-only removal. The reviewer reads the held-tail transcript and its queued-versus-delivered boundary.
+The reviewer independently counts minimum 46/69 at base and 54/69 at head, matching the body.
+The passing transcripts and mutation result do not close F86-F90. They do not prove the missing fault and retention paths.
+
+### Verdict and retained scopes
+
+PR #217 is NOT CLEAN at `8ae2643d8a2ddb1fffceda129c3775b3abfa0f88`.
+F86-F90 MEDIUM are OPEN. The reviewer sends all findings directly to P3 and integration.
+This is #217's first recorded package NOT CLEAN round. No round-limit notice is due.
+These findings remain in the implementer/reviewer loop. They are not a BLOCKED report to the lead.
+The lead receives no ordinary NOT CLEAN findings under the reporting rule.
+
+#206 is merged at 6cc7a722. Round 137 CLEAN at cb5b8822 and its F78-F82/F84/F85 closures remain preserved.
+#215 is merged at 9103dca1 under P5's STANDARD package review. #216 pin v0.1.24 is merged at e9901293.
+Accepted plan 23q is pinned at ~/botster-sessions/pins/stage1-plan.bae71c81.md.
+Its counts are testkit-passing /69, real-passing /68, and real-accepted /69, with A20's allocator observation rule.
+The real harness PR will add conformance/minimum-core.txt as the canonical list. Its initialization and later mutations retain their assigned reviews.
+F39 for #163 and F61/F62 for #192 retain prior scopes. P3's non-minimum queue stays parked.
+The reviewer changed no product code and ran no tests, builds, gates, measurements, or mutants.
+All earlier exact-head verdicts remain preserved.
+
+VERDICT: NOT CLEAN
