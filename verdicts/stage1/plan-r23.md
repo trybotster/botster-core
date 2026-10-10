@@ -1076,3 +1076,31 @@ This documentation change requires no execution gate.
 I ran no builds, tests, gates, mutation jobs, or reversal jobs.
 
 VERDICT: CLEAN (0 open) at c0b6f32ef7edaccf871051749399302604962be1
+
+## Round 32 — revision 23y — 2026-10-10
+
+Reviewed head: `214684de9e15ea9fa54dbbeeacf2a2ebf2113153`.
+Prior accepted head: `c0b6f32ef7edaccf871051749399302604962be1`.
+Scope: the complete two-hunk delta in `docs/stage1-plan.md`.
+
+### P23y-1 — LOW — The interim rule does not preserve the existing permitted additions
+
+Section 5 says both pending files are "shrink-only with no exception" until the separate exception PR lands.
+The revision row also says both files are shrink-only.
+These sentences do not distinguish pin-move re-pending from the existing permitted additions.
+Section 5 still permits new ledger ids in the pin-moving commit.
+Section 8 still permits a real-pending addition when an id leaves core-pending or enters the ledger.
+The option A ruling removes the new 23u exception from #226, not those existing rules.
+
+Qualify both sentences to prohibit pin-move re-pending of existing ids until the separate PR lands.
+State that the existing rules for new ledger ids and real-pending additions remain in force.
+I sent the lead this clarification as a QUESTION.
+Status: OPEN.
+
+The separate HIGH PR, its dependency on #218, and the strict real-tier check address #226 R1-1.
+The revision retains the required proof that a passing real-pending id fails the step.
+This plan review does not review #218 or remove its user-approval hold.
+`git diff --check` passes. This documentation change requires no execution gate.
+I ran no builds, tests, gates, mutation jobs, or reversal jobs.
+
+VERDICT: NOT CLEAN (1 open) at 214684de9e15ea9fa54dbbeeacf2a2ebf2113153
