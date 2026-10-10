@@ -318,8 +318,8 @@ fn a_lost_worker_is_worker_gone_and_its_payload_ends() {
     }
 }
 
-/// `lose_worker` builds only `worker_gone`: another lost reason is `Unsupported`, and an unknown one is `Bad`. It refuses an
-/// unknown handle or session, a session with no worker process and an unknown argument with `Bad`.
+/// `lose_worker` builds only `worker_gone`: `worker_unreachable` is `Unsupported`. It refuses another reason, an unknown
+/// handle or session, a session with no worker process and an unknown argument with `Bad`.
 #[test]
 fn lose_worker_refuses_what_it_cannot_end() {
     let mut harness = TestkitHarness::new(0);
@@ -345,20 +345,24 @@ fn lose_worker_refuses_what_it_cannot_end() {
         "lose_worker",
         &json!({"session": "s1", "reason": "no_such_reason"})
     )));
+    for reason in ["worker_version", "registry_corrupt", "WorkerGone"] {
+        assert!(bad(harness.control(
+            "a",
+            "lose_worker",
+            &json!({"session": "s1", "reason": reason})
+        )));
+    }
     assert!(bad(harness.control(
         "a",
         "lose_worker",
         &json!({"session": "s1", "seconds": 1})
     )));
-    for reason in ["worker_unreachable", "worker_version", "registry_corrupt"] {
-        assert_eq!(
-            harness.control(
-                "a",
-                "lose_worker",
-                &json!({"session": "s1", "reason": reason})
-            ),
-            Err(ControlError::Unsupported),
-            "{reason}"
-        );
-    }
+    assert_eq!(
+        harness.control(
+            "a",
+            "lose_worker",
+            &json!({"session": "s1", "reason": "worker_unreachable"})
+        ),
+        Err(ControlError::Unsupported)
+    );
 }
