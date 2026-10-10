@@ -233,7 +233,11 @@ impl Session {
     /// LC-7: `Remove` gives the complete result, and then the worker ends with code 0.
     fn remove(mut self) {
         self.link.msg(&HostMsg::Remove);
-        assert!(matches!(self.link.report(), WorkerMsg::RemoveResult { .. }));
+        let report = self.link.report();
+        assert!(
+            matches!(report, WorkerMsg::RemoveResult { .. }),
+            "{report:?}"
+        );
         let status = self.worker.worker.wait().unwrap();
         assert_eq!(
             status.code(),
@@ -765,7 +769,11 @@ impl GuardedSession {
     /// LC-7: `Remove` gives the complete result, and then the worker ends with code 0.
     fn remove(mut self) {
         self.link.msg(&HostMsg::Remove);
-        assert!(matches!(self.link.report(), WorkerMsg::RemoveResult { .. }));
+        let report = self.link.report();
+        assert!(
+            matches!(report, WorkerMsg::RemoveResult { .. }),
+            "{report:?}"
+        );
         let status = self.worker.status_by(Deadline::cleanup());
         assert_eq!(
             status.code(),
