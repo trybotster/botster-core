@@ -288,3 +288,98 @@ I changed no product code and ran no build, test, gate, mutation job, merge-chec
 The tree comparison uses Git source objects only.
 
 VERDICT: NOT CLEAN (2 open: R2-1 MEDIUM and R2-2 MEDIUM).
+
+## Source and evidence inspection — 2026-10-10 — Package verdict pending
+
+Reviewed head: `d1d8742a36de00753d32e302aeac99fb72bf1a0a`.
+Prior reviewed head: `3e4c79a916673de015765bb951b165fc155db963`.
+PR and full gate base: `89d57cc7d07957b88003722897cf43e540d19bcc`.
+Scope: the complete three-file correction, affected input and route paths, both base merges, PR body, and supplied evidence.
+The tier remains HIGH. This inspection completes no verdict round before the same-head package verdict arrives.
+
+### Checked corrections
+
+R2-1 / F105 closes its reported source path.
+Route input completion now calls `settle_routes`, which applies waiting frames before it sends the budget and allowances.
+Partial PTY counts, route queue writes, reads, output, refusals, bind, and close also call this shared point.
+Calls inside an active pass request another pass instead of starting a recursive route pass.
+Each pass consumes the unsettled flag. The unmodified loop stops after the waiting work and its generated changes settle.
+The quiet-batch proof checks all 50 bytes at the PTY in order without another client read or outgoing frame.
+
+R2-2 / F106 closes its reported source path.
+`receive_route` counts every complete input frame before the application pass checks refusal room.
+Unsupported and Invalid frames use this receipt path too. Ignored extensions advance no input revision.
+`apply_route` preserves each route's received order and reserves refusal room before admitting input.
+The guard proof reports revision 50 on the read, rejects an earlier reported revision as Stale with exact zero, and accepts revision 50.
+It checks that later refusal delivery adds no second receipt report.
+
+The waiting-frame byte counter was removed after the earlier gate found ineffective mutations in that counter.
+The allowance remains zero while refusal room blocks application.
+`settle_routes` applies waiting frames before computing a nonzero allowance, so no waiting frame is omitted from a renewed allowance.
+The final source retains the R-53 floor, reservation, last-frame, op, and spent-allowance corrections.
+
+### R3-1 — LOW — OPEN — Private queue assertions restore the R1-5 / F103 defect
+
+Locations: `worker/route.rs:798-804`; `worker/tests/routes.rs:1404-1406,1631,1639-1640,1847,1867,1894`.
+
+The new cfg(test) `route_pressure` exposes `queued - baseline` and `received.len()`.
+Both pressure proofs and both new correction proofs assert these private values.
+The pressure proofs also remove their previous public encoded-refusal bound checks.
+BUILD Testing shape rule 3 forbids tests of helper internals.
+The Round 2 closure of R1-5 / F103 no longer holds for this new delta.
+
+Remove the accessor. Use actions, decoded frames, and transport progress to check the same conditions.
+Keep the immediate and deferred refusal bounds, ordered delivery, and the F105/F106 scenario coverage.
+I sent this finding to the implementer and package reviewer before completing this inspection.
+
+### R3-2 — MEDIUM — OPEN — Delayed early input loses its NotReady decision
+
+Package finding: F107. I independently confirmed the source path and read R-51 at contracts-v0.1.27.
+Locations: `worker/route.rs:576-589,599-620,708-712`.
+
+An early finite batch can fit the input allowance and arrive before the gated live completion.
+`receive_route` counts every complete frame but stores no readiness decision with those valid frames.
+`apply_route` emits NotReady refusals until refusal pressure stops application, leaving the received suffix waiting.
+After the baseline completes and a refusal write frees room, `settle_routes` applies that suffix.
+`on_client_frame` checks the current `baseline`, now zero, and sends the early bytes to the PTY.
+
+DP-5 and TS-5 require NotReady for input that the worker receives before live.
+R-51 permits either order only when the input remains in the transport until the worker receives it.
+That exception does not apply here: the complete frames have already advanced the receipt revision before live.
+
+Preserve the receipt-time NotReady decision while refusal delivery waits.
+Add a public proof with an early complete batch, refusal pressure, later live completion, and queue draining.
+Require NotReady for every early op and no PTY write from that batch.
+This is a source counterexample. I ran no reproduction job.
+The package reviewer reported F107 and independently confirms this MEDIUM finding.
+
+### Source merges, accounting, and evidence
+
+The automatic `1d96f4c0` plus `6c2bccda` tree equals the actual `374f1f2a` tree: `0862083e4cc0efd83714a77860997e1f3574ec70`.
+The automatic `9a95a0ae` plus `89d57cc7` tree equals the actual reviewed tree: `eb09ce10f8b690e198a880be3bbdd731220a033c`.
+All three correction files equal their pre-final-merge bytes.
+The imports retain accepted #229 mutation selection and #231's contracts-v0.1.27 pin.
+Core pending ID lines equal the prior head. Real-pending, real-only, held, deferred, and minimum files equal their prior bytes.
+No additional ID leaves pending. No new real-route pass is claimed. `git diff --check` passes.
+Remote v1, PR head, and PR base match the recorded commits.
+
+Gate: `~/botster-sessions/gates/botster-core-stage1-p4a-route-input-d1d8742a-pool-20261010-154315-72557.log`.
+Its header names the exact head and base. The command is plain `cargo xtask ci` through the pool.
+All ten jobs pass. Default: 1540 passing tests, 14.747 seconds. Slow: 384 passing tests, 135.143 seconds.
+Both conformance reports show 205 passed and zero failed.
+Strict coverage remains 374/395, with 21 real-only transcripts and two held transcripts.
+Minimum counts remain testkit 54/69, real 29/68, and real-accepted 29/69.
+Real-pending remains 99, with zero newly passing IDs.
+Stage 1 has 118 mutants: 116 caught, two unviable, zero missed, and zero timeout, in 237.8 seconds.
+Stage 2 does not run because stage 1 misses none. The gate exits zero after 527 seconds, including two queued seconds.
+The passing gate does not remove the test-shape finding.
+
+I read `evidence/p3-pr3/pr3-round151-reverts.log` and its complete script. I did not run the script.
+The F105 reversal fails the quiet-batch proof. The F106 reversal fails the guard proof and both pressure proofs.
+The shared application-pass reversal fails 21 route proofs. The restored source passes all 143 selected proofs.
+The log retains result summaries and failed test names, not full assertion output.
+These receipts support the source correction but do not establish compliance of the private assertions with BUILD rule 3.
+
+The same-head package verdict is pending. One LOW and one MEDIUM source finding remain open.
+I changed no product code and ran no build, test, gate, mutation job, merge-check job, or reversal job.
+The tree comparisons use Git source objects only.
