@@ -874,7 +874,8 @@ mod tests {
                 variants.extend(props.keys().cloned());
             }
         }
-        assert!(variants.len() >= 26, "{variants:?}");
+        // `contracts-v0.1.22` has 25 operations (A17-1 removed `AttachWebRtc`).
+        assert!(variants.len() >= 25, "{variants:?}");
         for variant in &variants {
             assert!(calls.contains(variant.as_str()), "Op::{variant} has no row");
         }
