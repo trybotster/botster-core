@@ -2026,6 +2026,7 @@ name = "xtask"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "botster-core-conformance",
  "botster-core-contract",
  "botster-core-sys",
  "botster-core-testkit",
