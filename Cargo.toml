@@ -1,8 +1,6 @@
 [workspace]
 resolver = "2"
 members = ["crates/*", "xtask"]
-# PROBE ONLY (never merged): the R-46 conformance crate copy (plan 23o measurement).
-exclude = ["probe-contracts"]
 
 [workspace.package]
 version = "0.1.0"
@@ -19,12 +17,12 @@ base64 = { version = "0.22", default-features = false, features = ["alloc"] }
 # botster-contracts, by tag (plan section 0; contracts-v0.1.22 = af5771c, manifest-final37: Core Amendment 17 candidate 2, WebRTC moves to the Hub
 # and Core has one route transport, `Stream`; HC Amendment 8, HP Amendment 9, codec rev37; Limits::real (R-43); the Stop-race transcripts;
 # earlier: final36, Core Amendment 18 candidate 2; Core Amendments 13 to 16 in the crates, InvalidInput{field}; rulings R-30 to R-37).
-botster-core-contract = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.22" }
-botster-conformance = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.22" }
-botster-core-conformance = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.22" }
-botster-route-codec = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.22" }
-botster-probe-script = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.22" }
-botster-test-support = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.22" }
+botster-core-contract = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.23" }
+botster-conformance = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.23" }
+botster-core-conformance = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.23" }
+botster-route-codec = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.23" }
+botster-probe-script = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.23" }
+botster-test-support = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.23" }
 
 anyhow = "1"
 data-encoding = "2"
@@ -66,7 +64,3 @@ inherits = "dev"
 opt-level = 3
 incremental = false
 codegen-units = 1
-
-# PROBE ONLY (never merged): botster-core-conformance with the R-46 driver change (contracts e8170b0).
-[patch."https://github.com/trybotster/botster-contracts"]
-botster-core-conformance = { path = "probe-contracts/crates/botster-core-conformance" }
