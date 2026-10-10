@@ -76,10 +76,11 @@ exclude_re = [
     # check_minimum (a_minimum_id_is_listed_once_and_is_an_active_core_ledger_id).
     'xtask/src/lists\.rs:\d+:\d+: replace command -> Result<\(\)> with Ok\(\(\)\)$',
     # xtask lists.rs ledger_ids_command -> Ok(()): process glue. The body reads the pinned ledger, status files and
-    # replacement map, then writes the four files or compares them with the checked-in copies; a test cannot run it on the
-    # pinned checkout inside the test run. Only this whole-body replacement is excluded. Every gate log shows its
-    # "ledger-ids: ... match the pin" line. Its decisions are tested: ledger_text (the_ledger_file_is_one_id_per_line_in_order)
-    # and real_only_text (the_real_only_file_is_each_core_id_with_its_slow_proof_in_order).
+    # replacement map, then writes the four files or reads the checked-in copies; a test cannot run it on the pinned
+    # checkout inside the test run. Only this whole-body replacement is excluded. Every gate log shows its
+    # "ledger-ids: ... match the pin" line. Its decisions are tested: whether each copy is the pinned file, copy_problems
+    # (a_copy_that_is_not_the_pinned_file_is_a_problem); the pinned text, ledger_text
+    # (the_ledger_file_is_one_id_per_line_in_order) and real_only_text (the_real_only_file_is_each_core_id_with_its_slow_proof_in_order).
     'xtask/src/lists\.rs:\d+:\d+: replace ledger_ids_command -> Result<\(\)> with Ok\(\(\)\)$',
     # botster-core-testkit real.rs, every mutant: the module is `#[cfg(feature = "slow")]` (RealCoreHarness, plan 23l), so
     # the default mutation run never compiles it and lists each mutant as missed with no test run. Interim until the plan
