@@ -52,6 +52,7 @@ pub(crate) fn registered_controls() -> ControlRegistry {
     crate::start_controls::register_controls(&mut registry);
     crate::adopt_controls::register_controls(&mut registry);
     crate::resume_controls::register_controls(&mut registry);
+    crate::route_controls::register_controls(&mut registry);
     registry
 }
 

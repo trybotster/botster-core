@@ -907,3 +907,39 @@ fn a_write_that_the_stream_refuses_is_ok_zero_then_writable() {
         }
     ));
 }
+
+/// OU-5: the client's bytes on a route's stream reach the machine as `RouteRead`, in order. The client's close gives one
+/// `RouteEnded`, and the edge does not read the stream again.
+#[test]
+fn the_clients_bytes_reach_the_machine_and_its_close_ends_the_route_once() {
+    let (mut edges, mut peer, worker, now) = fixture(16);
+    let mut client = bind_route(&mut edges, &mut peer, &worker, now, RouteId(1));
+    assert_eq!(edges.ready(now, &worker), 0, "nothing to read");
+    assert_eq!(
+        botster_core_edges::RouteTransport::write(&mut client, b"abcd").unwrap(),
+        4,
+        "the stream holds 4 bytes"
+    );
+    let mut got = Vec::new();
+    while got.len() < 4 {
+        assert_eq!(edges.ready(now, &worker), 1, "the stream is readable");
+        let Input::RouteRead { route, bytes } = edges.take(now, &worker, 0) else {
+            panic!("a route read")
+        };
+        assert_eq!(route, RouteId(1));
+        got.extend_from_slice(&bytes);
+    }
+    assert_eq!(got, b"abcd");
+    assert_eq!(edges.ready(now, &worker), 0, "the stream is drained");
+    botster_core_edges::RouteTransport::close(&mut client);
+    assert_eq!(edges.ready(now, &worker), 1, "the close is readable");
+    assert_eq!(
+        edges.take(now, &worker, 0),
+        Input::RouteEnded { route: RouteId(1) }
+    );
+    assert_eq!(
+        edges.ready(now, &worker),
+        0,
+        "an ended stream is not read again"
+    );
+}
