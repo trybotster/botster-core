@@ -8316,3 +8316,117 @@ The reviewer changed no product code and ran no tests, builds, gates, measuremen
 All earlier exact-head verdicts remain preserved.
 
 VERDICT: NOT CLEAN
+
+
+## Round 139 — PR #217 replacement route lifecycle — 2026-10-09
+
+Reviewed head: `557c414f3383dc357186972380291737a959f401`.
+PR base: `e99012939c8df4f85da5ae5af7144534b129cb70`.
+Parent: `c811fdd36dd392310a03172b031610f6705e9de0`.
+Prior reviewed head: `8ae2643d8a2ddb1fffceda129c3775b3abfa0f88`, round 138.
+Tier: HIGH under BUILD rule 3 because the PR changes the shared testkit and its controls.
+All findings, including LOW findings, must close before this HIGH PR is CLEAN.
+The reviewer reads the correction and the remaining change against BUILD, plan 23q, contracts v0.1.24, and the lead rulings.
+
+### Scope and earlier findings
+
+The replacement follows the lead's option A. It removes all route decode, admission, refusal, and read binding code.
+worker/input.rs equals the PR base. The worker no longer accepts RouteRead or RouteEnded.
+The testkit uses the PR1 read-interest behavior. The pending list restores the 12 input-dependent IDs from round 138.
+Compared with the PR base, the pending list removes 11 IDs and adds none.
+The body carries F86/F87/F88/F90 and the corresponding integration findings into the complete PR3 input unit.
+F86/F87/F88/F90 close only within this PR2 scope. Their PR3 requirements remain open.
+PR3 must cover receipt revision, route/op identity, every refusal, the adoption fence, both allowances, and read pause/resume.
+
+F89's original premature-close fault is corrected at the normal completion boundary.
+The worker reports SessionEnded for each route only after its queue is delivered.
+The host records that route's completion and projects the host's exit cause when Finish posts the close.
+The worker preserves an earlier detach reason across payload exit. The host completes the pending Detach at the reported close.
+The host tests check no close before the report, independent completion of two routes, and a pending Detach across exit.
+The worker tests check no report before delivery and one report for each delivered route.
+This closes the original F89 source fault. F91 and F92 below identify faults in the replacement completion path.
+The existing SessionLost path remains separate from normal worker delivery.
+
+### F91 — HIGH — OPEN: some worker-loss paths never release ended routes
+
+inbound.rs:677-716 handles ProcessExited. It calls close_worker_link when the worker still has a link.
+flows.rs close_worker_link takes worker.link and removes self.links. It does not record RouteEnd::Lost.
+The ProcessExited flow match leaves an existing Stop PostEnd or Finish unchanged.
+If Exited already occurred and a bound route has no close report, next_ended_route cannot select that route.
+finish_waits then keeps Finish waiting. A later LinkClosed finds no self.links entry and returns without recording route loss.
+The route remains bound, and a Remove queued behind the end flow cannot run.
+
+A second order has the same fault. Exited during Start stores pending_end.
+If LinkClosed arrives before finish_start creates the Stop flow, the new loss block does not record the routes.
+That block checks only Flow::Stop with an end. finish_start later begins Exited Finish with no live link and no route completion.
+The body promises SessionLost when the link is lost before delivery. Neither order meets that promise or OU-7's close boundary.
+
+Required: record route loss for every applicable worker/link teardown, including loss before the end flow exists.
+Preserve an earlier Delivered record and an earlier route close reason.
+Prove Exited with a held route, then ProcessExited before LinkClosed, and completion of the queued Remove.
+Also prove Exited during Start, then LinkClosed before finish_start, with one SessionLost close.
+The reviewer independently confirms integration R2-1 from the source. Integration grades this finding HIGH.
+
+### F92 — MEDIUM — OPEN: Finish advertises work when the event queue is full
+
+run.rs:98 includes only PostStopping and PostEnd in flow_needs_room for Flow::Stop.
+The new Finish phase also posts a mandatory RouteClosed event through close_route.
+When a route has a Delivered or Lost record, finish_waits returns false.
+If the event queue is full, ready still offers Work::Session because Finish does not require event capacity.
+StopPhase::Finish calls close_route, which returns false without changing the route or flow.
+The next ready call offers the same work again. This violates the no-busy-work requirement.
+
+Required: make the Finish route-close step wait for mandatory event capacity.
+Do not block Finish work that needs no event capacity after the routes are closed.
+Prove a full event queue with an eligible route close, no ready work, and polling that permits exactly one close.
+The reviewer independently confirms integration R2-2 from ready, finish_waits, StopPhase::Finish, and close_route.
+
+### F93 — LOW — OPEN: the PR description still names the removed scope
+
+The PR title still says route input and 23 flips. This head removes route input and has 11 flips.
+The body and flows.rs comment also say the launch handed every route to the worker.
+flush_handoffs queues HandoffRoute actions. The driver can retain the endpoint at a blocked descriptor send.
+A queued action does not prove descriptor delivery. The body already describes this hold correctly in its control table.
+A released handoff can reach the exited worker and complete through its attach-after-exit path.
+The reviewer does not claim a separate product fault for that held path.
+
+Required: update the title for the final scope and count. State the difference between a queued handoff and descriptor delivery.
+Keep the completion claim consistent with the driver's blocked-send behavior.
+
+### Completed evidence
+
+Gate: ~/botster-sessions/gates/botster-core-stage1-p4a-route-lifecycle-557c414f-pool-20261009-214620-89447.log.
+The header names the exact head and base. The job runs on msa1 with two seconds of queue time.
+All ten full CI steps PASS. Default: 1419 tests pass in 14.338 seconds. Slow: 256 pass in 23.319 seconds.
+Both facade reports show 193 passed, zero failed, and 497 ignored.
+Both mutation reports show 110 tested: 95 caught, 15 unviable, zero missed, and zero timeouts.
+Full CI takes 345.7 seconds. The repeated mutation job takes 218.2 seconds.
+The job and wrapper exit zero after 575 seconds. The job reports 573 seconds of run time.
+The env-only second mutation job remains repeated default coverage. This PR adds no slow-based mutation exclusion.
+The earlier c811fdd3 gate has six misses. The final gate is complete, but its result does not close F91 or F92.
+
+All 11 removed IDs have PASS lines in the completed gate. They retain their permitted replacement-map proof classes.
+None is a slow-based removal or a real-only removal. The reviewer counts minimum 46/69 at base and 50/69 at this head.
+The body records the real forms of the controls and the gaps for route_fill and portable fail_writes.
+These gaps remain named real-tier work when the real harness lands. They are not exemptions from real acceptance.
+The shared testkit changes add no production test hook or real-process guard change.
+The earlier guard, anchor, wait, deadline, and cleanup rulings remain unchanged.
+
+### Verdict and retained scopes
+
+PR #217 is NOT CLEAN at `557c414f3383dc357186972380291737a959f401`.
+F91 HIGH, F92 MEDIUM, and F93 LOW are OPEN. The reviewer sends them directly to P3 and integration.
+Integration round 2 is NOT CLEAN at the same head, verdict `d2b9ddbbe10a79b14a08d68575731597cbc1a27d`.
+This is #217's second package NOT CLEAN round. No third-round notice is due yet.
+These findings stay in the implementer/reviewer loop. They do not meet the BLOCKED reporting condition.
+The lead receives no ordinary NOT CLEAN report under the reporting rule.
+Integration reports that v1 has advanced to dc7fb11d915b76d45fdae84b1edaa208a7f895eb.
+The next replacement must include the current integration base and its required exact-head evidence.
+
+Round 137 CLEAN for #206 and its F78-F82/F84/F85 closures remain preserved. #206 is merged at 6cc7a722.
+#215 is merged at 9103dca1. #216 is merged at e9901293 with contracts v0.1.24 at d79aed5.
+Accepted plan 23q remains bae71c81. F39 for #163 and F61/F62 for #192 retain their prior scopes.
+P3's non-minimum queue stays parked. The reviewer changes no product code and runs no tests, builds, gates, measurements, or mutants.
+All earlier exact-head verdicts remain preserved.
+
+VERDICT: NOT CLEAN
