@@ -556,3 +556,57 @@ fn a_held_handoff_whose_link_alone_closes_after_running_closes_handoff_failed_on
         "no route is retained"
     );
 }
+
+/// #219 (gate mutant at 31072282): a running session's route is held `Blocked` in the driver's mark, and a `Stop` runs.
+/// The link closes, then the worker's process ends. The stopping session ends with the link, and its end closes the route
+/// once, after the end state, with the end's reason: not `HandoffFailed` before the state.
+#[test]
+fn a_held_handoff_of_a_stopping_session_closes_with_its_end_after_the_state() {
+    let mut rig = running();
+    with_link(&rig, |l| l.send_budget = Some(0));
+    let token = Arc::new(11);
+    let result = attach(&mut rig, Arc::clone(&token));
+    rig.pump();
+    assert_eq!(Arc::strong_count(&token), 2, "the mark holds the stream");
+    rig.driver.begin(Op::Stop { id: sid("s1") }).unwrap();
+    rig.pump();
+    let mut events = rig.drain_events();
+    with_link(&rig, |l| l.peer_closed = true);
+    rig.pump();
+    events.extend(rig.drain_events());
+    rig.mock.lock().unwrap().exits.push((
+        ProcessIdentity {
+            pid: 500,
+            start_time: 1,
+        },
+        ExitStatus::Code(0),
+    ));
+    for _ in 0..8 {
+        rig.pump();
+        events.extend(rig.drain_events());
+    }
+    let end = events
+        .iter()
+        .position(|e| {
+            matches!(
+                e,
+                Event::SessionState {
+                    state: SessionState::Exited(_) | SessionState::Lost(_),
+                    ..
+                }
+            )
+        })
+        .unwrap_or_else(|| panic!("the session ends: {events:?}"));
+    let (_, closes) = closes_after_running(&events, result.route);
+    assert_eq!(closes.len(), 1, "one close: {events:?}");
+    assert_ne!(closes[0].1, RouteCloseReason::HandoffFailed, "{events:?}");
+    assert!(
+        closes[0].0 > end,
+        "the close follows the end state: {events:?}"
+    );
+    assert_eq!(Arc::strong_count(&token), 1, "the stream closed");
+    assert!(
+        !rig.driver.engine().routes.contains_key(&result.route),
+        "no route is retained"
+    );
+}

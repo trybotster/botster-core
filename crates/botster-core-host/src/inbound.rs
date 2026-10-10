@@ -580,11 +580,11 @@ impl HostEngine {
         }
     }
 
-    /// The worker's link closed while the driver held the route's stream (`HandoffLost`). A stopping session, or a start that
-    /// failed, ends: `StopPhase::Finish` closes the route once, after the state, with the end's reason (steward ruling R-50; no
-    /// route of a gone link is delivered, so `SessionLost`). A start that has not failed may still run, since the link alone
-    /// does not end it: the route is kept as an obligation that `finish_start` settles. Any other route closes
-    /// `HandoffFailed`.
+    /// The worker's link closed while the driver held the route's stream (`HandoffLost`). A stopping session ends:
+    /// `StopPhase::Finish` closes the route once, after the state, with the end's reason (steward ruling R-50; no route of a
+    /// gone link is delivered, so `SessionLost`). A start may still run, since the link alone does not end it: the route is
+    /// kept as an obligation that `finish_start` settles (a failed start closes it with its end, as it closes every route
+    /// of the session). Any other route closes `HandoffFailed`.
     fn on_handoff_lost(&mut self, route: RouteId) {
         let Some(id) = self.routes.get(&route).map(|entry| entry.session.clone()) else {
             return;
@@ -594,7 +594,6 @@ impl HostEngine {
         };
         match &s.flow {
             Flow::Stop(_) => {}
-            Flow::Start(f) if f.failure.is_some() => {}
             Flow::Start(_) => {
                 s.lost_handoffs.insert(route);
             }
