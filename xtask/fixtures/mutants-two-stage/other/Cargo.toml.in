@@ -1,11 +1,8 @@
 [package]
-name = "twostage"
+name = "other"
 version = "0.1.0"
 edition = "2021"
 publish = false
 
 [features]
 slow = []
-
-[workspace]
-members = ["other"]
