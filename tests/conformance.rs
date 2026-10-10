@@ -96,13 +96,21 @@ fn never_passes(id: &str, kind: &str, reason: String) -> Trial {
 
 /// Runs one transcript over the seed set: `Ok(())` on a pass, else the description of the outcome.
 fn outcome_of(transcript: &Transcript) -> Result<(), String> {
+    outcome_at(transcript, |seeds| seeds)
+}
+
+/// Runs one transcript over the seeds that `narrow` keeps of the seed set.
+fn outcome_at(
+    transcript: &Transcript,
+    narrow: impl FnOnce(SeedSet) -> SeedSet,
+) -> Result<(), String> {
     let Some(make) = harness_factory() else {
         return Err(format!(
             "{}: no harness is available yet; the id belongs in conformance/core-pending.txt",
             transcript.id
         ));
     };
-    let seeds = Selection::from_env().seeds(&SeedSet::from_env());
+    let seeds = narrow(Selection::from_env().seeds(&SeedSet::from_env()));
     let outcome = run_transcript(
         transcript,
         &|seed| driver_for(make(seed)),
@@ -122,8 +130,8 @@ fn run_id(transcript: &Transcript) -> Result<(), Failed> {
 }
 
 /// The trial of a pending id in the strict run. A real-only id does not run. Another one runs, and `pending::verdict`
-/// decides: a pending id that passes fails its trial, and so does a held id that fails. An expected result reports
-/// itself ignored, so that the strict run counts no pass.
+/// decides: a pending id that passes fails its trial, and so does a held id that fails. A `budget` held id runs at the
+/// first seed only (`pending::seeds_of`). An expected result reports itself ignored, so that the strict run counts no pass.
 fn strict_trial(transcript: &Transcript, class: Class) -> Trial {
     let id = transcript.id.clone();
     if let Class::RealOnly(_) = class {
@@ -132,7 +140,10 @@ fn strict_trial(transcript: &Transcript, class: Class) -> Trial {
     }
     let transcript = transcript.clone();
     Trial::ignorable_test(id.clone(), move || {
-        let passed = outcome_of(&transcript).is_ok();
+        let passed = outcome_at(&transcript, |set| SeedSet {
+            seeds: pending::seeds_of(&class, &set.seeds),
+        })
+        .is_ok();
         pending::verdict(&id, &class, passed)
             .map(Completion::ignored_with)
             .map_err(Failed::from)
