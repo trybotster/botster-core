@@ -160,7 +160,7 @@ impl RouteClient for RealRoute {
 }
 
 #[cfg(test)]
-mod tests {
+mod slow_tests {
     use super::*;
     use botster_test_process::{Bounded, Deadline as TestDeadline};
     use std::time::Instant;
