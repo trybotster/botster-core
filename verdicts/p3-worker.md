@@ -9567,3 +9567,208 @@ The reviewer changes no product code and runs no tests, builds, gates, measureme
 All earlier exact-head verdicts and closures remain preserved.
 
 VERDICT: NOT CLEAN
+
+
+## Round 151 — 2026-10-10 — P4a PR3 route input, replacement review
+
+PR: #227.
+Exact head: `3e4c79a916673de015765bb951b165fc155db963`.
+Exact base: `3677b37e502497d5e63a91dfad92e5671bd19196`.
+Prior reviewed head: `a65c8f9e347c752307c661f70871614c7ef72dee`.
+Branch: stage1/p4a-route-input.
+Tier: HIGH under BUILD rule 3. Rule 5 also applies to the listed Worker and production driver paths.
+The remote PR head and base match these exact commits.
+The reviewer checks the replacement delta and the complete route input mechanism.
+Round 150's unchanged source conclusions remain part of this review.
+
+### F99 — MED — CLOSED
+
+on_route_read now subtracts the consumed bytes from the Worker's cached remaining allowance.
+read_allowances compares the desired value with that remaining value.
+A read that consumes a whole immediately refused frame therefore gets a replacement allowance.
+The whole-frame proof spends each allowance before applying its replacement and exceeds the initial allowance.
+It verifies all 400 refusal ids in order.
+The Worker-plus-binding proof sends 600 frames and verifies every refusal id.
+The first proof fails when the cached subtraction is removed.
+The second proof passes on that revert because seeded reads usually stop inside a frame.
+The PR states this limitation. It does not claim that the binding proof detects the whole-frame defect.
+Both proofs pass in the exact-head gate. The source and proofs close F99.
+
+### F100 — MED — CLOSED for the deferred-refusal byte bound
+
+InputState::route_inputs counts the route's queued inputs and its active input.
+reserved computes one refusal_bound for each retained input, without a separate stored ledger.
+Both refusal_room and the PTY output budget subtract that reservation.
+A valid input can enter the admission point only while another reservation fits.
+An active or queued input releases its reservation before a deferred refusal consumes the actual frame bytes.
+refusal_bound bounds each exception that this Worker emits.
+This prevents the deferred-refusal excess identified in F100.
+The new proof uses a blocked host write, fifty one-byte route frames, a 1000-byte outgoing queue, and a payload end.
+The early deferred exceptions fit the queue. All fifty outcomes arrive in order when the client reads.
+The recorded reservation revert fails that proof. The exact-head gate passes it.
+F105 below identifies a distinct progress defect in the reservation mechanism.
+F88's whole queue requirement remains open while that defect remains.
+
+### F101 — MED — CLOSED for the last-frame guarantee
+
+refuse now accepts only a route whose closing field is None.
+A deferred failure therefore appends no frame after close_healthy commits route_closed.
+The new proof admits a route PTY write, detaches the route before the client reads, and fails the PTY write.
+The client receives route_closed as its last frame.
+The recorded closing-filter revert fails that proof. The exact-head gate passes it.
+The first close reason continues to survive peer end and transport write failure.
+This closes the specific last-frame defect in F101.
+
+### F102 — MED — CLOSED
+
+Unsupported PasteChunk and FileChunk inputs retain their nonzero codec ops.
+Unsupported structured inputs use Input::op().
+The replacement proof expects the original ids 2, 3, and 5 for two binary chunks and one structured key.
+It also verifies that the route stays open.
+The recorded op-removal revert fails the proof. The exact-head gate passes it.
+The supported Bytes/Text path and codec Unsupported/Invalid paths retain their operation handling.
+
+### F103 — LOW — CLOSED
+
+The replacement removes route_held and all its callers.
+The three proofs now inspect machine actions, ClientInput reports, and decoded client frames.
+The refusal-pressure proof totals the serialized early exception frames instead of reading private queue accounting.
+The closing-route proof checks that no ClientInput report or PTY write occurs for later client input.
+The baseline-refusal proof observes the receipt and the delivered refusal.
+The binding proof calls bind_route_unread, which binds the transport without granting an allowance.
+Client bytes wait with zero ready reads before the first allowance.
+The first allowance admits ab. Zero then stops reads. Replacement allowances admit cdef and gh.
+These changes close the filed test-shape and first-allowance gaps.
+F106 below concerns the meaning of receipt under pressure, not private assertions.
+
+### F104 — MED — CLOSED under R-53
+
+The code and PR body cite R-53 at contracts commit 3a6dd2d.
+The reviewer retains round 150's verified acceptance of that binding ruling.
+The effective input allowance remains max(route_input_queue_bytes, max_frame_bytes + 4).
+The default-limits proof sends one Bytes frame of exactly max_frame_bytes.
+The proof includes the stream prefix, reads within the granted allowance, and answers the PTY writes.
+The whole payload reaches the PTY. The route does not close.
+The legal small-queue proof uses route_input_queue_bytes=100 and an exactly maximal frame.
+The frame reaches the PTY, its unwritten payload reduces the allowance, and completion restores the effective allowance.
+The recorded no-floor revert fails both proofs. Both pass in the exact-head gate.
+This satisfies R-53's citation and proof requirements and closes F104.
+
+### F105 — MED — OPEN — Successful writes do not resume buffered complete input
+
+Locations: worker/input.rs:462-497; worker/route.rs:539-573 and 700-720.
+The new reservation can stop decode_route while complete valid frames remain in StreamReader.
+A client can send a finite batch that fits its granted allowance and is read completely from the transport.
+A small outgoing queue permits reservations for only part of that batch.
+The Worker admits that part and leaves the remaining complete frames in its reader.
+Each successful route PTY completion removes one active input and frees its reservation.
+finish_active calls send_budget, read_allowances, and try_start. None calls decode_route.
+The Worker can finish every admitted input without decoding the remaining complete frames.
+A quiet payload produces no route output. Successful input produces no acknowledgement.
+If the client sends no more bytes, neither RouteRead nor RouteWritten supplies another decoder call.
+The remaining frames can therefore stay buffered forever despite available input and outgoing space.
+A replacement read allowance cannot create readiness for bytes that the binding already consumed.
+This violates DP-5's delayed-input guarantee and AM-2's progress through the admission point.
+
+Required: resume complete buffered input when reservation space becomes available.
+Preserve receive order and the single PTY transaction owner.
+Add a behavior proof with a small outgoing queue and a finite batch that the binding reads completely.
+Complete the admitted PTY writes successfully and produce no route output.
+The whole batch must reach the PTY without extra client input or outgoing traffic.
+The deferred-end proof produces refusals whose RouteWritten events conceal this successful-write path.
+The reviewer sends this finding directly to P3 and integration.
+Integration independently confirms this source path.
+
+### F106 — MED — OPEN — Refusal pressure delays revision advancement past receipt
+
+Locations: worker/route.rs:528-532, 539-547, and 614-622; worker/input.rs:351-375.
+The binding can deliver one permitted RouteRead containing many complete valid input frames.
+decode_route stops before reader.next_frame when refusal_room is false.
+Complete later frames remain in the Worker's reader without a client_received call.
+The existing pressure proof explicitly expects fewer ClientInput reports than complete frames delivered in that read.
+On a view-only route, these frames produce immediate refusals and no client PTY transaction.
+The full outgoing refusal queue does not prevent a host write from reaching start_checks.
+A host write guarded by the last emitted client revision can pass that check.
+Later complete client frames from the earlier read have already reached the Worker but have not advanced the revision.
+IN-4 and IN-10 require the client revision to advance on receipt, even when the input is refused.
+Receipt cannot wait for the client to drain its refusal frames.
+
+Required: preserve revision advancement at the complete-frame receipt boundary under outgoing pressure.
+Keep storage bounded and keep exception delivery ordered.
+Add a proof with a complete finite input batch inside its allowance and an unread outgoing refusal queue.
+After the read, send a host write guarded by the last reported client revision.
+The guard must observe every complete frame that the Worker already received.
+The reviewer sends this finding directly to P3 and integration.
+Integration independently confirms this source path.
+F87's complete receipt requirement remains open under this pressure condition.
+
+### Whole-change and merge review
+
+The replacement changes five own paths relative to the previously reviewed head before the v1 merge.
+The new Worker-plus-binding proof adds pty_controls/tests.rs to the own diff, for twelve own paths in total.
+The reviewer reads every changed hunk in the input mechanism, route mechanism, route proofs, binding proofs, and combined proof.
+The reviewer rechecks the unchanged route frame decoding, operation ownership, byte order, close mapping, and admission callers.
+The adoption fence still removes host input only. Route input and model replies retain their positions.
+Partial PTY progress retains the route and op and refreshes its allowance before the next write.
+No new success acknowledgement appears. Unsupported and invalid inputs still produce exceptions and retain their route.
+F99-F104's specific corrections do not close the full PR while F105 and F106 remain open.
+F86's first-reason behavior remains satisfied. F88 and F90 retain the whole-unit requirement.
+
+Merge 3e4c79a9 incorporates #218 at v1 3677b37e.
+The PR body reports no conflict. The direct merge changes only a pre-existing budget comment in core-pending among the twelve own paths.
+The reviewer compares the own-path diffs before and after the merge.
+All twelve diffs are identical after removing Git index lines and hunk coordinates.
+The core-pending comment now explains the measured 38-second budget case and its held entry.
+The strict pending implementation belongs to the separately accepted #218 and is part of this new base.
+This package review does not replace #218's separate reviews.
+No reviewer base-merge-check is run.
+
+The twelve conformance ids still move from core-pending to their real-pending groups under plan 23l.
+The exact-head lists step reports real-pending 99 and testkit minimum 54/69.
+The twelve ids still lack their real route or program controls. This review does not claim real route input proof.
+No product guard, anchor, process deadline, signal, wait, reap, fd-handoff, native socket edge, pin, or mutation exclusion changes in this PR's own delta.
+The production Worker driver still ignores route actions.
+BUILD's named real-process requirements remain with the future production route implementation.
+The latest lead log assigns that implementation to P3 as separate DP-2 PR A and PR B.
+That assignment does not enlarge #227's current source diff or this verdict.
+
+### Completed evidence and limits
+
+Gate: ~/botster-sessions/gates/botster-core-stage1-p4a-route-input-3e4c79a9-pool-20261010-143403-84107.log.
+The header names this exact head and base. All ten CI steps PASS on gaming.
+Default: 1535 passed in 13.937 seconds. Slow: 384 passed in 124.742 seconds.
+Both testkit reports: 205 passed, zero failed, 485 ignored. Minimum: 54/69.
+Strict pending: 374 of 395 ids run, 21 real-only ids not run, two held ids.
+Real minimum: 29/68 passing and 29/69 accepted.
+Stage 1: 112 tested, 110 caught, two unviable, zero missed, zero timeouts, in 225.9 seconds.
+Stage 2 skips because stage 1 misses none.
+The known stage-2 selection defect is in separate #229. This job does not execute that selection path.
+The reviewer does not run a replacement gate or approve that separate fix.
+Full CI: 470.1 seconds. Job: queue 340 seconds, run 481 seconds, exit zero after 821 seconds.
+The wrapper exits zero after 822 seconds.
+The six correction proofs, the combined binding proof, and the first-allowance proof have exact-head PASS lines.
+These proofs do not cover F105's quiet-success path or F106's guarded host write under refusal pressure.
+
+Artifact: ~/botster-sessions/shared/core-stage1/evidence/p3-pr3/pr3-round150-reverts.log.
+The reviewer reads that retained log and pr3-round150-reverts.py without executing either.
+Each F99-F102 revert records the matching named Worker proof as FAILED and exits 101.
+The no-floor revert records both R-53 proofs as FAILED and exits 101.
+The unmodified selection records six Worker tests passing and the combined binding proof passing.
+The combined binding proof passes on every revert. The PR explicitly describes its F99 limitation.
+The retained log contains result summaries and failed test names, not assertion locations or full failure output.
+The reviewer verifies the source behavior and exact-head passing proofs.
+The reviewer does not claim independent verification of the precise assertion site in each counterfactual run.
+
+### Verdict
+
+PR #227 is NOT CLEAN at `3e4c79a916673de015765bb951b165fc155db963`.
+F99, F100, F101, F102, F103, and F104 are CLOSED in their stated scopes.
+F105 and F106 are MED and OPEN.
+This is #227's second package NOT CLEAN round. No round-limit decision is due.
+Findings and the published artifact go directly to P3 and current Sol integration.
+The lead receives no ordinary NOT CLEAN report.
+F39 and F61/F62 retain their prior scopes. P3's non-minimum queue stays parked.
+The reviewer changes no product code and runs no tests, builds, gates, measurements, mutants, or base-merge-check.
+All earlier exact-head verdicts, findings, and closures remain preserved.
+
+VERDICT: NOT CLEAN
