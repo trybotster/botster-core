@@ -5,7 +5,9 @@
 //! - Every pending id is a ledger id, and no id is both pending and deferred.
 //! - Initialization (the base ref has no pending file): every ledger id that has no passing proof is pending or deferred.
 //!   P0 has no passing proof, so every ledger id is in one of the two files.
-//! - After that the pending file only shrinks. A moved contracts pin may add the ids that the new ledger adds.
+//! - After that the pending file only shrinks. A moved contracts pin may add the ids that the new ledger adds, and the
+//!   ids whose transcript changed between the two tags (plan 23u, the pin-move exception). The strict run of the lists
+//!   step fails each pending id that passes, so a re-pended id also fails at the new tag.
 //! - The deferred file follows the four rules of plan section 5.
 
 use crate::fsutil::{base, git_show};
@@ -15,6 +17,7 @@ use botster_core_testkit::status;
 use botster_worker_core::{WORKER_FEATURES_BY_PROTOCOL, WORKER_PROTOCOL};
 use std::collections::BTreeSet;
 use std::path::Path;
+use std::process::Command;
 
 const LEDGER_FILE: &str = "conformance/core-ledger-ids.txt";
 const PENDING_FILE: &str = "conformance/core-pending.txt";
@@ -141,6 +144,8 @@ pub struct Input<'a> {
     pub base: Option<Base<'a>>,
     /// The contracts tag moved against the base.
     pub tag_moved: bool,
+    /// The ids whose Core transcript differs between the base's pinned commit and this one (`changed_transcripts`).
+    pub transcript_changed: &'a BTreeSet<String>,
 }
 
 pub struct Base<'a> {
@@ -293,13 +298,17 @@ pub fn check(input: &Input<'_>) -> Vec<String> {
             }
         }
         Some(base) => {
-            // The file only shrinks. A moved pin may add the ids that the new ledger adds.
+            // The file only shrinks. A moved pin may add the ids that the new ledger adds, and the ids whose transcript
+            // changed between the two tags (plan 23u; the strict run fails each one that passes).
             let new_in_ledger: BTreeSet<&String> =
                 input.ledger.difference(base.ledger_file).collect();
             for id in input.pending.difference(base.pending) {
-                if !new_in_ledger.contains(id) {
+                let repended = input.tag_moved && input.transcript_changed.contains(id);
+                if !new_in_ledger.contains(id) && !repended {
                     problems.push(format!(
-                        "{PENDING_FILE}: {id} is new; the file may only shrink"
+                        "{PENDING_FILE}: {id} is new; the file may only shrink (plan 23u: only the commit that moves \
+                         the contracts pin may add an id, and only one that is new in the ledger or whose transcript \
+                         changed between the two tags)"
                     ));
                 }
             }
@@ -411,6 +420,14 @@ pub fn command(root: &Path, args: &[String]) -> Result<()> {
         ledger_file: &base_ledger,
     });
     let tag_moved = pin_moved(base_cargo.as_deref(), &cargo);
+    let base_lock = git_show(root, &base_name, "Cargo.lock")?;
+    let commit = contracts_commit(&read("Cargo.lock")?)
+        .context("Cargo.lock has no source commit of botster-core-contract")?;
+    let transcript_changed = changed_transcripts(
+        &meta.contracts_root,
+        base_lock.as_deref().and_then(contracts_commit).as_deref(),
+        &commit,
+    )?;
 
     problems.extend(check(&Input {
         ledger: &ledger,
@@ -426,6 +443,7 @@ pub fn command(root: &Path, args: &[String]) -> Result<()> {
         features: WORKER_FEATURES_BY_PROTOCOL,
         base,
         tag_moved,
+        transcript_changed: &transcript_changed,
     }));
     report(&problems)?;
     let withdrawn = withdrawn.intersection(&ledger).count();
@@ -554,6 +572,78 @@ pub fn contracts_tag(cargo_toml: &str) -> String {
         .to_string()
 }
 
+/// The botster-contracts commit of a `Cargo.lock`: the `#<commit>` of the `botster-core-contract` package's source.
+pub fn contracts_commit(cargo_lock: &str) -> Option<String> {
+    let table = cargo_lock.parse::<toml::Table>().ok()?;
+    table
+        .get("package")?
+        .as_array()?
+        .iter()
+        .find(|p| p.get("name").and_then(toml::Value::as_str) == Some("botster-core-contract"))?
+        .get("source")?
+        .as_str()?
+        .rsplit_once('#')
+        .map(|(_, commit)| commit.to_string())
+}
+
+/// The Core transcript directory of botster-contracts.
+const TRANSCRIPT_DIR: &str = "conformance/core";
+
+/// The ids whose Core transcript differs between two botster-contracts commits (plan 23u): `git diff` of the transcript
+/// directory in the pinned checkout, which holds both commits. No base commit (initialization) changes nothing.
+pub fn changed_transcripts(
+    checkout: &Path,
+    old: Option<&str>,
+    new: &str,
+) -> Result<BTreeSet<String>> {
+    let Some(old) = old else {
+        return Ok(BTreeSet::new());
+    };
+    // Explicit format flags: the user's git configuration cannot change the parsed names.
+    let out = Command::new("git")
+        .arg("-C")
+        .arg(checkout)
+        .args([
+            "-c",
+            "core.quotePath=false",
+            "diff",
+            "--no-color",
+            "--no-ext-diff",
+        ])
+        .args([
+            "--no-textconv",
+            "--no-renames",
+            "--name-only",
+            "-z",
+            old,
+            new,
+        ])
+        .args(["--", TRANSCRIPT_DIR])
+        .output()
+        .context("run git diff of the contracts transcripts")?;
+    anyhow::ensure!(
+        out.status.success(),
+        "git diff {old} {new} of the pinned botster-contracts checkout {} failed (the checkout must hold the base's \
+         pinned commit): {}",
+        checkout.display(),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    Ok(transcript_ids(&String::from_utf8_lossy(&out.stdout)))
+}
+
+/// The ids of the `-z` names of transcript files: `conformance/core/<id>.json`.
+fn transcript_ids(names: &str) -> BTreeSet<String> {
+    names
+        .split('\0')
+        .filter_map(|name| {
+            name.strip_prefix("conformance/core/")?
+                .strip_suffix(".json")
+        })
+        .filter(|id| !id.contains('/'))
+        .map(str::to_string)
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -585,6 +675,8 @@ mod tests {
         withdrawn: BTreeSet<String>,
         contract_deferred: BTreeSet<String>,
         not_applicable: Vec<String>,
+        /// The ids whose transcript changed between the base's pin and this one.
+        transcript_changed: BTreeSet<String>,
     }
 
     /// Ledger `a b c` plus the two deferred ids; `a b c` pending; both deferred ids deferred.
@@ -600,6 +692,7 @@ mod tests {
             withdrawn: BTreeSet::new(),
             contract_deferred: set(&[D1, D2]),
             not_applicable: Vec::new(),
+            transcript_changed: BTreeSet::new(),
         }
     }
 
@@ -618,6 +711,7 @@ mod tests {
             features: NO_FEATURES,
             base: None,
             tag_moved: false,
+            transcript_changed: &w.transcript_changed,
         };
         adjust(&mut input);
         check(&input)
@@ -791,6 +885,117 @@ mod tests {
         // An id that was already in the old ledger may not come back.
         let old_ledger_with_c = set(&["a", "b", "c", D1, D2]);
         assert!(!with_base(&w, &base, &deferred, &old_ledger_with_c, true).is_empty());
+    }
+
+    /// Plan 23u, the pin-move exception: an id of the old ledger may become pending again only in the commit that moves the
+    /// pin, and only when its transcript changed between the two tags.
+    #[test]
+    fn a_moved_pin_may_re_pend_an_id_whose_transcript_changed() {
+        let base = set(&["a", "b"]);
+        let deferred = set(&[D1, D2]);
+        let mut w = world();
+        w.transcript_changed = set(&["c"]);
+        assert!(with_base(&w, &base, &deferred, &w.ledger, true).is_empty());
+        // The same change without a pin move: refused.
+        let problems = with_base(&w, &base, &deferred, &w.ledger, false);
+        assert_eq!(problems.len(), 1, "{problems:?}");
+        assert!(problems[0].contains("c is new"), "{problems:?}");
+        assert!(problems[0].contains("plan 23u"), "{problems:?}");
+        // A pin move that did not change the transcript of `c`: refused.
+        let mut other = world();
+        other.transcript_changed = set(&["a"]);
+        let problems = with_base(&other, &base, &deferred, &other.ledger, true);
+        assert_eq!(problems.len(), 1, "{problems:?}");
+        assert!(problems[0].contains("c is new"), "{problems:?}");
+    }
+
+    #[test]
+    fn the_contracts_commit_is_the_source_commit_of_botster_core_contract() {
+        let lock = r#"
+version = 4
+
+[[package]]
+name = "botster-conformance"
+version = "0.1.0"
+source = "git+https://github.com/trybotster/botster-contracts?tag=contracts-v0.1.25#1111111111111111111111111111111111111111"
+
+[[package]]
+name = "botster-core-contract"
+version = "0.1.0"
+source = "git+https://github.com/trybotster/botster-contracts?tag=contracts-v0.1.25#ff3405992fd3a76f324d3b683b1f1631c034f43c"
+"#;
+        assert_eq!(
+            contracts_commit(lock).as_deref(),
+            Some("ff3405992fd3a76f324d3b683b1f1631c034f43c")
+        );
+        assert_eq!(contracts_commit("version = 4\n"), None);
+        assert_eq!(contracts_commit("not toml ["), None);
+        let no_commit = "[[package]]\nname = \"botster-core-contract\"\nsource = \"registry+x\"\n";
+        assert_eq!(contracts_commit(no_commit), None);
+    }
+
+    #[test]
+    fn the_transcript_ids_are_the_json_files_directly_in_the_core_directory() {
+        let names = "conformance/core/conf::a.json\0conformance/core/sub/conf::x.json\0conformance/core/conf::b.txt\0\
+                     conformance/hub/conf::h.json\0conformance/core/conf::c.json\0";
+        assert_eq!(transcript_ids(names), set(&["conf::a", "conf::c"]));
+        assert!(transcript_ids("").is_empty());
+    }
+
+    /// `changed_transcripts` reads `git diff` of the transcript directory between two commits, also under a git
+    /// configuration that would change the output (colors, renames, quoted paths, an external diff, no prefix).
+    #[test]
+    fn the_changed_transcripts_are_the_core_transcripts_that_differ_between_two_commits() {
+        use crate::fsutil::{test_git, test_repo};
+        let repo = test_repo(&[
+            ("conformance/core/conf::a.json", "{\"a\": 1}\n"),
+            ("conformance/core/conf::b.json", "{\"b\": 1}\n"),
+            ("conformance/core/conf::d.json", "{\"d\": 1}\n"),
+            ("conformance/hub/conf::h.json", "{}\n"),
+        ]);
+        let root = repo.path();
+        let git = |args: &[&str]| test_git(root, args);
+        git(&["commit", "-q", "-m", "old"]);
+        let old = git(&["rev-parse", "HEAD"]).trim().to_string();
+        for (key, value) in [
+            ("color.ui", "always"),
+            ("color.diff", "always"),
+            ("diff.renames", "copies"),
+            ("core.quotePath", "true"),
+            ("diff.noprefix", "true"),
+            ("diff.external", "false"),
+            ("diff.relative", "true"),
+        ] {
+            git(&["config", key, value]);
+        }
+        let write = |path: &str, text: &str| std::fs::write(root.join(path), text).unwrap();
+        write("conformance/core/conf::a.json", "{\"a\": 2}\n");
+        write("conformance/core/conf::c.json", "{\"c\": 1}\n");
+        write("conformance/hub/conf::h.json", "{\"h\": 2}\n");
+        git(&[
+            "mv",
+            "conformance/core/conf::d.json",
+            "conformance/core/conf::e.json",
+        ]);
+        git(&["add", "-A"]);
+        git(&["commit", "-q", "-m", "new"]);
+        let new = git(&["rev-parse", "HEAD"]).trim().to_string();
+        assert_eq!(
+            changed_transcripts(root, Some(&old), &new).unwrap(),
+            set(&["conf::a", "conf::c", "conf::d", "conf::e"])
+        );
+        assert!(changed_transcripts(root, Some(&new), &new)
+            .unwrap()
+            .is_empty());
+        assert!(changed_transcripts(root, None, &new).unwrap().is_empty());
+        let missing =
+            changed_transcripts(root, Some("1111111111111111111111111111111111111111"), &new)
+                .unwrap_err()
+                .to_string();
+        assert!(
+            missing.contains("must hold the base's pinned commit"),
+            "{missing}"
+        );
     }
 
     #[test]
