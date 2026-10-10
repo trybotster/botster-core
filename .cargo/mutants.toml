@@ -75,6 +75,12 @@ exclude_re = [
     # (a_real_pending_id_is_a_ledger_id_that_is_not_pending_deferred_withdrawn_real_only_or_testkit_proven) and
     # check_minimum (a_minimum_id_is_listed_once_and_is_an_active_core_ledger_id).
     'xtask/src/lists\.rs:\d+:\d+: replace command -> Result<\(\)> with Ok\(\(\)\)$',
+    # xtask lists.rs ledger_ids_command -> Ok(()): process glue. The body reads the pinned ledger, status files and
+    # replacement map, then writes the four files or compares them with the checked-in copies; a test cannot run it on the
+    # pinned checkout inside the test run. Only this whole-body replacement is excluded. Every gate log shows its
+    # "ledger-ids: ... match the pin" line. Its decisions are tested: ledger_text (the_ledger_file_is_one_id_per_line_in_order)
+    # and real_only_text (the_real_only_file_is_each_core_id_with_its_slow_proof_in_order).
+    'xtask/src/lists\.rs:\d+:\d+: replace ledger_ids_command -> Result<\(\)> with Ok\(\(\)\)$',
     # botster-core-testkit real.rs, every mutant: the module is `#[cfg(feature = "slow")]` (RealCoreHarness, plan 23l), so
     # the default mutation run never compiles it and lists each mutant as missed with no test run. Interim until the plan
     # 23n two-stage verdict; removed by that PR, whose second stage builds `--features slow` and tests these mutants. Until

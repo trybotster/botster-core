@@ -916,21 +916,18 @@ mod tests {
 mod slow_tests {
     use super::*;
 
-    fn sh(script: &str) -> Command {
-        let mut command = Command::new("/bin/sh");
-        command.args(["-c", script]);
-        command
-    }
-
-    fn pidfile() -> (tempfile::TempDir, PathBuf) {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("pids");
-        (dir, path)
-    }
+    // The helpers are closures: a function of this module is mutated by cargo-mutants (only `cfg(test)` alone is skipped),
+    // and the default mutation run does not build the slow feature.
 
     #[test]
     fn a_bounded_run_returns_its_status_and_what_it_printed() {
-        let (_dir, pids) = pidfile();
+        let dir = tempfile::tempdir().unwrap();
+        let pids = dir.path().join("pids");
+        let sh = |script: &str| {
+            let mut command = Command::new("/bin/sh");
+            command.args(["-c", script]);
+            command
+        };
         let (success, text) = bounded_report(
             sh("echo 'real conformance: passed 1'; echo second"),
             SLOW_DEADLINE,
@@ -948,7 +945,13 @@ mod slow_tests {
     /// start, so the test needs no timeout value of its own.
     #[test]
     fn a_run_past_its_deadline_is_killed_and_fails() {
-        let (dir, pids) = pidfile();
+        let dir = tempfile::tempdir().unwrap();
+        let pids = dir.path().join("pids");
+        let sh = |script: &str| {
+            let mut command = Command::new("/bin/sh");
+            command.args(["-c", script]);
+            command
+        };
         let blocker = botster_test_process::Blocker::new(dir.path(), "block").unwrap();
         let error = bounded_report(
             sh(&format!("exec {}", blocker.shell())),
@@ -964,7 +967,13 @@ mod slow_tests {
     /// A process that the run leaves behind fails the run, and is killed before the report is read (it holds the pipe).
     #[test]
     fn a_process_left_behind_fails_the_run_and_is_killed() {
-        let (dir, pids) = pidfile();
+        let dir = tempfile::tempdir().unwrap();
+        let pids = dir.path().join("pids");
+        let sh = |script: &str| {
+            let mut command = Command::new("/bin/sh");
+            command.args(["-c", script]);
+            command
+        };
         let blocker = botster_test_process::Blocker::new(dir.path(), "block").unwrap();
         let error = bounded_report(
             sh(&format!(
