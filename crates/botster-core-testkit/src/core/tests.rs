@@ -1834,3 +1834,39 @@ fn an_impostor_answers_the_first_hello_and_counts_only_its_own_signals() {
     );
     assert_eq!(workers.impostor_signals("imp", &two), Some(Vec::new()));
 }
+
+/// R-50, OU-2: a route stream that Core still holds closes after one write: the client reads the bytes, then the end of
+/// the stream. A stream with no room takes nothing and still closes; empty bytes close it with no frame. Another object
+/// is only dropped.
+#[test]
+fn a_held_route_stream_closes_after_one_write() {
+    use crate::net::stream_pair;
+    let mut edges = edges(1);
+    let sched = SchedulerHandle::with_seed(1);
+    let read_all = |client: &mut crate::net::StreamEnd| {
+        let mut got = Vec::new();
+        let mut buf = [0u8; 64];
+        loop {
+            match RouteTransport::read(client, &mut buf) {
+                Ok(0) => return Ok(got),
+                Ok(n) => got.extend_from_slice(&buf[..n]),
+                Err(e) => return Err(e.kind()),
+            }
+        }
+    };
+    let (core, mut client) = stream_pair(&sched, 64);
+    edges.close_route_stream(StreamEndpoint::new(core), b"frame");
+    assert_eq!(read_all(&mut client), Ok(b"frame".to_vec()));
+    let (core, mut client) = stream_pair(&sched, 64);
+    edges.close_route_stream(StreamEndpoint::new(core), b"");
+    assert_eq!(read_all(&mut client), Ok(vec![]));
+    let (core, mut client) = stream_pair(&sched, 4);
+    edges.close_route_stream(StreamEndpoint::new(core), b"too long");
+    assert_eq!(read_all(&mut client), Ok(b"too ".to_vec()));
+    let (core, mut client) = stream_pair(&sched, 64);
+    let mut core = core;
+    core.end().control().gate(true);
+    edges.close_route_stream(StreamEndpoint::new(core), b"frame");
+    assert_eq!(read_all(&mut client), Ok(vec![]));
+    edges.close_route_stream(StreamEndpoint::new(7u64), b"x");
+}

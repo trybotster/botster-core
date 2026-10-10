@@ -186,6 +186,12 @@ impl HostEdges for Fake {
         Err((endpoint, DescriptorSendError::Failed))
     }
 
+    fn close_route_stream(&mut self, endpoint: StreamEndpoint, bytes: &[u8]) {
+        let endpoint = endpoint.downcast::<u8>().ok();
+        self.calls
+            .push(format!("close stream {endpoint:?} {bytes:?}"));
+    }
+
     fn wake(&self) -> Arc<dyn HostWake> {
         self.wake.clone()
     }
@@ -331,6 +337,8 @@ fn every_call_passes_to_the_inner_edges_unchanged() {
         .unwrap_err();
     assert_eq!(why, DescriptorSendError::Failed);
     assert_eq!(endpoint.downcast::<u8>().ok(), Some(5));
+    rig.edges
+        .close_route_stream(StreamEndpoint::new(6u8), b"rc");
     rig.edges.wake().signal();
     assert_eq!(rig.edges.scheduler().pick(ChoicePoint::ReadyWork, 3), 2);
     assert_eq!(rig.edges.scheduler().bound(ChoicePoint::ReadyWork, 8), 4);
@@ -346,7 +354,8 @@ fn every_call_passes_to_the_inner_edges_unchanged() {
                 "remove 1-1",
                 "write 1 true",
                 "read 1 false",
-                "descriptor 1 [114, 116]"
+                "descriptor 1 [114, 116]",
+                "close stream Some(6) [114, 99]"
             ]
         );
         assert_eq!(
