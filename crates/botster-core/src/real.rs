@@ -957,14 +957,10 @@ mod slow_tests {
     /// blocking, and still closes; empty bytes close it with no frame.
     #[test]
     fn a_held_route_stream_closes_after_one_write_without_blocking() {
-        use std::io::Read;
+        use botster_test_process::{Bounded, Deadline};
         use std::os::unix::net::UnixStream as Std;
         let (mut edges, _tmp) = edges();
-        let read_all = |mut client: Std| {
-            let mut got = Vec::new();
-            client.read_to_end(&mut got).unwrap();
-            got
-        };
+        let read_all = |client: Std| Bounded::new(client).to_eof(Deadline::cleanup()).unwrap();
         let (core, client) = Std::pair().unwrap();
         edges.close_route_stream(StreamEndpoint::new(core), b"frame");
         assert_eq!(read_all(client), b"frame");
