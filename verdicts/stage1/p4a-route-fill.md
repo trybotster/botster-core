@@ -126,3 +126,55 @@ The source finding and its disposition do not change because of that correction.
 
 NOT CLEAN: R1-1 remains open at MEDIUM severity.
 The package reviewer independently reports the same open finding. The replacement package artifact is pending.
+
+## Round 3 — 2026-10-10 — CLEAN
+
+Reviewed head: `d8809fb818ae05b57ae92b5382db11e19f7d821c`.
+Base: `159cc4003c8910ba6ef28402c360ba4d2dd820a4`, unchanged.
+I read the complete six-file replacement diff and the updated PR body.
+The complete PR now changes eight files. The HIGH tier includes the host and testkit crates.
+Remote head and base match. The ancestry check and `git diff --check` pass.
+
+### R1-1 — CLOSED in source and supplied evidence
+
+`HostEngine::instance` reads the existing in-memory session instance without changing state.
+`TestkitCore::attach` captures that instance and records it only after a successful attachment.
+The synchronous attachment path does not replace the session between those actions.
+`attach_stream` obtains the recorded instance and a reader of the existing registry.
+It no longer requires a stored session row when the route attaches.
+Each fill still checks the current row against the original instance before accessing the worker.
+
+The new test begins Create and Start without a pump and verifies that no row exists.
+It attaches the route, checks early refusal, completes both operations, and checks successful output at the program edge.
+It then removes the original session and starts another session with the same name.
+The old route refuses the fill, and the new payload receives no bytes.
+This sequence runs for seeds 0–7. Closing the client before Remove permits cleanup; the instance check still causes the final refusal.
+The two earlier startup and isolation tests remain intact and pass.
+The host test verifies instance availability before the first row, stability after a pump, and absence for unknown sessions.
+
+### Gate and retained scope
+
+Log: `botster-core-stage1-p4a-route-fill-d8809fb8-pool-20261010-044326-90152.log`.
+The header names the exact head and base. All ten gate stages pass.
+Default tests: 1,442 passed. Slow tests: 259 passed.
+Both conformance reports show 193 passing trials, 407 pending trials, 70 entries without transcripts, two deferred trials, and 18 withdrawn trials.
+Both mutation stages report 32 mutants: 25 caught, seven unviable, no misses, and no timeouts.
+The second mutation stage sets the slow environment variable but does not enable the `slow-tests` feature.
+The new host test and all six route-fill tests have PASS results.
+Full gate time is 204.2 seconds. The repeated mutation stage takes 160.8 seconds.
+The pool job and wrapper exit zero after 374 seconds, including one queued second and 373 execution seconds.
+I ran no build, test, or gate.
+
+The formula, pattern, capacity calculation, exited-payload refusal, and list scope remain unchanged.
+Product support for `RouteStalled` remains outside this PR. This review claims no additional conformance acceptance.
+I read the Round 2 package artifact at `4e540cacc7e7713e9cf97694edc80264be8151f5`; it agrees with the earlier open finding.
+The previously blocked Round 2 integration commit `a69ae606` is now published.
+The package verdict is CLEAN at `7fc828384b74862e9658bc4202906e29297521cf`, `verdicts/p3-worker.md`, Round 143.
+I read that verdict. It agrees with this review and closes F94 at the same head.
+I rechecked the remote head and base before publication; both remain unchanged.
+
+### Verdict
+
+CLEAN at `d8809fb818ae05b57ae92b5382db11e19f7d821c`.
+R1-1 is CLOSED. No integration finding remains open within this PR's scope.
+The paired contracts review and separate stall implementation retain their existing scopes.
