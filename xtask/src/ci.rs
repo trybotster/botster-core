@@ -369,20 +369,11 @@ fn mutants_job(root: &Path) -> Result<()> {
         &["nextest", "--version"],
         "cargo install cargo-nextest --locked",
     )?;
-    let base = fsutil::base(root)?;
-    let diff = Command::new("git")
-        .arg("-C")
-        .arg(root)
-        .args(["diff", &format!("{base}...HEAD")])
-        .output()
-        .context("run git diff")?;
-    if !diff.status.success() {
-        bail!("git diff failed: {}", String::from_utf8_lossy(&diff.stderr));
-    }
+    let diff = landing_diff(root, &fsutil::base(root)?)?;
     let target = root.join("target");
     std::fs::create_dir_all(&target)?;
     let diff_path = target.join("landing.diff");
-    std::fs::write(&diff_path, &diff.stdout)?;
+    std::fs::write(&diff_path, &diff)?;
 
     let exclusions: Vec<String> = platform_exclusions(std::env::consts::OS)
         .iter()
@@ -402,10 +393,18 @@ fn mutants_job(root: &Path) -> Result<()> {
         }
     };
     // The mutants of the diff, listed without a build, with the run's own filters.
-    let mut list = cargo(root);
-    mutants(&mut list);
-    list.args(["--list", "--json"]);
-    let listed = parse_listing(&list.output().context("start cargo mutants --list")?)?;
+    let listed = diff_mutants(&String::from_utf8_lossy(&diff), || {
+        let mut list = cargo(root);
+        mutants(&mut list);
+        list.args(["--list", "--json"]);
+        list.output().context("start cargo mutants --list")
+    })?;
+    let Some(listed) = listed else {
+        println!(
+            "mutants: 0 mutants: the diff changes no Rust source, so cargo mutants does not run"
+        );
+        return Ok(());
+    };
     let line = mutation_decision(listed, || {
         // An outcomes file left by an earlier run must not stand for this one.
         let out = target.join("mutants.out");
@@ -426,6 +425,58 @@ fn mutants_job(root: &Path) -> Result<()> {
     })?;
     println!("{line}");
     Ok(())
+}
+
+/// The landing diff, `base...HEAD`, in plain unified form whatever the git configuration: no color (`color.diff`,
+/// `color.ui`) and no external diff tool (`diff.external`). cargo-mutants reads it, and `changes_rust_source` decides from
+/// its `+++` lines, so a colored header would hide a Rust file and skip the mutants.
+///
+/// # Errors
+/// `git diff` did not start or failed.
+fn landing_diff(root: &Path, base: &str) -> Result<Vec<u8>> {
+    let diff = Command::new("git")
+        .arg("-C")
+        .arg(root)
+        .args([
+            "diff",
+            "--no-color",
+            "--no-ext-diff",
+            &format!("{base}...HEAD"),
+        ])
+        .output()
+        .context("run git diff")?;
+    if !diff.status.success() {
+        bail!("git diff failed: {}", String::from_utf8_lossy(&diff.stderr));
+    }
+    Ok(diff.stdout)
+}
+
+/// Whether the diff changes a Rust source file, by the rule of cargo-mutants 27.1.0 (`src/in_diff.rs`): a file whose new
+/// path (`+++`) is not `/dev/null` and has the extension `rs`, `build.rs` too. A deleted file has no new path. Git quotes
+/// a path with special characters, and it adds a tab after a path with a space; neither hides the extension here. An added
+/// line that starts with `++ ` reads as a path: it can only make the step list the mutants, never skip them. The diff must
+/// be plain (`landing_diff`): a colored `+++` header does not start with `+++ `, and it would hide its Rust file.
+fn changes_rust_source(diff: &str) -> bool {
+    diff.lines()
+        .filter_map(|line| line.strip_prefix("+++ "))
+        .map(|path| path.trim_end_matches('\t').trim_matches('"'))
+        .any(|path| path != "/dev/null" && Path::new(path).extension() == Some("rs".as_ref()))
+}
+
+/// The number of mutants of the diff (`list` runs `cargo mutants --list --json`), or `None` when the diff changes no Rust
+/// source (`changes_rust_source`). Then `--in-diff` has no mutant to list, so `list` does not run: the step does not
+/// depend on how cargo-mutants logs an empty or a non-Rust diff.
+///
+/// # Errors
+/// The listing did not start or failed (`parse_listing`).
+fn diff_mutants(
+    diff: &str,
+    list: impl FnOnce() -> Result<std::process::Output>,
+) -> Result<Option<usize>> {
+    if !changes_rust_source(diff) {
+        return Ok(None);
+    }
+    parse_listing(&list()?).map(Some)
 }
 
 /// What cargo-mutants 27.1.0 logs, with no output, when the filters (`--in-diff`, `exclude_re`) leave no mutant.
@@ -850,6 +901,111 @@ mod tests {
         assert_eq!(
             parse_listing(&listing(1, "[]")).unwrap_err().to_string(),
             "cargo mutants --list failed: no manifest"
+        );
+    }
+
+    /// The diff of a change to a list file only (the flip PR at 5d45efc1): no Rust source.
+    const LIST_DIFF: &str = "diff --git a/conformance/core-pending.txt b/conformance/core-pending.txt\n\
+        --- a/conformance/core-pending.txt\n+++ b/conformance/core-pending.txt\n@@ -1,2 +1 @@\n-conf::a\n conf::b\n";
+
+    /// The diff of a change to a Rust file.
+    const RUST_DIFF: &str = "diff --git a/xtask/src/ci.rs b/xtask/src/ci.rs\n\
+        --- a/xtask/src/ci.rs\n+++ b/xtask/src/ci.rs\n@@ -1 +1 @@\n-a\n+b\n";
+
+    /// cargo-mutants' rule: a new path that is not `/dev/null` with the extension `rs`; git's quoted and tab-ended paths too.
+    #[test]
+    fn only_a_new_rust_path_is_a_change_to_rust_source() {
+        assert!(changes_rust_source(RUST_DIFF));
+        assert!(changes_rust_source("+++ b/crates/x/build.rs\n"));
+        assert!(changes_rust_source("+++ b/a b.rs\t\n"));
+        assert!(changes_rust_source("+++ \"b/tab\\t\\303\\251.rs\"\n"));
+        assert!(changes_rust_source(&format!("{LIST_DIFF}{RUST_DIFF}")));
+        assert!(!changes_rust_source(LIST_DIFF));
+        assert!(!changes_rust_source(""));
+        assert!(!changes_rust_source("--- a/gone.rs\n+++ /dev/null\n"));
+        assert!(!changes_rust_source("--- a/x.rs\n+++ b/x.rsx\n"));
+        assert!(!changes_rust_source(" +++ b/x.rs\n"));
+    }
+
+    /// The landing diff stays plain under a configuration that colors diffs or names an external diff tool, so a Rust change
+    /// still needs the listing (a colored `+++` header would hide it); a change to a list file only still skips it.
+    #[test]
+    fn the_landing_diff_is_plain_under_any_diff_configuration() {
+        let repo = fsutil::test_repo(&[("a.txt", "a\n"), ("x/src/lib.rs", "fn a() {}\n")]);
+        let root = repo.path();
+        fsutil::test_git(root, &["commit", "-q", "-m", "base"]);
+        let base = fsutil::test_git(root, &["rev-parse", "HEAD"])
+            .trim()
+            .to_string();
+        for (key, value) in [
+            ("color.diff", "always"),
+            ("color.ui", "always"),
+            ("diff.external", "/bin/false"),
+        ] {
+            fsutil::test_git(root, &["config", key, value]);
+        }
+        std::fs::write(root.join("a.txt"), "b\n").unwrap();
+        fsutil::test_git(root, &["commit", "-q", "-am", "list"]);
+        let diff = landing_diff(root, &base).unwrap();
+        assert!(!diff.contains(&0x1b), "no color");
+        assert!(!changes_rust_source(&String::from_utf8_lossy(&diff)));
+        std::fs::write(root.join("x/src/lib.rs"), "fn b() {}\n").unwrap();
+        fsutil::test_git(root, &["commit", "-q", "-am", "rust"]);
+        let diff = String::from_utf8(landing_diff(root, &base).unwrap()).unwrap();
+        assert!(!diff.contains('\x1b'), "no color");
+        assert!(diff.contains("+++ b/x/src/lib.rs\n"), "{diff}");
+        assert!(changes_rust_source(&diff));
+        assert_eq!(
+            diff_mutants(&diff, || {
+                Ok(std::process::Output {
+                    status: std::os::unix::process::ExitStatusExt::from_raw(0),
+                    stdout: b"[]".to_vec(),
+                    stderr: Vec::new(),
+                })
+            })
+            .unwrap(),
+            Some(0),
+            "a Rust diff runs the listing"
+        );
+        assert!(landing_diff(root, "no-such-commit").is_err());
+    }
+
+    /// A diff with no Rust source lists no mutant, and the listing does not run, so its log text does not matter. A Rust
+    /// diff keeps the listing's rule: an empty output is 0 only with cargo-mutants' log of an empty filter result.
+    #[test]
+    fn a_diff_without_rust_source_skips_the_listing_and_a_rust_diff_needs_it() {
+        use std::os::unix::process::ExitStatusExt;
+        let listing = |stdout: &str, stderr: &str| {
+            let output = std::process::Output {
+                status: std::process::ExitStatus::from_raw(0),
+                stdout: stdout.into(),
+                stderr: stderr.into(),
+            };
+            move || Ok(output)
+        };
+        let no_run = || -> Result<std::process::Output> { panic!("the listing runs") };
+        assert_eq!(diff_mutants(LIST_DIFF, no_run).unwrap(), None);
+        assert_eq!(diff_mutants("", no_run).unwrap(), None);
+        assert_eq!(diff_mutants(RUST_DIFF, listing("[]", "")).unwrap(), Some(0));
+        assert_eq!(
+            diff_mutants(RUST_DIFF, listing(r#"[{"name": "a"}]"#, "")).unwrap(),
+            Some(1)
+        );
+        assert_eq!(
+            diff_mutants(RUST_DIFF, listing("", " INFO No mutants to filter\n")).unwrap(),
+            Some(0)
+        );
+        assert!(diff_mutants(
+            RUST_DIFF,
+            listing("", " INFO Diff changes no Rust source files\n")
+        )
+        .is_err());
+        assert!(diff_mutants(RUST_DIFF, listing("", "")).is_err());
+        assert_eq!(
+            diff_mutants(RUST_DIFF, || Err(anyhow!("start cargo mutants --list")))
+                .unwrap_err()
+                .to_string(),
+            "start cargo mutants --list"
         );
     }
 
