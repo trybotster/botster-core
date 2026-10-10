@@ -375,7 +375,8 @@ impl RealCoreHarness {
         let worker = processes.worker.ok_or_else(|| {
             ControlError::Bad(format!("the session {} has no worker process", session.0))
         })?;
-        match lock(&tap).kill_group(worker) {
+        let state = lock(&tap).kill_group(worker);
+        match state {
             IdentityState::Matches => Ok(Value::Null),
             state => Err(ControlError::Bad(format!(
                 "the recorded worker of the session {} is not signalled: {state:?}",
