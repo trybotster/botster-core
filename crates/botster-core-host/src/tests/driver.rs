@@ -68,6 +68,8 @@ struct MockLink {
 
 struct Mock {
     rows: BTreeMap<String, Vec<u8>>,
+    /// The route streams that the host closed itself, with the bytes it wrote to each first.
+    closed_streams: Vec<(StreamEndpoint, Vec<u8>)>,
     links: BTreeMap<LinkId, MockLink>,
     accept: Vec<LinkId>,
     next_link: u64,
@@ -306,6 +308,14 @@ impl HostEdges for Edges {
         }
     }
 
+    fn close_route_stream(&mut self, endpoint: StreamEndpoint, bytes: &[u8]) {
+        self.0
+            .lock()
+            .unwrap()
+            .closed_streams
+            .push((endpoint, bytes.to_vec()));
+    }
+
     fn wake(&self) -> Arc<dyn HostWake> {
         Arc::clone(&self.0.lock().unwrap().wake) as Arc<dyn HostWake>
     }
@@ -366,6 +376,7 @@ impl Rig {
     ) -> Rig {
         let mock = Arc::new(Mutex::new(Mock {
             rows,
+            closed_streams: Vec::new(),
             links: BTreeMap::new(),
             accept: Vec::new(),
             next_link: 1,

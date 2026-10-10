@@ -394,6 +394,15 @@ exclude_re = [
     # tier catches it (slow-tier mutation run of 2026-10-08 on Linux), in tests/slow_real_core.rs
     # `a_damaged_row_is_registry_corrupt_and_a_foreign_file_is_left_alone`.
     'crates/botster-core/src/real\.rs:\d+:\d+: (replace <impl HostEdges for RealEdges>::diagnostics( ->| with)|.* in <impl HostEdges for RealEdges>::diagnostics$)',
+    # RealEdges::close_route_stream (R-50): an I/O shell with no decision. It takes the embedder's unix stream, makes it
+    # non-blocking, writes the bytes once and drops the stream. The bytes are the decision of the pure
+    # botster_core_link::route::route_closed_bytes (a_held_routes_close_bytes_are_its_wrapped_frame_within_the_bound, default
+    # tier). Only the whole-body replacement is excluded. The slow tier catches it, in real.rs `slow_tests`
+    # `a_held_route_stream_closes_after_one_write_without_blocking`: without the write the client reads no frame. Slow-tier
+    # mutation evidence (`--no-config --in-place --features slow`, `--in-diff` of v1 159cc400, `--re close_route_stream`,
+    # `-- --profile slow --max-fail 1:immediate`): 3 mutants, 3 caught, at 40ea69f7, log
+    # gates/botster-core-stage1-p4a-failed-start-routes-40ea69f7-pool-20261009-225653-94279.log.
+    'crates/botster-core/src/real\.rs:\d+:\d+: replace <impl HostEdges for RealEdges>::close_route_stream with \(\)$',
     # botster-core real edges, the worker endpoint (P5 #176b; botster-core-host DESIGN.md "Adoption (P5)" parts 1 and 3): only
     # the whole-body replacement of two I/O shells is excluded. connect_worker connects a Unix socket and hands the stream to
     # add_stream; remove_endpoint unlinks a file and hands the result to the record of the failures. Their decisions are pure
