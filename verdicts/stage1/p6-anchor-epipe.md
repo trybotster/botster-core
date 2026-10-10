@@ -68,3 +68,86 @@ The assigned P5 package reviewer was contacted. No exact-head package verdict wa
 All three findings were sent to P6. The reviewer ran no builds, tests, or gates.
 
 VERDICT: NOT CLEAN (3 open) at 7cec9af6f1f7f332a0280c4ff9bdef0b9fd8cd58
+
+## Round 2
+
+Reviewed head: `a17ecd8b68197b0f047d242ea044fe3c5c32081d`.
+Base: `6cc7a72272ea56cdc128431ef39218a9c6743d08` (`v1`, including #206).
+Scope: both correction commits after `7cec9af6`, the base merge, and the updated PR and evidence.
+
+### R1-1 — CLOSED
+
+The shared `anchor_stage` helper gives the leader an `OwnedChild::spawn_group` owner before subsequent setup can fail.
+It gives the anchor an `OwnedChild::spawn` owner in the leader's group.
+Both owners survive through report reads and assertions. Their cleanup does not depend on the anchor behavior under test.
+The group owner retains the unreaped leader as its reserve until group cleanup completes.
+The child owner kills and reaps only its own child when necessary.
+Their existing waits and cleanup use deadlines.
+
+The successful EPIPE test still requires the anchor's `ok` report, a leader ended by KILL, and anchor exit code zero.
+The leader's status check observes the anchor's result before the owner cleans up and reaps the leader.
+An early anchor exit or a setup or assertion failure now unwinds through the independent owners.
+The implementer reports a local Mac reversal with no process left. This reviewer did not run that reversal.
+
+The second acknowledgement test uses the same owners.
+It fills a non-blocking pipe that retains its reader, then gives that pipe to the anchor as stdout.
+The write fails with `WouldBlock`. The test keeps the guard connection open and requires an error report and exit code one.
+The pipe-fill loop writes until the pipe refuses more bytes; it does not wait for another actor.
+
+### R1-2 — CLOSED
+
+The earlier focused run at `264151bd` caught three mutants and missed the guard replacement with `true`.
+Its retained log is `~/botster-sessions/gates/botster-core-stage1-p6-anchor-epipe-264151bd-pool-20261009-191306-48988.log`.
+The added non-BrokenPipe test closes that gap.
+
+The exact-head manual run uses `--no-config --in-place --features slow`, the anchor file and PR diff, and nextest's slow profile.
+It uses `--max-fail 1:immediate`. That profile has no `terminate-after` setting.
+The run catches all four anchor mutants, with no missed, timed-out, or unviable mutant.
+
+The reviewer read the recovered per-mutant commands, counts, and failures from:
+`~/botster-sessions/gates/botster-core-stage1-p6-anchor-epipe-a17ecd8b-manual-mutants-per-mutant-logs.txt`.
+The separate read-only pool job copied those logs from the original run's branch target volume.
+Its source log is `~/botster-sessions/gates/botster-core-stage1-p6-anchor-epipe-a17ecd8b-pool-20261009-192232-74245.log`.
+It names the same head and base. It does not execute the tests again.
+
+- The baseline passes 82 tests across three binaries, including the slow process tests.
+- Replacing the anchor body with `Ok(())` fails the existing guard proof when the anchor ends before holding the group.
+- Replacing the match guard with `true` fails the new test's bounded line read at `slow_process.rs:706`.
+  The test receives no error report within the existing ten-second cleanup bound. It panics on that deadline result.
+  All 82 tests run: 81 pass and this one fails. Nextest does not terminate this test.
+- Replacing the guard with `false`, or replacing equality with inequality, fails the EPIPE test at `slow_process.rs:675`.
+  The test receives `error anchor Broken pipe` instead of `ok`.
+
+Other SIGTERM results follow the first test failure under the required first-failure setting.
+They are not the evidence that catches these mutants.
+The exclusion reason now cites both acknowledgement tests. Its regex remains unchanged.
+
+### R1-3 — CLOSED
+
+The PR has a change-specific Prior art section.
+It identifies the existing guard design, acknowledgement protocol, helpers, parser, and cargo-mutants output behavior.
+It explains the two small custom conditions and rejects ignoring all write errors or accepting all empty listings.
+It also corrects the package-review assignment to P6.
+
+### Merge and gate evidence
+
+The automatic merge tree for `a17ecd8b` is `8b407e8b75029ad570ccb2a03d1f30a1e023b691`, identical to the actual tree.
+The merge has no conflict. The diff against current remote `v1` contains only this PR's five files.
+The #206 changes remain intact. The parser and anchor product corrections are unchanged from round 1.
+`git diff --check` passes.
+
+Full log: `~/botster-sessions/gates/botster-core-stage1-p6-anchor-epipe-a17ecd8b-pool-20261009-191625-59285.log`.
+All ten CI steps pass. Default: 1329 passed. Slow: 256 passed. Conformance: 124 passed, zero failed.
+Both acknowledgement tests pass in the slow step.
+Both ordinary mutation invocations catch all three parser mutants.
+The appended manual run catches the four anchor mutants described above. The entire pool job exits zero after 269 seconds.
+The environment-only second mutation step is not treated as slow-feature evidence.
+
+The lead accepted this combined zero-exit log without a rerun in message `msg_plugin-w_1791598946_8fe1ca`.
+The lead had not yet sent P6 the separate-job rule and has now done so for future manual runs.
+The reviewer ran no builds, tests, gates, or mutation jobs.
+
+The reviewer read the same-head package CLEAN verdict at `5f27d0647dac553f6b4589b66bd0040f2265d287`, round 2.
+Its closure evidence agrees with this review. All three findings are closed. No new finding remains.
+
+VERDICT: CLEAN (0 open) at a17ecd8b68197b0f047d242ea044fe3c5c32081d
