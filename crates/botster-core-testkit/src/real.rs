@@ -23,10 +23,11 @@
 //! - `corrupt_registry_row` (`{session}`, Core A10-2, AD-2): the storage edge damages the stored bytes of the session's row,
 //!   which Core's own encoder wrote ([`Tap::stored_row`], [`Tap::store_row`]), in the testkit's way
 //!   ([`crate::controls::damaged`]). Core's real decoder rejects them.
-//! - `payload_alive` (`{session}` → `{alive}`, Core EV-5(c), AD-7): the recorded payload's identity still matches (the inner
-//!   edge's AD-6 check, [`Tap::identity_state`]) and the process is live, not a zombie that its worker has yet to reap
-//!   ([`botster_test_process::platform::live_members`] of its own group: the payload leads its group, `setsid`). It
-//!   sends no signal.
+//! - `payload_alive` (`{session}` → `{alive}`, Core EV-5(c), AD-7): the payload of the session's row, or of its worker's
+//!   `Launched` report on the link ([`Tap::payload_of`]), still matches its identity (the inner edge's AD-6 check,
+//!   [`Tap::identity_state`]) and is live, not a zombie that its worker has yet to reap
+//!   ([`botster_test_process::platform::live_members`] of its own group: the payload leads its group, `setsid`). A
+//!   worker whose payload is not known is `Bad`. It sends no signal.
 //! - `lose_worker` (`{session, reason?}`, Core AD-2, IN-7): the recorded worker's process group gets `KILL` through the
 //!   inner edge's identity-checked `signal_group` ([`Tap::kill_group`]): only while the recorded pid and start time match,
 //!   so a reused pid is never signalled (AD-6). The worker's group is the worker's own (Core spawns it as a group leader),
@@ -348,22 +349,33 @@ impl RealCoreHarness {
         Ok(Value::Null)
     }
 
-    /// Core EV-5(c), AD-7: `{alive}`, whether the session's payload runs now. A session whose row names no payload has none.
+    /// Core EV-5(c), AD-7: `{alive}`, whether the session's payload runs now. The payload is the one that the session's row
+    /// names, or, while a started session runs, the one that its worker's `Launched` report named on the link (the host
+    /// writes it to the row only later). A session whose row names no worker has no payload. A worker whose payload is not
+    /// known is `Bad`, never a payload that does not run.
     fn payload_alive(&self, handle: &str, args: &Value) -> Result<Value, ControlError> {
         let OfSession { session } = parse(args)?;
         let (tap, processes) = self.recorded(handle, &session)?;
-        let alive = match processes.payload {
-            Some(payload) => {
-                lock(&tap).identity_state(payload) == IdentityState::Matches
-                    && runs(payload).map_err(|error| {
-                        ControlError::Bad(format!(
-                            "the payload of the session {} cannot be read: {error}",
-                            session.0
-                        ))
-                    })?
-            }
-            None => false,
-        };
+        if processes.worker.is_none() {
+            return Ok(json!({ "alive": false }));
+        }
+        let tap = lock(&tap);
+        let payload = processes
+            .payload
+            .or_else(|| tap.payload_of(&processes.instance))
+            .ok_or_else(|| {
+                ControlError::Bad(format!(
+                    "the payload of the session {} is not known",
+                    session.0
+                ))
+            })?;
+        let alive = tap.identity_state(payload) == IdentityState::Matches
+            && runs(payload).map_err(|error| {
+                ControlError::Bad(format!(
+                    "the payload of the session {} cannot be read: {error}",
+                    session.0
+                ))
+            })?;
         Ok(json!({ "alive": alive }))
     }
 
@@ -627,8 +639,12 @@ mod slow_controls {
         };
         let s1 = harness.session_processes(&data_dir, &sid("s1")).unwrap();
         let worker = s1.worker.expect("the worker is recorded");
-        let payload = s1.payload.expect("the payload is recorded");
         let tap = harness.tap("a").unwrap();
+        // The row, or the worker's `Launched` report on the link, names the payload of a started session.
+        let payload = s1
+            .payload
+            .or_else(|| lock(&tap).payload_of(&s1.instance))
+            .expect("the payload is known");
         assert_eq!(lock(&tap).identity_state(payload), IdentityState::Matches);
         let payload_pid = platform::pid(payload.pid).unwrap();
         assert!(
