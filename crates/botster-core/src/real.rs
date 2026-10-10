@@ -565,8 +565,8 @@ impl HostEdges for RealEdges {
 
     fn close_route_stream(&mut self, endpoint: StreamEndpoint, bytes: &[u8]) {
         // The embedder's stream (DP-2): a connected unix stream, as a `UnixStream` or as its `OwnedFd`. One non-blocking write
-        // takes what fits now; its result does not matter: the stream closes either way, when it drops here (R-50). Another
-        // type is only dropped.
+        // takes what fits now (empty bytes write nothing); its result does not matter: the stream closes either way, when it
+        // drops here (R-50). Another type is only dropped.
         let stream = match endpoint.downcast::<std::os::unix::net::UnixStream>() {
             Ok(stream) => stream,
             Err(endpoint) => match endpoint.downcast::<std::os::fd::OwnedFd>() {
@@ -574,7 +574,7 @@ impl HostEdges for RealEdges {
                 Err(_) => return,
             },
         };
-        if !bytes.is_empty() && stream.set_nonblocking(true).is_ok() {
+        if stream.set_nonblocking(true).is_ok() {
             let _ = retry_interrupted(|| std::io::Write::write(&mut &stream, bytes));
         }
     }
