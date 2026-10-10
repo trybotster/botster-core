@@ -97,6 +97,13 @@ fn build_anchor(root: &Path, meta: &Meta, candidate: &Path) -> Result<(String, S
     Ok((ANCHOR.to_string(), sha256_hex(&target)?))
 }
 
+/// The target dir of the probe build: one dir per contracts tag. Cargo does not always rebuild a git dependency of the probe
+/// when the tag moves (a stale `botster-probe-script` broke the probe build after the move to `contracts-v0.1.27`), so a new
+/// tag never reuses the build of an old tag.
+fn probe_build_dir(target_dir: &Path, tag: &str) -> PathBuf {
+    target_dir.join("probe-build").join(tag)
+}
+
 fn build_probe(root: &Path, meta: &Meta, candidate: &Path) -> Result<(String, String)> {
     let (git, tag) = contracts_source(&std::fs::read_to_string(root.join("Cargo.toml"))?)?;
     let install_root: PathBuf = meta.target_dir.join("probe-install");
@@ -108,7 +115,7 @@ fn build_probe(root: &Path, meta: &Meta, candidate: &Path) -> Result<(String, St
         .arg("--root")
         .arg(&install_root)
         .arg("--target-dir")
-        .arg(meta.target_dir.join("probe-build"))
+        .arg(probe_build_dir(&meta.target_dir, &tag))
         .arg(PROBE);
     run(install)?;
     let built = install_root.join("bin").join(PROBE);
@@ -156,6 +163,19 @@ mod tests {
             "[workspace.dependencies]\nbotster-core-contract = { git = \"u\", rev = \"r\" }\n"
         )
         .is_err());
+    }
+
+    #[test]
+    fn each_contracts_tag_builds_the_probe_in_its_own_dir() {
+        let target = Path::new("/t");
+        assert_eq!(
+            probe_build_dir(target, "contracts-v0.1.27"),
+            Path::new("/t/probe-build/contracts-v0.1.27")
+        );
+        assert_ne!(
+            probe_build_dir(target, "contracts-v0.1.26"),
+            probe_build_dir(target, "contracts-v0.1.27")
+        );
     }
 
     #[test]
