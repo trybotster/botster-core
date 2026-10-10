@@ -170,8 +170,9 @@ pub struct HostDriver<E: HostEdges> {
     links: BTreeMap<LinkId, LinkState>,
     wake: Arc<dyn HostWake>,
     frame_bound: u32,
-    /// Routes whose handoff failed: each one is fed to the engine in a step of its own, within the budget of a pump (9B).
-    failed_handoffs: std::collections::VecDeque<RouteId>,
+    /// Routes whose handoff failed, or whose held stream closed with its link (`HandoffLost`): each one is fed to the engine
+    /// in a step of its own, within the budget of a pump (9B).
+    failed_handoffs: std::collections::VecDeque<Input>,
 }
 
 impl<E: HostEdges> HostDriver<E> {
@@ -229,10 +230,10 @@ impl<E: HostEdges> HostDriver<E> {
         budget.account(&mut self.engine);
         // A failed handoff posts `RouteClosed`: one input per route, and only while the pump has budget (9B `pump_events`).
         while !budget.exhausted() {
-            let Some(route) = self.failed_handoffs.pop_front() else {
+            let Some(input) = self.failed_handoffs.pop_front() else {
                 break;
             };
-            self.feed(Input::HandoffFailed { route });
+            self.feed(input);
             budget.account(&mut self.engine);
             self.perform();
         }
@@ -378,7 +379,8 @@ impl<E: HostEdges> HostDriver<E> {
         }
         .encode(&mut payload);
         let Some(state) = self.links.get_mut(&link) else {
-            self.failed_handoffs.push_back(route);
+            self.failed_handoffs
+                .push_back(Input::HandoffFailed { route });
             return;
         };
         let at = state.out.len();
@@ -391,7 +393,8 @@ impl<E: HostEdges> HostDriver<E> {
         .is_err()
         {
             state.out.truncate(at);
-            self.failed_handoffs.push_back(route);
+            self.failed_handoffs
+                .push_back(Input::HandoffFailed { route });
             return;
         }
         let len = state.out.len() - at;
@@ -439,7 +442,8 @@ impl<E: HostEdges> HostDriver<E> {
                         // Nothing of the frame was taken: it is dropped whole, so the framing stays intact. The endpoint
                         // closes when it drops.
                         drop(endpoint);
-                        self.failed_handoffs.push_back(mark.route);
+                        self.failed_handoffs
+                            .push_back(Input::HandoffFailed { route: mark.route });
                         mark.len
                     }
                 }
@@ -475,10 +479,11 @@ impl<E: HostEdges> HostDriver<E> {
 
     fn close_link(&mut self, link: LinkId) {
         if let Some(state) = self.links.remove(&link) {
-            // The streams that did not leave close with their marks; their routes are failed handoffs, unless the link's
-            // loss closed them first (the first reason wins, OU-2).
+            // The streams that did not leave close with their marks. Nothing of them was sent: the engine decides each
+            // route's close (`HandoffLost`), unless the link's loss closed it first (the first reason wins, OU-2).
             for mark in state.marks {
-                self.failed_handoffs.push_back(mark.route);
+                self.failed_handoffs
+                    .push_back(Input::HandoffLost { route: mark.route });
             }
             self.edges.link_close(link);
             self.feed(Input::LinkClosed { link });

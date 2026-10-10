@@ -50,6 +50,18 @@ impl HostEngine {
             Input::HandoffFailed { route } => {
                 self.route_close(route, RouteCloseReason::HandoffFailed);
             }
+            Input::HandoffLost { route } => {
+                // R-50: the session of a start or a stop ends with the link, and `StopPhase::Finish` closes the route once,
+                // after the session's state, with the end's reason (no route of a gone link is delivered: `SessionLost`).
+                let ending = self
+                    .routes
+                    .get(&route)
+                    .and_then(|entry| self.sessions.get(&entry.session))
+                    .is_some_and(|s| matches!(s.flow, Flow::Start(_) | Flow::Stop(_)));
+                if !ending {
+                    self.route_close(route, RouteCloseReason::HandoffFailed);
+                }
+            }
             Input::ProcessExited { identity, status } => self.on_process_exited(identity, status),
             Input::WorkerConnected { ticket, link } => match self.take_ticket(ticket) {
                 Some(Owner::Session(id)) => self.adopt_connected(&id, link),
