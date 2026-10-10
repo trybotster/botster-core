@@ -8,11 +8,14 @@
 //! `baseline_begin`, `screen`, `baseline_end`, `live`. Output that the model holds and has not applied (`unfed`) is after
 //! `R`, so it is the first `output` frame; later PTY output follows. Each byte after `R` is on the route once.
 //!
-//! **Backpressure (OU-3d).** Each route has a queue bounded by `route_queue_bytes`. The worker gives the driver a PTY read
-//! budget: the smallest free payload space of the routes, so that no read can overflow a queue and no byte is dropped.
-//! The baseline goes whole into the route's empty queue at the bind (OU-9: a snapshot within `max_snapshot_bytes` fits
-//! `route_queue_bytes`), so the queue holds at most `route_queue_bytes` plus the other frames of the baseline, their stream
-//! prefixes and the held suffix. While it is over `route_queue_bytes`, the budget is 0 and no PTY byte is read.
+//! **Backpressure (OU-3d).** Each route has a queue with the threshold `route_queue_bytes`. The worker gives the driver a
+//! PTY read budget: the smallest free payload space of the routes, so that no read can overflow a queue and no byte is
+//! dropped. The baseline goes whole into the route's empty queue at the bind. Steward ruling R-45: the one baseline
+//! sequence in delivery (the attach frames through `live`, with their stream prefixes) is exempt from the threshold, and
+//! only the frames behind it count (the output after `R`, the held suffix included). A route over the threshold only
+//! because of its baseline is not "not progressing" (9B) and gets no stall clock of its own (this PR has no stall clock).
+//! While the frames behind the sequence are at the threshold, the budget is 0 and no PTY byte is read. A resync (a later
+//! PR) starts a new sequence and must set its exempt bytes the same way.
 //!
 //! **Frame bounds (DP-3).** Every frame is checked against its codec bound (`bound_of`) before it is queued, and the
 //! snapshot's size is checked before it is allocated. A route whose limits cannot carry the attach frames is closed
@@ -60,6 +63,10 @@ struct Route {
     written: usize,
     /// The bytes of `queue` that are not written yet.
     queued: usize,
+    /// The unwritten bytes of the baseline sequence (the attach frames through `live`, with their stream prefixes) at the
+    /// front of `queue`. Steward ruling R-45 exempts them from the `route_queue_bytes` threshold: only the frames behind
+    /// the sequence count.
+    baseline: usize,
     /// A `RouteWrite` is out (one at a time).
     writing: bool,
     /// A healthy close: `route_closed` is the last queued frame, and the route closes when it is written (OU-2b).
@@ -96,7 +103,7 @@ impl Route {
     /// `ceil(n / per)` frames of `OUTPUT_OVERHEAD` each. With `f = free / (per + OUTPUT_OVERHEAD) + 1`, the payload
     /// `free - f * OUTPUT_OVERHEAD` needs at most `f` frames, so it always fits.
     fn free_payload(&self, queue_bytes: usize) -> usize {
-        let free = queue_bytes.saturating_sub(self.queued);
+        let free = queue_bytes.saturating_sub(self.queued - self.baseline);
         let per = self.output_payload();
         let frames = free / (per + OUTPUT_OVERHEAD) + 1;
         free.saturating_sub(frames * OUTPUT_OVERHEAD)
@@ -171,13 +178,18 @@ impl Worker {
             queue: VecDeque::new(),
             written: 0,
             queued: 0,
+            baseline: 0,
             writing: false,
             closing: None,
         };
         match self.baseline(&entry, &options) {
-            Ok(frames) => {
-                for frame in &frames {
+            Ok((frames, sequence)) => {
+                for (i, frame) in frames.iter().enumerate() {
                     entry.push_encoded(frame);
+                    if i + 1 == sequence {
+                        // R-45: the baseline sequence ends at `live`; the output after `R` is behind it and counts.
+                        entry.baseline = entry.queued;
+                    }
                 }
             }
             Err(RouteCloseReason::HandoffFailed) => {
@@ -210,13 +222,13 @@ impl Worker {
         self.send_budget();
     }
 
-    /// The encoded baseline frames at the consumed cut `R`, then the output after `R` that the model holds (OU-9). Each
-    /// frame is within its bound on the route (DP-3).
+    /// The encoded baseline frames at the consumed cut `R`, then the output after `R` that the model holds (OU-9), and the
+    /// number of frames in the baseline sequence (through `live`, R-45). Each frame is within its bound on the route (DP-3).
     fn baseline(
         &self,
         route: &Route,
         options: &AttachOptions,
-    ) -> Result<Vec<Vec<u8>>, RouteCloseReason> {
+    ) -> Result<(Vec<Vec<u8>>, usize), RouteCloseReason> {
         // The host refuses an attach with no common format (OU-1); a worker that gets one cannot make a working route
         // from the options, so the handoff failed (R-44).
         let Some(terminal_format) = negotiate(&options.terminal_formats) else {
@@ -273,6 +285,7 @@ impl Worker {
         if !encoded.iter().all(|frame| route.fits(frame)) {
             return Err(RouteCloseReason::HandoffFailed);
         }
+        let sequence = encoded.len();
         let per = route.output_payload();
         encoded.extend(model.unfed().chunks(per).map(|chunk| {
             ToClient::Output {
@@ -280,7 +293,7 @@ impl Worker {
             }
             .encode()
         }));
-        Ok(encoded)
+        Ok((encoded, sequence))
     }
 
     /// PTY output goes to every route that is not closing, unchanged and in order, in `output` frames within the route's
@@ -344,6 +357,8 @@ impl Worker {
         };
         route.written += n;
         route.queued -= n;
+        // The queue is written front first, so the baseline sequence's bytes go first (R-45).
+        route.baseline = route.baseline.saturating_sub(n);
         if route.written == front.len() {
             route.queue.pop_front();
             route.written = 0;
@@ -431,6 +446,7 @@ mod tests {
             queue: VecDeque::new(),
             written: 0,
             queued,
+            baseline: 0,
             writing: false,
             closing: None,
         }
