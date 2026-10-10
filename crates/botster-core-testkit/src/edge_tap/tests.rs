@@ -728,22 +728,26 @@ fn a_launched_report_names_the_payload_of_the_link() {
     let mut rig = rig(fake_with_link(reads));
     let instance = InstanceId("1-7".into());
     assert_eq!(rig.edges.accept_link(), Some(A));
+    assert_eq!(rig.with(|t| t.launch_of(&instance)), None, "no hello yet");
     let first = rig.recv(A, 4096).unwrap();
     let second = rig.recv(A, 4096).unwrap();
-    assert_eq!(rig.with(|t| t.payload_of(&instance)), None);
+    assert_eq!(rig.with(|t| t.launch_of(&instance)), Some(Launch::Pending));
     let third = rig.recv(A, 4096).unwrap();
     assert_eq!(
         [first, second, third].concat(),
         [hello_frame("1-7"), exited, report, rest, later].concat()
     );
-    assert_eq!(rig.with(|t| t.payload_of(&instance)), Some(identity(77)));
-    assert_eq!(rig.with(|t| t.payload_of(&InstanceId("1-8".into()))), None);
+    assert_eq!(
+        rig.with(|t| t.launch_of(&instance)),
+        Some(Launch::Payload(identity(77)))
+    );
+    assert_eq!(rig.with(|t| t.launch_of(&InstanceId("1-8".into()))), None);
     rig.edges.link_close(A);
-    assert_eq!(rig.with(|t| t.payload_of(&instance)), None);
+    assert_eq!(rig.with(|t| t.launch_of(&instance)), None);
 }
 
-/// The tap reads only the frames of a worker after its hello: after a frame of another kind, a later `Launched` report
-/// names nothing.
+/// The tap reads only the frames of a worker after its hello: after a frame of another kind, the launch is not known, and
+/// a later `Launched` report names nothing.
 #[test]
 fn a_report_after_a_frame_of_another_kind_names_nothing() {
     let mut other = Vec::new();
@@ -761,7 +765,11 @@ fn a_report_after_a_frame_of_another_kind_names_nothing() {
     rig.recv(A, 4096).unwrap();
     let instance = InstanceId("1-7".into());
     assert_eq!(rig.with(|t| t.link_of(&instance)), Some(A));
-    assert_eq!(rig.with(|t| t.payload_of(&instance)), None);
+    assert_eq!(
+        rig.with(|t| t.launch_of(&instance)),
+        None,
+        "the launch is not known"
+    );
 }
 
 /// A first frame that is a hello by kind but not by its bytes names nothing, and the tap reads no later frame: a valid

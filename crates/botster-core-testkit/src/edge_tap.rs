@@ -144,6 +144,15 @@ impl LinkTap {
     }
 }
 
+/// What a link that the tap reads from its hello on shows of the payload's launch (Core AD-7, LC-5).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Launch {
+    /// The tap read every frame of the link, and no `Launched` report came: no payload runs yet.
+    Pending,
+    /// The worker's `Launched` report named this payload.
+    Payload(ProcessIdentity),
+}
+
 /// The registry rows that passed through the taps of one data directory, by session: Core's own decoding of each row.
 /// They outlive the handle and the row's removal, so a later handle of the directory can name a session's processes.
 pub type Rows = Arc<Mutex<BTreeMap<SessionId, Row>>>;
@@ -221,12 +230,18 @@ impl<E: HostEdges> Tap<E> {
             .map(|(link, _)| *link)
     }
 
-    /// The payload that the `Launched` report on the link of `instance` named, while the driver has not closed that link.
-    pub fn payload_of(&self, instance: &InstanceId) -> Option<ProcessIdentity> {
-        self.links
+    /// What the link of `instance` shows of the payload's launch, while the driver has not closed that link. `None` when no
+    /// open link of the instance is read from its hello on.
+    pub fn launch_of(&self, instance: &InstanceId) -> Option<Launch> {
+        let tap = self
+            .links
             .values()
-            .find(|tap| tap.instance.as_ref() == Some(instance))
-            .and_then(|tap| tap.payload)
+            .find(|tap| tap.instance.as_ref() == Some(instance))?;
+        match (tap.payload, &tap.frames) {
+            (Some(payload), _) => Some(Launch::Payload(payload)),
+            (None, Some(_)) => Some(Launch::Pending),
+            (None, None) => None,
+        }
     }
 
     /// Breaks `link` at the edge (Core LC-5, A2-1): the inner edge closes it, and what the tap held for it is dropped, so
