@@ -5,6 +5,7 @@
 # conf::a16_1_*: A16: P7 services.
 # conf::a17_*: A17 (contracts-v0.1.22): Core has one route transport, `Stream`; waits for a contracts transcript (pending in contracts-v0.1.24).
 # conf::a19_*: A19 (contracts-v0.1.23): the frame floor (Core A19-1, A19-2) and query_id as a u64 decimal string; owners by the plan's A19 rule; waits for a contracts transcript (pending in contracts-v0.1.24).
+# conf::a20_1_testkit_proven_ids_are_exactly_the_named_list: A20 (contracts-v0.1.24), P6: the upstream type_check reads the contracts' own lists, not Core's; it waits for the real-tier runner that reports TESTKIT_PROVEN (the RealCoreHarness PR) and for dp_3_frame_limit_checked_before_allocation to pass on the testkit (P4a, alloc_peak).
 # conf::a18_*: A18 (contracts-v0.1.21): P5 adoption (last_output_at None until output; TM-4 idle period from the adoption); waits for a contracts transcript (pending in contracts-v0.1.24).
 # conf::a15_1_host_key_text_over_the_bound_is_invalid_input_sync: A15: P1 lifecycle (host check; owners.py), worked by P5; engine proof a_key_text_over_the_bound_is_invalid_input_at_begin; waits for a contracts transcript (pending in contracts-v0.1.24).
 # conf::a15_1_key_text_at_the_bound_is_admitted: A15: P3 (worker).
@@ -59,6 +60,7 @@ conf::a19_1_frame_cap_one_byte_below_the_floor_is_invalid_input
 conf::a19_1_query_id_is_a_u64_decimal_string
 conf::a19_1_terminal_query_is_in_the_floor_only_when_the_route_answers_queries
 conf::a19_2_path_frame_over_max_frame_is_refused_before_the_file_is_created
+conf::a20_1_testkit_proven_ids_are_exactly_the_named_list
 conf::a2_1_attach_state_rules
 conf::a2_1_env_is_exact
 conf::a2_1_every_begin_operation_has_a_row_and_the_documented_ok_value
