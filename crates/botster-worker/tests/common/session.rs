@@ -431,7 +431,8 @@ fn lc_5_the_worker_control_signal_ends_the_payload_and_the_worker_stays() {
 fn a_new_host_adopts_the_real_worker_at_its_endpoint() {
     let root = temp_root();
     let ready = fifo(root.path(), "f");
-    let script = format!("/bin/echo up > {}; exec sleep 30", ready.display());
+    // The payload waits on its PTY's input without a timer; the stop below ends it.
+    let script = format!("/bin/echo up > {}; exec /bin/cat", ready.display());
     let mut s = Session::launch(root.path(), &script, 200);
     assert_eq!(first_line(&ready).1, "up\n");
     let endpoint = root.path().join("e");
@@ -478,17 +479,12 @@ fn a_new_host_adopts_the_real_worker_at_its_endpoint() {
             Err(error) => panic!("the old link did not end: {error}"),
         }
     }
-    // LC-7: `Remove` on the new link ends the running payload, gives the result, and ends the worker.
-    adopter.msg(&HostMsg::Remove);
+    // The new link obeys the new host: `Stop` ends the payload (LC-5), and `Remove` ends the worker (LC-7).
+    adopter.msg(&HostMsg::Stop);
     let report = adopter.report();
     assert!(matches!(report, WorkerMsg::Exited { .. }), "{report:?}");
-    let report = adopter.report();
-    assert!(
-        matches!(report, WorkerMsg::RemoveResult { .. }),
-        "{report:?}"
-    );
-    let status = s.worker.worker.wait().unwrap();
-    assert_eq!(status.code(), Some(0));
+    s.link = adopter;
+    s.remove();
     assert!(
         !endpoint.exists(),
         "the worker removes its endpoint at its end"
