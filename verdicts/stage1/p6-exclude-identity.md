@@ -114,3 +114,24 @@ The exclusion and removal-of-skip assertions remain unchanged. git diff --check 
 R1-1's reported source path is corrected. I found no new source defect in this correction.
 The exact-head gate and package verdict are pending. This inspection completes no review round and grants no CLEAN verdict.
 I ran no execution job.
+
+## Correction gate inspection — 2026-10-10
+
+Inspected head: `4de5a07ea79e76378f1baf174d0f74a3f989266f`.
+Gate base: `78b011d1a8a23229b87f81b0553ab052818b2200`.
+Log: `~/botster-sessions/gates/botster-core-stage1-p6-exclude-identity-4de5a07e-pool-20261010-162732-9689.log`.
+The header names the exact head and base. The command is plain cargo xtask ci through the Linux pool.
+All ten jobs pass. Default: 1501 passing tests, 13.155 seconds. Slow: 384 passing tests, 130.131 seconds.
+The real fixture proof passes in 19.073 seconds. Its exclusion and removal-of-skip assertions remain unchanged.
+The exclusion decision and retained stage-2 identity proofs also pass.
+The main mutation job reports 29 mutants: 27 caught, zero missed, zero timeout, and two unviable, in 127.7 seconds.
+Its skip list is empty for this diff. The main job starts no stage 2.
+Both conformance reports show 193 passed and zero failed.
+Strict coverage remains 386/407, with 21 real-only transcripts and two held transcripts.
+Minimum counts remain testkit 50/69, real 29/68, and real-accepted 29/69.
+Real-pending remains 87, with zero newly passing IDs.
+The job and wrapper exit zero after 519 seconds, including 150 seconds queued and 369 seconds running.
+The remote PR head and base match. The merge base remains 78b011d1. git diff --check passes.
+I read the updated PR body. It records the finding, correction, and exact-head gate.
+The package verdict for this head remains pending. This inspection completes no round and grants no CLEAN verdict.
+I ran no execution job.
