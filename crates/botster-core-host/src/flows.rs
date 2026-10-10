@@ -4,7 +4,7 @@ use crate::engine::{HostEngine, Next, Owner, Step};
 use crate::flow::*;
 use crate::io::Action;
 use crate::run::registry_failed;
-use crate::session::Admit;
+use crate::session::{Admit, Session};
 use botster_core_contract::prelude::*;
 use botster_core_edges::edges::{GroupSignal, IdentityState, ProcessIdentity, StorageError};
 use botster_core_link::msg::HostMsg;
@@ -23,6 +23,47 @@ fn failed_start_exit() -> Exit {
         signal: None,
         cause: ExitCause::Other,
     }
+}
+
+/// The route that `StopPhase::Finish` of `s` closes now, with its reason (A2-3, OU-7, LC-5). None when `s` is not in
+/// `Finish`, or when every route bound at the end still waits for the worker.
+///
+/// A lost session has no worker: each bound route closes `SessionLost`. An ended session's route closes `SessionEnded`
+/// with the host's exit once the worker reported that it delivered the route's queue; the report stays the route's end
+/// even if the link goes later. While the worker's link lives, an undelivered route waits. Once the link is gone, by any
+/// path (its close, the end of the worker's process, a teardown), no undelivered route can be delivered: it closes
+/// `SessionLost`. No bound route still waits in `pending_handoffs`: `Exited` needs the launch, and the launch moves every
+/// waiting route into a `HandoffRoute` action (`flush_handoffs`). The driver can still hold that descriptor; the route
+/// then waits here until the worker reports it delivered, or until the link is gone.
+pub(crate) fn finish_close(s: &Session) -> Option<(RouteId, RouteCloseReason)> {
+    let Flow::Stop(f) = &s.flow else {
+        return None;
+    };
+    if f.phase != StopPhase::Finish {
+        return None;
+    }
+    let mut bound = s.routes.intersection(&s.bound_at_end);
+    match f.end? {
+        End::Lost(_) => bound
+            .next()
+            .map(|route| (*route, RouteCloseReason::SessionLost)),
+        End::Exited(exit) => bound.find_map(|route| {
+            if s.delivered.contains(route) {
+                Some((*route, RouteCloseReason::SessionEnded { exit }))
+            } else if s.worker.link.is_none() {
+                Some((*route, RouteCloseReason::SessionLost))
+            } else {
+                None
+            }
+        }),
+    }
+}
+
+/// `StopPhase::Finish` of `s` waits: routes bound at the end remain, and none of them can close now (OU-7).
+pub(crate) fn finish_waits(s: &Session) -> bool {
+    matches!(&s.flow, Flow::Stop(f) if f.phase == StopPhase::Finish)
+        && s.routes.intersection(&s.bound_at_end).next().is_some()
+        && finish_close(s).is_none()
 }
 
 impl HostEngine {
@@ -304,6 +345,7 @@ impl HostEngine {
         let Some(s) = self.sessions.get_mut(id) else {
             return;
         };
+        s.bound_at_end = s.routes.clone();
         match &mut s.flow {
             Flow::Stop(f) => {
                 f.end = Some(end);
@@ -390,6 +432,18 @@ impl HostEngine {
             // One waiter per step, so that a step posts at most one event (9B `pump_events`).
             StopPhase::Finish => {
                 let end = f.end.expect("Finish has its end");
+                // The session's routes close after its state, one per step (A2-3, OU-7; `finish_close`). OU-7: "each
+                // route's close follows delivery of its own queue (or its stall)". A route that closed for another
+                // reason first (a detach, a stall, a failure) was closed with that reason when the worker reported it.
+                // The step needs room for the close (`flow_needs_room`).
+                if let Some((route, reason)) = finish_close(&self.sessions[id]) {
+                    self.close_route(route, reason);
+                    return;
+                }
+                if finish_waits(&self.sessions[id]) {
+                    // `flow_waiting`: the worker has not reported every route's close yet.
+                    return;
+                }
                 let waiters = &mut self
                     .sessions
                     .get_mut(id)

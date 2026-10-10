@@ -244,6 +244,16 @@ fn remove_with_a_bound_route_waits_for_route_closed_before_releasing_captures() 
         OpResult::Ok(OpOutput::Capture(c)) => c.capture,
         other => panic!("{other:?}"),
     };
+    // The exit closes the routes that are bound then (A2-3), so the route that the remove closes attaches after it.
+    w.worker_says(
+        "s1",
+        WorkerMsg::Exited {
+            code: Some(0),
+            signal: None,
+        },
+    );
+    w.pump();
+    w.engine.poll_events(64);
     w.engine
         .attach(
             ClientId("c".into()),
@@ -252,13 +262,6 @@ fn remove_with_a_bound_route_waits_for_route_closed_before_releasing_captures() 
             opts(),
         )
         .unwrap();
-    w.worker_says(
-        "s1",
-        WorkerMsg::Exited {
-            code: Some(0),
-            signal: None,
-        },
-    );
     w.pump();
     w.engine.poll_events(64);
     // Fill the queue, then remove.

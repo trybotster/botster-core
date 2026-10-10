@@ -1,10 +1,10 @@
 //! The stream routes (P4a PR1; DESIGN.md "P4a: the stream route"): the handoff, the baseline at the consumed cut, live output
-//! within the frame bound, the PTY read budget, and the closes of this PR.
+//! within the frame bound, the PTY read budget, and the closes (PR1, PR2). The client's input is PR3.
 
 use super::*;
 use botster_route_codec::prelude::{
-    AttachFailedReason, CloseReason, FrameBounds, HistoryState, RouteClosed as RouteClosedFrame,
-    StreamReader, ToClient,
+    AttachFailedReason, CloseReason, Exit as WireExit, FrameBounds, HistoryState,
+    RouteClosed as RouteClosedFrame, StreamReader, ToClient,
 };
 
 /// The frame bound of the test routes: it carries the attach frames (`baseline_begin` is the largest, A19-1), and output
@@ -742,4 +742,215 @@ fn a_queue_of_exactly_the_snapshot_takes_the_baseline_and_the_held_suffix() {
     );
     let drained = budgets(&all).last().copied().flatten().expect("a limit");
     assert!(drained > 0, "an empty queue takes PTY bytes again");
+}
+
+fn route_closed(reason: CloseReason, exit: Option<WireExit>) -> ToClient {
+    ToClient::RouteClosed(RouteClosedFrame { reason, exit })
+}
+
+/// DP-7, OU-2b: a `Detach` closes the route with its reason after every frame that is queued: `route_closed` is the last
+/// frame, the transport closes once it is written, and the host is told once with the reason.
+#[test]
+fn a_detach_sends_route_closed_last_with_its_reason() {
+    for (reason, close, wire) in [
+        (
+            DetachReason::Detached,
+            RouteCloseReason::Detached,
+            CloseReason::Detached,
+        ),
+        (
+            DetachReason::Replaced,
+            RouteCloseReason::Replaced,
+            CloseReason::Replaced,
+        ),
+        (
+            DetachReason::Revoked,
+            RouteCloseReason::Revoked,
+            CloseReason::Revoked,
+        ),
+    ] {
+        let (mut w, mut client, _) = attached(limits());
+        let mut actions = w.feed(Input::PtyOutput(b"tail".to_vec()));
+        actions.extend(w.send(&HostMsg::Detach {
+            route: RouteId(1),
+            reason,
+        }));
+        let all = client.take_all(&mut w, RouteId(1), actions);
+        assert_eq!(
+            client.output().0,
+            b"tail",
+            "{reason:?}: the output before the close"
+        );
+        assert_eq!(client.frames.last(), Some(&route_closed(wire, None)));
+        assert!(all.contains(&Action::RouteClose { route: RouteId(1) }));
+        assert_eq!(
+            closes(&mut w, &all),
+            vec![WorkerMsg::RouteClosed {
+                route: RouteId(1),
+                reason: close,
+                route_tag: None
+            }]
+        );
+    }
+}
+
+/// DP-7: a `Detach` of a route that the worker does not hold is reported closed at once, so the host's `Detach` completes.
+#[test]
+fn a_detach_of_a_route_that_the_worker_does_not_hold_is_reported_closed() {
+    let mut w = World::running();
+    let actions = w.send(&HostMsg::Detach {
+        route: RouteId(7),
+        reason: DetachReason::Revoked,
+    });
+    assert!(!actions
+        .iter()
+        .any(|a| matches!(a, Action::RouteClose { .. })));
+    assert_eq!(
+        closes(&mut w, &actions),
+        vec![WorkerMsg::RouteClosed {
+            route: RouteId(7),
+            reason: RouteCloseReason::Revoked,
+            route_tag: None
+        }]
+    );
+}
+
+/// OU-2: a second close of a closing route keeps the first reason, and the host is told once.
+#[test]
+fn a_detach_of_a_closing_route_keeps_the_first_reason() {
+    let (mut w, mut client, _) = attached(limits());
+    let mut actions = w.send(&HostMsg::Detach {
+        route: RouteId(1),
+        reason: DetachReason::Replaced,
+    });
+    actions.extend(w.send(&HostMsg::Detach {
+        route: RouteId(1),
+        reason: DetachReason::Revoked,
+    }));
+    let all = client.take_all(&mut w, RouteId(1), actions);
+    let closed: Vec<&ToClient> = client
+        .frames
+        .iter()
+        .filter(|f| matches!(f, ToClient::RouteClosed(_)))
+        .collect();
+    assert_eq!(closed, vec![&route_closed(CloseReason::Replaced, None)]);
+    assert_eq!(
+        closes(&mut w, &all),
+        vec![WorkerMsg::RouteClosed {
+            route: RouteId(1),
+            reason: RouteCloseReason::Replaced,
+            route_tag: None
+        }]
+    );
+}
+
+/// OU-2, OU-7 (#217 R1-3): a detach whose close is still queued when the exit is reported keeps its reason. The session's
+/// end adds no second close, and the host is told once, with the detach's reason.
+#[test]
+fn a_detach_that_is_closing_at_the_exit_keeps_its_reason() {
+    let (mut w, mut client, _) = attached(limits());
+    let mut actions = w.send(&HostMsg::Detach {
+        route: RouteId(1),
+        reason: DetachReason::Revoked,
+    });
+    actions.extend(w.feed(Input::PayloadExited(ExitStatus::Code(3))));
+    actions.extend(w.feed(Input::PtyDrained));
+    let all = client.take_all(&mut w, RouteId(1), actions);
+    let closed: Vec<&ToClient> = client
+        .frames
+        .iter()
+        .filter(|f| matches!(f, ToClient::RouteClosed(_)))
+        .collect();
+    assert_eq!(closed, vec![&route_closed(CloseReason::Revoked, None)]);
+    assert_eq!(
+        closes(&mut w, &all),
+        vec![WorkerMsg::RouteClosed {
+            route: RouteId(1),
+            reason: RouteCloseReason::Revoked,
+            route_tag: None
+        }]
+    );
+}
+
+/// OU-7: when the exit is reported, after the output tail, every route closes `session_ended` with the exit. The worker
+/// reports each close when the route's queue is delivered (#217 R1-3): the host waits for it, and posts it with the exit
+/// and cause that it decides (LC-5).
+#[test]
+fn the_exit_closes_every_route_session_ended_after_the_tail_and_reports_each_close_at_delivery() {
+    let mut w = World::running();
+    w.feed(Input::Descriptor(DescriptorId(1)));
+    w.feed(Input::Descriptor(DescriptorId(2)));
+    let mut one = Client::default();
+    let mut two = Client::default();
+    let a = attach(&mut w, RouteId(1), options(), limits());
+    one.take_all(&mut w, RouteId(1), a);
+    let b = attach(&mut w, RouteId(2), options(), limits());
+    two.take_all(&mut w, RouteId(2), b);
+    let mut actions = w.feed(Input::PtyOutput(b"bye".to_vec()));
+    actions.extend(w.feed(Input::PayloadExited(ExitStatus::Code(3))));
+    assert!(
+        !actions
+            .iter()
+            .any(|a| matches!(a, Action::RouteClose { .. })),
+        "no close before the drain reports the exit"
+    );
+    actions.extend(w.feed(Input::PtyDrained));
+    let ended = route_closed(
+        CloseReason::SessionEnded,
+        Some(WireExit {
+            code: Some(3),
+            signal: None,
+        }),
+    );
+    assert_eq!(
+        closes(&mut w, &actions),
+        vec![],
+        "no close is reported before its queue is delivered"
+    );
+    let mut all = one.take_all(&mut w, RouteId(1), actions.clone());
+    all.extend(two.take_all(&mut w, RouteId(2), actions));
+    for client in [&one, &two] {
+        assert_eq!(client.output().0, b"bye");
+        assert_eq!(client.frames.last(), Some(&ended));
+    }
+    assert!(all.contains(&Action::RouteClose { route: RouteId(1) }));
+    assert!(all.contains(&Action::RouteClose { route: RouteId(2) }));
+    let reason = RouteCloseReason::SessionEnded {
+        exit: Exit {
+            code: Some(3),
+            signal: None,
+            cause: ExitCause::Other,
+        },
+    };
+    let reported: Vec<(RouteId, RouteCloseReason)> = closes(&mut w, &all)
+        .into_iter()
+        .filter_map(|m| match m {
+            WorkerMsg::RouteClosed { route, reason, .. } => Some((route, reason)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(reported, vec![(RouteId(1), reason), (RouteId(2), reason)]);
+}
+
+/// OU-7: a route that attaches after the exit was reported gets its baseline, then the session's close.
+#[test]
+fn a_route_that_attaches_after_the_exit_gets_its_baseline_then_session_ended() {
+    let mut w = World::running();
+    w.feed(Input::PayloadExited(ExitStatus::Signal(9)));
+    w.feed(Input::PtyDrained);
+    w.feed(Input::Descriptor(DescriptorId(1)));
+    let mut client = Client::default();
+    let actions = attach(&mut w, RouteId(1), options(), limits());
+    client.take_all(&mut w, RouteId(1), actions);
+    assert!(client.frames.contains(&ToClient::Live));
+    assert_eq!(
+        client.frames.last(),
+        Some(&route_closed(
+            CloseReason::SessionEnded,
+            Some(WireExit {
+                code: None,
+                signal: Some(9)
+            })
+        ))
+    );
 }

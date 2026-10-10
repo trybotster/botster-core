@@ -672,6 +672,8 @@ pub(crate) fn new_session(
         input_ops: 0,
         input_bytes: 0,
         routes: BTreeSet::new(),
+        delivered: BTreeSet::new(),
+        bound_at_end: BTreeSet::new(),
         flow,
         queue: VecDeque::new(),
         ticket: None,
