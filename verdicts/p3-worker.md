@@ -9772,3 +9772,172 @@ The reviewer changes no product code and runs no tests, builds, gates, measureme
 All earlier exact-head verdicts, findings, and closures remain preserved.
 
 VERDICT: NOT CLEAN
+
+
+## Round 152 — PR #227 route input, replacement round 3 — 2026-10-10
+
+Exact head: `d1d8742a36de00753d32e302aeac99fb72bf1a0a`.
+Exact base: `89d57cc7d07957b88003722897cf43e540d19bcc`.
+Previous reviewed head: `3e4c79a916673de015765bb951b165fc155db963`.
+Fix commits: `1d96f4c0` and `9a95a0ae`.
+The reviewer reads the exact-head source, full PR body, completed gate, and retained revert evidence.
+The tier remains HIGH under BUILD rule 3 and the changed HIGH paths under rule 5.
+Every finding must close, including LOW findings.
+This is the third package NOT CLEAN round on #227.
+BUILD's round limit requires a lead decision before round four.
+
+### F105 — MED — CLOSED in its reported scope
+
+The successful route-write completion calls settle_routes after removing the active input and releasing its refusal reservation.
+settle_routes applies waiting frames before sending budgets and allowances.
+A nested call requests another pass instead of entering the application loop again.
+Each nested change consumes a received frame, closes a route, or removes a route.
+The final pass stops when no nested change remains.
+The same settlement path follows route writes, route input progress, queued frames, binds, and closes.
+The single active PTY transaction and existing admission queue preserve byte order.
+
+The new quiet-batch proof uses fifty one-byte inputs in one read within the allowance.
+The outgoing queue permits only part of the batch at the admission point.
+Each PTY write succeeds. The payload sends no output, and the client reads and sends nothing more.
+The proof checks that the whole batch reaches the PTY in order without an outgoing frame.
+The exact-head gate records this named proof as PASS.
+Its private-state assertions require correction under reopened F103 below.
+The source correction closes F105's reported quiet-success stall.
+
+### F106 — MED — CLOSED in its reported scope
+
+receive_route decodes every complete frame of the permitted read before application.
+Each valid, unsupported, or invalid input advances the client revision and reports its route at that point.
+Outgoing refusal pressure stops application, not receipt.
+Ignored extension frames do not count as input. A malformed frame ends receipt.
+A waiting decoded frame receives no second revision when apply_route processes it.
+
+The new guard proof reads fifty complete inputs on a view-only route with an unread refusal queue.
+The read fits the first allowance. The last reported revision is fifty.
+A host write guarded by revision forty-nine returns Stale with both counts exactly zero.
+A host write guarded by revision fifty starts normally.
+The subsequent refusal drain reports no additional client receipt and delivers all fifty refusals.
+The exact-head gate records this named proof as PASS.
+Its private-state assertion requires correction under reopened F103 below.
+The source correction closes F106's delayed-revision path and F87's corresponding pressure condition.
+
+### F103 — LOW — REOPENED — Tests expose private queue state again
+
+Locations: worker/route.rs:798-803; worker/tests/routes.rs:1404-1406, 1631, 1639-1640, 1847, 1867, and 1894.
+The previous replacement removed route_held and closed F103.
+This replacement adds cfg(test) route_pressure with the same test shape.
+It exposes queued minus baseline and the length of the received queue.
+Four proofs assert those private values.
+The two existing pressure proofs also remove their previous encoded-refusal byte checks.
+BUILD Testing shape rule 3 states that no test tests a helper's internals.
+Changing the accessor's name does not close that requirement.
+
+Required: remove route_pressure and its private-state assertions.
+Keep the outgoing bound and waiting-work scenarios observable through actions, decoded frames, and transport progress.
+Preserve the behavior assertions for the F105 and F106 corrections.
+The reviewer sends this finding directly to P3 and current Sol integration.
+Integration independently identifies the same test-shape defect.
+
+### F107 — MED — OPEN — Input received before live can be written after live
+
+Locations: worker/route.rs:576-589, 605-612, 708-712, and 449-451.
+receive_route stores a valid frame without retaining the route's readiness at receipt.
+on_client_frame checks baseline only when apply_route later processes that frame.
+
+A permitted complete input batch reaches the Worker before any baseline write completes.
+The Worker advances the client revision for every complete frame in that batch.
+apply_route queues NotReady refusals until refusal pressure stops application.
+The remaining complete frames stay in received.
+The client then drains the baseline through live and drains a refusal.
+on_route_written calls settle_routes when that write frees outgoing space.
+A waiting frame now sees baseline equal to zero and reaches enqueue_route_input.
+The input can therefore reach the PTY even though the Worker received it before live.
+
+DP-5 requires input before live to be refused NotReady.
+Steward ruling R-51 defines this boundary by the Worker's receipt and its own live transition.
+R-51 allows normal input when transport delivery occurs after that transition.
+That exception does not apply here: receive_route already received and reported the complete frame before live.
+The existing one-frame early-input proof does not produce refusal pressure or delay application across live.
+
+Required: preserve the receipt-time readiness decision while exception delivery waits.
+Add an edge proof with a complete early batch within its allowance and an unread baseline.
+Make the batch exhaust outgoing refusal room.
+Then complete live and drain the refusal queue.
+Every early operation must remain NotReady and must produce no PtyWrite.
+The reviewer sends this source finding directly to P3 and current Sol integration.
+Integration independently confirms the same source path and its DP-5/R-51 violation.
+Integration maps reopened F103 to R3-1 and F107 to R3-2.
+No reviewer test or gate runs to prove it.
+
+### Whole-change and merge review
+
+The reviewer reads every replacement hunk in input.rs, route.rs, and the route proofs.
+The reviewer rechecks receipt, queue reservations, read allowances, close ordering, operation ownership, and admission callers.
+A route with waiting frames has no refusal room and receives allowance zero.
+A settlement pass drains those frames before sending a positive allowance.
+This preserves the finite input bound without separate byte accounting for the received queue.
+The malformed-frame marker stops subsequent receipt. Healthy close preserves the first reason and the last frame.
+The adoption fence still removes host requests only. Route input and model replies keep their queue positions.
+Partial PTY writes retain route and op, release held bytes, and settle before the next write.
+Successful client input sends no acknowledgement.
+F99, F100, F101, F102, and F104 retain their previous closures.
+F86's first-reason correction remains satisfied. F88 and F90 retain their whole-unit scope.
+
+Nine of the twelve own-path diffs are unchanged from round 151 after excluding Git index lines and hunk coordinates.
+The other three paths are the reviewed replacement source and proofs.
+Merge 374f1f2a brings #229 into the base without changes to the twelve own paths.
+Merge d1d8742a brings #231 into the base.
+Among the own paths, that merge updates only existing pending-list comments from contracts-v0.1.26 to contracts-v0.1.27.
+The PR's own pending-list diff is unchanged against its new base.
+The reviewer runs no base-merge-check.
+The accepted base carries the separate mutation-selection fix and contracts pin move.
+This review does not replace those separate reviews.
+
+The twelve conformance ids still leave core-pending and enter their real-pending groups under plan 23l.
+The production Worker driver still ignores route actions, including the new read allowance.
+No native route read, fd handoff, spawn, wait, reap, signal, guard, or anchor implementation changes in this own diff.
+BUILD's named real-process requirements remain with the future production route implementation.
+This verdict does not claim proof of real route input or DP-2 handoff.
+F39 and F61/F62 retain their prior scopes. The non-minimum P3 queue remains parked.
+
+### Completed evidence and limits
+
+Gate: ~/botster-sessions/gates/botster-core-stage1-p4a-route-input-d1d8742a-pool-20261010-154315-72557.log.
+The header names this exact head and base. All ten CI steps PASS on gaming.
+Default: 1540 passed in 14.747 seconds. Slow: 384 passed in 135.143 seconds.
+Both testkit reports: 205 passed, zero failed, 485 ignored. Minimum: 54/69.
+Strict pending: 374 of 395 ids run, 21 real-only ids not run, two held ids. Real-pending: 99.
+Real minimum: 29/68 passing and 29/69 accepted.
+Stage 1: 118 mutants, 116 caught, two unviable, zero missed, zero timeouts, in 237.8 seconds.
+Stage 2 skips because stage 1 misses none.
+Full CI: 518.6 seconds. Job: queue two seconds, run 525 seconds, exit zero after 527 seconds.
+The wrapper also exits zero after 527 seconds.
+Two compilation lines name botster-probe-script at contracts b161db8 under v0.1.27.
+The successful gate therefore compiles the current probe after the earlier stale pool-target failure.
+The earlier 374f1f2a gate misses three waiting-frame accounting mutants and times out on the settlement loop mutant.
+9a95a0ae removes the redundant accounting and changes the loop to mem::take.
+The exact-head gate has no surviving viable mutant or timeout.
+A passing gate does not cover F107's early-input pressure path.
+
+Evidence: shared/core-stage1/evidence/p3-pr3/pr3-round151-reverts.log and pr3-round151-reverts.py.
+The reviewer reads both artifacts without execution.
+The F105 revert records the quiet-batch proof as FAILED, exit 101: 142 pass and one fails.
+The F106 revert records the guard proof and both pressure proofs as FAILED, exit 101: 140 pass and three fail.
+Removing the settlement application pass records 21 failed route proofs, exit 101: 122 pass and 21 fail.
+The unmodified selection records 143 pass, zero failures, exit zero.
+The script's replacement targets match the reviewed source paths.
+The retained log contains result summaries and failed test names, not assertion locations or full failure output.
+The reviewer does not claim independent verification of a precise counterfactual assertion site.
+
+### Verdict
+
+PR #227 is NOT CLEAN at `d1d8742a36de00753d32e302aeac99fb72bf1a0a`.
+F105 and F106 are CLOSED in their reported scopes.
+F103 is LOW and REOPENED. F107 is MED and OPEN.
+Findings and the published artifact go directly to P3 and current Sol integration.
+The lead receives BLOCKED with the exact head and verdict commit for the three-round limit.
+A fourth review round must wait for the lead's decision to split, settle the disputed point, or replan the root cause.
+The reviewer changes no product code and runs no tests, builds, gates, measurements, mutants, or base-merge-check.
+All earlier exact-head verdicts, findings, and closures remain preserved.
+
+VERDICT: NOT CLEAN
