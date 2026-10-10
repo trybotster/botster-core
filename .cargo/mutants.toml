@@ -192,6 +192,23 @@ exclude_re = [
     # in_6_real_pty_cancel_keeps_counts_and_resumes_the_next_write). Its `|` of READABLE and WRITABLE joins disjoint flags,
     # so `^` is the same value; `&` leaves no interest, which the regression catches.
     'crates/botster-worker/src/main\.rs:\d+:\d+: (replace Driver::set_pty_write_interest( ->| with)|.* in Driver::set_pty_write_interest$)',
+    # P5 #176b, the worker endpoint (botster-core-host DESIGN.md "Adoption (P5)" parts 1, 3 and 7): only the whole-body
+    # replacement of four Driver shells is excluded. accept_candidate accepts a connection and registers it,
+    # read_candidates reads each candidate once, adopt_link moves a candidate's stream to the control token, and the Drop of
+    # Endpoint unlinks the endpoint file. Their decisions are pure functions of io_decisions tested in the default tier:
+    # take_candidate (candidate_ids_count_up_and_never_repeat), endpoint_waits and candidate_waits
+    # (the_endpoint_and_a_candidate_wait_while_not_readable), failure (errors_have_distinct_retry_blocked_and_closed_results),
+    # candidate_token (a_candidate_token_names_that_candidate_only), fence
+    # (the_fence_drops_the_old_link_and_turns_the_adopted_candidate_into_the_link), unlinked
+    # (a_missing_endpoint_at_the_end_is_no_failure) and worker_config
+    # (the_worker_config_takes_the_startup_bound_and_the_identity_of_the_launch). The slow tier catches the four shells
+    # (a_new_host_adopts_the_real_worker_at_its_endpoint, in its slow_driver copy, which runs the driver in the test binary):
+    # without the accept or the read the new host gets no answer, without adopt_link the answer goes to the old link, and
+    # without the unlink the endpoint stays. Slow-tier mutation evidence: the run named at the endpoint entries of real.rs.
+    'crates/botster-worker/src/main\.rs:\d+:\d+: replace Driver::accept_candidate with \(\)$',
+    'crates/botster-worker/src/main\.rs:\d+:\d+: replace Driver::read_candidates with \(\)$',
+    'crates/botster-worker/src/main\.rs:\d+:\d+: replace Driver::adopt_link -> io::Result<\(\)> with Ok\(\(\)\)$',
+    'crates/botster-worker/src/main\.rs:\d+:\d+: replace <impl Drop for Endpoint>::drop with \(\)$',
     # P3 Payload glue owns real native descriptors and unreaped processes; the default tier has neither.
     # Each entry names one function. Pure errno/launch-error classification and wait_unreaped_with remain mutation-tested.
     # Library-inclusive Linux proof: 63b5c1db, 30 tested, 25 caught, five unviable, no misses/timeouts.
@@ -345,6 +362,20 @@ exclude_re = [
     # tier catches it (slow-tier mutation run of 2026-10-08 on Linux), in tests/slow_real_core.rs
     # `a_damaged_row_is_registry_corrupt_and_a_foreign_file_is_left_alone`.
     'crates/botster-core/src/real\.rs:\d+:\d+: (replace <impl HostEdges for RealEdges>::diagnostics( ->| with)|.* in <impl HostEdges for RealEdges>::diagnostics$)',
+    # botster-core real edges, the worker endpoint (P5 #176b; botster-core-host DESIGN.md "Adoption (P5)" parts 1 and 3): only
+    # the whole-body replacement of two I/O shells is excluded. connect_worker connects a Unix socket and hands the stream to
+    # add_stream; remove_endpoint unlinks a file and hands the result to the record of the failures. Their decisions are pure
+    # functions tested in the default tier: take_link (link_ids_count_up_and_never_repeat), the unlink record
+    # (a_failed_accept_is_counted_and_reported), the endpoint path (a_worker_endpoint_is_in_the_endpoint_directory) and the
+    # endpoint directory (only_an_existing_endpoint_directory_is_no_failure_of_the_create,
+    # only_a_private_directory_of_the_user_is_a_safe_endpoint_directory,
+    # the_endpoint_directory_is_created_private_and_an_unsafe_one_is_refused). The slow tier catches both shells
+    # (a_new_host_adopts_a_live_worker_at_its_endpoint_and_remove_deletes_an_endpoint: without the connect the adoption is
+    # `Lost(WorkerUnreachable)`, without the unlink the endpoint stays). Slow-tier mutation evidence (`--no-config --in-place
+    # --features slow`, `--in-diff` of v1 e9901293, these functions, `-- --profile slow --max-fail 1:immediate`): 10 mutants,
+    # 8 caught, 2 unviable, at f2538a49, log gates/botster-core-stage1-p5-adopt-real-f2538a49-pool-20261009-213000-42647.log.
+    'crates/botster-core/src/real\.rs:\d+:\d+: replace <impl HostEdges for RealEdges>::connect_worker -> Option<LinkId> with None$',
+    'crates/botster-core/src/real\.rs:\d+:\d+: replace <impl HostEdges for RealEdges>::remove_endpoint with \(\)$',
     # botster-core-sys process (P1): `Children` waits for, reaps and signals real children, so the proof is the slow tier,
     # `tests/slow_process.rs` (slow-tier mutation run of 2026-10-04): `a_child_exit_calls_the_notifier_and_is_polled` and every
     # test through `next_exit` (`poll_exit`), `wait_exit_takes_the_exit_of_its_own_child` (`wait_exit`), and

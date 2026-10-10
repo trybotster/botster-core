@@ -282,6 +282,7 @@ dependencies = [
  "botster-core-testkit",
  "botster-route-codec",
  "botster-terminal-ghostty",
+ "botster-test-process",
  "botster-worker-core",
  "kqueue",
  "libc",
