@@ -1,6 +1,6 @@
 # The minimum Core (plan revision 23; approved 2026-10-09)
 
-Status: APPROVED by the orchestrator and the user on 2026-10-09 (plan revision 23). The id list is `docs/stage1-clauses/minimum-core.txt`. The answers to the borderline questions are in section 8.
+Status: APPROVED by the orchestrator and the user on 2026-10-09 (plan revision 23). The id list is `conformance/minimum-core.txt` on `v1` (plan revision 23v; a change to it is a HIGH Core PR). The answers to the borderline questions are in section 8.
 Date: 2026-10-09.
 
 ## Sources
