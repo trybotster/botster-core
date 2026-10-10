@@ -478,8 +478,17 @@ fn a_new_host_adopts_the_real_worker_at_its_endpoint() {
             Err(error) => panic!("the old link did not end: {error}"),
         }
     }
-    s.link = adopter;
-    s.remove();
+    // LC-7: `Remove` on the new link ends the running payload, gives the result, and ends the worker.
+    adopter.msg(&HostMsg::Remove);
+    let report = adopter.report();
+    assert!(matches!(report, WorkerMsg::Exited { .. }), "{report:?}");
+    let report = adopter.report();
+    assert!(
+        matches!(report, WorkerMsg::RemoveResult { .. }),
+        "{report:?}"
+    );
+    let status = s.worker.worker.wait().unwrap();
+    assert_eq!(status.code(), Some(0));
     assert!(
         !endpoint.exists(),
         "the worker removes its endpoint at its end"
