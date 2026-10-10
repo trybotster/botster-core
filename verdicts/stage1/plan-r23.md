@@ -490,3 +490,65 @@ The fetched plan ref names the reviewed head. `git diff --check` passes.
 The reviewer changed no product code and ran no builds, tests, mutants, or gates.
 
 VERDICT: CLEAN (0 open) at 2cec1a39f65b86798bea993c1bbcd8015cabaa7c
+
+## Round 15 — revision 23l — NOT CLEAN
+
+Reviewed head: `0132ceff1638f7d1975d89c8d0ec834f694b0d1b`.
+Previous reviewed head: `2cec1a39f65b86798bea993c1bbcd8015cabaa7c`.
+The lead assigned both commits, including the shared composition function added after `714d3c1f`.
+The reviewer applied orchestrate-delivery to the changed real-tier architecture and acceptance rules.
+The reviewer read the complete delta, related plan sections, steward R-43 at contracts `95b96c9`, and current production callers.
+Production source was read at v1 `9b255cff007552f3952563852104f00a14ddf842`.
+The reviewer changed no product code and ran no builds, tests, mutants, or gates.
+
+### Sound parts of the premise
+
+The harness can supply the transcript clock without replacing real workers, PTYs, processes, sockets, or files.
+R-43 assigns this clock to the harness as host under TM-1.
+The existing Core facade forwards CoreApi operations to the production HostDriver.
+Sharing an `open_parts` function with Core::open can preserve production validation, registry locking, host epoch, features, and terminal configuration.
+It avoids a separate copy of the production composition logic in the harness.
+Exporting that production composition and its edges does not itself create a test branch.
+
+The wrapper must forward ordinary operations to the production edges and apply controls only at the specified boundary.
+A pass-through proof establishes that exercised composition; it does not establish every future wrapper or control automatically.
+The implementation review must still inspect the shared caller and each control's real resource ownership.
+The proposed Limits::real use remains conditional on a contracts pin that supplies it.
+No probe count in this plan is accepted as completed real-tier gate evidence by this review.
+
+### R15-1 — HIGH — The stated exports do not expose the resources required by the controls
+
+Current RealEdges owns its listener and streams privately (`crates/botster-core/src/real.rs:267-281`).
+Its production accept path inserts each socket into a private LinkIo and returns only LinkId.
+HostEdges exposes receive, send, close, and interest operations, but no socket handle or descriptor-readiness query.
+The proposed `open_parts` returns this same aggregate; exporting the aggregate does not expose its contained resources.
+
+An external wrapper therefore cannot perform the plan's `shutdown(SHUT_RDWR)` on the owned socket through the stated exports.
+It also cannot perform the specified non-consuming descriptor-readiness check for edges_quiet.
+The sentence permitting these exports and "Nothing else" leaves the required control boundary unavailable.
+
+Specify a production resource boundary that gives the wrapper the required access while preserving ownership and lifetime.
+Keep the controls outside Core and keep production and harness composition shared.
+Do not substitute a Core test control, a copied real-edge implementation, or a feature-selected test path.
+This is a missing architectural boundary, not a request to implement the controls during plan review.
+
+### R15-2 — MEDIUM — Real-tier failure and selection rules conflict across sections
+
+Section 5 still permits a real-tier failure to return an ID to core-pending.txt through a HIGH PR.
+Section 8 now assigns testkit-passing, real-failing IDs to core-real-pending.txt and restricts later additions.
+Section 4.2b also says a non-pass is never moved to a list.
+These rules do not tell the implementer which list governs initialization, later regressions, or trial selection.
+
+Reconcile those active instructions with the new second list.
+Specify how the real harness reports and selects IDs in core-real-pending.txt without counting them as passes.
+Keep already passing real IDs protected against later regression; list absence alone must not replace required proof.
+
+The new shorthand exempts real-only IDs from the real tier, while section 4.2b requires their real-process proof.
+State explicitly that such an ID can avoid duplicate transcript execution only through its required named real-process proof.
+It is not exempt from real acceptance and must not count as passing merely because both pending lists omit it.
+Validated deferrals retain their separate status and never count as passes.
+
+The fetched plan ref names the reviewed head. `git diff --check` passes.
+No execution gate applies to this documentation-only review.
+
+VERDICT: NOT CLEAN (2 open: R15-1 HIGH, R15-2 MEDIUM) at 0132ceff1638f7d1975d89c8d0ec834f694b0d1b
