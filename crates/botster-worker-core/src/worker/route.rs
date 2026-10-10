@@ -505,10 +505,15 @@ impl Worker {
             match decoded {
                 Ok(Decoded::Frame(frame)) => self.on_client_frame(id, frame),
                 Ok(Decoded::Ignored { .. }) => {}
+                // A complete input frame that cannot be applied is still client input: it is received, then refused (IN-4).
                 Ok(Decoded::Unsupported { op, what }) => {
+                    self.client_received(id);
                     self.refuse(id, op, RefusalReason::Unsupported { what })
                 }
-                Ok(Decoded::Invalid { op, .. }) => self.refuse(id, op, RefusalReason::InvalidInput),
+                Ok(Decoded::Invalid { op, .. }) => {
+                    self.client_received(id);
+                    self.refuse(id, op, RefusalReason::InvalidInput)
+                }
                 Err(error) => {
                     let code = error.code;
                     self.close_healthy(
@@ -523,13 +528,19 @@ impl Worker {
         }
     }
 
-    /// The client closed its end (OU-5: `PeerClosed`, only that route).
+    /// The client closed its end, or its read failed (OU-5: `PeerClosed`, only that route). The transport ends now. A healthy
+    /// close that was delivering keeps its first reason (OU-2), as a failed write does in `on_route_written`.
     pub(super) fn on_route_ended(&mut self, id: RouteId) {
-        self.end_route(id, RouteCloseReason::PeerClosed);
+        let Some(route) = self.routes.routes.get(&id) else {
+            return;
+        };
+        let reason = route.closing.unwrap_or(RouteCloseReason::PeerClosed);
+        self.end_route(id, reason);
     }
 
-    /// One complete client input frame (IN-4, DP-5).
-    fn on_client_frame(&mut self, id: RouteId, frame: ToWorker) {
+    /// The receipt of one complete client input frame, applied or refused: `input_rev{client}` advances, and the activity
+    /// carries its route (IN-4). An ignored extension frame is not input.
+    fn client_received(&mut self, id: RouteId) {
         let input_rev = self.input.client_received();
         self.report(&WorkerMsg::Observed {
             observation: Observation::ClientInput {
@@ -537,6 +548,11 @@ impl Worker {
                 input_rev,
             },
         });
+    }
+
+    /// One complete client input frame (IN-4, DP-5).
+    fn on_client_frame(&mut self, id: RouteId, frame: ToWorker) {
+        self.client_received(id);
         let (op, bytes) = match frame {
             ToWorker::Bytes { op, bytes } => (op, bytes.0.to_vec()),
             ToWorker::Text { op, text } => (op, text.into_bytes()),
