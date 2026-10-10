@@ -594,3 +594,51 @@ This plan review does not count any real-tier transcript as passing.
 `git diff --check` passes. No execution gate applies to this documentation-only review.
 
 VERDICT: CLEAN at a538765fe9e3a8243bad5acf2a44619510c34edc
+
+## Round 18 — Revision 23m pin catch-up
+
+Reviewed head: `b186dd122f469c19fc31b96864037680240e6cab`.
+Parent: `a538765fe9e3a8243bad5acf2a44619510c34edc`.
+Scope: the complete four-file delta, affected plan instructions, and ledger/list consistency at contracts-v0.1.22.
+The reviewer applied orchestrate-delivery to the changed transport scope.
+
+The contracts tag resolves to `af5771cf962eb26b7074d486dafbb3360ff50d01`.
+The active Core ledger contains 665 IDs, down from 677: 15 withdrawals and three additions.
+The withdrawals remove 11 P4c IDs and four P4a IDs. None belongs to the minimum list.
+All package lists together cover the active ledger exactly once. Every clause and pending/transcript field matches the tag.
+Package counts match: P0 2, P1 126, P2 6, P3 167, P4a 151, P4b 68, P4c 4, P5 59, P6 15, P7 67.
+The new A17 rule correctly assigns all three new pending IDs to P4a.
+The 69-ID minimum list is byte-identical to its previous version.
+The four remaining P4c IDs cover DP-10 T1 and DP-11. The plan retains them and defers staffing until real minimum acceptance.
+
+### R18-1 — MEDIUM — Active architecture instructions still require WebRTC work
+
+Section 2 still gives the worker driver WebRTC UDP sockets (line 113).
+The RouteTransport row still specifies real UDP sockets and testkit datagram pairs (line 130).
+The Entropy row still names a WebRTC stack (line 135).
+The crate tree still includes worker-core/webrtc (line 232).
+The new-tools instruction still proposes str0m for adoption (line 460).
+These active instructions contradict A17 and the revised scope.
+Remove those responsibilities or mark each as superseded history. Keep the stream route and ordinary process edges.
+The explicitly withdrawn entropy item, str0m table row, and closed R6 may retain historical text.
+Q9 must also describe the current four-ID P4c scope instead of saying that P4c awaits A17.
+
+### R18-2 — MEDIUM — The frozen-input table still selects the previous manifest and codec
+
+The contracts row advances to final37, but the Joint manifest row still selects manifest-final36 at line 14.
+The Route codec row still selects revision 36 and its hash at line 35.
+The final37 manifest explicitly replaces that codec with revision 37.
+Update both active input rows. Keep the previous revisions as labeled history.
+The manifest-final37 tag resolves to `a9c44c69819a5ef54cdd43d1066902feb9760027`.
+The revision 37 hash in that manifest is `30e254d64999d3bb8285ac683e0b8a6428d36f4cd577a1dd0b8bbedb25cb2e9a`.
+
+### R18-3 — LOW — Active acceptance and budget counts still use 677 IDs
+
+Section 1 line 59 still requires all 677 active IDs at the pinned tag and describes the old 679-minus-two calculation.
+Risk R4 at line 527 also retains 677 as its active count.
+Update those active counts to match the 665-ID ledger. Preserve explicitly historical counts.
+
+`git diff --check` passes. The reviewer used read-only ledger and file comparisons.
+The reviewer ran no builds, tests, or gates. The separate code pin PR remains outside this review.
+
+VERDICT: NOT CLEAN (R18-1 MEDIUM, R18-2 MEDIUM, R18-3 LOW) at b186dd122f469c19fc31b96864037680240e6cab
