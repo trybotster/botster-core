@@ -143,11 +143,8 @@ pub fn await_status(
 /// # Errors
 /// The process table could not be read.
 pub fn live_members(group: Pid) -> std::io::Result<Vec<Member>> {
-    use libproc::bsd_info::BSDInfo;
-    use libproc::proc_pid::pidinfo;
     use libproc::processes::{pids_by_type, ProcFilter};
     let group_id = group.as_raw_nonzero().get().unsigned_abs();
-    let mut members = Vec::new();
     // libproc reads `errno` when the kernel lists no process, and that `errno` can be left over from an earlier call. So a
     // failed listing is checked with a test signal to the group, which skips zombies: ESRCH proves no live member.
     let pids = match pids_by_type(ProcFilter::ByProgramGroup { pgrpid: group_id }) {
@@ -157,6 +154,32 @@ pub fn live_members(group: Pid) -> std::io::Result<Vec<Member>> {
             _ => return Err(error),
         },
     };
+    live_of(pids, |info| info.pbi_pgid == group_id)
+}
+
+/// The live children of `parent`, with their states, as [`live_members`] reads them: a zombie is not live.
+///
+/// # Errors
+/// The process table could not be read.
+pub fn live_children(parent: Pid) -> std::io::Result<Vec<Member>> {
+    use libproc::processes::{pids_by_type, ProcFilter};
+    let ppid = parent.as_raw_nonzero().get().unsigned_abs();
+    // libproc takes an empty listing for an error when `errno` is not 0, and that `errno` can be left over from an earlier
+    // call. With `errno` cleared first, an empty listing is no child, and an error is the listing's own.
+    errno::set_errno(errno::Errno(0));
+    let pids = pids_by_type(ProcFilter::ByParentProcess { ppid })?;
+    live_of(pids, |info| info.pbi_ppid == ppid)
+}
+
+/// The live processes of `pids` whose information `keep` takes. A process whose information is refused is left out only
+/// when it is exiting or gone.
+fn live_of(
+    pids: Vec<u32>,
+    keep: impl Fn(&libproc::bsd_info::BSDInfo) -> bool,
+) -> std::io::Result<Vec<Member>> {
+    use libproc::bsd_info::BSDInfo;
+    use libproc::proc_pid::pidinfo;
+    let mut members = Vec::new();
     for raw in pids {
         let Some(process) = i32::try_from(raw).ok().and_then(Pid::from_raw) else {
             continue;
@@ -170,7 +193,7 @@ pub fn live_members(group: Pid) -> std::io::Result<Vec<Member>> {
                 return Err(std::io::Error::other(format!("process {raw}: {refused}")));
             }
         };
-        if info.pbi_pgid == group_id && info.pbi_status != libc::SZOMB {
+        if keep(&info) && info.pbi_status != libc::SZOMB {
             members.push(Member {
                 pid: process,
                 state: format!("status {}", info.pbi_status),

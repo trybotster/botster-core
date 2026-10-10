@@ -675,19 +675,6 @@ fn only_a_matching_identity_is_killed_and_the_host_is_woken() {
     assert_eq!(rig.signals(), 1);
 }
 
-/// Core spawns the worker of `instance` through the tap.
-fn spawn(rig: &mut Rig, instance: &str) {
-    rig.edges
-        .spawn_worker(&WorkerSpawn {
-            program: "/w".into(),
-            instance: InstanceId(instance.into()),
-            token: [0; TOKEN_LEN],
-            host_epoch: 1,
-            startup: Duration::from_secs(1),
-        })
-        .unwrap();
-}
-
 fn worker_frame(msg: &WorkerMsg) -> Vec<u8> {
     let mut payload = Vec::new();
     msg.encode(&mut payload);
@@ -730,8 +717,8 @@ fn launched(payload: ProcessIdentity) -> WorkerMsg {
     }
 }
 
-/// `payload_alive` (Core AD-7, LC-5, EV-5(c)): the host keeps a started payload in memory. A worker that the tap spawned
-/// has a pending launch until its `Launched` report on the link names the payload. The tap reads the report across reads,
+/// `payload_alive` (Core AD-7, LC-5, EV-5(c)): the host keeps a started payload in memory. The worker's `Launched` report
+/// on the link names the payload; before the tap reads it, no payload is named. The tap reads the report across reads,
 /// after other reports and with later frames in the same read, without changing a byte; the launch outlives the link.
 #[test]
 fn a_launched_report_names_the_payload_of_the_link() {
@@ -749,27 +736,25 @@ fn a_launched_report_names_the_payload_of_the_link() {
     ];
     let mut rig = rig(fake_with_link(reads));
     let instance = InstanceId("1-7".into());
-    assert_eq!(rig.with(|t| t.launch_of(&instance)), None, "not spawned");
-    spawn(&mut rig, "1-7");
-    assert_eq!(rig.with(|t| t.launch_of(&instance)), Some(Launch::Pending));
     assert_eq!(rig.edges.accept_link(), Some(A));
     let first = rig.recv(A, 4096).unwrap();
     let second = rig.recv(A, 4096).unwrap();
-    assert_eq!(rig.with(|t| t.launch_of(&instance)), Some(Launch::Pending));
+    assert_eq!(
+        rig.with(|t| t.launch_of(&instance)),
+        None,
+        "half a report names nothing"
+    );
     let third = rig.recv(A, 4096).unwrap();
     assert_eq!(
         [first, second, third].concat(),
         [hello_frame("1-7"), exited, report, rest, later].concat()
     );
-    assert_eq!(
-        rig.with(|t| t.launch_of(&instance)),
-        Some(Launch::Payload(identity(77)))
-    );
+    assert_eq!(rig.with(|t| t.launch_of(&instance)), Some(identity(77)));
     assert_eq!(rig.with(|t| t.launch_of(&InstanceId("1-8".into()))), None);
     rig.edges.link_close(A);
     assert_eq!(
         rig.with(|t| t.launch_of(&instance)),
-        Some(Launch::Payload(identity(77))),
+        Some(identity(77)),
         "the launch outlives the link"
     );
 }
@@ -789,7 +774,6 @@ fn a_report_after_a_frame_of_another_kind_names_nothing() {
         .concat(),
     )];
     let mut rig = rig(fake_with_link(reads));
-    spawn(&mut rig, "1-7");
     assert_eq!(rig.edges.accept_link(), Some(A));
     rig.recv(A, 4096).unwrap();
     let instance = InstanceId("1-7".into());
@@ -820,7 +804,7 @@ fn a_hello_that_does_not_decode_ends_the_reading_of_the_link() {
     assert_eq!(rig.with(|t| t.link_of(&InstanceId("1-7".into()))), None);
 }
 
-/// A link that Core connected to (an adoption) is not read: what the tap knows of the launch of its instance stays.
+/// A link that Core connected to (an adoption) is not read: a report on it names nothing.
 #[test]
 fn a_connected_link_is_not_read_for_a_launch() {
     let mut fake = Fake::default();
@@ -833,9 +817,8 @@ fn a_connected_link_is_not_read_for_a_launch() {
         .into(),
     );
     let mut rig = rig(fake);
-    spawn(&mut rig, "2-1");
     let instance = InstanceId("2-1".into());
     assert_eq!(rig.edges.connect_worker(&instance), Some(B));
     rig.recv(B, 4096).unwrap();
-    assert_eq!(rig.with(|t| t.launch_of(&instance)), Some(Launch::Pending));
+    assert_eq!(rig.with(|t| t.launch_of(&instance)), None);
 }

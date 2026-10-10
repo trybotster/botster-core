@@ -88,9 +88,8 @@ impl LinkTap {
 
     /// Reads the link's frames from bytes that passed through, without changing them: the first frame, a hello, names the
     /// instance, and the worker's `Launched` report names the payload in `launches`. The tap reads no frame after the
-    /// report, after a first frame that is not a hello, or after bytes that are not a frame; a link whose reading ends
-    /// before the report leaves its launch unknown.
-    fn observe(&mut self, bytes: &[u8], launches: &mut BTreeMap<InstanceId, Launch>) {
+    /// report, after a first frame that is not a hello, or after bytes that are not a frame.
+    fn observe(&mut self, bytes: &[u8], launches: &mut BTreeMap<InstanceId, ProcessIdentity>) {
         let mut rest = bytes;
         while let Some(decoder) = self.frames.as_mut() {
             // The decoder takes bytes up to the end of the current frame.
@@ -105,13 +104,6 @@ impl LinkTap {
                 }
                 Err(_) => self.frames = None,
             }
-            if self.frames.is_none() {
-                if let Some(instance) = &self.instance {
-                    if !matches!(launches.get(instance), Some(Launch::Payload(_))) {
-                        launches.remove(instance);
-                    }
-                }
-            }
         }
     }
 
@@ -120,7 +112,7 @@ impl LinkTap {
         &mut self,
         kind: FrameType,
         payload: &[u8],
-        launches: &mut BTreeMap<InstanceId, Launch>,
+        launches: &mut BTreeMap<InstanceId, ProcessIdentity>,
     ) -> bool {
         let Some(instance) = &self.instance else {
             if kind != FrameType::HELLO {
@@ -136,10 +128,10 @@ impl LinkTap {
             Ok(WorkerMsg::Launched { payload, .. }) => {
                 launches.insert(
                     instance.clone(),
-                    Launch::Payload(ProcessIdentity {
+                    ProcessIdentity {
                         pid: payload.pid,
                         start_time: payload.start_time,
-                    }),
+                    },
                 );
                 false
             }
@@ -153,15 +145,6 @@ impl LinkTap {
     }
 }
 
-/// What the tap knows of the payload launch of a worker that it spawned (Core AD-7, LC-5).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Launch {
-    /// The worker was spawned, and the tap read every frame of its link without a `Launched` report: no payload runs yet.
-    Pending,
-    /// The worker's `Launched` report named this payload.
-    Payload(ProcessIdentity),
-}
-
 /// The registry rows that passed through the taps of one data directory, by session: Core's own decoding of each row.
 /// They outlive the handle and the row's removal, so a later handle of the directory can name a session's processes.
 pub type Rows = Arc<Mutex<BTreeMap<SessionId, Row>>>;
@@ -173,10 +156,10 @@ pub struct Tap<E> {
     accepts: VecDeque<LinkId>,
     exits: VecDeque<(ProcessIdentity, ExitStatus)>,
     rows: Rows,
-    /// What the tap knows of the payload launch of each worker that it spawned (Core AD-7, LC-5): pending from the spawn,
-    /// then the payload of the worker's `Launched` report. It outlives the link. The host keeps a started payload in
-    /// memory and writes it to the row only at a later row write.
-    launches: BTreeMap<InstanceId, Launch>,
+    /// The payload of each worker's `Launched` report that the tap read (Core AD-7, LC-5). It outlives the link. The host
+    /// keeps a started payload in memory and writes it to the row only at a later row write. A report that the tap has
+    /// not read gives no entry, and no entry never means that no payload runs.
+    launches: BTreeMap<InstanceId, ProcessIdentity>,
 }
 
 impl<E: HostEdges> Tap<E> {
@@ -243,9 +226,9 @@ impl<E: HostEdges> Tap<E> {
             .map(|(link, _)| *link)
     }
 
-    /// What the tap knows of the payload launch of the worker of `instance`. `None` when this tap did not spawn it, or
-    /// stopped reading its link before the `Launched` report.
-    pub fn launch_of(&self, instance: &InstanceId) -> Option<Launch> {
+    /// The payload that the `Launched` report of the worker of `instance` named. `None` when the tap has not read that report:
+    /// the report may still be unread, or another tap read it, so `None` never means that no payload runs.
+    pub fn launch_of(&self, instance: &InstanceId) -> Option<ProcessIdentity> {
         self.launches.get(instance).copied()
     }
 
@@ -370,12 +353,7 @@ impl<E: HostEdges> HostEdges for EdgeTap<E> {
     }
 
     fn spawn_worker(&mut self, spec: &WorkerSpawn) -> Result<ProcessIdentity, SpawnError> {
-        let mut tap = self.tap();
-        let spawned = tap.inner.spawn_worker(spec);
-        if spawned.is_ok() {
-            tap.launches.insert(spec.instance.clone(), Launch::Pending);
-        }
-        spawned
+        self.tap().inner.spawn_worker(spec)
     }
 
     fn signal_group(&mut self, identity: ProcessIdentity, signal: GroupSignal) {

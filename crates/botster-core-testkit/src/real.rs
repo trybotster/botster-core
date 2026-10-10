@@ -26,8 +26,11 @@
 //! - `payload_alive` (`{session}` → `{alive}`, Core EV-5(c), AD-7): the payload of the session's row, or of its worker's
 //!   `Launched` report on the link ([`Tap::launch_of`]), still matches its identity (the inner edge's AD-6 check,
 //!   [`Tap::identity_state`]) and is live, not a zombie that its worker has yet to reap
-//!   ([`botster_test_process::platform::live_members`] of its own group: the payload leads its group, `setsid`). A
-//!   worker whose payload is not known is `Bad`. It sends no signal.
+//!   ([`botster_test_process::platform::live_members`] of its own group: the payload leads its group, `setsid`). A payload
+//!   that is not known (the tap has not read the report, or another handle's tap read it) is never taken as ended: the
+//!   answer is whether the recorded worker, which still matches its identity, has a live child
+//!   ([`botster_test_process::platform::live_children`]; each worker has at most one child, its payload). A worker that
+//!   does not match is `Bad`, because its payload can outlive it. It sends no signal.
 //! - `lose_worker` (`{session, reason?}`, Core AD-2, IN-7): the recorded worker's process group gets `KILL` through the
 //!   inner edge's identity-checked `signal_group` ([`Tap::kill_group`]): only while the recorded pid and start time match,
 //!   so a reused pid is never signalled (AD-6). The worker's group is the worker's own (Core spawns it as a group leader),
@@ -39,7 +42,7 @@
 
 use crate::candidate::{Candidate, PROBE, WORKER};
 use crate::controls::{damaged, parse};
-use crate::edge_tap::{EdgeTap, Launch, Rows, Tap};
+use crate::edge_tap::{EdgeTap, Rows, Tap};
 use crate::harness::{limits_of, no_route};
 use crate::process_controls::LoseReason;
 use botster_core::RealEdges;
@@ -349,36 +352,50 @@ impl RealCoreHarness {
         Ok(Value::Null)
     }
 
-    /// Core EV-5(c), AD-7: `{alive}`, whether the session's payload runs now. The payload is the one that the session's row
-    /// names, or, while a started session runs, the one that its worker's `Launched` report named on the link (the host
-    /// writes it to the row only later). A session whose row names no worker has no payload, and neither has a worker whose
-    /// link, read from its hello on, has no `Launched` report yet. A worker whose payload is not known otherwise is `Bad`,
-    /// never a payload that does not run.
+    /// Core EV-5(c), AD-7: `{alive}`, whether the session's payload runs now. A session whose row names no worker has no
+    /// payload.
+    /// - A known payload: the one that the session's row names, or, while a started session runs, the one that its worker's
+    ///   `Launched` report named on the link (the host writes it to the row only later). It runs when it still matches its
+    ///   identity and is live.
+    /// - A payload that is not known: the tap has not read the report (the worker may have started the payload already), or
+    ///   another handle's tap read it. A report that is not read never proves that no payload runs. The answer is whether
+    ///   the recorded worker has a live child: each worker has at most one child, its payload (`Payload::spawn`). After the
+    ///   listing the worker must still match its pid and start time and be live, not a zombie (Core spawns it as the leader
+    ///   of its own group, so [`runs`] reads it): then the same live process lived through the whole listing (a pid is not
+    ///   reused while its process lives), so the children are its own. A worker that ended is `Bad`: its payload leads its
+    ///   own session, can outlive it, and is then no child of it.
     fn payload_alive(&self, handle: &str, args: &Value) -> Result<Value, ControlError> {
         let OfSession { session } = parse(args)?;
         let (tap, processes) = self.recorded(handle, &session)?;
-        if processes.worker.is_none() {
+        let Some(worker) = processes.worker else {
             return Ok(json!({ "alive": false }));
-        }
-        let tap = lock(&tap);
-        let payload = match (processes.payload, tap.launch_of(&processes.instance)) {
-            (Some(payload), _) | (None, Some(Launch::Payload(payload))) => payload,
-            (None, Some(Launch::Pending)) => return Ok(json!({ "alive": false })),
-            (None, None) => {
-                return Err(ControlError::Bad(format!(
-                    "the payload of the session {} is not known",
-                    session.0
-                )))
-            }
         };
-        let alive = tap.identity_state(payload) == IdentityState::Matches
-            && runs(payload).map_err(|error| {
-                ControlError::Bad(format!(
-                    "the payload of the session {} cannot be read: {error}",
-                    session.0
-                ))
-            })?;
-        Ok(json!({ "alive": alive }))
+        let tap = lock(&tap);
+        let unreadable = |error: io::Error| {
+            ControlError::Bad(format!(
+                "the payload of the session {} cannot be read: {error}",
+                session.0
+            ))
+        };
+        if let Some(payload) = processes
+            .payload
+            .or_else(|| tap.launch_of(&processes.instance))
+        {
+            let alive = tap.identity_state(payload) == IdentityState::Matches
+                && runs(payload).map_err(unreadable)?;
+            return Ok(json!({ "alive": alive }));
+        }
+        let children = platform::pid(worker.pid)
+            .and_then(platform::live_children)
+            .map_err(unreadable)?;
+        let state = tap.identity_state(worker);
+        if state != IdentityState::Matches || !runs(worker).map_err(unreadable)? {
+            return Err(ControlError::Bad(format!(
+                "the payload of the session {} is not known, and its worker does not run ({state:?})",
+                session.0
+            )));
+        }
+        Ok(json!({ "alive": !children.is_empty() }))
     }
 
     /// Core AD-2, IN-7: the session's worker ends from outside Core, as a kill does. A recorded worker that no longer
@@ -542,7 +559,7 @@ impl CoreHarness for RealCoreHarness {
 }
 
 /// Whether the process `identity` is live: a member of its own process group that is not a zombie. The payload leads its
-/// group (`setsid`), so its group id is its pid.
+/// group (`setsid`), and so does the worker (Core spawns it in its own group), so its group id is its pid.
 fn runs(identity: ProcessIdentity) -> io::Result<bool> {
     let pid = platform::pid(identity.pid)?;
     Ok(platform::live_members(pid)?.iter().any(|m| m.pid == pid))
@@ -658,6 +675,72 @@ mod slow_controls {
         pump_until(core, |c| state(c, session) == SessionState::Running);
     }
 
+    /// Core EV-5(c), AD-7 (#222 RC-A-F1): `payload_alive` never takes a `Launched` report that the tap has not read for an
+    /// ended payload. A started session's row names no payload. After a reopen, the new handle's tap has read no report
+    /// while the payload runs: the answer comes from the worker's live child, `true`. After the identity-checked kill of
+    /// the payload's group and its end by the deadline, the worker has no live child: `false`. A worker that is gone is
+    /// `Bad`, never `false`: its payload could outlive it.
+    #[test]
+    fn a_launched_report_that_the_tap_has_not_read_never_proves_an_ended_payload() {
+        let dir = Candidate::beside_test_binary().expect("the candidate directory");
+        let candidate = Candidate::locate(&dir).unwrap_or_else(|error| panic!("{error}"));
+        let mut harness = RealCoreHarness::new(candidate).unwrap();
+        let data_dir = harness.data_dir("a");
+        let spec = |handle: &str, harness: &RealCoreHarness| OpenSpec {
+            handle: handle.into(),
+            data_dir: data_dir.clone(),
+            worker: harness.worker(WorkerBuild::Current),
+            limits: serde_json::to_value(CoreLimits::default()).unwrap(),
+        };
+        let a = spec("a", &harness);
+        let mut core = harness.open(&a).expect("open a");
+        running(&harness, core.as_mut(), "s1");
+        let s1 = harness.session_processes(&data_dir, &sid("s1")).unwrap();
+        let worker = s1.worker.expect("the worker is recorded");
+        let payload = lock(&harness.tap("a").unwrap())
+            .launch_of(&s1.instance)
+            .expect("the tap of a read the report");
+        drop(core);
+        harness.drop_handle("a");
+
+        let b = spec("b", &harness);
+        let mut core = harness.open(&b).expect("open b");
+        let tap = harness.tap("b").unwrap();
+        let stored = lock(&tap).stored_row(&row_key(&sid("s1"))).unwrap();
+        let row = Row::decode(&sid("s1"), &stored).unwrap();
+        assert!(row.payload.is_none(), "the stored row names no payload");
+        assert!(s1.payload.is_none(), "and neither does the record");
+        assert_eq!(lock(&tap).launch_of(&s1.instance), None, "b read no report");
+        let alive =
+            |h: &mut RealCoreHarness| h.control("b", "payload_alive", &json!({ "session": "s1" }));
+        assert_eq!(alive(&mut harness), Ok(json!({ "alive": true })));
+        let worker_pid = platform::pid(worker.pid).unwrap();
+        let payload_pid = platform::pid(payload.pid).unwrap();
+        let children = platform::live_children(worker_pid).unwrap();
+        assert_eq!(
+            children.iter().map(|m| m.pid).collect::<Vec<_>>(),
+            [payload_pid],
+            "the worker's one live child is the payload"
+        );
+
+        assert_eq!(lock(&tap).kill_group(payload), IdentityState::Matches);
+        assert_ne!(
+            platform::await_end(payload_pid, Deadline::cleanup()).unwrap(),
+            platform::Waited::Deadline
+        );
+        assert_eq!(lock(&tap).identity_state(worker), IdentityState::Matches);
+        assert_eq!(alive(&mut harness), Ok(json!({ "alive": false })));
+
+        assert_eq!(lock(&tap).kill_group(worker), IdentityState::Matches);
+        assert_ne!(
+            platform::await_end(worker_pid, Deadline::cleanup()).unwrap(),
+            platform::Waited::Deadline
+        );
+        assert!(!runs(worker).unwrap(), "ended, even while not yet reaped");
+        assert!(matches!(alive(&mut harness), Err(ControlError::Bad(_))));
+        drop(core);
+    }
+
     /// Core AD-6, AD-2, A10-2, EV-5(c), on real sessions:
     /// - `lose_worker` signals only a recorded worker whose pid and start time match: an identity with another start time
     ///   (a reused pid) is refused, and the worker keeps running. The worker's group holds no payload, so the kill never
@@ -689,10 +772,7 @@ mod slow_controls {
         // The row, or the worker's `Launched` report on the link, names the payload of a started session.
         let payload = s1
             .payload
-            .or_else(|| match lock(&tap).launch_of(&s1.instance) {
-                Some(Launch::Payload(payload)) => Some(payload),
-                _ => None,
-            })
+            .or_else(|| lock(&tap).launch_of(&s1.instance))
             .expect("the payload is known");
         assert_eq!(lock(&tap).identity_state(payload), IdentityState::Matches);
         let payload_pid = platform::pid(payload.pid).unwrap();
