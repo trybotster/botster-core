@@ -9,7 +9,7 @@ use crate::harness::TestkitHarness;
 use botster_core_conformance::ControlError;
 use botster_core_contract::prelude::SessionId;
 use serde::Deserialize;
-use serde_json::Value;
+use serde_json::{json, Value};
 
 /// The process controls that the testkit cannot build yet, each with what it waits for.
 const UNSUPPORTED: &[(&str, &str)] = &[
@@ -32,6 +32,7 @@ const UNSUPPORTED: &[(&str, &str)] = &[
 pub(crate) fn register_controls(registry: &mut ControlRegistry) {
     registry.register("break_control", break_control);
     registry.register("lose_worker", lose_worker);
+    registry.register("worker_alive", worker_alive);
     for &(name, _waits_for) in UNSUPPORTED {
         registry.register(name, unsupported);
     }
@@ -126,6 +127,28 @@ fn lose_worker(
         .lose_worker(worker.identity())
         .map_err(ControlError::Bad)?;
     Ok(Value::Null)
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct OfSession {
+    session: SessionId,
+}
+
+/// `{alive}`: the worker process of the session still runs (Core AD-7). A read at the process edge that sends no signal: the
+/// fence before an advance that must fire Core's re-check of a worker's identity (steward ruling R-46 follow-up, contracts
+/// `main` `bf55649`). A row that names no worker has none that runs.
+fn worker_alive(
+    harness: &mut TestkitHarness,
+    handle: &str,
+    args: &Value,
+) -> Result<Value, ControlError> {
+    let OfSession { session } = parse(args)?;
+    let row = session_row(harness, handle, &session)?;
+    let alive = row
+        .worker
+        .is_some_and(|worker| harness.workers().worker_alive(worker.identity()));
+    Ok(json!({ "alive": alive }))
 }
 
 #[cfg(test)]
