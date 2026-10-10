@@ -709,3 +709,68 @@ The reviewer changed no product code and ran no builds, tests, mutation jobs, or
 PIN26-F1 remains open. The supplied green gate does not close it.
 
 VERDICT: NOT CLEAN
+
+
+## PR #226 — contracts v0.1.26 — Round 2 — 2026-10-10
+
+Head: `5988faa2fc3fc5acdeff23acdc821389815a6c59`.
+Tree: `8c9c13624cc031896cf892b7d4751e0345d46a1b`.
+Parent: `87c42db4d2f81ffcb31a4862fab5a410f5ab32ab`.
+PR and gate base: `7caf3457a04bd37f5d4e844db1900525eea7c8ec`. The head contains this base.
+Tier: HIGH, rule 4, contracts pin move.
+READY: `msg_plugin-w_1791656204_ead623` from P6.
+
+Authority: approved plan 23y, `~/botster-sessions/pins/stage1-plan.65f78ee1.md`.
+Verified SHA256: `b3dd30aa073d8332db34e4873830124506378a5f5556c3bae416341ff5c5c3d8`.
+The lead handoff records Sol's plan CLEAN at `6fe08dae`.
+The lead chose option A: this PR moves only the pin.
+The exception and its strict real-tier check move to a separate HIGH PR after #218.
+The existing rules for new ledger IDs and Core-to-real pending moves remain.
+
+### PIN26-F1 — HIGH — CLOSED
+
+The replacement commit removes the incomplete allowance, its inputs, source query, tests, and exclusion citations.
+The reviewer verified that `xtask/src/lists.rs` and `.cargo/mutants.toml` equal the exact base bytes.
+Core pending can gain only new ledger IDs under its existing rule.
+Real pending retains its existing rule for new ledger IDs and IDs that leave Core pending.
+The changed-transcript allowance is absent from both decisions.
+The new body explains the separate implementation required by plan 23y.
+This closes the finding by removal. It does not approve the future implementation.
+
+### Pin delta and supplied evidence
+
+The complete own delta has four files.
+All four equal their reviewed Round 1 versions byte for byte.
+The accepted Round 1 pin, dependency, status, and upstream checks therefore remain applicable.
+Seven workspace dependencies pin v0.1.26.
+Nine lockfile source fields name `0ac061d225724f6f7fc7b2368f637ba2c9a6c2b6`.
+All 222 lockfile packages retain their other fields.
+The other two changes are five pending reason comments and the pinned-status test documentation.
+No product behavior or gate decision changes in this PR's own delta.
+
+Ledger, real pending, Core deferred, status copies, real-only map, and minimum list equal the base bytes.
+Core pending retains 477 IDs. Real pending retains 87 IDs.
+Neither pending list gains or loses an ID. The minimum list retains 69 IDs.
+The reviewer read the corrected body and checked the complete removal against the accepted Round 1 source.
+`git diff --check` reports no whitespace error.
+No finding remains open, including LOW findings.
+
+Exact-head gate: `~/botster-sessions/gates/botster-core-stage1-p6-pin-v0.1.25-5988faa2-pool-20261010-111323-74887.log`.
+The header identifies the reviewed head and base. All ten stages report PASS.
+
+- Default: 1481 passed, 497 skipped.
+- Slow: 381 passed, 1932 skipped.
+- Testkit conformance: 193 passed, zero failed.
+- Real conformance: 106 passes. Both conformance PASS sets equal Round 1.
+- Real pending: 87 IDs, zero newly passing.
+- Minimum: testkit-passing 50 / 69, real-passing 29 / 68, real-accepted 29 / 69.
+- `ou_3_progressing_reader_lossless`: 0.680 seconds over the configured seeds 0–31.
+- Both mutation steps list no mutant in the diff, so no mutation run starts.
+- Fuzz reports PASS with no changed decoder harness.
+
+The job exits zero after 175 seconds. The gate exits zero after 176 seconds on msa1.
+Sol must publish a separate exact-head integration CLEAN for this HIGH PR.
+#222 remains blocked on its required Mac mutation evidence; this verdict does not close that work.
+The reviewer changed no product code and ran no builds, tests, mutation jobs, or gates.
+
+VERDICT: CLEAN
