@@ -1037,26 +1037,31 @@ fn a_view_only_route_refuses_input_not_writable() {
     assert_eq!(refusals(&client), vec![(None, RefusalReason::NotWritable)]);
 }
 
-/// DP-5: a frame kind that this worker does not apply yet is refused `unsupported`, and the route stays open.
+/// DP-5: a frame kind that this worker does not apply yet is refused `unsupported` with its kind, and the route stays open.
 #[test]
 fn an_unapplied_input_kind_is_refused_unsupported_and_the_route_stays_open() {
     let (mut w, mut client, _) = attached(limits());
-    let actions = w.feed(Input::RouteRead {
-        route: RouteId(1),
-        bytes: client_frame(&ToWorker::PasteChunk {
+    let mut all = Vec::new();
+    for frame in [
+        ToWorker::PasteChunk {
             op: Op(2),
             bytes: b"p".to_vec().into(),
-        }),
-    });
-    let all = client.take_all(&mut w, RouteId(1), actions);
+        },
+        ToWorker::FileChunk {
+            op: Op(3),
+            bytes: b"f".to_vec().into(),
+        },
+    ] {
+        let actions = w.feed(Input::RouteRead {
+            route: RouteId(1),
+            bytes: client_frame(&frame),
+        });
+        all.extend(client.take_all(&mut w, RouteId(1), actions));
+    }
+    let unsupported = |what: &str| (None, RefusalReason::Unsupported { what: what.into() });
     assert_eq!(
         refusals(&client),
-        vec![(
-            None,
-            RefusalReason::Unsupported {
-                what: "paste_chunk".into()
-            }
-        )]
+        vec![unsupported("paste_chunk"), unsupported("file_chunk")]
     );
     assert!(!all.contains(&Action::RouteClose { route: RouteId(1) }));
 }
