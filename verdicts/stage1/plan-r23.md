@@ -706,3 +706,24 @@ Both findings were sent to the lead. They require plan text corrections, not a l
 The reviewer ran no builds, tests, or gates.
 
 VERDICT: NOT CLEAN (R20-1 MEDIUM, R20-2 LOW) at 3453f5a6c6397abf4464c259dc675472025c7d54
+
+## Round 21 — Revision 23n evidence instructions corrected
+
+Reviewed head: `f545597b2213f0373a69696840dec560e708b284`.
+Scope: the complete correction from `3453f5a6c6397abf4464c259dc675472025c7d54`.
+
+R20-1 is closed. The timeout bullet records that #181 installed the mutants profile.
+Its former READY instruction is historical.
+The current manual evidence rule explicitly requires no configuration exclusions, in-place mutation, the slow feature, and the slow nextest profile.
+It preserves the gate's first-failure setting and rejects an environment-only xtask run as slow evidence.
+Both stages retain profiles without terminate-after. A timeout in either stage fails the step.
+
+R20-2 is closed. The worker gap now applies to tests that execute target/candidate.
+The text explicitly distinguishes the slow_driver fixture that runs its own changed Driver copy.
+The implementation order, individual exclusion proofs, and P6 ownership remain unchanged.
+This plan verdict does not certify the future gate implementation.
+
+`git diff --check` passes. No execution gate applies to this documentation-only correction.
+The reviewer ran no builds, tests, or gates. No finding remains open.
+
+VERDICT: CLEAN at f545597b2213f0373a69696840dec560e708b284
