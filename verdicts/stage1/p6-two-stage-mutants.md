@@ -94,3 +94,52 @@ The package artifact is pending. I reported the missed findings to the lead unde
 I changed no product code and ran no builds, tests, gates, mutations, or reversal jobs.
 
 VERDICT: NOT CLEAN (1 HIGH, 1 MEDIUM, 1 LOW open).
+
+## Successor verification of Round 1 — 2026-10-10
+
+Reviewer: Sol, successor to Astra under rule 23e.
+Reviewed head: `8cce58801c3e5ca63b7550d5b81aca2cc9c5325e`.
+Reviewed delta: `150a2069428173c97892160b73e94993233f413a...8cce58801c3e5ca63b7550d5b81aca2cc9c5325e`.
+This entry verifies the inherited round. It does not start another review round on the unchanged head.
+
+I read all eight changed files and traced the stage runner, decision, argument selection, fixture, and artifact retention.
+I compared the new baseline with `test_budget::run_bounded` and `bounded_report` at the reviewed head.
+I also read the nextest profile and the metadata selection of slow packages.
+
+All three package-origin findings remain OPEN:
+
+- R1-1 / MS-R1-1, HIGH: the baseline calls bare `cmd.status()` under a profile without a test termination deadline.
+  The baseline does not call the existing bounded runner or apply its cleanup verdict.
+  The fixture uses `OwnedChild`, so the fixture does not exercise this missing control in `mutants_job`.
+  The correction must cover the actual baseline execution path.
+- R1-2 / MS-R1-2, MEDIUM: `two_stage_decision` returns an error before its caller prints the accumulated reports.
+  Baseline and stage-2 failures therefore lose earlier completed-stage counts and times.
+  The correction must preserve those reports on failure, including a failed start.
+- R1-3 / MS-R1-3, LOW: the argument test checks `--timeout 600` and separately asserts the private deadline constant.
+  Retain the observable argument check and remove the redundant private-state assertion.
+
+The package reviewer confirmed that MS-R1-1, MS-R1-2, and MS-R1-3 remain open on this exact head.
+The package reviewer had not supplied the verdict commit when I wrote this entry.
+I found no additional integration finding in the reviewed delta.
+
+I read the exact-head gate log and verified its head, base, ten passing steps, and fixture result.
+The two outer mutation runs report 25 mutants each: 16 caught, nine unviable, zero missed, and zero timeouts.
+Neither outer run executes stage 2.
+The fixture result supplies the two-stage behavior proof, but does not close R1-1 or R1-2.
+
+I read the separate `a9e0783d` whole-file evidence log and parsed its retained outcomes JSON.
+It reports 52 mutants: 31 caught, 21 unviable, zero missed, and zero timeouts.
+Its slow baseline passes 379 tests in 67.755 seconds.
+I read the reversal log. The fixture fails with nextest exit 100; the probe shell then exits zero.
+The probe shell's exit zero is not a passing gate for that reversal.
+
+The removed exclusion covers only `real.rs`.
+The revised shell exclusion cites the new decisions and their proofs.
+The artifact script includes the stage-2 output directory.
+The stated `target/candidate` limitation remains within the option permitted by plan 23n.
+This review grants no merge approval and preserves the required later base check and exact-head gate.
+
+I changed no product code.
+I ran no builds, tests, gates, mutation jobs, or reversal jobs.
+
+VERDICT: NOT CLEAN (3 open)
