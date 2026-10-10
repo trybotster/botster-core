@@ -110,7 +110,7 @@ impl HostEngine {
             Flow::Idle => true,
             Flow::Create(_) => false,
             Flow::Start(f) => matches!(f.phase, StartPhase::AwaitHello | StartPhase::AwaitLaunched),
-            Flow::Stop(f) => f.phase == StopPhase::AwaitExit,
+            Flow::Stop(f) => f.phase == StopPhase::AwaitExit || self.finish_waits(session),
             Flow::Remove(f) => f.phase == RemovePhase::AwaitTeardown,
             Flow::Adopt(f) => matches!(
                 f.phase,
@@ -637,6 +637,7 @@ impl HostEngine {
         let entry = self.routes.remove(&route).expect("read above");
         if let Some(s) = self.sessions.get_mut(&entry.session) {
             s.routes.remove(&route);
+            s.route_ends.remove(&route);
         }
         self.queue.retire_route(route);
         let waiting: Vec<OpId> = self

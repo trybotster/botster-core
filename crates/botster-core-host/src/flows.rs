@@ -4,7 +4,7 @@ use crate::engine::{HostEngine, Next, Owner, Step};
 use crate::flow::*;
 use crate::io::Action;
 use crate::run::registry_failed;
-use crate::session::Admit;
+use crate::session::{Admit, RouteEnd};
 use botster_core_contract::prelude::*;
 use botster_core_edges::edges::{GroupSignal, IdentityState, ProcessIdentity, StorageError};
 use botster_core_link::msg::HostMsg;
@@ -31,6 +31,47 @@ impl HostEngine {
             Flow::Start(f) => Some(f),
             _ => None,
         }
+    }
+
+    /// The next route of an ended session that `StopPhase::Finish` closes, with its reason (OU-7, LC-5).
+    fn next_ended_route(&self, id: &SessionId, end: End) -> Option<(RouteId, RouteCloseReason)> {
+        let s = &self.sessions[id];
+        let mut bound = s.routes.intersection(&s.bound_at_end);
+        match end {
+            End::Lost(_) => bound
+                .next()
+                .map(|route| (*route, RouteCloseReason::SessionLost)),
+            End::Exited(exit) => bound.find_map(|route| {
+                // A route that was never handed to the worker has no queue there: it closes now.
+                let handed = !self.pending_handoffs.iter().any(|(r, ..)| r == route);
+                let reason = match s.route_ends.get(route) {
+                    Some(RouteEnd::Delivered) => RouteCloseReason::SessionEnded { exit },
+                    None if !handed => RouteCloseReason::SessionEnded { exit },
+                    Some(RouteEnd::Lost) => RouteCloseReason::SessionLost,
+                    None => return None,
+                };
+                Some((*route, reason))
+            }),
+        }
+    }
+
+    /// `StopPhase::Finish` of an ended session waits while every route that was bound at the end is still with the worker
+    /// and has no reported end (OU-7).
+    pub(crate) fn finish_waits(&self, session: &crate::session::Session) -> bool {
+        let finishing = matches!(
+            &session.flow,
+            Flow::Stop(f) if f.phase == StopPhase::Finish && matches!(f.end, Some(End::Exited(_)))
+        );
+        let mut bound = session
+            .routes
+            .intersection(&session.bound_at_end)
+            .peekable();
+        finishing
+            && bound.peek().is_some()
+            && bound.all(|route| {
+                !session.route_ends.contains_key(route)
+                    && !self.pending_handoffs.iter().any(|(r, ..)| r == route)
+            })
     }
 
     fn stop_flow(&mut self, id: &SessionId) -> Option<&mut StopFlow> {
@@ -304,6 +345,7 @@ impl HostEngine {
         let Some(s) = self.sessions.get_mut(id) else {
             return;
         };
+        s.bound_at_end = s.routes.clone();
         match &mut s.flow {
             Flow::Stop(f) => {
                 f.end = Some(end);
@@ -390,17 +432,19 @@ impl HostEngine {
             // One waiter per step, so that a step posts at most one event (9B `pump_events`).
             StopPhase::Finish => {
                 let end = f.end.expect("Finish has its end");
-                // The session's routes close after its state, one per step (A2-3, OU-7). The host closes them: a lost
-                // session has no worker, and an ended one's exit cause is the host's decision (LC-5). The worker sends an
-                // ended session's `route_closed{session_ended}` after the output tail and reports nothing; a lost session's
-                // routes end with no frame (OU-2b, a failed reason).
-                let route = self.sessions[id].routes.first().copied();
-                if let Some(route) = route {
-                    let reason = match end {
-                        End::Exited(exit) => RouteCloseReason::SessionEnded { exit },
-                        End::Lost(_) => RouteCloseReason::SessionLost,
-                    };
+                // The session's routes close after its state, one per step (A2-3, OU-7). A lost session has no worker:
+                // its routes close `SessionLost` now, with no frame (OU-2b, a failed reason). An ended session's route
+                // closes after the worker delivered its queue and `route_closed{session_ended}` (OU-7: "each route's
+                // close follows delivery of its own queue (or its stall)"), with the host's exit (LC-5); a route whose
+                // link was lost first closes `SessionLost`. A route that closed for another reason first (a detach, a
+                // stall, a failure) was closed with that reason when the worker reported it.
+                if let Some((route, reason)) = self.next_ended_route(id, end) {
                     self.close_route(route, reason);
+                    return;
+                }
+                let s = &self.sessions[id];
+                if s.routes.intersection(&s.bound_at_end).next().is_some() {
+                    // `flow_waiting`: the worker has not reported every route's close yet.
                     return;
                 }
                 let waiters = &mut self
