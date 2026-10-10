@@ -92,3 +92,43 @@ merges second has a conflict, so `base-merge-check` cannot carry this CLEAN to i
 conflict resolution (the union) and a full gate on the merge commit.
 
 VERDICT: CLEAN (0 open) at b9c3ea2a8ffbdc6317241de248af24fd053bc720
+
+## Round 3 — CLEAN on the union with #181
+
+Reviewed head: `03df8a1f31ab079adb18d4f51999b8421911baa1`.
+Base: `b453b449a959f7e10b94733b4425b4903d6a4890`, the fetched v1 head.
+Reviewer: integration reviewer Astra.
+Scope: the complete five-file PR delta, the #181 conflict resolution, the base refresh, and the corrected PR description.
+
+The union preserves every #181 check in taint_job and its platform derivation.
+It adds high_tier::command after gate_decisions with error propagation.
+The module, import, usage, dispatch, and dispatch-test entries retain both sides.
+The taint_job exclusion reason describes the union.
+The high_tier command exclusion names verdict and outcome with their strict proof citations.
+The excluded command only reads the list, gets tracked paths, and reports the tested result.
+No decision function is excluded by the new entry.
+
+The list now contains 26 entries. The extra entry is .cargo/mutants.toml under approved plan 23g.
+The repository-list proof explicitly walks .cargo because the ordinary walk skips dot directories.
+The eight high_tier tests cover valid entries, missing paths, missing reasons, supported directory patterns, rejected patterns, and failure reporting.
+The prior F57 correction remains intact.
+
+The base refresh from 655f1754 changes only the seven imported #208 files.
+All seven equal the new base byte for byte. All five PR-owned files equal the previously reviewed union head.
+The merge preserves the completed #208 worker-loss controls review.
+
+Package F83 is closed in the full PR description read for this review.
+The description now states 26 entries, the .cargo exception, the #181 union, and the exact refreshed gate head.
+It marks earlier gate results as history.
+
+Gate: `/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-p3-high-tier-paths-03df8a1f-pool-20261009-172559-13907.log`.
+The log names this head and base. It ran on gaming, allocation 70df08c9, and exited zero after 707 seconds.
+All ten full gate stages pass. Default: 1285 passed. Slow: 254 passed. Conformance: 121 passed, zero failed.
+All eight high_tier tests pass. The high-tier command also reports success in the taint step.
+Both mutation runs test 13 mutants and catch all 13, with zero missed, timeouts, or unviable mutants.
+`git diff --check` passes. The reviewer ran no builds, tests, or gates.
+
+The round 2 requirement for union review and a full exact-head gate is satisfied.
+No integration finding remains open. The separate package verdict remains required for merge.
+
+VERDICT: CLEAN at 03df8a1f31ab079adb18d4f51999b8421911baa1
