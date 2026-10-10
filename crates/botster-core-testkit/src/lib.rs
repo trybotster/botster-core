@@ -26,6 +26,7 @@ pub mod route_controls;
 pub mod scheduler;
 pub mod sim;
 pub mod snapshot_controls;
+pub mod stand_in;
 pub mod start_controls;
 pub mod statement_runs;
 pub mod statements;
