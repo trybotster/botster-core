@@ -8710,3 +8710,89 @@ The reviewer changes no product code and runs no tests, builds, gates, measureme
 All earlier exact-head verdicts remain preserved.
 
 VERDICT: NOT CLEAN
+
+
+## Round 143 — PR #221 replacement testkit route_fill — 2026-10-10
+
+Reviewed head: `d8809fb818ae05b57ae92b5382db11e19f7d821c`.
+PR base: `159cc4003c8910ba6ef28402c360ba4d2dd820a4`.
+Prior reviewed head: `ef5e785935e057c394469e2f73bed23e8f588d7d`, round 142.
+Tier: HIGH under BUILD rule 3 because the PR changes botster-core-testkit and a host accessor.
+The reviewer reads the six-file correction and the final eight-file change, its proofs, the complete description, and the exact-head gate.
+The full R-47, program-edge, transport, socket-buffer, and paired-evidence review from rounds 141 and 142 remains part of this verdict.
+
+### F94 — MEDIUM — CLOSED: attach retains the instance before persistence
+
+HostEngine::instance reads the instance from the host's session table. Create establishes that instance at begin, before the first row write.
+The accessor is read-only. It returns None for an unknown session and does not advance a flow, perform I/O, or change admission.
+TestkitCore::attach reads that instance and records it by RouteId after the host accepts the attach.
+The driver attach calls the host synchronously and syncs the wake; it does not pump or replace the session between these reads.
+An accepted attach therefore records the original admitted instance even while Create and Start remain unpumped.
+
+attach_stream takes that recorded instance and the RowReader. It no longer requires a stored row at attach time.
+Each fill reads the current row, checks its SessionId and original InstanceId, and only then uses the worker identity.
+No row yet or after removal causes refusal. A row of another instance causes refusal.
+A row with no worker yet causes refusal. A live matching worker receives the pattern through its program edge.
+This covers both absence paths identified in F94: no worker yet and no durable row yet.
+It preserves isolation from a recreated session that uses the same SessionId.
+
+The new pre-row proof runs seeds 0-7. It begins Create and Start, attaches without a pump, and verifies that the row is absent.
+It checks early refusal, completes both operations, and checks successful fill with bytes at the running payload's edge.
+It then closes the client end, kills and removes the old session, and starts a replacement with the same SessionId.
+The old route's fill is refused by the instance check, and the replacement payload receives no byte from it.
+Closing the client permits the unread tail's close to finish; it does not implement or mask the instance check in route_fill.
+The completed-Create startup proof and the independent replacement proof remain intact and pass in the supplied gate.
+The new host proof checks the accessor before any row exists, after a pump, and for unknown sessions.
+It catches the accessor-to-None mutant that survived the earlier f0b2b4fd gate.
+
+### Retained whole-change review
+
+EndControl::room reads free transport capacity and the cumulative remaining route_accept allowance. A gate makes C zero.
+The stream decrements the allowance after accepted writes, so successive calls cannot reuse that allowance.
+The fill uses N=C+F with the route's applied max_frame_bytes F. It does not use route_queue_bytes as the stall threshold.
+Byte k is 0x61+(k mod 26), and k restarts at zero per fill. The pattern contains no newline byte.
+The output goes through ProgramControl::write, as pty_output does. The control signals the current control host's wake when available.
+The control returns when the program edge holds the bytes. It does not wait for worker consumption or a blocked payload write.
+It refuses an exited payload. It does not inject output into the worker machine or fabricate route frames.
+The existing proofs cover a gated stream, an accept allowance, an empty stream, a nonempty stream, exact output, and pattern reset.
+
+The PR changes no pending list and claims no new conformance pass or real acceptance.
+The paired contracts PR #28 remains under its assigned crate-catchup review. This verdict does not replace that review.
+Its saved ou_3_progressing_reader_lossless before and after results pass. Missing RouteStalled behavior remains separate Core work.
+Class B queue_overflow retains its separate R-47 scope.
+The new accessor adds no process control or production test branch. The public Core facade and C ABI remain unchanged.
+No production socket setter, real descriptor transfer, timeout, guard, anchor, wait, deadline, or cleanup changes.
+Production Core does not change route socket SO_SNDBUF or SO_RCVBUF at this head.
+The only socket buffer setter remains in a worker test's control socket.
+BUILD rule 5 and the named real-process proof requirement remain in force for later real transport changes.
+
+### Completed exact-head evidence
+
+Gate: ~/botster-sessions/gates/botster-core-stage1-p4a-route-fill-d8809fb8-pool-20261010-044326-90152.log.
+The header names the exact head and base. All ten full CI steps PASS.
+Default: 1442 tests pass in 11.663 seconds. Slow: 259 pass in 22.497 seconds.
+Both facade reports show 193 passed, zero failed, and 497 ignored.
+Both mutation reports show 32 tested: 25 caught, seven unviable, zero missed, and zero timeouts.
+The pre-row proof, accessor proof, completed-Create proof, and replacement proof all have PASS lines.
+Full CI takes 204.2 seconds. The repeated mutation job takes 160.8 seconds.
+Job and wrapper exit zero after 374 seconds on msa1. Queue time is one second; run time is 373 seconds.
+The env-only second mutation job remains repeated default coverage. This PR adds no slow-based mutation exclusion.
+The earlier room and accessor mutants are caught by the added behavior proofs. No final mutation survivor remains.
+
+### Verdict and retained scopes
+
+PR #221 is CLEAN at `d8809fb818ae05b57ae92b5382db11e19f7d821c`.
+F94 MEDIUM is CLOSED. No finding remains open within this PR's approved scope.
+This is the third package review after two NOT CLEAN rounds. The third review is CLEAN, so no round-limit notice is due.
+The round 142 verdict 4e540cacc7e7713e9cf97694edc80264be8151f5 is now pushed after GitHub DNS recovered.
+The lead receives CLEAN with this exact head and the pushed verdict commit.
+
+#217 is merged at 159cc400. Round 140 CLEAN and F91/F92/F93 closures remain preserved.
+F86/F87/F88/F90 remain PR3 requirements. The failed-start closure follows R-50 in #219.
+The shared lead handoff records accepted plan 23s at 8a9727e5 after 23r at 09ac30a7.
+Contracts v0.1.24 remains the Core pin at this base. Testkit minimum remains 50/69.
+F39 for #163 and F61/F62 for #192 retain their prior scopes. P3's non-minimum queue stays parked.
+The reviewer changes no product code and runs no tests, builds, gates, measurements, or mutants.
+All earlier exact-head verdicts remain preserved.
+
+VERDICT: CLEAN
