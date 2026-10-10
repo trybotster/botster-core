@@ -9180,3 +9180,103 @@ The reviewer changes no product code and runs no tests, builds, gates, measureme
 All earlier exact-head verdicts remain preserved.
 
 VERDICT: CLEAN
+
+
+## Round 148 — PR #223 fill-cost A + B full review — 2026-10-10
+
+Reviewed head: `a9d99fee96e3e36a721ece59be84ed432548cc19`.
+PR base: `26843c74b460688c8e7219eb48a60420b930061e`.
+Tier: HIGH under BUILD rule 3: the shared testkit and workspace Cargo.toml change.
+The lead assigned A + B: testkit trace and byte loops, plus opt-level=2 for four named dev-profile packages only.
+The remote PR head and base match these exact commits.
+
+### F98 — LOW — OPEN: the profile comment and PR body incorrectly say test-only
+
+Cargo.toml's added comment calls the four optimized packages test-only dependencies.
+The PR body also calls them four test-only checker crates.
+botster-route-codec and serde_json are normal dependencies of botster-core, botster-core-link, and botster-worker-core.
+These declarations are outside dev-dependencies. The dev-profile package overrides also apply when production crates use these dependencies.
+The fact that no Core package has its own override does not make these dependency builds test-only.
+
+Required: correct the checked-in comment and PR body.
+Describe four dependencies used by the checker. State that their overrides also affect dev-profile production builds.
+Keep the exact four authorized package overrides at opt-level=2.
+This finding concerns the stated effect, not the lead's authorized optimization scope.
+The package reviewer treats the explicit four-package scope as authorization for package-wide dev-profile overrides.
+Integration independently records the same text error as R1-1 LOW and has asked the lead about its scope premise.
+No additional optimization scope breach is identified by this package review.
+HIGH requires every finding to close, including LOW, before CLEAN.
+The reviewer sends F98 directly to P3 and integration.
+
+### Complete source and merge review
+
+The PR changes five paths only. It adds no Core package override, pin move, pending-list change, or mutation exclusion.
+The four override keys are botster-hub-conformance, botster-route-codec, serde_json, and regex-automata.
+Each value is opt-level=2. The profile changes match the four-package assignment.
+
+Sim disables trace storage by default and enables it through traced().
+MachineNode still handles the same input and performs every action in the same order.
+Only the Debug formatting and trace storage are conditional. The scheduler choices, readiness, clock, and deadlines are unchanged.
+The trace-dependent world helper now opts in. Other trace readers remain inside sim.rs's tests.
+The formatting proof observes zero Debug calls without tracing and six calls for three inputs and three actions with tracing.
+It also checks the recorded input and action values. The existing seeded simulation tests retain their trace behavior.
+
+net::take_front copies a VecDeque's front and back slices into the requested buffer and drains exactly that count.
+read_up_to bounds that count by the queue, destination, read cap, and next descriptor position before calling it.
+The taken-byte and foreign-byte counters remain unchanged.
+Output::take preserves the front piece, atomic-piece boundary, chosen read size, and total-length update.
+Its read caller returns before an empty buffer or empty output and bounds each choice by the available front piece.
+The wrap proof covers copying across both slices, the retained suffix, and a zero-byte copy.
+No byte-order, descriptor-order, or read-size defect is found in these paths.
+
+fill_pattern repeats the 26-byte alphabet and truncates it to the requested length.
+This preserves byte k = 0x61 + (k mod 26), restarting from zero on each fill (R-47 item 3).
+The proof checks zero, 26, and 28 bytes. The route_fill room formula, original-instance binding, program-edge write, and wake are unchanged.
+The final form removes the loop condition whose intermediate mutant timed out.
+No timeout, guard, anchor, process edge, socket policy, real descriptor transfer, or injected progress behavior changes.
+BUILD rule 5 and real-process requirements remain in force for later changes to those paths.
+
+The reviewer compares the five own-path diffs before and after the v1 merge.
+All five changed contents are identical after excluding Git index lines and hunk coordinates.
+The whole-head review covers the merged route_client.rs context. It retains #219's shared failed-reason mapping.
+This is #223's first package review; it does not rely on an earlier CLEAN or a disjoint-merge exemption.
+
+### Completed timing and gate evidence
+
+Timing job: ~/botster-sessions/gates/botster-core-scratch-p3-fillcost-ou3-v0.1.25-8bd0e6b4-pool-20261010-095533-90642.log.
+Saved script and output: ~/botster-sessions/shared/core-stage1/evidence/p3-fill-cost/.
+The scratch head is 8bd0e6b45cb0a027a736afb5837fcf92a7a2ff0c, with the v0.1.25 pin from 475372d1.
+Its four changed testkit files are byte-identical to the reviewed head. Cargo.toml differs only in the contracts pin and its comment.
+The script turns A and B off from the same pin baseline. It runs ou_3 seeds 0-31 three times per combination on gaming.
+All twelve selected test results pass.
+Neither: 12.98, 12.93, 12.94 seconds. A only: 10.93, 10.93, 10.92 seconds.
+B only: 4.19, 4.20, 4.19 seconds. A+B: 2.10, 2.10, 2.11 seconds.
+Clean workspace test build: A only 75.419 seconds; A+B 77.208 seconds.
+The measurement job exits zero after 287 seconds; the wrapper exits zero after 288 seconds.
+A+B alone remains above the two-second limit at v0.1.25. The PR body states this limit and assigns the remaining work to contracts C.
+This evidence measures an improvement, not acceptance of the future v0.1.25 pin or completion of contracts C.
+The PR body does not treat gates on different nodes and caches as a controlled timing comparison.
+
+Exact-head gate: ~/botster-sessions/gates/botster-core-stage1-testkit-fill-cost-a9d99fee-pool-20261010-093819-57747.log.
+The header names the reviewed head and base. All ten full CI steps PASS on gaming.
+Default: 1481 pass in 13.120 seconds. Slow: 378 pass in 129.621 seconds.
+Both facade reports: 193 passed, zero failed, 497 ignored.
+Both mutation reports: 21 tested, 17 caught, four unviable, zero missed, zero timeouts.
+The new trace and wrap proofs have PASS lines. Full CI takes 372.0 seconds; repeated mutation takes 120.4 seconds.
+Job exits zero after 503 seconds; wrapper exits zero after 504 seconds. Queue: zero seconds. Run: 503 seconds.
+The env-only second mutation job repeats default coverage. This PR adds no slow mutation exclusion.
+The green gate does not correct F98's false description of the profile effect.
+
+### Verdict and retained scopes
+
+PR #223 is NOT CLEAN at `a9d99fee96e3e36a721ece59be84ed432548cc19`.
+F98 LOW is OPEN. No trace or byte-copy defect is identified. This is #223's first package NOT CLEAN round.
+No round-limit notice is due. The lead receives no ordinary NOT CLEAN report.
+Testkit minimum remains 50/69. The production pin remains contracts v0.1.24 at this head.
+#219 is merged at 26843c74. F95/F96/F97 and its two CLEAN artifacts remain preserved.
+F94 and F91/F92/F93 remain closed. F86/F87/F88/F90 remain PR3 requirements.
+F39 and F61/F62 retain their prior scopes. P3's non-minimum queue stays parked.
+The reviewer changes no product code and runs no tests, builds, gates, measurements, mutants, or base-merge-check.
+All earlier exact-head verdicts remain preserved.
+
+VERDICT: NOT CLEAN
