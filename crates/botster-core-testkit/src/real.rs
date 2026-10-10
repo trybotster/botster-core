@@ -38,9 +38,9 @@
 //!   its terminal. Only `worker_gone` (the default) is built; `worker_unreachable` gives `unsupported_control`, as on the
 //!   testkit.
 //! - `worker_alive` (`{session}` → `{alive}`, Core AD-7; steward ruling R-46 follow-up, contracts `main` `bf55649`): the
-//!   recorded worker still matches its identity (the inner edge's AD-6 check). That is the read of Core's own re-check of a
-//!   worker that it did not spawn, so a fence on it ends exactly when that re-check would find the worker gone. It sends no
-//!   signal. A session whose row names no worker has none that runs.
+//!   recorded worker still runs: it matches its pid and start time (the inner edge's AD-6 check, the read of Core's own
+//!   re-check of a worker that it did not spawn), and it is live, not a zombie (a zombie keeps its pid and start time until
+//!   its reap). It sends no signal. A session whose row names no worker has none that runs.
 //! - `impostor_worker` (`{session, field, script?}`, Core A10-1, A11-1), `announce_protocol` (`{session, protocol}`, Core
 //!   A6-2, AD-4) and `withhold_control_link` (`{session}`, Core A6-1): a stand-in at the endpoint path of the session's
 //!   worker (steward ruling R-49 Q4, [`crate::stand_in`]). The control only arms it, from the stored row (the recorded
@@ -433,13 +433,20 @@ impl RealCoreHarness {
         Ok(json!({ "alive": !children.is_empty() }))
     }
 
-    /// Core AD-7, R-46 follow-up: `{alive}`, whether the session's recorded worker still matches its pid and start time.
+    /// Core AD-7, R-46 follow-up: `{alive}`, whether the session's recorded worker still runs: it [`lives`], as a known
+    /// payload does for `payload_alive`.
     fn worker_alive(&self, handle: &str, args: &Value) -> Result<Value, ControlError> {
         let OfSession { session } = parse(args)?;
         let (tap, processes) = self.recorded(handle, &session)?;
-        let alive = processes
-            .worker
-            .is_some_and(|worker| lock(&tap).identity_state(worker) == IdentityState::Matches);
+        let Some(worker) = processes.worker else {
+            return Ok(json!({ "alive": false }));
+        };
+        let alive = lives(&lock(&tap), worker).map_err(|error| {
+            ControlError::Bad(format!(
+                "the worker of the session {} cannot be read: {error}",
+                session.0
+            ))
+        })?;
         Ok(json!({ "alive": alive }))
     }
 
@@ -776,6 +783,61 @@ mod slow_controls {
             "a zombie does not run"
         );
         hold.release();
+    }
+
+    /// `worker_alive` and `payload_alive` (Core AD-7, EV-5(c)): a recorded process lives while it matches its pid and start
+    /// time and runs. Core's reaper reaps every worker that it spawns as it ends, so a recorded worker is a zombie only for a
+    /// moment; this test holds its own children unreaped instead. A zombie still matches its pid and start time, and it
+    /// does not live. An identity with another start time (a reused pid) does not live either.
+    #[test]
+    fn a_recorded_process_that_ended_and_is_not_reaped_does_not_live() {
+        let dir = Candidate::beside_test_binary().expect("the candidate directory");
+        let candidate = Candidate::locate(&dir).unwrap_or_else(|error| panic!("{error}"));
+        let mut harness = RealCoreHarness::new(candidate).unwrap();
+        let spec = OpenSpec {
+            handle: "a".into(),
+            data_dir: harness.data_dir("a"),
+            worker: harness.worker(WorkerBuild::Current),
+            limits: serde_json::to_value(CoreLimits::default()).unwrap(),
+        };
+        let core = harness.open(&spec).expect("open");
+        let tap = harness.tap("a").unwrap();
+        let identity = |pid: u32| ProcessIdentity {
+            pid,
+            start_time: botster_core_sys::process::start_time(pid).expect("a start time"),
+        };
+        let tmp = tempfile::tempdir().unwrap();
+        let mut hold = Blocker::new(tmp.path(), "hold").unwrap();
+        let live_child = OwnedChild::spawn_group(&mut hold.command()).unwrap();
+        let live = identity(live_child.id());
+        assert!(lives(&lock(&tap), live).unwrap(), "a live process lives");
+        let reused = ProcessIdentity {
+            start_time: live.start_time + 1,
+            ..live
+        };
+        assert_eq!(lock(&tap).identity_state(reused), IdentityState::Reused);
+        assert!(
+            !lives(&lock(&tap), reused).unwrap(),
+            "a reused pid does not live"
+        );
+
+        let mut ended_child = OwnedChild::spawn_group(&mut hold.command()).unwrap();
+        let ended = identity(ended_child.id());
+        ended_child.kill().unwrap();
+        assert!(ended_child
+            .exited_within(Deadline::cleanup())
+            .expect("the exit is observed"));
+        assert_eq!(
+            lock(&tap).identity_state(ended),
+            IdentityState::Matches,
+            "a zombie keeps its pid and start time"
+        );
+        assert!(
+            !lives(&lock(&tap), ended).unwrap(),
+            "a zombie does not live"
+        );
+        hold.release();
+        drop(core);
     }
 
     /// The real tier serves the controls only on a tapped harness: a plain harness answers `unsupported_control`.

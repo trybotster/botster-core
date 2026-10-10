@@ -688,8 +688,6 @@ impl Workers {
         lock(&worker.0).handle(now, Input::PtyOutput(bytes.to_vec()));
     }
 
-    /// True while the payload of the worker process `identity` runs (`payload_alive`). The payload is in the worker's process
-    /// group, so it ends with the worker; a process that is not a worker of this run has no payload.
     /// `worker_alive`: the worker process `identity` of this run has not ended. A read; it sends nothing.
     pub(crate) fn worker_alive(&self, identity: ProcessIdentity) -> bool {
         lock(&self.run_processes)
@@ -697,6 +695,8 @@ impl Workers {
             .is_some_and(|(cell, _)| !lock(cell).ended)
     }
 
+    /// True while the payload of the worker process `identity` runs (`payload_alive`). The payload is in the worker's process
+    /// group, so it ends with the worker; a process that is not a worker of this run has no payload.
     pub(crate) fn payload_alive(&self, identity: ProcessIdentity) -> bool {
         lock(&self.run_processes)
             .get(&identity)

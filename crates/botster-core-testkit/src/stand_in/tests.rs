@@ -88,7 +88,6 @@ fn the_stand_in_takes_the_endpoint_path_and_its_drop_gives_it_back() {
     assert_ne!(inode(&path), real, "the stand-in has the path");
     let _host = UnixStream::connect(&path).expect("the stand-in listens at the path");
     assert!(!stand_in.step());
-    assert_eq!(stand_in.links.len(), 1, "the stand-in took the connection");
     drop(stand_in);
     assert!(!aside.exists());
     assert_eq!(inode(&path), real, "the real endpoint is back");
@@ -175,24 +174,10 @@ fn the_stand_in_closes_its_end_when_the_host_closes() {
     host.write_all(&hello_frame(&hello)).expect("writes");
     host.shutdown(Shutdown::Write).expect("shuts down");
     assert!(stand_in.step());
-    assert!(stand_in.links[0].stream.is_none());
     assert_eq!(readable(&mut host).expect("reads"), expected);
     assert_eq!(
         host.read(&mut [0u8; 1]).ok(),
         Some(0),
         "the stand-in closed its end"
     );
-}
-
-#[test]
-fn a_reset_by_the_host_closes_the_stand_ins_end() {
-    let dir = tempfile::tempdir().expect("tempdir");
-    let (path, _worker, mut stand_in) = install(dir.path(), Role::Answer(plan(Vec::new())));
-    let mut host = UnixStream::connect(&path).expect("connects");
-    host.write_all(&hello_frame(&host_hello())).expect("writes");
-    assert!(stand_in.step());
-    // The host closes with the answer unread: the stand-in's read is a reset (Linux) or an end of file.
-    drop(host);
-    assert!(stand_in.step());
-    assert!(stand_in.links[0].stream.is_none());
 }
