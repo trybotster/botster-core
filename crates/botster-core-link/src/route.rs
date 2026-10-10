@@ -164,4 +164,58 @@ mod tests {
             serde_json::Value::Null
         );
     }
+
+    fn limits(max_frame_bytes: u64) -> AppliedRouteLimits {
+        use std::time::Duration;
+        AppliedRouteLimits {
+            max_frame_bytes,
+            max_screen_frame_bytes: 1 << 20,
+            max_history_page_bytes: 1 << 20,
+            max_paste_bytes: 1,
+            max_query_bytes: 1,
+            max_query_reply_bytes: 1,
+            max_file_bytes: 1,
+            query_deadline: Duration::from_millis(1),
+            stall_deadline: Duration::from_millis(1),
+            stall_close_after: Duration::from_millis(1),
+            route_input_queue_bytes: 1,
+        }
+    }
+
+    /// R-50, DP-3, TB-L2: the bytes of a held route's close are one stream-wrapped `route_closed` frame of the healthy
+    /// reason, which the codec's own reader reads back. A frame of exactly the bound fits; one byte less of bound gives no
+    /// bytes, and so does a failed reason. An empty frame never fits.
+    #[test]
+    fn a_held_routes_close_bytes_are_its_wrapped_frame_within_the_bound() {
+        use botster_route_codec::prelude::{Decoded, StreamReader};
+        let reason = RouteCloseReason::Revoked;
+        let frame = ToClient::RouteClosed(route_closed_frame(reason).unwrap()).encode();
+        let exact = limits(frame.len() as u64);
+        assert!(frame_fits(&frame, &exact));
+        assert!(!frame_fits(&frame, &limits(frame.len() as u64 - 1)));
+        assert!(!frame_fits(&[], &exact));
+        let bytes = route_closed_bytes(reason, &exact).expect("the frame fits");
+        let mut reader = StreamReader::new();
+        reader.push(&bytes);
+        let read = reader
+            .next_frame(&frame_bounds(&exact))
+            .unwrap()
+            .expect("one whole frame");
+        assert_eq!(reader.pending(), 0, "nothing after the frame");
+        match ToClient::decode(&read, &frame_bounds(&exact)).unwrap() {
+            Decoded::Frame(ToClient::RouteClosed(closed)) => assert_eq!(
+                serde_json::to_value(closed).unwrap(),
+                serde_json::json!({"reason": "revoked"})
+            ),
+            _ => panic!("not route_closed: {read:?}"),
+        }
+        assert_eq!(
+            route_closed_bytes(reason, &limits(frame.len() as u64 - 1)),
+            None
+        );
+        assert_eq!(
+            route_closed_bytes(RouteCloseReason::SessionLost, &limits(1 << 20)),
+            None
+        );
+    }
 }

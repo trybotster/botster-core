@@ -944,6 +944,49 @@ fn a_refused_launchs_waiting_route_closes_before_the_waiting_stop_completes() {
     );
 }
 
+/// R-50, AM-1: a pump may end after a failed start posts its state and before the start finishes (a budget or a deferral,
+/// A5-2). A `Remove` admitted then waits behind the start; the waiting route closes first, and then the `Remove` runs.
+#[test]
+fn a_remove_admitted_before_a_failed_start_finishes_runs_after_its_route_closes() {
+    let mut w = World::default();
+    w.autopilot = Autopilot::Silent;
+    let (route, _, link) = attach_before_the_launch(&mut w);
+    w.feed(Input::LinkMsg {
+        link,
+        msg: WorkerMsg::LaunchFailed {
+            reason: StartFailReason::ExecFailed { errno: 2 },
+        },
+    });
+    // One step: the start posts `Exited`, and its finish waits for the next work.
+    w.feed(Input::Run(Work::Session(sid("s1"))));
+    let mut events = w.engine.poll_events(64);
+    assert!(
+        matches!(last_state(&events).1, SessionState::Exited(_)),
+        "{events:?}"
+    );
+    let remove = w.engine.begin(Op::Remove { id: sid("s1") }).unwrap();
+    events.extend(settle(&mut w));
+    // The worker reports the uploads and ends; that ends the teardown.
+    w.worker_says(
+        "s1",
+        WorkerMsg::RemoveResult {
+            uploads: UploadsOutcome::Deleted,
+        },
+    );
+    w.exited("s1");
+    events.extend(settle(&mut w));
+    assert_eq!(closes_of(&events).len(), 1, "{events:?}");
+    assert_eq!(closes_of(&events)[0].0, route, "{events:?}");
+    let closed_at = route_closes(&events)[0].0;
+    let removed = events
+        .iter()
+        .position(
+            |e| matches!(e, Event::Completed { op, result: OpResult::Ok(_) } if *op == remove),
+        )
+        .expect("the remove completes");
+    assert!(removed > closed_at, "{events:?}");
+}
+
 /// R-50, A2-3: the worker's process ends before the launch, so the start ends `Lost`. The waiting route closes
 /// `SessionLost` after the state, once; `session_lost` is a failed reason, so Core closes the stream with no frame.
 #[test]
