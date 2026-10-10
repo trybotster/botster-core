@@ -930,3 +930,22 @@ No execution gate applies to this documentation-only revision.
 I ran no builds, tests, or gates.
 
 VERDICT: CLEAN (0 open) at 09ac30a747a9a8013da3d4956e4ac5ccf32ff893
+
+## Round 26 — revision 23s — 2026-10-10
+
+Reviewed head: `8a9727e5d6a089fec14e29069b0cdfd561fb096c`.
+Prior accepted head: `09ac30a747a9a8013da3d4956e4ac5ccf32ff893`.
+Scope: the complete delta in `docs/stage1-plan.md`, comprising the progress-count clarification and revision-history row.
+
+A non-pending real-only minimum id now contributes to both progress counts through its named real-process proof.
+The report must print the proof source, so the count does not imply that a TestkitHarness trial ran for that id.
+Section 5 still requires the named proof to pass in the gate.
+The change therefore resolves the unreachable testkit total without removing a proof requirement.
+The minimum list, denominators, A20 rule, and acceptance threshold remain unchanged.
+The revision-history row agrees with the new rule.
+
+The remote plan head matches the reviewed revision. `git diff --check` passes.
+No execution gate applies to this documentation-only revision.
+I ran no builds, tests, or gates.
+
+VERDICT: CLEAN (0 open) at 8a9727e5d6a089fec14e29069b0cdfd561fb096c
