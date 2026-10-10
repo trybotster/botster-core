@@ -949,3 +949,27 @@ No execution gate applies to this documentation-only revision.
 I ran no builds, tests, or gates.
 
 VERDICT: CLEAN (0 open) at 8a9727e5d6a089fec14e29069b0cdfd561fb096c
+
+## Round 27 — revision 23t — 2026-10-10
+
+Reviewed head: `23c132e06cbf32c8a5d9498da3c1c0db18ded5a9`.
+Prior accepted head: `8a9727e5d6a089fec14e29069b0cdfd561fb096c`.
+Scope: the complete delta in `docs/stage1-plan.md`: the contracts input, manifest description, and revision-history row.
+
+The annotated tag `contracts-v0.1.25` resolves to commit `ff3405992fd3a76f324d3b683b1f1631c034f43c`.
+The prior tag resolves to `d79aed5e84d4a8bc9b76f6163ca6bc4a9d89b951`.
+The manifest, ledger, and withdrawn list are identical between the two tags.
+Each tag has 690 Core ledger IDs and 18 withdrawn Core IDs, leaving 672 active Core IDs.
+The withdrawn list has 27 entries across all contracts. It does not withdraw 27 Core IDs.
+The existing clause lists therefore remain applicable.
+
+The new input description identifies the failed-start route cases, quiet fences, adoption follow-up, route-fill control, and R-49 through R-51.
+R-47 requires the progressing-reader fill before real acceptance. R-51 retains the input-before-live ID as real-pending because the real precondition is unavailable.
+The plan preserves those limits and assigns the code pin change to P6's separate HIGH pull request.
+This documentation review does not approve that code change or claim additional conformance passes.
+
+The remote plan head matches the reviewed revision. `git diff --check` passes.
+No execution gate applies to this documentation-only revision.
+I ran no builds, tests, or gates.
+
+VERDICT: CLEAN (0 open) at 23c132e06cbf32c8a5d9498da3c1c0db18ded5a9
