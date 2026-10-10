@@ -804,17 +804,14 @@ fn a_hello_that_does_not_decode_ends_the_reading_of_the_link() {
     assert_eq!(rig.with(|t| t.link_of(&InstanceId("1-7".into()))), None);
 }
 
-/// A link that Core connected to (an adoption) is not read: a report on it names nothing.
+/// A link that Core connected to (an adoption) is not read: a `Launched` report on it names nothing.
 #[test]
 fn a_connected_link_is_not_read_for_a_launch() {
     let mut fake = Fake::default();
     fake.connects.insert(InstanceId("2-1".into()), B);
     fake.reads.insert(
         B,
-        vec![Read::Data(
-            [hello_frame("2-1"), worker_frame(&launched(identity(77)))].concat(),
-        )]
-        .into(),
+        vec![Read::Data(worker_frame(&launched(identity(77))))].into(),
     );
     let mut rig = rig(fake);
     let instance = InstanceId("2-1".into());

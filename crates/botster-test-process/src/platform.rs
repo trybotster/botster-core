@@ -138,7 +138,8 @@ mod tests {
     }
 
     #[test]
-    fn this_process_has_a_start_time_and_is_a_live_member_of_its_group() {
+    fn this_process_has_a_start_time_and_is_a_live_member_of_its_group_and_a_live_child_of_its_parent(
+    ) {
         let me = rustix::process::getpid();
         assert!(start_time(me).unwrap().is_some());
         assert_eq!(
@@ -148,6 +149,8 @@ mod tests {
         );
         let group = rustix::process::getpgrp();
         assert!(live_members(group).unwrap().iter().any(|m| m.pid == me));
+        let parent = rustix::process::getppid().expect("a test process has a parent");
+        assert!(live_children(parent).unwrap().iter().any(|m| m.pid == me));
         let shown = live_members(group).unwrap()[0].to_string();
         assert!(shown.contains('('), "{shown}");
     }
