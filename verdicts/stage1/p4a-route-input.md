@@ -383,3 +383,27 @@ These receipts support the source correction but do not establish compliance of 
 The same-head package verdict is pending. One LOW and one MEDIUM source finding remain open.
 I changed no product code and ran no build, test, gate, mutation job, merge-check job, or reversal job.
 The tree comparisons use Git source objects only.
+
+## Round 3 — 2026-10-10
+
+Reviewed head: `d1d8742a36de00753d32e302aeac99fb72bf1a0a`.
+Reviewed base: `89d57cc7d07957b88003722897cf43e540d19bcc`.
+The complete source delta, two source merges, accounting, gate, and reversal receipts are recorded in the inspection above.
+
+I read package Round 152 at verdict commit `fa9d05caa236b029a92cbd5bdbd5902875651527`, `verdicts/p3-worker.md`.
+It reports NOT CLEAN on this exact head and base. Both reviewers agree on the closures and remaining findings.
+
+R2-1 / F105 and R2-2 / F106 are CLOSED in their reported scopes.
+R1-1 / F99, R1-2 / F100, R1-3 / F101, R1-4 / F102, and R1-6 / F104 retain their closures.
+R1-5 / F103 is REOPENED for the new private queue assertions, recorded as R3-1 LOW above.
+R3-2 / F107 is MEDIUM and OPEN: complete early input loses its receipt-time NotReady decision while application waits.
+The passing gate does not close either finding.
+
+This is the third NOT CLEAN round for PR #227.
+The package reviewer will report BLOCKED for the required lead decision before a fourth round.
+The integration reviewer sends this verdict and commit to the lead under the assigned messaging rule.
+No fourth review round starts without that decision.
+
+I changed no product code and ran no build, test, gate, mutation job, merge-check job, or reversal job.
+
+VERDICT: NOT CLEAN (2 open: R3-1 LOW and R3-2 MEDIUM).
