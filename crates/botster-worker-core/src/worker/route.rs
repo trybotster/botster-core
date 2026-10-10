@@ -19,8 +19,9 @@
 //!
 //! **Input backpressure (DP-5).** The driver reads a route's client bytes only within the route's read allowance
 //! ([`Action::RouteReadAllowance`]). The allowance is the input bound less the bytes that the route holds: the client bytes
-//! that do not make a whole frame yet, the complete frames that wait to be applied, and the route's input that waits at the
-//! admission point or is being written. The input bound is
+//! that do not make a whole frame yet, and the route's input that waits at the admission point or is being written. (A
+//! complete frame that waits to be applied waits only while the route has no refusal room, and the allowance is then 0.)
+//! The input bound is
 //! `route_input_queue_bytes`, and at least one whole frame of the route with its stream prefix (steward ruling R-53: DP-3
 //! admits a frame of `max_frame_bytes`, so the reader must be able to read one). The driver spends an allowance read by
 //! read, so the worker's copy of it is lowered by each read, and a new allowance goes out whenever the driver's rest differs
@@ -96,10 +97,7 @@ struct Route {
     reader: StreamReader,
     /// The complete frames that the route received and has not applied yet, in receive order: each was counted as received
     /// (IN-4) when its read came, and each waits for the room of its refusal (DP-5).
-    /// Each frame has its size in the stream (with its prefix).
-    received: VecDeque<(usize, Received)>,
-    /// The sum of the sizes in `received`: they count against the input bound.
-    received_bytes: usize,
+    received: VecDeque<Received>,
     /// `options.input`: false makes the route view-only (OU-1).
     input: bool,
     /// The last read allowance that the driver got (`Action::RouteReadAllowance`); none yet at the bind.
@@ -252,7 +250,6 @@ impl Worker {
             closing: None,
             reader: StreamReader::default(),
             received: VecDeque::new(),
-            received_bytes: 0,
             input: options.input,
             allowance: None,
         };
@@ -567,17 +564,14 @@ impl Worker {
             let Some(route) = self.routes.routes.get_mut(&id) else {
                 return;
             };
-            if matches!(route.received.back(), Some((_, Received::Bad(_)))) {
+            if matches!(route.received.back(), Some(Received::Bad(_))) {
                 return;
             }
             let bounds = frame_bounds(&route.limits);
-            let (decoded, size) = match route.reader.next_frame(&bounds) {
+            let decoded = match route.reader.next_frame(&bounds) {
                 Ok(None) => return,
-                Ok(Some(frame)) => (
-                    ToWorker::decode(&frame, &bounds),
-                    frame.len() + STREAM_PREFIX,
-                ),
-                Err(error) => (Err(error), 0),
+                Ok(Some(frame)) => ToWorker::decode(&frame, &bounds),
+                Err(error) => Err(error),
             };
             let received = match decoded {
                 Ok(Decoded::Frame(frame)) => Received::Frame(frame),
@@ -591,9 +585,8 @@ impl Worker {
                 }
                 Err(error) => Received::Bad(RouteCloseReason::BadFrame { code: error.code }),
             };
-            route.received_bytes += size;
             let input = !matches!(received, Received::Bad(_));
-            route.received.push_back((size, received));
+            route.received.push_back(received);
             if input {
                 self.client_received(id);
             }
@@ -612,10 +605,9 @@ impl Worker {
             if route.closing.is_some() || !route.refusal_room(queue_bytes, reserved) {
                 return;
             }
-            let Some((size, received)) = route.received.pop_front() else {
+            let Some(received) = route.received.pop_front() else {
                 return;
             };
-            route.received_bytes -= size;
             match received {
                 Received::Frame(frame) => self.on_client_frame(id, frame),
                 Received::Refused(op, reason) => self.refuse(id, op, reason, None),
@@ -641,9 +633,12 @@ impl Worker {
             } else if !route.refusal_room(queue_bytes, reserved) {
                 0
             } else {
+                // `settle_routes` applies the waiting frames first, and a frame still waits only for a route with no
+                // refusal room: a route with room has no waiting frame, so its held bytes are the reader's and its input's.
+                debug_assert!(route.received.is_empty());
                 route
                     .input_bound()
-                    .saturating_sub(held + route.received_bytes + route.reader.pending())
+                    .saturating_sub(held.saturating_add(route.reader.pending()))
             };
             if route.allowance != Some(allowance) {
                 route.allowance = Some(allowance);
@@ -758,14 +753,11 @@ impl Worker {
             return;
         }
         self.routes.settling = true;
-        loop {
-            self.routes.unsettled = false;
+        self.routes.unsettled = true;
+        while std::mem::take(&mut self.routes.unsettled) {
             let ids: Vec<RouteId> = self.routes.routes.keys().copied().collect();
             for id in ids {
                 self.apply_route(id);
-            }
-            if !self.routes.unsettled {
-                break;
             }
         }
         self.routes.settling = false;
@@ -845,7 +837,6 @@ mod tests {
             baseline: 0,
             reader: StreamReader::default(),
             received: VecDeque::new(),
-            received_bytes: 0,
             input: true,
             writing: false,
             closing: None,
