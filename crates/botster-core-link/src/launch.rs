@@ -12,6 +12,7 @@ use crate::proof::{token_from_hex, token_hex, TOKEN_LEN};
 use botster_core_contract::prelude::InstanceId;
 use std::ffi::{OsStr, OsString};
 use std::path::PathBuf;
+use std::time::Duration;
 
 /// The environment variable that holds the per-worker token as 64 lowercase hex digits.
 pub const TOKEN_VAR: &str = "BOTSTER_WORKER_TOKEN";
@@ -25,9 +26,20 @@ pub struct WorkerLaunch {
     /// The host epoch that the worker obeys at the start (DP-8).
     pub host_epoch: u64,
     pub token: [u8; TOKEN_LEN],
+    /// The worker endpoint, `<data_dir>/w/<InstanceId>`: the worker binds it before its first hello, and a new host adopts
+    /// the worker there (AD-6; `botster-core-host` DESIGN.md part 1).
+    pub endpoint: PathBuf,
+    /// `CoreLimits.startup` in milliseconds: the bound of a candidate's hello, and of a worker with no payload and no host
+    /// (AD-7).
+    pub startup_ms: u64,
 }
 
 impl WorkerLaunch {
+    /// `startup` in whole milliseconds, the value of `startup_ms`. A bound above `u64::MAX` milliseconds is `u64::MAX`.
+    pub fn millis(startup: Duration) -> u64 {
+        u64::try_from(startup.as_millis()).unwrap_or(u64::MAX)
+    }
+
     /// The arguments after the program name.
     pub fn args(&self) -> Vec<OsString> {
         vec![
@@ -39,6 +51,10 @@ impl WorkerLaunch {
             self.instance.0.clone().into(),
             "--epoch".into(),
             self.host_epoch.to_string().into(),
+            "--endpoint".into(),
+            self.endpoint.clone().into_os_string(),
+            "--startup-ms".into(),
+            self.startup_ms.to_string().into(),
         ]
     }
 
@@ -55,6 +71,8 @@ impl WorkerLaunch {
         let mut control = None;
         let mut instance = None;
         let mut epoch = None;
+        let mut endpoint = None;
+        let mut startup_ms = None;
         let mut role_seen = false;
         let mut it = args.iter().map(AsRef::as_ref);
         while let Some(flag) = it.next() {
@@ -69,6 +87,10 @@ impl WorkerLaunch {
                 Some("--control") => control = Some(PathBuf::from(value)),
                 Some("--instance") => instance = value.to_str().map(|s| InstanceId(s.to_string())),
                 Some("--epoch") => epoch = value.to_str().and_then(|s| s.parse::<u64>().ok()),
+                Some("--endpoint") => endpoint = Some(PathBuf::from(value)),
+                Some("--startup-ms") => {
+                    startup_ms = value.to_str().and_then(|s| s.parse::<u64>().ok())
+                }
                 _ => return Err(LaunchError::UnknownFlag),
             }
         }
@@ -79,6 +101,8 @@ impl WorkerLaunch {
             control: control.ok_or(LaunchError::Missing("--control"))?,
             instance: instance.ok_or(LaunchError::Missing("--instance"))?,
             host_epoch: epoch.ok_or(LaunchError::Missing("--epoch"))?,
+            endpoint: endpoint.ok_or(LaunchError::Missing("--endpoint"))?,
+            startup_ms: startup_ms.ok_or(LaunchError::Missing("--startup-ms"))?,
             token: token
                 .and_then(token_from_hex)
                 .ok_or(LaunchError::BadToken)?,
@@ -113,6 +137,7 @@ impl std::error::Error for LaunchError {}
 #[cfg(test)]
 mod tests {
     use super::*;
+    use botster_core_contract::prelude::CoreLimits;
 
     fn launch() -> WorkerLaunch {
         WorkerLaunch {
@@ -120,7 +145,16 @@ mod tests {
             instance: InstanceId("7-1".into()),
             host_epoch: 7,
             token: [0xAB; TOKEN_LEN],
+            endpoint: "/data/w/7-1".into(),
+            startup_ms: WorkerLaunch::millis(CoreLimits::default().startup),
         }
+    }
+
+    /// `--startup-ms` carries whole milliseconds, and a bound that does not fit is the largest one.
+    #[test]
+    fn the_startup_bound_is_whole_milliseconds() {
+        assert_eq!(WorkerLaunch::millis(Duration::from_micros(10_999)), 10);
+        assert_eq!(WorkerLaunch::millis(Duration::MAX), u64::MAX);
     }
 
     /// AD-6: the command line round-trips, and the token travels in the environment only.
@@ -153,6 +187,21 @@ mod tests {
         assert_eq!(
             WorkerLaunch::parse(&args[..6], Some(&token)),
             Err(LaunchError::Missing("--epoch"))
+        );
+        assert_eq!(
+            WorkerLaunch::parse(&args[..8], Some(&token)),
+            Err(LaunchError::Missing("--endpoint"))
+        );
+        assert_eq!(
+            WorkerLaunch::parse(&args[..10], Some(&token)),
+            Err(LaunchError::Missing("--startup-ms"))
+        );
+        // DESIGN.md part 1 (integration D2): a malformed startup limit is refused, as a missing one is.
+        let mut malformed = args.clone();
+        malformed[11] = "ten".into();
+        assert_eq!(
+            WorkerLaunch::parse(&malformed, Some(&token)),
+            Err(LaunchError::Missing("--startup-ms"))
         );
         assert_eq!(
             WorkerLaunch::parse(&args[2..], Some(&token)),
