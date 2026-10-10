@@ -9280,3 +9280,85 @@ The reviewer changes no product code and runs no tests, builds, gates, measureme
 All earlier exact-head verdicts remain preserved.
 
 VERDICT: NOT CLEAN
+
+
+## Round 149 — PR #223 replacement and base merge — 2026-10-10
+
+Reviewed head: `190c12a36d7ee0acf96a44f4554a93ffd7ee7e16`.
+PR base: `150a2069428173c97892160b73e94993233f413a`.
+Prior reviewed head: `a9d99fee96e3e36a721ece59be84ed432548cc19`.
+Tier: HIGH under BUILD rule 3. Round 148's complete source review remains part of this verdict.
+The remote PR head and base match these exact commits.
+
+### F98 — LOW — CLOSED
+
+Cargo.toml and the PR body now describe the packages as dependencies used by the checker.
+Both state that botster-route-codec and serde_json also receive the optimization in dev-profile production builds.
+Both describe regex-automata's production build-script use through bindgen and libproc.
+Both identify botster-hub-conformance as a testkit and xtask dependency.
+Neither retains the false claim that all four are test-only.
+
+The lead's shared handoff explicitly authorizes package-wide dev/test optimization for these four packages.
+Its conditions are: change the optimization level only, keep debug assertions and overflow checks, add no Core crate override, and correct the text.
+The replacement keeps all four opt-level values at two.
+Each override now explicitly sets debug-assertions=true and overflow-checks=true, preserving the dev-profile values.
+The replacement adds no fifth override and no Core workspace crate override.
+These settings and the corrected text satisfy the lead's scope conditions and close F98.
+No behavior change is identified in the explicit checks relative to the original dev values.
+
+### Whole-change and merge review
+
+The replacement changes only Cargo.toml's comment and the explicit check settings in #223's own diff.
+Sim's trace change, take_front, Output::take, and fill_pattern remain byte-identical to the prior reviewed head.
+Round 148's byte order, descriptor boundary, read-size, scheduling, clock, and trace conclusions remain valid.
+The alphabet pattern, route_fill formula, original-instance binding, and program-edge progress remain unchanged.
+
+Merge 190c12a3 incorporates v1 150a2069, which merged #224's payload guard fix.
+The base adds only crates/botster-core-sys/tests/common/payload_guard.rs relative to the prior base.
+That file is outside #223's five own paths. The reviewer reads the base delta and does not replace #224's separate reviews.
+The reviewer independently compares all five own-path diffs before and after this merge.
+After removing Git index lines and hunk coordinates, all five own-path diffs are identical.
+This review covers the actual replacement head and does not rely on a disjoint-merge exemption.
+No reviewer base-merge-check is run.
+
+No new pin, pending list, mutation exclusion, production hook, timeout, guard, anchor, socket policy, real handoff, or process edge changes in #223's own diff.
+The named real-process requirements and BUILD rule 5 retain their scope for later changes to those paths.
+The exact-head slow gate includes the merged guard proofs.
+
+### Completed evidence and limits
+
+Gate: ~/botster-sessions/gates/botster-core-stage1-testkit-fill-cost-190c12a3-pool-20261010-102544-51971.log.
+The header names the exact reviewed head and base. All ten full CI steps PASS on gaming.
+Default: 1481 pass in 12.853 seconds. Slow: 381 pass in 129.995 seconds.
+Both facade reports: 193 passed, zero failed, 497 ignored.
+Both mutation reports: 21 tested, 17 caught, four unviable, zero missed, zero timeouts.
+The trace-formatting proof and wrapped-copy proof have PASS lines.
+Full CI: 372.0 seconds. Repeated mutation job: 119.8 seconds.
+Job and wrapper exit zero after 503 seconds. Queue: zero seconds. Run: 503 seconds.
+The env-only second mutation job repeats default coverage. This PR adds no slow mutation exclusion.
+
+The prior scratch timing evidence retains its measured scope.
+It measures the same testkit code at v0.1.25 and the same four opt-level values.
+The final head explicitly preserves the debug assertions and overflow checks from the prior dev-profile settings.
+The timing job does not measure this replacement head or the merged guard change.
+A+B records 2.10, 2.10, and 2.11 seconds at v0.1.25, compared with 12.98, 12.93, and 12.94 seconds with neither change.
+The clean-build comparison records 75.419 seconds for A only and 77.208 seconds for A+B.
+These measurements prove the reported reduction. They do not prove that A+B alone meets the two-second limit.
+The PR body retains this limitation and the separate contracts C work.
+The latest lead handoff records the future pin target as v0.1.26 after contracts C, with plan 23w at c0860d7e.
+This verdict does not approve that pin or replace the contracts C review.
+
+### Verdict and retained scopes
+
+PR #223 is CLEAN at `190c12a36d7ee0acf96a44f4554a93ffd7ee7e16`.
+F98 is CLOSED. No finding remains open within this PR's approved A + B scope.
+The reviewer sends CLEAN to the lead with this exact head and the published verdict commit.
+Integration retains its separate HIGH review. This package verdict does not substitute for that review.
+Testkit minimum remains 50/69. Production pin remains contracts v0.1.24 at this head.
+#219 is merged at 26843c74. F95/F96/F97 and its CLEAN artifacts remain preserved.
+F94 and F91/F92/F93 remain closed. F86/F87/F88/F90 remain PR3 requirements.
+F39 and F61/F62 retain their prior scopes. P3's non-minimum queue stays parked.
+The reviewer changes no product code and runs no tests, builds, gates, measurements, mutants, or base-merge-check.
+All earlier exact-head verdicts remain preserved.
+
+VERDICT: CLEAN
