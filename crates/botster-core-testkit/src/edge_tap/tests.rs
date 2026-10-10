@@ -69,6 +69,10 @@ struct Fake {
     closed: BTreeSet<LinkId>,
     closes: Vec<LinkId>,
     sent: Vec<(LinkId, Vec<u8>)>,
+    /// The most bytes that one `link_send` takes; all of them when `None`.
+    send_limit: Option<usize>,
+    /// Whether `link_send_descriptor` takes the bytes; it fails when false.
+    take_descriptors: bool,
     calls: Vec<String>,
     settles: usize,
     wake: Arc<FakeWake>,
@@ -164,8 +168,11 @@ impl HostEdges for Fake {
         if self.closed.contains(&link) {
             return Err(io::ErrorKind::BrokenPipe.into());
         }
-        self.sent.push((link, bytes.to_vec()));
-        Ok(bytes.len())
+        let n = self
+            .send_limit
+            .map_or(bytes.len(), |limit| limit.min(bytes.len()));
+        self.sent.push((link, bytes[..n].to_vec()));
+        Ok(n)
     }
 
     fn link_close(&mut self, link: LinkId) {
@@ -188,6 +195,10 @@ impl HostEdges for Fake {
         endpoint: StreamEndpoint,
     ) -> Result<usize, (StreamEndpoint, DescriptorSendError)> {
         self.calls.push(format!("descriptor {} {bytes:?}", link.0));
+        if self.take_descriptors {
+            self.sent.push((link, bytes.to_vec()));
+            return Ok(bytes.len());
+        }
         Err((endpoint, DescriptorSendError::Failed))
     }
 
@@ -973,5 +984,191 @@ mod stand_ins {
             rig.with(|t| t.signals_since_answer(&sid("s1"))),
             Some(vec![(identity(41), GroupSignal::Kill)])
         );
+    }
+}
+
+/// `hold_start_at` (Core AD-7, R-49 Q2): the tap holds a start at the host's `Launch`. The worker gets every byte before
+/// the `Launch` and no byte from it on until the release; Core keeps the rest in its own buffer, unchanged and in order.
+mod held_starts {
+    use super::*;
+    use botster_core_link::msg::LaunchSpec;
+
+    fn host_frame(msg: &HostMsg) -> Vec<u8> {
+        let mut payload = Vec::new();
+        msg.encode(&mut payload);
+        let mut frame = Vec::new();
+        encode_frame(
+            FrameType::HOST_MSG,
+            &payload,
+            DEFAULT_MAX_PAYLOAD,
+            &mut frame,
+        )
+        .unwrap();
+        frame
+    }
+
+    fn launch() -> Vec<u8> {
+        host_frame(&HostMsg::Launch(Box::new(LaunchSpec {
+            argv: vec!["/bin/sh".into()],
+            env: BTreeMap::new(),
+            cwd: "/".into(),
+            size: Size {
+                rows: 24,
+                cols: 80,
+                cell_px: None,
+            },
+            color_profile: None,
+            notification_policy: NotificationPolicy::default(),
+            size_policy: SizePolicy::default(),
+            link_frame_bound: DEFAULT_MAX_PAYLOAD,
+            stop_grace_ms: 250,
+            limits: CoreLimits::default(),
+        })))
+    }
+
+    fn instance() -> InstanceId {
+        InstanceId("1-7".into())
+    }
+
+    /// A rig whose link A has read the hello of the instance "1-7".
+    fn linked(fake: Fake) -> Rig {
+        let mut fake = fake;
+        fake.accepts.push_back(A);
+        fake.reads
+            .insert(A, vec![Read::Data(hello_frame("1-7"))].into());
+        let mut rig = rig(fake);
+        assert_eq!(rig.edges.accept_link(), Some(A));
+        rig.recv(A, 4096).unwrap();
+        rig
+    }
+
+    fn sent(rig: &Rig) -> Vec<u8> {
+        rig.with(|t| t.inner.sent.iter().flat_map(|(_, b)| b.clone()).collect())
+    }
+
+    fn calls(rig: &Rig) -> Vec<String> {
+        rig.with(|t| t.inner.calls.clone())
+    }
+
+    #[test]
+    fn a_held_start_keeps_its_launch_and_every_later_byte_with_core_until_the_release() {
+        let mut rig = linked(Fake::default());
+        assert!(rig.with(|t| t.hold_launch(instance())));
+        assert!(!rig.with(|t| t.hold_launch(instance())), "one hold");
+        let before = host_frame(&HostMsg::Stop);
+        let bytes = [before.clone(), launch(), host_frame(&HostMsg::Kill)].concat();
+        assert_eq!(rig.edges.link_send(A, &bytes).unwrap(), before.len());
+        let rest = &bytes[before.len()..];
+        let held = rig.edges.link_send(A, rest).unwrap_err();
+        assert_eq!(held.kind(), io::ErrorKind::WouldBlock);
+        assert_eq!(sent(&rig), before);
+        // Core's write interest on the held link does not reach the inner edge; other links are not held.
+        rig.edges.set_write_interest(A, true);
+        rig.edges.set_write_interest(B, true);
+        assert_eq!(calls(&rig), ["write 1 false", "write 2 true"]);
+        rig.with(|t| t.inner.take_descriptors = true);
+        let blocked = rig
+            .edges
+            .link_send_descriptor(A, b"rt", StreamEndpoint::new(5u8));
+        assert!(matches!(blocked, Err((_, DescriptorSendError::Blocked))));
+        assert_eq!(sent(&rig), before);
+        assert!(!rig.with(|t| t.release_launch(&InstanceId("2-1".into()))));
+        assert!(rig.with(|t| t.release_launch(&instance())));
+        assert_eq!(calls(&rig).last().unwrap(), "write 1 true");
+        assert!(
+            !rig.with(|t| t.release_launch(&instance())),
+            "released once"
+        );
+        assert_eq!(rig.edges.link_send(A, rest).unwrap(), rest.len());
+        assert_eq!(sent(&rig), bytes, "no byte reordered, dropped or changed");
+    }
+
+    /// Core's last write interest during the hold is the one that the release gives the inner edge.
+    #[test]
+    fn the_release_gives_the_inner_edge_cores_last_write_interest() {
+        let mut rig = linked(Fake::default());
+        rig.with(|t| t.hold_launch(instance()));
+        rig.edges.link_send(A, &launch()).unwrap_err();
+        rig.edges.set_write_interest(A, true);
+        rig.edges.set_write_interest(A, false);
+        rig.with(|t| t.release_launch(&instance()));
+        assert_eq!(
+            calls(&rig),
+            ["write 1 false", "write 1 false", "write 1 false"]
+        );
+    }
+
+    /// A hold set before the link exists holds nothing until the `Launch`; the bytes that the inner edge takes in part keep
+    /// the tap's reading in step, so the hold begins exactly at the `Launch`.
+    #[test]
+    fn the_hold_begins_at_the_launch_when_the_inner_edge_takes_bytes_in_part() {
+        let mut rig = linked(Fake {
+            send_limit: Some(3),
+            ..Fake::default()
+        });
+        rig.with(|t| t.hold_launch(instance()));
+        let before = [host_frame(&HostMsg::Stop), host_frame(&HostMsg::Kill)].concat();
+        let bytes = [before.clone(), launch()].concat();
+        let mut at = 0;
+        let held = loop {
+            match rig.edges.link_send(A, &bytes[at..]) {
+                Ok(n) => {
+                    assert!(n > 0 && n <= 3);
+                    at += n;
+                }
+                Err(e) => break e,
+            }
+        };
+        assert_eq!(held.kind(), io::ErrorKind::WouldBlock);
+        assert_eq!(at, before.len());
+        assert_eq!(sent(&rig), before);
+    }
+
+    /// A descriptor send passes through a link that is not held, and the tap's reading of the link keeps step with it.
+    #[test]
+    fn a_descriptor_send_keeps_the_reading_of_the_link_in_step() {
+        let mut rig = linked(Fake {
+            take_descriptors: true,
+            ..Fake::default()
+        });
+        rig.with(|t| t.hold_launch(instance()));
+        let route = host_frame(&HostMsg::Stop);
+        let (first, rest) = route.split_at(4);
+        assert_eq!(
+            rig.edges
+                .link_send_descriptor(A, first, StreamEndpoint::new(5u8))
+                .unwrap(),
+            first.len()
+        );
+        let bytes = [rest.to_vec(), launch()].concat();
+        assert_eq!(rig.edges.link_send(A, &bytes).unwrap(), rest.len());
+        assert_eq!(sent(&rig), route);
+    }
+
+    /// Only a held start's `Launch` is held: the `Launch` of another instance, and every byte of a link whose hello the tap
+    /// has not read, pass unchanged.
+    #[test]
+    fn a_launch_that_is_not_held_passes() {
+        let mut rig = linked(Fake::default());
+        rig.with(|t| t.hold_launch(InstanceId("2-1".into())));
+        assert_eq!(rig.edges.link_send(A, &launch()).unwrap(), launch().len());
+        assert_eq!(rig.edges.link_send(B, &launch()).unwrap(), launch().len());
+        assert_eq!(sent(&rig), [launch(), launch()].concat());
+    }
+
+    /// The tap stops reading a link whose start is not held: a hold set later does not hold it. A link's bytes that are not
+    /// frames also end the reading, and every later byte passes.
+    #[test]
+    fn a_link_that_the_tap_stopped_reading_is_never_held() {
+        let mut rig = linked(Fake::default());
+        rig.edges.link_send(A, &host_frame(&HostMsg::Stop)).unwrap();
+        rig.with(|t| t.hold_launch(instance()));
+        assert_eq!(rig.edges.link_send(A, &launch()).unwrap(), launch().len());
+
+        let mut rig = linked(Fake::default());
+        rig.with(|t| t.hold_launch(instance()));
+        let junk = [0xFFu8; 8];
+        assert_eq!(rig.edges.link_send(A, &junk).unwrap(), junk.len());
+        assert_eq!(rig.edges.link_send(A, &launch()).unwrap(), launch().len());
     }
 }

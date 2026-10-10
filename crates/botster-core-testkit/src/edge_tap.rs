@@ -28,6 +28,12 @@
 //!   accepts Core's connection and answers Core's hello within that call. A stand-in ends with the tap, after the inner
 //!   edges and the data directory's lock, and then gives the path back to the real endpoint. [`Tap::signals_since_answer`]
 //!   gives the signals that Core sent from a stand-in's first answer on (`signals_received`).
+//! - The held starts ([`Tap::hold_launch`], [`Tap::release_launch`]; `hold_start_at`, `release_start_at`, R-49 Q2): the
+//!   tap reads Core's outbound frames on a link until it knows that no held start can meet its `Launch` there. A `link_send`
+//!   that reaches a held start's `Launch` gives the inner edge only the bytes before that frame, and every later send on the
+//!   link is `WouldBlock`, so Core keeps the `Launch` and every byte after it in its own outbound buffer: no byte is
+//!   reordered, dropped or changed. Core's write interest on the held link does not reach the inner edge, so no readiness
+//!   wakes the host for it. The release gives the inner edge that interest, and Core's next flush sends the bytes.
 
 use crate::stand_in::StandIn;
 use botster_core_contract::prelude::*;
@@ -38,9 +44,9 @@ use botster_core_edges::scheduler::{ChoicePoint, Scheduler};
 use botster_core_host::driver::{DescriptorSendError, HostEdges, HostWake, WorkerSpawn};
 use botster_core_host::session::{Row, ROW_PREFIX};
 use botster_core_host::LinkId;
-use botster_core_link::frame::{FrameDecoder, FrameType, DEFAULT_MAX_PAYLOAD};
+use botster_core_link::frame::{Frame, FrameDecoder, FrameError, FrameType, DEFAULT_MAX_PAYLOAD};
 use botster_core_link::hello::Hello;
-use botster_core_link::msg::WorkerMsg;
+use botster_core_link::msg::{HostMsg, WorkerMsg};
 use std::collections::{BTreeMap, VecDeque};
 use std::io;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
@@ -74,6 +80,9 @@ struct LinkTap {
     frames: Option<FrameDecoder>,
     /// The instance that the link's hello names, or that `connect_worker` asked for.
     instance: Option<InstanceId>,
+    /// The decoder of the bytes that the inner edge took from Core on the link: until the tap knows that no held start can
+    /// meet its `Launch` here, or until bytes that are not a frame.
+    sent: Option<FrameDecoder>,
 }
 
 impl LinkTap {
@@ -83,6 +92,7 @@ impl LinkTap {
             end: None,
             frames: Some(FrameDecoder::new(DEFAULT_MAX_PAYLOAD)),
             instance: None,
+            sent: Some(FrameDecoder::new(DEFAULT_MAX_PAYLOAD)),
         }
     }
 
@@ -153,6 +163,45 @@ impl LinkTap {
     }
 }
 
+/// Pushes `bytes` through `decoder`, frame by frame, up to the first complete frame that `stop` takes. Returns the offset in
+/// `bytes` where that frame begins (0 when it began before `bytes`), or `None` when no frame in `bytes` is one.
+///
+/// # Errors
+/// The bytes are not frames.
+fn find_frame(
+    decoder: &mut FrameDecoder,
+    bytes: &[u8],
+    mut stop: impl FnMut(&Frame) -> bool,
+) -> Result<Option<usize>, FrameError> {
+    let mut start = 0;
+    let mut at = 0;
+    loop {
+        at += decoder.push(&bytes[at..]);
+        let Some(frame) = decoder.next_frame()? else {
+            return Ok(None);
+        };
+        if stop(&frame) {
+            return Ok(Some(start));
+        }
+        start = at;
+    }
+}
+
+/// Whether `frame` is the host's order to launch the payload (AD-7 step 4).
+fn is_launch(frame: &Frame) -> bool {
+    frame.kind == FrameType::HOST_MSG
+        && matches!(HostMsg::decode(&frame.payload), Ok(HostMsg::Launch(_)))
+}
+
+/// A start that the tap holds at its `Launch` (`hold_start_at`, R-49 Q2).
+#[derive(Debug, Default)]
+struct Hold {
+    /// The link where Core's `Launch` met the hold: from there on, the tap gives the inner edge no byte of that link.
+    link: Option<LinkId>,
+    /// The last write interest that Core asked for on that link during the hold.
+    write_interest: bool,
+}
+
 /// The registry rows that passed through the taps of one data directory, by session: Core's own decoding of each row.
 /// They outlive the handle and the row's removal, so a later handle of the directory can name a session's processes.
 pub type Rows = Arc<Mutex<BTreeMap<SessionId, Row>>>;
@@ -174,6 +223,8 @@ pub struct Tap<E> {
     /// `inner`, so the inner edges and the data directory's lock end first, and only then do the real endpoints get their
     /// paths back (R-49 Q4 conditions 1 and 2).
     stand_ins: Vec<(StandIn, Option<usize>)>,
+    /// The held starts, by instance (`hold_start_at`, R-49 Q2).
+    holds: BTreeMap<InstanceId, Hold>,
 }
 
 impl<E: HostEdges> Tap<E> {
@@ -310,6 +361,78 @@ impl<E: HostEdges> Tap<E> {
         Some(answered_at.map_or_else(Vec::new, |from| self.signals[from..].to_vec()))
     }
 
+    /// Holds the start of `instance` at its `Launch` (`hold_start_at`, R-49 Q2): the worker gets no byte of the host's
+    /// `Launch` until [`Tap::release_launch`], so it launches no payload. False when a hold of `instance` is already set.
+    pub fn hold_launch(&mut self, instance: InstanceId) -> bool {
+        if self.holds.contains_key(&instance) {
+            return false;
+        }
+        self.holds.insert(instance, Hold::default());
+        true
+    }
+
+    /// Ends the hold of `instance` (`release_start_at`). The write interest that Core asked for on the held link reaches the
+    /// inner edge, so readiness wakes the host, and Core's next flush sends the `Launch` and every byte after it, in order.
+    /// False when no hold of `instance` is set.
+    pub fn release_launch(&mut self, instance: &InstanceId) -> bool {
+        let Some(hold) = self.holds.remove(instance) else {
+            return false;
+        };
+        if let Some(link) = hold.link {
+            self.inner.set_write_interest(link, hold.write_interest);
+        }
+        true
+    }
+
+    /// The hold whose `Launch` met it on `link`.
+    fn hold_on(&mut self, link: LinkId) -> Option<&mut Hold> {
+        self.holds.values_mut().find(|hold| hold.link == Some(link))
+    }
+
+    /// How many of `bytes`, which Core sends on `link`, the inner edge may take: none on a held link; the bytes before the
+    /// `Launch` of a held start; otherwise all. A send that begins with that `Launch` holds the link.
+    fn sendable(&mut self, link: LinkId, bytes: &[u8]) -> usize {
+        if self.hold_on(link).is_some() {
+            return 0;
+        }
+        let Some(state) = self.links.get_mut(&link) else {
+            return bytes.len();
+        };
+        let held = match &state.instance {
+            Some(instance) if self.holds.contains_key(instance) => instance.clone(),
+            // A start that is not held, or a link whose hello the tap has not read: no `Launch` there is held.
+            Some(_) => {
+                state.sent = None;
+                return bytes.len();
+            }
+            None => return bytes.len(),
+        };
+        let Some(mut decoder) = state.sent.clone() else {
+            return bytes.len();
+        };
+        match find_frame(&mut decoder, bytes, is_launch) {
+            Ok(Some(0)) => {
+                if let Some(hold) = self.holds.get_mut(&held) {
+                    hold.link = Some(link);
+                }
+                0
+            }
+            Ok(Some(start)) => start,
+            Ok(None) | Err(_) => bytes.len(),
+        }
+    }
+
+    /// Reads the bytes that the inner edge took on `link` (`sendable`).
+    fn sent(&mut self, link: LinkId, bytes: &[u8]) {
+        if let Some(state) = self.links.get_mut(&link) {
+            if let Some(decoder) = state.sent.as_mut() {
+                if find_frame(decoder, bytes, |_| false).is_err() {
+                    state.sent = None;
+                }
+            }
+        }
+    }
+
     /// Ends the process group of `identity` from outside Core, as a kill does (Core AD-2, IN-7): the inner edge's own
     /// identity-checked `signal_group` sends `KILL`, and only when the pid and the start time still match, so a process that
     /// reuses the pid is never signalled (Core AD-6). Then the wake edge signals, so that the host pumps and meets the end.
@@ -359,6 +482,7 @@ impl<E: HostEdges> EdgeTap<E> {
             launches: BTreeMap::new(),
             signals: Vec::new(),
             stand_ins: Vec::new(),
+            holds: BTreeMap::new(),
         }));
         let weak = Arc::downgrade(&tap);
         let scheduler = SchedulerTap {
@@ -473,7 +597,14 @@ impl<E: HostEdges> HostEdges for EdgeTap<E> {
 
     fn link_send(&mut self, link: LinkId, bytes: &[u8]) -> io::Result<usize> {
         let mut tap = self.tap();
-        let sent = tap.inner.link_send(link, bytes);
+        let until = tap.sendable(link, bytes);
+        if until == 0 && !bytes.is_empty() {
+            return Err(io::ErrorKind::WouldBlock.into());
+        }
+        let sent = tap.inner.link_send(link, &bytes[..until]);
+        if let Ok(n) = sent {
+            tap.sent(link, &bytes[..n]);
+        }
         tap.step_stand_ins();
         sent
     }
@@ -485,7 +616,15 @@ impl<E: HostEdges> HostEdges for EdgeTap<E> {
     }
 
     fn set_write_interest(&mut self, link: LinkId, on: bool) {
-        self.tap().inner.set_write_interest(link, on);
+        let mut tap = self.tap();
+        let on = match tap.hold_on(link) {
+            Some(hold) => {
+                hold.write_interest = on;
+                false
+            }
+            None => on,
+        };
+        tap.inner.set_write_interest(link, on);
     }
 
     fn set_read_interest(&mut self, link: LinkId, on: bool) {
@@ -498,7 +637,15 @@ impl<E: HostEdges> HostEdges for EdgeTap<E> {
         bytes: &[u8],
         endpoint: StreamEndpoint,
     ) -> Result<usize, (StreamEndpoint, DescriptorSendError)> {
-        self.tap().inner.link_send_descriptor(link, bytes, endpoint)
+        let mut tap = self.tap();
+        if tap.hold_on(link).is_some() {
+            return Err((endpoint, DescriptorSendError::Blocked));
+        }
+        let sent = tap.inner.link_send_descriptor(link, bytes, endpoint);
+        if let Ok(n) = sent {
+            tap.sent(link, &bytes[..n]);
+        }
+        sent
     }
 
     fn close_route_stream(&mut self, endpoint: StreamEndpoint, bytes: &[u8]) {
