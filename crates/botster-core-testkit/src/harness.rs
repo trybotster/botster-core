@@ -389,6 +389,32 @@ mod tests {
         );
     }
 
+    /// Core A2-3, OU-2b: the client end of a harness route reports the cause of a failed close that Core recorded: the
+    /// route's worker write fails, and after the host's pump the client's end of stream names `write_failed`.
+    #[test]
+    fn a_harness_route_reports_the_cause_that_core_recorded() {
+        let (_harness, mut core, mut route) = attached_route(json!({}));
+        route.control("fail_writes", &json!({"on": true})).unwrap();
+        let deadline = botster_conformance::Deadline::after(None);
+        let now = || Now {
+            monotonic: Instant::now(),
+            unix: 1,
+        };
+        for _ in 0..64 {
+            match route.read(1 << 20, &deadline) {
+                RouteRead::Eof { ended: Some(ended) } => {
+                    assert_eq!(ended, "write_failed");
+                    return;
+                }
+                _ => {
+                    core.pump(now());
+                    core.poll_events(64);
+                }
+            }
+        }
+        panic!("the client end never reports the cause of the close");
+    }
+
     /// The frames that a route reads until `live` (the stream prefix is 4 bytes, big-endian), then the read after it.
     fn read_baseline(route: &mut dyn RouteClient) -> (Vec<Vec<u8>>, RouteRead) {
         let deadline = botster_conformance::Deadline::after(None);

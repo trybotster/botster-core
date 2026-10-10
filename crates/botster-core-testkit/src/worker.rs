@@ -1238,7 +1238,8 @@ impl Binding<SharedWorker> for WorkerEdges {
                 read: !route.ended,
                 write: route.write.is_some() || route.wait_writable,
             });
-            if !route.ended && route.end.end().readiness().readable {
+            // Plan 2.5 rule 8: read only with the read interest that the route registered (none once it ended).
+            if route.end.end().readiness().readable && route.end.end().interest().read {
                 self.ready.push(Ready::RouteRead(*id));
             }
             if route.end.end().readiness().writable {

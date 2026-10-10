@@ -569,7 +569,15 @@ fn a_held_spawn_waits_for_the_release_and_goes_with_the_worker() {
 fn route_descriptor(
     scheduler: &SchedulerHandle,
 ) -> (crate::net::Descriptor, crate::net::StreamEnd) {
-    let (worker_end, client_end) = crate::net::stream_pair(scheduler, 4);
+    route_descriptor_of(scheduler, 4)
+}
+
+/// A route descriptor whose stream holds `capacity` bytes in each direction.
+fn route_descriptor_of(
+    scheduler: &SchedulerHandle,
+    capacity: usize,
+) -> (crate::net::Descriptor, crate::net::StreamEnd) {
+    let (worker_end, client_end) = crate::net::stream_pair(scheduler, capacity);
     let endpoint = StreamEndpoint::new(worker_end);
     (crate::net::Descriptor::new(endpoint), client_end)
 }
@@ -763,7 +771,19 @@ fn bind_route(
     now: Instant,
     route: RouteId,
 ) -> crate::net::StreamEnd {
-    let (descriptor, client) = route_descriptor(&edges.scheduler);
+    bind_route_of(edges, peer, worker, now, route, 4)
+}
+
+/// `bind_route` with a stream that holds `capacity` bytes in each direction.
+fn bind_route_of(
+    edges: &mut WorkerEdges,
+    peer: &mut LinkEnd,
+    worker: &SharedWorker,
+    now: Instant,
+    route: RouteId,
+    capacity: usize,
+) -> crate::net::StreamEnd {
+    let (descriptor, client) = route_descriptor_of(&edges.scheduler, capacity);
     peer.send_with_descriptor(b"f", descriptor).unwrap();
     edges.ready(now, worker);
     let Input::Descriptor(id) = edges.take(now, worker, 0) else {
@@ -941,5 +961,91 @@ fn the_clients_bytes_reach_the_machine_and_its_close_ends_the_route_once() {
         edges.ready(now, &worker),
         0,
         "an ended stream is not read again"
+    );
+}
+
+/// A socket read's buffer: the most bytes that one route read takes (64 KiB, as the real driver).
+const SOCKET_READ_BYTES: usize = 64 * 1024;
+
+/// OU-5, A5-2: one read of a route's stream takes at most a socket read's buffer. The seed chooses each read's size inside
+/// that bound, so a read can take most of the buffer, and the bytes reach the machine whole and in order.
+#[test]
+fn a_route_read_takes_at_most_a_socket_buffer() {
+    let total = 4 * SOCKET_READ_BYTES;
+    let (mut edges, mut peer, worker, now) = fixture(16);
+    let mut client = bind_route_of(&mut edges, &mut peer, &worker, now, RouteId(1), total);
+    let sent: Vec<u8> = (0..total).map(|i| (i % 251) as u8).collect();
+    assert_eq!(
+        botster_core_edges::RouteTransport::write(&mut client, &sent).unwrap(),
+        total
+    );
+    let (mut got, mut largest) = (Vec::new(), 0);
+    while got.len() < total {
+        assert_eq!(edges.ready(now, &worker), 1, "the stream is readable");
+        let Input::RouteRead { bytes, .. } = edges.take(now, &worker, 0) else {
+            panic!("a route read")
+        };
+        assert!(!bytes.is_empty(), "a stream that holds bytes gives bytes");
+        assert!(bytes.len() <= SOCKET_READ_BYTES, "{} bytes", bytes.len());
+        largest = largest.max(bytes.len());
+        got.extend(bytes);
+    }
+    assert_eq!(got, sent);
+    assert!(
+        largest > SOCKET_READ_BYTES / 2,
+        "seed 1 chooses a read of {largest} bytes at most"
+    );
+}
+
+/// OU-5, as the real driver: an `Interrupted` read is retried; a readable stream with nothing to take gives an empty read,
+/// and the route stays open; any other read error ends the route once.
+#[test]
+fn an_interrupted_read_is_retried_a_would_block_read_is_empty_and_an_error_ends_the_route() {
+    let (mut edges, mut peer, worker, now) = fixture(16);
+    let mut client = bind_route(&mut edges, &mut peer, &worker, now, RouteId(1));
+    let worker_end = client.end().control().peer();
+    let read = |edges: &mut WorkerEdges| {
+        assert_eq!(edges.ready(now, &worker), 1, "the stream is readable");
+        edges.take(now, &worker, 0)
+    };
+
+    botster_core_edges::RouteTransport::write(&mut client, b"ab").unwrap();
+    worker_end.fail_next_read(io::ErrorKind::Interrupted);
+    let mut got = Vec::new();
+    while got.len() < 2 {
+        let Input::RouteRead { bytes, .. } = read(&mut edges) else {
+            panic!("the interrupted read is retried")
+        };
+        assert!(!bytes.is_empty(), "the retry reads the bytes");
+        got.extend(bytes);
+    }
+    assert_eq!(got, b"ab");
+
+    botster_core_edges::RouteTransport::write(&mut client, b"c").unwrap();
+    worker_end.fail_next_read(io::ErrorKind::WouldBlock);
+    assert_eq!(
+        read(&mut edges),
+        Input::RouteRead {
+            route: RouteId(1),
+            bytes: Vec::new()
+        },
+        "nothing to take: an empty read"
+    );
+    assert_eq!(
+        read(&mut edges),
+        Input::RouteRead {
+            route: RouteId(1),
+            bytes: b"c".to_vec()
+        },
+        "the route stays open and its byte waits"
+    );
+
+    botster_core_edges::RouteTransport::write(&mut client, b"d").unwrap();
+    worker_end.fail_next_read(io::ErrorKind::ConnectionReset);
+    assert_eq!(read(&mut edges), Input::RouteEnded { route: RouteId(1) });
+    assert_eq!(
+        edges.ready(now, &worker),
+        0,
+        "an ended route is not read again"
     );
 }
