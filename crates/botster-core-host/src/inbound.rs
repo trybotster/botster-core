@@ -50,18 +50,7 @@ impl HostEngine {
             Input::HandoffFailed { route } => {
                 self.route_close(route, RouteCloseReason::HandoffFailed);
             }
-            Input::HandoffLost { route } => {
-                // R-50: the session of a start or a stop ends with the link, and `StopPhase::Finish` closes the route once,
-                // after the session's state, with the end's reason (no route of a gone link is delivered: `SessionLost`).
-                let ending = self
-                    .routes
-                    .get(&route)
-                    .and_then(|entry| self.sessions.get(&entry.session))
-                    .is_some_and(|s| matches!(s.flow, Flow::Start(_) | Flow::Stop(_)));
-                if !ending {
-                    self.route_close(route, RouteCloseReason::HandoffFailed);
-                }
-            }
+            Input::HandoffLost { route } => self.on_handoff_lost(route),
             Input::ProcessExited { identity, status } => self.on_process_exited(identity, status),
             Input::WorkerConnected { ticket, link } => match self.take_ticket(ticket) {
                 Some(Owner::Session(id)) => self.adopt_connected(&id, link),
@@ -329,7 +318,7 @@ impl HostEngine {
     }
 
     /// Closes a route now, or after the route events that wait ahead of it (EV-5b, EV-6).
-    fn route_close(&mut self, route: RouteId, reason: RouteCloseReason) {
+    pub(crate) fn route_close(&mut self, route: RouteId, reason: RouteCloseReason) {
         if !self.routes.contains_key(&route) {
             return;
         }
@@ -588,6 +577,28 @@ impl HostEngine {
                 .post_keyed(Event::SessionWritable { id: sid, instance }),
             // The enum is non-exhaustive: an observation that a later worker adds is ignored by this host.
             _ => {}
+        }
+    }
+
+    /// The worker's link closed while the driver held the route's stream (`HandoffLost`). A stopping session, or a start that
+    /// failed, ends: `StopPhase::Finish` closes the route once, after the state, with the end's reason (steward ruling R-50; no
+    /// route of a gone link is delivered, so `SessionLost`). A start that has not failed may still run, since the link alone
+    /// does not end it: the route is kept as an obligation that `finish_start` settles. Any other route closes
+    /// `HandoffFailed`.
+    fn on_handoff_lost(&mut self, route: RouteId) {
+        let Some(id) = self.routes.get(&route).map(|entry| entry.session.clone()) else {
+            return;
+        };
+        let Some(s) = self.sessions.get_mut(&id) else {
+            return;
+        };
+        match &s.flow {
+            Flow::Stop(_) => {}
+            Flow::Start(f) if f.failure.is_some() => {}
+            Flow::Start(_) => {
+                s.lost_handoffs.insert(route);
+            }
+            _ => self.route_close(route, RouteCloseReason::HandoffFailed),
         }
     }
 
