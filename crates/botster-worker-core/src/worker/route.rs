@@ -16,7 +16,8 @@
 //!
 //! **Frame bounds (DP-3).** Every frame is checked against its codec bound (`bound_of`) before it is queued, and the
 //! snapshot's size is checked before it is allocated. A route whose limits cannot carry the attach frames is closed
-//! `BadPeer` (the host's A9-1 floor keeps this from happening).
+//! `HandoffFailed` with no frame (steward ruling R-44; the host's floor check, A19-1, keeps this from happening). So is a
+//! route with no common terminal format (the host refuses it first, OU-1).
 
 use super::{model, Action, Worker};
 use botster_core_contract::prelude::*;
@@ -128,7 +129,6 @@ fn wire_limits(limits: &AppliedRouteLimits) -> RouteLimits {
         max_frame_bytes: limits.max_frame_bytes,
         max_screen_frame_bytes: limits.max_screen_frame_bytes,
         max_history_page_bytes: limits.max_history_page_bytes,
-        max_chunk_bytes: limits.max_chunk_bytes,
         max_paste_bytes: limits.max_paste_bytes,
         max_file_bytes: limits.max_file_bytes,
         max_query_reply_bytes: limits.max_query_reply_bytes,
@@ -180,14 +180,18 @@ impl Worker {
                     entry.push_encoded(frame);
                 }
             }
+            Err(RouteCloseReason::HandoffFailed) => {
+                // R-44: a failed handoff sends no frame (OU-2b); the transport closes and the host is told once.
+                self.routes.routes.insert(route, entry);
+                self.end_route(route, RouteCloseReason::HandoffFailed);
+                return;
+            }
             Err(reason) => {
                 // No partial baseline (OU-9): `route_closed` is the only frame, when the route's bound carries it.
-                let failed = match reason {
-                    RouteCloseReason::BadPeer => AttachFailedReason::BadPeer,
-                    _ => AttachFailedReason::SnapshotTooLarge,
-                };
                 let closed = ToClient::RouteClosed(RouteClosedFrame {
-                    reason: CloseReason::AttachFailed { reason: failed },
+                    reason: CloseReason::AttachFailed {
+                        reason: AttachFailedReason::SnapshotTooLarge,
+                    },
                     exit: None,
                 })
                 .encode();
@@ -213,9 +217,10 @@ impl Worker {
         route: &Route,
         options: &AttachOptions,
     ) -> Result<Vec<Vec<u8>>, RouteCloseReason> {
-        // The host refuses an attach with no common format (OU-1); a worker that gets one cannot serve it.
+        // The host refuses an attach with no common format (OU-1); a worker that gets one cannot make a working route
+        // from the options, so the handoff failed (R-44).
         let Some(terminal_format) = negotiate(&options.terminal_formats) else {
-            return Err(RouteCloseReason::BadPeer);
+            return Err(RouteCloseReason::HandoffFailed);
         };
         // OU-2: a baseline that cannot be formed closes the route `SnapshotTooLarge`.
         let model = self
@@ -263,9 +268,10 @@ impl Worker {
             ToClient::Live,
         ];
         let mut encoded: Vec<Vec<u8>> = frames.iter().map(ToClient::encode).collect();
-        // A host keeps `max_frame_bytes` at least the attach frames (A9-1); a route below it cannot be served.
+        // A host keeps `max_frame_bytes` at least the attach frames (A19-1); a route below it cannot be served, so the
+        // handoff failed (R-44).
         if !encoded.iter().all(|frame| route.fits(frame)) {
-            return Err(RouteCloseReason::BadPeer);
+            return Err(RouteCloseReason::HandoffFailed);
         }
         let per = route.output_payload();
         encoded.extend(model.unfed().chunks(per).map(|chunk| {
@@ -412,7 +418,6 @@ mod tests {
                 max_frame_bytes,
                 max_screen_frame_bytes: 0,
                 max_history_page_bytes: 0,
-                max_chunk_bytes: 0,
                 max_paste_bytes: 0,
                 max_query_bytes: 0,
                 max_query_reply_bytes: 0,

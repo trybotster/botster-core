@@ -242,11 +242,12 @@ The resync sequence (at `Stalled → Open`, OU-9):
 - Every frame is checked against its codec bound (`bound_of`: `max_screen_frame_bytes` for `screen`,
   `max_history_page_bytes` for `history`, `max_frame_bytes` for every other frame) before it is queued. The snapshot is
   checked on the library's size query, before its buffer is reserved (`snapshot_at_most`). A route whose `max_frame_bytes`
-  cannot carry an attach frame is closed `BadPeer`: `route_closed{attach_failed{bad_peer}}` is the only frame when it fits,
-  else the transport closes with no frame (the lead's ruling on #206). The host's sync A9-1 refusal comes in the A9-1 PR.
-  A9-1's floor is the `attached` frame, but `baseline_begin` and `modes` are larger (747 bytes each against 344 for
-  `attached`, at default limits), so the steward drafts Core Amendment 19; until then `conf::a9_1_frame_cap_equal_to_the_attached_frame_attaches`
-  stays pending.
+  cannot carry an attach frame closes `HandoffFailed` with no frame (steward ruling R-44: the worker holds the stream but
+  cannot make a working route from the options; OU-2b sends no `route_closed` for it, and the host reports
+  `route_ended{handoff_failed}`). An attach with no common terminal format closes the same way; the host refuses it first
+  (OU-1). The host's sync floor refusal is Core A19-1 (accepted, staged for final38) and comes after Core pins final38.
+  A9-1's floor was the `attached` frame, but `baseline_begin` and `modes` are larger (747 bytes each against 344 for
+  `attached`, at default limits). A19 withdraws `conf::a9_1_frame_cap_equal_to_the_attached_frame_attaches`.
 - The queue bound (9B, OU-9, OU-3d). Each queued frame is charged its stream-delimited size. The baseline goes whole into
   the route's empty queue at the bind: OU-9 relies on `route_queue_bytes >= max_snapshot_bytes`, so a snapshot within the
   limit is offered even when the other baseline frames and the held suffix take the queue over `route_queue_bytes`. The

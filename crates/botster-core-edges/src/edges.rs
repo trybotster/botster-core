@@ -155,7 +155,7 @@ pub trait Link {
     fn close(&mut self);
 }
 
-/// A connected stream of a route, on the worker side. The datagram form of a WebRTC route is added by P4c.
+/// A connected stream of a route, on the worker side. `Stream` is the only route transport (Core A17-1).
 ///
 /// A call that cannot proceed returns `io::ErrorKind::WouldBlock`. `read` returns `Ok(0)` when the peer closed.
 ///
