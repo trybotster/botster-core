@@ -552,8 +552,46 @@ fn runs(identity: ProcessIdentity) -> io::Result<bool> {
 #[cfg(test)]
 mod slow_controls {
     use super::*;
-    use botster_test_process::Deadline;
+    use botster_test_process::{Blocker, Deadline, OwnedChild};
+    use std::process::Command;
     use std::time::Instant;
+
+    /// `payload_alive` (Core EV-5(c)): a live leader of its own group runs; a leader that exited and is not yet reaped (a
+    /// zombie, whose pid and start time still read) does not.
+    #[test]
+    fn a_process_that_exited_and_is_not_reaped_does_not_run() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut hold = Blocker::new(tmp.path(), "hold").unwrap();
+        let live = OwnedChild::spawn_group(&mut hold.command()).unwrap();
+        let identity = |pid| ProcessIdentity { pid, start_time: 0 };
+        assert!(runs(identity(live.id())).unwrap());
+        let ended = OwnedChild::spawn_group(&mut Command::new("/usr/bin/true")).unwrap();
+        assert!(ended
+            .exited_within(Deadline::cleanup())
+            .expect("the exit is observed"));
+        assert!(
+            !runs(identity(ended.id())).unwrap(),
+            "a zombie does not run"
+        );
+        hold.release();
+    }
+
+    /// The real tier serves the three controls only on a tapped harness.
+    #[test]
+    fn the_tapped_harness_serves_the_process_and_storage_controls() {
+        let candidate = || Candidate {
+            worker: PathBuf::from("/nonexistent/worker"),
+            probe: PathBuf::from("/nonexistent/probe"),
+            anchor: PathBuf::from("/nonexistent/anchor"),
+        };
+        let tapped = RealCoreHarness::new(candidate()).unwrap();
+        let plain = RealCoreHarness::plain(candidate()).unwrap();
+        for op in ["corrupt_registry_row", "payload_alive", "lose_worker"] {
+            assert!(tapped.has_control(op), "{op}");
+            assert!(!plain.has_control(op), "{op}");
+        }
+        assert!(!tapped.has_control("withhold_control_link"));
+    }
 
     fn sid(name: &str) -> SessionId {
         SessionId(name.into())
