@@ -104,11 +104,12 @@ struct Route {
     allowance: Option<usize>,
 }
 
-/// A complete client frame that the route received (IN-4), as it is applied (DP-5).
+/// A complete client frame that the route received (IN-4), with what its receipt decided (DP-5): the decision is made when
+/// the frame is received, never when it is applied, so a frame received before `live` stays `NotReady` (PR3 F107).
 #[derive(Debug)]
 enum Received {
-    /// Client input to apply.
-    Frame(ToWorker),
+    /// Client input that goes to the admission point, with its op.
+    Input(Option<Op>, Vec<u8>),
     /// Client input that is refused with this op and reason.
     Refused(Option<Op>, RefusalReason),
     /// A frame that cannot be decoded: the route closes with this reason (OU-5), after the frames before it.
@@ -124,6 +125,39 @@ impl Route {
         let bytes = stream_wrap(frame);
         self.queued += bytes.len();
         self.queue.push_back(bytes);
+    }
+
+    /// What the receipt of one complete client input frame decides (DP-5), from the route's state at the receipt.
+    fn decide(&self, frame: ToWorker) -> Received {
+        let (op, bytes) = match frame {
+            ToWorker::Bytes { op, bytes } => (op, bytes.0.to_vec()),
+            ToWorker::Text { op, text } => (op, text.into_bytes()),
+            // Keys, mouse, pastes and files are later P4a work (DP-5): they are refused with their op (TS-5b), and the
+            // route stays open. A chunk always has a nonzero op: the codec rejects a chunk with op 0 as malformed.
+            other => {
+                let (op, what) = match other {
+                    ToWorker::PasteChunk { op, .. } => (Some(op), "paste_chunk"),
+                    ToWorker::FileChunk { op, .. } => (Some(op), "file_chunk"),
+                    ToWorker::Input(input) => (input.op(), "input"),
+                    _ => (None, "input"),
+                };
+                return Received::Refused(
+                    op,
+                    RefusalReason::Unsupported {
+                        what: what.to_string(),
+                    },
+                );
+            }
+        };
+        let op = (op.0 != 0).then_some(op);
+        if !self.input {
+            Received::Refused(op, RefusalReason::NotWritable)
+        } else if self.baseline > 0 {
+            // DP-5: no input before `live` is written.
+            Received::Refused(op, RefusalReason::NotReady)
+        } else {
+            Received::Input(op, bytes)
+        }
     }
 
     /// True when the encoded frame is within its bound on this route (DP-3, `bound_of`).
@@ -574,7 +608,7 @@ impl Worker {
                 Err(error) => Err(error),
             };
             let received = match decoded {
-                Ok(Decoded::Frame(frame)) => Received::Frame(frame),
+                Ok(Decoded::Frame(frame)) => route.decide(frame),
                 Ok(Decoded::Ignored { .. }) => continue,
                 // A complete input frame that cannot be applied is still client input: it is received, then refused (IN-4).
                 Ok(Decoded::Unsupported { op, what }) => {
@@ -609,7 +643,7 @@ impl Worker {
                 return;
             };
             match received {
-                Received::Frame(frame) => self.on_client_frame(id, frame),
+                Received::Input(op, bytes) => self.enqueue_route_input(id, op, bytes),
                 Received::Refused(op, reason) => self.refuse(id, op, reason, None),
                 Received::Bad(reason) => {
                     self.close_healthy(id, reason);
@@ -670,47 +704,6 @@ impl Worker {
                 input_rev,
             },
         });
-    }
-
-    /// One complete client input frame, received (IN-4) and now applied (DP-5).
-    fn on_client_frame(&mut self, id: RouteId, frame: ToWorker) {
-        let (op, bytes) = match frame {
-            ToWorker::Bytes { op, bytes } => (op, bytes.0.to_vec()),
-            ToWorker::Text { op, text } => (op, text.into_bytes()),
-            // Keys, mouse, pastes and files are later P4a work (DP-5): they are refused with their op (TS-5b), and the
-            // route stays open. A chunk always has a nonzero op: the codec rejects a chunk with op 0 as malformed.
-            other => {
-                let (op, what) = match other {
-                    ToWorker::PasteChunk { op, .. } => (Some(op), "paste_chunk"),
-                    ToWorker::FileChunk { op, .. } => (Some(op), "file_chunk"),
-                    ToWorker::Input(input) => (input.op(), "input"),
-                    _ => (None, "input"),
-                };
-                self.refuse(
-                    id,
-                    op,
-                    RefusalReason::Unsupported {
-                        what: what.to_string(),
-                    },
-                    None,
-                );
-                return;
-            }
-        };
-        let op = (op.0 != 0).then_some(op);
-        let route = self
-            .routes
-            .routes
-            .get(&id)
-            .expect("the caller holds the route");
-        if !route.input {
-            self.refuse(id, op, RefusalReason::NotWritable, None);
-        } else if route.baseline > 0 {
-            // DP-5: no input before `live` is written.
-            self.refuse(id, op, RefusalReason::NotReady, None);
-        } else {
-            self.enqueue_route_input(id, op, bytes);
-        }
     }
 
     /// An `input_refused` for a frame that is not applied as sent (DP-5), queued in order with the route's frames, with the
@@ -793,14 +786,6 @@ impl Worker {
     /// the admission point (DP-5).
     fn reserved(&self, id: RouteId) -> usize {
         self.input.route_inputs(id) * refusal_bound()
-    }
-
-    /// The queued bytes of a route that count against `route_queue_bytes` (behind the baseline sequence, R-45), and the
-    /// complete frames that it received and has not applied yet.
-    #[cfg(test)]
-    pub(super) fn route_pressure(&self, id: RouteId) -> (usize, usize) {
-        let route = &self.routes.routes[&id];
-        (route.queued - route.baseline, route.received.len())
     }
 
     /// The unbound descriptors of a link that ended or was replaced are closed (DP-8).
