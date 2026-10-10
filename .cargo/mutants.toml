@@ -56,6 +56,15 @@ exclude_re = [
     # the_repository_list_has_no_problem) and outcome (a_list_with_a_problem_fails_the_step_and_one_without_passes); the last
     # proof of verdict checks the real list against the walked tree.
     'xtask/src/high_tier\.rs:\d+:\d+: replace command -> Result<\(\)> with Ok\(\(\)\)$',
+    # xtask lists.rs command -> Ok(()): process glue. The body reads the lists, the pinned ledger, the status copies, both
+    # Cargo.lock files and the base ref's files, runs `changed_transcripts`, and prints the verdict; a test cannot run it on
+    # the workspace. Only this whole-body replacement is excluded. A body replaced by Ok(()) prints no "lists: ok" line,
+    # which every gate log of the step shows. The plan 23u exception is part of check. Its decisions are tested: check
+    # (a_moved_pin_may_re_pend_an_id_whose_transcript_changed, after_initialization_the_pending_file_may_shrink_but_not_grow),
+    # contracts_commit
+    # (the_contracts_commit_is_the_source_commit_of_botster_core_contract) and changed_transcripts
+    # (the_changed_transcripts_are_the_core_transcripts_that_differ_between_two_commits).
+    'xtask/src/lists\.rs:\d+:\d+: replace command -> Result<\(\)> with Ok\(\(\)\)$',
     # xtask ci.rs clippy_job -> Ok(()): process glue. The body starts `cargo clippy` over the workspace with every feature
     # and returns its exit; a test cannot run clippy inside the test run. Only this whole-body replacement is excluded. A
     # body replaced by Ok(()) gives no clippy output, which every gate log of the step shows. Its decision is the tested

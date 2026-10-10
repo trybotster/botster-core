@@ -11,6 +11,7 @@
 # conf::a15_1_key_text_at_the_bound_is_admitted: A15: P3 (worker).
 # conf::a15_1_key_text_bound_out_of_range_is_invalid_config: A15: P1 lifecycle (limits; owners.py), worked by P5; host proof open_refuses_a_key_text_bound_out_of_its_range; waits for a contracts transcript (pending in contracts-v0.1.25).
 # conf::a15_1_route_key_text_over_the_bound_is_too_large: A15: P4a (route).
+# conf::a2_3_lost_session_closes_routes_session_lost: re-pended by the v0.1.25 pin move (plan 23u): R-50 (contracts 9ef31d7, affab39) extends its transcript with a held start; it fails at contracts-v0.1.25 until #219 (P3, failed-start route close) lands, and #219 removes it again. A minimum id.
 conf::a11_1_frames_after_a_failed_handshake_change_nothing
 conf::a12_1_held_report_released_proceeds_normally
 conf::a12_1b_partial_cleanup_claims_no_paths
@@ -77,6 +78,7 @@ conf::a2_2_unsupported_what_values
 conf::a2_2_write_input_never_completes_with_err_except_internal
 conf::a2_2_write_to_ended_is_ok_not_written_session_ended
 conf::a2_3_every_route_close_reason_maps_to_one_wire_reason
+conf::a2_3_lost_session_closes_routes_session_lost
 conf::a2_3_unknown_reason_maps_to_transport_lost
 conf::a2_4_events_lost_kinds_set
 conf::a2_4_notification_oversize_is_truncated_with_flag
