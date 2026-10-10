@@ -83,3 +83,79 @@ The reviewer changed no product code and ran no gate, build, test, mutation job,
 The reviewer sent ordinary findings to P6 and Astra. The lead received only the count-rule QUESTION.
 
 VERDICT: NOT CLEAN
+
+## Round 2 — 2026-10-10
+
+PR: https://github.com/trybotster/botster-core/pull/220.
+Exact head: `9317693d8b1250a31a6a14e7c1125f18f3f7d0a5`.
+Base: `d174ef48a218b74beb4bac9ec555c6c39d2650a4`.
+The head merges `3ee0f1185511304777a1742f9b2ab665d7037819` with this base.
+
+### Closed findings
+
+- **RH-R1-1 closes.** The socket proof uses single non-blocking reads.
+  It verifies that the break closes exactly one descriptor and that the new socket takes that descriptor number.
+  It retains the EOF, preserved-byte, `BrokenPipe`, and absent-peer-byte assertions.
+  The allocation loop retains each spare pair and must stop or fail before it passes the closed descriptor number.
+
+- **RH-R1-2 closes.** `pending_real` calls `bounded_report` and `run_bounded` with the existing slow deadline.
+  The run owns its group and uses the existing process tracker and cleanup function.
+  Cleanup runs before the caller reads the captured report.
+  The report read also has a deadline. `run_failures` rejects survivors, a run timeout, and output that stays open.
+  The new slow tests exercise a successful run, a failed exit, a timeout, and a surviving process.
+  The fixture processes block on the shared FIFO fixture. They use no sleep loop.
+
+- **RH-R1-3 closes.** The checked-in real-only file exactly matches the pinned map's 26 Core `slow:*` entries.
+  Both list commands check it against the pin.
+  The report counts each non-pending real-only minimum id on both tiers and prints its proof source, as plan 23s requires.
+  The four such minimum ids remain pending. The current counts remain unchanged.
+
+The corrected drain descriptions match plan 23l.
+The wrapper now selects the binary by `Role`, with separate role directories.
+The new proof checks that a worker named like the probe still gets a wrapper for the worker binary.
+The reviewer found no new package defect in those fixes.
+
+### Open package finding
+
+- **RH-R2-1 HIGH — The new ledger command exclusion still covers a gate decision.**
+  `.cargo/mutants.toml` excludes the whole body of `xtask/src/lists.rs::ledger_ids_command`.
+  Its reason cites `ledger_text` and `real_only_text` with formatting proofs.
+  The excluded body still compares a checked-in copy with the pinned text and selects pass or failure.
+  The inline decision is `read_to_string(...).ok().as_deref() != Some(text.as_str())`.
+  The cited proofs do not test that comparison verdict.
+  Reuse the tested `copy_problems` decision, or extract a tested pure comparison decision.
+  Cite that decision and its behavior proof in the exclusion reason. Keep its mutants eligible.
+  The reviewer sent this finding directly to P6 and Astra.
+  P6 reports a fix at `8e732787`, with its gate still running. This round does not judge that later head.
+
+### Evidence and scope
+
+The reviewer read the exact-head gate log:
+`~/botster-sessions/gates/botster-core-stage1-p6-real-core-9317693d-pool-20261010-083223-20264.log`.
+All ten jobs pass, exit 0. Default: 1464 passing tests. Slow: 377 passing tests.
+The three new bounded-run tests pass in the slow tier.
+Conformance: 193 passing. The 87 pending-real trials run and report zero newly passing ids.
+Minimum: testkit 50/69, real 29/68, real-accepted 29/69.
+Both mutation commands report 125 mutants: 95 caught, zero missed, zero timeout, and 30 unviable.
+The repeated mutation command does not add slow-feature coverage.
+
+The replacement manual evidence closes the earlier evidence concern.
+Log: `~/botster-sessions/gates/botster-core-stage1-p6-real-core-3ee0f118-pool-20261010-040958-20767.log`.
+The job first runs the intended baseline with both packages, slow features, the slow profile, and the slow filter.
+All 175 baseline tests pass.
+The retained outcomes show 18 mutants: 16 caught and two unviable, with zero misses or timeouts.
+Each caught mutant builds successfully and ends with Test Failure(100).
+The log contains the named test failure for each catch, including the nine earlier survivors and the wrapper functions.
+The reviewer also read all 23 older caught logs and all 21 older unviable logs.
+Those logs show test failures or compiler errors, respectively.
+`real.rs` is identical before and after the merge into this reviewed head.
+The interim exclusion still follows the lead's plan 23n rule. This evidence does not replace the required two-stage gate.
+
+The canonical minimum, pending list, slow runner, and edge-tap unit proofs remain unchanged from round 1.
+The merge adds the base's route-fill work. The harness merge retains this PR's shared limits parser and the base's route-fill changes.
+The shared runner retains the active transcript assertions and facade type assertions.
+
+The reviewer changed no product code and ran no gate, build, test, mutation job, or reversal.
+No ordinary NOT CLEAN report went to the lead.
+
+VERDICT: NOT CLEAN
