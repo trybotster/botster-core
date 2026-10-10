@@ -103,3 +103,107 @@ The reviewer read that committed artifact; its sole HIGH finding agrees with RC-
 The reviewer awaits replacement READY and sends no NOT CLEAN report to the lead.
 
 VERDICT: NOT CLEAN
+
+
+## Round 2 — 2026-10-10
+
+Head: `a6aa195660d9021995a0487db403c57534415103`.
+Tree: `8e74ec9088c6fc8f4bfef4d5fe6f6678752db0e9`.
+Parents: `8b6c652943502032143bd0a8ea32fd243969956d` and `7caf3457a04bd37f5d4e844db1900525eea7c8ec`.
+PR and gate base: `7caf3457a04bd37f5d4e844db1900525eea7c8ec`. The head contains this base.
+READY: `msg_plugin-w_1791655430_fc7222` from P5.
+Tier: HIGH, shared testkit changes. The correction also changes the shared test-process crate.
+
+Authority: approved plan 23x, `~/botster-sessions/pins/stage1-plan.c0b6f32e.md`.
+Verified SHA256: `ba89898ba66c2a4144a1978d0d89e791469b0b1645da167bf5e37178ae07f63f`.
+The current lead handoff explicitly requires #222 to wait for its focused Mac mutation run.
+Sol now holds the integration seat. Astra remains available only for handover.
+
+### RC-A-F1 — HIGH — CLOSED
+
+The tap now records only payload identities from reports that it reads.
+The `Launch::Pending` state is removed. An unread report no longer establishes payload absence.
+A known payload retains the identity check and the check for a live process that is not a zombie.
+The shared `lives` helper combines these checks for both payloads and workers.
+
+For an unknown payload, the harness lists the recorded worker's live children.
+The worker has at most one child, its payload.
+After the listing, the harness requires the recorded worker's identity to match and the worker to run.
+If that check fails, the harness returns `Bad`, because an ended worker's payload can outlive the worker.
+If the check passes, the harness reports whether the worker has a live child.
+The identity check after the listing is sufficient.
+A matching, live worker afterward establishes that the recorded process existed throughout the listing.
+The missing check before the listing therefore does not leave RC-A-F1 open.
+
+The real proof independently records the payload identity on handle `a`, drops that handle, and opens handle `b`.
+The proof verifies that the stored row names no payload and that `b` read no `Launched` report.
+The control returns true while the independently identified payload runs.
+The proof kills that payload by identity, waits for its exit within the existing cleanup bound, and verifies false.
+The proof then kills the worker, waits for its exit, and verifies `Bad`.
+The exact-head Linux gate selects this proof and passes it in 1.095 seconds.
+
+Linux `live_children` reuses the process scan with a parent filter.
+The parser reads state, parent, and group after the complete command field.
+The platform proof covers a live child, a child with no children, an unreaped zombie, and a reaped child.
+The default proof also verifies that the test process is a live child of its parent.
+The Mac adapter uses libproc's parent filter and clears stale `errno` before the listing.
+The reviewer checked the local libproc 0.14.11 implementation and its parent-filter API.
+Native evidence for this adapter remains required below.
+
+### RC-A-F2 — HIGH — OPEN — Mac mutation evidence is missing
+
+Plan section 8 requires a focused Mac mutation log for changed macOS-only code.
+This PR changes `platform/macos.rs`, including `live_children` and the shared `live_of` helper.
+The supplied Linux manual run reports ten misses in that file.
+Linux does not compile the file, so those outcomes cannot prove its behavior.
+No completed native Mac mutation log is supplied.
+
+The retained attempt on `c99903c4` did not run on a node.
+Log: `~/botster-sessions/gates/botster-core-stage1-p5-real-controls-a-c99903c4-pool-20261010-095820-95517.log`.
+The queue reports a Mac disk restriction, reaches its 2700-second deadline, and exits 124 after 2701 seconds.
+The source file is unchanged since that attempt, but an unrun job supplies no mutation result.
+The current lead handoff confirms that #222 must wait for the focused run.
+The pool lead handles the disk restriction and the pending user decision.
+
+Required evidence: the focused native Mac mutation run, its baseline, outcomes, and retained per-mutant details.
+The PR must name the log. The reviewers must verify its source scope against this head.
+The green Linux gate does not replace this evidence.
+No further source correction is requested by this finding.
+
+### Delta and supplied Linux evidence
+
+The reviewer read the correction, new platform code and proofs, exact body, and the new gate evidence.
+The current base removes the previously reviewed imports from #219, #224, and #223 from this PR's own delta.
+The own delta has 13 files. The list changes equal Round 1 exactly.
+Real pending loses six IDs, gains none, and ends at 81 IDs.
+Both minimum removals remain `a10_2_corrupted_row_is_lost_registry_corrupt` and `ad_1_running_adopts_running`.
+Core pending, ledger, deferred, status copies, minimum, and real-only bytes equal the base.
+The Round 1 checks outside the correction remain applicable. No new source finding remains open.
+`git diff --check` reports no whitespace error.
+
+Full gate: `~/botster-sessions/gates/botster-core-stage1-p5-real-controls-a-a6aa1956-pool-20261010-104732-94598.log`.
+All ten stages report PASS. The head and base match the READY.
+Default: 1488 passed, 497 skipped. Slow: 392 passed, 1933 skipped.
+Testkit conformance: 193 passes. Real conformance: 112 passes.
+Real pending reports 81 IDs and zero newly passing.
+Minimum: testkit 50 / 69, real-passing 31 / 68, real-accepted 31 / 69.
+Both default mutation steps report 60 tested, 52 caught, eight unviable, zero missed or timeout.
+The job and gate exit zero after 580 seconds on msa1.
+The repeated default mutation step does not establish coverage of the slow feature.
+
+Manual slow-feature evidence: `~/botster-sessions/gates/botster-core-stage1-p5-real-controls-a-a6aa1956-pool-20261010-105721-24883.log`.
+The run uses the exact-base diff, no configuration exclusions, in-place edits, the slow feature, and the slow profile.
+Each test command uses `--max-fail 1:immediate`.
+The baseline selects both testkit and test-process packages. All 415 baseline tests pass.
+The reviewer parsed all 93 records and checked the retained details.
+The 92 mutants produce 73 named test failures, nine compile failures, ten Mac-only misses, and zero timeouts.
+All 73 catches have failure details. All nine unviable mutants fail before their test phase.
+Every mutant of `payload_alive` and `lives` is caught.
+The ten misses cover `live_members`, `live_children`, and `live_of` in the uncompiled Mac file.
+The manual job and gate exit 2 after 340 seconds on msa1.
+The Linux results close RC-A-F1 but leave RC-A-F2 open.
+
+The reviewer changed no product code and ran no builds, tests, mutation jobs, or gates.
+The package review must wait for the missing native evidence before CLEAN.
+
+VERDICT: NOT CLEAN
