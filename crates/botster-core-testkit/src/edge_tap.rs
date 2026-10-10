@@ -18,6 +18,9 @@
 //! - The record of the processes: every registry row that passes through `write_row` or `read_rows` is decoded with Core's
 //!   own decoder (`Row::decode`), so the harness knows each session's instance, worker and payload identity; the hello of
 //!   each link names its instance.
+//! - The harness's own calls of the inner edges, which the tap records as no call of Core: a stored row and its write
+//!   ([`Tap::stored_row`], [`Tap::store_row`]; `corrupt_registry_row`), the identity check ([`Tap::identity_state`];
+//!   `payload_alive`) and the identity-checked kill of a recorded process group ([`Tap::kill_group`]; `lose_worker`).
 
 use botster_core_contract::prelude::*;
 use botster_core_edges::edges::{
@@ -191,6 +194,44 @@ impl<E: HostEdges> Tap<E> {
             tap.end = None;
         }
         self.inner.link_close(link);
+    }
+
+    /// The bytes of the row `key` as the inner storage edge holds them: the bytes that Core's own encoder wrote. `None` when
+    /// no row has exactly that key, or the storage cannot be read.
+    pub fn stored_row(&mut self, key: &str) -> Option<Vec<u8>> {
+        self.inner
+            .read_rows(key)
+            .ok()?
+            .into_iter()
+            .find_map(|(k, bytes)| (k == key).then_some(bytes))
+    }
+
+    /// Writes the row `key` through the inner storage edge (Core A10-2: the storage edge damages the stored bytes). The write
+    /// is the harness's, not Core's, so it passes by the record of the session's processes: the record keeps what Core
+    /// wrote.
+    ///
+    /// # Errors
+    /// The inner storage edge's error.
+    pub fn store_row(&mut self, key: &str, bytes: &[u8]) -> Result<(), StorageError> {
+        self.inner.write_row(key, bytes)
+    }
+
+    /// The inner edge's identity check of `identity` (Core AD-6): its pid and its start time.
+    pub fn identity_state(&self, identity: ProcessIdentity) -> IdentityState {
+        self.inner.identity_state(identity)
+    }
+
+    /// Ends the process group of `identity` from outside Core, as a kill does (Core AD-2, IN-7): the inner edge's own
+    /// identity-checked `signal_group` sends `KILL`, and only when the pid and the start time still match, so a process that
+    /// reuses the pid is never signalled (Core AD-6). Then the wake edge signals, so that the host pumps and meets the end.
+    /// The call is the harness's, not Core's: it goes to the inner edge, and the tap records it as no call of Core.
+    pub fn kill_group(&mut self, identity: ProcessIdentity) -> IdentityState {
+        let state = self.inner.identity_state(identity);
+        if state == IdentityState::Matches {
+            self.inner.signal_group(identity, GroupSignal::Kill);
+            self.inner.wake().signal();
+        }
+        state
     }
 }
 

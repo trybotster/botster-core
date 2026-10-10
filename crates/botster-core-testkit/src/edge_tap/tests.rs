@@ -73,6 +73,8 @@ struct Fake {
     settles: usize,
     wake: Arc<FakeWake>,
     picks: Picks,
+    /// The identity check's answer for each pid; `Absent` for every other pid.
+    states: BTreeMap<u32, IdentityState>,
 }
 
 impl HostEdges for Fake {
@@ -111,8 +113,11 @@ impl HostEdges for Fake {
             .push(format!("signal {} {signal:?}", identity.pid));
     }
 
-    fn identity_state(&self, _identity: ProcessIdentity) -> IdentityState {
-        IdentityState::Absent
+    fn identity_state(&self, identity: ProcessIdentity) -> IdentityState {
+        self.states
+            .get(&identity.pid)
+            .copied()
+            .unwrap_or(IdentityState::Absent)
     }
 
     fn poll_process_exit(&mut self) -> Option<(ProcessIdentity, ExitStatus)> {
@@ -603,4 +608,60 @@ fn the_tap_ends_with_the_driver() {
     assert!(tap.upgrade().is_some());
     drop(edges);
     assert!(tap.upgrade().is_none());
+}
+
+/// `corrupt_registry_row` (Core A10-2): the harness reads the bytes of exactly the session's row from the inner storage edge,
+/// and its write reaches the inner storage but not the record of the session's processes.
+#[test]
+fn the_harness_reads_and_writes_exactly_one_stored_row_past_the_record() {
+    let mut fake = Fake::default();
+    fake.rows
+        .insert("session/s1".into(), row_bytes("s1", "1-1"));
+    fake.rows
+        .insert("session/s10".into(), row_bytes("s10", "1-2"));
+    let rig = rig(fake);
+    rig.with(|t| {
+        assert_eq!(t.stored_row("session/s1"), Some(row_bytes("s1", "1-1")));
+        assert_eq!(t.stored_row("session/s10"), Some(row_bytes("s10", "1-2")));
+        assert_eq!(t.stored_row("session/s"), None, "a prefix is no key");
+        assert_eq!(t.stored_row("session/s2"), None);
+        assert_eq!(t.store_row("session/s1", b"{"), Ok(()));
+        assert_eq!(t.inner.rows["session/s1"], b"{");
+        assert_eq!(t.stored_row("session/s1"), Some(b"{".to_vec()));
+    });
+    assert!(
+        lock(&rig.rows).is_empty(),
+        "the harness's write is no row of Core"
+    );
+    rig.with(|t| t.inner.fail_writes = true);
+    assert_eq!(
+        rig.with(|t| t.store_row("session/s1", b"x")),
+        Err(StorageError::Failed { errno: 5 })
+    );
+}
+
+/// `lose_worker` (Core AD-2, AD-6): only a recorded identity whose pid and start time still match gets the `KILL` of its
+/// group, followed by a wake; a pid that another process reuses, or an ended process, gets no signal and no wake. The
+/// identity check is the inner edge's own.
+#[test]
+fn only_a_matching_identity_is_killed_and_the_host_is_woken() {
+    let mut fake = Fake::default();
+    fake.states.insert(41, IdentityState::Matches);
+    fake.states.insert(42, IdentityState::Reused);
+    let rig = rig(fake);
+    rig.with(|t| {
+        assert_eq!(t.identity_state(identity(41)), IdentityState::Matches);
+        assert_eq!(t.identity_state(identity(42)), IdentityState::Reused);
+        assert_eq!(t.identity_state(identity(43)), IdentityState::Absent);
+        assert_eq!(t.kill_group(identity(42)), IdentityState::Reused);
+        assert_eq!(t.kill_group(identity(43)), IdentityState::Absent);
+        assert!(t.inner.calls.is_empty(), "{:?}", t.inner.calls);
+    });
+    assert_eq!(rig.signals(), 0);
+    assert_eq!(
+        rig.with(|t| t.kill_group(identity(41))),
+        IdentityState::Matches
+    );
+    rig.with(|t| assert_eq!(t.inner.calls, ["signal 41 Kill"]));
+    assert_eq!(rig.signals(), 1);
 }

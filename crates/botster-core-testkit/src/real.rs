@@ -20,20 +20,36 @@
 //!   Core's end of the stream is dropped (not `shutdown`), so the worker reads EOF, and every later call of Core on that
 //!   `LinkId` reaches `RealEdges`' closed-link state: `Ok(0)` on `link_recv`, `BrokenPipe` on `link_send`.
 //!
+//! - `corrupt_registry_row` (`{session}`, Core A10-2, AD-2): the storage edge damages the stored bytes of the session's row,
+//!   which Core's own encoder wrote ([`Tap::stored_row`], [`Tap::store_row`]), in the testkit's way
+//!   ([`crate::controls::damaged`]). Core's real decoder rejects them.
+//! - `payload_alive` (`{session}` → `{alive}`, Core EV-5(c), AD-7): the recorded payload's identity still matches (the inner
+//!   edge's AD-6 check, [`Tap::identity_state`]) and the process is live, not a zombie that its worker has yet to reap
+//!   ([`botster_test_process::platform::live_members`] of its own group: the payload leads its group, `setsid`). It
+//!   sends no signal.
+//! - `lose_worker` (`{session, reason?}`, Core AD-2, IN-7): the recorded worker's process group gets `KILL` through the
+//!   inner edge's identity-checked `signal_group` ([`Tap::kill_group`]): only while the recorded pid and start time match,
+//!   so a reused pid is never signalled (AD-6). The worker's group is the worker's own (Core spawns it as a group leader),
+//!   and the payload leads its own group (`setsid`), so the kill never targets the payload's group; the payload ends with
+//!   its terminal. Only `worker_gone` (the default) is built; `worker_unreachable` gives `unsupported_control`, as on the
+//!   testkit.
+//!
 //! Every other control gives `unsupported_control`, which is never a pass.
 
 use crate::candidate::{Candidate, PROBE, WORKER};
-use crate::controls::parse;
+use crate::controls::{damaged, parse};
 use crate::edge_tap::{EdgeTap, Rows, Tap};
 use crate::harness::{limits_of, no_route};
+use crate::process_controls::LoseReason;
 use botster_core::RealEdges;
 use botster_core_conformance::{
     ControlError, CoreHarness, DataDirRef, OpenSpec, RouteClient, WorkerBuild, WorkerRef,
 };
 use botster_core_contract::prelude::*;
-use botster_core_edges::edges::ProcessIdentity;
+use botster_core_edges::edges::{IdentityState, ProcessIdentity};
 use botster_core_host::driver::HostDriver;
-use botster_test_process::Guard;
+use botster_core_host::session::{row_key, Row};
+use botster_test_process::{platform, Guard};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
@@ -80,6 +96,19 @@ struct BreakControl {
     session: SessionId,
     #[serde(default = "on")]
     on: bool,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct OfSession {
+    session: SessionId,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct LoseWorker {
+    session: SessionId,
+    reason: Option<LoseReason>,
 }
 
 /// The real-tier harness. A real implementation ignores the seed (plan 4.2c).
@@ -275,6 +304,86 @@ impl RealCoreHarness {
         Ok(Value::Null)
     }
 
+    /// The recorded processes of `session` on the host of `handle`, with that host's tap.
+    fn recorded(
+        &self,
+        handle: &str,
+        session: &SessionId,
+    ) -> Result<(Arc<Mutex<Tap<RealEdges>>>, SessionProcesses), ControlError> {
+        let tap = self.tap(handle)?;
+        let dir = self
+            .data_dir_of(handle)
+            .ok_or_else(|| ControlError::Bad(format!("the handle '{handle}' is not open")))?;
+        let processes = self
+            .session_processes(&dir, session)
+            .ok_or_else(|| ControlError::Bad(format!("no row of the session {}", session.0)))?;
+        Ok((tap, processes))
+    }
+
+    /// Core A10-2, AD-2: the session's stored row becomes bytes that Core's decoder rejects.
+    fn corrupt_registry_row(&self, handle: &str, args: &Value) -> Result<Value, ControlError> {
+        let OfSession { session } = parse(args)?;
+        let tap = self.tap(handle)?;
+        let mut tap = lock(&tap);
+        let key = row_key(&session);
+        let bytes = tap
+            .stored_row(&key)
+            .ok_or_else(|| ControlError::Bad(format!("no row of the session {}", session.0)))?;
+        let bytes = damaged(&bytes);
+        if Row::decode(&session, &bytes).is_some() {
+            return Err(ControlError::Bad(format!(
+                "the damaged row of the session {} still decodes",
+                session.0
+            )));
+        }
+        tap.store_row(&key, &bytes).map_err(|error| {
+            ControlError::Bad(format!(
+                "the damaged row of the session {} is not stored: {error:?}",
+                session.0
+            ))
+        })?;
+        Ok(Value::Null)
+    }
+
+    /// Core EV-5(c), AD-7: `{alive}`, whether the session's payload runs now. A session whose row names no payload has none.
+    fn payload_alive(&self, handle: &str, args: &Value) -> Result<Value, ControlError> {
+        let OfSession { session } = parse(args)?;
+        let (tap, processes) = self.recorded(handle, &session)?;
+        let alive = match processes.payload {
+            Some(payload) => {
+                lock(&tap).identity_state(payload) == IdentityState::Matches
+                    && runs(payload).map_err(|error| {
+                        ControlError::Bad(format!(
+                            "the payload of the session {} cannot be read: {error}",
+                            session.0
+                        ))
+                    })?
+            }
+            None => false,
+        };
+        Ok(json!({ "alive": alive }))
+    }
+
+    /// Core AD-2, IN-7: the session's worker ends from outside Core, as a kill does. A recorded worker that no longer
+    /// matches its identity (it ended, or its pid was reused) gets no signal, and the control is `Bad`.
+    fn lose_worker(&self, handle: &str, args: &Value) -> Result<Value, ControlError> {
+        let LoseWorker { session, reason } = parse(args)?;
+        if let Some(LoseReason::WorkerUnreachable) = reason {
+            return Err(ControlError::Unsupported);
+        }
+        let (tap, processes) = self.recorded(handle, &session)?;
+        let worker = processes.worker.ok_or_else(|| {
+            ControlError::Bad(format!("the session {} has no worker process", session.0))
+        })?;
+        match lock(&tap).kill_group(worker) {
+            IdentityState::Matches => Ok(Value::Null),
+            state => Err(ControlError::Bad(format!(
+                "the recorded worker of the session {} is not signalled: {state:?}",
+                session.0
+            ))),
+        }
+    }
+
     fn harness_failed(error: io::Error) -> CoreError {
         CoreError::new(
             ErrorCode::Internal,
@@ -360,7 +469,15 @@ impl CoreHarness for RealCoreHarness {
     }
 
     fn has_control(&self, op: &str) -> bool {
-        self.tapped && matches!(op, "edges_quiet" | "break_control")
+        self.tapped
+            && matches!(
+                op,
+                "edges_quiet"
+                    | "break_control"
+                    | "corrupt_registry_row"
+                    | "payload_alive"
+                    | "lose_worker"
+            )
     }
 
     /// Core TH-1: the runner's compile-time answer for the facade's `Core` (`with_core_type`); `None` without one.
@@ -372,6 +489,9 @@ impl CoreHarness for RealCoreHarness {
         match op {
             "edges_quiet" if self.tapped => self.edges_quiet(handle, args),
             "break_control" if self.tapped => self.break_control(handle, args),
+            "corrupt_registry_row" if self.tapped => self.corrupt_registry_row(handle, args),
+            "payload_alive" if self.tapped => self.payload_alive(handle, args),
+            "lose_worker" if self.tapped => self.lose_worker(handle, args),
             _ => Err(ControlError::Unsupported),
         }
     }
@@ -400,6 +520,170 @@ impl CoreHarness for RealCoreHarness {
         _options: AttachOptions,
     ) -> Result<(AttachResult, Box<dyn RouteClient>), CoreError> {
         Err(no_route("attach_stream"))
+    }
+}
+
+/// Whether the process `identity` is live: a member of its own process group that is not a zombie. The payload leads its
+/// group (`setsid`), so its group id is its pid.
+fn runs(identity: ProcessIdentity) -> io::Result<bool> {
+    let pid = platform::pid(identity.pid)?;
+    Ok(platform::live_members(pid)?.iter().any(|m| m.pid == pid))
+}
+
+/// The process and storage controls on real sessions of the prebuilt candidate.
+#[cfg(test)]
+mod slow_controls {
+    use super::*;
+    use botster_test_process::Deadline;
+    use std::time::Instant;
+
+    fn sid(name: &str) -> SessionId {
+        SessionId(name.into())
+    }
+
+    /// Pumps `core` until `done` holds, by the cleanup deadline. The host pumps after a wake (TM-6).
+    fn pump_until(core: &mut dyn CoreApi, mut done: impl FnMut(&mut dyn CoreApi) -> bool) {
+        let deadline = Deadline::cleanup();
+        let wake = core.wake_handle();
+        loop {
+            loop {
+                let report = core.pump(Now {
+                    monotonic: Instant::now(),
+                    unix: 1_000_000,
+                });
+                core.poll_events(64);
+                if !report.more {
+                    break;
+                }
+            }
+            if done(core) {
+                return;
+            }
+            assert!(!deadline.expired(), "the host never got there");
+            // timer: deadline — the cleanup bound ends a host that never gets there.
+            wake.wait(deadline.remaining());
+        }
+    }
+
+    fn state(core: &dyn CoreApi, session: &str) -> SessionState {
+        core.get(&sid(session)).expect("the session").state
+    }
+
+    /// Creates and starts `session` with a payload that runs until a signal ends it (the probe's `hold`).
+    fn running(harness: &RealCoreHarness, core: &mut dyn CoreApi, session: &str) {
+        let hold = json!({ "program": [{ "hold": {} }] }).to_string();
+        let request = SpawnRequest {
+            argv: vec![harness.probe_binary(), hold],
+            env: BTreeMap::new(),
+            cwd: "/".into(),
+            size: Size {
+                rows: 24,
+                cols: 80,
+                cell_px: None,
+            },
+            labels: BTreeMap::new(),
+            color_profile: None,
+            notification_policy: None,
+            size_policy: None,
+        };
+        core.begin(Op::Create {
+            session: sid(session),
+            request,
+        })
+        .expect("create");
+        pump_until(core, |c| c.get(&sid(session)).is_ok());
+        core.begin(Op::Start { id: sid(session) }).expect("start");
+        pump_until(core, |c| state(c, session) == SessionState::Running);
+    }
+
+    /// Core AD-6, AD-2, A10-2, EV-5(c), on real sessions:
+    /// - `lose_worker` signals only a recorded worker whose pid and start time match: an identity with another start time
+    ///   (a reused pid) is refused, and the worker keeps running. The worker's group holds no payload, so the kill never
+    ///   targets the payload's group. After the kill the worker is gone, and a second `lose_worker` signals nothing.
+    /// - `payload_alive` is true for a running payload and false after `Stop` ended it.
+    /// - `corrupt_registry_row` stores the damaged bytes of Core's own row, which Core's decoder rejects, and the record of
+    ///   the session's processes keeps what Core wrote.
+    #[test]
+    fn the_process_and_storage_controls_act_only_on_the_recorded_processes() {
+        let dir = Candidate::beside_test_binary().expect("the candidate directory");
+        let candidate = Candidate::locate(&dir).unwrap_or_else(|error| panic!("{error}"));
+        let mut harness = RealCoreHarness::new(candidate).unwrap();
+        let data_dir = harness.data_dir("a");
+        let spec = OpenSpec {
+            handle: "a".into(),
+            data_dir: data_dir.clone(),
+            worker: harness.worker(WorkerBuild::Current),
+            limits: serde_json::to_value(CoreLimits::default()).unwrap(),
+        };
+        let mut core = harness.open(&spec).expect("open");
+        running(&harness, core.as_mut(), "s1");
+        running(&harness, core.as_mut(), "s2");
+        let alive = |h: &mut RealCoreHarness, s: &str| {
+            h.control("a", "payload_alive", &json!({ "session": s }))
+        };
+        assert_eq!(alive(&mut harness, "s1"), Ok(json!({ "alive": true })));
+
+        let s1 = harness.session_processes(&data_dir, &sid("s1")).unwrap();
+        let worker = s1.worker.expect("the worker is recorded");
+        let payload = s1.payload.expect("the payload is recorded");
+        let payload_pid = platform::pid(payload.pid).unwrap();
+        let worker_group = platform::live_members(platform::pid(worker.pid).unwrap()).unwrap();
+        assert!(
+            worker_group.iter().all(|m| m.pid != payload_pid),
+            "the payload is not in the worker's group: {worker_group:?}"
+        );
+        let reused = ProcessIdentity {
+            pid: worker.pid,
+            start_time: worker.start_time + 1,
+        };
+        let tap = harness.tap("a").unwrap();
+        assert_eq!(lock(&tap).kill_group(reused), IdentityState::Reused);
+        assert_eq!(lock(&tap).identity_state(worker), IdentityState::Matches);
+        assert!(runs(worker).unwrap(), "a reused pid is never signalled");
+
+        assert_eq!(
+            harness.control("a", "lose_worker", &json!({ "session": "s1" })),
+            Ok(Value::Null)
+        );
+        pump_until(core.as_mut(), |_| {
+            lock(&tap).identity_state(worker) == IdentityState::Absent
+        });
+        assert!(matches!(
+            harness.control("a", "lose_worker", &json!({ "session": "s1" })),
+            Err(ControlError::Bad(_))
+        ));
+        assert_eq!(
+            harness.control(
+                "a",
+                "lose_worker",
+                &json!({ "session": "s2", "reason": "worker_unreachable" })
+            ),
+            Err(ControlError::Unsupported)
+        );
+        assert!(matches!(
+            harness.control("a", "lose_worker", &json!({ "session": "s9" })),
+            Err(ControlError::Bad(_))
+        ));
+
+        core.begin(Op::Stop { id: sid("s2") }).expect("stop");
+        pump_until(core.as_mut(), |c| {
+            matches!(state(c, "s2"), SessionState::Exited(_))
+        });
+        assert_eq!(alive(&mut harness, "s2"), Ok(json!({ "alive": false })));
+
+        let key = row_key(&sid("s2"));
+        let stored = lock(&tap).stored_row(&key).expect("the row of s2");
+        assert!(Row::decode(&sid("s2"), &stored).is_some());
+        assert_eq!(
+            harness.control("a", "corrupt_registry_row", &json!({ "session": "s2" })),
+            Ok(Value::Null)
+        );
+        let now = lock(&tap).stored_row(&key).expect("the damaged row");
+        assert_eq!(now, damaged(&stored));
+        assert!(Row::decode(&sid("s2"), &now).is_none());
+        assert!(harness.session_processes(&data_dir, &sid("s2")).is_some());
+        drop(tap);
+        drop(core);
     }
 }
 
