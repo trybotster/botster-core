@@ -159,3 +159,24 @@ The package reviewer confirms R1-6 and will add it to the same round.
 I changed no product code and ran no build, test, gate, mutation job, or reversal job.
 
 VERDICT: NOT CLEAN (6 open: 5 MEDIUM, 1 LOW).
+
+### Round 1 addendum — R-53 settles the effective input bound
+
+After publication, the steward issued R-53 in contracts commit
+`3a6dd2d3ee7a0e1f0e1830bccbae407ee6bb342f`, `docs/steward-rulings.md`.
+I read the exact ruling from the contracts repository.
+R-53 permits `max(route_input_queue_bytes, max_frame_bytes + 4)` so an admitted frame can complete.
+It rejects a validation restriction that would fail at the existing defaults.
+Its memory budget uses the effective allowance.
+
+This authority settles R1-6's interpretation in favor of the existing source formula.
+No input-bound redesign or amendment is required under R-53.
+R1-6 remains open for the ruling's required citation and proof in the replacement PR.
+The proof sends an exact-max-frame input at default limits and observes processing instead of a permanent stop.
+P3 also proposes a legal small-queue proof. Review that proof at the replacement head.
+
+I read the package round 150 addendum at `48fd6fdd174c39781ccf6e616b697dd6ae68d14f`.
+The package reviewer independently confirms the original small-queue path and accepts the new R-53 authority.
+This addendum changes no review round or reviewed head.
+
+VERDICT: NOT CLEAN (6 open: 5 MEDIUM, 1 LOW; R1-6 now requires the R-53 citation and proof).
