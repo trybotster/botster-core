@@ -1,6 +1,6 @@
 use super::*;
 use rustix::io::fcntl_getfd;
-use std::io::{Read, Write};
+use std::io::Write;
 use std::os::unix::net::UnixStream;
 
 /// A connected pair, and a second pair whose one end is the descriptor to pass: the test writes through the received copy and
@@ -19,12 +19,14 @@ fn sending_pair() -> (UnixStream, UnixStream) {
     (a, b)
 }
 
+/// The tag is written before the read, so a nonblocking read of the peer takes it at once: the read never waits.
 fn assert_same_stream(received: OwnedFd, peer: &mut UnixStream, tag: &[u8]) {
     let mut stream = UnixStream::from(received);
     stream.write_all(tag).unwrap();
-    let mut got = vec![0u8; tag.len()];
-    peer.read_exact(&mut got).unwrap();
-    assert_eq!(got, tag);
+    peer.set_nonblocking(true).unwrap();
+    let mut got = vec![0u8; tag.len() + 1];
+    let read = recv_with_fds(&*peer, &mut got).unwrap();
+    assert_eq!(&got[..read.len], tag);
 }
 
 #[test]

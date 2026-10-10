@@ -1012,15 +1012,16 @@ mod slow_tests {
     #[test]
     fn a_route_stream_rides_on_its_frame_and_a_gone_peer_fails_the_handoff() {
         use botster_core_sys::fd_pass::recv_with_fds;
-        use std::io::{Read, Write};
+        use std::io::Write;
         use std::os::unix::net::UnixStream as Std;
         let (mut edges, tmp) = edges();
         let peer = connect(&tmp);
+        peer.set_nonblocking(true).unwrap();
         let link = accept(&mut edges);
         #[cfg(target_os = "macos")]
         assert!(rustix::net::sockopt::socket_nosigpipe(&edges.streams[&link].stream).unwrap());
         for as_fd in [false, true] {
-            let (core, mut client) = Std::pair().unwrap();
+            let (core, client) = Std::pair().unwrap();
             let endpoint = if as_fd {
                 StreamEndpoint::new(std::os::fd::OwnedFd::from(core))
             } else {
@@ -1031,6 +1032,7 @@ mod slow_tests {
                 .ok()
                 .unwrap();
             assert_eq!(sent, 6);
+            // Each read follows its write, so a nonblocking read takes the bytes at once: no read waits.
             let mut buf = [0u8; 16];
             let received = recv_with_fds(&peer, &mut buf).unwrap();
             assert_eq!(
@@ -1039,9 +1041,10 @@ mod slow_tests {
             );
             let mut stream = Std::from(received.fds.into_iter().next().unwrap());
             stream.write_all(b"same").unwrap();
-            let mut got = [0u8; 4];
-            client.read_exact(&mut got).unwrap();
-            assert_eq!(&got, b"same");
+            client.set_nonblocking(true).unwrap();
+            let mut got = [0u8; 8];
+            let read = recv_with_fds(&client, &mut got).unwrap();
+            assert_eq!(&got[..read.len], b"same");
         }
         drop(peer);
         let (core, _client) = Std::pair().unwrap();
