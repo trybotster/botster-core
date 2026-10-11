@@ -105,3 +105,17 @@ Commits since round 1: `4fe77f9a6a733ee45b630095334925d7d3934497` (the round 1 f
   - a self-assignment: `retain` drops `$log` (its value changed) before the `let` check reads `self.input_logs`, so `let $log = hex_concat ["61", "$log"]`, then `hex_ends_with [$log, "0d"]`, is not checked;
   - a chain in one `let`: all derived aliases are computed before any is added, so in `$a = hex_concat [$log, ""]`, `$z = hex_concat [$a, ""]`, `$z` is not tracked.
 - My round 2 missed both. I re-check the delta on the next head: the `let` rule reads the input logs from before the step, and it handles the `let`'s variables in order (or to a fixed point), with regression tests for both forms.
+
+## Round 3 (delta re-check after 016c's round 2 MEDIUM): CLEAN on 013bd447a22a1d9d9b769c1af8a7e49f0488fe61
+
+Delta against `7c780843dc9646ea5b14c0a4278aa4d59dba4409`: one commit, `013bd44`. It changes `driver.rs` `input_log_track` and `driver_steps.rs`. No transcript changes.
+
+- **Order.** `input_log_track` now takes the variables of the `let` in the map's order and updates each one in turn. `let_step` iterates the same `serde_json` map (`preserve_order` is on in the workspace `Cargo.toml`), and it substitutes with the updated bindings at each assignment. So the two orders are equal.
+- **Self-assignment.** `retain` keeps a variable that this `let` assigns, even when its value changed. So `refers_to` sees the variable's old origin when it reads itself (`let $log = hex_concat ["61", "$log"]`).
+- **Same-step alias.** A later assignment sees the origin of an earlier assignment of the same `let`. A variable that is assigned later in the `let` keeps its old origin, which matches `let_step`: that variable still holds its old binding at that point.
+- **End of origin.** An assigned variable whose expression reads no log, or whose value is a number or a boolean, loses its origin (`remove`).
+- **Tests.** Case A is `$self`, and case B is `$a` then `$z` in one `let`; both are defects. A self-assignment that reads no log is not a defect. Each case is red against the round 2 code: the old `retain` dropped `$self` before the check, and the old code read a snapshot of the origins, so `$z` lost `$a`.
+- **Gate.** `~/botster-sessions/gates/botster-contracts-p3-r85-no-0d-computed-013bd447-pool-20261011-144037-1015.log` (sha256 `c0a80a15f7bdbe11e60a9db19c6e7ab9848d802acc59d35e49842a345cc8cf60`). The header names head `013bd447...`. msa1. Ten steps PASS. Mutants: 46 tested, 42 caught, 4 unviable, 0 missed. Exit 0.
+- **Core evidence** (`evidence/p3-r85/round3/`). The header names Core `6401bb04a70cc7723d0bfee9b9ba2f5ecc1914ac`, contracts `013bd447...` with no local changes, and `BOTSTER_SEEDS=0-31`. Per-id outcomes (`^test +conf::`, name and result) are the same as round2b: green 227 lines, scan 579 lines. The scan has no transcript defect.
+
+016c closed its round 2 item on this head. Still to do: P3 merges main `71f01c88` (Q7: I check that the merge is disjoint, the tree and the patch-id), and the gate runs on the exact merged head.
