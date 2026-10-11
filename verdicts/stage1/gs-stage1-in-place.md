@@ -105,3 +105,36 @@ All preceding source, Prior art, outcome-comparison, and evidence limits remain 
 The final full gate on this exact head against this exact base remains pending and required before merge.
 An earlier gate or base-merge check does not replace it. The withdrawn pool instruction supplies no exception.
 Sol ran no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
+
+
+## Round 3: final execution and merge record
+
+VERDICT: CLEAN (0 open) at afc33981b70834589f93c37d25581c731efda30b.
+
+Base: 554d43e890b391cefc9da205c71db6856accb21d.
+Receipt: msg_plugin-w_1791709707_e5b402.
+The implementation has not changed since Round 2. Package source CLEAN c30732d8 remains on this exact head.
+
+Log: ~/botster-sessions/gates/botster-core-stage1-gs-gate-speed-afc33981-pool-20261011-020042-76967.log.
+Sol read the exact head and base, both argument-proof passes, all three mutant identities, test summaries, static reports, and complete final summary.
+All ten steps pass. The CI summary is 164.9 seconds.
+The job exits 0 after 186 seconds, with one second queued and 185 seconds running.
+The wrapper exits 0 after 187 seconds on msa1.
+Default tests pass 1614 cases in 11.682 seconds. Slow tests pass 428 cases in 28.952 seconds.
+The stale-exclusion check compares 207 entries with 5996 workspace mutants.
+Pending-real remains 77, with zero newly passing IDs. This PR awards no minimum progress.
+R-59 still excludes unfenced AD-7 from the counted real minimum.
+
+Stage 1 catches all three stage1_run_args return mutants at line 1008: empty vector, empty string, and xyzzy.
+The stage takes 14.2 seconds and reports zero misses, timeouts, and unviable mutants.
+Stage 2 has no missed mutant to run. The complete mutation step takes 16.4 seconds.
+Fuzz reports no changed decoder harness.
+This closes the final execution condition at the exact source and base reviewed in Round 2.
+The earlier comparison's two misses remain facts about its separate evidence head; this final gate does not rewrite those outcomes.
+The prebuilt-worker gap and future repository-dependent test limit remain unchanged.
+
+Sol checked v1 merge 8dab35d14f7038d3cc0598e2cde8da207bd1b723.
+Its parents are the exact gate base and reviewed head.
+Its tree equals the reviewed and gated tree, 5278781bcb33b4d4351f6fb366452210a56c9f96.
+This merge has the required exact-head gate. It adds no case to the four historical omitted-gate record.
+Sol ran no build, test, gate, mutation, reversal, measurement, or executable merge-check job.

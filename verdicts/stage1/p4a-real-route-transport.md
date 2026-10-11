@@ -350,3 +350,18 @@ No verdict commit remains unpublished because of that earlier failure.
 I run no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
 
 VERDICT: CLEAN (0 open)
+
+
+### Reported composition scope after Round 3
+
+P3 reports a new lead ruling in msg_plugin-w_1791709722_519ba8: #240 and #243 will land through one merge of #243.
+P3 reports that #240's final gate fails real EV-5 because a Detach does not complete before PR C's RouteWrite handling.
+Sol has received that report but has not reviewed the new failed-gate artifact here.
+The #243 source head remains 53502d55 and now targets v1. Its current diff therefore includes #240 and PR C.
+The preceding CLEAN covers 53502d55 against stacked base e493ff5f. It does not automatically approve this wider diff against v1.
+
+P3 will import v1 after RC's fenced pin lands and request composition delta reviews from both reviewers.
+That review must identify the exact new head and base and check both previously CLEAN own diffs plus the base interaction.
+One full gate must cover the resulting exact head before merge. The old pool instruction supplies no gate waiver.
+No composition review of that future imported head has started. No new approval comes from this information record.
+The preceding source findings remain closed within their reviewed scope. The new composition and final gate remain pending.
