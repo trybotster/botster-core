@@ -416,6 +416,12 @@ const MUTANTS_OPTIONS: [&str; 7] = [
     "5",
 ];
 
+/// The progress options of each mutation stage: cargo-mutants prints a line for each caught and each unviable mutant too,
+/// not only for each missed one and each timeout. So each mutant gives a line, and a long stage of caught mutants is never
+/// silent: the pool ends a job that prints nothing for 20 minutes (exit 124), and one mutant's test run is bounded below
+/// that (`test_budget::SLOW_DEADLINE`).
+const MUTANTS_PROGRESS: [&str; 2] = ["--caught", "--unviable"];
+
 /// The nextest arguments of the mutation run. The `mutants` profile (`.config/nextest.toml`) never terminates a test for
 /// its time, so a mutant that hangs and fails no test reaches the timeout of cargo-mutants and counts as TIMEOUT, not as
 /// CAUGHT. `--max-fail 1:immediate` ends the run at the first failed test, with the tests still running: a mutant that a
@@ -512,8 +518,7 @@ fn mutants_job(root: &Path) -> Result<()> {
             write_skip(&stage1_dir, skip)?;
             let mut cmd = cargo(root);
             mutants(&mut cmd);
-            cmd.arg("--iterate").arg("--output").arg(&stage1_dir);
-            cmd.args(MUTANTS_TEST_ARGS)
+            cmd.args(stage1_run_args(&stage1_dir))
                 .envs(test_budget::tier_env(false));
             let started = Instant::now();
             let status = cmd.status().context("start cargo mutants (stage 1)")?;
@@ -987,6 +992,18 @@ fn two_stage_decision(
     Ok(())
 }
 
+/// The arguments of stage 1 after its mutant selection (the diff, the options and the exclusions, which the listing shares):
+/// a line for each mutant (`MUTANTS_PROGRESS`), the names of `write_skip` skipped (`--iterate`), the output under
+/// `output`, and the nextest arguments.
+fn stage1_run_args(output: &Path) -> Vec<String> {
+    let mut args: Vec<String> = MUTANTS_PROGRESS.iter().map(|s| s.to_string()).collect();
+    args.push("--iterate".into());
+    args.push("--output".into());
+    args.push(output.display().to_string());
+    args.extend(MUTANTS_TEST_ARGS.iter().map(|s| s.to_string()));
+    args
+}
+
 /// The arguments of stage 2 (plan 23r) after `cargo`: the mutants of `selection` (the diff), in place (so serial), with
 /// the slow features of `slow_packages`, the workspace's tests, and the slow tier's filter; exactly the stage-1 misses
 /// (`-F` with each whole name, and `--iterate`, which skips the names of `write_skip`: `Stage2Selection`); the same
@@ -1035,6 +1052,7 @@ fn stage2_args(
         args.push("-F".into());
         args.push(format!("^{}$", regex::escape(name)));
     }
+    args.extend(MUTANTS_PROGRESS.iter().map(|s| s.to_string()));
     args.push("--iterate".into());
     args.push("--output".into());
     args.push(output.display().to_string());
@@ -2188,6 +2206,37 @@ mod tests {
         );
     }
 
+    /// Each mutation stage prints a line for each mutant outcome (`--caught`, `--unviable`), so a long stage of caught
+    /// mutants is never silent for the pool's 20-minute output watchdog. Stage 1 keeps its skip list, its output and its
+    /// nextest arguments; stage 2's whole arguments are in `stage_2_tests_exactly_the_missed_mutants_with_the_slow_tier`.
+    #[test]
+    fn each_mutation_stage_prints_a_line_for_each_mutant() {
+        let expected: Vec<String> = [
+            "--caught",
+            "--unviable",
+            "--iterate",
+            "--output",
+            "out",
+            "--",
+            "--profile",
+            "mutants",
+            "--max-fail",
+            "1:immediate",
+            "--no-tests=pass",
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+        assert_eq!(stage1_run_args(Path::new("out")), expected);
+        let stage2 = stage2_args(&[], &[], &[], &[], Path::new("out"));
+        for flag in MUTANTS_PROGRESS {
+            assert!(
+                stage2.iter().any(|a| a == flag),
+                "stage 2: {flag}: {stage2:?}"
+            );
+        }
+    }
+
     /// Plan 23r: stage 2 runs in place with the slow features, the workspace's tests, the slow filter, the never
     /// terminating profile and the slow deadline as its timeout, and tests exactly each missed mutant, by its whole name.
     /// Its baseline is the same slow tier, unmutated.
@@ -2220,6 +2269,8 @@ mod tests {
             "x\\.rs",
             "-F",
             r"^a\.rs:1:2: replace f \-> bool with true$",
+            "--caught",
+            "--unviable",
             "--iterate",
             "--output",
             "out",
@@ -2686,10 +2737,7 @@ mod slow_tests {
                         command.arg("--exclude-re").arg(re);
                     }
                     command
-                        .arg("--iterate")
-                        .arg("--output")
-                        .arg(&out)
-                        .args(MUTANTS_TEST_ARGS)
+                        .args(stage1_run_args(&out))
                         .envs(test_budget::tier_env(false));
                     finish(command, &out)
                 },
