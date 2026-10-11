@@ -443,7 +443,8 @@ F99, F100, F101, F102, and F104 retain their source corrections and public check
 Locations: `worker/input.rs:253-260,329-330,351-362`; `worker.rs:486-494,854-879`.
 
 `Pending::Route` calls `payload_takes_input`, which checks only Live and absence of exit.
-Stop sets `termed` and the grace deadline. Kill sets `killed`. The payload can remain Live until exit arrives.
+`HostMsg::Stop` sets `termed` through `signal(SIGTERM)`. `HostMsg::Kill` sets `killed`.
+The separate `on_end_payload` path sets the grace deadline. The payload can remain Live until exit arrives.
 A writable route can receive bytes or text in that interval and start a PTY write.
 The same route path can start previously queued input when its admission turn arrives during that interval.
 Host admission rejects `termed`, `killed`, or an active grace deadline as NotWritten(Stopping).
@@ -538,3 +539,10 @@ The replacement head, its gate, and the same-head package artifact remain pendin
 I changed no product code and ran no build, test, gate, mutation job, merge-check job, or reversal job.
 
 VERDICT: NOT CLEAN (1 open: R4-1 / F113 MEDIUM).
+
+### Source-description correction — 2026-10-10
+
+The package reviewer identified a distinction in the inspection's stop description.
+`HostMsg::Stop` sets `termed`, but does not itself set the grace deadline.
+`on_end_payload` sets that deadline. I checked both source paths and corrected the inspection above.
+The correction changes no finding, closure, reviewed head, round count, or verdict. R4-1 / F113 remains MEDIUM and OPEN.
