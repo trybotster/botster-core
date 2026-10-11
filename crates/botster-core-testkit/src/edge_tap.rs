@@ -398,6 +398,13 @@ impl<E: HostEdges> Tap<E> {
         true
     }
 
+    /// Whether Core's `Launch` of `instance` met its hold: the tap gives the inner edge no byte of the held link.
+    pub fn launch_held(&self, instance: &InstanceId) -> bool {
+        self.holds
+            .get(instance)
+            .is_some_and(|hold| hold.link.is_some())
+    }
+
     /// Ends the hold of `instance` (`release_start_at`). The write interest that Core asked for on the held link reaches the
     /// inner edge, so readiness wakes the host, and Core's next flush sends the `Launch` and every byte after it, in order.
     /// False when no hold of `instance` is set.

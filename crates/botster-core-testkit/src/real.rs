@@ -1028,8 +1028,9 @@ mod slow_controls {
     }
 
     /// Core AD-7, A5-3, on real sessions (R-49 Q2 and Q3):
-    /// - `hold_start_at` holds the start at the host's `Launch`: the stored row (`registry_row`) is `Starting` with the
-    ///   worker identity, the worker launched no payload, and the start completes only after `release_start_at`. A second
+    /// - `hold_start_at` holds the start at the host's `Launch`: Core's `Launch` meets the hold before the worker has any
+    ///   child, so the worker never received it (R-49 Q2). The stored row (`registry_row`) is `Starting` with the worker
+    ///   identity, and the start completes only after `release_start_at`. A second
     ///   hold, a hold of a begun start, a release with no hold and an unknown session are `Bad`; a hold before another step
     ///   is `unsupported_control`.
     /// - `fail_next` refuses the named call of the handle without calling Core: the session stays `Created`, and the call
@@ -1074,10 +1075,34 @@ mod slow_controls {
 
         core.begin(Op::Start { id: sid("s1") }).expect("start");
         let tap = harness.tap("a").unwrap();
+        let instance = harness
+            .session_processes(&data_dir, &sid("s1"))
+            .expect("the row of s1")
+            .instance;
+        // Whichever comes first: the `Launch` meets the hold, or the worker has a child (the worker spawns its payload only
+        // on the `Launch`, so a child means that the `Launch` passed the hold).
+        let mut child = None;
         pump_until(core.as_mut(), |_| {
-            let row = harness.control("a", "registry_row", &json!({"session": "s1"}));
-            row.is_ok_and(|row| row["identity_recorded"] == json!(true)) && lock(&tap).quiet()
+            if lock(&tap).launch_held(&instance) {
+                return true;
+            }
+            let worker = harness
+                .session_processes(&data_dir, &sid("s1"))
+                .and_then(|p| p.worker);
+            child = worker.and_then(|w| {
+                let children = platform::live_children(platform::pid(w.pid).unwrap()).unwrap();
+                (!children.is_empty()).then_some(children)
+            });
+            child.is_some()
         });
+        assert_eq!(child, None, "the Launch passed the hold");
+        let worker = harness
+            .session_processes(&data_dir, &sid("s1"))
+            .and_then(|p| p.worker)
+            .expect("the worker is recorded before the Launch (AD-7)");
+        let children = platform::live_children(platform::pid(worker.pid).unwrap()).unwrap();
+        assert!(children.is_empty(), "the worker has no child: {children:?}");
+        pump_until(core.as_mut(), |_| lock(&tap).quiet());
         let mut control = |op: &str, args: Value| harness.control("a", op, &args);
         assert_eq!(
             control("registry_row", json!({"session": "s1"})),
