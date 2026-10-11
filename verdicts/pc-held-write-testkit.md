@@ -289,3 +289,43 @@ The reviewer verifies that correction in the live body. The head remains unchang
 The six-transcript result is no longer claimed here. PART B must supply valid evidence for both tiers.
 This evidence question is closed. No new source finding opens.
 No final merge approval is given. Wait for the doorbell. Never poll.
+
+## Final-slot import: source CLEAN carries
+
+VERDICT: CLEAN. No open source finding.
+
+PC receipt: `msg_plugin-w_1791750654_adad67`.
+Reviewed head: `bd4c6f16c9c1435252f929663a33ea8b28b4beb5`.
+Imported base: `926dfb62f3f7168990b2a48741946932d84b2fbb`.
+New head: `4daf627b54739f847dd2448bf660a6a45c1b714a`.
+Parents: the reviewed head, then the imported base.
+Tree: `fcfb3382e8c6c8633d152eb3bd7f2d6a151440d4`.
+The reviewer verifies the published head and base in the live PR.
+PC reports that the lead gives #283 the slot before #282, which waits on a permission prompt.
+The live body records that decision. The package has no dependency on #282 for this testkit-only change.
+
+The reviewer reads `base-merge-check-4daf627b.out` in the shared evidence directory.
+SHA-256: `c1759610f3bd56aa59dbb847a6786e9bba88318612ee534046b33237da924222`.
+The output reports PASS for all four checks, including a merge without conflict.
+The reviewer independently compares the Git objects and canonical patches through read-only commands.
+
+- The canonical own patch is byte-identical before and after import: 19815 bytes.
+- Its SHA-256 is `5caf01f561face85debe54c9da930443c977eace09e66d77474d839274f1ed00`.
+- The 11 paths changed on the base do not intersect the three own paths.
+- All three reviewed source blobs are unchanged.
+- All 11 changed base blobs are preserved exactly in the new head.
+- Both pending files were unchanged by the original own diff and now equal the imported base's files.
+
+The package source CLEAN carries to the new head. No source delta round is required by this PASS.
+The reviewer does not run the base-check executable, a build, a test, or a gate.
+
+The reviewer reads the 23by-to-23cm plan delta from the pin named in PC's handoff.
+Pin: `~/botster-sessions/pins/stage1-plan.c77c2434.md`.
+SHA-256: `c77c243490be26d6e4ee9f5b9491fd8b62d6dc9827dceebccfd864e2d60abf02`.
+The delta retains R-74's queue behavior and records B13, later contract work, and PC's later diagnosis work.
+The `.40` pin and real-tier changes remain separate from this PR.
+
+PC reports that the one final gate is running on the new head. No completed final-gate log is read here.
+The gate must supply the fixed guard's mutation result. The body must record the completed evidence and applicable review receipts.
+Sol's applicable import receipt, the final green gate, and Q7 remain due here.
+No final merge approval is given. Wait for the doorbell. Never poll.

@@ -5,8 +5,8 @@
 - Reviewer branch: `stage1/review-pc`.
 - Scope: 38 program-control IDs after #222 and #227. The original PR #220 group had 32 IDs.
 - Binding brief: `~/botster-sessions/shared/core-stage1/brief-program-controls.md`.
-- Binding plan: `~/botster-sessions/pins/stage1-plan.42684041.md`, revision 23by.
-- Verified plan SHA-256: `86e0b9ef3e16b3b485a52508ec4da86affcecbc85deb88f22318160582c5fdcb`.
+- Binding plan: `~/botster-sessions/pins/stage1-plan.c77c2434.md`, revision 23cm.
+- Verified plan SHA-256: `c77c243490be26d6e4ee9f5b9491fd8b62d6dc9827dceebccfd864e2d60abf02`.
 - The last #233 source review uses contracts-v0.1.29. The new design base uses contracts-v0.1.32 under plan 23ar.
 - Initial review base: PR #220, `6c1624e940cd98da24690b1224fc1c5fa8893c6e`.
 - Last #233 reviewed head: `a7be76d55ed38bc89d6a8136c4c62d5d2c9bdb3a`.
@@ -1286,3 +1286,21 @@ PC confirms that the pre-split six-transcript claim is invalid under B13 in msg_
 The reviewer verifies that the live body marks it invalid. PART B must supply valid evidence for both tiers.
 The evidence question msg_plugin-w_1791746248_58e78a is closed. This adds no source finding.
 The final-slot import, applicable review/check, final green gate, and body remain due. Never poll.
+
+B13 evidence record pushed: 70518f70b4d217d19c1cefd1adcc07be14cb6374.
+The worktree is clean. Source CLEAN remains; the final-slot evidence remains due. Never poll.
+
+## #283 final-slot import: source CLEAN carries
+
+PC receipt: msg_plugin-w_1791750654_adad67.
+New head: 4daf627b54739f847dd2448bf660a6a45c1b714a.
+Parents: bd4c6f16c9c1435252f929663a33ea8b28b4beb5 and 926dfb62f3f7168990b2a48741946932d84b2fbb.
+The live PR has that head and imported base. PC reports the lead moved #283 before blocked #282.
+The reviewer reads the base-check output: all four checks PASS, including no conflict.
+Output SHA-256: c1759610f3bd56aa59dbb847a6786e9bba88318612ee534046b33237da924222.
+Independent read-only comparisons confirm the unchanged canonical patch: 19815 bytes, SHA-256 5caf01f561face85debe54c9da930443c977eace09e66d77474d839274f1ed00.
+The 11 base paths and three own paths are disjoint. All three own blobs and all 11 changed base blobs are preserved.
+Both pending files now equal the base and have no own change. Source CLEAN carries; no source delta round is required.
+Plan 23by-to-23cm delta is read and hash-verified. It changes no R-74 queue behavior.
+The final gate is reported running. No completed log is read. Sol's import receipt, the final green gate, body, and Q7 remain due.
+No executable check runs here. No final merge approval is given. Wait for the doorbell. Never poll.
