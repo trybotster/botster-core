@@ -1525,6 +1525,69 @@ mod slow_controls {
         drop(core);
     }
 
+    /// Core OU-1, DP-4 (lead, plans 23aw and 23bd): a route of the tapped harness answers `pty_input` with the input that
+    /// the probe of its session read, in one segment with the unattributed op, as the testkit does. It has no other
+    /// control than its own and `pty_input`.
+    #[test]
+    fn pty_input_on_a_route_is_the_input_that_the_sessions_probe_read() {
+        let dir = Candidate::beside_test_binary().expect("the candidate directory");
+        let candidate = Candidate::locate(&dir).unwrap_or_else(|error| panic!("{error}"));
+        let mut harness = RealCoreHarness::new(candidate).unwrap();
+        let spec = OpenSpec {
+            handle: "a".into(),
+            data_dir: harness.data_dir("a"),
+            worker: harness.worker(WorkerBuild::Current),
+            limits: serde_json::to_value(CoreLimits::default()).unwrap(),
+        };
+        let mut core = harness.open(&spec).expect("open");
+        // The probe connects to the socket that the environment names.
+        created_with(&harness, core.as_mut(), "s1", harness.probe_env());
+        core.begin(Op::Start { id: sid("s1") }).expect("start");
+        pump_until(core.as_mut(), |c| state(c, "s1") == SessionState::Running);
+        let options: AttachOptions = serde_json::from_value(
+            json!({"file_directory": "/tmp", "answers_queries": false, "input": true}),
+        )
+        .unwrap();
+        let (_, mut route) = harness
+            .attach_stream(
+                "a",
+                core.as_mut(),
+                ClientId("c".into()),
+                &sid("s1"),
+                options,
+            )
+            .expect("attached");
+        assert!(route.has_control("pty_input"));
+        assert!(!route.has_control("route_fill"));
+        assert_eq!(
+            route.control("pty_input", &Value::Null),
+            Ok(json!({"bytes": {"$bytes_hex": ""}, "segments": []})),
+            "nothing reached the PTY yet"
+        );
+        core.begin(Op::WriteInput {
+            session: sid("s1"),
+            payload: botster_core_contract::prelude::InputPayload::Bytes {
+                bytes: botster_route_codec::prelude::HexBytes(b"xy".to_vec()),
+            },
+            guard: None,
+        })
+        .expect("write");
+        pump_until(core.as_mut(), |_| {
+            harness
+                .control("a", "pty_input", &json!({"session": "s1"}))
+                .unwrap()
+                == json!({"bytes": {"$bytes_hex": "7879"}})
+        });
+        assert_eq!(
+            route.control("pty_input", &Value::Null),
+            Ok(json!({"bytes": {"$bytes_hex": "7879"}, "segments": [
+                {"op": crate::route_client::UNATTRIBUTED_OP, "bytes": {"$bytes_hex": "7879"}}
+            ]}))
+        );
+        drop(route);
+        drop(core);
+    }
+
     /// Core AD-7, A5-3, on real sessions (R-49 Q2 and Q3):
     /// - `hold_start_at` holds the start at the host's `Launch`: Core's `Launch` meets the hold before the worker has any
     ///   child, so the worker never received it (R-49 Q2). The stored row (`registry_row`) is `Starting` with the worker

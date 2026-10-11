@@ -276,12 +276,6 @@ impl Programs {
 #[derive(Clone)]
 pub(super) struct Inputs(Arc<Hub>);
 
-impl std::fmt::Debug for Inputs {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("Inputs")
-    }
-}
-
 impl Inputs {
     /// Every byte of PTY input that the probe of `worker` read, in order, as [`Programs`] answers `pty_input`.
     pub(super) fn input(&self, worker: ProcessIdentity) -> Result<Vec<u8>, ControlError> {
