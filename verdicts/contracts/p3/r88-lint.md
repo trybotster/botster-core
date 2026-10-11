@@ -72,7 +72,7 @@ Gate: `~/botster-sessions/gates/botster-contracts-p3-r88-lint-39cc39dd-pool-2026
 - A control fences only with a proving expectation: `parked: true`, `held: true`, `count >= 1`, `bytes >= 1`, `posted: true`, `activity_before_close: true` or `closed: true` (`control_fence`, line 567).
 - An ordered event `expect` or `expect_set` goes through the same wait function. `ignore` and `forbid` never fence.
 - A route-frame `expect_quiet_until` is no read, and the module doc gives the reason.
-- Identity: `Completed` and `op_posted` match the current binding on the op's handle (`self.current(v)`, `.filter(|op| op.handle == h)`). `route_reports` `activity_before_close` clears only the first client send on its route (`first_on_route`). `pty_queued` counts only in R-74's form (a blocked PTY, a filler write, a lower bound of at least 1).
+- Identity: `Completed` matches the current binding on the op's handle (`self.current(v)`, `.filter(|op| op.handle == h)`). **Correction (016c): `op_posted` (lines 628-635) has no handle filter.** See 016c's first MEDIUM below. `route_reports` `activity_before_close` clears only the first client send on its route (`first_on_route`). `pty_queued` counts only in R-74's form (a blocked PTY, a filler write, a lower bound of at least 1).
 - The ownership of both commits (main R-88 "Owners") is cited.
 
 ### Findings
@@ -94,3 +94,13 @@ The corpus test requires the exception list to equal the findings. #73 lists R-8
 ### Notes (no finding)
 
 - `event_fence` has a branch for `Activity` with `source` the string `"Client"`. `ActivitySource::Client` carries a `RouteId` (`botster-core-contract/src/event.rs` line 90), so no transcript can match that branch. It is dead code, not a gap.
+
+### 016c's round 1 findings on the same head (package scope; recorded, not repeated)
+
+016c has an exact-module proof (`.review-r88-proof/proof.rs`). Each case expects the later read to stay flagged, and each gets `[]`.
+1. MEDIUM: `op_posted {for_op}` clears the op of another handle. Line 632 has no handle filter. **My round 1 said that `op_posted` filters the handle. That was wrong, and I corrected it above.**
+2. MEDIUM: `await_get` of `Running` clears an unfenced `lose_worker` cause (line 428). A non-terminal report state does not prove the loss report.
+3. MEDIUM: a 2-byte write with `kernel_bytes: 1` counts as a real held filler (line 371). R-74's form needs a write larger than any kernel buffer.
+4. MEDIUM: a `Completed` whose outcome is `$one_of [NotWritten SessionEnded, Written]` clears the session through a string search of the result (lines 450-452). Only a result that requires `NotWritten SessionEnded` proves the end.
+
+I check all four, with their regression cases, on the next head, together with my F1 and F2.
