@@ -9,8 +9,9 @@
 //! A line-set file ([`SET_FILES`]) is left out of conditions 2 and 3 and has condition 4 instead (lead ruling 2026-10-09:
 //! every pending flip edits `core-pending.txt`, so two flips failed condition 2 and cost a delta round each):
 //!
-//! 4. the pull request and the base each only remove whole id lines from the file at the reviewed merge base, the two sets
-//!    of removed ids are disjoint, and the file at the new head is that old file without both sets.
+//! 4. the pull request and the base each only remove whole id lines from the file at the reviewed merge base, and the file
+//!    at the new head is that old file without both sets. An id that both sides remove leaves once (lead, 2026-10-10: two
+//!    flips of one id commute, as a git merge of them does).
 //!
 //! It also requires that the new head descends from the reviewed head, and that the new merge base descends from the
 //! reviewed one (`v1` only moves forward). The base is `BOTSTER_CI_BASE_REF`, else `origin/v1`. The report goes in the pull
@@ -26,9 +27,16 @@ use std::process::Command;
 
 const USAGE: &str = "usage: cargo xtask base-merge-check <reviewed-head> <new-head>";
 
-/// The line-set files: lists of whole id lines that a pull request only shrinks, so two removals of other ids commute.
-/// Only these paths have condition 4; every other path keeps the byte rules of conditions 2 and 3.
-pub const SET_FILES: &[&str] = &["conformance/core-pending.txt"];
+/// The line-set files: lists of whole id lines that a pull request only shrinks, so two removals commute (lead, 2026-10-10:
+/// every list with that meaning). Only these paths have condition 4; every other path keeps the byte rules of conditions 2
+/// and 3. The other lists of `conformance/` stay out: `core-real-only.txt`, `core-held.txt`, `minimum-core.txt`,
+/// `contracts-deferred.txt` and `contracts-withdrawn.txt` hold records (an id with fields), not id lines, and an edit of a
+/// field is a change that a reviewer must read; `core-ledger-ids.txt` is a copy of one pinned ledger, so a merge of two
+/// edits of it is a ledger of no tag (`cargo xtask ledger-ids` checks it); `core-deferred.toml` is not a line list.
+pub const SET_FILES: &[&str] = &[
+    "conformance/core-pending.txt",
+    "conformance/core-real-pending.txt",
+];
 
 /// The tree entry of a line-set file at one commit.
 #[derive(Clone, PartialEq, Eq)]
@@ -120,18 +128,18 @@ fn removed<'a>(old: &[&'a str], side: &[&str]) -> Result<BTreeSet<&'a str>, Stri
     }
 }
 
-/// Condition 4 for one line-set file: `reviewed` and `base` each remove only id lines from `old`, the two sets are disjoint,
-/// and `new` is `old` without both, in the order of `old`. Returns the number of lines each side removes.
+/// Condition 4 for one line-set file: `reviewed` and `base` each remove only id lines from `old`, and `new` is `old` without
+/// both sets, in the order of `old`. Returns the number of lines that the pull request removes, that the base removes, and
+/// that both remove.
 ///
 /// # Errors
-/// `old` repeats an id line (a removal is then ambiguous), a side changes another line, a line is removed on both sides, or
-/// `new` is not the merge.
+/// `old` repeats an id line (a removal is then ambiguous), a side changes another line, or `new` is not the merge.
 pub fn set_merge(
     old: &str,
     reviewed: &str,
     base: &str,
     new: &str,
-) -> Result<(usize, usize), String> {
+) -> Result<(usize, usize, usize), String> {
     let lines: Vec<&str> = old.split_inclusive('\n').collect();
     let mut seen = BTreeSet::new();
     if let Some(twice) = lines
@@ -146,9 +154,6 @@ pub fn set_merge(
             .map_err(|e| format!("the {name} is not a pure removal of id lines: {e}"))
     };
     let (by_pr, by_base) = (side("pull request", reviewed)?, side("base", base)?);
-    if let Some(both) = by_pr.intersection(&by_base).next() {
-        return Err(format!("both sides remove {}", both.trim_end_matches('\n')));
-    }
     let merged: String = lines
         .iter()
         .filter(|line| !by_pr.contains(*line) && !by_base.contains(*line))
@@ -157,7 +162,11 @@ pub fn set_merge(
     if new != merged {
         return Err("the new head's file is not the old file without both removed sets".into());
     }
-    Ok((by_pr.len(), by_base.len()))
+    Ok((
+        by_pr.len(),
+        by_base.len(),
+        by_pr.intersection(&by_base).count(),
+    ))
 }
 
 /// Condition 4 for one line-set file that exists at the four commits. Each entry must be a regular file. When one side
@@ -194,8 +203,8 @@ fn judge_set(old: &Blob, reviewed: &Blob, base: &Blob, new: &Blob) -> Result<Str
             Err("the base leaves it alone, but the new head does not hold the reviewed file".into())
         };
     }
-    set_merge(&old.text, &reviewed.text, &base.text, &new.text).map(|(pr, base)| {
-        format!("the pull request removes {pr} id lines and the base removes {base} others; the new head holds the old file without both")
+    set_merge(&old.text, &reviewed.text, &base.text, &new.text).map(|(pr, base, both)| {
+        format!("the pull request removes {pr} id lines and the base removes {base}, {both} of them on both sides; the new head holds the old file without both sets")
     })
 }
 
