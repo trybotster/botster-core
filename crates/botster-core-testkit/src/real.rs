@@ -1241,7 +1241,8 @@ impl CoreHarness for RealCoreHarness {
                     socket,
                     host_bytes: Box::new(move || {
                         let tap = tap.upgrade().ok_or("the route's handle is closed")?;
-                        Ok(lock(&tap).stream_bytes(id))
+                        let bytes = lock(&tap).stream_bytes(id);
+                        Ok(bytes)
                     }),
                 }),
             _ => route,
