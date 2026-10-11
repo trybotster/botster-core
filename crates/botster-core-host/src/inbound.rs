@@ -63,7 +63,9 @@ impl HostEngine {
             },
             Input::IdentityState { identity, state } => {
                 if !self.adopt_probed(identity, state) {
+                    // One session has the identity: only its own waiting flow takes the answer.
                     self.flow_remove_probed(identity, state);
+                    self.flow_stop_probed(identity, state);
                 }
             }
         }
