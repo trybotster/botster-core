@@ -332,7 +332,7 @@ mod tests {
         assert_eq!(fill_pattern(28), b"abcdefghijklmnopqrstuvwxyzab");
         assert_eq!(fill_pattern(26), b"abcdefghijklmnopqrstuvwxyz");
         assert!(fill_pattern(0).is_empty());
-        // C: the free room of the worker's queue, limited by route_accept, and 0 while gated.
+        // C: the free room of the worker's queue, limited by route_accept, and 0 while gated with no accept limit.
         let (mut client, mut worker) = route(16);
         assert_eq!(worker.write(b"abcde").unwrap(), 5);
         assert_eq!(client.worker_end().room(), 11, "16 less the 5 queued");
@@ -340,8 +340,11 @@ mod tests {
         assert_eq!(client.worker_end().room(), 3);
         client.worker_end().accept_at_most(20);
         assert_eq!(client.worker_end().room(), 11);
+        client.worker_end().gate(false);
         client.worker_end().gate(true);
         assert_eq!(client.worker_end().room(), 0);
+        client.worker_end().accept_at_most(4);
+        assert_eq!(client.worker_end().room(), 4, "a limit under the gate");
         let (client, _worker) = route(16);
         let mut bare = client;
         assert!(bare
