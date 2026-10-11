@@ -143,3 +143,52 @@ SI-2 / RC-C-F2 closes its reported source path at this correction.
 The correction is not yet published as replacement READY. Its exact-head gate and package Round 2 artifact remain pending.
 This source inspection grants no CLEAN verdict and completes no replacement round.
 I run no reviewer execution job.
+
+## Round 2 READY inspection — 2026-10-10 — Package artifact pending
+
+READY head: `a96679e9b2df48b3d3918b6149d16060846a430f`.
+Base: `08ee8f2c6e343ff47966f12fcb80fe7cd35d0a83`.
+Receipt: `msg_plugin-w_1791697326_e8a951`.
+Parents: inspected correction `c6f6c9b120899cd81433b3a65a55cb28849a54e3` and the new v1 base.
+The base contains accepted #230 at `cc834158bfde2e87105bbd2c9620f51815d0c6aa`.
+
+I compare the merge through Git objects. It has no conflict and matches automatic tree `d38e7b9c4763e41163c5bff0c9faba3d54856b78`.
+Its complete parent delta consists of the twelve accepted #230 paths. None changes this PR's six own paths.
+The own delta against the new base has 626 insertions and 43 deletions. Its source diff check passes.
+The inspected large-frame correction and all prior source checks remain intact.
+I verify the published full head, HIGH tier and rule 3, Prior art wording, Round 1 correction description, and replacement proof section.
+
+SI-2 / RC-C-F2 closes in source at this exact READY head.
+The tap's outbound decoder covers every frame Core's capped encoder can send.
+A decoder failure holds an armed link, and the persistent decoder retains its failure.
+The boundary proof requires no Launch byte before release and exact ordered bytes afterward for a frame above 1 MiB.
+Core retains and sends those bytes; the tap's decoder copies serve observation only.
+The proof does not claim that the large argv starts a payload through the worker's initial 1 MiB decoder.
+The real small-frame proof separately checks durable identity and identity-checked payload absence before release, then Running and payload presence afterward.
+The real synchronous-refusal wrapper still acts before Core. The shared argument checks retain parity with the testkit tier.
+Both LOW body findings remain closed.
+
+Exact-head gate: `~/botster-sessions/gates/botster-core-stage1-p5-real-controls-c-a96679e9-pool-20261010-221334-86497.log`.
+I read the exact head and base, result summaries, conformance records, correction proof records, and all 76 individual mutation outcomes.
+All ten CI steps pass in 1370.0 seconds on msa1.
+The job and wrapper each exit zero after 1678 seconds. The job reports 295 queued seconds and 1383 running seconds.
+Default: 1603 passed, 484 skipped, in 16.574 seconds.
+Slow: 412 passed, 1991 skipped, in 116.999 seconds.
+Both testkit conformance reports show 206 passed and zero failed.
+Strict pending runs 373/394, with 21 real-only IDs and two held IDs. Testkit minimum is 55/69.
+Real minimum is 36/68; real-accepted is 37/69. Real-pending is 80, with zero passing IDs.
+All three own removed IDs pass on the real tier and in the unmutated slow baseline.
+The large-frame boundary proof passes in 0.048 seconds. The real start-control proof passes in 1.372 seconds.
+The imported DP-3 ID remains testkit-proven under A20-1; it adds accepted coverage and no real allocator claim.
+
+Stage 1 reports 57 mutants: 36 caught, 19 missed, two unviable, and zero timeouts, in 262.9 seconds.
+The stage-2 unmutated baseline passes 412 tests in 150.138 seconds; its job takes 163.3 seconds.
+Stage 2 reports 19 mutants: 16 caught, three unviable, zero missed, and zero timeouts, in 706.5 seconds.
+The complete stage-2 name multiset equals the complete stage-1 miss multiset. Neither stage repeats a mutant identity.
+The final result is 57 mutants: 52 caught, including 16 in stage 2, five unviable, zero missed, and zero timeouts.
+The complete mutation step takes 1135.5 seconds. The gate has no failed, timed-out, or signal-ended test result.
+No own mutation exclusion or native configuration changes.
+
+All reported findings have verified source or documentation corrections, and the exact-head gate is verified.
+The formal package Round 2 artifact remains pending. This inspection completes no replacement round and grants no CLEAN verdict.
+I run no reviewer execution job.
