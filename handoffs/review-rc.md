@@ -84,3 +84,14 @@ Reviewed base: `c942593697e856017572977af0405b17de0124e2`. All three findings ar
 The delta removes both stored-mark assertions. It changes one test file only.
 The exact-head full gate receipt and integration CLEAN remain required before merge.
 The reviewer ran no test, build, or gate. The reviewer waits for a doorbell and does not poll.
+
+
+### Integration source CLEAN received for round 3
+
+The integration reviewer reports source CLEAN at `c3713dba91e38785eeadeb36444a86f51963a622`.
+Reviewed base: `c942593697e856017572977af0405b17de0124e2`. All three findings are closed.
+Integration verdict: `46a4c33b1453f907c8f5ac5e967c52c563186829`, `verdicts/stage1/rc-oracle-resume.md`.
+Message: `msg_plugin-w_1791731482_f3af9f`.
+The integration reviewer read package verdict `48e76c5f` and both complete correction deltas.
+Both reviewers require the exact-head gate and any applicable current-base import review before merge.
+The earlier-head gate supports no pending removal. The reviewer ran no test, build, or gate.
