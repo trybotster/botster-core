@@ -33,3 +33,7 @@ Sibling transcripts (integration check, no finding). These ids also assert a `Wo
 Only `ev_5` has no order between the end of the payload (`payload_alive: false`) and the worker's exit report. So R-87 needs only this fence.
 
 No finding.
+
+### 016c's round 1 on the same head (package scope; recorded, not repeated)
+
+- LOW (body only): the body gives the step numbers 10 and 15, and prior-art step 9, as 1-based counts but does not say so. `pair-common.md` uses 0-based indices, which are 9, 14 and 8. P5 corrects the numbers or labels the count. No source change and no new gate. My CLEAN stays (a package-scope miss). I check the corrected body when P5 sends it.
