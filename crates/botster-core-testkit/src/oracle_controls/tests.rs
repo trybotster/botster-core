@@ -447,26 +447,35 @@ fn press(x_y: Option<(u32, u32)>) -> Value {
     json!({"mouse": mouse})
 }
 
-/// R-84 (1): a partial `modes` is laid over `ModeFlags::default()`. The expected bytes come from the pinned binding with the
-/// modes built as a struct, not through the control's merge; the two results differ, so the merge decides the bytes.
+/// The modes of a fresh terminal of the pinned libghostty: the base of a partial `modes` (R-84 (1)).
+fn fresh() -> ModeFlags {
+    Terminal::new(&SIZE, History::Off).unwrap().modes()
+}
+
+/// The bytes of `input` with `modes`, from the pinned binding.
+fn key_bytes(modes: &ModeFlags, input: Value) -> Result<Value, ControlError> {
+    let key: KeyInput = serde_json::from_value(input).unwrap();
+    hex(&encode_key_with_modes(modes, &key).unwrap())
+}
+
+/// R-84 (1), as corrected: a partial `modes` is laid over the modes of a fresh terminal. The expected bytes come from the
+/// pinned binding with the modes built as a struct, not through the control's merge; the two results differ, so the merge
+/// decides the bytes.
 #[test]
-fn oracle_encode_lays_a_partial_modes_over_the_default() {
+fn oracle_encode_lays_a_partial_modes_over_a_fresh_terminal() {
     let mut harness = TestkitHarness::new(0);
     let (_core, _) = running(&mut harness);
-    let key: KeyInput = serde_json::from_value(arrow_up()).unwrap();
-    let legacy = encode_key_with_modes(&ModeFlags::default(), &key).unwrap();
-    let application = encode_key_with_modes(
-        &ModeFlags {
-            application_cursor_keys: true,
-            ..ModeFlags::default()
-        },
-        &key,
-    )
-    .unwrap();
-    assert_ne!(legacy, application);
+    let application = ModeFlags {
+        application_cursor_keys: true,
+        ..fresh()
+    };
+    assert_ne!(
+        key_bytes(&fresh(), arrow_up()),
+        key_bytes(&application, arrow_up())
+    );
     assert_eq!(
         encoded(&mut harness, "key", arrow_up(), json!({})),
-        hex(&legacy)
+        key_bytes(&fresh(), arrow_up())
     );
     assert_eq!(
         encoded(
@@ -475,8 +484,68 @@ fn oracle_encode_lays_a_partial_modes_over_the_default() {
             arrow_up(),
             json!({"application_cursor_keys": true})
         ),
-        hex(&application)
+        key_bytes(&application, arrow_up())
     );
+}
+
+/// The base is the fresh terminal's, not `ModeFlags::default()` (every mode off): a fresh terminal has `dec_1036` (Alt sends
+/// an ESC prefix) and `dec_1035` on, so `{}` gives other bytes for Alt+q than the all-off modes. A partial `other_modes`
+/// changes only its own keys.
+#[test]
+fn oracle_encode_keeps_the_fresh_other_modes_that_the_call_does_not_name() {
+    let mut harness = TestkitHarness::new(0);
+    let (_core, _) = running(&mut harness);
+    let alt = json!({"key": {"char": "q"}, "mods": ["alt"], "event": "press", "text": "\u{e4}"});
+    let keypad = json!({"key": {"named": "kp_0"}, "mods": [], "event": "press"});
+    let fresh = fresh();
+    for on in ["dec_1035", "dec_1036"] {
+        assert_eq!(fresh.other_modes.get(on), Some(&true), "{on}");
+    }
+    assert_ne!(
+        key_bytes(&fresh, alt.clone()),
+        key_bytes(&ModeFlags::default(), alt.clone())
+    );
+    assert_eq!(
+        encoded(&mut harness, "key", alt.clone(), json!({})),
+        key_bytes(&fresh, alt.clone())
+    );
+
+    let mut no_esc = fresh.clone();
+    no_esc.other_modes.insert("dec_1036".into(), false);
+    let mut application_keypad = fresh.clone();
+    application_keypad.application_keypad = true;
+    let no_esc_modes = json!({"other_modes": {"dec_1036": false}});
+    assert_ne!(
+        key_bytes(&no_esc, alt.clone()),
+        key_bytes(&fresh, alt.clone())
+    );
+    assert_eq!(
+        encoded(&mut harness, "key", alt.clone(), no_esc_modes),
+        key_bytes(&no_esc, alt)
+    );
+    // `dec_1035` stays on when the call names only `dec_1036`.
+    let mut keypad_off = application_keypad.clone();
+    keypad_off.other_modes.insert("dec_1035".into(), false);
+    assert_ne!(
+        key_bytes(&application_keypad, keypad.clone()),
+        key_bytes(&keypad_off, keypad.clone())
+    );
+    assert_eq!(
+        encoded(
+            &mut harness,
+            "key",
+            keypad.clone(),
+            json!({"application_keypad": true, "other_modes": {"dec_1036": false}})
+        ),
+        key_bytes(&application_keypad, keypad)
+    );
+    assert!(bad(encoded(
+        &mut harness,
+        "key",
+        arrow_up(),
+        json!({"other_modes": {"dec_99999": true}})
+    ))
+    .contains("dec_99999"));
 }
 
 /// R-84 (2): `NotReported` (a mouse event with tracking off) gives `""`; `Unsupported{what}` (SGR pixels with no pixel
@@ -499,7 +568,7 @@ fn oracle_encode_gives_empty_for_not_reported_and_refuses_unsupported() {
     let modes = ModeFlags {
         mouse_tracking: MouseTracking::Normal,
         mouse_encoding: MouseEncoding::SgrPixels,
-        ..ModeFlags::default()
+        ..fresh()
     };
     let MouseArg { mouse } = serde_json::from_value(press(Some((100, 200)))).unwrap();
     let expected = encode_mouse_with_modes(&modes, &SIZE, &mouse).unwrap();
@@ -519,7 +588,7 @@ fn oracle_encode_focus_and_paste_follow_their_modes() {
     let on = ModeFlags {
         focus_reporting: true,
         bracketed_paste: true,
-        ..ModeFlags::default()
+        ..fresh()
     };
     let focus = json!({"focused": false});
     assert_eq!(
