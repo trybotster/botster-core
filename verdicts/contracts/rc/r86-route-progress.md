@@ -121,3 +121,14 @@ The head `21f9406f` merges main `3c68880b011fdb60f7bca8124eef350e2d4d4708` into 
 **The gate is not green.** `~/botster-sessions/gates/botster-contracts-rc-r86-route-progress-21f9406f-pool-20261011-164521-79451.log` ends with `exit 141 after 25 s on msa1`, during the nextest build. The log has no failed step. Exit 141 is SIGPIPE. This run is not evidence. The final CLEAN needs one green gate on `21f9406f`.
 
 Correction (cause of exit 141): RC stopped that gate on purpose after 25 s (`jobq stop jobq-botster-contracts-21f9406f-20261011164521-4e28`, then the client), because the lead put the #288 `st_6` reproduction first in the pool order. The log is not a gate result, and it is not a red gate. The ONE gate on `21f9406f` runs after that job.
+
+## Delta 21f9406f → 63f4f5c8689d49bd44ade56d62fcc0c59d80f1bb: no finding (final CLEAN waits for a green gate)
+
+The gate on `21f9406f` was RED at mutants only: `MISSED driver.rs:679:53: replace > with < in CoreDriver::next_event` (the term `report.events_posted > 0`). All other nine steps PASS. Log: `~/botster-sessions/gates/botster-contracts-rc-r86-route-progress-21f9406f-pool-20261011-164851-10039.log`.
+
+`63f4f5c8` is one commit on `21f9406f`. It changes only `tests/driver_steps.rs` (+11 -3), and makes no `driver.rs` change.
+- The R-89 test gets a fifth source, `core_posted` (`harness.posted_every = 1`). In the test `Counting` Core, every pump after the third then reports `events_posted: 1` and `more: false`, and no poll returns the wanted event. So in `next_event` only the `events_posted > 0` term gives `pending(deadline)`. The mutant makes the wait fall to `idle_wait`.
+- RC reports that the mutant fails the test with "no matching event: the Core is idle". The gate's mutants step on `63f4f5c8` must show this mutant caught.
+- The doc comment names five sources. The other four cases are unchanged.
+
+The final CLEAN needs one green gate on `63f4f5c8`, with 679:53 caught.
