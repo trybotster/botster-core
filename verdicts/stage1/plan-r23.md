@@ -2505,3 +2505,39 @@ The active code pin remains contracts-v0.1.36. The prior plan findings remain cl
 I ran no execution job.
 
 VERDICT: CLEAN (0 open) at eb417dc21a2d3ef5413da850d5abc076275dcf2f
+
+## Round 71 — revisions 23bf through 23bj, 2026-10-11
+
+Head: `f561dd4e7132c801395f190b90e5dd0ebe020ec5`.
+Prior accepted head: `eb417dc21a2d3ef5413da850d5abc076275dcf2f` (23be).
+Pin: `stage1-plan.f561dd4e.md`, mode 0444.
+SHA256: `bd43104c8b237618e3249f570899fb19c5b6d3e8c71d684fbd114d62f7691007`.
+The pin bytes equal the committed plan bytes.
+
+Sol read every added term in all five sequential plan deltas. Only the section-0 contracts row and five appended history rows change. Sol read the complete R-71 and R-72 drafts and PC's complete e1_1/a2_3 design note. Sol read the relevant current Core wrapper, control, and failed-start paths. Sol verified the annotated .38 tag and its target.
+
+### Route controls and start hold
+
+The route-control design uses the existing edge tap. The handoff hold suppresses write interest and restores it with a wake on release. Repeated hold before release is Bad. The cumulative write count uses bytes read plus unread bytes at the client socket. The plan requires an OS-specific proof on Linux and macOS. These are proposed implementations and proof requirements, not accepted measurements.
+
+The holders control counts descriptors in the host process and worker group. The host byte count covers edge calls. The plan requires the sans-IO argument and its limit in the PR body. This scope does not make a descriptor count an independent proof of every byte access. The implementation review must check that limit and the named handoff proof.
+
+R-71 replaces the open hold_start question with form (a) on both tiers. The hold occurs at control-link accept after spawn. The session stays Starting. The plan preserves the startup-clock condition, the contracts text correction, and 016c's transcript check. The plan rejects a product deferral added only for a test. The ad_1 and ad_7 paths preserve pending status when a faithful real form is unavailable. No future control implementation or probe change is accepted here.
+
+### Minimum proofs and failure classification
+
+The e1_1 design exposes the existing worker_file_name capability. The current wrapper selects the verified worker by role and uses the host-supplied file name. The future PR must use #264's own-trial rule and obtain the exact-head Linux trial PASS before pending removal.
+
+R-72 permits the proposed failed-start timing change only for workers this host spawned. Sol compared all three conditions and all required evidence items with the draft. At the startup deadline, the failure keeps the existing link-lost reason. The session stays Starting while Core waits. The EOF posts no event. Routes close after the state. Adopted and Running workers retain their separate rules. The proposal adds no timer. Both edge orders, repeated real runs, and the A5-4 comparison remain implementation acceptance conditions.
+
+The three additional real-pending entries have named owners and reasons. The plan reports their testkit passes. Sol does not independently claim those execution results. The later PR must supply its source, list, and exact-head evidence. The undiagnosed unknown-type route close remains a defect to diagnose. The ou_10 fence must still require input_refused.
+
+### Tag order and current limit
+
+Annotated tag `bc8d6fd139b073150007cc44225c6ce0234f0699` targets `5ff1b52be672bc107e80cd0d911110034745eda4`. Its complete annotation identifies #43, #44, #45, #46, and #48. It excludes #47 under the stall rule. Sol's accepted #48 evidence already covers this target.
+
+The plan keeps #47 fixed at f303ccdb while reviewers assess R68-E1. All three reviewers must close the controlled real-tier proof before its merge and .39 tag. The suggested SIGSTOP/SIGCONT seam is future evidence, not a proof accepted by this review. The plan requires one Core pin move from .36 to .39 with the R-68 Core adapters. The comparison base stays .36. The body must include all .37 and .38 changes. The .38 fallback at about 00:30 PT on 2026-10-12 retains a later pin for R-68. No changed head inherits an earlier gate.
+
+This CLEAN accepts the plan text. It accepts no future PR, tag, implementation, gate, or pending removal. The active Core code pin remains .36. Earlier findings remain closed. Sol ran no execution job.
+
+VERDICT: CLEAN (0 open) at f561dd4e7132c801395f190b90e5dd0ebe020ec5
